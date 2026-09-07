@@ -20,7 +20,9 @@ import {
   currentTaskForWrite,
   deriveRelationId,
   makeTaskProjection,
+  makeTaskEventStore,
   openSqliteEventStore,
+  readCertifiedGitFollower,
   reconcileSqliteEvents,
   readSettingsFacet,
   reviewDigest,
@@ -47,7 +49,7 @@ import { sqliteContentObjectPath } from "../../kernel/test/store/canonical-gener
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 import { actor, initRepo } from "./migration-import.fixtures.ts";
 
-test("stopped legacy Git plus accepted WAL suffix converts without a strict reader", () => {
+test("stopped legacy Git plus accepted WAL suffix converts with a certified cold-start follower", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-stopped-generation-")),
     repoId = "stopped-generation",
     snapshotPath = path.join(root, ".harness/store/imports/generation-0.snapshot.json"),
@@ -73,6 +75,7 @@ test("stopped legacy Git plus accepted WAL suffix converts without a strict read
     git(root, "add", "harness");
     git(root, "commit", "-qm", "legacy git prefix");
     git(root, "update-ref", "refs/ha/canonical", git(root, "rev-parse", "HEAD"));
+    const legacyHead = git(root, "rev-parse", "HEAD");
     const walRoot = path.join(root, ".harness/wal"),
       emptyCheckpoint = `${stableStringify({
         schema: "harness-wal-head/v1",
@@ -150,7 +153,10 @@ test("stopped legacy Git plus accepted WAL suffix converts without a strict read
     );
     const converted = convertLegacyGeneration({ rootDir: root, snapshotPath, databasePath });
     assert.equal(converted.rewrittenEvents, 2);
+    const publishedHead = git(root, "rev-parse", "HEAD");
+    assert.notEqual(publishedHead, legacyHead);
     assert.equal(convertLegacyGeneration({ rootDir: root, snapshotPath, databasePath }).migratedEvents, 0);
+    assert.equal(git(root, "rev-parse", "HEAD"), publishedHead);
     assert.equal(physicalSourceBytes(root), sourceBefore);
     const store = openSqliteEventStore({ repoId, databasePath });
     const events = store.events();
@@ -159,7 +165,40 @@ test("stopped legacy Git plus accepted WAL suffix converts without a strict read
     const destinationObject = store.contentObjectDigests().find((digest) => digest === second.blobs[0]!.sha256)!,
       destinationObjectPath = sqliteContentObjectPath(root, destinationObject),
       destinationBytes = store.readContentObject(destinationObject)!;
+    assert.equal(
+      readCertifiedGitFollower({ rootInput: root, repoId, store }).cut.revision,
+      converted.destinationRevision,
+    );
     store.close();
+    assert.equal(git(root, "show", "HEAD:harness/events/segments/manifest.json").includes('"generation":1'), true);
+    assert.equal(git(root, "ls-tree", "-r", "--name-only", "HEAD", "harness/events/op-legacy-relation.json"), "");
+    assert.equal(git(root, "ls-tree", "-r", "--name-only", "HEAD", "harness/objects/sha256"), "");
+    const cold = makeTaskEventStore({ repoId, rootDir: root });
+    try {
+      assert.deepEqual(cold.materialize(), {
+        status: "visible",
+        commitSha: { repoId, sha: publishedHead },
+        changed: [],
+        conflicts: [],
+      });
+      assert.deepEqual(
+        {
+          state: cold.materializationHealth().state,
+          revision: cold.materializationHealth().lastCheckpointRevision,
+          pending: cold.materializationHealth().pendingWalEvents,
+        },
+        { state: "ok", revision: converted.destinationRevision, pending: 0 },
+      );
+    } finally {
+      await cold.drain();
+    }
+    const branch = git(root, "symbolic-ref", "HEAD");
+    git(root, "update-ref", branch, legacyHead, publishedHead);
+    assert.throws(
+      () => preflightConvertedGenerationActivation({ repoId, rootDir: root, snapshotPath, databasePath }),
+      /Git follower does not certify the current SQLite cut/u,
+    );
+    git(root, "update-ref", branch, publishedHead, legacyHead);
     writeFileSync(destinationObjectPath, Buffer.alloc(destinationBytes.byteLength, 0x78));
     assert.throws(
       () => preflightConvertedGenerationActivation({ repoId, rootDir: root, snapshotPath, databasePath }),

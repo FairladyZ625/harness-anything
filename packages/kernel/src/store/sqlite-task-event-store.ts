@@ -58,6 +58,45 @@ export interface CertifiedGitFollower {
   readonly retirements: readonly string[];
 }
 
+export function publishConvertedGeneration(input: {
+  readonly rootInput: HarnessLayoutInput;
+  readonly repoId: string;
+  readonly store: SqliteEventStore;
+  readonly authoredBranch?: string;
+}): { readonly commitSha: string; readonly revision: number; readonly changed: boolean } {
+  const ledger = resolveLedgerGitLayout(input.rootInput),
+    branch = input.authoredBranch ?? localGitObjectRefStore.currentBranch(ledger.rootDir);
+  if (!branch) throw new TaskEventStoreError("publication_indeterminate", "authored branch is detached");
+  const authoredRef = `refs/heads/${branch}`,
+    parent = localGitObjectRefStore.resolveCommit(ledger.rootDir, authoredRef),
+    revision = input.store.revision();
+  if (revision === 0) return { commitSha: parent, revision, changed: false };
+  const event = input.store.eventAtRevision(revision),
+    cut = canonicalLedgerCut(input.repoId, event ? eventHead(event) : null),
+    files = followerFiles(ledger, parent, readEventsThrough(input.store, revision), input.store.readContentObject, cut),
+    manifestTarget = ledgerGitPath(ledger, "events/segments/manifest.json"),
+    alreadyCertified =
+      localGitObjectRefStore.readPath(ledger.rootDir, parent, manifestTarget) !== null &&
+      certifiedFollowerRevision(ledger, parent, input.store) === revision;
+  if (alreadyCertified) {
+    const baseline = captureGitBaseline(ledger.rootDir, parent, files);
+    if (!worktreeMatchesBaseline(ledger.rootDir, baseline, files) || !settleWorktree(ledger.rootDir, files, baseline))
+      throw new TaskEventStoreError("publication_indeterminate", "authored worktree has concurrent edits");
+    verifyWorktreeFiles(ledger.rootDir, files);
+    return { commitSha: parent, revision, changed: false };
+  }
+  const tempRef = `refs/ha-sqlite-outbox/${sha256Text(`conversion:${revision}:${cut.headDigest}`)}`,
+    commit = prepareCommit(ledger.rootDir, tempRef, parent, files, `conversion-${revision}`, new Date().toISOString()),
+    baseline = captureGitBaseline(ledger.rootDir, parent, files);
+  finalizeRefs(ledger.rootDir, authoredRef, commit, parent, tempRef);
+  verifyGitFiles(ledger.rootDir, commit, files);
+  verifyAuthoredRef(ledger.rootDir, authoredRef, commit);
+  if (!worktreeMatchesBaseline(ledger.rootDir, baseline, files) || !settleWorktree(ledger.rootDir, files, baseline))
+    throw new TaskEventStoreError("publication_indeterminate", "authored worktree has concurrent edits");
+  verifyWorktreeFiles(ledger.rootDir, files);
+  return { commitSha: commit, revision, changed: true };
+}
+
 export function readCertifiedGitFollower(input: {
   readonly rootInput: HarnessLayoutInput;
   readonly repoId: string;
