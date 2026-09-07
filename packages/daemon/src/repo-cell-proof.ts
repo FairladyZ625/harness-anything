@@ -204,7 +204,17 @@ export async function proofFor(
               expectation:
                 "Use a reviewer with a different principal, or run ha settings update --review-independence execution",
             }
-          : undefined,
+          : dispatchlessExecution
+            ? {
+                kind: "validation",
+                entity: "task review",
+                field: "actor",
+                actual: "dispatch-less execution and reviewer",
+                expectation:
+                  "Use a different person, or run the review with HARNESS_ACTOR=agent:<id>; " +
+                  "declare-executor requires an existing dispatch record",
+              }
+            : undefined,
       );
     }
     return {
