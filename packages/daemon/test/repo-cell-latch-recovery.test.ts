@@ -6,11 +6,8 @@ import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
 import test from "node:test";
-import {
-  legacyGenerationSnapshotPath,
-  makeTaskEventReader,
-  preflightConvertedGenerationActivation,
-} from "../../kernel/src/index.ts";
+import { legacyGenerationSnapshotPath, makeTaskEventReader } from "../../kernel/src/index.ts";
+import { preflightConvertedGenerationActivation } from "../../kernel/src/store/legacy-generation-conversion.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { causeClassOf, type RepoCell } from "../src/repo-cell.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";

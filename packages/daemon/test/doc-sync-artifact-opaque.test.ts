@@ -14,10 +14,10 @@ import {
   makeTaskEventReader,
   makeTaskEventStore,
   parseDocWriteIntent,
-  preflightConvertedGenerationActivation,
   sha256Bytes,
   sqliteLedgerPath,
 } from "../../kernel/src/index.ts";
+import { preflightConvertedGenerationActivation } from "../../kernel/src/store/legacy-generation-conversion.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";

@@ -21,7 +21,6 @@ import {
   deriveRelationId,
   makeTaskProjection,
   openSqliteEventStore,
-  preflightCanonicalGeneration,
   reconcileSqliteEvents,
   readSettingsFacet,
   reviewDigest,
@@ -35,6 +34,7 @@ import {
   type CanonicalEventStore,
   type TaskEventV1,
 } from "../../kernel/src/index.ts";
+import { preflightCanonicalGeneration } from "../../kernel/src/store/legacy-generation-conversion.ts";
 import {
   assertNoPendingHistoricalRewrites,
   planLegacyGenerationConversion,

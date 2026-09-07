@@ -10,9 +10,9 @@ import {
   convertLegacyGeneration,
   legacyGenerationSnapshotPath,
   makeTaskEventReader,
-  preflightConvertedGenerationActivation,
   sqliteLedgerPath,
 } from "../../kernel/src/index.ts";
+import { preflightConvertedGenerationActivation } from "../../kernel/src/store/legacy-generation-conversion.ts";
 import { seedSettingsEvent } from "../../daemon/test/repo-settings.fixture.ts";
 import { realizedTaskPlan as realizedPlan } from "../../../tools/fixtures/task-plan.mjs";
 
