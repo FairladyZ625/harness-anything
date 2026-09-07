@@ -2,7 +2,7 @@ import {
   /* @gate-identity check-sync-subprocess/sync-subprocess-014 */
   execFileSync,
 } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   closeSync,
   existsSync,
@@ -24,6 +24,7 @@ import { open as openAsync } from "node:fs/promises";
 import path from "node:path";
 import { isMainThread, parentPort, Worker, workerData } from "node:worker_threads";
 import { consumeKnownError } from "../error-consumption.ts";
+import { localRuntimeStateFileSystem } from "../local/local-layout-file-system.ts";
 import type { VcsCommitAuthor, VersionControlSystem } from "../ports/version-control-system.ts";
 import { VcsCommandError } from "../ports/version-control-system.ts";
 import { makeLocalVersionControlCommands } from "./local-version-control-commands.ts";
@@ -204,17 +205,17 @@ function gitInvocation(
 function quoteWindowsCommandArgument(value: string): string {
   return /^[^\s"&|<>^()]+$/u.test(value) ? value : `"${value.replaceAll('"', '\\"')}"`;
 }
-function localGitBytes(repoRoot: string, args: readonly string[], input?: Uint8Array): Buffer {
+function localGitBytes(repoRoot: string, args: readonly string[], input?: Uint8Array | number): Buffer {
   localGitProcesses += 1;
   const invocation = gitInvocation(repoRoot, args);
   try {
     return (
       /* @gate-identity check-sync-subprocess/sync-subprocess-016 */
       execFileSync(invocation.command, invocation.args, {
-        input,
+        ...(typeof input === "number" ? {} : { input }),
         encoding: "buffer",
         maxBuffer: gitMaxBuffer,
-        stdio: [input ? "pipe" : "ignore", "pipe", "pipe"],
+        stdio: [typeof input === "number" ? input : input ? "pipe" : "ignore", "pipe", "pipe"],
         windowsHide: true,
         ...(process.platform === "win32" ? { windowsVerbatimArguments: true } : {}),
       })
@@ -316,11 +317,6 @@ export const localGitObjectRefStore = Object.freeze({
     flush();
     return bytesByTarget;
   },
-  writeBlob: (repoRoot: string, body: string) => {
-    const oid = localGitBytes(repoRoot, ["hash-object", "-w", "--stdin"], Buffer.from(body)).toString("utf8").trim();
-    if (!/^[0-9a-f]{40}$/u.test(oid)) throw new Error("Git hash-object returned no blob object id");
-    return oid;
-  },
   listTree: (
     repoRoot: string,
     commit: string,
@@ -350,12 +346,25 @@ export const localGitObjectRefStore = Object.freeze({
           : [];
       });
   },
-  importCommit: (repoRoot: string, input: string) =>
-    localGitBytes(
-      repoRoot,
-      ["-c", "core.fsync=committed,reference", "-c", "core.fsyncMethod=fsync", "fast-import", "--quiet", "--force"],
-      Buffer.from(input),
-    ),
+  importCommit: (repoRoot: string, input: Iterable<string | Uint8Array>) => {
+    // The fast-import stream is handed to git as a regular-file descriptor: a socketpair stdin
+    // wedges intermittently on macOS (task_fc929174), and the whole publication is one spawn.
+    const temporaryRoot = path.join(repoRoot, ".harness"),
+      temporaryPath = path.join(temporaryRoot, `.ha-fast-import-${process.pid}-${randomUUID()}`);
+    localRuntimeStateFileSystem.mkdirp(temporaryRoot);
+    try {
+      localRuntimeStateFileSystem.writeExclusiveStream(temporaryPath, input);
+      return localRuntimeStateFileSystem.withReadDescriptor(temporaryPath, (inputFd) =>
+        localGitBytes(
+          repoRoot,
+          ["-c", "core.fsync=committed,reference", "-c", "core.fsyncMethod=fsync", "fast-import", "--quiet", "--force"],
+          inputFd,
+        ),
+      );
+    } finally {
+      localRuntimeStateFileSystem.remove(temporaryPath);
+    }
+  },
   listRefs: (repoRoot: string, refs: readonly string[]) =>
     runGit(repoRoot, "for-each-ref", "--format=%(refname) %(objectname)", ...refs),
   updateRef: (repoRoot: string, ref: string, sha: string, previous?: string) => {

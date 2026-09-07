@@ -628,6 +628,36 @@
         "api": "DatabaseSync",
         "ref": "dec_B1F5FF7648436C985F38F14226",
         "reason": "Opens the generation-scoped SQLite ledger store beneath the coordinated repo cell."
+      },
+      {
+        "value": "bypass-write-129",
+        "api": "openSync",
+        "ref": "dec_FC8D4B2DE22E97774073A0BBF9",
+        "reason": "Git follower fast-import stream is read back through a regular-file descriptor (no socketpair stdin)."
+      },
+      {
+        "value": "bypass-write-130",
+        "api": "closeSync",
+        "ref": "dec_FC8D4B2DE22E97774073A0BBF9",
+        "reason": "Git follower fast-import read descriptor is closed after the single git spawn."
+      },
+      {
+        "value": "bypass-write-131",
+        "api": "openSync",
+        "ref": "dec_FC8D4B2DE22E97774073A0BBF9",
+        "reason": "Git follower fast-import stream is created exclusively under the ledger .harness/ directory."
+      },
+      {
+        "value": "bypass-write-132",
+        "api": "writeSync",
+        "ref": "dec_FC8D4B2DE22E97774073A0BBF9",
+        "reason": "Git follower fast-import stream is written to the temporary file chunk by chunk."
+      },
+      {
+        "value": "bypass-write-133",
+        "api": "closeSync",
+        "ref": "dec_FC8D4B2DE22E97774073A0BBF9",
+        "reason": "Git follower fast-import stream file is closed before git reads it."
       }
     ],
     "exemptHumanOrBootstrap": [],

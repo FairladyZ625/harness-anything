@@ -2,11 +2,11 @@
 import assert from "node:assert/strict";
 import { constants as bufferConstants } from "node:buffer";
 import { createHash } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { localGitObjectRefStore } from "../../src/store/local-version-control-system.ts";
+import { localGitObjectRefStore, localGitProcessCount } from "../../src/store/local-version-control-system.ts";
 import { prepareCommit } from "../../src/store/task-event-store-git-refs.ts";
 import { git, initRepo } from "./task-event-store.fixtures.ts";
 
@@ -30,14 +30,17 @@ test(
       const aggregateBytes = files.reduce((total, file) => total + Buffer.byteLength(file.body), 0);
       assert.ok(aggregateBytes > 600 * 1024 * 1024);
       assert.ok(aggregateBytes > bufferConstants.MAX_STRING_LENGTH);
-      const commit = prepareCommit(
-        rootDir,
-        "refs/ha/tmp/large-outbox",
-        parent,
-        files,
-        "large-outbox",
-        "2026-09-06T00:00:00.000Z",
-      );
+      const beforePublicationProcesses = localGitProcessCount(),
+        commit = prepareCommit(
+          rootDir,
+          "refs/ha/tmp/large-outbox",
+          parent,
+          files,
+          "large-outbox",
+          "2026-09-06T00:00:00.000Z",
+        );
+      assert.equal(localGitProcessCount() - beforePublicationProcesses, 1);
+      assert.deepEqual(readdirSync(path.join(rootDir, ".harness")), []);
       assert.match(commit, /^[0-9a-f]{40}$/u);
       for (const file of files) {
         const readback = localGitObjectRefStore.readPath(rootDir, commit, file.target);
@@ -54,3 +57,23 @@ test(
     }
   },
 );
+
+test("Git outbox removes its fast-import file when publication fails", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "harness-failed-outbox-"));
+  try {
+    initRepo(rootDir);
+    assert.throws(() =>
+      prepareCommit(
+        rootDir,
+        "refs/ha/tmp/failed-outbox",
+        "missing-parent",
+        [{ mode: "100644", target: "harness/failed.txt", body: "not published\n" }],
+        "failed-outbox",
+        "2026-09-06T00:00:00.000Z",
+      ),
+    );
+    assert.deepEqual(readdirSync(path.join(rootDir, ".harness")), []);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
