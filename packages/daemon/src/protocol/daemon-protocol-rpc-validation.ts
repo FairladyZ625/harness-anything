@@ -319,7 +319,9 @@ export function validateGuiActionPayload(method: DaemonGuiActionMethod, value: u
           Number(range.start) < 1 ||
           Number(range.end) < Number(range.start))) ||
       (value.legacyId !== undefined && !/^E[1-9][0-9]*$/u.test(String(value.legacyId))) ||
-      (value.state !== undefined && !statusWord(decisionStateWords, value.state))
+      (value.state !== undefined && !statusWord(decisionStateWords, value.state)) ||
+      (value.limit !== undefined && (!integer(value.limit) || Number(value.limit) < 1 || Number(value.limit) > 500)) ||
+      (value.cursor !== undefined && !nonEmpty(value.cursor))
     )
       errors.push("decision list filters are invalid");
   }

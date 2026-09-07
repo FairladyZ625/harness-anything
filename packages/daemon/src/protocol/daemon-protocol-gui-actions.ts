@@ -102,6 +102,8 @@ export const daemonGuiActionMethods = Object.freeze([
       state: "string?",
       module: "string?",
       productLine: "string?",
+      limit: "number?",
+      cursor: "string?",
     }),
     "listDecisions",
     "/api/decision-control",

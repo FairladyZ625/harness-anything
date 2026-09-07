@@ -87,6 +87,8 @@ export interface DecisionListFilters {
   readonly state?: DecisionState;
   readonly module?: string;
   readonly productLine?: string;
+  readonly limit?: number;
+  readonly cursor?: string;
 }
 
 export interface DecisionAnchorRow {

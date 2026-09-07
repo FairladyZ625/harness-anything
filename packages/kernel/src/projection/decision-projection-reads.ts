@@ -209,6 +209,18 @@ function decisionCollectionRow(row: DecisionCollectionRecord): DecisionProjectio
 }
 
 export function listDecisionRows(db: DatabaseSync, filters: DecisionListFilters): readonly DecisionProjectionRow[] {
+  return listDecisionRowsPage(db, { ...filters, limit: undefined, cursor: undefined }).rows;
+}
+
+/**
+ * Paged variant of the Decision list: the unparameterized filters keep returning every match;
+ * an explicit limit/cursor pages over the same compareDecisionIds order. The cursor carries the
+ * last returned decisionId, so a row deleted between pages cannot drop or duplicate its neighbours.
+ */
+export function listDecisionRowsPage(
+  db: DatabaseSync,
+  filters: DecisionListFilters,
+): { readonly rows: readonly DecisionProjectionRow[]; readonly page?: ProjectionPage } {
   const where: string[] = [],
     values: string[] = [];
   if (filters.search?.trim()) {
@@ -227,7 +239,7 @@ export function listDecisionRows(db: DatabaseSync, filters: DecisionListFilters)
     where.push("EXISTS (SELECT 1 FROM json_each(decision.applies_json, '$.productLines') WHERE value=?)");
     values.push(filters.productLine);
   }
-  return queryRows<{ readonly decision_id: string }>(
+  let ids = queryRows<{ readonly decision_id: string }>(
     db,
     `SELECT decision_id FROM decision${where.length ? ` WHERE ${where.join(" AND ")}` : ""}`,
     ...values,
@@ -243,11 +255,28 @@ export function listDecisionRows(db: DatabaseSync, filters: DecisionListFilters)
             projectedLegacyNumber(legacy) <= filters.legacyRange.end))
       );
     })
-    .sort(compareDecisionIds)
-    .map((decisionId) => ({
-      ...readDecisionRow(db, decisionId, false)!,
-      body: null,
-    }));
+    .sort(compareDecisionIds);
+  const paged = filters.limit !== undefined || filters.cursor !== undefined;
+  if (filters.cursor !== undefined) {
+    const [cursorId] = decodePageCursor(filters.cursor, 1);
+    ids = ids.filter((decisionId) => compareDecisionIds(decisionId, cursorId!) > 0);
+  }
+  const pageLimit = filters.limit === undefined ? (paged ? 100 : null) : checkedPageLimit(filters.limit);
+  const rowOf = (decisionId: string) => ({
+    ...readDecisionRow(db, decisionId, false)!,
+    body: null,
+  });
+  if (pageLimit === null) return { rows: ids.map(rowOf) };
+  const rows = ids.slice(0, pageLimit).map(rowOf),
+    last = ids[pageLimit - 1];
+  return {
+    rows,
+    page: {
+      limit: pageLimit,
+      cursor: filters.cursor ?? null,
+      nextCursor: ids.length > pageLimit && last ? encodePageCursor([last]) : null,
+    },
+  };
 }
 
 export function listDecisionAgendaRowsPage(

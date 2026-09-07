@@ -5,6 +5,8 @@ import test from "node:test";
 import {
   createDecisionProjectionTables,
   listDecisionAgendaRowsPage,
+  listDecisionRows,
+  listDecisionRowsPage,
   readDecisionGraphRows,
   readDecisionRows,
 } from "../../src/projection/decision-event-projection.ts";
@@ -193,6 +195,71 @@ for (const [label, read] of [
     }
   });
 }
+
+test("decision list paging walks the full corpus exactly once and keeps the unparameterized read intact", () => {
+  const db = new DatabaseSync(":memory:");
+  try {
+    seed(db, 7, 1);
+    const unpaged = listDecisionRowsPage(db, {});
+    assert.equal(unpaged.rows.length, 7);
+    assert.equal(unpaged.page, undefined);
+    assert.deepEqual(
+      listDecisionRows(db, {}).map(({ decisionId }) => decisionId),
+      unpaged.rows.map(({ decisionId }) => decisionId),
+    );
+
+    const first = listDecisionRowsPage(db, { limit: 3 });
+    assert.deepEqual(
+      first.rows.map(({ decisionId }) => decisionId),
+      ["dec_SHAPE_00000", "dec_SHAPE_00001", "dec_SHAPE_00002"],
+    );
+    assert.equal(first.page?.limit, 3);
+    assert.equal(first.page?.cursor, null);
+    assert.ok(first.page?.nextCursor);
+
+    // Walk with the cursor: limit=2 across 7 rows visits every id exactly once, no overlap.
+    const visited: string[] = [];
+    let cursor: string | undefined;
+    do {
+      const page = listDecisionRowsPage(db, { limit: 2, ...(cursor ? { cursor } : {}) });
+      visited.push(...page.rows.map(({ decisionId }) => decisionId));
+      cursor = page.page?.nextCursor ?? undefined;
+    } while (cursor !== undefined);
+    assert.deepEqual(
+      visited,
+      unpaged.rows.map(({ decisionId }) => decisionId),
+    );
+
+    // A cursor naming an id that no longer exists still resumes strictly after it.
+    const resumed = listDecisionRowsPage(db, {
+      limit: 2,
+      cursor: Buffer.from(JSON.stringify(["dec_SHAPE_00002"]), "utf8").toString("base64url"),
+    });
+    assert.deepEqual(
+      resumed.rows.map(({ decisionId }) => decisionId),
+      ["dec_SHAPE_00003", "dec_SHAPE_00004"],
+    );
+
+    // The last page has no further cursor.
+    const last = listDecisionRowsPage(db, { limit: 10 });
+    assert.equal(last.rows.length, 7);
+    assert.equal(last.page?.nextCursor, null);
+
+    // Filters compose with paging: state narrows before the slice.
+    const narrowed = listDecisionRowsPage(db, { state: "active", limit: 2 });
+    assert.deepEqual(
+      narrowed.rows.map(({ decisionId }) => decisionId),
+      ["dec_SHAPE_00000", "dec_SHAPE_00001"],
+    );
+    assert.ok(narrowed.page?.nextCursor);
+
+    assert.throws(() => listDecisionRowsPage(db, { limit: 0 }), /between 1 and 500/u);
+    assert.throws(() => listDecisionRowsPage(db, { limit: 501 }), /between 1 and 500/u);
+    assert.throws(() => listDecisionRowsPage(db, { cursor: "not-a-cursor" }), /cursor is invalid/u);
+  } finally {
+    db.close();
+  }
+});
 
 test("readDecisionGraphRows still resolves evidenced coverage through the batched reads", () => {
   const { db } = countingDatabase();

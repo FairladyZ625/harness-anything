@@ -909,10 +909,16 @@ function factFilters(action: Readonly<Record<string, unknown>>): FactSearchFilte
 }
 
 function decisionFilters(action: Readonly<Record<string, unknown>>) {
-  const allowed = ["kind", "search", "legacyId", "legacyRange", "state", "module", "productLine"],
+  const allowed = ["kind", "search", "legacyId", "legacyRange", "state", "module", "productLine", "limit", "cursor"],
     range = action.legacyRange === undefined ? null : object(action.legacyRange, "legacyRange");
   if (
     Object.keys(action).some((field) => !allowed.includes(field)) ||
+    (action.limit !== undefined &&
+      (typeof action.limit !== "number" ||
+        !Number.isSafeInteger(action.limit) ||
+        action.limit < 1 ||
+        action.limit > 500)) ||
+    (action.cursor !== undefined && (typeof action.cursor !== "string" || !action.cursor.trim())) ||
     ["search", "module", "productLine"].some(
       (field) => action[field] !== undefined && (typeof action[field] !== "string" || !String(action[field]).trim()),
     ) ||
@@ -937,6 +943,8 @@ function decisionFilters(action: Readonly<Record<string, unknown>>) {
     ...(typeof action.state === "string" ? { state: action.state as never } : {}),
     ...(typeof action.module === "string" ? { module: action.module } : {}),
     ...(typeof action.productLine === "string" ? { productLine: action.productLine } : {}),
+    ...(typeof action.limit === "number" ? { limit: action.limit } : {}),
+    ...(typeof action.cursor === "string" ? { cursor: action.cursor } : {}),
   };
 }
 

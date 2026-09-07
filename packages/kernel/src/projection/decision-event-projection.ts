@@ -11,14 +11,12 @@ export type {
 } from "./decision-projection-model.ts";
 export { createDecisionProjectionTables } from "./decision-projection-schema.ts";
 export { assertDecisionAdmission } from "./decision-projection-admission.ts";
-export {
-  reduceDecisionEvent,
-  refreshDecisionDocumentSearch,
-} from "./decision-projection-reducer.ts";
+export { reduceDecisionEvent, refreshDecisionDocumentSearch } from "./decision-projection-reducer.ts";
 export {
   decisionLegacyId,
   listDecisionAgendaRowsPage,
   listDecisionRows,
+  listDecisionRowsPage,
   readDecisionGraphRows,
   readDecisionRow,
   readDecisionRows,

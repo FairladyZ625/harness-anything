@@ -105,6 +105,18 @@ export const decisionRelationProtocolCommands = Object.freeze([
       cliInput("--product-line", "single", false, {
         code: "invalid_field",
       }),
+      cliInput(
+        "--limit",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { regex: "^(?:[1-9]|[1-9][0-9]|[1-4][0-9]{2}|500)$" },
+      ),
+      cliInput("--cursor", "single", false, {
+        code: "invalid_field",
+      }),
     ],
   }),
   defineRepoReadCommand({
