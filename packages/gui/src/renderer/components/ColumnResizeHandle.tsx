@@ -1,4 +1,4 @@
-import type { KeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 
 const KEYBOARD_STEP = 16;
 
@@ -38,19 +38,39 @@ export function ColumnResizeHandle({
   const baseWidth = (element: HTMLElement) =>
     width ?? Math.round(element.parentElement?.getBoundingClientRect().width ?? min);
 
+  // 拖拽监听的唯一 owner:ref 持当前收尾函数,pointerup/pointercancel、开始新拖拽
+  // 前与组件卸载都走它——取消或中途卸载后不再有 stale onChange 继续写宽度。
+  const stopDragRef = useRef<(() => void) | null>(null);
+  useEffect(() => () => stopDragRef.current?.(), []);
+
   const startDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
     event.preventDefault();
+    stopDragRef.current?.();
     const origin = event.clientX;
     const base = baseWidth(event.currentTarget);
     const onMove = (move: PointerEvent) => onChange(clamp(base + move.clientX - origin));
-    const onUp = () => {
+    const stop = () => {
       window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointerup", stop);
+      window.removeEventListener("pointercancel", stop);
+      stopDragRef.current = null;
     };
+    stopDragRef.current = stop;
     window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointerup", stop);
+    window.addEventListener("pointercancel", stop);
   };
+
+  // 未定宽列也要向辅助技术报现值:挂载(及宽度回落 undefined 时)量一次父元素
+  // 实际宽度作 aria-valuenow;量不出正宽度(无布局引擎的环境)保持省略。
+  const handleRef = useRef<HTMLDivElement>(null);
+  const [measuredWidth, setMeasuredWidth] = useState<number>();
+  useEffect(() => {
+    if (width !== undefined) return;
+    const px = Math.round(handleRef.current?.parentElement?.getBoundingClientRect().width ?? 0);
+    if (px > 0) setMeasuredWidth(px);
+  }, [width]);
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
@@ -61,10 +81,11 @@ export function ColumnResizeHandle({
 
   return (
     <div
+      ref={handleRef}
       role="separator"
       aria-orientation="vertical"
       aria-label={label}
-      aria-valuenow={width}
+      aria-valuenow={width ?? measuredWidth}
       aria-valuemin={min}
       aria-valuemax={max}
       tabIndex={0}

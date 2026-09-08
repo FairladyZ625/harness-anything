@@ -1,6 +1,6 @@
 // harness-test-tier: contract
 // @vitest-environment happy-dom
-import { beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -270,5 +270,91 @@ describe("list view column resize (W11)", () => {
       reloaded.root.unmount();
     });
     reloaded.container.remove();
+  });
+
+  it("stops tracking on pointercancel: later moves neither resize nor persist, and a fresh drag recovers", async () => {
+    localStorage.setItem(WIDTH_KEY, JSON.stringify({ list: { title: 420 } }));
+    const view = await mountList();
+    const handle = view.container.querySelector<HTMLElement>('[data-testid="list-column-resize-title"]')!;
+    const cell = view.container.querySelector<HTMLElement>('[data-testid="list-column-title"]')!;
+
+    act(() => {
+      handle.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: 100, pointerId: 1 }));
+      window.dispatchEvent(new PointerEvent("pointercancel", { pointerId: 1 }));
+    });
+    act(() => {
+      window.dispatchEvent(new PointerEvent("pointermove", { clientX: 220, pointerId: 1 }));
+    });
+    // 取消后的移动不得落到列宽或 localStorage(stale 监听会写出 540)。
+    expect(cell.style.width).toBe("420px");
+    expect(storedListWidths().title).toBe(420);
+
+    act(() => {
+      handle.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: 100, pointerId: 2 }));
+      window.dispatchEvent(new PointerEvent("pointermove", { clientX: 140, pointerId: 2 }));
+      window.dispatchEvent(new PointerEvent("pointerup", { clientX: 140, pointerId: 2 }));
+    });
+    expect(cell.style.width).toBe("460px"); // 新拖拽不受取消残留影响。
+    expect(storedListWidths().title).toBe(460);
+
+    act(() => {
+      view.root.unmount();
+    });
+    view.container.remove();
+  });
+
+  it("releases window listeners when unmounted mid-drag, so stray moves never write storage", async () => {
+    localStorage.setItem(WIDTH_KEY, JSON.stringify({ list: { title: 420 } }));
+    const view = await mountList();
+    const handle = view.container.querySelector<HTMLElement>('[data-testid="list-column-resize-title"]')!;
+
+    act(() => {
+      handle.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: 100, pointerId: 1 }));
+    });
+    act(() => {
+      view.root.unmount();
+    });
+    view.container.remove();
+    act(() => {
+      window.dispatchEvent(new PointerEvent("pointermove", { clientX: 220, pointerId: 1 }));
+    });
+    // 中途卸载后 stale 监听会同步写 localStorage(不依赖 React 挂载状态)。
+    expect(storedListWidths().title).toBe(420);
+  });
+
+  it("announces the measured default width when no width is persisted, and re-measures after reset", async () => {
+    // happy-dom 无布局引擎:以 stub 提供「父元素实测宽度」,真实浏览器由布局给出。
+    const rectOf = (width: number) =>
+      ({ x: 0, y: 0, top: 0, left: 0, right: width, bottom: 20, width, height: 20 }) as DOMRect;
+    const measure = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(rectOf(300));
+    try {
+      const view = await mountList();
+      const handle = view.container.querySelector<HTMLElement>('[data-testid="list-column-resize-title"]')!;
+      const cell = view.container.querySelector<HTMLElement>('[data-testid="list-column-title"]')!;
+      // 默认(未定宽)手柄也必须报数字现值,而不是省略 aria-valuenow。
+      expect(handle.getAttribute("aria-valuenow")).toBe("300");
+      expect(cell.style.width).toBe(""); // 报数不等于写假宽度:th 仍走默认布局。
+
+      act(() => {
+        handle.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: 100, pointerId: 1 }));
+        window.dispatchEvent(new PointerEvent("pointermove", { clientX: 160, pointerId: 1 }));
+        window.dispatchEvent(new PointerEvent("pointerup", { clientX: 160, pointerId: 1 }));
+      });
+      expect(handle.getAttribute("aria-valuenow")).toBe("360"); // 定宽后报持久化值。
+
+      measure.mockReturnValue(rectOf(320)); // 布局变了:恢复默认须重新量,不吐旧缓存。
+      act(() => {
+        handle.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+      });
+      expect(handle.getAttribute("aria-valuenow")).toBe("320");
+      expect(cell.style.width).toBe("");
+
+      act(() => {
+        view.root.unmount();
+      });
+      view.container.remove();
+    } finally {
+      measure.mockRestore();
+    }
   });
 });
