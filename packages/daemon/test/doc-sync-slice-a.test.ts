@@ -90,7 +90,6 @@ test("status, dry-run, and submit share the repeatable-path scanner and automati
         ["context/a.md", "eligible"],
         ["context/b.md", "eligible"],
         ["events/segments/manifest.json", "blocked"],
-        ["harness.yaml", "clean"],
         ["tasks/task-one/progress.md", "blocked"],
       ],
     );
@@ -145,7 +144,7 @@ test("status, dry-run, and submit share the repeatable-path scanner and automati
   }
 });
 
-test("path, task, and repository scans do not inspect historical publication state", async () => {
+test("large projections do not expand dirty or missing-path candidate scans", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-bounded-scan-"));
   initRepo(rootDir);
   const repoId = workspaceId("bounded-scan"),
@@ -169,7 +168,9 @@ test("path, task, and repository scans do not inspect historical publication sta
       });
     projection.rebuild();
     let historyReads = 0,
-      publicationReads = 0;
+      publicationReads = 0,
+      replicaBasisReads = 0,
+      ownershipReads = 0;
     const measuredStore = {
       ...store,
       read: () => {
@@ -181,11 +182,34 @@ test("path, task, and repository scans do not inspect historical publication sta
         return store.publication(event);
       },
     };
+    const measuredProjection = {
+      ...projection,
+      readReplicaBasis: (taskIds: readonly string[] | null) => {
+        replicaBasisReads += 1;
+        const basis = projection.readReplicaBasis(taskIds);
+        return {
+          ...basis,
+          documents: [
+            ...basis.documents,
+            ...Array.from({ length: 20_000 }, (_, index) => ({
+              path: `context/history-${index}.md`,
+              blobSha256: "0".repeat(64),
+              size: 1,
+              mediaType: "text/markdown" as const,
+            })),
+          ],
+        };
+      },
+      taskIdForDocumentPath: (candidate: Parameters<typeof projection.taskIdForDocumentPath>[0]) => {
+        ownershipReads += 1;
+        return projection.taskIdForDocumentPath(candidate);
+      },
+    };
     const common = {
       rootDir,
       workspaceId: repoId,
       store: measuredStore,
-      projection,
+      projection: measuredProjection,
       actor,
       source: "local" as const,
       now: "2026-09-08T00:00:00.000Z",
@@ -205,8 +229,21 @@ test("path, task, and repository scans do not inspect historical publication sta
         scanDocCandidates(common).rows.some((row) => row.path === selectedPath),
         true,
       );
+      assert.deepEqual(
+        scanDocCandidates({
+          ...common,
+          selection: ["context/missing-a.md", "context/missing-b.md", "context/missing-c.md"],
+        }).rows.map((row) => [row.path, row.state]),
+        [
+          ["context/missing-a.md", "clean"],
+          ["context/missing-b.md", "clean"],
+          ["context/missing-c.md", "clean"],
+        ],
+      );
       assert.equal(historyReads, 0);
       assert.equal(publicationReads, 0);
+      assert.equal(replicaBasisReads, 0);
+      assert.ok(ownershipReads < 50, `candidate ownership reads must stay bounded, observed ${ownershipReads}`);
     } finally {
       projection.close();
       await store.drain();
@@ -521,7 +558,7 @@ function unresolvedDetail(...unresolvedTouches: ReturnType<typeof touch>[]) {
   return detail(intent, current, "unresolved_touch", null, unresolvedTouches);
 }
 
-test("doc retire follows status for a Git-tracked document that was never projected", async () => {
+test("full scans do not infer legacy retirement while explicit retire remains available", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-retire-tracked-"));
   initRepo(rootDir);
   const logical = "tmp/legacy-tracked.md",
@@ -543,11 +580,10 @@ test("doc retire follows status for a Git-tracked document that was never projec
       rows(status.evidence).map((row) => [row.path, row.state]),
       [
         ["events/segments/manifest.json", "blocked"],
-        ["harness.yaml", "clean"],
-        [logical, "deletion"],
+        [logical, "clean"],
       ],
     );
-    assert.deepEqual(status.detail?.deletions, [{ path: logical, baseBlobSha256: sha256Text(body), source: "intent" }]);
+    assert.deepEqual(status.detail?.deletions, []);
 
     const retired = await cell.run({ kind: "doc-retire", path: logical, reason }, binding);
     assert.equal(retired.outcome, "applied", JSON.stringify(retired));
@@ -579,10 +615,7 @@ test("doc retire follows status for a Git-tracked document that was never projec
           row.path,
           row.state,
         ]),
-        [
-          ["events/segments/manifest.json", "blocked"],
-          ["harness.yaml", "clean"],
-        ],
+        [["events/segments/manifest.json", "blocked"]],
       );
     } finally {
       await reopened.close();
