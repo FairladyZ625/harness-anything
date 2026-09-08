@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import { CaretLeft, CaretRight, Lock, PushPin, Star } from "@phosphor-icons/react";
 import type { TaskRow, RelationEdge } from "../model/types";
 import { isExternal } from "../model/types";
@@ -16,7 +16,8 @@ const DEFAULT_PAGE_SIZE: PageSize = 15;
 
 const dateLabel = (iso: string) => formatTime(iso, { style: "month-day-time" }) ?? "—";
 
-function AuditRow({
+/** 审计行 memo(W9):比较键同看板卡片——行对象引用 + 稳定回调。 */
+const AuditRow = memo(function AuditRow({
   task,
   onSelect,
   relations,
@@ -148,7 +149,7 @@ function AuditRow({
       </td>
     </tr>
   );
-}
+});
 
 export function ListView({
   tasks,

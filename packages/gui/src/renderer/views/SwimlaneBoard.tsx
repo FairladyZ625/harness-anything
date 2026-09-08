@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import { CaretRight, Lock, PushPin, Star } from "@phosphor-icons/react";
 import type { TaskRow, SnapshotStatus, RelationEdge } from "../model/types";
 import { BOARD_COLUMNS, isExternal } from "../model/types";
@@ -25,17 +25,65 @@ function groupKeyOf(task: TaskRow, groupBy: LaneGroupBy): string {
   return task.rootTaskId ?? task.taskId;
 }
 
-/** 把分组 key 翻译成展示标签(module/engine 直接是值;root 查 rootTitle)。 */
-function groupLabelOf(key: string, groupBy: LaneGroupBy, tasks: ReadonlyArray<TaskRow>): string {
-  if (groupBy === "root") {
-    const representative = tasks.find((t) => (t.rootTaskId ?? t.taskId) === key);
-    return representative?.rootTitle ?? representative?.title ?? key;
-  }
+/** 把分组 key 翻译成展示标签;root 用组内代表(rootTitle,缺失退回代表自身标题)。 */
+function laneLabelOf(key: string, groupBy: LaneGroupBy, representative: TaskRow): string {
+  if (groupBy === "root") return representative.rootTitle ?? representative.title ?? key;
   if (groupBy === "productLine" && key === UNASSIGNED_PLT_LANE) return "未投影 PLT";
   return key;
 }
 
-function LaneCard({
+/** 单遍分组模型(W9):一次遍历产出 lane→status→rows、列头计数与泳道标签,
+ * 替代「每次渲染 7×O(n) 列头 filter + lanes×7 单元格 filter + 每泳道一次
+ * O(n) 标签 find」。lane 行序与单元格内序保持 W8 语义:组内 lastKnownAt 倒序。 */
+interface SwimlaneModel {
+  readonly lanes: string[];
+  readonly labels: ReadonlyMap<string, string>;
+  readonly cells: ReadonlyMap<string, ReadonlyMap<SnapshotStatus, readonly TaskRow[]>>;
+  readonly laneSizes: ReadonlyMap<string, number>;
+  readonly totals: ReadonlyMap<SnapshotStatus, number>;
+}
+
+const EMPTY_CELL: readonly TaskRow[] = [];
+
+function cellOf(model: SwimlaneModel, lane: string, status: SnapshotStatus): readonly TaskRow[] {
+  return model.cells.get(lane)?.get(status) ?? EMPTY_CELL;
+}
+
+function buildSwimlaneModel(tasks: ReadonlyArray<TaskRow>, groupBy: LaneGroupBy): SwimlaneModel {
+  const groups = new Map<string, TaskRow[]>();
+  const labels = new Map<string, string>();
+  const totals = new Map<SnapshotStatus, number>(BOARD_COLUMNS.map((status) => [status, 0]));
+  for (const task of tasks) {
+    const key = groupKeyOf(task, groupBy);
+    let group = groups.get(key);
+    if (group === undefined) {
+      group = [];
+      groups.set(key, group);
+      // 代表 = 组内第一行(输入序),与旧实现的 tasks.find 首个命中同源。
+      labels.set(key, laneLabelOf(key, groupBy, task));
+    }
+    group.push(task);
+    totals.set(task.coordinationStatus, (totals.get(task.coordinationStatus) ?? 0) + 1);
+  }
+  const cells = new Map<string, ReadonlyMap<SnapshotStatus, readonly TaskRow[]>>();
+  const laneSizes = new Map<string, number>();
+  const lanes = [...groups.entries()]
+    .map(([lane, group]) => {
+      // 组内按 lastKnownAt 倒序(W8):组首即组内最新活动,泳道行序与单元格序都取它。
+      group.sort((a, b) => b.lastKnownAt.localeCompare(a.lastKnownAt));
+      const byStatus = new Map<SnapshotStatus, TaskRow[]>(BOARD_COLUMNS.map((status) => [status, []]));
+      for (const task of group) byStatus.get(task.coordinationStatus)!.push(task);
+      cells.set(lane, byStatus);
+      laneSizes.set(lane, group.length);
+      return [lane, group[0]?.lastKnownAt ?? ""] as const;
+    })
+    .sort(([, a], [, b]) => b.localeCompare(a))
+    .map(([lane]) => lane);
+  return { lanes, labels, cells, laneSizes, totals };
+}
+
+/** 泳道下钻卡 memo(W9):比较键同列模式 Card——行引用 + 稳定回调,不写自定义比较器。 */
+const LaneCard = memo(function LaneCard({
   task,
   onSelect,
   relations,
@@ -112,7 +160,7 @@ function LaneCard({
       </div>
     </div>
   );
-}
+});
 
 function LaneCell({
   status,
@@ -171,9 +219,9 @@ function DrilldownPanel({
   active,
   tasks,
   groupBy,
+  laneLabel,
   onSelect,
   relations,
-  allTasks,
   favorites,
   onToggleFavorite,
   onSetPin,
@@ -181,9 +229,9 @@ function DrilldownPanel({
   active: ActiveCell | null;
   tasks: readonly TaskRow[];
   groupBy: LaneGroupBy;
+  laneLabel: string;
   onSelect: (id: string) => void;
   relations: RelationEdge[];
-  allTasks: ReadonlyArray<TaskRow>;
   favorites: ReadonlySet<string>;
   onToggleFavorite: (id: string) => void;
   onSetPin?: (task: TaskRow, pinned: boolean) => void;
@@ -201,7 +249,6 @@ function DrilldownPanel({
   const meta = STATUS_META[active.status];
   // 下钻默认序(W8):lastKnownAt 倒序打底,pin → 收藏稳定置顶,与列模式同构。
   const sorted = sortByRecentThenPinAndFavoritesFirst(tasks, favorites);
-  const laneLabel = groupLabelOf(active.lane, groupBy, allTasks);
 
   return (
     <section className="flex min-h-0 flex-1 flex-col bg-bg px-4 py-3">
@@ -276,25 +323,8 @@ export function SwimlaneBoard({
     }
   }, [drillMatches, drillLane, drillStatus]);
 
-  const tasksByLane = useMemo(() => {
-    const grouped = new Map<string, TaskRow[]>();
-    for (const task of tasks) {
-      const key = groupKeyOf(task, groupBy);
-      const group = grouped.get(key);
-      if (group) group.push(task);
-      else grouped.set(key, [task]);
-    }
-    // 组内按 lastKnownAt 倒序(W8):组首即组内最新活动,泳道行序与单元格预览都取它。
-    for (const group of grouped.values()) group.sort((a, b) => b.lastKnownAt.localeCompare(a.lastKnownAt));
-    return grouped;
-  }, [groupBy, tasks]);
-  // 完整渲染,不分批(2026-08-25 泽宇裁决:性能顾虑用按需渲染解决,不转嫁给用户点击):
-  // 每条泳道行带 content-visibility:auto,离屏行的布局与绘制由渲染器跳过。
-  // 泳道行序(W8):组内最新 lastKnownAt 倒序,最近活动的泳道在上。
-  const lanes = useMemo(() => {
-    const latestByLane = [...tasksByLane].map(([lane, group]) => [lane, group[0]?.lastKnownAt ?? ""] as const);
-    return latestByLane.sort(([, a], [, b]) => b.localeCompare(a)).map(([lane]) => lane);
-  }, [tasksByLane]);
+  const model = useMemo(() => buildSwimlaneModel(tasks, groupBy), [groupBy, tasks]);
+  const lanes = model.lanes;
 
   useEffect(() => {
     if (activeCell && !lanes.includes(activeCell.lane)) setActiveCell(null);
@@ -302,10 +332,10 @@ export function SwimlaneBoard({
 
   const highlight = drillMatches && drillLane && drillStatus ? cellKey(drillLane, drillStatus) : null;
 
-  const activeTasks = useMemo(() => {
-    if (!activeCell) return [];
-    return (tasksByLane.get(activeCell.lane) ?? []).filter((task) => task.coordinationStatus === activeCell.status);
-  }, [activeCell, tasksByLane]);
+  const activeTasks = useMemo(
+    () => (activeCell ? cellOf(model, activeCell.lane, activeCell.status) : EMPTY_CELL),
+    [activeCell, model],
+  );
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -317,53 +347,50 @@ export function SwimlaneBoard({
             </div>
             {BOARD_COLUMNS.map((status) => {
               const meta = STATUS_META[status];
-              const total = tasks.filter((t) => t.coordinationStatus === status).length;
               return (
                 <div key={status} className="flex items-center gap-1.5 px-1.5">
                   <span style={{ color: meta.color }} className="text-base">
                     {meta.icon}
                   </span>
                   <span className="ui-body font-semibold">{meta.label}</span>
-                  <span className="font-mono ui-body text-text-faint">{total}</span>
+                  <span className="font-mono ui-body text-text-faint" data-testid={`swimlane-status-${status}-count`}>
+                    {model.totals.get(status) ?? 0}
+                  </span>
                 </div>
               );
             })}
           </div>
-          {lanes.map((lane) => {
-            const laneTasks = tasksByLane.get(lane) ?? [];
-            const laneLabel = groupLabelOf(lane, groupBy, tasks);
-            return (
-              <div
-                key={lane}
-                data-testid="swimlane-row"
-                className={`grid ${GRID_COLS} gap-2 border-b border-border py-2.5 cv-auto-4-5r`}
-              >
-                <div className="flex items-baseline gap-2 self-start px-1.5 pt-1.5">
-                  <span
-                    className="font-mono ui-prose font-semibold text-text"
-                    title={groupBy === "root" ? lane : undefined}
-                  >
-                    {laneLabel}
-                  </span>
-                  <span className="font-mono ui-body text-text-faint">{laneTasks.length}</span>
-                </div>
-                {BOARD_COLUMNS.map((status) => {
-                  const key = cellKey(lane, status);
-                  const selected = activeCell?.lane === lane && activeCell.status === status;
-                  return (
-                    <LaneCell
-                      key={status}
-                      status={status}
-                      cellTasks={laneTasks.filter((t) => t.coordinationStatus === status)}
-                      selected={selected}
-                      highlighted={highlight === key}
-                      onPick={() => setActiveCell({ lane, status })}
-                    />
-                  );
-                })}
+          {lanes.map((lane) => (
+            <div
+              key={lane}
+              data-testid="swimlane-row"
+              className={`grid ${GRID_COLS} gap-2 border-b border-border py-2.5 cv-auto-4-5r`}
+            >
+              <div className="flex items-baseline gap-2 self-start px-1.5 pt-1.5">
+                <span
+                  className="font-mono ui-prose font-semibold text-text"
+                  title={groupBy === "root" ? lane : undefined}
+                >
+                  {model.labels.get(lane) ?? lane}
+                </span>
+                <span className="font-mono ui-body text-text-faint">{model.laneSizes.get(lane) ?? 0}</span>
               </div>
-            );
-          })}
+              {BOARD_COLUMNS.map((status) => {
+                const key = cellKey(lane, status);
+                const selected = activeCell?.lane === lane && activeCell.status === status;
+                return (
+                  <LaneCell
+                    key={status}
+                    status={status}
+                    cellTasks={cellOf(model, lane, status)}
+                    selected={selected}
+                    highlighted={highlight === key}
+                    onPick={() => setActiveCell({ lane, status })}
+                  />
+                );
+              })}
+            </div>
+          ))}
           {lanes.length === 0 && (
             <div className="rounded-lg border border-dashed border-border px-4 py-8 ui-prose text-text-faint">
               当前筛选下没有可展示的泳道任务。
@@ -375,9 +402,9 @@ export function SwimlaneBoard({
         active={activeCell}
         tasks={activeTasks}
         groupBy={groupBy}
+        laneLabel={activeCell ? (model.labels.get(activeCell.lane) ?? activeCell.lane) : ""}
         onSelect={onSelect}
         relations={relations}
-        allTasks={tasks}
         favorites={favorites}
         onToggleFavorite={onToggleFavorite}
         onSetPin={onSetPin}

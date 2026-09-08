@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import {
   DndContext,
   PointerSensor,
@@ -49,7 +49,12 @@ function taskControlHint(task: TaskRow): string {
   return "当前无可用动作，原因见详情控制面板";
 }
 
-function Card({
+/**
+ * 卡片 memo(W9):比较键是行对象引用 + 标量 props,不写自定义比较器;
+ * 行级引用保持(task-adapter)保证未变行的 task 引用稳定,回调引用由上层
+ * useCallback 稳定,所以「台账改一行」只有该行卡片重渲染。
+ */
+const Card = memo(function Card({
   task,
   onSelect,
   dragging,
@@ -145,9 +150,15 @@ function Card({
       </div>
     </div>
   );
-}
+});
 
-function DraggableCard({
+/**
+ * draggable 收窄(W9):`useDraggable` 即使 disabled 也向 DndContext 注册节点,
+ * 而全板唯一合法拖拽是 planned→active(`taskCan(task,"start")`),done/外部/
+ * 归档卡全是无效注册。不可拖卡直接渲染 Card(content-visibility 包装保留,
+ * 点击与悬停提示不变),可拖卡才挂 dnd。
+ */
+const DraggableCard = memo(function DraggableCard({
   task,
   onSelect,
   relations,
@@ -162,11 +173,48 @@ function DraggableCard({
   onToggleFavorite: (id: string) => void;
   onSetPin?: (task: TaskRow, pinned: boolean) => void;
 }) {
-  const draggable = taskCan(task, "start");
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
-    id: task.taskId,
-    disabled: !draggable,
-  });
+  if (!taskCan(task, "start")) {
+    return (
+      <div className="[contain-intrinsic-size:auto_7rem] [content-visibility:auto]">
+        <Card
+          task={task}
+          onSelect={onSelect}
+          relations={relations}
+          isFavorite={isFavorite}
+          onToggleFavorite={onToggleFavorite}
+          onSetPin={onSetPin}
+        />
+      </div>
+    );
+  }
+  return (
+    <DndCard
+      task={task}
+      onSelect={onSelect}
+      relations={relations}
+      isFavorite={isFavorite}
+      onToggleFavorite={onToggleFavorite}
+      onSetPin={onSetPin}
+    />
+  );
+});
+
+function DndCard({
+  task,
+  onSelect,
+  relations,
+  isFavorite,
+  onToggleFavorite,
+  onSetPin,
+}: {
+  task: TaskRow;
+  onSelect: (id: string) => void;
+  relations: RelationEdge[];
+  isFavorite: boolean;
+  onToggleFavorite: (id: string) => void;
+  onSetPin?: (task: TaskRow, pinned: boolean) => void;
+}) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: task.taskId });
   return (
     <div
       ref={setNodeRef}
@@ -262,7 +310,7 @@ function Column({
 
 export type BoardLayout = "column" | "swimlane" | "list";
 
-export function BoardView({
+export const BoardView = memo(function BoardView({
   tasks,
   allTasks,
   filters,
@@ -315,6 +363,14 @@ export function BoardView({
   // 折叠不是筛选:计数必须在两种开关状态下都可见,不允许静默消失(W6 先例)。
   const coldPartition = useMemo(() => partitionColdTerminalTasks(tasks, new Date().toISOString()), [tasks]);
   const boardTasks = filters.expandColdTerminal ? tasks : coldPartition.visible;
+
+  // 列模式单遍分组(W9):一次遍历产出 status→rows,替代每列一次的 filter 链;
+  // boardTasks 引用未变时(useMemo 命中)各列数组引用也稳定。
+  const columnsByStatus = useMemo(() => {
+    const grouped = new Map<SnapshotStatus, TaskRow[]>(BOARD_COLUMNS.map((status) => [status, []]));
+    for (const task of boardTasks) grouped.get(task.coordinationStatus)!.push(task);
+    return grouped;
+  }, [boardTasks]);
 
   const onDragStart = (e: DragStartEvent) => setActiveTask(boardTasks.find((t) => t.taskId === e.active.id) ?? null);
 
@@ -451,7 +507,7 @@ export function BoardView({
               <Column
                 key={status}
                 status={status}
-                tasks={boardTasks.filter((t) => t.coordinationStatus === status)}
+                tasks={columnsByStatus.get(status)!}
                 onSelect={onSelect}
                 rejecting={activeTask ? isExternal(activeTask) : false}
                 relations={relations}
@@ -478,4 +534,4 @@ export function BoardView({
       )}
     </div>
   );
-}
+});

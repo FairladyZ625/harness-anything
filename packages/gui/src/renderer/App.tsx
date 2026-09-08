@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import type { SnapshotStatus } from "./model/types.ts";
+import type { SnapshotStatus, TaskRow } from "./model/types.ts";
 import { ThemeProvider } from "./theme.tsx";
 import { HomeView } from "./views/HomeView.tsx";
 import { OverviewView } from "./views/OverviewView.tsx";
@@ -138,7 +138,16 @@ function AppShell() {
   // 总览的「PIN 在做」直接消费 `ha agenda` 同一条 repo.agenda.read 投影。
   // 其他视图不挂载这条读,避免把已删除的独立议程页变成后台读取。
   const agendaQuery = useAgendaQuery(activeRepoId !== null && view === "overview" ? activeRepoId : null);
-  const setTaskFilters = (next: TaskFilters) => updateLocation({ taskFilters: next });
+  const setTaskFilters = useCallback((next: TaskFilters) => updateLocation({ taskFilters: next }), [updateLocation]);
+  // 看板 memo 的比较键里不能有每次渲染都换的函数引用(W9):pin 写通道与
+  // mutation feedback 查询在这里收敛为稳定引用,顺着各视图传到每张卡片。
+  const handleSetPin = useCallback(
+    (task: Pick<TaskRow, "taskId">, pinned: boolean) => {
+      void taskActions.setTaskPin(task, pinned);
+    },
+    [taskActions.setTaskPin],
+  );
+  const feedbackOf = useCallback((taskId: string) => taskActions.feedback.get(taskId), [taskActions.feedback]);
   const [projectSwitcherOpen, setProjectSwitcherOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [overviewDecisionPreviewId, setOverviewDecisionPreviewId] = useState<string | null>(null);
@@ -427,9 +436,7 @@ function AppShell() {
                   mutationFeedback={taskActions.feedback.get(selected.taskId)}
                   onProgress={(input) => taskActions.appendProgress(selected, input)}
                   onSubmit={(submission) => taskActions.submitTask(selected, submission)}
-                  onSetPin={(task, pinned) => {
-                    void taskActions.setTaskPin(task, pinned);
-                  }}
+                  onSetPin={handleSetPin}
                   onOpenTerminal={(task) => {
                     setTerminalLaunch({ requestId: crypto.randomUUID(), taskId: task.taskId, title: task.title });
                     updateLocation({ selectedId: null });
@@ -467,9 +474,7 @@ function AppShell() {
                     onOpenDecision={navigateToDecision}
                     onNavigateEntity={navigateToEntity}
                     onDecisionPreviewChange={setOverviewDecisionPreviewId}
-                    onSetPin={(task, pinned) => {
-                      void taskActions.setTaskPin(task, pinned);
-                    }}
+                    onSetPin={handleSetPin}
                   />
                 ) : (
                   <WorkspaceSummaryPending error={workspaceSummaryQuery.error} />
@@ -486,10 +491,8 @@ function AppShell() {
                   favorites={favorites}
                   onToggleFavorite={toggleFavorite}
                   onStartTask={taskActions.startTask}
-                  mutationFeedback={(taskId) => taskActions.feedback.get(taskId)}
-                  onSetPin={(task, pinned) => {
-                    void taskActions.setTaskPin(task, pinned);
-                  }}
+                  mutationFeedback={feedbackOf}
+                  onSetPin={handleSetPin}
                 />
               ) : view === "graph" ? (
                 <EntityWorkspace
@@ -734,9 +737,7 @@ function AppShell() {
           onClose={() => updateLocation({ previewId: null })}
           onOpenDetail={openTaskDetail}
           onPreviewTask={openTaskPreview}
-          onSetPin={(task, pinned) => {
-            void taskActions.setTaskPin(task, pinned);
-          }}
+          onSetPin={handleSetPin}
         />
         <CommandPalette
           open={paletteOpen}
