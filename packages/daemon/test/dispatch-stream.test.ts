@@ -16,6 +16,28 @@ import {
 import { adoptRuntimes } from "../src/runtime-spawn-adoption.ts";
 import { cancelRuntime } from "../src/runtime-spawn-control.ts";
 import { readRuntimeSessionActivityEvidence } from "../src/dispatch-read.ts";
+import { runtimeBindingForDispatch } from "../src/runtime-spawn-types.ts";
+import { runtimeSessionActionPreparer } from "../src/runtime-session-action-runtime.ts";
+import { getExecutableEntityAction } from "../../kernel/src/index.ts";
+
+test("runtime dispatch persistence excludes RepoCell writer transport fields", () => {
+  const actor = { principal: { personId: "runtime-owner" }, executor: null },
+    source = "local" as const,
+    binding = {
+      actor,
+      source,
+      writerEpoch: 35,
+      writerEpochFence: {
+        schema: "harness-writer-epoch-fence/v1" as const,
+        stateRoot: "/tmp/writer-state",
+        repoId: "repo",
+        epoch: 35,
+        holderId: "daemon-old",
+      },
+    } as Parameters<typeof runtimeBindingForDispatch>[0] & Record<string, unknown>,
+    persisted = runtimeBindingForDispatch(binding);
+  assert.deepEqual(persisted, { actor, source });
+});
 
 test("the live index rebuilds exactly from dispatch stream headers", () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-dispatch-live-index-"));
@@ -381,4 +403,38 @@ test("delegation provenance fields survive a header roundtrip and stay optional 
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
+});
+
+test("portable runtime binding retains the assignment scope required by the existing action preparer", () => {
+  const source = { kind: "assignment" as const, nodeId: "edge-1", assignmentId: "assignment-1" },
+    binding = {
+      actor: { principal: { personId: "owner" }, executor: null },
+      source,
+      assignmentScope: {
+        repoId: "repo",
+        scope: { kind: "task" as const, taskId: "task-1", executionId: "execution-1", paths: [] },
+      },
+    },
+    prepare = runtimeSessionActionPreparer(
+      () =>
+        ({
+          readRuntimeDispatches: () => [
+            { source, payload: { runtimeSessionId: "runtime-1", dispatchId: "dispatch-1" } },
+          ],
+        }) as never,
+    ),
+    contract = getExecutableEntityAction("runtime_session_task_bound");
+  assert.ok(contract);
+  const action = {
+      kind: "runtime_session_task_bound",
+      runtimeSessionId: "runtime-1",
+      taskId: "task-1",
+      executionId: "execution-1",
+    },
+    portable = runtimeBindingForDispatch(binding);
+  assert.deepEqual(prepare(contract, action, portable), { ...action, dispatchId: "dispatch-1" });
+  assert.throws(
+    () => prepare(contract, { ...action, taskId: "other-task" }, portable),
+    (error: unknown) => (error as { code?: string }).code === "assignment_scope_mismatch",
+  );
 });
