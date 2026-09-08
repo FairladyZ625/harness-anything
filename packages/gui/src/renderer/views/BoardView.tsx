@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   DndContext,
   PointerSensor,
@@ -24,7 +24,7 @@ import {
 import { SwimlaneBoard, type LaneGroupBy } from "./SwimlaneBoard";
 import { TaskFilterBar } from "../components/TaskFilterBar";
 import type { TaskFilters } from "../model/taskFilters";
-import { sortByPinAndFavoritesFirst } from "../model/taskFilters";
+import { partitionColdTerminalTasks, sortByRecentThenPinAndFavoritesFirst } from "../model/taskFilters";
 import { spawningDecisionOf } from "../model/triadic";
 import { ListView } from "./ListView";
 import type { TaskMutationFeedback } from "../task-actions.ts";
@@ -209,12 +209,8 @@ function Column({
   const meta = STATUS_META[status];
   // 完整渲染,不分批(2026-08-25 泽宇裁决:性能顾虑用按需渲染解决,不转嫁给用户点击):
   // 每张卡外层的拖拽容器带 content-visibility:auto,离屏卡的布局与绘制由渲染器跳过。
-  const ordered = sortByPinAndFavoritesFirst(
-    tasks,
-    (t) => t.pinned === true,
-    (t) => t.taskId,
-    favorites,
-  );
+  // 列内默认序(W8):lastKnownAt 倒序打底,pin → 收藏稳定置顶。
+  const ordered = sortByRecentThenPinAndFavoritesFirst(tasks, favorites);
   return (
     <div
       ref={setNodeRef}
@@ -314,7 +310,13 @@ export function BoardView({
   const [dragMessage, setDragMessage] = useState<string | null>(null);
   const [lastMutationTaskId, setLastMutationTaskId] = useState<string | null>(null);
 
-  const onDragStart = (e: DragStartEvent) => setActiveTask(tasks.find((t) => t.taskId === e.active.id) ?? null);
+  // 看板默认降噪(W8):冷终态(终态且非重点种子,判定复用 isTaskGraphFocusSeed 的
+  // 14 天窗口)默认折叠为可见计数,TaskFilterBar 提供展开开关;pinned 恒可见。
+  // 折叠不是筛选:计数必须在两种开关状态下都可见,不允许静默消失(W6 先例)。
+  const coldPartition = useMemo(() => partitionColdTerminalTasks(tasks, new Date().toISOString()), [tasks]);
+  const boardTasks = filters.expandColdTerminal ? tasks : coldPartition.visible;
+
+  const onDragStart = (e: DragStartEvent) => setActiveTask(boardTasks.find((t) => t.taskId === e.active.id) ?? null);
 
   const onDragEnd = (event: DragEndEvent) => {
     const task = activeTask;
@@ -415,10 +417,11 @@ export function BoardView({
         onChange={onFiltersChange}
         contextLabel="看板"
         favorites={favorites}
+        coldTerminalCount={coldPartition.collapsed.length}
       />
       {layout === "list" ? (
         <ListView
-          tasks={tasks}
+          tasks={boardTasks}
           allTasks={allTasks}
           filters={filters}
           onFiltersChange={onFiltersChange}
@@ -432,7 +435,7 @@ export function BoardView({
       ) : layout === "swimlane" ? (
         <SwimlaneBoard
           key={groupBy}
-          tasks={tasks}
+          tasks={boardTasks}
           groupBy={groupBy}
           onSelect={onSelect}
           drill={drill ?? null}
@@ -448,7 +451,7 @@ export function BoardView({
               <Column
                 key={status}
                 status={status}
-                tasks={tasks.filter((t) => t.coordinationStatus === status)}
+                tasks={boardTasks.filter((t) => t.coordinationStatus === status)}
                 onSelect={onSelect}
                 rejecting={activeTask ? isExternal(activeTask) : false}
                 relations={relations}

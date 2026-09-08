@@ -65,7 +65,9 @@ function isTaskFilters(value: unknown): value is TaskFilters {
     typeof value.closeout === "string" &&
     typeof value.freshness === "string" &&
     typeof value.includeArchived === "boolean" &&
-    typeof value.favoritesOnly === "boolean"
+    typeof value.favoritesOnly === "boolean" &&
+    // W8 前的 sessionStorage 历史没有 expandColdTerminal;缺省即默认折叠态。
+    (value.expandColdTerminal === undefined || typeof value.expandColdTerminal === "boolean")
   );
 }
 

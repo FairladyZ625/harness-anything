@@ -4,9 +4,12 @@ import {
   applyTaskFilters,
   DEFAULT_TASK_FILTERS,
   hasActiveTaskFilters,
+  isColdTerminalTask,
   isTaskArchiveNoise,
   matchesTask,
+  partitionColdTerminalTasks,
   sortByFavoritesFirst,
+  sortByRecentThenPinAndFavoritesFirst,
   taskFilterSummary,
   type TaskFilters,
 } from "../src/renderer/model/taskFilters.ts";
@@ -146,5 +149,97 @@ describe("sortByFavoritesFirst", () => {
     const items = [{ id: "a" }, { id: "b" }];
     const sorted = sortByFavoritesFirst(items, (item) => item.id, new Set());
     expect(sorted.map((item) => item.id)).toEqual(["a", "b"]);
+  });
+});
+
+/**
+ * 看板默认序(W8):lastKnownAt 倒序打底,pin → 收藏稳定置顶;列模式、泳道下钻
+ * 与列表模式共用这一个实现(原列表模式写法收编于此)。
+ */
+describe("sortByRecentThenPinAndFavoritesFirst", () => {
+  it("orders by lastKnownAt desc, then lifts pinned and favorites to the top", () => {
+    const tasks = [
+      makeTask({ taskId: "t_old", lastKnownAt: "2026-07-01T00:00:00.000Z" }),
+      makeTask({ taskId: "t_new", lastKnownAt: "2026-07-20T00:00:00.000Z" }),
+      makeTask({ taskId: "t_pin", lastKnownAt: "2026-06-01T00:00:00.000Z", pinned: true }),
+      makeTask({ taskId: "t_fav", lastKnownAt: "2026-06-15T00:00:00.000Z" }),
+      makeTask({ taskId: "t_mid", lastKnownAt: "2026-07-10T00:00:00.000Z" }),
+    ];
+    const ordered = sortByRecentThenPinAndFavoritesFirst(tasks, new Set(["t_fav"]));
+    expect(ordered.map((t) => t.taskId)).toEqual(["t_pin", "t_fav", "t_new", "t_mid", "t_old"]);
+  });
+
+  it("keeps same-timestamp tasks in stable relative order", () => {
+    const at = "2026-07-10T00:00:00.000Z";
+    const tasks = [
+      makeTask({ taskId: "t_first", lastKnownAt: at }),
+      makeTask({ taskId: "t_second", lastKnownAt: at }),
+      makeTask({ taskId: "t_third", lastKnownAt: at }),
+    ];
+    const ordered = sortByRecentThenPinAndFavoritesFirst(tasks, new Set());
+    expect(ordered.map((t) => t.taskId)).toEqual(["t_first", "t_second", "t_third"]);
+  });
+
+  it("does not mutate the input array", () => {
+    const tasks = [
+      makeTask({ taskId: "t_a", lastKnownAt: "2026-07-01T00:00:00.000Z" }),
+      makeTask({ taskId: "t_b", lastKnownAt: "2026-07-02T00:00:00.000Z" }),
+    ];
+    sortByRecentThenPinAndFavoritesFirst(tasks, new Set());
+    expect(tasks.map((t) => t.taskId)).toEqual(["t_a", "t_b"]);
+  });
+});
+
+/**
+ * 冷终态折叠判定(W8):终态且非重点种子(isTaskGraphFocusSeed 的 14 天窗口,
+ * 唯一实现)默认折叠为计数。pinned 恒可见;开放任务与刚收口的终态不折叠。
+ */
+describe("cold terminal collapse (W8)", () => {
+  const NOW = "2026-08-30T00:00:00.000Z";
+
+  it("collapses only terminal tasks outside the recent window", () => {
+    expect(
+      isColdTerminalTask(makeTask({ coordinationStatus: "done", lastKnownAt: "2026-08-20T00:00:00.000Z" }), NOW),
+    ).toBe(false);
+    expect(
+      isColdTerminalTask(makeTask({ coordinationStatus: "done", lastKnownAt: "2026-08-01T00:00:00.000Z" }), NOW),
+    ).toBe(true);
+    // 开放任务无论多旧都不折叠(它们就是工作面本身)。
+    expect(
+      isColdTerminalTask(makeTask({ coordinationStatus: "planned", lastKnownAt: "2026-01-01T00:00:00.000Z" }), NOW),
+    ).toBe(false);
+  });
+
+  it("never collapses pinned tasks, however cold and terminal", () => {
+    expect(
+      isColdTerminalTask(
+        makeTask({ coordinationStatus: "done", pinned: true, lastKnownAt: "2026-01-01T00:00:00.000Z" }),
+        NOW,
+      ),
+    ).toBe(false);
+  });
+
+  it("partitionColdTerminalTasks splits in one pass; the count survives expansion", () => {
+    const tasks = [
+      makeTask({ taskId: "t_open", coordinationStatus: "active", lastKnownAt: "2026-08-29T00:00:00.000Z" }),
+      makeTask({ taskId: "t_recent_done", coordinationStatus: "done", lastKnownAt: "2026-08-25T00:00:00.000Z" }),
+      makeTask({ taskId: "t_cold_done", coordinationStatus: "done", lastKnownAt: "2026-01-01T00:00:00.000Z" }),
+      makeTask({
+        taskId: "t_cold_pinned",
+        coordinationStatus: "done",
+        pinned: true,
+        lastKnownAt: "2026-01-01T00:00:00.000Z",
+      }),
+    ];
+    const { visible, collapsed } = partitionColdTerminalTasks(tasks, NOW);
+    expect(visible.map((t) => t.taskId)).toEqual(["t_open", "t_recent_done", "t_cold_pinned"]);
+    expect(collapsed.map((t) => t.taskId)).toEqual(["t_cold_done"]);
+  });
+
+  it("expandColdTerminal defaults to collapsed and reports as an active deviation", () => {
+    expect(DEFAULT_TASK_FILTERS.expandColdTerminal).toBe(false);
+    expect(hasActiveTaskFilters({ ...DEFAULT_TASK_FILTERS })).toBe(false);
+    expect(hasActiveTaskFilters({ ...DEFAULT_TASK_FILTERS, expandColdTerminal: true })).toBe(true);
+    expect(taskFilterSummary({ ...DEFAULT_TASK_FILTERS, expandColdTerminal: true })).toContain("已展开冷终态");
   });
 });
