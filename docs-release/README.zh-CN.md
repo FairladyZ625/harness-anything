@@ -53,15 +53,16 @@ error code=terminal_status_requires_task_complete
 要求最低 Fact 数量：Fact 是 `0..N` 的显式晋升，submit、review 或 complete 都不会
 自动生成 Fact（依据 `dec_mrg3z1we/CH4`、ADR-0027 D7）。
 
-version 0.0.1 发布到 npm 后，使用 scoped CLI：
+从 checkout 安装 0.0.1 CLI 候选版：
 
 ```bash
-npm install --global @harness-anything/cli@0.0.1
+npm pack --workspace @harness-anything/cli
+npm install --global ./harness-anything-cli-0.0.1.tgz
 ha --help
 ```
 
 不支持 unscoped 的 `npx harness-anything init`。在这个 npm 包真正存在前，
-请使用上面的源码路径，或安装本地打包的 scoped CLI。
+候选版已用 `npm publish --dry-run` 验证；本次发布不宣称 registry 已有正式包。
 
 ## 三个原语
 

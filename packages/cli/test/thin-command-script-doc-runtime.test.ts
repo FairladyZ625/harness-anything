@@ -46,6 +46,21 @@ test("thin parser converts the sole preset script target into closed typed start
   );
 });
 
+test("init leaves identity defaults for daemon bootstrap and preserves explicit overrides", () => {
+  const parsed = parseThinCommand(["init"]);
+  assert.equal(parsed.ok, true);
+  if (parsed.ok) assert.deepEqual(parsed.command.action, { kind: "repo-bootstrap" });
+  const overrides = parseThinCommand(["init", "--repo-id", "alpha", "--person-id", "owner", "--display-name", "Owner"]);
+  assert.equal(overrides.ok, true);
+  if (overrides.ok)
+    assert.deepEqual(overrides.command.action, {
+      kind: "repo-bootstrap",
+      repoId: "alpha",
+      personId: "owner",
+      displayName: "Owner",
+    });
+});
+
 test("thin doc commands derive descriptor-only actions from the protocol directory", () => {
   const status = parseThinCommand(["doc", "status"]),
     selectedStatus = parseThinCommand(["doc", "status", "--path", "context/a.md", "--path", "context/b.md"]),
@@ -155,7 +170,6 @@ test("thin parser exposes daemon-backed workspace bootstrap", () => {
       name: "Alpha Project",
       addNpmScripts: true,
     });
-  assert.equal(parseThinCommand(["init", "--repo-id", "alpha", "--person-id", "owner"]).ok, false);
   const configureOnly = parseThinCommand([
     "init",
     "--repo-id",
