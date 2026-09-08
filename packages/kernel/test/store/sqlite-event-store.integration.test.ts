@@ -733,6 +733,19 @@ test("certified reopen retires stale legacy index entries without changing unrel
   } finally {
     await reopened.drain();
   }
+  unlinkSync(path.join(rootDir, "harness/events/segments/manifest.json"));
+  git(rootDir, "update-index", "--add", "--cacheinfo", `100644,${legacyOid},harness/events/legacy.json`);
+  const withoutPhysicalMarker = makeTaskEventStore({ repoId, rootDir });
+  try {
+    await withoutPhysicalMarker.settlePendingMaterialization?.("index settles independently of physical recovery");
+    assert.equal(withoutPhysicalMarker.followerStatus().git.status, "verified");
+    assert.equal(withoutPhysicalMarker.followerStatus().worktree.status, "pending");
+    assert.equal(git(rootDir, "ls-files", "--stage", "harness/events/legacy.json"), "");
+    assert.equal(git(rootDir, "ls-files", "--stage", "harness/context/draft.md"), draftIndexBefore);
+    assert.equal(readFileSync(path.join(rootDir, "harness/context/draft.md"), "utf8"), "worktree draft\n");
+  } finally {
+    await withoutPhysicalMarker.drain();
+  }
 });
 
 test("50k bootstrap is incremental and subsequent canonical bundles append one command each", (context) => {

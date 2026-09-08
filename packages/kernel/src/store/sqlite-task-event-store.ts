@@ -259,7 +259,6 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
   ): boolean => {
     const permitted = new Map(baseline),
       preserve = new Set<string>();
-    localGitWorktreeSettlement.index(currentLedger.rootDir, files);
     for (const [logical, accepted] of acceptedWorktree) {
       const target = ledgerGitPath(currentLedger, logical);
       if (
@@ -315,6 +314,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
         git: { status: "verified", cut: accepted, commitSha: parent },
         worktree: pendingFollower("worktree settlement has not verified the Git cut").worktree,
       };
+      localGitWorktreeSettlement.index(currentLedger.rootDir, closureFiles);
       pendingWorktreeBaseline = baseline;
       if (baseline && settleFollowerWorktree(currentLedger, closureFiles, baseline, parent)) {
         pendingWorktreeBaseline = null;
@@ -361,6 +361,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
       git: { status: "verified", cut: accepted, commitSha: commit },
       worktree: pendingFollower("worktree settlement has not verified the Git cut").worktree,
     };
+    localGitWorktreeSettlement.index(currentLedger.rootDir, files);
     if (settleFollowerWorktree(currentLedger, files, baseline, commit)) {
       pendingWorktreeBaseline = null;
       settledWorktreeRevision = accepted.revision;
