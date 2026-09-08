@@ -1055,6 +1055,8 @@ test("repo-cell restart re-adopts a live native runtime and settles an exit reco
       ),
       firstDispatchLines = readFileSync(firstDispatchPath, "utf8").trimEnd().split(/\r?\n/u),
       firstHeader = JSON.parse(firstDispatchLines[0]!) as Record<string, unknown>;
+    assert.equal(Object.hasOwn(firstHeader.binding as object, "writerEpoch"), false);
+    assert.equal(Object.hasOwn(firstHeader.binding as object, "writerEpochFence"), false);
     firstDispatchLines[0] = JSON.stringify({
       ...firstHeader,
       binding: {

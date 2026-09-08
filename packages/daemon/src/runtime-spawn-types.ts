@@ -1,3 +1,4 @@
+import type { FleetAssignmentScope } from "./fleet/contract.ts";
 import type {
   ActorIdentity,
   AgentRuntimeEventV1,
@@ -52,6 +53,7 @@ export type RuntimeBinding = {
   /** Preserve whether local authorization came from the default or authored binding projection. */
   readonly authorizationBindingMode?: "default" | "declared";
   readonly roleBindings?: readonly RoleBinding[];
+  readonly assignmentScope?: FleetAssignmentScope;
   readonly authorizationDecision?: AuthorizationDecision;
 };
 
@@ -64,6 +66,7 @@ export function runtimeBindingForDispatch(binding: RuntimeBinding): RuntimeBindi
       ? {}
       : { authorizationBindingMode: binding.authorizationBindingMode }),
     ...(binding.roleBindings === undefined ? {} : { roleBindings: binding.roleBindings }),
+    ...(binding.assignmentScope === undefined ? {} : { assignmentScope: binding.assignmentScope }),
   };
 }
 

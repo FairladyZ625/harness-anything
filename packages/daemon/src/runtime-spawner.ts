@@ -170,6 +170,12 @@ export interface RuntimeSpawnerInput {
     readonly fromRuntimeSessionId: string | null;
     readonly binding: RuntimeBinding;
   }) => Promise<RuntimeBinding>;
+  /** Re-authorizes a persisted provider continuation before admitting its next attempt. */
+  readonly authorizeRuntimeContinuation?: (
+    payload: JsonObject,
+    binding: RuntimeBinding,
+    actionId: string,
+  ) => RuntimeBinding;
   /** Re-authorizes each local RuntimeSession catalog Action at its commit cut. */
   readonly authorizeRuntimeEvent?: (input: {
     readonly type: AgentRuntimeEventV1["type"];
@@ -1004,7 +1010,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         )
           return;
         const header = current.header,
-          binding = header.binding,
+          binding = runtimeBindingForDispatch(header.binding!),
           dispatchCwd = header.cwd;
         if (!binding || typeof dispatchCwd !== "string") return;
         const fallback = header.fallbackAttempt!,
@@ -1020,8 +1026,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         )
           return;
         try {
-          const receipt = await spawnAttempt(
-            {
+          const continuationPayload: JsonObject = {
               runtimeInstanceId: next.instance,
               ...(header.delegatedByAgentId && header.agentId
                 ? { agentId: header.delegatedByAgentId, targetAgentId: header.agentId }
@@ -1044,12 +1049,19 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
               ...(header.taskId ? { taskId: header.taskId } : {}),
               idempotencyKey: `${fallback.rootIdempotencyKey}:fallback:${String(nextAttemptIndex)}`,
             },
-            binding,
+            continuationBinding =
+              input.authorizeRuntimeContinuation?.(
+                continuationPayload,
+                binding,
+                `runtime-continuation:${header.dispatchId}:${nextAttemptIndex}`,
+              ) ?? binding;
+          const receipt = await spawnAttempt(
+            continuationPayload,
+            continuationBinding,
             nextFallback,
             header.schedule,
             header.runtimeSessionId,
-            header.taskId !== null &&
-              header.binding.actor.executor?.id !== `runtime-session:${header.runtimeSessionId}`,
+            header.taskId !== null && binding.actor.executor?.id !== `runtime-session:${header.runtimeSessionId}`,
           );
           writer.appendFallbackState(
             {
@@ -1082,7 +1094,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             binding,
           });
         }
-      }, stream.header.binding);
+      }, runtimeBindingForDispatch(stream.header.binding!));
     }, remainingMs);
     timer.unref();
   }
