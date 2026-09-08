@@ -1,9 +1,9 @@
 import { memo, useEffect, useMemo, useState } from "react";
 import { CaretRight, Lock, PushPin, Star } from "@phosphor-icons/react";
-import type { TaskRow, SnapshotStatus, RelationEdge } from "../model/types";
+import type { TaskRow, SnapshotStatus } from "../model/types";
 import { BOARD_COLUMNS, isExternal } from "../model/types";
 import { STATUS_META, CloseoutBadge, DecisionSourceBadge, FreshnessTag, freshnessBorder } from "../components/badges";
-import { spawningDecisionOf } from "../model/triadic";
+import type { SpawningDecisionIndex } from "../model/triadic";
 import { sortByRecentThenPinAndFavoritesFirst } from "../model/taskFilters";
 
 export type LaneGroupBy = "module" | "engine" | "root" | "productLine";
@@ -82,25 +82,25 @@ function buildSwimlaneModel(tasks: ReadonlyArray<TaskRow>, groupBy: LaneGroupBy)
   return { lanes, labels, cells, laneSizes, totals };
 }
 
-/** 泳道下钻卡 memo(W9):比较键同列模式 Card——行引用 + 稳定回调,不写自定义比较器。 */
+/** 泳道下钻卡 memo(W9):比较键同列模式 Card——行引用 + 稳定回调,不写自定义比较器;
+ * 决策来源徽章收标量(W9 修正),不接全局 relations 数组。 */
 const LaneCard = memo(function LaneCard({
   task,
   onSelect,
-  relations,
+  spawningDecision,
   isFavorite,
   onToggleFavorite,
   onSetPin,
 }: {
   task: TaskRow;
   onSelect: (id: string) => void;
-  relations: RelationEdge[];
+  spawningDecision: string | undefined;
   isFavorite: boolean;
   onToggleFavorite: (id: string) => void;
   onSetPin?: (task: TaskRow, pinned: boolean) => void;
 }) {
   const external = isExternal(task);
   const archived = task.visibility.archived;
-  const spawningDecision = spawningDecisionOf(task, relations);
   return (
     <div
       onClick={() => onSelect(task.taskId)}
@@ -170,7 +170,7 @@ function LaneCell({
   onPick,
 }: {
   status: SnapshotStatus;
-  cellTasks: TaskRow[];
+  cellTasks: readonly TaskRow[];
   selected: boolean;
   highlighted: boolean;
   onPick: () => void;
@@ -221,7 +221,7 @@ function DrilldownPanel({
   groupBy,
   laneLabel,
   onSelect,
-  relations,
+  spawningDecisions,
   favorites,
   onToggleFavorite,
   onSetPin,
@@ -231,7 +231,7 @@ function DrilldownPanel({
   groupBy: LaneGroupBy;
   laneLabel: string;
   onSelect: (id: string) => void;
-  relations: RelationEdge[];
+  spawningDecisions: SpawningDecisionIndex;
   favorites: ReadonlySet<string>;
   onToggleFavorite: (id: string) => void;
   onSetPin?: (task: TaskRow, pinned: boolean) => void;
@@ -273,7 +273,7 @@ function DrilldownPanel({
               key={t.taskId}
               task={t}
               onSelect={onSelect}
-              relations={relations}
+              spawningDecision={spawningDecisions.get(t.taskId)}
               isFavorite={favorites.has(t.taskId)}
               onToggleFavorite={onToggleFavorite}
               onSetPin={onSetPin}
@@ -296,7 +296,7 @@ export function SwimlaneBoard({
   groupBy,
   onSelect,
   drill,
-  relations,
+  spawningDecisions,
   favorites,
   onToggleFavorite,
   onSetPin,
@@ -305,7 +305,7 @@ export function SwimlaneBoard({
   groupBy: LaneGroupBy;
   onSelect: (id: string) => void;
   drill: { lane: string; status: SnapshotStatus; groupBy: LaneGroupBy } | null;
-  relations: RelationEdge[];
+  spawningDecisions: SpawningDecisionIndex;
   favorites: ReadonlySet<string>;
   onToggleFavorite: (id: string) => void;
   onSetPin?: (task: TaskRow, pinned: boolean) => void;
@@ -404,7 +404,7 @@ export function SwimlaneBoard({
         groupBy={groupBy}
         laneLabel={activeCell ? (model.labels.get(activeCell.lane) ?? activeCell.lane) : ""}
         onSelect={onSelect}
-        relations={relations}
+        spawningDecisions={spawningDecisions}
         favorites={favorites}
         onToggleFavorite={onToggleFavorite}
         onSetPin={onSetPin}

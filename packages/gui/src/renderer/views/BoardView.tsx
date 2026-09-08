@@ -25,7 +25,7 @@ import { SwimlaneBoard, type LaneGroupBy } from "./SwimlaneBoard";
 import { TaskFilterBar } from "../components/TaskFilterBar";
 import type { TaskFilters } from "../model/taskFilters";
 import { partitionColdTerminalTasks, sortByRecentThenPinAndFavoritesFirst } from "../model/taskFilters";
-import { spawningDecisionOf } from "../model/triadic";
+import { buildSpawningDecisionIndex, type SpawningDecisionIndex } from "../model/triadic";
 import { ListView } from "./ListView";
 import type { TaskMutationFeedback } from "../task-actions.ts";
 
@@ -52,13 +52,15 @@ function taskControlHint(task: TaskRow): string {
 /**
  * 卡片 memo(W9):比较键是行对象引用 + 标量 props,不写自定义比较器;
  * 行级引用保持(task-adapter)保证未变行的 task 引用稳定,回调引用由上层
- * useCallback 稳定,所以「台账改一行」只有该行卡片重渲染。
+ * useCallback 稳定,所以「台账改一行」只有该行卡片重渲染。决策来源徽章也是
+ * 标量(W9 修正):从 BoardView 单点构建的派生索引按行取值,全局 relations
+ * 数组不进卡片 props,关系刷新只换「徽章值变化」那几张卡的 props。
  */
 const Card = memo(function Card({
   task,
   onSelect,
   dragging,
-  relations,
+  spawningDecision,
   isFavorite,
   onToggleFavorite,
   onSetPin,
@@ -66,14 +68,13 @@ const Card = memo(function Card({
   task: TaskRow;
   onSelect?: (id: string) => void;
   dragging?: boolean;
-  relations: RelationEdge[];
+  spawningDecision: string | undefined;
   isFavorite: boolean;
   onToggleFavorite: (id: string) => void;
   onSetPin?: (task: TaskRow, pinned: boolean) => void;
 }) {
   const external = isExternal(task);
   const archived = task.visibility.archived;
-  const spawningDecision = spawningDecisionOf(task, relations);
   return (
     <div
       data-testid="board-task-card"
@@ -157,29 +158,45 @@ const Card = memo(function Card({
  * 而全板唯一合法拖拽是 planned→active(`taskCan(task,"start")`),done/外部/
  * 归档卡全是无效注册。不可拖卡直接渲染 Card(content-visibility 包装保留,
  * 点击与悬停提示不变),可拖卡才挂 dnd。
+ *
+ * 可聚焦修正(W9 修正):baseline 的 disabled dnd 仍把 role=button/tabIndex=0
+ * 铺在包装层,收窄后不能丢——不可拖卡保留同样的可达表面,并补上与点击等价的
+ * Enter/Space 键盘激活(baseline 本就没有键盘激活,属存量弱点,此处一并补齐);
+ * 唯一省掉的是 dnd 注册本身。不再挂 aria-disabled:卡片选择始终可用,报
+ * disabled 反而误导(非拖拽语义由悬停提示承担)。
  */
 const DraggableCard = memo(function DraggableCard({
   task,
   onSelect,
-  relations,
+  spawningDecision,
   isFavorite,
   onToggleFavorite,
   onSetPin,
 }: {
   task: TaskRow;
   onSelect: (id: string) => void;
-  relations: RelationEdge[];
+  spawningDecision: string | undefined;
   isFavorite: boolean;
   onToggleFavorite: (id: string) => void;
   onSetPin?: (task: TaskRow, pinned: boolean) => void;
 }) {
   if (!taskCan(task, "start")) {
     return (
-      <div className="[contain-intrinsic-size:auto_7rem] [content-visibility:auto]">
+      <div
+        role="button"
+        tabIndex={0}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            onSelect(task.taskId);
+          }
+        }}
+        className="[contain-intrinsic-size:auto_7rem] [content-visibility:auto]"
+      >
         <Card
           task={task}
           onSelect={onSelect}
-          relations={relations}
+          spawningDecision={spawningDecision}
           isFavorite={isFavorite}
           onToggleFavorite={onToggleFavorite}
           onSetPin={onSetPin}
@@ -191,7 +208,7 @@ const DraggableCard = memo(function DraggableCard({
     <DndCard
       task={task}
       onSelect={onSelect}
-      relations={relations}
+      spawningDecision={spawningDecision}
       isFavorite={isFavorite}
       onToggleFavorite={onToggleFavorite}
       onSetPin={onSetPin}
@@ -202,14 +219,14 @@ const DraggableCard = memo(function DraggableCard({
 function DndCard({
   task,
   onSelect,
-  relations,
+  spawningDecision,
   isFavorite,
   onToggleFavorite,
   onSetPin,
 }: {
   task: TaskRow;
   onSelect: (id: string) => void;
-  relations: RelationEdge[];
+  spawningDecision: string | undefined;
   isFavorite: boolean;
   onToggleFavorite: (id: string) => void;
   onSetPin?: (task: TaskRow, pinned: boolean) => void;
@@ -225,7 +242,7 @@ function DndCard({
       <Card
         task={task}
         onSelect={onSelect}
-        relations={relations}
+        spawningDecision={spawningDecision}
         isFavorite={isFavorite}
         onToggleFavorite={onToggleFavorite}
         onSetPin={onSetPin}
@@ -239,7 +256,7 @@ function Column({
   tasks,
   onSelect,
   rejecting,
-  relations,
+  spawningDecisions,
   favorites,
   onToggleFavorite,
   onSetPin,
@@ -248,7 +265,7 @@ function Column({
   tasks: readonly TaskRow[];
   onSelect: (id: string) => void;
   rejecting: boolean;
-  relations: RelationEdge[];
+  spawningDecisions: SpawningDecisionIndex;
   favorites: ReadonlySet<string>;
   onToggleFavorite: (id: string) => void;
   onSetPin?: (task: TaskRow, pinned: boolean) => void;
@@ -292,7 +309,7 @@ function Column({
               key={t.taskId}
               task={t}
               onSelect={onSelect}
-              relations={relations}
+              spawningDecision={spawningDecisions.get(t.taskId)}
               isFavorite={favorites.has(t.taskId)}
               onToggleFavorite={onToggleFavorite}
               onSetPin={onSetPin}
@@ -371,6 +388,10 @@ export const BoardView = memo(function BoardView({
     for (const task of boardTasks) grouped.get(task.coordinationStatus)!.push(task);
     return grouped;
   }, [boardTasks]);
+
+  // 徽章派生索引(W9 修正):全局 relations 数组止步于此,卡片只收自己的标量,
+  // 关系刷新(增量页换 relations 数组)不再打穿全板卡片 memo。
+  const spawningDecisions = useMemo(() => buildSpawningDecisionIndex(allTasks, relations), [allTasks, relations]);
 
   const onDragStart = (e: DragStartEvent) => setActiveTask(boardTasks.find((t) => t.taskId === e.active.id) ?? null);
 
@@ -482,7 +503,7 @@ export const BoardView = memo(function BoardView({
           filters={filters}
           onFiltersChange={onFiltersChange}
           onSelect={onSelect}
-          relations={relations}
+          spawningDecisions={spawningDecisions}
           favorites={favorites}
           onToggleFavorite={onToggleFavorite}
           onSetPin={onSetPin}
@@ -495,7 +516,7 @@ export const BoardView = memo(function BoardView({
           groupBy={groupBy}
           onSelect={onSelect}
           drill={drill ?? null}
-          relations={relations}
+          spawningDecisions={spawningDecisions}
           favorites={favorites}
           onToggleFavorite={onToggleFavorite}
           onSetPin={onSetPin}
@@ -510,7 +531,7 @@ export const BoardView = memo(function BoardView({
                 tasks={columnsByStatus.get(status)!}
                 onSelect={onSelect}
                 rejecting={activeTask ? isExternal(activeTask) : false}
-                relations={relations}
+                spawningDecisions={spawningDecisions}
                 favorites={favorites}
                 onToggleFavorite={onToggleFavorite}
                 onSetPin={onSetPin}
@@ -523,7 +544,7 @@ export const BoardView = memo(function BoardView({
                 <Card
                   task={activeTask}
                   dragging
-                  relations={relations}
+                  spawningDecision={spawningDecisions.get(activeTask.taskId)}
                   isFavorite={favorites.has(activeTask.taskId)}
                   onToggleFavorite={onToggleFavorite}
                 />
