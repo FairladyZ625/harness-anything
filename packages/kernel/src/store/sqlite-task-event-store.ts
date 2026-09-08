@@ -15,6 +15,7 @@ import {
   contentClaims,
 } from "./task-event-store-claims-layout.ts";
 import { canonicalEventCut, canonicalLedgerCut } from "./task-event-store-contract.ts";
+import { isTaskBootstrapEvent } from "../domain/task-bootstrap-event.ts";
 import { resolveLedgerGitLayout, ledgerGitPath } from "./ledger-git-layout.ts";
 import { localGitObjectRefStore, localGitText, localGitWorktreeSettlement } from "./local-version-control-system.ts";
 import { openSqliteEventStore, type SqliteCommandOutcome } from "./sqlite-event-store.ts";
@@ -512,8 +513,12 @@ function recoverGeneratedWorktreeBaseline(
   const recovered = new Map<string, string>(),
     observed = new Map<string, string>();
   for (const event of events) {
-    if (!isTaskEvent(event)) continue;
-    for (const claim of event.payload.documentClaims ?? []) {
+    const claims = isTaskEvent(event)
+      ? (event.payload.documentClaims ?? [])
+      : isTaskBootstrapEvent(event)
+        ? event.payload.initialDocumentClaims
+        : [];
+    for (const claim of claims) {
       if (claim.policyId !== "typed-machine-writer/v1") continue;
       const target = ledgerGitPath(ledger, claim.path),
         fingerprint = `100644:${claim.sha256}:${claim.size}`;

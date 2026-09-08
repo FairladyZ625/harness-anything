@@ -1,11 +1,16 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventStore, makeTaskProjection } from "../../kernel/src/index.ts";
+import {
+  compileTaskLifecycleWrite,
+  makeTaskEventStore,
+  makeTaskProjection,
+  type TaskEventV1,
+} from "../../kernel/src/index.ts";
 import { compileTaskBootstrap, compileTaskPackage } from "../src/index.ts";
 
 test("standard and milestone bootstrap compile one exact canonical birth and rebuild from L1", async () => {
@@ -159,6 +164,100 @@ test("standard and milestone bootstrap compile one exact canonical birth and reb
     }
     projection.close();
   } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("reopen recovers bootstrap machine views while preserving bootstrap prose and user drafts", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-bootstrap-recovery-"));
+  git(rootDir, "init", "-q");
+  git(rootDir, "config", "user.name", "Preset Test");
+  git(rootDir, "config", "user.email", "preset@example.invalid");
+  git(rootDir, "commit", "--allow-empty", "-qm", "base");
+  const common = {
+      userRoot: path.join(rootDir, ".harness/presets"),
+      verticalId: "software/coding",
+      profileId: "baseline",
+      locale: "en-US",
+      presetId: "standard-task",
+      actor: { principal: { personId: "person-1" }, executor: null },
+      source: "local",
+      occurredAt: "2026-09-08T00:00:00.000Z",
+    } as const,
+    store = makeTaskEventStore({ repoId: "bootstrap-recovery", rootDir }),
+    projection = makeTaskProjection({ rootDir, eventStore: store }),
+    baseline = compileTaskBootstrap({
+      ...common,
+      taskId: "task-baseline",
+      title: "Baseline",
+      workspaceRevision: 1,
+      eventId: "event-baseline",
+      opId: "op-baseline",
+    });
+  store.append(baseline);
+  await store.settlePendingMaterialization();
+  const manifestPath = path.join(rootDir, "harness/events/segments/manifest.json"),
+    physicalManifest = readFileSync(manifestPath, "utf8"),
+    born = compileTaskBootstrap({
+      ...common,
+      taskId: "task-born",
+      title: "Born",
+      workspaceRevision: 2,
+      eventId: "event-born",
+      opId: "op-born",
+    });
+  store.append(born);
+  projection.apply(born.event, born.plan);
+  await store.settlePendingMaterialization();
+  const task = { ...born.event.payload.task, title: "Updated" },
+    event: TaskEventV1 = {
+      schema: "task-event/v1",
+      eventId: "event-updated",
+      opId: "op-updated",
+      workspaceRevision: 3,
+      taskId: task.taskId,
+      type: "task_amended",
+      actor: common.actor,
+      source: "local",
+      occurredAt: common.occurredAt,
+      payload: { task, mutation: { command: "amend", reason: "retitle", fields: ["title"] }, documentClaims: [] },
+    },
+    updated = compileTaskLifecycleWrite({
+      event,
+      snapshot: { ...projection.read(task.taskId).snapshot, task, revision: 3 },
+      packagePath: born.packagePath,
+      currentDocuments: born.documents.map((document) => ({
+        path: document.path,
+        body: document.body,
+        blobSha256: born.event.payload.initialDocumentClaims.find((claim) => claim.path === document.path)!.sha256,
+      })),
+    });
+  store.append(updated);
+  await store.settlePendingMaterialization();
+  const expected = new Map(
+    born.documents
+      .filter((document) => /(?:INDEX\.md|task-contract\.json)$/u.test(document.path))
+      .map((document) => [document.path, readFileSync(path.join(rootDir, "harness", document.path), "utf8")]),
+  );
+  await store.drain();
+  projection.close();
+  writeFileSync(manifestPath, physicalManifest);
+  for (const document of born.documents) writeFileSync(path.join(rootDir, "harness", document.path), document.body);
+  const draftPath = path.join(rootDir, "harness", born.packagePath, "closeout.md");
+  writeFileSync(draftPath, "A real unsubmitted draft\n");
+  const reopened = makeTaskEventStore({ repoId: "bootstrap-recovery", rootDir });
+  try {
+    reopened.materialize();
+    for (const [logical, body] of expected)
+      assert.equal(readFileSync(path.join(rootDir, "harness", logical), "utf8"), body);
+    const plan = born.documents.find((document) => document.path.endsWith("/task_plan.md"))!;
+    assert.equal(readFileSync(path.join(rootDir, "harness", plan.path), "utf8"), plan.body);
+    assert.equal(readFileSync(draftPath, "utf8"), "A real unsubmitted draft\n");
+    assert.equal(reopened.currentCut().revision, 3);
+    assert.equal(reopened.followerStatus().worktree.status, "pending");
+    assert.equal(readFileSync(manifestPath, "utf8"), physicalManifest);
+  } finally {
+    await reopened.drain();
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
