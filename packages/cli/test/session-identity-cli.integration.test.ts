@@ -85,13 +85,20 @@ test("interactive CLI Task, Fact, and Decision writes carry resolver-owned sessi
       proposedEvidence = evidence(proposed),
       decisionId = String(proposedEvidence.decisionId);
 
-    const task = evidence(run(fixture, ["task", "show", "task-interactive-session"])).task as { provenance: unknown[] };
+    const task = evidence(run(fixture, ["task", "show", "task-interactive-session"])).task as {
+      createdBy: unknown;
+      provenance: unknown[];
+    };
     const shownFact = evidence(run(fixture, ["fact", "show", "--id", String(fact.factId)])).fact as {
       provenance: unknown[];
     };
     const decision = evidence(run(fixture, ["decision", "show", decisionId])).decision as { provenance: unknown[] };
     for (const provenance of [task.provenance, shownFact.provenance, decision.provenance])
       assert.deepEqual(identity(provenance), claudeIdentity);
+    assert.deepEqual(task.createdBy, {
+      principal: { personId: "owner" },
+      executor: { kind: "agent", id: "claude-session:claude-interactive-session" },
+    });
     const decisionDocument = readFileSync(path.join(fixture.root, "harness", String(proposed.path)), "utf8");
     assert.match(decisionDocument, new RegExp(claudeIdentity.sessionId, "u"));
     assert.doesNotMatch(decisionDocument, /local-must-not-be-forwarded/u);
@@ -103,12 +110,17 @@ test("interactive CLI Task, Fact, and Decision writes carry resolver-owned sessi
       "applied",
     );
     const codexTask = evidence(run(fixture, ["task", "show", "task-interactive-codex"])).task as {
+      createdBy: unknown;
       provenance: unknown[];
     };
     assert.deepEqual(identity(codexTask.provenance), {
       runtime: "codex",
       sessionId: "codex-interactive-thread",
       transcriptReachability: "by_session_id",
+    });
+    assert.deepEqual(codexTask.createdBy, {
+      principal: { personId: "owner" },
+      executor: { kind: "agent", id: "codex-session:codex-interactive-thread" },
     });
 
     assert.equal(
@@ -125,6 +137,18 @@ test("interactive CLI Task, Fact, and Decision writes carry resolver-owned sessi
       sessionId: null,
       transcriptReachability: "unavailable",
     });
+
+    assert.equal(
+      run(fixture, ["task", "create", "--id", "task-session-conflict", "--admin", "--title", "Session Conflict"], {
+        CODEX_THREAD_ID: "codex-thread-a",
+        CODEX_SESSION_ID: "codex-thread-b",
+      }).outcome,
+      "applied",
+    );
+    const conflicted = evidence(run(fixture, ["task", "show", "task-session-conflict"])).task as {
+      createdBy: unknown;
+    };
+    assert.deepEqual(conflicted.createdBy, { principal: { personId: "owner" }, executor: null });
   } finally {
     stop(fixture);
     rmSync(fixture.parent, { recursive: true, force: true });

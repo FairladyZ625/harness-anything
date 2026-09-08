@@ -659,7 +659,7 @@ export async function fleetDocRoute(
   return { method: route.method, payload };
 }
 function declaredExecutor(env: NodeJS.ProcessEnv = process.env): JsonObject | null {
-  const raw = env.HARNESS_ACTOR?.trim();
+  const raw = interactiveAgentActor(env);
   if (!raw) return null;
   const match = /^agent:([A-Za-z0-9][A-Za-z0-9._:-]*)$/u.exec(raw);
   if (!match)
@@ -672,13 +672,30 @@ function interactiveSessionEnvironment(env: NodeJS.ProcessEnv): DaemonSessionEnv
   const claudeSessionId = env.CLAUDE_CODE_SESSION_ID?.trim(),
     codexThreadId = env.CODEX_THREAD_ID?.trim(),
     codexSessionId = env.CODEX_SESSION_ID?.trim(),
-    harnessActor = env.HARNESS_ACTOR?.trim();
+    harnessActor = interactiveAgentActor(env);
   return {
     ...(claudeSessionId ? { CLAUDE_CODE_SESSION_ID: claudeSessionId } : {}),
     ...(codexThreadId ? { CODEX_THREAD_ID: codexThreadId } : {}),
     ...(codexSessionId ? { CODEX_SESSION_ID: codexSessionId } : {}),
     ...(harnessActor ? { HARNESS_ACTOR: harnessActor } : {}),
   };
+}
+
+function interactiveAgentActor(env: NodeJS.ProcessEnv): string | null {
+  const explicit = env.HARNESS_ACTOR?.trim();
+  if (explicit) return explicit;
+  const claudeSessionId = env.CLAUDE_CODE_SESSION_ID?.trim(),
+    codexThreadId = env.CODEX_THREAD_ID?.trim(),
+    codexProcessId = env.CODEX_SESSION_ID?.trim(),
+    codexSessionId =
+      codexThreadId && codexProcessId && codexThreadId !== codexProcessId
+        ? undefined
+        : (codexThreadId ?? codexProcessId),
+    candidates = [
+      ...(claudeSessionId ? [`agent:claude-session:${claudeSessionId}`] : []),
+      ...(codexSessionId ? [`agent:codex-session:${codexSessionId}`] : []),
+    ];
+  return candidates.length === 1 ? candidates[0]! : null;
 }
 export function consumeKnownError(error: unknown): void {
   void error;

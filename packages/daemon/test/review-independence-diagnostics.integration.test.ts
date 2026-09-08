@@ -351,6 +351,7 @@ test("a child bare-invocation execution can recover from its parent Task dispatc
       bare,
     );
     assert.equal(submitted.outcome, "applied");
+    assert.match(String(submitted.summary), /Worker must draft closeout\.md.*Summary.*Verification.*Residual Risk/su);
     assert.match(JSON.stringify(submitted.next), /ha task declare-executor/u);
     writeFileSync(
       path.join(rootDir, "changes-requested.json"),
