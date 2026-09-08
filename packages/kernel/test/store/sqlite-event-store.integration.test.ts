@@ -2,7 +2,8 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { mkdirSync, mkdtempSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import fs, { mkdirSync, mkdtempSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -217,6 +218,54 @@ test("certified reopen settles machine-owned snapshots from multiple accepted cu
   } finally {
     await reopened.drain();
   }
+});
+
+test("reopen generated-file reads remain bounded as accepted task history grows", async (t) => {
+  const counts: number[] = [];
+  for (const amendments of [2, 12]) {
+    const rootDir = mkdtempSync(path.join(tmpdir(), "ha-sqlite-history-reads-"));
+    initRepo(rootDir);
+    const packagePath = "tasks/task-history-reads",
+      indexPath = path.join(rootDir, "harness", packagePath, "INDEX.md"),
+      manifestPath = path.join(rootDir, "harness/events/segments/manifest.json"),
+      store = makeTaskEventStore({ repoId, rootDir });
+    store.append(bundle(eventAt(1)));
+    await store.settlePendingMaterialization?.("initial cut");
+    const physicalManifest = readFileSync(manifestPath, "utf8");
+    let previous: ReturnType<typeof generatedTaskAmendment>["blobs"] = [],
+      firstIndex = "";
+    for (let at = 0; at < amendments; at++) {
+      const next = generatedTaskAmendment(store, packagePath, at + 2, `amendment ${at}`, previous);
+      store.append(next);
+      await store.settlePendingMaterialization?.("generated cut");
+      if (at === 0) firstIndex = readFileSync(indexPath, "utf8");
+      previous = next.blobs;
+    }
+    const latestIndex = readFileSync(indexPath, "utf8");
+    await store.drain();
+    writeFileSync(manifestPath, physicalManifest);
+    writeFileSync(indexPath, firstIndex);
+    let reads = 0;
+    const original = fs.readFileSync,
+      spy = t.mock.method(fs, "readFileSync", (...args: Parameters<typeof fs.readFileSync>) => {
+        if (String(args[0]) === indexPath) reads++;
+        return original(...args);
+      });
+    syncBuiltinESMExports();
+    const reopened = makeTaskEventStore({ repoId, rootDir });
+    try {
+      await reopened.settlePendingMaterialization?.("bounded history reads");
+      counts.push(reads);
+      assert.equal(reopened.followerStatus().worktree.status, "verified");
+      assert.equal(readFileSync(indexPath, "utf8"), latestIndex);
+    } finally {
+      spy.mock.restore();
+      syncBuiltinESMExports();
+      await reopened.drain();
+    }
+  }
+  assert.ok(counts[0]! > 0, "negative control must observe the physical generated-file reads");
+  assert.equal(counts[1], counts[0], "historical amendments must not multiply physical generated-file reads");
 });
 
 function generatedTaskAmendment(

@@ -308,20 +308,15 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
       files = followerFiles(currentLedger, parent, pendingEvents, readContent, accepted);
     certified = { commit: parent, revision: verifiedRevision };
     if (verifiedRevision === accepted.revision) {
-      const closureFiles = followerFiles(
-          currentLedger,
-          parent,
-          readEventsThrough(sqlite, accepted.revision),
-          readContent,
-          accepted,
-        ),
+      const closureEvents = readEventsThrough(sqlite, accepted.revision),
+        closureFiles = followerFiles(currentLedger, parent, closureEvents, readContent, accepted),
         physicalCommit = pendingWorktreeBaseline ? null : recoverPhysicalWorktreeCommit(currentLedger, parent, sqlite),
         baseline = pendingWorktreeBaseline
           ? new Map(pendingWorktreeBaseline)
           : physicalCommit
             ? new Map([
                 ...captureGitBaseline(currentLedger.rootDir, physicalCommit, closureFiles),
-                ...recoverGeneratedWorktreeBaseline(currentLedger, readEventsThrough(sqlite, accepted.revision)),
+                ...recoverGeneratedWorktreeBaseline(currentLedger, closureEvents),
               ])
             : null;
       follower = {
@@ -512,15 +507,17 @@ function recoverGeneratedWorktreeBaseline(
   ledger: ReturnType<typeof resolveLedgerGitLayout>,
   events: readonly CanonicalEventV1[],
 ): ReadonlyMap<string, string> {
-  const recovered = new Map<string, string>();
+  const recovered = new Map<string, string>(),
+    observed = new Map<string, string>();
   for (const event of events) {
     if (!isTaskEvent(event)) continue;
     for (const claim of event.payload.documentClaims ?? []) {
       if (claim.policyId !== "typed-machine-writer/v1") continue;
       const target = ledgerGitPath(ledger, claim.path),
         fingerprint = `100644:${claim.sha256}:${claim.size}`;
-      if (worktreeFingerprint(localGitWorktreeSettlement.readNode(`${ledger.rootDir}/${target}`)) === fingerprint)
-        recovered.set(target, fingerprint);
+      if (!observed.has(target))
+        observed.set(target, worktreeFingerprint(localGitWorktreeSettlement.readNode(`${ledger.rootDir}/${target}`)));
+      if (observed.get(target) === fingerprint) recovered.set(target, fingerprint);
     }
   }
   return recovered;
