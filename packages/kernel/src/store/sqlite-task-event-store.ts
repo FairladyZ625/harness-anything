@@ -27,6 +27,8 @@ import type {
   EventFileBatch,
   MaterializationHealth,
   PublicationFile,
+  PublicationWrite,
+  PublicationDelete,
 } from "./task-event-store-types.ts";
 import { TaskEventStoreError } from "./task-event-store-types.ts";
 import { assertAuthorizedReplacements } from "./task-event-store-replacement-authorization.ts";
@@ -80,6 +82,7 @@ export function publishConvertedGeneration(input: {
       certifiedFollowerRevision(ledger, parent, input.store) === revision;
   if (alreadyCertified) {
     const baseline = captureGitBaseline(ledger.rootDir, parent, files);
+    localGitWorktreeSettlement.index(ledger.rootDir, files);
     if (!worktreeMatchesBaseline(ledger.rootDir, baseline, files) || !settleWorktree(ledger.rootDir, files, baseline))
       throw new TaskEventStoreError("publication_indeterminate", "authored worktree has concurrent edits");
     verifyWorktreeFiles(ledger.rootDir, files);
@@ -91,6 +94,7 @@ export function publishConvertedGeneration(input: {
   finalizeRefs(ledger.rootDir, authoredRef, commit, parent, tempRef);
   verifyGitFiles(ledger.rootDir, commit, files);
   verifyAuthoredRef(ledger.rootDir, authoredRef, commit);
+  localGitWorktreeSettlement.index(ledger.rootDir, files);
   if (!worktreeMatchesBaseline(ledger.rootDir, baseline, files) || !settleWorktree(ledger.rootDir, files, baseline))
     throw new TaskEventStoreError("publication_indeterminate", "authored worktree has concurrent edits");
   verifyWorktreeFiles(ledger.rootDir, files);
@@ -249,12 +253,13 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
 
   const settleFollowerWorktree = (
     currentLedger: ReturnType<typeof ledger>,
-    files: readonly PublicationFile[],
+    files: readonly (PublicationWrite | PublicationDelete)[],
     baseline: ReadonlyMap<string, string>,
     commit: string,
   ): boolean => {
     const permitted = new Map(baseline),
       preserve = new Set<string>();
+    localGitWorktreeSettlement.index(currentLedger.rootDir, files);
     for (const [logical, accepted] of acceptedWorktree) {
       const target = ledgerGitPath(currentLedger, logical);
       if (
@@ -475,7 +480,7 @@ function followerFiles(
   events: readonly CanonicalEventV1[],
   readContent: (sha256: string) => Uint8Array | null,
   cut: LedgerCutIdentity,
-): PublicationFile[] {
+): (PublicationWrite | PublicationDelete)[] {
   const latest = new Map<string, { body: string; mode: "100644" | "120000" }>(),
     retired = new Set<string>();
   for (const event of events) {
@@ -503,6 +508,9 @@ function followerFiles(
       entry.target.startsWith(objectsPrefix)
     )
       retired.add(entry.target);
+  }
+  for (const target of localGitWorktreeSettlement.indexedPaths(ledger.rootDir, [eventsPrefix, objectsPrefix])) {
+    if (target !== `${eventsPrefix}segments/manifest.json`) retired.add(target);
   }
   return [
     ...[...latest].map(([target, value]) => ({ target: ledgerGitPath(ledger, target), ...value })),

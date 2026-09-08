@@ -89,7 +89,7 @@ test("Git follower no longer advances canonical and authored refs to one SHA whi
   writeFileSync(path.join(rootDir, "notes/untracked.txt"), "untracked bytes\n");
   const beforeHead = git(rootDir, "rev-parse", "HEAD"),
     beforeCanonical = git(rootDir, "for-each-ref", "--format=%(objectname)", "refs/ha/canonical"),
-    beforeIndex = git(rootDir, "ls-files", "--stage"),
+    beforeUnrelatedIndex = git(rootDir, "ls-files", "--stage", "--", "notes"),
     beforeBytes = new Map(
       ["notes/prose.md", "notes/staged.txt", "notes/untracked.txt"].map((relative) => [
         relative,
@@ -108,7 +108,12 @@ test("Git follower no longer advances canonical and authored refs to one SHA whi
     await store.settlePendingMaterialization?.("contract test");
     assert.equal(store.followerStatus().git.status, "verified");
     assert.equal(git(rootDir, "for-each-ref", "--format=%(objectname)", "refs/ha/canonical"), beforeCanonical);
-    assert.equal(git(rootDir, "ls-files", "--stage"), beforeIndex);
+    assert.equal(git(rootDir, "ls-files", "--stage", "--", "notes"), beforeUnrelatedIndex);
+    for (const managed of ["harness/context/contract.md", "harness/events/segments/manifest.json"])
+      assert.match(
+        git(rootDir, "ls-files", "--stage", "--", managed),
+        new RegExp(git(rootDir, "rev-parse", `HEAD:${managed}`), "u"),
+      );
     for (const [relative, bytes] of beforeBytes)
       assert.deepEqual(readFileSync(path.join(rootDir, relative)), bytes, `${relative} bytes changed`);
     assert.equal(statSync(path.join(rootDir, "notes/prose.md")).mode & 0o777, beforeMode);
@@ -262,7 +267,7 @@ test("worktree failure preserves an independently verified Git facet", async () 
 test("successive Git cuts settle managed files while leaving the caller index untouched", async () => {
   const rootDir = fixture("successive-cuts");
   initRepo(rootDir);
-  const beforeIndex = git(rootDir, "ls-files", "--stage"),
+  const beforeUnrelatedIndex = git(rootDir, "ls-files", "--stage", "--", "harness/.gitattributes"),
     store = makeTaskEventStore({ repoId, rootDir, writerFence });
   try {
     for (let revision = 1; revision <= 3; revision += 1) {
@@ -271,7 +276,12 @@ test("successive Git cuts settle managed files while leaving the caller index un
       await store.settlePendingMaterialization!("successive publication");
       assert.equal(store.followerStatus().worktree.status, "verified");
       assert.equal(readFileSync(path.join(rootDir, "harness/context/managed.md"), "utf8"), body);
-      assert.equal(git(rootDir, "ls-files", "--stage"), beforeIndex);
+      assert.equal(git(rootDir, "ls-files", "--stage", "--", "harness/.gitattributes"), beforeUnrelatedIndex);
+      for (const managed of ["harness/context/managed.md", "harness/events/segments/manifest.json"])
+        assert.match(
+          git(rootDir, "ls-files", "--stage", "--", managed),
+          new RegExp(git(rootDir, "rev-parse", `HEAD:${managed}`), "u"),
+        );
     }
   } finally {
     await store.drain();

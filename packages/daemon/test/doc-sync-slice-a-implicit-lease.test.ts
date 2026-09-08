@@ -77,10 +77,6 @@ test("confirmed full submit applies prose after its heading is rewritten", async
     >;
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
     await waitForWorktree(cell, submitted, binding);
-    assert.match(
-      String(submitted.summary),
-      /skipped:\nevents\/segments\/manifest\.json\tblocked\tpath is owned by canonical-event/u,
-    );
     const event = makeTaskEventReader({ repoId, rootDir }).readEvent(String(submitted.opId));
     assert.equal(event?.schema, "doc-event/v1");
     if (event?.schema === "doc-event/v1")
@@ -90,6 +86,7 @@ test("confirmed full submit applies prose after its heading is rewritten", async
       );
     assert.equal(readFileSync(path.join(rootDir, "harness/context/eligible.md"), "utf8"), "# Eligible\n\nship me\n");
     assert.equal(readFileSync(path.join(rootDir, "harness/context/blocked.md"), "utf8"), "# Renamed\n\nbase\n");
+    write(rootDir, "events/segments/manifest.json", "{}\n");
     const unconfirmed = (await cell.run({ kind: "doc-submit", paths: [] }, binding)) as Record<string, unknown>;
     assert.equal(unconfirmed.outcome, "op_rejected", JSON.stringify(unconfirmed));
     assert.equal(unconfirmed.code, "preview_blocked");

@@ -401,6 +401,13 @@ export const localGitObjectRefStore = Object.freeze({
 });
 export const localGitWorktreeSettlement = Object.freeze({
   readNode,
+  indexedPaths: (repoRoot: string, scopes: readonly string[]): readonly string[] =>
+    scopes.length === 0
+      ? []
+      : localGitBytes(repoRoot, ["ls-files", "-z", "--", ...scopes])
+          .toString("utf8")
+          .split("\0")
+          .filter(Boolean),
   changesFingerprint: (repoRoot: string, scope: string, ignored: ReadonlySet<string> = new Set()): string | null => {
     const entries = runGit(repoRoot, "status", "--porcelain=v1", "--untracked-files=all", "-z", "--", scope)
       .split("\0")
