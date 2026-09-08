@@ -3,7 +3,13 @@ import { CaretDown, Check, MagnifyingGlass, Star, X } from "@phosphor-icons/reac
 import type { CloseoutReadiness, EngineId, Freshness, SnapshotStatus, TaskRow } from "../model/types";
 import { BOARD_COLUMNS } from "../model/types";
 import { STATUS_META } from "./badges";
-import { DEFAULT_TASK_FILTERS, hasActiveTaskFilters, taskFilterSummary, type TaskFilters } from "../model/taskFilters";
+import {
+  DEFAULT_TASK_FILTERS,
+  GRAPH_FOCUS_RECENT_WINDOW_DAYS,
+  hasActiveTaskFilters,
+  taskFilterSummary,
+  type TaskFilters,
+} from "../model/taskFilters";
 import { t } from "../i18n/index.tsx";
 
 const CLOSEOUTS: (CloseoutReadiness | "all")[] = [
@@ -143,6 +149,7 @@ export function TaskFilterBar({
   onChange,
   contextLabel,
   favorites,
+  coldTerminalCount,
 }: {
   tasks: readonly TaskRow[];
   filteredCount: number;
@@ -150,6 +157,8 @@ export function TaskFilterBar({
   onChange: (filters: TaskFilters) => void;
   contextLabel: string;
   favorites?: ReadonlySet<string>;
+  /** 看板冷终态计数(W8):折叠态显形「已折叠 N」,点击展开;两种状态都可见,不静默截断。 */
+  coldTerminalCount?: number;
 }) {
   const modules = [
     ...new Set(tasks.flatMap((task) => (task.moduleKeys?.length ? task.moduleKeys : [task.module]))),
@@ -213,6 +222,28 @@ export function TaskFilterBar({
         >
           {t("components.taskFilterBar.archive")}
         </button>
+
+        {typeof coldTerminalCount === "number" && coldTerminalCount > 0 && (
+          <button
+            type="button"
+            role="switch"
+            aria-checked={filters.expandColdTerminal}
+            data-testid="board-cold-terminal-toggle"
+            onClick={() => patch({ expandColdTerminal: !filters.expandColdTerminal })}
+            title={t("components.taskFilterBar.coldTerminalSwitchTitle", {
+              days: GRAPH_FOCUS_RECENT_WINDOW_DAYS,
+            })}
+            className={`rounded-md border px-3 py-1.5 ui-body transition-colors duration-100 ${
+              filters.expandColdTerminal
+                ? "border-border-strong bg-surface-raised text-text"
+                : "border-border text-text-muted hover:bg-surface-raised"
+            }`}
+          >
+            {filters.expandColdTerminal
+              ? t("components.taskFilterBar.collapseColdTerminalCount", { count: coldTerminalCount })
+              : t("components.taskFilterBar.expandColdTerminalCount", { count: coldTerminalCount })}
+          </button>
+        )}
 
         {favorites && favoriteCount > 0 && (
           <button

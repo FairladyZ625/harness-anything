@@ -4,7 +4,7 @@ import type { TaskRow, SnapshotStatus, RelationEdge } from "../model/types";
 import { BOARD_COLUMNS, isExternal } from "../model/types";
 import { STATUS_META, CloseoutBadge, DecisionSourceBadge, FreshnessTag, freshnessBorder } from "../components/badges";
 import { spawningDecisionOf } from "../model/triadic";
-import { sortByPinAndFavoritesFirst } from "../model/taskFilters";
+import { sortByRecentThenPinAndFavoritesFirst } from "../model/taskFilters";
 
 export type LaneGroupBy = "module" | "engine" | "root" | "productLine";
 
@@ -199,12 +199,8 @@ function DrilldownPanel({
   }
 
   const meta = STATUS_META[active.status];
-  const sorted = sortByPinAndFavoritesFirst(
-    tasks,
-    (task) => task.pinned === true,
-    (task) => task.taskId,
-    favorites,
-  );
+  // 下钻默认序(W8):lastKnownAt 倒序打底,pin → 收藏稳定置顶,与列模式同构。
+  const sorted = sortByRecentThenPinAndFavoritesFirst(tasks, favorites);
   const laneLabel = groupLabelOf(active.lane, groupBy, allTasks);
 
   return (
@@ -288,11 +284,17 @@ export function SwimlaneBoard({
       if (group) group.push(task);
       else grouped.set(key, [task]);
     }
+    // 组内按 lastKnownAt 倒序(W8):组首即组内最新活动,泳道行序与单元格预览都取它。
+    for (const group of grouped.values()) group.sort((a, b) => b.lastKnownAt.localeCompare(a.lastKnownAt));
     return grouped;
   }, [groupBy, tasks]);
   // 完整渲染,不分批(2026-08-25 泽宇裁决:性能顾虑用按需渲染解决,不转嫁给用户点击):
   // 每条泳道行带 content-visibility:auto,离屏行的布局与绘制由渲染器跳过。
-  const lanes = useMemo(() => [...tasksByLane.keys()], [tasksByLane]);
+  // 泳道行序(W8):组内最新 lastKnownAt 倒序,最近活动的泳道在上。
+  const lanes = useMemo(() => {
+    const latestByLane = [...tasksByLane].map(([lane, group]) => [lane, group[0]?.lastKnownAt ?? ""] as const);
+    return latestByLane.sort(([, a], [, b]) => b.localeCompare(a)).map(([lane]) => lane);
+  }, [tasksByLane]);
 
   useEffect(() => {
     if (activeCell && !lanes.includes(activeCell.lane)) setActiveCell(null);
