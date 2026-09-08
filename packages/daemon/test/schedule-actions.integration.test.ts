@@ -79,12 +79,41 @@ test("run-now launches only after an applied claim, stays single-flight, and set
           authReadiness: { status: "ready", code: null, hint: null },
           isolationState: "enforced",
         },
+        {
+          schemaVersion: 2,
+          instanceId: "codex-schedule-secondary",
+          name: "Schedule Codex Secondary",
+          kindId: definition.kindId,
+          installationId: definition.installationId,
+          providerId: "openai-secondary",
+          models: [definition.model],
+          defaultModel: definition.model,
+          enabled: true,
+          permissionMode: "workspace-write",
+          codex: {
+            reasoningEffort: "high",
+            fast: true,
+            baseUrl: null,
+            baseUrlConfigured: false,
+            wire_api: null,
+            requires_openai_auth: null,
+            http_headers: null,
+          },
+          authMode: "api-key",
+          authState: "configured",
+          authReadiness: { status: "ready", code: null, hint: null },
+          isolationState: "enforced",
+        },
       ],
-      prepareRuntimeLaunch: async (_instanceId, request) => {
+      prepareRuntimeLaunch: async (instanceId, request) => {
         preparedPermissionMode = request.permissionMode;
         preparedFast = request.fast;
+        const preparedDefinition =
+          instanceId === definition.instanceId
+            ? definition
+            : { ...definition, instanceId, providerId: "openai-secondary" };
         return {
-          definition,
+          definition: preparedDefinition,
           installation: {
             installationId: definition.installationId,
             kindId: definition.kindId,
@@ -132,7 +161,7 @@ test("run-now launches only after an applied claim, stays single-flight, and set
                 instructions: "Run the exact probe mission.",
                 runtime_type: "codex",
                 fallback: {
-                  chain: [{ instance: definition.instanceId }, { instance: definition.instanceId }],
+                  providerPriority: [definition.providerId, "openai-secondary"],
                   backoff: { baseMs: 1, maxMs: 1 },
                 },
               },

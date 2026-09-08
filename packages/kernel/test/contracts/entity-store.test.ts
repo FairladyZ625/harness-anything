@@ -100,15 +100,22 @@ test("registered declaration Entity kinds explain the same contract shape from t
   );
 });
 
-test("Agent fallback is an exact chain-bounded attempt declaration", () => {
+test("Agent fallback declares local provider priority without runtime instances", () => {
   const fallback = {
-    chain: [{ instance: "provider-a" }, { instance: "provider-b", model: "model-b" }],
+    providerPriority: ["provider-a", "provider-b"],
     backoff: { baseMs: 25, maxMs: 100 },
   };
   assert.deepEqual(validateAgentDeclarationV1({ ...agent, fallback }), []);
   assert.match(
     validateAgentDeclarationV1({ ...agent, fallback: { ...fallback, unknown: true } }).join("\n"),
     /fallback.*unknown/u,
+  );
+  assert.match(
+    validateAgentDeclarationV1({
+      ...agent,
+      fallback: { ...fallback, providerPriority: ["provider-a", "provider-a"] },
+    }).join("\n"),
+    /providerPriority/u,
   );
   assert.match(
     validateAgentDeclarationV1({ ...agent, fallback: { ...fallback, enabled: true } }).join("\n"),

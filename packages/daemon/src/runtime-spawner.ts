@@ -452,12 +452,21 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             }).document.body;
           })()
         : undefined,
+      runtimeSessions = input.remote ? await input.remote.readRuntimeSessions() : projection!.readRuntimeSessions(),
       fallbackAttempt =
         inheritedFallback ??
-        initialFallbackAttempt(agent, explicitRuntimeInstanceId, model, providerSessionId, idempotencyKey, mission),
+        initialFallbackAttempt(
+          agent,
+          explicitRuntimeInstanceId,
+          model,
+          providerSessionId,
+          idempotencyKey,
+          mission,
+          input.runtimeInstances?.() ?? [],
+          runtimeSessions,
+        ),
       fallbackCandidate = fallbackAttempt?.candidates[fallbackAttempt.attemptIndex],
       selectedModel = fallbackCandidate?.model ?? model ?? agent?.model ?? undefined,
-      runtimeSessions = input.remote ? await input.remote.readRuntimeSessions() : projection!.readRuntimeSessions(),
       runtimeInstanceId = await resolveRuntimeInstanceId({
         requested: fallbackCandidate?.instance ?? explicitRuntimeInstanceId,
         providerSessionId: providerSessionId ?? undefined,

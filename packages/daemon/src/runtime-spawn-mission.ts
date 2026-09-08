@@ -64,21 +64,23 @@ export function dispatchMissionForPermission(mission: string, permissionMode: st
   ].join("\n");
 }
 
-export async function resolveRuntimeInstanceId(input: {
+export function resolveRuntimeInstanceCandidates(input: {
   readonly requested?: string;
   readonly providerSessionId?: string;
   readonly agent: RuntimeAgent | null;
   readonly model?: string;
+  /** The concrete kind selected for an unbound runtime dispatch. */
+  readonly runtimeType?: string;
   readonly instances: readonly RuntimeInstanceSummary[];
   readonly sessions: readonly RuntimeSessionSelection[];
-}): Promise<string> {
+}): string[] {
   if (input.providerSessionId) {
     const session = input.sessions.find((row) => row.providerSessionId === input.providerSessionId);
-    if (session) return session.instanceId;
+    if (session) return [session.instanceId];
   }
-  if (input.requested) return input.requested;
+  if (input.requested) return [input.requested];
   const declaredModel = input.model ?? input.agent?.model;
-  const declaredType = input.agent?.runtime_type;
+  const declaredType = input.runtimeType ?? input.agent?.runtime_type;
   const typed = input.instances.filter(
     (instance) =>
       instance.enabled &&
@@ -127,13 +129,31 @@ export async function resolveRuntimeInstanceId(input: {
   for (const session of input.sessions)
     if (session.liveness === "live" && active.has(session.instanceId))
       active.set(session.instanceId, (active.get(session.instanceId) ?? 0) + 1);
-  const selected = [...ready].sort(
-    (a, b) =>
-      (active.get(a.instanceId) ?? 0) - (active.get(b.instanceId) ?? 0) || a.instanceId.localeCompare(b.instanceId),
-  )[0];
+  const providerPriority = input.agent?.fallback?.providerPriority ?? [];
+  const providerRank = new Map(providerPriority.map((provider, index) => [provider, index]));
+  return [...ready]
+    .sort(
+      (a, b) =>
+        (providerRank.get(a.providerId) ?? providerPriority.length) -
+          (providerRank.get(b.providerId) ?? providerPriority.length) ||
+        (active.get(a.instanceId) ?? 0) - (active.get(b.instanceId) ?? 0) ||
+        a.instanceId.localeCompare(b.instanceId),
+    )
+    .map((instance) => instance.instanceId);
+}
+
+export async function resolveRuntimeInstanceId(input: {
+  readonly requested?: string;
+  readonly providerSessionId?: string;
+  readonly agent: RuntimeAgent | null;
+  readonly model?: string;
+  readonly instances: readonly RuntimeInstanceSummary[];
+  readonly sessions: readonly RuntimeSessionSelection[];
+}): Promise<string> {
+  const [selected] = resolveRuntimeInstanceCandidates(input);
   if (!selected)
     throw runtimeSpawnError("agent_runtime_unavailable", "No enabled runtime instance is available for this dispatch.");
-  return selected.instanceId;
+  return selected;
 }
 
 export function deriveTaskMission(

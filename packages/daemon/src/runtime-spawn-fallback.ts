@@ -1,7 +1,9 @@
 import { createHash } from "node:crypto";
 import { runtimeSpawnError } from "./runtime-spawn-errors.ts";
-import type { RuntimeAgent } from "./runtime-spawn-types.ts";
+import type { RuntimeAgent, RuntimeSessionSelection } from "./runtime-spawn-types.ts";
 import type { RuntimeAttemptOutcome, RuntimeFallbackAttempt } from "./runtime-fallback-contract.ts";
+import { resolveRuntimeInstanceCandidates } from "./runtime-spawn-mission.ts";
+import type { RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
 
 export function requiredRuntimeFast(value: unknown): boolean {
   if (typeof value !== "boolean") throw runtimeSpawnError("invalid_runtime_fast", "Runtime fast must be a boolean.");
@@ -15,27 +17,55 @@ export function initialFallbackAttempt(
   providerSessionId: string | null | undefined,
   idempotencyKey: string,
   mission: string,
+  instances: readonly RuntimeInstanceSummary[] = [],
+  sessions: readonly RuntimeSessionSelection[] = [],
 ): RuntimeFallbackAttempt | undefined {
-  const declared = agent?.fallback;
-  if (!declared || providerSessionId) return undefined;
-  const requestedIndex =
-    requestedInstance === undefined
-      ? 0
-      : declared.chain.findIndex(
-          (candidate) =>
-            candidate.instance === requestedInstance &&
-            (requestedModel === undefined || candidate.model === undefined || candidate.model === requestedModel),
-        );
+  if (providerSessionId) return undefined;
+  const declared = agent?.fallback,
+    anchorId =
+      requestedInstance ??
+      resolveRuntimeInstanceCandidates({
+        requested: undefined,
+        agent,
+        model: requestedModel ?? agent?.model,
+        instances,
+        sessions,
+      })[0],
+    anchor = instances.find((instance) => instance.instanceId === anchorId);
+  const model = requestedModel ?? agent?.model ?? anchor?.defaultModel;
+  if (!anchor || !model) return undefined;
+  const runtimeType = agent?.runtime_type === "any" ? anchor.kindId : (agent?.runtime_type ?? anchor.kindId);
+  if (
+    requestedInstance &&
+    (!anchor.enabled ||
+      !anchor.models.includes(model) ||
+      (anchor.authReadiness.status !== "ready" && anchor.authReadiness.code !== "runtime_auth_not_checked") ||
+      (runtimeType !== "any" && runtimeType !== anchor.kindId))
+  )
+    return undefined;
+  const derivedInstances = resolveRuntimeInstanceCandidates({
+      requested: undefined,
+      agent,
+      model,
+      runtimeType,
+      instances,
+      sessions,
+    }),
+    requestedIndex = requestedInstance ? derivedInstances.indexOf(requestedInstance) : 0,
+    candidates = derivedInstances.slice(requestedIndex).map((instance) => ({ instance, model }));
   if (requestedIndex < 0) return undefined;
-  const candidates = declared.chain.slice(requestedIndex),
-    digest = createHash("sha256").update(`${agent!.id}\0${idempotencyKey}`).digest("hex");
+  if (candidates.length < 2) return undefined;
+  const backoff = declared?.backoff ?? { baseMs: 0, maxMs: 0 },
+    digest = createHash("sha256")
+      .update(`${agent?.id ?? requestedInstance ?? "runtime"}\0${idempotencyKey}`)
+      .digest("hex");
   return {
     attemptGroupId: `attempt_${digest.slice(0, 24)}`,
     attemptIndex: 0,
     rootIdempotencyKey: idempotencyKey,
     originalMission: mission,
     candidates,
-    backoff: declared.backoff,
+    backoff,
   };
 }
 

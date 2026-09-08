@@ -32,11 +32,16 @@ const behaviors = new Map<string, Behavior>([
   ["provider-success-second", "success"],
   ["provider-rate-a", "429"],
   ["provider-rate-b", "429"],
+  ["provider-rate-c", "success"],
   ["provider-stop-first", "worker_stop"],
   ["provider-unused-second", "success"],
   ["provider-restart-first", "429"],
   ["provider-restart-second", "success"],
   ["provider-empty-success", "empty_success"],
+  ["provider-bare-first", "429"],
+  ["provider-bare-second", "success"],
+  ["provider-bare-cross-kind", "success"],
+  ["provider-bare-other-model", "success"],
 ]);
 
 test("provider fallback switches attempts, exhausts without blocking the task, and never switches on worker_stop", async () => {
@@ -44,7 +49,8 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
     root = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
     instances = [...behaviors.keys()].map(runtimeInstance),
-    prompts = new Map<string, string[]>();
+    prompts = new Map<string, string[]>(),
+    models = new Map<string, string | undefined>();
   let pid = 9000;
   mkdirSync(root);
   git(root, "init", "-q");
@@ -75,6 +81,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
         const instanceId = prepared.definition.instanceId,
           behavior = behaviors.get(instanceId);
         assert.ok(behavior, `missing fake behavior for ${instanceId}`);
+        models.set(instanceId, prepared.definition.model);
         prompts.set(instanceId, [...(prompts.get(instanceId) ?? []), prepared.prompt]);
         return fakeProcess(++pid, behavior);
       },
@@ -83,7 +90,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
   try {
     await installAgent(cell, "fallback-success", [
       { instance: "provider-rate-first" },
-      { instance: "provider-success-second", model: "provider-success-model" },
+      { instance: "provider-success-second" },
     ]);
     await startTask(cell, root, "task_provider_fallback_success", "execution-provider-fallback-success");
     await cell.spawnRuntime(
@@ -111,7 +118,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
     assert.match(prompts.get("provider-success-second")?.[0] ?? "", /# Provider fallback continuation/u);
     assert.match(
       prompts.get("provider-success-second")?.[0] ?? "",
-      /上次 attempt 用 provider-rate-first\/provider-rate-first-model 因/u,
+      /上次 attempt 用 provider-rate-first\/provider-success-model 因/u,
     );
     assert.doesNotMatch(prompts.get("provider-success-second")?.[0] ?? "", /sk-provider-fallback-secret/u);
     const runtimeStatus = await cell.read("repo.agentRuntime.sessions.read", {
@@ -189,6 +196,39 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
     );
     assert.equal(restartedTask.outcome, "applied", JSON.stringify(restartedTask));
 
+    await installAgent(cell, "fallback-explicit-priority", [
+      { instance: "provider-rate-a" },
+      { instance: "provider-rate-b" },
+      { instance: "provider-rate-c" },
+    ]);
+    await startTask(
+      cell,
+      root,
+      "task_provider_fallback_explicit_priority",
+      "execution-provider-fallback-explicit-priority",
+    );
+    await cell.spawnRuntime(
+      {
+        agentId: "fallback-explicit-priority",
+        runtimeInstanceId: "provider-rate-b",
+        cwd: { scope: "repo-root" },
+        prompt: "Continue only after the requested provider.",
+        taskId: "task_provider_fallback_explicit_priority",
+        idempotencyKey: "provider-fallback-explicit-priority",
+      },
+      binding,
+    );
+    const explicitPriority = await eventually(async () => {
+      const rows = (await cell.read("repo.task.dispatches", { taskId: "task_provider_fallback_explicit_priority" }))
+        .dispatches;
+      return rows.length >= 2 ? rows : null;
+    });
+    assert.deepEqual(
+      explicitPriority.slice(0, 2).map(({ provider }) => provider.instance),
+      ["provider-rate-b", "provider-rate-c"],
+      "an explicit provider must continue only through later configured providers",
+    );
+
     await installAgent(cell, "fallback-worker-stop", [
       { instance: "provider-stop-first" },
       { instance: "provider-unused-second" },
@@ -261,6 +301,27 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
       return rows.length === 2 && rows[1]?.status === "succeeded" ? rows : null;
     });
     assertAttemptChain(restarted, ["provider-restart-first", "provider-restart-second"]);
+
+    await startTask(cell, root, "task_provider_fallback_bare", "execution-provider-fallback-bare");
+    await cell.spawnRuntime(
+      {
+        runtimeInstanceId: "provider-bare-first",
+        cwd: { scope: "repo-root" },
+        prompt: "Fall back without an Agent declaration.",
+        taskId: "task_provider_fallback_bare",
+        idempotencyKey: "provider-fallback-bare",
+      },
+      binding,
+    );
+    const bare = await eventually(async () => {
+      const rows = (await cell.read("repo.task.dispatches", { taskId: "task_provider_fallback_bare" })).dispatches;
+      return rows.length === 2 && rows[1]?.status === "succeeded" ? rows : null;
+    });
+    assertAttemptChain(bare, ["provider-bare-first", "provider-bare-second"]);
+    assert.equal(models.get("provider-bare-first"), "bare-model");
+    assert.equal(models.get("provider-bare-second"), "bare-model");
+    assert.equal(models.has("provider-bare-cross-kind"), false);
+    assert.equal(models.has("provider-bare-other-model"), false);
   } finally {
     await cell.close();
     rmSync(parent, { recursive: true, force: true });
@@ -311,8 +372,9 @@ test("repeated adoption dispatches one durable fallback continuation", async () 
       name: "Fallback Adopt Twice",
       instructions: "Exercise durable fallback adoption.",
       runtime_type: "codex",
+      model: "provider-success-model",
       fallback: {
-        chain: [{ instance: "provider-adopt-first" }, { instance: "provider-adopt-next" }],
+        providerPriority: ["provider-adopt-first", "provider-adopt-next"],
         backoff: { baseMs: 500, maxMs: 500 },
       },
     },
@@ -395,7 +457,7 @@ test("repeated adoption dispatches one durable fallback continuation", async () 
 async function installAgent(
   cell: Awaited<ReturnType<typeof openRepoCell>>,
   agentId: string,
-  chain: readonly { readonly instance: string; readonly model?: string }[],
+  providers: readonly { readonly instance: string }[],
   backoff = { baseMs: 1, maxMs: 2 },
 ): Promise<void> {
   const receipt = await cell.run(
@@ -407,7 +469,8 @@ async function installAgent(
         name: agentId,
         instructions: "Execute the assigned mission.",
         runtime_type: "codex",
-        fallback: { chain, backoff },
+        model: "provider-success-model",
+        fallback: { providerPriority: providers.map(({ instance }) => instance), backoff },
       },
     },
     binding,
@@ -445,15 +508,22 @@ function assertAttemptChain(rows: readonly TaskDispatchRow[], providers: readonl
 }
 
 function runtimeInstance(instanceId: string): RuntimeInstanceSummary {
+  const bare = instanceId.startsWith("provider-bare-"),
+    crossKind = instanceId === "provider-bare-cross-kind",
+    defaultModel = bare
+      ? instanceId === "provider-bare-other-model"
+        ? "other-model"
+        : "bare-model"
+      : `${instanceId}-model`;
   return {
     schemaVersion: 2,
     instanceId,
     name: instanceId,
-    kindId: "codex",
+    kindId: crossKind ? "claude" : "codex",
     installationId: installation.installationId,
-    providerId: "openai",
-    models: [`${instanceId}-model`, "provider-success-model"],
-    defaultModel: `${instanceId}-model`,
+    providerId: instanceId,
+    models: [defaultModel, "provider-success-model"],
+    defaultModel,
     enabled: true,
     permissionMode: "read-only",
     codex: {
