@@ -1,4 +1,7 @@
 import type { SafePath } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
+import { consumeKnownError } from "../../../kernel/src/index.ts";
+import { execFileSync } from "node:child_process";
+import path from "node:path";
 import { parseDecision } from "./thin-command-decision.ts";
 import { parseDoc } from "./thin-command-doc.ts";
 import { parseFact } from "./thin-command-fact.ts";
@@ -22,7 +25,12 @@ export function parseRouted(
   if (!route) return undefined;
   const rootCommand = route.path[0];
   if (route.id === "repo-bootstrap") {
-    const f = readFlags(route.id, args.slice(1), inputs);
+    const defaults = resolveBootstrapDefaults(rootDir),
+      bootstrapArgs = [...args.slice(1)];
+    appendDefaultFlag(bootstrapArgs, "--repo-id", defaults.repoId);
+    appendDefaultFlag(bootstrapArgs, "--person-id", defaults.personId);
+    appendDefaultFlag(bootstrapArgs, "--display-name", defaults.displayName);
+    const f = readFlags(route.id, bootstrapArgs, inputs);
     if (!f.ok) return rejected(f.code, f.nextAction, json);
     const name = f.one.get("--name");
     return accepted(rootDir, undefined, json, {
@@ -106,6 +114,50 @@ export function parseRouted(
   if (route.phase.startsWith("Preset-") || rootCommand === "agent" || rootCommand === "squad")
     return parsePreset(route, args, rootDir, repoId, json, inputs);
   return undefined;
+}
+
+function appendDefaultFlag(args: string[], name: string, value: string | undefined): void {
+  if (value !== undefined && !args.some((token) => token === name || token.startsWith(`${name}=`)))
+    args.push(name, value);
+}
+
+export interface BootstrapDefaults {
+  readonly repoId: string;
+  readonly personId: string | undefined;
+  readonly displayName: string | undefined;
+}
+
+export function resolveBootstrapDefaults(rootDir: SafePath): BootstrapDefaults {
+  const base = path
+      .basename(rootDir)
+      .toLowerCase()
+      .replace(/[^a-z0-9-]+/gu, "-")
+      .replace(/^-+|-+$/gu, ""),
+    repoId = /^[a-z]/u.test(base) ? base.slice(0, 63) : `repo-${base || "workspace"}`.slice(0, 63),
+    displayName = readGitConfig(rootDir, "user.name"),
+    personId = displayName === undefined ? undefined : `person-${slug(displayName)}`;
+  return { repoId, personId, displayName };
+}
+
+function readGitConfig(rootDir: SafePath, key: string): string | undefined {
+  try {
+    const value = execFileSync("git", ["-C", rootDir, "config", "--get", key], {
+      encoding: "utf8",
+      windowsHide: true,
+    }).trim();
+    return value || undefined;
+  } catch (error) {
+    consumeKnownError(error);
+    return undefined;
+  }
+}
+
+function slug(value: string): string {
+  const normalized = value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/gu, "-")
+    .replace(/^-+|-+$/gu, "");
+  return /^[a-z]/u.test(normalized) ? normalized.slice(0, 56) : `user-${normalized || "owner"}`.slice(0, 56);
 }
 
 function parseLedgerReconcileRouted(

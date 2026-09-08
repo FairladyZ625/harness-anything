@@ -1,13 +1,29 @@
 # Install
 
-Harness Anything currently runs from a source checkout with Node.js 24 or newer. The supported desktop entry is
-`ha gui`; launching a packaged Electron executable directly is not a supported production path.
+The 0.0.1 CLI candidate runs from an npm package with Node.js 24 or newer. The supported desktop entry remains the
+source-installed `ha gui`; launching a packaged Electron executable directly is not a supported production path.
 
 ## Requirements
 
 - Node.js 24 or newer and npm.
 - `git`.
 - An existing git repository you can initialize or one already registered with the local daemon.
+
+## Install the npm CLI candidate
+
+From a Harness Anything checkout, build and install the scoped package locally:
+
+```bash
+npm ci
+npm pack --workspace @harness-anything/cli
+npm install --global ./harness-anything-cli-0.0.1.tgz
+ha --version
+```
+
+The candidate is validated with `npm publish --dry-run`; this task does not claim a registry publication.
+
+`ha init` needs no arguments in the usual case. It derives the repository id from the current directory and the owner
+identity from `git config user.name`; explicit values override those defaults.
 
 ## Install the source CLI and GUI
 

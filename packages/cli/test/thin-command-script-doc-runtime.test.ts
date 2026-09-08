@@ -5,6 +5,7 @@ import test from "node:test";
 import { parseRuntimeBatchEntry } from "../src/cli-runtime-batch-input.ts";
 import { runtimeBatchSpawnAction } from "../src/cli-runtime-batch.ts";
 import { parseThinCommand } from "../src/cli/thin-command.ts";
+import { resolveBootstrapDefaults } from "../src/cli/thin-command-router.ts";
 
 test("thin parser converts the sole preset script target into closed typed start params", () => {
   const parsed = parseThinCommand([
@@ -44,6 +45,18 @@ test("thin parser converts the sole preset script target into closed typed start
       .ok,
     false,
   );
+});
+
+test("init fills repository and owner identity from the workspace and git config", () => {
+  const parsed = parseThinCommand(["init"]),
+    defaults = resolveBootstrapDefaults(parsed.ok ? parsed.command.rootDir : process.cwd());
+  assert.equal(parsed.ok, true);
+  if (parsed.ok) {
+    assert.equal(parsed.command.action.kind, "repo-bootstrap");
+    assert.equal(parsed.command.action.repoId, defaults.repoId);
+    assert.equal(parsed.command.action.personId, defaults.personId);
+    assert.equal(parsed.command.action.displayName, defaults.displayName);
+  }
 });
 
 test("thin doc commands derive descriptor-only actions from the protocol directory", () => {
@@ -155,7 +168,10 @@ test("thin parser exposes daemon-backed workspace bootstrap", () => {
       name: "Alpha Project",
       addNpmScripts: true,
     });
-  assert.equal(parseThinCommand(["init", "--repo-id", "alpha", "--person-id", "owner"]).ok, false);
+  const defaults = parseThinCommand(["init", "--repo-id", "alpha", "--person-id", "owner"]);
+  assert.equal(defaults.ok, true);
+  if (defaults.ok)
+    assert.equal(defaults.command.action.displayName, resolveBootstrapDefaults(defaults.command.rootDir).displayName);
   const configureOnly = parseThinCommand([
     "init",
     "--repo-id",
