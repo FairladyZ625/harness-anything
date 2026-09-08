@@ -5,7 +5,6 @@ import {
 import { existsSync, lstatSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import {
-  canonicalDocumentClaims,
   classifyDocSyncCandidatePath,
   classifyTextualArtifactPath,
   decideDocWriteCriteria,
@@ -17,7 +16,6 @@ import {
   resolveHarnessLayout,
   resolveLedgerGitLayout,
   resolveTaskBoundRuntimeBinding,
-  resolveRetirableDocument,
   runtimeSessionIdFromActor,
   isSameExecution,
   isTaskBoundRuntimeWriter,
@@ -27,7 +25,6 @@ import {
   type ActorIdentity,
   type CanonicalEventStore,
   type DocWriteIntent,
-  type DocumentState,
   type LedgerCutIdentity,
   type TaskProjection,
   type WriteSource,
@@ -70,7 +67,6 @@ export interface AuthoredCandidateInventoryV1 {
     readonly size: number | null;
     readonly bytes: Uint8Array | null;
     readonly conflicts: readonly string[];
-    readonly legacyDocument: DocumentState | null;
   }[];
 }
 
@@ -105,19 +101,10 @@ export function scanDocCandidates(input: {
     enumerationScope = taskPrefix ?? "",
     selected = input.selection?.map((value) => documentPath(normalizeSelectedPath(ledger.authoredPrefix, value))),
     inventoryByPath = new Map(input.inventory?.rows.map((row) => [row.path, row] as const) ?? []),
-    events = input.inventory ? [] : input.store.read().events,
-    pendingPaths = input.inventory
-      ? []
-      : events
-          .filter((event) => input.store.publication(event).commitSha === null)
-          .flatMap((event) => canonicalDocumentClaims(event).map((claim) => claim.path)),
     candidates = selected?.length
       ? [...new Set(selected)]
       : [
-          ...new Set([
-            ...(input.inventory?.rows.map((row) => row.path) ?? dirtyPaths(ledger.rootDir, ledger.authoredPrefix)),
-            ...pendingPaths,
-          ]),
+          ...new Set(input.inventory?.rows.map((row) => row.path) ?? dirtyPaths(ledger.rootDir, ledger.authoredPrefix)),
         ].filter((value) => value.startsWith(enumerationScope)),
     paths = candidates
       .filter(
@@ -181,13 +168,7 @@ export function scanDocCandidates(input: {
           ? readFileSync(target)
           : null,
       bytes = rawBytes === null ? null : canonicalProseBytes(rawBytes, classification?.policyId),
-      retirementBase =
-        bytes === null
-          ? (projected.document ??
-            inventoried?.legacyDocument ??
-            resolveRetirableDocument(input.rootDir, document, projected.document, events))
-          : projected.document,
-      base = retirementBase?.blobSha256 ?? null,
+      base = projected.document?.blobSha256 ?? null,
       candidate = bytes === null ? null : sha256Bytes(bytes);
     if (!route.allowed) {
       if (route.requiredRoute === "people-registry" && safe && candidate !== null && base === null)
@@ -273,14 +254,14 @@ export function scanDocCandidates(input: {
       );
     if (bytes === null)
       return scannedCandidateRow(
-        retirementBase ? "deletion" : "clean",
-        retirementBase ? "canonical document is missing from the worktree" : null,
+        projected.document ? "deletion" : "clean",
+        projected.document ? "canonical document is missing from the worktree" : null,
         null,
         base,
         null,
         null,
-        retirementBase ? "deletion_forbidden" : null,
-        retirementBase ? "deletion_forbidden" : null,
+        projected.document ? "deletion_forbidden" : null,
+        projected.document ? "deletion_forbidden" : null,
       );
     const { mediaType, policyId } = classification;
     if (candidate === base)
@@ -389,7 +370,6 @@ export function scanAuthoredCandidateInventory(input: {
 }): AuthoredCandidateInventoryV1 {
   const layout = resolveHarnessLayout(input.rootDir),
     ledger = resolveLedgerGitLayout(input.rootDir),
-    events = input.store.read().events,
     paths = dirtyPaths(ledger.rootDir, ledger.authoredPrefix).sort();
   return {
     schema: "harness-authored-candidate-inventory/v1",
@@ -411,8 +391,6 @@ export function scanAuthoredCandidateInventory(input: {
         size,
         bytes,
         conflicts: candidateConflicts(input.rootDir, layout.authoredRoot, logical),
-        legacyDocument:
-          bytes === null ? resolveRetirableDocument(input.rootDir, documentPath(logical), null, events) : null,
       };
     }),
   };

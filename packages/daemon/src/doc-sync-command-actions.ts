@@ -222,7 +222,6 @@ async function runLocalDocConflictExit(input: Input): Promise<WriteReceipt> {
             size: sourceBytes.byteLength,
             bytes: sourceBytes,
             conflicts: [],
-            legacyDocument: null,
           },
         ],
       },

@@ -152,6 +152,12 @@ test("RepoCell runs only declared vertical scripts and dry-run publishes the sam
       binding,
     );
     assert.equal(proposed.outcome, "applied", JSON.stringify(proposed));
+    const decisionPublished = await cell.run(
+      { kind: "receipt-show", opId: proposed.opId, waitFor: ["worktree_visible"], timeoutMs: 5000 },
+      binding,
+    );
+    assert.equal(decisionPublished.wait?.state, "satisfied", JSON.stringify(decisionPublished));
+
     const conformance = await cell.run(
       {
         ...action,
