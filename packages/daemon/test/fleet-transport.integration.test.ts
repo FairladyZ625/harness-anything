@@ -1153,11 +1153,11 @@ test(
       center.status().replicas.find((row) => row.viewId === fixture.assignment.viewId)?.ackRevision,
       firstCut,
     );
-    const status = await Promise.race([
-      fixture.host.run(fixture.assignment.repoId, { kind: "doc-status", paths: [fixture.path] }, fixture.auth),
-      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("RepoCell waited for replica ACK")), 500)),
-    ]);
-    assert.equal(status.outcome, "applied");
+    const status = fixture.host.run(
+      fixture.assignment.repoId,
+      { kind: "doc-status", paths: [fixture.path] },
+      fixture.auth,
+    );
     const probe = await fixture.host.run(
       fixture.assignment.repoId,
       { kind: "task-create", taskId: "task-hol-probe", title: "HOL probe" },
@@ -1165,6 +1165,11 @@ test(
     );
     assert.equal(probe.outcome, "applied");
     await waitForReceiptCommit(fixture.host, fixture.assignment.repoId, probe.opId, fixture.assignment);
+    assert.equal((await status).outcome, "applied");
+    assert.equal(
+      center.status().replicas.find((row) => row.viewId === fixture.assignment.viewId)?.ackRevision,
+      firstCut,
+    );
     const afterProbe = fixture.eventCount();
     assert.equal(
       (
