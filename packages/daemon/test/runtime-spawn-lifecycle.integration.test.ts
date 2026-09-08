@@ -1020,6 +1020,7 @@ test("repo-cell restart re-adopts a live native runtime and settles an exit reco
             prompt: request.prompt,
           }),
         });
+    assert.equal(oldLease.epoch, 1);
     cell = await open("re-adopt-before", oldFence);
     const receipt = await cell.spawnRuntime(
       {
@@ -1097,6 +1098,7 @@ test("repo-cell restart re-adopts a live native runtime and settles an exit reco
         withWriterEpochFence: <T>(operation: () => T) =>
           newAuthority!.withAppendFence(repoId, newLease.epoch, newLease.holderId, operation),
       };
+    assert.equal(newLease.epoch, 2);
     cell = await open("re-adopt-after", newFence);
     await assert.rejects(
       cell.run({ kind: "task-create", taskId: "task-stale-runtime-writer", title: "stale runtime writer" }, oldBinding),
