@@ -27,6 +27,8 @@ import type {
   EventFileBatch,
   MaterializationHealth,
   PublicationFile,
+  PublicationWrite,
+  PublicationDelete,
 } from "./task-event-store-types.ts";
 import { TaskEventStoreError } from "./task-event-store-types.ts";
 import { assertAuthorizedReplacements } from "./task-event-store-replacement-authorization.ts";
@@ -251,7 +253,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
 
   const settleFollowerWorktree = (
     currentLedger: ReturnType<typeof ledger>,
-    files: readonly PublicationFile[],
+    files: readonly (PublicationWrite | PublicationDelete)[],
     baseline: ReadonlyMap<string, string>,
     commit: string,
   ): boolean => {
@@ -478,7 +480,7 @@ function followerFiles(
   events: readonly CanonicalEventV1[],
   readContent: (sha256: string) => Uint8Array | null,
   cut: LedgerCutIdentity,
-): PublicationFile[] {
+): (PublicationWrite | PublicationDelete)[] {
   const latest = new Map<string, { body: string; mode: "100644" | "120000" }>(),
     retired = new Set<string>();
   for (const event of events) {
