@@ -120,6 +120,14 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
     });
   await transport.start();
   try {
+    await t.test("doc status RPC reads use one projection session without nesting", async () => {
+      const result = await rpc(host, auth, "repo.task.read", {
+        repo: { repoId },
+        payload: { action: { kind: "doc-status", paths: ["harness.yaml"] } },
+      });
+      assert.equal(result.outcome, "applied", JSON.stringify(result));
+      assert.match(String(result.evidence), /^doc-scan:/u);
+    });
     host.runtimeInstance(
       "daemon.runtimeInstance.create",
       {
@@ -928,6 +936,12 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
           progress.map((event) => event.payload.runtimeSessionId),
           [receipt.runtimeSessionId, receipt.runtimeSessionId],
         );
+        const progressPublished = await host.run(
+          repoId,
+          { kind: "receipt-show", opId: progress.at(-1)!.opId, waitFor: ["worktree_visible"], timeoutMs: 5000 },
+          auth,
+        );
+        assert.equal(progressPublished.wait?.state, "satisfied", JSON.stringify(progressPublished));
         assert.match(
           readFileSync(path.join(root, "harness/tasks/task-runtime-progress-runtime-progress/progress.md"), "utf8"),
           /Worker checkpoint one\.[\s\S]*Worker checkpoint two\./u,
