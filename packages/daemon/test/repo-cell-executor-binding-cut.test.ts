@@ -135,6 +135,9 @@ test("package basename diagnostics name the canonical task id and retry command"
       `ha task artifact add ${taskId} --source <path> --destination <artifact-path>`,
   });
   assert.equal(context.observedActor, null);
+  const retried = await createRepoCellApi(context).run(action, binding);
+  assert.equal(retried.outcome, "applied", JSON.stringify(retried));
+  assert.deepEqual(context.observedActor, runtimeActor);
 });
 
 test("a reviewer bound to an earlier execution receives a reviewer redispatch command", async () => {
