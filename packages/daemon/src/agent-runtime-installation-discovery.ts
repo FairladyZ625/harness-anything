@@ -28,7 +28,10 @@ export async function discoverRuntimeInstallations(
       readonly executablePath: string;
       readonly key: string;
     }[] = [],
-    suffixes = platform === "win32" ? ["", ".cmd", ".exe"] : [""];
+    // Windows resolves commands through PATHEXT. An extensionless file is not
+    // directly launchable by Node, so only inspect executable suffixes here;
+    // test and real installations expose the command through a .cmd/.exe entry.
+    suffixes = platform === "win32" ? [".cmd", ".exe"] : [""];
   for (const directory of (env.PATH ?? "").split(path.delimiter).filter(Boolean))
     for (const { kindId, executable } of runtimeKinds)
       for (const suffix of suffixes) {
@@ -153,9 +156,10 @@ export async function runExecutable(
     readonly captureOutput: boolean;
   },
 ): Promise<string> {
-  const shim = platform === "win32" && /\.(?:cmd|bat)$/iu.test(executablePath);
+  const shim = (platform === "win32" || process.platform === "win32") && /\.(?:cmd|bat)$/iu.test(executablePath);
+  const command = shim && process.platform === "win32" ? process.env.ComSpec ?? process.env.COMSPEC ?? "cmd.exe" : "cmd.exe";
   const stdout = await runProcessTextAsync(
-    shim ? "cmd.exe" : executablePath,
+    shim ? command : executablePath,
     shim ? ["/d", "/s", "/c", `"${executablePath}" ${args.join(" ")}`] : [...args],
     undefined,
     options.env,

@@ -43,7 +43,7 @@ test("ZCode API-key instances materialize one pinned model in their isolated HOM
     const launch = await store.prepareLaunch("zcode-glm", { cwd: "/workspace/repo", prompt: "Probe" }),
       stateRoot = path.join(userRoot, "runtime-instances", "zcode-glm"),
       configPath = path.join(stateRoot, "home", ".zcode", "cli", "config.json");
-    assert.equal(launch.env.HOME, path.join(stateRoot, "home"));
+    assert.equal(launch.env.HOME ?? launch.env.USERPROFILE, path.join(stateRoot, "home"));
     assert.equal(launch.args.includes("--model"), false);
     assert.deepEqual(JSON.parse(readFileSync(configPath, "utf8")), {
       provider: {
@@ -60,7 +60,7 @@ test("ZCode API-key instances materialize one pinned model in their isolated HOM
       },
       model: { main: "bigmodel/GLM-5.3" },
     });
-    assert.equal(statSync(configPath).mode & 0o777, 0o600);
+    if (process.platform !== "win32") assert.equal(statSync(configPath).mode & 0o777, 0o600);
     assert.throws(
       () =>
         store.command({

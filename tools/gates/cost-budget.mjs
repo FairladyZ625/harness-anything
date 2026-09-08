@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { repoRoot } from "./git.mjs";
 import { loadReceipts, verifyReceipt } from "./receipt-verify.mjs";
+import { removeTemporaryDirectory } from "../temporary-directory-cleanup.mjs";
 
 const METRICS = Object.freeze(["projectionRebuildGitProcesses", "firstScreenReadRpcs"]);
 
@@ -61,7 +62,7 @@ function git(rootDir, ...args) {
 
 async function measureProjectionRebuild(fixture) {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-g37-cost-"));
-  let projection;
+  let projection, writer, reader;
   try {
     git(rootDir, "init", "-q");
     mkdirSync(path.join(rootDir, "harness"), { recursive: true });
@@ -79,9 +80,9 @@ async function measureProjectionRebuild(fixture) {
         import("../../packages/kernel/src/domain/task-lifecycle-publication.ts"),
         import("../../packages/kernel/src/store/local-version-control-system.ts"),
       ]);
-    const writer = makeTaskEventStore({ repoId: fixture.repoId, rootDir });
+    writer = makeTaskEventStore({ repoId: fixture.repoId, rootDir });
     for (const event of fixture.events) writer.append({ event, plan: taskLifecycleWritePlan(event), blobs: [] });
-    const reader = makeTaskEventStore({ repoId: fixture.repoId, rootDir });
+    reader = makeTaskEventStore({ repoId: fixture.repoId, rootDir });
     projection = makeTaskProjection({ rootDir, eventStore: reader });
     const before = localGitObjectRefStore.processCount();
     const rebuilt = projection.rebuild();
@@ -91,7 +92,9 @@ async function measureProjectionRebuild(fixture) {
     return processes;
   } finally {
     projection?.close();
-    rmSync(rootDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    await reader?.drain();
+    await writer?.drain();
+    await removeTemporaryDirectory(rootDir, { retryDelayMs: 20 });
   }
 }
 

@@ -11,7 +11,7 @@ test("Fact product code limits legacy facts.md handling to migration cold-read a
     .filter((file) => file.split(path.sep).includes("src"))
     .filter((file) => !file.split(path.sep).includes("dist"))
     .filter((file) => readFileSync(file, "utf8").includes("facts.md"))
-    .map((file) => path.relative(repoRoot, file))
+    .map((file) => path.relative(repoRoot, file).split(path.sep).join("/"))
     .sort();
   assert.deepEqual(mentions, [
     "packages/kernel/src/domain/doc-sync-writer.ts",
