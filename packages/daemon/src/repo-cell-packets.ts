@@ -277,7 +277,10 @@ export function lifecycleReceipt(
     summary =
       event.type === "execution_submitted" && event.payload.supersedesSubmissionId !== undefined
         ? "Submission amended; prior Review and consent pins are stale until reviewed or explicitly consented again."
-        : undefined;
+        : event.type === "execution_submitted"
+          ? "Worker must draft closeout.md before completion with Summary, Verification, Residual Risk, and " +
+            "Same Mechanism Elsewhere; the reviewer verifies and finalizes it against ground truth."
+          : undefined;
   return {
     outcome: "applied",
     opId: event.opId,

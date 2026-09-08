@@ -483,7 +483,10 @@ test("human preset and task receipts print resolved completion contracts byte-fo
       'completionGates: ["ci","code-doc-reconciliation"]',
       expectedContract,
       "next: edit tasks/task-one/task_plan.md, then run ha task start task-one --execution-id <id>",
-      "plan: write the concrete plan at harness/tasks/task-one/task_plan.md",
+      "plan: write the concrete plan at harness/tasks/task-one/task_plan.md; required sections: Brief, Goal, " +
+        "Context, Required Reading, Entry Conditions, Dependencies, Execution Surface, Constraints, Checkpoint, " +
+        "CI/Gate Authority Stop Condition, Implementation Plan, Deliverable Contract, Evidence Protocol, " +
+        "Verification",
       "agenda: use ha task pin task-one to pin it to the CEO agenda",
       "ledger: INDEX.md and closeout.md are coordinator-managed; update them through ha doc sync",
     ].join("\n");

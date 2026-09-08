@@ -19,7 +19,11 @@ const guidanceTemplates = new Map<string, GuidanceTemplate>([
   ["task-create:receipt-query", (args) => `next: ha receipt show ${textArg(args, "opId")}`],
   [
     "task-create:edit-plan",
-    (args) => `plan: write the concrete plan at harness/${textArg(args, "packagePath")}/task_plan.md`,
+    (args) =>
+      `plan: write the concrete plan at harness/${textArg(args, "packagePath")}/task_plan.md; required sections: ` +
+      "Brief, Goal, Context, Required Reading, Entry Conditions, Dependencies, Execution Surface, Constraints, " +
+      "Checkpoint, CI/Gate Authority Stop Condition, Implementation Plan, Deliverable Contract, Evidence Protocol, " +
+      "Verification",
   ],
   [
     "task-create:pin-agenda",

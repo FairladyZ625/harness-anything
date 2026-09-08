@@ -92,7 +92,10 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
           "real CI, and a code-doc reconciliation witness. For a task-package-only " +
           "report or decision, use the task-package-artifact preset docs-task.",
         "next: remove --dry-run to publish this exact resolved scaffold",
-        "plan: write the concrete plan at harness/tasks/task-alpha-alpha/task_plan.md",
+        "plan: write the concrete plan at harness/tasks/task-alpha-alpha/task_plan.md; required sections: Brief, " +
+          "Goal, Context, Required Reading, Entry Conditions, Dependencies, Execution Surface, Constraints, " +
+          "Checkpoint, CI/Gate Authority Stop Condition, Implementation Plan, Deliverable Contract, Evidence " +
+          "Protocol, Verification",
         "agenda: use ha task pin task-alpha to pin it to the CEO agenda",
         "ledger: INDEX.md and closeout.md are coordinator-managed; update them through ha doc sync",
       ].join("\n"),

@@ -363,7 +363,6 @@ export function declareExecutionExecutor(
         `${taskId}`,
         " --execution-id ",
         `${requestedExecutionId ?? "<execution-id>"}`,
-        " --agent <dispatch-agent>",
         " --reason <reason>.",
       ].join(""),
     );
@@ -377,8 +376,7 @@ export function declareExecutionExecutor(
           `Run ha task show ${taskId}; unblock the Task if needed, then retry when`,
           "one submitted review-node execution with no executor is eligible.",
         ].join(" "),
-        (candidate: string) =>
-          `ha task declare-executor ${taskId} --execution-id ${candidate} --agent <dispatch-agent> --reason <reason>`,
+        (candidate: string) => `ha task declare-executor ${taskId} --execution-id ${candidate} --reason <reason>`,
       );
   const dispatchProof = dispatchedExecutor(cell, action, taskId, executionId, snapshot, candidates);
   assertExecutionExecutorDeclarationEligible(snapshot, taskId, executionId, candidates);
