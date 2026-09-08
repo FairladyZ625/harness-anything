@@ -28,8 +28,13 @@ test(
       assert.equal(report.requests.length, 14);
       assert.ok(report.p95Ms < 15_000, `CLI response budget exceeded: ${report.p95Ms}ms`);
       assert.equal(report.boundedScanOracle, arm === "cached" ? "PASS" : "FAIL");
-      if (arm === "cached") assert.equal(report.scans, 1);
-      else assert.ok(report.scans >= 4, "negative control must expose repeated real canonical scans");
+      if (arm === "cached") {
+        assert.equal(report.scans, 1);
+        assert.ok(
+          report.cpuMicros / (report.wallMs * 1000) < 0.8,
+          "daemon CPU must not remain saturated across the CLI schedule",
+        );
+      } else assert.ok(report.scans >= 4, "negative control must expose repeated real canonical scans");
       reports.push(report);
       console.log(frame);
     }

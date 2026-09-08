@@ -20,46 +20,47 @@ const parent = mkdtempSync(path.join(tmpdir(), "ha-cli-fault-")),
   uid = process.getuid?.() ?? 0,
   repoId = "cli-fault-sentinel",
   taskId = "task-active";
-initIngressRepo(root, uid);
-registerBootstrappedDaemonRepo({ canonicalRoot: root, repoId, userRoot, createConvenienceLinks: false });
-const auth = {
-  transportKind: "unix-socket",
-  unixSocketOwnerBoundary: {
-    ownerUid: uid,
-    source: "unix-socket-filesystem-owner-boundary",
-  },
-};
-// The supported host injection seam runs the real writer in this process so the
-// loader can instrument it. This does not claim worker-thread isolation coverage.
-const host = await openDaemonHost({
-  daemonId: repoId,
-  userRoot,
-  openCell: async (input) => openRepoWriterCell(input, await acquireWorkspaceLock(input.rootDir)),
-});
-await host.attachmentsSettled();
-const transport = createUnixSocketTransportServer({
-  daemonId: repoId,
-  socketPath: localUserDaemonEndpoint(userRoot, repoId),
-  createProtocolServer: (authContext, emit) =>
-    createJsonRpcProtocolServer({ host, build: { commit: null }, authContext, emit }),
-});
-await transport.start();
-const { HARNESS_ACTOR: _actor, ...baseEnv } = process.env;
-const env = {
-  ...baseEnv,
-  HOME: path.join(parent, "home"),
-  HARNESS_DAEMON_USER_ROOT: userRoot,
-  HARNESS_DAEMON_ID: repoId,
-};
-const requests = [];
-async function cli(args) {
-  const started = performance.now();
-  const result = await spawnCli(["--root", root, "--json", ...args], env);
-  const receipt = JSON.parse(result.stdout);
-  requests.push({ args, status: result.status, latencyMs: performance.now() - started, receipt });
-  return receipt;
-}
+let host, transport;
 try {
+  initIngressRepo(root, uid);
+  registerBootstrappedDaemonRepo({ canonicalRoot: root, repoId, userRoot, createConvenienceLinks: false });
+  const auth = {
+    transportKind: "unix-socket",
+    unixSocketOwnerBoundary: {
+      ownerUid: uid,
+      source: "unix-socket-filesystem-owner-boundary",
+    },
+  };
+  // The supported host injection seam runs the real writer in this process so the
+  // loader can instrument it. This does not claim worker-thread isolation coverage.
+  host = await openDaemonHost({
+    daemonId: repoId,
+    userRoot,
+    openCell: async (input) => openRepoWriterCell(input, await acquireWorkspaceLock(input.rootDir)),
+  });
+  await host.attachmentsSettled();
+  transport = createUnixSocketTransportServer({
+    daemonId: repoId,
+    socketPath: localUserDaemonEndpoint(userRoot, repoId),
+    createProtocolServer: (authContext, emit) =>
+      createJsonRpcProtocolServer({ host, build: { commit: null }, authContext, emit }),
+  });
+  await transport.start();
+  const { HARNESS_ACTOR: _actor, ...baseEnv } = process.env;
+  const env = {
+    ...baseEnv,
+    HOME: path.join(parent, "home"),
+    HARNESS_DAEMON_USER_ROOT: userRoot,
+    HARNESS_DAEMON_ID: repoId,
+  };
+  const requests = [];
+  async function cli(args) {
+    const started = performance.now();
+    const result = await spawnCli(["--root", root, "--json", ...args], env);
+    const receipt = JSON.parse(result.stdout);
+    requests.push({ args, status: result.status, latencyMs: performance.now() - started, receipt });
+    return receipt;
+  }
   await createRealizedTaskPlanFixture(
     root,
     async () => {
@@ -122,7 +123,13 @@ try {
   );
 } finally {
   globalThis.cliFaultState.armed = false;
-  await transport.stop();
-  await host.close();
-  rmSync(parent, { recursive: true, force: true });
+  try {
+    await transport?.stop();
+  } finally {
+    try {
+      await host?.close();
+    } finally {
+      rmSync(parent, { recursive: true, force: true });
+    }
+  }
 }
