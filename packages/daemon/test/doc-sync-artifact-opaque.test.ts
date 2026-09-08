@@ -77,6 +77,12 @@ test("artifact add treats every artifacts/ path as opaque while preserving media
       },
       { source: "notes.txt", destination: "reports/notes.txt", mediaType: "text/plain", body: "plain-text artifact\n" },
       {
+        source: "bom.log",
+        destination: "reports/bom.log",
+        mediaType: "text/x-harness-opaque",
+        body: "\uFEFF2026-09-09 UTF-8 report\r\n原始日志\r\n",
+      },
+      {
         source: "windows.md",
         destination: "reports/windows.md",
         mediaType: "text/markdown",
