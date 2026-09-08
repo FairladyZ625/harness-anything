@@ -416,6 +416,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
               repoId: input.repoId,
               canonicalRoot: input.rootDir,
               workerRoot: cwd,
+              taskId: taskId!,
               taskPackageRoot: taskMission.packageRoot,
               daemonRoute: missionDaemonRoute!,
               runtimeActor,

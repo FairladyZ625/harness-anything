@@ -419,6 +419,7 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
     assert.match(assembledPrompt, /# Worker Role/u);
     assertTaskMissionPrompt(assembledPrompt, {
       repoId: "runtime-cli",
+      taskId,
       canonicalRoot: realpathSync(root),
       workerRoot: realpathSync(root),
       taskPackageRoot: path.join(realpathSync(root), "harness", packagePath),
@@ -605,6 +606,7 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
     assert.equal(reusedReport, `final:${reusedMission}`);
     assertTaskMissionPrompt(reusedMission, {
       repoId: "runtime-cli",
+      taskId,
       canonicalRoot: realpathSync(root),
       workerRoot: realpathSync(root),
       taskPackageRoot: path.join(realpathSync(root), "harness", packagePath),
@@ -638,6 +640,7 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
     );
     assertTaskMissionPrompt(derivedText.slice("final:".length), {
       repoId: "runtime-cli",
+      taskId,
       canonicalRoot: realpathSync(root),
       workerRoot: realpathSync(root),
       taskPackageRoot: taskPackage,
@@ -1323,6 +1326,7 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
     const cancelledReport = readFileSync(path.join(artifactRoot, "reports", `${detachedDispatchId}.md`), "utf8");
     assertTaskMissionPrompt(cancelledReport.slice("live:".length), {
       repoId: "runtime-cli",
+      taskId,
       canonicalRoot: realpathSync(root),
       workerRoot: realpathSync(root),
       taskPackageRoot: path.join(realpathSync(root), "harness", packagePath),
@@ -1382,6 +1386,7 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
     assert.ok(resumedText.startsWith("resumed:provider-cli-session:"), resumedText);
     assertTaskMissionPrompt(resumedText.slice("resumed:provider-cli-session:".length), {
       repoId: "runtime-cli",
+      taskId,
       canonicalRoot: realpathSync(root),
       workerRoot: realpathSync(root),
       taskPackageRoot: path.join(realpathSync(root), "harness", packagePath),
@@ -1631,6 +1636,7 @@ function assertTaskMissionPrompt(
   prompt: string,
   expected: {
     readonly repoId: string;
+    readonly taskId: string;
     readonly canonicalRoot: string;
     readonly workerRoot: string;
     readonly taskPackageRoot: string;
@@ -1642,7 +1648,7 @@ function assertTaskMissionPrompt(
 ): void {
   assert.ok(
     prompt.includes(
-      `# Dispatch Preconditions\nRepository id: ${expected.repoId}\nRepository registration: enabled\nCanonical repository root: ${expected.canonicalRoot}\nWorker repository root: ${expected.workerRoot}\nTask package root: ${expected.taskPackageRoot}\nDaemon user root: ${expected.daemonUserRoot}\nDaemon id: ${expected.daemonId}\nDaemon endpoint: `,
+      `# Dispatch Preconditions\nRepository id: ${expected.repoId}\nRepository registration: enabled\nCanonical repository root: ${expected.canonicalRoot}\nWorker repository root: ${expected.workerRoot}\nCanonical Task ID: ${expected.taskId}\nTask package root: ${expected.taskPackageRoot}\nDaemon user root: ${expected.daemonUserRoot}\nDaemon id: ${expected.daemonId}\nDaemon endpoint: `,
     ),
     prompt,
   );

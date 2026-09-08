@@ -180,6 +180,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
           `Task package root: ${path.join(realpathSync(root), "harness", "tasks", "task-runtime-agent-agent-runtime")}`,
         ),
       );
+      assert.ok(launchedPrompt.includes(`Canonical Task ID: ${taskId}`));
       assert.match(launchedPrompt, new RegExp(`Runtime actor: agent:runtime-session:${receipt.runtimeSessionId}`, "u"));
       assert.equal(launchedPrompt.includes(userRoot), false);
       assert.equal(launchedPrompt.includes("Daemon id: runtime-spawn-ingress"), false);

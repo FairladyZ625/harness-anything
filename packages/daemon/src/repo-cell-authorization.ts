@@ -1,4 +1,5 @@
 import { composeDurableActionEnvelope } from "../../application/src/durable-action-envelope.ts";
+import path from "node:path";
 import {
   durablePolicyActions,
   isSameExecution,
@@ -456,6 +457,22 @@ function invalidExecutorBindingFor(
         : "malformed executor descriptor",
     expected = lease?.actor.executor ? `agent:${lease.actor.executor.id}` : null,
     retry = executorRetryCommand(input.action, taskId, executionId),
+    runtimeSessionId =
+      isExecutorDescriptorRecord(raw) &&
+      raw.kind === "agent" &&
+      typeof raw.id === "string" &&
+      raw.id.startsWith("runtime-session:")
+        ? raw.id.slice("runtime-session:".length)
+        : null,
+    runtimeSession = runtimeSessionId === null ? null : input.projection.readRuntimeSession(runtimeSessionId),
+    canonicalTaskId =
+      taskId === null || runtimeSession === null
+        ? null
+        : (runtimeSession.taskBindings.find((candidate) => {
+            if (candidate.taskId === taskId) return false;
+            const packagePath = input.projection.read(candidate.taskId).packagePath;
+            return packagePath !== null && path.posix.basename(packagePath) === taskId;
+          })?.taskId ?? null),
     reviewerRedispatch =
       input.action.kind === "task-review-execution" &&
       taskId !== null &&
@@ -463,20 +480,23 @@ function invalidExecutorBindingFor(
       raw.kind === "agent" &&
       typeof raw.id === "string" &&
       raw.id.startsWith("runtime-session:"),
-    expectation = reviewerRedispatch
-      ? `Expected a reviewer RuntimeSession bound to execution ${executionId ?? "<execution-id>"}; run ` +
-        `ha runtime run <runtime-instance-id> --role reviewer --task ${taskId}, then retry ${retry}`
-      : expected
-        ? `Expected ${expected} from the held execution lease; run from that executor, then retry ${retry}`
-        : "Expected a task-bound executor with a matching held execution lease; run ha task start " +
-          `${taskId ?? "<task-id>"}, then retry ${retry}`,
+    expectation = canonicalTaskId
+      ? `The supplied taskId matches the bound package basename; use canonical taskId ${canonicalTaskId}, then retry ` +
+        executorRetryCommand(input.action, canonicalTaskId, executionId)
+      : reviewerRedispatch
+        ? `Expected a reviewer RuntimeSession bound to execution ${executionId ?? "<execution-id>"}; run ` +
+          `ha runtime run <runtime-instance-id> --role reviewer --task ${taskId}, then retry ${retry}`
+        : expected
+          ? `Expected ${expected} from the held execution lease; run from that executor, then retry ${retry}`
+          : "Expected a task-bound executor with a matching held execution lease; run ha task start " +
+            `${taskId ?? "<task-id>"}, then retry ${retry}`,
     diagnostic: ReceiptDiagnostic = {
       kind: "validation",
       entity: [taskId ? `task ${taskId}` : "repository", executionId ? `execution ${executionId}` : ""]
         .filter(Boolean)
         .join(" "),
-      field: "executor",
-      actual,
+      field: canonicalTaskId ? "taskId" : "executor",
+      actual: canonicalTaskId ? taskId! : actual,
       expectation,
     };
   return Object.assign(new Error(message), { code: "executor_binding_invalid" as const, diagnostic });

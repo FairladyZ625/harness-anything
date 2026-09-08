@@ -107,6 +107,39 @@ test("executor binding rejection names the claimed and held executors", async (t
   assert.equal(context.observedActor, null);
 });
 
+test("package basename diagnostics name the canonical task id and retry command", async () => {
+  const packageBasename = `${taskId}-runtime-first-write`,
+    context = contextFor(
+      Promise.resolve(),
+      () => runtimeSession,
+      () => lease,
+    ),
+    receipt = await createRepoCellApi(context).run(
+      {
+        ...action,
+        taskId: packageBasename,
+        executor: runtimeActor.executor,
+      },
+      binding,
+    );
+
+  assert.equal(receipt.outcome, "op_rejected");
+  assert.equal(receipt.code, "executor_binding_invalid");
+  assert.deepEqual(receipt.diagnostic, {
+    kind: "validation",
+    entity: `task ${packageBasename} execution ${executionId}`,
+    field: "taskId",
+    actual: packageBasename,
+    expectation:
+      `The supplied taskId matches the bound package basename; use canonical taskId ${taskId}, then retry ` +
+      `ha task artifact add ${taskId} --source <path> --destination <artifact-path>`,
+  });
+  assert.equal(context.observedActor, null);
+  const retried = await createRepoCellApi(context).run(action, binding);
+  assert.equal(retried.outcome, "applied", JSON.stringify(retried));
+  assert.deepEqual(context.observedActor, runtimeActor);
+});
+
 test("a reviewer bound to an earlier execution receives a reviewer redispatch command", async () => {
   const nextExecutionId = "exec-runtime-second-round",
     nextRuntimeActor = {
@@ -251,6 +284,9 @@ function contextFor(
         }),
       },
       projection: {
+        read: (candidateTaskId: string) => ({
+          packagePath: candidateTaskId === taskId ? `tasks/${packageBasenameFor(taskId)}` : null,
+        }),
         readRuntimeSession,
         currentLease,
         readCut: () => ({ status: "ready", watermark: 3, sourceRevision: 3 }),
@@ -279,4 +315,8 @@ function contextFor(
     readonly observedActor: RepoCellBinding["actor"] | null;
     readonly tailAssignments: number;
   };
+}
+
+function packageBasenameFor(candidateTaskId: string): string {
+  return `${candidateTaskId}-runtime-first-write`;
 }
