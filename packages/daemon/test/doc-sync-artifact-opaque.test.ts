@@ -128,13 +128,14 @@ test("artifact add treats every artifacts/ path as opaque while preserving media
       beforeMaterialize = reader.readHead();
     rmSync(path.join(rootDir, "harness", "tasks"), { recursive: true, force: true });
     const materialized = await cell.run({ kind: "doc-materialize" }, binding);
-    assert.equal(materialized.outcome, "indeterminate", JSON.stringify(materialized));
-    assert.equal(materialized.code, "acceptance_unknown");
+    assert.equal(materialized.outcome, "applied", JSON.stringify(materialized));
+    assert.equal(materialized.proof?.worktreeVisible, true);
     assert.equal(materialized.acceptance, null);
     assert.deepEqual(reader.readHead(), beforeMaterialize, "materialization must not admit a new command");
     for (const { destination, body } of cases) {
       const logical = `${packagePath}/artifacts/${destination.replace(/^artifacts\//u, "")}`;
-      assert.equal(existsSync(path.join(rootDir, "harness", logical)), false, "follower preserves local deletion");
+      assert.equal(existsSync(path.join(rootDir, "harness", logical)), true, "explicit materialize restores deletion");
+      assert.deepEqual(readFileSync(path.join(rootDir, "harness", logical)), Buffer.from(body));
       assert.deepEqual(
         reader.readContentBlob(sha256Bytes(Buffer.from(body))),
         Buffer.from(body),

@@ -1014,6 +1014,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
         return receipt;
       if (
         action.kind === "projection-rebuild" ||
+        action.kind === "doc-materialize" ||
         (!(durablePolicyActions as readonly string[]).includes(action.kind) && action.kind !== "receipt-show")
       )
         return receipt;
