@@ -198,7 +198,10 @@ function decideDocWriteInternal(input: DocWriteDecisionInput, requireAuthorizati
       return reject("content_claim_mismatch");
     let body: string;
     try {
-      body = new TextDecoder("utf-8", { fatal: true }).decode(claim);
+      body = new TextDecoder("utf-8", {
+        fatal: true,
+        ignoreBOM: change.policyId === OPAQUE_TEXTUAL_POLICY_ID,
+      }).decode(claim);
     } catch (error) {
       consumeKnownError(error);
       unresolvedTouches.push(touch(change.path, null, "claim is not valid UTF-8", "typed-binary-content"));

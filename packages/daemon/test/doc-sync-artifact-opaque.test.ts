@@ -77,6 +77,12 @@ test("artifact add treats every artifacts/ path as opaque while preserving media
       },
       { source: "notes.txt", destination: "reports/notes.txt", mediaType: "text/plain", body: "plain-text artifact\n" },
       {
+        source: "bom.log",
+        destination: "reports/bom.log",
+        mediaType: "text/x-harness-opaque",
+        body: "\uFEFF2026-09-09 UTF-8 report\r\n原始日志\r\n",
+      },
+      {
         source: "windows.md",
         destination: "reports/windows.md",
         mediaType: "text/markdown",
@@ -120,6 +126,9 @@ test("artifact add treats every artifacts/ path as opaque while preserving media
       await waitForFixturePublication(cell, String(added.opId), binding);
       const onDisk = readFileSync(path.join(rootDir, "harness", ...logical.split("/")));
       assert.equal(onDisk.equals(bytes), true, `${destination}: authored bytes must equal source bytes`);
+      const shown = await cell.run({ kind: "doc-show", path: logical }, binding);
+      assert.equal(shown.outcome, "applied", JSON.stringify(shown));
+      assert.deepEqual(Buffer.from(shown.evidence, "utf8"), bytes, `${destination}: projected bytes`);
       const status = await cell.run({ kind: "doc-status", paths: [logical] }, binding);
       const row = rows(status.evidence).find((candidate) => candidate.path === logical);
       assert.deepEqual([row?.state, row?.mediaType], ["clean", mediaType], `${destination}: doc status`);
