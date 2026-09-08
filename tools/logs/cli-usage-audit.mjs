@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -9,26 +9,48 @@ const DAY_MS = 86_400_000;
 
 export function loadJsonl(files, schema) {
   const rows = [];
+  const issues = {
+    filesRequested: files.length,
+    filesRead: 0,
+    unreadableFiles: [],
+    malformedJsonLines: 0,
+    ignoredLines: 0,
+  };
   for (const file of files) {
     let body;
     try {
       body = readFileSync(file, "utf8");
-    } catch {
+      issues.filesRead += 1;
+    } catch (error) {
+      issues.unreadableFiles.push({ file, error: error instanceof Error ? error.message : String(error) });
       continue;
     }
     for (const line of body.split(/\r?\n/u)) {
-      if (!line.startsWith("{")) continue;
+      if (!line.trim()) continue;
+      if (!line.trimStart().startsWith("{")) {
+        issues.ignoredLines += 1;
+        continue;
+      }
       try {
         const value = JSON.parse(line);
-        if (value?.schema !== schema) continue;
+        if (value?.schema !== schema) {
+          issues.ignoredLines += 1;
+          continue;
+        }
         const at = Date.parse(value.at ?? value.atEnd ?? "");
-        if (!Number.isNaN(at)) rows.push({ ...value, atMs: at, sourceFile: file });
+        if (Number.isNaN(at)) {
+          issues.ignoredLines += 1;
+          continue;
+        }
+        rows.push({ ...value, atMs: at, sourceFile: file });
       } catch {
-        /* malformed historical lines are not evidence */
+        issues.malformedJsonLines += 1;
       }
     }
   }
-  return rows.sort((left, right) => left.atMs - right.atMs);
+  const result = rows.sort((left, right) => left.atMs - right.atMs);
+  Object.defineProperty(result, "loadIssues", { value: issues, enumerable: false });
+  return result;
 }
 
 export function discoverRequestLogFiles(repoRoot) {
@@ -50,41 +72,23 @@ function generation(name) {
 }
 
 export function buildCommandDenominator(commands, options = {}) {
-  const testFiles = options.testFiles ?? [];
-  const sourceFiles = options.sourceFiles ?? [];
+  void options;
   return commands
     .map((command) => {
-      const action = command.actionKind ?? command.id;
-      const tokens = [command.id, action, command.method, ...(command.path ?? []), command.usage].filter(Boolean);
-      const testReferences = countReferences(testFiles, tokens);
-      const productionReferences = countReferences(sourceFiles, tokens);
+      const id = command.id ?? command.actionKind ?? command.usage;
+      const action = command.actionKind ?? id;
       return {
-        id: command.id,
+        id,
         actionKind: action,
         method: command.method ?? null,
         path: command.path?.join(" ") ?? null,
         usage: command.usage ?? null,
         phase: command.phase ?? "unknown",
         commandClass: command.commandClass ?? "unknown",
-        testReferences,
-        productionReferences,
+        testCoverage: "unmeasured",
       };
     })
     .sort((left, right) => left.id.localeCompare(right.id));
-}
-
-function countReferences(files, tokens) {
-  let count = 0;
-  for (const file of files) {
-    let body;
-    try {
-      body = readFileSync(file, "utf8");
-    } catch {
-      continue;
-    }
-    if (tokens.some((token) => token && body.includes(String(token)))) count += 1;
-  }
-  return count;
 }
 
 export function auditCliUsage({
@@ -94,6 +98,8 @@ export function auditCliUsage({
   slowMs = DEFAULT_SLOW_MS,
   receipts = [],
   events = [],
+  sourceRoot = null,
+  logRoot = null,
 }) {
   const sorted = [...requestRecords].sort((left, right) => left.atMs - right.atMs);
   const firstObservedAt = sorted[0]?.atMs ?? null;
@@ -105,18 +111,14 @@ export function auditCliUsage({
     usageByCommand.set(command, (usageByCommand.get(command) ?? 0) + 1);
   }
   const failures = buildFailureFamilies(sorted, commands, slowMs, receipts, events);
+  const slowCalls = summarizeSlowCalls(sorted, slowMs);
   const observedIds = new Set([...usageByCommand.keys()]);
   const denominator = commands.map((command) => {
     const count = usageByCommand.get(command.id) ?? usageByCommand.get(command.actionKind) ?? 0;
     return {
       ...command,
       observedRequests: count,
-      status:
-        count > 0
-          ? "observed"
-          : command.testReferences > 0
-            ? "unobserved-tested"
-            : "unobserved-no-usage-or-test-evidence",
+      status: count > 0 ? "observed" : "unobserved-needs-review",
       retirementDisposition: count > 0 ? "retain-observed" : "needs-human-review",
     };
   });
@@ -133,6 +135,8 @@ export function auditCliUsage({
       firstObservedAt: iso(firstObservedAt),
       lastObservedAt: iso(lastObservedAt),
       requestFiles: [...new Set(sorted.map((row) => row.sourceFile))],
+      sourceRoot,
+      logRoot,
       requestCount: sorted.length,
       uniqueCommands: observedIds.size,
       sourceAttribution,
@@ -140,6 +144,19 @@ export function auditCliUsage({
       retentionWindowDays:
         firstObservedAt === null ? 0 : Math.round(((lastObservedAt - firstObservedAt) / DAY_MS) * 100) / 100,
       rotationGaps: findGaps(sorted),
+      logIntegrity: {
+        ...(requestRecords.loadIssues ?? {
+          filesRequested: 0,
+          filesRead: 0,
+          unreadableFiles: [],
+          malformedJsonLines: 0,
+          ignoredLines: 0,
+        }),
+        complete:
+          (requestRecords.loadIssues?.filesRequested ?? 0) > 0 &&
+          (requestRecords.loadIssues?.unreadableFiles.length ?? 0) === 0 &&
+          (requestRecords.loadIssues?.malformedJsonLines ?? 0) === 0,
+      },
     },
     windows,
     denominator,
@@ -149,7 +166,7 @@ export function auditCliUsage({
       .map((row) => ({
         id: row.id,
         usage: row.usage,
-        testReferences: row.testReferences,
+        testCoverage: row.testCoverage ?? "unmeasured",
         disposition: row.retirementDisposition,
         evidenceLimit: "absence in a short local retention window is not a six-month zero-use conclusion",
       })),
@@ -158,6 +175,7 @@ export function auditCliUsage({
       eventOpIds: events.length,
       correlatedFailureFamilies: failures.filter((family) => family.correlatedOpIds > 0).length,
     },
+    slowCalls,
   };
 }
 
@@ -194,35 +212,52 @@ function buildFailureFamilies(records, commands, slowMs, receipts, events) {
         command: record.command ?? "<unknown>",
         requestCount: 0,
         uniqueOpIds: new Set(),
+        uniqueIntentCount: 0,
         correlatedOpIds: new Set(),
+        duplicateRequestsSuppressed: 0,
         maxDurationMs: 0,
+        slowRequestCount: 0,
       };
       groups.set(key, family);
     }
     family.requestCount += 1;
     if (record.opId) {
+      if (family.uniqueOpIds.has(record.opId)) family.duplicateRequestsSuppressed += 1;
+      else family.uniqueIntentCount += 1;
       family.uniqueOpIds.add(record.opId);
       if (receiptIds.has(record.opId)) family.correlatedOpIds.add(record.opId);
+    } else {
+      family.uniqueIntentCount += 1;
     }
     family.maxDurationMs = Math.max(family.maxDurationMs, Number(record.durationMs) || 0);
+    if ((Number(record.durationMs) || 0) >= slowMs) family.slowRequestCount += 1;
   }
   return [...groups.values()]
     .map((family) => ({
       ...family,
       uniqueOpIds: family.uniqueOpIds.size,
+      uniqueIntentCount: family.uniqueIntentCount,
       correlatedOpIds: family.correlatedOpIds.size,
-      duplicateRequestsSuppressed: Math.max(0, family.requestCount - family.uniqueOpIds.size),
-      category: classifyFailure(family.code, family.maxDurationMs, slowMs),
+      duplicateRequestsSuppressed: family.duplicateRequestsSuppressed,
+      category: "needs-triage",
     }))
     .sort((left, right) => right.requestCount - left.requestCount || left.key.localeCompare(right.key));
 }
 
-function classifyFailure(code, durationMs, slowMs) {
-  const lower = code.toLowerCase();
-  if (durationMs >= slowMs || /timeout|timed_out|deadline/u.test(lower)) return "slow-call-or-timeout";
-  if (/invalid|unknown|unsupported|missing|duplicate|malformed/u.test(lower)) return "invalid-suggestion";
-  if (/internal|store|publication|unexpected|panic|corrupt/u.test(lower)) return "product-error";
-  return "expected-rejection";
+function summarizeSlowCalls(records, slowMs) {
+  const slow = records.filter((record) => (Number(record.durationMs) || 0) >= slowMs);
+  const durations = slow.map((record) => Number(record.durationMs) || 0);
+  return {
+    thresholdMs: slowMs,
+    requestCount: slow.length,
+    successfulRequestCount: slow.filter((record) => record.ok === true).length,
+    failedRequestCount: slow.filter((record) => record.ok !== true).length,
+    maxDurationMs: durations.length ? Math.max(...durations) : 0,
+    averageDurationMs: durations.length
+      ? Math.round((durations.reduce((sum, duration) => sum + duration, 0) / durations.length) * 100) / 100
+      : 0,
+    commands: [...new Set(slow.map((record) => record.command ?? "<unknown>"))].sort(),
+  };
 }
 
 function findGaps(records) {
@@ -242,19 +277,6 @@ function findGaps(records) {
 
 function iso(value) {
   return value === null || value === undefined ? null : new Date(value).toISOString();
-}
-
-function walkFiles(root, predicate) {
-  if (!existsSync(root)) return [];
-  const stat = statSync(root);
-  if (stat.isFile()) return predicate(root) ? [root] : [];
-  if (!stat.isDirectory()) return [];
-  return readdirSync(root, { withFileTypes: true })
-    .flatMap((entry) => {
-      const target = path.join(root, entry.name);
-      return entry.isDirectory() ? walkFiles(target, predicate) : entry.isFile() && predicate(target) ? [target] : [];
-    })
-    .sort();
 }
 
 function collectOpIds(files) {
@@ -309,22 +331,23 @@ async function main(argv) {
     `${pathToFileURL(path.join(rootDir, "packages/cli/src/cli/thin-command-help.ts")).href}?audit=1`
   );
   const commands = [...commandModule.thinCliCommands, ...cliModule.clientLocalCommands];
-  const testFiles = walkFiles(path.join(rootDir, "packages"), (file) => /\.(?:test|spec)\.(?:mjs|js|ts)$/u.test(file));
-  const sourceFiles = walkFiles(
-    path.join(rootDir, "packages"),
-    (file) =>
-      /\.(?:mjs|js|ts)$/u.test(file) && !/(?:test|spec)\./u.test(file) && !file.endsWith("daemon-protocol-commands.ts"),
-  );
   const requestFiles = options.files.length ? options.files : discoverRequestLogFiles(rootDir);
   const receipts = collectOpIds(options.receiptFiles);
   const events = collectOpIds(options.eventFiles);
+  const requestRecords = loadJsonl(requestFiles, REQUEST_SCHEMA);
+  if (requestRecords.loadIssues?.unreadableFiles.length) {
+    const files = requestRecords.loadIssues.unreadableFiles.map(({ file }) => file).join(", ");
+    throw new Error(`request log input unreadable: ${files}`);
+  }
   const report = auditCliUsage({
-    commands: buildCommandDenominator(commands, { testFiles, sourceFiles }),
-    requestRecords: loadJsonl(requestFiles, REQUEST_SCHEMA),
+    commands: buildCommandDenominator(commands),
+    requestRecords,
     nowMs: options.now ? Date.parse(options.now) : Date.now(),
     slowMs: options.slowMs,
     receipts,
     events,
+    sourceRoot: rootDir,
+    logRoot: requestFiles.length ? path.dirname(path.resolve(requestFiles[0])) : null,
   });
   const output = JSON.stringify(report, null, 2) + "\n";
   if (options.out) writeFileSync(path.resolve(options.out), output, "utf8");
@@ -370,6 +393,7 @@ function parseArgs(argv) {
     else throw new Error(`unknown argument: ${flag}`);
   }
   if (!Number.isFinite(options.slowMs) || options.slowMs <= 0) throw new Error("--slow-ms must be positive");
+  if (options.now !== null && Number.isNaN(Date.parse(options.now))) throw new Error("--now must be an ISO date");
   return options;
 }
 

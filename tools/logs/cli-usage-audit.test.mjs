@@ -14,7 +14,6 @@ const command = (id, actionKind = id, phase = "W3") => ({
   usage: `ha task ${id}`,
   phase,
   commandClass: id.includes("read") ? "repo-read" : "repo-write",
-  testReferences: 1,
 });
 const row = (at, commandName, overrides = {}) => ({
   schema: "daemon-request-log/v1",
@@ -41,18 +40,19 @@ test("audit keeps the descriptor denominator and refuses to call mixed request l
   assert.equal(report.observation.sourceAttribution.cli, 0);
   assert.equal(report.observation.sourceAttribution.unknown, 1);
   assert.equal(report.denominator.find((item) => item.id === "read").status, "observed");
-  assert.equal(report.denominator.find((item) => item.id === "write").status, "unobserved-tested");
+  assert.equal(report.denominator.find((item) => item.id === "write").status, "unobserved-needs-review");
   assert.equal(report.windows[0].requestCount, 1);
   assert.equal(report.windows[1].requestCount, 1);
 });
 
-test("failure families deduplicate opIds, classify invalid suggestions and correlate receipts", () => {
+test("failure families only deduplicate repeated non-null opIds", () => {
   const at = "2026-09-08T00:00:00.000Z";
   const report = auditCliUsage({
     commands: [command("write", "write", "W4")],
     requestRecords: [
       row(at, "write", { ok: false, code: "invalid_field", opId: "op-1", durationMs: 2 }),
       row(at, "write", { ok: false, code: "invalid_field", opId: "op-1", durationMs: 3 }),
+      row(at, "write", { ok: false, code: "invalid_field", opId: null, durationMs: 4 }),
       row(at, "write", { ok: false, code: "store_corrupt", opId: "op-2", durationMs: 6_000 }),
     ],
     receipts: ["op-1"],
@@ -61,11 +61,26 @@ test("failure families deduplicate opIds, classify invalid suggestions and corre
   });
   assert.equal(report.failures.length, 2);
   const invalid = report.failures.find((family) => family.code === "invalid_field");
-  assert.equal(invalid.category, "invalid-suggestion");
+  assert.equal(invalid.category, "needs-triage");
   assert.equal(invalid.uniqueOpIds, 1);
+  assert.equal(invalid.uniqueIntentCount, 2);
   assert.equal(invalid.duplicateRequestsSuppressed, 1);
   assert.equal(invalid.correlatedOpIds, 1);
-  assert.equal(report.failures.find((family) => family.code === "store_corrupt").category, "slow-call-or-timeout");
+  assert.equal(report.failures.find((family) => family.code === "store_corrupt").category, "needs-triage");
+  assert.equal(report.slowCalls.requestCount, 1);
+  assert.equal(report.slowCalls.failedRequestCount, 1);
+});
+
+test("successful slow requests remain in the independent slow-call summary", () => {
+  const report = auditCliUsage({
+    commands: [command("read", "read")],
+    requestRecords: [row("2026-09-08T00:00:00.000Z", "read", { durationMs: 6_000 })],
+    nowMs: Date.parse("2026-09-08T00:00:00.000Z"),
+    slowMs: 5_000,
+  });
+  assert.deepEqual(report.failures, []);
+  assert.equal(report.slowCalls.requestCount, 1);
+  assert.equal(report.slowCalls.successfulRequestCount, 1);
 });
 
 test("request log loader handles rotation files and reports long retention gaps", () => {
@@ -91,13 +106,29 @@ test("request log loader handles rotation files and reports long retention gaps"
   assert.equal(report.observation.rotationGaps[0].kind, "possible-retention-or-no-usage-gap");
 });
 
-test("denominator records test and production evidence from descriptor tokens", () => {
+test("denominator does not infer test coverage from unrelated source text", () => {
   const root = mkdtempSync(path.join(tmpdir(), "cli-audit-evidence-"));
   const testFile = path.join(root, "command.test.ts"),
     sourceFile = path.join(root, "command.ts");
   writeFileSync(testFile, "task-show");
   writeFileSync(sourceFile, "task-show");
   const result = buildCommandDenominator([command("task-show")], { testFiles: [testFile], sourceFiles: [sourceFile] });
-  assert.equal(result[0].testReferences, 1);
-  assert.equal(result[0].productionReferences, 1);
+  assert.equal(result[0].testCoverage, "unmeasured");
+  assert.equal("testReferences" in result[0], false);
+  assert.equal("productionReferences" in result[0], false);
+});
+
+test("loader records malformed lines and explicit unreadable files", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "cli-audit-integrity-"));
+  const file = path.join(root, "requests.jsonl");
+  writeFileSync(file, '{"schema":"daemon-request-log/v1","at":"2026-09-08T00:00:00.000Z","command":"read"}\n{bad}\n');
+  const records = loadJsonl([file, path.join(root, "missing.jsonl")], "daemon-request-log/v1");
+  assert.equal(records.length, 1);
+  assert.equal(records.loadIssues.malformedJsonLines, 1);
+  assert.deepEqual(
+    records.loadIssues.unreadableFiles.map(({ file: target }) => target),
+    [path.join(root, "missing.jsonl")],
+  );
+  const report = auditCliUsage({ commands: [command("read", "read")], requestRecords: records });
+  assert.equal(report.observation.logIntegrity.complete, false);
 });
