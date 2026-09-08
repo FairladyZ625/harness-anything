@@ -28,7 +28,7 @@ import {
   type EgoFlowNode,
   type EgoHopBudget,
 } from "./egoCanvas";
-import { defaultKindFilter, edgePassesKindFilter, type FlowAnimMode } from "./relationVisual";
+import { defaultAxisFilter, defaultKindFilter, edgePassesKindFilter, type FlowAnimMode } from "./relationVisual";
 import {
   defaultEntityStatusFilter,
   isEntityStatusFilterNarrowed,
@@ -63,7 +63,7 @@ export interface EgoNeighborhoodFilters {
 
 export function defaultNeighborhoodFilters(): EgoNeighborhoodFilters {
   return {
-    axes: { authority: true, evidence: true, execution: true, assoc: false },
+    axes: defaultAxisFilter(),
     kinds: defaultKindFilter(),
     types: null,
     flowMode: "focus",

@@ -69,14 +69,15 @@ export function visualForKind(kind: RelationKind): RelationVisual {
   return RELATION_VISUAL[kind] ?? RELATION_VISUAL.relates;
 }
 
-/** 默认关系类型筛选:assoc 轴(relates/implements)默认关,降噪。 */
+/** 默认关系类型筛选:全开。assoc 轴曾默认关降噪,但 decision↔task 的 `relates` 边
+ * 落在该轴上,关掉会让聚光灯/领地里 decision 邻居整块不可见(2026-09-08 泽宇裁决改默认)。 */
 export function defaultKindFilter(): Set<RelationKind> {
-  return new Set(RELATION_KIND_ORDER.filter((k) => KIND_AXIS[k] !== "assoc"));
+  return new Set(RELATION_KIND_ORDER);
 }
 
-/** 默认语义轴筛选:assoc 默认关。 */
+/** 默认语义轴筛选:全开(理由同 defaultKindFilter)。 */
 export function defaultAxisFilter(): Record<SemanticAxis, boolean> {
-  return { authority: true, evidence: true, execution: true, assoc: false };
+  return { authority: true, evidence: true, execution: true, assoc: true };
 }
 
 /** 边是否通过关系类型筛选。kinds 空集 = 全部隐藏。 */
