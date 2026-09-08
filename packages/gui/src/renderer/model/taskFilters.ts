@@ -15,6 +15,11 @@ export interface TaskFilters {
   includeArchived: boolean;
   /** 仅看收藏(GUI 本地偏好,不写台账) */
   favoritesOnly: boolean;
+  /**
+   * 展开冷终态(默认 false = 折叠):终态且非重点种子的行只显形为计数,
+   * 判定见 isColdTerminalTask(W8)。pinned 恒可见,与展开状态无关。
+   */
+  expandColdTerminal: boolean;
 }
 
 export const DEFAULT_TASK_FILTERS: TaskFilters = {
@@ -26,6 +31,7 @@ export const DEFAULT_TASK_FILTERS: TaskFilters = {
   freshness: "all",
   includeArchived: false,
   favoritesOnly: false,
+  expandColdTerminal: false,
 };
 
 export const hasActiveTaskFilters = (filters: TaskFilters) =>
@@ -36,7 +42,8 @@ export const hasActiveTaskFilters = (filters: TaskFilters) =>
   filters.closeout !== "all" ||
   filters.freshness !== "all" ||
   filters.includeArchived ||
-  filters.favoritesOnly;
+  filters.favoritesOnly ||
+  filters.expandColdTerminal;
 
 /**
  * 看板降噪判定(唯一实现,看板与关系图领地共用,不第二份):投影的
@@ -67,6 +74,28 @@ export function isTaskGraphFocusSeed(
   if (isTaskArchiveNoise(task)) return false;
   if (!isTerminal(task)) return true;
   return recentWindowCutoff(now) <= Date.parse(task.lastKnownAt);
+}
+
+/**
+ * 看板「冷终态」判定(W8):终态且不在重点种子集里的行默认折叠为计数。判定完全
+ * 委托 isTaskGraphFocusSeed(14 天窗口唯一实现,图视图注释里预告的「看板将来调
+ * 这里」即此);pinned 在种子判定内恒为真,因此永远可见,与状态正交。
+ */
+export function isColdTerminalTask(
+  task: Pick<TaskRow, "taskId" | "pinned" | "board" | "visibility" | "lastKnownAt">,
+  now: string,
+): boolean {
+  return isTerminal(task) && !isTaskGraphFocusSeed(task, now);
+}
+
+/** 单趟把任务分成「默认可见」与「冷终态(折叠为计数)」两组;计数在展开态也要可见。 */
+export function partitionColdTerminalTasks<
+  T extends Pick<TaskRow, "taskId" | "pinned" | "board" | "visibility" | "lastKnownAt">,
+>(tasks: readonly T[], now: string): { visible: T[]; collapsed: T[] } {
+  const visible: T[] = [];
+  const collapsed: T[] = [];
+  for (const task of tasks) (isColdTerminalTask(task, now) ? collapsed : visible).push(task);
+  return { visible, collapsed };
 }
 
 /** 窗口下界(毫秒);`now` 解析失败(NaN)返回 NaN,比较恒 false → 冷任务折叠,不误收。 */
@@ -137,6 +166,7 @@ export const taskFilterSummary = (filters: TaskFilters): string[] => {
   if (filters.freshness !== "all") parts.push(`freshness=${filters.freshness}`);
   if (filters.includeArchived) parts.push("含归档/取消");
   if (filters.favoritesOnly) parts.push("仅看收藏");
+  if (filters.expandColdTerminal) parts.push("已展开冷终态");
   return parts;
 };
 
@@ -178,4 +208,20 @@ export function sortByPinAndFavoritesFirst<T>(
     else rest.push(item);
   }
   return [...pinned, ...favorited, ...rest];
+}
+
+/**
+ * 看板/列表共用的默认序(W8):lastKnownAt 倒序(最近动的在前)打底,再过
+ * pin → 收藏稳定置顶。同刻任务保持原相对顺序(两步都是稳定排序)。
+ */
+export function sortByRecentThenPinAndFavoritesFirst<T extends Pick<TaskRow, "taskId" | "pinned" | "lastKnownAt">>(
+  items: readonly T[],
+  favorites: ReadonlySet<string>,
+): T[] {
+  return sortByPinAndFavoritesFirst(
+    [...items].sort((a, b) => b.lastKnownAt.localeCompare(a.lastKnownAt)),
+    (item) => item.pinned === true,
+    (item) => item.taskId,
+    favorites,
+  );
 }

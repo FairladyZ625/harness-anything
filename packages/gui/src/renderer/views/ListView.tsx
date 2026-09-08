@@ -5,7 +5,7 @@ import { isExternal } from "../model/types";
 import { CloseoutBadge, DecisionSourceBadge, EngineBadge, FreshnessTag, StatusBadge } from "../components/badges";
 import { TaskFilterBar } from "../components/TaskFilterBar";
 import type { TaskFilters } from "../model/taskFilters";
-import { sortByPinAndFavoritesFirst } from "../model/taskFilters";
+import { sortByRecentThenPinAndFavoritesFirst } from "../model/taskFilters";
 import { spawningDecisionOf } from "../model/triadic";
 import { t } from "../i18n/index.tsx";
 import { formatTime } from "../model/time.ts";
@@ -183,18 +183,8 @@ export function ListView({
   }, [filters, tasks.length]);
 
   const favSet = favorites ?? new Set<string>();
-  // 置顶次序:台账 pin(canonical)→ 本地收藏 → 更新时间。pin 是「今天当前在做」,
-  // 必须先于个人偏好;两者都不改变同等级内的既有顺序。
-  const sorted = useMemo(
-    () =>
-      sortByPinAndFavoritesFirst(
-        [...tasks].sort((a, b) => b.lastKnownAt.localeCompare(a.lastKnownAt)),
-        (t) => t.pinned === true,
-        (t) => t.taskId,
-        favSet,
-      ),
-    [tasks, favSet],
-  );
+  // 默认序共用实现(W8):lastKnownAt 倒序打底,pin(canonical)→ 本地收藏稳定置顶。
+  const sorted = useMemo(() => sortByRecentThenPinAndFavoritesFirst(tasks, favSet), [tasks, favSet]);
   const pageCount = Math.max(1, Math.ceil(sorted.length / pageSize));
   const safePage = Math.min(page, pageCount - 1);
   const visible = sorted.slice(safePage * pageSize, (safePage + 1) * pageSize);

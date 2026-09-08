@@ -65,7 +65,8 @@ function isTaskFilters(value: unknown): value is TaskFilters {
     typeof value.closeout === "string" &&
     typeof value.freshness === "string" &&
     typeof value.includeArchived === "boolean" &&
-    typeof value.favoritesOnly === "boolean"
+    typeof value.favoritesOnly === "boolean" &&
+    typeof value.expandColdTerminal === "boolean"
   );
 }
 

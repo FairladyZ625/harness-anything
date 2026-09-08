@@ -1,6 +1,6 @@
 # 安装
 
-Harness Anything 当前从源码 checkout 运行，需要 Node.js 24 或更新版本。受支持的桌面入口只有
+0.0.1 CLI 候选版通过 npm package 运行，需要 Node.js 24 或更新版本。受支持的桌面入口仍是源码安装的
 `ha gui`；直接启动 packaged Electron executable 不是受支持的生产路径。
 
 ## 前置条件
@@ -8,6 +8,22 @@ Harness Anything 当前从源码 checkout 运行，需要 Node.js 24 或更新�
 - Node.js 24 或更新版本，以及 npm。
 - `git`。
 - 一个可初始化的 git 仓库，或一个已经注册到本机 daemon 的仓库。
+
+## 安装 npm CLI 候选版
+
+在 Harness Anything checkout 中构建并安装 scoped package：
+
+```bash
+npm ci
+npm pack --workspace @harness-anything/cli
+npm install --global ./harness-anything-cli-0.0.1.tgz
+ha --version
+```
+
+候选版已用 `npm publish --dry-run` 验证；本任务不宣称已发布到 registry。
+
+通常直接运行不带参数的 `ha init` 即可。它从当前目录名推导仓库 ID，从
+`git config user.name` 推导 owner 身份；显式参数可覆盖默认值。
 
 ## 安装源码 CLI 与 GUI
 
