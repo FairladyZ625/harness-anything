@@ -197,9 +197,7 @@ test("machine runtime instance CRUD binds a witnessed installation and enforces 
     assert.deepEqual(store.read(config.instanceId), normalized);
     const target = path.join(userRoot, "runtime-instances.json"),
       stateRoot = path.join(userRoot, "runtime-instances", config.instanceId);
-    assert.equal(statSync(target).mode & 0o777, 0o600);
-    for (const directory of [stateRoot, ...["home", "tmp", "run"].map((name) => path.join(stateRoot, name))])
-      assert.equal(statSync(directory).mode & 0o777, 0o700, directory);
+    assertPrivateModes(target, [stateRoot, ...["home", "tmp", "run"].map((name) => path.join(stateRoot, name))]);
     assert.deepEqual(JSON.parse(readFileSync(target, "utf8")), {
       schema: "runtime-instances/v1",
       instances: [normalized],
@@ -216,20 +214,20 @@ test("runtime installation identity survives an upgrade behind the same PATH ent
   const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-discovery-")),
     bin = path.join(root, "bin"),
     versions = path.join(root, "versions"),
-    entry = path.join(bin, "claude"),
-    oldExecutable = path.join(versions, "2.1.237"),
-    newExecutable = path.join(versions, "2.1.240");
+    entry = path.join(bin, process.platform === "win32" ? "claude.cmd" : "claude"),
+    oldScript = path.join(versions, "2.1.237.mjs"),
+    newScript = path.join(versions, "2.1.240.mjs");
   try {
     requireDirectory(bin);
     requireDirectory(versions);
-    writeProviderExecutable(oldExecutable, 'console.log("2.1.237 (Claude Code)");\n');
-    writeProviderExecutable(newExecutable, 'console.log("2.1.240 (Claude Code)");\n');
-    symlinkSync(oldExecutable, entry);
+    const oldExecutable = writeProviderExecutable(oldScript, 'console.log("2.1.237 (Claude Code)");\n'),
+      newExecutable = writeProviderExecutable(newScript, 'console.log("2.1.240 (Claude Code)");\n');
+    symlinkSync(oldExecutable, entry, process.platform === "win32" ? "file" : undefined);
     const before = (
       await discoverRuntimeInstallations({ env: { PATH: bin }, now: () => "2026-08-22T00:00:00.000Z" })
     )[0]!;
     rmSync(entry);
-    symlinkSync(newExecutable, entry);
+    symlinkSync(newExecutable, entry, process.platform === "win32" ? "file" : undefined);
     const after = (
       await discoverRuntimeInstallations({ env: { PATH: bin }, now: () => "2026-08-23T00:00:00.000Z" })
     )[0]!;
@@ -367,16 +365,13 @@ test("Codex sidecar launch materializes the complete non-secret provider config 
     assert.deepEqual(launch.installation, observed);
     assert.equal(launch.executablePath, observed.executablePath);
     assert.deepEqual(launch.args, ["exec", "--json", "--sandbox", "danger-full-access", "--model", "gpt-5.6-sol", "-"]);
-    assert.deepEqual(launch.env, {
-      PATH: "/runtime/tools",
-      HOME: path.join(stateRoot, "home"),
-      TMPDIR: path.join(stateRoot, "tmp"),
-      XDG_RUNTIME_DIR: path.join(stateRoot, "run"),
-      CODEX_HOME: path.join(stateRoot, "home", ".codex"),
-    });
+    assert.deepEqual(
+      launch.env,
+      expectedIsolatedEnvironment(stateRoot, "codex", { PATH: "/runtime/tools" }),
+    );
     const codexConfig = path.join(launch.env.CODEX_HOME!, "config.toml"),
       text = readFileSync(codexConfig, "utf8");
-    assert.equal(statSync(codexConfig).mode & 0o777, 0o600);
+    if (process.platform !== "win32") assert.equal(statSync(codexConfig).mode & 0o777, 0o600);
     assert.equal(
       text,
       `model_provider = "codex_local_access"\nmodel_reasoning_effort = "xhigh"\n\n[model_providers."codex_local_access"]\nname = "codex_local_access"\nbase_url = "http://127.0.0.1:1/v1"\nwire_api = "responses"\nrequires_openai_auth = true\nhttp_headers = { "X-Harness-Probe" = "present", "X-Static-Route" = "sidecar" }\nexperimental_bearer_token = "instance-secret"\n`,
@@ -388,9 +383,10 @@ test("Codex sidecar launch materializes the complete non-secret provider config 
     assert.equal(Object.values(launch.env).includes("http://host-proxy"), false);
     assert.equal(launch.prompt, "Inspect");
     assert.equal(launch.cwd, "/workspace/repo");
-    assert.equal(statSync(path.join(userRoot, "runtime-instances.json")).mode & 0o777, 0o600);
-    for (const directory of [stateRoot, ...["home", "tmp", "run"].map((name) => path.join(stateRoot, name))])
-      assert.equal(statSync(directory).mode & 0o777, 0o700, directory);
+    assertPrivateModes(
+      path.join(userRoot, "runtime-instances.json"),
+      [stateRoot, ...["home", "tmp", "run"].map((name) => path.join(stateRoot, name))],
+    );
   } finally {
     rmSync(userRoot, { recursive: true, force: true });
   }
@@ -609,13 +605,10 @@ test("subscription launch fails closed without provider-native readiness and nev
       "--model",
       "claude-fable-5",
     ]);
-    assert.deepEqual(launch.env, {
-      PATH: "/runtime/tools",
-      HOME: path.join(stateRoot, "home"),
-      TMPDIR: path.join(stateRoot, "tmp"),
-      XDG_RUNTIME_DIR: path.join(stateRoot, "run"),
-      CLAUDE_CONFIG_DIR: path.join(stateRoot, "home", ".claude"),
-    });
+    assert.deepEqual(
+      launch.env,
+      expectedIsolatedEnvironment(stateRoot, "claude", { PATH: "/runtime/tools" }),
+    );
     assert.deepEqual(readinessEnvironment, launch.env);
     assert.equal(credentialCalls, 0);
   } finally {
@@ -1794,6 +1787,46 @@ test("Codex fast reaches its CLI, per-run false overrides its default, and unsup
 function requireDirectory(directory: string): void {
   mkdirSync(directory);
 }
+function assertPrivateModes(file: string, directories: readonly string[]): void {
+  if (process.platform === "win32") {
+    assert.equal(existsSync(file), true);
+    for (const directory of directories) assert.equal(statSync(directory).isDirectory(), true, directory);
+    return;
+  }
+  assert.equal(statSync(file).mode & 0o777, 0o600);
+  for (const directory of directories) assert.equal(statSync(directory).mode & 0o777, 0o700, directory);
+}
+
+function expectedIsolatedEnvironment(
+  stateRoot: string,
+  kindId: "claude" | "codex",
+  extra: NodeJS.ProcessEnv = {},
+): NodeJS.ProcessEnv {
+  const home = path.join(stateRoot, "home"),
+    tmp = path.join(stateRoot, "tmp"),
+    provider =
+      kindId === "claude"
+        ? { CLAUDE_CONFIG_DIR: path.join(home, ".claude") }
+        : { CODEX_HOME: path.join(home, ".codex") };
+  return process.platform === "win32"
+    ? {
+        USERPROFILE: home,
+        TEMP: tmp,
+        TMP: tmp,
+        APPDATA: path.join(home, "AppData", "Roaming"),
+        LOCALAPPDATA: path.join(home, "AppData", "Local"),
+        ...provider,
+        ...extra,
+      }
+    : {
+        HOME: home,
+        TMPDIR: tmp,
+        XDG_RUNTIME_DIR: path.join(stateRoot, "run"),
+        ...provider,
+        ...extra,
+      };
+}
+
 function codedAs(error: unknown, code: string): boolean {
   return error instanceof Error && "code" in error && error.code === code;
 }

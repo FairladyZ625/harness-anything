@@ -1,7 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -10,6 +10,7 @@ import { createRealizedTaskPlanFixture } from "../../../tools/fixtures/task-plan
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { removeTemporaryDirectory } from "../../../tools/temporary-directory-cleanup.mjs";
 
 const actor = { principal: { personId: "person-owner" }, executor: { kind: "agent" as const, id: "codex" } } as const,
   binding = withRoleBinding({ actor, source: "local" as const }, "repo-write"),
@@ -26,7 +27,9 @@ test("task complete rejects an undeclared upstream Fact and persists a still-hol
     repoId = workspaceId("fact-retirement"),
     taskId = "task_fact_retirement",
     executionId = "exe_fact_retirement";
-  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined,
+    eventReader: ReturnType<typeof makeTaskEventReader> | undefined,
+    completionReader: ReturnType<typeof makeTaskEventReader> | undefined;
   try {
     initRepo(rootDir);
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "fact-retirement" });
@@ -117,10 +120,9 @@ test("task complete rejects an undeclared upstream Fact and persists a still-hol
       String((blocked.next as readonly { readonly reason: string }[])[0]?.reason),
       new RegExp(`${factRef} via decision/${decisionId}/C1`, "u"),
     );
+    eventReader = makeTaskEventReader({ repoId, rootDir });
     assert.equal(
-      makeTaskEventReader({ repoId, rootDir })
-        .read()
-        .events.some((event) => event.type === "task_completed"),
+      eventReader.read().events.some((event) => event.type === "task_completed"),
       false,
     );
 
@@ -135,13 +137,16 @@ test("task complete rejects an undeclared upstream Fact and persists a still-hol
         binding,
       )) as unknown as Record<string, unknown>;
     assert.equal(completed.outcome, "applied", JSON.stringify(completed));
-    const event = makeTaskEventReader({ repoId, rootDir }).readEvent(String(completed.opId));
+    completionReader = makeTaskEventReader({ repoId, rootDir });
+    const event = completionReader.readEvent(String(completed.opId));
     assert.equal(event?.type, "task_completed");
     if (event?.type === "task_completed")
       assert.deepEqual(event.payload.factRetirementAttestations, [{ factRef, rationale }]);
   } finally {
+    await completionReader?.drain();
+    await eventReader?.drain();
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    await removeTemporaryDirectory(rootDir);
   }
 });
 

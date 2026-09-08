@@ -1,5 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
+import { randomBytes } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import net from "node:net";
 import { tmpdir } from "node:os";
@@ -28,7 +29,7 @@ test("the handshake rejects a requested method absent from the daemon method tab
     });
     assert.deepEqual(seen, ["protocol.hello"], "the unavailable method must not be sent after preflight");
   } finally {
-    server.close();
+    await server.close();
   }
 });
 
@@ -44,7 +45,7 @@ test("daemon-only methods do not make the requested-method handshake fail", asyn
       value: "accepted",
     });
   } finally {
-    server.close();
+    await server.close();
   }
 });
 
@@ -62,7 +63,7 @@ test("a JSON-RPC method-not-found response retains its protocol identity", async
       return true;
     });
   } finally {
-    server.close();
+    await server.close();
   }
 });
 
@@ -72,9 +73,11 @@ async function rpcServer(
   ) =>
     | { readonly result: Record<string, unknown> }
     | { readonly error: { readonly code: number; readonly message: string } },
-): Promise<{ readonly socketPath: string; readonly close: () => void }> {
+): Promise<{ readonly socketPath: string; readonly close: () => Promise<void> }> {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-method-handshake-")),
-    socketPath = path.join(parent, "daemon.sock"),
+    socketPath = process.platform === "win32"
+      ? `\\\\.\\pipe\\ha-method-handshake-${randomBytes(6).toString("hex")}`
+      : path.join(parent, "daemon.sock"),
     server = net.createServer((socket) => {
       socket.on("data", (chunk: Buffer) => {
         for (const line of chunk.toString("utf8").split("\n").filter(Boolean)) {
@@ -83,11 +86,11 @@ async function rpcServer(
         }
       });
     });
-  await new Promise<void>((resolve) => server.listen(socketPath, resolve));
+  await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(socketPath, resolve); });
   return {
     socketPath,
-    close: () => {
-      server.close();
+    close: async () => {
+      await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
       rmSync(parent, { recursive: true, force: true });
     },
   };

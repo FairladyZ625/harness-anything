@@ -18,13 +18,17 @@ import test from "node:test";
 import { spawnWithDeadline } from "./fixtures/deadline-spawn.mjs";
 
 const repositoryRoot = path.resolve(import.meta.dirname, "..");
+const gitShell = process.platform === "win32" ? findGitShell() : "sh";
+const posixShellSkip = process.platform === "win32" && gitShell === null
+  ? "requires Git for Windows' POSIX shell to execute the repository hook wrapper"
+  : false;
 
 // The wrapper honours a leading `-C <dir>` by cd-ing before it decides which repository a
 // command targets. A relative PATH entry that named nothing at the shell cwd is therefore
 // nothing for the self-exclusion filter to match, yet it names a real directory after that
 // cd — including the wrapper's own `tools/git-hooks`, which is how the wrapper reached
 // itself. The decoy stands in for that directory: reaching it at all is the defect.
-test("the git wrapper resolves git before -C, so no PATH entry can capture it after the cd", async (context) => {
+test("the git wrapper resolves git before -C, so no PATH entry can capture it after the cd", { skip: posixShellSkip }, async (context) => {
   const parent = realpathSync(mkdtempSync(path.join(os.tmpdir(), "hook-post-cd-capture-"))),
     root = path.join(parent, "repo"),
     decoy = path.join(root, "tools", "git-hooks"),
@@ -36,15 +40,15 @@ test("the git wrapper resolves git before -C, so no PATH entry can capture it af
   installExecutable(path.join(repositoryRoot, "tools", "git-hooks", "git"), path.join(wrapper, "git"));
   writeExecutable(
     path.join(decoy, "git"),
-    `#!/usr/bin/env sh\nprintf 'captured\\n' >> ${JSON.stringify(captured)}\nexit 1\n`,
+    `#!/usr/bin/env sh\nprintf 'captured\\n' >> ${JSON.stringify(shellPath(captured))}\nexit 1\n`,
   );
   execFileSync("git", ["-C", root, "init", "-q"]);
 
-  const result = await spawnWithDeadline("git", ["-C", root, "rev-parse", "--show-toplevel"], {
+  const result = await spawnGitWithDeadline(["-C", root, "rev-parse", "--show-toplevel"], {
     cwd: parent,
     env: {
       ...process.env,
-      PATH: [path.join("tools", "git-hooks"), wrapper, process.env.PATH ?? ""].join(path.delimiter),
+      PATH: shellPathEntries([path.join("tools", "git-hooks"), wrapper, ...(process.env.PATH ?? "").split(path.delimiter)]),
     },
   });
 
@@ -65,7 +69,7 @@ test("the git wrapper resolves git before -C, so no PATH entry can capture it af
 // upstream entry, so every repository probe forked the other party, which forked the wrapper
 // again, without bound: the 2026-09-03 fork exhaustions. Delegating only downstream of its
 // own PATH entry ends the cycle; the shim must be visited exactly once.
-test("the git wrapper delegates only downstream of its own PATH entry, so an upstream shim cannot cycle back into it", async (context) => {
+test("the git wrapper delegates only downstream of its own PATH entry, so an upstream shim cannot cycle back into it", { skip: posixShellSkip }, async (context) => {
   const parent = realpathSync(mkdtempSync(path.join(os.tmpdir(), "hook-upstream-shim-"))),
     root = path.join(parent, "repo"),
     wrapper = path.join(parent, "wrapper"),
@@ -78,18 +82,18 @@ test("the git wrapper delegates only downstream of its own PATH entry, so an ups
   installExecutable(path.join(repositoryRoot, "tools", "git-hooks", "git"), path.join(wrapper, "git"));
   writeExecutable(
     path.join(shim, "git"),
-    `#!/usr/bin/env sh\nprintf 'visit\\n' >> ${JSON.stringify(visits)}\nexec ${JSON.stringify(path.join(wrapper, "git"))} "$@"\n`,
+    `#!/usr/bin/env sh\nprintf 'visit\\n' >> ${JSON.stringify(shellPath(visits))}\nexec ${JSON.stringify(shellPath(path.join(wrapper, "git")))} "$@"\n`,
   );
   execFileSync("git", ["-C", root, "init", "-q"]);
 
   // A per-user process ceiling keeps a regression from exhausting the machine; a green
   // wrapper never approaches it.
   const result = await spawnWithDeadline(
-    "sh",
-    ["-c", 'ulimit -u $(( $(ps -U "$(id -un)" -o pid= | wc -l) + 256 )); exec git "$@"', "sh", "-C", root, "rev-parse", "--show-toplevel"],
+    gitShell,
+    ["-c", 'ulimit -u $(( $(ps -U "$(id -un)" -o pid= | wc -l) + 256 )); script="$1"; shift; exec "$script" "$@"', "sh", shellPath(path.join(shim, "git")), "-C", root, "rev-parse", "--show-toplevel"],
     {
       cwd: parent,
-      env: { ...process.env, PATH: [shim, wrapper, process.env.PATH ?? ""].join(path.delimiter) },
+      env: { ...process.env, PATH: shellPathEntries([shim, wrapper, ...(process.env.PATH ?? "").split(path.delimiter)]) },
     },
   );
 
@@ -99,12 +103,47 @@ test("the git wrapper delegates only downstream of its own PATH entry, so an ups
   assert.equal(readFileSync(visits, "utf8"), "visit\n", "the wrapper delegated back upstream into the shim");
 });
 
+function findGitShell() {
+  const result = execFileSync("where.exe", ["git.exe"], { encoding: "utf8" });
+  for (const gitPath of result.split(/\r?\n/u).map((value) => value.trim()).filter(Boolean)) {
+    const root = path.resolve(path.dirname(gitPath), "..");
+    for (const candidate of [path.join(root, "bin", "sh.exe"), path.join(root, "usr", "bin", "sh.exe")]) {
+      if (existsSync(candidate)) return candidate;
+    }
+  }
+  return null;
+}
+
+function shellPath(value) {
+  if (process.platform !== "win32") return value;
+  const normalized = value.replaceAll("\\", "/");
+  return /^[A-Za-z]:\//u.test(normalized) ? `/${normalized[0].toLowerCase()}${normalized.slice(2)}` : normalized;
+}
+
+function shellPathEntries(entries) {
+  return entries.filter((entry) => entry.length > 0).map(shellPath).join(process.platform === "win32" ? ":" : path.delimiter);
+}
+
+function spawnGitWithDeadline(args, options) {
+  return process.platform === "win32"
+    ? spawnWithDeadline(gitShell, ["-c", 'exec git "$@"', "sh", ...args], options)
+    : spawnWithDeadline("git", args, options);
+}
+
 function installExecutable(source, destination) {
   copyFileSync(source, destination);
   chmodSync(destination, 0o755);
+  installWindowsShim(destination);
 }
 
 function writeExecutable(destination, body) {
   writeFileSync(destination, body);
   chmodSync(destination, 0o755);
+  installWindowsShim(destination);
+}
+
+function installWindowsShim(destination) {
+  if (process.platform !== "win32") return;
+  const script = path.basename(destination);
+  writeFileSync(`${destination}.cmd`, `@echo off\r\n"${gitShell}" "%~dp0${script}" %*\r\nexit /b %ERRORLEVEL%\r\n`, "utf8");
 }

@@ -1,5 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
+import { randomBytes } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -13,7 +14,10 @@ const unusedLaunch = (): DaemonLaunchSpec => ({ command: process.execPath, args:
 
 test("daemon_stopping waits for the replacement generation and resends exactly once", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-restart-ready-")),
-    socketPath = path.join(parent, "daemon.sock"),
+    socketPath =
+      process.platform === "win32"
+        ? `\\\\.\\pipe\\ha-restart-ready-${randomBytes(6).toString("hex")}`
+        : path.join(parent, "daemon.sock"),
     daemonId = "restart-ready",
     pidPath = daemonPidPath(parent, daemonId),
     server = createServer(),
@@ -45,7 +49,7 @@ test("daemon_stopping waits for the replacement generation and resends exactly o
     assert.equal(receipts.length, 0, "the original request is resent exactly once");
   } finally {
     clearTimeout(replace);
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
     rmSync(parent, { recursive: true, force: true });
   }
 });

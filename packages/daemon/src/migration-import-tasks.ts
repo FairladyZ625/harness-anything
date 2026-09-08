@@ -14,6 +14,7 @@ import {
 } from "../../kernel/src/index.ts";
 import type { ProjectionOracleTask } from "./migration-import-oracle.ts";
 import { scheduleArchivedEntity } from "./migration-import-dispositions.ts";
+import { portableMigrationPath } from "./migration-import-conflicts.ts";
 import { isMigrationImportRecord } from "./migration-import-report.ts";
 import { restateTaskContract } from "./migration-import-task-restatement.ts";
 import type { ImportedTask } from "./migration-import-types.ts";
@@ -553,10 +554,12 @@ export function taskTitleFromPackage(
   if (packageRoot === null) return null;
   const planPath = path.join(packageRoot, "task_plan.md"),
     planTitle = markdownH1(utf8Absolute(planPath));
-  if (planTitle) return { value: planTitle, source: path.relative(authoredRoot, planPath) };
+  if (planTitle) return { value: planTitle, source: portableMigrationPath(path.relative(authoredRoot, planPath)) };
   const indexPath = path.join(packageRoot, "INDEX.md"),
     indexTitle = markdownH1(indexBody ?? utf8Absolute(indexPath));
-  return indexTitle ? { value: indexTitle, source: path.relative(authoredRoot, indexPath) } : null;
+  return indexTitle
+    ? { value: indexTitle, source: portableMigrationPath(path.relative(authoredRoot, indexPath)) }
+    : null;
 }
 
 export function markdownH1(body: string | null): string | null {

@@ -1,5 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
+import { randomBytes } from "node:crypto";
 import net from "node:net";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -15,13 +16,19 @@ import { connectSocket, JsonRpcLineClient } from "../src/client/local-json-rpc-c
 // The locks below pin the two properties the fix bought: listener counts stay flat across rounds on
 // a reused connection, and round N still resolves with round N's response after a round whose
 // deadline expired and whose late response came back on the same socket.
-function lineServer(handler: (request: { readonly id: number; readonly method: string; readonly params: Record<string, unknown> }, reply: (result: Record<string, unknown>) => void) => void): Promise<{ readonly socketPath: string; readonly close: () => void }> {
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-json-rpc-client-")), socketPath = path.join(parent, "client.sock");
+function lineServer(handler: (request: { readonly id: number; readonly method: string; readonly params: Record<string, unknown> }, reply: (result: Record<string, unknown>) => void) => void): Promise<{ readonly socketPath: string; readonly close: () => Promise<void> }> {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-json-rpc-client-")),
+    socketPath = process.platform === "win32"
+      ? `\\\\.\\pipe\\ha-json-rpc-client-${randomBytes(6).toString("hex")}`
+      : path.join(parent, "client.sock");
   const server = net.createServer((socket) => {
     socket.on("data", (chunk: Buffer) => { for (const line of chunk.toString("utf8").split("\n").filter(Boolean)) { const request = JSON.parse(line) as { readonly id: number; readonly method: string; readonly params: Record<string, unknown> }; handler(request, (result) => socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, result })}\n`)); } });
     socket.on("error", () => undefined);
   });
-  return new Promise((resolve) => server.listen(socketPath, () => resolve({ socketPath, close: () => { server.close(); rmSync(parent, { recursive: true, force: true }); } })));
+  return new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(socketPath, () => resolve({ socketPath, close: async () => { await closeServer(server); rmSync(parent, { recursive: true, force: true }); } }));
+  });
 }
 
 test("a reused connection keeps its socket listener counts flat across read rounds", async () => {
@@ -43,7 +50,7 @@ test("a reused connection keeps its socket listener counts flat across read roun
       await new Promise((resolve) => setTimeout(resolve, 25));
       assert.deepEqual({ data: socket.listenerCount("data"), end: socket.listenerCount("end"), error: socket.listenerCount("error") }, { data: 0, end: flat.end - 1, error: flat.error - 1 }, "close must detach the reader's listener set");
     } finally { clientClose(client); }
-  } finally { process.off("warning", onWarning); server.close(); }
+  } finally { process.off("warning", onWarning); await server.close(); }
   assert.equal(warnings.includes("MaxListenersExceededWarning"), false, `no listener ceiling may be crossed: ${warnings.join(", ")}`);
 });
 
@@ -58,17 +65,20 @@ test("a round whose deadline expired does not poison the next round on the same 
       const next = await client.request("prompt", { round: 2 }, 5_000);
       assert.deepEqual(next, { ok: true, echo: "prompt" }, "the next round must resolve with its own response, not the stale one");
     } finally { clientClose(client); }
-  } finally { server.close(); }
+  } finally { await server.close(); }
 });
 
 test("a daemon that closes mid-exchange rejects the pending request instead of hanging it", async () => {
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-json-rpc-client-")), socketPath = path.join(parent, "torn.sock");
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-json-rpc-client-")),
+    socketPath = process.platform === "win32"
+      ? `\\\\.\\pipe\\ha-json-rpc-client-torn-${randomBytes(6).toString("hex")}`
+      : path.join(parent, "torn.sock");
   const server = net.createServer((socket) => {
     let seenHello = false;
     socket.on("data", (chunk: Buffer) => { for (const line of chunk.toString("utf8").split("\n").filter(Boolean)) { const request = JSON.parse(line) as { readonly id: number; readonly method: string }; if (request.method === "protocol.hello") { seenHello = true; socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { ok: true } })}\n`); } } if (seenHello) setTimeout(() => socket.destroy(), 20); });
     socket.on("error", () => undefined);
   });
-  await new Promise((resolve) => server.listen(socketPath, resolve));
+  await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(socketPath, resolve); });
   try {
     const socket = await connectSocket(socketPath, 2_000), client = new JsonRpcLineClient(socket, socket);
     try {
@@ -76,7 +86,11 @@ test("a daemon that closes mid-exchange rejects the pending request instead of h
       await assert.rejects(() => client.request("repo.agentRuntime.sessions.read", {}, 5_000), /daemon closed before JSON-RPC response/u);
       await assert.rejects(() => client.request("repo.agentRuntime.sessions.read", {}, 5_000), /daemon closed before JSON-RPC response/u);
     } finally { clientClose(client); }
-  } finally { server.close(); rmSync(parent, { recursive: true, force: true }); }
+  } finally { await closeServer(server); rmSync(parent, { recursive: true, force: true }); }
 });
 
 function clientClose(client: { readonly close: () => void }): void { try { client.close(); } catch { /* an already-torn socket may reject the final end */ } }
+
+function closeServer(server: net.Server): Promise<void> {
+  return new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+}

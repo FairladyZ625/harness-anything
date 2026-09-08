@@ -420,14 +420,13 @@ test("claude isolation defaults to the operator environment and stays enforced o
     });
     const isolated = await store.prepareLaunch("claude-enforced", { cwd: "/workspace/repo", prompt: "Isolate" }),
       stateRoot = path.join(userRoot, "runtime-instances", "claude-enforced");
-    assert.deepEqual(isolated.env, {
-      PATH: "/runtime/tools",
-      HOME: path.join(stateRoot, "home"),
-      TMPDIR: path.join(stateRoot, "tmp"),
-      XDG_RUNTIME_DIR: path.join(stateRoot, "run"),
-      CLAUDE_CONFIG_DIR: path.join(stateRoot, "home", ".claude"),
-      ANTHROPIC_API_KEY: "instance-secret",
-    });
+    assert.deepEqual(
+      isolated.env,
+      expectedIsolatedEnvironment(stateRoot, "claude", {
+        PATH: "/runtime/tools",
+        ANTHROPIC_API_KEY: "instance-secret",
+      }),
+    );
     const codexOperator = store.command({
       kind: "runtime-instance-create",
       instanceId: "codex-operator",
@@ -1369,19 +1368,19 @@ test("subscription auth commands use the witnessed executable and instance-only 
     });
     const stateRoot = path.join(userRoot, "runtime-instances", "codex-sub"),
       providerConfigDirectory = path.join(stateRoot, "home", ".codex");
-    assert.equal(statSync(providerConfigDirectory).mode & 0o777, 0o700);
+    if (process.platform !== "win32") assert.equal(statSync(providerConfigDirectory).mode & 0o777, 0o700);
     assert.equal(existsSync(path.join(stateRoot, "home", ".claude")), false);
     const command = store.prepareAuthCommand("codex-sub", "login");
     assert.equal(command.executablePath, observed.executablePath);
     assert.deepEqual(command.args, ["login"]);
     assert.equal(command.cwd, stateRoot);
-    assert.deepEqual(command.env, {
-      PATH: "/runtime/tools",
-      HOME: path.join(stateRoot, "home"),
-      TMPDIR: path.join(stateRoot, "tmp"),
-      XDG_RUNTIME_DIR: path.join(stateRoot, "run"),
-      CODEX_HOME: providerConfigDirectory,
-    });
+    assert.deepEqual(
+      command.env,
+      expectedIsolatedEnvironment(stateRoot, "codex", {
+        PATH: "/runtime/tools",
+        CODEX_HOME: providerConfigDirectory,
+      }),
+    );
     assert.deepEqual(store.prepareAuthCommand("codex-sub", "logout").args, ["logout"]);
     store.command({ kind: "runtime-instance-update", instanceId: "codex-sub", enabled: false });
     assert.deepEqual(store.prepareAuthCommand("codex-sub", "login").args, ["login"]);
@@ -1551,8 +1550,12 @@ test("two same-binary same-model instances never share state roots or credential
       rootA = path.join(userRoot, "runtime-instances", "codex-pair-a"),
       rootB = path.join(userRoot, "runtime-instances", "codex-pair-b");
     assert.notEqual(rootA, rootB);
-    assert.notEqual(launchA.env.HOME, launchB.env.HOME);
-    assert.notEqual(launchA.env.TMPDIR, launchB.env.TMPDIR);
+    const homeA = launchA.env.HOME ?? launchA.env.USERPROFILE,
+      homeB = launchB.env.HOME ?? launchB.env.USERPROFILE,
+      tmpA = launchA.env.TMPDIR ?? launchA.env.TEMP,
+      tmpB = launchB.env.TMPDIR ?? launchB.env.TEMP;
+    assert.notEqual(homeA, homeB);
+    assert.notEqual(tmpA, tmpB);
     assert.match(
       readFileSync(path.join(launchA.env.CODEX_HOME!, "config.toml"), "utf8"),
       /experimental_bearer_token = "secret-a"/u,
@@ -1843,6 +1846,39 @@ test("runtime instance update edits the base URL of an existing instance", async
 function requireDirectory(directory: string): void {
   mkdirSync(directory);
 }
+function expectedIsolatedEnvironment(
+  stateRoot: string,
+  kindId: "claude" | "codex" | "zcode" | "agy",
+  extra: NodeJS.ProcessEnv = {},
+  platform: NodeJS.Platform = process.platform,
+): NodeJS.ProcessEnv {
+  const home = path.join(stateRoot, "home"),
+    tmp = path.join(stateRoot, "tmp"),
+    provider =
+      kindId === "claude"
+        ? { CLAUDE_CONFIG_DIR: path.join(home, ".claude") }
+        : kindId === "codex"
+          ? { CODEX_HOME: path.join(home, ".codex") }
+          : {};
+  return platform === "win32"
+    ? {
+        USERPROFILE: home,
+        TEMP: tmp,
+        TMP: tmp,
+        APPDATA: path.join(home, "AppData", "Roaming"),
+        LOCALAPPDATA: path.join(home, "AppData", "Local"),
+        ...provider,
+        ...extra,
+      }
+    : {
+        HOME: home,
+        TMPDIR: tmp,
+        XDG_RUNTIME_DIR: path.join(stateRoot, "run"),
+        ...provider,
+        ...extra,
+      };
+}
+
 function codedAs(error: unknown, code: string): boolean {
   return error instanceof Error && "code" in error && error.code === code;
 }

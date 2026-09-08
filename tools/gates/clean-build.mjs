@@ -1,16 +1,35 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, lstatSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync } from "node:fs";
+import { existsSync, lstatSync, mkdtempSync, readFileSync, readdirSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { normalizeRepoPath } from "./module-policy.mjs";
 import { repoRoot } from "./git.mjs";
+import { removeTemporaryDirectorySync } from "../temporary-directory-cleanup.mjs";
 
 const GENERATED_SEGMENT = /(?:^|\/)(?:build|dist|out)(?:\/|$)/u;
 
 function run(command, args, options) {
-  const result = spawnSync(command, args, { ...options, encoding: "utf8", maxBuffer: 64 * 1024 * 1024, windowsHide: true });
-  return { ok: result.status === 0, status: result.status, output: `${result.stdout ?? ""}${result.stderr ?? ""}`.trim() };
+  const invocation = process.platform === "win32" && command === "npm" ? npmInvocation(args) : { command, args };
+  const result = spawnSync(invocation.command, invocation.args, {
+    ...options,
+    encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024,
+    windowsHide: true,
+    ...(process.platform === "win32" ? { windowsVerbatimArguments: true } : {}),
+  });
+  const startup = result.error ? ` [${result.error.code ?? "spawn_error"}] ${result.error.message}` : "";
+  return { ok: result.status === 0, status: result.status, output: `${result.stdout ?? ""}${result.stderr ?? ""}`.trim() + startup };
+}
+
+function npmInvocation(args) {
+  const command = process.env.ComSpec ?? process.env.COMSPEC ?? "cmd.exe",
+    commandLine = ["npm.cmd", ...args].map(quoteWindowsArgument).join(" ");
+  return { command, args: ["/d", "/s", "/c", commandLine] };
+}
+
+function quoteWindowsArgument(value) {
+  return /^[^\s"&|<>^()]+$/u.test(value) ? value : `"${value.replaceAll('"', '\\"')}"`;
 }
 
 function manifestPaths(rootDir) {
@@ -125,7 +144,7 @@ export function evaluateCleanBuild(rootDir) {
     errors.push(...inspectTargets(tempRoot, manifests, "after"));
     return { ok: errors.length === 0, errors, commands };
   } finally {
-    if (existsSync(tempRoot) && lstatSync(tempRoot).isDirectory()) rmSync(tempRoot, { recursive: true, force: true });
+    if (existsSync(tempRoot) && lstatSync(tempRoot).isDirectory()) removeTemporaryDirectorySync(tempRoot, { retryDelayMs: 20 });
   }
 }
 

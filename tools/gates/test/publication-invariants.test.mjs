@@ -1,7 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -19,6 +19,7 @@ import { TaskLifecycleContractError } from "../../../packages/kernel/src/domain/
 import { addWriteTarget } from "../../../packages/kernel/src/domain/task-write-decision.ts";
 import { lifecycleHarness } from "../../../packages/application/test/task-lifecycle-test-harness.ts";
 import { assertWriteTargetDeclared } from "../../../packages/application/src/task-lifecycle-service.ts";
+import { removeTemporaryDirectory } from "../../temporary-directory-cleanup.mjs";
 
 test("G29 compares the complete published byte delta with the frozen plan declaration", async () => {
   const harness = lifecycleHarness();
@@ -158,13 +159,15 @@ test("G29 treats a declared SQLite database as its main file plus -wal and -shm,
 
 test("G29 doc publication rejects extra, missing, and late targets before Git or SQLite mutation", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-g29-doc-"));
+  let store, projection;
   try {
     git(rootDir, "init", "-q");
     git(rootDir, "config", "user.name", "G29");
     git(rootDir, "config", "user.email", "g29@example.invalid");
     git(rootDir, "commit", "--allow-empty", "-qm", "base");
-    const store = makeTaskEventStore({ repoId: "test-repo", rootDir }),
-      projection = makeTaskProjection({ rootDir, eventStore: store }),
+    store = makeTaskEventStore({ repoId: "test-repo", rootDir });
+    projection = makeTaskProjection({ rootDir, eventStore: store });
+    const
       body = "# Notes\n",
       hash = sha256Text(body),
       base = store.currentCut(),
@@ -236,7 +239,9 @@ test("G29 doc publication rejects extra, missing, and late targets before Git or
     assert.equal(projection.readDocument("context/notes.md").document?.blobSha256, hash);
     await store.drain();
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    projection?.close();
+    await store?.drain();
+    await removeTemporaryDirectory(rootDir, { retryDelayMs: 20 });
   }
 });
 

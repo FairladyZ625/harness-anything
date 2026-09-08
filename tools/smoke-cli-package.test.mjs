@@ -8,6 +8,7 @@ test("CLI package smoke explicitly builds the CLI artifact even when npm lifecyc
   const calls = [];
 
   buildCliPackageArtifact("/repo", {
+    platform: "linux",
     execFileSync: (command, args, options) => {
       calls.push({ command, args, options });
     },
@@ -19,6 +20,26 @@ test("CLI package smoke explicitly builds the CLI artifact even when npm lifecyc
   ]);
   assert.equal(calls[0].options.cwd, "/repo");
   assert.equal(calls[0].options.env.NPM_CONFIG_IGNORE_SCRIPTS, "false");
+});
+
+test("CLI package smoke resolves npm.cmd through ComSpec on Windows", () => {
+  const calls = [];
+
+  buildCliPackageArtifact("C:\\repo", {
+    platform: "win32",
+    environment: { ComSpec: "C:\\Windows\\System32\\cmd.exe" },
+    execFileSync: (command, args, options) => {
+      calls.push({ command, args, options });
+    },
+    existsSync: () => true
+  });
+
+  assert.deepEqual(calls.map((call) => [call.command, call.args]), [[
+    "C:\\Windows\\System32\\cmd.exe",
+    ["/d", "/s", "/c", "npm.cmd run build --workspace @harness-anything/cli"]
+  ]]);
+  assert.equal(calls[0].options.windowsHide, true);
+  assert.equal(calls[0].options.windowsVerbatimArguments, true);
 });
 
 test("CLI package smoke reports a missing build artifact instead of packing stale dist", () => {

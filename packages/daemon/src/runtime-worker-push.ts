@@ -26,10 +26,14 @@ export async function workerWorktreeDirty(input: {
 }): Promise<boolean> {
   if (samePath(input.cwd, input.canonicalRoot)) return false;
   try {
-    const result = await execFileAsync("git", ["-C", input.cwd, "status", "--porcelain"], {
-      env: { ...process.env, ...input.env, GIT_TERMINAL_PROMPT: "0" },
-      maxBuffer: worktreeStatusLimit,
-    });
+    const env = { ...process.env, ...input.env, GIT_TERMINAL_PROMPT: "0" },
+      invocation = gitInvocation(input.cwd, ["status", "--porcelain"], env),
+      result = await execFileAsync(invocation.command, invocation.args, {
+        env,
+        maxBuffer: worktreeStatusLimit,
+        windowsHide: true,
+        ...(invocation.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
+      });
     return String(result.stdout).trim().length > 0;
   } catch (error) {
     consumeKnownError(error);
@@ -46,10 +50,14 @@ export async function pushWorkerBranch(input: {
 
   let branch: string;
   try {
-    const result = await execFileAsync("git", ["-C", input.cwd, "branch", "--show-current"], {
-      env: { ...process.env, ...input.env, GIT_TERMINAL_PROMPT: "0" },
-      maxBuffer: detailLimit * 2,
-    });
+    const env = { ...process.env, ...input.env, GIT_TERMINAL_PROMPT: "0" },
+      invocation = gitInvocation(input.cwd, ["branch", "--show-current"], env),
+      result = await execFileAsync(invocation.command, invocation.args, {
+        env,
+        maxBuffer: detailLimit * 2,
+        windowsHide: true,
+        ...(invocation.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
+      });
     branch = String(result.stdout).trim();
   } catch (error) {
     return { attempted: true, ok: false, branch: null, detail: errorDetail(error) };
@@ -58,14 +66,36 @@ export async function pushWorkerBranch(input: {
   if (!workerBranchPattern.test(branch)) return { attempted: false, reason: "not-codex-branch" };
 
   try {
-    await execFileAsync("git", ["-C", input.cwd, "push", "--force-with-lease", "origin", `HEAD:${branch}`], {
-      env: { ...process.env, ...input.env, GIT_TERMINAL_PROMPT: "0" },
+    const env = { ...process.env, ...input.env, GIT_TERMINAL_PROMPT: "0" },
+      invocation = gitInvocation(input.cwd, ["push", "--force-with-lease", "origin", `HEAD:${branch}`], env);
+    await execFileAsync(invocation.command, invocation.args, {
+      env,
       maxBuffer: detailLimit * 2,
+      windowsHide: true,
+      ...(invocation.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
     });
     return { attempted: true, ok: true, branch };
   } catch (error) {
     return { attempted: true, ok: false, branch, detail: errorDetail(error) };
   }
+}
+
+function gitInvocation(
+  cwd: string,
+  args: readonly string[],
+  environment: NodeJS.ProcessEnv,
+): { readonly command: string; readonly args: readonly string[]; readonly windowsVerbatimArguments?: boolean } {
+  if (process.platform !== "win32") return { command: "git", args: ["-C", cwd, ...args] };
+  const command = ["git", "-C", cwd, ...args].map(quoteWindowsGitArgument).join(" ");
+  return {
+    command: environment.ComSpec ?? environment.COMSPEC ?? "cmd.exe",
+    args: ["/d", "/s", "/c", command],
+    windowsVerbatimArguments: true,
+  };
+}
+
+function quoteWindowsGitArgument(value: string): string {
+  return /^[^\s"&|<>^()]+$/u.test(value) ? value : `"${value.replaceAll('"', '\\"')}"`;
 }
 
 function samePath(left: string, right: string): boolean {

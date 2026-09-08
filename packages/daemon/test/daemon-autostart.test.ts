@@ -18,6 +18,7 @@ import {
 import { daemonStdioLogPath, openDaemonLifecycleLog } from "../src/lifecycle-log.ts";
 import { startDetachedProcessChecked } from "../src/process-port.ts";
 import { daemonSingletonLockPath } from "../src/daemon-singleton.ts";
+import { canonicalPath } from "../src/runtime-worker-push.ts";
 
 function coded(code: string): Error & { code: string } {
   const error = Object.assign(new Error(`connect ${code}`), { code });
@@ -80,7 +81,7 @@ test("a worktree is refused before spawn while the registered canonical checkout
     const refusal = await daemonHostStartRefusal({ invokingRoot: worktree, userRoot });
     assert.equal(refusal?.code, "daemon_start_noncanonical_checkout");
     assert.match(refusal?.hint ?? "", /A worktree may connect to an existing daemon but cannot host it/u);
-    assert.match(refusal?.hint ?? "", new RegExp(escapeRegExp(canonical), "u"));
+    assert.match(refusal?.hint ?? "", new RegExp(escapeRegExp(canonicalPath(canonical)), "u"));
 
     let spawns = 0;
     const result = await ensureLocalDaemonRunning({

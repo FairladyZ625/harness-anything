@@ -1,19 +1,23 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
+import path from "node:path";
 import { assessHermeticConfig, main, parsePreflightArgs } from "./test-hermetic-preflight.mjs";
+
+const home = "/home/tester";
+const defaultUserRoot = path.resolve(home, ".harness");
 
 test("preflight rejects the default daemon with separate user-root and socket failures", () => {
   const result = assessHermeticConfig({
-    userRoot: "/home/tester/.harness",
+    userRoot: defaultUserRoot,
     daemonId: "default",
     userRootSource: "flag",
-    home: "/home/tester"
+    home
   });
 
   assert.equal(result.ok, false);
   assert.deepEqual(result.failures, [
-    "user-root path: /home/tester/.harness is the default daemon root; choose a dedicated directory.",
+    `user-root path: ${defaultUserRoot} is the default daemon root; choose a dedicated directory.`,
     "socket namespace: the default user-root with daemon-id default resolves to the user's default daemon endpoint."
   ]);
 });
