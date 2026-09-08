@@ -54,6 +54,216 @@ test("eight isolated CLI clients complete 24 lifecycle chains", async (context) 
   }
 });
 
+test("eight CLI clients share one center while closeout facade completes each task", async (context) => {
+  const fixture = setup(8),
+    startedAt = Date.now();
+  try {
+    await startClient(fixture);
+    const outcomes = await Promise.all(
+      Array.from({ length: clientCount }, (_, clientIndex) =>
+        runChain(fixture, clientIndex, 0, actorLabel(clientIndex), true),
+      ),
+    );
+    assert.equal(outcomes.length, clientCount);
+    assert.equal(new Set(outcomes.map(({ taskId }) => taskId)).size, clientCount);
+    assert.ok(outcomes.every(({ status }) => status === "done"));
+    context.diagnostic(
+      JSON.stringify({
+        schema: "cli-lifecycle-shared-center/v1",
+        topology: "eight-clients-one-daemon-one-repo",
+        clients: clientCount,
+        chains: outcomes.length,
+        elapsedMs: Date.now() - startedAt,
+        chainElapsedMs: outcomes.map(({ elapsedMs }) => elapsedMs),
+      }),
+    );
+  } finally {
+    await stopClient(fixture);
+    rmSync(fixture.parent, { recursive: true, force: true });
+  }
+});
+
+test("CLI changes-requested recovery releases and re-enters a new execution", async (context) => {
+  const fixture = setup(9),
+    taskId = "task-cli-changes-requested",
+    firstExecutionId = "execution-cli-changes-requested-1",
+    secondExecutionId = "execution-cli-changes-requested-2",
+    workerEnvironment = actorEnvironment(fixture, 0, "agent:recovery-worker"),
+    reviewerEnvironment = actorEnvironment(fixture, 1, "agent:recovery-reviewer");
+  try {
+    await startClient(fixture);
+    const created = await expectApplied(
+        fixture,
+        [
+          "task",
+          "create",
+          "--id",
+          taskId,
+          "--title",
+          "CLI changes requested recovery",
+          "--preset",
+          "docs-task",
+          "--vertical",
+          "software/coding",
+          "--kind",
+          "docs",
+          "--admin",
+        ],
+        workerEnvironment,
+      ),
+      packagePath = String(created.packagePath),
+      packageRoot = path.join(fixture.root, "harness", packagePath),
+      closeoutPath = path.join(packageRoot, "closeout.md");
+    writeFileSync(path.join(packageRoot, "task_plan.md"), realizedTaskPlan("CLI changes requested recovery"));
+    writeFileSync(
+      closeoutPath,
+      "# Closeout\n\n## Summary\n\nRecovery chain.\n\n## Verification\n\nCLI recovery.\n\n" +
+        "## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nNo production behavior changed.\n",
+    );
+    await expectApplied(
+      fixture,
+      ["doc", "sync", "--submit", "--path", packagePathFor(packagePath, "task_plan.md")],
+      workerEnvironment,
+    );
+    await expectApplied(
+      fixture,
+      [
+        "fact",
+        "record",
+        "--task",
+        taskId,
+        "--statement",
+        "The CLI recovery fixture reached its first execution.",
+        "--source",
+        `test:cli-lifecycle-recovery/${taskId}`,
+        "--confidence",
+        "high",
+      ],
+      workerEnvironment,
+    );
+    await expectApplied(fixture, ["task", "start", taskId, "--execution-id", firstExecutionId], workerEnvironment);
+    await expectApplied(
+      fixture,
+      ["task", "release", taskId, "--reason", "re-dispatch before the first review"],
+      workerEnvironment,
+    );
+    await expectApplied(fixture, ["task", "start", taskId, "--execution-id", firstExecutionId], workerEnvironment);
+    await expectApplied(fixture, ["doc", "sync", "--submit", "--task", taskId], workerEnvironment);
+    const firstSubmission = {
+      completionClaim: "First execution needs another iteration.",
+      deliverables: [packagePathFor(packagePath, "closeout.md")],
+      outputs: ["synthetic recovery receipt"],
+      verificationNotes: ["changes_requested recovery"],
+      knownGaps: ["review requested another iteration"],
+      residualRisks: [],
+      commitSha: git(fixture.root, "rev-parse", "HEAD"),
+    };
+    const firstSubmissionPath = path.join(fixture.root, "recovery-first-submission.json");
+    writeFileSync(firstSubmissionPath, JSON.stringify(firstSubmission));
+    await expectApplied(
+      fixture,
+      ["task", "submit", taskId, "--execution-id", firstExecutionId, "--from-file", path.basename(firstSubmissionPath)],
+      workerEnvironment,
+    );
+    const requested = await expectApplied(
+      fixture,
+      [
+        "task",
+        "review-execution",
+        taskId,
+        "--execution-id",
+        firstExecutionId,
+        "--review-id",
+        "review-cli-changes-requested",
+        "--json-input",
+        JSON.stringify({
+          verdict: "changes_requested",
+          reason: "The first iteration needs a clearer verification note.",
+          evidenceChecked: [packagePathFor(packagePath, "closeout.md")],
+        }),
+      ],
+      reviewerEnvironment,
+    );
+    assert.equal(requested.outcome, "applied");
+    const afterRequest = await expectApplied(fixture, ["task", "show", taskId], workerEnvironment),
+      afterRequestEvidence = JSON.parse(String(afterRequest.evidence)) as {
+        readonly task?: { readonly status?: string; readonly iteration?: number };
+      };
+    assert.equal(afterRequestEvidence.task?.status, "active");
+    assert.equal(afterRequestEvidence.task?.iteration, 1);
+    await expectApplied(fixture, ["task", "start", taskId, "--execution-id", secondExecutionId], workerEnvironment);
+    const secondSubmission = {
+      ...firstSubmission,
+      completionClaim: "Second execution addresses the requested verification note.",
+      knownGaps: [],
+      commitSha: git(fixture.root, "rev-parse", "HEAD"),
+    };
+    const secondSubmissionPath = path.join(fixture.root, "recovery-second-submission.json");
+    writeFileSync(secondSubmissionPath, JSON.stringify(secondSubmission));
+    await expectApplied(
+      fixture,
+      [
+        "task",
+        "submit",
+        taskId,
+        "--execution-id",
+        secondExecutionId,
+        "--from-file",
+        path.basename(secondSubmissionPath),
+      ],
+      workerEnvironment,
+    );
+    const review = await expectApplied(
+      fixture,
+      [
+        "task",
+        "review-execution",
+        taskId,
+        "--execution-id",
+        secondExecutionId,
+        "--review-id",
+        "review-cli-recovery-approved",
+        "--json-input",
+        JSON.stringify({
+          verdict: "approved",
+          reason: "The second execution includes the requested verification note.",
+          evidenceChecked: [packagePathFor(packagePath, "closeout.md")],
+        }),
+      ],
+      reviewerEnvironment,
+    );
+    const reviewDigest = String(review.reviewDigest ?? ""),
+      contentDigest = String(review.contentDigest ?? "");
+    await expectApplied(
+      fixture,
+      [
+        "task",
+        "review-consent",
+        taskId,
+        "--execution-id",
+        secondExecutionId,
+        "--review-id",
+        "review-cli-recovery-approved",
+        "--consent-id",
+        "consent-cli-recovery-approved",
+        "--json-input",
+        JSON.stringify({ reviewDigest, contentDigest }),
+      ],
+      workerEnvironment,
+    );
+    await expectApplied(fixture, ["task", "complete", taskId, "--execution-id", secondExecutionId], workerEnvironment);
+    const final = await expectApplied(fixture, ["task", "show", taskId], workerEnvironment),
+      finalEvidence = JSON.parse(String(final.evidence)) as { readonly task?: { readonly status?: string } };
+    assert.equal(finalEvidence.task?.status, "done");
+    context.diagnostic(
+      JSON.stringify({ schema: "cli-lifecycle-recovery/v1", taskId, firstExecutionId, secondExecutionId }),
+    );
+  } finally {
+    await stopClient(fixture);
+    rmSync(fixture.parent, { recursive: true, force: true });
+  }
+});
+
 async function runClient(fixture: Fixture, clientIndex: number): Promise<ChainOutcome[] & { actor: string }> {
   const actor = actorLabel(clientIndex),
     outcomes: ChainOutcome[] = [];
@@ -73,6 +283,7 @@ async function runChain(
   clientIndex: number,
   chainIndex: number,
   actor: string,
+  facade = false,
 ): Promise<ChainOutcome> {
   const taskId = `task-cli-stress-${clientIndex}-${chainIndex}`,
     executionId = `execution-cli-stress-${clientIndex}-${chainIndex}`,
@@ -170,63 +381,93 @@ async function runChain(
       commitSha,
     };
   writeFileSync(submissionPath, JSON.stringify(submission));
-  await expectApplied(
-    fixture,
-    ["task", "submit", taskId, "--from-file", path.basename(submissionPath)],
-    workerEnvironment,
-  );
-  const review = await expectApplied(
+  if (facade) {
+    const closeoutPacketPath = path.join(fixture.root, `closeout-${taskId}.json`);
+    writeFileSync(
+      closeoutPacketPath,
+      JSON.stringify({
+        submission,
+        review: {
+          verdict: "approved",
+          reason: "Independent synthetic reviewer checked the closeout packet.",
+          evidenceChecked: [packagePathFor(packagePath, "artifacts/chain.txt")],
+        },
+        consent: { approved: true },
+        completion: { ci: standard ? "passed" : "not_applicable", codeDocPaths: standard ? ["README.md"] : [] },
+      }),
+    );
+    const closeout = await expectApplied(
+      fixture,
+      ["task", "closeout", taskId, "--execution-id", executionId, "--from-file", path.basename(closeoutPacketPath)],
+      workerEnvironment,
+    );
+    assert.deepEqual(
+      (closeout.steps as Array<Record<string, unknown>>).map(({ stage }) => stage),
+      ["submit", "review-execution", "review-consent", "complete"],
+    );
+  } else {
+    await expectApplied(
+      fixture,
+      ["task", "submit", taskId, "--from-file", path.basename(submissionPath)],
+      workerEnvironment,
+    );
+  }
+  const review = facade
+    ? null
+    : await expectApplied(
+        fixture,
+        [
+          "task",
+          "review-execution",
+          taskId,
+          "--execution-id",
+          executionId,
+          "--review-id",
+          `review-${taskId}`,
+          "--json-input",
+          JSON.stringify({
+            verdict: "approved",
+            reason: "Independent synthetic reviewer checked the submitted execution.",
+            evidenceChecked: [packagePathFor(packagePath, "artifacts/chain.txt")],
+          }),
+        ],
+        reviewerEnvironment,
+      );
+  if (!facade && review) {
+    const reviewDigest = String(review.reviewDigest ?? ""),
+      contentDigest = String(review.contentDigest ?? "");
+    assert.match(reviewDigest, /^sha256:/u, JSON.stringify(review));
+    assert.match(contentDigest, /^sha256:/u, JSON.stringify(review));
+    assert.equal(review.outcome, "applied");
+    await expectApplied(
       fixture,
       [
         "task",
-        "review-execution",
+        "review-consent",
         taskId,
         "--execution-id",
         executionId,
         "--review-id",
         `review-${taskId}`,
+        "--consent-id",
+        `consent-${taskId}`,
         "--json-input",
         JSON.stringify({
-          verdict: "approved",
-          reason: "Independent synthetic reviewer checked the submitted execution.",
-          evidenceChecked: [packagePathFor(packagePath, "artifacts/chain.txt")],
+          reviewDigest,
+          contentDigest,
         }),
       ],
-      reviewerEnvironment,
-    ),
-    reviewDigest = String(review.reviewDigest ?? ""),
-    contentDigest = String(review.contentDigest ?? "");
-  assert.match(reviewDigest, /^sha256:/u, JSON.stringify(review));
-  assert.match(contentDigest, /^sha256:/u, JSON.stringify(review));
-  assert.equal(review.outcome, "applied");
-  await expectApplied(
-    fixture,
-    [
-      "task",
-      "review-consent",
-      taskId,
-      "--execution-id",
-      executionId,
-      "--review-id",
-      `review-${taskId}`,
-      "--consent-id",
-      `consent-${taskId}`,
-      "--json-input",
-      JSON.stringify({
-        reviewDigest,
-        contentDigest,
-      }),
-    ],
-    workerEnvironment,
-  );
-  if (standard) {
-    await expectApplied(fixture, ["task", "code-doc", "reconcile", taskId, "--path", "README.md"], workerEnvironment);
-    await expectApplied(
-      fixture,
-      ["task", "complete", taskId, "--execution-id", executionId, "--ci", "passed"],
       workerEnvironment,
     );
-  } else await expectApplied(fixture, ["task", "complete", taskId, "--execution-id", executionId], workerEnvironment);
+    if (standard) {
+      await expectApplied(fixture, ["task", "code-doc", "reconcile", taskId, "--path", "README.md"], workerEnvironment);
+      await expectApplied(
+        fixture,
+        ["task", "complete", taskId, "--execution-id", executionId, "--ci", "passed"],
+        workerEnvironment,
+      );
+    } else await expectApplied(fixture, ["task", "complete", taskId, "--execution-id", executionId], workerEnvironment);
+  }
   const final = await expectApplied(fixture, ["task", "show", taskId], workerEnvironment),
     finalEvidence = JSON.parse(String(final.evidence)) as { readonly task?: { readonly status?: string } };
   assert.equal(finalEvidence.task?.status, "done");
