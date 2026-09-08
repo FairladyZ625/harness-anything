@@ -6,6 +6,7 @@ import { sha256Bytes } from "../integrity/stable-hash.ts";
 import { resolveHarnessLayout, type HarnessLayoutInput } from "../layout/index.ts";
 import { localLedgerBackupFileSystem as fileSystem } from "../local/local-layout-file-system.ts";
 import { readStoppedLegacyGeneration } from "./legacy-generation-source.ts";
+import { localGitText } from "./local-version-control-system.ts";
 import { openSqliteEventStore, sqliteLedgerPath } from "./sqlite-event-store.ts";
 
 export interface LedgerBackupManifestV1 {
@@ -40,6 +41,7 @@ export function createLedgerBackup(input: {
     sqlitePath = sqliteLedgerPath(input.rootInput),
     sqlitePresent = fileSystem.exists(sqlitePath);
   fileSystem.mkdir(payloadRoot, { recursive: true });
+  copyTrackedWorkingTree(layout.rootDir, layout.authoredRoot, payloadRoot);
   for (const sourcePath of sourcePaths) copySource(layout.rootDir, sourcePath, payloadRoot);
   if (sqlitePresent) vacuumSqlite(layout.rootDir, sqlitePath, payloadRoot);
   const sqlite = sqlitePresent ? inspectSqlite(sqlitePath) : null,
@@ -120,7 +122,7 @@ export function readOfflineLedgerEvents(input: {
 
 function existingBackupSources(rootDir: string, authoredRoot: string): readonly string[] {
   const candidates = [
-    authoredRoot,
+    path.join(authoredRoot, ".git"),
     path.join(rootDir, ".harness", "wal"),
     path.join(rootDir, ".harness", "store", "imports"),
   ];
@@ -130,6 +132,29 @@ function existingBackupSources(rootDir: string, authoredRoot: string): readonly 
       if (name !== "ledger.sqlite" && name !== "ledger.sqlite-wal" && name !== "ledger.sqlite-shm")
         candidates.push(path.join(generationRoot, name));
   return candidates.filter((candidate) => fileSystem.exists(candidate));
+}
+
+function trackedWorkingTreeSources(authoredRoot: string): readonly string[] {
+  const entries = localGitText(authoredRoot, "ls-files", "--stage", "-z").split("\0").filter(Boolean);
+  return entries.flatMap((entry) => {
+    const tab = entry.indexOf("\t"),
+      [mode] = entry.slice(0, tab).split(" ");
+    if (tab < 0 || mode === "160000") return [];
+    return [path.join(authoredRoot, entry.slice(tab + 1))];
+  });
+}
+
+function copyTrackedWorkingTree(rootDir: string, authoredRoot: string, payloadRoot: string): void {
+  const included = new Set([authoredRoot]);
+  for (const source of trackedWorkingTreeSources(authoredRoot)) {
+    for (let candidate = source; !included.has(candidate); candidate = path.dirname(candidate)) included.add(candidate);
+  }
+  fileSystem.copy(authoredRoot, path.join(payloadRoot, path.relative(rootDir, authoredRoot)), {
+    recursive: true,
+    errorOnExist: true,
+    verbatimSymlinks: true,
+    filter: (candidate) => included.has(candidate),
+  });
 }
 
 function copySource(rootDir: string, sourcePath: string, payloadRoot: string): void {
