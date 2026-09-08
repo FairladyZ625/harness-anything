@@ -99,14 +99,16 @@ export async function runDocAction(input: Input): Promise<WriteReceipt> {
     if (!hasExactDocSyncActionFields(input.action, ["kind"]))
       throw docSyncError("invalid_command", "doc materialize takes no options");
     const result = input.store.materialize(),
-      revision = input.store.readHead()?.revision ?? 0;
+      revision = input.store.readHead()?.revision ?? 0,
+      visible = input.store.followerStatus().worktree.status === "verified";
     return {
-      outcome: "applied",
+      outcome: visible ? "applied" : "pending",
       opId: `materialize:${result.commitSha.sha}`,
       revision,
+      acceptance: null,
       evidence: `doc-materialize:${stableStringify({ changed: result.changed, conflicts: result.conflicts })}`,
       visibility: "center",
-      proof: proof(revision, revision, true, true),
+      proof: proof(revision, revision, true, visible),
     };
   }
   if (input.action.kind === "doc-retire") return runDocRetire(input);

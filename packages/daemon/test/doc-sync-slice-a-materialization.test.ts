@@ -106,9 +106,9 @@ test("materialize reports an already settled SQLite follower without inventing a
       count = git(rootDir, "rev-list", "--count", "HEAD");
     const first = await cell.run({ kind: "doc-materialize" }, binding),
       firstReport = materializeReport(first.evidence);
-    assert.equal(first.outcome, "indeterminate", JSON.stringify(first));
+    assert.equal(first.outcome, "applied", JSON.stringify(first));
     assert.equal(first.acceptance, null);
-    assert.equal(first.proof, undefined);
+    assert.equal(first.proof?.worktreeVisible, true);
     assert.deepEqual(firstReport.changed, []);
     assert.deepEqual(firstReport.conflicts, []);
     assert.equal(existsSync(taskRoot), true);
@@ -118,9 +118,9 @@ test("materialize reports an already settled SQLite follower without inventing a
     assert.equal(git(rootDir, "diff", "--name-only"), "");
     const second = await cell.run({ kind: "doc-materialize" }, binding),
       secondReport = materializeReport(second.evidence);
-    assert.equal(second.outcome, "indeterminate", JSON.stringify(second));
+    assert.equal(second.outcome, "applied", JSON.stringify(second));
     assert.equal(second.acceptance, null);
-    assert.equal(second.proof, undefined);
+    assert.equal(second.proof?.worktreeVisible, true);
     assert.equal(second.opId, first.opId);
     assert.deepEqual(secondReport.changed, []);
     assert.deepEqual(secondReport.conflicts, []);
@@ -168,10 +168,17 @@ test("the SQLite worktree follower preserves a caller edit and recovers from its
     assert.equal(gitSettled.worktree.state, "pending");
     assert.equal(readFileSync(path.join(rootDir, "harness", logical), "utf8"), local);
 
+    const conflicted = await cell.run({ kind: "doc-materialize" }, binding);
+    assert.equal(conflicted.outcome, "pending");
+    assert.equal(conflicted.acceptance, null);
+    assert.equal(conflicted.proof?.worktreeVisible, false);
+    assert.equal(readFileSync(path.join(rootDir, "harness", logical), "utf8"), local);
+
     rmSync(path.join(rootDir, "harness", logical));
     const retried = await cell.run({ kind: "doc-materialize" }, binding);
     assert.equal(retried.acceptance, null);
-    assert.equal(retried.proof, undefined);
+    assert.equal(retried.outcome, "applied");
+    assert.equal(retried.proof?.worktreeVisible, true);
     const worktreeSettled = await waitForWorktree(cell, submitted);
     assert.equal(worktreeSettled.worktree.state, "verified");
     assert.equal(worktreeSettled.proof?.worktreeVisible, true);

@@ -2,7 +2,8 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { mkdirSync, mkdtempSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import fs, { mkdirSync, mkdtempSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -28,8 +29,18 @@ import {
   preflightConvertedGenerationActivation,
 } from "../../src/store/legacy-generation-conversion.ts";
 import { reconcileSqliteEvents } from "../../src/store/sqlite-ledger-reconcile.ts";
-import { decisionProposal, docBundle, eventAt, git, initRepo, repoFileBundle } from "./task-event-store.fixtures.ts";
+import {
+  bundle,
+  decisionProposal,
+  docBundle,
+  eventAt,
+  git,
+  initRepo,
+  repoFileBundle,
+} from "./task-event-store.fixtures.ts";
 import { taskLifecycleWritePlan } from "../../src/domain/task-lifecycle-publication.ts";
+import { compileTaskLifecycleWrite } from "../../src/domain/task-lifecycle-publication.ts";
+import type { TaskEventV1 } from "../../src/domain/task-lifecycle.contract.ts";
 import { makeTaskEventStore } from "../../src/store/task-event-store-factory.ts";
 import { readCertifiedGitFollower } from "../../src/store/task-event-store-factory.ts";
 
@@ -124,6 +135,185 @@ test("Git can verify an accepted document while a concurrently edited worktree r
     await store.drain();
   }
 });
+
+test("certified reopen resumes from the last physical cut without overwriting later user edits", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-sqlite-worktree-reopen-"));
+  initRepo(rootDir);
+  const collision = path.join(rootDir, "harness/context/collision.md"),
+    later = path.join(rootDir, "harness/context/later.md");
+  const seeded = makeTaskEventStore({ repoId, rootDir });
+  seeded.append(docBundle(seeded, "# Physical baseline\n", 1, "reopen-base", "context/base.md"));
+  await seeded.settlePendingMaterialization?.("physical baseline");
+  await seeded.drain();
+  mkdirSync(path.dirname(collision), { recursive: true });
+  writeFileSync(collision, "local collision\n");
+  const first = makeTaskEventStore({ repoId, rootDir });
+  first.append(docBundle(first, "# Canonical collision\n", 2, "reopen-collision", "context/collision.md"));
+  await first.settlePendingMaterialization?.("blocked first cut");
+  first.append(docBundle(first, "# Canonical later\n", 3, "reopen-later", "context/later.md"));
+  await first.settlePendingMaterialization?.("blocked second cut");
+  assert.equal(first.followerStatus().worktree.status, "pending");
+  await first.drain();
+
+  unlinkSync(collision);
+  const reopened = makeTaskEventStore({ repoId, rootDir });
+  try {
+    await reopened.settlePendingMaterialization?.("resume physical cut");
+    assert.equal(reopened.followerStatus().worktree.status, "verified");
+    assert.equal(readFileSync(collision, "utf8"), "# Canonical collision\n");
+    assert.equal(readFileSync(later, "utf8"), "# Canonical later\n");
+  } finally {
+    await reopened.drain();
+  }
+
+  writeFileSync(later, "real user edit\n");
+  const editedReopen = makeTaskEventStore({ repoId, rootDir });
+  try {
+    await editedReopen.settlePendingMaterialization?.("preserve edit after reopen");
+    assert.equal(readFileSync(later, "utf8"), "real user edit\n");
+    assert.equal(editedReopen.followerStatus().worktree.status, "pending");
+  } finally {
+    await editedReopen.drain();
+  }
+  unlinkSync(later);
+  const deletedReopen = makeTaskEventStore({ repoId, rootDir });
+  try {
+    await deletedReopen.settlePendingMaterialization?.("preserve local deletion");
+    assert.equal(deletedReopen.followerStatus().worktree.status, "pending");
+    assert.throws(() => readFileSync(later), { code: "ENOENT" });
+    const acceptedRevision = deletedReopen.currentCut().revision;
+    deletedReopen.materialize();
+    assert.equal(deletedReopen.currentCut().revision, acceptedRevision);
+    assert.equal(deletedReopen.followerStatus().worktree.status, "verified");
+    assert.equal(readFileSync(later, "utf8"), "# Canonical later\n");
+  } finally {
+    await deletedReopen.drain();
+  }
+});
+
+test("certified reopen settles machine-owned snapshots from multiple accepted cuts without new events", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-sqlite-worktree-partial-"));
+  initRepo(rootDir);
+  const packagePath = "tasks/task-partial-generated",
+    indexPath = path.join(rootDir, "harness", packagePath, "INDEX.md"),
+    contractPath = path.join(rootDir, "harness", packagePath, "task-contract.json"),
+    manifestPath = path.join(rootDir, "harness/events/segments/manifest.json"),
+    userPath = path.join(rootDir, "harness/context/user.md"),
+    store = makeTaskEventStore({ repoId, rootDir });
+  store.append(bundle(eventAt(1)));
+  await store.settlePendingMaterialization?.("physical cut");
+  const physicalManifest = readFileSync(manifestPath, "utf8");
+  const first = generatedTaskAmendment(store, packagePath, 2, "first generated cut", []);
+  store.append(first);
+  await store.settlePendingMaterialization?.("first generated cut");
+  const firstIndex = readFileSync(indexPath, "utf8");
+  const second = generatedTaskAmendment(store, packagePath, 3, "second generated cut", first.blobs);
+  store.append(second);
+  await store.settlePendingMaterialization?.("second generated cut");
+  const latestIndex = readFileSync(indexPath, "utf8"),
+    latestContract = readFileSync(contractPath, "utf8");
+  store.append(docBundle(store, "# Canonical user document\n", 4, "partial-user-doc", "context/user.md"));
+  await store.settlePendingMaterialization?.("user document cut");
+  await store.drain();
+
+  writeFileSync(manifestPath, physicalManifest);
+  writeFileSync(indexPath, firstIndex);
+  writeFileSync(contractPath, latestContract);
+  writeFileSync(userPath, "real user edit\n");
+  const reopened = makeTaskEventStore({ repoId, rootDir });
+  try {
+    const revisionBeforeRecovery = reopened.currentCut().revision;
+    await reopened.settlePendingMaterialization?.("partial generated recovery");
+    assert.equal(reopened.currentCut().revision, revisionBeforeRecovery);
+    assert.equal(reopened.followerStatus().worktree.status, "pending");
+    assert.equal(readFileSync(indexPath, "utf8"), latestIndex);
+    assert.equal(readFileSync(contractPath, "utf8"), latestContract);
+    assert.equal(readFileSync(userPath, "utf8"), "real user edit\n");
+  } finally {
+    await reopened.drain();
+  }
+});
+
+test("reopen generated-file reads remain bounded as accepted task history grows", async (t) => {
+  const counts: number[] = [];
+  for (const amendments of [2, 12]) {
+    const rootDir = mkdtempSync(path.join(tmpdir(), "ha-sqlite-history-reads-"));
+    initRepo(rootDir);
+    const packagePath = "tasks/task-history-reads",
+      indexPath = path.join(rootDir, "harness", packagePath, "INDEX.md"),
+      manifestPath = path.join(rootDir, "harness/events/segments/manifest.json"),
+      store = makeTaskEventStore({ repoId, rootDir });
+    store.append(bundle(eventAt(1)));
+    await store.settlePendingMaterialization?.("initial cut");
+    const physicalManifest = readFileSync(manifestPath, "utf8");
+    let previous: ReturnType<typeof generatedTaskAmendment>["blobs"] = [],
+      firstIndex = "";
+    for (let at = 0; at < amendments; at++) {
+      const next = generatedTaskAmendment(store, packagePath, at + 2, `amendment ${at}`, previous);
+      store.append(next);
+      await store.settlePendingMaterialization?.("generated cut");
+      if (at === 0) firstIndex = readFileSync(indexPath, "utf8");
+      previous = next.blobs;
+    }
+    const latestIndex = readFileSync(indexPath, "utf8");
+    await store.drain();
+    writeFileSync(manifestPath, physicalManifest);
+    writeFileSync(indexPath, firstIndex);
+    let reads = 0;
+    const original = fs.readFileSync,
+      spy = t.mock.method(fs, "readFileSync", (...args: Parameters<typeof fs.readFileSync>) => {
+        if (String(args[0]) === indexPath) reads++;
+        return original(...args);
+      });
+    syncBuiltinESMExports();
+    const reopened = makeTaskEventStore({ repoId, rootDir });
+    try {
+      await reopened.settlePendingMaterialization?.("bounded history reads");
+      counts.push(reads);
+      assert.equal(reopened.followerStatus().worktree.status, "verified");
+      assert.equal(readFileSync(indexPath, "utf8"), latestIndex);
+    } finally {
+      spy.mock.restore();
+      syncBuiltinESMExports();
+      await reopened.drain();
+    }
+  }
+  assert.ok(counts[0]! > 0, "negative control must observe the physical generated-file reads");
+  assert.equal(counts[1], counts[0], "historical amendments must not multiply physical generated-file reads");
+});
+
+function generatedTaskAmendment(
+  store: ReturnType<typeof makeTaskEventStore>,
+  packagePath: string,
+  revision: number,
+  title: string,
+  previous: readonly { readonly sha256: string; readonly body: string }[],
+) {
+  const task = { ...eventAt(1).payload.task, title, status: "active" as const },
+    event = {
+      ...eventAt(revision),
+      taskId: task.taskId,
+      type: "task_amended",
+      payload: { task, mutation: { command: "amend", reason: title, fields: ["title"] }, documentClaims: [] },
+    } as unknown as TaskEventV1,
+    currentDocuments = previous.map((blob) => {
+      const body = blob.body,
+        path = body.startsWith("{") ? `${packagePath}/task-contract.json` : `${packagePath}/INDEX.md`;
+      return { path, body, blobSha256: blob.sha256 };
+    }),
+    snapshot = {
+      revision,
+      task,
+      executions: [],
+      reviews: [],
+      consents: [],
+      codeDocWitnesses: [],
+      gateWitnesses: [],
+      edgesTaken: [],
+      lease: null,
+    } as never;
+  return compileTaskLifecycleWrite({ event, snapshot, packagePath, currentDocuments });
+}
 
 test("SQLite content admission reuses exact objects after reopen and rejects corrupt or missing objects atomically", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-sqlite-content-admission-")),
@@ -691,6 +881,23 @@ test("certified reopen retires stale legacy index entries without changing unrel
     assert.ok(statusAfter.split("\0").includes(" M harness/.gitattributes"), JSON.stringify(statusAfter));
   } finally {
     await reopened.drain();
+  }
+  unlinkSync(path.join(rootDir, "harness/events/segments/manifest.json"));
+  git(rootDir, "update-index", "--add", "--cacheinfo", `100644,${legacyOid},harness/events/legacy.json`);
+  const withoutPhysicalMarker = makeTaskEventStore({ repoId, rootDir });
+  try {
+    await withoutPhysicalMarker.settlePendingMaterialization?.("index settles independently of physical recovery");
+    assert.equal(withoutPhysicalMarker.followerStatus().git.status, "verified");
+    assert.equal(withoutPhysicalMarker.followerStatus().worktree.status, "verified");
+    assert.equal(
+      readFileSync(path.join(rootDir, "harness/events/segments/manifest.json"), "utf8").trim(),
+      git(rootDir, "show", "HEAD:harness/events/segments/manifest.json"),
+    );
+    assert.equal(git(rootDir, "ls-files", "--stage", "harness/events/legacy.json"), "");
+    assert.equal(git(rootDir, "ls-files", "--stage", "harness/context/draft.md"), draftIndexBefore);
+    assert.equal(readFileSync(path.join(rootDir, "harness/context/draft.md"), "utf8"), "worktree draft\n");
+  } finally {
+    await withoutPhysicalMarker.drain();
   }
 });
 
