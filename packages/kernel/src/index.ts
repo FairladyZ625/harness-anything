@@ -35,7 +35,6 @@ export type {
   SessionIdentityResolver,
   SessionIdentityResolverInput,
 } from "./domain/agent-runtime.ts";
-export { runtimeKindIds } from "./domain/agent-runtime.ts";
 export {
   allowsTaskStatusMove,
   applyTransition,
