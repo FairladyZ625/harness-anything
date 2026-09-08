@@ -73,7 +73,7 @@ test("after_head_write and after_git_commit are absent from the SQLite accept tr
   }
 });
 
-test("Git follower preserves the canonical ref, unrelated index entries, and every unrelated dirty path byte", async () => {
+test("Git follower no longer advances canonical and authored refs to one SHA while preserving index, prose, and every unrelated dirty path byte", async () => {
   const rootDir = fixture("separate-facets");
   initRepo(rootDir);
   mkdirSync(path.join(rootDir, "notes"));
@@ -264,7 +264,7 @@ test("worktree failure preserves an independently verified Git facet", async () 
   }
 });
 
-test("successive Git cuts align managed index entries while preserving unrelated entries", async () => {
+test("successive Git cuts settle managed files while leaving the caller index untouched", async () => {
   const rootDir = fixture("successive-cuts");
   initRepo(rootDir);
   const beforeUnrelatedIndex = git(rootDir, "ls-files", "--stage", "--", "harness/.gitattributes"),
