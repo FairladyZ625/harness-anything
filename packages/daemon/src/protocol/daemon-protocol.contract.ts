@@ -107,9 +107,9 @@ export const daemonProtocolMethods = Object.freeze([
     requiresRepo: false,
     params: shape({
       rootDir: "string",
-      repoId: "string",
-      personId: "string",
-      displayName: "string",
+      repoId: "string?",
+      personId: "string?",
+      displayName: "string?",
       name: "string?",
       addNpmScripts: "boolean?",
       configureOnly: "boolean?",

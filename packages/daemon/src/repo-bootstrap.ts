@@ -32,9 +32,9 @@ import { runProcessText } from "./process-port.ts";
 
 export interface RepoBootstrapRequest {
   readonly rootDir: string;
-  readonly repoId: string;
-  readonly personId: string;
-  readonly displayName: string;
+  readonly repoId?: string;
+  readonly personId?: string;
+  readonly displayName?: string;
   readonly name?: string;
   readonly addNpmScripts?: boolean;
   readonly configureOnly?: boolean;
@@ -80,20 +80,28 @@ export function resolveRepoBootstrap(
   request: RepoBootstrapRequest,
   auth: DaemonAuthenticationContext,
 ): RepoBootstrapInput {
-  if (!/^[A-Za-z][A-Za-z0-9_-]{0,62}$/u.test(request.personId))
-    throw repoBootstrapError(
-      "invalid_person_id",
-      "person-id must start with a letter and use letters, numbers, hyphens, or underscores.",
-    );
-  if (!request.displayName.trim() || /[\r\n]/u.test(request.displayName))
-    throw repoBootstrapError("invalid_display_name", "display-name must be one non-empty line.");
-  if (request.name !== undefined && (!request.name.trim() || /[\r\n]/u.test(request.name)))
-    throw repoBootstrapError("invalid_name", "name must be one non-empty line.");
   const uid = auth.unixSocketOwnerBoundary?.ownerUid;
   if (typeof uid !== "number")
     throw repoBootstrapError("bootstrap_identity_unavailable", "Bootstrap requires the local socket owner boundary.");
   const rootDir = canonicalRoot(request.rootDir, true),
-    repoId = workspaceId(request.repoId),
+    repoId = request.repoId ?? defaultRepoId(rootDir),
+    displayName = request.displayName ?? gitIdentity(rootDir);
+  if (displayName === undefined)
+    throw repoBootstrapError(
+      "bootstrap_identity_unavailable",
+      'Bootstrap needs --display-name or a configured git user.name; run git config user.name "Your Name".',
+    );
+  const personId = request.personId ?? `person-${slug(displayName)}`;
+  if (!/^[A-Za-z][A-Za-z0-9_-]{0,62}$/u.test(personId))
+    throw repoBootstrapError(
+      "invalid_person_id",
+      "person-id must start with a letter and use letters, numbers, hyphens, or underscores.",
+    );
+  if (!displayName.trim() || /[\r\n]/u.test(displayName))
+    throw repoBootstrapError("invalid_display_name", "display-name must be one non-empty line.");
+  if (request.name !== undefined && (!request.name.trim() || /[\r\n]/u.test(request.name)))
+    throw repoBootstrapError("invalid_name", "name must be one non-empty line.");
+  const normalizedRepoId = workspaceId(repoId),
     config = [
       "schema: harness-anything/v1",
       `name: ${request.name === undefined ? repoId : JSON.stringify(request.name)}`,
@@ -122,8 +130,8 @@ export function resolveRepoBootstrap(
     people = applyPeopleRosterAction(null, {
       kind: "people-add",
       person: {
-        personId: request.personId,
-        displayName: request.displayName,
+        personId,
+        displayName,
         roles: ["owner"],
         credentials: [
           {
@@ -159,14 +167,36 @@ export function resolveRepoBootstrap(
     );
   return {
     rootDir,
-    repoId,
-    actor: { principal: { personId: request.personId }, executor: null },
+    repoId: normalizedRepoId,
+    actor: { principal: { personId }, executor: null },
     machineDocuments,
     settingsBootstrap: [settings, harnessDocument.body],
     repositoryPlan: compileRepoRepositoryScaffold(rootDir, settings),
     ...(request.configureOnly ? { configureOnly: true } : {}),
   };
 }
+
+function defaultRepoId(rootDir: CanonicalRoot): string {
+  const base = path
+    .basename(rootDir)
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/gu, "-")
+    .replace(/^-+|-+$/gu, "");
+  return (/^[a-z]/u.test(base) ? base : `repo-${base || "workspace"}`).slice(0, 63);
+}
+
+function gitIdentity(rootDir: CanonicalRoot): string | undefined {
+  return optionalGit(rootDir, ["config", "--get", "user.name"]) ?? undefined;
+}
+
+function slug(value: string): string {
+  const normalized = value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/gu, "-")
+    .replace(/^-+|-+$/gu, "");
+  return (/^[a-z]/u.test(normalized) ? normalized : `user-${normalized || "owner"}`).slice(0, 56);
+}
+
 function resolveBootstrapAuthoredBranch(rootDir: CanonicalRoot): string {
   const authoredRoot = resolveHarnessLayout(rootDir).authoredRoot;
   mkdirSync(authoredRoot, { recursive: true });

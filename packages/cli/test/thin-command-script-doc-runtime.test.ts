@@ -1,9 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import path from "node:path";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { parseRuntimeBatchEntry } from "../src/cli-runtime-batch-input.ts";
 import { runtimeBatchSpawnAction } from "../src/cli-runtime-batch.ts";
@@ -49,58 +46,19 @@ test("thin parser converts the sole preset script target into closed typed start
   );
 });
 
-test("init derives literal defaults from an isolated repository and git identity", () => {
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-cli-init-defaults-")),
-    root = path.join(parent, "Fixture Repo");
-  mkdirSync(root, { recursive: true });
-  try {
-    git(root, "init", "-q");
-    git(root, "config", "user.name", "Fixture Owner");
-    git(root, "config", "user.email", "fixture@example.invalid");
-    const parsed = parseThinCommand(["init"], root);
-    assert.equal(parsed.ok, true);
-    if (parsed.ok)
-      assert.deepEqual(parsed.command.action, {
-        kind: "repo-bootstrap",
-        repoId: "fixture-repo",
-        personId: "person-fixture-owner",
-        displayName: "Fixture Owner",
-      });
-
-    const overrides = parseThinCommand(
-      ["init", "--repo-id", "alpha", "--person-id", "owner", "--display-name", "Owner"],
-      root,
-    );
-    assert.equal(overrides.ok, true);
-    if (overrides.ok)
-      assert.deepEqual(overrides.command.action, {
-        kind: "repo-bootstrap",
-        repoId: "alpha",
-        personId: "owner",
-        displayName: "Owner",
-      });
-  } finally {
-    rmSync(parent, { recursive: true, force: true });
-  }
-});
-
-test("init reports the existing actionable rejection when git has no user.name", () => {
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-cli-init-missing-name-")),
-    root = path.join(parent, "No Owner");
-  mkdirSync(root, { recursive: true });
-  try {
-    git(root, "init", "-q");
-    withIsolatedGitConfig(() => {
-      assert.deepEqual(parseThinCommand(["init"], root), {
-        ok: false,
-        code: "missing_field",
-        nextAction: "--person-id is required. Run ha init --help for accepted inputs.",
-        json: false,
-      });
+test("init leaves identity defaults for daemon bootstrap and preserves explicit overrides", () => {
+  const parsed = parseThinCommand(["init"]);
+  assert.equal(parsed.ok, true);
+  if (parsed.ok) assert.deepEqual(parsed.command.action, { kind: "repo-bootstrap" });
+  const overrides = parseThinCommand(["init", "--repo-id", "alpha", "--person-id", "owner", "--display-name", "Owner"]);
+  assert.equal(overrides.ok, true);
+  if (overrides.ok)
+    assert.deepEqual(overrides.command.action, {
+      kind: "repo-bootstrap",
+      repoId: "alpha",
+      personId: "owner",
+      displayName: "Owner",
     });
-  } finally {
-    rmSync(parent, { recursive: true, force: true });
-  }
 });
 
 test("thin doc commands derive descriptor-only actions from the protocol directory", () => {
@@ -232,25 +190,6 @@ test("thin parser exposes daemon-backed workspace bootstrap", () => {
       configureOnly: true,
     });
 });
-
-function git(rootDir: string, ...args: readonly string[]): string {
-  return execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8" }).trim();
-}
-
-function withIsolatedGitConfig<T>(run: () => T): T {
-  const previousGlobal = process.env.GIT_CONFIG_GLOBAL,
-    previousSystem = process.env.GIT_CONFIG_SYSTEM;
-  process.env.GIT_CONFIG_GLOBAL = "/dev/null";
-  process.env.GIT_CONFIG_SYSTEM = "/dev/null";
-  try {
-    return run();
-  } finally {
-    if (previousGlobal === undefined) delete process.env.GIT_CONFIG_GLOBAL;
-    else process.env.GIT_CONFIG_GLOBAL = previousGlobal;
-    if (previousSystem === undefined) delete process.env.GIT_CONFIG_SYSTEM;
-    else process.env.GIT_CONFIG_SYSTEM = previousSystem;
-  }
-}
 
 test("runtime work commands parse into closed daemon facade actions", () => {
   const run = parseThinCommand([

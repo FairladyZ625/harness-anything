@@ -1,7 +1,4 @@
 import type { SafePath } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
-import { consumeKnownError } from "../../../kernel/src/index.ts";
-import { execFileSync } from "node:child_process";
-import path from "node:path";
 import { parseDecision } from "./thin-command-decision.ts";
 import { parseDoc } from "./thin-command-doc.ts";
 import { parseFact } from "./thin-command-fact.ts";
@@ -24,25 +21,7 @@ export function parseRouted(
 ): ThinParseResult | undefined {
   if (!route) return undefined;
   const rootCommand = route.path[0];
-  if (route.id === "repo-bootstrap") {
-    const defaults = resolveBootstrapDefaults(rootDir),
-      bootstrapArgs = [...args.slice(1)];
-    appendDefaultFlag(bootstrapArgs, "--repo-id", defaults.repoId);
-    appendDefaultFlag(bootstrapArgs, "--person-id", defaults.personId);
-    appendDefaultFlag(bootstrapArgs, "--display-name", defaults.displayName);
-    const f = readFlags(route.id, bootstrapArgs, inputs);
-    if (!f.ok) return rejected(f.code, f.nextAction, json);
-    const name = f.one.get("--name");
-    return accepted(rootDir, undefined, json, {
-      kind: "repo-bootstrap",
-      repoId: f.one.get("--repo-id"),
-      personId: f.one.get("--person-id"),
-      displayName: f.one.get("--display-name"),
-      ...(name ? { name } : {}),
-      ...(f.booleans.has("--add-npm-scripts") ? { addNpmScripts: true } : {}),
-      ...(f.booleans.has("--configure-only") ? { configureOnly: true } : {}),
-    });
-  }
+  if (route.id === "repo-bootstrap") return parseBootstrapRouted(args, rootDir, json, inputs);
   if (route.id === "agenda") {
     const f = readFlags(route.id, args.slice(1), inputs);
     return f.ok
@@ -116,48 +95,36 @@ export function parseRouted(
   return undefined;
 }
 
-function appendDefaultFlag(args: string[], name: string, value: string | undefined): void {
-  if (value !== undefined && !args.some((token) => token === name || token.startsWith(`${name}=`)))
-    args.push(name, value);
+function parseBootstrapRouted(
+  args: readonly string[],
+  rootDir: SafePath,
+  json: boolean,
+  inputs: ThinCliInputDirectory,
+): ThinParseResult {
+  const f = readBootstrapFlags(args.slice(1), inputs);
+  if (!f.ok) return rejected(f.code, f.nextAction, json);
+  const name = f.one.get("--name");
+  return accepted(rootDir, undefined, json, {
+    kind: "repo-bootstrap",
+    ...(f.one.has("--repo-id") ? { repoId: f.one.get("--repo-id") } : {}),
+    ...(f.one.has("--person-id") ? { personId: f.one.get("--person-id") } : {}),
+    ...(f.one.has("--display-name") ? { displayName: f.one.get("--display-name") } : {}),
+    ...(name ? { name } : {}),
+    ...(f.booleans.has("--add-npm-scripts") ? { addNpmScripts: true } : {}),
+    ...(f.booleans.has("--configure-only") ? { configureOnly: true } : {}),
+  });
 }
 
-export interface BootstrapDefaults {
-  readonly repoId: string;
-  readonly personId: string | undefined;
-  readonly displayName: string | undefined;
-}
-
-export function resolveBootstrapDefaults(rootDir: SafePath): BootstrapDefaults {
-  const base = path
-      .basename(rootDir)
-      .toLowerCase()
-      .replace(/[^a-z0-9-]+/gu, "-")
-      .replace(/^-+|-+$/gu, ""),
-    repoId = /^[a-z]/u.test(base) ? base.slice(0, 63) : `repo-${base || "workspace"}`.slice(0, 63),
-    displayName = readGitConfig(rootDir, "user.name"),
-    personId = displayName === undefined ? undefined : `person-${slug(displayName)}`;
-  return { repoId, personId, displayName };
-}
-
-function readGitConfig(rootDir: SafePath, key: string): string | undefined {
-  try {
-    const value = execFileSync("git", ["-C", rootDir, "config", "--get", key], {
-      encoding: "utf8",
-      windowsHide: true,
-    }).trim();
-    return value || undefined;
-  } catch (error) {
-    consumeKnownError(error);
-    return undefined;
-  }
-}
-
-function slug(value: string): string {
-  const normalized = value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/gu, "-")
-    .replace(/^-+|-+$/gu, "");
-  return /^[a-z]/u.test(normalized) ? normalized.slice(0, 56) : `user-${normalized || "owner"}`.slice(0, 56);
+function readBootstrapFlags(tokens: readonly string[], inputs: ThinCliInputDirectory): ReturnType<typeof readFlags> {
+  const descriptor = inputs.get("repo-bootstrap");
+  if (!descriptor) return readFlags("repo-bootstrap", tokens, inputs);
+  const optionalDescriptor = {
+    ...descriptor,
+    inputs: descriptor.inputs.map((input) =>
+      ["--repo-id", "--person-id", "--display-name"].includes(input.name) ? { ...input, required: false } : input,
+    ),
+  };
+  return readFlags("repo-bootstrap", tokens, new Map([...inputs, ["repo-bootstrap", optionalDescriptor]]));
 }
 
 function parseLedgerReconcileRouted(

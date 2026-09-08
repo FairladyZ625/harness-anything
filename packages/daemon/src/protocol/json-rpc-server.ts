@@ -163,7 +163,7 @@ export function createJsonRpcProtocolServer(options: {
     const stoppingRefusal = daemonStoppingRefusal(method, options.stopping?.() === true);
     if (stoppingRefusal) return reply(method, stoppingRefusal);
     const remoteProxy = options.host.remoteProxy;
-    if (method === "daemon.repo.bootstrap" && remoteProxy?.route(params.repoId))
+    if (method === "daemon.repo.bootstrap" && typeof params.repoId === "string" && remoteProxy?.route(params.repoId))
       return reply(
         method,
         daemonProtocolError(
