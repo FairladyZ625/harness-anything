@@ -175,6 +175,20 @@ test("certified reopen resumes from the last physical cut without overwriting la
   } finally {
     await editedReopen.drain();
   }
+  unlinkSync(later);
+  const deletedReopen = makeTaskEventStore({ repoId, rootDir });
+  try {
+    await deletedReopen.settlePendingMaterialization?.("preserve local deletion");
+    assert.equal(deletedReopen.followerStatus().worktree.status, "pending");
+    assert.throws(() => readFileSync(later), { code: "ENOENT" });
+    const acceptedRevision = deletedReopen.currentCut().revision;
+    deletedReopen.materialize();
+    assert.equal(deletedReopen.currentCut().revision, acceptedRevision);
+    assert.equal(deletedReopen.followerStatus().worktree.status, "verified");
+    assert.equal(readFileSync(later, "utf8"), "# Canonical later\n");
+  } finally {
+    await deletedReopen.drain();
+  }
 });
 
 test("certified reopen settles machine-owned snapshots from multiple accepted cuts without new events", async () => {
@@ -874,7 +888,11 @@ test("certified reopen retires stale legacy index entries without changing unrel
   try {
     await withoutPhysicalMarker.settlePendingMaterialization?.("index settles independently of physical recovery");
     assert.equal(withoutPhysicalMarker.followerStatus().git.status, "verified");
-    assert.equal(withoutPhysicalMarker.followerStatus().worktree.status, "pending");
+    assert.equal(withoutPhysicalMarker.followerStatus().worktree.status, "verified");
+    assert.equal(
+      readFileSync(path.join(rootDir, "harness/events/segments/manifest.json"), "utf8").trim(),
+      git(rootDir, "show", "HEAD:harness/events/segments/manifest.json"),
+    );
     assert.equal(git(rootDir, "ls-files", "--stage", "harness/events/legacy.json"), "");
     assert.equal(git(rootDir, "ls-files", "--stage", "harness/context/draft.md"), draftIndexBefore);
     assert.equal(readFileSync(path.join(rootDir, "harness/context/draft.md"), "utf8"), "worktree draft\n");

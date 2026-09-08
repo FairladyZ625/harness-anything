@@ -256,6 +256,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
     files: readonly (PublicationWrite | PublicationDelete)[],
     baseline: ReadonlyMap<string, string>,
     commit: string,
+    restoreMissing = false,
   ): boolean => {
     const permitted = new Map(baseline),
       preserve = new Set<string>();
@@ -275,6 +276,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
         current = worktreeFingerprint(localGitWorktreeSettlement.readNode(`${currentLedger.rootDir}/${target}`)),
         settled =
           "target" in file ? `${file.mode}:${sha256Text(file.body)}:${Buffer.byteLength(file.body)}` : "missing";
+      if (current === "missing" && (restoreMissing || !permitted.has(target))) permitted.set(target, "missing");
       return current === permitted.get(target) || current === settled;
     });
     if (eligible.length < files.length) {
@@ -288,7 +290,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
     return true;
   };
 
-  const publishFollower = () => {
+  const publishFollower = (restoreMissing = false) => {
     const accepted = cut(),
       currentLedger = ledger(),
       currentRef = authoredRef(),
@@ -318,14 +320,14 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
                 ...captureGitBaseline(currentLedger.rootDir, physicalCommit, closureFiles),
                 ...recoverGeneratedWorktreeBaseline(currentLedger, closureEvents),
               ])
-            : null;
+            : new Map<string, string>();
       follower = {
         git: { status: "verified", cut: accepted, commitSha: parent },
         worktree: pendingFollower("worktree settlement has not verified the Git cut").worktree,
       };
       localGitWorktreeSettlement.index(currentLedger.rootDir, closureFiles);
       pendingWorktreeBaseline = baseline;
-      if (baseline && settleFollowerWorktree(currentLedger, closureFiles, baseline, parent)) {
+      if (settleFollowerWorktree(currentLedger, closureFiles, baseline, parent, restoreMissing)) {
         pendingWorktreeBaseline = null;
         settledWorktreeRevision = accepted.revision;
       }
@@ -371,7 +373,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
       worktree: pendingFollower("worktree settlement has not verified the Git cut").worktree,
     };
     localGitWorktreeSettlement.index(currentLedger.rootDir, files);
-    if (settleFollowerWorktree(currentLedger, files, baseline, commit)) {
+    if (settleFollowerWorktree(currentLedger, files, baseline, commit, restoreMissing)) {
       pendingWorktreeBaseline = null;
       settledWorktreeRevision = accepted.revision;
     }
@@ -450,7 +452,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
     readContentBlob: readContent,
     layout: () => "sharded-sha256-2/v1",
     append,
-    materialize: publishFollower,
+    materialize: () => publishFollower(true),
     materializationHealth: () =>
       health(follower.git.status === "verified" ? "ok" : scheduled ? "retrying" : "failed", follower.git.reason),
     drain: async () => {
