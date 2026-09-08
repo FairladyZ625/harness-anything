@@ -21,20 +21,7 @@ export function parseRouted(
 ): ThinParseResult | undefined {
   if (!route) return undefined;
   const rootCommand = route.path[0];
-  if (route.id === "repo-bootstrap") {
-    const f = readFlags(route.id, args.slice(1), inputs);
-    if (!f.ok) return rejected(f.code, f.nextAction, json);
-    const name = f.one.get("--name");
-    return accepted(rootDir, undefined, json, {
-      kind: "repo-bootstrap",
-      repoId: f.one.get("--repo-id"),
-      personId: f.one.get("--person-id"),
-      displayName: f.one.get("--display-name"),
-      ...(name ? { name } : {}),
-      ...(f.booleans.has("--add-npm-scripts") ? { addNpmScripts: true } : {}),
-      ...(f.booleans.has("--configure-only") ? { configureOnly: true } : {}),
-    });
-  }
+  if (route.id === "repo-bootstrap") return parseBootstrapRouted(args, rootDir, json, inputs);
   if (route.id === "agenda") {
     const f = readFlags(route.id, args.slice(1), inputs);
     return f.ok
@@ -106,6 +93,26 @@ export function parseRouted(
   if (route.phase.startsWith("Preset-") || rootCommand === "agent" || rootCommand === "squad")
     return parsePreset(route, args, rootDir, repoId, json, inputs);
   return undefined;
+}
+
+function parseBootstrapRouted(
+  args: readonly string[],
+  rootDir: SafePath,
+  json: boolean,
+  inputs: ThinCliInputDirectory,
+): ThinParseResult {
+  const f = readFlags("repo-bootstrap", args.slice(1), inputs);
+  if (!f.ok) return rejected(f.code, f.nextAction, json);
+  const name = f.one.get("--name");
+  return accepted(rootDir, undefined, json, {
+    kind: "repo-bootstrap",
+    ...(f.one.has("--repo-id") ? { repoId: f.one.get("--repo-id") } : {}),
+    ...(f.one.has("--person-id") ? { personId: f.one.get("--person-id") } : {}),
+    ...(f.one.has("--display-name") ? { displayName: f.one.get("--display-name") } : {}),
+    ...(name ? { name } : {}),
+    ...(f.booleans.has("--add-npm-scripts") ? { addNpmScripts: true } : {}),
+    ...(f.booleans.has("--configure-only") ? { configureOnly: true } : {}),
+  });
 }
 
 function parseLedgerReconcileRouted(

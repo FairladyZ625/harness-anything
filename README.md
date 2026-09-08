@@ -160,15 +160,21 @@ repository gets the same compounding mechanism.
 
 ## Run the demo
 
-Harness Anything currently runs from a source checkout and requires Node.js
-24+. Run the 30-second smoke demo:
+The 0.0.1 CLI candidate installs from a local npm tarball and requires Node.js
+24+. From a checkout, run:
 
 ```bash
 git clone https://github.com/FairladyZ625/harness-anything
 cd harness-anything
 npm ci
+npm pack --workspace @harness-anything/cli
+npm install --global ./harness-anything-cli-0.0.1.tgz
 npm run quickstart:demo
 ```
+
+The CLI candidate is validated with `npm publish --dry-run`; no registry
+publication is claimed by this release. `ha init` uses the current directory
+and local git `user.name` when its identity flags are omitted.
 
 The demo builds the CLI, creates a throwaway project, runs a real task loop, and
 shows the records that remain after the agent work is over.

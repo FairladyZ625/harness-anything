@@ -461,13 +461,13 @@ export const agentProtocolCommands = Object.freeze([
     ].join(""),
     method: "daemon.repo.bootstrap",
     inputs: [
-      cliInput("--repo-id", "single", true, {
+      cliInput("--repo-id", "single", false, {
         code: "missing_field",
       }),
-      cliInput("--person-id", "single", true, {
+      cliInput("--person-id", "single", false, {
         code: "missing_field",
       }),
-      cliInput("--display-name", "single", true, {
+      cliInput("--display-name", "single", false, {
         code: "missing_field",
       }),
       cliInput(
