@@ -684,19 +684,16 @@ function interactiveSessionEnvironment(env: NodeJS.ProcessEnv): DaemonSessionEnv
 function interactiveAgentActor(env: NodeJS.ProcessEnv): string | null {
   const explicit = env.HARNESS_ACTOR?.trim();
   if (explicit) return explicit;
-  const claudeSessionId = env.CLAUDE_CODE_SESSION_ID?.trim(),
-    codexThreadId = env.CODEX_THREAD_ID?.trim(),
-    codexProcessId = env.CODEX_SESSION_ID?.trim(),
-    codexSessionId =
-      codexThreadId && codexProcessId && codexThreadId !== codexProcessId
-        ? undefined
-        : (codexThreadId ?? codexProcessId),
-    candidates = [
-      ...(claudeSessionId ? [`agent:claude-session:${claudeSessionId}`] : []),
-      ...(codexSessionId ? [`agent:codex-session:${codexSessionId}`] : []),
-    ];
-  return candidates.length === 1 ? candidates[0]! : null;
+  const claude = env.CLAUDE_CODE_SESSION_ID?.trim(),
+    thread = env.CODEX_THREAD_ID?.trim(),
+    session = env.CODEX_SESSION_ID?.trim();
+  if (claude && (thread || session)) return null;
+  if (thread && session && thread !== session) return null;
+  if (claude) return `agent:claude-session:${claude}`;
+  const codex = thread ?? session;
+  return codex ? `agent:codex-session:${codex}` : null;
 }
+
 export function consumeKnownError(error: unknown): void {
   void error;
 }

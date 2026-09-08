@@ -149,6 +149,15 @@ test("interactive CLI Task, Fact, and Decision writes carry resolver-owned sessi
       createdBy: unknown;
     };
     assert.deepEqual(conflicted.createdBy, { principal: { personId: "owner" }, executor: null });
+    run(fixture, ["task", "create", "--id", "task-mixed-conflict", "--admin", "--title", "Mixed Conflict"], {
+      CLAUDE_CODE_SESSION_ID: "claude-session",
+      CODEX_THREAD_ID: "codex-thread-a",
+      CODEX_SESSION_ID: "codex-thread-b",
+    });
+    const mixed = evidence(run(fixture, ["task", "show", "task-mixed-conflict"])).task as {
+      createdBy: unknown;
+    };
+    assert.deepEqual(mixed.createdBy, { principal: { personId: "owner" }, executor: null });
   } finally {
     stop(fixture);
     rmSync(fixture.parent, { recursive: true, force: true });
