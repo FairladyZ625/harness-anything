@@ -171,7 +171,6 @@ export type {
   DocClaimRef,
   DocEventChange,
   DocEventV1,
-  DocumentState,
   DocWriteIntent,
   PersistedCanonicalEventV1,
   RuntimeArchiveWriteScope,
