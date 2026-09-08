@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { closeSync, mkdtempSync, openSync, rmSync, statfsSync, writeSync } from "node:fs";
 import path from "node:path";
+import { tmpdir } from "node:os";
+import { openReceiptLog, readReceiptLog } from "../core/receipt-log.mjs";
 import { serializePersistedCanonicalEvent } from "../../../packages/kernel/src/domain/doc-sync.contract.ts";
 import { sha256Text } from "../../../packages/kernel/src/integrity/stable-hash.ts";
 import { openSqliteEventStore } from "../../../packages/kernel/src/store/sqlite-event-store.ts";
@@ -43,9 +45,18 @@ export function runRealVolumeEnospcArm(preflight) {
       events: [bundle.event],
       blobs: bundle.blobs,
     };
-  let store = openSqliteEventStore({ repoId, databasePath }),
-    fullError;
+  const logRoot = mkdtempSync(path.join(tmpdir(), "ha-enospc-controller-")),
+    log = openReceiptLog({
+      file: path.join(logRoot, "receipts.jsonl"),
+      targetRoots: [volume.path],
+      campaignId: repoId,
+      seed: "real-volume-enospc",
+    }),
+    request = { opId: command.intent.opId, intentDigest: command.intent.intentDigest, expectedEvents: command.events };
+  let store, fullError;
   try {
+    store = openSqliteEventStore({ repoId, databasePath });
+    log.recordRequest({ ...request, requestId: "full-volume" });
     fillUntilEnospc(fillerPath);
     try {
       store.appendCommand(command);
@@ -70,13 +81,16 @@ export function runRealVolumeEnospcArm(preflight) {
     }
 
     store = openSqliteEventStore({ repoId, databasePath });
+    log.recordRequest({ ...request, requestId: "retry-after-space-freed" });
     const accepted = store.appendCommand(command);
+    log.recordReceipt("retry-after-space-freed", accepted);
+    log.close();
     assert.equal(accepted.status, "accepted_durable");
     store.close();
     store = null;
     const recovered = readCut(databasePath, repoId),
       blob = recovered.store.readContentObject(bundle.blobs[0].sha256),
-      receiptLog = acceptedReceiptLog(command, accepted),
+      receiptLog = readReceiptLog(log.file),
       closure = closureOracles({ cut: recovered.cut, receiptLog, bundle, blob }),
       badCut = { ...recovered.cut, events: [], outcomes: [] },
       rejectedBadReport = closureOracles({ cut: badCut, receiptLog, bundle, blob: null });
@@ -87,7 +101,12 @@ export function runRealVolumeEnospcArm(preflight) {
       id: "S4/real-volume-enospc",
       boundaryHits: ["real-volume:ENOSPC", "sqlite:accept-transaction", "content-object:replace"],
       preflight: { ...preflight, bytes: volume.bytes },
-      measured: { failedRevision: failedCut.cut.revision, recoveredRevision: recovered.cut.revision },
+      measured: {
+        failedRevision: failedCut.cut.revision,
+        recoveredRevision: recovered.cut.revision,
+        failure: errorIdentity(fullError),
+      },
+      receiptLog,
       negativeControl: {
         id: "S4/accepted-without-event-blob-outcome",
         oracleId: "O1+O2+O3",
@@ -98,6 +117,8 @@ export function runRealVolumeEnospcArm(preflight) {
     };
   } finally {
     if (store) store.close();
+    log.close();
+    rmSync(logRoot, { recursive: true, force: true });
     rmSync(armRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   }
 }
@@ -134,25 +155,6 @@ function readCut(databasePath, repoId) {
   return {
     store,
     cut: { revision: store.revision(), events: store.events(), outcomes: store.outcomes() },
-  };
-}
-
-function acceptedReceiptLog(command, outcome) {
-  const request = {
-    requestId: "request-stress-s4-enospc",
-    opId: command.intent.opId,
-    intentDigest: command.intent.intentDigest,
-    expectedEvents: command.events,
-  };
-  return {
-    complete: true,
-    errors: [],
-    records: [
-      { type: "campaign_started" },
-      { type: "request", request },
-      { type: "receipt", requestId: request.requestId, receipt: outcome },
-      { type: "campaign_completed" },
-    ],
   };
 }
 
