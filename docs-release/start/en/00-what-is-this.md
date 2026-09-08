@@ -19,8 +19,8 @@ bypassed; no gate means 100% bypass.
 
 ## See the 30-second proof first
 
-There is no public npm package yet. The fastest path today is the source
-checkout smoke demo:
+The 0.0.1 CLI candidate is installable from a local npm tarball. The fastest
+path today is the source checkout smoke demo:
 
 ```bash
 git clone https://github.com/FairladyZ625/harness-anything
@@ -33,9 +33,8 @@ That run builds the CLI, initializes a throwaway git workspace, creates a task,
 records a queryable fact, and renders a relation graph. A load-bearing step that
 cannot produce evidence fails closed instead of quietly passing.
 
-After the 0.1 package publication to npm, the first-contact command becomes
-`npx harness-anything init`. Until then, keep using the source checkout path
-above.
+After a registry publication, install the scoped package and run `ha init` with
+no arguments. Until then, use the local tarball or source checkout path above.
 
 ## What lands on disk
 

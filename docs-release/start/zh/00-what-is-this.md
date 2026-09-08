@@ -17,7 +17,7 @@ gate，就等于一定被绕过。
 
 ## 先看 30 秒证明
 
-目前还没有公开 npm package。今天最快的路径是源码 checkout smoke demo：
+0.0.1 CLI 候选版可以从本地 npm tarball 安装。今天最快的路径仍是源码 checkout smoke demo：
 
 ```bash
 git clone https://github.com/FairladyZ625/harness-anything
@@ -30,8 +30,8 @@ npm run quickstart:demo
 fact，并渲染 relation graph。承重步骤如果拿不出证据，会 fail closed，而不
 是静默放行。
 
-等 0.1 package 发布到 npm 之后，初见命令会变成 `npx harness-anything init`。在那之前，
-请继续使用上面的源码 checkout 路径。
+等 package 正式发布到 registry 后，可安装 scoped package 并直接运行不带参数的 `ha init`。在那之前，
+请使用本地 tarball 或上面的源码路径。
 
 ## 什么会落到磁盘上
 
