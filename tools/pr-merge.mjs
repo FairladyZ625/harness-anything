@@ -6,10 +6,20 @@ const MAIN_BRANCH = "main";
 const REMOTE = "origin";
 
 function run(command, args, { cwd, allowFailure = false } = {}) {
-  const result = spawnSync(command, args, {
+  const invocation =
+    process.platform === "win32" && command === "gh"
+      ? {
+          command: process.env.ComSpec ?? process.env.COMSPEC ?? "cmd.exe",
+          args: ["/d", "/s", "/c", [command, ...args].map(quoteWindowsArgument).join(" ")],
+          windowsVerbatimArguments: true,
+        }
+      : { command, args };
+  const result = spawnSync(invocation.command, invocation.args, {
     cwd,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
+    windowsHide: true,
+    ...(invocation.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
   });
   if (result.error) {
     throw new Error(`${command} failed to launch: ${result.error.message}`);
@@ -19,6 +29,10 @@ function run(command, args, { cwd, allowFailure = false } = {}) {
     throw new Error(`${command} ${args.join(" ")} failed${detail ? `: ${detail}` : ""}`);
   }
   return result;
+}
+
+function quoteWindowsArgument(value) {
+  return /^[^\s"&|<>^()]+$/u.test(value) ? value : `"${value.replaceAll('"', '\\"')}"`;
 }
 
 function output(command, args, options) {

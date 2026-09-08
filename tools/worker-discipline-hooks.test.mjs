@@ -5,6 +5,7 @@ import { createHash, randomUUID } from "node:crypto";
 import {
   chmodSync,
   copyFileSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -19,8 +20,12 @@ import test from "node:test";
 import { spawnWithDeadline } from "./fixtures/deadline-spawn.mjs";
 
 const repositoryRoot = path.resolve(import.meta.dirname, "..");
+const gitShell = process.platform === "win32" ? findGitShell() : "sh";
+const posixShellSkip = process.platform === "win32" && gitShell === null
+  ? "requires Git for Windows' POSIX shell to execute repository hooks"
+  : false;
 
-test("public pre-commit rejects artifacts and harness paths", (context) => {
+test("public pre-commit rejects artifacts and harness paths", { skip: posixShellSkip }, (context) => {
   const root = makeRepo(context, "hook-artifact-guard-");
   installHook(root, "pre-commit");
   for (const directory of ["artifacts", "harness"]) {
@@ -36,7 +41,7 @@ test("public pre-commit rejects artifacts and harness paths", (context) => {
   }
 });
 
-test("canonical hooks reject worker commit and checkout", (context) => {
+test("canonical hooks reject worker commit and checkout", { skip: posixShellSkip }, (context) => {
   const root = makeRepo(context, "hook-canonical-guard-");
   installHook(root, "pre-commit");
   installHook(root, "pre-checkout");
@@ -49,7 +54,7 @@ test("canonical hooks reject worker commit and checkout", (context) => {
     HARNESS_CANONICAL_ROOT: root,
     PATH: `${path.join(root, "tools", "git-hooks")}${path.delimiter}${process.env.PATH ?? ""}`,
   };
-  const commit = spawnSync("git", ["-C", root, "-c", "core.hooksPath=/dev/null", "commit", "-m", "worker"], {
+  const commit = runWrappedGit(["-C", root, "-c", "core.hooksPath=/dev/null", "commit", "-m", "worker"], {
     cwd: root,
     encoding: "utf8",
     env,
@@ -59,20 +64,19 @@ test("canonical hooks reject worker commit and checkout", (context) => {
   const other = makeRepo(context, "hook-other-repo-");
   writeFileSync(path.join(other, "source.txt"), "other change\n");
   git(other, "add", "source.txt");
-  const commitElsewhere = spawnSync(
-    "git",
+  const commitElsewhere = runWrappedGit(
     ["-C", other, "-c", "core.hooksPath=/dev/null", "commit", "--quiet", "-m", "elsewhere"],
     { cwd: root, encoding: "utf8", env },
   );
   assert.equal(commitElsewhere.status, 0, commitElsewhere.stderr);
-  const checkoutViaGit = spawnSync("git", ["-C", root, "checkout", "-b", "worker-branch"], {
+  const checkoutViaGit = runWrappedGit(["-C", root, "checkout", "-b", "worker-branch"], {
     cwd: root,
     encoding: "utf8",
     env,
   });
   assert.equal(checkoutViaGit.status, 1, checkoutViaGit.stderr);
   assert.match(checkoutViaGit.stderr, /Refusing a worker branch checkout in the canonical repository root/u);
-  const checkout = spawnSync(path.join(root, "tools", "git-hooks", "pre-checkout"), [], {
+  const checkout = runPosixScript(path.join(root, "tools", "git-hooks", "pre-checkout"), [], {
     cwd: root,
     encoding: "utf8",
     env,
@@ -106,7 +110,7 @@ test(
   },
 );
 
-test("task-bound git wrapper permits only explicit codex branch push targets", (context) => {
+test("task-bound git wrapper permits only explicit codex branch push targets", { skip: posixShellSkip }, (context) => {
   const root = makeRepo(context, "hook-push-guard-"),
     bare = path.join(path.dirname(root), `${path.basename(root)}.git`);
   context.after(() => rmSync(bare, { recursive: true, force: true }));
@@ -119,14 +123,14 @@ test("task-bound git wrapper permits only explicit codex branch push targets", (
     HARNESS_TASK_BOUND: "1",
     PATH: `${path.join(root, "tools", "git-hooks")}${path.delimiter}${process.env.PATH ?? ""}`,
   };
-  const refused = spawnSync("git", ["-C", root, "push", "origin", "HEAD:main"], {
+  const refused = runWrappedGit(["-C", root, "push", "origin", "HEAD:main"], {
     cwd: root,
     encoding: "utf8",
     env,
   });
   assert.equal(refused.status, 1, refused.stderr);
   assert.match(refused.stderr, /outside refs\/heads\/codex/u);
-  const allowed = spawnSync("git", ["-C", root, "push", "origin", "HEAD:refs/heads/codex/push-guard"], {
+  const allowed = runWrappedGit(["-C", root, "push", "origin", "HEAD:refs/heads/codex/push-guard"], {
     cwd: root,
     encoding: "utf8",
     env,
@@ -135,15 +139,15 @@ test("task-bound git wrapper permits only explicit codex branch push targets", (
   assert.match(git(bare, "show-ref", "--verify", "refs/heads/codex/push-guard"), /codex\/push-guard/u);
 });
 
-test("GitHub askpass answers only standard HTTPS GitHub prompts", (context) => {
+test("GitHub askpass answers only standard HTTPS GitHub prompts", { skip: posixShellSkip }, (context) => {
   const root = makeRepo(context, "hook-askpass-guard-"),
     secret = randomUUID();
   installHook(root, "git-askpass");
   const helper = path.join(root, "tools", "git-hooks", "git-askpass"),
     env = { ...process.env, HARNESS_GITHUB_TOKEN: secret },
-    username = spawnSync(helper, ["Username for 'https://github.com':"], { encoding: "utf8", env }),
-    password = spawnSync(helper, ["Password for 'https://x-access-token@github.com':"], { encoding: "utf8", env }),
-    hostile = spawnSync(helper, ["Password for 'https://github.com.example.invalid':"], { encoding: "utf8", env });
+    username = runPosixScript(helper, ["Username for 'https://github.com':"], { encoding: "utf8", env }),
+    password = runPosixScript(helper, ["Password for 'https://x-access-token@github.com':"], { encoding: "utf8", env }),
+    hostile = runPosixScript(helper, ["Password for 'https://github.com.example.invalid':"], { encoding: "utf8", env });
   assert.deepEqual([username.status, username.stdout.trim()], [0, "x-access-token"]);
   assert.deepEqual([password.status, digest(password.stdout.trim())], [0, digest(secret)]);
   assert.deepEqual([hostile.status, hostile.stdout], [1, ""]);
@@ -184,16 +188,31 @@ function makeRepo(context, prefix) {
 function installHook(root, name) {
   const hooks = path.join(root, "tools", "git-hooks");
   mkdirSync(hooks, { recursive: true });
-  copyFileSync(path.join(repositoryRoot, "tools", "git-hooks", name), path.join(hooks, name));
-  chmodSync(path.join(hooks, name), 0o755);
+  const source = path.join(repositoryRoot, "tools", "git-hooks", name), destination = path.join(hooks, name);
+  copyFileSync(source, destination);
+  chmodSync(destination, 0o755);
+  if (process.platform === "win32" && existsSync(`${source}.cmd`)) copyFileSync(`${source}.cmd`, `${destination}.cmd`);
   git(root, "config", "core.hooksPath", "tools/git-hooks");
 }
 
 function runHook(root, name) {
-  return spawnSync(path.join(root, "tools", "git-hooks", name), [], {
+  return runPosixScript(path.join(root, "tools", "git-hooks", name), [], {
     cwd: root,
     encoding: "utf8",
     env: { ...process.env, HARNESS_ACTOR: "agent:worker-test", HARNESS_CANONICAL_ROOT: path.join(root, "other") },
+  });
+}
+
+function runPosixScript(script, args, options) {
+  return spawnSync(process.platform === "win32" ? gitShell : script, process.platform === "win32" ? [script, ...args] : args, options);
+}
+
+function runWrappedGit(args, options) {
+  if (process.platform !== "win32") return spawnSync("git", args, options);
+  const command = ["git", ...args].map(quoteWindowsArgument).join(" ");
+  return spawnSync(process.env.ComSpec ?? process.env.COMSPEC ?? "cmd.exe", ["/d", "/s", "/c", command], {
+    ...options,
+    windowsVerbatimArguments: true,
   });
 }
 
@@ -203,4 +222,19 @@ function git(root, ...args) {
 
 function digest(value) {
   return createHash("sha256").update(value).digest("hex");
+}
+
+function findGitShell() {
+  const result = execFileSync("where.exe", ["git.exe"], { encoding: "utf8" });
+  for (const gitPath of result.split(/\r?\n/u).map((value) => value.trim()).filter(Boolean)) {
+    const root = path.resolve(path.dirname(gitPath), "..");
+    for (const candidate of [path.join(root, "bin", "sh.exe"), path.join(root, "usr", "bin", "sh.exe")]) {
+      if (existsSync(candidate)) return candidate;
+    }
+  }
+  return null;
+}
+
+function quoteWindowsArgument(value) {
+  return /^[^\s"&|<>^()]+$/u.test(value) ? value : `"${value.replaceAll('"', '\\"')}"`;
 }

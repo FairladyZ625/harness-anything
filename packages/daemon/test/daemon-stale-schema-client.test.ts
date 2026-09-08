@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import net from "node:net";
+import { randomBytes } from "node:crypto";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -9,7 +10,10 @@ import { requestLocalDaemonJsonRpcForTarget } from "../src/client/local-json-rpc
 
 test("a schema-sensitive request stops at a stale-build handshake with a named field", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-stale-schema-client-")),
-    socketPath = path.join(parent, "client.sock"),
+    socketPath =
+      process.platform === "win32"
+        ? `\\\\.\\pipe\\ha-stale-schema-client-${randomBytes(6).toString("hex")}`
+        : path.join(parent, "client.sock"),
     methods: string[] = [],
     server = net.createServer((socket) => {
       socket.on("data", (chunk: Buffer) => {
@@ -35,7 +39,10 @@ test("a schema-sensitive request stops at a stale-build handshake with a named f
         }
       });
     });
-  await new Promise<void>((resolve) => server.listen(socketPath, resolve));
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(socketPath, resolve);
+  });
   try {
     const receipt = await requestLocalDaemonJsonRpcForTarget(
       { socketPath, reportStaleBuild: true, rejectStaleBuildField: "agentId" },
@@ -55,7 +62,7 @@ test("a schema-sensitive request stops at a stale-build handshake with a named f
     });
     assert.deepEqual(methods, ["protocol.hello"], "the incompatible payload must not reach the stale daemon");
   } finally {
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
     rmSync(parent, { recursive: true, force: true });
   }
 });

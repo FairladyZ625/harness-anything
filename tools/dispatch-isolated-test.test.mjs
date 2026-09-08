@@ -16,6 +16,13 @@ import {
   testRunnerArgs,
 } from "./dispatch-isolated-test.mjs";
 
+const rsyncSkip = (() => {
+  const probe = spawnSync("rsync", ["--version"], { encoding: "utf8" });
+  return probe.error?.code === "ENOENT"
+    ? "requires the rsync executable; Windows isolation uses the tar archive path"
+    : false;
+})();
+
 test("dispatcher defaults to Ubuntu and requires exactly one test selector", () => {
   assert.deepEqual(parseDispatchArgs(["--tier", "integration"]), {
     target: "ubuntu",
@@ -123,7 +130,7 @@ test("tar file lists preserve a nested harness directory", () => {
   });
 });
 
-test("rsync copies the complete allowlist and rejects every other repository root", () => {
+test("rsync copies the complete allowlist and rejects every other repository root", { skip: rsyncSkip }, () => {
   withFixture(({ source, destination }) => {
     seedCompletePolicyFixture(source);
     syncWithRsync(source, destination, sourceRootAllowlist);
@@ -132,7 +139,7 @@ test("rsync copies the complete allowlist and rejects every other repository roo
   });
 });
 
-test("rsync file lists preserve a nested harness directory", () => {
+test("rsync file lists preserve a nested harness directory", { skip: rsyncSkip }, () => {
   withFixture(({ source, destination }) => {
     write(source, "harness/root.txt");
     write(source, "tmp/benchmarks/codex-hostnet-patch/harness/nested.txt");

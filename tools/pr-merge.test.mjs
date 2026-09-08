@@ -10,7 +10,12 @@ import { fileURLToPath } from "node:url";
 const helper = fileURLToPath(new URL("./pr-merge.mjs", import.meta.url));
 
 function run(command, args, { cwd, env, allowFailure = false } = {}) {
-  const result = spawnSync(command, args, { cwd, env, encoding: "utf8" });
+  const result = spawnSync(command, args, {
+    cwd,
+    env,
+    encoding: "utf8",
+    ...(process.platform === "win32" && command === "gh" ? { shell: true } : {}),
+  });
   if (!allowFailure && result.status !== 0) {
     assert.fail(`${command} ${args.join(" ")} failed:\n${result.stderr || result.stdout}`);
   }
@@ -22,13 +27,9 @@ function git(cwd, ...args) {
 }
 
 function makeFakeGh(root) {
-  const bin = path.join(root, "bin");
-  const gh = path.join(bin, "gh");
-  mkdirSync(bin);
-  writeFileSync(
-    gh,
-    `#!/usr/bin/env node
-import { readFileSync, writeFileSync } from "node:fs";
+  const bin = path.join(root, "bin"),
+    gh = path.join(bin, "gh"),
+    script = `import { readFileSync, writeFileSync } from "node:fs";
 const args = process.argv.slice(2);
 const statePath = process.env.PR_STATE_PATH;
 const data = JSON.parse(readFileSync(statePath, "utf8"));
@@ -47,8 +48,18 @@ if (args[0] === "pr" && args[1] === "view") {
   process.stderr.write(\`unexpected gh args: \${args.join(" ")}\\n\`);
   process.exit(2);
 }
-`,
-  );
+`;
+  mkdirSync(bin);
+  if (process.platform === "win32") {
+    writeFileSync(path.join(bin, "gh.mjs"), script, "utf8");
+    writeFileSync(
+      path.join(bin, "gh.cmd"),
+      `@echo off\r\n"${process.execPath}" "%~dp0gh.mjs" %*\r\nexit /b %ERRORLEVEL%\r\n`,
+      "utf8",
+    );
+    return bin;
+  }
+  writeFileSync(gh, `#!/usr/bin/env node\n${script}`, "utf8");
   chmodSync(gh, 0o755);
   return bin;
 }

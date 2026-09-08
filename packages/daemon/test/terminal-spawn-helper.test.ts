@@ -6,7 +6,11 @@ import path from "node:path";
 import test from "node:test";
 import { ensurePtySpawnHelperExecutable } from "../src/terminal-spawn-helper.ts";
 
-test("repairs a node-pty prebuild helper shipped without the executable bit", () => {
+const posixModeSkip = process.platform === "win32"
+  ? "requires POSIX executable mode bits; Windows exposes ACL permissions instead of chmod semantics"
+  : false;
+
+test("repairs a node-pty prebuild helper shipped without the executable bit", { skip: posixModeSkip }, () => {
   const root = fixture(0o644), helper = helperPath(root);
   try {
     assert.equal(statSync(helper).mode & 0o111, 0);
@@ -15,7 +19,7 @@ test("repairs a node-pty prebuild helper shipped without the executable bit", ()
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test("leaves an already executable helper untouched", () => {
+test("leaves an already executable helper untouched", { skip: posixModeSkip }, () => {
   const root = fixture(0o755), helper = helperPath(root);
   try {
     assert.equal(ensurePtySpawnHelperExecutable({ anchorDir: path.join(root, "src"), platform: "darwin", arch: "arm64" }), null);
