@@ -5,7 +5,6 @@ import {
 import { existsSync, lstatSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import {
-  canonicalDocumentClaims,
   classifyDocSyncCandidatePath,
   classifyTextualArtifactPath,
   decideDocWriteCriteria,
@@ -105,18 +104,16 @@ export function scanDocCandidates(input: {
     enumerationScope = taskPrefix ?? "",
     selected = input.selection?.map((value) => documentPath(normalizeSelectedPath(ledger.authoredPrefix, value))),
     inventoryByPath = new Map(input.inventory?.rows.map((row) => [row.path, row] as const) ?? []),
-    events = input.inventory ? [] : input.store.read().events,
-    pendingPaths = input.inventory
-      ? []
-      : events
-          .filter((event) => input.store.publication(event).commitSha === null)
-          .flatMap((event) => canonicalDocumentClaims(event).map((claim) => claim.path)),
+    projectedPaths =
+      selected?.length || taskPrefix !== null || input.inventory
+        ? []
+        : input.projection.readReplicaBasis(null).documents,
     candidates = selected?.length
       ? [...new Set(selected)]
       : [
           ...new Set([
             ...(input.inventory?.rows.map((row) => row.path) ?? dirtyPaths(ledger.rootDir, ledger.authoredPrefix)),
-            ...pendingPaths,
+            ...projectedPaths.map((row) => row.path),
           ]),
         ].filter((value) => value.startsWith(enumerationScope)),
     paths = candidates
@@ -185,7 +182,7 @@ export function scanDocCandidates(input: {
         bytes === null
           ? (projected.document ??
             inventoried?.legacyDocument ??
-            resolveRetirableDocument(input.rootDir, document, projected.document, events))
+            resolveRetirableDocument(input.rootDir, document, projected.document, input.store.read().events))
           : projected.document,
       base = retirementBase?.blobSha256 ?? null,
       candidate = bytes === null ? null : sha256Bytes(bytes);

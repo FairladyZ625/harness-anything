@@ -8,12 +8,13 @@ import {
   DOC_SYNC_INLINE_MAX_BYTES,
   DOC_POLICY_ID,
   makeTaskEventReader,
+  makeTaskProjection,
   parseDocWriteIntent,
   sha256Text,
 } from "../../kernel/src/index.ts";
 import { OPAQUE_TEXTUAL_POLICY_ID } from "../../kernel/test/store/canonical-generation.fixtures.ts";
 import { detail, touch } from "../src/doc-sync-details.ts";
-import { scanAuthoredCandidateInventory } from "../src/doc-sync-candidate-scanner.ts";
+import { scanAuthoredCandidateInventory, scanDocCandidates } from "../src/doc-sync-candidate-scanner.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 
@@ -138,6 +139,78 @@ test("status, dry-run, and submit share the repeatable-path scanner and automati
     assert.equal(rows(renamed.evidence)[0]?.state, "eligible");
     const accepted = await cell.run({ kind: "doc-submit", paths: ["context/a.md"] }, binding);
     assert.equal(accepted.outcome, "applied", JSON.stringify(accepted));
+  } finally {
+    await cell.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("path, task, and repository scans do not inspect historical publication state", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-bounded-scan-"));
+  initRepo(rootDir);
+  const repoId = workspaceId("bounded-scan"),
+    taskId = "task-bounded-scan",
+    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "bounded-scan-daemon" }),
+    binding = { actor, source: "local" as const };
+  try {
+    const created = await cell.run({ kind: "task-create", taskId, title: "Bounded scan" }, binding);
+    assert.equal(created.outcome, "applied", JSON.stringify(created));
+    await waitForWorktree(cell, created);
+    const packagePath = String(created.packagePath),
+      selectedPath = "context/selected.md",
+      taskPath = `${packagePath}/notes.md`;
+    write(rootDir, selectedPath, "# Selected\n");
+    write(rootDir, taskPath, "# Task notes\n");
+    const store = makeTaskEventReader({ repoId, rootDir }),
+      projection = makeTaskProjection({
+        rootDir,
+        eventStore: store,
+        projectionPath: path.join(rootDir, ".harness/bounded-scan.sqlite"),
+      });
+    projection.rebuild();
+    let historyReads = 0,
+      publicationReads = 0;
+    const measuredStore = {
+      ...store,
+      read: () => {
+        historyReads += 1;
+        return store.read();
+      },
+      publication: (event: Parameters<typeof store.publication>[0]) => {
+        publicationReads += 1;
+        return store.publication(event);
+      },
+    };
+    const common = {
+      rootDir,
+      workspaceId: repoId,
+      store: measuredStore,
+      projection,
+      actor,
+      source: "local" as const,
+      now: "2026-09-08T00:00:00.000Z",
+    };
+    try {
+      assert.deepEqual(
+        scanDocCandidates({ ...common, selection: [selectedPath] }).rows.map((row) => row.path),
+        [selectedPath],
+      );
+      const taskRows = scanDocCandidates({ ...common, taskId }).rows.map((row) => row.path);
+      assert.equal(taskRows.includes(taskPath), true);
+      assert.equal(
+        taskRows.every((row) => row.startsWith(`${packagePath}/`)),
+        true,
+      );
+      assert.equal(
+        scanDocCandidates(common).rows.some((row) => row.path === selectedPath),
+        true,
+      );
+      assert.equal(historyReads, 0);
+      assert.equal(publicationReads, 0);
+    } finally {
+      projection.close();
+      await store.drain();
+    }
   } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });
