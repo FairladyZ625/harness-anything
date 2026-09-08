@@ -1,115 +1,42 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { execFile } from "node:child_process";
 import path from "node:path";
+import { promisify } from "node:util";
 import test from "node:test";
-import { projectedTaskIds } from "../src/repo-cell-receipts.ts";
-import { cellCodedError } from "../src/repo-cell-errors.ts";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 
-type StressCell = {
-  knownTaskIds: Set<string> | null;
-  projection: { list: () => { watermark: number; sourceRevision: number; rows: never[] } };
-  store: { readBatch: () => { events: never[]; cursor: null; done: boolean } };
-  cellCodedError: typeof cellCodedError;
-};
-
-function danglingCell(): StressCell & { scans: { count: number } } {
-  const scans = { count: 0 };
-  return {
-    knownTaskIds: null,
-    projection: { list: () => ({ watermark: 7, sourceRevision: 8, rows: [] }) },
-    store: {
-      readBatch: () => {
-        scans.count += 1;
-        throw Object.assign(new Error("active execution has no terminal receipt"), { code: "invalid_store" });
-      },
-    },
-    cellCodedError,
-    scans,
-  };
-}
-
-async function commandSweep(cell: StressCell, rounds: number): Promise<void> {
-  await Promise.all(
-    Array.from({ length: rounds }, async () => {
-      // These represent concurrent `task list`, `task show`, and `runtime run`
-      // requests from multiple edges observing the same dangling execution.
-      projectedTaskIds(cell);
-      projectedTaskIds(cell);
-      await Promise.resolve(projectedTaskIds(cell));
-    }),
-  );
-}
-
-test("green arm: dangling execution is fail-closed and command reads stay bounded", async () => {
-  const cell = danglingCell();
-  await commandSweep(cell, 64);
-  assert.deepEqual([...projectedTaskIds(cell)], []);
-  assert.equal(cell.scans.count, 1, "the latch must prevent a rescan storm");
-  assert.ok(cell.knownTaskIds instanceof Set, "fail-closed result must be cached");
-});
-
-test("red arm: legacy uncached scan is rejected by the same command oracle", async () => {
-  const cell = danglingCell();
-  const legacyScan = () => {
-    cell.knownTaskIds = null;
-    try {
-      return projectedTaskIds(cell);
-    } finally {
-      // Simulates the pre-fix behavior: an errored scan never settles its latch.
-      cell.knownTaskIds = null;
+const run = promisify(execFile);
+test(
+  "real CLI stays responsive after an injected canonical scan failure; uncached control fails the same oracle",
+  { timeout: 180_000 },
+  async () => {
+    const reports = [];
+    for (const arm of ["uncached", "cached"]) {
+      const { stdout } = await run(
+        process.execPath,
+        [
+          "--import",
+          path.join(import.meta.dirname, "fixtures/cli-fault-hook.mjs"),
+          path.join(import.meta.dirname, "fixtures/cli-fault-command-runner.mjs"),
+          arm,
+        ],
+        { timeout: 80_000, maxBuffer: 8 * 1024 * 1024 },
+      );
+      const frame = stdout.split("\n").find((line) => line.startsWith("CLI_FAULT_REPORT\t"));
+      assert.ok(frame, stdout);
+      const report = JSON.parse(frame.slice("CLI_FAULT_REPORT\t".length));
+      assert.equal(report.requests.length, 14);
+      assert.ok(report.p95Ms < 15_000, `CLI response budget exceeded: ${report.p95Ms}ms`);
+      assert.equal(report.boundedScanOracle, arm === "cached" ? "PASS" : "FAIL");
+      if (arm === "cached") assert.equal(report.scans, 1);
+      else assert.ok(report.scans >= 4, "negative control must expose repeated real canonical scans");
+      reports.push(report);
+      console.log(frame);
     }
-  };
-  await Promise.all(
-    Array.from({ length: 16 }, async () => {
-      for (let attempt = 0; attempt < 8; attempt += 1) {
-        try {
-          legacyScan();
-        } catch {
-          // The command layer observes the settled empty result.
-        }
-        await Promise.resolve();
-      }
-    }),
-  );
-  assert.ok(cell.scans.count > 1, "negative control must demonstrate repeated canonical scans");
-  assert.notEqual(cell.scans.count, 1, "uncached legacy behavior must fail the bounded-scan oracle");
-});
-
-test("command-path green arm: task create fail-closes on a dangling active execution", async () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-cli-fault-command-"));
-  const actor = { principal: { personId: "command-path" }, executor: null } as const;
-  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
-  try {
-    execFileSync("git", ["init", "--quiet", "--initial-branch=main"], { cwd: rootDir });
-    execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: rootDir });
-    execFileSync("git", ["config", "user.name", "Test"], { cwd: rootDir });
-    writeFileSync(path.join(rootDir, "README.md"), "fixture\n");
-    execFileSync("git", ["add", "README.md"], { cwd: rootDir });
-    execFileSync("git", ["commit", "--quiet", "-m", "fixture"], { cwd: rootDir });
-    cell = await openRepoCell({
-      repoId: workspaceId("cli-fault-command"),
-      rootDir: canonicalRoot(rootDir),
-      ownerId: "cli-fault-command",
-    });
-    const binding = { actor, source: "local" as const };
-    const parent = await cell.run({ kind: "task-create", taskId: "task-parent", title: "Parent" }, binding);
-    assert.equal(parent.outcome, "applied", JSON.stringify(parent));
-    // The parent task is the durable anchor for the dangling execution fixture;
-    // the stale projection/canonical read below models its missing terminal receipt.
-
-    const result = await cell.run(
-      { kind: "task-create", taskId: "task-child", title: "Child", parentTaskId: "dangling-parent" },
-      binding,
+    assert.equal(
+      reports[0].requests.length,
+      reports[1].requests.length,
+      "both arms must use the same request schedule",
     );
-    assert.equal(result.outcome, "op_rejected", JSON.stringify(result));
-    assert.match(String(result.code), /parent_not_found/u);
-  } finally {
-    await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
-  }
-});
+  },
+);
