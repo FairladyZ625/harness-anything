@@ -22,7 +22,7 @@ import {
   type WriteSource,
 } from "../../kernel/src/index.ts";
 import { assignmentIntent, scannerSubmit } from "./doc-sync-adjudication.ts";
-import { intentFromScan } from "./doc-sync-candidate-scanner.ts";
+import { intentFromScan, resolveDocExecutionBinding } from "./doc-sync-candidate-scanner.ts";
 import type { AuthoredCandidateInventoryV1, DocCandidateScan } from "./doc-sync-candidate-scanner.ts";
 import { claimBytes, directPaths, settleConflictScratch } from "./doc-sync-details.ts";
 import {
@@ -427,7 +427,16 @@ function publishTaskArtifactBytes(
   }
   const sha = sha256Bytes(bytes),
     base = input.store.currentCut(),
-    lease = input.projection.currentLease(taskId, input.now()),
+    execution = resolveDocExecutionBinding(
+      [destination],
+      undefined,
+      input.projection,
+      input.binding.actor,
+      input.binding.source,
+      input.now(),
+      taskId,
+    ),
+    lease = execution.lease,
     intent = parseDocWriteIntent(
       {
         schema: "doc-write-intent/v1",

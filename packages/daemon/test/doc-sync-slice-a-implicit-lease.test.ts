@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -278,6 +278,40 @@ test("path and confirmed full submits ride the repository prose channel when ano
     assert.equal(
       (await cell.run({ kind: "task-start", taskId, executionId: "exec-path-prose" }, holder)).outcome,
       "applied",
+    );
+    const artifactBody = '{"verified":true}\n';
+    writeFileSync(path.join(rootDir, ".harness", "incoming.json"), artifactBody);
+    const artifact = await cell.run(
+      {
+        kind: "task-artifact-add",
+        taskId,
+        source: ".harness/incoming.json",
+        destination: "reports/imported.json",
+      },
+      person,
+    );
+    assert.equal(artifact.outcome, "applied", JSON.stringify(artifact));
+    await waitForWorktree(cell, artifact, person);
+    const artifactEvent = makeTaskEventReader({ repoId, rootDir }).readEvent(artifact.opId);
+    assert.equal(artifactEvent?.schema, "doc-event/v1");
+    if (artifactEvent?.schema === "doc-event/v1") assert.equal(artifactEvent.payload.executionId, null);
+    assert.equal(
+      readFileSync(path.join(rootDir, "harness", packagePath, "artifacts/reports/imported.json"), "utf8"),
+      artifactBody,
+    );
+    const unboundRuntime = await cell.run(
+      {
+        kind: "task-artifact-add",
+        taskId,
+        source: ".harness/incoming.json",
+        destination: "reports/unbound-runtime.json",
+      },
+      holder,
+    );
+    assert.equal(unboundRuntime.code, "lease_conflict", JSON.stringify(unboundRuntime));
+    assert.equal(
+      existsSync(path.join(rootDir, "harness", packagePath, "artifacts/reports/unbound-runtime.json")),
+      false,
     );
     write(rootDir, `${packagePath}/artifacts/reports/leased.md`, "# Leased task report\n");
     write(rootDir, "context/shared.md", "# Shared\n");
