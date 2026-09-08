@@ -21,20 +21,17 @@ export function initialFallbackAttempt(
   sessions: readonly RuntimeSessionSelection[] = [],
 ): RuntimeFallbackAttempt | undefined {
   if (providerSessionId) return undefined;
-  const declared = agent?.fallback;
-  const anchor = requestedInstance
-    ? instances.find((instance) => instance.instanceId === requestedInstance)
-    : instances.find(
-        (instance) =>
-          instance.instanceId ===
-          resolveRuntimeInstanceCandidates({
-            requested: undefined,
-            agent,
-            model: requestedModel ?? agent?.model,
-            instances,
-            sessions,
-          })[0],
-      );
+  const declared = agent?.fallback,
+    anchorId =
+      requestedInstance ??
+      resolveRuntimeInstanceCandidates({
+        requested: undefined,
+        agent,
+        model: requestedModel ?? agent?.model,
+        instances,
+        sessions,
+      })[0],
+    anchor = instances.find((instance) => instance.instanceId === anchorId);
   const model = requestedModel ?? agent?.model ?? anchor?.defaultModel;
   if (!anchor || !model) return undefined;
   const runtimeType = agent?.runtime_type === "any" ? anchor.kindId : (agent?.runtime_type ?? anchor.kindId);
