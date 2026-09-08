@@ -128,7 +128,12 @@ test(
             "--file tools/stress/fleet-campaign.integration.test.mjs",
           residualRisks: [
             "FleetCut generation and all generation-2 shapes are excluded by CEO ruling 2.",
-            "Real-volume ENOSPC and power-loss ordering require the operator-provisioned VM devices.",
+            ...(environment.volume.ready
+              ? [
+                  "The real-volume fault occurred during content preparation; SQLite-internal transaction ENOSPC is outside this arm.",
+                ]
+              : ["Real-volume ENOSPC requires an operator-provisioned dedicated volume."]),
+            "Power-loss ordering requires separate device-log replay evidence; device preflight alone is insufficient.",
             "The operator Electron screenshot and live remote-edge observation remain CEO-owned evidence.",
           ],
         });

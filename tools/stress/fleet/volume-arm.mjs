@@ -99,7 +99,7 @@ export function runRealVolumeEnospcArm(preflight) {
     assert.ok(Object.values(rejectedBadReport).every(({ verdict }) => verdict === "FAIL"));
     return {
       id: "S4/real-volume-enospc",
-      boundaryHits: ["real-volume:ENOSPC", "sqlite:accept-transaction", "content-object:replace"],
+      boundaryHits: ["real-volume:ENOSPC", "recovery:sqlite:accept-transaction", "recovery:content-object:replace"],
       preflight: { ...preflight, bytes: volume.bytes },
       measured: {
         failedRevision: failedCut.cut.revision,
