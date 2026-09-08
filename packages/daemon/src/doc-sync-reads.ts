@@ -1,6 +1,6 @@
 import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
-import { consumeKnownError, type TaskProjection } from "../../kernel/src/index.ts";
+import { consumeKnownError, makeTaskProjectionReader, type TaskProjection } from "../../kernel/src/index.ts";
 import {
   canonicalEventCut,
   documentPath,
@@ -28,8 +28,15 @@ import { scanReceipt, scopeTouches } from "./doc-sync-settlement.ts";
 
 export function readAction(input: Input): WriteReceipt {
   if (input.action.kind !== "doc-show") {
-    const scan = scannerRead(input);
-    return scanReceipt(input, scan);
+    const reader = makeTaskProjectionReader({ rootDir: input.rootDir });
+    try {
+      return reader.withSession((projection) => {
+        const scoped = { ...input, projection: projection as TaskProjection };
+        return scanReceipt(scoped, scannerRead(scoped));
+      });
+    } finally {
+      reader.close();
+    }
   }
   const rawPaths = input.action.kind === "doc-show" ? [input.action.path] : input.action.paths;
   if (
