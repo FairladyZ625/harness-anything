@@ -368,10 +368,8 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
       }
     });
     await t.test("the first dispatch holds the task lease and a concurrent second dispatch is rejected", async () => {
-      const taskId = "task-runtime-dispatcher-handoff",
-        executionId = "exec-runtime-dispatcher-handoff";
+      const taskId = "task-runtime-dispatcher-handoff";
       await createReadyTask(taskId, "Dispatcher handoff");
-      assert.equal((await host.run(repoId, { kind: "task-start", taskId, executionId }, auth)).outcome, "applied");
       const receipt = await rpc(host, auth, "repo.agentRuntime.spawn", {
         repo: { repoId },
         payload: {

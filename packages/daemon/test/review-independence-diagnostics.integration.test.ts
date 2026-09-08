@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventReader } from "../../kernel/src/index.ts";
+import { makeTaskEventReader, makeTaskProjection } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
@@ -799,16 +799,15 @@ test("review binding permits independent runtimes but still rejects the executio
           },
           "arbiter",
         );
-    const taskId = "task-runtime-bound",
-      executionId = "execution-runtime-bound";
+    const taskId = "task-runtime-bound";
     const created = await cell.run({ kind: "task-create", taskId, title: "Runtime-bound review" }, implementer);
     assert.equal(created.outcome, "applied");
     await waitForFixturePublication(cell, created.opId, implementer);
     await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
       cell!.run({ kind: "doc-submit", paths: [planPath] }, implementer),
     );
-    assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, implementer)).outcome, "applied");
-
+    // A dispatch from planned is the supported implementation pickup: the center runs StartTask
+    // under the new RuntimeSession actor instead of requiring an operator-owned lease first.
     const original = await cell.spawnRuntime(
       {
         runtimeInstanceId: "review-runtime",
@@ -825,6 +824,13 @@ test("review binding permits independent runtimes but still rejects the executio
       (event) =>
         event.type === "runtime_session_task_bound" && event.payload.runtimeSessionId === original.runtimeSessionId,
     );
+    const started = makeTaskProjection({
+      rootDir,
+      eventStore: makeTaskEventReader({ repoId: "review-runtime-bound", rootDir }),
+    });
+    const executionId = started.read(taskId).snapshot.lease?.executionId;
+    started.close();
+    assert.ok(executionId, "planned runtime dispatch must create and hold an execution lease");
     processes[0]!.exit?.(0);
     await runtimeEvent(
       rootDir,
@@ -832,8 +838,6 @@ test("review binding permits independent runtimes but still rejects the executio
       (event) =>
         event.type === "runtime_session_exited" && event.payload.runtimeSessionId === original.runtimeSessionId,
     );
-
-    assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, implementer)).outcome, "applied");
     const resumed = await cell.spawnRuntime(
       {
         runtimeInstanceId: "review-runtime",
@@ -852,13 +856,16 @@ test("review binding permits independent runtimes but still rejects the executio
         event.type === "runtime_session_task_bound" && event.payload.runtimeSessionId === resumed.runtimeSessionId,
     );
 
+    writeFileSync(path.join(rootDir, "README.md"), "# Runtime closeout chain\n");
+    git(rootDir, "add", "README.md");
+    git(rootDir, "commit", "--quiet", "-m", "runtime implementation");
     const commitSha = git(rootDir, "rev-parse", "HEAD");
     writeFileSync(
       path.join(rootDir, "submission.json"),
       JSON.stringify({
         completionClaim: "Ready.",
-        deliverables: ["d"],
-        outputs: ["o"],
+        deliverables: ["README.md"],
+        outputs: ["README.md"],
         verificationNotes: ["v"],
         knownGaps: [],
         residualRisks: [],
@@ -872,11 +879,42 @@ test("review binding permits independent runtimes but still rejects the executio
       },
       source: "local" as const,
     };
+    const closeoutPath = `${String((created as Record<string, unknown>).packagePath)}/closeout.md`;
+    writeFileSync(
+      path.join(rootDir, "harness", closeoutPath),
+      "# Closeout\n\n## Summary\n\nRuntime implementation complete.\n\n" +
+        "## Verification\n\nIntegration chain verified.\n\n## Residual Risk\n\nNone.\n\n" +
+        "## Same Mechanism Elsewhere\n\nThe runtime ingress path is the shared mechanism.\n",
+    );
+    assert.equal(
+      (await cell.run({ kind: "doc-submit", paths: [closeoutPath] }, resumedImplementer)).outcome,
+      "applied",
+    );
+    assert.equal(
+      (
+        await cell.run(
+          {
+            kind: "fact-record",
+            taskId,
+            statement: "The planned runtime dispatch acquired its execution lease through the center.",
+            evidenceSource: "test:review-runtime-bound",
+            confidence: "high",
+            memoryClass: "semantic",
+            memoryTags: [],
+          },
+          resumedImplementer,
+        )
+      ).outcome,
+      "applied",
+    );
+    const operator = withRoleBinding(implementer, "repo-write");
     assert.equal(
       (await cell.run({ kind: "task-submit", taskId, executionId, fromFile: "submission.json" }, resumedImplementer))
         .outcome,
       "applied",
     );
+    const reconciled = await cell.run({ kind: "task-code-doc-reconcile", taskId, paths: ["README.md"] }, operator);
+    assert.equal(reconciled.outcome, "applied", JSON.stringify(reconciled));
     writeFileSync(
       path.join(rootDir, "review.json"),
       JSON.stringify({ verdict: "approved", reason: "Reviewed.", evidenceChecked: ["tests"] }),
@@ -912,19 +950,24 @@ test("review binding permits independent runtimes but still rejects the executio
       arbiter(`runtime-session:${resumed.runtimeSessionId}`),
     );
     assert.equal(denied.code, "runtime_task_self_review_forbidden");
-    for (const [reviewId, runtimeSessionId] of [
-      ["review-prior-runtime", original.runtimeSessionId],
-      ["review-dispatched-reviewer", reviewer.runtimeSessionId],
-    ] as const)
-      assert.equal(
-        (
-          await cell.run(
-            { kind: "task-review-execution", taskId, executionId, reviewId, fromFile: "review.json" },
-            arbiter(`runtime-session:${runtimeSessionId}`),
-          )
-        ).outcome,
-        "applied",
-      );
+    const reviewed = await cell.run(
+      {
+        kind: "task-review-execution",
+        taskId,
+        executionId,
+        reviewId: "review-dispatched-reviewer",
+        fromFile: "review.json",
+      },
+      arbiter(`runtime-session:${reviewer.runtimeSessionId}`),
+    );
+    assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
+    const consented = await cell.run(
+      { kind: "task-review-consent", taskId, executionId, consentId: "consent-runtime-chain" },
+      operator,
+    );
+    assert.equal(consented.outcome, "applied", JSON.stringify(consented));
+    const completed = await cell.run({ kind: "task-complete", taskId, executionId, ci: "passed" }, operator);
+    assert.equal(completed.outcome, "applied", JSON.stringify(completed));
 
     const directTaskId = "task-direct-review",
       directExecutionId = "execution-direct-review";
