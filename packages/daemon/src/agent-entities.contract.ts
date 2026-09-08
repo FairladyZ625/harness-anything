@@ -32,24 +32,17 @@ function agentSkills(value: unknown): value is readonly AgentSkillDeclarationV1[
 function agentFallbackErrors(value: unknown): readonly string[] {
   if (!isEntityRecord(value)) return ['agent declaration field "fallback" must be an object.'];
   const errors: string[] = [],
-    fields = ["chain", "backoff"];
-  if (Object.keys(value).some((key) => !fields.includes(key)) || fields.some((key) => !Object.hasOwn(value, key)))
-    errors.push('agent declaration field "fallback" must contain exactly chain and backoff.');
+    fields = ["providerPriority", "backoff"];
+  if (Object.keys(value).some((key) => !fields.includes(key)) || !Object.hasOwn(value, "backoff"))
+    errors.push('agent declaration field "fallback" must contain backoff and optional providerPriority.');
+  const providerPriority = value.providerPriority;
   if (
-    !Array.isArray(value.chain) ||
-    value.chain.length === 0 ||
-    !value.chain.every(
-      (candidate) =>
-        isEntityRecord(candidate) &&
-        Object.keys(candidate).every((key) => ["instance", "model"].includes(key)) &&
-        Object.hasOwn(candidate, "instance") &&
-        entityNonEmpty(candidate.instance) &&
-        (candidate.model === undefined || entityNonEmpty(candidate.model)),
-    )
+    providerPriority !== undefined &&
+    (!Array.isArray(providerPriority) ||
+      !nonEmptyStrings(providerPriority) ||
+      new Set(providerPriority).size !== providerPriority.length)
   )
-    errors.push(
-      'agent declaration field "fallback.chain" must be a non-empty array of exact {instance, model?} candidates.',
-    );
+    errors.push('agent declaration field "fallback.providerPriority" must be a unique array of provider identities.');
   if (!isEntityRecord(value.backoff)) {
     errors.push('agent declaration field "fallback.backoff" must be an object.');
     return errors;

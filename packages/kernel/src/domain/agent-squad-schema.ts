@@ -12,7 +12,7 @@ export interface AgentSkillDeclarationV1 {
   readonly path: string;
 }
 export interface AgentFallbackDeclarationV1 {
-  readonly chain: readonly { readonly instance: string; readonly model?: string }[];
+  readonly providerPriority?: readonly string[];
   readonly backoff: { readonly baseMs: number; readonly maxMs: number };
 }
 export type AgentRole = "worker" | "commander";
@@ -83,22 +83,15 @@ export const AGENT_DECLARATION_V1_SCHEMA = Object.freeze({
     fallback: {
       type: "object",
       additionalProperties: false,
-      required: ["chain", "backoff"],
+      required: ["backoff"],
       description: "Attempt-bound provider fallback policy.",
       properties: {
-        chain: {
+        providerPriority: {
           type: "array",
           minItems: 1,
-          description: "Ordered runtime instance and optional model candidates.",
-          items: {
-            type: "object",
-            additionalProperties: false,
-            required: ["instance"],
-            properties: {
-              instance: nonEmptyString("Runtime instance identity."),
-              model: nonEmptyString("Optional model override for this candidate."),
-            },
-          },
+          uniqueItems: true,
+          description: "Local provider preference order.",
+          items: nonEmptyString("Provider identity."),
         },
         backoff: {
           type: "object",

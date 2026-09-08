@@ -200,7 +200,7 @@ test("agent model is optional but must be non-empty when declared", () => {
 
 test("daemon Agent fallback validation mirrors the kernel authority", () => {
   const fallback = {
-    chain: [{ instance: "provider-a" }, { instance: "provider-b", model: "model-b" }],
+    providerPriority: ["provider-a", "provider-b"],
     backoff: { baseMs: 25, maxMs: 100 },
   };
   assert.deepEqual(validateAgentDeclarationV1({ ...agent, fallback }), []);
