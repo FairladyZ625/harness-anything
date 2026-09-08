@@ -96,6 +96,7 @@ test("VACUUM backup survives source deletion and rejects wrong generation metada
     backupDir = path.join(os.tmpdir(), `ha-backup-sqlite-${process.pid}-${Date.now()}`),
     store = openSqliteEventStore({ repoId: "backup-test", rootInput: root });
   try {
+    execFileSync("git", ["update-ref", "-d", "refs/ha/canonical"], { cwd: root });
     store.appendCommand({
       fence: { repoId: "backup-test", holder: "test", epoch: 1 },
       intent: { opId: event.opId, intentDigest: `sha256:${sha256Text(JSON.stringify(event))}`, summary: event.type },

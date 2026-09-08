@@ -42,8 +42,8 @@ export function createLedgerBackup(input: {
   fileSystem.mkdir(payloadRoot, { recursive: true });
   for (const sourcePath of sourcePaths) copySource(layout.rootDir, sourcePath, payloadRoot);
   if (sqlitePresent) vacuumSqlite(layout.rootDir, sqlitePath, payloadRoot);
-  const legacy = readStoppedLegacyGeneration({ rootInput: input.rootInput }),
-    sqlite = sqlitePresent ? inspectSqlite(sqlitePath) : null,
+  const sqlite = sqlitePresent ? inspectSqlite(sqlitePath) : null,
+    legacy = sqlitePresent ? null : readStoppedLegacyGeneration({ rootInput: input.rootInput }),
     sqliteRelative = portable(path.relative(layout.rootDir, sqlitePath)),
     files = inventory(payloadRoot).map((backupFile) => {
       const relative = portable(path.relative(payloadRoot, backupFile)),
@@ -66,8 +66,8 @@ export function createLedgerBackup(input: {
     accepted: sqlite
       ? { revision: sqlite.revision, opIds: sqlite.opIds }
       : {
-          revision: legacy.eventEntries.length,
-          opIds: new Set(legacy.eventEntries.map(({ event }) => event.opId)).size,
+          revision: legacy!.eventEntries.length,
+          opIds: new Set(legacy!.eventEntries.map(({ event }) => event.opId)).size,
         },
     sqlite: { present: sqlitePresent, integrity: sqlite?.integrity ?? null },
     files,
