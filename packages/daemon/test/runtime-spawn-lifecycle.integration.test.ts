@@ -16,6 +16,11 @@ import { type RuntimeInstallationWitness } from "../src/agent-runtime-instances.
 import { appendRuntimeWorkerRecord } from "../src/dispatch-stream.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
+import {
+  openPersistentWriterEpoch,
+  readLedgerWriterEpoch,
+  type WriterEpochFenceDescriptor,
+} from "../src/writer-epoch.ts";
 import { launchExitNotification } from "../src/runtime-spawn.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
@@ -967,31 +972,55 @@ test("repo-cell restart re-adopts a live native runtime and settles an exit reco
       authMode: "subscription",
     };
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined,
-    providerPid = 0;
+    providerPid = 0,
+    oldAuthority: ReturnType<typeof openPersistentWriterEpoch> | undefined,
+    newAuthority: ReturnType<typeof openPersistentWriterEpoch> | undefined;
   try {
     initIngressRepo(root, 4309);
-    const open = (ownerId: string) =>
-      openRepoCell({
-        repoId: workspaceId(repoId),
-        rootDir: canonicalRoot(root),
-        ownerId,
-        runtimeDaemonRoute: {
-          userRoot: path.join(parent, "daemon-user"),
-          daemonId: "runtime-re-adopt-test",
-          endpoint: path.join(parent, "daemon.sock"),
-        },
-        runtimeInstances: () => [definition],
-        prepareRuntimeLaunch: async (_instanceId, request) => ({
-          definition: preparedDefinition,
-          installation,
-          executablePath,
-          args: ["exec", "--json", "--model", "codex-model", "-"],
-          env: process.env,
-          cwd: request.cwd,
-          prompt: request.prompt,
-        }),
-      });
-    cell = await open("re-adopt-before");
+    const writerEpochStateRoot = path.join(parent, "writer-epochs");
+    const oldAuthorityInstance = openPersistentWriterEpoch({ stateRoot: writerEpochStateRoot, holderId: "daemon-old" });
+    oldAuthority = oldAuthorityInstance;
+    const oldLease = oldAuthorityInstance.acquire(repoId, readLedgerWriterEpoch(repoId, root)),
+      oldFence: WriterEpochFenceDescriptor = {
+        schema: "harness-writer-epoch-fence/v1",
+        stateRoot: writerEpochStateRoot,
+        repoId,
+        holderId: oldLease.holderId,
+        epoch: oldLease.epoch,
+      },
+      actor = { principal: { personId: "person-re-adopt" }, executor: null },
+      oldBinding = {
+        actor,
+        source: "local" as const,
+        writerEpoch: oldLease.epoch,
+        writerEpochFence: oldFence,
+        assertWriterEpoch: () => oldAuthority!.assert(repoId, oldLease.epoch, oldLease.holderId),
+        withWriterEpochFence: <T>(operation: () => T) =>
+          oldAuthority!.withAppendFence(repoId, oldLease.epoch, oldLease.holderId, operation),
+      },
+      open = (ownerId: string, defaultWriterEpochFence: WriterEpochFenceDescriptor) =>
+        openRepoCell({
+          repoId: workspaceId(repoId),
+          rootDir: canonicalRoot(root),
+          ownerId,
+          defaultWriterEpochFence,
+          runtimeDaemonRoute: {
+            userRoot: path.join(parent, "daemon-user"),
+            daemonId: "runtime-re-adopt-test",
+            endpoint: path.join(parent, "daemon.sock"),
+          },
+          runtimeInstances: () => [definition],
+          prepareRuntimeLaunch: async (_instanceId, request) => ({
+            definition: preparedDefinition,
+            installation,
+            executablePath,
+            args: ["exec", "--json", "--model", "codex-model", "-"],
+            env: process.env,
+            cwd: request.cwd,
+            prompt: request.prompt,
+          }),
+        });
+    cell = await open("re-adopt-before", oldFence);
     const receipt = await cell.spawnRuntime(
       {
         runtimeInstanceId: definition.instanceId,
@@ -1000,10 +1029,7 @@ test("repo-cell restart re-adopts a live native runtime and settles an exit reco
         taskId: null,
         idempotencyKey: "re-adopt",
       },
-      {
-        actor: { principal: { personId: "person-re-adopt" }, executor: null },
-        source: "local",
-      },
+      oldBinding,
     );
     providerPid = await eventuallyValue(() => {
       try {
@@ -1019,6 +1045,24 @@ test("repo-cell restart re-adopts a live native runtime and settles an exit reco
         "utf8",
       ).includes("provider-re-adopt-session"),
     );
+    const firstDispatchPath = path.join(
+        root,
+        ".harness",
+        "runtime",
+        "dispatches",
+        `${String(receipt.dispatchId)}.jsonl`,
+      ),
+      firstDispatchLines = readFileSync(firstDispatchPath, "utf8").trimEnd().split(/\r?\n/u),
+      firstHeader = JSON.parse(firstDispatchLines[0]!) as Record<string, unknown>;
+    firstDispatchLines[0] = JSON.stringify({
+      ...firstHeader,
+      binding: {
+        ...(firstHeader.binding as Record<string, unknown>),
+        writerEpoch: oldLease.epoch,
+        writerEpochFence: oldFence,
+      },
+    });
+    writeFileSync(firstDispatchPath, `${firstDispatchLines.join("\n")}\n`);
     const reAdoptHostPid = await eventuallyValue(() => {
       const started = readFileSync(
         path.join(root, ".harness", "runtime", "dispatches", `${String(receipt.dispatchId)}.jsonl`),
@@ -1034,7 +1078,30 @@ test("repo-cell restart re-adopts a live native runtime and settles an exit reco
     cell = undefined;
     await new Promise((resolve) => setTimeout(resolve, 100));
     assert.doesNotThrow(() => process.kill(providerPid, 0), "repo-cell close must not terminate its runtime worker");
-    cell = await open("re-adopt-after");
+    const newAuthorityInstance = openPersistentWriterEpoch({ stateRoot: writerEpochStateRoot, holderId: "daemon-new" });
+    newAuthority = newAuthorityInstance;
+    const newLease = newAuthorityInstance.acquire(repoId, readLedgerWriterEpoch(repoId, root)),
+      newFence: WriterEpochFenceDescriptor = {
+        schema: "harness-writer-epoch-fence/v1",
+        stateRoot: writerEpochStateRoot,
+        repoId,
+        holderId: newLease.holderId,
+        epoch: newLease.epoch,
+      },
+      newBinding = {
+        actor,
+        source: "local" as const,
+        writerEpoch: newLease.epoch,
+        writerEpochFence: newFence,
+        assertWriterEpoch: () => newAuthority!.assert(repoId, newLease.epoch, newLease.holderId),
+        withWriterEpochFence: <T>(operation: () => T) =>
+          newAuthority!.withAppendFence(repoId, newLease.epoch, newLease.holderId, operation),
+      };
+    cell = await open("re-adopt-after", newFence);
+    await assert.rejects(
+      cell.run({ kind: "task-create", taskId: "task-stale-runtime-writer", title: "stale runtime writer" }, oldBinding),
+      (error: unknown) => (error as { readonly code?: string }).code === "writer_epoch_stale",
+    );
     const liveProjection = makeTaskProjection({
       rootDir: root,
       projectionPath: path.join(parent, "runtime-re-adopt-live-before-exit.sqlite"),
@@ -1071,6 +1138,7 @@ test("repo-cell restart re-adopts a live native runtime and settles an exit reco
       },
       { liveness: "exited", outcome: "succeeded", exitCode: 0 },
     );
+    assert.match(String(settled.resultRef), /^artifact:runtime-result\/sha256\//u);
     await eventually(() => {
       try {
         process.kill(reAdoptHostPid, 0);
@@ -1092,10 +1160,7 @@ test("repo-cell restart re-adopts a live native runtime and settles an exit reco
         taskId: null,
         idempotencyKey: "re-adopt-absent-exit",
       },
-      {
-        actor: { principal: { personId: "person-re-adopt" }, executor: null },
-        source: "local",
-      },
+      newBinding,
     );
     providerPid = await eventuallyValue(() => {
       try {
@@ -1120,7 +1185,7 @@ test("repo-cell restart re-adopts a live native runtime and settles an exit reco
         "utf8",
       ).includes('"kind":"process_exit"'),
     );
-    cell = await open("re-adopt-dead");
+    cell = await open("re-adopt-dead", newFence);
     await eventually(() =>
       makeTaskEventReader({ repoId, rootDir: root })
         .read()
@@ -1145,6 +1210,27 @@ test("repo-cell restart re-adopts a live native runtime and settles an exit reco
         exitCode: daemonlessSettlement.exitCode,
       },
       { liveness: "exited", outcome: "succeeded", exitCode: 0 },
+    );
+    assert.match(String(daemonlessSettlement.resultRef), /^artifact:runtime-result\/sha256\//u);
+    const nextReceipt = await cell.spawnRuntime(
+      {
+        runtimeInstanceId: definition.instanceId,
+        cwd: { scope: "repo-root" },
+        prompt: "Dispatch after runtime adoption",
+        taskId: null,
+        idempotencyKey: "re-adopt-next-dispatch",
+      },
+      newBinding,
+    );
+    assert.equal(typeof nextReceipt.dispatchId, "string");
+    await eventually(() =>
+      makeTaskEventReader({ repoId, rootDir: root })
+        .read()
+        .events.some(
+          (event) =>
+            event.type === "runtime_session_outcome_observed" &&
+            event.payload.runtimeSessionId === nextReceipt.runtimeSessionId,
+        ),
     );
 
     const taskId = "task-runtime-lost",
@@ -1210,7 +1296,7 @@ test("repo-cell restart re-adopts a live native runtime and settles an exit reco
         return true;
       }
     });
-    cell = await open("re-adopt-lost");
+    cell = await open("re-adopt-lost", newFence);
     await eventually(() =>
       makeTaskEventReader({ repoId, rootDir: root })
         .read()
@@ -1257,6 +1343,8 @@ test("repo-cell restart re-adopts a live native runtime and settles an exit reco
   } finally {
     writeFileSync(release, "release");
     await cell?.close();
+    oldAuthority?.close();
+    newAuthority?.close();
     if (providerPid > 0)
       try {
         process.kill(providerPid, "SIGTERM");
