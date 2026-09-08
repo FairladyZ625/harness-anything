@@ -310,18 +310,22 @@ export {
   compileEntityArchived,
   compileEntityUpdated,
   compileEntityTargetMissing,
+  compileEntityDeleted,
   compileEntityUpsert,
   contractForDeclarationEvent,
+  entityDeletedWritePlan,
   entityUpsertWritePlan,
   isEntityDeclarationEvent,
   isEntityEvent,
 } from "./entity-event.ts";
 export type {
   EntityContentObservedBundle,
+  EntityDeletedBundle,
   EntityEventV1,
   EntityTargetMissingBundle,
   EntityUpsertBundle,
 } from "./entity-event.ts";
+export { createEntityOwnedContent, MAX_ENTITY_CONTENT_OBJECT_BYTES } from "./entity-owned-content.ts";
 export {
   artifactEntityContractSnapshot,
   artifactImportOperationId,

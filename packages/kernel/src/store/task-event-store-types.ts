@@ -52,7 +52,7 @@ export interface CanonicalContentBlob {
   readonly sha256: string;
   readonly size: number;
   readonly mediaType: string;
-  readonly body: string;
+  readonly body: string | Uint8Array;
 }
 export interface CanonicalEventWriteBundle {
   readonly event: CanonicalEventV1;

@@ -66,8 +66,8 @@ test("registered declaration Entity kinds explain the same contract shape from t
     },
     {
       catalogRef: "kernel/agent-action/v1",
-      available: ["install", "validate", "list", "inspect"],
-      declared: ["install", "validate", "list", "inspect"],
+      available: ["install", "delete", "validate", "list", "inspect"],
+      declared: ["install", "delete", "validate", "list", "inspect"],
     },
   );
   assert.deepEqual(
@@ -78,8 +78,8 @@ test("registered declaration Entity kinds explain the same contract shape from t
     },
     {
       catalogRef: "kernel/squad-action/v1",
-      available: ["install", "validate", "list", "inspect", "run", "status", "cancel"],
-      declared: ["install", "validate", "list", "inspect", "run", "status", "cancel"],
+      available: ["install", "delete", "validate", "list", "inspect", "run", "status", "cancel"],
+      declared: ["install", "delete", "validate", "list", "inspect", "run", "status", "cancel"],
     },
   );
   assert.equal(explanations[0]!.documentSchema.fields.find(({ name }) => name === "runtime_type")?.required, true);

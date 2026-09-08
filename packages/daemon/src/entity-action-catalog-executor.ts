@@ -2,10 +2,12 @@ import { createHash } from "node:crypto";
 import { makeDecisionService, makeFactService } from "../../application/src/index.ts";
 import {
   compileEntityUpsert,
+  compileEntityDeleted,
   compileDecisionWrite,
   compileFactWrite,
   decisionWritePlan,
   entityUpsertWritePlan,
+  entityDeletedWritePlan,
   factWritePlan,
   getExecutableEntityAction,
   isEntityDeclarationEvent,
@@ -23,6 +25,7 @@ import {
   type EntityActionExecutionContract,
   type EntityActionUnmetCriterionV1,
   type EntityUpsertBundle,
+  type EntityDeletedBundle,
   type EventPublicationKillpoint,
   type FactConfidence,
   type FactDomainType,
@@ -49,7 +52,8 @@ import { executeRelationAction, publicationKillpoints, reject } from "./entity-a
 type ExecutableAction = EntityActionContract & { readonly execution: EntityActionExecutionContract };
 type FactBundle = ReturnType<typeof compileFactWrite>;
 type DecisionBundle = ReturnType<typeof compileDecisionWrite>;
-type CatalogBundle = FactBundle | DecisionBundle | EntityUpsertBundle | RuntimeSessionBundle;
+type EntityCatalogBundle = EntityUpsertBundle | EntityDeletedBundle;
+type CatalogBundle = FactBundle | DecisionBundle | EntityCatalogBundle | RuntimeSessionBundle;
 export type EntityActionCatalogRunner = (
   contract: ExecutableAction,
   action: RepoTaskAction,
@@ -295,8 +299,11 @@ export function makeEntityActionCatalogExecutor(input: {
       );
     }
     if (isEntityBundle(bundle)) {
-      if (dryRun)
+      if (dryRun) {
+        if (!isEntityUpsertBundle(bundle))
+          reject("invalid_command", `${contract.execution.ingress} does not support --dry-run.`);
         return entityPreview(contract, action, bundle, input.store.readHead()?.revision ?? 0, authorizationDecision);
+      }
       return deriveActionResult(
         contract,
         action,
@@ -327,7 +334,7 @@ export function makeEntityActionCatalogExecutor(input: {
   };
 
   const runEntityWrite = (
-    bundle: EntityUpsertBundle,
+    bundle: EntityCatalogBundle,
     action: RepoTaskAction,
     replay: boolean,
     authorizationDecision: AuthorizationDecision,
@@ -337,7 +344,10 @@ export function makeEntityActionCatalogExecutor(input: {
     publicationKillpoints(input.killpoint);
     const applied = input.projection.readOperation(bundle.event.opId),
       visible = !!applied && applied.watermark >= bundle.event.workspaceRevision,
-      claim = bundle.event.payload.declarationDocumentClaim,
+      path =
+        bundle.event.type === "entity_deleted"
+          ? bundle.event.payload.ownedContent.retirements[0]!.path
+          : bundle.event.payload.declarationDocumentClaim.path,
       receipt = {
         opId: bundle.event.opId,
         revision: appended.revision,
@@ -347,7 +357,7 @@ export function makeEntityActionCatalogExecutor(input: {
             schema: bundle.event.schema,
             eventId: bundle.event.eventId,
             opId: bundle.event.opId,
-            path: claim.path,
+            path,
           },
           commitSha: appended.commitSha?.sha ?? null,
           cut: appended.cut,
@@ -360,13 +370,17 @@ export function makeEntityActionCatalogExecutor(input: {
           canonicalVisible: visible,
           worktreeVisible: true,
         },
-        detail: {
-          kind: "entity_upsert" as const,
-          entityKind: bundle.event.payload.entityKind,
-          entityId: bundle.event.payload.entityId,
-          schemaId: requireEntityStoreKindContract(bundle.event.payload.entityKind).schema.$id,
-          path: claim.path,
-        },
+        ...(bundle.event.type === "entity_deleted"
+          ? {}
+          : {
+              detail: {
+                kind: "entity_upsert" as const,
+                entityKind: bundle.event.payload.entityKind,
+                entityId: bundle.event.payload.entityId,
+                schemaId: requireEntityStoreKindContract(bundle.event.payload.entityKind).schema.$id,
+                path,
+              },
+            }),
         commitSha: appended.commitSha?.sha ?? null,
         cut: appended.cut,
         authorizationDecision,
@@ -503,8 +517,12 @@ function isFactBundle(bundle: CatalogBundle): bundle is FactBundle {
   return bundle.event.schema === "fact-event/v1";
 }
 
-function isEntityBundle(bundle: CatalogBundle): bundle is EntityUpsertBundle {
+function isEntityBundle(bundle: CatalogBundle): bundle is EntityCatalogBundle {
   return bundle.event.schema === "entity-event/v1";
+}
+
+function isEntityUpsertBundle(bundle: EntityCatalogBundle): bundle is EntityUpsertBundle {
+  return bundle.event.type === "entity_upserted";
 }
 
 function compileDraft(
@@ -515,6 +533,14 @@ function compileDraft(
   if (draft.kind === "fact") return compileFactWrite({ event: draft.event });
   if (draft.kind === "entity")
     return compileEntityUpsert({ ...event, entityKind: draft.entityKind, entity: draft.entity });
+  if (draft.kind === "entity-delete")
+    return compileEntityDeleted({
+      ...event,
+      entityKind: draft.entityKind,
+      entityId: draft.entityId,
+      baseBlobSha256: draft.baseBlobSha256,
+      reason: draft.reason,
+    });
   if (draft.kind === "runtime-session") return compileRuntimeSessionDraft(draft);
   if (draft.kind === "schedule") reject("invalid_command", "Schedule drafts require the Schedule Action runtime.");
   if (draft.kind === "settings") reject("invalid_command", "Settings drafts require the Settings Action runtime.");
@@ -581,6 +607,12 @@ function matchingReplayBundle(
       ],
     };
   }
+  if (
+    existing?.schema === "entity-event/v1" &&
+    existing.type === "entity_deleted" &&
+    existing.payload.entityKind === contract.target.kind
+  )
+    return { event: existing, plan: entityDeletedWritePlan(existing), blobs: [] };
   if (existing?.schema === "fact-event/v1" && writesFact) {
     const claim = existing.payload.factsDocumentClaim,
       bytes = store.readContentBlob(claim.sha256);

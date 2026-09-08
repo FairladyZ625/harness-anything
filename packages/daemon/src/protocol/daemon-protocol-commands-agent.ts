@@ -371,6 +371,18 @@ export const agentProtocolCommands = Object.freeze([
       cliInput("--dry-run", "boolean", false, { code: "invalid_field" }, { field: "dryRun" }),
     ],
   }),
+  defineLedgerWriteCommand({
+    id: "agent-delete",
+    phase: "Runtime-B",
+    path: ["agent", "delete", "<id>"],
+    summary: "Delete an Agent current view while retaining its canonical history.",
+    method: "repo.task.run",
+    positional: "agentId",
+    inputs: [
+      cliInput("--reason", "single", true, { code: "missing_field" }),
+      cliInput("--expected-version", "single", true, { code: "missing_field" }, { projection: "number" }),
+    ],
+  }),
   defineRepoReadCommand({
     id: "squad-list",
     phase: "Runtime-B",
@@ -448,6 +460,18 @@ export const agentProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--source", "single", true, { code: "missing_field" }, { field: "packageSource" }),
       cliInput("--dry-run", "boolean", false, { code: "invalid_field" }, { field: "dryRun" }),
+    ],
+  }),
+  defineLedgerWriteCommand({
+    id: "squad-delete",
+    phase: "Runtime-B",
+    path: ["squad", "delete", "<id>"],
+    summary: "Delete a Squad current view while retaining its canonical history.",
+    method: "repo.task.run",
+    positional: "squadId",
+    inputs: [
+      cliInput("--reason", "single", true, { code: "missing_field" }),
+      cliInput("--expected-version", "single", true, { code: "missing_field" }, { projection: "number" }),
     ],
   }),
   defineHostAdminCommand({

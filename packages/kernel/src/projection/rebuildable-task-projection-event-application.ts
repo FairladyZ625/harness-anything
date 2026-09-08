@@ -140,7 +140,11 @@ export function applyEvent(
         event.workspaceRevision,
         eventJson,
       );
-      markEntityProjectionMissing(db, event.payload.entityKind, event.payload.entityId, event.workspaceRevision);
+      if (event.type === "entity_deleted") {
+        for (const retirement of event.payload.ownedContent.retirements)
+          runSql(db, "DELETE FROM document WHERE path = ?", retirement.path);
+        deleteEntityProjectionRow(db, event.payload.entityKind, event.payload.entityId);
+      } else markEntityProjectionMissing(db, event.payload.entityKind, event.payload.entityId, event.workspaceRevision);
       return;
     }
     const claim = event.payload.declarationDocumentClaim,

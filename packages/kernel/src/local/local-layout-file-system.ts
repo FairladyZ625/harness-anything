@@ -136,8 +136,8 @@ export const localRuntimeStateFileSystem = {
 export const localContentObjectFileSystem = {
   readNames: (inputPath: string) => readdirSync(inputPath),
   exists: (inputPath: string) => existsSync(inputPath),
-  readText: (inputPath: string) => readFileSync(inputPath, "utf8"),
-  replace: (inputPath: string, body: string): void => {
+  readBytes: (inputPath: string): Uint8Array => readFileSync(inputPath),
+  replace: (inputPath: string, body: string | Uint8Array): void => {
     const directories = [path.dirname(inputPath)];
     while (!existsSync(directories.at(-1)!)) {
       const parent = path.dirname(directories.at(-1)!);
@@ -154,7 +154,8 @@ export const localContentObjectFileSystem = {
     try {
       try {
         /* @gate-identity check-bypass-write-boundary/bypass-write-069 */
-        writeSync(descriptor, body, null, "utf8");
+        if (typeof body === "string") writeSync(descriptor, body, null, "utf8");
+        else writeSync(descriptor, body);
         syncDescriptor(descriptor);
       } finally {
         /* @gate-identity check-bypass-write-boundary/bypass-write-071 */

@@ -18,6 +18,7 @@ export interface StoredEntity<T = unknown> {
   readonly id: string;
   readonly value: T;
   readonly documentPath: string;
+  readonly documentSha256: string;
   readonly workspaceRevision: number;
 }
 
@@ -57,8 +58,9 @@ export function createEntityStore(
     const contract = contractForKind(kind),
       latest = new Map<string, StoredEntityEventV1>();
     for (const event of source.read().events) {
-      if (isEntityEvent(event) && isEntityDeclarationEvent(event) && event.payload.entityKind === contract.kind)
-        latest.set(event.payload.entityId, event);
+      if (!isEntityEvent(event) || event.payload.entityKind !== contract.kind) continue;
+      if (isEntityDeclarationEvent(event)) latest.set(event.payload.entityId, event);
+      else if (event.type === "entity_deleted") latest.delete(event.payload.entityId);
     }
     return latest;
   };
@@ -122,6 +124,7 @@ function entityEventRecord(
     id: event.payload.entityId,
     value: entity.value,
     documentPath: claim.path,
+    documentSha256: claim.sha256,
     workspaceRevision: event.workspaceRevision,
   };
 }

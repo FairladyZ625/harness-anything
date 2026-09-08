@@ -5,7 +5,7 @@ import {
   serializePersistedCanonicalEvent,
   type CanonicalEventV1,
 } from "../domain/doc-sync.contract.ts";
-import { sha256Text } from "../integrity/stable-hash.ts";
+import { sha256Bytes, sha256Text } from "../integrity/stable-hash.ts";
 import { resolveHarnessLayout, type HarnessLayoutInput } from "../layout/index.ts";
 import { localRuntimeStateFileSystem } from "../local/local-layout-file-system.ts";
 import { localContentObjectFileSystem } from "../local/local-layout-file-system.ts";
@@ -489,15 +489,22 @@ function prepareContentObjects(
     for (const claim of contentClaims(event)) {
       const existing = readContentObject(objectRoot, claim.sha256);
       if (existing !== null) {
-        if (existing.byteLength !== claim.size || sha256Text(Buffer.from(existing).toString("utf8")) !== claim.sha256)
+        if (existing.byteLength !== claim.size || sha256Bytes(existing) !== claim.sha256)
           throw new TaskEventStoreError("invalid_store", `content object ${claim.sha256} is corrupt`);
         continue;
       }
-      const blob = supplied.get(claim.sha256);
-      if (!blob || blob.size !== claim.size || sha256Text(blob.body) !== claim.sha256)
+      const blob = supplied.get(claim.sha256),
+        bytes = blob === undefined ? null : typeof blob.body === "string" ? Buffer.from(blob.body) : blob.body;
+      if (
+        !blob ||
+        !bytes ||
+        blob.size !== claim.size ||
+        bytes.byteLength !== claim.size ||
+        sha256Bytes(bytes) !== claim.sha256
+      )
         throw new TaskEventStoreError("invalid_write_plan", `event content object ${claim.sha256} is missing`);
       const target = objectPath(objectRoot, claim.sha256);
-      localContentObjectFileSystem.replace(target, blob.body);
+      localContentObjectFileSystem.replace(target, bytes);
     }
   }
 }
@@ -510,7 +517,7 @@ function objectPath(objectRoot: string, sha256: string): string {
 function readContentObject(objectRoot: string, sha256: string): Uint8Array | null {
   const target = objectPath(objectRoot, sha256);
   return localContentObjectFileSystem.exists(target)
-    ? Buffer.from(localContentObjectFileSystem.readText(target))
+    ? Buffer.from(localContentObjectFileSystem.readBytes(target))
     : null;
 }
 

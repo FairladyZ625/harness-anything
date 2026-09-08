@@ -19,7 +19,12 @@ import { createPresetProcessService, presetUserRoot } from "../../preset/src/ind
 import { defaultAssets } from "../../preset/src/preset-resolver-common.ts";
 import { readFileSync } from "node:fs";
 import { ledgerWriteCommandTopology } from "../../preset/src/preset-command-contract.ts";
-import { prepareAgentEntityInstall, readAgentDeclaration, resolveSquadDispatch } from "./agent-entities.ts";
+import {
+  prepareAgentEntityDelete,
+  prepareAgentEntityInstall,
+  readAgentDeclaration,
+  resolveSquadDispatch,
+} from "./agent-entities.ts";
 import type { PreparedRuntimeLaunch, RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
 import {
   makeAgentRuntimeStreamHub,
@@ -724,6 +729,22 @@ export async function openRepoWriterCell(
     settingsActionRuntime = makeSettingsActionRuntime(runtimeContext, settings),
     squadActionRuntime = makeSquadActionRuntime(runtimeContext),
     prepareAgentAction: EntityActionCatalogPreparer = (contract, action, _binding, opId) => {
+      if (contract.id === "delete") {
+        const existing = store.readEvent(opId);
+        if (
+          existing?.schema === "entity-event/v1" &&
+          existing.type === "entity_deleted" &&
+          existing.payload.entityKind === contract.target.kind
+        )
+          return {
+            ...action,
+            entityId: existing.payload.entityId,
+            baseBlobSha256: existing.payload.ownedContent.retirements[0]!.baseBlobSha256,
+            reason: existing.payload.reason,
+          };
+        const prepared = prepareAgentEntityDelete({ action, entityStore: createEntityStore(store) });
+        return { ...action, ...prepared };
+      }
       if (contract.id !== "install") return action;
       const existing = store.readEvent(opId),
         prepared = prepareAgentEntityInstall({

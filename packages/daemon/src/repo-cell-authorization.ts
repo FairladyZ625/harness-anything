@@ -85,6 +85,8 @@ export function authorizeDurableRepoCellAction(
   switch (input.action.kind) {
     case "agent-create":
       return authorizeRepoCellAction(input);
+    case "agent-delete":
+      return authorizeRepoCellAction(input);
     case "agent-install":
       return authorizeRepoCellAction(input);
     case "ci-observe-pull":
@@ -240,6 +242,8 @@ export function authorizeDurableRepoCellAction(
     case "settings-update":
       return authorizeRepoCellAction(input);
     case "squad-cancel":
+      return authorizeRepoCellAction(input);
+    case "squad-delete":
       return authorizeRepoCellAction(input);
     case "squad-install":
       return authorizeRepoCellAction(input);

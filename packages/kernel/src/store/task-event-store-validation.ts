@@ -38,7 +38,7 @@ import {
   type FrozenWritePlan,
   type WriteTarget,
 } from "../domain/write-chain.contract.ts";
-import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
+import { sha256Bytes, sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 import { assertPublishableOpId, eventObjectTarget } from "../layout/ledger-object-layout.ts";
 import type { CanonicalContentBlob, CanonicalEventWriteBundle } from "./task-event-store-types.ts";
 import { TaskEventStoreError } from "./task-event-store-types.ts";
@@ -73,7 +73,7 @@ export function assertBundle(bundle: CanonicalEventWriteBundle): void {
     }
   if (isScheduleEvent(event))
     try {
-      assertScheduleEventInputs(event, plan, blobs);
+      assertScheduleEventInputs(event, plan, requireTextBlobs(blobs));
     } catch {
       throw new TaskEventStoreError(
         "invalid_write_plan",
@@ -82,7 +82,7 @@ export function assertBundle(bundle: CanonicalEventWriteBundle): void {
     }
   if (isSettingsEvent(event))
     try {
-      assertSettingsEventInputs(event, plan, blobs);
+      assertSettingsEventInputs(event, plan, requireTextBlobs(blobs));
     } catch {
       throw new TaskEventStoreError(
         "invalid_write_plan",
@@ -91,7 +91,7 @@ export function assertBundle(bundle: CanonicalEventWriteBundle): void {
     }
   if (isVerticalDeclarationEvent(event))
     try {
-      assertVerticalDeclarationEventInputs(event, plan, blobs);
+      assertVerticalDeclarationEventInputs(event, plan, requireTextBlobs(blobs));
     } catch {
       throw new TaskEventStoreError(
         "invalid_write_plan",
@@ -100,7 +100,7 @@ export function assertBundle(bundle: CanonicalEventWriteBundle): void {
     }
   if (isPeopleEvent(event))
     try {
-      assertPeopleEventInputs(event, plan, blobs);
+      assertPeopleEventInputs(event, plan, requireTextBlobs(blobs));
     } catch {
       throw new TaskEventStoreError(
         "invalid_write_plan",
@@ -119,7 +119,7 @@ export function assertBundle(bundle: CanonicalEventWriteBundle): void {
   if (isTaskBootstrapEvent(event)) assertBootstrapInputs(event, plan, blobs);
   if (isSnapshotUpgradeEvent(event))
     try {
-      assertSnapshotUpgradeInputs(event, plan, blobs);
+      assertSnapshotUpgradeInputs(event, plan, requireTextBlobs(blobs));
     } catch {
       throw new TaskEventStoreError("invalid_write_plan", "snapshot upgrade inputs or plan are invalid");
     }
@@ -219,6 +219,14 @@ export function assertBundle(bundle: CanonicalEventWriteBundle): void {
   )
     throw new TaskEventStoreError("invalid_write_plan", "canonical write bundle claims and plan differ");
 }
+
+function requireTextBlobs(blobs: readonly CanonicalContentBlob[]): readonly (CanonicalContentBlob & {
+  readonly body: string;
+})[] {
+  if (blobs.some((blob) => typeof blob.body !== "string"))
+    throw new TaskEventStoreError("invalid_write_plan", "this canonical event accepts text content only");
+  return blobs as readonly (CanonicalContentBlob & { readonly body: string })[];
+}
 export function assertDocWritePlan(
   event: DocEventV1,
   plan: FrozenWritePlan,
@@ -259,7 +267,7 @@ export function assertBootstrapInputs(
   const blob = blobs.find((candidate) => candidate.sha256 === claim.sha256);
   let value: Record<string, unknown>;
   try {
-    value = JSON.parse(blob?.body ?? "") as Record<string, unknown>;
+    value = JSON.parse(typeof blob?.body === "string" ? blob.body : "") as Record<string, unknown>;
   } catch {
     throw new TaskEventStoreError("invalid_write_plan", "task bootstrap snapshot claim must be JSON");
   }
@@ -280,7 +288,7 @@ export function assertContentInputs(
     readonly sha256: string;
     readonly size: number;
     readonly mediaType: string;
-    readonly body: string;
+    readonly body: string | Uint8Array;
   }[],
   label: string,
 ): void {
@@ -307,7 +315,10 @@ export function assertContentInputs(
     );
   if (
     shape(normalizedBlobs) !== shape(normalizedClaims) ||
-    normalizedBlobs.some((blob) => Buffer.byteLength(blob.body) !== blob.size || sha256Text(blob.body) !== blob.sha256)
+    normalizedBlobs.some((blob) => {
+      const bytes = typeof blob.body === "string" ? Buffer.from(blob.body) : blob.body;
+      return bytes.byteLength !== blob.size || sha256Bytes(bytes) !== blob.sha256;
+    })
   )
     throw new TaskEventStoreError(
       "invalid_write_plan",

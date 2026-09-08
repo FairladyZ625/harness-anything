@@ -75,7 +75,13 @@ test("all public Task writes are complete executable Action contracts", () => {
     "reopen",
     "contract-migrate",
   ]);
-  assert.deepEqual(explainEntityKind("agent").transitions.available, ["install", "validate", "list", "inspect"]);
+  assert.deepEqual(explainEntityKind("agent").transitions.available, [
+    "install",
+    "delete",
+    "validate",
+    "list",
+    "inspect",
+  ]);
 });
 
 test("named lifecycle specifications preserve every execution metadata field", () => {

@@ -7,13 +7,17 @@ import type {
 import { attributeEntityActionCriterion, type EntityActionCompileHook } from "./entity-action-execution.ts";
 import { assertTransitionDocumentReady, requireTransitionDocumentKind } from "./transition-document-readiness.ts";
 
-export interface AgentActionDraft {
-  readonly kind: "entity";
-  readonly entityKind: "agent";
-  readonly entity: AgentDeclarationV1;
-}
+export type AgentActionDraft =
+  | { readonly kind: "entity"; readonly entityKind: "agent"; readonly entity: AgentDeclarationV1 }
+  | {
+      readonly kind: "entity-delete";
+      readonly entityKind: "agent";
+      readonly entityId: string;
+      readonly baseBlobSha256: string;
+      readonly reason: string;
+    };
 
-export const agentActionIds = Object.freeze(["install", "validate", "list", "inspect"] as const);
+export const agentActionIds = Object.freeze(["install", "delete", "validate", "list", "inspect"] as const);
 export type AgentActionId = (typeof agentActionIds)[number];
 
 const input = (
@@ -129,6 +133,53 @@ export function createAgentActionCatalog(
         }),
       }),
       Object.freeze({
+        ...baseAction("delete"),
+        input: input([
+          { field: "agentId", type: "string", required: true },
+          { field: "reason", type: "string", required: true },
+          { field: "expectedVersion", type: "number", required: true },
+          { field: "idempotencyKey", type: "string", required: false },
+        ]),
+        policy: Object.freeze({ ref: "default@5", action: "agent-delete" }),
+        criteria: Object.freeze([
+          {
+            ref: "agent/entity-present",
+            failureCode: "agent_not_found",
+            explain: "The Agent exists at the canonical projection cut before deletion.",
+          },
+          {
+            ref: "agent/entity-revision",
+            failureCode: "revision_conflict",
+            explain: "expectedVersion matches the latest Agent entity revision.",
+          },
+        ]),
+        concurrency: Object.freeze({
+          ...declared.concurrency,
+          expectedVersion: Object.freeze({
+            authority: "entity-event/v1 Agent projection revision",
+            required: true,
+            conflict: "revision_conflict",
+          }),
+          idempotency: Object.freeze({
+            authority: "operation-id",
+            input: "idempotencyKey",
+            scope: "agent/{id}/delete",
+            retry: "canonical-event-replay",
+          }),
+        }),
+        effects: Object.freeze([{ ref: "entity-event/entity_deleted", projection: "AgentProjection" }]),
+        returns: actionResultContract,
+        explain: "Delete one Agent current view while retaining its accepted content object history.",
+        execution: Object.freeze({
+          ingress: "agent-delete",
+          compile: compileAgentDeleteAction,
+          read: false,
+          implementation: "compiled-event" as const,
+          topology: "center-forward-write" as const,
+          targetIdField: "entityId",
+        }),
+      }),
+      Object.freeze({
         ...baseAction("validate"),
         input: input([{ field: "packageSource", type: "string", required: true }]),
         policy: Object.freeze({ ref: "default@5", action: null }),
@@ -212,6 +263,19 @@ export const compileAgentInstallAction: EntityActionCompileHook = (input): Agent
   }
   return { kind: "entity", entityKind: "agent", entity };
 };
+
+export const compileAgentDeleteAction: EntityActionCompileHook = (input): AgentActionDraft => ({
+  kind: "entity-delete",
+  entityKind: "agent",
+  entityId: requiredPreparedText(input.action.entityId, "entityId"),
+  baseBlobSha256: requiredPreparedText(input.action.baseBlobSha256, "baseBlobSha256"),
+  reason: requiredPreparedText(input.action.reason, "reason"),
+});
+
+function requiredPreparedText(value: unknown, field: string): string {
+  if (typeof value !== "string" || !value.trim()) throw new Error(`Prepared Agent ${field} is required.`);
+  return value;
+}
 
 function agentCriterionError(error: unknown, criterionRef: string, fallbackCode: string): Error {
   const attributed = error instanceof Error ? error : Object.assign(new Error(String(error)), { code: fallbackCode });

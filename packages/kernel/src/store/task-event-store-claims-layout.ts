@@ -1,5 +1,6 @@
 import { isAgentRuntimeEvent, runtimeEventContentClaims } from "../domain/agent-runtime.ts";
-import { isEntityDeclarationEvent, isEntityEvent } from "../domain/entity-event.ts";
+import { isEntityDeclarationEvent, isEntityEvent, ownedContentForDeclarationEvent } from "../domain/entity-event.ts";
+import { entityOwnedContentClaims, entityOwnedDocumentClaims } from "../domain/entity-owned-content.ts";
 import { isScheduleEvent } from "../domain/schedule-event.ts";
 import { isSettingsEvent } from "../domain/settings-event.ts";
 import { isVerticalDeclarationEvent } from "../domain/vertical-declaration.ts";
@@ -27,7 +28,8 @@ export function canonicalDocumentClaims(event: PersistedCanonicalEventV1): reado
   readonly size: number;
   readonly mediaType: string;
 }[] {
-  if (isEntityEvent(event)) return isEntityDeclarationEvent(event) ? [event.payload.declarationDocumentClaim] : [];
+  if (isEntityEvent(event))
+    return isEntityDeclarationEvent(event) ? entityOwnedDocumentClaims(ownedContentForDeclarationEvent(event)) : [];
   if (isScheduleEvent(event))
     return "declarationDocumentClaim" in event.payload ? [event.payload.declarationDocumentClaim] : [];
   if (isSettingsEvent(event)) return [event.payload.harnessDocumentClaim];
@@ -68,7 +70,7 @@ export function canonicalDocumentClaims(event: PersistedCanonicalEventV1): reado
 export function canonicalDocumentRetirements(
   event: PersistedCanonicalEventV1,
 ): readonly { readonly path: string; readonly baseBlobSha256: string }[] {
-  if (isEntityEvent(event)) return [];
+  if (isEntityEvent(event)) return event.type === "entity_deleted" ? event.payload.ownedContent.retirements : [];
   if (isScheduleEvent(event) && "declarationDocumentRetirement" in event.payload)
     return [event.payload.declarationDocumentRetirement];
   return isDocEvent(event)
@@ -99,7 +101,7 @@ export function contentClaims(event: CanonicalEventV1): readonly {
     ? event.payload.changes.flatMap((change) => (change.candidate === null ? [] : [change.candidate]))
     : isEntityEvent(event)
       ? isEntityDeclarationEvent(event)
-        ? [event.payload.declarationDocumentClaim]
+        ? entityOwnedContentClaims(ownedContentForDeclarationEvent(event))
         : []
       : isTaskEvent(event)
         ? [
