@@ -69,6 +69,7 @@ test("canonical adapter accepts in SQLite before independently verifying the Git
     assert.deepEqual(store.readCommandOutcome(event.opId)?.memberOpIds, [event.opId]);
     assert.equal(store.followerStatus().git.status, "verified");
     assert.equal(store.followerStatus().worktree.status, "verified");
+    assert.equal(git(rootDir, "status", "--short", "--untracked-files=all", "--", "harness"), "");
   } finally {
     await store.drain();
   }
@@ -112,6 +113,10 @@ test("Git can verify an accepted document while a concurrently edited worktree r
     assert.equal(store.followerStatus().git.status, "verified");
     assert.equal(store.followerStatus().worktree.status, "pending");
     assert.equal(readFileSync(path.join(rootDir, "harness/context/published.md"), "utf8"), "local edit\n");
+    assert.equal(
+      git(rootDir, "status", "--short", "--", "harness/context/published.md"),
+      "M harness/context/published.md",
+    );
     unlinkSync(path.join(rootDir, "harness/context/published.md"));
     await store.settlePendingMaterialization?.("test recovery");
     assert.equal(store.followerStatus().worktree.status, "verified");
@@ -345,6 +350,7 @@ test("SQLite retirement keeps a concurrent local edit while Git verifies the can
     assert.equal(store.followerStatus().worktree.status, "pending");
     assert.equal(readFileSync(target, "utf8"), edited);
     assert.equal(git(rootDir, "ls-tree", "--name-only", "HEAD", `harness/${logical}`), "");
+    assert.equal(git(rootDir, "status", "--short", "--", `harness/${logical}`), `?? harness/${logical}`);
   } finally {
     await store.drain();
   }
@@ -591,6 +597,10 @@ test("generation paths coexist beneath the local store root", () => {
 test("reconciliation uses immutable source, import evidence, row digests, outcomes and real Git read-back", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-sqlite-reconcile-"));
   initRepo(rootDir);
+  mkdirSync(path.join(rootDir, "harness/events"), { recursive: true });
+  writeFileSync(path.join(rootDir, "harness/events/legacy.json"), "legacy event\n");
+  git(rootDir, "add", "harness/events/legacy.json");
+  git(rootDir, "commit", "-qm", "legacy generation");
   const databasePath = sqliteLedgerPath(rootDir, 1),
     snapshotPath = path.join(rootDir, ".harness/source.json"),
     events = [eventAt(1), eventAt(2), eventAt(3)];
@@ -600,6 +610,7 @@ test("reconciliation uses immutable source, import evidence, row digests, outcom
     source: { read: () => ({ events }), readContentBlob: () => null } as never,
   });
   convertLegacyGeneration({ rootDir, snapshotPath, databasePath });
+  assert.equal(git(rootDir, "status", "--short", "--untracked-files=all", "--", "harness"), "");
   preflightConvertedGenerationActivation({ repoId, rootDir, snapshotPath, databasePath });
   const publisher = makeTaskEventStore({ repoId, rootDir });
   await publisher.settlePendingMaterialization!("independent reconcile fixture");
