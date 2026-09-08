@@ -115,7 +115,7 @@ export function scanDocCandidates(input: {
       )
       .sort(),
     baseLedgerSha = input.inventory?.baseLedgerSha ?? input.store.currentCut(),
-    execution = executionBinding(
+    execution = resolveDocExecutionBinding(
       paths,
       input.executionId,
       input.projection,
@@ -457,7 +457,7 @@ export function publicScan(scan: DocCandidateScan): {
   };
 }
 
-function executionBinding(
+export function resolveDocExecutionBinding(
   paths: readonly string[],
   explicit: string | undefined,
   projection: TaskProjection,
