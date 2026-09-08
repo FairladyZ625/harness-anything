@@ -1,5 +1,10 @@
+import type { SquadDispatchSelection } from "./agent-entities.ts";
+import type { DaemonLifecycleRecorder } from "./lifecycle-log.ts";
 import type { FleetAssignmentScope } from "./fleet/contract.ts";
 import type {
+  CanonicalEventStore,
+  SettingsV1,
+  TaskProjection,
   ActorIdentity,
   AgentRuntimeEventV1,
   AuthorizationDecision,
@@ -9,8 +14,8 @@ import type {
   WriteSource,
 } from "../../kernel/src/index.ts";
 import type { AgentFallbackDeclarationV1, AgentRole, AgentSkillDeclarationV1 } from "../../kernel/src/index.ts";
-import type { PreparedRuntimeLaunch, RuntimeInstanceKind } from "./agent-runtime-instances.ts";
-import type { AgentRuntimeNativeSignal } from "./agent-runtime-stream.ts";
+import type { PreparedRuntimeLaunch, RuntimeInstanceKind, RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
+import type { AgentRuntimeStreamHub, AgentRuntimeNativeSignal } from "./agent-runtime-stream.ts";
 import { type DispatchStreamWriter } from "./dispatch-stream.ts";
 import { type RuntimeDispatchArchive } from "./doc-sync-actions.ts";
 import { type JsonObject } from "./protocol/json-rpc-types.ts";
@@ -233,4 +238,77 @@ export interface RemoteRuntimePersistence {
     readonly receipt: JsonObject;
   }>;
   readonly archive: (archive: RuntimeDispatchArchive) => Promise<{ readonly outcome: string }>;
+}
+
+export interface RuntimeSpawnerInput {
+  readonly repoId: string;
+  readonly rootDir: string;
+  readonly daemonGeneration: number;
+  readonly runtimeNodeId?: string;
+  readonly runtimeDaemonRoute?: RuntimeDaemonRoute;
+  readonly store?: () => CanonicalEventStore;
+  readonly projection?: () => TaskProjection;
+  readonly readSettings?: () => SettingsV1;
+  readonly remote?: RemoteRuntimePersistence;
+  /** Local runtime event commit; the caller already owns the RepoCell writer queue. */
+  readonly commitRuntimeEvent?: (
+    draft: {
+      readonly type: AgentRuntimeEventV1["type"];
+      readonly payload: Readonly<Record<string, unknown>>;
+      readonly opId: string;
+      readonly resultBody?: string;
+    },
+    binding: RuntimeBinding,
+  ) => Promise<{ readonly event?: AgentRuntimeEventV1; readonly receipt: JsonObject }>;
+  readonly stream: Pick<AgentRuntimeStreamHub, "publish">;
+  readonly now: () => string;
+  readonly runtimeInstances?: () => readonly RuntimeInstanceSummary[];
+  readonly prepareLaunch: (
+    instanceId: string,
+    request: {
+      readonly cwd: string;
+      readonly prompt: string;
+      readonly model?: string;
+      readonly effort?: string;
+      readonly fast?: boolean;
+      readonly providerSessionId?: string;
+      readonly permissionMode?: string;
+    },
+  ) => Promise<PreparedRuntimeLaunch>;
+  readonly prepareWorkerGitEnvironment?: (instanceId: string) => Promise<NodeJS.ProcessEnv | null>;
+  readonly resolveAgent?: (agentId: string) => RuntimeAgent;
+  readonly resolveSquadDispatch?: (
+    squadId: string | undefined,
+    leaderId: string,
+    workerId?: string,
+  ) => SquadDispatchSelection;
+  readonly launch?: RuntimeLauncher;
+  readonly schedule: (work: () => void | Promise<void>, binding?: RuntimeBinding) => void;
+  readonly onRuntimeOutcome?: (
+    event: Extract<AgentRuntimeEventV1, { readonly type: "runtime_session_outcome_observed" }>,
+    schedule: TrustedScheduleRuntime | null,
+  ) => void;
+  readonly onAttemptTerminal?: (terminal: RuntimeAttemptTerminal) => void | Promise<void>;
+  readonly handoffTaskLease?: (input: {
+    readonly taskId: string;
+    readonly runtimeSessionId: string;
+    readonly fromRuntimeSessionId: string | null;
+    readonly binding: RuntimeBinding;
+  }) => Promise<RuntimeBinding>;
+  /** Re-authorizes a persisted provider continuation before admitting its next attempt. */
+  readonly authorizeRuntimeContinuation?: (
+    payload: JsonObject,
+    binding: RuntimeBinding,
+    actionId: string,
+  ) => RuntimeBinding;
+  /** Re-authorizes each local RuntimeSession catalog Action at its commit cut. */
+  readonly authorizeRuntimeEvent?: (input: {
+    readonly type: AgentRuntimeEventV1["type"];
+    readonly payload: AgentRuntimeEventV1["payload"];
+    readonly opId: string;
+    readonly binding: RuntimeBinding;
+  }) => RuntimeBinding;
+  /** Re-authorizes a local terminal archive at the settlement cut. */
+  readonly authorizeRuntimeArchive?: (archive: RuntimeDispatchArchive, binding: RuntimeBinding) => RuntimeBinding;
+  readonly recordLifecycle?: DaemonLifecycleRecorder;
 }
