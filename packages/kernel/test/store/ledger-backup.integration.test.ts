@@ -67,9 +67,10 @@ test("backup includes tracked scope and Git metadata on every platform", () => {
     writeFileSync(ignored, "ignored tool state\n");
     mkdirSync(path.dirname(wal), { recursive: true });
     writeFileSync(wal, "explicit source\n");
-    const worktreeMetadata = path.join(authoredRoot, ".git", "worktrees", "retained");
-    mkdirSync(worktreeMetadata, { recursive: true });
-    writeFileSync(path.join(worktreeMetadata, "HEAD"), "ref: refs/heads/main\n");
+    execFileSync("git", ["worktree", "add", "--quiet", "--detach", path.join(root, "retained"), "HEAD"], {
+      cwd: authoredRoot,
+    });
+    execFileSync("git", ["worktree", "prune", "--expire", "now"], { cwd: authoredRoot });
     const manifest = createLedgerBackup({ rootInput: root, backupDir }),
       entries = new Set(manifest.files.map((file) => file.path));
     assert.equal(entries.has("harness/context/tracked.md"), true);

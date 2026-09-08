@@ -12,6 +12,7 @@ import { oracleO6 } from "./core/oracles.mjs";
 import { buildStressReport, emitStressReport } from "./core/report.mjs";
 import { inspectFleetCampaignEnvironment } from "./fleet/environment-preflight.mjs";
 import { openFleetCampaignFixture } from "./fleet/fleet-fixture.mjs";
+import { runRealVolumeEnospcArm } from "./fleet/volume-arm.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "../..");
 
@@ -59,6 +60,7 @@ test(
           takeover.case.writerEpochs,
         ),
         environment = inspectFleetCampaignEnvironment(),
+        enospc = runRealVolumeEnospcArm(environment.volume),
         scaleEvidence = loadScaleEvidence(process.env.HARNESS_STRESS_SCALE_REPORTS),
         denominators = await generateCoverageDenominators({ repoRoot }),
         coverageHit = mappedCoverage(denominators.required),
@@ -98,13 +100,7 @@ test(
             f13.case,
             takeover.case,
             f14.case,
-            {
-              id: "S4/real-volume-enospc",
-              boundaryHits: [],
-              preflight: environment.volume,
-              oracles: {},
-              verdict: deviceVerdict,
-            },
+            enospc,
             {
               id: "S4/power-loss-write-reordering",
               boundaryHits: [],
@@ -132,7 +128,12 @@ test(
             "--file tools/stress/fleet-campaign.integration.test.mjs",
           residualRisks: [
             "FleetCut generation and all generation-2 shapes are excluded by CEO ruling 2.",
-            "Real-volume ENOSPC and power-loss ordering require the operator-provisioned VM devices.",
+            ...(environment.volume.ready
+              ? [
+                  "The real-volume fault occurred during content preparation; SQLite-internal transaction ENOSPC is outside this arm.",
+                ]
+              : ["Real-volume ENOSPC requires an operator-provisioned dedicated volume."]),
+            "Power-loss ordering requires separate device-log replay evidence; device preflight alone is insufficient.",
             "The operator Electron screenshot and live remote-edge observation remain CEO-owned evidence.",
           ],
         });
@@ -140,6 +141,7 @@ test(
       assert.equal(f13.case.verdict, "PASS");
       assert.equal(takeover.case.verdict, "PASS");
       assert.equal(f14.case.verdict, "PASS");
+      assert.equal(enospc.verdict, environment.volume.ready ? "PASS" : "BLOCKED");
       assert.equal(report.verdict, environment.verdict === "BLOCKED" ? "BLOCKED" : "INCOMPLETE");
       emitStressReport(report);
     } finally {

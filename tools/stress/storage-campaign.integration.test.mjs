@@ -20,6 +20,12 @@ const repoRoot = path.resolve(import.meta.dirname, "../.."),
   opId = "stress-s2-accept-command",
   seed = "stress-s2-seed-20260906";
 
+test("S2 denominator retains the accepting SQLite COMMIT boundary", async () => {
+  const coverage = await storageDenominators();
+  assert.ok(coverage.required.length > 0, "source-derived storage denominator must not be empty");
+  assert.ok(coverage.hit.length > 0, "the observed accepting COMMIT must map to a source boundary");
+});
+
 test("S2 injects the accepting SQLite boundary and keeps Git failure post-accept", { timeout: 300_000 }, async () => {
   assert.equal(process.platform, "linux", "requires Linux strace fault injection");
   const scratch = mkdtempSync(path.join(tmpdir(), "ha-stress-s2-"));
@@ -176,11 +182,11 @@ async function storageDenominators() {
       ({ source, kind }) =>
         kind === "durable-boundary" &&
         ["sqlite-event-store.ts", "sqlite-task-event-store.ts", "local-layout-file-system.ts"].some((name) =>
-          source.endsWith(name),
+          source.slice(0, source.lastIndexOf(":")).endsWith(`/${name}`),
         ),
     ),
     hit = required
-      .filter(({ source, boundary }) => source.endsWith("sqlite-event-store.ts") && boundary === "commit")
+      .filter(({ source, boundary }) => source.includes("/sqlite-event-store.ts:") && boundary === "commit")
       .map(({ id }) => id);
   return {
     schema: all.schema,
