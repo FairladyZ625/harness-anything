@@ -507,6 +507,9 @@ function followerFiles(
     )
       retired.add(entry.target);
   }
+  for (const target of localGitWorktreeSettlement.indexedPaths(ledger.rootDir, [eventsPrefix, objectsPrefix])) {
+    if (target !== `${eventsPrefix}segments/manifest.json`) retired.add(target);
+  }
   return [
     ...[...latest].map(([target, value]) => ({ target: ledgerGitPath(ledger, target), ...value })),
     ...[...retired].map((target) => ({

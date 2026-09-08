@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { spawn, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { mkdirSync, mkdtempSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -640,6 +640,58 @@ test("reconciliation uses immutable source, import evidence, row digests, outcom
   assert.equal(reconcile().metadataMatches, false);
   writeFileSync(markerPath, markerBytes);
   assert.equal(reconcile().matches, true);
+});
+
+test("certified reopen retires stale legacy index entries without changing unrelated staged or worktree bytes", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-sqlite-stale-index-"));
+  initRepo(rootDir);
+  mkdirSync(path.join(rootDir, "harness/events"), { recursive: true });
+  writeFileSync(path.join(rootDir, "harness/events/legacy.json"), "legacy event\n");
+  git(rootDir, "add", "harness/events/legacy.json");
+  git(rootDir, "commit", "-qm", "legacy generation");
+  const legacyOid = git(rootDir, "rev-parse", "HEAD:harness/events/legacy.json"),
+    databasePath = sqliteLedgerPath(rootDir, 1),
+    snapshotPath = path.join(rootDir, ".harness/source.json"),
+    events = [eventAt(1)];
+  createImmutableLegacyGenerationSnapshot({
+    repoId,
+    snapshotPath,
+    source: { read: () => ({ events }), readContentBlob: () => null } as never,
+  });
+  convertLegacyGeneration({ rootDir, snapshotPath, databasePath });
+
+  git(rootDir, "update-index", "--add", "--cacheinfo", `100644,${legacyOid},harness/events/legacy.json`);
+  mkdirSync(path.join(rootDir, "harness/context"), { recursive: true });
+  writeFileSync(path.join(rootDir, "harness/context/draft.md"), "staged draft\n");
+  git(rootDir, "add", "harness/context/draft.md");
+  const draftIndexBefore = git(rootDir, "ls-files", "--stage", "harness/context/draft.md");
+  writeFileSync(path.join(rootDir, "harness/context/draft.md"), "worktree draft\n");
+  writeFileSync(path.join(rootDir, "harness/.gitattributes"), "* -text\n# worktree edit\n");
+  const statusBefore = execFileSync(
+    "git",
+    ["-C", rootDir, "status", "--porcelain=v1", "-z", "--untracked-files=all", "--", "harness"],
+    { encoding: "utf8" },
+  );
+  assert.ok(statusBefore.split("\0").includes("AD harness/events/legacy.json"), JSON.stringify(statusBefore));
+  assert.ok(statusBefore.split("\0").includes("AM harness/context/draft.md"), JSON.stringify(statusBefore));
+  assert.ok(statusBefore.split("\0").includes(" M harness/.gitattributes"), JSON.stringify(statusBefore));
+
+  const reopened = makeTaskEventStore({ repoId, rootDir });
+  try {
+    await reopened.settlePendingMaterialization?.("repair stale legacy index");
+    assert.equal(git(rootDir, "ls-files", "--stage", "harness/events/legacy.json"), "");
+    assert.equal(git(rootDir, "ls-files", "--stage", "harness/context/draft.md"), draftIndexBefore);
+    assert.equal(readFileSync(path.join(rootDir, "harness/context/draft.md"), "utf8"), "worktree draft\n");
+    const statusAfter = execFileSync(
+      "git",
+      ["-C", rootDir, "status", "--porcelain=v1", "-z", "--untracked-files=all", "--", "harness"],
+      { encoding: "utf8" },
+    );
+    assert.ok(statusAfter.split("\0").includes("AM harness/context/draft.md"), JSON.stringify(statusAfter));
+    assert.ok(statusAfter.split("\0").includes(" M harness/.gitattributes"), JSON.stringify(statusAfter));
+  } finally {
+    await reopened.drain();
+  }
 });
 
 test("50k bootstrap is incremental and subsequent canonical bundles append one command each", (context) => {
