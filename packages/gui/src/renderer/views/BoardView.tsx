@@ -341,7 +341,7 @@ export function BoardView({
       <header className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-2.5">
         <h1 className="ui-title font-semibold">看板</h1>
         <span className="font-mono ui-body text-text-faint">
-          {tasks.length}/{allTasks.length}
+          {boardTasks.length}/{allTasks.length}
         </span>
         <div className="flex items-center gap-0.5 rounded-md border border-border p-0.5">
           <button
@@ -412,7 +412,7 @@ export function BoardView({
       )}
       <TaskFilterBar
         tasks={allTasks}
-        filteredCount={tasks.length}
+        filteredCount={boardTasks.length}
         filters={filters}
         onChange={onFiltersChange}
         contextLabel="看板"

@@ -11,6 +11,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { App } from "../src/renderer/App.tsx";
 import { adaptRuntimeRelationRows, buildTriadicRendererData } from "../src/renderer/triadic-data.ts";
+import { DEFAULT_TASK_FILTERS } from "../src/renderer/model/taskFilters.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 
 const REPO_ID = "canonical";
@@ -115,16 +116,7 @@ function startOnView(view: string) {
             selectedId: null,
             previewId: null,
             focusedEntityRef: null,
-            taskFilters: {
-              query: "",
-              module: "all",
-              engine: "all",
-              status: [],
-              closeout: "all",
-              freshness: "all",
-              includeArchived: false,
-              favoritesOnly: false,
-            },
+            taskFilters: { ...DEFAULT_TASK_FILTERS },
             drill: null,
           },
         ],

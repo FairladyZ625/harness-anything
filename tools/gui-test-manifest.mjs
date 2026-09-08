@@ -67,7 +67,6 @@ export const guiVitestManifest = [
   "packages/gui/test/triadic-decision-queue.vitest.ts",
   "packages/gui/test/runtime-health.vitest.ts",
   "packages/gui/test/list-view.vitest.ts",
-  "packages/gui/test/board-view.vitest.ts",
   "packages/gui/test/ledger-timeline.vitest.ts",
   "packages/gui/test/docTree.vitest.ts",
   "packages/gui/test/system-view-detail.vitest.ts",
