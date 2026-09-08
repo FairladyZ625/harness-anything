@@ -164,6 +164,9 @@ const Card = memo(function Card({
  * Enter/Space 键盘激活(baseline 本就没有键盘激活,属存量弱点,此处一并补齐);
  * 唯一省掉的是 dnd 注册本身。不再挂 aria-disabled:卡片选择始终可用,报
  * disabled 反而误导(非拖拽语义由悬停提示承担)。
+ *
+ * 键事件只认包装层自身发起的(target===currentTarget):卡内 pin/收藏是原生
+ * button,自带 Enter/Space 激活,包装层不得替它们 preventDefault 或触发选卡。
  */
 const DraggableCard = memo(function DraggableCard({
   task,
@@ -186,6 +189,7 @@ const DraggableCard = memo(function DraggableCard({
         role="button"
         tabIndex={0}
         onKeyDown={(event) => {
+          if (event.target !== event.currentTarget) return;
           if (event.key === "Enter" || event.key === " ") {
             event.preventDefault();
             onSelect(task.taskId);

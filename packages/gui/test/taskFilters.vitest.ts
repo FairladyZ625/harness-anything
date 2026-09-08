@@ -849,6 +849,67 @@ describe("draggable narrowing (W9)", () => {
     });
     container.remove();
   });
+
+  it("keeps native Enter/Space activation on nested buttons of non-draggable cards", async () => {
+    // 卡内 pin/收藏是原生 button(自带 Enter/Space 激活):包装层只处理自身发起的
+    // 键事件,不吞子按钮的默认动作、不替子按钮选中任务。
+    const selected: string[] = [];
+    const favorites: string[] = [];
+    const pins: Array<[string, boolean]> = [];
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const frozen = frozenTask();
+    await act(async () => {
+      root.render(
+        createElement(BoardView, {
+          tasks: [frozen],
+          allTasks: [frozen],
+          filters: { ...DEFAULT_TASK_FILTERS },
+          onFiltersChange: noop,
+          onSelect: (id) => selected.push(id),
+          relations: [],
+          favorites: new Set<string>(),
+          onToggleFavorite: (id) => favorites.push(id),
+          onSetPin: (task, pinned) => pins.push([task.taskId, pinned]),
+        }),
+      );
+    });
+
+    const card = container.querySelector('[data-testid="board-task-card"]')!;
+    const wrapper = card.closest('[role="button"]')!;
+    const pinButton = container.querySelector('[data-testid="board-pin-toggle-t_done"]') as HTMLButtonElement;
+    const favoriteButton = [...card.querySelectorAll("button")].find(
+      (button) => button.getAttribute("title") === "收藏(置顶)",
+    ) as HTMLButtonElement;
+    expect(pinButton).not.toBeNull();
+    expect(favoriteButton).not.toBeNull();
+
+    pinButton.focus();
+    expect(document.activeElement).toBe(pinButton); // 原生子按钮真实持有焦点。
+    const enterOnPin = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
+    pinButton.dispatchEvent(enterOnPin);
+    const spaceOnFavorite = new KeyboardEvent("keydown", { key: " ", bubbles: true, cancelable: true });
+    favoriteButton.dispatchEvent(spaceOnFavorite);
+    expect(enterOnPin.defaultPrevented).toBe(false); // 默认动作未被吞:真实浏览器里原生激活照常发生。
+    expect(spaceOnFavorite.defaultPrevented).toBe(false);
+    expect(selected).toEqual([]); // 冒泡到包装层也不选卡。
+
+    favoriteButton.click(); // 原生激活的产物是 click:按钮自己的动作保持。
+    pinButton.click();
+    expect(favorites).toEqual(["t_done"]);
+    expect(pins).toEqual([["t_done", true]]);
+    expect(selected).toEqual([]); // 按钮动作不连带选卡(stopPropagation 生效)。
+
+    wrapper.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    wrapper.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true }));
+    expect(selected).toEqual(["t_done", "t_done"]); // 包装层自身的 Enter/Space 仍选卡。
+
+    act(() => {
+      root.unmount();
+    });
+    container.remove();
+  });
 });
 
 /**
