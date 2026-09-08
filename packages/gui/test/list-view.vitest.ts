@@ -1,6 +1,8 @@
 // harness-test-tier: contract
-import { beforeAll, describe, expect, it } from "vitest";
-import { createElement } from "react";
+// @vitest-environment happy-dom
+import { beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { act, createElement } from "react";
+import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { TaskRow } from "../src/renderer/model/types.ts";
 import { ListView } from "../src/renderer/views/ListView.tsx";
@@ -148,5 +150,125 @@ describe("list view", () => {
     expect(markup).not.toContain('type="checkbox"');
     for (const gone of ["Batch operations", "Batch run Check", "Batch mark Ready", "Batch archiving", "Deselect"])
       expect(markup).not.toContain(gone);
+  });
+});
+
+/**
+ * 列表列宽 resize(W11):table-fixed 下 th 的显式宽度即列宽,未设置的列自动分配
+ * 剩余宽度;手柄键盘可达,双击恢复默认,与看板另两布局共用同一 localStorage 键。
+ */
+const WIDTH_KEY = "harness:gui:board-column-widths";
+
+const listMarkup = (widthsJson?: string): string => {
+  if (widthsJson === undefined) localStorage.removeItem(WIDTH_KEY);
+  else localStorage.setItem(WIDTH_KEY, widthsJson);
+  const tasks = [makeTask()];
+  return renderToStaticMarkup(
+    createElement(ListView, {
+      tasks,
+      allTasks: tasks,
+      filters: DEFAULT_TASK_FILTERS,
+      onFiltersChange: () => undefined,
+      onSelect: () => undefined,
+      spawningDecisions: new Map(),
+      favorites: new Set(),
+      onToggleFavorite: () => undefined,
+      embedded: true,
+    }),
+  );
+};
+
+async function mountList() {
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  const tasks = [makeTask()];
+  await act(async () => {
+    root.render(
+      createElement(ListView, {
+        tasks,
+        allTasks: tasks,
+        filters: DEFAULT_TASK_FILTERS,
+        onFiltersChange: () => undefined,
+        onSelect: () => undefined,
+        spawningDecisions: new Map(),
+        favorites: new Set(),
+        onToggleFavorite: () => undefined,
+        embedded: true,
+      }),
+    );
+  });
+  return { container, root };
+}
+
+const storedListWidths = (): Record<string, number> => JSON.parse(localStorage.getItem(WIDTH_KEY) ?? "{}").list ?? {};
+
+describe("list view column resize (W11)", () => {
+  beforeEach(() => {
+    localStorage.removeItem(WIDTH_KEY);
+  });
+
+  it("renders one keyboard-reachable handle per header column with no explicit widths by default", () => {
+    const markup = listMarkup();
+    expect(markup.split('data-testid="list-column-resize-').length - 1).toBe(8);
+    const handle = markup.match(/<div[^>]*data-testid="list-column-resize-title"[^>]*>/u)![0];
+    expect(handle).toContain('role="separator"');
+    expect(handle).toContain('tabindex="0"');
+    expect(handle).toContain("Resize the &quot;title / module&quot; column");
+    // 未定宽列走 table-fixed 自动分配:th 不输出显式宽度。
+    expect(markup).not.toContain('style="width');
+  });
+
+  it("applies a persisted width to its header cell", () => {
+    const markup = listMarkup(JSON.stringify({ list: { title: 420, pins: 64 } }));
+    const title = markup.match(/<th[^>]*data-testid="list-column-title"[^>]*>/u)![0];
+    expect(title).toContain('style="width:420px"');
+    const pins = markup.match(/<th[^>]*data-testid="list-column-pins"[^>]*>/u)![0];
+    expect(pins).toContain('style="width:64px"');
+    const handle = markup.match(/<div[^>]*data-testid="list-column-resize-title"[^>]*>/u)![0];
+    expect(handle).toContain('aria-valuenow="420"');
+  });
+
+  it("drags, fine-tunes with arrow keys, resets by double-click, and persists across remount", async () => {
+    localStorage.setItem(WIDTH_KEY, JSON.stringify({ list: { title: 420 } }));
+    const view = await mountList();
+    const handle = view.container.querySelector<HTMLElement>('[data-testid="list-column-resize-title"]')!;
+    const cell = view.container.querySelector<HTMLElement>('[data-testid="list-column-title"]')!;
+
+    act(() => {
+      handle.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: 100, pointerId: 1 }));
+      window.dispatchEvent(new PointerEvent("pointermove", { clientX: 40, pointerId: 1 }));
+      window.dispatchEvent(new PointerEvent("pointerup", { clientX: 40, pointerId: 1 }));
+    });
+    expect(cell.style.width).toBe("360px"); // 420 - 60。
+    expect(storedListWidths().title).toBe(360);
+
+    act(() => {
+      handle.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+    });
+    expect(cell.style.width).toBe("376px"); // +16 微调。
+    expect(storedListWidths().title).toBe(376);
+
+    act(() => {
+      view.root.unmount();
+    });
+    view.container.remove();
+
+    // 重挂载(窗口重载等价):宽度从 localStorage 恢复。
+    const reloaded = await mountList();
+    const reloadedCell = reloaded.container.querySelector<HTMLElement>('[data-testid="list-column-title"]')!;
+    expect(reloadedCell.style.width).toBe("376px");
+
+    const reloadedHandle = reloaded.container.querySelector<HTMLElement>('[data-testid="list-column-resize-title"]')!;
+    act(() => {
+      reloadedHandle.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    });
+    expect(reloadedCell.style.width).toBe("");
+    expect(storedListWidths().title).toBeUndefined();
+
+    act(() => {
+      reloaded.root.unmount();
+    });
+    reloaded.container.remove();
   });
 });

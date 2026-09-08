@@ -1,9 +1,18 @@
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { CaretLeft, CaretRight, Lock, PushPin, Star } from "@phosphor-icons/react";
 import type { TaskRow } from "../model/types";
 import { isExternal } from "../model/types";
 import { CloseoutBadge, DecisionSourceBadge, EngineBadge, FreshnessTag, StatusBadge } from "../components/badges";
 import { TaskFilterBar } from "../components/TaskFilterBar";
+import { ColumnResizeHandle } from "../components/ColumnResizeHandle.tsx";
+import {
+  boardColumnPreferenceStorage,
+  clearBoardColumnWidth,
+  readBoardColumnWidths,
+  setBoardColumnWidth,
+  writeBoardColumnWidths,
+  type BoardColumnWidths,
+} from "../board-column-preferences.ts";
 import type { TaskFilters } from "../model/taskFilters";
 import { sortByRecentThenPinAndFavoritesFirst } from "../model/taskFilters";
 import type { SpawningDecisionIndex } from "../model/triadic";
@@ -13,6 +22,51 @@ import { formatTime } from "../model/time.ts";
 const PAGE_SIZE_OPTIONS = [8, 15, 30, 60] as const;
 type PageSize = (typeof PAGE_SIZE_OPTIONS)[number];
 const DEFAULT_PAGE_SIZE: PageSize = 15;
+
+/** 列宽交互区间(W11):table-fixed 下 th 的显式宽度即列宽,未设置的列自动分配剩余。 */
+const LIST_WIDTH_RANGE = { min: 56, max: 720 } as const;
+
+function ListHeaderCell({
+  columnKey,
+  label,
+  children,
+  width,
+  onResize,
+  onReset,
+  title,
+  className = "px-3 py-2",
+}: {
+  columnKey: string;
+  /** 列的口语名(供 resize 手柄的无障碍标签),如「标题 / 模块」。 */
+  label: string;
+  children: ReactNode;
+  width: number | undefined;
+  onResize: (key: string, px: number) => void;
+  onReset: (key: string) => void;
+  title?: string;
+  className?: string;
+}) {
+  return (
+    <th
+      className={`relative font-medium ${className}`}
+      style={width === undefined ? undefined : { width }}
+      data-testid={`list-column-${columnKey}`}
+      title={title}
+    >
+      {children}
+      <ColumnResizeHandle
+        label={t("views.listView.columnResize", { column: label })}
+        width={width}
+        min={LIST_WIDTH_RANGE.min}
+        max={LIST_WIDTH_RANGE.max}
+        onChange={(px) => onResize(columnKey, px)}
+        onReset={() => onReset(columnKey)}
+        testId={`list-column-resize-${columnKey}`}
+        className="inset-y-0 -right-1"
+      />
+    </th>
+  );
+}
 
 const dateLabel = (iso: string) => formatTime(iso, { style: "month-day-time" }) ?? "—";
 
@@ -177,6 +231,25 @@ export function ListView({
 }) {
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState<PageSize>(DEFAULT_PAGE_SIZE);
+  // 列宽偏好(W11):GUI 本地态,与看板另两布局共用一个存储键;未设置的列保持
+  // table-fixed 自动分配,设置后 th 的显式宽度即列宽(总宽超出容器走横向滚动)。
+  const [widths, setWidths] = useState<BoardColumnWidths>(() => readBoardColumnWidths(boardColumnPreferenceStorage()));
+  const resizeColumn = useCallback(
+    (key: string, px: number) => {
+      const next = setBoardColumnWidth(widths, "list", key, px);
+      setWidths(next);
+      writeBoardColumnWidths(boardColumnPreferenceStorage(), next);
+    },
+    [widths],
+  );
+  const resetColumn = useCallback(
+    (key: string) => {
+      const next = clearBoardColumnWidth(widths, "list", key);
+      setWidths(next);
+      writeBoardColumnWidths(boardColumnPreferenceStorage(), next);
+    },
+    [widths],
+  );
 
   useEffect(() => {
     setPage(0);
@@ -253,16 +326,80 @@ export function ListView({
           <table className="w-full table-fixed border-collapse text-left">
             <thead className="sticky top-0 z-10 bg-surface">
               <tr className="border-b border-border font-mono ui-meta uppercase tracking-wide text-text-faint">
-                <th className="w-14 px-2 py-2 font-medium" title={t("views.listView.collection")}>
+                <ListHeaderCell
+                  columnKey="pins"
+                  label={t("views.listView.collection")}
+                  width={widths.list.pins}
+                  onResize={resizeColumn}
+                  onReset={resetColumn}
+                  title={t("views.listView.collection")}
+                  className="w-14 px-2 py-2"
+                >
                   📌 ★
-                </th>
-                <th className="px-3 py-2 font-medium">{t("views.listView.task")}</th>
-                <th className="px-3 py-2 font-medium">{t("views.listView.titleModule")}</th>
-                <th className="px-3 py-2 font-medium">{t("views.listView.statusNodeHolder")}</th>
-                <th className="px-3 py-2 font-medium">{t("views.listView.closeout")}</th>
-                <th className="px-3 py-2 font-medium">{t("views.listView.engine")}</th>
-                <th className="px-3 py-2 font-medium">{t("views.listView.freshness")}</th>
-                <th className="px-3 py-2 font-medium">{t("views.listView.package")}</th>
+                </ListHeaderCell>
+                <ListHeaderCell
+                  columnKey="task"
+                  label={t("views.listView.task")}
+                  width={widths.list.task}
+                  onResize={resizeColumn}
+                  onReset={resetColumn}
+                >
+                  {t("views.listView.task")}
+                </ListHeaderCell>
+                <ListHeaderCell
+                  columnKey="title"
+                  label={t("views.listView.titleModule")}
+                  width={widths.list.title}
+                  onResize={resizeColumn}
+                  onReset={resetColumn}
+                >
+                  {t("views.listView.titleModule")}
+                </ListHeaderCell>
+                <ListHeaderCell
+                  columnKey="status"
+                  label={t("views.listView.statusNodeHolder")}
+                  width={widths.list.status}
+                  onResize={resizeColumn}
+                  onReset={resetColumn}
+                >
+                  {t("views.listView.statusNodeHolder")}
+                </ListHeaderCell>
+                <ListHeaderCell
+                  columnKey="closeout"
+                  label={t("views.listView.closeout")}
+                  width={widths.list.closeout}
+                  onResize={resizeColumn}
+                  onReset={resetColumn}
+                >
+                  {t("views.listView.closeout")}
+                </ListHeaderCell>
+                <ListHeaderCell
+                  columnKey="engine"
+                  label={t("views.listView.engine")}
+                  width={widths.list.engine}
+                  onResize={resizeColumn}
+                  onReset={resetColumn}
+                >
+                  {t("views.listView.engine")}
+                </ListHeaderCell>
+                <ListHeaderCell
+                  columnKey="freshness"
+                  label={t("views.listView.freshness")}
+                  width={widths.list.freshness}
+                  onResize={resizeColumn}
+                  onReset={resetColumn}
+                >
+                  {t("views.listView.freshness")}
+                </ListHeaderCell>
+                <ListHeaderCell
+                  columnKey="package"
+                  label={t("views.listView.package")}
+                  width={widths.list.package}
+                  onResize={resizeColumn}
+                  onReset={resetColumn}
+                >
+                  {t("views.listView.package")}
+                </ListHeaderCell>
               </tr>
             </thead>
             <tbody>

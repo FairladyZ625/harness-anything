@@ -1,9 +1,10 @@
 // @vitest-environment happy-dom
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { RelationEdge, SnapshotStatus, TaskRow } from "../src/renderer/model/types.ts";
+import { BOARD_COLUMNS } from "../src/renderer/model/types.ts";
 import { BoardView } from "../src/renderer/views/BoardView.tsx";
 import { SwimlaneBoard } from "../src/renderer/views/SwimlaneBoard.tsx";
 import {
@@ -20,6 +21,14 @@ import {
   type TaskFilters,
 } from "../src/renderer/model/taskFilters.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
+import {
+  boardColumnPreferenceStorage,
+  clearBoardColumnWidth,
+  emptyBoardColumnWidths,
+  readBoardColumnWidths,
+  setBoardColumnWidth,
+  writeBoardColumnWidths,
+} from "../src/renderer/board-column-preferences.ts";
 import { projectedTaskFields } from "./task-projection-fields.ts";
 
 function makeTask(overrides: Partial<TaskRow> = {}): TaskRow {
@@ -811,8 +820,11 @@ describe("draggable narrowing (W9)", () => {
     expect(markup.split('data-testid="board-task-card"').length - 1).toBe(2); // 两张卡都在。
     expect(markup.split('aria-roledescription="draggable"').length - 1).toBe(1); // 只有可拖卡挂 dnd。
     // 两张卡的包装层都可聚焦(可拖卡经 dnd attributes,不可拖卡显式声明),焦点不随收窄丢失。
+    // W11 起列头 resize 手柄也可聚焦(role="separator"),tabindex 计数只看卡包装层标签自身。
     expect(markup.split('role="button"').length - 1).toBe(2);
-    expect(markup.split('tabindex="0"').length - 1).toBe(2);
+    const wrappers = markup.match(/<div[^>]*role="button"[^>]*>/gu) ?? [];
+    expect(wrappers).toHaveLength(2);
+    expect(wrappers.every((tag) => tag.includes('tabindex="0"'))).toBe(true);
   });
 
   it("keeps hover hint and click behavior on non-draggable cards", async () => {
@@ -989,5 +1001,265 @@ describe("swimlane single-pass grouping (W9)", () => {
     expect(markup).toContain("lane-card-p2");
     const drilldown = markup.slice(markup.indexOf("下钻结果"));
     expect(drilldown).not.toContain("lane-card-b1");
+  });
+});
+
+/**
+ * 看板列宽偏好与 resize(W11):三种布局共用一份「每列一个数字 + 默认值」的
+ * localStorage 记忆(不进台账、不进 URL);未设置的列走各视图默认——列模式
+ * basis-1/4 等分、泳道 180+7×230、列表 table-fixed 自动分配。手柄键盘可达
+ * (Tab 聚焦 + ←/→ 微调),双击恢复默认;拖拽/微调即时落盘,重挂载后保留。
+ */
+const WIDTH_KEY = "harness:gui:board-column-widths";
+
+const widthMemory = () => {
+  const store = new Map<string, string>();
+  return {
+    getItem: (key: string) => store.get(key) ?? null,
+    setItem: (key: string, value: string) => void store.set(key, value),
+  };
+};
+
+const storedWidths = (layout: "column" | "swimlane" | "list"): Record<string, number> =>
+  JSON.parse(localStorage.getItem(WIDTH_KEY) ?? "{}")[layout] ?? {};
+
+async function mountBoardView(tasks: TaskRow[]) {
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  await act(async () => {
+    root.render(
+      createElement(BoardView, {
+        tasks,
+        allTasks: tasks,
+        filters: { ...DEFAULT_TASK_FILTERS },
+        onFiltersChange: noop,
+        onSelect: noop,
+        relations: [],
+        favorites: new Set<string>(),
+        onToggleFavorite: noop,
+        onSetPin: noop,
+      }),
+    );
+  });
+  return { container, root };
+}
+
+describe("board column width preferences (W11)", () => {
+  it("round-trips per-layout width maps and leaves unset layouts empty", () => {
+    const storage = widthMemory();
+    expect(readBoardColumnWidths(storage)).toEqual(emptyBoardColumnWidths);
+    let widths = setBoardColumnWidth(emptyBoardColumnWidths, "column", "planned", 360);
+    widths = setBoardColumnWidth(widths, "swimlane", "lane", 200);
+    widths = setBoardColumnWidth(widths, "list", "title", 420);
+    writeBoardColumnWidths(storage, widths);
+    expect(readBoardColumnWidths(storage)).toEqual(widths);
+  });
+
+  it("clamps and rounds widths into the sanity range on write", () => {
+    expect(setBoardColumnWidth(emptyBoardColumnWidths, "column", "planned", 3).column.planned).toBe(40);
+    expect(setBoardColumnWidth(emptyBoardColumnWidths, "column", "planned", 9999).column.planned).toBe(1200);
+    expect(setBoardColumnWidth(emptyBoardColumnWidths, "column", "planned", 300.6).column.planned).toBe(301);
+  });
+
+  it("falls back to defaults on bad JSON or non-numeric entries", () => {
+    const storage = widthMemory();
+    storage.setItem(WIDTH_KEY, "{not json");
+    expect(readBoardColumnWidths(storage)).toEqual(emptyBoardColumnWidths);
+    storage.setItem(WIDTH_KEY, JSON.stringify({ column: { planned: "wide" }, swimlane: 7 }));
+    expect(readBoardColumnWidths(storage)).toEqual(emptyBoardColumnWidths);
+  });
+
+  it("clear removes one key and is a no-op for absent keys", () => {
+    const widths = setBoardColumnWidth(emptyBoardColumnWidths, "swimlane", "lane", 200);
+    expect(clearBoardColumnWidth(widths, "swimlane", "lane").swimlane).toEqual({});
+    expect(clearBoardColumnWidth(widths, "swimlane", "missing")).toBe(widths);
+  });
+
+  it("missing storage (SSR) and failing writes never block the view", () => {
+    expect(readBoardColumnWidths(null)).toEqual(emptyBoardColumnWidths);
+    expect(() => writeBoardColumnWidths(null, emptyBoardColumnWidths)).not.toThrow();
+    expect(() => writeBoardColumnWidths(boardColumnPreferenceStorage(), emptyBoardColumnWidths)).not.toThrow();
+  });
+});
+
+describe("board column resize: column mode (W11)", () => {
+  beforeEach(() => {
+    localStorage.removeItem(WIDTH_KEY);
+  });
+
+  it("renders equal-quarter columns by default with one keyboard-reachable handle per column", () => {
+    const markup = boardMarkup([makeTask({ coordinationStatus: "planned" })]);
+    expect(markup.split('data-testid="board-column-resize-').length - 1).toBe(BOARD_COLUMNS.length);
+    const handle = markup.match(/<div[^>]*data-testid="board-column-resize-planned"[^>]*>/u)![0];
+    expect(handle).toContain('role="separator"');
+    expect(handle).toContain('tabindex="0"');
+    // 未定宽列保持等分默认:不输出显式宽度。
+    expect(markup).not.toContain('style="width');
+  });
+
+  it("applies a persisted width as an explicit column width", () => {
+    localStorage.setItem(WIDTH_KEY, JSON.stringify({ column: { planned: 360 } }));
+    const markup = boardMarkup([makeTask({ coordinationStatus: "planned" })]);
+    const column = markup.match(/<div[^>]*data-testid="board-column-planned"[^>]*>/u)![0];
+    expect(column).toContain('style="width:360px"');
+    expect(column).not.toContain("basis-1/4");
+    const handle = markup.match(/<div[^>]*data-testid="board-column-resize-planned"[^>]*>/u)![0];
+    expect(handle).toContain('aria-valuenow="360"');
+  });
+
+  it("drags the handle to widen a column, fine-tunes with arrow keys, and persists", async () => {
+    localStorage.setItem(WIDTH_KEY, JSON.stringify({ column: { planned: 300 } }));
+    const board = await mountBoardView([makeTask({ coordinationStatus: "planned" })]);
+    const handle = board.container.querySelector<HTMLElement>('[data-testid="board-column-resize-planned"]')!;
+    const column = board.container.querySelector<HTMLElement>('[data-testid="board-column-planned"]')!;
+
+    act(() => {
+      handle.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: 100, pointerId: 1 }));
+      window.dispatchEvent(new PointerEvent("pointermove", { clientX: 160, pointerId: 1 }));
+      window.dispatchEvent(new PointerEvent("pointerup", { clientX: 160, pointerId: 1 }));
+    });
+    expect(column.style.width).toBe("360px");
+    expect(storedWidths("column").planned).toBe(360);
+
+    act(() => {
+      handle.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+    });
+    expect(column.style.width).toBe("376px");
+    act(() => {
+      handle.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }));
+    });
+    expect(column.style.width).toBe("360px");
+    expect(storedWidths("column").planned).toBe(360);
+
+    act(() => {
+      board.root.unmount();
+    });
+    board.container.remove();
+  });
+
+  it("keeps the resized width across a remount (window reload equivalent)", async () => {
+    localStorage.setItem(WIDTH_KEY, JSON.stringify({ column: { planned: 300 } }));
+    const first = await mountBoardView([makeTask({ coordinationStatus: "planned" })]);
+    const handle = first.container.querySelector<HTMLElement>('[data-testid="board-column-resize-planned"]')!;
+    act(() => {
+      handle.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+    });
+    act(() => {
+      first.root.unmount();
+    });
+    first.container.remove();
+
+    const second = await mountBoardView([makeTask({ coordinationStatus: "planned" })]);
+    const column = second.container.querySelector<HTMLElement>('[data-testid="board-column-planned"]')!;
+    expect(column.style.width).toBe("316px");
+    act(() => {
+      second.root.unmount();
+    });
+    second.container.remove();
+  });
+
+  it("double-click resets the column to the default equal-quarter layout", async () => {
+    localStorage.setItem(WIDTH_KEY, JSON.stringify({ column: { planned: 300 } }));
+    const board = await mountBoardView([makeTask({ coordinationStatus: "planned" })]);
+    const handle = board.container.querySelector<HTMLElement>('[data-testid="board-column-resize-planned"]')!;
+    act(() => {
+      handle.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    });
+    const column = board.container.querySelector<HTMLElement>('[data-testid="board-column-planned"]')!;
+    expect(column.style.width).toBe("");
+    expect(column.className).toContain("basis-1/4");
+    expect(storedWidths("column").planned).toBeUndefined();
+    act(() => {
+      board.root.unmount();
+    });
+    board.container.remove();
+  });
+});
+
+describe("swimlane column resize (W11)", () => {
+  beforeEach(() => {
+    localStorage.removeItem(WIDTH_KEY);
+  });
+
+  const laneResizeFixture = (): TaskRow[] => [
+    makeTask({ taskId: "t_p1", rootTaskId: "root-a", rootTitle: "Lane A", coordinationStatus: "planned" }),
+  ];
+
+  it("renders the default 180px lane + 7×230px status template on header and rows", () => {
+    const markup = renderToStaticMarkup(
+      createElement(SwimlaneBoard, {
+        tasks: laneResizeFixture(),
+        groupBy: "root",
+        onSelect: noop,
+        drill: null,
+        relations: [],
+        favorites: new Set<string>(),
+        onToggleFavorite: noop,
+        onSetPin: noop,
+      }),
+    );
+    const template = `grid-template-columns:${["180px", ...Array(7).fill("230px")].join(" ")}`;
+    expect(markup.split(template).length - 1).toBeGreaterThanOrEqual(2); // sticky 表头 + 每泳道行。
+    expect(markup.split('data-testid="swimlane-column-resize-').length - 1).toBe(BOARD_COLUMNS.length);
+    expect(markup).toContain('data-testid="swimlane-lane-resize"');
+  });
+
+  it("derives the template from persisted lane and status widths", () => {
+    localStorage.setItem(WIDTH_KEY, JSON.stringify({ swimlane: { lane: 200, planned: 320 } }));
+    const markup = renderToStaticMarkup(
+      createElement(SwimlaneBoard, {
+        tasks: laneResizeFixture(),
+        groupBy: "root",
+        onSelect: noop,
+        drill: null,
+        relations: [],
+        favorites: new Set<string>(),
+        onToggleFavorite: noop,
+        onSetPin: noop,
+      }),
+    );
+    expect(markup).toContain("grid-template-columns:200px 320px 230px");
+  });
+
+  it("drags a status column wider and fine-tunes the lane column with arrow keys", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(
+        createElement(SwimlaneBoard, {
+          tasks: laneResizeFixture(),
+          groupBy: "root",
+          onSelect: noop,
+          drill: null,
+          relations: [],
+          favorites: new Set<string>(),
+          onToggleFavorite: noop,
+          onSetPin: noop,
+        }),
+      );
+    });
+    const statusHandle = container.querySelector<HTMLElement>('[data-testid="swimlane-column-resize-planned"]')!;
+    act(() => {
+      statusHandle.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: 80, pointerId: 1 }));
+      window.dispatchEvent(new PointerEvent("pointermove", { clientX: 140, pointerId: 1 }));
+      window.dispatchEvent(new PointerEvent("pointerup", { clientX: 140, pointerId: 1 }));
+    });
+    expect(storedWidths("swimlane").planned).toBe(290);
+    // 活 DOM 的 style 序列化在冒号后带空格,断言不带冒号的模板子串。
+    expect(container.innerHTML).toContain("180px 290px 230px");
+
+    const laneHandle = container.querySelector<HTMLElement>('[data-testid="swimlane-lane-resize"]')!;
+    act(() => {
+      laneHandle.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }));
+    });
+    expect(storedWidths("swimlane").lane).toBe(164); // 180 - 16。
+    expect(container.innerHTML).toContain("164px 290px 230px");
+
+    act(() => {
+      root.unmount();
+    });
+    container.remove();
   });
 });
