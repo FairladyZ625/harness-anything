@@ -89,7 +89,6 @@ test("status, dry-run, and submit share the repeatable-path scanner and automati
       [
         ["context/a.md", "eligible"],
         ["context/b.md", "eligible"],
-        ["events/segments/manifest.json", "blocked"],
         ["tasks/task-one/progress.md", "blocked"],
       ],
     );
@@ -125,7 +124,7 @@ test("status, dry-run, and submit share the repeatable-path scanner and automati
     }
     assert.equal(git(rootDir, "show", "HEAD:harness/context/a.md"), "# A\n\nfirst");
     assert.equal(readFileSync(path.join(rootDir, "harness/context/a.md"), "utf8"), "# A\n\nfirst\n");
-    assert.equal(git(rootDir, "ls-files", "harness/context/a.md"), "");
+    assert.equal(git(rootDir, "ls-files", "harness/context/a.md"), "harness/context/a.md");
     const untracked = git(rootDir, "ls-files", "--others", "--exclude-standard", "harness").split("\n");
     for (const expected of [
       "harness/context/ignored.json",
@@ -304,9 +303,10 @@ test("scanner refuses multi-megabyte JSONL without reading it and names oversize
       rows(status.evidence)
         .filter((row) => row.state !== "clean")
         .map((row) => row.path),
-      [prose, "events/segments/manifest.json"],
+      [prose],
       "non-prose JSONL must not enter the authored candidate set before oversized prose is restored",
     );
+    write(rootDir, "events/segments/manifest.json", "{}\n");
     const unconfirmed = await cell.run({ kind: "doc-submit", paths: [] }, binding);
     assert.equal(unconfirmed.outcome, "op_rejected", JSON.stringify(unconfirmed));
     assert.equal(unconfirmed.code, "preview_blocked");
@@ -370,10 +370,7 @@ test("blocked-only submit names the scanner-first machine-region recovery", asyn
     };
     assert.deepEqual(
       detail.unresolvedTouches.map(({ path, requiredRoute }) => [path, requiredRoute]),
-      [
-        ["events/segments/manifest.json", "canonical-event"],
-        [laterBlocked, "typed-machine-writer"],
-      ],
+      [[laterBlocked, "typed-machine-writer"]],
     );
   } finally {
     await cell.close();
@@ -578,10 +575,7 @@ test("full scans do not infer legacy retirement while explicit retire remains av
     const status = await cell.run({ kind: "doc-status", paths: [] }, binding);
     assert.deepEqual(
       rows(status.evidence).map((row) => [row.path, row.state]),
-      [
-        ["events/segments/manifest.json", "blocked"],
-        [logical, "clean"],
-      ],
+      [[logical, "clean"]],
     );
     assert.deepEqual(status.detail?.deletions, []);
 
@@ -602,7 +596,7 @@ test("full scans do not infer legacy retirement while explicit retire remains av
     await cell.close();
     cell = undefined;
     assert.equal(git(rootDir, "ls-tree", "--name-only", "HEAD", `harness/${logical}`), "");
-    assert.equal(git(rootDir, "ls-files", `harness/${logical}`), `harness/${logical}`);
+    assert.equal(git(rootDir, "ls-files", `harness/${logical}`), "");
     assert.equal(existsSync(path.join(rootDir, "harness", logical)), false);
     const reopened = await openRepoCell({
       repoId: workspaceId("retire-tracked"),
@@ -615,7 +609,7 @@ test("full scans do not infer legacy retirement while explicit retire remains av
           row.path,
           row.state,
         ]),
-        [["events/segments/manifest.json", "blocked"]],
+        [],
       );
     } finally {
       await reopened.close();
