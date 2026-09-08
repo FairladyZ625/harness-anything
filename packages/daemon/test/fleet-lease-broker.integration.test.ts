@@ -635,20 +635,9 @@ test(
   "two simultaneous first-starts serialize: exactly one grants, the other queues",
   { timeout: 30_000 },
   async (t) => {
-    // The asymmetric probe delay forces the adversarial interleaving: the slow
-    // prober reads an empty domain (its task-show completes early) but decides
-    // 300ms later, so a non-atomic check-and-reserve acting on the stale read
-    // would overwrite the winner's mirror row and drop it when the domain
-    // rejects the second grab.
-    const fixture = await leaseFixture(
-      t,
-      (run) => (repoId, action, auth) =>
-        run(repoId, action, auth).then((receipt) =>
-          action.kind === "task-show" && auth.assignmentBinding?.nodeId === "node-one"
-            ? new Promise((resolve) => setTimeout(resolve, 300)).then(() => receipt)
-            : receipt,
-        ),
-    );
+    // Observe completed admission and the parked queue, rather than assuming
+    // that the runner processes both requests within a fixed wall-clock delay.
+    const fixture = await leaseFixture(t);
     t.after(() => fixture.close());
     const created = await fixture.command("node-one", { kind: "task-create", title: "Concurrent first grab" });
     const taskId = String((created.receipt as Record<string, unknown>).taskId);
@@ -661,7 +650,11 @@ test(
       outcomes.push(`two:${result.outcome}:${result.code ?? null}`);
       return result;
     });
-    await new Promise((resolve) => setTimeout(resolve, 900));
+    await Promise.race([slow, fast]);
+    await waitUntil(
+      () => fixture.center.status().leases.queue.length === 1,
+      "the losing start must park behind the winner",
+    );
     assert.equal(
       outcomes.length,
       1,
