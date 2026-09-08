@@ -1,11 +1,13 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
 import { parseRuntimeBatchEntry } from "../src/cli-runtime-batch-input.ts";
 import { runtimeBatchSpawnAction } from "../src/cli-runtime-batch.ts";
 import { parseThinCommand } from "../src/cli/thin-command.ts";
-import { resolveBootstrapDefaults } from "../src/cli/thin-command-router.ts";
 
 test("thin parser converts the sole preset script target into closed typed start params", () => {
   const parsed = parseThinCommand([
@@ -47,15 +49,57 @@ test("thin parser converts the sole preset script target into closed typed start
   );
 });
 
-test("init fills repository and owner identity from the workspace and git config", () => {
-  const parsed = parseThinCommand(["init"]),
-    defaults = resolveBootstrapDefaults(parsed.ok ? parsed.command.rootDir : process.cwd());
-  assert.equal(parsed.ok, true);
-  if (parsed.ok) {
-    assert.equal(parsed.command.action.kind, "repo-bootstrap");
-    assert.equal(parsed.command.action.repoId, defaults.repoId);
-    assert.equal(parsed.command.action.personId, defaults.personId);
-    assert.equal(parsed.command.action.displayName, defaults.displayName);
+test("init derives literal defaults from an isolated repository and git identity", () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-cli-init-defaults-")),
+    root = path.join(parent, "Fixture Repo");
+  mkdirSync(root, { recursive: true });
+  try {
+    git(root, "init", "-q");
+    git(root, "config", "user.name", "Fixture Owner");
+    git(root, "config", "user.email", "fixture@example.invalid");
+    const parsed = parseThinCommand(["init"], root);
+    assert.equal(parsed.ok, true);
+    if (parsed.ok)
+      assert.deepEqual(parsed.command.action, {
+        kind: "repo-bootstrap",
+        repoId: "fixture-repo",
+        personId: "person-fixture-owner",
+        displayName: "Fixture Owner",
+      });
+
+    const overrides = parseThinCommand(
+      ["init", "--repo-id", "alpha", "--person-id", "owner", "--display-name", "Owner"],
+      root,
+    );
+    assert.equal(overrides.ok, true);
+    if (overrides.ok)
+      assert.deepEqual(overrides.command.action, {
+        kind: "repo-bootstrap",
+        repoId: "alpha",
+        personId: "owner",
+        displayName: "Owner",
+      });
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("init reports the existing actionable rejection when git has no user.name", () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-cli-init-missing-name-")),
+    root = path.join(parent, "No Owner");
+  mkdirSync(root, { recursive: true });
+  try {
+    git(root, "init", "-q");
+    withIsolatedGitConfig(() => {
+      assert.deepEqual(parseThinCommand(["init"], root), {
+        ok: false,
+        code: "missing_field",
+        nextAction: "--person-id is required. Run ha init --help for accepted inputs.",
+        json: false,
+      });
+    });
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
   }
 });
 
@@ -168,10 +212,6 @@ test("thin parser exposes daemon-backed workspace bootstrap", () => {
       name: "Alpha Project",
       addNpmScripts: true,
     });
-  const defaults = parseThinCommand(["init", "--repo-id", "alpha", "--person-id", "owner"]);
-  assert.equal(defaults.ok, true);
-  if (defaults.ok)
-    assert.equal(defaults.command.action.displayName, resolveBootstrapDefaults(defaults.command.rootDir).displayName);
   const configureOnly = parseThinCommand([
     "init",
     "--repo-id",
@@ -192,6 +232,25 @@ test("thin parser exposes daemon-backed workspace bootstrap", () => {
       configureOnly: true,
     });
 });
+
+function git(rootDir: string, ...args: readonly string[]): string {
+  return execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8" }).trim();
+}
+
+function withIsolatedGitConfig<T>(run: () => T): T {
+  const previousGlobal = process.env.GIT_CONFIG_GLOBAL,
+    previousSystem = process.env.GIT_CONFIG_SYSTEM;
+  process.env.GIT_CONFIG_GLOBAL = "/dev/null";
+  process.env.GIT_CONFIG_SYSTEM = "/dev/null";
+  try {
+    return run();
+  } finally {
+    if (previousGlobal === undefined) delete process.env.GIT_CONFIG_GLOBAL;
+    else process.env.GIT_CONFIG_GLOBAL = previousGlobal;
+    if (previousSystem === undefined) delete process.env.GIT_CONFIG_SYSTEM;
+    else process.env.GIT_CONFIG_SYSTEM = previousSystem;
+  }
+}
 
 test("runtime work commands parse into closed daemon facade actions", () => {
   const run = parseThinCommand([
