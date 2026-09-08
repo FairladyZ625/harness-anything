@@ -16,7 +16,7 @@ import {
 } from "./task-event-store-claims-layout.ts";
 import { canonicalEventCut, canonicalLedgerCut } from "./task-event-store-contract.ts";
 import { resolveLedgerGitLayout, ledgerGitPath } from "./ledger-git-layout.ts";
-import { localGitObjectRefStore, localGitWorktreeSettlement } from "./local-version-control-system.ts";
+import { localGitObjectRefStore, localGitText, localGitWorktreeSettlement } from "./local-version-control-system.ts";
 import { openSqliteEventStore, type SqliteCommandOutcome } from "./sqlite-event-store.ts";
 import type { SqliteEventStore } from "./sqlite-event-store.ts";
 import { validateCanonicalWriteBundle } from "./task-event-store-contract.ts";
@@ -305,20 +305,18 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
           readContent,
           accepted,
         ),
-        baseline = new Map([
-          ...captureGitBaseline(
-            currentLedger.rootDir,
-            accepted.revision > 0 ? localGitObjectRefStore.resolveCommit(currentLedger.rootDir, `${parent}^`) : parent,
-            closureFiles,
-          ),
-          ...(pendingWorktreeBaseline ?? []),
-        ]);
+        physicalCommit = pendingWorktreeBaseline ? null : recoverPhysicalWorktreeCommit(currentLedger, parent, sqlite),
+        baseline = pendingWorktreeBaseline
+          ? new Map(pendingWorktreeBaseline)
+          : physicalCommit
+            ? new Map(captureGitBaseline(currentLedger.rootDir, physicalCommit, closureFiles))
+            : null;
       follower = {
         git: { status: "verified", cut: accepted, commitSha: parent },
         worktree: pendingFollower("worktree settlement has not verified the Git cut").worktree,
       };
       pendingWorktreeBaseline = baseline;
-      if (settleFollowerWorktree(currentLedger, closureFiles, baseline, parent)) {
+      if (baseline && settleFollowerWorktree(currentLedger, closureFiles, baseline, parent)) {
         pendingWorktreeBaseline = null;
         settledWorktreeRevision = accepted.revision;
       }
@@ -465,6 +463,34 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
       ...(reason ? { reason: "deterministic_failure", lastError: reason } : {}),
     };
   }
+}
+
+function recoverPhysicalWorktreeCommit(
+  ledger: ReturnType<typeof resolveLedgerGitLayout>,
+  parent: string,
+  sqlite: ReturnType<typeof openSqliteEventStore>,
+): string | null {
+  const target = ledgerGitPath(ledger, "events/segments/manifest.json"),
+    physical = localGitWorktreeSettlement.readNode(`${ledger.rootDir}/${target}`)?.body ?? null;
+  if (physical === null) return null;
+  const commits = localGitText(
+    ledger.rootDir,
+    "log",
+    "--first-parent",
+    "--format=%H",
+    `--find-object=${localGitObjectRefStore.blobOid(physical)}`,
+    parent,
+    "--",
+    target,
+  )
+    .split("\n")
+    .filter(Boolean);
+  const commit = commits.find(
+    (candidate) => localGitObjectRefStore.readPath(ledger.rootDir, candidate, target)?.toString("utf8") === physical,
+  );
+  if (!commit) return null;
+  certifiedFollowerRevision(ledger, commit, sqlite);
+  return commit;
 }
 
 function pendingFollower(reason: string): { readonly git: FollowerFacet; readonly worktree: FollowerFacet } {

@@ -125,6 +125,47 @@ test("Git can verify an accepted document while a concurrently edited worktree r
   }
 });
 
+test("certified reopen resumes from the last physical cut without overwriting later user edits", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-sqlite-worktree-reopen-"));
+  initRepo(rootDir);
+  const collision = path.join(rootDir, "harness/context/collision.md"),
+    later = path.join(rootDir, "harness/context/later.md");
+  const seeded = makeTaskEventStore({ repoId, rootDir });
+  seeded.append(docBundle(seeded, "# Physical baseline\n", 1, "reopen-base", "context/base.md"));
+  await seeded.settlePendingMaterialization?.("physical baseline");
+  await seeded.drain();
+  mkdirSync(path.dirname(collision), { recursive: true });
+  writeFileSync(collision, "local collision\n");
+  const first = makeTaskEventStore({ repoId, rootDir });
+  first.append(docBundle(first, "# Canonical collision\n", 2, "reopen-collision", "context/collision.md"));
+  await first.settlePendingMaterialization?.("blocked first cut");
+  first.append(docBundle(first, "# Canonical later\n", 3, "reopen-later", "context/later.md"));
+  await first.settlePendingMaterialization?.("blocked second cut");
+  assert.equal(first.followerStatus().worktree.status, "pending");
+  await first.drain();
+
+  unlinkSync(collision);
+  const reopened = makeTaskEventStore({ repoId, rootDir });
+  try {
+    await reopened.settlePendingMaterialization?.("resume physical cut");
+    assert.equal(reopened.followerStatus().worktree.status, "verified");
+    assert.equal(readFileSync(collision, "utf8"), "# Canonical collision\n");
+    assert.equal(readFileSync(later, "utf8"), "# Canonical later\n");
+  } finally {
+    await reopened.drain();
+  }
+
+  writeFileSync(later, "real user edit\n");
+  const editedReopen = makeTaskEventStore({ repoId, rootDir });
+  try {
+    await editedReopen.settlePendingMaterialization?.("preserve edit after reopen");
+    assert.equal(readFileSync(later, "utf8"), "real user edit\n");
+    assert.equal(editedReopen.followerStatus().worktree.status, "pending");
+  } finally {
+    await editedReopen.drain();
+  }
+});
+
 test("SQLite content admission reuses exact objects after reopen and rejects corrupt or missing objects atomically", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-sqlite-content-admission-")),
     body = "# Shared content\n",
