@@ -55,6 +55,18 @@ export type RuntimeBinding = {
   readonly authorizationDecision?: AuthorizationDecision;
 };
 
+/** Persist only the runtime binding contract; RepoCell transport fences never cross a daemon restart. */
+export function runtimeBindingForDispatch(binding: RuntimeBinding): RuntimeBinding {
+  return {
+    actor: binding.actor,
+    source: binding.source,
+    ...(binding.authorizationBindingMode === undefined
+      ? {}
+      : { authorizationBindingMode: binding.authorizationBindingMode }),
+    ...(binding.roleBindings === undefined ? {} : { roleBindings: binding.roleBindings }),
+  };
+}
+
 export interface TrustedScheduleRuntime {
   readonly scheduleId: string;
   readonly occurrenceId: string;

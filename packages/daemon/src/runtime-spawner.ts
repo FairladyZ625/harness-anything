@@ -85,6 +85,7 @@ import {
   publishExit as publishExitImpl,
   runtimeResultText as runtimeResultTextImpl,
 } from "./runtime-spawn-settlement.ts";
+import { runtimeBindingForDispatch } from "./runtime-spawn-types.ts";
 import type {
   ActiveRuntime,
   RemoteRuntimePersistence,
@@ -644,7 +645,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         dispatchOpId,
         kindId: definition.kindId,
         permissionMode: launchedPermissionMode ?? null,
-        binding: activeBinding,
+        binding: runtimeBindingForDispatch(activeBinding),
         cwd,
         prompt: scrubProviderValue(prompt) as string,
         mission: scrubProviderValue(mission) as string,

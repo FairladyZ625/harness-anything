@@ -10,7 +10,7 @@ import { removeRuntimeCallbackRelay } from "./runtime-callback-relay.ts";
 import { createActiveRuntime, attachActiveRuntime } from "./runtime-spawn-active.ts";
 import { adoptNativeProcess, runtimePidIsAlive } from "./runtime-spawn-process.ts";
 import { durableOutputRecordCount, restoreDurableOutputRecords } from "./runtime-spawn-provider-stream.ts";
-import type { RuntimeBinding } from "./runtime-spawn-types.ts";
+import { runtimeBindingForDispatch, type RuntimeBinding } from "./runtime-spawn-types.ts";
 import type { RuntimePermissionMode } from "./runtime-permissions.ts";
 import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 import type { RuntimeInstanceKind } from "./agent-runtime-instance-types.ts";
@@ -174,7 +174,7 @@ function adoptableMetadata(header: DispatchStreamHeader): {
     dispatchOpId: header.dispatchOpId,
     kindId: header.kindId,
     permissionMode: header.permissionMode as RuntimePermissionMode | null,
-    binding: header.binding,
+    binding: runtimeBindingForDispatch(header.binding),
     cwd: header.cwd,
     prompt: header.prompt,
     model: header.model,

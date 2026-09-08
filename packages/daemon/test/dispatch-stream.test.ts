@@ -16,6 +16,26 @@ import {
 import { adoptRuntimes } from "../src/runtime-spawn-adoption.ts";
 import { cancelRuntime } from "../src/runtime-spawn-control.ts";
 import { readRuntimeSessionActivityEvidence } from "../src/dispatch-read.ts";
+import { runtimeBindingForDispatch } from "../src/runtime-spawn-types.ts";
+
+test("runtime dispatch persistence excludes RepoCell writer transport fields", () => {
+  const actor = { principal: { personId: "runtime-owner" }, executor: null },
+    source = "local" as const,
+    binding = {
+      actor,
+      source,
+      writerEpoch: 35,
+      writerEpochFence: {
+        schema: "harness-writer-epoch-fence/v1" as const,
+        stateRoot: "/tmp/writer-state",
+        repoId: "repo",
+        epoch: 35,
+        holderId: "daemon-old",
+      },
+    } as Parameters<typeof runtimeBindingForDispatch>[0] & Record<string, unknown>,
+    persisted = runtimeBindingForDispatch(binding);
+  assert.deepEqual(persisted, { actor, source });
+});
 
 test("the live index rebuilds exactly from dispatch stream headers", () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-dispatch-live-index-"));
