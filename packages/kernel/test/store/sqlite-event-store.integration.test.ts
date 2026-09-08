@@ -28,8 +28,18 @@ import {
   preflightConvertedGenerationActivation,
 } from "../../src/store/legacy-generation-conversion.ts";
 import { reconcileSqliteEvents } from "../../src/store/sqlite-ledger-reconcile.ts";
-import { decisionProposal, docBundle, eventAt, git, initRepo, repoFileBundle } from "./task-event-store.fixtures.ts";
+import {
+  bundle,
+  decisionProposal,
+  docBundle,
+  eventAt,
+  git,
+  initRepo,
+  repoFileBundle,
+} from "./task-event-store.fixtures.ts";
 import { taskLifecycleWritePlan } from "../../src/domain/task-lifecycle-publication.ts";
+import { compileTaskLifecycleWrite } from "../../src/domain/task-lifecycle-publication.ts";
+import type { TaskEventV1 } from "../../src/domain/task-lifecycle.contract.ts";
 import { makeTaskEventStore } from "../../src/store/task-event-store-factory.ts";
 import { readCertifiedGitFollower } from "../../src/store/task-event-store-factory.ts";
 
@@ -165,6 +175,82 @@ test("certified reopen resumes from the last physical cut without overwriting la
     await editedReopen.drain();
   }
 });
+
+test("certified reopen settles machine-owned snapshots from multiple accepted cuts without new events", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-sqlite-worktree-partial-"));
+  initRepo(rootDir);
+  const packagePath = "tasks/task-partial-generated",
+    indexPath = path.join(rootDir, "harness", packagePath, "INDEX.md"),
+    contractPath = path.join(rootDir, "harness", packagePath, "task-contract.json"),
+    manifestPath = path.join(rootDir, "harness/events/segments/manifest.json"),
+    userPath = path.join(rootDir, "harness/context/user.md"),
+    store = makeTaskEventStore({ repoId, rootDir });
+  store.append(bundle(eventAt(1)));
+  await store.settlePendingMaterialization?.("physical cut");
+  const physicalManifest = readFileSync(manifestPath, "utf8");
+  const first = generatedTaskAmendment(store, packagePath, 2, "first generated cut", []);
+  store.append(first);
+  await store.settlePendingMaterialization?.("first generated cut");
+  const firstIndex = readFileSync(indexPath, "utf8");
+  const second = generatedTaskAmendment(store, packagePath, 3, "second generated cut", first.blobs);
+  store.append(second);
+  await store.settlePendingMaterialization?.("second generated cut");
+  const latestIndex = readFileSync(indexPath, "utf8"),
+    latestContract = readFileSync(contractPath, "utf8");
+  store.append(docBundle(store, "# Canonical user document\n", 4, "partial-user-doc", "context/user.md"));
+  await store.settlePendingMaterialization?.("user document cut");
+  await store.drain();
+
+  writeFileSync(manifestPath, physicalManifest);
+  writeFileSync(indexPath, firstIndex);
+  writeFileSync(contractPath, latestContract);
+  writeFileSync(userPath, "real user edit\n");
+  const reopened = makeTaskEventStore({ repoId, rootDir });
+  try {
+    const revisionBeforeRecovery = reopened.currentCut().revision;
+    await reopened.settlePendingMaterialization?.("partial generated recovery");
+    assert.equal(reopened.currentCut().revision, revisionBeforeRecovery);
+    assert.equal(reopened.followerStatus().worktree.status, "pending");
+    assert.equal(readFileSync(indexPath, "utf8"), latestIndex);
+    assert.equal(readFileSync(contractPath, "utf8"), latestContract);
+    assert.equal(readFileSync(userPath, "utf8"), "real user edit\n");
+  } finally {
+    await reopened.drain();
+  }
+});
+
+function generatedTaskAmendment(
+  store: ReturnType<typeof makeTaskEventStore>,
+  packagePath: string,
+  revision: number,
+  title: string,
+  previous: readonly { readonly sha256: string; readonly body: string }[],
+) {
+  const task = { ...eventAt(1).payload.task, title, status: "active" as const },
+    event = {
+      ...eventAt(revision),
+      taskId: task.taskId,
+      type: "task_amended",
+      payload: { task, mutation: { command: "amend", reason: title, fields: ["title"] }, documentClaims: [] },
+    } as unknown as TaskEventV1,
+    currentDocuments = previous.map((blob) => {
+      const body = blob.body,
+        path = body.startsWith("{") ? `${packagePath}/task-contract.json` : `${packagePath}/INDEX.md`;
+      return { path, body, blobSha256: blob.sha256 };
+    }),
+    snapshot = {
+      revision,
+      task,
+      executions: [],
+      reviews: [],
+      consents: [],
+      codeDocWitnesses: [],
+      gateWitnesses: [],
+      edgesTaken: [],
+      lease: null,
+    } as never;
+  return compileTaskLifecycleWrite({ event, snapshot, packagePath, currentDocuments });
+}
 
 test("SQLite content admission reuses exact objects after reopen and rejects corrupt or missing objects atomically", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-sqlite-content-admission-")),

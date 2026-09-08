@@ -270,9 +270,20 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
       permitted.set(target, accepted.fingerprint);
       if (accepted.preserve && baseline.get(target) !== accepted.fingerprint) preserve.add(target);
     }
-    if (!worktreeMatchesBaseline(currentLedger.rootDir, permitted, files)) return false;
-    if (!settleWorktree(currentLedger.rootDir, files, permitted, options.killpoint, preserve, commit)) return false;
-    verifyWorktreeFiles(currentLedger.rootDir, files);
+    let eligible = files.filter((file) => {
+      const target = "target" in file ? file.target : file.delete,
+        current = worktreeFingerprint(localGitWorktreeSettlement.readNode(`${currentLedger.rootDir}/${target}`)),
+        settled =
+          "target" in file ? `${file.mode}:${sha256Text(file.body)}:${Buffer.byteLength(file.body)}` : "missing";
+      return current === permitted.get(target) || current === settled;
+    });
+    if (eligible.length < files.length) {
+      const manifest = ledgerGitPath(currentLedger, "events/segments/manifest.json");
+      eligible = eligible.filter((file) => ("target" in file ? file.target : file.delete) !== manifest);
+    }
+    if (!settleWorktree(currentLedger.rootDir, eligible, permitted, options.killpoint, preserve, commit)) return false;
+    verifyWorktreeFiles(currentLedger.rootDir, eligible);
+    if (eligible.length < files.length) return false;
     acceptedWorktree.clear();
     return true;
   };
@@ -308,7 +319,10 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
         baseline = pendingWorktreeBaseline
           ? new Map(pendingWorktreeBaseline)
           : physicalCommit
-            ? new Map(captureGitBaseline(currentLedger.rootDir, physicalCommit, closureFiles))
+            ? new Map([
+                ...captureGitBaseline(currentLedger.rootDir, physicalCommit, closureFiles),
+                ...recoverGeneratedWorktreeBaseline(currentLedger, readEventsThrough(sqlite, accepted.revision)),
+              ])
             : null;
       follower = {
         git: { status: "verified", cut: accepted, commitSha: parent },
@@ -492,6 +506,24 @@ function recoverPhysicalWorktreeCommit(
   if (!commit) return null;
   certifiedFollowerRevision(ledger, commit, sqlite);
   return commit;
+}
+
+function recoverGeneratedWorktreeBaseline(
+  ledger: ReturnType<typeof resolveLedgerGitLayout>,
+  events: readonly CanonicalEventV1[],
+): ReadonlyMap<string, string> {
+  const recovered = new Map<string, string>();
+  for (const event of events) {
+    if (!isTaskEvent(event)) continue;
+    for (const claim of event.payload.documentClaims ?? []) {
+      if (claim.policyId !== "typed-machine-writer/v1") continue;
+      const target = ledgerGitPath(ledger, claim.path),
+        fingerprint = `100644:${claim.sha256}:${claim.size}`;
+      if (worktreeFingerprint(localGitWorktreeSettlement.readNode(`${ledger.rootDir}/${target}`)) === fingerprint)
+        recovered.set(target, fingerprint);
+    }
+  }
+  return recovered;
 }
 
 function pendingFollower(reason: string): { readonly git: FollowerFacet; readonly worktree: FollowerFacet } {
