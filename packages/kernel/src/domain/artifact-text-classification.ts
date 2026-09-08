@@ -38,13 +38,13 @@ const textualFileTypes: readonly {
 
 /**
  * Classifies authored document paths that doc-sync may process. Task artifact
- * directories and authored architecture model files are opaque regardless of
+ * directories, authored architecture models, and the walls manifest are opaque regardless of
  * their content type; prose semantics apply everywhere else only to Markdown
  * and plain-text documents. Other supported textual formats are whole-file
  * documents.
  */
 export function classifyTextualArtifactPath(value: string): TextualArtifactClassification | null {
-  if (artifactPath(value) || architectureModelPath(value))
+  if (artifactPath(value) || architectureModelPath(value) || value === "governance/walls/walls.json")
     return { kind: "opaque-textual", mediaType: opaqueTextualMediaType(value), policyId: OPAQUE_TEXTUAL_POLICY_ID };
   const fileType = textualFileType(value);
   if (fileType === null || !fileType.docSyncCandidate) return null;
