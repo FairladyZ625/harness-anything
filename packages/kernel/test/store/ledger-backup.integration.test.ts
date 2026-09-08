@@ -41,6 +41,53 @@ test("generation-aware backup preserves legacy sources and does not create an ab
   }
 });
 
+test("backup includes tracked scope and Git metadata on every platform", () => {
+  const root = fixture("scope"),
+    authoredRoot = path.join(root, "harness"),
+    backupDir = path.join(os.tmpdir(), `ha-backup-scope-${process.pid}-${Date.now()}`),
+    context = path.join(authoredRoot, "context"),
+    nested = path.join(context, "nested"),
+    ignored = path.join(authoredRoot, ".claude", "settings.json"),
+    wal = path.join(root, ".harness", "wal", "accepted.json");
+  try {
+    mkdirSync(context, { recursive: true });
+    writeFileSync(path.join(context, "tracked.md"), "tracked content\n");
+    mkdirSync(nested, { recursive: true });
+    execFileSync("git", ["init", "-q"], { cwd: nested });
+    execFileSync("git", ["config", "user.name", "Store Test"], { cwd: nested });
+    execFileSync("git", ["config", "user.email", "store@example.invalid"], { cwd: nested });
+    writeFileSync(path.join(nested, "note.md"), "tool state\n");
+    execFileSync("git", ["add", "note.md"], { cwd: nested });
+    execFileSync("git", ["commit", "-qm", "nested"], { cwd: nested });
+    writeFileSync(path.join(authoredRoot, ".gitignore"), ".claude/\n");
+    execFileSync("git", ["add", ".gitignore", "context"], { cwd: authoredRoot });
+    execFileSync("git", ["commit", "-qm", "tracked scope"], { cwd: authoredRoot });
+    writeFileSync(path.join(context, "untracked.md"), "untracked note\n");
+    mkdirSync(path.dirname(ignored), { recursive: true });
+    writeFileSync(ignored, "ignored tool state\n");
+    mkdirSync(path.dirname(wal), { recursive: true });
+    writeFileSync(wal, "explicit source\n");
+    const worktreeMetadata = path.join(authoredRoot, ".git", "worktrees", "retained");
+    mkdirSync(worktreeMetadata, { recursive: true });
+    writeFileSync(path.join(worktreeMetadata, "HEAD"), "ref: refs/heads/main\n");
+    const manifest = createLedgerBackup({ rootInput: root, backupDir }),
+      entries = new Set(manifest.files.map((file) => file.path));
+    assert.equal(entries.has("harness/context/tracked.md"), true);
+    assert.equal(entries.has("harness/context/untracked.md"), false);
+    assert.equal(entries.has("harness/.claude/settings.json"), false);
+    assert.equal(entries.has("harness/.git/refs/ha/canonical"), true);
+    assert.equal(entries.has("harness/.git/worktrees/retained/HEAD"), true);
+    assert.equal(entries.has(".harness/wal/accepted.json"), true);
+    assert.equal(
+      [...entries].some((file) => file.startsWith("harness/context/nested/")),
+      false,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(backupDir, { recursive: true, force: true });
+  }
+});
+
 test(
   "backup records symbolic links by target and never follows them",
   { skip: process.platform === "win32" ? "symbolic links need privileges on Windows" : false },
@@ -49,16 +96,14 @@ test(
       external = mkdtempSync(path.join(os.tmpdir(), "ha-backup-external-")),
       backupDir = path.join(os.tmpdir(), `ha-backup-symlink-${process.pid}-${Date.now()}`),
       linked = path.join(root, "harness", "context", "linked-external"),
-      dangling = path.join(root, "harness", "context", "dangling"),
-      nested = path.join(root, "harness", ".claude", "worktrees", "nested");
+      dangling = path.join(root, "harness", "context", "dangling");
     try {
       mkdirSync(path.join(root, "harness", "context"), { recursive: true });
       writeFileSync(path.join(external, "secret.md"), "outside the ledger\n");
       symlinkSync(external, linked);
       symlinkSync(path.join("..", "missing-target"), dangling);
-      mkdirSync(nested, { recursive: true });
-      writeFileSync(path.join(nested, ".git"), "gitdir: elsewhere\n");
-      writeFileSync(path.join(nested, "note.md"), "tool state\n");
+      execFileSync("git", ["add", "context"], { cwd: path.join(root, "harness") });
+      execFileSync("git", ["commit", "-qm", "tracked links"], { cwd: path.join(root, "harness") });
       const manifest = createLedgerBackup({ rootInput: root, backupDir }),
         entries = new Map(manifest.files.map((file) => [file.path, file]));
       for (const [relative, target] of [
@@ -68,15 +113,11 @@ test(
         const entry = entries.get(relative)!;
         assert.equal(entry.method, "symlink");
         assert.equal(entry.size, Buffer.byteLength(target));
-        assert.equal(entry.sourceSha256, `sha256:${sha256Bytes(Buffer.from(target))}`);
+        assert.equal(entry.sourceSha256, `sha256:${sha256Text(target)}`);
         assert.equal(entry.backupSha256, entry.sourceSha256);
       }
       assert.equal(
-        manifest.files.some(({ path: file }) => file.startsWith("harness/context/linked-external/")),
-        false,
-      );
-      assert.equal(
-        manifest.files.some(({ path: file }) => file.startsWith("harness/.claude/")),
+        manifest.files.some(({ path: file }) => file.includes("secret.md")),
         false,
       );
       const drilled = drillLedgerBackup({ backupDir, shadowParent: path.join(root, "shadow") });
@@ -96,7 +137,7 @@ test("VACUUM backup survives source deletion and rejects wrong generation metada
     backupDir = path.join(os.tmpdir(), `ha-backup-sqlite-${process.pid}-${Date.now()}`),
     store = openSqliteEventStore({ repoId: "backup-test", rootInput: root });
   try {
-    execFileSync("git", ["update-ref", "-d", "refs/ha/canonical"], { cwd: root });
+    execFileSync("git", ["update-ref", "-d", "refs/ha/canonical"], { cwd: path.join(root, "harness") });
     store.appendCommand({
       fence: { repoId: "backup-test", holder: "test", epoch: 1 },
       intent: { opId: event.opId, intentDigest: `sha256:${sha256Text(JSON.stringify(event))}`, summary: event.type },
@@ -135,7 +176,14 @@ test("VACUUM backup survives source deletion and rejects wrong generation metada
 
 function fixture(name: string): string {
   const root = mkdtempSync(path.join(os.tmpdir(), `ha-ledger-backup-${name}-`)),
-    { parent } = flatLedgerFixture(root, 1);
-  execFileSync("git", ["update-ref", "refs/ha/canonical", parent], { cwd: root });
+    cwd = path.join(root, "harness");
+  flatLedgerFixture(root, 1);
+  execFileSync("git", ["init", "-q"], { cwd });
+  execFileSync("git", ["config", "user.name", "Store Test"], { cwd });
+  execFileSync("git", ["config", "user.email", "store@example.invalid"], { cwd });
+  execFileSync("git", ["add", "."], { cwd });
+  execFileSync("git", ["commit", "-qm", "tracked authored backup fixture"], { cwd });
+  const parent = execFileSync("git", ["rev-parse", "HEAD"], { cwd, encoding: "utf8" }).trim();
+  execFileSync("git", ["update-ref", "refs/ha/canonical", parent], { cwd });
   return root;
 }
