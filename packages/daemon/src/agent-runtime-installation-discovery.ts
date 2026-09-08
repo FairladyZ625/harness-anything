@@ -157,7 +157,8 @@ export async function runExecutable(
   },
 ): Promise<string> {
   const shim = (platform === "win32" || process.platform === "win32") && /\.(?:cmd|bat)$/iu.test(executablePath);
-  const command = shim && process.platform === "win32" ? process.env.ComSpec ?? process.env.COMSPEC ?? "cmd.exe" : "cmd.exe";
+  const command =
+    shim && process.platform === "win32" ? process.env.ComSpec ?? process.env.COMSPEC ?? "cmd.exe" : "cmd.exe";
   const stdout = await runProcessTextAsync(
     shim ? command : executablePath,
     shim ? ["/d", "/s", "/c", `"${executablePath}" ${args.join(" ")}`] : [...args],

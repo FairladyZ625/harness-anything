@@ -299,7 +299,11 @@ export function openRuntimeInstanceStore(input: {
         writeCodexConfig(configPath, config, secret);
     } else if (config.kindId === "zcode") {
       const home = env.HOME ?? env.USERPROFILE;
-      if (!home) throw runtimeInstanceError("invalid_runtime_launch", "ZCode launch environment has no home directory.");
+      if (!home)
+        throw runtimeInstanceError(
+          "invalid_runtime_launch",
+          "ZCode launch environment has no home directory.",
+        );
       writeZcodeConfig(path.join(home, ".zcode", "cli", "config.json"), config, secret);
     } else env.ANTHROPIC_API_KEY = secret;
     rememberAuthReadiness(config.instanceId, available());
