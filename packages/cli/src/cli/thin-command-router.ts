@@ -101,7 +101,7 @@ function parseBootstrapRouted(
   json: boolean,
   inputs: ThinCliInputDirectory,
 ): ThinParseResult {
-  const f = readBootstrapFlags(args.slice(1), inputs);
+  const f = readFlags("repo-bootstrap", args.slice(1), inputs);
   if (!f.ok) return rejected(f.code, f.nextAction, json);
   const name = f.one.get("--name");
   return accepted(rootDir, undefined, json, {
@@ -113,18 +113,6 @@ function parseBootstrapRouted(
     ...(f.booleans.has("--add-npm-scripts") ? { addNpmScripts: true } : {}),
     ...(f.booleans.has("--configure-only") ? { configureOnly: true } : {}),
   });
-}
-
-function readBootstrapFlags(tokens: readonly string[], inputs: ThinCliInputDirectory): ReturnType<typeof readFlags> {
-  const descriptor = inputs.get("repo-bootstrap");
-  if (!descriptor) return readFlags("repo-bootstrap", tokens, inputs);
-  const optionalDescriptor = {
-    ...descriptor,
-    inputs: descriptor.inputs.map((input) =>
-      ["--repo-id", "--person-id", "--display-name"].includes(input.name) ? { ...input, required: false } : input,
-    ),
-  };
-  return readFlags("repo-bootstrap", tokens, new Map([...inputs, ["repo-bootstrap", optionalDescriptor]]));
 }
 
 function parseLedgerReconcileRouted(
