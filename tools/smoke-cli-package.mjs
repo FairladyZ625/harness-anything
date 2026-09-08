@@ -14,12 +14,11 @@ export function runCliPackageSmoke(root = process.cwd()) {
   try {
     // npm is npm.cmd on Windows and Node will not execute a .cmd directly; a shell resolves the
     // shim. Every argument below is a literal or a path this script built.
-    const windowsShell = process.platform === "win32";
     mkdirSync(packDir, { recursive: true }); mkdirSync(consumerDir, { recursive: true }); mkdirSync(projectDir); mkdirSync(home);
-    const packed = JSON.parse(execFileSync("npm", ["pack", "--workspace", "@harness-anything/cli", "--pack-destination", packDir, "--json"],
-      { cwd: root, encoding: "utf8", env: { ...process.env, NPM_CONFIG_IGNORE_SCRIPTS: "true" }, shell: windowsShell }))[0];
+    const packed = JSON.parse(execNpmFileSync(["pack", "--workspace", "@harness-anything/cli", "--pack-destination", packDir, "--json"],
+      { cwd: root, encoding: "utf8", env: { ...process.env, NPM_CONFIG_IGNORE_SCRIPTS: "true" } }))[0];
     const tarball = path.join(packDir, packed?.filename ?? ""); if (!packed?.filename || !existsSync(tarball)) throw new Error("npm pack did not produce the CLI tarball");
-    execFileSync("npm", ["install", "--prefix", consumerDir, "--no-audit", "--no-fund", tarball], { cwd: root, stdio: "inherit", shell: windowsShell });
+    execNpmFileSync(["install", "--prefix", consumerDir, "--no-audit", "--no-fund", tarball], { cwd: root, stdio: "inherit" });
     binPath = resolveBinCommand(consumerDir, "harness-anything"); const alias = resolveBinCommand(consumerDir, "ha");
     for (const command of [binPath, alias]) { const help = run(command, ["--help"], projectDir, env(userRoot, home));
       if (help.status !== 0 || !help.stdout.includes("ha daemon start --service") || !help.stdout.includes("capabilities [--json]") || !help.stdout.includes("--version")) throw new Error(`unexpected packaged help: ${help.stdout}${help.stderr}`);
@@ -78,9 +77,31 @@ export function runCliPackageSmoke(root = process.cwd()) {
   }
 }
 
-export function buildCliPackageArtifact(root, options = {}) { const exec = options.execFileSync ?? execFileSync, exists = options.existsSync ?? existsSync;
-  exec("npm", ["run", "build", "--workspace", "@harness-anything/cli"], { cwd: root, stdio: "inherit", env: { ...process.env, NPM_CONFIG_IGNORE_SCRIPTS: "false" } });
+export function buildCliPackageArtifact(root, options = {}) { const exec = options.execFileSync ?? execFileSync, exists = options.existsSync ?? existsSync,
+  platform = options.platform ?? process.platform, environment = { ...process.env, ...(options.environment ?? {}) },
+  invocation = npmInvocation(["run", "build", "--workspace", "@harness-anything/cli"], platform, environment);
+  exec(invocation.command, invocation.args, { cwd: root, stdio: "inherit", env: { ...environment, NPM_CONFIG_IGNORE_SCRIPTS: "false" }, windowsHide: platform === "win32", ...(invocation.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}) });
   const bin = path.join(root, "packages/cli/dist/cli/src/index.js"); if (!exists(bin)) throw new Error(`explicit CLI package build did not produce ${bin}`); }
+
+function execNpmFileSync(args, options = {}) {
+  const invocation = npmInvocation(args, process.platform, process.env);
+  return execFileSync(invocation.command, invocation.args, {
+    ...options,
+    windowsHide: process.platform === "win32",
+    ...(invocation.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
+  });
+}
+
+function npmInvocation(args, platform, environment) {
+  if (platform !== "win32") return { command: "npm", args };
+  const command = environment.ComSpec ?? environment.COMSPEC ?? "cmd.exe",
+    commandLine = ["npm.cmd", ...args].map(quoteWindowsArgument).join(" ");
+  return { command, args: ["/d", "/s", "/c", commandLine], windowsVerbatimArguments: true };
+}
+
+function quoteWindowsArgument(value) {
+  return /^[^\s"&|<>^()]+$/u.test(value) ? value : `"${value.replaceAll('"', '\\"')}"`;
+}
 export function assertUnstartableDaemonFailedClosed(result, harnessExists) { const detail = JSON.stringify(result); if (result.status === 0) throw new Error(`unstartable-daemon must exit non-zero: ${detail}`); if (result.receipt?.ok !== false) throw new Error(`unstartable-daemon receipt must report ok=false: ${detail}`); const code = result.receipt?.error?.code; if (code !== "daemon_bind_timeout" && code !== "daemon_spawn_permission") throw new Error(`unexpected unstartable-daemon code: ${String(code)}`); if (harnessExists) throw new Error(`unstartable-daemon created harness before failing: ${detail}`); }
 function runJson(command, args, cwd, environment) { const result = run(command, args, cwd, environment); let receipt;
   try { receipt = JSON.parse(result.stdout); } catch { throw new Error(`CLI did not emit JSON: ${result.stdout}${result.stderr}`); } return { ...result, receipt }; }
