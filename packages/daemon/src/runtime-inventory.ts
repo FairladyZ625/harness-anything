@@ -1,9 +1,6 @@
-import {
-  runtimeKindIds,
-  type RuntimeInstallation,
-  type RuntimeKind,
-  type RuntimeKindId,
-} from "../../kernel/src/index.ts";
+// Type-only: a value import would pull the effectful kernel barrel (stable-hash → node:crypto)
+// into the GUI renderer bundle. runtimeKindIds is derived from the runtimeKinds catalog below.
+import type { RuntimeInstallation, RuntimeKind, RuntimeKindId } from "../../kernel/src/index.ts";
 
 export type RuntimeCapabilitySupport = "supported" | "unsupported" | "unverified";
 export type RuntimeAuthMode = "subscription" | "api-key";
@@ -401,7 +398,10 @@ export const runtimeKinds = [
 
 export type RuntimeProtocolFamily = (typeof runtimeKinds)[number]["protocolFamily"];
 export type RuntimeKindInventory = (typeof runtimeKinds)[number] & RuntimeKind;
-export { runtimeKindIds, type RuntimeKindId };
+export type { RuntimeKindId };
+// Catalog-derived, mirroring runtimeProtocolFamilies below; the annotation keeps the
+// catalog fail-closed against the kernel vocabulary (an extra kindId fails to compile).
+export const runtimeKindIds: readonly RuntimeKindId[] = runtimeKinds.map(({ kindId }) => kindId);
 export const runtimeProtocolFamilies: readonly RuntimeProtocolFamily[] = runtimeKinds.map(
   ({ protocolFamily }) => protocolFamily,
 );
