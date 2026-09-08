@@ -116,3 +116,7 @@ execution verdict  ──▶  每个被判断的输出都被记录在工作旁�
 ```
 
 provenance 回答*谁产生了这条记录*。runtime witness 回答*见证的是哪个原生 session*。verdict 回答*这一个输出成立吗*。三者都不是 decision,也都不会悄悄变成 decision——从 verdict 升级到 decision 永远是一个刻意的人类动作,而这恰恰是让 decision 主干、以及盯着它的那个队列,始终值得一读的原因。这条分离背后的"为什么",是[决策 vs 裁决](../../learn/zh/02-decision-and-verdict.md)里的论证;它所汇入的那个"完成",则是[采用律](../../learn/zh/05-adoption-law.md)。
+
+## 手写治理配置
+
+手写的 `governance/walls/walls.json` 清单使用既有 doc-sync 整文件 JSON 策略。先运行 `ha doc status --path governance/walls/walls.json` 预览，再用 `ha doc sync --submit --path governance/walls/walls.json` 提交该路径。更新保留其它手写文档使用的 canonical cut 与内容校验。此分类不放行任意 JSON，也不替代 task contract、dispatch 记录的专用写入命令。

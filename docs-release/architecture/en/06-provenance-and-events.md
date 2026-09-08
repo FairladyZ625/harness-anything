@@ -181,3 +181,7 @@ keeps the decision spine, and the queue that watches it, worth reading. The
 "why" behind that separation is the argument in
 [decision vs. verdict](../../learn/en/02-decision-and-verdict.md); the
 "done" it feeds into is [the adoption law](../../learn/en/05-adoption-law.md).
+
+## Authored governance configuration
+
+The authored `governance/walls/walls.json` manifest uses the existing doc-sync whole-file JSON policy. Preview it with `ha doc status --path governance/walls/walls.json`, then submit that path with `ha doc sync --submit --path governance/walls/walls.json`. Updates retain the canonical cut and content checks used by other authored documents. This classification does not enable arbitrary JSON documents or replace the typed writers for task contracts and dispatch records.
