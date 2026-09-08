@@ -32,6 +32,7 @@ const behaviors = new Map<string, Behavior>([
   ["provider-success-second", "success"],
   ["provider-rate-a", "429"],
   ["provider-rate-b", "429"],
+  ["provider-rate-c", "success"],
   ["provider-stop-first", "worker_stop"],
   ["provider-unused-second", "success"],
   ["provider-restart-first", "429"],
@@ -194,6 +195,39 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
       binding,
     );
     assert.equal(restartedTask.outcome, "applied", JSON.stringify(restartedTask));
+
+    await installAgent(cell, "fallback-explicit-priority", [
+      { instance: "provider-rate-a" },
+      { instance: "provider-rate-b" },
+      { instance: "provider-rate-c" },
+    ]);
+    await startTask(
+      cell,
+      root,
+      "task_provider_fallback_explicit_priority",
+      "execution-provider-fallback-explicit-priority",
+    );
+    await cell.spawnRuntime(
+      {
+        agentId: "fallback-explicit-priority",
+        runtimeInstanceId: "provider-rate-b",
+        cwd: { scope: "repo-root" },
+        prompt: "Continue only after the requested provider.",
+        taskId: "task_provider_fallback_explicit_priority",
+        idempotencyKey: "provider-fallback-explicit-priority",
+      },
+      binding,
+    );
+    const explicitPriority = await eventually(async () => {
+      const rows = (await cell.read("repo.task.dispatches", { taskId: "task_provider_fallback_explicit_priority" }))
+        .dispatches;
+      return rows.length >= 2 ? rows : null;
+    });
+    assert.deepEqual(
+      explicitPriority.slice(0, 2).map(({ provider }) => provider.instance),
+      ["provider-rate-b", "provider-rate-c"],
+      "an explicit provider must continue only through later configured providers",
+    );
 
     await installAgent(cell, "fallback-worker-stop", [
       { instance: "provider-stop-first" },

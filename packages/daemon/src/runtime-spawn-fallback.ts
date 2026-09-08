@@ -21,32 +21,42 @@ export function initialFallbackAttempt(
   sessions: readonly RuntimeSessionSelection[] = [],
 ): RuntimeFallbackAttempt | undefined {
   if (providerSessionId) return undefined;
-  const declared = agent?.fallback,
-    initiallySelected = resolveRuntimeInstanceCandidates({
-      requested: undefined,
-      agent,
-      model: requestedModel ?? agent?.model,
-      instances,
-      sessions,
-    }),
-    anchor = requestedInstance
-      ? instances.find((instance) => instance.instanceId === requestedInstance)
-      : instances.find((instance) => instance.instanceId === initiallySelected[0]),
-    model = requestedModel ?? agent?.model ?? anchor?.defaultModel;
+  const declared = agent?.fallback;
+  const anchor = requestedInstance
+    ? instances.find((instance) => instance.instanceId === requestedInstance)
+    : instances.find(
+        (instance) =>
+          instance.instanceId ===
+          resolveRuntimeInstanceCandidates({
+            requested: undefined,
+            agent,
+            model: requestedModel ?? agent?.model,
+            instances,
+            sessions,
+          })[0],
+      );
+  const model = requestedModel ?? agent?.model ?? anchor?.defaultModel;
   if (!anchor || !model) return undefined;
-  const derivedCandidates = resolveRuntimeInstanceCandidates({
+  const runtimeType = agent?.runtime_type === "any" ? anchor.kindId : (agent?.runtime_type ?? anchor.kindId);
+  if (
+    requestedInstance &&
+    (!anchor.enabled ||
+      !anchor.models.includes(model) ||
+      (anchor.authReadiness.status !== "ready" && anchor.authReadiness.code !== "runtime_auth_not_checked") ||
+      (runtimeType !== "any" && runtimeType !== anchor.kindId))
+  )
+    return undefined;
+  const derivedInstances = resolveRuntimeInstanceCandidates({
       requested: undefined,
       agent,
       model,
-      runtimeType: agent?.runtime_type === "any" ? anchor.kindId : (agent?.runtime_type ?? anchor.kindId),
+      runtimeType,
       instances,
       sessions,
     }),
-    orderedInstances = requestedInstance
-      ? [requestedInstance, ...derivedCandidates.filter((instance) => instance !== requestedInstance)]
-      : derivedCandidates,
-    candidates = orderedInstances.map((instance) => ({ instance, model }));
-  if (requestedInstance && !derivedCandidates.includes(requestedInstance)) return undefined;
+    requestedIndex = requestedInstance ? derivedInstances.indexOf(requestedInstance) : 0,
+    candidates = derivedInstances.slice(requestedIndex).map((instance) => ({ instance, model }));
+  if (requestedIndex < 0) return undefined;
   if (candidates.length < 2) return undefined;
   const backoff = declared?.backoff ?? { baseMs: 0, maxMs: 0 },
     digest = createHash("sha256")
