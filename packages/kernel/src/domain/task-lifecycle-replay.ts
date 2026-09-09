@@ -1,6 +1,7 @@
 import { submissionDigest, submissionId } from "./execution.ts";
 import type { ExecutionV1, LeaseV1 } from "./execution.ts";
-import { reviewDigest } from "./review.ts";
+import { reviewDigest, consentedApprovedReviewForExecution } from "./review.ts";
+import { judgeCompletionEvidence } from "./completion-evidence.ts";
 import { currentTaskForWrite, type ActorAxes, type ContractValidationIssue } from "./task.ts";
 import { validateTaskGraph } from "./task-graph.ts";
 import { isNonEmptyString } from "./write-chain.contract.ts";
@@ -9,7 +10,7 @@ import { stableStringify } from "../integrity/stable-hash.ts";
 import { TaskLifecycleContractError, validateTaskEvent } from "./task-lifecycle-event.ts";
 import type { ExecutionExecutorDeclaredEvent, TaskEventV1 } from "./task-lifecycle-event.ts";
 import { isSameExecution, isSamePerson } from "./actor-domain-services.ts";
-import { codeDocRecordId, currentCodeDocRecord } from "./code-doc-witness.ts";
+import { codeDocRecordId, currentCodeDocRecord, currentCodeDocWitness } from "./code-doc-witness.ts";
 import type {
   ProofFor,
   TaskLifecycleCommand,
@@ -18,15 +19,12 @@ import type {
 } from "./task-lifecycle-contract-internal-types.ts";
 import { validateTaskLifecycleCommandEnvelope } from "./task-lifecycle-contract-commands.ts";
 import {
-  canonicalGateReceipts,
   errorCode,
   execution,
   executionExecutorDeclarationCandidates,
   lifecycleContractIssue,
   replaceExecution,
-  requiredGateWitnessCount,
 } from "./task-lifecycle-contract-support.ts";
-import { isReadyToComplete } from "./task-lifecycle-review-transitions.ts";
 import { TASK_LIFECYCLE_TRANSITIONS } from "./task-lifecycle-transitions.ts";
 import { explainStatusTransition } from "./lifecycle-status.ts";
 
@@ -476,16 +474,61 @@ function assertReplay(snapshot: TaskLifecycleSnapshot, event: TaskEventV1, next:
     ]);
   if (
     event.type === "task_completed" &&
-    (!isReadyToComplete(snapshot) ||
-      canonicalGateReceipts(snapshot, event.payload.execution).length !==
-        requiredGateWitnessCount(snapshot, event.payload.execution) ||
+    (!acceptedCompletionWitnesses(snapshot, event.payload.execution.executionId) ||
+      event.payload.task.taskId !== event.taskId ||
+      event.payload.execution.taskId !== event.taskId ||
       event.payload.task.status !== "done" ||
-      event.payload.execution.state !== "accepted")
+      event.payload.execution.state !== "accepted" ||
+      next.task?.status !== "done" ||
+      execution(next, event.payload.execution.executionId)?.state !== "accepted")
   )
     throw new TaskLifecycleContractError("invalid_transition", [
       lifecycleContractIssue(
         "invalid_transition",
-        "replayed completion lacks review, consent, gate witnesses, or the decision derives edge",
+        `replayed completion at revision ${event.workspaceRevision} (${event.opId}) ` +
+          "does not preserve the accepted task and execution state",
       ),
     ]);
+}
+
+// Accepted history retains its original witness shape; command admission still requires bound evidence.
+function acceptedCompletionWitnesses(snapshot: TaskLifecycleSnapshot, executionId: string): boolean {
+  const current = execution(snapshot, executionId);
+  if (
+    snapshot.task?.status !== "in_review" ||
+    current?.state !== "submitted" ||
+    current.iteration !== snapshot.task.iteration ||
+    !current.submission ||
+    !consentedApprovedReviewForExecution(snapshot.reviews, snapshot.consents, current)
+  )
+    return false;
+  return snapshot.task.completionGateIds.every((gateId) => {
+    if (gateId === "code-doc-reconciliation") {
+      const witness = currentCodeDocWitness(snapshot.codeDocWitnesses, executionId);
+      return (
+        witness?.iteration === current.iteration &&
+        (witness.schema === "code-doc-witness-repoint/v1" || witness.commitSha === current.submission!.commitSha)
+      );
+    }
+    const witness = snapshot.gateWitnesses
+      .filter(
+        (value) =>
+          value.gateId === gateId &&
+          value.executionId === executionId &&
+          value.commitSha === current.submission!.commitSha &&
+          value.iteration === current.iteration,
+      )
+      .at(-1);
+    if (!witness || witness.result !== "pass") return false;
+    if (witness.basis === undefined && witness.provenance === undefined && witness.observed === undefined) return true;
+    return (
+      witness.basis !== undefined &&
+      witness.provenance !== undefined &&
+      witness.observed !== undefined &&
+      judgeCompletionEvidence(
+        { ...witness, basis: witness.basis, provenance: witness.provenance, observed: witness.observed },
+        { execution: current, gateId },
+      ).accepted
+    );
+  });
 }
