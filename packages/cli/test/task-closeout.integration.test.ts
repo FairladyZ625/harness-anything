@@ -117,33 +117,7 @@ test("a standard task with only task-package deliverables completes without a fa
     userRoot = path.join(parent, "user"),
     taskId = "task-closeout-report",
     executionId = "execution-closeout-report";
-  initialize(root);
-  const sourceRoot = path.join(parent, "import-source");
-  initialize(sourceRoot);
-  seedSettingsEvent({ rootDir: sourceRoot, repoId: "closeout-report" });
-  const sourceLedger = makeTaskEventReader({ rootDir: sourceRoot, repoId: "closeout-report" }),
-    snapshotPath = legacyGenerationSnapshotPath(root);
-  try {
-    const snapshot = createImmutableLegacyGenerationSnapshot({
-      repoId: "closeout-report",
-      source: sourceLedger,
-      snapshotPath,
-    });
-    const imported = convertLegacyGeneration({
-      rootDir: root,
-      snapshotPath,
-      fence: { repoId: "closeout-report", holder: "cold-import", epoch: 40 },
-    });
-    assert.equal(imported.migratedEvents, snapshot.eventCount);
-    preflightConvertedGenerationActivation({
-      repoId: "closeout-report",
-      rootDir: root,
-      snapshotPath,
-      databasePath: sqliteLedgerPath(root, 1),
-    });
-  } finally {
-    await sourceLedger.drain();
-  }
+  await prepareConvertedRepository(parent, root, "closeout-report");
   try {
     startDaemon(root, userRoot);
     run(root, userRoot, ["daemon", "repo", "register", "--repo-id", "closeout-report", "--root", root, "--no-link"]);
@@ -257,6 +231,181 @@ test("a standard task with only task-package deliverables completes without a fa
   }
 });
 
+test("two executions publishing one report basename keep both durable contents and their own owners", async (context) => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-task-report-owner-")),
+    root = path.join(parent, "repo"),
+    userRoot = path.join(parent, "user"),
+    repoId = "report-owner",
+    taskId = "task-report-owner",
+    firstExecutionId = "execution-report-owner-a",
+    secondExecutionId = "execution-report-owner-b",
+    firstBody = "# Implementation report\n\nFirst execution finding.\n",
+    secondBody = "# Implementation report\n\nSecond execution finding after the return.\n";
+  await prepareConvertedRepository(parent, root, repoId);
+  const reader = makeTaskEventReader({ rootDir: root, repoId });
+  try {
+    startDaemon(root, userRoot);
+    run(root, userRoot, ["daemon", "repo", "register", "--repo-id", repoId, "--root", root, "--no-link"]);
+    const created = run(root, userRoot, ["task", "create", "--id", taskId, "--admin", "--title", "Report Ownership"]),
+      packagePath = String(created.packagePath),
+      reportPath = `${packagePath}/artifacts/reports/implementation.md`,
+      reportFile = path.join(root, "harness", reportPath);
+    assert.equal(created.status, "accepted_durable", JSON.stringify(created));
+    writeFileSync(path.join(root, "harness", packagePath, "task_plan.md"), realizedPlan("Report Ownership"));
+    run(root, userRoot, ["doc", "sync", "--submit", "--path", `${packagePath}/task_plan.md`]);
+    run(root, userRoot, [
+      "fact",
+      "record",
+      "--task",
+      taskId,
+      "--statement",
+      "The report ownership fixture publishes one report basename from two executions.",
+      "--source",
+      "test:task-report-owner",
+    ]);
+    writeFileSync(
+      path.join(root, "harness", `${packagePath}/closeout.md`),
+      "# Closeout\n\n## Summary\n\nFirst round.\n\n## Verification\n\nReport published.\n\n" +
+        "## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nTask-package-only delivery.\n",
+    );
+    mkdirSync(path.dirname(reportFile), { recursive: true });
+    run(root, userRoot, ["task", "start", taskId, "--execution-id", firstExecutionId], "agent:worker");
+    writeFileSync(reportFile, firstBody);
+    const firstPublication = run(root, userRoot, ["doc", "sync", "--submit", "--task", taskId], "agent:worker"),
+      firstEvent = reader.readEvent(String(firstPublication.opId));
+    assert.equal(firstPublication.status, "accepted_durable", JSON.stringify(firstPublication));
+    assert.equal((firstPublication.git as { state: string }).state, "verified");
+    if (firstEvent?.schema !== "doc-event/v1") throw new Error("the first report did not enter a document event");
+    assert.equal(
+      firstEvent.payload.executionId,
+      firstExecutionId,
+      "the first report is owned by the execution that held the lease",
+    );
+    const firstClaim = firstEvent.payload.changes.find((change) => change.path === reportPath)?.candidate;
+    assert.ok(firstClaim, "the first report needs its own durable content claim");
+    const firstCommit = git(root, "rev-parse", "HEAD");
+    assert.equal(git(root, "show", `${firstCommit}:harness/${reportPath}`), firstBody.trim());
+    const submission = {
+      completionClaim: "The first execution reported its finding.",
+      deliverables: [reportPath],
+      outputs: ["first execution report"],
+      verificationNotes: ["report published in the first round"],
+      knownGaps: [],
+      residualRisks: [],
+      commitSha: firstCommit,
+    };
+    writeFileSync(path.join(root, "submission.json"), JSON.stringify(submission));
+    run(
+      root,
+      userRoot,
+      ["task", "submit", taskId, "--execution-id", firstExecutionId, "--from-file", "submission.json"],
+      "agent:worker",
+    );
+    // A returned review is the only supported route from one execution to the next on one task.
+    run(root, userRoot, [
+      "task",
+      "review-execution",
+      taskId,
+      "--execution-id",
+      firstExecutionId,
+      "--review-id",
+      "review-report-owner-changes",
+      "--json-input",
+      JSON.stringify({
+        verdict: "changes_requested",
+        reason: "The report has to be rewritten by a second execution.",
+        evidenceChecked: [reportPath],
+      }),
+    ]);
+    const returned = JSON.parse(String(run(root, userRoot, ["task", "show", taskId]).evidence)) as {
+      task: { status: string; iteration: number };
+    };
+    assert.equal(returned.task.status, "active");
+    assert.equal(returned.task.iteration, 1, "a returned review opens the second execution round");
+    run(root, userRoot, ["task", "start", taskId, "--execution-id", secondExecutionId], "agent:worker");
+    writeFileSync(reportFile, secondBody);
+    const secondPublication = run(root, userRoot, ["doc", "sync", "--submit", "--task", taskId], "agent:worker"),
+      secondEvent = reader.readEvent(String(secondPublication.opId));
+    context.diagnostic(`report-owner-second=${JSON.stringify(secondPublication)}`);
+    assert.equal(secondPublication.status, "accepted_durable", JSON.stringify(secondPublication));
+    assert.equal((secondPublication.git as { state: string }).state, "verified");
+    assert.notEqual(secondPublication.opId, firstPublication.opId);
+    if (secondEvent?.schema !== "doc-event/v1") throw new Error("the second report did not enter a document event");
+    assert.equal(
+      secondEvent.payload.executionId,
+      secondExecutionId,
+      "the same report basename is owned by the second execution in the second round",
+    );
+    const secondClaim = secondEvent.payload.changes.find((change) => change.path === reportPath)?.candidate;
+    assert.ok(secondClaim, "the second report needs its own durable content claim");
+    assert.notEqual(secondClaim.sha256, firstClaim.sha256, "the two rounds publish different report bytes");
+    assert.deepEqual(
+      reader.readContentBlob(secondClaim.sha256),
+      Buffer.from(secondBody),
+      "the second execution's report is durable under its own claim",
+    );
+    assert.deepEqual(
+      reader.readContentBlob(firstClaim.sha256),
+      Buffer.from(firstBody),
+      "the first execution's report content survives the same-basename republication",
+    );
+    assert.notDeepEqual(
+      reader.readContentBlob(firstClaim.sha256),
+      Buffer.from(secondBody),
+      "the second round must not take over the first execution's content claim",
+    );
+    const replayedFirst = reader.readEvent(String(firstPublication.opId));
+    assert.equal(
+      replayedFirst?.schema === "doc-event/v1" ? replayedFirst.payload.executionId : null,
+      firstExecutionId,
+      "the first execution keeps its recorded ownership after the second round publishes",
+    );
+    assert.equal(git(root, "show", `${firstCommit}:harness/${reportPath}`), firstBody.trim());
+    assert.equal(git(root, "show", `HEAD:harness/${reportPath}`), secondBody.trim());
+    rmSync(reportFile);
+    const materialized = run(root, userRoot, ["doc", "materialize"]);
+    assert.equal(materialized.outcome, "applied", JSON.stringify(materialized));
+    assert.equal(
+      readFileSync(reportFile, "utf8"),
+      secondBody,
+      "restoring the shared basename yields the current round's content, not the returned round's",
+    );
+  } finally {
+    if (existsSync(userRoot)) runMaybe(root, userRoot, ["daemon", "stop"]);
+    await reader.drain();
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+/**
+ * The gen-1 ledger a task-event reader can read: an empty legacy generation converted into `root`,
+ * so a test can inspect canonical events and content blobs the daemon accepts.
+ */
+async function prepareConvertedRepository(parent: string, root: string, repoId: string): Promise<void> {
+  initialize(root);
+  const sourceRoot = path.join(parent, "import-source");
+  initialize(sourceRoot);
+  seedSettingsEvent({ rootDir: sourceRoot, repoId });
+  const sourceLedger = makeTaskEventReader({ rootDir: sourceRoot, repoId }),
+    snapshotPath = legacyGenerationSnapshotPath(root);
+  try {
+    const snapshot = createImmutableLegacyGenerationSnapshot({ repoId, source: sourceLedger, snapshotPath });
+    const imported = convertLegacyGeneration({
+      rootDir: root,
+      snapshotPath,
+      fence: { repoId, holder: "cold-import", epoch: 40 },
+    });
+    assert.equal(imported.migratedEvents, snapshot.eventCount);
+    preflightConvertedGenerationActivation({
+      repoId,
+      rootDir: root,
+      snapshotPath,
+      databasePath: sqliteLedgerPath(root, 1),
+    });
+  } finally {
+    await sourceLedger.drain();
+  }
+}
 function initialize(root: string): void {
   mkdirSync(path.join(root, "harness"), { recursive: true });
   writeFileSync(path.join(root, "README.md"), "# Fixture\n");
