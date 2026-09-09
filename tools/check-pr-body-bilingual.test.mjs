@@ -193,6 +193,13 @@ test("Event-Migration command names come from the ha migrate protocol catalog", 
   const commands = eventMigrationCommandNames();
   assert.ok(commands.includes("import"));
   assert.ok(commands.includes("vertical-declaration"));
+  assert.ok(commands.includes("ledger"));
+  assert.equal(
+    checkEventMigrationDeclaration("Event-Migration: ha migrate ledger", {
+      files: ["packages/kernel/fixtures/canonical-events/task-event-v1/accepted.json"],
+    }).ok,
+    true,
+  );
   assert.equal(commands.includes("invented-migration"), false);
 
   const result = checkEventMigrationDeclaration("Event-Migration: ha migrate invented-migration", {
