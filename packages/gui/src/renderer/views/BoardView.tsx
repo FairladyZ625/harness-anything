@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   DndContext,
@@ -22,6 +22,14 @@ import {
   FreshnessTag,
   freshnessBorder,
 } from "../components/badges";
+import { ColumnResizeHandle } from "../components/ColumnResizeHandle.tsx";
+import {
+  boardColumnPreferenceStorage,
+  clearBoardColumnWidth,
+  readBoardColumnWidths,
+  setBoardColumnWidth,
+  writeBoardColumnWidths,
+} from "../board-column-preferences.ts";
 import { SwimlaneBoard, type LaneGroupBy } from "./SwimlaneBoard";
 import { TaskFilterBar } from "../components/TaskFilterBar";
 import type { TaskFilters } from "../model/taskFilters";
@@ -252,6 +260,8 @@ function DndCard({
 /** 列内 windowing(W10):估算卡高含 8px 间距,实测由 measureElement 收敛。 */
 const CARD_ESTIMATE_PX = 108;
 const CARD_OVERSCAN = 6;
+/** 列宽交互区间(W11):未定宽列走 basis-1/4 等分默认,一旦拖/微调就固定 px。 */
+const COLUMN_WIDTH_RANGE = { min: 220, max: 720 } as const;
 
 function Column({
   status,
@@ -262,6 +272,9 @@ function Column({
   favorites,
   onToggleFavorite,
   onSetPin,
+  width,
+  onResize,
+  onReset,
 }: {
   status: SnapshotStatus;
   tasks: readonly TaskRow[];
@@ -271,6 +284,10 @@ function Column({
   favorites: ReadonlySet<string>;
   onToggleFavorite: (id: string) => void;
   onSetPin?: (task: TaskRow, pinned: boolean) => void;
+  /** 持久化列宽;undefined = 默认等分布局。 */
+  width: number | undefined;
+  onResize: (status: SnapshotStatus, px: number) => void;
+  onReset: (status: SnapshotStatus) => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: status });
   const meta = STATUS_META[status];
@@ -289,10 +306,14 @@ function Column({
     overscan: CARD_OVERSCAN,
     getItemKey: (index) => ordered[index].taskId,
   });
+  // 未定宽列保持 basis-1/4 等分默认;定宽后固定 px(两态都 shrink-0,越界走横向滚动)。
+  const sizing = width === undefined ? "basis-1/4" : "";
   return (
     <div
       ref={setNodeRef}
-      className={`flex basis-1/4 shrink-0 flex-col rounded-xl p-2 transition-colors ${
+      data-testid={`board-column-${status}`}
+      style={width === undefined ? undefined : { width }}
+      className={`relative flex shrink-0 ${sizing} flex-col rounded-xl p-2 transition-colors ${
         isOver && rejecting
           ? "bg-danger/5 outline outline-1 outline-dashed outline-danger/40"
           : isOver
@@ -300,6 +321,16 @@ function Column({
             : "bg-surface"
       }`}
     >
+      <ColumnResizeHandle
+        label={`调整「${meta.label}」列宽`}
+        width={width}
+        min={COLUMN_WIDTH_RANGE.min}
+        max={COLUMN_WIDTH_RANGE.max}
+        onChange={(px) => onResize(status, px)}
+        onReset={() => onReset(status)}
+        testId={`board-column-resize-${status}`}
+        className="inset-y-0 -right-1.5"
+      />
       <div className="flex items-center gap-2 px-1.5 pb-2 pt-1">
         <span style={{ color: meta.color }} className="text-base">
           {meta.icon}
@@ -396,6 +427,26 @@ export const BoardView = memo(function BoardView({
   const [activeTask, setActiveTask] = useState<TaskRow | null>(null);
   const [dragMessage, setDragMessage] = useState<string | null>(null);
   const [lastMutationTaskId, setLastMutationTaskId] = useState<string | null>(null);
+
+  // 列宽偏好(W11):GUI 本地态,读写同 graph-density 模式;只在挂载时读一次,
+  // 之后写穿透(每次调整都落 localStorage,重启/重载后保留)。
+  const [columnWidths, setColumnWidths] = useState(() => readBoardColumnWidths(boardColumnPreferenceStorage()));
+  const resizeColumn = useCallback(
+    (status: SnapshotStatus, px: number) => {
+      const next = setBoardColumnWidth(columnWidths, "column", status, px);
+      setColumnWidths(next);
+      writeBoardColumnWidths(boardColumnPreferenceStorage(), next);
+    },
+    [columnWidths],
+  );
+  const resetColumn = useCallback(
+    (status: SnapshotStatus) => {
+      const next = clearBoardColumnWidth(columnWidths, "column", status);
+      setColumnWidths(next);
+      writeBoardColumnWidths(boardColumnPreferenceStorage(), next);
+    },
+    [columnWidths],
+  );
 
   // 看板默认降噪(W8):冷终态(终态且非重点种子,判定复用 isTaskGraphFocusSeed 的
   // 14 天窗口)默认折叠为可见计数,TaskFilterBar 提供展开开关;pinned 恒可见。
@@ -557,6 +608,9 @@ export const BoardView = memo(function BoardView({
                 favorites={favorites}
                 onToggleFavorite={onToggleFavorite}
                 onSetPin={onSetPin}
+                width={columnWidths.column[status]}
+                onResize={resizeColumn}
+                onReset={resetColumn}
               />
             ))}
           </div>

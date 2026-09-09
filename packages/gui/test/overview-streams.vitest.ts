@@ -270,9 +270,10 @@ describe("overview task stream", () => {
     expect(tabText(overview, "overview-status-blocked")).toBe("已阻塞 1");
   });
 
-  // 「无 reveal 按钮 + 窗口有界」的看板/泳道断言在 test/board-windowing.vitest.ts
-  // (W10):列内/泳道行 windowing 后卡片只在挂载后的视口窗口出现,SSR markup 里
-  // 没有卡片,断言必须走真实 DOM;本文件其余测试保持 node 环境 SSR。
+  // 「无 reveal 按钮 + 窗口有界」的看板/泳道断言在 test/taskFilters.vitest.ts 的
+  // windowing(W10)用例里:列内/泳道行 windowing 后卡片只在挂载后的视口窗口出现,
+  // SSR markup 里没有卡片,断言必须走真实 DOM(happy-dom);本文件其余测试保持
+  // node 环境 SSR。
 
   // The test above renders TaskStream directly, so it proves the leaf agrees with the
   // census but says nothing about the page that feeds it. Render the overview page so

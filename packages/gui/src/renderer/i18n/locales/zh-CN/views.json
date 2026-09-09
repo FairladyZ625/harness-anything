@@ -74,6 +74,7 @@
   "views.listView.cancelFavorites": "取消收藏",
   "views.listView.closeout": "收口",
   "views.listView.collection": "收藏",
+  "views.listView.columnResize": "调整「{column}」列宽",
   "views.listView.currentResults": "当前结果",
   "views.listView.engine": "引擎",
   "views.listView.externalReadOnly": "外部只读",

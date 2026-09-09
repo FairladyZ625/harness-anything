@@ -1,15 +1,29 @@
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { CaretRight, Lock, PushPin, Star } from "@phosphor-icons/react";
 import type { TaskRow, SnapshotStatus } from "../model/types";
 import { BOARD_COLUMNS, isExternal } from "../model/types";
 import { STATUS_META, CloseoutBadge, DecisionSourceBadge, FreshnessTag, freshnessBorder } from "../components/badges";
+import { ColumnResizeHandle } from "../components/ColumnResizeHandle.tsx";
+import {
+  boardColumnPreferenceStorage,
+  clearBoardColumnWidth,
+  readBoardColumnWidths,
+  setBoardColumnWidth,
+  writeBoardColumnWidths,
+  type BoardColumnWidths,
+} from "../board-column-preferences.ts";
 import type { SpawningDecisionIndex } from "../model/triadic";
 import { sortByRecentThenPinAndFavoritesFirst } from "../model/taskFilters";
 
 export type LaneGroupBy = "module" | "engine" | "root" | "productLine";
 
-const GRID_COLS = "grid-cols-[180px_repeat(7,230px)]";
+/** 泳道列宽默认值 = 原 GRID_COLS(180px 泳道标签 + 7×230px 状态列);可调区间各自独立。 */
+const LANE_COLUMN_KEY = "lane";
+const LANE_WIDTH_DEFAULT = 180;
+const LANE_WIDTH_RANGE = { min: 120, max: 480 } as const;
+const STATUS_WIDTH_DEFAULT = 230;
+const STATUS_WIDTH_RANGE = { min: 160, max: 640 } as const;
 
 /** 泳道行 windowing(W10):估算行高 = 单元格 min-h 62px + py-2.5 + border,实测收敛。 */
 const LANE_ROW_ESTIMATE_PX = 84;
@@ -171,11 +185,13 @@ const LaneCard = memo(function LaneCard({
  * 单条泳道行(windowing 后的挂载单元):结构不变——lane 标签 + 7 个状态格;
  * 外层由 windowing 定位(absolute + translateY),data-index 供 virtualizer
  * 的 measureElement 反查行号,行高实测收敛(标签换行时行会高于估算)。
+ * 列模板跟随表头的 gridTemplateColumns(W11):表头/行同一份宽度偏好。
  */
 function LaneRow({
   lane,
   index,
   offset,
+  gridTemplate,
   measureRef,
   model,
   groupBy,
@@ -186,6 +202,7 @@ function LaneRow({
   lane: string;
   index: number;
   offset: number;
+  gridTemplate: string;
   measureRef: (element: Element | null) => void;
   model: SwimlaneModel;
   groupBy: LaneGroupBy;
@@ -198,8 +215,8 @@ function LaneRow({
       data-index={index}
       ref={measureRef}
       data-testid="swimlane-row"
-      className={`absolute inset-x-0 top-0 grid ${GRID_COLS} gap-2 border-b border-border py-2.5`}
-      style={{ transform: `translateY(${offset}px)` }}
+      className="absolute inset-x-0 top-0 grid gap-2 border-b border-border py-2.5"
+      style={{ gridTemplateColumns: gridTemplate, transform: `translateY(${offset}px)` }}
     >
       <div className="flex items-baseline gap-2 self-start px-1.5 pt-1.5">
         <span className="font-mono ui-prose font-semibold text-text" title={groupBy === "root" ? lane : undefined}>
@@ -411,6 +428,31 @@ export function SwimlaneBoard({
     getItemKey: (index) => lanes[index],
     scrollMargin: headerHeight,
   });
+  // 泳道列宽偏好(W11):泳道标签列 + 7 个状态列各一个数字,默认 180/230 等宽;
+  // 表头是唯一手柄面(sticky,滚动时仍可达),行模板跟着表头走。
+  const [widths, setWidths] = useState<BoardColumnWidths>(() => readBoardColumnWidths(boardColumnPreferenceStorage()));
+  const resizeColumn = useCallback(
+    (key: string, px: number) => {
+      const next = setBoardColumnWidth(widths, "swimlane", key, px);
+      setWidths(next);
+      writeBoardColumnWidths(boardColumnPreferenceStorage(), next);
+    },
+    [widths],
+  );
+  const resetColumn = useCallback(
+    (key: string) => {
+      const next = clearBoardColumnWidth(widths, "swimlane", key);
+      setWidths(next);
+      writeBoardColumnWidths(boardColumnPreferenceStorage(), next);
+    },
+    [widths],
+  );
+  const laneWidth = widths.swimlane[LANE_COLUMN_KEY] ?? LANE_WIDTH_DEFAULT;
+  const gridStyle = {
+    gridTemplateColumns: [laneWidth, ...BOARD_COLUMNS.map((status) => widths.swimlane[status] ?? STATUS_WIDTH_DEFAULT)]
+      .map((px) => `${Math.round(px)}px`)
+      .join(" "),
+  };
 
   useEffect(() => {
     if (activeCell && !lanes.includes(activeCell.lane)) setActiveCell(null);
@@ -429,15 +471,36 @@ export function SwimlaneBoard({
         <div className="min-w-max px-4 pb-4">
           <div
             ref={headerRef}
-            className={`sticky top-0 z-10 grid ${GRID_COLS} gap-2 border-b border-border bg-bg py-2`}
+            className="sticky top-0 z-10 grid gap-2 border-b border-border bg-bg py-2"
+            style={gridStyle}
           >
-            <div className="self-center px-1.5 font-mono ui-meta uppercase tracking-wide text-text-faint">
+            <div className="relative self-center px-1.5 font-mono ui-meta uppercase tracking-wide text-text-faint">
               {groupBy}
+              <ColumnResizeHandle
+                label="调整泳道标签列宽"
+                width={laneWidth}
+                min={LANE_WIDTH_RANGE.min}
+                max={LANE_WIDTH_RANGE.max}
+                onChange={(px) => resizeColumn(LANE_COLUMN_KEY, px)}
+                onReset={() => resetColumn(LANE_COLUMN_KEY)}
+                testId="swimlane-lane-resize"
+                className="inset-y-0 -right-1"
+              />
             </div>
             {BOARD_COLUMNS.map((status) => {
               const meta = STATUS_META[status];
               return (
-                <div key={status} className="flex items-center gap-1.5 px-1.5">
+                <div key={status} className="relative flex items-center gap-1.5 px-1.5">
+                  <ColumnResizeHandle
+                    label={`调整「${meta.label}」列宽`}
+                    width={widths.swimlane[status] ?? STATUS_WIDTH_DEFAULT}
+                    min={STATUS_WIDTH_RANGE.min}
+                    max={STATUS_WIDTH_RANGE.max}
+                    onChange={(px) => resizeColumn(status, px)}
+                    onReset={() => resetColumn(status)}
+                    testId={`swimlane-column-resize-${status}`}
+                    className="inset-y-0 -right-1"
+                  />
                   <span style={{ color: meta.color }} className="text-base">
                     {meta.icon}
                   </span>
@@ -461,6 +524,7 @@ export function SwimlaneBoard({
                   lane={lanes[row.index]}
                   index={row.index}
                   offset={row.start}
+                  gridTemplate={gridStyle.gridTemplateColumns}
                   measureRef={laneVirtualizer.measureElement}
                   model={model}
                   groupBy={groupBy}
