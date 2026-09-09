@@ -160,6 +160,7 @@ export interface SqliteTaskEventStoreOptions {
   readonly withAppendFence?: <T>(operation: () => T) => T;
   readonly onMaterializationHealthChange?: (health: MaterializationHealth) => void;
   readonly mutable?: boolean;
+  readonly generation?: 1 | 2;
   readonly killpoint?: (point: import("./task-event-store-types.ts").EventPublicationKillpoint) => void;
 }
 
@@ -171,6 +172,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
     repoId: options.repoId,
     rootInput: input,
     readOnly: options.mutable === false,
+    generation: options.generation,
   });
   let resolvedLedger: ReturnType<typeof resolveLedgerGitLayout> | null = null;
   const ledger = () => (resolvedLedger ??= resolveLedgerGitLayout(input));

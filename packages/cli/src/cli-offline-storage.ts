@@ -6,6 +6,7 @@ import {
   createLedgerBackup,
   drillLedgerBackup,
   readOfflineLedgerEvents,
+  resolveActiveGeneration,
   runGenerationTwoConversion,
 } from "../../kernel/src/store/ledger-backup.ts";
 
@@ -30,7 +31,10 @@ export function runOfflineStorageCommand(argv: readonly string[], emit: Emit): n
     const generationOption = option(argv, "--generation");
     if (generationOption !== undefined && generationOption !== "1" && generationOption !== "2")
       throw new Error("--generation must be 1 or 2");
-    const generation = generationOption === "2" ? 2 : 1;
+    // Offline commands follow the same activation certificate the daemon writer and reader follow.
+    // An explicit --generation still reads the retained one so the old ledger stays auditable.
+    const generation =
+      generationOption === undefined ? resolveActiveGeneration({ rootInput }) : (Number(generationOption) as 1 | 2);
     const commandIndex = firstCliCommandIndex(argv);
     if (argv[commandIndex] === "migrate" && argv[commandIndex + 1] === "ledger") {
       if (argv.includes("--help")) {
@@ -46,7 +50,7 @@ export function runOfflineStorageCommand(argv: readonly string[], emit: Emit): n
       if (!flags.ok) throw new Error(flags.nextAction);
       const result = runGenerationTwoConversion({
         backupDir: flags.one.get("--source")!,
-        mode: flags.one.get("--mode")! as "dry-run" | "convert" | "verify",
+        mode: flags.one.get("--mode")! as "dry-run" | "convert" | "verify" | "activate",
         ...(flags.one.has("--destination") ? { destinationRoot: flags.one.get("--destination")! } : {}),
       });
       const exitCode = result.plan.ready ? 0 : 1;

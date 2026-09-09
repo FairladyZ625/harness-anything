@@ -15,7 +15,12 @@ export { validateWriteReceipt } from "../../src/domain/receipt-domain-registry.t
 export { daemonRegistryPaths } from "../../src/daemon/registry.ts";
 
 export { createLedgerBackup, drillLedgerBackup } from "../../src/store/ledger-backup.ts";
-export { openSqliteEventStore, sqliteLedgerPath } from "../../src/store/sqlite-event-store.ts";
+export {
+  generationTwoActivationPath,
+  openSqliteEventStore,
+  resolveActiveGeneration,
+  sqliteLedgerPath,
+} from "../../src/store/sqlite-event-store.ts";
 export { sha256Bytes } from "../../src/integrity/stable-hash.ts";
 export type { DocEventV1 } from "../../src/domain/doc-sync-types.ts";
 

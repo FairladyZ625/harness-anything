@@ -182,7 +182,7 @@ test("live generation 2 writes cannot backfill recordedAt", () => {
   }
 });
 
-test("conversion accounts for a changed event count without losing the original duplicate observation or outcome", () => {
+test("conversion preserves a repeated observation one-to-one so no later revision or cut is renumbered", () => {
   const f = fixture();
   try {
     const store = openSqliteEventStore({ repoId: "conversion-test", rootInput: f.root, generation: 1 }),
@@ -219,22 +219,38 @@ test("conversion accounts for a changed event count without losing the original 
     createLedgerBackup({ rootInput: f.root, backupDir: f.backupDir });
     const converted = invoke(["--source", f.backupDir, "--mode", "convert", "--destination", f.destination]);
     assert.equal(converted.status, 0, JSON.stringify(converted.receipt));
+    // Root's ruling: the repeated observation really happened, so it is preserved read-only rather
+    // than dropped, which would have shifted every later revision and cut reference.
     assert.deepEqual(
       [
         converted.receipt.plan.sourceEvents,
         converted.receipt.plan.convertedEvents,
         converted.receipt.plan.retainedEvents,
+        converted.receipt.plan.preservedHistoricalEvents,
       ],
-      [4, 3, 1],
+      [4, 4, 0, 1],
     );
-    assert.equal(converted.receipt.plan.mappings[3].disposition, "retained-read-only");
+    assert.equal(converted.receipt.plan.mappings[3].disposition, "converted");
+    assert.match(converted.receipt.plan.mappings[3].reasons[0], /preserved read-only/u);
+    assert.deepEqual(
+      converted.receipt.plan.mappings.map((mapping: { sourceRevision: number; destinationRevision: number }) => [
+        mapping.sourceRevision,
+        mapping.destinationRevision,
+      ]),
+      [
+        [1, 1],
+        [2, 2],
+        [3, 3],
+        [4, 4],
+      ],
+    );
     console.log("GEN2_ACCOUNTING_EVIDENCE=" + JSON.stringify(converted.receipt));
     const retained = openSqliteEventStore({ rootInput: f.destination, generation: 1, readOnly: true }),
       target = openSqliteEventStore({ rootInput: f.destination, generation: 2, readOnly: true });
     try {
       assert.equal(retained.eventRows().length, 4);
-      assert.equal(target.eventRows().length, 3);
-      assert.deepEqual(target.outcome("installation-command")?.memberOpIds, ["install-3"]);
+      assert.equal(target.eventRows().length, 4);
+      assert.deepEqual(target.outcome("installation-command")?.memberOpIds, ["install-3", "install-4"]);
       assert.deepEqual(retained.outcome("installation-command")?.memberOpIds, ["install-3", "install-4"]);
     } finally {
       retained.close();

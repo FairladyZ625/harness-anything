@@ -13,7 +13,12 @@ import {
   type StoppedLegacySourceEvidenceV1,
 } from "./legacy-generation-source.ts";
 import { assertNoPendingHistoricalRewrites, planLegacyGenerationConversion } from "./event-shape-migration.ts";
-import { openSqliteEventStore, sqliteLedgerPath, type SqliteWriterFence } from "./sqlite-event-store.ts";
+import {
+  openSqliteEventStore,
+  preflightGenerationTwoActivation,
+  sqliteLedgerPath,
+  type SqliteWriterFence,
+} from "./sqlite-event-store.ts";
 import { publishConvertedGeneration, readCertifiedGitFollower } from "./sqlite-task-event-store.ts";
 import { TaskEventStoreError, type CanonicalContentBlob, type CanonicalEventStore } from "./task-event-store-types.ts";
 
@@ -63,8 +68,10 @@ export function activateEmptyCanonicalGeneration(input: {
   readonly rootInput: HarnessLayoutInput;
   readonly repoId: string;
 }): void {
-  const layout = resolveHarnessLayout(input.rootInput),
-    databasePath = sqliteLedgerPath(input.rootInput, 1),
+  const layout = resolveHarnessLayout(input.rootInput);
+  // An activated generation 2 owns the writer; its certificate and imported prefix are the gate.
+  if (preflightGenerationTwoActivation(input) !== null) return;
+  const databasePath = sqliteLedgerPath(input.rootInput, 1),
     snapshotPath = legacyGenerationSnapshotPath(layout.rootDir);
   if (localRuntimeStateFileSystem.exists(generationActivationCertificatePath(layout.rootDir))) {
     preflightCanonicalGeneration(input);

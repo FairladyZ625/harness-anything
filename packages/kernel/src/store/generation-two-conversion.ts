@@ -13,8 +13,10 @@ import { localRuntimeStateFileSystem as files } from "../local/local-layout-file
 import { drillLedgerBackup, readVerifiedLedgerBackup } from "./ledger-backup.ts";
 import { contentClaims } from "./task-event-store-claims-layout.ts";
 import {
+  generationTwoActivationPath,
   openSqliteEventStore,
   sqliteLedgerPath,
+  type GenerationTwoActivationV2,
   type SqliteEventStore,
   type SqliteEventRow,
 } from "./sqlite-event-store.ts";
@@ -39,6 +41,8 @@ export interface GenerationConversionPlan {
   readonly sourceEvents: number;
   readonly convertedEvents: number;
   readonly retainedEvents: number;
+  /** Converted one-to-one but carrying no new fact; kept so no later revision or cut is renumbered. */
+  readonly preservedHistoricalEvents: number;
   readonly ready: boolean;
   readonly mappings: readonly GenerationConversionMapping[];
 }
@@ -46,7 +50,7 @@ export interface GenerationConversionPlan {
 /** Offline operator entry. The input is a verified, self-contained backup, never a live repository. */
 export function runGenerationTwoConversion(input: {
   readonly backupDir: string;
-  readonly mode: "dry-run" | "convert" | "verify";
+  readonly mode: "dry-run" | "convert" | "verify" | "activate";
   readonly destinationRoot?: string;
 }) {
   const backupDir = path.resolve(input.backupDir),
@@ -75,12 +79,50 @@ export function runGenerationTwoConversion(input: {
       drillLedgerBackup({ backupDir, shadowParent: path.dirname(destinationRoot), destinationRoot });
       convert(source, destinationRoot, plan, events, rows);
     }
+    // Activation follows verification, never precedes it: a destination that fails verification
+    // must be left without a certificate, so no process can select it.
     const verification = verify(source, destinationRoot, plan, events, rows);
-    // Verification never activates a repository. The retained original and report accompany the candidate.
-    return { plan, destinationRoot, verification, active: false as const };
+    if (input.mode !== "activate") return { plan, destinationRoot, verification, active: false as const };
+    activateGenerationTwo({ rootDir: destinationRoot, plan });
+    return { plan, destinationRoot, verification, active: true as const };
   } finally {
     source.close();
   }
+}
+
+export function activateGenerationTwo(input: {
+  readonly rootDir: string;
+  readonly plan: GenerationConversionPlan;
+}): void {
+  if (!input.plan.ready) throw new Error("cannot activate an unready generation 2 conversion");
+  const databasePath = sqliteLedgerPath(input.rootDir, 2),
+    reportPath = `${databasePath}.conversion.json`;
+  if (!files.exists(databasePath) || !files.exists(reportPath)) throw new Error("generation 2 conversion is missing");
+  // The offline converter stops being the writer here; otherwise its lease fences out the first
+  // ordinary writer of the activated generation.
+  const released = openSqliteEventStore({ repoId: input.plan.repoId, databasePath, generation: 2 });
+  try {
+    released.releaseWriter(offlineConverterFence(input.plan.repoId));
+  } finally {
+    released.close();
+  }
+  const activation: GenerationTwoActivationV2 = {
+      schema: "generation-activation/v2",
+      repoId: input.plan.repoId,
+      sourceDigest: input.plan.sourceDigest,
+      importedPrefixRevision: input.plan.convertedEvents,
+      generation: 2,
+    },
+    certificatePath = generationTwoActivationPath(input.rootDir);
+  if (!files.createExclusiveText(certificatePath, `${JSON.stringify(activation)}\n`)) {
+    const existing = JSON.parse(files.readText(certificatePath));
+    if (stableStringify(existing) !== stableStringify(activation))
+      throw new Error("generation 2 activation certificate differs");
+  }
+}
+
+function offlineConverterFence(repoId: string) {
+  return { repoId, holder: "offline-generation-2-converter", epoch: 1 };
 }
 
 function planConversion(source: SqliteEventStore) {
@@ -91,7 +133,6 @@ function planConversion(source: SqliteEventStore) {
   for (const row of rows) {
     let candidate: CanonicalEventV1 | undefined;
     const reasons: string[] = [];
-    let retained = false;
     try {
       if (row.revision !== mappings.length + 1 || row.digest !== `sha256:${sha256Text(row.eventJson)}`)
         throw new Error("source revision or event digest differs");
@@ -100,38 +141,39 @@ function planConversion(source: SqliteEventStore) {
       if (event.opId !== row.opId || event.workspaceRevision !== row.revision || event.occurredAt !== row.occurredAt)
         throw new Error("source event identity or occurredAt column differs");
       if (!Number.isFinite(Date.parse(row.recordedAt))) throw new Error("source recordedAt is unavailable");
-      if (event.type === "runtime_session_liveness_changed") {
-        retained = true;
-        reasons.push("historical liveness is retained in generation 1; it cannot establish current liveness");
-      } else if (event.schema === "agent-runtime-event/v1" && event.type === "runtime_installation_observed") {
+      // Root's history ruling: these observations really happened, so generation 2 keeps them as
+      // read-only history instead of dropping them and renumbering every later revision and cut.
+      if (event.type === "runtime_session_liveness_changed")
+        reasons.push("historical liveness observation preserved read-only; it cannot establish current liveness");
+      else if (event.type === "runtime_session_provider_bound" || event.type === "runtime_session_task_bound")
+        // Root ruled these binding facts are kept where they happened and never backfilled into the
+        // earlier started cut, so they convert in place rather than being folded into a start event.
+        reasons.push("historical session binding preserved read-only at its own cut; it is not backfilled");
+      else if (event.schema === "agent-runtime-event/v1" && event.type === "runtime_installation_observed") {
         const key = event.payload.installationId,
           value = stableStringify(event.payload);
-        retained = installations.get(key) === value;
+        if (installations.get(key) === value)
+          reasons.push("repeated installation observation preserved read-only; it adds no new installation fact");
         installations.set(key, value);
-        if (retained) reasons.push("identical installation observation retained in generation 1");
       }
-      if (!retained) {
-        if (event.type === "decision_related" || event.type === "task_relation_added")
-          throw new Error("retired relation ingress requires an explicit relation identity and reference mapping");
-        if (event.type === "runtime_session_provider_bound" || event.type === "runtime_session_task_bound")
-          throw new Error("session binding consolidation requires the approved start-event and historical-cut mapping");
-        const issues = validateCurrentCanonicalEvent(event);
-        if (issues.length) throw new Error(issues.join("; "));
-        for (const claim of contentClaims(event)) {
-          const bytes = source.readContentObject(claim.sha256);
-          if (!bytes || bytes.byteLength !== claim.size || sha256Bytes(bytes) !== claim.sha256)
-            throw new Error(`missing or corrupt accepted content ${claim.sha256}`);
-        }
-        candidate = { ...event, workspaceRevision: events.length + 1 };
-        // A cut/digest reference cannot be shifted by blind recursive string replacement.
-        if (candidate.workspaceRevision !== row.revision && event.type !== "runtime_installation_observed")
-          throw new Error("event references a historical revision/cut requiring an explicit mapping");
+      if (event.type === "decision_related" || event.type === "task_relation_added")
+        throw new Error("retired relation ingress requires an explicit relation identity and reference mapping");
+      const issues = validateCurrentCanonicalEvent(event);
+      if (issues.length) throw new Error(issues.join("; "));
+      for (const claim of contentClaims(event)) {
+        const bytes = source.readContentObject(claim.sha256);
+        if (!bytes || bytes.byteLength !== claim.size || sha256Bytes(bytes) !== claim.sha256)
+          throw new Error(`missing or corrupt accepted content ${claim.sha256}`);
       }
+      candidate = { ...event, workspaceRevision: events.length + 1 };
+      // Preserving every source record keeps revisions aligned. Once anything is dropped, every
+      // later cut and digest reference shifts, and a blind string rewrite cannot repair that.
+      if (candidate.workspaceRevision !== row.revision)
+        throw new Error("a dropped earlier record shifted this revision/cut; it requires an explicit mapping");
     } catch (error) {
       consumeKnownError(error);
       reasons.push(error instanceof Error ? error.message : String(error));
       candidate = undefined;
-      retained = false;
     }
     if (candidate) events.push(candidate);
     mappings.push({
@@ -141,7 +183,7 @@ function planConversion(source: SqliteEventStore) {
       destinationRevision: candidate?.workspaceRevision ?? null,
       destinationOpId: candidate?.opId ?? null,
       destinationDigest: candidate ? `sha256:${sha256Text(serializePersistedCanonicalEvent(candidate))}` : null,
-      disposition: candidate ? "converted" : retained ? "retained-read-only" : "unsupported",
+      disposition: candidate ? "converted" : "unsupported",
       reasons,
     });
   }
@@ -155,6 +197,9 @@ function planConversion(source: SqliteEventStore) {
     sourceEvents: rows.length,
     convertedEvents: events.length,
     retainedEvents: mappings.filter((row) => row.disposition === "retained-read-only").length,
+    preservedHistoricalEvents: mappings.filter(
+      (row) => row.disposition === "converted" && row.reasons.some((reason) => reason.includes("preserved read-only")),
+    ).length,
     ready: mappings.every((row) => row.disposition !== "unsupported"),
     mappings,
   };
@@ -196,7 +241,7 @@ function convert(
       generation: 2,
       conversionSourceGeneration: 1,
     }),
-    fence = { repoId: plan.repoId, holder: "offline-generation-2-converter", epoch: 1 },
+    fence = offlineConverterFence(plan.repoId),
     byOpId = new Map(plan.mappings.map((mapping) => [mapping.sourceOpId, mapping]));
   try {
     destination.claimWriter(fence);

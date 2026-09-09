@@ -94,6 +94,8 @@ export interface SqliteEventStore {
   readonly databasePath: string;
   readonly sqliteVersion: string;
   readonly claimWriter: (fence: SqliteWriterFence) => void;
+  /** Hand the ledger back when an offline holder stops writing, so a live writer is not fenced out. */
+  readonly releaseWriter: (fence: SqliteWriterFence) => void;
   readonly writerFence: () => SqliteWriterFence | null;
   readonly appendCommand: (input: {
     readonly fence: SqliteWriterFence;
@@ -124,6 +126,75 @@ export interface SqliteEventStore {
 
 export function sqliteLedgerPath(input: HarnessLayoutInput, generation = SQLITE_LEDGER_GENERATION): string {
   return path.join(resolveHarnessLayout(input).localRoot, "store", "generations", String(generation), "ledger.sqlite");
+}
+
+export interface GenerationTwoActivationV2 {
+  readonly schema: "generation-activation/v2";
+  readonly repoId: string;
+  readonly sourceDigest: string;
+  readonly importedPrefixRevision: number;
+  readonly generation: 2;
+}
+
+export function generationTwoActivationPath(input: HarnessLayoutInput): string {
+  return `${sqliteLedgerPath(input, 2)}.activation.json`;
+}
+
+/**
+ * The one production generation selector. Writers, readers, offline commands and every restart
+ * resolve the same answer from the same certificate. A certificate that is malformed or names
+ * another repository fails the caller instead of silently falling back to generation 1, so a
+ * damaged activation can never be mistaken for "not activated yet".
+ */
+export function resolveActiveGeneration(input: {
+  readonly rootInput: HarnessLayoutInput;
+  readonly repoId?: string;
+}): 1 | 2 {
+  return readGenerationTwoActivation(input) === null ? 1 : 2;
+}
+
+export function readGenerationTwoActivation(input: {
+  readonly rootInput: HarnessLayoutInput;
+  readonly repoId?: string;
+}): GenerationTwoActivationV2 | null {
+  const certificatePath = generationTwoActivationPath(input.rootInput);
+  if (!localRuntimeStateFileSystem.exists(certificatePath)) return null;
+  const certificate = JSON.parse(localRuntimeStateFileSystem.readText(certificatePath)) as GenerationTwoActivationV2;
+  if (
+    certificate.schema !== "generation-activation/v2" ||
+    certificate.generation !== 2 ||
+    typeof certificate.repoId !== "string" ||
+    typeof certificate.sourceDigest !== "string" ||
+    !Number.isSafeInteger(certificate.importedPrefixRevision) ||
+    certificate.importedPrefixRevision < 0 ||
+    (input.repoId !== undefined && certificate.repoId !== input.repoId)
+  )
+    throw new TaskEventStoreError("invalid_store", "generation 2 activation certificate differs");
+  if (!localRuntimeStateFileSystem.exists(sqliteLedgerPath(input.rootInput, 2)))
+    throw new TaskEventStoreError("invalid_store", "generation 2 activation names a missing ledger");
+  return certificate;
+}
+
+/** Writer-side depth check; the ledger must still carry the imported prefix the certificate names. */
+export function preflightGenerationTwoActivation(input: {
+  readonly rootInput: HarnessLayoutInput;
+  readonly repoId: string;
+}): GenerationTwoActivationV2 | null {
+  const certificate = readGenerationTwoActivation(input);
+  if (certificate === null) return null;
+  const store = openSqliteEventStore({
+    repoId: certificate.repoId,
+    databasePath: sqliteLedgerPath(input.rootInput, 2),
+    generation: 2,
+    readOnly: true,
+  });
+  try {
+    if (store.revision() < certificate.importedPrefixRevision)
+      throw new TaskEventStoreError("invalid_store", "generation 2 revision precedes its activation certificate");
+  } finally {
+    store.close();
+  }
+  return certificate;
 }
 
 export function sqliteContentObjectPath(
@@ -245,6 +316,16 @@ export function openSqliteEventStore(options: {
       ).run(fence.repoId, fence.holder, fence.epoch);
     });
 
+  const releaseWriter = (fence: SqliteWriterFence): void =>
+    transaction(() => {
+      assertFenceShape(fence, repoId);
+      const current = readWriter(db, repoId);
+      if (!current || current.holder !== fence.holder || current.epoch !== fence.epoch) return;
+      /* @gate-identity check-bypass-write-boundary/bypass-write-122 */ db.prepare(
+        "DELETE FROM writer_lease WHERE repo_id=?",
+      ).run(repoId);
+    });
+
   const outcome = (opId: string): SqliteCommandOutcome | null => readOutcome(db, query, opId);
   const appendCommand: SqliteEventStore["appendCommand"] = (input) => {
     if ((options.conversionSourceGeneration !== undefined) !== (input.historicalRecord !== undefined))
@@ -341,6 +422,7 @@ export function openSqliteEventStore(options: {
     databasePath,
     sqliteVersion,
     claimWriter,
+    releaseWriter,
     writerFence: () => {
       const writer = readWriter(db, repoId);
       return writer ? { repoId, ...writer } : null;

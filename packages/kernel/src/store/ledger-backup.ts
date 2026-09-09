@@ -312,3 +312,4 @@ export function readVerifiedLedgerBackup(backupDir: string): LedgerBackupManifes
 }
 
 export { runGenerationTwoConversion } from "./generation-two-conversion.ts";
+export { resolveActiveGeneration } from "./sqlite-event-store.ts";

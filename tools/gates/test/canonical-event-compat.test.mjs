@@ -161,6 +161,8 @@ test("locked-history document reads use the canonical content context without a 
   const read = responses.get("validateDaemonDocumentRead"),
     list = responses.get("validateDaemonTaskDocumentList");
   assert.equal(read.ok, true);
+  assert.equal(read.taskId, "task_62eb49f177c35bd599b0d128a9");
+  assert.equal(read.path, "INDEX.md");
   assert.equal(read.contentKind, "text");
   assert.equal(read.uncommitted, false, "projection-only history must not be labelled uncommitted");
   assert.equal(read.worktreeBody, null);
