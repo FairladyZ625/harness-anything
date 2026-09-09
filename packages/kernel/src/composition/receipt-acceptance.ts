@@ -62,9 +62,9 @@ export function attachReceiptAcceptance<R extends WriteReceiptDraft>(
   const { repoId, revision, headDigest } = store.publication(event).cut;
   const acceptedCut: ReceiptConsumerCut = { repoId, revision, headDigest, generation: 1 };
   const follower = store.followerStatus();
-  const facet = (value: typeof follower.worktree): ReceiptFacet => ({
-    state: value.status,
-    cut: value.cut ? { ...value.cut, generation: 1 } : null,
+  const facet = (value: typeof follower.worktree, coversAcceptance: boolean): ReceiptFacet => ({
+    state: value.status === "verified" && !coversAcceptance ? "pending" : value.status,
+    cut: coversAcceptance && value.cut ? { ...value.cut, generation: 1 } : null,
     ...(value.reason ? { reason: value.reason } : {}),
   });
   const gitCoversAcceptance =
@@ -95,8 +95,11 @@ export function attachReceiptAcceptance<R extends WriteReceiptDraft>(
       cut: acceptedCut,
     },
     projection: { state: visible ? "verified" : "pending", cut: visible ? acceptedCut : null },
-    git: { ...facet(follower.git), commitSha: follower.git.commitSha },
-    worktree: facet(follower.worktree),
+    git: {
+      ...facet(follower.git, gitCoversAcceptance),
+      commitSha: gitCoversAcceptance ? follower.git.commitSha : null,
+    },
+    worktree: facet(follower.worktree, worktreeCoversAcceptance),
     replica: empty.replica,
     outcome: receipt.outcome === "no_changes" ? "no_changes" : visible ? "applied" : "pending",
     revision: outcome.lastRevision,
