@@ -19,6 +19,7 @@ import {
   DAEMON_ENTITY_KIND_CATALOG_SCHEMA,
   DAEMON_VERTICAL_DECLARATION_READ_SCHEMA,
   DAEMON_ENTITY_ROW_LIST_SCHEMA,
+  DAEMON_ENTITY_CONTENT_READ_SCHEMA,
   DAEMON_ENTITY_LOCATOR_READ_SCHEMA,
   DAEMON_OBSERVE_TAIL_SCHEMA,
   DAEMON_GUI_COMMAND_RECEIPT_SCHEMA,
@@ -88,6 +89,14 @@ export const daemonGuiReadSchemas = Object.freeze([
     writer: "packages/daemon/src/entity-locator-read.ts#serializeEntityLocatorRead",
     error: "packages/daemon/src/entity-locator-read.ts#EntityLocatorReadContractError",
     negativeFixtures: Object.freeze(["packages/daemon/fixtures/contracts/entity-locator-read-invalid.json"]),
+  },
+  {
+    id: DAEMON_ENTITY_CONTENT_READ_SCHEMA.id,
+    schema: "packages/daemon/src/protocol/daemon-protocol-schema-ids.ts#DAEMON_ENTITY_CONTENT_READ_SCHEMA",
+    parser: "packages/daemon/src/entity-content-read.ts#validateEntityContentRead",
+    writer: "packages/daemon/src/entity-content-read.ts#serializeEntityContentRead",
+    error: "packages/daemon/src/entity-content-read.ts#EntityContentReadContractError",
+    negativeFixtures: Object.freeze(["packages/daemon/fixtures/contracts/entity-content-read-invalid.json"]),
   },
   {
     id: DAEMON_CI_OBSERVATORY_SCHEMA.id,

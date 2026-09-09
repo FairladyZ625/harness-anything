@@ -865,6 +865,7 @@ function validObservationIdentity(
         // recomputation even though the reader cannot see the binding history the writer counted.
         candidate ===
         artifactImportOperationId({
+          entityKind: String(payload.entityKind),
           sourceIdentity,
           locator,
           resolution,

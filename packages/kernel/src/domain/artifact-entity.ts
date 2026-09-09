@@ -390,8 +390,15 @@ export function artifactObservationId(input: {
  * no longer exists. The generation is counted off the accepted release events of that one source, so a retry
  * inside the same generation still recomputes the original operation and returns the outcome it was accepted
  * with. It is written into the id so a reader can recompute the identity from the id alone.
+ *
+ * The intent is also scoped to the Kind it is presented under. One file can be material for a Research Note and
+ * for an ADR at the same time, and those are two observations of it, not one: without the Kind in the identity
+ * the second import recomputes the first Kind's operation and is refused as `is not the requested observation`.
+ * The Kind is named by its stable identity, never by a display name or alias, so renaming a Kind leaves every
+ * accepted operation recomputable.
  */
 export function artifactImportOperationId(input: {
+  readonly entityKind: string;
   readonly sourceIdentity: string;
   readonly locator: ArtifactLocator;
   readonly resolution: string;
@@ -400,8 +407,11 @@ export function artifactImportOperationId(input: {
   const generation = input.bindingGeneration ?? 0;
   if (!Number.isSafeInteger(generation) || generation < 0)
     throw new Error(`source binding generation ${String(input.bindingGeneration)} is not a generation`);
+  if (!input.entityKind) throw new Error("an import operation identity requires the Kind it is presented under");
   const scope = generation === 0 ? "" : `\u0000binding-generation:${generation}`,
-    identity = `${input.sourceIdentity}\u0000${input.locator.kind}:${input.locator.value}\u0000${input.resolution}${scope}`;
+    identity =
+      `${input.entityKind}\u0000${input.sourceIdentity}\u0000` +
+      `${input.locator.kind}:${input.locator.value}\u0000${input.resolution}${scope}`;
   return `entity-import-${sha256(identity).slice(0, 32)}${generation === 0 ? "" : `-b${generation}`}`;
 }
 

@@ -38,7 +38,7 @@ export interface ThinCliInput {
   readonly regex?: string;
   readonly format?: string;
   readonly field?: string;
-  readonly projection?: "number" | "fact-hold-array";
+  readonly projection?: "number" | "fact-hold-array" | "json-object";
   readonly requiredWhen?: { readonly field: string; readonly values: readonly string[] };
   readonly allowedWhen?: { readonly field: string; readonly values: readonly string[] };
   readonly requires?: readonly string[];

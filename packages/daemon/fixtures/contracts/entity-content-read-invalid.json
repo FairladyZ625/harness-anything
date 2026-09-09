@@ -1,0 +1,13 @@
+{
+  "schema": "entity-content-read/v1",
+  "ok": true,
+  "outcome": "directory",
+  "entityRef": "entity-kind/KND-3b7e2c9a1d5f6e8c0a4b2d3f5e7c9a16/CDS-0a826f22e9c85d8b0a826f22e9c85d8b",
+  "path": "",
+  "repositoryPath": "ledger/entities/consumer-dossiers/CDS-0a826f22e9c85d8b0a826f22e9c85d8b",
+  "content": "directories carry no content",
+  "sizeBytes": null,
+  "mediaType": null,
+  "entries": [],
+  "truncated": false
+}

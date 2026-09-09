@@ -167,6 +167,8 @@ export function makeArtifactEntityService(options: {
       // generation of the source binding, so re-importing a source whose entity was deleted is a new operation
       // instead of a replay of a receipt for an entity that is gone.
       opId = artifactImportOperationId({
+        // The Kind the caller presented, so one source observed by two Kinds is two intents.
+        entityKind: contract.typeIdentity,
         sourceIdentity,
         locator,
         resolution: resolutionWitness,

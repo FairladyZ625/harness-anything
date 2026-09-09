@@ -540,7 +540,11 @@ function sourceObject(relativePath: string, body: Uint8Array): EntityContentBlob
   };
 }
 
-function readCurrentArtifact(
+/**
+ * What one entity is, and what it owns, at the canonical cut — folded from the accepted events themselves.
+ * Reads share this with the write path so nothing ever grows a second answer to the same question.
+ */
+export function readCurrentArtifact(
   store: CanonicalEventStore,
   contracts: readonly CompiledArtifactKindContract[],
   kind: string,

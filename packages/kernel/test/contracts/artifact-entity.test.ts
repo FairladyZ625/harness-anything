@@ -140,7 +140,7 @@ test("observed and missing artifact events are self-validating generic entity ev
 
   const missingResolution = "missing:ENOENT",
     locator = descriptor.locator,
-    ids = observationIds(descriptor.entityId, source, locator, missingResolution),
+    ids = observationIds(descriptor.entityId, source, locator, missingResolution, descriptor.typeIdentity),
     missing = compileEntityTargetMissing({
       contractSnapshot: snapshot,
       entityId: descriptor.entityId,
@@ -220,15 +220,22 @@ function observationIds(
   sourceIdentity: string,
   locator: ArtifactDescriptor["locator"],
   resolution: string,
+  entityKind: string,
 ) {
   return {
     observationId: artifactObservationId({ entityId, locator, resolution }),
-    opId: artifactImportOperationId({ sourceIdentity, locator, resolution }),
+    opId: artifactImportOperationId({ entityKind, sourceIdentity, locator, resolution }),
   };
 }
 
 function compileObservedWithDerivedIds(artifact: ReturnType<typeof compiledArtifact>, descriptor: ArtifactDescriptor) {
-  const ids = observationIds(descriptor.entityId, descriptor.source, descriptor.locator, descriptor.contentVersion);
+  const ids = observationIds(
+    descriptor.entityId,
+    descriptor.source,
+    descriptor.locator,
+    descriptor.contentVersion,
+    descriptor.typeIdentity,
+  );
   return compileEntityContentObserved({
     contract: artifact.entityKindContract as EntityStoreKindContract,
     contractSnapshot: artifactEntityContractSnapshot({ ...artifact, kindVersion: 1 }),

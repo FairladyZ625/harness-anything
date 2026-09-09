@@ -339,6 +339,7 @@ export type DaemonGuiReadResultMap = {
   };
   readonly "repo.entity.rows.read": import("../entity-rows-read.ts").EntityRowListV1;
   readonly "repo.entity.locator.read": import("../entity-locator-read.ts").EntityLocatorReadV1;
+  readonly "repo.entity.content.read": import("../entity-content-read.ts").EntityContentReadV1;
   readonly "repo.settings.read": {
     readonly schema: "daemon.settings-read/v1";
     readonly ok: true;
@@ -404,6 +405,11 @@ export type DaemonGuiReadPayloadMap = {
   readonly "repo.vertical.declaration.read": Readonly<Record<string, never>>;
   readonly "repo.entity.rows.read": Readonly<Record<string, never>>;
   readonly "repo.entity.locator.read": { readonly locatorKind: string; readonly locatorValue: string };
+  readonly "repo.entity.content.read": {
+    readonly entityKind: string;
+    readonly entityId: string;
+    readonly path?: string;
+  };
   readonly "repo.settings.read": Readonly<Record<string, never>>;
   readonly "repo.ci.observatory.read": { readonly window?: number };
   readonly "repo.workspace.summary.read": Readonly<Record<string, never>>;

@@ -74,6 +74,47 @@ test("an unknown command domain reports unknown with the available set instead o
   assert.doesNotMatch(logs[0] ?? "", /rekey-facts|dispatch-records|settings-wal-flush|migrate ledger/u);
 });
 
+test("entity import and update carry declared attributes as one typed JSON object", () => {
+  const imported = parseThinCommand([
+    "entity",
+    "import",
+    "--kind",
+    "entity-kind/KND-3b7e2c9a1d5f6e8c0a4b2d3f5e7c9a16",
+    "--locator",
+    "surveys/north",
+    "--expected-version",
+    "0",
+    "--attributes",
+    '{"region":"north","fiscalYear":2026}',
+  ]);
+  assert.equal(imported.ok, true);
+  if (!imported.ok) return;
+  // The Kind declares its own attribute names at runtime, so the CLI cannot enumerate them as flags; JSON is
+  // also the only form in which a number stated by the caller is still a number when the schema judges it.
+  assert.deepEqual(imported.command.action, {
+    kind: "entity-import",
+    entityKind: "entity-kind/KND-3b7e2c9a1d5f6e8c0a4b2d3f5e7c9a16",
+    locator: "surveys/north",
+    expectedVersion: 0,
+    attributes: { region: "north", fiscalYear: 2026 },
+  });
+
+  const updated = parseThinCommand([
+    "entity",
+    "update",
+    "entity-kind/KND-3b7e2c9a1d5f6e8c0a4b2d3f5e7c9a16",
+    "--id",
+    "SRV-0a826f22e9c85d8b0a826f22e9c85d8b",
+    "--expected-version",
+    "1",
+    "--attributes",
+    '{"region":"south"}',
+  ]);
+  assert.equal(updated.ok, true);
+  if (!updated.ok) return;
+  assert.deepEqual((updated.command.action as { readonly attributes: unknown }).attributes, { region: "south" });
+});
+
 test("entity import projects its concurrency and dry-run flags into one daemon Action", () => {
   const parsed = parseThinCommand([
     "entity",

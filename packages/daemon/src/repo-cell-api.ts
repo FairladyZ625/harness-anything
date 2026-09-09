@@ -37,9 +37,15 @@ import {
 } from "../../kernel/src/index.ts";
 import { type PresetRunReceiptV1, type createPresetProcessService } from "../../preset/src/index.ts";
 import { readAgentEntityGuiProjection } from "./agent-entities.ts";
-import { canonicalVertical, compiledArtifactKinds } from "./artifact-entity-action.ts";
+import {
+  canonicalVertical,
+  compiledArtifactKinds,
+  readCurrentArtifact,
+  resolveEntityReadKind,
+} from "./artifact-entity-action.ts";
 import { requireCanonicalVerticalDeclaration } from "./vertical-declaration-action.ts";
 import { readDeclaredEntityRows } from "./entity-rows-read.ts";
+import { readEntityContent, type EntityContentSource } from "./entity-content-read.ts";
 import { readEntityLocator } from "./entity-locator-read.ts";
 import { discoverAgentSkills } from "./agent-skills.ts";
 import { readTaskDispatches } from "./dispatch-read.ts";
@@ -519,6 +525,27 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
         locatorKind: context.requiredCellText(payload.locatorKind, "locatorKind"),
         locatorValue: context.requiredCellText(payload.locatorValue, "locatorValue"),
       }),
+    "repo.entity.content.read": (payload: Readonly<Record<string, unknown>>) => {
+      const contracts = compiledArtifactKinds(context.projection, context.input.repoId),
+        kind = resolveEntityReadKind(context.requiredCellText(payload.entityKind, "entityKind"), contracts),
+        entityId = context.requiredCellText(payload.entityId, "entityId"),
+        current = readCurrentArtifact(context.store, contracts, kind, entityId),
+        contract = contracts.find(({ typeIdentity }) => typeIdentity === kind);
+      return readEntityContent({
+        rootDir: context.rootDir,
+        source:
+          contract && current?.descriptor
+            ? {
+                entityKind: kind,
+                contract: contract.entityKindContract as unknown as EntityContentSource["contract"],
+                entityId,
+                ownedContent: current.ownedContent,
+                readContentBlob: (sha256) => context.store.readContentBlob(sha256),
+              }
+            : null,
+        ...(payload.path === undefined ? {} : { requestedPath: context.requiredCellText(payload.path, "path") }),
+      });
+    },
     "repo.agenda.read": (payload: Readonly<Record<string, unknown>>) =>
       queryRead().agenda(agendaQueryFromPayload(payload)),
     "repo.triadic.relationGraph": (payload: Readonly<Record<string, unknown>>) => relationGraphFromPayload(payload),

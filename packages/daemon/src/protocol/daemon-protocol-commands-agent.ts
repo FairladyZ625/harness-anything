@@ -283,6 +283,9 @@ export const agentProtocolCommands = Object.freeze([
         code: "invalid_field",
       }),
       cliInput("--dry-run", "boolean", false, { code: "invalid_field" }, { field: "dryRun" }),
+      // One JSON object rather than a flag per attribute: the Kind declares its own attribute names at runtime,
+      // so the CLI cannot enumerate them, and JSON is the only form that keeps a number a number.
+      cliInput("--attributes", "single", false, { code: "invalid_field" }, { projection: "json-object" }),
     ],
   }),
   defineCenterForwardWriteCommand({
@@ -307,6 +310,7 @@ export const agentProtocolCommands = Object.freeze([
       cliInput("--title", "single", false, { code: "invalid_field" }),
       cliInput("--locator", "single", false, { code: "invalid_field" }),
       cliInput("--content-version", "single", false, { code: "invalid_field" }, { field: "contentVersion" }),
+      cliInput("--attributes", "single", false, { code: "invalid_field" }, { projection: "json-object" }),
     ],
   }),
   defineCenterForwardWriteCommand({
