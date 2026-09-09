@@ -299,6 +299,16 @@ export function openSqliteEventStore(options: {
       throw error;
     }
   };
+  // All lease mutations share the store's transaction and the same repository ownership boundary.
+  const persistWriterLease = (fence: SqliteWriterFence | null): void => {
+    /* @gate-identity check-bypass-write-boundary/bypass-write-122 */ db.prepare(
+      fence === null
+        ? "DELETE FROM writer_lease WHERE repo_id=?"
+        : "INSERT INTO writer_lease(repo_id, holder, epoch) VALUES (?, ?, ?) " +
+            "ON CONFLICT(repo_id) DO UPDATE SET holder=excluded.holder, epoch=excluded.epoch",
+    ).run(...(fence === null ? [repoId] : [fence.repoId, fence.holder, fence.epoch]));
+  };
+
   const claimWriter = (fence: SqliteWriterFence): void =>
     transaction(() => {
       assertFenceShape(fence, repoId);
@@ -310,10 +320,7 @@ export function openSqliteEventStore(options: {
         );
       if (current && fence.epoch === current.epoch && fence.holder !== current.holder)
         throw new TaskEventStoreError("revision_conflict", `writer epoch ${fence.epoch} belongs to another holder`);
-      /* @gate-identity check-bypass-write-boundary/bypass-write-122 */ db.prepare(
-        "INSERT INTO writer_lease(repo_id, holder, epoch) VALUES (?, ?, ?) " +
-          "ON CONFLICT(repo_id) DO UPDATE SET holder=excluded.holder, epoch=excluded.epoch",
-      ).run(fence.repoId, fence.holder, fence.epoch);
+      persistWriterLease(fence);
     });
 
   const releaseWriter = (fence: SqliteWriterFence): void =>
@@ -321,9 +328,7 @@ export function openSqliteEventStore(options: {
       assertFenceShape(fence, repoId);
       const current = readWriter(db, repoId);
       if (!current || current.holder !== fence.holder || current.epoch !== fence.epoch) return;
-      /* @gate-identity check-bypass-write-boundary/bypass-write-122 */ db.prepare(
-        "DELETE FROM writer_lease WHERE repo_id=?",
-      ).run(repoId);
+      persistWriterLease(null);
     });
 
   const outcome = (opId: string): SqliteCommandOutcome | null => readOutcome(db, query, opId);
@@ -363,10 +368,7 @@ export function openSqliteEventStore(options: {
           "revision_conflict",
           `writer epoch ${input.fence.epoch} belongs to another holder`,
         );
-      /* @gate-identity check-bypass-write-boundary/bypass-write-121 */ db.prepare(
-        "INSERT INTO writer_lease(repo_id, holder, epoch) VALUES (?, ?, ?) " +
-          "ON CONFLICT(repo_id) DO UPDATE SET holder=excluded.holder, epoch=excluded.epoch",
-      ).run(input.fence.repoId, input.fence.holder, input.fence.epoch);
+      persistWriterLease(input.fence);
       if (input.rejectionCode && input.events.length)
         throw new TaskEventStoreError("invalid_write_plan", "a rejected command cannot append events");
       const head = readRevision(db);
