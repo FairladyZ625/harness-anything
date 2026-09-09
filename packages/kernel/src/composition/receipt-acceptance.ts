@@ -73,13 +73,11 @@ export function attachReceiptAcceptance<R extends WriteReceiptDraft>(
     follower.git.status === "verified" &&
     follower.git.cut !== null &&
     follower.git.cut.repoId === acceptedCut.repoId &&
-    generation === acceptedCut.generation &&
     follower.git.cut.revision >= acceptedCut.revision;
   const worktreeCoversAcceptance =
     follower.worktree.status === "verified" &&
     follower.worktree.cut !== null &&
     follower.worktree.cut.repoId === acceptedCut.repoId &&
-    generation === acceptedCut.generation &&
     follower.worktree.cut.revision >= acceptedCut.revision;
   const projected = projection.readCut();
   const visible = projected.watermark >= outcome.lastRevision;
