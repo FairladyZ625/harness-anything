@@ -726,7 +726,12 @@ test(
       } while (Date.now() < deadline);
       return status;
     };
-    assert.equal((await waitForOutcome(receipt.runtimeSessionId))?.session.activity.outcome, "succeeded");
+    assert.equal(
+      (await waitForOutcome(receipt.runtimeSessionId))?.session.activity.outcome,
+      "succeeded",
+      JSON.stringify(fixture.runtimeArchiveReceipts),
+    );
+    assert.equal(fixture.runtimeArchiveReceipts[0]?.outcome, "applied", JSON.stringify(fixture.runtimeArchiveReceipts));
     const settledEvents = makeTaskEventReader({ repoId: fixture.assignment.repoId, rootDir: fixture.repo }).read()
         .events,
       leaseReleaseIndex = settledEvents.findIndex(
@@ -838,6 +843,14 @@ test(
     assert.equal(
       existsSync(path.join(fixture.repo, ".harness/runtime/dispatches", `${receipt.dispatchId}.jsonl`)),
       false,
+    );
+    assert.equal(
+      readFileSync(
+        path.join(edgeRoot, "harness/tasks/task-fleet-fleet/artifacts/reports", `${receipt.dispatchId}.md`),
+        "utf8",
+      ).includes("edge runtime done"),
+      true,
+      "the accepted center archive must be recoverable through the edge mirror",
     );
   },
 );
@@ -1260,7 +1273,8 @@ async function fleetFixture(t: TestContext, paths: readonly string[] = ["tasks/t
   let nodeActive = true,
     expiresAt = "2099-01-01T00:00:00.000Z",
     assignmentDelayMs = 0,
-    taskReleaseBarrier: { readonly started: () => void; readonly wait: Promise<void> } | null = null;
+    taskReleaseBarrier: { readonly started: () => void; readonly wait: Promise<void> } | null = null,
+    runtimeArchiveReceipts: Readonly<Record<string, unknown>>[] = [];
   mkdirSync(path.join(repo, "harness"), { recursive: true });
   mkdirSync(emptyPath);
   initRepo(repo);
@@ -1382,11 +1396,17 @@ async function fleetFixture(t: TestContext, paths: readonly string[] = ["tasks/t
       return { started: startedPromise, release };
     },
     eventCount: () => fleetLedgerRevision(repo, "fleet-repo"),
+    runtimeArchiveReceipts,
     center: () =>
       owned.hold(
         listenFleetTls({
           host: {
             ...host,
+            runtimeIngress: async (...args: Parameters<typeof host.runtimeIngress>) => {
+              const receipt = await host.runtimeIngress(...args);
+              if (args[1].kind === "archive") runtimeArchiveReceipts.push(receipt);
+              return receipt;
+            },
             run: async (...args: Parameters<typeof host.run>) => {
               const barrier = taskReleaseBarrier;
               if (args[1].kind === "task-release" && barrier) {
