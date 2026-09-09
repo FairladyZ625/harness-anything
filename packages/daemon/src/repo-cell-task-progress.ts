@@ -52,7 +52,8 @@ function readCiEvidence(
   if (event.payload.run.sha !== execution.submission.commitSha)
     throw cell.cellCodedError(
       "invalid_proof",
-      `CI run ${event.payload.run.runId} tested ${event.payload.run.sha}; this execution submitted ${execution.submission.commitSha}. Use an observation for the submitted commit.`,
+      `CI run ${event.payload.run.runId} tested ${event.payload.run.sha}; ` +
+        `this execution submitted ${execution.submission.commitSha}. Use an observation for the submitted commit.`,
     );
   const verification = event.payload.verification;
   if (!verification)

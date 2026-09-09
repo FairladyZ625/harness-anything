@@ -163,7 +163,8 @@ export async function pullAndIngestCiObservations(
         canonicalVisible: visible,
         worktreeVisible: false,
       },
-      summary: `Imported ${imported} CI observation artifact(s); ${duplicate} already existed.\n${eventRefs.join("\n")}`,
+      summary:
+        `Imported ${imported} CI observation artifact(s); ${duplicate} already existed.\n` + eventRefs.join("\n"),
     } as WriteReceipt;
   } finally {
     rmSync(temporaryRoot, { recursive: true, force: true });

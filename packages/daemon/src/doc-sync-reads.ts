@@ -91,7 +91,8 @@ export function readAction(input: Input): WriteReceipt {
       `read:doc-show:${current.headDigest}`,
       "document_not_text",
       receiptDetail,
-      `${rawDocument.path} is a raw task artifact of ${rawDocument.size} bytes; read the materialized file or content object ${rawDocument.blobSha256}`,
+      `${rawDocument.path} is a raw task artifact of ${rawDocument.size} bytes; ` +
+        `read the materialized file or content object ${rawDocument.blobSha256}`,
     );
   const evidence =
     input.action.kind === "doc-show"

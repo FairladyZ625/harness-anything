@@ -148,7 +148,8 @@ function planConversion(source: SqliteEventStore) {
       if (!Number.isFinite(Date.parse(row.recordedAt))) throw new Error("source recordedAt is unavailable");
     } catch (error) {
       throw new Error(
-        `source integrity check failed at revision ${row.revision}: ${error instanceof Error ? error.message : String(error)}`,
+        `source integrity check failed at revision ${row.revision}: ` +
+          (error instanceof Error ? error.message : String(error)),
       );
     }
     try {
@@ -209,7 +210,13 @@ function planConversion(source: SqliteEventStore) {
       reasons,
     });
   }
-  const sourceDigest = `sha256:${sha256Text(stableStringify({ metadata: source.metadata(), rows, outcomes: source.outcomes(), objects: source.contentObjectDigests() }))}`;
+  const sourceSnapshot = {
+    metadata: source.metadata(),
+    rows,
+    outcomes: source.outcomes(),
+    objects: source.contentObjectDigests(),
+  };
+  const sourceDigest = `sha256:${sha256Text(stableStringify(sourceSnapshot))}`;
   const plan: GenerationConversionPlan = {
     schema: "generation-conversion-plan/v1",
     repoId: source.metadata().repoId,

@@ -348,11 +348,11 @@ function configureLedgerOnly(input: RepoBootstrapInput, authoredBranch?: string)
     publication: { ok: true, commit: null, changedPaths: [] },
   };
 }
-/** Every reader of the machine configuration resolves it under the authored root, so init writes it there instead of at the default spelling. */
+/** Machine configuration is read and initialized under the configured authored root. */
 function machineDocumentRoot(rootDir: string, layout: ReturnType<typeof resolveHarnessLayout>): string {
   return path.relative(rootDir, layout.authoredRoot).split(path.sep).join("/");
 }
-/** A repository that already declares its layout seeds the authored configuration from that declaration, so init never mints a second document that disagrees about where the authored root is. */
+/** Seed authored configuration from the existing layout declaration to avoid conflicting root paths. */
 function configuredBody(layout: ReturnType<typeof resolveHarnessLayout>): string | undefined {
   return layout.configPath !== undefined && existsSync(layout.configPath)
     ? readFileSync(layout.configPath, "utf8")
