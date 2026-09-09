@@ -69,7 +69,18 @@ export function compiledArtifactKinds(rootDir: string, repositoryId: string): re
 }
 
 export function resolveEntityReadKind(kind: string, contracts: readonly CompiledArtifactKindContract[]): string {
-  return contracts.find(({ declaration }) => declaration.id === kind)?.typeIdentity ?? kind;
+  const exact = contracts.find(({ typeIdentity }) => typeIdentity === kind);
+  if (exact) return exact.typeIdentity;
+  // A stable declared Kind ID addresses the current schema; historical rows
+  // remain keyed by their immutable versioned type identity.
+  const candidates = contracts
+    .filter(
+      ({ declaration, typeIdentity }) =>
+        (declaration.id === kind || typeIdentity.slice(0, typeIdentity.lastIndexOf("@")) === kind) &&
+        declaration.retired !== true,
+    )
+    .sort((left, right) => right.declaration.version - left.declaration.version);
+  return candidates[0]?.typeIdentity ?? kind;
 }
 
 /**

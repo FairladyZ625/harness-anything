@@ -32,7 +32,7 @@ export interface EntityOwnedContentV1 {
 }
 
 export function entitySchemaVersion(schemaId: string): number {
-  const match = /\/v([1-9][0-9]*)$/u.exec(schemaId);
+  const match = /(?:\/v|@)([1-9][0-9]*)$/u.exec(schemaId);
   if (!match) throw new Error(`entity schema id ${schemaId} has no positive version`);
   return Number(match[1]);
 }
@@ -86,7 +86,7 @@ export function validateEntityOwnedContent(value: unknown): readonly string[] {
     !hasOnlyFields(value, ["schema", "ownerRef", "schemaId", "schemaVersion", "content", "bindings", "retirements"]) ||
     value.schema !== ENTITY_OWNED_CONTENT_SCHEMA ||
     typeof value.ownerRef !== "string" ||
-    !/^[^/]+\/[^/]+$/u.test(value.ownerRef) ||
+    !/^[^/]+(?:\/[^/]+)+$/u.test(value.ownerRef) ||
     typeof value.schemaId !== "string" ||
     !value.schemaId ||
     !Number.isSafeInteger(value.schemaVersion) ||
