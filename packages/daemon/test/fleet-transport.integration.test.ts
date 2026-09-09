@@ -1273,8 +1273,8 @@ async function fleetFixture(t: TestContext, paths: readonly string[] = ["tasks/t
   let nodeActive = true,
     expiresAt = "2099-01-01T00:00:00.000Z",
     assignmentDelayMs = 0,
-    taskReleaseBarrier: { readonly started: () => void; readonly wait: Promise<void> } | null = null,
-    runtimeArchiveReceipts: Readonly<Record<string, unknown>>[] = [];
+    taskReleaseBarrier: { readonly started: () => void; readonly wait: Promise<void> } | null = null;
+  const runtimeArchiveReceipts: Readonly<Record<string, unknown>>[] = [];
   mkdirSync(path.join(repo, "harness"), { recursive: true });
   mkdirSync(emptyPath);
   initRepo(repo);
