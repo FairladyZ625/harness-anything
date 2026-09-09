@@ -1,3 +1,5 @@
+import { consumeKnownError } from "../api/error-consumption.ts";
+
 /**
  * 新建实体的预览推导(task_a494eac2 Goal 1)。
  *
@@ -41,4 +43,19 @@ export function sourceIdentityOf(repoId: string, locatorPath: string): string {
 export function directoryHasReadme(entries: readonly { readonly path: string }[]): string | null {
   const hit = entries.find(({ path }) => path.split("/").at(-1) === "README.md");
   return hit === undefined ? null : hit.path;
+}
+
+/**
+ * url 指针的 title 规则(daemon `resolveArtifactSource` 的 url 分支):路径末段,末段为空
+ * 时退到主机名。url 正文不按 Markdown 首标题取标题——那是仓内文件分支的规则。
+ */
+export function titleOfUrlLocator(url: string): string {
+  try {
+    const parsed = new URL(url);
+    return parsed.pathname.split("/").filter(Boolean).at(-1) ?? parsed.hostname;
+  } catch (cause) {
+    // 还没输完的 url 解析不了:预览退到原文,不当成错误——真正的裁决在中心。
+    consumeKnownError(cause);
+    return url;
+  }
 }

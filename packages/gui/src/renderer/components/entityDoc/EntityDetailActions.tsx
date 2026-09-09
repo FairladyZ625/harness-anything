@@ -12,6 +12,10 @@ import { archiveEntity, receiptFailureText, updateEntity } from "../../entity-lo
  *
  * 写路仍是 `repo.entity.update` / `repo.entity.archive` 两条 center 单写路;冲突由
  * center 的 revision fence 回报,这里如实展示、不重试。
+ *
+ * 编辑面只有 title 与 locator:contentVersion 是中心按接受的字节导出的内容摘要,不接受
+ * 手填——这里以前那个自由文本框能把一个谁也没见过的摘要写进描述符。改 locator 不写
+ * contentVersion 时,实体继续持有它已经收管的字节,摘要照旧。
  */
 export function EntityDetailActions({
   repoId,
@@ -24,7 +28,6 @@ export function EntityDetailActions({
   const [mode, setMode] = useState<"edit" | "archive" | null>(null);
   const [title, setTitle] = useState(entity.title ?? "");
   const [locator, setLocator] = useState(entity.locator?.value ?? "");
-  const [contentVersion, setContentVersion] = useState("");
   const [reason, setReason] = useState("");
   const [error, setError] = useState<string | null>(null);
   const finish = (receipt: { readonly outcome: string; readonly [key: string]: unknown }) => {
@@ -87,7 +90,6 @@ export function EntityDetailActions({
               expectedVersion: entity.revision,
               title,
               locator,
-              ...(contentVersion ? { contentVersion } : {}),
             })
               .then(finish)
               .catch((cause: unknown) => setError(cause instanceof Error ? cause.message : String(cause)));
@@ -98,12 +100,6 @@ export function EntityDetailActions({
             aria-label={`${entity.locator?.kind ?? "locator"} locator`}
             value={locator}
             onChange={(event) => setLocator(event.target.value)}
-          />
-          <input
-            aria-label="content version"
-            value={contentVersion}
-            onChange={(event) => setContentVersion(event.target.value)}
-            placeholder="contentVersion(可选)"
           />
           {entity.locator?.kind === "repository-path" && <span>保存后右侧预览会刷新。</span>}
           <button type="submit" data-testid="entity-detail-edit-save">

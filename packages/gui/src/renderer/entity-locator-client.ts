@@ -1,6 +1,6 @@
 import type { GuiActionResult } from "../api/renderer-dto.ts";
 import { isRendererRecord, rendererErrorHint } from "./result-validation.ts";
-import type { EntityLocator } from "./entity-locator-renderer.ts";
+import type { EntityLocator, EntityLocatorReadOutcome } from "./entity-locator-renderer.ts";
 
 /**
  * 实体 locator 的内容读 + 声明实体的新建写。
@@ -8,7 +8,8 @@ import type { EntityLocator } from "./entity-locator-renderer.ts";
  * 读:`repo.entity.locator.read` 按 locator 取仓内内容(文件文本 / 目录一层条目)。
  * 写:`repo.entity.import` 就是 CLI `ha entity import` 的那条 center 单写路,GUI 不另开。
  */
-export type EntityLocatorOutcome = "file" | "directory" | "missing" | "unsupported" | "too-large" | "binary";
+/** 读面 outcome 的词表住在渲染器选择表那一侧:选表按它分支,这里只是同一个词表的别名。 */
+export type EntityLocatorOutcome = EntityLocatorReadOutcome;
 
 export interface EntityLocatorContent {
   readonly outcome: EntityLocatorOutcome;

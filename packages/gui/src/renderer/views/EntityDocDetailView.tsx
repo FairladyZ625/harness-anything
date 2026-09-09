@@ -390,6 +390,7 @@ export function EntityDocDetailView({
             repoId={repoId}
             doc={doc}
             catalogRow={catalogRow}
+            pinnedAttributes={latestPublishedAttributes(fullDeclaration)}
             governedRowCount={governedRows.length}
             selectedEntity={selectedEntity}
             creating={
@@ -420,6 +421,7 @@ function DetailRendererPane({
   repoId,
   doc,
   catalogRow,
+  pinnedAttributes,
   governedRowCount,
   selectedEntity,
   creating,
@@ -430,6 +432,8 @@ function DetailRendererPane({
   readonly repoId: string;
   readonly doc: EntityKindDoc;
   readonly catalogRow: EntityKindRow | null;
+  /** 新实例会被钉到的那一版属性声明;向导据它如实说明属性还没有入参通道。 */
+  readonly pinnedAttributes: unknown;
   readonly governedRowCount: number;
   readonly selectedEntity: GovernedEntityRow | null;
   readonly creating: boolean;
@@ -454,6 +458,7 @@ function DetailRendererPane({
         repoId={repoId}
         row={catalogRow}
         seedRows={governedRowsForSeed}
+        pinnedAttributes={pinnedAttributes}
         onCancel={onCancelCreate}
         onImported={onImported}
       />
@@ -472,7 +477,7 @@ function DetailRendererPane({
     return (
       <div className="flex flex-1 items-center justify-center p-6" data-testid="entity-locator-none">
         <p className="max-w-sm text-center ui-meta leading-relaxed text-text-faint">
-          {selectedEntity.title ?? selectedEntity.entityId} 没有 locator,没有可渲染的正文。
+          {selectedEntity.title ?? selectedEntity.entityId} 没有 locator,说不出它来自哪里。
         </p>
       </div>
     );
@@ -482,6 +487,12 @@ function DetailRendererPane({
       <EntityLocatorPreview repoId={repoId} locator={selectedEntity.locator} />
     </div>
   );
+}
+
+/** kind 最新已发布的那一版属性声明;还没有任何已发布版本时为 null。 */
+function latestPublishedAttributes(declaration: ArtifactKindDeclaration | undefined): unknown {
+  const published = [...(declaration?.schemaVersions ?? [])].sort((left, right) => left.version - right.version);
+  return published.at(-1)?.attributes ?? null;
 }
 
 function RendererEmptyState({ message }: { readonly message: string }) {

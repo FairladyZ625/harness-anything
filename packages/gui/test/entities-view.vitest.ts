@@ -751,6 +751,8 @@ function stubCrudBridge(initialRows: ReturnType<typeof governedRow>[] = []): Cru
           command: "entity.import",
           outcome: "applied",
           opId: "op-import-1",
+          // 与 daemon 的 import 回执同形:实例身份在回执顶层,evidence 是同一份 preview 的证据副本。
+          entityId: mintedId(locator),
           evidence: JSON.stringify({ preview: { entityId: mintedId(locator) } }),
         };
       }),
@@ -825,6 +827,34 @@ describe("new entity wizard (goal 1)", () => {
     await click(container, "governed-entity-new");
     expect(container.querySelector('[data-testid="new-entity-wizard-seed"]')).not.toBeNull();
     expect(container.querySelector('[data-testid="repo-path-browser"]')).toBeNull();
+  });
+
+  it("keeps the seed input on screen until the whole directory has been typed", async () => {
+    // 起点输入以前和浏览器共用一个状态:第一个字符一进去,输入框就被浏览器顶掉,
+    // 没有既有实体的 kind 因此根本走不到新建。草稿态与已确认态必须分开。
+    const state = stubCrudBridge();
+    const container = await renderCrudView(`entitydoc/${ADR_KIND}`);
+    await click(container, "governed-entity-new");
+    expect(container.querySelector('[aria-label="浏览起点目录"]')).not.toBeNull();
+    for (const partial of ["d", "do", "docs", "docs/", "docs/adr"]) {
+      await typeInto(container, "浏览起点目录", partial);
+      await settle();
+      expect(container.querySelector('[aria-label="浏览起点目录"]'), partial).not.toBeNull();
+      expect(container.querySelector('[data-testid="repo-path-browser"]'), partial).toBeNull();
+    }
+    // 半截路径没有被当成目录发过读。
+    expect(state.locatorCalls).not.toContain("do");
+    await click(container, "new-entity-wizard-seed-browse");
+    expect(container.querySelector('[data-testid="repo-path-browser-location"]')?.textContent).toBe("docs/adr");
+  });
+
+  it("offers a url source only for the kinds whose declaration accepts one", async () => {
+    // 声明只给 repository-path 时不摆 URL 输入;给了 url 才有,来源形态由声明决定。
+    stubCrudBridge();
+    const container = await renderCrudView(`entitydoc/${ADR_KIND}`);
+    await click(container, "governed-entity-new");
+    expect(container.querySelector('[data-testid="new-entity-wizard-source-kind"]')).toBeNull();
+    expect(container.querySelector('[aria-label="外部 URL"]')).toBeNull();
   });
 
   it("navigates directories, previews the derived title and id, then imports without a hand-written id", async () => {
