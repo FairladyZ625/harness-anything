@@ -142,6 +142,31 @@ export async function runDocAction(input: Input): Promise<WriteReceipt> {
     });
   }
   if (scan && !scan.rows.some((row) => row.state === "eligible")) {
+    const explicitSelection =
+      !Object.hasOwn(input.action, "taskId") && Array.isArray(input.action.paths) && input.action.paths.length > 0;
+    if (explicitSelection && scan.rows.some((row) => row.state === "conflict")) {
+      const rejection = rejectDocSyncAction(
+        `scan:${scan.baseLedgerSha.headDigest}`,
+        "preview_blocked",
+        scanDetail(input, scan, "preview_blocked"),
+      );
+      const conflictIds = scan.rows
+        .filter((row) => row.state === "conflict")
+        .flatMap((row) => row.conflicts)
+        .map((value) => /\.conflict-([0-9a-f]{8})\.(?:md|txt)$/u.exec(value)?.[1] ?? null)
+        .filter((value): value is string => value !== null);
+      return {
+        ...rejection,
+        nextActions: conflictIds.map((id) => `ha doc conflict resolve ${id}`),
+        summary: [
+          "doc-submit: op_rejected",
+          "skipped:",
+          ...scan.rows
+            .filter((row) => row.state === "conflict")
+            .map((row) => `${row.path}\t${row.state}\t${row.reason ?? "candidate is not eligible"}`),
+        ].join("\n"),
+      };
+    }
     const code = scanRejectionCode(scan),
       blocked = scanDetail(input, scan, code ?? "preview_blocked");
     return scan.rows.some((row) => row.state === "blocked" || row.state === "deletion")

@@ -463,8 +463,7 @@ test("a locally edited task plan becomes a CLI doc conflict that the conflict co
     assert.match(readFileSync(planPath, "utf8"), new RegExp(`^# ${renamed}$`, "mu"));
     const conflicted = await expectApplied(fixture, ["doc", "status", "--path", planLogical], environment);
     assert.equal(docScanRows(conflicted.evidence)[0]?.state, "conflict", String(conflicted.evidence));
-    // An explicit --path submit of the conflicted document is skipped, not rejected: exit 0 and no_changes,
-    // with the required recovery route carried only in detail.unresolvedTouches and the summary.
+    // An explicit --path submit of the conflicted document is rejected with a recovery route.
     const blockedSync = await runResult(fixture, ["doc", "sync", "--submit", "--path", planLogical], environment),
       blockedReceipt = JSON.parse(blockedSync.stdout) as Record<string, unknown>,
       unresolved =
@@ -473,9 +472,9 @@ test("a locally edited task plan becomes a CLI doc conflict that the conflict co
             | { readonly unresolvedTouches?: readonly { readonly reason?: string; readonly requiredRoute?: string }[] }
             | undefined
         )?.unresolvedTouches ?? [];
-    assert.equal(blockedSync.status, 0, blockedSync.stdout);
-    assert.equal(blockedReceipt.outcome, "no_changes", blockedSync.stdout);
-    assert.equal(blockedReceipt.status, "rejected", blockedSync.stdout);
+    assert.notEqual(blockedSync.status, 0, blockedSync.stdout);
+    assert.equal(blockedReceipt.outcome, "op_rejected", blockedSync.stdout);
+    assert.match(String(blockedReceipt.nextActions ?? ""), /ha doc conflict resolve [0-9a-f]{8}/u, blockedSync.stdout);
     assert.equal(unresolved.length, 1, blockedSync.stdout);
     assert.equal(unresolved[0]?.requiredRoute, "local-conflict-resolution", blockedSync.stdout);
     assert.match(unresolved[0]?.reason ?? "", /local conflict scratch requires resolution/u, blockedSync.stdout);
