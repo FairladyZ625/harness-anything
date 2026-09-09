@@ -55,7 +55,7 @@ export function EntityManagedContent({
     <div className="flex min-h-0 min-w-0 flex-1 flex-col" data-testid="entity-managed-content">
       <ContentLocation content={content} />
       <div className="flex min-h-0 min-w-0 flex-1">
-        <aside className="flex w-72 shrink-0 flex-col overflow-y-auto border-r border-border">
+        <aside className="flex w-40 max-w-[40%] shrink-0 flex-col overflow-y-auto border-r border-border">
           <ContentChildren
             repoId={repoId}
             entityKind={entityKind}
