@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import type { GuiActionResult } from "../api/renderer-dto.ts";
 import type { GuiSubmissionV1 } from "../api/renderer-dto.ts";
 import { harnessClient, type TaskListSuccess } from "./api-client.ts";
@@ -101,164 +101,188 @@ export function useTaskActions(repoId: string) {
     readonly values: ReadonlyMap<string, TaskMutationFeedback>;
   }>({ repoId, values: new Map() });
   const feedback = feedbackState.repoId === repoId ? feedbackState.values : emptyFeedback;
-  const publish = (taskId: string, value: TaskMutationFeedback): TaskMutationFeedback => {
-    if (activeRepoId.current === repoId)
-      setFeedbackState((current) => ({
-        repoId,
-        values: new Map(current.repoId === repoId ? current.values : []).set(taskId, value),
-      }));
-    return value;
-  };
-  const reread = async (
-    taskId: string,
-    kind: TaskMutationFeedback["kind"],
-    settlement: TaskSettlement,
-    visible: (data: TaskListSuccess) => boolean,
-  ): Promise<TaskMutationFeedback> => {
-    if (settlement.state !== "applied")
-      return publish(taskId, {
-        state: settlement.state === "op_rejected" ? "error" : "pending",
-        kind,
-        opId: settlement.opId,
-        code: settlement.code,
-        hint: settlement.hint ?? "canonical receipt 尚未 settled；不要重放 mutation。",
-      });
-    const queryKey = taskQueryKeys.list(repoId),
-      previous = queryClient.getQueryData<TaskListSuccess>(queryKey);
-    const data = await queryClient.fetchQuery({
-      queryKey,
-      queryFn: () => readTaskList(repoId, previous),
-      staleTime: 0,
-    });
-    const revisionVisible = settlement.revision === undefined || data.watermark >= settlement.revision;
-    return revisionVisible && visible(data)
-      ? publish(taskId, { state: "success", kind, opId: settlement.opId, hint: "canonical projection 已重读并确认。" })
-      : publish(taskId, {
-          state: "pending",
+  // 动作回调引用稳定(W9):它们顺着看板/列表传到每张卡片,memo 的比较键里
+  // 不能有每次渲染都换的函数引用。依赖只有 repoId 与 queryClient(稳定)。
+  const publish = useCallback(
+    (taskId: string, value: TaskMutationFeedback): TaskMutationFeedback => {
+      if (activeRepoId.current === repoId)
+        setFeedbackState((current) => ({
+          repoId,
+          values: new Map(current.repoId === repoId ? current.values : []).set(taskId, value),
+        }));
+      return value;
+    },
+    [repoId],
+  );
+  const reread = useCallback(
+    async (
+      taskId: string,
+      kind: TaskMutationFeedback["kind"],
+      settlement: TaskSettlement,
+      visible: (data: TaskListSuccess) => boolean,
+    ): Promise<TaskMutationFeedback> => {
+      if (settlement.state !== "applied")
+        return publish(taskId, {
+          state: settlement.state === "op_rejected" ? "error" : "pending",
           kind,
           opId: settlement.opId,
-          code: "projection_not_visible",
-          hint: "receipt 已 applied，但 task projection 尚未显示目标 cut；用 opId 继续查询，勿重放 mutation。",
+          code: settlement.code,
+          hint: settlement.hint ?? "canonical receipt 尚未 settled；不要重放 mutation。",
         });
-  };
-  const once = (
-    key: string,
-    taskId: string,
-    run: () => Promise<TaskMutationFeedback>,
-  ): Promise<TaskMutationFeedback> => {
-    const lockKey = `${repoId}:${key}`,
-      held = locks.current.get(lockKey);
-    if (held) return held;
-    const promise = run().then(
-      (result) => {
-        if (result.state !== "pending") locks.current.delete(lockKey);
-        return result;
-      },
-      (error) => {
-        locks.current.delete(lockKey);
-        return publish(taskId, {
-          state: "error",
-          kind: key.split(":")[0] as TaskMutationFeedback["kind"],
-          opId: "N/A",
-          code: "bridge_error",
-          hint: error instanceof Error ? error.message : String(error),
-        });
-      },
-    );
-    locks.current.set(lockKey, promise);
-    return promise;
-  };
-  const startTask = (task: TaskRow): Promise<TaskMutationFeedback> =>
-    once(`start:${task.taskId}`, task.taskId, async () => {
-      const executionId = createGuiExecutionId();
-      publish(task.taskId, {
-        state: "pending",
-        kind: "start",
-        opId: "awaiting-receipt",
-        hint: `正在申请 lease · ${executionId}`,
+      const queryKey = taskQueryKeys.list(repoId),
+        previous = queryClient.getQueryData<TaskListSuccess>(queryKey);
+      const data = await queryClient.fetchQuery({
+        queryKey,
+        queryFn: () => readTaskList(repoId, previous),
+        staleTime: 0,
       });
-      const settlement = await settleTaskReceipt(
-        await harnessClient.startTask({ repoId, taskId: task.taskId, executionId }),
-        ({ opId }) => harnessClient.showReceipt({ repoId, opId }),
-      );
-      return reread(task.taskId, "start", settlement, (data) =>
-        data.rows.some(
-          (row) =>
-            row.taskId === task.taskId && rowCan(row, "progress") && row.snapshot.lease?.executionId === executionId,
-        ),
-      );
-    });
-  const appendProgress = (
-    task: TaskRow,
-    input: {
-      readonly text: string;
-      readonly evidence: ReadonlyArray<{ readonly type: string; readonly path: string; readonly summary: string }>;
+      const revisionVisible = settlement.revision === undefined || data.watermark >= settlement.revision;
+      return revisionVisible && visible(data)
+        ? publish(taskId, {
+            state: "success",
+            kind,
+            opId: settlement.opId,
+            hint: "canonical projection 已重读并确认。",
+          })
+        : publish(taskId, {
+            state: "pending",
+            kind,
+            opId: settlement.opId,
+            code: "projection_not_visible",
+            hint: "receipt 已 applied，但 task projection 尚未显示目标 cut；用 opId 继续查询，勿重放 mutation。",
+          });
     },
-  ): Promise<TaskMutationFeedback> =>
-    once(`progress:${task.taskId}`, task.taskId, async () => {
-      publish(task.taskId, {
-        state: "pending",
-        kind: "progress",
-        opId: "awaiting-receipt",
-        hint: "正在追加 typed progress…",
-      });
-      const settlement = await settleTaskReceipt(
-        await harnessClient.appendTaskProgress({
-          repoId,
-          taskId: task.taskId,
-          executionId: task.activeExecutionId,
-          ...input,
-        }),
-        ({ opId }) => harnessClient.showReceipt({ repoId, opId }),
+    [repoId, queryClient, publish],
+  );
+  const once = useCallback(
+    (key: string, taskId: string, run: () => Promise<TaskMutationFeedback>): Promise<TaskMutationFeedback> => {
+      const lockKey = `${repoId}:${key}`,
+        held = locks.current.get(lockKey);
+      if (held) return held;
+      const promise = run().then(
+        (result) => {
+          if (result.state !== "pending") locks.current.delete(lockKey);
+          return result;
+        },
+        (error) => {
+          locks.current.delete(lockKey);
+          return publish(taskId, {
+            state: "error",
+            kind: key.split(":")[0] as TaskMutationFeedback["kind"],
+            opId: "N/A",
+            code: "bridge_error",
+            hint: error instanceof Error ? error.message : String(error),
+          });
+        },
       );
-      return reread(task.taskId, "progress", settlement, (data) =>
-        data.rows.some(
-          (row) =>
-            row.taskId === task.taskId &&
-            rowCan(row, "progress") &&
-            row.snapshot.lease?.executionId === task.activeExecutionId,
-        ),
-      );
-    });
-  const submitTask = (task: TaskRow, submission: GuiSubmissionV1): Promise<TaskMutationFeedback> =>
-    once(`submit:${task.taskId}`, task.taskId, async () => {
-      publish(task.taskId, {
-        state: "pending",
-        kind: "submit",
-        opId: "awaiting-receipt",
-        hint: "正在原子提交 SubmissionV1…",
-      });
-      const settlement = await settleTaskReceipt(
-        await harnessClient.submitTask({
-          repoId,
-          taskId: task.taskId,
-          executionId: task.activeExecutionId ?? "",
-          submission,
-        }),
-        ({ opId }) => harnessClient.showReceipt({ repoId, opId }),
-      );
-      return reread(task.taskId, "submit", settlement, (data) =>
-        data.rows.some((row) => row.taskId === task.taskId && rowCan(row, "review") && row.snapshot.lease === null),
-      );
-    });
+      locks.current.set(lockKey, promise);
+      return promise;
+    },
+    [repoId, publish],
+  );
+  const startTask = useCallback(
+    (task: TaskRow): Promise<TaskMutationFeedback> =>
+      once(`start:${task.taskId}`, task.taskId, async () => {
+        const executionId = createGuiExecutionId();
+        publish(task.taskId, {
+          state: "pending",
+          kind: "start",
+          opId: "awaiting-receipt",
+          hint: `正在申请 lease · ${executionId}`,
+        });
+        const settlement = await settleTaskReceipt(
+          await harnessClient.startTask({ repoId, taskId: task.taskId, executionId }),
+          ({ opId }) => harnessClient.showReceipt({ repoId, opId }),
+        );
+        return reread(task.taskId, "start", settlement, (data) =>
+          data.rows.some(
+            (row) =>
+              row.taskId === task.taskId && rowCan(row, "progress") && row.snapshot.lease?.executionId === executionId,
+          ),
+        );
+      }),
+    [once, reread],
+  );
+  const appendProgress = useCallback(
+    (
+      task: TaskRow,
+      input: {
+        readonly text: string;
+        readonly evidence: ReadonlyArray<{ readonly type: string; readonly path: string; readonly summary: string }>;
+      },
+    ): Promise<TaskMutationFeedback> =>
+      once(`progress:${task.taskId}`, task.taskId, async () => {
+        publish(task.taskId, {
+          state: "pending",
+          kind: "progress",
+          opId: "awaiting-receipt",
+          hint: "正在追加 typed progress…",
+        });
+        const settlement = await settleTaskReceipt(
+          await harnessClient.appendTaskProgress({
+            repoId,
+            taskId: task.taskId,
+            executionId: task.activeExecutionId,
+            ...input,
+          }),
+          ({ opId }) => harnessClient.showReceipt({ repoId, opId }),
+        );
+        return reread(task.taskId, "progress", settlement, (data) =>
+          data.rows.some(
+            (row) =>
+              row.taskId === task.taskId &&
+              rowCan(row, "progress") &&
+              row.snapshot.lease?.executionId === task.activeExecutionId,
+          ),
+        );
+      }),
+    [once, reread],
+  );
+  const submitTask = useCallback(
+    (task: TaskRow, submission: GuiSubmissionV1): Promise<TaskMutationFeedback> =>
+      once(`submit:${task.taskId}`, task.taskId, async () => {
+        publish(task.taskId, {
+          state: "pending",
+          kind: "submit",
+          opId: "awaiting-receipt",
+          hint: "正在原子提交 SubmissionV1…",
+        });
+        const settlement = await settleTaskReceipt(
+          await harnessClient.submitTask({
+            repoId,
+            taskId: task.taskId,
+            executionId: task.activeExecutionId ?? "",
+            submission,
+          }),
+          ({ opId }) => harnessClient.showReceipt({ repoId, opId }),
+        );
+        return reread(task.taskId, "submit", settlement, (data) =>
+          data.rows.some((row) => row.taskId === task.taskId && rowCan(row, "review") && row.snapshot.lease === null),
+        );
+      }),
+    [once, reread],
+  );
   // 台账 pin 的 GUI 写通道:与 `ha task pin/unpin` 完全同一条 daemon 动作
   // (pinned-only `task-amend`),不另造写路。pinned 与 coordinationStatus 正交,
   // 所以可见性判据只看 `snapshot.task.pinned` 这一件事。
-  const setTaskPin = (task: Pick<TaskRow, "taskId">, pinned: boolean): Promise<TaskMutationFeedback> =>
-    once(`pin:${task.taskId}`, task.taskId, async () => {
-      publish(task.taskId, {
-        state: "pending",
-        kind: "pin",
-        opId: "awaiting-receipt",
-        hint: pinned ? "正在 pin(今天当前在做)…" : "正在解除 pin…",
-      });
-      const settlement = await settleTaskReceipt(
-        await (pinned ? harnessClient.pinTask : harnessClient.unpinTask)({ repoId, taskId: task.taskId }),
-        ({ opId }) => harnessClient.showReceipt({ repoId, opId }),
-      );
-      return reread(task.taskId, "pin", settlement, (data) =>
-        data.rows.some((row) => row.taskId === task.taskId && (row.snapshot.task?.pinned === true) === pinned),
-      );
-    });
+  const setTaskPin = useCallback(
+    (task: Pick<TaskRow, "taskId">, pinned: boolean): Promise<TaskMutationFeedback> =>
+      once(`pin:${task.taskId}`, task.taskId, async () => {
+        publish(task.taskId, {
+          state: "pending",
+          kind: "pin",
+          opId: "awaiting-receipt",
+          hint: pinned ? "正在 pin(今天当前在做)…" : "正在解除 pin…",
+        });
+        const settlement = await settleTaskReceipt(
+          await (pinned ? harnessClient.pinTask : harnessClient.unpinTask)({ repoId, taskId: task.taskId }),
+          ({ opId }) => harnessClient.showReceipt({ repoId, opId }),
+        );
+        return reread(task.taskId, "pin", settlement, (data) =>
+          data.rows.some((row) => row.taskId === task.taskId && (row.snapshot.task?.pinned === true) === pinned),
+        );
+      }),
+    [once, reread],
+  );
   return { feedback, startTask, appendProgress, submitTask, setTaskPin };
 }

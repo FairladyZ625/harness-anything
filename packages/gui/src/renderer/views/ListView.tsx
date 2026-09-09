@@ -1,12 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import { CaretLeft, CaretRight, Lock, PushPin, Star } from "@phosphor-icons/react";
-import type { TaskRow, RelationEdge } from "../model/types";
+import type { TaskRow } from "../model/types";
 import { isExternal } from "../model/types";
 import { CloseoutBadge, DecisionSourceBadge, EngineBadge, FreshnessTag, StatusBadge } from "../components/badges";
 import { TaskFilterBar } from "../components/TaskFilterBar";
 import type { TaskFilters } from "../model/taskFilters";
 import { sortByRecentThenPinAndFavoritesFirst } from "../model/taskFilters";
-import { spawningDecisionOf } from "../model/triadic";
+import type { SpawningDecisionIndex } from "../model/triadic";
 import { t } from "../i18n/index.tsx";
 import { formatTime } from "../model/time.ts";
 
@@ -16,23 +16,23 @@ const DEFAULT_PAGE_SIZE: PageSize = 15;
 
 const dateLabel = (iso: string) => formatTime(iso, { style: "month-day-time" }) ?? "—";
 
-function AuditRow({
+/** 审计行 memo(W9):比较键同看板卡片——行对象引用 + 稳定回调;徽章收标量(W9 修正)。 */
+const AuditRow = memo(function AuditRow({
   task,
   onSelect,
-  relations,
+  spawningDecision,
   isFavorite,
   onToggleFavorite,
   onSetPin,
 }: {
   task: TaskRow;
   onSelect: (id: string) => void;
-  relations: RelationEdge[];
+  spawningDecision: string | undefined;
   isFavorite: boolean;
   onToggleFavorite: (id: string) => void;
   onSetPin?: (task: TaskRow, pinned: boolean) => void;
 }) {
   const archived = task.visibility.archived;
-  const spawningDecision = spawningDecisionOf(task, relations);
   const pinned = task.pinned === true;
   return (
     <tr
@@ -148,7 +148,7 @@ function AuditRow({
       </td>
     </tr>
   );
-}
+});
 
 export function ListView({
   tasks,
@@ -156,7 +156,7 @@ export function ListView({
   filters,
   onFiltersChange,
   onSelect,
-  relations,
+  spawningDecisions,
   favorites,
   onToggleFavorite,
   onSetPin,
@@ -167,7 +167,7 @@ export function ListView({
   filters: TaskFilters;
   onFiltersChange: (filters: TaskFilters) => void;
   onSelect: (id: string) => void;
-  relations: RelationEdge[];
+  spawningDecisions: SpawningDecisionIndex;
   favorites?: ReadonlySet<string>;
   onToggleFavorite?: (id: string) => void;
   /** 台账 pin 写通道;缺省时行内只显示 📌 状态,不给写按钮。 */
@@ -271,7 +271,7 @@ export function ListView({
                   key={task.taskId}
                   task={task}
                   onSelect={onSelect}
-                  relations={relations}
+                  spawningDecision={spawningDecisions.get(task.taskId)}
                   isFavorite={favSet.has(task.taskId)}
                   onToggleFavorite={onToggleFavorite ?? (() => undefined)}
                   onSetPin={onSetPin}

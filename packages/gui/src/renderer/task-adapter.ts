@@ -185,24 +185,86 @@ export function computeRootTaskId(taskId: string, parentById: ReadonlyMap<string
 }
 
 /**
- * 在 adaptProjectionRow 之上补齐 rootTaskId / rootTitle。两阶段:先建 parentById
- * 查找表,再按表给每个 row 标根与根标题。
+ * 行级 keyed 重建(W9):上游 `joinLedgerCut` 对未出现在增量页里的行保留
+ * previous 的行对象引用,react-query structuralSharing 让零变更轮询连 `data`
+ * 引用都不换。adapter 在这里兑现同一不变量:输入行引用未变的行直接复用上一份
+ * TaskRow,只有真正变化的行产生新对象——下游 memo 的比较键因此就是行对象引用,
+ * 不需要任何深比较。输出语义(字段、root 派生、行序随输入)不变。
+ */
+interface TaskRowCacheEntry {
+  readonly row: TaskSnapshotProjectionRow;
+  readonly task: TaskRow;
+}
+
+interface TaskRowsCache {
+  readonly projectId: string;
+  readonly projectionStatus: "ready" | "pending";
+  readonly rows: ReadonlyArray<TaskSnapshotProjectionRow> | null;
+  readonly output: readonly TaskRow[] | null;
+  readonly entries: ReadonlyMap<string, TaskRowCacheEntry>;
+}
+
+let taskRowsCache: TaskRowsCache | null = null;
+
+/**
+ * 在 adaptProjectionRow 之上补齐 rootTaskId / rootTitle。root 派生依赖整份
+ * parentById/titleById(任一行的 parent 或标题变化都可能改变别的行的根),
+ * 所以查找表每次全量重建(纯读);行引用未变的行只有在派生结果真的变了时
+ * 才换新对象——比较是两个短字符串的等值比较,不是深比较。
  */
 export function adaptProjectionRows(
   rows: ReadonlyArray<TaskSnapshotProjectionRow>,
   projectId: string,
   projectionStatus: "ready" | "pending" = "ready",
 ): readonly TaskRow[] {
-  const base = rows.map((row) => adaptProjectionRow(row, projectId, projectionStatus));
+  const prev: TaskRowsCache | null =
+    taskRowsCache !== null &&
+    taskRowsCache.projectId === projectId &&
+    taskRowsCache.projectionStatus === projectionStatus
+      ? taskRowsCache
+      : null;
+  if (prev !== null && prev.rows === rows && prev.output !== null) return prev.output;
+
   const parentById = new Map<string, string | undefined>();
   const titleById = new Map<string, string>();
-  for (const task of base) {
-    parentById.set(task.taskId, task.parentTaskId);
-    titleById.set(task.taskId, task.title);
+  for (const row of rows) {
+    parentById.set(row.taskId, row.placement.parentTaskId ?? undefined);
+    titleById.set(row.taskId, row.snapshot.task?.title ?? "");
   }
-  return base.map((task) => {
-    const rootTaskId = computeRootTaskId(task.taskId, parentById);
-    const rootTitle = titleById.get(rootTaskId) ?? task.title;
-    return { ...task, rootTaskId, rootTitle };
-  });
+
+  const entries = new Map<string, TaskRowCacheEntry>();
+  const output: TaskRow[] = [];
+  for (const row of rows) {
+    const cached = prev?.entries.get(row.taskId);
+    if (cached !== undefined && cached.row === row) {
+      const rootTaskId = computeRootTaskId(row.taskId, parentById);
+      const rootTitle = titleById.get(rootTaskId) ?? cached.task.title;
+      const task =
+        cached.task.rootTaskId === rootTaskId && cached.task.rootTitle === rootTitle
+          ? cached.task
+          : { ...cached.task, rootTaskId, rootTitle };
+      output.push(task);
+      entries.set(row.taskId, { row, task });
+    } else {
+      const base = adaptProjectionRow(row, projectId, projectionStatus);
+      const rootTaskId = computeRootTaskId(base.taskId, parentById);
+      const task = { ...base, rootTaskId, rootTitle: titleById.get(rootTaskId) ?? base.title };
+      output.push(task);
+      entries.set(row.taskId, { row, task });
+    }
+  }
+
+  // 全部行引用未变且输出逐位同引用(行序也未变)→ 上一份输出数组原样复用,
+  // 下游 memo 全链路保持命中;否则返回本次新建的数组(内含复用的行引用)。
+  if (
+    prev !== null &&
+    prev.output !== null &&
+    prev.output.length === output.length &&
+    prev.output.every((task, index) => task === output[index])
+  ) {
+    taskRowsCache = { projectId, projectionStatus, rows, output: prev.output, entries };
+    return prev.output;
+  }
+  taskRowsCache = { projectId, projectionStatus, rows, output, entries };
+  return output;
 }

@@ -304,7 +304,7 @@ describe("overview task stream", () => {
         groupBy: "root",
         onSelect: noop,
         drill: { lane: "root_0", status: "active", groupBy: "root" },
-        relations: [],
+        spawningDecisions: new Map(),
         favorites: new Set<string>(),
         onToggleFavorite: noop,
         onSetPin: noop,

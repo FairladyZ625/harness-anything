@@ -322,3 +322,94 @@ describe("adaptProjectionRows", () => {
     expect(task?.placementWarning).toContain("多个 spawning decision");
   });
 });
+
+/**
+ * 行级引用保持(W9):`joinLedgerCut` 对未变化的行保留上游行对象引用,adapter
+ * 的输出必须兑现同一不变量——未变行复用上一份 TaskRow(下游 memo 的比较键),
+ * 变行换新引用;root 派生仍随整份 parent/title 表走(标题或 parent 变了,
+ * 受影响行的 rootTaskId/rootTitle 必须换新对象)。行序与字段语义不变。
+ */
+describe("adaptProjectionRows reference stability (W9)", () => {
+  it("reuses the previous output array when the input array reference is unchanged", () => {
+    const rows = [row({ taskId: "task-a" }), row({ taskId: "task-b" })];
+    const first = adaptProjectionRows(rows, "repo-test");
+    expect(adaptProjectionRows(rows, "repo-test")).toBe(first);
+  });
+
+  it("keeps TaskRow identity for unchanged rows and swaps only the changed row", () => {
+    const before = [row({ taskId: "task-a" }), row({ taskId: "task-b" }), row({ taskId: "task-c" })];
+    const first = adaptProjectionRows(before, "repo-test");
+
+    // 增量页语义:只有 task-b 换了新行对象,其余行引用保持。
+    const changed = row({ taskId: "task-b", updatedAt: "2026-08-12T01:00:00.000Z" });
+    const after = adaptProjectionRows([before[0]!, changed, before[2]!], "repo-test");
+
+    expect(after.length).toBe(3);
+    expect(after[0]).toBe(first[0]);
+    expect(after[2]).toBe(first[2]);
+    expect(after[1]).not.toBe(first[1]);
+    expect(after[1]?.lastKnownAt).toBe("2026-08-12T01:00:00.000Z");
+    // 行序随输入(taskId 升序)保持。
+    expect(after.map((task) => task.taskId)).toEqual(["task-a", "task-b", "task-c"]);
+  });
+
+  it("returns the previous output array when a new array carries the same row references", () => {
+    const rows = [row({ taskId: "task-a" }), row({ taskId: "task-b" })];
+    const first = adaptProjectionRows(rows, "repo-test");
+    expect(adaptProjectionRows([...rows], "repo-test")).toBe(first);
+  });
+
+  it("re-derives rootTaskId/rootTitle when an ancestor's parent or title changes", () => {
+    const root = row({ taskId: "task-root", updatedAt: "2026-08-12T00:00:00.000Z" });
+    const child = row({
+      taskId: "task-child",
+      placement: { ...row().placement, parentTaskId: "task-root" },
+    });
+    const first = adaptProjectionRows([root, child], "repo-test");
+    expect(first[1]).toMatchObject({ rootTaskId: "task-root", rootTitle: "X" });
+
+    // 根标题变化:child 的行引用未变,但 rootTitle 派生变了,必须换新对象。
+    const retitledRoot = row({
+      taskId: "task-root",
+      updatedAt: "2026-08-12T01:00:00.000Z",
+      snapshot: { ...root.snapshot, task: { ...root.snapshot.task!, title: "Retitled" } },
+    });
+    const afterRetitle = adaptProjectionRows([retitledRoot, child], "repo-test");
+    expect(afterRetitle[1]).not.toBe(first[1]);
+    expect(afterRetitle[1]).toMatchObject({ rootTaskId: "task-root", rootTitle: "Retitled" });
+
+    // parent 变化:child 改挂新根,rootTaskId 派生跟着走。
+    const regraftedChild = row({
+      taskId: "task-child",
+      placement: { ...row().placement, parentTaskId: "task-other" },
+    });
+    const afterRegraft = adaptProjectionRows([retitledRoot, regraftedChild], "repo-test");
+    // task-other 不在集合里,链断在自身:child 以自己为根(computeRootTaskId 语义)。
+    expect(afterRegraft[1]?.rootTaskId).toBe("task-child");
+    expect(afterRegraft[1]?.rootTitle).toBe("X");
+  });
+
+  it("rebuilds fully when projectId or projectionStatus changes", () => {
+    const rows = [row({ taskId: "task-a" })];
+    const first = adaptProjectionRows(rows, "repo-one");
+    const otherProject = adaptProjectionRows(rows, "repo-two");
+    expect(otherProject).not.toBe(first);
+    expect(otherProject[0]?.projectId).toBe("repo-two");
+
+    const pending = adaptProjectionRows(rows, "repo-two", "pending");
+    expect(pending[0]?.freshness).toBe("stale-but-usable");
+    const backToReady = adaptProjectionRows(rows, "repo-two", "ready");
+    expect(backToReady[0]?.freshness).toBe("fresh");
+  });
+
+  it("produces value-equal output regardless of cache hits (no semantic drift)", () => {
+    const build = () => [
+      row({ taskId: "task-a" }),
+      row({ taskId: "task-child", placement: { ...row().placement, parentTaskId: "task-a" } }),
+    ];
+    // 两份内容相同但引用不同的输入:命中缓存与否,输出逐字段一致。
+    const first = adaptProjectionRows(build(), "repo-fresh");
+    const second = adaptProjectionRows(build(), "repo-fresh");
+    expect(second).toEqual(first);
+  });
+});

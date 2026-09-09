@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { SnapshotStatus, TaskRow } from "../src/renderer/model/types.ts";
+import type { RelationEdge, SnapshotStatus, TaskRow } from "../src/renderer/model/types.ts";
 import { BoardView } from "../src/renderer/views/BoardView.tsx";
 import { SwimlaneBoard } from "../src/renderer/views/SwimlaneBoard.tsx";
 import {
@@ -459,7 +459,7 @@ describe("swimlane default order (W8)", () => {
         groupBy: "root",
         onSelect: noop,
         drill: null,
-        relations: [],
+        spawningDecisions: new Map(),
         favorites: new Set<string>(),
         onToggleFavorite: noop,
         onSetPin: noop,
@@ -511,7 +511,7 @@ describe("swimlane default order (W8)", () => {
         groupBy: "root",
         onSelect: noop,
         drill: { lane: "root-a", status: drillStatus, groupBy: "root" },
-        relations: [],
+        spawningDecisions: new Map(),
         favorites: new Set<string>(),
         onToggleFavorite: noop,
         onSetPin: noop,
@@ -522,5 +522,472 @@ describe("swimlane default order (W8)", () => {
     const order = orderedIds(drilldown, ["drill-pin", "drill-new", "drill-old"]);
     expect(order).toEqual(["drill-pin", "drill-new", "drill-old"]);
     expect(drilldown).not.toContain("drill-active");
+  });
+});
+
+/**
+ * 看板重渲染收敛(W9):行级引用保持 + Card memo + draggable 只挂可拖卡之后,
+ * 重渲染成本与「实际变化的行数」成正比。计数探针:TaskRow.title 的 getter——
+ * 默认筛选(query 为空)下列模式下只有卡片渲染读 title(matchesTask 只在
+ * query 非空时读,TaskFilterBar/列分组/排序都不读),所以 title 读取数 ==
+ * 卡片渲染数;探针在收敛前后的代码上同构,数字可直接对照。
+ */
+/**
+ * 看板重渲染收敛(W9)的共享探针 fixture:行级引用保持 + Card memo 之后,
+ * 重渲染成本与「实际变化的行数」成正比。计数探针:TaskRow.title 的 getter——
+ * 默认筛选(query 为空)下列模式下只有卡片渲染读 title(matchesTask 只在
+ * query 非空时读,TaskFilterBar/列分组/排序都不读),所以 title 读取数 ==
+ * 卡片渲染数;探针在收敛前后的代码上同构,数字可直接对照。
+ * 关系更新探针(W9 修正)复用同一套 fixture。
+ */
+// BoardView 级渲染探针:boardTasks 三元式每次 BoardView 渲染都读
+// filters.expandColdTerminal,getter 计数即「看板本体渲染次数」。注意
+// React Profiler 不适用:它在子树全部 memo 跳过时仍按父渲染各 fire 一次
+// (2026-09-09 实测),commit 计数测不出 bail-out。
+let boardRenderReads = 0;
+const STABLE_FILTERS = Object.defineProperty({ ...DEFAULT_TASK_FILTERS }, "expandColdTerminal", {
+  enumerable: true,
+  configurable: true,
+  get() {
+    boardRenderReads++;
+    return false;
+  },
+}) as TaskFilters;
+const STABLE_FAVORITES = new Set<string>();
+// props 全部稳定是 memo 生效的前提,探针必须自己遵守(生产路径由上层
+// useCallback/query structuralSharing 保证)。
+const STABLE_RELATIONS: RelationEdge[] = [];
+
+function countingTask(id: string, counters: Map<string, number>, overrides: Partial<TaskRow> = {}): TaskRow {
+  const base = makeTask({ taskId: id, title: `card-${id}`, ...overrides });
+  // 同 id 重建对象(增量页换行)不清零:计数按 taskId 连续累计,增量才有意义。
+  if (!counters.has(id)) counters.set(id, 0);
+  return Object.defineProperty({ ...base }, "title", {
+    enumerable: true,
+    configurable: true,
+    get() {
+      counters.set(id, (counters.get(id) ?? 0) + 1);
+      return `card-${id}`;
+    },
+  }) as TaskRow;
+}
+
+function boardFixture(counters: Map<string, number>): TaskRow[] {
+  const statuses: SnapshotStatus[] = ["planned", "active", "active", "in_review", "blocked"];
+  return statuses.map((coordinationStatus, index) =>
+    countingTask(`t_${index}`, counters, {
+      coordinationStatus,
+      lastKnownAt: daysAgo(index + 1),
+    }),
+  );
+}
+
+async function mountBoard() {
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  const renderBoard = (tasks: TaskRow[], relations: RelationEdge[] = STABLE_RELATIONS) =>
+    act(async () => {
+      root.render(
+        createElement(BoardView, {
+          tasks,
+          allTasks: tasks,
+          filters: STABLE_FILTERS,
+          onFiltersChange: noop,
+          onSelect: noop,
+          relations,
+          favorites: STABLE_FAVORITES,
+          onToggleFavorite: noop,
+          onSetPin: noop,
+        }),
+      );
+    });
+  return { container, root, renderBoard };
+}
+
+describe("board render convergence (W9)", () => {
+  it("idle re-render with identical props renders no cards and no board body", async () => {
+    const counters = new Map<string, number>();
+    const tasks = boardFixture(counters);
+    const board = await mountBoard();
+    await board.renderBoard(tasks);
+    // 挂载后 dnd-kit 的异步测量可能再 commit 一轮;先用一次同参渲染落定,
+    // 再以落定后的计数为基线测量「空闲轮询」。
+    await board.renderBoard(tasks);
+    const settled = new Map(counters);
+    const settledBoardReads = boardRenderReads;
+    expect(settled.size).toBe(5);
+    expect([...settled.values()].every((count) => count >= 1)).toBe(true);
+
+    await board.renderBoard(tasks);
+    for (const [id, reads] of settled) {
+      expect(counters.get(id)).toBe(reads); // 零变更:卡片渲染数 0。
+    }
+    expect(boardRenderReads).toBe(settledBoardReads); // 看板本体零重渲染。
+
+    act(() => {
+      board.root.unmount();
+    });
+    board.container.remove();
+  });
+
+  it("zero-change refetch (new array identity, same row refs) renders no cards", async () => {
+    const counters = new Map<string, number>();
+    const tasks = boardFixture(counters);
+    const board = await mountBoard();
+    await board.renderBoard(tasks);
+    const afterMount = new Map(counters);
+
+    await board.renderBoard([...tasks]);
+    for (const [id, reads] of afterMount) {
+      expect(counters.get(id)).toBe(reads);
+    }
+
+    act(() => {
+      board.root.unmount();
+    });
+    board.container.remove();
+  });
+
+  it("single-row change re-renders only that row's card", async () => {
+    const counters = new Map<string, number>();
+    const tasks = boardFixture(counters);
+    const board = await mountBoard();
+    await board.renderBoard(tasks);
+    const readsAfterMount = new Map(counters);
+
+    const changed = countingTask("t_2", counters, {
+      coordinationStatus: "active",
+      lastKnownAt: new Date().toISOString(),
+    });
+    await board.renderBoard([...tasks.slice(0, 2), changed, ...tasks.slice(3)]);
+
+    for (const id of ["t_0", "t_1", "t_3", "t_4"]) {
+      expect(counters.get(id)).toBe(readsAfterMount.get(id)); // 未变行:卡片跳过。
+    }
+    expect(counters.get("t_2")).toBe((readsAfterMount.get("t_2") ?? 0) + 1); // 只有变更行重渲染。
+
+    act(() => {
+      board.root.unmount();
+    });
+    board.container.remove();
+  });
+});
+
+/**
+ * 关系更新收敛(W9 修正):全局 relations 数组止步于 BoardView 的单遍徽章索引,
+ * 卡片只收自己的标量。真实 derives 增量不再打穿全板 memo——与看板任务无关的
+ * 边变化 0 卡重渲染,命中某一任务的边变化只有该卡重渲染;点击与键盘行为保持。
+ * (此前的 STABLE_RELATIONS 探针测不出这条路径:它从不换 relations 数组。)
+ */
+describe("relation update convergence (W9 correction)", () => {
+  const derives = (decisionId: string, taskId: string): RelationEdge => ({
+    kind: "derives",
+    direction: "directed",
+    from: `decision/${decisionId}`,
+    to: `task/${taskId}`,
+  });
+
+  it("relation refresh touching only unrelated tasks re-renders no cards", async () => {
+    const counters = new Map<string, number>();
+    const tasks = boardFixture(counters);
+    const board = await mountBoard();
+    await board.renderBoard(tasks, [derives("dec_a", "t_0")]);
+    await board.renderBoard(tasks, [derives("dec_a", "t_0")]); // 落定基线(dnd 异步测量)。
+    const settled = new Map(counters);
+    const settledBoardReads = boardRenderReads;
+
+    // 新数组身份(react-query 刷新形态),新增边只指向看板外的任务。
+    await board.renderBoard(tasks, [derives("dec_a", "t_0"), derives("dec_off", "t_offboard")]);
+    for (const [id, reads] of settled) {
+      expect(counters.get(id)).toBe(reads); // 无关关系变更:卡片渲染数 0。
+    }
+    expect(boardRenderReads).toBeGreaterThan(settledBoardReads); // 看板本体确实重渲染了:0 卡 ≠ 0 渲染。
+
+    act(() => {
+      board.root.unmount();
+    });
+    board.container.remove();
+  });
+
+  it("relation update targeting one board task re-renders only that card", async () => {
+    const counters = new Map<string, number>();
+    const tasks = boardFixture(counters);
+    const board = await mountBoard();
+    await board.renderBoard(tasks, [derives("dec_a", "t_0")]);
+    await board.renderBoard(tasks, [derives("dec_a", "t_0")]);
+    const settled = new Map(counters);
+
+    // t_2 获得新的决策来源徽章 → 只有 t_2 的卡片换 props。
+    await board.renderBoard(tasks, [derives("dec_a", "t_0"), derives("dec_new", "t_2")]);
+
+    for (const id of ["t_0", "t_1", "t_3", "t_4"]) {
+      expect(counters.get(id)).toBe(settled.get(id)); // 徽章值未变的行跳过。
+    }
+    expect(counters.get("t_2")).toBe((settled.get("t_2") ?? 0) + 1); // 只有命中行重渲染。
+    expect(board.container.textContent).toContain("dec_new"); // 徽章真实上屏。
+
+    act(() => {
+      board.root.unmount();
+    });
+    board.container.remove();
+  });
+
+  it("keeps click and keyboard activation on non-draggable cards across a relation refresh", async () => {
+    // done 卡(无 start 能力)走非拖拽分支;渲染一轮后换 relations 数组,
+    // 验证可聚焦表面与激活路径不随关系刷新退化。
+    const doneTask = makeTask({
+      taskId: "t_done",
+      title: "card-done",
+      coordinationStatus: "done",
+      lastKnownAt: daysAgo(2),
+    });
+    const selected: string[] = [];
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const render = (relations: RelationEdge[]) =>
+      act(async () => {
+        root.render(
+          createElement(BoardView, {
+            tasks: [doneTask],
+            allTasks: [doneTask],
+            filters: { ...DEFAULT_TASK_FILTERS },
+            onFiltersChange: noop,
+            onSelect: (id) => selected.push(id),
+            relations,
+            favorites: new Set<string>(),
+            onToggleFavorite: noop,
+            onSetPin: noop,
+          }),
+        );
+      });
+    await render([]);
+    await render([derives("dec_new", "t_done")]);
+
+    const card = container.querySelector('[data-testid="board-task-card"]')!;
+    expect(card.textContent).toContain("dec_new");
+    const wrapper = card.closest('[role="button"]');
+    expect(wrapper).not.toBeNull(); // 可聚焦的交互表面在(baseline 经 dnd attributes 提供,收窄后显式保留)。
+    expect(wrapper!.getAttribute("tabindex")).toBe("0");
+    expect(wrapper!.getAttribute("aria-roledescription")).toBeNull(); // 唯一省掉的是 dnd 注册。
+
+    act(() => {
+      card.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    act(() => {
+      wrapper!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    });
+    act(() => {
+      wrapper!.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true }));
+    });
+    expect(selected).toEqual(["t_done", "t_done", "t_done"]); // 点击与 Enter/Space 激活都走 onSelect。
+
+    act(() => {
+      root.unmount();
+    });
+    container.remove();
+  });
+});
+
+/**
+ * draggable 收窄(W9):useDraggable 只挂在 `taskCan(task,"start")` 的卡上,
+ * 不可拖卡不再注册 dnd 节点。悬停提示与点击行为保持不变。
+ */
+describe("draggable narrowing (W9)", () => {
+  const draggableTask = (): TaskRow =>
+    makeTask({
+      taskId: "t_drag",
+      title: "card-drag",
+      coordinationStatus: "planned",
+      capabilities: projectedTaskFields("planned", { can: ["start"] }).capabilities,
+    });
+  const frozenTask = (): TaskRow =>
+    // 14 天窗口内的 done 不是冷终态(W8),默认折叠不会把它藏掉。
+    makeTask({ taskId: "t_done", title: "card-done", coordinationStatus: "done", lastKnownAt: daysAgo(2) });
+
+  it("registers exactly one draggable node: the start-capable card", () => {
+    const markup = boardMarkup([draggableTask(), frozenTask()]);
+    expect(markup.split('data-testid="board-task-card"').length - 1).toBe(2); // 两张卡都在。
+    expect(markup.split('aria-roledescription="draggable"').length - 1).toBe(1); // 只有可拖卡挂 dnd。
+    // 两张卡的包装层都可聚焦(可拖卡经 dnd attributes,不可拖卡显式声明),焦点不随收窄丢失。
+    expect(markup.split('role="button"').length - 1).toBe(2);
+    expect(markup.split('tabindex="0"').length - 1).toBe(2);
+  });
+
+  it("keeps hover hint and click behavior on non-draggable cards", async () => {
+    const selected: string[] = [];
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(
+        createElement(BoardView, {
+          tasks: [draggableTask(), frozenTask()],
+          allTasks: [draggableTask(), frozenTask()],
+          filters: { ...DEFAULT_TASK_FILTERS },
+          onFiltersChange: noop,
+          onSelect: (id) => selected.push(id),
+          relations: [],
+          favorites: new Set<string>(),
+          onToggleFavorite: noop,
+          onSetPin: noop,
+        }),
+      );
+    });
+    const cards = container.querySelectorAll('[data-testid="board-task-card"]');
+    expect(cards.length).toBe(2);
+    const doneCard = [...cards].find((card) => card.querySelector("p")?.textContent === "card-done");
+    expect(doneCard).toBeDefined();
+    expect(doneCard!.getAttribute("title")).toContain("当前无可用动作"); // 悬停提示不变。
+    act(() => {
+      doneCard!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(selected).toEqual(["t_done"]); // 点击行为不变。
+    act(() => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
+  it("keeps native Enter/Space activation on nested buttons of non-draggable cards", async () => {
+    // 卡内 pin/收藏是原生 button(自带 Enter/Space 激活):包装层只处理自身发起的
+    // 键事件,不吞子按钮的默认动作、不替子按钮选中任务。
+    const selected: string[] = [];
+    const favorites: string[] = [];
+    const pins: Array<[string, boolean]> = [];
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const frozen = frozenTask();
+    await act(async () => {
+      root.render(
+        createElement(BoardView, {
+          tasks: [frozen],
+          allTasks: [frozen],
+          filters: { ...DEFAULT_TASK_FILTERS },
+          onFiltersChange: noop,
+          onSelect: (id) => selected.push(id),
+          relations: [],
+          favorites: new Set<string>(),
+          onToggleFavorite: (id) => favorites.push(id),
+          onSetPin: (task, pinned) => pins.push([task.taskId, pinned]),
+        }),
+      );
+    });
+
+    const card = container.querySelector('[data-testid="board-task-card"]')!;
+    const wrapper = card.closest('[role="button"]')!;
+    const pinButton = container.querySelector('[data-testid="board-pin-toggle-t_done"]') as HTMLButtonElement;
+    const favoriteButton = [...card.querySelectorAll("button")].find(
+      (button) => button.getAttribute("title") === "收藏(置顶)",
+    ) as HTMLButtonElement;
+    expect(pinButton).not.toBeNull();
+    expect(favoriteButton).not.toBeNull();
+
+    pinButton.focus();
+    expect(document.activeElement).toBe(pinButton); // 原生子按钮真实持有焦点。
+    const enterOnPin = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
+    pinButton.dispatchEvent(enterOnPin);
+    const spaceOnFavorite = new KeyboardEvent("keydown", { key: " ", bubbles: true, cancelable: true });
+    favoriteButton.dispatchEvent(spaceOnFavorite);
+    expect(enterOnPin.defaultPrevented).toBe(false); // 默认动作未被吞:真实浏览器里原生激活照常发生。
+    expect(spaceOnFavorite.defaultPrevented).toBe(false);
+    expect(selected).toEqual([]); // 冒泡到包装层也不选卡。
+
+    favoriteButton.click(); // 原生激活的产物是 click:按钮自己的动作保持。
+    pinButton.click();
+    expect(favorites).toEqual(["t_done"]);
+    expect(pins).toEqual([["t_done", true]]);
+    expect(selected).toEqual([]); // 按钮动作不连带选卡(stopPropagation 生效)。
+
+    wrapper.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    wrapper.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true }));
+    expect(selected).toEqual(["t_done", "t_done"]); // 包装层自身的 Enter/Space 仍选卡。
+
+    act(() => {
+      root.unmount();
+    });
+    container.remove();
+  });
+});
+
+/**
+ * 泳道单遍分组(W9):列头计数与单元格分组一次遍历产出(useMemo 缓存),
+ * 语义与逐列 filter 一致——计数按 coordinationStatus 全量统计,与泳道无关。
+ */
+describe("swimlane single-pass grouping (W9)", () => {
+  const laneTasks = (): TaskRow[] => [
+    makeTask({
+      taskId: "t_p1",
+      title: "lane-card-p1",
+      rootTaskId: "root-a",
+      rootTitle: "Lane A",
+      coordinationStatus: "planned",
+    }),
+    makeTask({
+      taskId: "t_p2",
+      title: "lane-card-p2",
+      rootTaskId: "root-a",
+      rootTitle: "Lane A",
+      coordinationStatus: "planned",
+    }),
+    makeTask({
+      taskId: "t_a1",
+      title: "lane-card-a1",
+      rootTaskId: "root-a",
+      rootTitle: "Lane A",
+      coordinationStatus: "active",
+    }),
+    makeTask({
+      taskId: "t_b1",
+      title: "lane-card-b1",
+      rootTaskId: "root-b",
+      rootTitle: "Lane B",
+      coordinationStatus: "in_review",
+    }),
+  ];
+
+  it("counts every status column header in one pass", () => {
+    const markup = renderToStaticMarkup(
+      createElement(SwimlaneBoard, {
+        tasks: laneTasks(),
+        groupBy: "root",
+        onSelect: noop,
+        drill: null,
+        spawningDecisions: new Map(),
+        favorites: new Set<string>(),
+        onToggleFavorite: noop,
+        onSetPin: noop,
+      }),
+    );
+    expect(markup).toContain('data-testid="swimlane-status-planned-count">2</span>');
+    expect(markup).toContain('data-testid="swimlane-status-active-count">1</span>');
+    expect(markup).toContain('data-testid="swimlane-status-in_review-count">1</span>');
+    expect(markup).toContain('data-testid="swimlane-status-done-count">0</span>');
+    // 泳道行计数仍然可见:lane A 3 张、lane B 1 张。
+    expect(markup).toContain("3");
+    expect(markup).toContain("1");
+  });
+
+  it("keeps lane order and drilldown cells after regrouping", () => {
+    const markup = renderToStaticMarkup(
+      createElement(SwimlaneBoard, {
+        tasks: laneTasks(),
+        groupBy: "root",
+        onSelect: noop,
+        drill: { lane: "root-a", status: "planned", groupBy: "root" },
+        spawningDecisions: new Map(),
+        favorites: new Set<string>(),
+        onToggleFavorite: noop,
+        onSetPin: noop,
+      }),
+    );
+    // 下钻面板打开时,root-a/planned 单元格的两张卡都渲染;lane B 的卡只出现在
+    // 单元格预览里(预览标题是合法内容),不进下钻面板。
+    expect(markup).toContain("lane-card-p1");
+    expect(markup).toContain("lane-card-p2");
+    const drilldown = markup.slice(markup.indexOf("下钻结果"));
+    expect(drilldown).not.toContain("lane-card-b1");
   });
 });
