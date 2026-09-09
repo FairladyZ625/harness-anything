@@ -434,6 +434,34 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
         assembledPrompt.indexOf("# Standard Task") < assembledPrompt.indexOf("# Mission"),
       "a squad-delegated worker must keep its role, prompts, and preset through the real CLI",
     );
+    const sameNamedReportDispatches = [progressDispatchId, boundDispatchId],
+      sameNamedReportPaths = sameNamedReportDispatches.map((dispatchId) =>
+        path.join(artifactRoot, "reports", `${dispatchId}.md`),
+      ),
+      sameNamedReportArchives = sameNamedReportDispatches.map(
+        (dispatchId) =>
+          JSON.parse(readFileSync(path.join(artifactRoot, "dispatches", `${dispatchId}.json`), "utf8")) as Record<
+            string,
+            unknown
+          >,
+      );
+    assert.notEqual(progressDispatchId, boundDispatchId, "independent runtime reports must not share an artifact key");
+    assert.equal(sameNamedReportPaths.every(existsSync), true, "each runtime report must remain materialized");
+    assert.equal(
+      sameNamedReportArchives.every(
+        (archive, index) =>
+          archive.dispatchId === sameNamedReportDispatches[index] &&
+          archive.taskId === taskId &&
+          archive.executionId === executionId,
+      ),
+      true,
+      "each dispatch-scoped report must retain its own Task execution owner",
+    );
+    assert.notEqual(
+      readFileSync(sameNamedReportPaths[0]!, "utf8"),
+      readFileSync(sameNamedReportPaths[1]!, "utf8"),
+      "separate report bodies must not overwrite one another",
+    );
     assert.equal(
       readFileSync(path.join(artifactRoot, "reports", `${boundDispatchId}.md`), "utf8"),
       `final:${assembledPrompt}`,

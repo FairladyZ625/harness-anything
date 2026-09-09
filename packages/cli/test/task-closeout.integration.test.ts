@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -150,7 +150,29 @@ test("a standard task with only task-package deliverables completes without a fa
     const created = run(root, userRoot, ["task", "create", "--id", taskId, "--admin", "--title", "Report Closeout"]),
       packagePath = String(created.packagePath),
       closeoutPath = `${packagePath}/closeout.md`,
-      reportPath = `${packagePath}/artifacts/report.md`;
+      reportPath = `${packagePath}/artifacts/report.md`,
+      reader = makeTaskEventReader({ rootDir: root, repoId: "closeout-report" }),
+      bootstrap = reader.readEvent(String(created.opId));
+    assert.equal(created.status, "accepted_durable", JSON.stringify(created));
+    assert.equal((created.git as { state: string }).state, "verified");
+    assert.equal((created.worktree as { state: string }).state, "verified");
+    assert.equal(bootstrap?.schema, "task-bootstrap-event/v1");
+    if (bootstrap?.schema !== "task-bootstrap-event/v1")
+      throw new Error("task create did not publish a bootstrap event");
+    const initialPlan = bootstrap.payload.initialDocumentClaims.find(
+      (claim) => claim.path === `${packagePath}/task_plan.md`,
+    );
+    assert.ok(initialPlan, "task bootstrap must own the initial authored plan");
+    assert.deepEqual(
+      reader.readContentBlob(initialPlan.sha256),
+      Buffer.from(readFileSync(path.join(root, "harness", packagePath, "task_plan.md"))),
+      "task create's event claim and initial authored plan must share the accepted bytes",
+    );
+    assert.equal(
+      git(root, "show", `HEAD:harness/${packagePath}/task_plan.md`),
+      readFileSync(path.join(root, "harness", packagePath, "task_plan.md"), "utf8").trim(),
+      "the same create cut must publish the initial plan to Git",
+    );
     writeFileSync(path.join(root, "harness", packagePath, "task_plan.md"), realizedPlan("Report Closeout"));
     run(root, userRoot, ["doc", "sync", "--submit", "--path", `${packagePath}/task_plan.md`]);
     assert.deepEqual(created.completionGates, ["ci", "code-doc-reconciliation"]);
@@ -165,12 +187,29 @@ test("a standard task with only task-package deliverables completes without a fa
       "test:task-closeout-report",
     ]);
     run(root, userRoot, ["task", "start", taskId, "--execution-id", executionId], "agent:worker");
-    writeFileSync(path.join(root, "harness", reportPath), "# Audit report\n\nNo public code changed.\n");
+    const reportBody = "# Audit report\n\nNo public code changed.\n";
+    writeFileSync(path.join(root, "harness", reportPath), reportBody);
     writeFileSync(
       path.join(root, "harness", closeoutPath),
       "# Closeout\n\n## Summary\n\nReport delivered.\n\n## Verification\n\nReviewed.\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nTask-package-only delivery.\n",
     );
-    run(root, userRoot, ["doc", "sync", "--submit", "--task", taskId], "agent:worker");
+    const reportPublication = run(root, userRoot, ["doc", "sync", "--submit", "--task", taskId], "agent:worker"),
+      reportEvent = reader.readEvent(String(reportPublication.opId));
+    assert.equal(reportPublication.status, "accepted_durable", JSON.stringify(reportPublication));
+    assert.equal((reportPublication.git as { state: string }).state, "verified");
+    assert.equal((reportPublication.worktree as { state: string }).state, "verified");
+    assert.equal(reportEvent?.schema, "doc-event/v1");
+    if (reportEvent?.schema !== "doc-event/v1")
+      throw new Error("task report did not enter the canonical document event");
+    const reportClaim = reportEvent.payload.changes.find((change) => change.path === reportPath)?.candidate;
+    assert.ok(reportClaim, "declared task report must carry a durable content claim");
+    assert.deepEqual(reader.readContentBlob(reportClaim.sha256), Buffer.from(reportBody));
+    assert.equal(git(root, "show", `HEAD:harness/${reportPath}`), reportBody.trim());
+    rmSync(path.join(root, "harness", reportPath));
+    const materialized = run(root, userRoot, ["doc", "materialize"]);
+    assert.equal(materialized.outcome, "applied", JSON.stringify(materialized));
+    assert.equal((materialized.proof as { worktreeVisible: boolean }).worktreeVisible, true);
+    assert.equal(readFileSync(path.join(root, "harness", reportPath), "utf8"), reportBody);
     const submission = {
       completionClaim: "The report-only fixture is complete.",
       deliverables: [reportPath],
