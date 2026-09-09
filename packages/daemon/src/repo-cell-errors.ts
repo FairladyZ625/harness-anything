@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { ArtifactEntityServiceError } from "../../application/src/artifact-entity-service.ts";
 import {
   VcsCommandError,
   attributeEntityActionCriterion,
@@ -93,6 +94,8 @@ export function publishGeneratedArtifact(input: {
 }
 
 export function fatalCellError(error: unknown): boolean {
+  // Rejected entity CAS is an expected domain outcome. Store revision/writer divergence still latches below.
+  if (error instanceof ArtifactEntityServiceError && error.code === "revision_conflict") return false;
   if (error instanceof VcsCommandError) return true;
   const normalized = normalizeDomainError(error);
   switch (normalized._tag) {

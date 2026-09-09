@@ -1,4 +1,4 @@
-import { sha256Bytes, sha256Text } from "../integrity/stable-hash.ts";
+import { sha256Bytes, sha256Text, stablePayloadHash } from "../integrity/stable-hash.ts";
 import { normalizeRelativeDocumentPath } from "../layout/portable-path.ts";
 import type {
   ArtifactEntityKindDefinition,
@@ -428,16 +428,22 @@ export function importBindingGeneration(opId: string): number {
   return match ? Number(match[1]) : 0;
 }
 
-/** Mutations (`entity_updated` / `entity_archived`) key their operation identity on the revision fence the caller
- * presented, not on the store revision the event lands at: a retry that presents the same fence recomputes the same
- * opId and replays the applied operation instead of surfacing `revision_conflict`, while an update that leaves
- * contentVersion untouched never collides with the `entity-import-*` event that first observed that content. */
+/** The fence identifies the version being edited; the stated payload distinguishes competing intents at that
+ * fence. Hash only mutation inputs, with stable object ordering so transport key order does not change a retry. */
 export function artifactMutationOperationId(input: {
   readonly mutation: "update" | "archive" | "delete";
   readonly entityId: string;
   readonly expectedVersion: number;
+  readonly request: Readonly<Record<string, unknown>>;
 }): string {
-  return `entity-${input.mutation}-${input.entityId}-${input.expectedVersion}`;
+  const fields =
+      input.mutation === "update"
+        ? ["entityKind", "title", "locator", "contentVersion", "attributes"]
+        : ["entityKind", "reason"],
+    intent = Object.fromEntries(
+      fields.filter((key) => input.request[key] !== undefined).map((key) => [key, input.request[key]]),
+    );
+  return `entity-${input.mutation}-${input.entityId}-${input.expectedVersion}-${stablePayloadHash(intent)}`;
 }
 
 export function isArtifactMutationOperationId(
@@ -446,7 +452,7 @@ export function isArtifactMutationOperationId(
   opId: string,
 ): boolean {
   const prefix = `entity-${mutation}-${entityId}-`;
-  return opId.startsWith(prefix) && /^(?:0|[1-9][0-9]*)$/u.test(opId.slice(prefix.length));
+  return opId.startsWith(prefix) && /^(?:0|[1-9][0-9]*)-[a-f0-9]{64}$/u.test(opId.slice(prefix.length));
 }
 
 function isArtifactDescriptor(value: unknown): value is ArtifactDescriptor {

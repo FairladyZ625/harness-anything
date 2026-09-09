@@ -161,24 +161,23 @@ export function executeArtifactEntityMutation(input: {
     });
   const current = readCurrentArtifact(input.store, contracts, kind, entityId),
     expectedVersion = Number(input.action.expectedVersion);
-  if (!current?.descriptor)
-    throw Object.assign(new Error(`Entity ${kind}/${entityId} does not exist.`), { code: "entity_not_found" });
   if (!Number.isSafeInteger(expectedVersion))
-    throw Object.assign(new Error(`Entity ${entityId} expected revision ${String(expectedVersion)} is invalid.`), {
-      code: "revision_conflict",
-    });
+    throw new ArtifactEntityServiceError(
+      "revision_conflict",
+      `Entity ${entityId} expected revision ${String(expectedVersion)} is invalid.`,
+    );
   const mutation =
       input.action.kind === "entity-update" ? "update" : input.action.kind === "entity-delete" ? "delete" : "archive",
-    opId = artifactMutationOperationId({ mutation, entityId, expectedVersion }),
+    opId = artifactMutationOperationId({ mutation, entityId, expectedVersion, request: input.action }),
     replayed = readEntityOperation(input.store, opId);
-  // A retry presenting the same fence replays the operation it already applied instead of tripping the CAS below.
+  // Only the same stated intent at the same fence replays; a competing payload must reach the CAS below.
   if (replayed) return { action: input.action, contract, receipt: mutationReplayReceipt(replayed, input) };
+  if (!current?.descriptor)
+    throw Object.assign(new Error(`Entity ${kind}/${entityId} does not exist.`), { code: "entity_not_found" });
   if (expectedVersion !== current.revision)
-    throw Object.assign(
-      new Error(
-        `Entity ${entityId} expected revision ${String(expectedVersion)}, current revision is ${current.revision}.`,
-      ),
-      { code: "revision_conflict" },
+    throw new ArtifactEntityServiceError(
+      "revision_conflict",
+      `Entity ${entityId} expected revision ${String(expectedVersion)}, current revision is ${current.revision}.`,
     );
   const kindVersion = current.descriptor.kindVersion,
     contractSnapshot = artifactEntityContractSnapshot({
@@ -787,6 +786,8 @@ function mutationReplayReceipt(
 ): ArtifactImportReceipt {
   return {
     outcome: "no_changes",
+    code: "no_changes",
+    origin: "daemon",
     opId: event.opId,
     revision: event.workspaceRevision,
     entityId: event.payload.entityId,
@@ -815,6 +816,8 @@ function artifactReplayReceipt(
 ): ArtifactImportReceipt {
   return {
     outcome: "no_changes",
+    code: "no_changes",
+    origin: "daemon",
     opId: event.opId,
     revision: event.workspaceRevision,
     entityId: preview.entityId,
