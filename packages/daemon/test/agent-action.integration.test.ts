@@ -117,6 +117,7 @@ test("Agent install uses the executable catalog with CAS, replay, readiness, and
         ],
         directories: [],
         retirements: [],
+        directoryRetirements: [],
       });
     } finally {
       accepted.close();
