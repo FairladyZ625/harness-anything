@@ -192,6 +192,17 @@ async function dualSyncFixture() {
     transportKind: "unix-socket" as const,
     unixSocketOwnerBoundary: { ownerUid, source: "unix-socket-filesystem-owner-boundary" as const },
   };
+  const centerRun = (action: Record<string, unknown>): Promise<Record<string, unknown>> =>
+    host.run("dual-repo", action as never, localAuth) as Promise<Record<string, unknown>>;
+  const waitPublished = async (opId: string): Promise<void> => {
+    const deadline = performance.now() + 15_000;
+    for (;;) {
+      const shown = await centerRun({ kind: "receipt-show", opId });
+      if (typeof shown.commitSha === "string") return;
+      if (performance.now() >= deadline) throw new Error(`Git materialization did not publish ${opId}`);
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+  };
   const createTask = async (
     nodeId: NodeId,
     taskId: string,
@@ -215,13 +226,7 @@ async function dualSyncFixture() {
     writeFileSync(path.join(repo, "harness", planPath), realizedTaskPlan(title));
     const submitted = await host.run("dual-repo", { kind: "doc-submit", paths: [planPath] }, localAuth);
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
-    const deadline = performance.now() + 15_000;
-    for (;;) {
-      const shown = await host.run("dual-repo", { kind: "receipt-show", opId: submitted.opId }, localAuth);
-      if (typeof shown.commitSha === "string") break;
-      if (performance.now() >= deadline) throw new Error(`Git materialization did not publish ${submitted.opId}`);
-      await new Promise((resolve) => setTimeout(resolve, 25));
-    }
+    await waitPublished(String(submitted.opId));
     for (const target of nodes) {
       const synced = await edgeDocSync(target);
       assert.equal(synced.ok, true, JSON.stringify(synced).slice(0, 500));
@@ -243,6 +248,8 @@ async function dualSyncFixture() {
     writeWorktree,
     conflictsRoot,
     createTask,
+    centerRun,
+    waitPublished,
     git,
     close: async () => {
       await center.close();
@@ -1031,3 +1038,113 @@ test("class A submit carries the closing documents in the same serial command", 
   ]);
   assert.match(readFileSync(fixture.worktree("node-one", planPath), "utf8"), /Closing note/u);
 });
+
+// Raw Task artifact bytes across the fleet. The publication and local read sides were proved in
+// doc-sync-artifact-raw-bytes / task-raw-artifact-consumer-read; what is unproven until here is the
+// transfer: a PDF and a PNG accepted at the center have to arrive on an edge as the same bytes, and
+// the edge has to say something actionable about a raw file it cannot push back.
+const rawPdf = Buffer.concat([
+    Buffer.from("%PDF-1.7\n"),
+    Buffer.from([0xff, 0xd8, 0x00, 0x1a, 0x80, 0xfe]),
+    Buffer.from("\n%%EOF\n"),
+  ]),
+  rawPng = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0xff, 0xfe, 0x00, 0x0a, 0x80]);
+
+// The claim "these bytes survived" is only worth making about bytes a UTF-8 round trip destroys.
+function utf8RoundTripDestroys(bytes: Buffer): boolean {
+  return !Buffer.from(bytes.toString("utf8"), "utf8").equals(bytes);
+}
+
+test(
+  "a raw task artifact accepted at the center reaches an edge replica as the exact bytes",
+  { timeout: 90_000 },
+  async (t) => {
+    const fixture: Fixture = await dualSyncFixture();
+    t.after(() => fixture.close());
+    assert.ok(utf8RoundTripDestroys(rawPdf) && utf8RoundTripDestroys(rawPng), "the fixture bytes must not be UTF-8");
+    const created = await fixture.createTask("node-one", "task_RAW0000000000000000000RAW", "Raw artifact replica"),
+      artifacts = [
+        { source: "dossier.pdf", destination: "reports/dossier.pdf", bytes: rawPdf },
+        { source: "logo.png", destination: "screenshots/logo.png", bytes: rawPng },
+      ];
+    for (const artifact of artifacts) {
+      writeFileSync(path.join(fixture.repo, artifact.source), artifact.bytes);
+      const added = await fixture.centerRun({
+        kind: "task-artifact-add",
+        taskId: created.taskId,
+        source: artifact.source,
+        destination: artifact.destination,
+      });
+      assert.equal(added.outcome, "applied", `${artifact.destination}: ${JSON.stringify(added).slice(0, 400)}`);
+      await fixture.waitPublished(String(added.opId));
+      // The source is gone before anything is compared: whatever the edge shows came over the wire.
+      rmSync(path.join(fixture.repo, artifact.source), { force: true });
+    }
+    for (const nodeId of nodes) {
+      const synced = await fixture.edgeDocSync(nodeId);
+      assert.equal(synced.ok, true, `${nodeId}: ${JSON.stringify(synced).slice(0, 500)}`);
+      const view = fixture.view(nodeId);
+      assert.ok(view, `${nodeId} has no replica view`);
+      for (const artifact of artifacts) {
+        const logical = `${created.packagePath}/artifacts/${artifact.destination}`,
+          entry = view.entries.get(logical);
+        assert.ok(entry, `${nodeId} replica manifest is missing ${logical}`);
+        assert.equal(entry.sha256, sha256Bytes(artifact.bytes));
+        assert.equal(entry.size, artifact.bytes.byteLength);
+        assert.equal(entry.mediaType, "application/octet-stream", "the replica entry must carry the raw media type");
+        const mirrored = readFileSync(fixture.worktree(nodeId, logical));
+        assert.deepEqual(mirrored, artifact.bytes, `${nodeId} materialized ${logical} with different bytes`);
+        assert.equal(sha256Bytes(mirrored), entry.sha256);
+      }
+    }
+    // Discriminating control: the same transfer under a string body would have produced the UTF-8
+    // replacement bytes below, which is what an equality assertion on a decoded body would accept.
+    const decoded = Buffer.from(
+      readFileSync(fixture.worktree("node-two", `${created.packagePath}/artifacts/reports/dossier.pdf`)).toString(
+        "utf8",
+      ),
+      "utf8",
+    );
+    assert.notDeepEqual(decoded, rawPdf, "a UTF-8 round trip must not reproduce the artifact");
+  },
+);
+
+test(
+  "a raw artifact authored on an edge is reported with its owning route instead of silently skipped",
+  { timeout: 90_000 },
+  async (t) => {
+    const fixture: Fixture = await dualSyncFixture();
+    t.after(() => fixture.close());
+    const created = await fixture.createTask("node-one", "task_EDGE000000000000000000RAW", "Edge raw artifact"),
+      logical = `${created.packagePath}/artifacts/edge-capture.png`,
+      target = fixture.worktree("node-one", logical);
+    mkdirSync(path.dirname(target), { recursive: true });
+    writeFileSync(target, rawPng);
+    const status = await fixture.edgeDocSync("node-one", { dryRun: true });
+    const rows = (status.rows ?? []) as readonly { readonly path: string }[],
+      blocked = (status.blocked ?? []) as readonly {
+        readonly path: string;
+        readonly reason: string;
+        readonly requiredRoute?: string;
+        readonly code?: string;
+      }[];
+    assert.equal(
+      rows.some((row) => row.path === logical),
+      false,
+      "a raw artifact must not become a doc-sync prose candidate",
+    );
+    const report = blocked.find((row) => row.path === logical);
+    assert.ok(report, `the edge hid the raw artifact instead of reporting it: ${JSON.stringify(status).slice(0, 600)}`);
+    assert.equal(report.requiredRoute, "typed-binary-content");
+    assert.equal(report.code, "raw_artifact_outside_doc_sync");
+    assert.match(report.reason, /ha task artifact add/u);
+    // The local file is not touched by the report, and no push carried it.
+    assert.deepEqual(readFileSync(target), rawPng);
+    const pushed = await fixture.edgeDocSync("node-one");
+    assert.equal(
+      fixture.view("node-one")?.entries.has(logical) ?? false,
+      false,
+      `the edge push must not invent a center document: ${JSON.stringify(pushed).slice(0, 400)}`,
+    );
+  },
+);
