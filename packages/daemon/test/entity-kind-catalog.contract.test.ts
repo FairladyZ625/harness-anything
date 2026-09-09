@@ -10,6 +10,7 @@ import {
   relationDirectionRegistry,
   resolveEntityReadKind,
 } from "../src/artifact-entity-action.ts";
+import type { VerticalDeclarationReader } from "../src/vertical-declaration-action.ts";
 import { readDeclaredEntityRows, validateEntityRowList } from "../src/entity-rows-read.ts";
 import { readEntityLocator, validateEntityLocatorRead } from "../src/entity-locator-read.ts";
 import { daemonGuiReadMethods, validateDaemonRpcCall } from "../src/protocol/daemon-protocol.contract.ts";
@@ -19,18 +20,33 @@ import { defaultAssets } from "../../preset/src/preset-resolver-common.ts";
 const ADR_KIND = "entity-kind/KND-1f5c0a7e9b3d4c6a8e2f0b1d3c5a7e94",
   ISSUE_KIND = "entity-kind/KND-2a6d1b8f0c4e5d7b9f3a1c2e4d6b8f05",
   RESEARCH_KIND = "entity-kind/KND-3b7e2c9a1d5f6e8c0a4b2d3f5e7c9a16",
-  repositoryRoot = mkdtempSync(path.join(tmpdir(), "ha-vertical-catalog-"));
-mkdirSync(path.join(repositoryRoot, "harness"), { recursive: true });
-writeFileSync(
-  path.join(repositoryRoot, "harness", "vertical.json"),
-  JSON.stringify({
+  // Kind state is read from the canonical declaration record, so the fixture is that record, not a
+  // worktree file: this drives the same production read an edge node with no `vertical.json` uses.
+  declarationBody = JSON.stringify({
     schema: "repository-vertical-declaration/v1",
     revision: 1,
     definition: JSON.parse(readFileSync(path.join(defaultAssets, "vertical.json"), "utf8")),
   }),
-);
-test.after(() => rmSync(repositoryRoot, { recursive: true, force: true }));
-const repositoryKinds = () => compiledArtifactKinds(repositoryRoot, "catalog-contract");
+  canonicalDeclaration: VerticalDeclarationReader = {
+    readDocument: (documentPath: string) => ({
+      status: "ready",
+      document:
+        documentPath === "vertical.json"
+          ? {
+              path: documentPath,
+              blobSha256: "0".repeat(64),
+              body: declarationBody,
+              size: Buffer.byteLength(declarationBody),
+              mediaType: "application/json",
+              policyId: "vertical-declaration/v1",
+              workspaceRevision: 1,
+            }
+          : null,
+      watermark: 1,
+      sourceRevision: 1,
+    }),
+  } as VerticalDeclarationReader;
+const repositoryKinds = () => compiledArtifactKinds(canonicalDeclaration, "catalog-contract");
 
 /**
  * 已注册 kind 读面的契约:GUI 的实体种类集合只能从这里来。
@@ -89,7 +105,7 @@ test("the declared research kind is importable and carries both governed relatio
   assert.equal(research.declaration?.pathTemplate, "entities/research/{id}.json");
   assert.deepEqual(research.declaration?.locatorKinds, ["repository-path"]);
   assert.deepEqual(
-    relationDirectionRegistry(repositoryRoot, "catalog-contract")
+    relationDirectionRegistry(canonicalDeclaration, "catalog-contract")
       .filter(({ sourceKind }) => sourceKind === RESEARCH_KIND)
       .map(({ type, sourceKind, targetKind }) => ({ type, sourceKind, targetKind })),
     [

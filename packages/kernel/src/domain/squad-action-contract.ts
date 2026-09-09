@@ -1,4 +1,4 @@
-import { parseSquadDeclarationV1, type SquadDeclarationV1 } from "./agent-squad-schema.ts";
+import { parseSquadDeclarationV1, requiredPreparedText, type SquadDeclarationV1 } from "./agent-squad-schema.ts";
 import type {
   EntityActionContract,
   EntityActionInputContract,
@@ -387,9 +387,9 @@ export function compileSquadDeleteAction(input: EntityActionCompileInput): Squad
   return {
     kind: "entity-delete",
     entityKind: "squad",
-    entityId: requiredPreparedText(input.action.entityId, "entityId"),
-    baseBlobSha256: requiredPreparedText(input.action.baseBlobSha256, "baseBlobSha256"),
-    reason: requiredPreparedText(input.action.reason, "reason"),
+    entityId: requiredPreparedText("Squad", input.action.entityId, "entityId"),
+    baseBlobSha256: requiredPreparedText("Squad", input.action.baseBlobSha256, "baseBlobSha256"),
+    reason: requiredPreparedText("Squad", input.action.reason, "reason"),
   };
 }
 
@@ -406,11 +406,6 @@ export function squadActionUsage(action: EntityActionContract, squadId = "<squad
   };
   if (!squadActionIds.includes(action.id as SquadActionId)) throw new Error(`Unknown Squad Action ${action.id}.`);
   return usage[action.id as SquadActionId];
-}
-
-function requiredPreparedText(value: unknown, field: string): string {
-  if (typeof value !== "string" || !value.trim()) throw new Error(`Prepared Squad ${field} is required.`);
-  return value;
 }
 
 function squadCriterionError(error: unknown, criterionRef: string, fallbackCode: string): Error {

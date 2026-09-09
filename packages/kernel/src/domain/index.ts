@@ -261,8 +261,9 @@ export {
   applyVerticalKindCommand,
   compileVerticalDeclarationEvent,
   parseVerticalDeclarationDocument,
+  VERTICAL_DECLARATION_PATH,
 } from "./vertical-declaration.ts";
-export type { VerticalKindCommandResult } from "./vertical-declaration.ts";
+export type { VerticalDeclarationDocumentV1, VerticalKindCommandResult } from "./vertical-declaration.ts";
 export { decodeVerticalDefinition } from "../schemas/vertical-definition.ts";
 export type { VerticalDefinition } from "../schemas/vertical-definition.ts";
 export { buildVerticalDeclarationRead, validateVerticalDeclarationRead } from "./vertical-declaration.ts";
@@ -330,7 +331,6 @@ export type {
   EntityTargetMissingBundle,
   EntityUpsertBundle,
 } from "./entity-event.ts";
-export { createEntityOwnedContent, MAX_ENTITY_CONTENT_OBJECT_BYTES } from "./entity-owned-content.ts";
 export {
   artifactEntityContractSnapshot,
   artifactImportOperationId,

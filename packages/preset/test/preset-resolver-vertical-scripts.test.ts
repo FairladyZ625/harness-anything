@@ -269,7 +269,8 @@ test("software coding declaration closes lifecycle, repository, projection, and 
     {
       id: "architecture-decision-record",
       entityType: "artifact",
-      version: 1,
+      kindId: "KND-1f5c0a7e9b3d4c6a8e2f0b1d3c5a7e94",
+      schemaVersions: [{ version: 1, attributes: {} }],
       idPrefix: "ADR",
       display: {
         singular: "Architecture Decision Record",
@@ -295,7 +296,8 @@ test("software coding declaration closes lifecycle, repository, projection, and 
     {
       id: "external-issue",
       entityType: "artifact",
-      version: 1,
+      kindId: "KND-2a6d1b8f0c4e5d7b9f3a1c2e4d6b8f05",
+      schemaVersions: [{ version: 1, attributes: {} }],
       idPrefix: "ISSUE",
       display: { singular: "External Issue", plural: "External Issues" },
       descriptorSchemaRef: "schema://artifact-descriptor",
@@ -316,7 +318,8 @@ test("software coding declaration closes lifecycle, repository, projection, and 
     {
       id: "research",
       entityType: "artifact",
-      version: 1,
+      kindId: "KND-3b7e2c9a1d5f6e8c0a4b2d3f5e7c9a16",
+      schemaVersions: [{ version: 1, attributes: {} }],
       idPrefix: "RES",
       display: { singular: "Research Package", plural: "Research Packages" },
       descriptorSchemaRef: "schema://artifact-descriptor",

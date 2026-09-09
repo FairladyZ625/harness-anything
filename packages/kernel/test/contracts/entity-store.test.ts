@@ -12,6 +12,7 @@ import {
   type EntityUpsertBundle,
 } from "../../src/domain/entity-event.ts";
 import { validateWriteReceipt } from "../../src/domain/write-chain.contract.ts";
+import { createEntityOwnedContent, MAX_ENTITY_CONTENT_OBJECT_BYTES } from "../../src/domain/entity-owned-content.ts";
 
 const actor = { principal: { personId: "person-entity-store" }, executor: null } as const;
 const authorizationDecision = {
@@ -346,3 +347,30 @@ function storedAgentEvent(
     },
   };
 }
+
+// The owned-content manifest is what tells the store which objects an entity's bytes may occupy, so
+// the largest object it will describe is a contract boundary, not an implementation detail.
+test("an owned content object is described up to the maximum object size and refused past it", () => {
+  const binding = (size: number, sha: string) => ({
+    ownerRef: "agent/unified-agent",
+    schemaId: "agent-declaration/v1",
+    schemaVersion: 1,
+    bindings: [
+      {
+        path: "agents/unified-agent.json",
+        sha256: sha.repeat(64),
+        size,
+        mediaType: "application/octet-stream",
+        policyId: "typed-entity/v1",
+      },
+    ],
+  });
+  assert.equal(
+    createEntityOwnedContent(binding(MAX_ENTITY_CONTENT_OBJECT_BYTES, "2")).content[0]?.byteLength,
+    50_000_000,
+  );
+  assert.throws(
+    () => createEntityOwnedContent(binding(MAX_ENTITY_CONTENT_OBJECT_BYTES + 1, "3")),
+    /content object reference is invalid/u,
+  );
+});

@@ -89,7 +89,8 @@ export interface VerticalKindCommandResult {
  */
 export function applyVerticalKindCommand(input: {
   readonly definition: VerticalDefinition;
-  readonly revision: number;
+  /** The canonical revision this command would be accepted at; it becomes the touched Kind's fence. */
+  readonly acceptedRevision: number;
   readonly expectedVersion: number;
   readonly kind: VerticalKindCommandKind;
   readonly kindId: string;
@@ -106,45 +107,55 @@ export function applyVerticalKindCommand(input: {
     current = index < 0 ? null : input.definition.entityKinds[index]!;
   if (current && current.entityType !== "artifact")
     verticalError("invalid_field", `Vertical kind ${requested} is not a declared Artifact kind.`);
-  const artifact = current as ArtifactEntityKindDefinition | null;
-  // `expectedVersion: 0` states the intent to create, so an existing kind is named as such rather
-  // than reported as a stale fence.
-  if (input.kind === "upsert" && artifact && input.expectedVersion === 0)
+  const artifact = current as ArtifactEntityKindDefinition | null,
+    existing = (): ArtifactEntityKindDefinition =>
+      artifact ?? verticalError("entity_not_found", `Vertical kind ${requested} does not exist.`);
+  if (input.kind !== "upsert") existing();
+  // A Kind is its own concurrency subject: the fence is the revision that Kind was last accepted at,
+  // so writing a sibling Kind never stales it. `expectedVersion: 0` is the intent to create, which an
+  // existing Kind answers by name rather than as a stale fence.
+  if (artifact && input.kind === "upsert" && input.expectedVersion === 0)
     verticalError("kind_exists", `Vertical kind ${artifact.id} already exists.`);
-  if (input.expectedVersion !== input.revision)
+  const fence = artifact ? acceptedRevision(artifact) : 0;
+  if (input.expectedVersion !== fence)
     verticalError(
       "revision_conflict",
-      `Vertical declaration expected revision ${input.expectedVersion}, current revision is ${input.revision}.`,
+      `Vertical kind ${requested} expected revision ${input.expectedVersion}, current revision is ${fence}.`,
     );
 
   if (input.kind === "retire") {
-    if (!artifact) verticalError("entity_not_found", `Vertical kind ${requested} does not exist.`);
     const reason = input.reason?.trim() ?? "";
     if (reason.length < 1 || reason.length > 199)
       verticalError("invalid_field", "Vertical kind retirement reason must contain 1..199 characters.");
     if (!input.retiredAt) verticalError("missing_field", "Vertical kind retirement requires retiredAt.");
-    return kindResult(
-      replaceKind(input.definition, index, { ...artifact, retired: true, retiredAt: input.retiredAt, reason }),
-      artifact,
-    );
+    const retired = accept(existing(), { retired: true, retiredAt: input.retiredAt, reason }, input.acceptedRevision);
+    return kindResult(replaceKind(input.definition, index, retired), retired);
   }
 
   if (input.kind === "publish-schema") {
-    if (!artifact) verticalError("entity_not_found", `Vertical kind ${requested} does not exist.`);
-    if (artifact.retired === true)
-      verticalError("kind_retired", `Vertical kind ${artifact.id} is archived and accepts no new schema version.`);
-    const published = [...artifact.schemaVersions],
+    const target = existing();
+    if (target.retired === true)
+      verticalError("kind_retired", `Vertical kind ${target.id} is archived and accepts no new schema version.`);
+    const published = [...target.schemaVersions],
       next = {
         version: published.length + 1,
         attributes: attributeDeclarations(input.attributes),
       } as unknown as ArtifactEntityKindDefinition["schemaVersions"][number],
-      republished = { ...artifact, schemaVersions: [...published, next] };
+      republished = accept(target, { schemaVersions: [...published, next] }, input.acceptedRevision);
     return kindResult(replaceKind(input.definition, index, republished), republished);
   }
 
   if (!isRecord(input.declaration)) verticalError("invalid_field", "Vertical kind declaration must be an object.");
-  const { attributes, kindId: declaredKindId, schemaVersions: declaredVersions, ...facets } = input.declaration;
+  const {
+    attributes,
+    kindId: declaredKindId,
+    schemaVersions: declaredVersions,
+    revision: declaredRevision,
+    ...facets
+  } = input.declaration;
   if (!artifact) {
+    if (declaredRevision !== undefined)
+      verticalError("invalid_field", "A new vertical kind may not choose the revision it is accepted at.");
     if (declaredVersions !== undefined)
       verticalError(
         "invalid_field",
@@ -158,6 +169,7 @@ export function applyVerticalKindCommand(input: {
     const created = {
       ...facets,
       kindId: mintedKindId,
+      revision: input.acceptedRevision,
       schemaVersions: [{ version: 1, attributes: attributeDeclarations(attributes) }],
     } as unknown as ArtifactEntityKindDefinition;
     return kindResult(
@@ -167,6 +179,13 @@ export function applyVerticalKindCommand(input: {
   }
   if (declaredKindId !== undefined && declaredKindId !== artifact.kindId)
     verticalError("destructive_kind_change", "A vertical kind keeps the opaque identity it was minted with.");
+  // A caller may restate the revision it read back, but restating an older one is a stale write.
+  if (declaredRevision !== undefined && declaredRevision !== artifact.revision)
+    verticalError(
+      "revision_conflict",
+      `Vertical kind ${artifact.id} was read at revision ${String(declaredRevision)}, ` +
+        `current revision is ${acceptedRevision(artifact)}.`,
+    );
   const declaredIdPrefix = facets.idPrefix,
     declaredPathTemplate = isRecord(facets.store) ? facets.store.pathTemplate : undefined;
   if (declaredIdPrefix !== undefined && declaredIdPrefix !== artifact.idPrefix)
@@ -188,12 +207,40 @@ export function applyVerticalKindCommand(input: {
       `Schema version ${latest(artifact).version} of ${artifact.id} is published; ` +
         "publish a new version instead of rewriting it.",
     );
-  const renamed = {
-    ...facets,
-    kindId: artifact.kindId,
-    schemaVersions: [...artifact.schemaVersions],
-  } as unknown as ArtifactEntityKindDefinition;
-  return kindResult(replaceKind(input.definition, index, renamed), renamed);
+  const restated = accept(
+    artifact,
+    { ...facets, kindId: artifact.kindId, schemaVersions: [...artifact.schemaVersions] },
+    input.acceptedRevision,
+    true,
+  );
+  return kindResult(replaceKind(input.definition, index, restated), restated);
+}
+
+/** The revision a Kind's next writer must present. Every accepted row carries one; see the schema. */
+function acceptedRevision(artifact: ArtifactEntityKindDefinition): number {
+  return artifact.revision ?? 0;
+}
+
+/**
+ * Stamp the Kind with the revision it is being accepted at — but only when the command actually
+ * changes it. A restatement that alters nothing leaves the fence where it was, so an idempotent retry
+ * stays a no-op instead of appending an event and invalidating every fence a caller already holds.
+ */
+function accept(
+  artifact: ArtifactEntityKindDefinition,
+  change: Record<string, unknown>,
+  acceptedAt: number,
+  replaceFacets = false,
+): ArtifactEntityKindDefinition {
+  const next = { ...(replaceFacets ? {} : artifact), ...change } as unknown as ArtifactEntityKindDefinition;
+  return { ...next, revision: kindFacets(next) === kindFacets(artifact) ? artifact.revision : acceptedAt };
+}
+
+/** Everything about a Kind row except the fence, compared the way the stored document would be. */
+function kindFacets(row: ArtifactEntityKindDefinition): string {
+  return stableStringify(
+    Object.fromEntries(Object.entries(row).filter(([key, value]) => key !== "revision" && value !== undefined)),
+  );
 }
 
 function matchesKind(candidate: VerticalDefinition["entityKinds"][number], requested: string): boolean {
@@ -245,7 +292,7 @@ export function compileVerticalDeclarationEvent(input: {
   readonly source: WriteSource;
   readonly occurredAt: string;
 }): VerticalDeclarationBundle {
-  const definition = decodeVerticalDefinition(input.definition),
+  const definition = stampAcceptedRevisions(decodeVerticalDefinition(input.definition), input.workspaceRevision),
     declaration: VerticalDeclarationDocumentV1 = {
       schema: "repository-vertical-declaration/v1",
       revision: input.workspaceRevision,
@@ -279,6 +326,22 @@ export function compileVerticalDeclarationEvent(input: {
   const errors = validateCurrentVerticalDeclarationEvent(event);
   if (errors.length) throw new Error(errors.join("; "));
   return { event, plan: verticalDeclarationWritePlan(event), blobs: [{ ...claim, body }] };
+}
+
+/**
+ * A declaration only becomes installed Kind state when an event accepts it, so that event is where a
+ * Kind first gets a fence. Rows accepted earlier keep theirs: declaring is not a reason to invalidate
+ * a revision every other caller is already holding.
+ */
+function stampAcceptedRevisions(definition: VerticalDefinition, workspaceRevision: number): VerticalDefinition {
+  return {
+    ...definition,
+    entityKinds: definition.entityKinds.map((candidate) =>
+      candidate.entityType === "artifact" && candidate.revision === undefined
+        ? { ...candidate, revision: workspaceRevision }
+        : candidate,
+    ),
+  };
 }
 
 export function parseVerticalDeclarationDocument(value: unknown): VerticalDeclarationDocumentV1 {

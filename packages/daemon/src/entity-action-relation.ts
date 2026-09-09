@@ -74,7 +74,7 @@ export function executeRelationAction(input: {
           workspaceRevision: headRevision + 1,
           priorTargetVersion: current?.targetObservedVersion ?? null,
           currentTargetVersion: target?.currentVersion ?? null,
-          relationDirections: relationDirectionRegistry(input.rootDir, input.repositoryId),
+          relationDirections: relationDirectionRegistry(input.projection, input.repositoryId),
         }),
     compiled = replay ?? (draft?.kind === "relation" ? draft.event : null);
   if (!compiled || !isRelationEvent(compiled))

@@ -52,7 +52,8 @@ function artifact(overrides: Record<string, unknown> = {}): Record<string, unkno
   return {
     id: "architecture-decision-record",
     entityType: "artifact",
-    version: 1,
+    kindId: "KND-1f5c0a7e9b3d4c6a8e2f0b1d3c5a7e94",
+    schemaVersions: [{ version: 1, attributes: {} }],
     idPrefix: "ADR",
     display: { singular: "Architecture Decision Record", plural: "Architecture Decision Records" },
     descriptorSchemaRef: "schema://artifact-descriptor",

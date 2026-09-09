@@ -1,10 +1,11 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { defaultAssets } from "../../preset/src/preset-resolver-common.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
@@ -59,8 +60,14 @@ test("a runtime-declared Kind keeps identity and instance pins across schema v2,
       ownerId: "kind-lifecycle-center",
       now: () => "2026-09-09T02:00:00.000Z",
     });
-    const declarationRevision = async () =>
-        (await cell!.read("repo.vertical.declaration.read", {}, binding)).declarationRevision,
+    const kindFence = async (kindRef: string) => {
+        const row = (await cell!.read("repo.vertical.declaration.read", {}, binding)).declaration.entityKinds.find(
+          (candidate: Record<string, unknown>) =>
+            candidate.entityType === "artifact" && `entity-kind/${String(candidate.kindId)}` === kindRef,
+        ) as { readonly revision?: number } | undefined;
+        assert.ok(row, `declaration has no row for ${kindRef}`);
+        return Number(row.revision);
+      },
       rows = async () => (await cell!.read("repo.entity.rows.read", {}, binding)).rows,
       descriptorOf = async (kindRef: string, entityId: string) => {
         const receipt = await cell!.run({ kind: "entity-get", entityKind: kindRef, entityId }, binding);
@@ -73,7 +80,7 @@ test("a runtime-declared Kind keeps identity and instance pins across schema v2,
       {
         kind: "vertical-kind-upsert",
         kindId: "field-note",
-        expectedVersion: await declarationRevision(),
+        expectedVersion: 0,
         declaration: fieldNote,
       },
       binding,
@@ -136,7 +143,7 @@ test("a runtime-declared Kind keeps identity and instance pins across schema v2,
       {
         kind: "vertical-kind-publish-schema",
         kindId: kindRef,
-        expectedVersion: await declarationRevision(),
+        expectedVersion: await kindFence(kindRef),
         attributes: { summary: { type: "string", required: true }, confidence: { type: "integer" } },
       },
       binding,
@@ -158,7 +165,7 @@ test("a runtime-declared Kind keeps identity and instance pins across schema v2,
       {
         kind: "vertical-kind-upsert",
         kindId: kindRef,
-        expectedVersion: await declarationRevision(),
+        expectedVersion: await kindFence(kindRef),
         declaration: {
           ...fieldNote,
           kindId: kindRef.slice("entity-kind/".length),
@@ -203,7 +210,7 @@ test("a runtime-declared Kind keeps identity and instance pins across schema v2,
       {
         kind: "vertical-kind-upsert",
         kindId: kindRef,
-        expectedVersion: await declarationRevision(),
+        expectedVersion: await kindFence(kindRef),
         declaration: {
           ...fieldNote,
           kindId: kindRef.slice("entity-kind/".length),
@@ -233,7 +240,7 @@ test("a runtime-declared Kind keeps identity and instance pins across schema v2,
       {
         kind: "vertical-kind-retire",
         kindId: kindRef,
-        expectedVersion: await declarationRevision(),
+        expectedVersion: await kindFence(kindRef),
         reason: "Superseded by the site survey pipeline.",
       },
       binding,
@@ -276,7 +283,7 @@ test("a runtime-declared Kind keeps identity and instance pins across schema v2,
       {
         kind: "vertical-kind-publish-schema",
         kindId: kindRef,
-        expectedVersion: await declarationRevision(),
+        expectedVersion: await kindFence(kindRef),
         attributes: { summary: { type: "string" } },
       },
       binding,
@@ -287,13 +294,171 @@ test("a runtime-declared Kind keeps identity and instance pins across schema v2,
       {
         kind: "vertical-kind-retire",
         kindId: kindRef,
-        expectedVersion: 1,
+        expectedVersion: (await kindFence(kindRef)) - 1,
         reason: "Stale fence must not win.",
       },
       binding,
     );
     assert.equal(stale.outcome, "op_rejected", JSON.stringify(stale));
     assert.equal(stale.code, "revision_conflict", JSON.stringify(stale));
+  } finally {
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+const siteLog = {
+  id: "site-log",
+  entityType: "artifact",
+  idPrefix: "SL",
+  display: { singular: "Site Log", plural: "Site Logs" },
+  descriptorSchemaRef: "schema://artifact-descriptor",
+  store: { pathTemplate: "entities/site-logs/{id}.json" },
+  locatorKinds: ["repository-path"],
+  attributes: { shift: { type: "string", required: true } },
+};
+
+/**
+ * Two Kinds are two concurrency subjects. A write to one must not stale a fence a caller read for the
+ * other, two writes to the same Kind must collide, and the whole answer must come from the canonical
+ * record: an edge node whose `harness/vertical.json` is stale, absent or unpublishable still holds
+ * every Kind it accepted, and must not re-seed itself back to the install package.
+ */
+test("Kind fences are per Kind, and an accepted Kind outlives its worktree materialization", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-kind-fence-")),
+    repoId = workspaceId("kind-fence");
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    initRepo(rootDir);
+    mkdirSync(path.join(rootDir, "notes"), { recursive: true });
+    writeFileSync(path.join(rootDir, "notes", "first.md"), "# First note\n");
+    git(rootDir, "add", "notes");
+    git(rootDir, "commit", "-qm", "add note sources");
+    cell = await openRepoCell({
+      repoId,
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "kind-fence-center",
+      now: () => "2026-09-09T03:00:00.000Z",
+    });
+    const declaration = async () => await cell!.read("repo.vertical.declaration.read", {}, binding),
+      fenceOf = async (kindRef: string) => {
+        const row = (await declaration()).declaration.entityKinds.find(
+          (candidate: Record<string, unknown>) =>
+            candidate.entityType === "artifact" && `entity-kind/${String(candidate.kindId)}` === kindRef,
+        ) as { readonly revision?: number } | undefined;
+        assert.ok(row, `declaration has no row for ${kindRef}`);
+        return Number(row.revision);
+      },
+      create = async (body: Record<string, unknown>) => {
+        const receipt = await cell!.run(
+          { kind: "vertical-kind-upsert", kindId: String(body.id), expectedVersion: 0, declaration: body },
+          binding,
+        );
+        assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+        return (JSON.parse(String(receipt.evidence)) as { kindRef: string }).kindRef;
+      },
+      rename = (kindRef: string, body: Record<string, unknown>, singular: string, expectedVersion: number) =>
+        cell!.run(
+          {
+            kind: "vertical-kind-upsert",
+            kindId: kindRef,
+            expectedVersion,
+            declaration: {
+              ...body,
+              kindId: kindRef.slice("entity-kind/".length),
+              display: { singular, plural: `${singular}s` },
+              attributes: undefined,
+            },
+          },
+          binding,
+        );
+
+    const noteRef = await create(fieldNote),
+      logRef = await create(siteLog),
+      // Both fences are read here, before either Kind is written.
+      noteFence = await fenceOf(noteRef),
+      logFence = await fenceOf(logRef);
+
+    // 1. Writing the field note must not move the site log's fence.
+    const renamedNote = await rename(noteRef, fieldNote, "Field Report", noteFence);
+    assert.equal(renamedNote.outcome, "applied", JSON.stringify(renamedNote));
+    assert.equal(await fenceOf(logRef), logFence, "one Kind's acceptance must not restate another Kind's revision");
+    const renamedLog = await rename(logRef, siteLog, "Site Report", logFence);
+    assert.equal(
+      renamedLog.outcome,
+      "applied",
+      `a fence read before an unrelated Kind changed must still apply: ${JSON.stringify(renamedLog)}`,
+    );
+
+    // 2. Two writes to the SAME Kind collide: the second presents a fence that has moved.
+    const stale = await rename(logRef, siteLog, "Site Journal", logFence);
+    assert.equal(stale.outcome, "op_rejected", JSON.stringify(stale));
+    assert.equal(stale.code, "revision_conflict", JSON.stringify(stale));
+
+    // 3. An instance exists under the accepted Kind.
+    const imported = await cell.run(
+      {
+        kind: "entity-import",
+        entityKind: noteRef,
+        locator: "notes/first.md",
+        expectedVersion: 0,
+        attributes: { summary: "first" },
+      },
+      binding,
+    );
+    assert.equal(imported.outcome, "applied", JSON.stringify(imported));
+    const importedId = (JSON.parse(String(imported.evidence)) as { preview: { entityId: string } }).preview.entityId;
+
+    // 4. A stale worktree copy of the install seed must not be able to un-declare an accepted Kind.
+    const materialized = path.join(rootDir, "harness", "vertical.json"),
+      draft = `${JSON.stringify(
+        {
+          schema: "repository-vertical-declaration/v1",
+          revision: 1,
+          definition: JSON.parse(readFileSync(path.join(defaultAssets, "vertical.json"), "utf8")),
+        },
+        null,
+        2,
+      )}\n`;
+    writeFileSync(materialized, draft);
+    const staleRead = await declaration();
+    assert.ok(
+      staleRead.declaration.entityKinds.some(
+        (candidate: Record<string, unknown>) => `entity-kind/${String(candidate.kindId)}` === noteRef,
+      ),
+      "a stale materialized vertical.json must not drop an accepted Kind from the declaration read",
+    );
+    assert.ok(
+      (await cell.read("repo.entity.rows.read", {}, binding)).rows.some(
+        (row: { readonly ref: string }) => row.ref === `${noteRef}/${importedId}`,
+      ),
+      "a stale materialized vertical.json must not hide instances of an accepted Kind",
+    );
+    assert.equal(
+      readFileSync(materialized, "utf8"),
+      draft,
+      "reading canonical Kind state must leave an unaccepted local draft exactly as its author left it",
+    );
+
+    // 5. With no worktree copy at all, the accepted Kind stays readable, mutable and un-re-migrated.
+    rmSync(materialized, { force: true });
+    assert.ok(
+      (await declaration()).declaration.entityKinds.some(
+        (candidate: Record<string, unknown>) => `entity-kind/${String(candidate.kindId)}` === logRef,
+      ),
+      "an absent materialized vertical.json must not drop an accepted Kind",
+    );
+    const remigrate = await cell.run({ kind: "vertical-declaration-migrate" }, binding);
+    assert.equal(
+      remigrate.outcome,
+      "no_changes",
+      `an absent worktree copy must not silently re-seed the install package: ${JSON.stringify(remigrate)}`,
+    );
+    const archived = await cell.run(
+      { kind: "vertical-kind-retire", kindId: logRef, expectedVersion: await fenceOf(logRef), reason: "Field trial." },
+      binding,
+    );
+    assert.equal(archived.outcome, "applied", JSON.stringify(archived));
   } finally {
     await cell?.close();
     rmSync(rootDir, { recursive: true, force: true });

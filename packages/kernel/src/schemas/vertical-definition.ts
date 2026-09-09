@@ -156,6 +156,13 @@ const ArtifactEntityKindSchema = Schema.Struct({
   ...RetirementFields,
   /** Stable opaque identity. Minted once at creation; survives rename, schema publication and archive. */
   kindId: Schema.String.pipe(Schema.pattern(/^KND-[0-9a-f]{32}$/u)),
+  /**
+   * The canonical workspace revision this kind row was last accepted at, and therefore the fence a
+   * caller writing this kind presents. It is the kind's own accepted revision, not a counter: a write
+   * to a sibling kind leaves it untouched, so one kind's acceptance never stales another's fence. An
+   * install seed carries none, because a package is not a ledger; the declaring event stamps it.
+   */
+  revision: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.greaterThan(0))),
   /** Qualified name used for selection and install de-duplication only; renaming it changes no ref. */
   id: Schema.String.pipe(Schema.pattern(/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/u)),
   entityType: Schema.Literal("artifact"),

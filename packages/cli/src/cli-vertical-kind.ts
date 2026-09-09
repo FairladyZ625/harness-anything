@@ -17,9 +17,10 @@ export function isVerticalKindFacadeCommand(command: ThinCommand): boolean {
 }
 
 /**
- * Read the current declaration revision, then send the kind command fenced on it. Immutability of the
- * opaque identity, the id prefix, the store path and every published schema version is the center's
- * judgement, not a second copy of the rules here.
+ * Read the addressed Kind's own accepted revision, then send the command fenced on it. A Kind is its
+ * own concurrency subject, so a command here is never staled by an unrelated Kind someone else wrote.
+ * Immutability of the opaque identity, the id prefix, the store path and every published schema
+ * version is the center's judgement, not a second copy of the rules here.
  */
 export async function runVerticalKindFacadeCommand(command: ThinCommand): Promise<JsonObject> {
   const current = await runCommandThroughDaemon({
@@ -35,7 +36,7 @@ export async function runVerticalKindFacadeCommand(command: ThinCommand): Promis
         kind: "vertical-kind-retire",
         kindId: command.action.kindId,
         reason: command.action.reason,
-        expectedVersion: current.declarationRevision,
+        expectedVersion: kindFence(current, String(command.action.kindId)),
       },
     });
 
@@ -56,7 +57,7 @@ export async function runVerticalKindFacadeCommand(command: ThinCommand): Promis
         kind: "vertical-kind-publish-schema",
         kindId: command.action.kindId,
         attributes: body,
-        expectedVersion: current.declarationRevision,
+        expectedVersion: kindFence(current, String(command.action.kindId)),
       },
     });
   }
@@ -66,17 +67,32 @@ export async function runVerticalKindFacadeCommand(command: ThinCommand): Promis
       "invalid_field",
       "--from-file must contain one complete Artifact kind declaration.",
     );
+  // An existing kind is addressed by its stable identity when the declaration states one, so a rename
+  // reaches the same row instead of creating a second kind under the new name.
+  const kindId = typeof body.kindId === "string" ? body.kindId : body.id;
   return runCommandThroughDaemon({
     ...command,
     action: {
       kind: "vertical-kind-upsert",
-      // An existing kind is addressed by its stable identity when the declaration states one, so a
-      // rename reaches the same row instead of creating a second kind under the new name.
-      kindId: typeof body.kindId === "string" ? body.kindId : body.id,
+      kindId,
       declaration: body,
-      expectedVersion: current.declarationRevision,
+      expectedVersion: kindFence(current, kindId),
     },
   });
+}
+
+/**
+ * The revision the addressed Kind was last accepted at, or `0` when no Kind answers to that name yet,
+ * which is how a caller states the intent to create one.
+ */
+function kindFence(read: DeclarationRead, kindId: string): number {
+  const row = read.declaration.entityKinds.find(
+    (candidate) =>
+      isJsonRecord(candidate) &&
+      candidate.entityType === "artifact" &&
+      (candidate.kindId === kindId || `entity-kind/${String(candidate.kindId)}` === kindId || candidate.id === kindId),
+  ) as { readonly revision?: unknown } | undefined;
+  return Number.isSafeInteger(row?.revision) ? Number(row?.revision) : 0;
 }
 
 function isDeclarationRead(value: unknown): value is DeclarationRead {

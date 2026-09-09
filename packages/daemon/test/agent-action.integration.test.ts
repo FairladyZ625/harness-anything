@@ -5,13 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import {
-  compileEntityUpsert,
-  createEntityOwnedContent,
-  MAX_ENTITY_CONTENT_OBJECT_BYTES,
-  openSqliteEventStore,
-  sha256Bytes,
-} from "../../kernel/src/index.ts";
+import { compileEntityUpsert, openSqliteEventStore, sha256Bytes } from "../../kernel/src/index.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { git, initRepo } from "./task-surface.fixtures.ts";
 
@@ -309,20 +303,12 @@ test("owned-content objects preserve raw bytes and reject absent or oversized co
           sha256,
           size: bytes.byteLength,
         },
-        ownedContent: createEntityOwnedContent({
-          ownerRef: "agent/unified-agent",
-          schemaId: "agent-declaration/v1",
-          schemaVersion: 1,
-          bindings: [
-            {
-              path: "agents/unified-agent.json",
-              sha256,
-              size: bytes.byteLength,
-              mediaType: "application/json",
-              policyId: "typed-entity/v1",
-            },
-          ],
-        }),
+        // The compiled manifest, re-pointed at the raw bytes this case appends by hand.
+        ownedContent: {
+          ...base.event.payload.ownedContent,
+          content: [{ sha256, byteLength: bytes.byteLength, mediaType: "application/json" }],
+          bindings: base.event.payload.ownedContent.bindings.map((held) => ({ ...held, contentSha256: sha256 })),
+        },
       },
     },
     store = openSqliteEventStore({ repoId, rootInput: rootDir }),
@@ -364,39 +350,6 @@ test("owned-content objects preserve raw bytes and reject absent or oversized co
       blobs: [],
     });
     assert.equal(store.revision(), 2);
-    const boundary = createEntityOwnedContent({
-      ownerRef: "agent/unified-agent",
-      schemaId: "agent-declaration/v1",
-      schemaVersion: 1,
-      bindings: [
-        {
-          path: "agents/unified-agent.json",
-          sha256: "2".repeat(64),
-          size: MAX_ENTITY_CONTENT_OBJECT_BYTES,
-          mediaType: "application/octet-stream",
-          policyId: "typed-entity/v1",
-        },
-      ],
-    });
-    assert.equal(boundary.content[0]?.byteLength, 50_000_000);
-    assert.throws(
-      () =>
-        createEntityOwnedContent({
-          ownerRef: "agent/unified-agent",
-          schemaId: "agent-declaration/v1",
-          schemaVersion: 1,
-          bindings: [
-            {
-              path: "agents/unified-agent.json",
-              sha256: "3".repeat(64),
-              size: MAX_ENTITY_CONTENT_OBJECT_BYTES + 1,
-              mediaType: "application/octet-stream",
-              policyId: "typed-entity/v1",
-            },
-          ],
-        }),
-      /content object reference is invalid/u,
-    );
   } finally {
     store.close();
     rmSync(rootDir, { recursive: true, force: true });

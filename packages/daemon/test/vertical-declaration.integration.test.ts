@@ -12,7 +12,7 @@ import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.cont
 import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 
-test("repository vertical migration, upsert conflict, and retirement share one revisioned declaration", async () => {
+test("repository vertical migration, upsert conflict, and retirement fence on the kind's own revision", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-vertical-declaration-")),
     repoId = "vertical-owner-test";
   initRepo(rootDir);
@@ -23,11 +23,12 @@ test("repository vertical migration, upsert conflict, and retirement share one r
       runVerticalDeclarationAction({
         action,
         binding,
-        rootDir,
         store,
         projection,
         now: () => "2026-09-05T00:00:00.000Z",
-      });
+      }),
+    kindRevision = (id: string) =>
+      compiledArtifactKinds(projection, repoId).find(({ declaration: row }) => row.id === id)!.declaration.revision!;
   try {
     const migrated = await run({ kind: "vertical-declaration-migrate" });
     assert.equal(migrated.outcome, "applied");
@@ -43,16 +44,17 @@ test("repository vertical migration, upsert conflict, and retirement share one r
       () => run({ kind: "vertical-kind-upsert", kindId: declaration.id, declaration, expectedVersion: 0 }),
       (error: unknown) => (error as { readonly code?: string }).code === "kind_exists",
     );
-    const updated = { ...declaration, display: { ...declaration.display, singular: "Updated kind" } };
+    const staleFence = kindRevision(declaration.id),
+      updated = { ...declaration, display: { ...declaration.display, singular: "Updated kind" } };
     const upserted = await run({
       kind: "vertical-kind-upsert",
       kindId: declaration.id,
       declaration: updated,
-      expectedVersion: initial.revision,
+      expectedVersion: staleFence,
     });
     assert.equal(upserted.outcome, "applied");
     assert.equal(
-      compiledArtifactKinds(rootDir, repoId).find(({ declaration: row }) => row.id === declaration.id)?.declaration
+      compiledArtifactKinds(projection, repoId).find(({ declaration: row }) => row.id === declaration.id)?.declaration
         .display.singular,
       "Updated kind",
     );
@@ -61,7 +63,7 @@ test("repository vertical migration, upsert conflict, and retirement share one r
         run({
           kind: "vertical-kind-retire",
           kindId: declaration.id,
-          expectedVersion: initial.revision,
+          expectedVersion: staleFence,
           reason: "No longer supported.",
         }),
       (error: unknown) => (error as { readonly code?: string }).code === "revision_conflict",
@@ -72,17 +74,17 @@ test("repository vertical migration, upsert conflict, and retirement share one r
         await run({
           kind: "vertical-kind-retire",
           kindId: declaration.id,
-          expectedVersion: current.revision,
+          expectedVersion: kindRevision(declaration.id),
           reason: "No longer supported.",
         })
       ).outcome,
       "applied",
     );
     assert.equal(
-      compiledArtifactKinds(rootDir, repoId).some(({ declaration: row }) => row.id === declaration.id),
+      compiledArtifactKinds(projection, repoId).some(({ declaration: row }) => row.id === declaration.id),
       true,
     );
-    const retired = compiledArtifactKinds(rootDir, repoId).find(({ declaration: row }) => row.id === declaration.id);
+    const retired = compiledArtifactKinds(projection, repoId).find(({ declaration: row }) => row.id === declaration.id);
     assert.equal(retired?.declaration.retired, true);
     assert.equal(retired?.declaration.reason, "No longer supported.");
     assert.equal(retired?.declaration.retiredAt, "2026-09-05T00:00:00.000Z");
@@ -93,7 +95,7 @@ test("repository vertical migration, upsert conflict, and retirement share one r
         .map(({ id }) => id),
       ["import"],
     );
-    const vertical = canonicalVertical(rootDir, repoId),
+    const vertical = canonicalVertical(projection, repoId),
       catalog = buildEntityKindCatalog(vertical.contract.artifactKinds, vertical.revision),
       retiredRow = catalog.kinds.find(({ declaration: row }) => row?.id === declaration.id);
     assert.equal(catalog.declarationRevision, current.revision + 1);
@@ -128,7 +130,7 @@ test("declaration read round-trips every materialized kind field through unchang
         kind: "vertical-kind-upsert",
         kindId: declaration.id,
         declaration,
-        expectedVersion: read.declarationRevision,
+        expectedVersion: declaration.revision,
       },
       binding,
     );
@@ -152,7 +154,7 @@ test("declaration read revision drives create, catalog read, and retirement", as
       source = read.declaration.entityKinds.find(({ entityType }) => entityType === "artifact");
     assert.ok(source);
     // A new kind is authored, never cloned from another kind's identity or published schema history.
-    const { kindId: _sourceKindId, schemaVersions: _sourceVersions, ...facets } = source,
+    const { kindId: _sourceKindId, schemaVersions: _sourceVersions, revision: _sourceRevision, ...facets } = source,
       declaration = {
         ...facets,
         id: "e2e-runbook",
@@ -163,12 +165,7 @@ test("declaration read revision drives create, catalog read, and retirement", as
         attributes: { owner: { type: "string" } },
       },
       upsert = await cell.run(
-        {
-          kind: "vertical-kind-upsert",
-          kindId: declaration.id,
-          declaration,
-          expectedVersion: read.declarationRevision,
-        },
+        { kind: "vertical-kind-upsert", kindId: declaration.id, declaration, expectedVersion: 0 },
         binding,
       );
     assert.equal(upsert.outcome, "applied", JSON.stringify(upsert));
@@ -176,11 +173,15 @@ test("declaration read revision drives create, catalog read, and retirement", as
       row = kinds.kinds.find(({ declaration: candidate }) => candidate?.id === declaration.id);
     assert.equal(row?.retired, false);
     assert.equal(row?.importable, true);
+    const created = (await cell.read("repo.vertical.declaration.read", {}, binding)).declaration.entityKinds.find(
+      ({ id }) => id === declaration.id,
+    );
+    assert.ok(created && created.entityType === "artifact");
     const retire = await cell.run(
       {
         kind: "vertical-kind-retire",
         kindId: declaration.id,
-        expectedVersion: kinds.declarationRevision,
+        expectedVersion: created.revision,
         reason: "E2E lifecycle complete",
       },
       binding,

@@ -1,4 +1,4 @@
-import { parseAgentDeclarationV1, type AgentDeclarationV1 } from "./agent-squad-schema.ts";
+import { parseAgentDeclarationV1, requiredPreparedText, type AgentDeclarationV1 } from "./agent-squad-schema.ts";
 import type {
   EntityActionContract,
   EntityActionInputContract,
@@ -267,15 +267,10 @@ export const compileAgentInstallAction: EntityActionCompileHook = (input): Agent
 export const compileAgentDeleteAction: EntityActionCompileHook = (input): AgentActionDraft => ({
   kind: "entity-delete",
   entityKind: "agent",
-  entityId: requiredPreparedText(input.action.entityId, "entityId"),
-  baseBlobSha256: requiredPreparedText(input.action.baseBlobSha256, "baseBlobSha256"),
-  reason: requiredPreparedText(input.action.reason, "reason"),
+  entityId: requiredPreparedText("Agent", input.action.entityId, "entityId"),
+  baseBlobSha256: requiredPreparedText("Agent", input.action.baseBlobSha256, "baseBlobSha256"),
+  reason: requiredPreparedText("Agent", input.action.reason, "reason"),
 });
-
-function requiredPreparedText(value: unknown, field: string): string {
-  if (typeof value !== "string" || !value.trim()) throw new Error(`Prepared Agent ${field} is required.`);
-  return value;
-}
 
 function agentCriterionError(error: unknown, criterionRef: string, fallbackCode: string): Error {
   const attributed = error instanceof Error ? error : Object.assign(new Error(String(error)), { code: fallbackCode });

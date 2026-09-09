@@ -40,7 +40,6 @@ export async function executeAction(
     return runVerticalDeclarationAction({
       action,
       binding,
-      rootDir: cell.rootDir,
       store: cell.store,
       projection: cell.projection,
       now: cell.now,
@@ -227,7 +226,7 @@ export async function executeAction(
   if (/^entity-(?:get|list)$/u.test(action.kind)) {
     const revision = cell.store.readHead()?.revision ?? 0,
       requestedKind = cell.requiredCellText(action.entityKind, "entityKind"),
-      kind = resolveEntityReadKind(requestedKind, compiledArtifactKinds(cell.rootDir, cell.input.repoId));
+      kind = resolveEntityReadKind(requestedKind, compiledArtifactKinds(cell.projection, cell.input.repoId));
     if (action.kind === "entity-list")
       return cell.readResult(
         cell.operationId(action, binding, cell.input.repoId, revision),

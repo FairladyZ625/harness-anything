@@ -11,8 +11,6 @@ import {
   readAcceptedCommandOutcome,
   waitForReceiptAcceptance,
 } from "../../kernel/src/index.ts";
-import { readFileSync } from "node:fs";
-import path from "node:path";
 import {
   assertCurrentWriter,
   buildVerticalDeclarationRead,
@@ -21,7 +19,6 @@ import {
   durablePolicyActions,
   getExecutableEntityAction,
   projectDecisionReadiness,
-  parseVerticalDeclarationDocument,
   relationDirections,
   relationStates,
   relationTypes,
@@ -41,6 +38,7 @@ import {
 import { type PresetRunReceiptV1, type createPresetProcessService } from "../../preset/src/index.ts";
 import { readAgentEntityGuiProjection } from "./agent-entities.ts";
 import { canonicalVertical, compiledArtifactKinds } from "./artifact-entity-action.ts";
+import { requireCanonicalVerticalDeclaration } from "./vertical-declaration-action.ts";
 import { readDeclaredEntityRows } from "./entity-rows-read.ts";
 import { readEntityLocator } from "./entity-locator-read.ts";
 import { discoverAgentSkills } from "./agent-skills.ts";
@@ -501,20 +499,16 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
     "repo.projection.read": (payload: Readonly<Record<string, unknown>>) => useCaseProjection(payload),
     "repo.entity.actions.explain": explainAuthenticationRequired,
     "repo.vertical.declaration.read": () =>
-      buildVerticalDeclarationRead(
-        parseVerticalDeclarationDocument(
-          JSON.parse(readFileSync(path.join(context.rootDir, "harness", "vertical.json"), "utf8")),
-        ),
-      ),
+      buildVerticalDeclarationRead(requireCanonicalVerticalDeclaration(context.projection)),
     "repo.entity.kinds.read": () => {
-      const vertical = canonicalVertical(context.rootDir, context.input.repoId);
+      const vertical = canonicalVertical(context.projection, context.input.repoId);
       return buildEntityKindCatalog(vertical.contract.artifactKinds, vertical.revision);
     },
     "repo.entity.rows.read": () =>
       readDeclaredEntityRows({
         catalog: buildEntityKindCatalog(
-          compiledArtifactKinds(context.rootDir, context.input.repoId),
-          canonicalVertical(context.rootDir, context.input.repoId).revision,
+          compiledArtifactKinds(context.projection, context.input.repoId),
+          canonicalVertical(context.projection, context.input.repoId).revision,
         ),
         projection: context.projection,
         runtimeInstances: context.input.runtimeInstances ?? (() => []),
