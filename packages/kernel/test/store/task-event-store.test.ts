@@ -4,6 +4,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writ
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { attachReceiptAcceptance } from "../../src/composition/receipt-acceptance.ts";
 import { taskLifecycleWritePlan } from "../../src/domain/task-lifecycle-publication.ts";
 import { localGitObjectRefStore } from "../../src/store/local-version-control-system.ts";
 import { openSqliteEventStore, sqliteContentObjectPath } from "../../src/store/sqlite-event-store.ts";
@@ -332,3 +333,33 @@ test("corrupt accepted content cannot be certified by publishing the same corrup
 function fixture(name: string): string {
   return mkdtempSync(path.join(tmpdir(), `ha-sqlite-${name}-`));
 }
+
+test("later acceptance retains the verified prefix without certifying the newer receipt", async () => {
+  const rootDir = fixture("verified-prefix");
+  initRepo(rootDir);
+  const store = makeTaskEventStore({ repoId, rootDir, writerFence });
+  const first = eventAt(1),
+    second = eventAt(2);
+  const projection = { readCut: () => ({ watermark: store.currentCut().revision }) } as never;
+  const receipt = (opId: string) => attachReceiptAcceptance({ outcome: "applied", opId }, store, projection);
+  try {
+    store.append({ event: first, plan: taskLifecycleWritePlan(first), blobs: [] });
+    store.materialize();
+    assert.equal(receipt(first.opId).git.state, "verified");
+    const appended = store.append({ event: second, plan: taskLifecycleWritePlan(second), blobs: [] });
+    assert.equal(receipt(first.opId).git.state, "verified", "new acceptance must not erase verified history");
+    assert.equal(receipt(first.opId).worktree.state, "verified");
+    assert.equal(receipt(second.opId).git.state, "pending");
+    assert.equal(receipt(second.opId).worktree.state, "pending");
+    assert.equal(receipt(second.opId).git.commitSha, null);
+    assert.equal(appended.commitSha, null);
+    assert.equal(store.materializationHealth().lastCheckpointRevision, 1);
+    assert.equal(store.materializationHealth().pendingWalEvents, 1);
+    assert.equal(store.materializationHealth().state, "retrying");
+    store.materialize();
+    assert.equal(receipt(second.opId).git.state, "verified");
+    assert.equal(receipt(second.opId).worktree.state, "verified");
+  } finally {
+    await store.drain();
+  }
+});

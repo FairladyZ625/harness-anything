@@ -230,14 +230,20 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
       for (const [logical, baseline] of acceptedBaseline) acceptedWorktree.set(logical, baseline);
     try {
       options.killpoint?.("after_sqlite_commit");
-      follower = pendingFollower("Git follower has not verified the accepted ledger cut");
+      // Acceptance advances the ledger head, not the already verified follower prefix.
       scheduleFollower();
       options.killpoint?.("before_response_write");
       const receipt: CanonicalEventAppendReceipt = {
         status: "applied",
         event: bundle.event,
         revision: bundle.event.workspaceRevision,
-        commitSha: follower.git.commitSha ? ledgerCommitSha(options.repoId, follower.git.commitSha) : null,
+        commitSha:
+          follower.git.status === "verified" &&
+          follower.git.cut !== null &&
+          follower.git.cut.revision >= bundle.event.workspaceRevision &&
+          follower.git.commitSha
+            ? ledgerCommitSha(options.repoId, follower.git.commitSha)
+            : null,
         cut: canonicalEventCut(options.repoId, bundle.event),
         metrics: { gitProcesses: 0, nodeSyncs: 0, changedPaths: [] },
       };
@@ -455,7 +461,14 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
     append,
     materialize: () => publishFollower(true),
     materializationHealth: () =>
-      health(follower.git.status === "verified" ? "ok" : scheduled ? "retrying" : "failed", follower.git.reason),
+      health(
+        follower.git.status === "verified" && follower.git.cut?.revision === sqlite.revision()
+          ? "ok"
+          : scheduled
+            ? "retrying"
+            : "failed",
+        follower.git.reason,
+      ),
     drain: async () => {
       await scheduled;
       if (!closed) sqlite.close();
