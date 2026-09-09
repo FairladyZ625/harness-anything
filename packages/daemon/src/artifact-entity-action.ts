@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import {
@@ -14,13 +14,17 @@ import {
   artifactMutationOperationId,
   canonicalArtifactLocator,
   compileEntityArchived,
+  compileEntityDeleted,
   compileEntityUpdated,
   compileVerticalContract,
   pinnedArtifactKindContract,
   composeCanonicalRelationDirections,
+  ARTIFACT_ENTITY_ID_BYTES,
+  entityContentRoot,
   isEntityDeclarationEvent,
   isEntityEvent,
   MAX_ENTITY_CONTENT_OBJECT_BYTES,
+  ownedContentForDeclarationEvent,
   normalizeRelativeDocumentPath,
   type ArtifactDescriptor,
   type AuthorizationDecision,
@@ -31,6 +35,8 @@ import {
   type EntityActionContract,
   type EntityContentBlob,
   type EntityEventV1,
+  type EntityOwnedContentV1,
+  type EntityStoreKindContract,
   type TaskProjection,
   type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
@@ -39,7 +45,8 @@ import { requireCanonicalVerticalDeclaration, type VerticalDeclarationReader } f
 
 const compiledVerticals = new Map<string, CompiledVerticalContract>(),
   compiledDirections = new Map<string, readonly CanonicalRelationDirection[]>();
-type ArtifactImportReceipt = WriteReceipt & { readonly entityId: string };
+/** `entityId` is null only for a dry run of material the center has never accepted; nothing is minted then. */
+type ArtifactImportReceipt = WriteReceipt & { readonly entityId: string | null };
 
 export function canonicalVertical(
   projection: VerticalDeclarationReader,
@@ -124,7 +131,7 @@ export async function executeArtifactEntityImport(input: {
       { code: "unsupported_command" },
     );
   const receipt = await runArtifactEntityImport({ ...input, contracts });
-  return { action: { ...input.action, entityId: receipt.entityId }, contract, receipt };
+  return { action: { ...input.action, entityId: receipt.entityId ?? undefined }, contract, receipt };
 }
 
 export function executeArtifactEntityMutation(input: {
@@ -158,7 +165,8 @@ export function executeArtifactEntityMutation(input: {
     throw Object.assign(new Error(`Entity ${entityId} expected revision ${String(expectedVersion)} is invalid.`), {
       code: "revision_conflict",
     });
-  const mutation = input.action.kind === "entity-update" ? "update" : "archive",
+  const mutation =
+      input.action.kind === "entity-update" ? "update" : input.action.kind === "entity-delete" ? "delete" : "archive",
     opId = artifactMutationOperationId({ mutation, entityId, expectedVersion }),
     replayed = readEntityOperation(input.store, opId);
   // A retry presenting the same fence replays the operation it already applied instead of tripping the CAS below.
@@ -183,17 +191,42 @@ export function executeArtifactEntityMutation(input: {
       source: input.binding.source,
       occurredAt: input.now(),
     },
+    pinned = pinnedArtifactKindContract(compiled, kindVersion) as unknown as EntityStoreKindContract,
     bundle =
       input.action.kind === "entity-update"
-        ? updatedBundle(input.action, current.descriptor, compiled, contractSnapshot, { ...envelope, opId })
-        : compileEntityArchived({
-            ...envelope,
-            eventId: `event-${opId}`,
-            opId,
+        ? updatedBundle(
+            input.action,
+            current.descriptor,
+            compiled,
             contractSnapshot,
-            entityId,
-            reason: requiredArtifactText(input.action.reason, "reason"),
-          }),
+            { ...envelope, opId },
+            carriedContent(input.store, pinned, entityId, current.ownedContent),
+          )
+        : input.action.kind === "entity-delete"
+          ? compileEntityDeleted({
+              ...envelope,
+              eventId: `event-${opId}`,
+              opId,
+              contract: pinned,
+              entityKind: kind,
+              entityId,
+              // Every path the entity still binds is retired together; leaving its imported bytes on disk
+              // would strand files no event owns any more.
+              baseBlobSha256: declarationRetirement(pinned, entityId, current.ownedContent),
+              contentRetirements: (current.ownedContent?.bindings ?? []).map(({ path, contentSha256 }) => ({
+                path,
+                baseBlobSha256: contentSha256,
+              })),
+              reason: requiredArtifactText(input.action.reason, "reason"),
+            })
+          : compileEntityArchived({
+              ...envelope,
+              eventId: `event-${opId}`,
+              opId,
+              contractSnapshot,
+              entityId,
+              reason: requiredArtifactText(input.action.reason, "reason"),
+            }),
     appended = input.store.append(bundle),
     _applied = input.projection.apply(bundle.event, bundle.plan),
     applied = input.projection.readOperation(bundle.event.opId),
@@ -210,7 +243,7 @@ export function executeArtifactEntityMutation(input: {
         appliedCut: applied?.watermark ?? 0,
         durable: true,
         canonicalVisible: visible,
-        worktreeVisible: bundle.event.type === "entity_updated",
+        worktreeVisible: bundle.event.type === "entity_updated" || bundle.event.type === "entity_deleted",
       },
       authorizationDecision: input.authorizationDecision,
       commitSha: appended.commitSha?.sha ?? null,
@@ -232,6 +265,7 @@ function updatedBundle(
     readonly source: RepoCellBinding["source"];
     readonly occurredAt: string;
   },
+  carried: readonly EntityContentBlob[],
 ) {
   const locator =
       typeof action.locator === "string"
@@ -247,6 +281,9 @@ function updatedBundle(
       typeof compileEntityUpdated
     >[0]["contract"],
     contractSnapshot,
+    // An update states values, not a new snapshot of the source: the content the entity already owns is
+    // restated unchanged, so renaming or re-pointing an entity never drops the bytes it holds.
+    sourceContent: carried,
     descriptor: {
       ...current,
       locator,
@@ -280,6 +317,8 @@ export async function runArtifactEntityImport(input: {
           contract,
         }),
       readCurrent: (kind, entityId) => readCurrentArtifact(input.store, input.contracts, kind, entityId),
+      resolveEntityIdBySource: (kind, sourceIdentity) => resolveEntityIdBySource(input.store, kind, sourceIdentity),
+      randomEntityIdBytes: () => randomBytes(ARTIFACT_ENTITY_ID_BYTES),
       readOperation: (opId) => readEntityOperation(input.store, opId),
       countRelationChanges: (entityRef) =>
         input.projection
@@ -311,6 +350,7 @@ export async function runArtifactEntityImport(input: {
     );
   if (input.action.dryRun === true) return previewReceipt(prepared.preview, input);
   if (prepared.replay) return artifactReplayReceipt(prepared.replay, prepared.preview, input.authorizationDecision);
+  if (!prepared.bundle) throw new ArtifactEntityServiceError("invalid_command", "Import produced no write bundle.");
   const appended = input.store.append(prepared.bundle);
   input.projection.apply(prepared.bundle.event, prepared.bundle.plan);
   const applied = input.projection.readOperation(prepared.bundle.event.opId),
@@ -373,6 +413,7 @@ async function resolveArtifactSource(input: {
         source,
         witness: { kind: "content", content: directory.fingerprint },
         content: directory.objects,
+        directories: directory.emptyDirectories,
         title:
           existsSync(readme) && statSync(readme).isFile()
             ? titleFromContent(readFileSync(readme), relative)
@@ -416,12 +457,22 @@ async function resolveArtifactSource(input: {
 const SYSTEM_DIRECTORY_ENTRIES = new Set([".DS_Store", "Thumbs.db", "desktop.ini"]),
   ENTITY_CONTENT_POLICY_ID = "entity-content/v1";
 
+/**
+ * A directory source is its files plus the directories that hold none. Git has no empty-tree entry, so an
+ * empty directory that is not stated here disappears on the next rebuild; the fingerprint covers both, which
+ * is what makes adding or emptying a directory a real content change rather than a silent one.
+ */
 function directoryContent(root: string): {
   readonly fingerprint: string;
   readonly objects: readonly EntityContentBlob[];
+  readonly emptyDirectories: readonly string[];
 } {
-  const objects: EntityContentBlob[] = [];
-  function visit(directory: string): void {
+  const objects: EntityContentBlob[] = [],
+    emptyDirectories: string[] = [];
+  // Only a directory with no surviving entry at all is stated: a directory that holds one is already implied
+  // by whatever it holds, and materializing the deeper path creates it on the way.
+  function visit(directory: string): boolean {
+    let held = false;
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
       if (SYSTEM_DIRECTORY_ENTRIES.has(entry.name) || entry.name.startsWith("._")) continue;
       const target = path.join(directory, entry.name);
@@ -429,15 +480,24 @@ function directoryContent(root: string): {
       else if (entry.isFile())
         objects.push(readSourceObject(target, path.relative(root, target).split(path.sep).join("/")));
       else throw new Error(`Directory artifact entry ${target} is neither a file nor a directory.`);
+      held = true;
     }
+    if (!held && directory !== root)
+      emptyDirectories.push(normalizeRelativeDocumentPath(path.relative(root, directory).split(path.sep).join("/")));
+    return held;
   }
   visit(root);
   objects.sort((left, right) =>
     Buffer.compare(Buffer.from(left.relativePath, "utf8"), Buffer.from(right.relativePath, "utf8")),
   );
+  emptyDirectories.sort();
   return {
-    fingerprint: objects.map(({ relativePath, sha256 }) => `${sha256}  ${JSON.stringify(relativePath)}`).join("\n"),
+    fingerprint: [
+      ...objects.map(({ relativePath, sha256 }) => `${sha256}  ${JSON.stringify(relativePath)}`),
+      ...emptyDirectories.map((relativePath) => `directory  ${JSON.stringify(relativePath)}`),
+    ].join("\n"),
     objects,
+    emptyDirectories,
   };
 }
 
@@ -445,10 +505,11 @@ function readSourceObject(target: string, relativePath: string): EntityContentBl
   const size = statSync(target).size;
   // Refusing before the read keeps an oversized source from being paged into the center at all; the whole
   // snapshot is rejected rather than silently landing without one of its files.
-  if (size > MAX_ENTITY_CONTENT_OBJECT_BYTES)
+  const limit = MAX_ENTITY_CONTENT_OBJECT_BYTES;
+  if (size > limit)
     throw new ArtifactEntityServiceError(
       "invalid_command",
-      `Source object ${relativePath} is ${size} bytes, above the ${MAX_ENTITY_CONTENT_OBJECT_BYTES}-byte per-file limit.`,
+      `Source object ${relativePath} is ${size} bytes, above the ${limit}-byte per-file limit.`,
     );
   return sourceObject(relativePath, readFileSync(target));
 }
@@ -471,14 +532,20 @@ function readCurrentArtifact(
   contracts: readonly CompiledArtifactKindContract[],
   kind: string,
   entityId: string,
-): ArtifactEntityCurrent | null {
+): (ArtifactEntityCurrent & { readonly ownedContent: EntityOwnedContentV1 | null }) | null {
   const contract = contracts.find(({ typeIdentity }) => typeIdentity === kind);
   if (!contract) return null;
   let revision = 0,
-    descriptor: ReturnType<typeof readArtifactDescriptor> | null = null;
+    descriptor: ReturnType<typeof readArtifactDescriptor> | null = null,
+    ownedContent: EntityOwnedContentV1 | null = null;
   for (const event of store.read().events) {
     if (!isEntityEvent(event) || event.payload.entityKind !== kind || event.payload.entityId !== entityId) continue;
     revision = Math.max(revision, event.workspaceRevision);
+    if (event.type === "entity_deleted") {
+      descriptor = null;
+      ownedContent = null;
+      continue;
+    }
     // Both observations and descriptor updates carry the full descriptor blob; folding only observations would make
     // every later update start from a stale descriptor and silently drop the previous update.
     if (
@@ -490,8 +557,74 @@ function readCurrentArtifact(
       bytes = store.readContentBlob(claim.sha256);
     if (!bytes) throw new Error(`Artifact descriptor blob ${claim.sha256} is unavailable.`);
     descriptor = readArtifactDescriptor(contract, JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)));
+    ownedContent = ownedContentForDeclarationEvent(event);
   }
-  return revision === 0 ? null : { descriptor, revision };
+  if (revision === 0) return null;
+  return {
+    descriptor,
+    revision,
+    ownedContent,
+    ownedPaths: (ownedContent?.bindings ?? []).map(({ path: bound, contentSha256 }) => ({
+      path: bound,
+      sha256: contentSha256,
+    })),
+  };
+}
+
+/**
+ * Which entity a source is bound to, read from the accepted events rather than recomputed from the path. A
+ * rebind moves the binding with the entity, and a deleted entity releases its source, so re-importing that
+ * path mints a new instance instead of resurrecting the old one.
+ */
+function resolveEntityIdBySource(store: CanonicalEventStore, kind: string, sourceIdentity: string): string | null {
+  const boundSource = new Map<string, string>();
+  for (const event of store.read().events) {
+    if (!isEntityEvent(event) || event.payload.entityKind !== kind) continue;
+    if (event.type === "entity_deleted") boundSource.delete(event.payload.entityId);
+    else if ("sourceIdentity" in event.payload)
+      boundSource.set(event.payload.entityId, String(event.payload.sourceIdentity));
+  }
+  for (const [entityId, bound] of boundSource) if (bound === sourceIdentity) return entityId;
+  return null;
+}
+
+/** The content objects an entity already owns, restated from the ledger so an update carries them forward. */
+function carriedContent(
+  store: CanonicalEventStore,
+  contract: EntityStoreKindContract,
+  entityId: string,
+  ownedContent: EntityOwnedContentV1 | null,
+): readonly EntityContentBlob[] {
+  if (!ownedContent) return [];
+  const root = `${entityContentRoot(contract, entityId)}/`,
+    sizes = new Map(ownedContent.content.map((entry) => [entry.sha256, entry]));
+  return ownedContent.bindings.flatMap(({ path: bound, contentSha256, policyId }) => {
+    if (!bound.startsWith(root)) return [];
+    const bytes = store.readContentBlob(contentSha256),
+      object = sizes.get(contentSha256);
+    if (!bytes || !object) throw new Error(`Entity content object ${contentSha256} is unavailable.`);
+    return [
+      {
+        relativePath: bound.slice(root.length),
+        sha256: contentSha256,
+        size: object.byteLength,
+        mediaType: object.mediaType,
+        policyId,
+        body: bytes,
+      },
+    ];
+  });
+}
+
+function declarationRetirement(
+  contract: EntityStoreKindContract,
+  entityId: string,
+  ownedContent: EntityOwnedContentV1 | null,
+): string {
+  const root = `${entityContentRoot(contract, entityId)}/`,
+    declaration = (ownedContent?.bindings ?? []).find(({ path: bound }) => !bound.startsWith(root));
+  if (!declaration) throw new Error(`Entity ${entityId} has no accepted declaration document to retire.`);
+  return declaration.contentSha256;
 }
 
 function readEntityOperation(store: CanonicalEventStore, opId: string): EntityEventV1 | null {

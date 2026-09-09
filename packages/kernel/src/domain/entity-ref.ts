@@ -23,7 +23,7 @@ const templateTokenPattern = /^\{(?<kind>[a-z-]+)\}$/u;
 
 /** The identity prefix a vertical declares for its Artifact kind (`vertical-definition/v1`). */
 const artifactIdPrefixPattern = "[A-Z][A-Z0-9]{0,15}",
-  artifactIdSuffixPattern = "-[a-f0-9]{16}";
+  artifactIdSuffixPattern = "-[a-f0-9]{32}";
 
 /** The stable opaque identity every declared Artifact kind is addressed by. */
 export const ENTITY_KIND_ID_PATTERN = "KND-[0-9a-f]{32}";

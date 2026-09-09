@@ -64,6 +64,17 @@ export function artifactEntityActionCatalog(
         ]),
       }),
       Object.freeze({
+        // Delete retires the material; archive only closes it. Both run through the same revision fence, and
+        // the events that carried the bytes stay in the ledger either way.
+        ...action(kind, identity, "delete", "entity-delete"),
+        input: input([
+          { field: "entityKind", type: "string", required: true },
+          { field: "entityId", type: "string", required: true },
+          { field: "reason", type: "string", required: true },
+          { field: "expectedVersion", type: "number", required: true },
+        ]),
+      }),
+      Object.freeze({
         ...action(kind, identity, "archive", "entity-archive"),
         input: input([
           { field: "entityKind", type: "string", required: true },

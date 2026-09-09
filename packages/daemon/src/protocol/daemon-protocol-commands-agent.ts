@@ -310,6 +310,28 @@ export const agentProtocolCommands = Object.freeze([
     ],
   }),
   defineCenterForwardWriteCommand({
+    id: "entity-delete",
+    phase: "Governed-Entity-W2",
+    path: ["entity", "delete", "<kind>"],
+    summary: "Delete one compiled vertical Artifact Entity and retire every file it owns.",
+    method: "repo.task.run",
+    positional: "entityKind",
+    inputs: [
+      cliInput("--id", "single", true, { code: "missing_field" }, { field: "entityId" }),
+      cliInput("--reason", "single", true, { code: "missing_field" }),
+      cliInput(
+        "--expected-version",
+        "single",
+        true,
+        { code: "missing_field" },
+        {
+          regex: "^(?:0|[1-9][0-9]*)$",
+          projection: "number",
+        },
+      ),
+    ],
+  }),
+  defineCenterForwardWriteCommand({
     id: "entity-archive",
     phase: "Governed-Entity-W2",
     path: ["entity", "archive", "<kind>"],

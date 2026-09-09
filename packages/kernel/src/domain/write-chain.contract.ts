@@ -153,6 +153,7 @@ export type WriteTarget =
       readonly operation: "delete";
       readonly baseSha256: string;
     }
+  | { readonly kind: "authored_directory"; readonly path: string; readonly operation: "create" }
   | { readonly kind: "projection_invalidation"; readonly projection: string; readonly key: string }
   | {
       readonly kind: "lease_sqlite";
@@ -375,7 +376,7 @@ function safeIdentity(value: unknown): value is string {
 function targetKey(target: WriteTarget): string {
   return target.kind === "event_file" || target.kind === "event_head" || target.kind === "authored_file"
     ? `${target.kind}:${target.path}`
-    : target.kind === "ledger_file" || target.kind === "authored_file_delete"
+    : target.kind === "ledger_file" || target.kind === "authored_file_delete" || target.kind === "authored_directory"
       ? `${target.kind}:${target.path}`
       : target.kind === "projection_invalidation"
         ? `${target.kind}:${target.projection}:${target.key}`
@@ -519,6 +520,8 @@ export function validateDeclaredWritePlan(plan: WritePlan, commandTypes: readonl
         !isNonEmptyString(target.mediaType))
     )
       errors.push("content blob target is invalid");
+    if (target.kind === "authored_directory" && (!safeWorkspacePath(target.path) || target.operation !== "create"))
+      errors.push("authored directory target is invalid");
     if (target.kind === "ledger_file" && !validLedgerTarget(target)) errors.push("ledger target is invalid");
   }
   return errors;

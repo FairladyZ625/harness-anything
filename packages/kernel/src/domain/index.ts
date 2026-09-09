@@ -158,12 +158,20 @@ export type { ContractVersion } from "./contract-version.ts";
 export { normalizePersistedTimestamp, timestamp } from "./timestamp.ts";
 
 export {
+  entityContentPath,
+  entityContentRoot,
+  entityDocumentPath,
   getExecutableEntityAction,
   getEntityKindContract,
   getTaskActionForTransition,
   requireEntityStoreKindContract,
 } from "./entity-kind-registry.ts";
-export type { EntityActionContract, EntityActionInputField, EntityResidencyFacets } from "./entity-kind-registry.ts";
+export type {
+  EntityActionContract,
+  EntityActionInputField,
+  EntityResidencyFacets,
+  EntityStoreKindContract,
+} from "./entity-kind-registry.ts";
 // 只导出有消费者的两个:目录构造与结果校验。schema id / 序列化 / 错误类型由
 // daemon 的 schema registry 按路径引用(与 entity-action-explanation 同一惯例),
 // 不进 kernel 公共面。
@@ -323,8 +331,15 @@ export {
   entityUpsertWritePlan,
   isEntityDeclarationEvent,
   isEntityEvent,
+  ownedContentForDeclarationEvent,
 } from "./entity-event.ts";
-export { MAX_ENTITY_CONTENT_OBJECT_BYTES } from "./entity-owned-content.ts";
+export {
+  MAX_ENTITY_CONTENT_OBJECT_BYTES,
+  entityOwnedDirectories,
+  type EntityContentDirectory,
+  type EntityContentRetirement,
+  type EntityOwnedContentV1,
+} from "./entity-owned-content.ts";
 export type {
   EntityContentBlob,
   EntityContentObservedBundle,
@@ -342,7 +357,9 @@ export {
   canonicalSourceIdentity,
   decodeArtifactDescriptor,
   deriveArtifactContentVersion,
-  deriveArtifactEntityId,
+  isArtifactEntityId,
+  mintArtifactEntityId,
+  ARTIFACT_ENTITY_ID_BYTES,
 } from "./artifact-entity.ts";
 export type {
   ArtifactAttributeValue,

@@ -151,6 +151,8 @@ export function authorizeDurableRepoCellAction(
       return authorizeRepoCellAction(input);
     case "entity-archive":
       return authorizeRepoCellAction(input);
+    case "entity-delete":
+      return authorizeRepoCellAction(input);
     case "fact-reclassify":
       return authorizeRepoCellAction(input);
     case "fact-record":

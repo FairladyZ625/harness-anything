@@ -264,7 +264,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
       "doc-sync-dry-run",
       "doc-sync-submit",
     ],
-    entity: ["entity-archive", "entity-get", "entity-import", "entity-list", "entity-update"],
+    entity: ["entity-archive", "entity-delete", "entity-get", "entity-import", "entity-list", "entity-update"],
     explain: ["explain"],
     fact: ["fact-reclassify", "fact-record", "fact-search", "fact-show", "fact-type-list", "fact-type-register"],
     gui: ["gui"],

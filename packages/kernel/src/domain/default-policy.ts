@@ -28,6 +28,7 @@ const repositoryWriteActions = Object.freeze([
   "entity-import",
   "entity-update",
   "entity-archive",
+  "entity-delete",
   "fact-reclassify",
   "fact-record",
   "fact-type-register",
@@ -86,6 +87,7 @@ const repositoryWriteActions = Object.freeze([
   "terminal-spawn",
   "terminal-terminate",
   "vertical-declaration-migrate",
+  "vertical-kind-publish-schema",
   "vertical-kind-retire",
   "vertical-kind-upsert",
 ] as const);

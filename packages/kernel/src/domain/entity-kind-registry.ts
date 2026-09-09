@@ -1004,9 +1004,12 @@ export function entityDocumentPath(contract: EntityStoreKindContract, id: string
  * root; the object keeps its shape underneath. Two entities therefore never contend for the same target no
  * matter what their sources were called.
  */
-export function entityContentPath(contract: EntityStoreKindContract, id: string, relativePath: string): string {
+export function entityContentRoot(contract: EntityStoreKindContract, id: string): string {
   const document = entityDocumentPath(contract, id),
-    extension = document.slice(document.lastIndexOf("/") + 1).lastIndexOf("."),
-    root = extension <= 0 ? document : document.slice(0, document.lastIndexOf("."));
-  return normalizeRelativeDocumentPath(`${root}/${relativePath}`);
+    extension = document.slice(document.lastIndexOf("/") + 1).lastIndexOf(".");
+  return extension <= 0 ? document : document.slice(0, document.lastIndexOf("."));
+}
+
+export function entityContentPath(contract: EntityStoreKindContract, id: string, relativePath: string): string {
+  return normalizeRelativeDocumentPath(`${entityContentRoot(contract, id)}/${relativePath}`);
 }

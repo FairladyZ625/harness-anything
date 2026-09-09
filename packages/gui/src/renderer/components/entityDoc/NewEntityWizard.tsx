@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft } from "@phosphor-icons/react";
 import type { EntityKindRow } from "../../entity-kind-catalog-client.ts";
+import { consumeKnownError } from "../../../api/error-consumption.ts";
 import { entityKindQueryKeys } from "../../entity-kind-data.ts";
 import {
   entityLocatorContentQuery,
@@ -9,12 +10,7 @@ import {
   receiptFailureText,
   repoDirectoryQuery,
 } from "../../entity-locator-client.ts";
-import {
-  deriveEntityId,
-  directoryHasReadme,
-  titleOfDirectoryLocator,
-  titleOfFileLocator,
-} from "../../entity-import-preview.ts";
+import { directoryHasReadme, titleOfDirectoryLocator, titleOfFileLocator } from "../../entity-import-preview.ts";
 import { RepoPathBrowser, commonParentDirectory } from "./RepoPathBrowser.tsx";
 
 /**
@@ -96,7 +92,9 @@ export function NewEntityWizard({
           return;
         }
         await queryClient.invalidateQueries({ queryKey: entityKindQueryKeys.rows(repoId) });
-        onImported(`${row.kind}/${preview!.entityId}`);
+        // The instance identity is minted by the center; the receipt is the only place it exists.
+        const imported = importedEntityId(receipt);
+        if (imported !== null) onImported(`${row.kind}/${imported}`);
       })
       .catch((cause: unknown) => setError(cause instanceof Error ? cause.message : String(cause)))
       .finally(() => setBusy(false));
@@ -176,8 +174,6 @@ export function NewEntityWizard({
               <dd className="break-all font-mono ui-meta text-text">{target.path}</dd>
               <dt className="font-mono ui-micro text-text-faint">title(推导)</dt>
               <dd className="break-all ui-meta text-text">{preview.title}</dd>
-              <dt className="font-mono ui-micro text-text-faint">entity id(推导)</dt>
-              <dd className="break-all font-mono ui-meta text-text">{preview.entityId}</dd>
               <dt className="font-mono ui-micro text-text-faint">存放</dt>
               <dd className="break-all font-mono ui-micro text-text-muted">
                 {row.declaration?.pathTemplate ?? "(kind 未声明 pathTemplate)"}
@@ -233,12 +229,12 @@ export function NewEntityWizard({
   );
 }
 
-/** 预览:title 按 daemon 的派生规则(README 首标题/文件首标题/文件名),id 按 kernel 公式。 */
+/** 预览:title 按 daemon 的派生规则(README 首标题/文件首标题/文件名)。id 由中心铸,预览无从得知。 */
 function useDerivedPreview(
   repoId: string,
   row: EntityKindRow,
   target: { readonly path: string; readonly directory: boolean } | null,
-): { readonly title: string; readonly entityId: string } | null {
+): { readonly title: string } | null {
   const idPrefix = row.declaration?.idPrefix ?? null;
   const listing = useQuery({
     ...repoDirectoryQuery(repoId, target?.directory ? target.path : ""),
@@ -259,27 +255,36 @@ function useDerivedPreview(
     }),
     enabled: target !== null && !target.directory,
   });
-  const idQuery = useQuery({
-    queryKey: ["entity-import-preview-id", repoId, idPrefix, target?.path] as const,
-    queryFn: () => deriveEntityId(repoId, idPrefix ?? "", target!.path),
-    enabled: target !== null && idPrefix !== null,
-    staleTime: Infinity,
-  });
-  if (target === null || idPrefix === null || idQuery.data === undefined) return null;
+  if (target === null || idPrefix === null) return null;
   if (target.directory) {
     if (listing.data === undefined || (readmePath !== null && readmeRead.data === undefined)) return null;
     const title = titleOfDirectoryLocator(
       readmeRead.data?.outcome === "file" ? (readmeRead.data.content ?? "") : null,
       target.path,
     );
-    return { title, entityId: idQuery.data };
+    return { title };
   }
   if (fileRead.data === undefined) return null;
   const title =
     fileRead.data.outcome === "file"
       ? titleOfFileLocator(fileRead.data.content ?? "", target.path)
       : (target.path.split("/").at(-1) ?? target.path);
-  return { title, entityId: idQuery.data };
+  return { title };
+}
+
+/** 回执里的实例身份:`entity import` 的 evidence 带着中心接受时铸的那一个。 */
+function importedEntityId(receipt: unknown): string | null {
+  if (typeof receipt !== "object" || receipt === null || !("evidence" in receipt)) return null;
+  const evidence = (receipt as { readonly evidence?: unknown }).evidence;
+  if (typeof evidence !== "string") return null;
+  try {
+    const parsed = JSON.parse(evidence) as { readonly preview?: { readonly entityId?: unknown } };
+    return typeof parsed.preview?.entityId === "string" ? parsed.preview.entityId : null;
+  } catch (cause) {
+    // 回执不是本轮认识的形状:不导航,也不假装导入失败——导入的成败由 outcome 说了算。
+    consumeKnownError(cause);
+    return null;
+  }
 }
 
 function validSeed(value: string): boolean {

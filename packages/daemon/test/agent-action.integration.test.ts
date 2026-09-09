@@ -105,6 +105,7 @@ test("Agent install uses the executable catalog with CAS, replay, readiness, and
             policyId: "typed-entity/v1",
           },
         ],
+        directories: [],
         retirements: [],
       });
     } finally {

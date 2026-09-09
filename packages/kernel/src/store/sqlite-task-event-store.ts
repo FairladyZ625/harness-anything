@@ -12,6 +12,7 @@ import {
   canonicalDocumentClaims,
   canonicalDocumentMode,
   canonicalDocumentRetirements,
+  canonicalOwnedDirectories,
   contentClaims,
 } from "./task-event-store-claims-layout.ts";
 import { canonicalEventCut, canonicalLedgerCut } from "./task-event-store-contract.ts";
@@ -76,7 +77,9 @@ export function publishConvertedGeneration(input: {
   if (revision === 0) return { commitSha: parent, revision, changed: false };
   const event = input.store.eventAtRevision(revision),
     cut = canonicalLedgerCut(input.repoId, event ? eventHead(event) : null),
-    files = followerFiles(ledger, parent, readEventsThrough(input.store, revision), input.store.readContentObject, cut),
+    closureEvents = readEventsThrough(input.store, revision),
+    files = followerFiles(ledger, parent, closureEvents, input.store.readContentObject, cut),
+    directories = followerDirectories(ledger, closureEvents),
     manifestTarget = ledgerGitPath(ledger, "events/segments/manifest.json"),
     alreadyCertified =
       localGitObjectRefStore.readPath(ledger.rootDir, parent, manifestTarget) !== null &&
@@ -87,6 +90,7 @@ export function publishConvertedGeneration(input: {
     if (!worktreeMatchesBaseline(ledger.rootDir, baseline, files) || !settleWorktree(ledger.rootDir, files, baseline))
       throw new TaskEventStoreError("publication_indeterminate", "authored worktree has concurrent edits");
     verifyWorktreeFiles(ledger.rootDir, files);
+    settleWorktreeDirectories(ledger.rootDir, directories);
     return { commitSha: parent, revision, changed: false };
   }
   const tempRef = `refs/ha-sqlite-outbox/${sha256Text(`conversion:${revision}:${cut.headDigest}`)}`,
@@ -99,6 +103,7 @@ export function publishConvertedGeneration(input: {
   if (!worktreeMatchesBaseline(ledger.rootDir, baseline, files) || !settleWorktree(ledger.rootDir, files, baseline))
     throw new TaskEventStoreError("publication_indeterminate", "authored worktree has concurrent edits");
   verifyWorktreeFiles(ledger.rootDir, files);
+  settleWorktreeDirectories(ledger.rootDir, directories);
   return { commitSha: commit, revision, changed: true };
 }
 
@@ -257,6 +262,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
     files: readonly (PublicationWrite | PublicationDelete)[],
     baseline: ReadonlyMap<string, string>,
     commit: string,
+    directories: readonly string[],
     restoreMissing = false,
   ): boolean => {
     const permitted = new Map(baseline),
@@ -286,6 +292,9 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
     }
     if (!settleWorktree(currentLedger.rootDir, eligible, permitted, options.killpoint, preserve, commit)) return false;
     verifyWorktreeFiles(currentLedger.rootDir, eligible);
+    // Creating an owned directory is additive and idempotent, so it runs even when a concurrent edit made part
+    // of this settlement ineligible: a partial pass must not be the reason a directory stays missing.
+    settleWorktreeDirectories(currentLedger.rootDir, directories);
     if (eligible.length < files.length) return false;
     acceptedWorktree.clear();
     return true;
@@ -328,7 +337,16 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
       };
       localGitWorktreeSettlement.index(currentLedger.rootDir, closureFiles);
       pendingWorktreeBaseline = baseline;
-      if (settleFollowerWorktree(currentLedger, closureFiles, baseline, parent, restoreMissing)) {
+      if (
+        settleFollowerWorktree(
+          currentLedger,
+          closureFiles,
+          baseline,
+          parent,
+          followerDirectories(currentLedger, closureEvents),
+          restoreMissing,
+        )
+      ) {
         pendingWorktreeBaseline = null;
         settledWorktreeRevision = accepted.revision;
       }
@@ -374,7 +392,16 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
       worktree: pendingFollower("worktree settlement has not verified the Git cut").worktree,
     };
     localGitWorktreeSettlement.index(currentLedger.rootDir, files);
-    if (settleFollowerWorktree(currentLedger, files, baseline, commit, restoreMissing)) {
+    if (
+      settleFollowerWorktree(
+        currentLedger,
+        files,
+        baseline,
+        commit,
+        followerDirectories(currentLedger, pendingEvents),
+        restoreMissing,
+      )
+    ) {
       pendingWorktreeBaseline = null;
       settledWorktreeRevision = accepted.revision;
     }
@@ -582,6 +609,36 @@ function followerFiles(
     })),
     { target: ledgerGitPath(ledger, "events/segments/manifest.json"), body: manifest, mode: "100644" },
   ];
+}
+
+/**
+ * The empty directories the accepted closure still owns. Each entity event restates its owner's whole set, so
+ * the last event of an owner decides; a deleted owner states none and stops being recreated on the next rebuild.
+ */
+function followerDirectories(
+  ledger: ReturnType<typeof resolveLedgerGitLayout>,
+  events: readonly CanonicalEventV1[],
+): readonly string[] {
+  const byOwner = new Map<string, readonly string[]>();
+  for (const event of events) {
+    const owned = canonicalOwnedDirectories(event);
+    if (owned) byOwner.set(owned.ownerRef, owned.directories);
+  }
+  return [...new Set([...byOwner.values()].flat())].map((logical) => ledgerGitPath(ledger, logical)).sort();
+}
+
+function settleWorktreeDirectories(repoRoot: string, directories: readonly string[]): void {
+  if (directories.length === 0) return;
+  localGitWorktreeSettlement.visible(
+    repoRoot,
+    directories.map((directory) => ({ directory })),
+  );
+  for (const directory of directories)
+    if (!localGitWorktreeSettlement.isDirectory(`${repoRoot}/${directory}`))
+      throw new TaskEventStoreError(
+        "publication_indeterminate",
+        `worktree follower did not restore directory ${directory}`,
+      );
 }
 
 function sqliteBatch(

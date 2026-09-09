@@ -1,15 +1,12 @@
 /**
  * 新建实体的预览推导(task_a494eac2 Goal 1)。
  *
- * 理想路径是 `entity import --dry-run` 的 preview,但 GUI 的 `repo.entity.import`
- * facet payload 是闭集(entityKind/locator/expectedVersion/title),dryRun 发不过去
- * ——daemon 执行器本身支持 dryRun,缺的只是 GUI 通道那一格。在通道补上之前,这里按
- * **同一条公式**在渲染层推导预览:id = `idPrefix-sha256("repo:<repoId>:<path>")[0:16]`
- * (kernel `deriveArtifactEntityId` + `canonicalSourceIdentity`),title = 目录 README.md
- * 首标题 / 文件首行 `# 标题` / 文件名(daemon `resolveArtifactSource` + `titleFromContent`)。
+ * title = 目录 README.md 首标题 / 文件首行 `# 标题` / 文件名(daemon `resolveArtifactSource`
+ * + `titleFromContent`)。预览是建议值:导入仍走 center 单写路,落库的 title 以回执为准。
  *
- * 预览是建议值:导入仍走 center 单写路,落库的 id/title 以回执为准;推导若与中心
- * 漂移,导入后的行读会立刻暴露真实值。公式两头任一改动都该先改这里(测试锁形状)。
+ * **entity id 不在这里推导,也推导不出来。** 实例身份是中心在接受那一刻铸的 128 bit
+ * 随机值,不是路径的函数;渲染层再算一遍只能算出一个永远不会被任何事件携带的假 id。
+ * 新建实体的真实 id 只有回执里有。
  */
 
 /** daemon 侧的标题规则:首个 `# ` 标题,否则去掉扩展名的文件名。 */
@@ -34,13 +31,6 @@ export function titleOfDirectoryLocator(readmeContent: string | null, path: stri
 
 export function sourceIdentityOf(repoId: string, locatorPath: string): string {
   return `repo:${repoId}:${locatorPath}`;
-}
-
-/** kernel `deriveArtifactEntityId` 的同式;sha256 用 WebCrypto(渲染层无 node:crypto)。 */
-export async function deriveEntityId(repoId: string, idPrefix: string, locatorPath: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(sourceIdentityOf(repoId, locatorPath)));
-  const hex = [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-  return `${idPrefix}-${hex.slice(0, 16)}`;
 }
 
 /**

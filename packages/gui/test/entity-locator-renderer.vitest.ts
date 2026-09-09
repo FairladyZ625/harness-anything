@@ -1,5 +1,4 @@
 // harness-test-tier: fast
-import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
   isDirectoryLocator,
@@ -9,7 +8,6 @@ import {
   selectEntityLocatorRenderer,
 } from "../src/renderer/entity-locator-renderer.ts";
 import {
-  deriveEntityId,
   directoryHasReadme,
   firstMarkdownHeading,
   sourceIdentityOf,
@@ -69,28 +67,11 @@ describe("entity locator renderer table", () => {
   });
 });
 
-function kernelStyleId(repoId: string, idPrefix: string, path: string): string {
-  const digest = createHash("sha256").update(sourceIdentityOf(repoId, path)).digest("hex").slice(0, 16);
-  return `${idPrefix}-${digest}`;
-}
-
 /**
- * 预览推导的判据(task_a494eac2 Goal 1)。id 公式必须与 kernel `deriveArtifactEntityId`
- * 逐字节一致——这里用 node:crypto 独立算一遍作对照,防 WebCrypto 路径自己漂了;
- * title 规则镜像 daemon `resolveArtifactSource` 的 README/首标题/文件名三档。
+ * 源身份是中心真的会冻结的那一条;实例身份不在这里推导——它是中心接受时铸的 128 bit
+ * 随机值,渲染层算不出来,也不该假装算得出来。
  */
-describe("derived entity id", () => {
-  it("matches the kernel formula byte for byte via an independent sha256", async () => {
-    for (const [repoId, prefix, path] of [
-      ["harness-anything", "RSRCH", "harness/context/research/2026-09-05-coordination-coherence-product"],
-      ["repo-entities", "ADR", "docs/adr/ADR-0001.md"],
-    ] as const) {
-      const expected = kernelStyleId(repoId, prefix, path);
-      await expect(deriveEntityId(repoId, prefix, path), `${repoId}:${path}`).resolves.toBe(expected);
-      expect(expected).toMatch(/^[A-Z][A-Z0-9]{0,15}-[0-9a-f]{16}$/u);
-    }
-  });
-
+describe("source identity", () => {
   it("derives the source identity the kernel would freeze", () => {
     expect(sourceIdentityOf("harness-anything", "harness/context/research/x")).toBe(
       "repo:harness-anything:harness/context/research/x",

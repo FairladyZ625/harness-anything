@@ -132,16 +132,25 @@ export function canonicalArtifactUrl(value: string): string {
   return parsed.toString();
 }
 
-export function deriveArtifactEntityId(input: {
-  readonly idPrefix: string;
-  readonly typeIdentity: string;
-  readonly sourceIdentity: string;
-}): string {
-  const prefix = requiredIdentityPart(input.idPrefix, "idPrefix"),
-    sourceIdentity = requiredIdentityPart(input.sourceIdentity, "sourceIdentity"),
-    digest = sha256(sourceIdentity).slice(0, 16);
-  requiredIdentityPart(input.typeIdentity, "typeIdentity");
-  return `${prefix}-${digest}`;
+/**
+ * Mint one instance identity. The suffix is 128 bits of caller-supplied randomness, never a function of
+ * the source: an entity keeps this identity when its file is renamed, moved, or re-pointed at another
+ * source, and two entities that happen to hold identical bytes stay distinct. The domain validates the
+ * shape and leaves the randomness to the application boundary so replay stays pure.
+ */
+export function mintArtifactEntityId(input: { readonly idPrefix: string; readonly randomBytes: Uint8Array }): string {
+  const prefix = requiredIdentityPart(input.idPrefix, "idPrefix");
+  if (!/^[A-Z][A-Z0-9]{0,15}$/u.test(prefix))
+    throw new ArtifactEntityContractError("Artifact idPrefix must be an uppercase alphanumeric prefix.");
+  if (input.randomBytes.byteLength !== ARTIFACT_ENTITY_ID_BYTES)
+    throw new ArtifactEntityContractError(`Artifact entity identity needs ${ARTIFACT_ENTITY_ID_BYTES} random bytes.`);
+  return `${prefix}-${Buffer.from(input.randomBytes).toString("hex")}`;
+}
+
+export const ARTIFACT_ENTITY_ID_BYTES = 16;
+
+export function isArtifactEntityId(idPrefix: string, value: unknown): value is string {
+  return typeof value === "string" && new RegExp(artifactEntityIdPattern(idPrefix), "u").test(value);
 }
 
 export function deriveArtifactContentVersion(witness: ArtifactContentWitness): string {
@@ -177,7 +186,7 @@ export function artifactDescriptorSchema(
       schema: { type: "string", const: artifact.descriptorSchemaRef },
       typeIdentity: { type: "string", const: typeIdentity },
       kindVersion: { type: "integer", enum: [schemaVersion.version] },
-      entityId: { type: "string", pattern: `^${artifact.idPrefix}-[a-f0-9]{16}$` },
+      entityId: { type: "string", pattern: `^${artifact.idPrefix}-[a-f0-9]{32}$` },
       title: { type: "string", minLength: 1 },
       locator: {
         type: "object",
@@ -234,14 +243,8 @@ export function decodeArtifactDescriptor(
     throw new ArtifactEntityContractError("Artifact descriptor typeIdentity does not match its kind contract.");
   if (canonicalArtifactSourceIdentity(descriptor.source) !== descriptor.source)
     throw new ArtifactEntityContractError("Artifact descriptor source identity must already be canonical.");
-  const prefix = descriptor.entityId.slice(0, descriptor.entityId.indexOf("-")),
-    expected = deriveArtifactEntityId({
-      idPrefix: prefix,
-      typeIdentity: descriptor.typeIdentity,
-      sourceIdentity: descriptor.source,
-    });
-  if (descriptor.entityId !== expected)
-    throw new ArtifactEntityContractError("Artifact descriptor entityId does not match its immutable source identity.");
+  // `source` is a binding the center records, not a seed the identity is recomputed from: reading an entity
+  // never re-derives its id, which is what lets a move keep the id while restating where the material came from.
   return deepFreeze({ ...descriptor, locator });
 }
 
@@ -309,7 +312,7 @@ export function artifactEntityContractFromSnapshot(
         schema: { type: "string", const: decoded.descriptorSchemaRef },
         typeIdentity: { type: "string", const: decoded.typeIdentity },
         kindVersion: { type: "integer", enum: [decoded.kindVersion ?? 1] },
-        entityId: { type: "string", pattern: `^${decoded.idPrefix}-[a-f0-9]{16}$` },
+        entityId: { type: "string", pattern: `^${decoded.idPrefix}-[a-f0-9]{32}$` },
         title: { type: "string", minLength: 1 },
         locator: {
           type: "object",
@@ -375,12 +378,18 @@ export function artifactObservationId(input: {
   return `obs_${sha256(identity).slice(0, 24)}`;
 }
 
+/**
+ * Import is idempotent on the *intent*, not on the instance it produces: the same source, locator and observed
+ * content is one operation however many times it is presented. Keying this on the entity id would break the
+ * moment identity became a mint instead of a hash of the path — a retry would mint a second id, compute a
+ * second opId, and store a duplicate entity for the same material.
+ */
 export function artifactImportOperationId(input: {
-  readonly entityId: string;
+  readonly sourceIdentity: string;
   readonly locator: ArtifactLocator;
   readonly resolution: string;
 }): string {
-  const identity = `${input.entityId}\u0000${input.locator.kind}:${input.locator.value}\u0000${input.resolution}`;
+  const identity = `${input.sourceIdentity}\u0000${input.locator.kind}:${input.locator.value}\u0000${input.resolution}`;
   return `entity-import-${sha256(identity).slice(0, 32)}`;
 }
 
@@ -389,14 +398,18 @@ export function artifactImportOperationId(input: {
  * opId and replays the applied operation instead of surfacing `revision_conflict`, while an update that leaves
  * contentVersion untouched never collides with the `entity-import-*` event that first observed that content. */
 export function artifactMutationOperationId(input: {
-  readonly mutation: "update" | "archive";
+  readonly mutation: "update" | "archive" | "delete";
   readonly entityId: string;
   readonly expectedVersion: number;
 }): string {
   return `entity-${input.mutation}-${input.entityId}-${input.expectedVersion}`;
 }
 
-export function isArtifactMutationOperationId(mutation: "update" | "archive", entityId: string, opId: string): boolean {
+export function isArtifactMutationOperationId(
+  mutation: "update" | "archive" | "delete",
+  entityId: string,
+  opId: string,
+): boolean {
   const prefix = `entity-${mutation}-${entityId}-`;
   return opId.startsWith(prefix) && /^(?:0|[1-9][0-9]*)$/u.test(opId.slice(prefix.length));
 }

@@ -131,7 +131,7 @@ export function makeEntityActionCatalogExecutor(input: {
         authorizationDecision,
       }).then((result) => deriveActionResult(result.contract, result.action, result.receipt));
     }
-    if (action.kind === "entity-update" || action.kind === "entity-archive") {
+    if (action.kind === "entity-update" || action.kind === "entity-archive" || action.kind === "entity-delete") {
       const authorizationDecision = decisionAuthorization(action, binding, opId, input),
         result = executeArtifactEntityMutation({
           rootDir: input.rootDir ?? process.cwd(),

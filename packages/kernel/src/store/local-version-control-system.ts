@@ -429,24 +429,42 @@ export const localGitWorktreeSettlement = Object.freeze({
   },
   hasChanges: (repoRoot: string, scope: string, ignored: ReadonlySet<string> = new Set()): boolean =>
     localGitWorktreeSettlement.changesFingerprint(repoRoot, scope, ignored) !== null,
+  isDirectory: (target: string): boolean => {
+    try {
+      return lstatSync(target).isDirectory();
+    } catch (error) {
+      consumeKnownError(error);
+      return false;
+    }
+  },
   visible: (
     repoRoot: string,
-    files: readonly {
-      readonly target: string;
-      readonly body: string | Uint8Array;
-      readonly mode?: "100644" | "120000";
-    }[],
+    files: readonly (
+      | {
+          readonly target: string;
+          readonly body: string | Uint8Array;
+          readonly mode?: "100644" | "120000";
+        }
+      | { readonly directory: string }
+    )[],
     hooks: {
       readonly beforeRename?: () => void;
       readonly afterRename?: () => void;
     } = {},
   ): void => {
-    const pending = files.map((file, index) => {
-      const target = path.join(repoRoot, ...file.target.split("/"));
-      const temporary = path.join(path.dirname(target), `.ha-visible-${process.pid}-${index}`);
+    // A directory an entity owns but puts no file in has nothing to rename into place: creating it is the
+    // whole operation. It travels through this same writer so materialization stays one path.
+    const pending = files.flatMap((file, index) => {
+      const directory =
+        "directory" in file
+          ? path.join(repoRoot, ...file.directory.split("/"))
+          : path.dirname(path.join(repoRoot, ...file.target.split("/")));
       /* @gate-identity check-bypass-write-boundary/bypass-write-076 */
-      mkdirSync(path.dirname(target), { recursive: true });
-      sweepStaleSettlementMarkers(path.dirname(target));
+      mkdirSync(directory, { recursive: true });
+      sweepStaleSettlementMarkers(directory);
+      if ("directory" in file) return [];
+      const target = path.join(repoRoot, ...file.target.split("/"));
+      const temporary = path.join(directory, `.ha-visible-${process.pid}-${index}`);
       removeNode(temporary);
       if (file.mode === "120000")
         /* @gate-identity check-bypass-write-boundary/bypass-write-077 */
@@ -454,7 +472,7 @@ export const localGitWorktreeSettlement = Object.freeze({
       else
         /* @gate-identity check-bypass-write-boundary/bypass-write-084 */
         writeFileSync(temporary, file.body, { mode: 0o644 });
-      return { target, temporary };
+      return [{ target, temporary }];
     });
     for (const item of pending) {
       hooks.beforeRename?.();

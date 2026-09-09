@@ -645,8 +645,16 @@ const DIRECTORY_ENTRIES: Readonly<Record<string, ReadonlyArray<{ path: string; d
   ],
 };
 
-function derivedId(path: string): string {
-  return `ADR-${createHash("sha256").update(sourceIdentityOf(REPO_ID, path)).digest("hex").slice(0, 16)}`;
+/**
+ * The center mints the instance identity when it accepts the import; nothing about the path predicts it.
+ * The fixture therefore invents one the way the center would and hands it back in the receipt, which is
+ * the only place the renderer can learn it.
+ */
+function mintedId(path: string): string {
+  return `ADR-${createHash("sha256")
+    .update(`minted:${sourceIdentityOf(REPO_ID, path)}`)
+    .digest("hex")
+    .slice(0, 32)}`;
 }
 
 interface CrudBridgeState {
@@ -736,13 +744,14 @@ function stubCrudBridge(initialRows: ReturnType<typeof governedRow>[] = []): Cru
       importEntity: vi.fn(async (payload: object) => {
         state.imports.push(payload);
         const locator = (payload as { locator: string }).locator;
-        state.rows.push(crudRow(derivedId(locator), locator));
+        state.rows.push(crudRow(mintedId(locator), locator));
         return {
           schema: "command-receipt/v2",
           ok: true,
           command: "entity.import",
           outcome: "applied",
           opId: "op-import-1",
+          evidence: JSON.stringify({ preview: { entityId: mintedId(locator) } }),
         };
       }),
       updateEntity: vi.fn(async (payload: object) => {
@@ -828,14 +837,13 @@ describe("new entity wizard (goal 1)", () => {
     expect(container.querySelector('[data-testid="repo-path-browser-location"]')?.textContent).toBe(
       "docs/adr/research",
     );
-    // 选定文件:预览给出推导 title(文件首标题)与推导 id(kernel 公式)。
+    // 选定文件:预览给出推导 title(文件首标题)。id 不在预览里——它是中心铸的。
     await click(container, "repo-path-entry-docs/adr/research/notes.md");
-    // 预览要等两条 query(内容读 + WebCrypto id 推导)都落定,轮询到内容就位。
     await vi.waitFor(() =>
       expect(container.querySelector('[data-testid="new-entity-wizard-preview-area"]')?.textContent).toContain("笔记"),
     );
     const preview = container.querySelector('[data-testid="new-entity-wizard-preview-area"]');
-    expect(preview?.textContent).toContain(derivedId("docs/adr/research/notes.md"));
+    expect(preview?.textContent).not.toMatch(/ADR-[0-9a-f]{16}/u);
     // 导入:expectedVersion 恒 0,title 留空就不发,人不填任何身份字段。
     await click(container, "new-entity-wizard-submit");
     expect(state.imports).toEqual([

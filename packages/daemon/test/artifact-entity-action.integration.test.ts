@@ -60,7 +60,7 @@ test("Artifact import is dry-run safe, edge-idempotent, fenced, and cold-rebuild
     );
     assert.deepEqual(
       explained.subjects[0]?.actions.map(({ action }) => action.id),
-      ["import", "update", "archive", "distill-candidate"],
+      ["import", "update", "delete", "archive", "distill-candidate"],
     );
     assert.equal(explained.subjects[0]?.actions[0]?.available, null);
 
@@ -71,19 +71,23 @@ test("Artifact import is dry-run safe, edge-idempotent, fenced, and cold-rebuild
       previewReceipt = await cell.run({ ...request, dryRun: true }, binding);
     assert.equal(previewReceipt.outcome, "pending", JSON.stringify(previewReceipt));
     const preview = JSON.parse(String(previewReceipt.evidence)) as {
-      entityId: string;
+      entityId: string | null;
       candidateContentVersion: string;
-      artifactOwner: string;
+      artifactOwner: string | null;
       operationId: string;
     };
     assert.equal(observer.read().events.length, beforeEvents, "dry-run must not append an event");
     assert.equal(git(rootDir, "status", "--porcelain=v1"), beforeStatus, "dry-run must not touch the worktree");
-    assert.match(preview.entityId, /^ADR-[a-f0-9]{16}$/u);
+    // A dry run of never-accepted material has no identity to report: minting happens on acceptance, so a
+    // preview that named an id would be predicting one no event will ever carry.
+    assert.equal(preview.entityId, null);
+    assert.equal(preview.artifactOwner, null);
     assert.match(preview.candidateContentVersion, /^sha256:[a-f0-9]{64}$/u);
-    assert.equal(preview.artifactOwner, `entity/${preview.entityId}/revision/${beforeEvents + 1}`);
 
     const first = await cell.run(request, binding),
-      replay = await cell.run(request, secondaryNodeBinding);
+      replay = await cell.run(request, secondaryNodeBinding),
+      entityId = (JSON.parse(String(first.evidence)) as { preview: { entityId: string } }).preview.entityId;
+    assert.match(entityId, /^ADR-[a-f0-9]{32}$/u);
     assert.equal(first.outcome, "applied", JSON.stringify(first));
     assert.equal(replay.outcome, "no_changes", JSON.stringify(replay));
     assert.equal(first.opId, replay.opId);
@@ -106,7 +110,7 @@ test("Artifact import is dry-run safe, edge-idempotent, fenced, and cold-rebuild
       "applied",
     );
     const candidateCut = observer.read().revision;
-    const entityRef = `${kind}/${preview.entityId}`,
+    const entityRef = `${kind}/${entityId}`,
       firstCandidateReceipt = await cell.run({ kind: "distill-candidate", taskId: "task-distill", entityRef }, binding),
       firstCandidateReport = JSON.parse(String(firstCandidateReceipt.evidence)) as { candidatePath: string },
       firstCandidate = JSON.parse(
@@ -146,7 +150,7 @@ test("Artifact import is dry-run safe, edge-idempotent, fenced, and cold-rebuild
         preview: { entityId: string; candidateContentVersion: string };
       };
     assert.equal(updated.outcome, "applied", JSON.stringify(updated));
-    assert.equal(updatedEvidence.preview.entityId, preview.entityId);
+    assert.equal(updatedEvidence.preview.entityId, entityId);
     assert.notEqual(updatedEvidence.preview.candidateContentVersion, preview.candidateContentVersion);
 
     rmSync(absoluteSource);
@@ -166,7 +170,7 @@ test("Artifact import is dry-run safe, edge-idempotent, fenced, and cold-rebuild
       {
         kind: "entity-update",
         entityKind: kind,
-        entityId: preview.entityId,
+        entityId: entityId,
         expectedVersion: missing.revision,
         title: "Revised title",
         locator: sourcePath,
@@ -181,7 +185,7 @@ test("Artifact import is dry-run safe, edge-idempotent, fenced, and cold-rebuild
       {
         kind: "entity-update",
         entityKind: kind,
-        entityId: preview.entityId,
+        entityId: entityId,
         expectedVersion: descriptorUpdate.revision,
         title: "Revised title again",
       },
@@ -195,7 +199,7 @@ test("Artifact import is dry-run safe, edge-idempotent, fenced, and cold-rebuild
       {
         kind: "entity-update",
         entityKind: kind,
-        entityId: preview.entityId,
+        entityId: entityId,
         expectedVersion: descriptorUpdate.revision,
         title: "Revised title again",
       },
@@ -208,7 +212,7 @@ test("Artifact import is dry-run safe, edge-idempotent, fenced, and cold-rebuild
       {
         kind: "entity-archive",
         entityKind: kind,
-        entityId: preview.entityId,
+        entityId: entityId,
         expectedVersion: titleOnlyUpdate.revision,
         reason: "Superseded by ADR-0002",
       },
@@ -219,7 +223,7 @@ test("Artifact import is dry-run safe, edge-idempotent, fenced, and cold-rebuild
       {
         kind: "entity-archive",
         entityKind: kind,
-        entityId: preview.entityId,
+        entityId: entityId,
         expectedVersion: titleOnlyUpdate.revision,
         reason: "Superseded by ADR-0002",
       },
@@ -245,7 +249,7 @@ test("Artifact import is dry-run safe, edge-idempotent, fenced, and cold-rebuild
     const listed = await cell.run({ kind: "entity-list", entityKind: kind }, binding),
       shortListed = await cell.run({ kind: "entity-list", entityKind: "architecture-decision-record" }, binding),
       shortGet = await cell.run(
-        { kind: "entity-get", entityKind: "architecture-decision-record", entityId: preview.entityId },
+        { kind: "entity-get", entityKind: "architecture-decision-record", entityId: entityId },
         binding,
       ),
       listedEntities = (
@@ -266,10 +270,10 @@ test("Artifact import is dry-run safe, edge-idempotent, fenced, and cold-rebuild
     assert.equal(shortListEvidence.kind, kind);
     assert.equal(shortGetEvidence.kind, kind);
     assert.deepEqual(shortListEvidence.entities, listedEntities);
-    assert.equal(shortGetEvidence.entity.id, preview.entityId);
+    assert.equal(shortGetEvidence.entity.id, entityId);
     assert.deepEqual(
       listedEntities.map(({ id }) => id),
-      [preview.entityId],
+      [entityId],
     );
     assert.equal(listedEntities[0]?.freshness, "orphaned");
     assert.equal(listedEntities[0]?.currentVersion, null);
@@ -280,9 +284,9 @@ test("Artifact import is dry-run safe, edge-idempotent, fenced, and cold-rebuild
       rebuilt = makeTaskProjection({ rootDir, eventStore: rebuildStore, now: () => "2026-09-02T02:01:00.000Z" });
     try {
       const receipt = rebuilt.rebuild(),
-        row = rebuilt.getEntity(kind, preview.entityId);
+        row = rebuilt.getEntity(kind, entityId);
       assert.equal(receipt.watermark, rebuildStore.readHead()?.revision);
-      assert.equal(row?.id, preview.entityId);
+      assert.equal(row?.id, entityId);
       assert.equal(row?.workspaceRevision, archived.revision);
       assert.equal(row?.value.contentVersion, "revision:manual-2");
       assert.equal(row?.value.title, "Revised title again");
@@ -332,7 +336,7 @@ test("Directory artifact import fingerprints files, replays unchanged content, a
     assert.equal(first.outcome, "applied", JSON.stringify(first));
     assert.equal(replay.outcome, "no_changes", JSON.stringify(replay));
     assert.equal(replay.opId, first.opId);
-    assert.match(firstPreview.entityId, /^RES-[a-f0-9]{16}$/u);
+    assert.match(firstPreview.entityId, /^RES-[a-f0-9]{32}$/u);
 
     const manifest = [
       `${sha256(readmeContent)}  "README.md"`,

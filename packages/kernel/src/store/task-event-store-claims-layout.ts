@@ -1,6 +1,10 @@
 import { isAgentRuntimeEvent, runtimeEventContentClaims } from "../domain/agent-runtime.ts";
 import { isEntityDeclarationEvent, isEntityEvent, ownedContentForDeclarationEvent } from "../domain/entity-event.ts";
-import { entityOwnedContentClaims, entityOwnedDocumentClaims } from "../domain/entity-owned-content.ts";
+import {
+  entityOwnedContentClaims,
+  entityOwnedDirectories,
+  entityOwnedDocumentClaims,
+} from "../domain/entity-owned-content.ts";
 import { isScheduleEvent } from "../domain/schedule-event.ts";
 import { isSettingsEvent } from "../domain/settings-event.ts";
 import { isVerticalDeclarationEvent } from "../domain/vertical-declaration.ts";
@@ -70,7 +74,14 @@ export function canonicalDocumentClaims(event: PersistedCanonicalEventV1): reado
 export function canonicalDocumentRetirements(
   event: PersistedCanonicalEventV1,
 ): readonly { readonly path: string; readonly baseBlobSha256: string }[] {
-  if (isEntityEvent(event)) return event.type === "entity_deleted" ? event.payload.ownedContent.retirements : [];
+  // An update that drops a file the entity used to own retires that path, exactly like a delete does; folding
+  // only `entity_deleted` here would leave the dropped file standing in the worktree with no event owning it.
+  if (isEntityEvent(event))
+    return event.type === "entity_deleted"
+      ? event.payload.ownedContent.retirements
+      : isEntityDeclarationEvent(event)
+        ? ownedContentForDeclarationEvent(event).retirements
+        : [];
   if (isScheduleEvent(event) && "declarationDocumentRetirement" in event.payload)
     return [event.payload.declarationDocumentRetirement];
   return isDocEvent(event)
@@ -79,6 +90,21 @@ export function canonicalDocumentRetirements(
       )
     : [];
 }
+/**
+ * The empty directories one event says its owner holds. Git cannot store an empty tree, so the manifest is the
+ * only durable record and materialization recreates the directory from it; an event that owns none states none,
+ * which is how a delete stops an owner's directories from being recreated on the next rebuild.
+ */
+export function canonicalOwnedDirectories(
+  event: PersistedCanonicalEventV1,
+): { readonly ownerRef: string; readonly directories: readonly string[] } | null {
+  if (!isEntityEvent(event)) return null;
+  if (event.type === "entity_deleted") return { ownerRef: event.payload.ownedContent.ownerRef, directories: [] };
+  if (!isEntityDeclarationEvent(event)) return null;
+  const manifest = ownedContentForDeclarationEvent(event);
+  return { ownerRef: manifest.ownerRef, directories: entityOwnedDirectories(manifest) };
+}
+
 export function canonicalDocumentMode(event: CanonicalEventV1, documentPath: string): "100644" | "120000" {
   return isMigrationImportEvent(event) &&
     event.payload.entity.kind === "repo-document" &&

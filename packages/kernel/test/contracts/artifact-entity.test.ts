@@ -13,7 +13,8 @@ import {
   createEntityStore,
   decodeArtifactDescriptor,
   deriveArtifactContentVersion,
-  deriveArtifactEntityId,
+  mintArtifactEntityId,
+  ARTIFACT_ENTITY_ID_BYTES,
   pinnedArtifactKindContract,
   type ArtifactDescriptor,
   type EntityStoreKindContract,
@@ -81,28 +82,23 @@ test("instance identity survives a schema publication and a kind rename", () => 
       ],
     }),
     source = canonicalSourceIdentity({ kind: "repository-path", repositoryId: "canonical", path: "docs/adr.md" }),
-    idV1 = deriveArtifactEntityId({ idPrefix: "ADR", typeIdentity: v1.typeIdentity, sourceIdentity: source }),
+    idV1 = mintArtifactEntityId({ idPrefix: "ADR", randomBytes: new Uint8Array(ARTIFACT_ENTITY_ID_BYTES).fill(7) }),
     changedContentVersion = deriveArtifactContentVersion({ kind: "content", content: "changed\r\nbody\r\n" }),
     normalizedContentVersion = deriveArtifactContentVersion({ kind: "content", content: "changed\nbody\n" });
   assert.equal(changedContentVersion, normalizedContentVersion);
   assert.notEqual(changedContentVersion, deriveArtifactContentVersion({ kind: "content", content: "original" }));
   assert.equal(v2.typeIdentity, v1.typeIdentity, "publishing a version and renaming keep the kind identity");
   assert.equal(v2.latestVersion, 2);
-  assert.equal(
-    idV1,
-    deriveArtifactEntityId({ idPrefix: "ADR", typeIdentity: v2.typeIdentity, sourceIdentity: source }),
-    "an instance keeps its identity after its kind publishes a schema version and is renamed",
-  );
+  assert.match(idV1, /^ADR-[0-9a-f]{32}$/u, "an instance identity is a 128-bit opaque suffix");
+  // Two mints of the same kind from the same source are two identities: nothing about the source seeds them.
   assert.notEqual(
+    mintArtifactEntityId({ idPrefix: "ADR", randomBytes: new Uint8Array(ARTIFACT_ENTITY_ID_BYTES).fill(8) }),
     idV1,
-    deriveArtifactEntityId({ idPrefix: "ADR2", typeIdentity: v2.typeIdentity, sourceIdentity: source }),
   );
-  assert.equal(
-    idV1.slice("ADR-".length),
-    deriveArtifactEntityId({ idPrefix: "ALT", typeIdentity: v2.typeIdentity, sourceIdentity: source }).slice(
-      "ALT-".length,
-    ),
-    "the digest is exactly sha256(canonicalSourceIdentity), independent of type and edge",
+  assert.throws(
+    () => mintArtifactEntityId({ idPrefix: "ADR", randomBytes: new Uint8Array(8) }),
+    /random bytes/u,
+    "a short mint is refused rather than padded into a narrower identity",
   );
   // A version-1 descriptor is still admitted by the kind after version 2 exists.
   const pinnedV1 = pinnedArtifactKindContract(v2, 1),
@@ -144,7 +140,7 @@ test("observed and missing artifact events are self-validating generic entity ev
 
   const missingResolution = "missing:ENOENT",
     locator = descriptor.locator,
-    ids = observationIds(descriptor.entityId, locator, missingResolution),
+    ids = observationIds(descriptor.entityId, source, locator, missingResolution),
     missing = compileEntityTargetMissing({
       contractSnapshot: snapshot,
       entityId: descriptor.entityId,
@@ -206,10 +202,9 @@ function makeDescriptor(
     schema: "schema://artifact-descriptor",
     typeIdentity: artifact.typeIdentity,
     kindVersion: 1,
-    entityId: deriveArtifactEntityId({
+    entityId: mintArtifactEntityId({
       idPrefix: artifact.declaration.idPrefix,
-      typeIdentity: artifact.typeIdentity,
-      sourceIdentity: source,
+      randomBytes: new Uint8Array(ARTIFACT_ENTITY_ID_BYTES).fill(7),
     }),
     title: "ADR One",
     locator: { kind: "repository-path", value: "docs/adr.md" },
@@ -220,15 +215,20 @@ function makeDescriptor(
   };
 }
 
-function observationIds(entityId: string, locator: ArtifactDescriptor["locator"], resolution: string) {
+function observationIds(
+  entityId: string,
+  sourceIdentity: string,
+  locator: ArtifactDescriptor["locator"],
+  resolution: string,
+) {
   return {
     observationId: artifactObservationId({ entityId, locator, resolution }),
-    opId: artifactImportOperationId({ entityId, locator, resolution }),
+    opId: artifactImportOperationId({ sourceIdentity, locator, resolution }),
   };
 }
 
 function compileObservedWithDerivedIds(artifact: ReturnType<typeof compiledArtifact>, descriptor: ArtifactDescriptor) {
-  const ids = observationIds(descriptor.entityId, descriptor.locator, descriptor.contentVersion);
+  const ids = observationIds(descriptor.entityId, descriptor.source, descriptor.locator, descriptor.contentVersion);
   return compileEntityContentObserved({
     contract: artifact.entityKindContract as EntityStoreKindContract,
     contractSnapshot: artifactEntityContractSnapshot({ ...artifact, kindVersion: 1 }),

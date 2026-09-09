@@ -135,7 +135,7 @@ export async function executeAction(
       ),
     );
   }
-  if (["entity-import", "entity-update", "entity-archive"].includes(action.kind))
+  if (["entity-import", "entity-update", "entity-archive", "entity-delete"].includes(action.kind))
     return cell.entityActionExecutor.run(
       action,
       binding,

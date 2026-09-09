@@ -178,7 +178,7 @@ function parseEntityRouted(
   inputs: ThinCliInputDirectory,
 ): ThinParseResult {
   if (route.id === "entity-import") return parseEntityImportRouted(route, args, rootDir, repoId, json, inputs);
-  if (route.id === "entity-update" || route.id === "entity-archive") {
+  if (route.id === "entity-update" || route.id === "entity-archive" || route.id === "entity-delete") {
     const entityKind = args[2],
       projected = parseProjected(route.id, args.slice(3), rootDir, repoId, json, inputs, {}, {}, route.method);
     if (!nonEmpty(entityKind))
