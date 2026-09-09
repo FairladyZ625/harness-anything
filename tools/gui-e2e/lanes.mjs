@@ -35,6 +35,22 @@ function writeHtmlPreviewArtifact(rootDir, packagePath) {
   );
 }
 
+// A real binary Task output. The bytes are a valid one-page PDF header/trailer with a byte
+// no UTF-8 decoder accepts, so a preview that "renders the body" produces a blank page and a
+// materialized copy made from a string is a different file than the one that was published.
+function writeRawArtifact(rootDir, packagePath) {
+  const artifactsRoot = path.join(rootDir, "harness", packagePath, "artifacts", "reports");
+  mkdirSync(artifactsRoot, { recursive: true });
+  writeFileSync(
+    path.join(artifactsRoot, "dossier.pdf"),
+    Buffer.concat([
+      Buffer.from("%PDF-1.7\n1 0 obj<</Type/Catalog>>endobj\n"),
+      Buffer.from([0xff, 0xd8, 0x00, 0x1a, 0x80, 0xfe]),
+      Buffer.from("\ntrailer<</Root 1 0 R>>\n%%EOF\n"),
+    ]),
+  );
+}
+
 /**
  * 声明实体的 e2e 素材:一篇 Markdown ADR。实体本身**不在这里 import**——那一步由
  * 场景在 GUI 上点「新建」完成,才证明得了 GUI 的写入口真的走 entity import。
@@ -94,6 +110,7 @@ export async function openLane({ lane, workspaceRoot, env, runRoot, startDriver 
   }
   writeTriadicLedger(fixture.rootDir);
   writeHtmlPreviewArtifact(fixture.rootDir, fixture.packagePath);
+  writeRawArtifact(fixture.rootDir, fixture.packagePath);
   writeDeclaredEntitySource(fixture.rootDir);
   const isolatedEnv = { ...env, ...fixture.env, HARNESS_DAEMON_ENDPOINT: fixture.endpoint };
   const driver = await startDriver({
