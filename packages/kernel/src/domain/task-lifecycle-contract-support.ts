@@ -4,6 +4,7 @@ import type { ActorAxes, ContractValidationIssue, TaskV2 } from "./task.ts";
 import type { TaskEdgeTaken } from "./task-graph.ts";
 import { normalizeRelativeDocumentPath } from "../layout/portable-path.ts";
 import { codeDocRecordId, currentCodeDocWitness } from "./code-doc-witness.ts";
+import { judgeCompletionEvidence } from "./completion-evidence.ts";
 import { TaskLifecycleContractError } from "./task-lifecycle-event.ts";
 import type { TaskEventV1, TaskLifecycleErrorCode } from "./task-lifecycle-event.ts";
 import { isSameExecution, isSamePerson } from "./actor-domain-services.ts";
@@ -147,7 +148,13 @@ export function canonicalGateReceipts(
               value.executionId === current.executionId &&
               value.commitSha === current.submission?.commitSha &&
               value.iteration === current.iteration &&
-              value.result === "pass",
+              value.result === "pass" &&
+              (value.basis === undefined || value.provenance === undefined || value.observed === undefined
+                ? true
+                : judgeCompletionEvidence(
+                    { ...value, basis: value.basis, provenance: value.provenance, observed: value.observed },
+                    { execution: current, gateId },
+                  ).accepted),
           )
         : undefined;
     const receiptRef = codeDoc ? `event:${codeDocRecordId(codeDoc)}` : gate ? `event:${gate.receiptId}` : null;

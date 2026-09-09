@@ -78,11 +78,20 @@ export function publishConvertedGeneration(input: {
   const event = input.store.eventAtRevision(revision),
     cut = canonicalLedgerCut(input.repoId, event ? eventHead(event) : null),
     closureEvents = readEventsThrough(input.store, revision),
-    files = followerFiles(ledger, parent, closureEvents, input.store.readContentObject, cut),
+    files = followerFiles(
+      ledger,
+      parent,
+      closureEvents,
+      input.store.readContentObject,
+      cut,
+      input.store.metadata().generation,
+    ),
     directories = followerDirectories(ledger, closureEvents),
     manifestTarget = ledgerGitPath(ledger, "events/segments/manifest.json"),
     alreadyCertified =
       localGitObjectRefStore.readPath(ledger.rootDir, parent, manifestTarget) !== null &&
+      JSON.parse(localGitObjectRefStore.readPath(ledger.rootDir, parent, manifestTarget)!.toString("utf8"))
+        .generation === input.store.metadata().generation &&
       certifiedFollowerRevision(ledger, parent, input.store) === revision;
   if (alreadyCertified) {
     const baseline = captureGitBaseline(ledger.rootDir, parent, files);
@@ -325,11 +334,18 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
     const verifiedRevision =
         certified?.commit === parent ? certified.revision : certifiedFollowerRevision(currentLedger, parent, sqlite),
       pendingEvents = readPendingEvents(sqlite, Math.min(verifiedRevision, settledWorktreeRevision)),
-      files = followerFiles(currentLedger, parent, pendingEvents, readContent, accepted);
+      files = followerFiles(currentLedger, parent, pendingEvents, readContent, accepted, sqlite.metadata().generation);
     certified = { commit: parent, revision: verifiedRevision };
     if (verifiedRevision === accepted.revision) {
       const closureEvents = readEventsThrough(sqlite, accepted.revision),
-        closureFiles = followerFiles(currentLedger, parent, closureEvents, readContent, accepted),
+        closureFiles = followerFiles(
+          currentLedger,
+          parent,
+          closureEvents,
+          readContent,
+          accepted,
+          sqlite.metadata().generation,
+        ),
         physicalCommit = pendingWorktreeBaseline ? null : recoverPhysicalWorktreeCommit(currentLedger, parent, sqlite),
         baseline = pendingWorktreeBaseline
           ? new Map(pendingWorktreeBaseline)
@@ -471,7 +487,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
   if (options.mutable !== false) void scheduleFollower();
 
   return {
-    canonicalRef: "sqlite:generation-1",
+    canonicalRef: `sqlite:generation-${sqlite.metadata().generation}`,
     read: () => ({ schema: "canonical-event-stream/v1", revision: sqlite.revision(), events: sqlite.events() }),
     readHead: head,
     currentCut: cut,
@@ -585,6 +601,7 @@ function followerFiles(
   events: readonly CanonicalEventV1[],
   readContent: (sha256: string) => Uint8Array | null,
   cut: LedgerCutIdentity,
+  generation: number,
 ): (PublicationWrite | PublicationDelete)[] {
   const latest = new Map<string, { body: Uint8Array; mode: "100644" | "120000" }>(),
     retired = new Set<string>();
@@ -604,7 +621,7 @@ function followerFiles(
       retired.delete(claim.path);
     }
   }
-  const manifest = `${JSON.stringify({ schema: "sqlite-ledger-segment-manifest/v1", generation: 1, cut })}\n`;
+  const manifest = `${JSON.stringify({ schema: "sqlite-ledger-segment-manifest/v1", generation, cut })}\n`;
   const eventsPrefix = ledgerGitPath(ledger, "events/"),
     objectsPrefix = ledgerGitPath(ledger, "objects/sha256/");
   for (const entry of localGitObjectRefStore.listTree(ledger.rootDir, parent)) {
@@ -743,7 +760,7 @@ function certifiedFollowerRevision(
     };
     const revision = Number(parsed.cut?.revision);
     if (
-      parsed.generation !== 1 ||
+      parsed.generation !== sqlite.metadata().generation ||
       parsed.cut?.repoId !== sqlite.metadata().repoId ||
       !Number.isSafeInteger(revision) ||
       revision < 0 ||
@@ -760,6 +777,7 @@ function certifiedFollowerRevision(
       readEventsThrough(sqlite, revision),
       sqlite.readContentObject,
       expected,
+      sqlite.metadata().generation,
     );
     verifyGitFiles(ledger.rootDir, commit, closure);
     return revision;

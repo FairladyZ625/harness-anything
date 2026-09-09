@@ -5,18 +5,18 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readCiObservatory } from "../src/ci-observatory-read.ts";
 import { pullAndIngestCiObservations, selectCiObservationRuns } from "../src/ci-observation-actions.ts";
-import type { CiRunObservationEventV1 } from "../../kernel/src/index.ts";
+import type { CiRunObservationEventV2 } from "../../kernel/src/index.ts";
 
 const actor = { principal: { personId: "person-observatory" }, executor: null } as const;
 
 function event(
   revision: number,
-  run: Partial<CiRunObservationEventV1["payload"]["run"]>,
-  tests: CiRunObservationEventV1["payload"]["tests"],
-  gates: CiRunObservationEventV1["payload"]["gates"] = [],
-): CiRunObservationEventV1 {
+  run: Partial<CiRunObservationEventV2["payload"]["run"]>,
+  tests: CiRunObservationEventV2["payload"]["tests"],
+  gates: CiRunObservationEventV2["payload"]["gates"] = [],
+): CiRunObservationEventV2 {
   return {
-    schema: "ci-run-observation/v1",
+    schema: "ci-run-observation/v2",
     eventId: `event-observatory-${revision}`,
     workspaceRevision: revision,
     opId: `op-observatory-${revision}`,
@@ -25,6 +25,7 @@ function event(
     source: "local",
     occurredAt: `2026-08-2${revision}T00:00:00.000Z`,
     payload: {
+      verification: null,
       run: {
         runId: `run-${revision}`,
         sha: `sha-${revision}`,
@@ -224,7 +225,7 @@ test("CI observatory window retains every job from the selected workflow run", (
 
 test("CI observation pull writes canonical events once per run and job", async () => {
   const rootDir = mkdtempSync(path.join(process.cwd(), ".tmp-ci-observation-pull-"));
-  const events = new Map<string, CiRunObservationEventV1>();
+  const events = new Map<string, CiRunObservationEventV2>();
   let revision = 0;
   const cell = {
     rootDir,
@@ -233,7 +234,7 @@ test("CI observation pull writes canonical events once per run and job", async (
     store: {
       readHead: () => (revision === 0 ? null : { revision }),
       readEvent: (opId: string) => events.get(opId),
-      append: ({ event: observed }: { event: CiRunObservationEventV1 }) => {
+      append: ({ event: observed }: { event: CiRunObservationEventV2 }) => {
         revision += 1;
         events.set(observed.opId, observed);
         return { revision };
@@ -253,6 +254,15 @@ test("CI observation pull writes canonical events once per run and job", async (
           : [{ databaseId: 102, headBranch: "main", createdAt: "2026-08-27T02:00:00Z" }],
       );
     }
+    if (args[1] === "view")
+      return JSON.stringify({
+        workflowName: args[2] === "101" ? "rewrite-ci" : "rebuild-gates",
+        headSha: `sha-${args[2]}`,
+        headBranch: "main",
+        status: "completed",
+        conclusion: "success",
+        attempt: 1,
+      });
     const runId = String(args[2]),
       outputDir = String(args[args.indexOf("--dir") + 1]);
     mkdirSync(outputDir, { recursive: true });
@@ -261,7 +271,7 @@ test("CI observation pull writes canonical events once per run and job", async (
       JSON.stringify({
         schema: "ci-run-artifact/v1",
         run: {
-          runId,
+          runId: `${runId}.1`,
           sha: `sha-${runId}`,
           branch: runId === "101" ? "main" : "main",
           prNumber: null,
@@ -288,21 +298,164 @@ test("CI observation pull writes canonical events once per run and job", async (
       { actor, source: "local" },
       runGh,
     );
+    const eventRefs = [...events.values()].map((event) => `event:${event.opId}`);
+    assert.equal(eventRefs.length, 2);
     assert.deepEqual(JSON.parse(first.evidence), {
+      eventRefs,
       schema: "ci-observe-pull/v1",
       imported: 2,
       duplicate: 0,
       requestedRuns: 20,
     });
     assert.deepEqual(JSON.parse(replay.evidence), {
+      eventRefs,
       schema: "ci-observe-pull/v1",
       imported: 0,
       duplicate: 2,
       requestedRuns: 20,
     });
     assert.equal(events.size, 2);
-    assert.ok([...events.values()].every((observed) => observed.schema === "ci-run-observation/v1"));
+    const observed = [...events.values()];
+    assert.deepEqual(observed.find((event) => event.payload.run.runId === "101.1")?.payload.verification, {
+      source: "github-actions",
+      workflow: "rewrite-ci",
+      runId: "101",
+      attempt: 1,
+      headSha: "sha-101",
+      conclusion: "success",
+    });
+    assert.equal(observed.find((event) => event.payload.run.runId === "102.1")?.payload.verification, null);
+    assert.ok([...events.values()].every((observed) => observed.schema === "ci-run-observation/v2"));
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("CI completion verdict comes from the completed matching workflow run, not artifact labels", async () => {
+  const cases = [
+    {
+      name: "success",
+      workflow: "rewrite-ci",
+      status: "completed",
+      conclusion: "success",
+      attempt: 1,
+      sha: "commit",
+      expected: true,
+    },
+    {
+      name: "failure",
+      workflow: "rewrite-ci",
+      status: "completed",
+      conclusion: "failure",
+      attempt: 1,
+      sha: "commit",
+      expected: false,
+    },
+    {
+      name: "other workflow",
+      workflow: "rebuild-gates",
+      status: "completed",
+      conclusion: "success",
+      attempt: 1,
+      sha: "commit",
+      expected: undefined,
+    },
+    {
+      name: "still running",
+      workflow: "rewrite-ci",
+      status: "in_progress",
+      conclusion: "",
+      attempt: 1,
+      sha: "commit",
+      expected: undefined,
+    },
+    {
+      name: "old attempt",
+      workflow: "rewrite-ci",
+      status: "completed",
+      conclusion: "success",
+      attempt: 2,
+      sha: "commit",
+      expected: undefined,
+    },
+    {
+      name: "other commit",
+      workflow: "rewrite-ci",
+      status: "completed",
+      conclusion: "success",
+      attempt: 1,
+      sha: "other",
+      expected: undefined,
+    },
+  ];
+  for (const scenario of cases) {
+    const rootDir = mkdtempSync(path.join(process.cwd(), ".tmp-ci-completion-verdict-")),
+      events: CiRunObservationEventV2[] = [];
+    let downloads = 0;
+    const cell = {
+      rootDir,
+      now: () => "2026-09-09T00:00:00.000Z",
+      cellCodedError: (_code: string, message: string) => new Error(message),
+      store: {
+        readHead: () => (events.length ? { revision: events.length } : null),
+        readEvent: (opId: string) => events.find((event) => event.opId === opId),
+        append: ({ event }: { event: CiRunObservationEventV2 }) => {
+          events.push(event);
+          return { revision: events.length };
+        },
+      },
+      projection: { apply: () => undefined, readCiRunObservations: () => ({ watermark: events.length }) },
+    };
+    try {
+      await pullAndIngestCiObservations(
+        cell as never,
+        { kind: "ci-observe-pull", limit: 1 },
+        { actor, source: "local" },
+        async (_command, args) => {
+          if (args[1] === "list")
+            return JSON.stringify([{ databaseId: 303, headBranch: "main", createdAt: "2026-09-09T00:00:00.000Z" }]);
+          if (args[1] === "view")
+            return JSON.stringify({
+              workflowName: scenario.workflow,
+              status: scenario.status,
+              conclusion: scenario.conclusion,
+              attempt: scenario.attempt,
+              headSha: scenario.sha,
+              headBranch: "main",
+            });
+          assert.equal(args[1], "download");
+          downloads += 1;
+          const output = String(args[args.indexOf("--dir") + 1]);
+          mkdirSync(output, { recursive: true });
+          writeFileSync(
+            path.join(output, "observation.json"),
+            JSON.stringify({
+              schema: "ci-run-artifact/v1",
+              run: {
+                runId: "303.1",
+                sha: "commit",
+                branch: "main",
+                prNumber: null,
+                job: "full-check (24)",
+                wallclockMs: 1,
+                runner: "fixture",
+              },
+              tests: [],
+              gates: [{ gate: "ci", pass: true, metrics: {} }],
+            }),
+          );
+          return "";
+        },
+      );
+      assert.equal(events.length, scenario.status === "completed" ? 1 : 0, scenario.name);
+      assert.equal(downloads, scenario.status === "completed" ? 1 : 0, scenario.name);
+      assert.equal(
+        events[0]?.payload.verification ? events[0].payload.verification.conclusion === "success" : undefined,
+        scenario.expected,
+        scenario.name,
+      );
+    } finally {
+      rmSync(rootDir, { recursive: true, force: true });
+    }
   }
 });

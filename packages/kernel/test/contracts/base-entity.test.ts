@@ -62,14 +62,14 @@ test("all fourteen registered kinds are referenceable relation endpoints from on
   assert.throws(() => formatEntityRef("agent", "bad/id"), /not a valid agent/u);
 });
 
-test("BaseEntity hot projection and cold rebuild produce the same canonical event cut", () => {
+test("BaseEntity hot projection and cold rebuild retain late occurredAt at the later canonical revision", () => {
   for (const rawContract of entityKindContracts) {
     const contract: EntityTypeContract = rawContract;
     const firstCut = cut(rawContract.kind, identityByKind[rawContract.kind], 10, "2026-08-30T01:00:00.000Z");
     const secondCut = {
       ...firstCut,
       workspaceRevision: 12,
-      occurredAt: "2026-08-30T02:00:00.000Z",
+      occurredAt: "2026-08-30T00:00:00.000Z",
       pinned: true,
     };
     const first = projectBaseEntityAtCut(contract, firstCut);
@@ -93,23 +93,14 @@ test("BaseEntity projection rejects missing fields, duplicate identity, invalid 
     () => projectBaseEntityAtCut(contract, { ...firstCut, workspaceRevision: 9 }, first),
     /revision must increase monotonically/u,
   );
-  assert.throws(
-    () =>
-      projectBaseEntityAtCut(
-        contract,
-        { ...firstCut, workspaceRevision: 11, occurredAt: "2026-08-30T00:00:00.000Z" },
-        first,
-      ),
-    /updatedAt cannot precede/u,
-  );
   assert.throws(() => assertUniqueBaseEntityIdentities([first, first]), /duplicate BaseEntity identity/u);
   assert.match(
     validateBaseEntity(contract, {
       ...first,
-      createdAt: "2026-08-30T02:00:00.000Z",
+      createdAt: "invalid-time",
       updatedAt: "2026-08-30T01:00:00.000Z",
     }).join("; "),
-    /createdAt cannot follow updatedAt/u,
+    /timestamps must be ISO-8601/u,
   );
   const { disposition: _disposition, ...missingDisposition } = first;
   assert.deepEqual(validateBaseEntity(contract, missingDisposition), ["BaseEntity projection fields are incomplete"]);

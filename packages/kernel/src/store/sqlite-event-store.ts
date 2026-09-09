@@ -2,6 +2,7 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import {
   parseCanonicalEvent,
+  validateCurrentCanonicalEvent,
   serializePersistedCanonicalEvent,
   type CanonicalEventV1,
 } from "../domain/doc-sync.contract.ts";
@@ -33,6 +34,8 @@ export interface SqliteEventRow {
   readonly revision: number;
   readonly opId: string;
   readonly eventJson: string;
+  readonly occurredAt: string;
+  readonly recordedAt: string;
   readonly digest: `sha256:${string}`;
 }
 
@@ -99,6 +102,10 @@ export interface SqliteEventStore {
     readonly blobs?: readonly CanonicalContentBlob[];
     readonly rejectionCode?: string;
     readonly beforeOutcome?: () => void;
+    readonly historicalRecord?: {
+      readonly recordedAt: string;
+      readonly eventRecordedAt: readonly string[];
+    };
   }) => SqliteCommandOutcome;
   readonly outcome: (opId: string) => SqliteCommandOutcome | null;
   readonly readCommandOutcome: (opId: string) => SqliteCommandOutcome | null;
@@ -177,12 +184,16 @@ export function openSqliteEventStore(options: {
   readonly databasePath?: string;
   readonly generation?: number;
   readonly readOnly?: boolean;
+  /** Offline generation conversion only; ordinary writers cannot backfill acceptance time. */
+  readonly conversionSourceGeneration?: 1;
 }): SqliteEventStore {
   if (!options.readOnly && options.repoId === undefined)
     throw new TaskEventStoreError("repo_mismatch", "mutable SQLite ledger opening requires repoId");
   const generation = options.generation ?? SQLITE_LEDGER_GENERATION,
     databasePath = options.databasePath ?? sqliteLedgerPath(options.rootInput ?? process.cwd(), generation),
     objectRoot = path.join(path.dirname(databasePath), "objects", "sha256");
+  if (options.conversionSourceGeneration !== undefined && (generation !== 2 || options.readOnly))
+    throw new TaskEventStoreError("invalid_store", "conversion requires a writable generation 2 destination");
   if (!options.readOnly) localRuntimeStateFileSystem.mkdirp(path.dirname(databasePath));
   const db = /* @gate-identity check-bypass-write-boundary/bypass-write-128 */ new DatabaseSync(databasePath, {
     readOnly: options.readOnly ?? false,
@@ -236,6 +247,21 @@ export function openSqliteEventStore(options: {
 
   const outcome = (opId: string): SqliteCommandOutcome | null => readOutcome(db, query, opId);
   const appendCommand: SqliteEventStore["appendCommand"] = (input) => {
+    if ((options.conversionSourceGeneration !== undefined) !== (input.historicalRecord !== undefined))
+      throw new TaskEventStoreError("invalid_write_plan", "historical timestamps require an offline conversion writer");
+    if (
+      input.historicalRecord &&
+      (input.historicalRecord.eventRecordedAt.length !== input.events.length ||
+        [input.historicalRecord.recordedAt, ...input.historicalRecord.eventRecordedAt].some(
+          (stamp) => !Number.isFinite(Date.parse(stamp)),
+        ))
+    )
+      throw new TaskEventStoreError("invalid_write_plan", "historical acceptance timestamps are incomplete");
+    if (generation === 2)
+      for (const event of input.events) {
+        const errors = validateCurrentCanonicalEvent(event);
+        if (errors.length) throw new TaskEventStoreError("invalid_write_plan", errors.join("; "));
+      }
     prepareContentObjects(objectRoot, input.events, input.blobs ?? []);
     return transaction(() => {
       assertFenceShape(input.fence, repoId);
@@ -273,8 +299,16 @@ export function openSqliteEventStore(options: {
         const eventJson = serializePersistedCanonicalEvent(event),
           digest = `sha256:${sha256Text(eventJson)}`;
         /* @gate-identity check-bypass-write-boundary/bypass-write-120 */ db.prepare(
-          "INSERT INTO event(revision, op_id, event_json, digest, occurred_at) " + "VALUES (?, ?, ?, ?, ?)",
-        ).run(revision, event.opId, eventJson, digest, event.occurredAt);
+          "INSERT INTO event(revision, op_id, event_json, digest, occurred_at, recorded_at) " +
+            "VALUES (?, ?, ?, ?, ?, COALESCE(?, strftime('%Y-%m-%dT%H:%M:%fZ','now')))",
+        ).run(
+          revision,
+          event.opId,
+          eventJson,
+          digest,
+          event.occurredAt,
+          input.historicalRecord?.eventRecordedAt[offset] ?? null,
+        );
         applyDerivedGuards(db, event);
       }
       const firstRevision = input.events.length ? head + 1 : null,
@@ -288,8 +322,8 @@ export function openSqliteEventStore(options: {
       /* @gate-identity check-bypass-write-boundary/bypass-write-118 */ db.prepare(
         "INSERT INTO command_outcome(" +
           "op_id, status, first_revision, last_revision, intent_digest, " +
-          "intent_summary, rejection_code" +
-          ") VALUES (?, ?, ?, ?, ?, ?, ?)",
+          "intent_summary, rejection_code, recorded_at" +
+          ") VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, strftime('%Y-%m-%dT%H:%M:%fZ','now')))",
       ).run(
         input.intent.opId,
         status,
@@ -298,6 +332,7 @@ export function openSqliteEventStore(options: {
         input.intent.intentDigest,
         input.intent.summary,
         input.rejectionCode ?? null,
+        input.historicalRecord?.recordedAt ?? null,
       );
       return readOutcome(db, query, input.intent.opId)!;
     });
@@ -465,12 +500,16 @@ function readMetadata(query: SqliteQuery): SqliteLedgerMetadata {
 }
 
 function readEventRows(query: SqliteQuery): readonly SqliteEventRow[] {
-  return query("SELECT revision, op_id, event_json, digest FROM event ORDER BY revision").map((row) => ({
-    revision: Number(row.revision),
-    opId: String(row.op_id),
-    eventJson: String(row.event_json),
-    digest: String(row.digest) as `sha256:${string}`,
-  }));
+  return query("SELECT revision, op_id, event_json, digest, occurred_at, recorded_at FROM event ORDER BY revision").map(
+    (row) => ({
+      revision: Number(row.revision),
+      opId: String(row.op_id),
+      eventJson: String(row.event_json),
+      occurredAt: String(row.occurred_at),
+      recordedAt: String(row.recorded_at),
+      digest: String(row.digest) as `sha256:${string}`,
+    }),
+  );
 }
 
 function readOutcomes(db: DatabaseSync, query: SqliteQuery): readonly SqliteCommandOutcome[] {

@@ -1,5 +1,12 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
+import { readFileSync, writeFileSync, rmSync } from "node:fs";
+import path from "node:path";
+import { readOnlyGenerationOneFixtures } from "../canonical-event-generations.mjs";
+import {
+  canonicalEventSchemas,
+  validateCurrentCanonicalEvent,
+} from "../../../packages/kernel/src/domain/doc-sync-canonical-events.ts";
 import test from "node:test";
 import {
   projectFrozenDaemonResponses,
@@ -7,7 +14,7 @@ import {
   validateFrozenDaemonReadside,
   validateProjectedDaemonResponses,
 } from "../canonical-event-compat.mjs";
-import { repoRoot } from "../git.mjs";
+const sourceRoot = path.resolve(import.meta.dirname, "../../..");
 import { makeRepo } from "./helpers.mjs";
 
 test("canonical event compatibility gate names a rejected frozen sample", () => {
@@ -105,14 +112,14 @@ test("canonical event compatibility gate requires a projected historical sample 
 });
 
 test("canonical event compatibility gate projects the locked history through production reads", () => {
-  const result = validateFrozenDaemonReadside(repoRoot());
+  const result = validateFrozenDaemonReadside(sourceRoot);
   assert.deepEqual(result.errors, []);
   assert.equal(result.eventCount, 8);
   assert.equal(typeof result.durationMs, "number");
 });
 
 test("the relation graph replay sample is the explicit paged read, not an implicit full-graph read", () => {
-  const sample = projectFrozenDaemonResponses(repoRoot()).find((entry) => entry.name === "validateDaemonRelationGraph");
+  const sample = projectFrozenDaemonResponses(sourceRoot).find((entry) => entry.name === "validateDaemonRelationGraph");
   assert.ok(sample, "relation graph sample is projected");
   assert.equal(sample.value.ok, true);
   assert.ok(Array.isArray(sample.value.edges));
@@ -120,7 +127,7 @@ test("the relation graph replay sample is the explicit paged read, not an implic
 });
 
 test("pre-#2158 relation strength history fails the production replay with its source event id", () => {
-  const result = validateFrozenDaemonReadside(repoRoot(), undefined, (event) => {
+  const result = validateFrozenDaemonReadside(sourceRoot, undefined, (event) => {
     if (event.eventId !== "event-fixture-relation-created") return event;
     const { targetObservedVersion: _targetObservedVersion, ...historical } = event.payload.relation;
     return { ...event, payload: { relation: { ...historical, strength: "strong" } } };
@@ -132,7 +139,7 @@ test("pre-#2158 relation strength history fails the production replay with its s
 
 test("dec_3EDA6CB3-era decision digest fails the production replay with its source event id", () => {
   const historicalDigest = "sha256:dff93a59f31e53d26a1da857d137bde0c93824056ed7f641d97b189c4e1cc3fb",
-    result = validateFrozenDaemonReadside(repoRoot(), undefined, (event) =>
+    result = validateFrozenDaemonReadside(sourceRoot, undefined, (event) =>
       event.eventId === "event-fixture-decision-accepted"
         ? {
             ...event,
@@ -150,7 +157,7 @@ test("dec_3EDA6CB3-era decision digest fails the production replay with its sour
 });
 
 test("locked-history document reads replay through the rootDir-first production signature without a worktree", () => {
-  const responses = new Map(projectFrozenDaemonResponses(repoRoot()).map(({ name, value }) => [name, value]));
+  const responses = new Map(projectFrozenDaemonResponses(sourceRoot).map(({ name, value }) => [name, value]));
   const read = responses.get("validateDaemonDocumentRead"),
     list = responses.get("validateDaemonTaskDocumentList");
   assert.equal(read.ok, true);
@@ -161,4 +168,26 @@ test("locked-history document reads replay through the rootDir-first production 
     list.documents.every((row) => row.uncommitted === false),
     JSON.stringify(list.documents),
   );
+});
+
+test("generation migration retains frozen historical bytes, rejects live admission, and detects tampering or deletion", () => {
+  const files = Object.fromEntries(
+      [...readOnlyGenerationOneFixtures.keys()].map((file) => [
+        file,
+        readFileSync(path.join(sourceRoot, file), "utf8"),
+      ]),
+    ),
+    { rootDir } = makeRepo(files),
+    schemas = [
+      ...canonicalEventSchemas.filter((entry) => ["entity-event/v1", "agent-entity-event/v1"].includes(entry.schema)),
+      { schema: "ci-run-observation/v1", validate: validateCurrentCanonicalEvent },
+    ];
+  assert.deepEqual(validateFrozenCanonicalEvents(rootDir, schemas), []);
+  for (const file of readOnlyGenerationOneFixtures.keys()) {
+    writeFileSync(path.join(rootDir, file), `${files[file]} `);
+    assert.ok(validateFrozenCanonicalEvents(rootDir, schemas).some((error) => error.includes("bytes changed")));
+    rmSync(path.join(rootDir, file));
+    assert.ok(validateFrozenCanonicalEvents(rootDir, schemas).some((error) => error.includes("sample is missing")));
+    writeFileSync(path.join(rootDir, file), files[file]);
+  }
 });

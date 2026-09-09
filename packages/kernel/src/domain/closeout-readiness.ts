@@ -10,6 +10,7 @@ import { currentCodeDocWitness } from "./code-doc-witness.ts";
 import type { CodeDocWitnessRecord } from "./code-doc-witness.ts";
 import type { CompletionGateWitnessV1 } from "./completion-gate-witness.ts";
 import type { CoverageRelation } from "./decision-coverage.ts";
+import { judgeCompletionEvidence } from "./completion-evidence.ts";
 
 export type CloseoutGateStatus = "passed" | "failed" | "missing" | "unknown";
 export interface CloseoutGateResult {
@@ -55,12 +56,16 @@ export function closeoutReadiness(
   if (!task) return { readiness: "missing", blocker: "execution", gates: [] };
   const cuts = currentExecutionCuts(snapshot),
     cut = cuts.length === 1 ? cuts[0] : undefined;
-  if (task.status === "done")
+  if (task.status === "done") {
+    const gates = gateResults(snapshot, availability, cut?.executionId, cut?.submission?.commitSha, cut?.iteration),
+      missing = gates.some(({ status }) => status !== "passed");
     return {
-      readiness: "passed",
+      readiness: missing ? "incomplete" : "passed",
       ...(cut ? { executionId: cut.executionId } : {}),
-      gates: gateResults(snapshot, availability, cut?.executionId, cut?.submission?.commitSha, cut?.iteration),
+      ...(missing ? { blocker: "gate" as const } : {}),
+      gates,
     };
+  }
   if (task.status !== "in_review") return { readiness: "not_required", gates: gateResults(snapshot, availability) };
   const execution = cut?.state === "submitted" ? cut : undefined;
   if (!execution?.submission)
@@ -147,11 +152,26 @@ export function gateResults(
         value.commitSha === commitSha &&
         value.iteration === iteration,
     );
-    return exact.some(({ result }) => result === "pass")
+    const witness = exact.at(-1),
+      judgment =
+        witness?.basis && witness.provenance && witness.observed !== undefined
+          ? judgeCompletionEvidence(
+              { ...witness, basis: witness.basis, provenance: witness.provenance, observed: witness.observed },
+              {
+                execution: snapshot.executions.find(
+                  (value) => value.executionId === executionId && value.iteration === iteration,
+                ) as ExecutionV1,
+                gateId,
+              },
+            )
+          : witness
+            ? { accepted: false, result: witness.result, reason: "completion witness has no bound evidence" }
+            : null;
+    return judgment?.accepted
       ? gateResult(gateId, "passed")
-      : exact.length
-        ? gateResult(gateId, "failed", "current execution cut did not pass")
-        : gateResult(gateId, "missing", "current execution cut has no gate witness");
+      : exact.length && witness?.result === "fail"
+        ? gateResult(gateId, "failed", judgment?.reason ?? "current execution cut did not pass")
+        : gateResult(gateId, "missing", judgment?.reason ?? "current execution cut has no gate witness");
   });
 }
 

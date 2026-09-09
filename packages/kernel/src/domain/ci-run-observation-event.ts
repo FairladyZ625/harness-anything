@@ -11,7 +11,7 @@ import {
 import { eventObjectTarget } from "../layout/ledger-object-layout.ts";
 
 export const CI_RUN_OBSERVATION_SCHEMA = Object.freeze({
-  id: "ci-run-observation/v1",
+  id: "ci-run-observation/v2",
   required: Object.freeze([
     "schema",
     "eventId",
@@ -41,8 +41,17 @@ export type CiRunObservationGate = {
   readonly metrics: Readonly<Record<string, number>>;
 };
 
-export type CiRunObservationEventV1 = EventEnvelope<
-  "ci-run-observation/v1",
+export type CiWorkflowVerification = {
+  readonly source: "github-actions";
+  readonly workflow: "rewrite-ci";
+  readonly runId: string;
+  readonly attempt: number;
+  readonly headSha: string;
+  readonly conclusion: string;
+};
+
+export type CiRunObservationEventV2 = EventEnvelope<
+  "ci-run-observation/v2",
   "ci_run_observed",
   ActorIdentity,
   {
@@ -55,6 +64,7 @@ export type CiRunObservationEventV1 = EventEnvelope<
       readonly wallclockMs: number;
       readonly runner: string;
     };
+    readonly verification: CiWorkflowVerification | null;
     readonly tests: readonly CiRunObservationTest[];
     readonly gates: readonly CiRunObservationGate[];
   }
@@ -86,8 +96,9 @@ function validateFields(value: unknown, allowUnknownFields: boolean): readonly s
     value.schema !== CI_RUN_OBSERVATION_SCHEMA.id ||
     value.type !== "ci_run_observed" ||
     !isRecord(value.payload) ||
-    !hasContractFields(value.payload, ["run", "tests", "gates"], allowUnknownFields) ||
+    !hasContractFields(value.payload, ["run", "tests", "gates", "verification"], allowUnknownFields) ||
     !validRun(value.payload.run, allowUnknownFields) ||
+    !validVerification(value.payload.verification, value.payload.run) ||
     !Array.isArray(value.payload.tests) ||
     value.payload.tests.some((test) => !validTest(test, allowUnknownFields)) ||
     !Array.isArray(value.payload.gates) ||
@@ -97,6 +108,26 @@ function validateFields(value: unknown, allowUnknownFields: boolean): readonly s
   return validateEventEnvelopeIdentity(value, allowUnknownFields).length
     ? ["ci run observation event envelope identity is invalid"]
     : [];
+}
+
+function validVerification(value: unknown, run: unknown): boolean {
+  if (value === null) return true;
+  return (
+    isRecord(value) &&
+    isRecord(run) &&
+    hasContractFields(value, ["source", "workflow", "runId", "attempt", "headSha", "conclusion"], false) &&
+    value.source === "github-actions" &&
+    value.workflow === "rewrite-ci" &&
+    typeof value.runId === "string" &&
+    /^[1-9][0-9]*$/u.test(value.runId) &&
+    Number.isSafeInteger(value.attempt) &&
+    Number(value.attempt) > 0 &&
+    nonEmpty(value.headSha) &&
+    nonEmpty(value.conclusion) &&
+    run.runId === `${value.runId}.${value.attempt}` &&
+    run.sha === value.headSha &&
+    run.branch === "main"
+  );
 }
 
 function validRun(value: unknown, allowUnknownFields: boolean): boolean {
@@ -155,24 +186,24 @@ function nonNegativeNumber(value: unknown): boolean {
   return typeof value === "number" && Number.isFinite(value) && value >= 0;
 }
 
-export function isCiRunObservationEvent(event: { readonly schema: string }): event is CiRunObservationEventV1 {
+export function isCiRunObservationEvent(event: { readonly schema: string }): event is CiRunObservationEventV2 {
   return event.schema === CI_RUN_OBSERVATION_SCHEMA.id;
 }
 
-export function serializeCiRunObservationEvent(event: CiRunObservationEventV1): string {
+export function serializeCiRunObservationEvent(event: CiRunObservationEventV2): string {
   const errors = validateCurrentCiRunObservationEvent(event);
   if (errors.length) throw new CiRunObservationContractError(errors.join("; "));
   return serializeEventEnvelope(event);
 }
 
-export function ciRunObservationWritePlan(event: CiRunObservationEventV1): FrozenWritePlan<"ci_run_observed"> {
+export function ciRunObservationWritePlan(event: CiRunObservationEventV2): FrozenWritePlan<"ci_run_observed"> {
   return freezeDeclaredWritePlan(
     {
       commandType: event.type,
       targets: [
         { kind: "event_file", path: eventObjectTarget(event.opId), operation: "create" },
         { kind: "event_head", path: "harness/events/head.json", operation: "replace" },
-        { kind: "projection_invalidation", projection: "ci-run-observation/v1", key: event.payload.run.runId },
+        { kind: "projection_invalidation", projection: "ci-run-observation/v2", key: event.payload.run.runId },
       ],
     },
     [event.type],

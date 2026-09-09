@@ -439,8 +439,7 @@ export function codeDocRepoint(value: unknown): boolean {
 export const codeDocRecord = (value: unknown): boolean => codeDoc(value) || codeDocRepoint(value);
 
 export function gate(value: unknown): boolean {
-  return (
-    exactRecord(value, [
+  const required = [
       "schema",
       "witnessId",
       "receiptId",
@@ -454,7 +453,11 @@ export function gate(value: unknown): boolean {
       "actor",
       "source",
       "verifiedAt",
-    ]) &&
+    ],
+    optional = ["observed", "basis", "provenance"];
+  return (
+    recordWith(value, required) &&
+    Object.keys(value).every((field) => required.includes(field) || optional.includes(field)) &&
     value.schema === "completion-gate-witness/v1" &&
     [
       value.witnessId,
@@ -469,7 +472,20 @@ export function gate(value: unknown): boolean {
     sha(value.commitSha) &&
     iteration(value.iteration) &&
     actor(value.actor) &&
-    source(value.source)
+    source(value.source) &&
+    (value.observed === undefined || typeof value.observed === "boolean") &&
+    (value.basis === undefined ||
+      (recordWith(value.basis, ["executionId", "iteration", "submissionDigest"]) &&
+        nonEmpty(value.basis.executionId) &&
+        iteration(value.basis.iteration) &&
+        digest(value.basis.submissionDigest) &&
+        (value.basis.codeCommit === undefined || sha(value.basis.codeCommit)) &&
+        (value.basis.ledgerCut === undefined || (integer(value.basis.ledgerCut) && value.basis.ledgerCut >= 0)))) &&
+    (value.provenance === undefined ||
+      (recordWith(value.provenance, ["source", "runId", "rawResult"]) &&
+        (value.provenance.source === "runner" || value.provenance.source === "human") &&
+        nonEmpty(value.provenance.runId) &&
+        nonEmpty(value.provenance.rawResult)))
   );
 }
 

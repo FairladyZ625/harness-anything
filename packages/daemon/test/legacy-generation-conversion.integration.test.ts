@@ -358,6 +358,7 @@ test("immutable generation-0 conversion retries into inactive generation-1 witho
         { name: "decision-digests", count: 0, firstRevision: null, lastRevision: null },
         { name: "schedule-definitions", count: 0, firstRevision: null, lastRevision: null },
         { name: "settings-wal-flush", count: 1, firstRevision: 1, lastRevision: 1 },
+        { name: "ci-workflow-verification", count: 0, firstRevision: null, lastRevision: null },
       ],
     );
     assert.equal(first.migratedEvents, 1);
@@ -1058,3 +1059,50 @@ function arrayStore(
     },
   } as CanonicalEventStore;
 }
+
+test("offline conversion retains old CI labels as unverified measurements", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-generation-ci-verification-"));
+  const legacy = {
+    schema: "ci-run-observation/v1",
+    eventId: "event-legacy-ci",
+    opId: "op-legacy-ci",
+    workspaceRevision: 1,
+    type: "ci_run_observed",
+    actor: { principal: { personId: "person-legacy" }, executor: null },
+    source: "local",
+    occurredAt: "2026-09-01T00:00:00.000Z",
+    payload: {
+      run: {
+        runId: "123.1",
+        sha: "tested-sha",
+        branch: "main",
+        prNumber: null,
+        job: "test",
+        runner: "ubuntu",
+        wallclockMs: 10,
+      },
+      tests: [],
+      gates: [{ gate: "ci", pass: true, metrics: { runAttempt: 1 } }],
+    },
+  };
+  const original = JSON.stringify(legacy);
+  try {
+    const plan = planLegacyGenerationConversion({
+      rootDir: root,
+      store: arrayStore([legacy as unknown as CanonicalEventV1], () => null),
+    });
+    assert.equal(plan.events.length, 1);
+    const converted = plan.events[0]!;
+    assert.equal(converted.schema, "ci-run-observation/v2");
+    assert.deepEqual(converted.payload, { ...legacy.payload, verification: null });
+    assert.equal(converted.opId, legacy.opId);
+    assert.equal(converted.workspaceRevision, legacy.workspaceRevision);
+    assert.equal(JSON.stringify(legacy), original, "source object and its original fields remain untouched");
+    assert.equal(plan.migrationFamilies.find(({ name }) => name === "ci-workflow-verification")?.count, 1);
+    const repeated = planLegacyGenerationConversion({ rootDir: root, store: arrayStore(plan.events, () => null) });
+    assert.deepEqual(repeated.events, plan.events);
+    assert.equal(repeated.rewrites.length, 0);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

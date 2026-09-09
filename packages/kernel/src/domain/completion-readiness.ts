@@ -116,7 +116,7 @@ export function completionBlockers(
           gate.gateId === "ci" ? "ci_missing" : "gate_witness_missing",
           gate.gateId,
           gate.gateId === "ci"
-            ? `ha task complete ${task.taskId} --execution-id ${executionId} --ci passed`
+            ? `ha task complete ${task.taskId} --execution-id ${executionId} --ci <receipt-ref>`
             : `ha task complete ${task.taskId} --execution-id ${executionId}`,
           `Publish a passing canonical ${gate.gateId} checker witness for this execution cut.`,
         );

@@ -10,6 +10,7 @@ import {
   applyTransition,
   canonicalGateReceipts,
   compileCompletionGateWitness,
+  completionEvidenceBasis,
   completionBlockers,
   normalizeTaskLifecycleCommand,
   serializeCanonicalEvent,
@@ -164,6 +165,17 @@ test("canonical checker receipt becomes a content-cut gate witness before Comple
       occurredAt: "2026-08-11T00:10:00.000Z",
       packagePath: null,
       currentDocuments: [],
+      evidence: {
+        schema: "completion-evidence/v1" as const,
+        checkerId: "standard",
+        gateId: "ci",
+        result: "pass" as const,
+        observed: true,
+        basis: completionEvidenceBasis(
+          snapshot.executions.find((execution) => execution.executionId === "execution-1")!,
+        ),
+        provenance: { source: "runner" as const, runId: "run-ci", rawResult: "event:op-ci" },
+      },
     };
     const compiled = compileCompletionGateWitness(input);
     assert.deepEqual(compiled.event.payload.witness, {
@@ -180,6 +192,9 @@ test("canonical checker receipt becomes a content-cut gate witness before Comple
       actor,
       source: "local",
       verifiedAt: "2026-08-11T00:10:00.000Z",
+      observed: true,
+      basis: completionEvidenceBasis(snapshot.executions.find((execution) => execution.executionId === "execution-1")!),
+      provenance: { source: "runner", runId: "run-ci", rawResult: "event:op-ci" },
     });
     const verified = reduceTaskEvent(snapshot, compiled.event),
       complete = command(

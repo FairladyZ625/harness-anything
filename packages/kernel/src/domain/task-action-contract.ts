@@ -593,7 +593,7 @@ const declarations: readonly Declaration[] = Object.freeze([
       taskId,
       expectedVersion,
       cli("executionId", "string", false, "--execution-id"),
-      cli("ci", "string", false, "--ci", "single", { enum: ["passed"] }),
+      cli("ci", "string", false, "--ci", "single", { format: "canonical receipt reference" }),
       cli("paths", "string-array", false, "--path", "repeated"),
       cli("factHolds", "fact-hold-array", false, "--fact-holds", "repeated", {
         format: "<fact-id>:<rationale>",

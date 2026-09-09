@@ -56,7 +56,7 @@ test("lifecycle CLI maps explicit selectors and accepts every derivable executio
       "--execution-id",
       "execution-1",
       "--ci",
-      "passed",
+      "event:ci-observation-test",
       "--path",
       "packages/kernel/src/domain/task.ts",
       "--fact-holds",
@@ -134,7 +134,7 @@ test("lifecycle CLI maps explicit selectors and accepts every derivable executio
       commandType: "CompleteTask",
       taskId: "task-1",
       executionId: "execution-1",
-      ci: "passed",
+      ci: "event:ci-observation-test",
       paths: ["packages/kernel/src/domain/task.ts"],
       factHolds: [
         {
@@ -184,7 +184,7 @@ test("lifecycle CLI maps explicit selectors and accepts every derivable executio
       "complete",
       "task-1",
       "--ci",
-      "passed",
+      "event:ci-observation-test",
       "--path",
       "packages/kernel/src/domain/task.ts",
     ]);
@@ -249,7 +249,7 @@ test("lifecycle CLI maps explicit selectors and accepts every derivable executio
       verb: "complete",
       commandType: "CompleteTask",
       taskId: "task-1",
-      ci: "passed",
+      ci: "event:ci-observation-test",
       paths: ["packages/kernel/src/domain/task.ts"],
     });
   assert.equal(parseThinCommand(["task", "submit", "task-1", "--execution-id", "execution-1"]).ok, false);
@@ -295,10 +295,7 @@ test("lifecycle CLI maps explicit selectors and accepts every derivable executio
     ]).ok,
     false,
   );
-  assert.equal(
-    parseThinCommand(["task", "complete", "task-1", "--execution-id", "execution-1", "--ci", "failed"]).ok,
-    false,
-  );
+  assert.equal(parseThinCommand(["task", "complete", "task-1", "--execution-id", "execution-1", "--ci"]).ok, false);
   const pathOnlyComplete = parseThinCommand([
     "task",
     "complete",

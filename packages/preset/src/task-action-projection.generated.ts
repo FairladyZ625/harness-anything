@@ -745,7 +745,6 @@ export const taskActionDescriptorProjection = {
             field: "ci",
             type: "string",
             required: false,
-            enum: ["passed"],
             cli: { name: "--ci", kind: "single", error: "invalid_field" },
           },
           {

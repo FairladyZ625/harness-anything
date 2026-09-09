@@ -1,12 +1,7 @@
 import { validateActorAxes, type ActorAxes, type ContractValidationIssue } from "./task.ts";
 import { isNativeCommitSha } from "./execution.ts";
-import {
-  hasOnlyFields,
-  hasRequiredFields,
-  isNonEmptyString,
-  validateWriteSource,
-  type WriteSource,
-} from "./write-chain.contract.ts";
+import type { CompletionEvidenceBasis, CompletionEvidenceProvenance } from "./completion-evidence.ts";
+import { hasRequiredFields, isNonEmptyString, validateWriteSource, type WriteSource } from "./write-chain.contract.ts";
 
 export interface CompletionGateWitnessV1 {
   readonly schema: "completion-gate-witness/v1";
@@ -14,7 +9,10 @@ export interface CompletionGateWitnessV1 {
   readonly receiptId: string;
   readonly checkerId: string;
   readonly gateId: string;
-  readonly result: "pass";
+  readonly result: "pass" | "fail" | "advisory" | "not_run";
+  readonly observed?: boolean;
+  readonly basis?: CompletionEvidenceBasis;
+  readonly provenance?: CompletionEvidenceProvenance;
   readonly taskId: string;
   readonly executionId: string;
   readonly commitSha: string;
@@ -43,7 +41,12 @@ export function validateCompletionGateWitnessV1(
       "source",
       "verifiedAt",
     ],
-    hasFields = allowUnknownFields ? hasRequiredFields : hasOnlyFields;
+    optionalFields = ["observed", "basis", "provenance"],
+    hasFields = allowUnknownFields
+      ? hasRequiredFields
+      : (candidate: Record<string, unknown>, required: readonly string[]) =>
+          hasRequiredFields(candidate, required) &&
+          Object.keys(candidate).every((field) => required.includes(field) || optionalFields.includes(field));
   return !record ||
     typeof record !== "object" ||
     !hasFields(record as Record<string, unknown>, fields) ||
@@ -57,11 +60,23 @@ export function validateCompletionGateWitnessV1(
       record.executionId,
       record.verifiedAt,
     ].every(isNonEmptyString) ||
-    record.result !== "pass" ||
+    !["pass", "fail", "advisory", "not_run"].includes(record.result as string) ||
     !isNativeCommitSha(record.commitSha) ||
     (record.iteration !== 0 && record.iteration !== 1) ||
     validateActorAxes(record.actor, allowUnknownFields).length ||
-    validateWriteSource(record.source, allowUnknownFields).length
+    validateWriteSource(record.source, allowUnknownFields).length ||
+    (record.observed !== undefined && typeof record.observed !== "boolean") ||
+    (record.basis !== undefined &&
+      (!isNonEmptyString(record.basis.executionId) ||
+        (record.basis.iteration !== 0 && record.basis.iteration !== 1) ||
+        !/^sha256:[0-9a-f]{64}$/u.test(record.basis.submissionDigest) ||
+        (record.basis.codeCommit !== undefined && !isNativeCommitSha(record.basis.codeCommit)) ||
+        (record.basis.ledgerCut !== undefined &&
+          (!Number.isSafeInteger(record.basis.ledgerCut) || record.basis.ledgerCut < 0)))) ||
+    (record.provenance !== undefined &&
+      (!["runner", "human"].includes(record.provenance.source) ||
+        !isNonEmptyString(record.provenance.runId) ||
+        !isNonEmptyString(record.provenance.rawResult)))
     ? [
         {
           code: "invalid_gate_witness",

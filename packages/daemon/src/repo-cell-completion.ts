@@ -1,11 +1,13 @@
 import { createHash } from "node:crypto";
 import {
   compileCompletionGateWitness,
+  judgeCompletionEvidence,
   deriveTaskRoot,
   hasCloseoutEvidence,
   isTaskEvent,
   type EventPublicationKillpoint,
   type TaskProjectionQueries,
+  type CompletionEvidenceV1,
   type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
 import type { RepoCellBinding, Snapshot } from "./repo-cell-types.ts";
@@ -20,12 +22,19 @@ export function publishCiWitness(
   snapshot: Snapshot,
   packagePath: string | null,
   binding: RepoCellBinding,
+  evidence: CompletionEvidenceV1,
 ): WriteReceipt {
   const execution = snapshot.executions.find(
     (value) => value.executionId === executionId && value.iteration === snapshot.task?.iteration,
   );
   if (!execution?.submission)
     throw cell.cellCodedError("invalid_transition", "CI witness requires a submitted execution.");
+  const judgment = judgeCompletionEvidence(evidence, { execution, gateId: "ci" });
+  if (!judgment.accepted)
+    throw cell.cellCodedError(
+      "invalid_proof",
+      `CI receipt cannot support completion: ${judgment.reason ?? "evidence was rejected"}.`,
+    );
   const intent = {
       kind: "canonical-checker-receipt",
       taskId,
@@ -66,6 +75,7 @@ export function publishCiWitness(
       eventId: `event-${createHash("sha256").update(opId).digest("hex")}`,
       workspaceRevision: (cell.store.readHead()?.revision ?? 0) + 1,
       occurredAt: cell.now(),
+      evidence,
       packagePath,
       currentDocuments: rawPaths.flatMap((target) => {
         const document = cell.projection.readDocument(target).document;

@@ -225,8 +225,7 @@ export function projectBaseEntityAtCut<E extends BaseEntity>(
       throw new Error("BaseEntity projection identity cannot change across event cuts");
     if (cut.workspaceRevision <= previous.revision)
       throw new Error("BaseEntity projection revision must increase monotonically");
-    if (Date.parse(cut.occurredAt) < Date.parse(previous.updatedAt))
-      throw new Error("BaseEntity projection updatedAt cannot precede the prior cut");
+    // Acceptance is ordered by revision; a late event can carry an earlier occurredAt.
   }
   const projected = Object.freeze({
     id: cut.id,
@@ -284,8 +283,7 @@ export function validateBaseEntity<E extends BaseEntity>(
     issues.push("BaseEntity projection revision must be a positive safe integer");
   if (!timestamp(value.createdAt) || !timestamp(value.updatedAt))
     issues.push("BaseEntity projection timestamps must be ISO-8601 UTC instants");
-  else if (Date.parse(value.createdAt) > Date.parse(value.updatedAt))
-    issues.push("BaseEntity projection createdAt cannot follow updatedAt");
+
   if (!entityDispositions.includes(value.disposition as EntityDisposition))
     issues.push("BaseEntity projection disposition is invalid");
   if (typeof value.pinned !== "boolean") issues.push("BaseEntity projection pinned must be a boolean");

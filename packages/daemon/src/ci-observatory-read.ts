@@ -4,7 +4,7 @@ import { nonEmpty } from "./migration-import-report.ts";
 /** Test outcome labels are observation data, not lifecycle state. */
 const outcomeIs = (entry: { readonly status: string }, outcome: string): boolean => entry.status === outcome;
 import path from "node:path";
-import type { CiRunObservationEventV1, TaskProjection } from "../../kernel/src/index.ts";
+import type { CiRunObservationEventV2, TaskProjection } from "../../kernel/src/index.ts";
 import { isJsonObject } from "./protocol/json-rpc-types.ts";
 
 export interface CiObservatoryRead {
@@ -101,9 +101,9 @@ export function readCiObservatory(input: {
 }
 
 function selectRunWindow(
-  events: readonly CiRunObservationEventV1[],
+  events: readonly CiRunObservationEventV2[],
   window: number,
-): readonly CiRunObservationEventV1[] {
+): readonly CiRunObservationEventV2[] {
   const selected = new Set<string>();
   for (const event of events) {
     const runId = event.payload.run.runId;
@@ -113,7 +113,7 @@ function selectRunWindow(
   return events.filter((event) => selected.has(event.payload.run.runId));
 }
 
-function mainBranch(event: CiRunObservationEventV1): boolean {
+function mainBranch(event: CiRunObservationEventV2): boolean {
   return event.payload.run.branch === "main";
 }
 
@@ -131,7 +131,7 @@ function isL0Job(job: string): boolean {
   ].some((name) => job === name || job.startsWith(`${name} (`));
 }
 
-function l0Wallclocks(events: readonly CiRunObservationEventV1[]): readonly number[] {
+function l0Wallclocks(events: readonly CiRunObservationEventV2[]): readonly number[] {
   const runs = new Map<string, number>();
   for (const event of events)
     if (isL0Job(event.payload.run.job))
@@ -140,7 +140,7 @@ function l0Wallclocks(events: readonly CiRunObservationEventV1[]): readonly numb
 }
 
 function flakeRows(
-  events: readonly CiRunObservationEventV1[],
+  events: readonly CiRunObservationEventV2[],
   quarantine: ReadonlyMap<string, QuarantineEntry>,
   now: number,
 ): CiObservatoryRead["flakes"] {
@@ -183,15 +183,15 @@ function flakeRows(
 }
 
 function finalTestOutcomes(
-  event: CiRunObservationEventV1,
-): readonly CiRunObservationEventV1["payload"]["tests"][number][] {
-  const outcomes = new Map<string, CiRunObservationEventV1["payload"]["tests"][number]>();
+  event: CiRunObservationEventV2,
+): readonly CiRunObservationEventV2["payload"]["tests"][number][] {
+  const outcomes = new Map<string, CiRunObservationEventV2["payload"]["tests"][number]>();
   for (const observation of event.payload.tests)
     outcomes.set(`${observation.file}\u0000${observation.name}`, observation);
   return [...outcomes.values()];
 }
 
-function shardRows(events: readonly CiRunObservationEventV1[]): CiObservatoryRead["shardDurations"] {
+function shardRows(events: readonly CiRunObservationEventV2[]): CiObservatoryRead["shardDurations"] {
   const totals = new Map<number, number>();
   for (const event of events)
     for (const observation of event.payload.tests)
@@ -200,7 +200,7 @@ function shardRows(events: readonly CiRunObservationEventV1[]): CiObservatoryRea
   return [...totals].sort(([left], [right]) => left - right).map(([shard, durationMs]) => ({ shard, durationMs }));
 }
 
-function gateRows(events: readonly CiRunObservationEventV1[]): CiObservatoryRead["gateTrends"] {
+function gateRows(events: readonly CiRunObservationEventV2[]): CiObservatoryRead["gateTrends"] {
   const trends = new Map<string, CiObservatoryRead["gateTrends"][number]>();
   for (const event of [...events].reverse())
     for (const gate of event.payload.gates)

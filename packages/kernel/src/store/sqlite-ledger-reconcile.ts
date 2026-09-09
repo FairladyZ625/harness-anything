@@ -77,6 +77,7 @@ export function reconcileSqliteEvents(input: {
           revision: event.workspaceRevision,
           opId: event.opId,
           eventJson,
+          occurredAt: event.occurredAt,
           digest: `sha256:${sha256Text(eventJson)}`,
         };
       }),
@@ -113,7 +114,8 @@ export function reconcileSqliteEvents(input: {
         metadata.revision === rows.length,
       rowDigestMatches =
         rows.length >= expectedRows.length &&
-        stableStringify(rows.slice(0, expectedRows.length)) === stableStringify(expectedRows) &&
+        stableStringify(rows.slice(0, expectedRows.length).map(({ recordedAt: _recordedAt, ...row }) => row)) ===
+          stableStringify(expectedRows) &&
         rows.every((row, index) => {
           const event = parsedRows[index];
           return (
@@ -122,6 +124,8 @@ export function reconcileSqliteEvents(input: {
             row.revision === index + 1 &&
             event.workspaceRevision === row.revision &&
             event.opId === row.opId &&
+            event.occurredAt === row.occurredAt &&
+            Number.isFinite(Date.parse(row.recordedAt)) &&
             row.digest === `sha256:${sha256Text(row.eventJson)}`
           );
         }),

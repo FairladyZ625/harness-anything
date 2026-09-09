@@ -384,7 +384,7 @@ function specialRequests(primary, replayCount, conflictCount) {
 
 function scaleEvent(seed, revision) {
   return {
-    schema: "ci-run-observation/v1",
+    schema: "ci-run-observation/v2",
     eventId: `${seed}-event-${revision}`,
     workspaceRevision: revision,
     opId: `${seed}-event-op-${revision}`,
@@ -393,6 +393,7 @@ function scaleEvent(seed, revision) {
     source: "local",
     occurredAt: "2026-09-06T00:00:00.000Z",
     payload: {
+      verification: null,
       run: {
         runId: `${seed}-${revision}`,
         sha: "scale",

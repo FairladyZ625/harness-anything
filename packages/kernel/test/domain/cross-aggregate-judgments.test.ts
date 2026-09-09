@@ -6,6 +6,7 @@ import { closeoutGateOk, closeoutReadiness, type CloseoutSnapshot } from "../../
 import { coverageOf, freshnessReasonOf } from "../../src/domain/decision-coverage.ts";
 import { factLiveness } from "../../src/domain/fact-liveness.ts";
 import { consentedApprovedReviewForExecution, reviewDigest } from "../../src/domain/review.ts";
+import { submissionDigest } from "../../src/domain/execution.ts";
 import { statusWordRegister } from "../../src/domain/status-word-register.ts";
 
 const actor = { principal: { personId: "owner" }, executor: null } as const;
@@ -82,6 +83,14 @@ function closeout(gateResult: "pass" | "fail" = "pass"): CloseoutSnapshot {
         actor,
         source: "local",
         verifiedAt: "2026-08-18T00:04:00.000Z",
+        observed: true,
+        basis: {
+          executionId: "exe-1",
+          iteration: 0,
+          submissionDigest: submissionDigest(execution.submission!),
+          codeCommit: commitSha,
+        },
+        provenance: { source: "runner", runId: "run-1", rawResult: "event:receipt-1" },
       } as CloseoutSnapshot["gateWitnesses"][number],
     ],
   };
@@ -91,9 +100,7 @@ test("closeout readiness requires a passing exact-cut gate, not witness existenc
   assert.equal(closeoutReadiness(closeout("pass")).readiness, "ready");
   const failed = closeoutReadiness(closeout("fail"));
   assert.equal(failed.readiness, "failed");
-  assert.deepEqual(failed.gates, [
-    { gateId: "ci", status: "failed", ok: false, detail: "current execution cut did not pass" },
-  ]);
+  assert.deepEqual(failed.gates, [{ gateId: "ci", status: "failed", ok: false, detail: "checker reported fail" }]);
   const stale = closeout();
   assert.equal(
     closeoutReadiness({

@@ -299,7 +299,7 @@ function renderIndex(event: TaskEventV1, snapshot: TaskLifecycleSnapshot, path: 
                 ` --review-id ${consentReviewId} --consent-id <id>\`.`,
               ].join("")
             : missingGate === "ci"
-              ? `Run \`ha task complete ${task.taskId} --execution-id <id> --ci passed\`.`
+              ? `Run \`ha task complete ${task.taskId} --execution-id <id> --ci <receipt-ref>\`.`
               : missingGate === "code-doc-reconciliation"
                 ? `Run \`ha task closeout ${task.taskId} --from-file <packet.json>\`.`
                 : task.status === "done"

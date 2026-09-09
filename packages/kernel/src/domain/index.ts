@@ -74,6 +74,14 @@ export {
   isCloseoutReadiness,
 } from "./closeout-readiness.ts";
 export type { CloseoutReadiness, CloseoutSnapshot } from "./closeout-readiness.ts";
+export { completionEvidenceBasis, completionEvidenceResults, judgeCompletionEvidence } from "./completion-evidence.ts";
+export type {
+  CompletionEvidenceBasis,
+  CompletionEvidenceJudgment,
+  CompletionEvidenceProvenance,
+  CompletionEvidenceResult,
+  CompletionEvidenceV1,
+} from "./completion-evidence.ts";
 export { blockingOf } from "./task-blocking.ts";
 export type { BlockingLabel } from "./task-blocking.ts";
 
@@ -371,5 +379,5 @@ export type {
   ArtifactLocator,
   ArtifactSourceIdentityInput,
 } from "./artifact-entity.ts";
-export type { CiRunObservationEventV1 } from "./ci-run-observation-event.ts";
+export type { CiRunObservationEventV2 } from "./ci-run-observation-event.ts";
 export { ciRunObservationWritePlan, validateCurrentCiRunObservationEvent } from "./ci-run-observation-event.ts";

@@ -5,7 +5,7 @@ import { parseCanonicalEvent } from "../domain/doc-sync-canonical-events.ts";
 import { sha256Bytes } from "../integrity/stable-hash.ts";
 import { resolveHarnessLayout, type HarnessLayoutInput } from "../layout/index.ts";
 import { localLedgerBackupFileSystem as fileSystem } from "../local/local-layout-file-system.ts";
-import { readStoppedLegacyGeneration } from "./legacy-generation-source.ts";
+import { decodeLegacyEventBytes, readStoppedLegacyGeneration } from "./legacy-generation-source.ts";
 import { localGitText } from "./local-version-control-system.ts";
 import { openSqliteEventStore, sqliteLedgerPath } from "./sqlite-event-store.ts";
 
@@ -15,7 +15,7 @@ export interface LedgerBackupManifestV1 {
   readonly createdAt: string;
   readonly sourceRoot: string;
   readonly accepted: { readonly revision: number; readonly opIds: number };
-  readonly sqlite: { readonly present: boolean; readonly integrity: string | null };
+  readonly sqlite: { readonly present: boolean; readonly integrity: string | null; readonly generation?: number };
   readonly files: readonly LedgerBackupFileV1[];
 }
 
@@ -31,6 +31,7 @@ export function createLedgerBackup(input: {
   readonly rootInput: HarnessLayoutInput;
   readonly backupDir: string;
   readonly now?: Date;
+  readonly generation?: 1 | 2;
 }): LedgerBackupManifestV1 {
   const backupDir = path.resolve(input.backupDir);
   if (!path.isAbsolute(input.backupDir)) throw new Error("backup directory must be absolute");
@@ -38,20 +39,22 @@ export function createLedgerBackup(input: {
   const layout = resolveHarnessLayout(input.rootInput),
     payloadRoot = path.join(backupDir, "payload"),
     sourcePaths = existingBackupSources(layout.rootDir, layout.authoredRoot),
-    sqlitePath = sqliteLedgerPath(input.rootInput),
+    sqlitePath = sqliteLedgerPath(input.rootInput, input.generation),
     sqlitePresent = fileSystem.exists(sqlitePath);
   fileSystem.mkdir(payloadRoot, { recursive: true });
   copyTrackedWorkingTree(layout.rootDir, layout.authoredRoot, payloadRoot);
   for (const sourcePath of sourcePaths) copySource(layout.rootDir, sourcePath, payloadRoot);
-  if (sqlitePresent) vacuumSqlite(layout.rootDir, sqlitePath, payloadRoot);
+  for (const generation of [1, 2]) {
+    const database = sqliteLedgerPath(input.rootInput, generation);
+    if (fileSystem.exists(database)) vacuumSqlite(layout.rootDir, database, payloadRoot);
+  }
   const sqlite = sqlitePresent ? inspectSqlite(sqlitePath) : null,
     legacy = sqlitePresent ? null : readStoppedLegacyGeneration({ rootInput: input.rootInput }),
-    sqliteRelative = portable(path.relative(layout.rootDir, sqlitePath)),
     files = inventory(payloadRoot).map((backupFile) => {
       const relative = portable(path.relative(payloadRoot, backupFile)),
-        vacuumed = relative === sqliteRelative,
+        vacuumed = /^\.harness\/store\/generations\/[12]\/ledger\.sqlite$/u.test(relative),
         backup = entryDigest(backupFile),
-        source = entryDigest(vacuumed ? sqlitePath : path.join(layout.rootDir, relative));
+        source = entryDigest(path.join(layout.rootDir, relative));
       return {
         path: relative,
         size: backup.size,
@@ -71,14 +74,18 @@ export function createLedgerBackup(input: {
           revision: legacy!.eventEntries.length,
           opIds: new Set(legacy!.eventEntries.map(({ event }) => event.opId)).size,
         },
-    sqlite: { present: sqlitePresent, integrity: sqlite?.integrity ?? null },
+    sqlite: { present: sqlitePresent, integrity: sqlite?.integrity ?? null, generation: input.generation ?? 1 },
     files,
   };
   fileSystem.write(path.join(backupDir, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
   return manifest;
 }
 
-export function drillLedgerBackup(input: { readonly backupDir: string; readonly shadowParent: string }): {
+export function drillLedgerBackup(input: {
+  readonly backupDir: string;
+  readonly shadowParent: string;
+  readonly destinationRoot?: string;
+}): {
   readonly shadowRoot: string;
   readonly manifest: LedgerBackupManifestV1;
 } {
@@ -87,21 +94,26 @@ export function drillLedgerBackup(input: { readonly backupDir: string; readonly 
     payloadRoot = path.join(backupDir, "payload");
   verifyManifest(payloadRoot, manifest);
   fileSystem.mkdir(input.shadowParent, { recursive: true });
-  const shadowRoot = fileSystem.makeTemporaryDirectory(path.join(path.resolve(input.shadowParent), "restore-drill-"));
+  if (input.destinationRoot && fileSystem.exists(input.destinationRoot))
+    throw new Error("restore destination already exists");
+  const shadowRoot =
+    input.destinationRoot ??
+    fileSystem.makeTemporaryDirectory(path.join(path.resolve(input.shadowParent), "restore-drill-"));
   fileSystem.copy(payloadRoot, shadowRoot, { recursive: true, errorOnExist: true, verbatimSymlinks: true });
   verifyManifest(shadowRoot, manifest);
-  const database = manifest.files.find(({ method }) => method === "vacuum-into");
-  if (database) inspectSqlite(path.join(shadowRoot, database.path));
+  for (const database of manifest.files.filter(({ method }) => method === "vacuum-into"))
+    inspectSqlite(path.join(shadowRoot, database.path));
   return { shadowRoot, manifest };
 }
 
 export function readOfflineLedgerEvents(input: {
   readonly rootInput: HarnessLayoutInput;
+  readonly generation?: 1 | 2;
   readonly sinceRevision?: number;
   readonly sinceTime?: string;
   readonly grep?: string;
 }): readonly unknown[] {
-  const databasePath = sqliteLedgerPath(input.rootInput),
+  const databasePath = sqliteLedgerPath(input.rootInput, input.generation),
     events = fileSystem.exists(databasePath)
       ? readSqliteEvents(databasePath)
       : readStoppedLegacyGeneration({ rootInput: input.rootInput }).eventEntries.map(({ bytes }) =>
@@ -122,15 +134,17 @@ export function readOfflineLedgerEvents(input: {
 
 function existingBackupSources(rootDir: string, authoredRoot: string): readonly string[] {
   const candidates = [
-    path.join(authoredRoot, ".git"),
+    fileSystem.exists(path.join(authoredRoot, ".git")) ? path.join(authoredRoot, ".git") : path.join(rootDir, ".git"),
     path.join(rootDir, ".harness", "wal"),
     path.join(rootDir, ".harness", "store", "imports"),
   ];
-  const generationRoot = path.join(rootDir, ".harness", "store", "generations", "1");
-  if (fileSystem.exists(generationRoot))
-    for (const name of fileSystem.readDirectory(generationRoot))
-      if (name !== "ledger.sqlite" && name !== "ledger.sqlite-wal" && name !== "ledger.sqlite-shm")
-        candidates.push(path.join(generationRoot, name));
+  for (const generation of [1, 2]) {
+    const generationRoot = path.join(rootDir, ".harness", "store", "generations", String(generation));
+    if (fileSystem.exists(generationRoot))
+      for (const name of fileSystem.readDirectory(generationRoot))
+        if (name !== "ledger.sqlite" && name !== "ledger.sqlite-wal" && name !== "ledger.sqlite-shm")
+          candidates.push(path.join(generationRoot, name));
+  }
   return candidates.filter((candidate) => fileSystem.exists(candidate));
 }
 
@@ -202,12 +216,18 @@ function inspectSqlite(databasePath: string): {
         )
         .get()!,
       metadata = db.prepare("SELECT generation, revision FROM ledger_meta WHERE singleton=1").get();
-    if (!metadata || Number(metadata.generation) !== 1 || Number(metadata.revision) !== Number(counts.revision))
+    if (
+      !metadata ||
+      Number(metadata.generation) !== Number(path.basename(path.dirname(databasePath))) ||
+      Number(metadata.revision) !== Number(counts.revision)
+    )
       throw new Error("SQLite generation metadata differs from accepted events");
     if (Number(counts.events) !== Number(counts.revision) || Number(counts.events) !== Number(counts.op_ids))
       throw new Error("SQLite accepted revision/opId counts differ");
-    for (const row of db.prepare("SELECT event_json FROM event ORDER BY revision").all())
-      parseCanonicalEvent(String(row.event_json));
+    for (const row of db.prepare("SELECT event_json FROM event ORDER BY revision").all()) {
+      if (Number(metadata.generation) === 1) decodeLegacyEventBytes(String(row.event_json), "generation 1 backup");
+      else parseCanonicalEvent(String(row.event_json));
+    }
     return { revision: Number(counts.revision), opIds: Number(counts.op_ids), integrity };
   } finally {
     db.close();
@@ -215,9 +235,15 @@ function inspectSqlite(databasePath: string): {
 }
 
 function readSqliteEvents(databasePath: string): readonly unknown[] {
-  const store = openSqliteEventStore({ databasePath, readOnly: true });
+  const store = openSqliteEventStore({
+    databasePath,
+    generation: Number(path.basename(path.dirname(databasePath))),
+    readOnly: true,
+  });
   try {
-    return store.events();
+    return store.metadata().generation === 1
+      ? store.eventRows().map((row) => decodeLegacyEventBytes(row.eventJson, "read-only generation 1").event)
+      : store.events();
   } finally {
     store.close();
   }
@@ -277,3 +303,12 @@ function portable(value: string): string {
 function sqlString(value: string): string {
   return `'${value.replaceAll("'", "''")}'`;
 }
+
+/** Verify every retained source byte before an offline converter opens the copied database. */
+export function readVerifiedLedgerBackup(backupDir: string): LedgerBackupManifestV1 {
+  const manifest = readManifest(backupDir);
+  verifyManifest(path.join(backupDir, "payload"), manifest);
+  return manifest;
+}
+
+export { runGenerationTwoConversion } from "./generation-two-conversion.ts";

@@ -6,21 +6,56 @@ import {
   createLedgerBackup,
   drillLedgerBackup,
   readOfflineLedgerEvents,
+  runGenerationTwoConversion,
 } from "../../kernel/src/store/ledger-backup.ts";
+
+import { generationMigrationCommand, firstCliCommandIndex } from "./cli/thin-command-help.ts";
+import { readFlags } from "./cli/thin-command-flags.ts";
 
 type Emit = (receipt: Record<string, unknown>, json: boolean) => void;
 
 export function isOfflineStorageCommand(argv: readonly string[]): boolean {
-  return argv[0] === "backup" || argv[0] === "restore" || argv[0] === "events";
+  return (
+    argv[0] === "backup" ||
+    argv[0] === "restore" ||
+    argv[0] === "events" ||
+    (argv[0] === "migrate" && argv[1] === "ledger")
+  );
 }
 
 export function runOfflineStorageCommand(argv: readonly string[], emit: Emit): number {
   const json = argv.includes("--json"),
     rootInput = option(argv, "--root") ?? process.cwd();
   try {
+    const generationOption = option(argv, "--generation");
+    if (generationOption !== undefined && generationOption !== "1" && generationOption !== "2")
+      throw new Error("--generation must be 1 or 2");
+    const generation = generationOption === "2" ? 2 : 1;
+    const commandIndex = firstCliCommandIndex(argv);
+    if (argv[commandIndex] === "migrate" && argv[commandIndex + 1] === "ledger") {
+      if (argv.includes("--help")) {
+        emit({ ok: true, usage: generationMigrationCommand.usage, hint: generationMigrationCommand.help }, json);
+        return 0;
+      }
+      const tokens = argv.slice(commandIndex + 2).filter((token) => token !== "--json"),
+        flags = readFlags(
+          generationMigrationCommand.id,
+          tokens,
+          new Map([[generationMigrationCommand.id, generationMigrationCommand]]),
+        );
+      if (!flags.ok) throw new Error(flags.nextAction);
+      const result = runGenerationTwoConversion({
+        backupDir: flags.one.get("--source")!,
+        mode: flags.one.get("--mode")! as "dry-run" | "convert" | "verify",
+        ...(flags.one.has("--destination") ? { destinationRoot: flags.one.get("--destination")! } : {}),
+      });
+      const exitCode = result.plan.ready ? 0 : 1;
+      emit({ ok: result.plan.ready, exitCode, schema: "generation-conversion-receipt/v1", ...result }, json);
+      return exitCode;
+    }
     if (argv[0] === "backup") {
       const backupDir = positional(argv, 1, "backup requires an absolute destination directory"),
-        manifest = createLedgerBackup({ rootInput, backupDir });
+        manifest = createLedgerBackup({ rootInput, backupDir, generation });
       emit({ ok: true, schema: "ledger-backup-receipt/v1", exitCode: 0, backupDir, manifest }, json);
       return 0;
     }
@@ -36,6 +71,7 @@ export function runOfflineStorageCommand(argv: readonly string[], emit: Emit): n
         numeric = since === undefined ? undefined : Number(since),
         events = readOfflineLedgerEvents({
           rootInput,
+          generation,
           ...(since !== undefined && Number.isSafeInteger(numeric) ? { sinceRevision: numeric } : {}),
           ...(since !== undefined && !Number.isSafeInteger(numeric) ? { sinceTime: since } : {}),
           ...(option(argv, "--grep") ? { grep: option(argv, "--grep") } : {}),
