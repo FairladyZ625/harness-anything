@@ -264,6 +264,83 @@ test("CLI changes-requested recovery releases and re-enters a new execution", as
   }
 });
 
+test("CLI accepted receipt and daemon restart recover an in-flight task", async (context) => {
+  const fixture = setup(10),
+    taskId = "task-cli-restart-recovery",
+    executionId = "execution-cli-restart-recovery",
+    environment = actorEnvironment(fixture, 0, "agent:restart-worker");
+  try {
+    await startClient(fixture);
+    const created = await expectApplied(
+        fixture,
+        [
+          "task",
+          "create",
+          "--id",
+          taskId,
+          "--title",
+          "CLI daemon restart recovery",
+          "--preset",
+          "docs-task",
+          "--vertical",
+          "software/coding",
+          "--kind",
+          "docs",
+          "--admin",
+        ],
+        environment,
+      ),
+      opId = String(created.opId),
+      receipt = await expectApplied(
+        fixture,
+        [
+          "receipt",
+          "show",
+          opId,
+          "--wait",
+          "accepted_durable,projection_visible,git_verified,worktree_visible",
+          "--timeout-ms",
+          "5000",
+        ],
+        environment,
+      );
+    assert.deepEqual(receipt.wait, { state: "satisfied", unsatisfied: [] });
+    assert.equal((receipt.git as { readonly state?: string }).state, "verified");
+    const packagePath = String(created.packagePath),
+      packageRoot = path.join(fixture.root, "harness", packagePath),
+      planPath = path.join(packageRoot, "task_plan.md"),
+      closeoutPath = path.join(packageRoot, "closeout.md");
+    writeFileSync(planPath, realizedTaskPlan("CLI daemon restart recovery"));
+    await expectApplied(
+      fixture,
+      ["doc", "sync", "--submit", "--path", packagePathFor(packagePath, "task_plan.md")],
+      environment,
+    );
+    await expectApplied(fixture, ["task", "start", taskId, "--execution-id", executionId], environment);
+    await expectApplied(
+      fixture,
+      ["task", "progress", "append", taskId, "--text", "before daemon restart"],
+      environment,
+    );
+    await stopClient(fixture);
+    await startClient(fixture);
+    await expectApplied(fixture, ["task", "progress", "append", taskId, "--text", "after daemon restart"], environment);
+    writeFileSync(
+      closeoutPath,
+      "# Closeout\n\n## Summary\n\nRestart recovery.\n\n## Verification\n\nDaemon restarted during execution.\n\n" +
+        "## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nNo production behavior changed.\n",
+    );
+    await expectApplied(fixture, ["doc", "sync", "--submit", "--task", taskId], environment);
+    const final = await expectApplied(fixture, ["task", "show", taskId], environment),
+      finalEvidence = JSON.parse(String(final.evidence)) as { readonly task?: { readonly status?: string } };
+    assert.equal(finalEvidence.task?.status, "active");
+    context.diagnostic(JSON.stringify({ schema: "cli-lifecycle-restart-recovery/v1", taskId, opId, executionId }));
+  } finally {
+    await stopClient(fixture);
+    rmSync(fixture.parent, { recursive: true, force: true });
+  }
+});
+
 async function runClient(fixture: Fixture, clientIndex: number): Promise<ChainOutcome[] & { actor: string }> {
   const actor = actorLabel(clientIndex),
     outcomes: ChainOutcome[] = [];
