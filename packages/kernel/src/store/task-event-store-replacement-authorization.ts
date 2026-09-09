@@ -102,10 +102,16 @@ function authorize(
   }
   if (isSettingsEvent(event)) {
     const base = current(event.payload.harnessDocumentClaim.path),
+      baseBody =
+        base === null
+          ? null
+          : typeof base.body === "string"
+            ? base.body
+            : new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(base.body),
       candidate = blobs.find((blob) => blob.sha256 === event.payload.harnessDocumentClaim.sha256)?.body;
-    if (base === null || typeof base.body !== "string" || sha256Text(base.body) !== event.payload.baseDocumentSha256)
+    if (baseBody === null || sha256Text(baseBody) !== event.payload.baseDocumentSha256)
       throw new TaskEventStoreError("revision_conflict", "harness.yaml changed before the Settings write committed");
-    if (typeof candidate !== "string" || candidate !== writeRepositorySettingsFacet(base.body, event.payload.settings))
+    if (typeof candidate !== "string" || candidate !== writeRepositorySettingsFacet(baseBody, event.payload.settings))
       throw new TaskEventStoreError(
         "invalid_write_plan",
         "Settings may change only their owned harness.yaml facet fields",
