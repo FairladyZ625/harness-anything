@@ -8,6 +8,7 @@ import { readDaemonPid } from "../../daemon/src/runtime.ts";
 import {
   activateEmptyCanonicalGeneration,
   compileSettingsChangedEvent,
+  makeTaskEventReader,
   makeTaskEventStore,
   readSettingsFacet,
   repositorySettings,
@@ -430,6 +431,75 @@ test("REQ-CLI-016 adds only missing npm script keys while preserving existing pa
     assert.equal(readFileSync(packagePath, "utf8"), expected);
   } finally {
     stop(fixture.alpha, fixture.userRoot);
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("init at a configured authored root writes the machine documents where every reader resolves them", () => {
+  const fixture = setupEmpty(),
+    // The declaration has to sit at the fixed discovery anchor: `layout.authoredRoot` cannot be
+    // read from a file whose own path depends on it. It names the authored root and nothing else.
+    declarationPath = path.join(fixture.repo, "harness/harness.yaml"),
+    declaration = "layout:\n  authoredRoot: ledger\n";
+  try {
+    mkdirSync(path.dirname(declarationPath), { recursive: true });
+    writeFileSync(declarationPath, declaration);
+    const initialized = run(fixture.repo, fixture.userRoot, [
+        "init",
+        "--repo-id",
+        "configured",
+        "--person-id",
+        "owner",
+        "--display-name",
+        "Owner",
+      ]),
+      ledgerRoot = path.join(fixture.repo, "ledger");
+    assert.equal(initialized.ok, true);
+    assert.equal(initialized.outcome, "applied");
+    assert.equal(initialized.summary, "initialized harness at ledger/harness.yaml");
+    // repo-cell-settings-state, the Settings write authorization, the WIP settings and the
+    // migration contract compiler all resolve the machine documents under the authored root.
+    // Init publishing them at the default spelling is what left the Settings write without a base.
+    assert.deepEqual((initialized.created as string[]).slice(0, 2), ["ledger/harness.yaml", "ledger/people.yaml"]);
+    assert.equal(existsSync(path.join(fixture.repo, "harness/people.yaml")), false);
+    assert.deepEqual(readdirSync(path.join(fixture.repo, "harness")), ["harness.yaml"]);
+    // The declaration is the seed, not a second layout: the published document repeats it verbatim.
+    assert.equal(readFileSync(declarationPath, "utf8"), declaration);
+    assert.equal(readFileSync(path.join(ledgerRoot, "harness.yaml"), "utf8"), declaration);
+    const tracked = git(ledgerRoot, "ls-tree", "-r", "--name-only", "HEAD").split("\n");
+    assert.equal(tracked.includes("harness.yaml"), true);
+    assert.equal(tracked.includes("people.yaml"), true);
+    const verify = initialized.configureVerify as {
+      ok: boolean;
+      steps: readonly string[];
+      roots: Record<string, string>;
+      l2: Record<string, string>;
+    };
+    assert.equal(verify.ok, true);
+    assert.deepEqual(verify.steps, [
+      "publication-readback",
+      "canonical-layout",
+      "daemon-l2-readiness",
+      "task-bootstrap-dry-run",
+    ]);
+    assert.equal(verify.roots.contextRoot, path.join(ledgerRoot, "context"));
+    assert.equal(verify.roots.standardsRoot, path.join(ledgerRoot, "governance/standards"));
+    assert.deepEqual(verify.l2, { cellState: "attached", l2State: "ready" });
+    // The Settings write is the step that used to fail: its base document is read at the authored
+    // root, so a settings event exists at all only because init published the document there.
+    const stream = makeTaskEventReader({ rootDir: fixture.repo, repoId: "configured" }).read(),
+      settingsEvent = stream.events.find((event) => event.schema === "settings-event/v1");
+    assert.ok(settingsEvent, JSON.stringify(stream.events.map(({ schema }) => schema)));
+    assert.equal(
+      (settingsEvent.payload as { harnessDocumentClaim: { path: string } }).harnessDocumentClaim.path,
+      "harness.yaml",
+    );
+    assert.equal(
+      readSettingsFacet(readFileSync(path.join(ledgerRoot, "harness.yaml"), "utf8")).defaultVertical,
+      (settingsEvent.payload as { settings: { defaultVertical: string } }).settings.defaultVertical,
+    );
+  } finally {
+    stop(fixture.repo, fixture.userRoot);
     rmSync(fixture.root, { recursive: true, force: true });
   }
 });

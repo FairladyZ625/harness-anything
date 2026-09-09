@@ -13,6 +13,7 @@ import {
   resolveHarnessLayout,
   type SettingsV1,
   type ActorIdentity,
+  type HarnessLayout,
   type WriterGeneration,
   type WriterGenerationToken,
 } from "../../kernel/src/index.ts";
@@ -143,8 +144,15 @@ export function resolveRepoBootstrap(
       },
       rolePolicy: { roleId: "owner", commandClasses: ["admin", "repo-write", "repo-read", "arbiter"] },
     }).body,
-    harnessDocument = machineDocument(rootDir, "harness/harness.yaml", config, request.name),
-    identityDocuments = [harnessDocument, machineDocument(rootDir, "harness/people.yaml", people)],
+    layout = resolveHarnessLayout(rootDir),
+    machineRoot = machineDocumentRoot(rootDir, layout),
+    harnessDocument = machineDocument(
+      rootDir,
+      `${machineRoot}/harness.yaml`,
+      configuredBody(layout) ?? config,
+      request.name,
+    ),
+    identityDocuments = [harnessDocument, machineDocument(rootDir, `${machineRoot}/people.yaml`, people)],
     initialized = identityDocuments.every(({ existingSha256 }) => existingSha256 !== null);
   if (initialized !== identityDocuments.some(({ existingSha256 }) => existingSha256 !== null))
     throw repoBootstrapError(
@@ -158,8 +166,7 @@ export function resolveRepoBootstrap(
     );
   const machineDocuments = [...identityDocuments, ...(request.addNpmScripts ? [npmScriptsDocument(rootDir)] : [])],
     settings = readSettingsFacet(harnessDocument.body);
-  const layout = resolveHarnessLayout(rootDir),
-    oldStandardsRoot = path.join(layout.authoredRoot, "standards");
+  const oldStandardsRoot = path.join(layout.authoredRoot, "standards");
   if (oldStandardsRoot !== layout.standardsRoot && existsSync(oldStandardsRoot) && !existsSync(layout.standardsRoot))
     throw repoBootstrapError(
       "standards_migration_required",
@@ -301,7 +308,9 @@ export function bootstrapRepo(
   return {
     authoredBranch: boundBranch,
     outcome: verified ? (writtenDocuments.length || commit ? "applied" : "noop") : "indeterminate",
-    summary: verified ? "initialized harness at harness/harness.yaml" : "init publication readback failed",
+    summary: verified
+      ? `initialized harness at ${machineDocumentRoot(rootDir, layout)}/harness.yaml`
+      : "init publication readback failed",
     created,
     updated,
     preserved,
@@ -339,6 +348,16 @@ function configureLedgerOnly(input: RepoBootstrapInput, authoredBranch?: string)
     plan: {},
     publication: { ok: true, commit: null, changedPaths: [] },
   };
+}
+/** Every reader of the machine configuration resolves it under the authored root, so init writes it there instead of at the default spelling. */
+function machineDocumentRoot(rootDir: string, layout: HarnessLayout): string {
+  return path.relative(rootDir, layout.authoredRoot).split(path.sep).join("/");
+}
+/** A repository that already declares its layout seeds the authored configuration from that declaration, so init never mints a second document that disagrees about where the authored root is. */
+function configuredBody(layout: HarnessLayout): string | undefined {
+  return layout.configPath !== undefined && existsSync(layout.configPath)
+    ? readFileSync(layout.configPath, "utf8")
+    : undefined;
 }
 function machineDocument(rootDir: string, target: string, fallbackBody: string, name?: string): BootstrapDocument {
   const absolute = path.join(rootDir, ...target.split("/")),
