@@ -154,8 +154,7 @@ export const localContentObjectFileSystem = {
     try {
       try {
         /* @gate-identity check-bypass-write-boundary/bypass-write-069 */
-        if (typeof body === "string") writeSync(descriptor, body, null, "utf8");
-        else writeSync(descriptor, body);
+        writeSync(descriptor, typeof body === "string" ? Buffer.from(body, "utf8") : body);
         syncDescriptor(descriptor);
       } finally {
         /* @gate-identity check-bypass-write-boundary/bypass-write-071 */
