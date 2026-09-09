@@ -187,8 +187,10 @@ function planConversion(source: SqliteEventStore) {
         throw new Error("a dropped earlier record shifted this revision/cut; it requires an explicit mapping");
     } catch (error) {
       consumeKnownError(error);
-      reasons.push(error instanceof Error ? error.message : String(error));
-      candidate = historicalWitness(original, row, reasons.at(-1)!);
+      const reason = error instanceof Error ? error.message : String(error);
+      if (reason.startsWith("corrupt accepted content ")) throw error;
+      reasons.push(reason);
+      candidate = historicalWitness(original, row);
       reasons.push("source-witness-only: original event bytes retained as a read-only content object");
     }
     if (candidate) events.push(candidate);
@@ -227,7 +229,7 @@ function planConversion(source: SqliteEventStore) {
   return { plan, events, rows };
 }
 
-function historicalWitness(original: CanonicalEventV1, row: SqliteEventRow, reason: string): MigrationImportEventV1 {
+function historicalWitness(original: CanonicalEventV1, row: SqliteEventRow): MigrationImportEventV1 {
   const raw = new TextEncoder().encode(row.eventJson),
     sha256 = sha256Bytes(raw),
     sourcePath = `history/source-witness/${row.revision}-${row.opId}.json`;
@@ -303,8 +305,7 @@ function convert(
         converted = members.map((mapping) => events[mapping.destinationRevision! - 1]!),
         blobs = converted.flatMap((event, index) =>
           contentClaims(event).map((claim) => {
-            const witness =
-              event.schema === "migration-import-event/v1" && event.payload.entity.kind === "repo-document";
+            const witness = members[index]!.disposition === "retained-read-only";
             const body = witness
               ? new TextEncoder().encode(rows[members[index]!.sourceRevision - 1]!.eventJson)
               : source.readContentObject(claim.sha256)!;

@@ -171,6 +171,68 @@ for (const historicalFixture of [
     }
   });
 
+test("existing migrated repository documents preserve their own content instead of witness JSON", () => {
+  const f = fixture();
+  try {
+    const event = JSON.parse(
+      readFileSync(
+        new URL(
+          "../../kernel/fixtures/canonical-events/migration-import-event-v1/accepted-entity-migrated-4540393b0119.json",
+          import.meta.url,
+        ),
+        "utf8",
+      ),
+    );
+    event.workspaceRevision = 1;
+    event.opId = "op-1";
+    event.payload.entity.documentClaim.sha256 = f.hash;
+    event.payload.entity.documentClaim.size = f.body.length;
+    delete event.payload.entity.destinationPreimage;
+    const raw = JSON.stringify(event) + "\n";
+    const db = new DatabaseSync(sqliteLedgerPath(f.root, 1));
+    db.prepare("UPDATE event SET event_json=?, digest=?, occurred_at=? WHERE revision=1").run(
+      raw,
+      `sha256:${sha256Bytes(Buffer.from(raw))}`,
+      event.occurredAt,
+    );
+    db.close();
+    createLedgerBackup({ rootInput: f.root, backupDir: f.backupDir });
+    const result = invoke(["--source", f.backupDir, "--mode", "convert", "--destination", f.destination]);
+    assert.equal(result.status, 0, JSON.stringify(result.receipt));
+    assert.equal(result.receipt.plan.mappings[0].disposition, "converted");
+    const target = openSqliteEventStore({ rootInput: f.destination, generation: 2, readOnly: true });
+    try {
+      assert.deepEqual(Buffer.from(target.readContentObject(f.hash)!), f.body);
+    } finally {
+      target.close();
+    }
+  } finally {
+    rmSync(f.parent, { recursive: true, force: true });
+  }
+});
+
+test("an accepted content size mismatch is corruption, not a historical witness", () => {
+  const f = fixture();
+  try {
+    const db = new DatabaseSync(sqliteLedgerPath(f.root, 1));
+    const event = JSON.parse(f.rows[0]!.eventJson);
+    event.payload.changes[0].candidate.size += 1;
+    const raw = JSON.stringify(event) + "\n";
+    db.prepare("UPDATE event SET event_json=?, digest=? WHERE revision=1").run(
+      raw,
+      `sha256:${sha256Bytes(Buffer.from(raw))}`,
+    );
+    db.close();
+    createLedgerBackup({ rootInput: f.root, backupDir: f.backupDir });
+    const result = invoke(["--source", f.backupDir, "--mode", "convert", "--destination", f.destination]);
+    assert.equal(result.status, 1, JSON.stringify(result.receipt));
+    assert.match(result.receipt.hint, /corrupt accepted content/);
+    assert.equal(existsSync(f.destination), false);
+  } finally {
+    rmSync(f.parent, { recursive: true, force: true });
+  }
+});
+
 test("live generation 2 writes cannot backfill recordedAt", () => {
   const f = fixture(),
     store = openSqliteEventStore({ repoId: "conversion-test", rootInput: f.root, generation: 2 });
