@@ -91,7 +91,7 @@ const Card = memo(function Card({
       title={taskControlHint(task)}
       className={`group relative cursor-pointer rounded-lg bg-surface-raised p-2.5 ${freshnessBorder(
         task.freshness,
-      )} ${archived ? "opacity-50" : ""} ${dragging ? "shadow-lg" : "hover:border-border-strong"} ${isFavorite ? "ring-1 ring-accent/40" : ""}`}
+      )} ${archived ? "opacity-50" : ""} ${dragging ? "shadow-lg" : "hover:border-accent hover:ring-1 hover:ring-accent/50"} ${isFavorite ? "ring-1 ring-accent/40" : ""}`}
     >
       <div className="flex items-center gap-2">
         <EngineBadge engine={task.engine} locked={external} />
