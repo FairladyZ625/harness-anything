@@ -5,6 +5,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { makeTaskEventReader } from "../../kernel/src/index.ts";
 import { defaultAssets } from "../../preset/src/preset-resolver-common.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
@@ -273,6 +274,23 @@ test("a runtime-declared Kind keeps identity and instance pins across schema v2,
     const afterArchive = await descriptorOf(kindRef, firstId);
     assert.equal(afterArchive.kindVersion, 1, "an update never silently upgrades the instance's pin");
     assert.deepEqual(afterArchive.attributes, { summary: "first, revised" });
+    const snapshots = makeTaskEventReader({ repoId, rootDir })
+      .read()
+      .events.flatMap((event) =>
+        (event.type === "entity_content_observed" || event.type === "entity_updated") &&
+        event.payload.entityKind === kindRef
+          ? [[event.payload.entityId, event.payload.artifactContract.kindVersion]]
+          : [],
+      );
+    assert.deepEqual(
+      snapshots,
+      [
+        [firstId, 1],
+        [secondId, 2],
+        [firstId, 1],
+      ],
+      "center acceptance pins imports and later updates in canonical events, independently of the current Kind version",
+    );
     assert.ok(
       (await rows()).some((row) => row.ref === firstRef),
       "archiving a Kind must not hide the instances already stored under it",

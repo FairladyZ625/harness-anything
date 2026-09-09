@@ -19,13 +19,68 @@ import {
   type ArtifactDescriptor,
   type EntityStoreKindContract,
 } from "../../src/index.ts";
-import { canonicalArtifactUrl, encodeArtifactDescriptor } from "../../src/domain/artifact-entity.ts";
-import { assertEntityEventInputs } from "../../src/domain/entity-event.ts";
+import {
+  artifactEntityContractFromSnapshot,
+  canonicalArtifactUrl,
+  decodeArtifactEntityContractSnapshot,
+  encodeArtifactDescriptor,
+} from "../../src/domain/artifact-entity.ts";
+import {
+  assertEntityEventInputs,
+  validateCurrentEntityEvent,
+  validateEntityEvent,
+} from "../../src/domain/entity-event.ts";
 
 const vertical = JSON.parse(
   readFileSync(new URL("../../fixtures/schemas/vertical-definition/valid.json", import.meta.url), "utf8"),
 ) as Record<string, unknown> & { entityKinds: unknown[]; projectionSchemas: unknown[] };
 const actor = { principal: { personId: "person-artifact" }, executor: null } as const;
+
+test("artifact snapshots require explicit positive integral schema pins on live decode and replay", () => {
+  const artifact = compiledArtifact(),
+    snapshot = artifactEntityContractSnapshot({ ...artifact, kindVersion: 1 });
+  for (const kindVersion of [1, 2]) {
+    const pinned = { ...snapshot, kindVersion },
+      bytes = JSON.stringify(pinned),
+      decoded = decodeArtifactEntityContractSnapshot(JSON.parse(bytes)),
+      contract = artifactEntityContractFromSnapshot(decoded);
+    assert.equal(JSON.stringify(decoded), bytes, "decoding preserves accepted snapshot fields");
+    assert.equal(contract.schema.$id, `${snapshot.descriptorSchemaRef}#${snapshot.typeIdentity}/v${kindVersion}`);
+    const descriptor = makeDescriptor(artifact, "repo:canonical:docs/adr.md", { kindVersion });
+    assert.equal(decodeArtifactDescriptor(contract, descriptor).kindVersion, kindVersion);
+    assert.throws(() => decodeArtifactDescriptor(contract, { ...descriptor, kindVersion: 3 }), /kindVersion/u);
+  }
+  const { kindVersion: _pin, ...unpinned } = snapshot;
+  for (const invalid of [
+    unpinned,
+    ...[undefined, null, 0, -1, 1.5, "1", true, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1].map((kindVersion) => ({
+      ...snapshot,
+      kindVersion,
+    })),
+  ]) {
+    for (const allowUnknownFields of [false, true]) {
+      assert.throws(() => decodeArtifactEntityContractSnapshot(invalid, allowUnknownFields), /kindVersion/u);
+      assert.throws(() => artifactEntityContractFromSnapshot(invalid, allowUnknownFields), /kindVersion/u);
+    }
+  }
+});
+
+test("canonical artifact event admission and content replay reject a missing snapshot pin", () => {
+  const artifact = compiledArtifact(),
+    descriptor = makeDescriptor(artifact, "repo:canonical:docs/adr.md"),
+    compiled = compileObservedWithDerivedIds(artifact, descriptor),
+    { kindVersion: _pin, ...unpinned } = compiled.event.payload.artifactContract,
+    event = { ...compiled.event, payload: { ...compiled.event.payload, artifactContract: unpinned } };
+  assert.deepEqual(validateCurrentEntityEvent(compiled.event), []);
+  assert.deepEqual(validateEntityEvent(compiled.event), []);
+  assert.notDeepEqual(validateCurrentEntityEvent(event), []);
+  assert.notDeepEqual(validateEntityEvent(event), []);
+  const store = createEntityStore({
+    read: () => ({ schema: "canonical-event-stream/v1", revision: 1, events: [event] }),
+    readContentBlob: () => Buffer.from(compiled.blobs[0].body),
+  });
+  assert.throws(() => store.get(artifact.typeIdentity, descriptor.entityId), /kindVersion/u);
+});
 
 test("Artifact descriptor codec is nine-field exact and repository paths use the portable path contract", () => {
   const artifact = compiledArtifact(),

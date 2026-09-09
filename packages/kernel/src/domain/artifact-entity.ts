@@ -78,11 +78,8 @@ export type ArtifactContentWitness =
 export interface ArtifactEntityContractSnapshot {
   readonly schema: "artifact-entity-contract/v1";
   readonly typeIdentity: string;
-  /**
-   * The kind schema version the event pinned. Events written before kinds carried an independent
-   * identity have no pin and are read as version 1; current writers always state it.
-   */
-  readonly kindVersion?: number;
+  /** The immutable kind schema version explicitly pinned when the event was accepted. */
+  readonly kindVersion: number;
   readonly descriptorSchemaRef: string;
   readonly idPrefix: string;
   readonly pathTemplate: string;
@@ -306,12 +303,12 @@ export function artifactEntityContractFromSnapshot(
     // therefore checks the envelope and the pin, and leaves attribute admission to the kind contract.
     schema: deepFreeze({
       $schema: "https://json-schema.org/draft/2020-12/schema",
-      $id: artifactDescriptorSchemaId(decoded.descriptorSchemaRef, decoded.typeIdentity, decoded.kindVersion ?? 1),
+      $id: artifactDescriptorSchemaId(decoded.descriptorSchemaRef, decoded.typeIdentity, decoded.kindVersion),
       type: "object",
       properties: {
         schema: { type: "string", const: decoded.descriptorSchemaRef },
         typeIdentity: { type: "string", const: decoded.typeIdentity },
-        kindVersion: { type: "integer", enum: [decoded.kindVersion ?? 1] },
+        kindVersion: { type: "integer", enum: [decoded.kindVersion] },
         entityId: { type: "string", pattern: `^${decoded.idPrefix}-[a-f0-9]{32}$` },
         title: { type: "string", minLength: 1 },
         locator: {
@@ -343,13 +340,23 @@ export function decodeArtifactEntityContractSnapshot(
   value: unknown,
   allowUnknownFields = false,
 ): ArtifactEntityContractSnapshot {
-  const fields = ["schema", "typeIdentity", "descriptorSchemaRef", "idPrefix", "pathTemplate", "locatorKinds"];
+  if (!isRecord(value)) throw new ArtifactEntityContractError("Artifact entity contract snapshot is invalid.");
+  if (!Object.hasOwn(value, "kindVersion") || !Number.isSafeInteger(value.kindVersion) || Number(value.kindVersion) < 1)
+    throw new ArtifactEntityContractError(
+      "Artifact entity contract snapshot kindVersion must be a positive safe integer.",
+    );
+  const fields = [
+    "schema",
+    "typeIdentity",
+    "kindVersion",
+    "descriptorSchemaRef",
+    "idPrefix",
+    "pathTemplate",
+    "locatorKinds",
+  ];
   if (
-    !isRecord(value) ||
-    (!allowUnknownFields && Object.keys(value).some((field) => !fields.includes(field) && field !== "kindVersion")) ||
+    (!allowUnknownFields && Object.keys(value).some((field) => !fields.includes(field))) ||
     fields.some((field) => !Object.hasOwn(value, field)) ||
-    (Object.hasOwn(value, "kindVersion") &&
-      (!Number.isSafeInteger(value.kindVersion) || Number(value.kindVersion) < 1)) ||
     value.schema !== "artifact-entity-contract/v1" ||
     typeof value.typeIdentity !== "string" ||
     !value.typeIdentity ||
