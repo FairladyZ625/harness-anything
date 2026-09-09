@@ -16,10 +16,12 @@ import {
   compileEntityArchived,
   compileEntityUpdated,
   compileVerticalContract,
+  pinnedArtifactKindContract,
   composeCanonicalRelationDirections,
   isEntityDeclarationEvent,
   isEntityEvent,
   normalizeRelativeDocumentPath,
+  type ArtifactDescriptor,
   type AuthorizationDecision,
   type CanonicalEventStore,
   type CanonicalRelationDirection,
@@ -68,19 +70,16 @@ export function compiledArtifactKinds(rootDir: string, repositoryId: string): re
   return canonicalVertical(rootDir, repositoryId).contract.artifactKinds;
 }
 
+/**
+ * Resolve a caller-supplied kind name to the kind's stable ref. A kind has exactly one identity for
+ * its whole life, so this never has to choose between versions, and an archived kind resolves like any
+ * other: archiving stops new imports, it does not hide the material already stored under that kind.
+ */
 export function resolveEntityReadKind(kind: string, contracts: readonly CompiledArtifactKindContract[]): string {
-  const exact = contracts.find(({ typeIdentity }) => typeIdentity === kind);
-  if (exact) return exact.typeIdentity;
-  // A stable declared Kind ID addresses the current schema; historical rows
-  // remain keyed by their immutable versioned type identity.
-  const candidates = contracts
-    .filter(
-      ({ declaration, typeIdentity }) =>
-        (declaration.id === kind || typeIdentity.slice(0, typeIdentity.lastIndexOf("@")) === kind) &&
-        declaration.retired !== true,
-    )
-    .sort((left, right) => right.declaration.version - left.declaration.version);
-  return candidates[0]?.typeIdentity ?? kind;
+  const match = contracts.find(
+    ({ declaration, typeIdentity }) => typeIdentity === kind || declaration.kindId === kind || declaration.id === kind,
+  );
+  return match?.typeIdentity ?? kind;
 }
 
 /**
@@ -186,7 +185,12 @@ export function executeArtifactEntityMutation(input: {
       ),
       { code: "revision_conflict" },
     );
-  const contractSnapshot = artifactEntityContractSnapshot(compiled),
+  const kindVersion = current.descriptor.kindVersion,
+    contractSnapshot = artifactEntityContractSnapshot({
+      declaration: compiled.declaration,
+      typeIdentity: compiled.typeIdentity,
+      kindVersion,
+    }),
     workspaceRevision = (input.store.readHead()?.revision ?? 0) + 1,
     envelope = {
       workspaceRevision,
@@ -249,16 +253,23 @@ function updatedBundle(
         ? canonicalArtifactLocator({ kind: current.locator.kind, value: action.locator })
         : current.locator,
     contentVersion = typeof action.contentVersion === "string" ? action.contentVersion.trim() : current.contentVersion;
+  // The instance keeps the schema version it was accepted against; an update states values, never a
+  // new interpretation of them.
   return compileEntityUpdated({
     ...envelope,
     eventId: `event-${envelope.opId}`,
-    contract: compiled.entityKindContract as Parameters<typeof compileEntityUpdated>[0]["contract"],
+    contract: pinnedArtifactKindContract(compiled, current.kindVersion) as Parameters<
+      typeof compileEntityUpdated
+    >[0]["contract"],
     contractSnapshot,
     descriptor: {
       ...current,
       locator,
       contentVersion,
       ...(typeof action.title === "string" ? { title: action.title.trim() } : {}),
+      // Stated attributes go to the pinned schema as they arrive; it is the one place that decides
+      // whether a value is admissible, so a malformed input is refused instead of quietly dropped.
+      ...(action.attributes === undefined ? {} : { attributes: action.attributes as ArtifactDescriptor["attributes"] }),
     },
   });
 }
@@ -301,6 +312,9 @@ export async function runArtifactEntityImport(input: {
         ...(typeof input.action.title === "string" ? { title: input.action.title } : {}),
         ...(typeof input.action.entityId === "string" ? { entityId: input.action.entityId } : {}),
         ...(typeof input.action.sourceIdentity === "string" ? { sourceIdentity: input.action.sourceIdentity } : {}),
+        ...(input.action.attributes === undefined
+          ? {}
+          : { attributes: input.action.attributes as ArtifactDescriptor["attributes"] }),
         ...(input.action.dryRun === true ? { dryRun: true } : {}),
       },
       {

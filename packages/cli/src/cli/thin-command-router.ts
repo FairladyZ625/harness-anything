@@ -138,15 +138,26 @@ function parseVerticalKindRouted(
   json: boolean,
   inputs: ThinCliInputDirectory,
 ): ThinParseResult {
-  const offset = route.id === "vertical-kind-retire-cli" ? 4 : 3,
+  const positional = route.id === "vertical-kind-upsert-cli" ? undefined : args[3],
+    offset = route.id === "vertical-kind-upsert-cli" ? 3 : 4,
     projected = parseProjected(route.id, args.slice(offset), rootDir, repoId, json, inputs, {}, {}, route.method);
   if (!projected.ok) return projected;
-  if (route.id !== "vertical-kind-retire-cli")
+  if (route.id === "vertical-kind-upsert-cli")
     return accepted(rootDir, repoId, json, { ...projected.command.action, kind: "vertical-kind-upsert" });
-  const kindId = args[3];
-  return nonEmpty(kindId)
-    ? accepted(rootDir, repoId, json, { ...projected.command.action, kind: "vertical-kind-retire", kindId })
-    : rejected("missing_field", "Use ha vertical entity-kind retire <kind> --reason <reason>.", json);
+  const retire = route.id === "vertical-kind-retire-cli";
+  return nonEmpty(positional)
+    ? accepted(rootDir, repoId, json, {
+        ...projected.command.action,
+        kind: retire ? "vertical-kind-retire" : "vertical-kind-publish-schema",
+        kindId: positional,
+      })
+    : rejected(
+        "missing_field",
+        retire
+          ? "Use ha vertical entity-kind retire <kind> --reason <reason>."
+          : "Use ha vertical entity-kind publish-schema <kind> --from-file <attributes>.",
+        json,
+      );
 }
 
 const peopleRequiredInputs: Readonly<Record<string, readonly string[]>> = Object.freeze({

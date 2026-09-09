@@ -298,12 +298,26 @@ function validGovernedRelationApproval(value: unknown): boolean {
   );
 }
 
+/**
+ * A Governed Relation event carries the endpoint templates it was admitted against, so a declared
+ * endpoint is resolved from that witness rather than from today's ref grammar. Kinds the witness does
+ * not declare — the built-in ones — are still resolved by the shared parser.
+ */
 function governedRelationEndpointKind(ref: string, witness: GovernedRelationRegistryWitness): string | null {
+  const witnessed = witness.artifactEndpoints.find((endpoint) => matchesWitnessedEndpoint(ref, endpoint));
+  if (witnessed) return witnessed.kind;
   const parsed = parseEntityRef(ref);
   if (!parsed || parsed.externalHarness) return null;
-  const endpoint = witness.artifactEndpoints.find(({ kind }) => kind === parsed.kind);
-  if (!endpoint) return parsed.kind;
-  return new RegExp(endpoint.idPattern, "u").test(parsed.id) ? parsed.kind : null;
+  return witness.artifactEndpoints.some(({ kind }) => kind === parsed.kind) ? null : parsed.kind;
+}
+
+function matchesWitnessedEndpoint(
+  ref: string,
+  endpoint: GovernedRelationRegistryWitness["artifactEndpoints"][number],
+): boolean {
+  const [prefix = "", suffix = ""] = endpoint.refTemplate.split("{id}");
+  if (!ref.startsWith(prefix) || !ref.endsWith(suffix) || ref.length < prefix.length + suffix.length) return false;
+  return new RegExp(endpoint.idPattern, "u").test(ref.slice(prefix.length, ref.length - suffix.length));
 }
 
 function validGovernedArtifactEndpoint(

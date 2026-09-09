@@ -86,9 +86,12 @@ test("repository vertical migration, upsert conflict, and retirement share one r
     assert.equal(retired?.declaration.retired, true);
     assert.equal(retired?.declaration.reason, "No longer supported.");
     assert.equal(retired?.declaration.retiredAt, "2026-09-05T00:00:00.000Z");
-    assert.equal(
-      retired?.entityKindContract.actionCatalog?.actions.every(({ execution }) => execution === null),
-      true,
+    // Archiving a kind closes new imports only; the material already stored under it stays manageable.
+    assert.deepEqual(
+      retired?.entityKindContract.actionCatalog?.actions
+        .filter(({ execution }) => execution === null)
+        .map(({ id }) => id),
+      ["import"],
     );
     const vertical = canonicalVertical(rootDir, repoId),
       catalog = buildEntityKindCatalog(vertical.contract.artifactKinds, vertical.revision),
@@ -148,13 +151,16 @@ test("declaration read revision drives create, catalog read, and retirement", as
     const read = await cell.read("repo.vertical.declaration.read", {}, binding),
       source = read.declaration.entityKinds.find(({ entityType }) => entityType === "artifact");
     assert.ok(source);
-    const declaration = {
-        ...source,
+    // A new kind is authored, never cloned from another kind's identity or published schema history.
+    const { kindId: _sourceKindId, schemaVersions: _sourceVersions, ...facets } = source,
+      declaration = {
+        ...facets,
         id: "e2e-runbook",
         idPrefix: "E2ERUN",
         display: { singular: "E2E Runbook", plural: "E2E Runbooks" },
         store: { pathTemplate: "entities/e2e-runbooks/{id}.json" },
         relations: [],
+        attributes: { owner: { type: "string" } },
       },
       upsert = await cell.run(
         {

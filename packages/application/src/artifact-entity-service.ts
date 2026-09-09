@@ -9,7 +9,9 @@ import {
   decodeArtifactDescriptor,
   deriveArtifactContentVersion,
   deriveArtifactEntityId,
+  pinnedArtifactKindContract,
   type ActorIdentity,
+  type ArtifactAttributeValue,
   type ArtifactContentWitness,
   type ArtifactDescriptor,
   type ArtifactLocator,
@@ -46,6 +48,8 @@ export interface ArtifactEntityImportRequest {
   /** Explicit relink pins the original source identity while changing only the locator. */
   readonly entityId?: string;
   readonly sourceIdentity?: string;
+  /** Pure values, admitted by the kind schema version this instance is pinned to. */
+  readonly attributes?: Readonly<Record<string, ArtifactAttributeValue>>;
   readonly dryRun?: boolean;
 }
 
@@ -58,6 +62,7 @@ export interface ArtifactEntityImportPreview {
   readonly schema: "artifact-entity-import-preview/v1";
   readonly entityId: string;
   readonly typeIdentity: string;
+  readonly kindVersion: number;
   readonly sourceIdentity: string;
   readonly locator: ArtifactLocator;
   readonly currentContentVersion: string | null;
@@ -151,7 +156,16 @@ export function makeArtifactEntityService(options: {
         "invalid_command",
         `Entity ${entityId} is pinned to source identity ${current.descriptor.source}.`,
       );
-    const contractSnapshot = artifactEntityContractSnapshot(contract),
+    // A new instance pins the kind's newest published version; an existing one keeps the version it was
+    // accepted against, so publishing version 2 never silently reinterprets material already in the ledger.
+    const kindVersion = current?.descriptor?.kindVersion ?? contract.latestVersion,
+      pinnedContract = pinnedArtifactKindContract(contract, kindVersion),
+      attributes = request.attributes ?? current?.descriptor?.attributes ?? {},
+      contractSnapshot = artifactEntityContractSnapshot({
+        declaration: contract.declaration,
+        typeIdentity: contract.typeIdentity,
+        kindVersion,
+      }),
       eventInput = {
         eventId: `event-${observationId}`,
         opId,
@@ -164,15 +178,17 @@ export function makeArtifactEntityService(options: {
         resolution.status === "observed"
           ? compileEntityContentObserved({
               ...eventInput,
-              contract: contract.entityKindContract as Parameters<typeof compileEntityContentObserved>[0]["contract"],
+              contract: pinnedContract as Parameters<typeof compileEntityContentObserved>[0]["contract"],
               contractSnapshot,
               descriptor: {
                 schema: descriptorSchemaRef(contract),
                 typeIdentity: contract.typeIdentity,
+                kindVersion,
                 entityId,
                 title: request.title?.trim() || resolution.title.trim(),
                 locator,
                 contentVersion: candidateContentVersion!,
+                attributes,
                 source: sourceIdentity,
               },
               resolver: resolution.resolver,
@@ -193,6 +209,7 @@ export function makeArtifactEntityService(options: {
         schema: "artifact-entity-import-preview/v1",
         entityId,
         typeIdentity: contract.typeIdentity,
+        kindVersion,
         sourceIdentity,
         locator,
         currentContentVersion: current?.descriptor?.contentVersion ?? null,
@@ -267,6 +284,16 @@ function isMatchingReplay(event: EntityEventV1, kind: string, entityId: string, 
   );
 }
 
+/**
+ * Read a stored descriptor through the schema version it pinned, not through the kind's newest one.
+ * This is what keeps an instance imported under version 1 readable after version 2 is published.
+ */
 export function readArtifactDescriptor(contract: CompiledArtifactKindContract, value: unknown): ArtifactDescriptor {
-  return decodeArtifactDescriptor(contract.entityKindContract, value);
+  const pinned =
+    typeof value === "object" &&
+    value !== null &&
+    Number.isSafeInteger((value as { kindVersion?: unknown }).kindVersion)
+      ? Number((value as { readonly kindVersion: number }).kindVersion)
+      : contract.latestVersion;
+  return decodeArtifactDescriptor(pinnedArtifactKindContract(contract, pinned), value);
 }

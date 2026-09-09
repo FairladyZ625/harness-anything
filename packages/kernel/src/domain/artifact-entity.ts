@@ -1,6 +1,10 @@
 import { sha256Bytes, sha256Text } from "../integrity/stable-hash.ts";
 import { normalizeRelativeDocumentPath } from "../layout/portable-path.ts";
-import type { ArtifactEntityKindDefinition } from "../schemas/vertical-definition.ts";
+import type {
+  ArtifactEntityKindDefinition,
+  EntityAttributeDeclaration,
+  EntityKindSchemaVersion,
+} from "../schemas/vertical-definition.ts";
 import { artifactEntityIdPattern } from "./entity-ref.ts";
 import {
   parseEntityJsonSchema,
@@ -19,12 +23,17 @@ import { isRecord } from "./write-chain.contract.ts";
 export const ARTIFACT_DESCRIPTOR_FIELDS = Object.freeze([
   "schema",
   "typeIdentity",
+  "kindVersion",
   "entityId",
   "title",
   "locator",
   "contentVersion",
+  "attributes",
   "source",
 ] as const);
+
+/** Attribute values are pure JSON scalars: they describe the material, never how to act on it. */
+export type ArtifactAttributeValue = string | number | boolean;
 
 export type ArtifactLocatorKind = "repository-path" | "url" | "external-key";
 
@@ -35,11 +44,15 @@ export interface ArtifactLocator {
 
 export interface ArtifactDescriptor {
   readonly schema: string;
+  /** The kind's stable opaque ref; it does not move when the kind is renamed or gains a schema version. */
   readonly typeIdentity: string;
+  /** The immutable kind schema version this instance was accepted against. */
+  readonly kindVersion: number;
   readonly entityId: string;
   readonly title: string;
   readonly locator: ArtifactLocator;
   readonly contentVersion: string;
+  readonly attributes: Readonly<Record<string, ArtifactAttributeValue>>;
   readonly source: string;
 }
 
@@ -65,6 +78,11 @@ export type ArtifactContentWitness =
 export interface ArtifactEntityContractSnapshot {
   readonly schema: "artifact-entity-contract/v1";
   readonly typeIdentity: string;
+  /**
+   * The kind schema version the event pinned. Events written before kinds carried an independent
+   * identity have no pin and are read as version 1; current writers always state it.
+   */
+  readonly kindVersion?: number;
   readonly descriptorSchemaRef: string;
   readonly idPrefix: string;
   readonly pathTemplate: string;
@@ -141,17 +159,24 @@ export function deriveArtifactContentVersion(witness: ArtifactContentWitness): s
   return `sha256:${sha256Bytes(bytes)}`;
 }
 
+/**
+ * The descriptor contract of one pinned kind schema version. `attributes` is closed over exactly the
+ * declared names of that version, so an instance accepted against version 1 keeps validating against
+ * version 1 after version 2 is published, and a kind declared at runtime needs no source branch.
+ */
 export function artifactDescriptorSchema(
   artifact: Pick<ArtifactEntityKindDefinition, "descriptorSchemaRef" | "idPrefix" | "locatorKinds">,
   typeIdentity: string,
+  schemaVersion: EntityKindSchemaVersion,
 ): EntityDocumentJsonSchema<ArtifactDescriptor> {
   return deepFreeze({
     $schema: "https://json-schema.org/draft/2020-12/schema",
-    $id: `${artifact.descriptorSchemaRef}#${typeIdentity}`,
+    $id: artifactDescriptorSchemaId(artifact.descriptorSchemaRef, typeIdentity, schemaVersion.version),
     type: "object",
     properties: {
       schema: { type: "string", const: artifact.descriptorSchemaRef },
       typeIdentity: { type: "string", const: typeIdentity },
+      kindVersion: { type: "integer", enum: [schemaVersion.version] },
       entityId: { type: "string", pattern: `^${artifact.idPrefix}-[a-f0-9]{16}$` },
       title: { type: "string", minLength: 1 },
       locator: {
@@ -164,11 +189,35 @@ export function artifactDescriptorSchema(
         additionalProperties: false,
       },
       contentVersion: { type: "string", minLength: 1 },
+      attributes: attributesSchema(schemaVersion.attributes),
       source: { type: "string", minLength: 1 },
     },
     required: ARTIFACT_DESCRIPTOR_FIELDS,
     additionalProperties: false,
   });
+}
+
+export function artifactDescriptorSchemaId(descriptorSchemaRef: string, typeIdentity: string, version: number): string {
+  return `${descriptorSchemaRef}#${typeIdentity}/v${version}`;
+}
+
+function attributesSchema(attributes: EntityKindSchemaVersion["attributes"]) {
+  return {
+    type: "object" as const,
+    properties: Object.fromEntries(
+      Object.entries(attributes).map(([name, declaration]) => [name, attributeNode(declaration)]),
+    ),
+    required: Object.entries(attributes)
+      .filter(([, declaration]) => declaration.required === true)
+      .map(([name]) => name),
+    additionalProperties: false,
+  };
+}
+
+function attributeNode(declaration: EntityAttributeDeclaration) {
+  return declaration.type === "string"
+    ? { type: "string" as const, ...(declaration.enum ? { enum: [...declaration.enum] } : {}) }
+    : { type: declaration.type, ...(declaration.enum ? { enum: [...declaration.enum] } : {}) };
 }
 
 export function decodeArtifactDescriptor(
@@ -220,10 +269,12 @@ export function artifactEntityContractSnapshot(input: {
     "descriptorSchemaRef" | "idPrefix" | "locatorKinds" | "store"
   >;
   readonly typeIdentity: string;
+  readonly kindVersion: number;
 }): ArtifactEntityContractSnapshot {
   return deepFreeze({
     schema: "artifact-entity-contract/v1",
     typeIdentity: input.typeIdentity,
+    kindVersion: input.kindVersion,
     descriptorSchemaRef: input.declaration.descriptorSchemaRef,
     idPrefix: input.declaration.idPrefix,
     pathTemplate: input.declaration.store.pathTemplate,
@@ -247,14 +298,35 @@ export function artifactEntityContractFromSnapshot(
     residency: { authored: "ledger" as const },
     relationEndpoint: { eligible: true as const },
     baseActions: ["pin", "unpin", "relate", "unrelate", "update", "archive", "explain"],
-    schema: artifactDescriptorSchema(
-      {
-        descriptorSchemaRef: decoded.descriptorSchemaRef,
-        idPrefix: decoded.idPrefix,
-        locatorKinds: decoded.locatorKinds,
+    // The event pins which kind schema version it was accepted against; the declared attribute names of
+    // that version live in the kind record, which never rewrites a published version. Replaying an event
+    // therefore checks the envelope and the pin, and leaves attribute admission to the kind contract.
+    schema: deepFreeze({
+      $schema: "https://json-schema.org/draft/2020-12/schema",
+      $id: artifactDescriptorSchemaId(decoded.descriptorSchemaRef, decoded.typeIdentity, decoded.kindVersion ?? 1),
+      type: "object",
+      properties: {
+        schema: { type: "string", const: decoded.descriptorSchemaRef },
+        typeIdentity: { type: "string", const: decoded.typeIdentity },
+        kindVersion: { type: "integer", enum: [decoded.kindVersion ?? 1] },
+        entityId: { type: "string", pattern: `^${decoded.idPrefix}-[a-f0-9]{16}$` },
+        title: { type: "string", minLength: 1 },
+        locator: {
+          type: "object",
+          properties: {
+            kind: { type: "string", enum: decoded.locatorKinds },
+            value: { type: "string", minLength: 1 },
+          },
+          required: ["kind", "value"],
+          additionalProperties: false,
+        },
+        contentVersion: { type: "string", minLength: 1 },
+        attributes: { type: "object", properties: {}, required: [], additionalProperties: true },
+        source: { type: "string", minLength: 1 },
       },
-      decoded.typeIdentity,
-    ),
+      required: ARTIFACT_DESCRIPTOR_FIELDS,
+      additionalProperties: false,
+    }),
     relations: { directions: [], edges: [] },
     canonicalProjection: { embeddedEvents: [], row: { idField: "entityId", ownerField: null } },
     actionCatalog: null,
@@ -271,8 +343,10 @@ export function decodeArtifactEntityContractSnapshot(
   const fields = ["schema", "typeIdentity", "descriptorSchemaRef", "idPrefix", "pathTemplate", "locatorKinds"];
   if (
     !isRecord(value) ||
-    (!allowUnknownFields && Object.keys(value).some((field) => !fields.includes(field))) ||
+    (!allowUnknownFields && Object.keys(value).some((field) => !fields.includes(field) && field !== "kindVersion")) ||
     fields.some((field) => !Object.hasOwn(value, field)) ||
+    (Object.hasOwn(value, "kindVersion") &&
+      (!Number.isSafeInteger(value.kindVersion) || Number(value.kindVersion) < 1)) ||
     value.schema !== "artifact-entity-contract/v1" ||
     typeof value.typeIdentity !== "string" ||
     !value.typeIdentity ||
@@ -334,9 +408,15 @@ function isArtifactDescriptor(value: unknown): value is ArtifactDescriptor {
     Object.keys(value).every((field) => (ARTIFACT_DESCRIPTOR_FIELDS as readonly string[]).includes(field)) &&
     typeof value.schema === "string" &&
     typeof value.typeIdentity === "string" &&
+    Number.isSafeInteger(value.kindVersion) &&
+    Number(value.kindVersion) >= 1 &&
     typeof value.entityId === "string" &&
     typeof value.title === "string" &&
     typeof value.contentVersion === "string" &&
+    isRecord(value.attributes) &&
+    Object.values(value.attributes).every(
+      (attribute) => typeof attribute === "string" || typeof attribute === "number" || typeof attribute === "boolean",
+    ) &&
     typeof value.source === "string" &&
     isRecord(value.locator) &&
     typeof value.locator.kind === "string" &&

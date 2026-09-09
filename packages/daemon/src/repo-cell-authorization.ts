@@ -303,6 +303,8 @@ export function authorizeDurableRepoCellAction(
       return authorizeRepoCellAction(input);
     case "vertical-declaration-migrate":
       return authorizeRepoCellAction(input);
+    case "vertical-kind-publish-schema":
+      return authorizeRepoCellAction(input);
     case "vertical-kind-retire":
       return authorizeRepoCellAction(input);
     case "vertical-kind-upsert":

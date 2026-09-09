@@ -16,8 +16,9 @@ import { daemonGuiReadMethods, validateDaemonRpcCall } from "../src/protocol/dae
 import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
 import { defaultAssets } from "../../preset/src/preset-resolver-common.ts";
 
-const ADR_KIND = "software/coding/architecture-decision-record@1",
-  RESEARCH_KIND = "software/coding/research@1",
+const ADR_KIND = "entity-kind/KND-1f5c0a7e9b3d4c6a8e2f0b1d3c5a7e94",
+  ISSUE_KIND = "entity-kind/KND-2a6d1b8f0c4e5d7b9f3a1c2e4d6b8f05",
+  RESEARCH_KIND = "entity-kind/KND-3b7e2c9a1d5f6e8c0a4b2d3f5e7c9a16",
   repositoryRoot = mkdtempSync(path.join(tmpdir(), "ha-vertical-catalog-"));
 mkdirSync(path.join(repositoryRoot, "harness"), { recursive: true });
 writeFileSync(
@@ -35,8 +36,8 @@ const repositoryKinds = () => compiledArtifactKinds(repositoryRoot, "catalog-con
  * 已注册 kind 读面的契约:GUI 的实体种类集合只能从这里来。
  *
  * 两条不变量:内核内建 kind 与 vertical 声明的 kind 出现在**同一份**清单里且各自
- * 带同源解释;声明出来的 kind 用完整 type identity(`<vertical>/<id>@<version>`)——
- * 短名不是它的身份,拿短名去 import 会被拒。
+ * 带同源解释;声明出来的 kind 用它被铸造时的稳定不透明身份(`entity-kind/KND-...`)——
+ * 短名只是选择用的限定名,拿短名去 import 会被拒。
  */
 test("entity kind catalog carries builtin and declared kinds through the same explanation", () => {
   const catalog = buildEntityKindCatalog(repositoryKinds(), 1);
@@ -101,9 +102,10 @@ test("the declared research kind is importable and carries both governed relatio
 test("entity projection reads resolve vertical declaration ids to canonical kind identities", () => {
   const kinds = repositoryKinds();
   assert.equal(resolveEntityReadKind("architecture-decision-record", kinds), ADR_KIND);
-  assert.equal(resolveEntityReadKind("external-issue", kinds), "software/coding/external-issue@1");
+  assert.equal(resolveEntityReadKind("external-issue", kinds), ISSUE_KIND);
   assert.equal(resolveEntityReadKind("research", kinds), RESEARCH_KIND);
   assert.equal(resolveEntityReadKind(RESEARCH_KIND, kinds), RESEARCH_KIND);
+  assert.equal(resolveEntityReadKind(RESEARCH_KIND.slice("entity-kind/".length), kinds), RESEARCH_KIND);
   assert.equal(resolveEntityReadKind("agent", kinds), "agent");
 });
 

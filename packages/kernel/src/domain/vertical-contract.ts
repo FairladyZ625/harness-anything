@@ -6,7 +6,7 @@ import {
   type VerticalDefinition,
 } from "../schemas/vertical-definition.ts";
 import { baseEntityTypeContract, entityTypeContracts, type EntityTypeContract } from "./base-entity.ts";
-import { artifactEntityIdPattern } from "./entity-ref.ts";
+import { artifactEntityIdPattern, entityKindRef } from "./entity-ref.ts";
 import { artifactDescriptorSchema, deepFreeze } from "./artifact-entity.ts";
 import {
   entityKindContracts,
@@ -29,9 +29,19 @@ export interface CompiledArtifactRelationRequest {
   readonly declaration: ArtifactRelationDefinition;
 }
 
+export interface CompiledArtifactSchemaVersion {
+  readonly version: number;
+  readonly schema: ReturnType<typeof artifactDescriptorSchema>;
+}
+
 export interface CompiledArtifactKindContract {
   readonly declaration: ArtifactEntityKindDefinition;
+  /** The kind's stable opaque ref `entity-kind/KND-...`; never carries a schema version. */
   readonly typeIdentity: string;
+  readonly verticalId: string;
+  /** Every published schema version, oldest first; a pinned instance reads through its own entry. */
+  readonly schemaVersions: readonly CompiledArtifactSchemaVersion[];
+  readonly latestVersion: number;
   readonly entityTypeContract: EntityTypeContract;
   readonly entityKindContract: EntityKindContract;
   /** Decoded, code-vocabulary-checked requests. W1-C owns their governed direction compilation. */
@@ -85,7 +95,18 @@ export function compileVerticalContract(
 
   const compiledArtifacts = artifacts.map((artifact) => {
     validateArtifactDeclaration(artifact, registeredSchemaRefs);
-    const typeIdentity = `${definition.id}/${artifact.id}@${artifact.version}`,
+    const typeIdentity = entityKindRef(artifact.kindId),
+      schemaVersions = Object.freeze(
+        [...artifact.schemaVersions]
+          .sort((left, right) => left.version - right.version)
+          .map((schemaVersion) =>
+            Object.freeze({
+              version: schemaVersion.version,
+              schema: artifactDescriptorSchema(artifact, typeIdentity, schemaVersion),
+            }),
+          ),
+      ),
+      latestVersion = schemaVersions[schemaVersions.length - 1]!.version,
       identity = Object.freeze({
         field: "entityId",
         pattern: artifactEntityIdPattern(artifact.idPrefix),
@@ -103,7 +124,7 @@ export function compileVerticalContract(
       ),
       entityKindContract: EntityKindContract = Object.freeze({
         ...entityTypeContract,
-        schema: artifactDescriptorSchema(artifact, typeIdentity),
+        schema: schemaVersions[schemaVersions.length - 1]!.schema,
         relations: Object.freeze({ directions: Object.freeze([]), edges: Object.freeze([]) }),
         canonicalProjection: Object.freeze({
           embeddedEvents: Object.freeze([]),
@@ -116,12 +137,14 @@ export function compileVerticalContract(
               ]),
             }
           : {}),
+        // Archiving a kind closes the door to new material, not to the material already inside it:
+        // only `import` loses its execution, so existing instances stay updatable and archivable.
         actionCatalog: artifact.retired
           ? Object.freeze({
               ...artifactEntityActionCatalog(typeIdentity, identity),
               actions: Object.freeze(
                 artifactEntityActionCatalog(typeIdentity, identity).actions.map((action) =>
-                  Object.freeze({ ...action, execution: null }),
+                  action.id === "import" ? Object.freeze({ ...action, execution: null }) : action,
                 ),
               ),
             })
@@ -133,6 +156,9 @@ export function compileVerticalContract(
     return Object.freeze({
       declaration: artifact,
       typeIdentity,
+      verticalId: definition.id,
+      schemaVersions,
+      latestVersion,
       entityTypeContract,
       entityKindContract,
       relationRequests,
@@ -147,6 +173,23 @@ export function compileVerticalContract(
   });
   compiledRelationDirections(compiled, authority);
   return compiled;
+}
+
+/**
+ * The contract an instance pinned to `version` is admitted and read through. The kind record never
+ * rewrites a published version, so this resolves to the same bytes for the life of the entity.
+ */
+export function pinnedArtifactKindContract(
+  contract: CompiledArtifactKindContract,
+  version: number,
+): EntityKindContract {
+  const pinned = contract.schemaVersions.find((candidate) => candidate.version === version);
+  if (!pinned)
+    throw new VerticalContractError(
+      `Artifact kind ${contract.declaration.id} has no schema version ${version}; published versions are ` +
+        `${contract.schemaVersions.map(({ version: published }) => published).join(", ")}.`,
+    );
+  return Object.freeze({ ...contract.entityKindContract, schema: pinned.schema });
 }
 
 export function compiledRelationDirections(
@@ -227,7 +270,7 @@ function validateUniqueContracts(
   }
   for (const artifact of artifacts) {
     if (builtinKindIds.has(artifact.id)) duplicate("kind id", artifact.id);
-    const typeIdentity = `${definition.id}/${artifact.id}@${artifact.version}`;
+    const typeIdentity = entityKindRef(artifact.kindId);
     if (typeIdentities.has(typeIdentity)) duplicate("type identity", typeIdentity);
     typeIdentities.add(typeIdentity);
     if (idPrefixes.has(artifact.idPrefix)) duplicate("idPrefix", artifact.idPrefix);
@@ -250,6 +293,13 @@ function validateArtifactDeclaration(
     );
   }
   assertUniqueValues(artifact.locatorKinds, `Artifact kind ${artifact.id} locatorKinds`);
+  const versions = artifact.schemaVersions.map(({ version }) => version);
+  if (new Set(versions).size !== versions.length)
+    throw new VerticalContractError(`Artifact kind ${artifact.id} repeats a schema version.`);
+  if (Math.min(...versions) !== 1 || Math.max(...versions) !== versions.length)
+    throw new VerticalContractError(
+      `Artifact kind ${artifact.id} schema versions must run 1..${versions.length} without gaps.`,
+    );
   if (artifact.maturityVocabulary) {
     assertUniqueValues(artifact.maturityVocabulary, `Artifact kind ${artifact.id} maturityVocabulary`);
   }

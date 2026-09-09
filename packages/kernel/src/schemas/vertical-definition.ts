@@ -127,11 +127,39 @@ const ArtifactRelationSchema = Schema.Struct({
   decisionContentPin: Schema.String.pipe(Schema.pattern(/^sha256:[0-9a-f]{64}$/u)),
 });
 
+/**
+ * One declared attribute of an Artifact kind. Attributes are pure values: they cannot name a
+ * renderer, a command or a write path, so a new kind never needs a production branch. The supported
+ * constructs are the ones a form control can generate; anything else fails the decode at kind
+ * creation instead of surprising a caller at import time.
+ */
+const EntityAttributeDeclarationSchema = Schema.Struct({
+  type: Schema.Literal("string", "number", "integer", "boolean"),
+  enum: Schema.optional(Schema.Array(NonBlankStringSchema).pipe(Schema.minItems(1))),
+  required: Schema.optional(Schema.Boolean),
+});
+
+/**
+ * An immutable interpretation of a kind's attributes. Publishing a new version appends a row; the
+ * bodies already present are never rewritten, so an instance that pinned `version` keeps reading the
+ * exact schema it was accepted against even after the kind is renamed or archived.
+ */
+const EntityKindSchemaVersionSchema = Schema.Struct({
+  version: Schema.Number.pipe(Schema.int(), Schema.greaterThan(0)),
+  attributes: Schema.Record({
+    key: Schema.String.pipe(Schema.pattern(/^[a-z][A-Za-z0-9]*$/u)),
+    value: EntityAttributeDeclarationSchema,
+  }),
+});
+
 const ArtifactEntityKindSchema = Schema.Struct({
   ...RetirementFields,
+  /** Stable opaque identity. Minted once at creation; survives rename, schema publication and archive. */
+  kindId: Schema.String.pipe(Schema.pattern(/^KND-[0-9a-f]{32}$/u)),
+  /** Qualified name used for selection and install de-duplication only; renaming it changes no ref. */
   id: Schema.String.pipe(Schema.pattern(/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/u)),
   entityType: Schema.Literal("artifact"),
-  version: Schema.Number.pipe(Schema.int(), Schema.greaterThan(0)),
+  schemaVersions: Schema.Array(EntityKindSchemaVersionSchema).pipe(Schema.minItems(1)),
   idPrefix: Schema.String.pipe(Schema.pattern(/^[A-Z][A-Z0-9]{0,15}$/u)),
   display: Schema.Struct({
     singular: NonBlankStringSchema,
@@ -196,6 +224,8 @@ export type ArtifactEntityKindDefinition = Extract<
   { readonly entityType: "artifact" }
 >;
 export type ArtifactRelationDefinition = NonNullable<ArtifactEntityKindDefinition["relations"]>[number];
+export type EntityKindSchemaVersion = ArtifactEntityKindDefinition["schemaVersions"][number];
+export type EntityAttributeDeclaration = EntityKindSchemaVersion["attributes"][string];
 
 /** Decode once, fail closed on every unknown field, and preserve that exact value for compilation consumers. */
 export function decodeVerticalDefinition(input: unknown): VerticalDefinition {

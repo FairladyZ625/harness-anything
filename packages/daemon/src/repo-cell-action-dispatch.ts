@@ -29,7 +29,14 @@ export async function executeAction(
   action: RepoTaskAction,
   binding: RepoCellBinding,
 ): Promise<WriteReceipt> {
-  if (["vertical-declaration-migrate", "vertical-kind-upsert", "vertical-kind-retire"].includes(action.kind))
+  if (
+    [
+      "vertical-declaration-migrate",
+      "vertical-kind-upsert",
+      "vertical-kind-publish-schema",
+      "vertical-kind-retire",
+    ].includes(action.kind)
+  )
     return runVerticalDeclarationAction({
       action,
       binding,

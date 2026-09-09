@@ -20,7 +20,8 @@ const baseVertical = JSON.parse(
     readFileSync(new URL("../../fixtures/schemas/vertical-definition/valid.json", import.meta.url), "utf8"),
   ) as Record<string, unknown> & { entityKinds: unknown[]; projectionSchemas: unknown[] },
   governancePin = canonicalGovernedRelationAuthority.decisions[0]!.contentPin,
-  artifactType = "custom/engineering/architecture-decision-record@1";
+  adrKindId = "KND-1f5c0a7e9b3d4c6a8e2f0b1d3c5a7e94",
+  artifactType = `entity-kind/${adrKindId}`;
 
 test("governed triples compile into the one canonical runtime registry", () => {
   const compiled = compileVerticalContract(verticalWith(artifact({ relations: [relation()] }))),
@@ -91,7 +92,7 @@ test("an artifact entity is a relation endpoint for its declared triple only", (
     () => assertRelationAdmission({ ...declared, type: "derives" }, accepted.relationDirections),
     (error: unknown) =>
       (error as { readonly code?: string }).code === "relation_triple_undeclared" &&
-      /custom\/engineering\/architecture-decision-record@1 --derives--> decision/u.test(String(error)),
+      new RegExp(`${artifactType} --derives--> decision`, "u").test(String(error)),
   );
   assert.throws(() => assertRelationAdmission(declared), /is not declared in the canonical direction registry/u);
 });
@@ -346,9 +347,10 @@ function verticalWith(...artifacts: readonly unknown[]): Record<string, unknown>
 
 function artifact(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
+    kindId: adrKindId,
     id: "architecture-decision-record",
     entityType: "artifact",
-    version: 1,
+    schemaVersions: [{ version: 1, attributes: {} }],
     idPrefix: "ADR",
     display: { singular: "Architecture Decision Record", plural: "Architecture Decision Records" },
     descriptorSchemaRef: "schema://artifact-descriptor",

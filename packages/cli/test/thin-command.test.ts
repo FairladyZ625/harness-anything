@@ -182,6 +182,22 @@ test("vertical entity-kind commands coexist with the existing vertical command s
       reason: "Superseded",
     });
   assert.equal(parseThinCommand(["vertical", "entity-kind", "retire", "runbook"]).ok, false);
+  const publish = parseThinCommand([
+    "vertical",
+    "entity-kind",
+    "publish-schema",
+    "runbook",
+    "--from-file",
+    "attributes.json",
+  ]);
+  assert.equal(publish.ok, true, JSON.stringify(publish));
+  if (publish.ok)
+    assert.deepEqual(publish.command.action, {
+      kind: "vertical-kind-publish-schema",
+      kindId: "runbook",
+      fromFile: "attributes.json",
+    });
+  assert.equal(parseThinCommand(["vertical", "entity-kind", "publish-schema", "runbook"]).ok, false);
 });
 
 test("retired mutation migrations are explicitly absent from the thin router", () => {
@@ -201,7 +217,7 @@ test("retired mutation migrations are explicitly absent from the thin router", (
 test("capabilities is an exact-set projection of the command contract", () => {
   assert.deepEqual(deriveCliCapabilities(), {
     agenda: ["agenda"],
-    agent: ["agent-create", "agent-inspect", "agent-install", "agent-list", "agent-validate"],
+    agent: ["agent-create", "agent-delete", "agent-inspect", "agent-install", "agent-list", "agent-validate"],
     ci: ["ci-observe-pull"],
     daemon: [
       "daemon-connection-add",
@@ -306,6 +322,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
     ],
     squad: [
       "squad-cancel",
+      "squad-delete",
       "squad-inspect",
       "squad-install",
       "squad-list",
@@ -343,7 +360,12 @@ test("capabilities is an exact-set projection of the command contract", () => {
       "task-unpin",
     ],
     template: ["template-list", "template-render"],
-    vertical: ["vertical-kind-retire-cli", "vertical-kind-upsert-cli", "vertical-validate"],
+    vertical: [
+      "vertical-kind-publish-schema-cli",
+      "vertical-kind-retire-cli",
+      "vertical-kind-upsert-cli",
+      "vertical-validate",
+    ],
   });
 });
 

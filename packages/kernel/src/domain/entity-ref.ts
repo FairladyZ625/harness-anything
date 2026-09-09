@@ -25,20 +25,31 @@ const templateTokenPattern = /^\{(?<kind>[a-z-]+)\}$/u;
 const artifactIdPrefixPattern = "[A-Z][A-Z0-9]{0,15}",
   artifactIdSuffixPattern = "-[a-f0-9]{16}";
 
+/** The stable opaque identity every declared Artifact kind is addressed by. */
+export const ENTITY_KIND_ID_PATTERN = "KND-[0-9a-f]{32}";
+export const ENTITY_KIND_REF_PATTERN = `entity-kind/${ENTITY_KIND_ID_PATTERN}`;
+
+export function entityKindRef(kindId: string): string {
+  if (!new RegExp(`^${ENTITY_KIND_ID_PATTERN}$`, "u").test(kindId))
+    throw new Error(`${kindId} is not a valid entity kind identity.`);
+  return `entity-kind/${kindId}`;
+}
+
 /** The id pattern an Artifact kind contract carries, so kind compilation and ref parsing share one grammar. */
 export function artifactEntityIdPattern(idPrefix: string): string {
   return `^${idPrefix}${artifactIdSuffixPattern}$`;
 }
 /**
  * Vertical Artifact kinds are compiled from a vertical definition when the daemon loads it, so they
- * cannot be static rows in `entityTypeContracts`. Their ref body is fixed by the compiler: the type
- * identity `<verticalId>/<kindId>@<version>` names the kind, then the entity id. The `@<version>`
- * segment is what separates it from every built-in kind, none of which carries one. Parsing stays
- * syntactic: whether the kind is registered stays the direction registry's answer, and whether the
- * entity exists stays the projection's.
+ * cannot be static rows in `entityTypeContracts`. Their ref body is fixed by the compiler: the kind's
+ * stable opaque identity `entity-kind/KND-<128 bit>` names the kind, then the entity id. The
+ * `entity-kind/` segment is what separates it from every built-in kind, none of which carries one.
+ * The kind's schema version is deliberately absent: publishing a version or renaming the kind must
+ * not move a single existing reference. Parsing stays syntactic: whether the kind is registered stays
+ * the direction registry's answer, and whether the entity exists stays the projection's.
  */
 function artifactRefBodyPattern(capture: boolean): string {
-  const kind = String.raw`[A-Za-z0-9][A-Za-z0-9_.\-/]*@[1-9][0-9]*`,
+  const kind = ENTITY_KIND_REF_PATTERN,
     id = `${artifactIdPrefixPattern}${artifactIdSuffixPattern}`;
   return capture ? `(?<kind>${kind})/(?<id>${id})` : `(?:${kind})/(?:${id})`;
 }

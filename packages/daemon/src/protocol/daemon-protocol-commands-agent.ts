@@ -13,7 +13,10 @@ export const agentProtocolCommands = Object.freeze([
     actionKind: "vertical-kind-upsert",
     phase: "Governed-Entity-W2",
     path: ["vertical", "entity-kind", "upsert"],
-    summary: "Create or replace one Artifact kind from a complete vertical declaration JSON object.",
+    summary:
+      "Create one Artifact kind, or restate the mutable facets of an existing one. " +
+      "Creation mints the kind's stable identity and version 1 of its attribute schema; " +
+      "a rename keeps every existing reference.",
     method: "repo.vertical.kind.upsert",
     inputs: [
       cliInput(
@@ -22,31 +25,46 @@ export const agentProtocolCommands = Object.freeze([
         true,
         { code: "missing_field" },
         {
-          jsonFields: [
-            "id",
-            "entityType",
-            "version",
-            "idPrefix",
-            "display",
-            "descriptorSchemaRef",
-            "store",
-            "locatorKinds",
-          ],
+          jsonFields: ["id", "entityType", "idPrefix", "display", "descriptorSchemaRef", "store", "locatorKinds"],
           jsonAllowedFields: [
             "retired",
             "retiredAt",
             "reason",
+            "kindId",
             "id",
             "entityType",
-            "version",
             "idPrefix",
             "display",
             "descriptorSchemaRef",
             "store",
             "locatorKinds",
+            "attributes",
             "relations",
             "maturityVocabulary",
           ],
+        },
+      ),
+    ],
+  }),
+  defineCenterForwardWriteCommand({
+    id: "vertical-kind-publish-schema-cli",
+    actionKind: "vertical-kind-publish-schema",
+    phase: "Governed-Entity-W2",
+    path: ["vertical", "entity-kind", "publish-schema", "<kind>"],
+    summary:
+      "Publish the next immutable attribute schema version of one Artifact kind. " +
+      "Existing instances keep the version they were accepted against.",
+    method: "repo.vertical.kind.publishSchema",
+    positional: "kindId",
+    inputs: [
+      cliInput(
+        "--from-file",
+        "single",
+        true,
+        { code: "missing_field" },
+        {
+          jsonFields: [],
+          jsonAllowedFields: ["<attribute name>: { type, enum, required }"],
         },
       ),
     ],

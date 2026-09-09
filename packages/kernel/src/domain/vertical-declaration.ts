@@ -3,8 +3,10 @@ import { eventObjectTarget } from "../layout/ledger-object-layout.ts";
 import {
   decodeForwardCompatibleVerticalDefinition,
   decodeVerticalDefinition,
+  type ArtifactEntityKindDefinition,
   type VerticalDefinition,
 } from "../schemas/vertical-definition.ts";
+import { ENTITY_KIND_ID_PATTERN, entityKindRef } from "./entity-ref.ts";
 import {
   freezeDeclaredWritePlan,
   hasContractFields,
@@ -69,44 +71,162 @@ export interface VerticalDeclarationBundle {
   ];
 }
 
+export type VerticalKindCommandKind = "upsert" | "publish-schema" | "retire";
+
+export interface VerticalKindCommandResult {
+  readonly definition: VerticalDefinition;
+  /** The kind's stable opaque ref, unchanged by rename, schema publication and archive. */
+  readonly kindRef: string;
+  /** The kind's newest published schema version after the command. */
+  readonly kindVersion: number;
+}
+
+/**
+ * The one authority over declared Kind metadata. A Kind is minted once with an opaque identity and an
+ * immutable version 1 of its attribute schema; later commands publish further versions, rewrite the
+ * mutable facets, or archive it. Nothing here can rewrite a published version or move an identity, so
+ * an instance that pinned version 1 keeps reading version 1 for the life of the ledger.
+ */
 export function applyVerticalKindCommand(input: {
   readonly definition: VerticalDefinition;
   readonly revision: number;
   readonly expectedVersion: number;
-  readonly kind: "upsert" | "retire";
+  readonly kind: VerticalKindCommandKind;
   readonly kindId: string;
+  /** Center-minted opaque identity, required only when the command creates the Kind. */
+  readonly mintedKindId?: string;
   readonly declaration?: unknown;
+  readonly attributes?: unknown;
   readonly retiredAt?: string;
   readonly reason?: string;
-}): VerticalDefinition {
-  const kindId = input.kindId.trim(),
-    index = input.definition.entityKinds.findIndex(({ id }) => id === kindId);
-  if (!kindId) verticalError("missing_field", "Vertical kind action requires kindId.");
-  if (input.kind === "upsert" && index >= 0 && input.expectedVersion === 0)
-    verticalError("kind_exists", `Vertical kind ${kindId} already exists.`);
+}): VerticalKindCommandResult {
+  const requested = input.kindId.trim();
+  if (!requested) verticalError("missing_field", "Vertical kind action requires kindId.");
+  const index = input.definition.entityKinds.findIndex((candidate) => matchesKind(candidate, requested)),
+    current = index < 0 ? null : input.definition.entityKinds[index]!;
+  if (current && current.entityType !== "artifact")
+    verticalError("invalid_field", `Vertical kind ${requested} is not a declared Artifact kind.`);
+  const artifact = current as ArtifactEntityKindDefinition | null;
+  // `expectedVersion: 0` states the intent to create, so an existing kind is named as such rather
+  // than reported as a stale fence.
+  if (input.kind === "upsert" && artifact && input.expectedVersion === 0)
+    verticalError("kind_exists", `Vertical kind ${artifact.id} already exists.`);
   if (input.expectedVersion !== input.revision)
     verticalError(
       "revision_conflict",
       `Vertical declaration expected revision ${input.expectedVersion}, current revision is ${input.revision}.`,
     );
+
   if (input.kind === "retire") {
-    if (index < 0) verticalError("entity_not_found", `Vertical kind ${kindId} does not exist.`);
+    if (!artifact) verticalError("entity_not_found", `Vertical kind ${requested} does not exist.`);
     const reason = input.reason?.trim() ?? "";
     if (reason.length < 1 || reason.length > 199)
       verticalError("invalid_field", "Vertical kind retirement reason must contain 1..199 characters.");
     if (!input.retiredAt) verticalError("missing_field", "Vertical kind retirement requires retiredAt.");
-    return decodeVerticalDefinition({
-      ...input.definition,
-      entityKinds: input.definition.entityKinds.map((declaration) =>
-        declaration.id === kindId ? { ...declaration, retired: true, retiredAt: input.retiredAt, reason } : declaration,
-      ),
-    });
+    return kindResult(
+      replaceKind(input.definition, index, { ...artifact, retired: true, retiredAt: input.retiredAt, reason }),
+      artifact,
+    );
   }
+
+  if (input.kind === "publish-schema") {
+    if (!artifact) verticalError("entity_not_found", `Vertical kind ${requested} does not exist.`);
+    if (artifact.retired === true)
+      verticalError("kind_retired", `Vertical kind ${artifact.id} is archived and accepts no new schema version.`);
+    const published = [...artifact.schemaVersions],
+      next = {
+        version: published.length + 1,
+        attributes: attributeDeclarations(input.attributes),
+      } as unknown as ArtifactEntityKindDefinition["schemaVersions"][number],
+      republished = { ...artifact, schemaVersions: [...published, next] };
+    return kindResult(replaceKind(input.definition, index, republished), republished);
+  }
+
   if (!isRecord(input.declaration)) verticalError("invalid_field", "Vertical kind declaration must be an object.");
-  const entityKinds = [...input.definition.entityKinds];
-  if (index < 0) entityKinds.push(input.declaration as VerticalDefinition["entityKinds"][number]);
-  else entityKinds[index] = input.declaration as VerticalDefinition["entityKinds"][number];
-  return decodeVerticalDefinition({ ...input.definition, entityKinds });
+  const { attributes, kindId: declaredKindId, schemaVersions: declaredVersions, ...facets } = input.declaration;
+  if (!artifact) {
+    if (declaredVersions !== undefined)
+      verticalError(
+        "invalid_field",
+        "A new vertical kind states its attributes; its schema version list is minted by the center.",
+      );
+    const mintedKindId = String(input.mintedKindId ?? "");
+    if (!new RegExp(`^${ENTITY_KIND_ID_PATTERN}$`, "u").test(mintedKindId))
+      verticalError("missing_field", "Creating a vertical kind requires a minted opaque kind id.");
+    if (declaredKindId !== undefined)
+      verticalError("invalid_field", "A new vertical kind may not choose its own opaque kind id.");
+    const created = {
+      ...facets,
+      kindId: mintedKindId,
+      schemaVersions: [{ version: 1, attributes: attributeDeclarations(attributes) }],
+    } as unknown as ArtifactEntityKindDefinition;
+    return kindResult(
+      decodeVerticalDefinition({ ...input.definition, entityKinds: [...input.definition.entityKinds, created] }),
+      created,
+    );
+  }
+  if (declaredKindId !== undefined && declaredKindId !== artifact.kindId)
+    verticalError("destructive_kind_change", "A vertical kind keeps the opaque identity it was minted with.");
+  const declaredIdPrefix = facets.idPrefix,
+    declaredPathTemplate = isRecord(facets.store) ? facets.store.pathTemplate : undefined;
+  if (declaredIdPrefix !== undefined && declaredIdPrefix !== artifact.idPrefix)
+    verticalError("destructive_kind_change", "idPrefix is immutable because existing entity ids depend on it.");
+  if (declaredPathTemplate !== undefined && declaredPathTemplate !== artifact.store.pathTemplate)
+    verticalError(
+      "destructive_kind_change",
+      "store.pathTemplate is immutable because existing entity documents depend on it.",
+    );
+  // A restated declaration may carry the versions it read back, but it can never change one: a
+  // published interpretation is what the instances pinned to it are still validated against.
+  if (
+    (attributes !== undefined &&
+      stableStringify(attributeDeclarations(attributes)) !== stableStringify(latest(artifact).attributes)) ||
+    (declaredVersions !== undefined && stableStringify(declaredVersions) !== stableStringify(artifact.schemaVersions))
+  )
+    verticalError(
+      "immutable_schema_version",
+      `Schema version ${latest(artifact).version} of ${artifact.id} is published; ` +
+        "publish a new version instead of rewriting it.",
+    );
+  const renamed = {
+    ...facets,
+    kindId: artifact.kindId,
+    schemaVersions: [...artifact.schemaVersions],
+  } as unknown as ArtifactEntityKindDefinition;
+  return kindResult(replaceKind(input.definition, index, renamed), renamed);
+}
+
+function matchesKind(candidate: VerticalDefinition["entityKinds"][number], requested: string): boolean {
+  if (candidate.entityType !== "artifact") return candidate.id === requested;
+  return candidate.kindId === requested || entityKindRef(candidate.kindId) === requested || candidate.id === requested;
+}
+
+function replaceKind(
+  definition: VerticalDefinition,
+  index: number,
+  next: ArtifactEntityKindDefinition,
+): VerticalDefinition {
+  const entityKinds = [...definition.entityKinds];
+  entityKinds[index] = next;
+  return decodeVerticalDefinition({ ...definition, entityKinds });
+}
+
+function kindResult(definition: VerticalDefinition, artifact: ArtifactEntityKindDefinition): VerticalKindCommandResult {
+  return { definition, kindRef: entityKindRef(artifact.kindId), kindVersion: latest(artifact).version };
+}
+
+function latest(artifact: ArtifactEntityKindDefinition): ArtifactEntityKindDefinition["schemaVersions"][number] {
+  return [...artifact.schemaVersions].sort((left, right) => left.version - right.version).at(-1)!;
+}
+
+/**
+ * Attribute declarations are accepted as a plain map so a caller declares values, never behaviour.
+ * Unsupported constructs are refused here rather than at the caller's first import.
+ */
+function attributeDeclarations(value: unknown): Record<string, unknown> {
+  if (value === undefined) return {};
+  if (!isRecord(value)) verticalError("invalid_field", "Vertical kind attributes must be an object.");
+  return value;
 }
 
 function verticalError(code: string, message: string): never {

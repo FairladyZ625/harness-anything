@@ -14,6 +14,7 @@ import {
   decodeArtifactDescriptor,
   deriveArtifactContentVersion,
   deriveArtifactEntityId,
+  pinnedArtifactKindContract,
   type ArtifactDescriptor,
   type EntityStoreKindContract,
 } from "../../src/index.ts";
@@ -25,8 +26,8 @@ const vertical = JSON.parse(
 ) as Record<string, unknown> & { entityKinds: unknown[]; projectionSchemas: unknown[] };
 const actor = { principal: { personId: "person-artifact" }, executor: null } as const;
 
-test("Artifact descriptor codec is seven-field exact and repository paths use the portable path contract", () => {
-  const artifact = compiledArtifact(1),
+test("Artifact descriptor codec is nine-field exact and repository paths use the portable path contract", () => {
+  const artifact = compiledArtifact(),
     source = canonicalSourceIdentity({
       kind: "repository-path",
       repositoryId: "canonical",
@@ -36,15 +37,22 @@ test("Artifact descriptor codec is seven-field exact and repository paths use th
   assert.deepEqual(Object.keys(decodeArtifactDescriptor(artifact.entityKindContract, descriptor)), [
     "schema",
     "typeIdentity",
+    "kindVersion",
     "entityId",
     "title",
     "locator",
     "contentVersion",
+    "attributes",
     "source",
   ]);
   assert.equal(
     JSON.parse(encodeArtifactDescriptor(artifact.entityKindContract, descriptor)).entityId,
     descriptor.entityId,
+  );
+  assert.throws(
+    () => decodeArtifactDescriptor(artifact.entityKindContract, { ...descriptor, attributes: { undeclared: "x" } }),
+    /unknown; remove it/u,
+    "attributes are closed over exactly the names the pinned schema version declares",
   );
   for (const unknown of ["body", "summary", "attachments", "embedding", "freshness"])
     assert.throws(
@@ -62,18 +70,28 @@ test("Artifact descriptor codec is seven-field exact and repository paths use th
     );
 });
 
-test("source-derived identity is stable across content and relink, while schema identity changes it", () => {
-  const v1 = compiledArtifact(1),
-    v2 = compiledArtifact(2, "ADR2"),
+test("instance identity survives a schema publication and a kind rename", () => {
+  const v1 = compiledArtifact(),
+    // The same kind after publishing version 2 and renaming it: one identity, two schema versions.
+    v2 = compiledArtifact({
+      id: "site-observation",
+      schemaVersions: [
+        { version: 1, attributes: {} },
+        { version: 2, attributes: { confidence: { type: "integer" } } },
+      ],
+    }),
     source = canonicalSourceIdentity({ kind: "repository-path", repositoryId: "canonical", path: "docs/adr.md" }),
     idV1 = deriveArtifactEntityId({ idPrefix: "ADR", typeIdentity: v1.typeIdentity, sourceIdentity: source }),
     changedContentVersion = deriveArtifactContentVersion({ kind: "content", content: "changed\r\nbody\r\n" }),
     normalizedContentVersion = deriveArtifactContentVersion({ kind: "content", content: "changed\nbody\n" });
   assert.equal(changedContentVersion, normalizedContentVersion);
   assert.notEqual(changedContentVersion, deriveArtifactContentVersion({ kind: "content", content: "original" }));
+  assert.equal(v2.typeIdentity, v1.typeIdentity, "publishing a version and renaming keep the kind identity");
+  assert.equal(v2.latestVersion, 2);
   assert.equal(
     idV1,
-    deriveArtifactEntityId({ idPrefix: "ADR", typeIdentity: v1.typeIdentity, sourceIdentity: source }),
+    deriveArtifactEntityId({ idPrefix: "ADR", typeIdentity: v2.typeIdentity, sourceIdentity: source }),
+    "an instance keeps its identity after its kind publishes a schema version and is renamed",
   );
   assert.notEqual(
     idV1,
@@ -86,16 +104,23 @@ test("source-derived identity is stable across content and relink, while schema 
     ),
     "the digest is exactly sha256(canonicalSourceIdentity), independent of type and edge",
   );
-  const relinked = makeDescriptor(v1, source, { locator: { kind: "repository-path", value: "docs/moved/adr.md" } });
-  assert.equal(decodeArtifactDescriptor(v1.entityKindContract, relinked).entityId, idV1);
+  // A version-1 descriptor is still admitted by the kind after version 2 exists.
+  const pinnedV1 = pinnedArtifactKindContract(v2, 1),
+    relinked = makeDescriptor(v1, source, { locator: { kind: "repository-path", value: "docs/moved/adr.md" } });
+  assert.equal(decodeArtifactDescriptor(pinnedV1, relinked).entityId, idV1);
+  assert.throws(
+    () => decodeArtifactDescriptor(pinnedArtifactKindContract(v2, 2), relinked),
+    /kindVersion/u,
+    "a version-1 descriptor is not silently readable as version 2",
+  );
   assert.equal(canonicalArtifactUrl("HTTPS://Example.COM:443/a?z=2&a=1#fragment"), "https://example.com/a?a=1&z=2");
 });
 
 test("observed and missing artifact events are self-validating generic entity events", () => {
-  const artifact = compiledArtifact(1),
+  const artifact = compiledArtifact(),
     source = canonicalSourceIdentity({ kind: "repository-path", repositoryId: "canonical", path: "docs/adr.md" }),
     descriptor = makeDescriptor(artifact, source),
-    snapshot = artifactEntityContractSnapshot(artifact);
+    snapshot = artifactEntityContractSnapshot({ ...artifact, kindVersion: 1 });
   const compiledObserved = compileObservedWithDerivedIds(artifact, descriptor);
   assert.equal(compiledObserved.event.type, "entity_content_observed");
   assert.doesNotThrow(() =>
@@ -143,22 +168,26 @@ test("observed and missing artifact events are self-validating generic entity ev
   );
 });
 
-function compiledArtifact(version: number, idPrefix = "ADR") {
+const adrKindId = "KND-1f5c0a7e9b3d4c6a8e2f0b1d3c5a7e94";
+
+function compiledArtifact(overrides: Record<string, unknown> = {}) {
   return compileVerticalContract({
     ...vertical,
     id: "custom/engineering",
     entityKinds: [
       ...vertical.entityKinds,
       {
+        kindId: adrKindId,
         id: "architecture-decision-record",
         entityType: "artifact",
-        version,
-        idPrefix,
+        schemaVersions: [{ version: 1, attributes: {} }],
+        idPrefix: "ADR",
         display: { singular: "ADR", plural: "ADRs" },
         descriptorSchemaRef: "schema://artifact-descriptor",
         store: { pathTemplate: "entities/adrs/{id}.json" },
         locatorKinds: ["repository-path", "url", "external-key"],
         relations: [],
+        ...overrides,
       },
     ],
     projectionSchemas: [
@@ -176,6 +205,7 @@ function makeDescriptor(
   return {
     schema: "schema://artifact-descriptor",
     typeIdentity: artifact.typeIdentity,
+    kindVersion: 1,
     entityId: deriveArtifactEntityId({
       idPrefix: artifact.declaration.idPrefix,
       typeIdentity: artifact.typeIdentity,
@@ -184,6 +214,7 @@ function makeDescriptor(
     title: "ADR One",
     locator: { kind: "repository-path", value: "docs/adr.md" },
     contentVersion: deriveArtifactContentVersion({ kind: "content", content: "# ADR One\n" }),
+    attributes: {},
     source,
     ...overrides,
   };
@@ -200,7 +231,7 @@ function compileObservedWithDerivedIds(artifact: ReturnType<typeof compiledArtif
   const ids = observationIds(descriptor.entityId, descriptor.locator, descriptor.contentVersion);
   return compileEntityContentObserved({
     contract: artifact.entityKindContract as EntityStoreKindContract,
-    contractSnapshot: artifactEntityContractSnapshot(artifact),
+    contractSnapshot: artifactEntityContractSnapshot({ ...artifact, kindVersion: 1 }),
     descriptor,
     resolver: "repository:canonical",
     observationId: ids.observationId,

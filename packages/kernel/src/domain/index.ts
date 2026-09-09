@@ -175,7 +175,11 @@ export type { UseCaseProjectionName } from "./use-case-projection-catalog.ts";
 
 export { projectBaseEntityAtCut, requireEntityTypeContract } from "./base-entity.ts";
 export type { BaseEntity } from "./base-entity.ts";
-export { compiledRelationDirections, compileVerticalContract } from "./vertical-contract.ts";
+export {
+  compiledRelationDirections,
+  compileVerticalContract,
+  pinnedArtifactKindContract,
+} from "./vertical-contract.ts";
 export type { CompiledArtifactKindContract, CompiledVerticalContract } from "./vertical-contract.ts";
 export { composeCanonicalRelationDirections } from "./relation-direction.ts";
 export type { CanonicalRelationDirection } from "./relation-direction.ts";
@@ -258,6 +262,7 @@ export {
   compileVerticalDeclarationEvent,
   parseVerticalDeclarationDocument,
 } from "./vertical-declaration.ts";
+export type { VerticalKindCommandResult } from "./vertical-declaration.ts";
 export { decodeVerticalDefinition } from "../schemas/vertical-definition.ts";
 export type { VerticalDefinition } from "../schemas/vertical-definition.ts";
 export { buildVerticalDeclarationRead, validateVerticalDeclarationRead } from "./vertical-declaration.ts";
@@ -338,6 +343,7 @@ export {
   deriveArtifactEntityId,
 } from "./artifact-entity.ts";
 export type {
+  ArtifactAttributeValue,
   ArtifactContentWitness,
   ArtifactDescriptor,
   ArtifactLocator,
