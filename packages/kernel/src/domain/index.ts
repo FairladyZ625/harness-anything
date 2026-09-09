@@ -351,6 +351,7 @@ export type {
 export {
   artifactEntityContractSnapshot,
   artifactImportOperationId,
+  importBindingGeneration,
   artifactObservationId,
   artifactMutationOperationId,
   canonicalArtifactLocator,

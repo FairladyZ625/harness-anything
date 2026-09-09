@@ -201,6 +201,7 @@ export function executeArtifactEntityMutation(input: {
             contractSnapshot,
             { ...envelope, opId },
             carriedContent(input.store, pinned, entityId, current.ownedContent),
+            carriedDirectories(pinned, entityId, current.ownedContent),
           )
         : input.action.kind === "entity-delete"
           ? compileEntityDeleted({
@@ -266,6 +267,7 @@ function updatedBundle(
     readonly occurredAt: string;
   },
   carried: readonly EntityContentBlob[],
+  carriedDirectories: readonly string[],
 ) {
   const locator =
       typeof action.locator === "string"
@@ -284,6 +286,9 @@ function updatedBundle(
     // An update states values, not a new snapshot of the source: the content the entity already owns is
     // restated unchanged, so renaming or re-pointing an entity never drops the bytes it holds.
     sourceContent: carried,
+    // An empty directory is only in the manifest because nothing else can hold it; an update that failed to
+    // restate it would be un-declaring a directory the caller never asked to give up.
+    sourceDirectories: carriedDirectories,
     descriptor: {
       ...current,
       locator,
@@ -317,7 +322,7 @@ export async function runArtifactEntityImport(input: {
           contract,
         }),
       readCurrent: (kind, entityId) => readCurrentArtifact(input.store, input.contracts, kind, entityId),
-      resolveEntityIdBySource: (kind, sourceIdentity) => resolveEntityIdBySource(input.store, kind, sourceIdentity),
+      resolveSourceBinding: (kind, sourceIdentity) => resolveSourceBinding(input.store, kind, sourceIdentity),
       randomEntityIdBytes: () => randomBytes(ARTIFACT_ENTITY_ID_BYTES),
       readOperation: (opId) => readEntityOperation(input.store, opId),
       countRelationChanges: (entityRef) =>
@@ -572,20 +577,33 @@ function readCurrentArtifact(
 }
 
 /**
- * Which entity a source is bound to, read from the accepted events rather than recomputed from the path. A
- * rebind moves the binding with the entity, and a deleted entity releases its source, so re-importing that
- * path mints a new instance instead of resurrecting the old one.
+ * Which entity a source is bound to, read from the accepted events rather than recomputed from the path, and how
+ * many times that binding has already ended. A rebind moves the binding with the entity and a deleted entity
+ * releases its source, so re-importing that path mints a new instance instead of resurrecting the old one; the
+ * release count is what tells the import it is starting a new binding, so it does not replay the receipt of the
+ * import that the release ended. Only accepted lifecycle events move it — nothing here counts globally.
  */
-function resolveEntityIdBySource(store: CanonicalEventStore, kind: string, sourceIdentity: string): string | null {
+function resolveSourceBinding(
+  store: CanonicalEventStore,
+  kind: string,
+  sourceIdentity: string,
+): { readonly entityId: string | null; readonly generation: number } {
   const boundSource = new Map<string, string>();
+  let generation = 0;
   for (const event of store.read().events) {
     if (!isEntityEvent(event) || event.payload.entityKind !== kind) continue;
-    if (event.type === "entity_deleted") boundSource.delete(event.payload.entityId);
-    else if ("sourceIdentity" in event.payload)
-      boundSource.set(event.payload.entityId, String(event.payload.sourceIdentity));
+    const previous = boundSource.get(event.payload.entityId);
+    if (event.type === "entity_deleted") {
+      if (previous === sourceIdentity) generation += 1;
+      boundSource.delete(event.payload.entityId);
+    } else if ("sourceIdentity" in event.payload) {
+      const next = String(event.payload.sourceIdentity);
+      if (previous === sourceIdentity && next !== sourceIdentity) generation += 1;
+      boundSource.set(event.payload.entityId, next);
+    }
   }
-  for (const [entityId, bound] of boundSource) if (bound === sourceIdentity) return entityId;
-  return null;
+  for (const [entityId, bound] of boundSource) if (bound === sourceIdentity) return { entityId, generation };
+  return { entityId: null, generation };
 }
 
 /** The content objects an entity already owns, restated from the ledger so an update carries them forward. */
@@ -614,6 +632,17 @@ function carriedContent(
       },
     ];
   });
+}
+
+/** The empty directories an entity already holds, restated relative to its content root so an update keeps them. */
+function carriedDirectories(
+  contract: EntityStoreKindContract,
+  entityId: string,
+  ownedContent: EntityOwnedContentV1 | null,
+): readonly string[] {
+  if (!ownedContent) return [];
+  const root = `${entityContentRoot(contract, entityId)}/`;
+  return ownedContent.directories.flatMap(({ path: held }) => (held.startsWith(root) ? [held.slice(root.length)] : []));
 }
 
 function declarationRetirement(

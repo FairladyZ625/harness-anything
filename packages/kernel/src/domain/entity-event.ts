@@ -4,6 +4,7 @@ import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 import {
   artifactEntityContractFromSnapshot,
   artifactImportOperationId,
+  importBindingGeneration,
   isArtifactMutationOperationId,
   artifactObservationId,
   canonicalArtifactLocator,
@@ -841,7 +842,16 @@ function validObservationIdentity(
     expected = artifactObservationId({ entityId, locator, resolution }),
     accepts =
       acceptsOperation ??
-      ((candidate: string) => candidate === artifactImportOperationId({ sourceIdentity, locator, resolution }));
+      ((candidate: string) =>
+        // The generation the import was accepted under is part of the id, so the check stays an exact
+        // recomputation even though the reader cannot see the binding history the writer counted.
+        candidate ===
+        artifactImportOperationId({
+          sourceIdentity,
+          locator,
+          resolution,
+          bindingGeneration: importBindingGeneration(candidate),
+        }));
   return payload.observationId === expected && accepts(opId);
 }
 

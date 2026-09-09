@@ -262,7 +262,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
     files: readonly (PublicationWrite | PublicationDelete)[],
     baseline: ReadonlyMap<string, string>,
     commit: string,
-    directories: readonly string[],
+    directories: FollowerDirectorySettlement,
     restoreMissing = false,
   ): boolean => {
     const permitted = new Map(baseline),
@@ -293,7 +293,9 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
     if (!settleWorktree(currentLedger.rootDir, eligible, permitted, options.killpoint, preserve, commit)) return false;
     verifyWorktreeFiles(currentLedger.rootDir, eligible);
     // Creating an owned directory is additive and idempotent, so it runs even when a concurrent edit made part
-    // of this settlement ineligible: a partial pass must not be the reason a directory stays missing.
+    // of this settlement ineligible: a partial pass must not be the reason a directory stays missing. Retiring
+    // one is equally safe under a partial pass, because a directory whose files have not been removed yet is
+    // still occupied and is therefore left standing.
     settleWorktreeDirectories(currentLedger.rootDir, directories);
     if (eligible.length < files.length) return false;
     acceptedWorktree.clear();
@@ -611,34 +613,68 @@ function followerFiles(
   ];
 }
 
+interface FollowerDirectorySettlement {
+  /** Directories no file implies, so materialization has to make them itself. */
+  readonly create: readonly string[];
+  /** One entry per entity these events touched: its own subtree, and the directories it still needs there. */
+  readonly owners: readonly { readonly contentRoot: string; readonly footprint: ReadonlySet<string> }[];
+}
+
 /**
- * The empty directories the accepted closure still owns. Each entity event restates its owner's whole set, so
- * the last event of an owner decides; a deleted owner states none and stops being recreated on the next rebuild.
+ * The directories the accepted events own. Each entity event restates its owner's whole set, so the last event
+ * of an owner decides what that owner still holds; a deleted owner states none, which is what makes everything
+ * under its content root retirable. Nothing outside an entity's own root is ever named here.
  */
 function followerDirectories(
   ledger: ReturnType<typeof resolveLedgerGitLayout>,
   events: readonly CanonicalEventV1[],
-): readonly string[] {
-  const byOwner = new Map<string, readonly string[]>();
+): FollowerDirectorySettlement {
+  const declaredByOwner = new Map<string, readonly string[]>(),
+    ownersByRef = new Map<string, { readonly contentRoot: string; readonly footprint: ReadonlySet<string> }>();
   for (const event of events) {
     const owned = canonicalOwnedDirectories(event);
-    if (owned) byOwner.set(owned.ownerRef, owned.directories);
+    if (!owned) continue;
+    declaredByOwner.set(owned.ownerRef, owned.directories);
+    ownersByRef.set(owned.ownerRef, {
+      contentRoot: ledgerGitPath(ledger, owned.contentRoot),
+      footprint: new Set(owned.footprint.map((logical) => ledgerGitPath(ledger, logical))),
+    });
   }
-  return [...new Set([...byOwner.values()].flat())].map((logical) => ledgerGitPath(ledger, logical)).sort();
+  return {
+    create: [...new Set([...declaredByOwner.values()].flat())].map((logical) => ledgerGitPath(ledger, logical)).sort(),
+    owners: [...ownersByRef.values()],
+  };
 }
 
-function settleWorktreeDirectories(repoRoot: string, directories: readonly string[]): void {
-  if (directories.length === 0) return;
-  localGitWorktreeSettlement.visible(
-    repoRoot,
-    directories.map((directory) => ({ directory })),
-  );
-  for (const directory of directories)
+function settleWorktreeDirectories(repoRoot: string, settlement: FollowerDirectorySettlement): void {
+  if (settlement.create.length > 0)
+    localGitWorktreeSettlement.visible(
+      repoRoot,
+      settlement.create.map((directory) => ({ directory })),
+    );
+  for (const directory of settlement.create)
     if (!localGitWorktreeSettlement.isDirectory(`${repoRoot}/${directory}`))
       throw new TaskEventStoreError(
         "publication_indeterminate",
         `worktree follower did not restore directory ${directory}`,
       );
+  for (const { contentRoot, footprint } of settlement.owners) {
+    if (!localGitWorktreeSettlement.isDirectory(`${repoRoot}/${contentRoot}`)) continue;
+    // Retirement is bounded to the entity's own subtree and, inside it, to the directories the entity's latest
+    // manifest no longer needs. Listing deepest first is what lets a parent go once its children have gone.
+    const retire = [...localGitWorktreeSettlement.directoriesUnder(repoRoot, contentRoot), contentRoot].filter(
+        (directory) => !footprint.has(directory),
+      ),
+      // A directory that still holds something is left alone: what the user put there is not the entity's to
+      // retire, and neither is any directory that is only standing because it holds it.
+      preserved = new Set(localGitWorktreeSettlement.retireEmptyDirectories(repoRoot, retire));
+    for (const directory of retire)
+      if (!preserved.has(directory) && localGitWorktreeSettlement.isDirectory(`${repoRoot}/${directory}`))
+        throw new TaskEventStoreError(
+          "publication_indeterminate",
+          `worktree follower did not retire directory ${directory}`,
+        );
+  }
 }
 
 function sqliteBatch(

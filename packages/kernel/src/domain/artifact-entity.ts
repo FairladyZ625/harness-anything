@@ -383,14 +383,32 @@ export function artifactObservationId(input: {
  * content is one operation however many times it is presented. Keying this on the entity id would break the
  * moment identity became a mint instead of a hash of the path — a retry would mint a second id, compute a
  * second opId, and store a duplicate entity for the same material.
+ *
+ * The intent is scoped to the binding the source is living under. A source that has been released — its entity
+ * deleted, or the binding moved to another source — has ended the import that claimed it, so presenting the same
+ * bytes again is a *new* intent and must mint a new instance instead of replaying a receipt for an entity that
+ * no longer exists. The generation is counted off the accepted release events of that one source, so a retry
+ * inside the same generation still recomputes the original operation and returns the outcome it was accepted
+ * with. It is written into the id so a reader can recompute the identity from the id alone.
  */
 export function artifactImportOperationId(input: {
   readonly sourceIdentity: string;
   readonly locator: ArtifactLocator;
   readonly resolution: string;
+  readonly bindingGeneration?: number;
 }): string {
-  const identity = `${input.sourceIdentity}\u0000${input.locator.kind}:${input.locator.value}\u0000${input.resolution}`;
-  return `entity-import-${sha256(identity).slice(0, 32)}`;
+  const generation = input.bindingGeneration ?? 0;
+  if (!Number.isSafeInteger(generation) || generation < 0)
+    throw new Error(`source binding generation ${String(input.bindingGeneration)} is not a generation`);
+  const scope = generation === 0 ? "" : `\u0000binding-generation:${generation}`,
+    identity = `${input.sourceIdentity}\u0000${input.locator.kind}:${input.locator.value}\u0000${input.resolution}${scope}`;
+  return `entity-import-${sha256(identity).slice(0, 32)}${generation === 0 ? "" : `-b${generation}`}`;
+}
+
+/** The binding generation an import operation id was minted under, read back from the id itself. */
+export function importBindingGeneration(opId: string): number {
+  const match = /-b([1-9][0-9]{0,9})$/u.exec(opId);
+  return match ? Number(match[1]) : 0;
 }
 
 /** Mutations (`entity_updated` / `entity_archived`) key their operation identity on the revision fence the caller

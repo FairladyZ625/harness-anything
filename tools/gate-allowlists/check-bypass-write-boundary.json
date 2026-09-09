@@ -658,6 +658,12 @@
         "api": "closeSync",
         "ref": "dec_FC8D4B2DE22E97774073A0BBF9",
         "reason": "Git follower fast-import stream file is closed before git reads it."
+      },
+      {
+        "value": "bypass-write-134",
+        "api": "rmdirSync",
+        "ref": "task_32bd4f355db19eb6c553ec7662",
+        "reason": "RepoCell-owned settlement retires only an owned empty directory, one non-recursive rmdir per known path."
       }
     ],
     "exemptHumanOrBootstrap": [],

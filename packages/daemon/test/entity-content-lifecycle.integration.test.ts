@@ -22,6 +22,16 @@ const researchKind = "entity-kind/KND-3b7e2c9a1d5f6e8c0a4b2d3f5e7c9a16",
     },
     "repo-write",
   ),
+  // A remote edge with no role binding: neither a declared repo-write role nor the local default binding holds
+  // for it, so the policy is the only thing standing between this caller and a durable entity write.
+  unauthorized = {
+    actor: {
+      principal: { personId: "person-entity-content-reader" },
+      executor: { kind: "agent" as const, id: "entity-content-reader-edge" },
+    },
+    source: "remote_direct" as const,
+    roleBindings: [],
+  },
   secondaryNodeBinding = withRoleBinding(
     {
       actor: {
@@ -296,14 +306,247 @@ test("Update retires only dropped files and delete retires every bound file with
     );
 
     // The source binding is released with the entity: importing that path again mints a new instance rather
-    // than resurrecting the deleted one. The source is changed first because an unchanged source presents the
-    // identical intent, and an intent the ledger already carries replays instead of starting anything.
+    // than resurrecting the deleted one. Changed bytes here only prove the ordinary case; the unchanged-source
+    // case is what the rebind test above pins down.
     writeFileSync(path.join(absoluteSource, "README.md"), "# Retirement, second life\n");
     const reimported = await cell.run({ ...request, expectedVersion: 0 }, binding),
       reimportedId = (JSON.parse(String(reimported.evidence)) as { preview: { entityId: string } }).preview.entityId;
     assert.equal(reimported.outcome, "applied", JSON.stringify(reimported));
     assert.match(reimportedId, /^RES-[a-f0-9]{32}$/u);
     assert.notEqual(reimportedId, entityId);
+  } finally {
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+/**
+ * Deleting an entity releases the source it was bound to. Importing that source again is a new binding, so it
+ * mints a new instance instead of replaying the receipt of the import the delete ended — while a retry inside
+ * one binding still gets back the outcome that binding was accepted with, unchanged bytes and all.
+ */
+test("A deleted source imports again as a new entity while retries inside one binding replay", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-entity-rebind-")),
+    repoId = workspaceId("entity-rebind"),
+    locator = "research/rebound.md",
+    bytes = "# Rebound\n\nThe bytes never change in this test.\n";
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    initRepo(rootDir);
+    mkdirSync(path.join(rootDir, "research"), { recursive: true });
+    writeFileSync(path.join(rootDir, "research", "rebound.md"), bytes);
+    git(rootDir, "add", "research");
+    git(rootDir, "commit", "-qm", "add a source that will be imported twice");
+    cell = await openRepoCell({
+      repoId,
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "entity-rebind-center",
+      now: () => "2026-09-09T10:00:00.000Z",
+    });
+    const importRequest = { kind: "entity-import", entityKind: researchKind, locator, expectedVersion: 0 },
+      idOf = (evidence: unknown) =>
+        (JSON.parse(String(evidence)) as { preview: { entityId: string } }).preview.entityId;
+
+    const first = await cell.run(importRequest, binding),
+      firstId = idOf(first.evidence);
+    assert.equal(first.outcome, "applied", JSON.stringify(first));
+    await waitForFixturePublication(cell, first.opId, binding);
+
+    // Retry inside the first binding: one operation, one entity, the outcome it was accepted with.
+    const firstRetry = await cell.run(importRequest, secondaryNodeBinding);
+    assert.equal(firstRetry.outcome, "no_changes", JSON.stringify(firstRetry));
+    assert.equal(firstRetry.opId, first.opId);
+    assert.equal((JSON.parse(String(firstRetry.evidence)) as { entityId: string }).entityId, firstId);
+
+    const deleted = await cell.run(
+      {
+        kind: "entity-delete",
+        entityKind: researchKind,
+        entityId: firstId,
+        expectedVersion: first.revision,
+        reason: "release the source",
+      },
+      binding,
+    );
+    assert.equal(deleted.outcome, "applied", JSON.stringify(deleted));
+    await waitForFixturePublication(cell, deleted.opId, binding);
+    assert.equal(
+      existsSync(path.join(rootDir, "harness", `entities/research/${firstId}.json`)),
+      false,
+      "the deleted entity must stay deleted",
+    );
+
+    // The same source, the same bytes, the same request: a released binding makes this a new import.
+    const second = await cell.run(importRequest, binding),
+      secondId = idOf(second.evidence);
+    assert.equal(second.outcome, "applied", JSON.stringify(second));
+    assert.match(secondId, /^RES-[a-f0-9]{32}$/u);
+    assert.notEqual(secondId, firstId, "re-importing a released source must not resurrect the deleted entity");
+    assert.notEqual(second.opId, first.opId, "the new binding must not reuse the retired import's operation");
+    await waitForFixturePublication(cell, second.opId, binding);
+    assert.equal(existsSync(path.join(rootDir, "harness", `entities/research/${secondId}.json`)), true);
+    assert.equal(
+      existsSync(path.join(rootDir, "harness", `entities/research/${firstId}.json`)),
+      false,
+      "the old reference must remain deleted after the new import",
+    );
+    assert.equal(
+      acceptedManifest(repoId, rootDir, second.opId).bindings.some(({ path: bound }) =>
+        bound.startsWith(`entities/research/${secondId}`),
+      ),
+      true,
+      "the new entity owns its own material rather than the retired entity's",
+    );
+
+    // Retry inside the second binding: back to replay, and to the identity that binding minted.
+    const secondRetry = await cell.run(importRequest, secondaryNodeBinding);
+    assert.equal(secondRetry.outcome, "no_changes", JSON.stringify(secondRetry));
+    assert.equal(secondRetry.opId, second.opId);
+    assert.equal((JSON.parse(String(secondRetry.evidence)) as { entityId: string }).entityId, secondId);
+  } finally {
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+/**
+ * A delete retires the directories the entity declared as well as the files it bound. Removal is one non-recursive
+ * rmdir per known owned path, deepest first, so anything the user put inside one of those directories keeps it —
+ * and keeps every parent of it — standing.
+ */
+test("Deleting an entity retires its declared empty directories and leaves user content standing", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-entity-directory-retirement-")),
+    sourcePath = "research/directory-retirement",
+    absoluteSource = path.join(rootDir, sourcePath),
+    repoId = workspaceId("entity-directory-retirement");
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    initRepo(rootDir);
+    mkdirSync(path.join(absoluteSource, "outbox", "pending"), { recursive: true });
+    mkdirSync(path.join(absoluteSource, "reserved"), { recursive: true });
+    mkdirSync(path.join(absoluteSource, "notes"), { recursive: true });
+    writeFileSync(path.join(absoluteSource, "README.md"), "# Directory retirement\n");
+    writeFileSync(path.join(absoluteSource, "notes", "keep.md"), "keep\n");
+    git(rootDir, "add", sourcePath);
+    git(rootDir, "commit", "-qm", "add a source with nested empty directories");
+    cell = await openRepoCell({
+      repoId,
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "entity-directory-retirement-center",
+      now: () => "2026-09-09T11:00:00.000Z",
+    });
+
+    const imported = await cell.run(
+        { kind: "entity-import", entityKind: researchKind, locator: sourcePath, expectedVersion: 0 },
+        binding,
+      ),
+      entityId = (JSON.parse(String(imported.evidence)) as { preview: { entityId: string } }).preview.entityId,
+      root = `entities/research/${entityId}`,
+      held = (...segments: readonly string[]) => path.join(rootDir, "harness", root, ...segments);
+    assert.equal(imported.outcome, "applied", JSON.stringify(imported));
+    await waitForFixturePublication(cell, imported.opId, binding);
+    assert.deepEqual(
+      acceptedManifest(repoId, rootDir, imported.opId).directories.map(({ path: empty }) => empty),
+      [`${root}/outbox/pending`, `${root}/reserved`],
+      "only the deepest empty directory is stated; its parent is implied by it",
+    );
+    assert.ok(statSync(held("outbox", "pending")).isDirectory());
+
+    // What the user put inside an owned directory is not the entity's to take away.
+    writeFileSync(held("reserved", "user-note.txt"), "mine\n");
+
+    const deleted = await cell.run(
+      {
+        kind: "entity-delete",
+        entityKind: researchKind,
+        entityId,
+        expectedVersion: imported.revision,
+        reason: "retire the directory package",
+      },
+      binding,
+    );
+    assert.equal(deleted.outcome, "applied", JSON.stringify(deleted));
+    await waitForFixturePublication(cell, deleted.opId, binding);
+
+    assert.equal(existsSync(held("outbox", "pending")), false, "a declared empty directory must be retired");
+    assert.equal(existsSync(held("outbox")), false, "its parent is retired once the child is gone: deepest first");
+    assert.equal(existsSync(held("notes")), false, "a directory left empty by its retired files goes with them");
+    assert.equal(existsSync(held("README.md")), false);
+    assert.equal(readFileSync(held("reserved", "user-note.txt"), "utf8"), "mine\n", "user content must survive");
+    assert.equal(existsSync(held()), true, "a content root holding user content must not be removed either");
+
+    // Recovery through the operator's own entry point: retirement is not undone, and it is not re-attempted
+    // against the directory the user is still using.
+    const recovered = await cell.run({ kind: "doc-materialize" }, binding);
+    assert.equal(recovered.outcome, "applied", JSON.stringify(recovered));
+    assert.equal(existsSync(held("outbox")), false, "recovery must not restore a retired directory");
+    assert.equal(readFileSync(held("reserved", "user-note.txt"), "utf8"), "mine\n");
+
+    // Once the user's own file is gone, the same retirement takes the directories it was holding open.
+    rmSync(held("reserved", "user-note.txt"));
+    const retried = await cell.run({ kind: "doc-materialize" }, binding);
+    assert.equal(retried.outcome, "applied", JSON.stringify(retried));
+    assert.equal(existsSync(held("reserved")), false, "a retirement that was blocked is re-attempted, not dropped");
+    assert.equal(existsSync(held()), false, "the entity's content root goes with the last directory it held");
+    assert.equal(
+      existsSync(path.join(rootDir, "harness", "entities", "research")),
+      true,
+      "the shared directory above the entity is not the entity's to retire",
+    );
+  } finally {
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+/** entity-delete is a durable repository write, so a caller with no repository write role is refused. */
+test("Deleting an entity is refused for a caller with no repository write role", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-entity-delete-authorization-")),
+    repoId = workspaceId("entity-delete-authorization");
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    initRepo(rootDir);
+    mkdirSync(path.join(rootDir, "research"), { recursive: true });
+    writeFileSync(path.join(rootDir, "research", "governed.md"), "# Governed\n");
+    git(rootDir, "add", "research");
+    git(rootDir, "commit", "-qm", "add a source to govern");
+    cell = await openRepoCell({
+      repoId,
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "entity-delete-authorization-center",
+      now: () => "2026-09-09T12:00:00.000Z",
+    });
+    const imported = await cell.run(
+        { kind: "entity-import", entityKind: researchKind, locator: "research/governed.md", expectedVersion: 0 },
+        binding,
+      ),
+      entityId = (JSON.parse(String(imported.evidence)) as { preview: { entityId: string } }).preview.entityId;
+    assert.equal(imported.outcome, "applied", JSON.stringify(imported));
+
+    const request = {
+        kind: "entity-delete",
+        entityKind: researchKind,
+        entityId,
+        expectedVersion: imported.revision,
+        reason: "unauthorized deletion attempt",
+      },
+      refused = await cell.run(request, unauthorized);
+    assert.equal(refused.outcome, "op_rejected", JSON.stringify(refused));
+    assert.equal(refused.authorizationDecision?.outcome, "denied", JSON.stringify(refused.authorizationDecision));
+    assert.equal(
+      refused.authorizationDecision?.policyRef,
+      "default@5",
+      "the refusal must come from the declared policy, not from an ad hoc check",
+    );
+    assert.equal(
+      existsSync(path.join(rootDir, "harness", `entities/research/${entityId}.json`)),
+      true,
+      "a refused delete must leave the entity exactly where it was",
+    );
+
+    // The same call with the repository write role goes through: the action is governed, not disabled.
+    const allowed = await cell.run(request, binding);
+    assert.equal(allowed.outcome, "applied", JSON.stringify(allowed));
   } finally {
     await cell?.close();
     rmSync(rootDir, { recursive: true, force: true });

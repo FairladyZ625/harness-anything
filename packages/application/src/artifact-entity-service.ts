@@ -111,8 +111,15 @@ export function makeArtifactEntityService(options: {
     contract: CompiledArtifactKindContract,
   ) => Promise<ArtifactSourceResolution>;
   readonly readCurrent: (kind: string, entityId: string) => ArtifactEntityCurrent | null;
-  /** Source binding is a first-class lookup, not a hash of the path: this is how a retry finds its entity. */
-  readonly resolveEntityIdBySource: (kind: string, sourceIdentity: string) => string | null;
+  /**
+   * Source binding is a first-class lookup, not a hash of the path: this is how a retry finds its entity, and
+   * how an import that follows a released binding learns it is starting a new one rather than continuing the
+   * old one.
+   */
+  readonly resolveSourceBinding: (
+    kind: string,
+    sourceIdentity: string,
+  ) => { readonly entityId: string | null; readonly generation: number };
   readonly randomEntityIdBytes: () => Uint8Array;
   readonly readOperation: (opId: string) => EntityEventV1 | null;
   readonly countRelationChanges: (entityRef: string) => number;
@@ -148,18 +155,23 @@ export function makeArtifactEntityService(options: {
     const candidateContentVersion =
         resolution.status === "observed" ? deriveArtifactContentVersion(resolution.witness) : null,
       resolutionWitness = resolution.status === "observed" ? candidateContentVersion! : `missing:${resolution.reason}`,
+      binding = options.resolveSourceBinding(contract.typeIdentity, sourceIdentity),
       // The operation names the intent, so the same request always lands on the same operation even before any
-      // identity exists. Only after that lookup fails is a new instance minted.
-      opId = artifactImportOperationId({ sourceIdentity, locator, resolution: resolutionWitness }),
+      // identity exists. Only after that lookup fails is a new instance minted. The intent is scoped to the
+      // generation of the source binding, so re-importing a source whose entity was deleted is a new operation
+      // instead of a replay of a receipt for an entity that is gone.
+      opId = artifactImportOperationId({
+        sourceIdentity,
+        locator,
+        resolution: resolutionWitness,
+        bindingGeneration: binding.generation,
+      }),
       replay = options.readOperation(opId),
       // Identity is minted once and then only looked up: a caller that names the entity is re-pointing that
       // exact instance, an accepted operation already carries the identity it minted, and the source binding
       // decides whether an unnamed import continues an existing entity or starts a new one. A dry run does not
       // mint, because an identity that no event will ever carry is a prediction, not an identity.
-      resolvedEntityId =
-        request.entityId ??
-        options.resolveEntityIdBySource(contract.typeIdentity, sourceIdentity) ??
-        (replay ? replay.payload.entityId : null),
+      resolvedEntityId = request.entityId ?? binding.entityId ?? (replay ? replay.payload.entityId : null),
       entityId =
         resolvedEntityId ??
         (request.dryRun === true

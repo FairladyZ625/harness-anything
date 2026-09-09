@@ -13,6 +13,16 @@ const binding = {
   actor: { principal: { personId: "person-agent-action" }, executor: null },
   source: "local" as const,
 };
+// A remote edge with no role binding: neither a declared repo-write role nor the local default binding holds
+// for it, so the policy is the only thing standing between this caller and a durable delete.
+const unauthorized = {
+  actor: {
+    principal: { personId: "person-agent-action-reader" },
+    executor: { kind: "agent" as const, id: "agent-action-reader-edge" },
+  },
+  source: "remote_direct" as const,
+  roleBindings: [],
+};
 const declaration = {
   schema: "agent-declaration/v1",
   id: "unified-agent",
@@ -211,7 +221,11 @@ test("Agent install uses the executable catalog with CAS, replay, readiness, and
         reason: "Retire the test Squad current view.",
         idempotencyKey: "squad-action-delete",
       },
-      deletedSquad = await cell.run(deleteSquad, binding);
+      refusedSquad = await cell.run(deleteSquad, unauthorized);
+    assert.equal(refusedSquad.outcome, "op_rejected", JSON.stringify(refusedSquad));
+    assert.equal(refusedSquad.authorizationDecision?.outcome, "denied", JSON.stringify(refusedSquad));
+    assert.equal(refusedSquad.authorizationDecision?.policyRef, "default@5");
+    const deletedSquad = await cell.run(deleteSquad, binding);
     assert.equal(deletedSquad.outcome, "applied", JSON.stringify(deletedSquad));
     assert.deepEqual(deletedSquad.effects, ["entity-event/entity_deleted"]);
     const replayedSquadDelete = await cell.run(deleteSquad, binding);
@@ -225,7 +239,11 @@ test("Agent install uses the executable catalog with CAS, replay, readiness, and
         reason: "Retire the test Agent current view.",
         idempotencyKey: "agent-action-delete",
       },
-      deleted = await cell.run(deleteAgent, binding);
+      refusedAgent = await cell.run(deleteAgent, unauthorized);
+    assert.equal(refusedAgent.outcome, "op_rejected", JSON.stringify(refusedAgent));
+    assert.equal(refusedAgent.authorizationDecision?.outcome, "denied", JSON.stringify(refusedAgent));
+    assert.equal(refusedAgent.authorizationDecision?.policyRef, "default@5");
+    const deleted = await cell.run(deleteAgent, binding);
     assert.equal(deleted.outcome, "applied", JSON.stringify(deleted));
     assert.deepEqual(deleted.effects, ["entity-event/entity_deleted"]);
     await waitForFixturePublication(cell, deleted.opId, binding);

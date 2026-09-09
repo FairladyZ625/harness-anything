@@ -53,11 +53,12 @@ test("the default Policy covers the frozen durable inventory exactly once", () =
   // 2026-09-05:schedule-definitions-migrate 修复存量 schedule 声明形状,116 → 117。
   // 2026-09-05:settings-wal-flush-migrate 补齐存量 Settings WAL 快照,117 → 118。
   // CEO ruling 2 retires eight historical rewrite actions at the SQLite cutover: 118 → 110.
-  // 本分支上这个棘轮已经欠账两条:agent-delete / squad-delete 在 d7436c38a 进了清单却没动这个数字,
-  // 所以 110 这个断言在本轮之前就已经是红的(110 → 112,来源不是本任务)。
-  // task_32bd4f355db19eb6c553ec7662 再加两条:vertical-kind-publish-schema 此前已经活在 CLI / GUI /
-  // daemon 路由上却不在 durable inventory 里;entity-delete 是声明实体内容退休的写入口。112 → 114。
-  // **这四条的清单增长都需要 Root 显式确认**,棘轮只负责逼出这一次确认,不代表已经确认过。
+  // agent-delete / squad-delete 在 d7436c38a 进了清单却没动这个数字,所以 110 这个断言在本轮之前就是红的
+  // (110 → 112,来源不是本任务)。task_32bd4f355db19eb6c553ec7662 再加两条:vertical-kind-publish-schema
+  // 此前已经活在 CLI / GUI / daemon 路由上却不在 durable inventory 里;entity-delete 是声明实体内容退休的
+  // 写入口。112 → 114。2026-09-09:Root 已明确确认这四条属于既有 built-in/generic Entity CRUD 范围,
+  // 四条都有真实未授权调用者被 policy 拒绝的证据(agent-action / entity-content-lifecycle /
+  // entity-kind-content-declared 三个 integration 测试),不是把数字改对就算数。
   assert.equal(durablePolicyActions.length, 114);
   // 其余两条是自洽不变量,不需要第二个硬编码数字:清单内无重复(三个角色分段互不重叠),
   // 且每个 durable Action 恰好被一条 rule 覆盖。
