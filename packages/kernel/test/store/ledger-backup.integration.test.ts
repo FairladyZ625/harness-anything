@@ -41,7 +41,7 @@ test("generation-aware backup preserves legacy sources and does not create an ab
   }
 });
 
-test("backup includes tracked scope and Git metadata on every platform", () => {
+test("backup includes tracked files, untracked drafts and Git metadata on every platform", () => {
   const root = fixture("scope"),
     authoredRoot = path.join(root, "harness"),
     backupDir = path.join(os.tmpdir(), `ha-backup-scope-${process.pid}-${Date.now()}`),
@@ -74,7 +74,11 @@ test("backup includes tracked scope and Git metadata on every platform", () => {
     const manifest = createLedgerBackup({ rootInput: root, backupDir }),
       entries = new Set(manifest.files.map((file) => file.path));
     assert.equal(entries.has("harness/context/tracked.md"), true);
-    assert.equal(entries.has("harness/context/untracked.md"), false);
+    assert.equal(entries.has("harness/context/untracked.md"), true);
+    assert.equal(
+      readFileSync(path.join(backupDir, "payload/harness/context/untracked.md"), "utf8"),
+      "untracked note\n",
+    );
     assert.equal(entries.has("harness/.claude/settings.json"), false);
     assert.equal(entries.has("harness/.git/refs/ha/canonical"), true);
     assert.equal(entries.has("harness/.git/worktrees/retained/HEAD"), true);
