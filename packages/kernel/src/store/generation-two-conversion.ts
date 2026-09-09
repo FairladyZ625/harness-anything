@@ -8,6 +8,7 @@ import {
   validateCurrentCanonicalEvent,
 } from "../domain/doc-sync-canonical-events.ts";
 import type { CanonicalEventV1 } from "../domain/doc-sync-types.ts";
+import type { MigrationImportEventV1 } from "../domain/migration-import-event.ts";
 import { sha256Bytes, sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 import { localRuntimeStateFileSystem as files } from "../local/local-layout-file-system.ts";
 import { drillLedgerBackup, readVerifiedLedgerBackup } from "./ledger-backup.ts";
@@ -133,14 +134,27 @@ function planConversion(source: SqliteEventStore) {
   for (const row of rows) {
     let candidate: CanonicalEventV1 | undefined;
     const reasons: string[] = [];
+    let original: CanonicalEventV1;
     try {
       if (row.revision !== mappings.length + 1 || row.digest !== `sha256:${sha256Text(row.eventJson)}`)
         throw new Error("source revision or event digest differs");
-      const original = JSON.parse(row.eventJson) as CanonicalEventV1,
-        event = ciWorkflowVerificationMigration.rewrite(original)?.event ?? original;
-      if (event.opId !== row.opId || event.workspaceRevision !== row.revision || event.occurredAt !== row.occurredAt)
+      original = JSON.parse(row.eventJson) as CanonicalEventV1;
+      if (
+        original.opId !== row.opId ||
+        original.workspaceRevision !== row.revision ||
+        original.occurredAt !== row.occurredAt
+      )
         throw new Error("source event identity or occurredAt column differs");
       if (!Number.isFinite(Date.parse(row.recordedAt))) throw new Error("source recordedAt is unavailable");
+    } catch (error) {
+      throw new Error(
+        `source integrity check failed at revision ${row.revision}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    try {
+      const event = ciWorkflowVerificationMigration.rewrite(original)?.event ?? original;
+      if (event.opId !== row.opId || event.workspaceRevision !== row.revision || event.occurredAt !== row.occurredAt)
+        throw new Error("source event identity or occurredAt column differs");
       // Root's history ruling: these observations really happened, so generation 2 keeps them as
       // read-only history instead of dropping them and renumbering every later revision and cut.
       if (event.type === "runtime_session_liveness_changed")
@@ -162,8 +176,9 @@ function planConversion(source: SqliteEventStore) {
       if (issues.length) throw new Error(issues.join("; "));
       for (const claim of contentClaims(event)) {
         const bytes = source.readContentObject(claim.sha256);
-        if (!bytes || bytes.byteLength !== claim.size || sha256Bytes(bytes) !== claim.sha256)
-          throw new Error(`missing or corrupt accepted content ${claim.sha256}`);
+        if (bytes && (bytes.byteLength !== claim.size || sha256Bytes(bytes) !== claim.sha256))
+          throw new Error(`corrupt accepted content ${claim.sha256}`);
+        if (!bytes) throw new Error(`missing accepted content ${claim.sha256}`);
       }
       candidate = { ...event, workspaceRevision: events.length + 1 };
       // Preserving every source record keeps revisions aligned. Once anything is dropped, every
@@ -173,7 +188,8 @@ function planConversion(source: SqliteEventStore) {
     } catch (error) {
       consumeKnownError(error);
       reasons.push(error instanceof Error ? error.message : String(error));
-      candidate = undefined;
+      candidate = historicalWitness(original, row, reasons.at(-1)!);
+      reasons.push("source-witness-only: original event bytes retained as a read-only content object");
     }
     if (candidate) events.push(candidate);
     mappings.push({
@@ -183,7 +199,11 @@ function planConversion(source: SqliteEventStore) {
       destinationRevision: candidate?.workspaceRevision ?? null,
       destinationOpId: candidate?.opId ?? null,
       destinationDigest: candidate ? `sha256:${sha256Text(serializePersistedCanonicalEvent(candidate))}` : null,
-      disposition: candidate ? "converted" : "unsupported",
+      disposition: candidate
+        ? reasons.some((reason) => reason.startsWith("source-witness-only:"))
+          ? "retained-read-only"
+          : "converted"
+        : "unsupported",
       reasons,
     });
   }
@@ -205,6 +225,39 @@ function planConversion(source: SqliteEventStore) {
   };
   assertOutcomeCoverage(source, rows);
   return { plan, events, rows };
+}
+
+function historicalWitness(original: CanonicalEventV1, row: SqliteEventRow, reason: string): MigrationImportEventV1 {
+  const raw = new TextEncoder().encode(row.eventJson),
+    sha256 = sha256Bytes(raw),
+    sourcePath = `history/source-witness/${row.revision}-${row.opId}.json`;
+  return {
+    schema: "migration-import-event/v1",
+    type: "entity_migrated",
+    source: "migration-import/v1",
+    eventId: `${original.eventId}-source-witness`,
+    opId: original.opId,
+    workspaceRevision: original.workspaceRevision,
+    occurredAt: original.occurredAt,
+    actor: original.actor,
+    payload: {
+      migratedFrom: `canonical-event/${row.revision}/${row.opId}`,
+      generation: "v0",
+      entity: {
+        kind: "repo-document",
+        nodeKind: "file",
+        documentClaim: {
+          path: sourcePath,
+          sha256,
+          size: raw.byteLength,
+          mediaType: "application/json",
+          policyId: "typed-migration-import/v1",
+        },
+        referencedContentClaims: [],
+        destinationPreimage: { nodeKind: "file", sha256, size: raw.byteLength },
+      },
+    },
+  };
 }
 
 function assertOutcomeCoverage(source: SqliteEventStore, rows: readonly SqliteEventRow[]) {
@@ -248,8 +301,15 @@ function convert(
     for (const outcome of source.outcomes()) {
       const members = mappedMembers(byOpId, outcome.memberOpIds),
         converted = members.map((mapping) => events[mapping.destinationRevision! - 1]!),
-        blobs = converted.flatMap((event) =>
-          contentClaims(event).map((claim) => ({ ...claim, body: source.readContentObject(claim.sha256)! })),
+        blobs = converted.flatMap((event, index) =>
+          contentClaims(event).map((claim) => {
+            const witness =
+              event.schema === "migration-import-event/v1" && event.payload.entity.kind === "repo-document";
+            const body = witness
+              ? new TextEncoder().encode(rows[members[index]!.sourceRevision - 1]!.eventJson)
+              : source.readContentObject(claim.sha256)!;
+            return { ...claim, body };
+          }),
         );
       destination.appendCommand({
         fence,
@@ -273,7 +333,7 @@ function convert(
 }
 
 function mappedMembers(byOpId: ReadonlyMap<string, GenerationConversionMapping>, memberOpIds: readonly string[]) {
-  return memberOpIds.map((opId) => byOpId.get(opId)!).filter((mapping) => mapping.disposition === "converted");
+  return memberOpIds.map((opId) => byOpId.get(opId)!).filter((mapping) => mapping.disposition !== "unsupported");
 }
 
 function verify(
@@ -293,7 +353,7 @@ function verify(
     if (stableStringify(report) !== stableStringify(plan))
       throw new Error("conversion report differs from source plan");
     const actual = destination.eventRows(),
-      mappings = plan.mappings.filter((mapping) => mapping.disposition === "converted");
+      mappings = plan.mappings.filter((mapping) => mapping.disposition !== "unsupported");
     if (actual.length !== events.length || destination.revision() !== events.length)
       throw new Error("converted event count differs");
     for (const [index, event] of events.entries()) {

@@ -132,7 +132,7 @@ for (const historicalFixture of [
   "entity-event-v1/accepted.json",
   "decision-event-v1/accepted-decision-related-d9b187661997.json",
 ])
-  test(`dry-run accounts for unsupported ${historicalFixture} without altering the source`, () => {
+  test(`retains contract-incomplete ${historicalFixture} as a readable source witness`, () => {
     const f = fixture();
     try {
       const db = new DatabaseSync(sqliteLedgerPath(f.root, 1));
@@ -151,11 +151,21 @@ for (const historicalFixture of [
       db.close();
       createLedgerBackup({ rootInput: f.root, backupDir: f.backupDir });
       const result = invoke(["--source", f.backupDir, "--mode", "dry-run"]);
-      assert.equal(result.status, 1);
-      assert.equal(result.receipt.plan.mappings[0].disposition, "unsupported");
+      assert.equal(result.status, 0, JSON.stringify(result.receipt));
+      assert.equal(result.receipt.plan.mappings[0].disposition, "retained-read-only");
       assert.equal(result.receipt.plan.mappings.length, 2);
-      assert.equal(invoke(["--source", f.backupDir, "--mode", "convert", "--destination", f.destination]).status, 1);
-      assert.equal(existsSync(f.destination), false);
+      const converted = invoke(["--source", f.backupDir, "--mode", "convert", "--destination", f.destination]);
+      assert.equal(converted.status, 0, JSON.stringify(converted.receipt));
+      const witness = openSqliteEventStore({ rootInput: f.destination, generation: 2, readOnly: true });
+      try {
+        const event = witness.eventAtRevision(1)! as any;
+        assert.equal(event.schema, "migration-import-event/v1");
+        assert.equal(event.payload.entity.kind, "repo-document");
+        const claim = event.payload.entity.documentClaim;
+        assert.equal(Buffer.from(witness.readContentObject(claim.sha256)!).toString(), bytes);
+      } finally {
+        witness.close();
+      }
     } finally {
       rmSync(f.parent, { recursive: true, force: true });
     }
