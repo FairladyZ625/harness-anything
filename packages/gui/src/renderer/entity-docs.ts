@@ -774,7 +774,7 @@ export function governedEntityDoc(row: EntityKindRow): EntityKindDoc {
     definition:
       declaration === null
         ? `由 vertical 声明的实体种类 ${row.kind}。`
-        : `${declaration.display.singular}:由 ${row.verticalId ?? "vertical"} 声明的实体种类。导入时正文字节随实体收进台账 owned content;` +
+        : `${declaration.display.singular}:由 ${row.verticalId ?? "vertical"} 声明的实体种类。导入时正文随实体收进台账,来源之后移动或删除都不影响阅读;` +
           `locator(${declaration.locatorKinds.join(" / ")})记录它来自哪里。`,
     fields: row.explanation.documentSchema.fields.map((field) => ({
       name: field.name,

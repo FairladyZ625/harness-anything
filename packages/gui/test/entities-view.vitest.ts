@@ -250,6 +250,37 @@ function stubBridge(
         entries: [],
         truncated: false,
       })),
+      // 收管内容读面:实体身份寻址,`repositoryPath` 已由读面按**配置的** authored root 算好。
+      // 这里刻意用 `ledger/` 而不是默认的 `harness/`——渲染层要是自己拼前缀,断言立刻会红。
+      readEntityContent: vi.fn(async ({ entityId, path }: { readonly entityId: string; readonly path?: string }) =>
+        path === undefined
+          ? {
+              schema: "entity-content-read/v1",
+              ok: true,
+              outcome: "directory",
+              entityRef: `${ADR_KIND}/${entityId}`,
+              path: "",
+              repositoryPath: `ledger/entities/adrs/${entityId}`,
+              content: null,
+              sizeBytes: null,
+              mediaType: null,
+              entries: [{ path: `${entityId}.md`, directory: false, sizeBytes: 42 }],
+              truncated: false,
+            }
+          : {
+              schema: "entity-content-read/v1",
+              ok: true,
+              outcome: "file",
+              entityRef: `${ADR_KIND}/${entityId}`,
+              path,
+              repositoryPath: `ledger/entities/adrs/${entityId}/${path}`,
+              content: `# ${entityId}\n\n这份正文归实体所有。`,
+              sizeBytes: 42,
+              mediaType: "text/markdown",
+              entries: [],
+              truncated: false,
+            },
+      ),
       getRelationGraph: vi.fn(async () => {
         calls.relationGraph += 1;
         return {
@@ -502,10 +533,21 @@ describe("declared entity detail two-column layout", () => {
       row!.click();
     });
     await settle();
-    // 右栏按 locator 类型选渲染器:repository-path 的 Markdown 走既有 Markdown 渲染器。
     const renderer = container.querySelector('[data-testid="entity-doc-renderer"]');
     expect(renderer).not.toBeNull();
-    const markdown = renderer!.querySelector('[data-testid="entity-locator-markdown"]');
+    // 默认开在实体自己收管的内容上:那才是这个实体的东西,来源被移走也读得到。
+    await vi.waitFor(() =>
+      expect(container.querySelector('[data-testid="entity-managed-content-text"]')?.textContent).toContain(
+        "这份正文归实体所有",
+      ),
+    );
+    // 位置逐字来自读面。渲染层要是自己拼 `harness/`,这一行就会是错的。
+    expect(container.querySelector('[data-testid="entity-managed-content-path"]')?.textContent).toBe(
+      "ledger/entities/adrs/ADR-0001",
+    );
+    // 「来源」是另一屏:它读的是那个仓内路径此刻的样子。
+    await click(container, "entity-body-tab-source");
+    const markdown = container.querySelector('[data-testid="entity-locator-markdown"]');
     expect(markdown?.textContent).toContain("docs/adr/ADR-0001.md");
     expect(markdown?.textContent).toContain("这条正文来自 locator 读面");
     // 左列清单还在:选择不清空目录。
@@ -519,6 +561,10 @@ describe("declared entity detail two-column layout", () => {
     });
     const container = await renderSurface(view(`${ADR_KIND}/ADR-0002`));
     await settle();
+    await vi.waitFor(() =>
+      expect(container.querySelector('[data-testid="entity-managed-content-text"]')?.textContent).toContain("ADR-0002"),
+    );
+    await click(container, "entity-body-tab-source");
     const markdown = container.querySelector('[data-testid="entity-locator-markdown"]');
     expect(markdown?.textContent).toContain("docs/adr/ADR-0002.md");
   });
@@ -660,17 +706,49 @@ function mintedId(path: string): string {
 interface CrudBridgeState {
   rows: ReturnType<typeof governedRow>[];
   locatorCalls: string[];
+  contentCalls: string[];
   imports: unknown[];
   updates: unknown[];
   archives: unknown[];
+}
+
+/**
+ * 一次被接受的导入把来源收进实体自己的内容里。fixture 因此按 locator 镜像出那份内容:
+ * 文件来源 → 一个同名文件;目录来源 → 那一层(含子目录)。实体内相对路径,不带仓内前缀
+ * ——前缀是读面的事。
+ */
+function ownedContentOf(locator: string): Record<string, string | null> {
+  const listing = DIRECTORY_ENTRIES[locator];
+  if (listing !== undefined) {
+    const owned: Record<string, string | null> = {};
+    for (const { path, directory } of listing) {
+      owned[path.slice(locator.length + 1)] = directory ? null : (FILE_CONTENT[path] ?? "");
+      if (directory)
+        for (const child of DIRECTORY_ENTRIES[path] ?? [])
+          owned[child.path.slice(locator.length + 1)] = FILE_CONTENT[child.path] ?? "";
+    }
+    return owned;
+  }
+  const name = locator.split("/").at(-1) ?? locator;
+  return { [name]: FILE_CONTENT[locator] ?? `# ${name}\n\n收进实体的正文。` };
 }
 
 function crudRow(entityId: string, locator: string): ReturnType<typeof governedRow> {
   return governedRow(entityId, null, { locator, revision: 4 });
 }
 
-function stubCrudBridge(initialRows: ReturnType<typeof governedRow>[] = []): CrudBridgeState {
-  const state: CrudBridgeState = { rows: [...initialRows], locatorCalls: [], imports: [], updates: [], archives: [] };
+function stubCrudBridge(
+  initialRows: ReturnType<typeof governedRow>[] = [],
+  declarationKinds: readonly unknown[] = [],
+): CrudBridgeState {
+  const state: CrudBridgeState = {
+    rows: [...initialRows],
+    locatorCalls: [],
+    contentCalls: [],
+    imports: [],
+    updates: [],
+    archives: [],
+  };
   vi.stubGlobal("window", {
     harness: {
       getWorkspaceSummary: vi.fn(async () => ({
@@ -714,7 +792,7 @@ function stubCrudBridge(initialRows: ReturnType<typeof governedRow>[] = []): Cru
       readVerticalDeclaration: vi.fn(async () => ({
         schema: "repository-vertical-declaration-read/v1",
         declarationRevision: 7,
-        declaration: { entityKinds: [] },
+        declaration: { entityKinds: declarationKinds },
       })),
       readEntityLocator: vi.fn(async ({ locatorValue }: { readonly locatorValue: string }) => {
         state.locatorCalls.push(locatorValue);
@@ -740,6 +818,46 @@ function stubCrudBridge(initialRows: ReturnType<typeof governedRow>[] = []): Cru
           entries: [],
           truncated: false,
         };
+      }),
+      readEntityContent: vi.fn(async ({ entityId, path }: { readonly entityId: string; readonly path?: string }) => {
+        state.contentCalls.push(`${entityId}:${path ?? ""}`);
+        const row = state.rows.find((candidate) => candidate.entityId === entityId);
+        const owned = row?.locator ? ownedContentOf(row.locator.value) : {};
+        const at = path ?? "";
+        // authored root 是可配置的,读面把位置算好交出来;这里刻意不是默认的 `harness/`。
+        const root = `ledger/entities/adrs/${entityId}`;
+        const envelope = (extra: Record<string, unknown>) => ({
+          schema: "entity-content-read/v1",
+          ok: true,
+          entityRef: `${ADR_KIND}/${entityId}`,
+          path: at,
+          repositoryPath: at === "" ? root : `${root}/${at}`,
+          content: null,
+          sizeBytes: null,
+          mediaType: null,
+          entries: [],
+          truncated: false,
+          ...extra,
+        });
+        const body = owned[at];
+        if (at !== "" && typeof body === "string")
+          return at.endsWith(".pdf")
+            ? envelope({ outcome: "binary", sizeBytes: body.length, mediaType: "application/pdf" })
+            : envelope({ outcome: "file", content: body, sizeBytes: body.length, mediaType: "text/markdown" });
+        if (at === "" || body === null) {
+          const prefix = at === "" ? "" : `${at}/`;
+          return envelope({
+            outcome: "directory",
+            entries: Object.entries(owned)
+              .filter(([held]) => held.startsWith(prefix) && !held.slice(prefix.length).includes("/"))
+              .map(([held, value]) => ({
+                path: held,
+                directory: value === null,
+                sizeBytes: value === null ? null : value.length,
+              })),
+          });
+        }
+        return envelope({ outcome: "missing" });
       }),
       importEntity: vi.fn(async (payload: object) => {
         state.imports.push(payload);
@@ -879,10 +997,12 @@ describe("new entity wizard (goal 1)", () => {
     expect(state.imports).toEqual([
       { repoId: REPO_ID, entityKind: ADR_KIND, locator: "docs/adr/research/notes.md", expectedVersion: 0 },
     ]);
-    // 回执 applied 后:向导退出,行缓存刷新,新实体被选中并渲染正文。
+    // 回执 applied 后:向导退出,行缓存刷新,新实体被选中,正文就是它自己收下的那一份。
     expect(container.querySelector('[data-testid="new-entity-wizard"]')).toBeNull();
     await vi.waitFor(() =>
-      expect(container.querySelector('[data-testid="entity-locator-markdown"]')?.textContent).toContain("目录里的文件"),
+      expect(container.querySelector('[data-testid="entity-managed-content-text"]')?.textContent).toContain(
+        "目录里的文件",
+      ),
     );
   });
 
@@ -909,6 +1029,7 @@ describe("directory locator browser (goal 2)", () => {
   it("lazily expands subdirectories and opens files in the inline viewer", async () => {
     const state = stubCrudBridge([crudRow("ADR-0001", "docs/adr")]);
     const container = await renderCrudView(`${ADR_KIND}/ADR-0001`);
+    await click(container, "entity-body-tab-source");
     // 树根钉在实体目录:直接看到它的条目,不再是全路径分段的两级壳。
     const tree = container.querySelector('[data-testid="entity-locator-directory"]');
     expect(tree).not.toBeNull();
@@ -930,8 +1051,164 @@ describe("directory locator browser (goal 2)", () => {
   it("shows the dedicated pdf card instead of pretending to render bytes", async () => {
     stubCrudBridge([crudRow("ADR-0001", "docs/adr/ADR-0001.md")]);
     const container = await renderCrudView(`${ADR_KIND}/ADR-0001`);
+    await click(container, "entity-body-tab-source");
     expect(container.querySelector('[data-testid="entity-locator-pdf"]')).toBeNull();
     expect(container.querySelector('[data-testid="entity-locator-markdown"]')).not.toBeNull();
+  });
+});
+
+/** 两版属性声明:v2 换了必填项,也换了取值形态。新建的实例钉的是 v2。 */
+const PINNED_SCHEMA_VERSIONS = [
+  { version: 1, attributes: { legacyOwner: { type: "string", required: true } } },
+  {
+    version: 2,
+    attributes: {
+      region: { type: "string", enum: ["north", "south"], required: true },
+      fiscalYear: { type: "integer", required: true },
+      reviewed: { type: "boolean" },
+    },
+  },
+];
+
+async function pickOption(container: HTMLElement, label: string, value: string): Promise<void> {
+  const select = container.querySelector<HTMLSelectElement>(`select[aria-label="${label}"]`);
+  expect(select, label).not.toBeNull();
+  await act(async () => {
+    const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set;
+    setter?.call(select!, value);
+    select!.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+}
+
+async function toggle(container: HTMLElement, label: string): Promise<void> {
+  const box = container.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`);
+  expect(box, label).not.toBeNull();
+  await act(async () => {
+    box!.click();
+  });
+}
+
+describe("declared attributes on the new-entity wizard (E5)", () => {
+  it("grows one control per attribute of the version the new instance pins", async () => {
+    stubCrudBridge(
+      [crudRow("ADR-0001", "docs/adr/ADR-0001.md")],
+      [acceptedAdrKindRow({ schemaVersions: PINNED_SCHEMA_VERSIONS })],
+    );
+    const container = await renderCrudView(`entitydoc/${ADR_KIND}`);
+    await click(container, "governed-entity-new");
+    await vi.waitFor(() =>
+      expect(container.querySelector('[data-testid="new-entity-wizard-attributes"]')).not.toBeNull(),
+    );
+    const attributes = container.querySelector('[data-testid="new-entity-wizard-attributes"]');
+    // 钉的是最新已发布的那一版,页面直说是哪一版。
+    expect(attributes?.textContent).toContain("v2");
+    // 控件形态只由声明决定:有取值清单就是下拉,布尔是复选框,整数是数字框。
+    expect(container.querySelector('select[aria-label="region"]')).not.toBeNull();
+    expect(container.querySelector('input[aria-label="fiscalYear"]')?.getAttribute("type")).toBe("number");
+    expect(container.querySelector('input[aria-label="reviewed"]')?.getAttribute("type")).toBe("checkbox");
+    expect(attributes?.textContent).toContain("必填");
+    expect(attributes?.textContent).toContain("可选");
+    // v1 独有的属性不再出现:新实例钉不到那一版。
+    expect(container.querySelector('[aria-label="legacyOwner"]')).toBeNull();
+  });
+
+  it("will not submit while a declared required attribute is empty", async () => {
+    const state = stubCrudBridge(
+      [crudRow("ADR-0001", "docs/adr/ADR-0001.md")],
+      [acceptedAdrKindRow({ schemaVersions: PINNED_SCHEMA_VERSIONS })],
+    );
+    const container = await renderCrudView(`entitydoc/${ADR_KIND}`);
+    await click(container, "governed-entity-new");
+    await click(container, "repo-path-entry-docs/adr/ADR-0002.md");
+    await vi.waitFor(() => expect(container.querySelector('[data-testid="new-entity-wizard-submit"]')).not.toBeNull());
+    expect(container.querySelector<HTMLButtonElement>('[data-testid="new-entity-wizard-submit"]')?.disabled).toBe(true);
+    expect(container.querySelector('[data-testid="new-entity-wizard-attributes-incomplete"]')?.textContent).toContain(
+      "2 项",
+    );
+    await click(container, "new-entity-wizard-submit");
+    expect(state.imports).toEqual([]);
+  });
+
+  it("submits the declared values with the types the declaration states", async () => {
+    const state = stubCrudBridge(
+      [crudRow("ADR-0001", "docs/adr/ADR-0001.md")],
+      [acceptedAdrKindRow({ schemaVersions: PINNED_SCHEMA_VERSIONS })],
+    );
+    const container = await renderCrudView(`entitydoc/${ADR_KIND}`);
+    await click(container, "governed-entity-new");
+    await click(container, "repo-path-entry-docs/adr/ADR-0002.md");
+    await vi.waitFor(() => expect(container.querySelector('select[aria-label="region"]')).not.toBeNull());
+    await pickOption(container, "region", "north");
+    await typeInto(container, "fiscalYear", "2026");
+    await toggle(container, "reviewed");
+    await settle();
+    await click(container, "new-entity-wizard-submit");
+    // 整数到达中心时还是数字,不是 "2026";布尔是布尔。
+    expect(state.imports).toEqual([
+      {
+        repoId: REPO_ID,
+        entityKind: ADR_KIND,
+        locator: "docs/adr/ADR-0002.md",
+        expectedVersion: 0,
+        attributes: { region: "north", fiscalYear: 2026, reviewed: true },
+      },
+    ]);
+  });
+});
+
+describe("the entity's own content (E5)", () => {
+  it("keeps a single-file entity readable after its source path is gone", async () => {
+    // ADR-0009 的来源不在 fixture 的工作副本里:来源读回 missing,而被接受时收进来的那份
+    // 字节照常读得出来。这就是「导入之后正文归实体所有」这句话的可核对形态。
+    const state = stubCrudBridge([crudRow("ADR-0009", "docs/adr/ADR-0009.md")]);
+    const container = await renderCrudView(`${ADR_KIND}/ADR-0009`);
+    await vi.waitFor(() =>
+      expect(container.querySelector('[data-testid="entity-managed-content-text"]')?.textContent).toContain(
+        "收进实体的正文",
+      ),
+    );
+    // 位置逐字来自读面。渲染层拼一个 `harness/` 前缀,自定义 authored root 的仓就会被谎报。
+    expect(container.querySelector('[data-testid="entity-managed-content-path"]')?.textContent).toBe(
+      "ledger/entities/adrs/ADR-0009",
+    );
+    // 寻址只用实体身份:内容读没有拿 locator 路径当过参数。
+    expect(state.contentCalls).toContain("ADR-0009:");
+    expect(state.contentCalls.some((call) => call.includes("docs/adr"))).toBe(false);
+    // 来源那一屏如实说这个路径已经不在了。
+    await click(container, "entity-body-tab-source");
+    expect(container.querySelector('[data-testid="entity-locator-opaque"]')?.textContent).toContain("不存在");
+  });
+
+  it("browses a directory entity's own content one level at a time", async () => {
+    const state = stubCrudBridge([crudRow("ADR-0001", "docs/adr")]);
+    const container = await renderCrudView(`${ADR_KIND}/ADR-0001`);
+    await vi.waitFor(() => expect(container.querySelector('[data-testid="entity-managed-content"]')).not.toBeNull());
+    const tree = container.querySelector('[data-testid="entity-managed-content"]');
+    expect(tree?.textContent).toContain("research/");
+    expect(tree?.textContent).toContain("ADR-0002.md");
+    // 多条目不替人挑:先是选择态,不是随便打开一份。
+    expect(container.querySelector('[data-testid="entity-managed-content-text"]')).toBeNull();
+    // 未展开前不对子目录发读。
+    expect(state.contentCalls).not.toContain("ADR-0001:research");
+    await click(container, "entity-content-node-research");
+    expect(state.contentCalls).toContain("ADR-0001:research");
+    await click(container, "entity-content-node-research/notes.md");
+    await vi.waitFor(() =>
+      expect(container.querySelector('[data-testid="entity-managed-content-text"]')?.textContent).toContain(
+        "目录里的文件",
+      ),
+    );
+  });
+
+  it("states the pdf gap on the entity's own bytes instead of faking a preview", async () => {
+    // 收管内容读面对二进制同样只给 `binary`,不载字节:这里给事实卡,不摆一个空的「预览」。
+    stubCrudBridge([crudRow("ADR-0001", "docs/adr/research/paper.pdf")]);
+    const container = await renderCrudView(`${ADR_KIND}/ADR-0001`);
+    await vi.waitFor(() => expect(container.querySelector('[data-testid="entity-locator-pdf"]')).not.toBeNull());
+    expect(container.querySelector('[data-testid="entity-locator-pdf"]')?.textContent).toContain(
+      "ledger/entities/adrs/ADR-0001/paper.pdf",
+    );
+    expect(container.querySelector('[data-testid="entity-managed-content-text"]')).toBeNull();
   });
 });
 

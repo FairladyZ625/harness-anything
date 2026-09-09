@@ -37,15 +37,24 @@ export function isPdfDocument(path: string): boolean {
   return /\.pdf$/iu.test(path);
 }
 
+/**
+ * 选择表本体:一段路径 + 读面对它的判定 → 渲染器。实体的**来源指针**与它**自己收管的
+ * 内容**都走这一张表——两边的 outcome 是同一个词表,渲染实现也只有仓里这几个,分成两张
+ * 表就会出现「来源能渲染、收管的同一份内容渲染不了」这种自相矛盾。
+ */
+export function selectContentRenderer(path: string, outcome: EntityLocatorReadOutcome): EntityLocatorRenderer {
+  if (outcome === "directory") return "directory";
+  if (outcome === "binary") return isPdfDocument(path) ? "pdf" : "opaque";
+  if (outcome !== "file") return "opaque";
+  if (isHtmlDocument(path)) return "html";
+  if (isMarkdownDocument(path)) return "markdown";
+  return "opaque";
+}
+
 export function selectEntityLocatorRenderer(
   locator: EntityLocator,
   outcome: EntityLocatorReadOutcome,
 ): EntityLocatorRenderer {
-  if (locator.kind !== "repository-path") return "opaque";
-  if (outcome === "directory") return "directory";
-  if (outcome === "binary") return isPdfDocument(locator.value) ? "pdf" : "opaque";
-  if (outcome !== "file") return "opaque";
-  if (isHtmlDocument(locator.value)) return "html";
-  if (isMarkdownDocument(locator.value)) return "markdown";
-  return "opaque";
+  // 仓外指针(url / external-key)没有可读字节,读面本身就不发。
+  return locator.kind === "repository-path" ? selectContentRenderer(locator.value, outcome) : "opaque";
 }

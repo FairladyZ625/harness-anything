@@ -15,57 +15,41 @@ import {
   titleOfFileLocator,
   titleOfUrlLocator,
 } from "../../entity-import-preview.ts";
+import {
+  emptyAttributeDraft,
+  entityAttributeFields,
+  readAttributeDraft,
+  type EntityAttributeDraft,
+  type EntityAttributeField,
+} from "../../entity-attribute-form.ts";
 import { RepoPathBrowser, commonParentDirectory } from "./RepoPathBrowser.tsx";
-
-/**
- * import 动作合同里不出现在向导里的字段(与旧 NewGovernedEntityForm 同一份理由):
- * entityKind 由所在页钉死;expectedVersion 新建恒为 0;entityId/sourceIdentity 是
- * relink 语义;idempotencyKey/dryRun 是通道参数。合同若出现别的字段,向导如实列出
- * 并指向 CLI,不静默丢。
- */
-const HIDDEN_FIELDS = new Set([
-  "entityKind",
-  "expectedVersion",
-  "entityId",
-  "sourceIdentity",
-  "idempotencyKey",
-  "dryRun",
-]);
-
-export function importActionFields(row: EntityKindRow): readonly { field: string; required: boolean }[] {
-  const action = row.explanation.transitions.actions.find(({ id }) => id === "import");
-  return (action?.input?.fields ?? [])
-    .filter(({ field }) => !HIDDEN_FIELDS.has(field))
-    .map(({ field, required }) => ({ field, required }));
-}
-
-/** 这一版属性声明里被声明为必填的属性名——按 kernel EntityAttributeDeclaration 的 `required`。 */
-export function requiredAttributeNames(attributes: unknown): readonly string[] {
-  if (typeof attributes !== "object" || attributes === null || Array.isArray(attributes)) return [];
-  return Object.entries(attributes as Record<string, unknown>)
-    .filter(([, declaration]) => (declaration as { readonly required?: unknown } | null)?.required === true)
-    .map(([name]) => name);
-}
 
 /** 选中的来源:仓内路径(文件或目录)或外部 url。两种都只是一个 locator 字符串。 */
 type SourceTarget =
   | { readonly kind: "repository-path"; readonly path: string; readonly directory: boolean }
   | { readonly kind: "url"; readonly url: string };
 
+/** 新实例会被钉到的那一版属性声明:版本号由中心铸,正文是这一版声明的属性表。 */
+export interface PinnedAttributeSchema {
+  readonly version: number;
+  readonly attributes: unknown;
+}
+
 /**
  * 声明实体的新建向导(task_a494eac2 Goal 1):kind 已由所在页钉死 → 选定来源(浏览仓内
- * 文件/文件夹,或给一个外部 url)→ 预览推导出的 title → 一键导入。人不再填 id/version/
- * idPrefix/pathTemplate/descriptorSchemaRef——那些是 kind 声明的身份/存储字段,新建实体
- * 轮不到;id 也不在这里预测,它由中心在接受那一刻铸,只有回执里有。
+ * 文件/文件夹,或给一个外部 url)→ 按这个种类声明的属性填值 → 预览推导出的 title → 导入。
+ * 人不再填 id/version/idPrefix/pathTemplate/descriptorSchemaRef——那些是 kind 声明的身份/
+ * 存储字段,新建实体轮不到。
  *
- * 写路还是 `repo.entity.import` 那条 center 单写路;导入被接受时,来源字节随实体收进台账
- * 的 owned content,locator 记录它来自哪里。
+ * 属性表单是**声明驱动**的:填什么由这个种类当前那一版属性声明说了算,GUI 里没有任何
+ * 按 kind 写死的分支。导入被接受时,来源的正文成为这个实体自己的内容,locator 只记录它
+ * 当初来自哪里。
  */
 export function NewEntityWizard({
   repoId,
   row,
   seedRows,
-  pinnedAttributes,
+  pinnedSchema,
   onCancel,
   onImported,
 }: {
@@ -73,17 +57,18 @@ export function NewEntityWizard({
   readonly row: EntityKindRow;
   /** 用来推导浏览器起点的既有行(同 kind 优先);空时浏览器退到 seed 输入。 */
   readonly seedRows: readonly { readonly locator: { readonly kind: string; readonly value: string } | null }[];
-  /** 新实例会被钉到的那一版属性声明(kind 最新已发布版本);读不到时给 null。 */
-  readonly pinnedAttributes: unknown;
+  /** 新实例会被钉到的那一版属性声明;这个种类还没有已发布版本时为 null。 */
+  readonly pinnedSchema: PinnedAttributeSchema | null;
   readonly onCancel: () => void;
   readonly onImported: (entityRef: string) => void;
 }) {
   const queryClient = useQueryClient();
-  const unsupportedFields = useMemo(
-    () => importActionFields(row).filter(({ field }) => field !== "locator" && field !== "title"),
-    [row],
+  const attributeFields = useMemo(() => entityAttributeFields(pinnedSchema?.attributes), [pinnedSchema]);
+  const [attributeDraft, setAttributeDraft] = useState<EntityAttributeDraft>(() =>
+    emptyAttributeDraft(attributeFields),
   );
-  const requiredAttributes = useMemo(() => requiredAttributeNames(pinnedAttributes), [pinnedAttributes]);
+  const attributeReading = readAttributeDraft(attributeFields, attributeDraft);
+  const attributeIssues = Object.keys(attributeReading.issues).length;
   const locatorKinds = row.declaration?.locatorKinds ?? [];
   const acceptsPath = locatorKinds.includes("repository-path");
   const acceptsUrl = locatorKinds.includes("url");
@@ -104,7 +89,7 @@ export function NewEntityWizard({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const preview = useDerivedPreview(repoId, row, target);
-  const importable = target !== null && preview !== null;
+  const importable = target !== null && preview !== null && attributeIssues === 0;
   const browseSeed = seed ?? browseRoot;
 
   const submit = () => {
@@ -116,6 +101,7 @@ export function NewEntityWizard({
       entityKind: row.kind,
       locator: target.kind === "url" ? target.url : target.path,
       ...(titleOverride.trim() ? { title: titleOverride.trim() } : {}),
+      ...(Object.keys(attributeReading.values).length > 0 ? { attributes: attributeReading.values } : {}),
     })
       .then(async (receipt) => {
         if (receipt.outcome !== "applied" && receipt.outcome !== "no_changes") {
@@ -137,23 +123,12 @@ export function NewEntityWizard({
         <h2 className="ui-body font-semibold">新建 {row.declaration?.display.singular ?? row.kind}</h2>
         <code className="break-all font-mono ui-micro text-text-faint">{row.kind}</code>
         <span className="ml-auto ui-micro text-text-faint">
-          导入把来源字节收进实体的 owned content;locator 记录它来自哪里。
+          导入后正文归这个实体所有;来源路径只作记录,之后移走或删掉都不影响阅读。
         </span>
       </header>
 
       <section className="flex flex-col gap-2">
-        <h3 className="ui-meta font-semibold uppercase tracking-wide text-text-muted">1 · 选择来源</h3>
-        {unsupportedFields.map(({ field }) => (
-          <p key={field} data-testid={`new-entity-wizard-unsupported-${field}`} className="ui-micro text-text-faint">
-            合同字段 {field} 在这一页没有输入控件,请用 CLI `ha entity import` 提交。
-          </p>
-        ))}
-        {requiredAttributes.length > 0 && (
-          <p data-testid="new-entity-wizard-attributes-unsupported" className="ui-micro text-status-blocked">
-            这一版属性声明有必填属性({requiredAttributes.join("、")}),但 import 动作的入参合同没有 attributes 字段——CLI
-            与 GUI 都还递不进属性值。这里不摆一个提交不出去的表单;缺口在动作合同,不在这一页。
-          </p>
-        )}
+        <h3 className="ui-meta font-semibold uppercase tracking-wide text-text-muted">选择来源</h3>
         {acceptsPath && acceptsUrl && (
           <div className="flex gap-2" data-testid="new-entity-wizard-source-kind">
             {(["repository-path", "url"] as const).map((kind) => (
@@ -237,8 +212,28 @@ export function NewEntityWizard({
         )}
       </section>
 
+      {attributeFields.length > 0 && (
+        <section className="flex flex-col gap-2" data-testid="new-entity-wizard-attributes">
+          <h3 className="ui-meta font-semibold uppercase tracking-wide text-text-muted">
+            属性
+            {pinnedSchema !== null && (
+              <span className="ml-2 font-mono normal-case text-text-faint">v{pinnedSchema.version}</span>
+            )}
+          </h3>
+          {attributeFields.map((field) => (
+            <AttributeInput
+              key={field.name}
+              field={field}
+              value={attributeDraft[field.name] ?? ""}
+              issue={attributeReading.issues[field.name] ?? null}
+              onChange={(value) => setAttributeDraft((previous) => ({ ...previous, [field.name]: value }))}
+            />
+          ))}
+        </section>
+      )}
+
       <section className="flex flex-col gap-2" data-testid="new-entity-wizard-preview-area">
-        <h3 className="ui-meta font-semibold uppercase tracking-wide text-text-muted">2 · 预览并导入</h3>
+        <h3 className="ui-meta font-semibold uppercase tracking-wide text-text-muted">预览并导入</h3>
         {target === null ? (
           <p className="ui-meta text-text-faint">
             {sourceKind === "url"
@@ -267,8 +262,7 @@ export function NewEntityWizard({
               </dd>
             </dl>
             <p className="ui-micro leading-relaxed text-text-faint">
-              {"预览按导入的派生规则在本地推导 title;导入走 center 单写路,落库的 id/title 以台账回执为准,"}
-              {"实例 id 由中心在接受那一刻铸,这一页算不出也不预测。"}
+              标题按来源推导,可以在下面改写。这个实体的编号在保存成功后给出。
             </p>
             <label className="flex flex-col gap-1 ui-meta text-text-muted">
               title 覆写(留空用推导值)
@@ -281,6 +275,11 @@ export function NewEntityWizard({
                 className="rounded border border-border bg-surface px-2 py-1 ui-meta text-text"
               />
             </label>
+            {attributeIssues > 0 && (
+              <p data-testid="new-entity-wizard-attributes-incomplete" className="ui-meta text-status-blocked">
+                上面的属性还有 {attributeIssues} 项要补。
+              </p>
+            )}
             {error !== null && (
               <p data-testid="new-entity-wizard-error" className="ui-meta text-status-blocked">
                 {error}
@@ -315,6 +314,76 @@ export function NewEntityWizard({
         )}
       </section>
     </div>
+  );
+}
+
+/**
+ * 一个声明属性的输入控件。控件形态只由**声明**决定:给了取值清单就是下拉,布尔是复选框,
+ * 数字是数字框——没有任何按 kind 名字写死的分支,新声明一个种类不必回来改这里。
+ */
+function AttributeInput({
+  field,
+  value,
+  issue,
+  onChange,
+}: {
+  readonly field: EntityAttributeField;
+  readonly value: string;
+  readonly issue: string | null;
+  readonly onChange: (value: string) => void;
+}) {
+  const label = (
+    <span className="flex items-baseline gap-2">
+      <span className="font-mono">{field.name}</span>
+      <span className={field.required ? "ui-micro text-accent" : "ui-micro text-text-faint"}>
+        {field.required ? "必填" : "可选"}
+      </span>
+    </span>
+  );
+  if (field.type === "boolean")
+    return (
+      <label
+        className="flex items-center gap-2 ui-meta text-text-muted"
+        data-testid={`new-entity-attribute-${field.name}`}
+      >
+        <input
+          type="checkbox"
+          aria-label={field.name}
+          checked={value === "true"}
+          onChange={(event) => onChange(event.target.checked ? "true" : "false")}
+        />
+        {label}
+      </label>
+    );
+  return (
+    <label className="flex flex-col gap-1 ui-meta text-text-muted" data-testid={`new-entity-attribute-${field.name}`}>
+      {label}
+      {field.options !== null ? (
+        <select
+          aria-label={field.name}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          className="rounded border border-border bg-surface px-2 py-1 ui-meta text-text"
+        >
+          <option value="">未选择</option>
+          {field.options.map((option) => (
+            <option key={option} value={option}>
+              {option}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <input
+          aria-label={field.name}
+          type={field.type === "string" ? "text" : "number"}
+          {...(field.type === "integer" ? { step: 1 } : {})}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          className="rounded border border-border bg-surface px-2 py-1 ui-meta text-text"
+        />
+      )}
+      {issue !== null && value.trim() !== "" && <span className="ui-micro text-status-blocked">{issue}</span>}
+    </label>
   );
 }
 

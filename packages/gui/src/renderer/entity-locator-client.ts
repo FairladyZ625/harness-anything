@@ -32,6 +32,7 @@ type LocatorBridge = {
     readonly locator: string;
     readonly expectedVersion: number;
     readonly title?: string;
+    readonly attributes?: Readonly<Record<string, unknown>>;
   }) => Promise<unknown>;
   readonly updateEntity: (payload: {
     readonly repoId: string;
@@ -41,6 +42,7 @@ type LocatorBridge = {
     readonly title?: string;
     readonly locator?: string;
     readonly contentVersion?: string;
+    readonly attributes?: Readonly<Record<string, unknown>>;
   }) => Promise<unknown>;
   readonly archiveEntity: (payload: {
     readonly repoId: string;
@@ -97,6 +99,8 @@ export interface EntityImportInput {
   readonly entityKind: string;
   readonly locator: string;
   readonly title?: string;
+  /** 按实例钉住的那一版属性声明填出来的值;这个种类没有声明属性时不递。 */
+  readonly attributes?: Readonly<Record<string, unknown>>;
 }
 
 /**
@@ -113,6 +117,7 @@ export async function importEntity(input: EntityImportInput): Promise<GuiActionR
     locator: input.locator,
     expectedVersion: 0,
     ...(input.title ? { title: input.title } : {}),
+    ...(input.attributes ? { attributes: input.attributes } : {}),
   });
   if (!isRendererRecord(value) || value.schema !== "command-receipt/v2" || typeof value.outcome !== "string")
     throw new Error(rendererErrorHint(value, "Entity import bridge returned an invalid result."));
@@ -127,6 +132,11 @@ async function mutationResult(channel: ((payload: never) => Promise<unknown>) | 
   return value as unknown as GuiActionResult;
 }
 
+/**
+ * 描述符更新。属性值不在这里递:一个已存在的实例钉在它当初那一版属性声明上,而行读面
+ * (`repo.entity.rows.read`)不带这个版本号,也不带它现在的属性值——GUI 因此说不出这一条
+ * 该按哪一版填,替它猜一版会被中心按另一版判定。缺的是行读面上的一个事实,不是这条写路。
+ */
 export function updateEntity(input: {
   readonly repoId: string;
   readonly entityKind: string;

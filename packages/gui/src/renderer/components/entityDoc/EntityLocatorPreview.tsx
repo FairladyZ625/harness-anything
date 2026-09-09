@@ -13,8 +13,8 @@ import { PdfLocatorCard } from "./PdfLocatorCard.tsx";
  * EntityDirectoryBrowser / PDF 事实卡),这里只负责喂数据;认不出来的指针显示元数据卡
  * ——不假装能渲染。
  *
- * 本组件对「来源指针」和「实体自己收管的内容根」一视同仁:两者都是仓内路径,由调用方
- * 决定这一屏在读哪一个。
+ * 这一屏读的是**来源**——实体当初来自的那个仓内路径此刻的样子。实体自己收管的那份内容
+ * 由 `EntityManagedContent` 读,两者共用同一张渲染器选择表。
  */
 export function EntityLocatorPreview({
   repoId,
@@ -53,8 +53,7 @@ export function EntityLocatorPreview({
 }
 
 function outcomeNote(outcome: string, path: string): string {
-  if (outcome === "missing")
-    return `${path} 在工作区里不存在。导入时收进实体 owned content 的字节仍由台账收管;这一屏读的是这个路径本身。`;
+  if (outcome === "missing") return `${path} 在工作区里不存在。这个实体自己的正文不受影响,在「内容」里读。`;
   if (outcome === "too-large") return `${path} 超过阅读面上限,不在 GUI 内展开。`;
   if (outcome === "binary") return `${path} 是二进制文件,读面不载它的字节,GUI 内展不开。`;
   if (outcome === "unsupported") return `${path} 不是仓内路径指针。`;

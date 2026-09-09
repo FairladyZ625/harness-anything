@@ -13,7 +13,6 @@ import { resolveEntityDocFocus } from "../src/renderer/views/EntitiesView.tsx";
 import { entityDetailTargetOf } from "../src/renderer/navigation/entityRoutes.ts";
 import { parseEndpoint } from "../src/renderer/graph/endpoint.ts";
 import { partitionGoverned } from "../src/renderer/graph/territory.ts";
-import { importActionFields } from "../src/renderer/components/entityDoc/NewEntityWizard.tsx";
 
 /**
  * GUI 的实体种类集合只有一个来源:已注册 kind 读面。这里锁住那条派生链——
@@ -159,9 +158,7 @@ describe("declared kinds reach every GUI consumer through the catalog", () => {
     expect(resolveEntityDocFocus(`entitydoc/${ADR_KIND}`, withAdr)).toEqual({ kind: ADR_KIND, entityRef: null });
   });
 
-  it("derives the new-entity form fields from the import action contract", () => {
-    // kind / expectedVersion / relink 三类字段不出现在向导里(见 NewEntityWizard 注释)。
-    expect(importActionFields(adrRow()).map(({ field }) => field)).toEqual(["locator", "title"]);
+  it("offers the new-entity entry only for the kinds the read declares importable", () => {
     expect(importableKinds(withAdr).map(({ kind }) => kind)).toEqual([ADR_KIND]);
   });
 });

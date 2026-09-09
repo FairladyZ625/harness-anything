@@ -6,7 +6,8 @@ import { findEntityKind, type EntityKindDeclaration, type EntityKindRow } from "
 import { GovernedEntityPanel } from "../components/entityDoc/GovernedEntityPanel.tsx";
 import { EntityDetailActions } from "../components/entityDoc/EntityDetailActions.tsx";
 import { EntityLocatorPreview } from "../components/entityDoc/EntityLocatorPreview.tsx";
-import { NewEntityWizard } from "../components/entityDoc/NewEntityWizard.tsx";
+import { EntityManagedContent } from "../components/entityDoc/EntityManagedContent.tsx";
+import { NewEntityWizard, type PinnedAttributeSchema } from "../components/entityDoc/NewEntityWizard.tsx";
 import { FactFacetLive, FactTypeVocabulary } from "../components/entityDoc/FactVocabularySections.tsx";
 import type { ViewId } from "../navigation/viewHistory.ts";
 import { useFactFacetStats, type EntityLiveCounts } from "../entities-data.ts";
@@ -390,7 +391,7 @@ export function EntityDocDetailView({
             repoId={repoId}
             doc={doc}
             catalogRow={catalogRow}
-            pinnedAttributes={latestPublishedAttributes(fullDeclaration)}
+            pinnedSchema={latestPublishedSchema(fullDeclaration)}
             governedRowCount={governedRows.length}
             selectedEntity={selectedEntity}
             creating={
@@ -421,7 +422,7 @@ function DetailRendererPane({
   repoId,
   doc,
   catalogRow,
-  pinnedAttributes,
+  pinnedSchema,
   governedRowCount,
   selectedEntity,
   creating,
@@ -432,8 +433,8 @@ function DetailRendererPane({
   readonly repoId: string;
   readonly doc: EntityKindDoc;
   readonly catalogRow: EntityKindRow | null;
-  /** 新实例会被钉到的那一版属性声明;向导据它如实说明属性还没有入参通道。 */
-  readonly pinnedAttributes: unknown;
+  /** 新实例会被钉到的那一版属性声明;向导据它长出属性表单。 */
+  readonly pinnedSchema: PinnedAttributeSchema | null;
   readonly governedRowCount: number;
   readonly selectedEntity: GovernedEntityRow | null;
   readonly creating: boolean;
@@ -458,7 +459,7 @@ function DetailRendererPane({
         repoId={repoId}
         row={catalogRow}
         seedRows={governedRowsForSeed}
-        pinnedAttributes={pinnedAttributes}
+        pinnedSchema={pinnedSchema}
         onCancel={onCancelCreate}
         onImported={onImported}
       />
@@ -473,26 +474,61 @@ function DetailRendererPane({
         }
       />
     );
-  if (selectedEntity.locator === null)
-    return (
-      <div className="flex flex-1 items-center justify-center p-6" data-testid="entity-locator-none">
-        <p className="max-w-sm text-center ui-meta leading-relaxed text-text-faint">
-          {selectedEntity.title ?? selectedEntity.entityId} 没有 locator,说不出它来自哪里。
-        </p>
-      </div>
-    );
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col" data-testid="entity-doc-renderer">
       <EntityDetailActions repoId={repoId} entity={selectedEntity} />
-      <EntityLocatorPreview repoId={repoId} locator={selectedEntity.locator} />
+      <EntityBody repoId={repoId} entity={selectedEntity} />
     </div>
   );
 }
 
-/** kind 最新已发布的那一版属性声明;还没有任何已发布版本时为 null。 */
-function latestPublishedAttributes(declaration: ArtifactKindDeclaration | undefined): unknown {
+/**
+ * 实体正文的两屏:**内容**是这个实体自己收管的那一份,**来源**是它当初来自的那个位置
+ * 此刻的样子。默认开在内容上——那才是这个实体的东西,来源被移走或删掉都不影响它。
+ */
+function EntityBody({ repoId, entity }: { readonly repoId: string; readonly entity: GovernedEntityRow }) {
+  const [pane, setPane] = useState<"content" | "source">("content");
+  return (
+    <>
+      <div className="flex shrink-0 gap-1 border-b border-border px-3 py-1.5" data-testid="entity-body-tabs">
+        {(["content", "source"] as const).map((id) => (
+          <button
+            key={id}
+            type="button"
+            data-testid={`entity-body-tab-${id}`}
+            aria-pressed={pane === id}
+            onClick={() => setPane(id)}
+            className={[
+              "rounded-md border px-2 py-0.5 ui-micro",
+              pane === id
+                ? "border-border-strong bg-surface-raised text-text"
+                : "border-transparent text-text-muted hover:text-text",
+            ].join(" ")}
+          >
+            {id === "content" ? "内容" : "来源"}
+          </button>
+        ))}
+      </div>
+      {pane === "content" ? (
+        <EntityManagedContent repoId={repoId} entityKind={entity.kind} entityId={entity.entityId} />
+      ) : entity.locator === null ? (
+        <div className="flex flex-1 items-center justify-center p-6" data-testid="entity-locator-none">
+          <p className="max-w-sm text-center ui-meta leading-relaxed text-text-faint">
+            {entity.title ?? entity.entityId} 没有记录来源。
+          </p>
+        </div>
+      ) : (
+        <EntityLocatorPreview repoId={repoId} locator={entity.locator} />
+      )}
+    </>
+  );
+}
+
+/** kind 最新已发布的那一版属性声明——新建的实例钉的就是它。没有任何已发布版本时为 null。 */
+function latestPublishedSchema(declaration: ArtifactKindDeclaration | undefined): PinnedAttributeSchema | null {
   const published = [...(declaration?.schemaVersions ?? [])].sort((left, right) => left.version - right.version);
-  return published.at(-1)?.attributes ?? null;
+  const latest = published.at(-1);
+  return latest === undefined ? null : { version: latest.version, attributes: latest.attributes };
 }
 
 function RendererEmptyState({ message }: { readonly message: string }) {
