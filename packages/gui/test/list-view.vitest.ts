@@ -229,6 +229,44 @@ describe("list view column resize (W11)", () => {
     expect(handle).toContain('aria-valuenow="420"');
   });
 
+  // 回归:真实 Electron 验收发现 table-fixed 窄列里未收敛的 font-mono 长 taskId
+  // 直接画进 Title 列(2026-09-09)。此处只断言收敛原语(截断类 + title 悬停)在
+  // 标记里就位;像素级不越列由 Electron 走查复核,类名断言不证明像素行为。
+  it("contains unbreakable cell values inside their fixed columns and keeps the full id on hover", () => {
+    const task = makeTask({
+      taskId: "task_eeb3b5f08c093e63622b24392c",
+      title: "Overflow regression",
+      module: "packages/daemon",
+      canonicalStatus: "done",
+      coordinationStatus: "in_review",
+      currentNode: "review",
+    });
+    const markup = renderToStaticMarkup(
+      createElement(ListView, {
+        tasks: [task],
+        allTasks: [task],
+        filters: DEFAULT_TASK_FILTERS,
+        onFiltersChange: () => undefined,
+        onSelect: () => undefined,
+        spawningDecisions: new Map(),
+        favorites: new Set<string>(),
+        onToggleFavorite: () => undefined,
+        embedded: true,
+      }),
+    );
+    const idLine = markup.match(/<div[^>]*>task_eeb3b5f08c093e63622b24392c<\/div>/u)![0];
+    expect(idLine).toContain("truncate");
+    expect(idLine).toContain('title="task_eeb3b5f08c093e63622b24392c"'); // 悬停可见整串。
+    const dateLine = markup.match(/<div[^>]*class="mt-1 truncate[^"]*"[^>]*>[^<]+<\/div>/u)![0];
+    expect(dateLine).toBeTruthy();
+    // 同一 fixed 布局下其余不可断行值同样收敛在本列:coordination 键值串、节点行、
+    // 模块名、包处置枚举 chip。
+    expect(markup.match(/<span[^>]*>coordination=in_review<\/span>/u)![0]).toContain("truncate");
+    expect(markup.match(/<span[^>]*>graph cursor:review<\/span>/u)![0]).toContain("truncate");
+    expect(markup.match(/<span[^>]*>packages\/daemon<\/span>/u)![0]).toContain("truncate");
+    expect(markup.match(/<span[^>]*>active<\/span>/u)![0]).toContain("max-w-full");
+  });
+
   it("drags, fine-tunes with arrow keys, resets by double-click, and persists across remount", async () => {
     localStorage.setItem(WIDTH_KEY, JSON.stringify({ list: { title: 420 } }));
     const view = await mountList();

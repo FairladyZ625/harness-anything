@@ -131,8 +131,11 @@ const AuditRow = memo(function AuditRow({
         </button>
       </td>
       <td className="px-3 py-2 align-top">
-        <div className="font-mono ui-body text-text">{task.taskId}</div>
-        <div className="mt-1 font-mono ui-meta text-text-faint">{dateLabel(task.lastKnownAt)}</div>
+        {/* table-fixed(W11)下窄列裁不裁由单元格自己负责:截断 + title 悬停保整串可读可抄。 */}
+        <div title={task.taskId} className="truncate font-mono ui-body text-text">
+          {task.taskId}
+        </div>
+        <div className="mt-1 truncate font-mono ui-meta text-text-faint">{dateLabel(task.lastKnownAt)}</div>
       </td>
       <td className="min-w-[260px] px-3 py-2 align-top">
         <div className="flex items-start gap-1.5">
@@ -151,7 +154,9 @@ const AuditRow = memo(function AuditRow({
           <div className="line-clamp-2 ui-prose font-medium leading-snug text-text">{task.title}</div>
         </div>
         <div className="mt-1 flex flex-wrap items-center gap-2 font-mono ui-meta text-text-faint">
-          <span>{task.module === "unassigned" || !task.module ? t("views.listView.notProjected") : task.module}</span>
+          <span className="min-w-0 truncate">
+            {task.module === "unassigned" || !task.module ? t("views.listView.notProjected") : task.module}
+          </span>
           {task.blocking === "unknown" && <span className="text-stale">{t("views.listView.blockingUnknown")}</span>}
           {spawningDecision && <DecisionSourceBadge decisionId={spawningDecision} compact />}
           {isExternal(task) && (
@@ -166,9 +171,9 @@ const AuditRow = memo(function AuditRow({
         <div className="flex flex-col items-start gap-1">
           <StatusBadge status={task.canonicalStatus ?? task.coordinationStatus} />
           {task.canonicalStatus && task.canonicalStatus !== task.coordinationStatus && (
-            <span className="font-mono ui-micro text-text-faint">coordination={task.coordinationStatus}</span>
+            <span className="truncate font-mono ui-micro text-text-faint">coordination={task.coordinationStatus}</span>
           )}
-          <span className="font-mono ui-micro text-text-faint">
+          <span className="truncate font-mono ui-micro text-text-faint">
             {t("views.listView.nodeLabel")}
             {task.currentNode ?? "—"}
           </span>
@@ -196,7 +201,12 @@ const AuditRow = memo(function AuditRow({
         <FreshnessTag freshness={task.freshness} lastKnownAt={task.lastKnownAt} />
       </td>
       <td className="px-3 py-2 align-top">
-        <span className="rounded border border-border px-1.5 py-px font-mono ui-meta text-text-muted">
+        <span
+          className={[
+            "inline-block max-w-full truncate rounded border border-border",
+            "px-1.5 py-px font-mono ui-meta text-text-muted",
+          ].join(" ")}
+        >
           {task.packageDisposition}
         </span>
       </td>
