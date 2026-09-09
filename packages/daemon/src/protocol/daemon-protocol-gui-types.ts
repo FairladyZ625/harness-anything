@@ -433,7 +433,7 @@ export type DaemonGuiReadPayloadMap = {
   };
   readonly "repo.tasks.documents.list": { readonly taskId: string };
   /** absent kind = html(时间线默认面);md 是显式 opt-in。 */
-  readonly "repo.artifacts.list": { readonly kind?: "html" | "md" };
+  readonly "repo.artifacts.list": { readonly kind?: "html" | "md" | "raw" };
   readonly "repo.agentRuntime.overview": {
     readonly taskId?: string;
     readonly limit?: number;

@@ -74,6 +74,13 @@ test("the artifacts list read facet is registered, payload-closed, and defaults 
     }),
     [],
   );
+  assert.deepEqual(
+    validateDaemonRpcCall({
+      method: "repo.artifacts.list",
+      params: { repo: { repoId: "artifacts-gui" }, payload: { kind: "raw" } },
+    }),
+    [],
+  );
   assert.notDeepEqual(
     validateDaemonRpcCall({
       method: "repo.artifacts.list",
@@ -100,6 +107,7 @@ test("the read joins task attribution, ledger time, and mtime fallback; non-arti
       {
         "artifacts/reports/weathering.html": "<h1>Weathering</h1>",
         "artifacts/notes.md": "# Notes\n",
+        "artifacts/reports/dossier.pdf": "%PDF-1.7 body",
         "task_plan.md": "# Plan (not an artifact)\n",
       },
       mtime,
@@ -130,7 +138,7 @@ test("the read joins task attribution, ledger time, and mtime fallback; non-arti
     assert.deepEqual(validateArtifactsList(result), []);
     assert.equal(parseDaemonGuiReadResult("repo.artifacts.list", result), result);
     assert.equal(result.kind, "html");
-    assert.deepEqual(result.counts, { html: 2, md: 1 });
+    assert.deepEqual(result.counts, { html: 2, md: 1, raw: 1 });
     const paths = result.artifacts.map((row) => row.path);
     // 台账时间(08-29)在前,未同步产物的 mtime(08-01)在后。
     assert.deepEqual(paths, ["artifacts/reports/weathering.html", "artifacts/unsynced.html"]);
@@ -147,6 +155,38 @@ test("the read joins task attribution, ledger time, and mtime fallback; non-arti
     assert.equal(unsynced.time, "2026-08-01T00:00:00.000Z");
     assert.equal(unsynced.taskId, null);
     assert.equal(unsynced.packagePath, null);
+    assert.equal(weathering.mediaType, "text/html");
+    assert.equal(weathering.sizeBytes, "<h1>Weathering</h1>".length);
+
+    // 二进制产物过去连一行都不存在:时间线只认 html/md,PDF 既不在列表里也没有理由。
+    const raw = readArtifactsGui(
+      {
+        rootDir: root,
+        projection: projectionStub({
+          documents: { "tasks/task_reported-slug/artifacts/reports/dossier.pdf": 4 },
+          events: { 4: "2026-08-28T10:00:00.000Z" },
+          tasks: [{ taskId: "task_reported", title: "Reported task", packagePath: "tasks/task_reported-slug" }],
+        }),
+        input: { repoId: "artifacts-gui" },
+      },
+      { kind: "raw" },
+    );
+    assert.deepEqual(validateArtifactsList(raw), []);
+    assert.equal(raw.kind, "raw");
+    assert.deepEqual(
+      raw.artifacts.map((row) => row.path),
+      ["artifacts/reports/dossier.pdf"],
+    );
+    const dossier = raw.artifacts[0]!;
+    assert.equal(dossier.mediaType, "application/octet-stream");
+    assert.equal(dossier.sizeBytes, "%PDF-1.7 body".length);
+    assert.equal(dossier.taskId, "task_reported");
+    assert.equal(dossier.timeSource, "ledger");
+    // html/md 面不得因为新增 raw 面而混入二进制行。
+    assert.equal(
+      result.artifacts.some((row) => row.path.endsWith(".pdf")),
+      false,
+    );
 
     const markdown = readArtifactsGui(
       {
@@ -205,11 +245,13 @@ test("the artifacts list validator locks the wire shape", () => {
         packagePath: "tasks/task_reported-slug",
         path: "artifacts/reports/weathering.html",
         kind: "html",
+        mediaType: "text/html",
+        sizeBytes: 19,
         time: "2026-08-28T10:00:00.000Z",
         timeSource: "ledger",
       },
     ],
-    counts: { html: 1, md: 0 },
+    counts: { html: 1, md: 0, raw: 0 },
     watermark: 9,
     sourceRevision: 9,
   };
@@ -218,6 +260,7 @@ test("the artifacts list validator locks the wire shape", () => {
   for (const mutate of [
     (value: ArtifactsListResult) => ({ ...value, kind: "pdf" }),
     (value: ArtifactsListResult) => ({ ...value, counts: { html: 1 } }),
+    (value: ArtifactsListResult) => ({ ...value, counts: { html: 1, md: 0 } }),
     (value: ArtifactsListResult) => ({ ...value, artifacts: "many" }),
     (value: ArtifactsListResult) => ({ ...value, apiKey: "secret" }),
     (value: ArtifactsListResult) => ({ ...value, nextCursor: null }),
@@ -234,6 +277,22 @@ test("the artifacts list validator locks the wire shape", () => {
     (value: ArtifactsListResult) => ({ ...value, artifacts: [{ ...row, taskId: "" }] }),
     (value: ArtifactsListResult) => ({ ...value, artifacts: [{ ...row, packagePath: "/etc" }] }),
     (value: ArtifactsListResult) => ({ ...value, artifacts: [{ ...row, kind: "htm" }] }),
+    (value: ArtifactsListResult) => ({ ...value, artifacts: [{ ...row, mediaType: "" }] }),
+    (value: ArtifactsListResult) => ({ ...value, artifacts: [{ ...row, sizeBytes: -1 }] }),
+    (value: ArtifactsListResult) => ({
+      ...value,
+      artifacts: [
+        {
+          taskId: row.taskId,
+          taskTitle: row.taskTitle,
+          packagePath: row.packagePath,
+          path: row.path,
+          kind: row.kind,
+          time: row.time,
+          timeSource: row.timeSource,
+        },
+      ],
+    }),
   ])
     assert.notDeepEqual(validateArtifactsList(mutate(base)), [], `mutation must be rejected`);
 });
@@ -245,7 +304,7 @@ test("the artifacts list schema is registry-closed with a negative fixture", () 
   assert.notDeepEqual(
     validateArtifactsList(
       JSON.parse(
-        '{"ok":true,"status":"ready","repoId":"r","kind":"html","artifacts":[{"taskId":"t","taskTitle":"T","packagePath":"tasks/t","path":"artifacts/a.html","kind":"html","time":"yesterday","timeSource":"ledger"}],"counts":{"html":1,"md":0},"watermark":0,"sourceRevision":0}',
+        '{"ok":true,"status":"ready","repoId":"r","kind":"html","artifacts":[{"taskId":"t","taskTitle":"T","packagePath":"tasks/t","path":"artifacts/a.html","kind":"html","mediaType":"text/html","sizeBytes":1,"time":"yesterday","timeSource":"ledger"}],"counts":{"html":1,"md":0,"raw":0},"watermark":0,"sourceRevision":0}',
       ),
     ),
     [],

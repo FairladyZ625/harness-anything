@@ -418,7 +418,7 @@ export const daemonGuiReadMethods = Object.freeze([
     guiBridgeMethod: "listArtifacts",
     httpMethod: "GET",
     path: "/api/artifacts",
-    inputSchemaId: "gui.artifacts-list/v1",
+    inputSchemaId: "gui.artifacts-list/v2",
     outputSchemaId: DAEMON_ARTIFACTS_LIST_SCHEMA.id,
     errorSchemaId: DAEMON_PROTOCOL_ERROR_SCHEMA.id,
     serviceMethod: "listArtifacts",

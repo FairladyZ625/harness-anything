@@ -70,7 +70,7 @@ export interface GuiTaskDocumentListPayload {
 }
 /** Optional kind facet for the artifacts timeline read; absent = html (the default facet). */
 export interface GuiArtifactsListPayload {
-  readonly kind?: "html" | "md";
+  readonly kind?: "html" | "md" | "raw";
 }
 
 export const apiSchemaContracts = [
@@ -80,7 +80,7 @@ export const apiSchemaContracts = [
   { id: "gui.relation-query/v1", owner: "gui", typeName: "GuiRelationQueryPayload" },
   { id: "gui.task-document/v1", owner: "gui", typeName: "GuiTaskDocumentPayload" },
   { id: "gui.task-document-list/v1", owner: "gui", typeName: "GuiTaskDocumentListPayload" },
-  { id: "gui.artifacts-list/v1", owner: "gui", typeName: "GuiArtifactsListPayload" },
+  { id: "gui.artifacts-list/v2", owner: "gui", typeName: "GuiArtifactsListPayload" },
   { id: "gui.observe-tail/v3", owner: "gui", typeName: "ObserveTailPayload" },
   { id: "gui.agent-runtime-overview/v1", owner: "gui", typeName: "AgentRuntimeOverviewPayload" },
   { id: "gui.agent-runtime-session/v1", owner: "gui", typeName: "AgentRuntimeSessionPayload" },

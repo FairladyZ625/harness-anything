@@ -25,6 +25,8 @@ function row(overrides: Partial<ArtifactGuiRowDto> = {}): ArtifactGuiRowDto {
     packagePath: "tasks/task_weathering-slug",
     path: "artifacts/reports/weathering.html",
     kind: "html",
+    mediaType: "text/html",
+    sizeBytes: 19,
     time: "2026-08-28T10:00:00.000Z",
     timeSource: "ledger",
     ...overrides,
@@ -38,7 +40,7 @@ function dto(overrides: Partial<ArtifactsListResult> = {}): ArtifactsListResult 
     repoId: "repo-a",
     kind: "html",
     artifacts: [row()],
-    counts: { html: 2, md: 5729 },
+    counts: { html: 2, md: 5729, raw: 3 },
     watermark: 12,
     sourceRevision: 12,
     ...overrides,
@@ -112,6 +114,29 @@ function stubDocumentBridge(body: string, kind: "html" | "committed" = "html"): 
   return getTaskDocument;
 }
 
+/** 二进制读回执:body 为空是策略本身,内容真相在 contentKind/mediaType/size/bytes 上。 */
+function stubBinaryDocumentBridge(): ReturnType<typeof vi.fn> {
+  const getTaskDocument = vi.fn(async () => ({
+    ok: true,
+    status: "ready",
+    taskId: "task_weathering",
+    path: "artifacts/reports/dossier.pdf",
+    body: "",
+    blobSha256: "sha256:dossier",
+    contentKind: "binary",
+    mediaType: "application/octet-stream",
+    size: 20,
+    bytes: Buffer.from("%PDF-1.7 raw bytes\n\u0000").toString("base64"),
+    repositoryPath: "harness/tasks/task_weathering-slug/artifacts/reports/dossier.pdf",
+    worktreeBody: null,
+    uncommitted: false,
+    watermark: 12,
+    sourceRevision: 12,
+  }));
+  vi.stubGlobal("window", { harness: { getTaskDocument } });
+  return getTaskDocument;
+}
+
 describe("artifacts timeline — list, preview, and task jump", () => {
   it("renders the daemon DTO as a time-desc timeline with the time source labeled", async () => {
     const container = await renderSurface(
@@ -143,6 +168,7 @@ describe("artifacts timeline — list, preview, and task jump", () => {
     // 两种 kind 的计数都来自 daemon DTO,筛选 chip 展示全量计数而非本页行数。
     expect(text).toContain("HTML · 2");
     expect(text).toContain("Markdown · 5729");
+    expect(text).toContain("Binary · 3");
   });
 
   it("lays out as a left drawer plus full-width preview on one row axis, never a stacked split", async () => {
@@ -331,7 +357,7 @@ describe("artifacts timeline — list, preview, and task jump", () => {
     const container = await renderSurface(
       createElement(ArtifactsWorkspace, {
         repoId: "repo-a",
-        data: dto({ kind: "md", artifacts: [markdown], counts: { html: 2, md: 1 } }),
+        data: dto({ kind: "md", artifacts: [markdown], counts: { html: 2, md: 1, raw: 0 } }),
         pending: false,
         kind: "md",
         onKindChange: noop,
@@ -389,9 +415,43 @@ describe("artifacts timeline — list, preview, and task jump", () => {
     );
     await click(container, "artifacts-filter-md");
     expect(onKindChange).toHaveBeenCalledWith("md");
+    await click(container, "artifacts-filter-raw");
+    expect(onKindChange).toHaveBeenCalledWith("raw");
     // 时间来源是 daemon 事实:mtime 的行把它显形在正文里,ledger 的留在 tooltip。
     expect(container.textContent).toContain("file mtime");
     // 投影无归属 task:不渲染跳转,时间来源仍标明。
     expect(container.querySelector('[data-testid="artifact-task-null"]')).toBeNull();
+  });
+
+  it("previews a raw artifact as real metadata and a byte route, never a blank markdown page", async () => {
+    stubBinaryDocumentBridge();
+    const pdf = row({
+      path: "artifacts/reports/dossier.pdf",
+      kind: "raw",
+      mediaType: "application/octet-stream",
+      sizeBytes: 20,
+    });
+    const container = await renderSurface(
+      createElement(ArtifactsWorkspace, {
+        repoId: "repo-a",
+        data: dto({ kind: "raw", artifacts: [pdf], counts: { html: 2, md: 1, raw: 1 } }),
+        pending: false,
+        kind: "raw",
+        onKindChange: noop,
+        onNavigateTask: noop,
+      }),
+    );
+    await click(container, "artifact-focus-task_weathering-artifacts/reports/dossier.pdf");
+    await settle();
+    const preview = container.querySelector<HTMLElement>('[data-testid="artifact-preview-content"]');
+    // 判别性对照:旧代码把 body:"" 交给 DocReader,渲染出的正是一张 .prose-harness 白页。
+    expect(preview?.querySelector(".prose-harness")).toBeNull();
+    expect(container.querySelector('[data-testid="html-artifact-webview"]')).toBeNull();
+    expect(container.querySelector('[data-testid="task-document-binary"]')).not.toBeNull();
+    const text = preview?.textContent ?? "";
+    expect(text).toContain("application/octet-stream");
+    expect(text).toContain("20");
+    expect(text).toContain("harness/tasks/task_weathering-slug/artifacts/reports/dossier.pdf");
+    expect(container.querySelector('[data-testid="task-document-binary-open"]')).not.toBeNull();
   });
 });

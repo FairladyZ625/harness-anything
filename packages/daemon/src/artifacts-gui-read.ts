@@ -1,6 +1,12 @@
 import { readdirSync } from "node:fs";
 import path from "node:path";
-import { consumeKnownError, normalizeRelativeDocumentPath, resolveHarnessLayout } from "../../kernel/src/index.ts";
+import {
+  classifyRawArtifactPath,
+  consumeKnownError,
+  normalizeRelativeDocumentPath,
+  RAW_ARTIFACT_MEDIA_TYPE,
+  resolveHarnessLayout,
+} from "../../kernel/src/index.ts";
 import { statFileSync, statLinkSync } from "./doc-sync-reads.ts";
 import type { ArtifactGuiKind, ArtifactGuiRowDto, ArtifactsListResult } from "./protocol/artifacts-gui-contract.ts";
 
@@ -30,7 +36,7 @@ export interface ArtifactsProjectionReads {
   };
 }
 
-/** Artifacts GUI 读侧 join:跨全部 task 包扫 `artifacts/` 下的 html/md,按时间倒序
+/** Artifacts GUI 读侧 join:跨全部 task 包扫 `artifacts/` 下的 html/md/raw,按时间倒序
  * 返回。归属(taskId/title)走投影批量 join(readTaskStatuses + readTaskRuntimeBatch,
  * ≤500/批);时间优先取台账 doc 事件 occurredAt(文档投影 workspaceRevision 定位事件),
  * 投影缺行回落文件 mtime 并在 DTO 标 timeSource。纯只读:不写台账、不改任何文件。 */
@@ -40,11 +46,27 @@ export interface ArtifactsGuiReadContext {
   readonly input: { readonly repoId: string };
 }
 
-const artifactExtensions: ReadonlyMap<string, ArtifactGuiKind> = new Map([
-  [".html", "html"],
-  [".htm", "html"],
-  [".md", "md"],
-]);
+const artifactExtensions: ReadonlyMap<string, { readonly kind: ArtifactGuiKind; readonly mediaType: string }> = new Map(
+  [
+    [".html", { kind: "html", mediaType: "text/html" }],
+    [".htm", { kind: "html", mediaType: "text/html" }],
+    [".md", { kind: "md", mediaType: "text/markdown" }],
+  ] as const,
+);
+/** 时间线之前只认 html/md,于是一个 PDF/PNG/日志既不在列表里也没有理由——它就是不存在。
+ * raw 面按 kernel 的 raw-artifact 策略判定(任务包 artifacts/ 子树 × 不声明文本格式),
+ * 与 task-artifact-add 接受它时用的是同一个判据,所以这里的行与台账里的策略同源。 */
+function artifactKindOf(
+  packageDir: string,
+  relative: string,
+  fileName: string,
+): { readonly kind: ArtifactGuiKind; readonly mediaType: string } | null {
+  const textual = artifactExtensions.get(path.extname(fileName).toLowerCase());
+  if (textual !== undefined) return textual;
+  return classifyRawArtifactPath(`tasks/${packageDir}/${relative}`) === null
+    ? null
+    : { kind: "raw", mediaType: RAW_ARTIFACT_MEDIA_TYPE };
+}
 /** 防御病理树:遍历规模上限,超限部分静默截断(列表是投影,不是审计)。 */
 const artifactWalkMaxFiles = 20_000;
 const artifactWalkMaxVisits = 80_000;
@@ -53,10 +75,12 @@ interface ArtifactFileRow {
   readonly packageDir: string;
   readonly relative: string;
   readonly kind: ArtifactGuiKind;
+  readonly mediaType: string;
+  readonly sizeBytes: number;
   readonly mtimeMs: number;
 }
 
-/** 一棵 artifacts/ 子树下的 html/md 文件;符号链接一律不跟(产物只认真实文件)。 */
+/** 一棵 artifacts/ 子树下的产物文件;符号链接一律不跟(产物只认真实文件)。 */
 function walkArtifactTree(artifactsRoot: string, packageDir: string): readonly ArtifactFileRow[] {
   const rows: ArtifactFileRow[] = [];
   if (statLinkSync(artifactsRoot)?.isSymbolicLink() === true || statFileSync(artifactsRoot)?.isDirectory() !== true)
@@ -81,11 +105,11 @@ function walkArtifactTree(artifactsRoot: string, packageDir: string): readonly A
         queue.push([target, relative]);
         continue;
       }
-      const kind = artifactExtensions.get(path.extname(entry.name).toLowerCase());
-      if (kind === undefined || !entry.isFile() || statLinkSync(target)?.isSymbolicLink() === true) continue;
+      const classified = artifactKindOf(packageDir, relative, entry.name);
+      if (classified === null || !entry.isFile() || statLinkSync(target)?.isSymbolicLink() === true) continue;
       const stat = statFileSync(target);
       if (stat === null || !stat.isFile()) continue;
-      rows.push({ packageDir, relative, kind, mtimeMs: stat.mtimeMs });
+      rows.push({ packageDir, relative, ...classified, sizeBytes: stat.size, mtimeMs: stat.mtimeMs });
     }
   }
   return rows;
@@ -147,12 +171,13 @@ export function readArtifactsGui(
   context: ArtifactsGuiReadContext,
   payload: Readonly<Record<string, unknown>> = {},
 ): ArtifactsListResult {
-  const kind: ArtifactGuiKind = payload.kind === "md" ? "md" : "html",
+  const kind: ArtifactGuiKind = payload.kind === "md" || payload.kind === "raw" ? payload.kind : "html",
     cut = context.projection.readTaskStatuses(),
     files = walkAllTaskArtifacts(resolveHarnessLayout(context.rootDir).tasksRoot),
     counts = {
       html: files.filter((row) => row.kind === "html").length,
       md: files.filter((row) => row.kind === "md").length,
+      raw: files.filter((row) => row.kind === "raw").length,
     },
     tasksByPackage = taskIndexByPackage(
       context.projection,
@@ -175,6 +200,8 @@ export function readArtifactsGui(
           packagePath: task === null ? null : packagePath,
           path: row.relative,
           kind: row.kind,
+          mediaType: row.mediaType,
+          sizeBytes: row.sizeBytes,
           time: time ?? new Date(row.mtimeMs).toISOString(),
           timeSource: time === null ? ("mtime" as const) : ("ledger" as const),
         };
