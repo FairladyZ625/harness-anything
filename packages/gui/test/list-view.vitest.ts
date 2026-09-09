@@ -211,10 +211,18 @@ describe("list view column resize (W11)", () => {
   it("renders one keyboard-reachable handle per header column with no explicit widths by default", () => {
     const markup = listMarkup();
     expect(markup.split('data-testid="list-column-resize-').length - 1).toBe(8);
+    const headerCell = markup.match(/<th[^>]*data-testid="list-column-title"[^>]*>/u)![0];
     const handle = markup.match(/<div[^>]*data-testid="list-column-resize-title"[^>]*>/u)![0];
     expect(handle).toContain('role="separator"');
     expect(handle).toContain('tabindex="0"');
     expect(handle).toContain("Resize the &quot;title / module&quot; column");
+    // 回归:真实 Electron 验收发现共享基类缺 position:absolute,静态流里手柄高度
+    // 恒 0、鼠标无命中区、拖拽无效(2026-09-09);定位链 = relative th + 基类内置
+    // absolute + 消费方 inset 偏移。命中区像素高度由 Electron 走查复核,类名断言
+    // 不证明像素行为。
+    expect(headerCell).toContain("relative");
+    expect(handle).toContain("absolute");
+    expect(handle).toContain("inset-y-0");
     // 未定宽列走 table-fixed 自动分配:th 不输出显式宽度。
     expect(markup).not.toContain('style="width');
   });

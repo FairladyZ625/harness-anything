@@ -6,7 +6,8 @@ const KEYBOARD_STEP = 16;
  * 看板列宽手柄(W11,三布局共用):TerminalChrome 侧栏的 pointer 拖拽模式
  * (按下后在 window 上跟指针,松手收听)加上键盘可达——可 Tab 聚焦,←/→ 微调。
  *
- * 摆放不变量:手柄必须是「列容器」的直接子元素。未定宽的列(width 未传)在
+ * 摆放不变量:手柄必须是「列容器」的直接子元素,基类自带 position:absolute,
+ * 列容器须为 relative,消费方只补 inset 偏移类。未定宽的列(width 未传)在
  * 拖拽/键盘起点用父元素的实测宽度作基准,已定宽列直接用状态值。宽度状态与
  * 持久化都由调用方(各看板视图)持有,本组件只汇报目标宽度。
  */
@@ -29,7 +30,7 @@ export function ColumnResizeHandle({
   onChange: (px: number) => void;
   /** 双击恢复默认布局;不传则双击无操作。 */
   onReset?: () => void;
-  /** 定位类(如 absolute inset-y-0 -right-1.5);光标/触摸/焦点样式已内置。 */
+  /** 定位偏移类(如 inset-y-0 -right-1.5);position:absolute 与光标/触摸/焦点样式已内置。 */
   className?: string;
   testId?: string;
 }) {
@@ -95,7 +96,9 @@ export function ColumnResizeHandle({
       onKeyDown={onKeyDown}
       onDoubleClick={onReset}
       className={[
-        "z-10 w-3 cursor-col-resize touch-none select-none",
+        // absolute 必须在共享基类:手柄自身无内容,静态流里高度恒为 0,inset-* 全部
+        // 失效,鼠标无命中区(2026-09-09 真机验收实证);父容器按不变量已是 relative。
+        "absolute z-10 w-3 cursor-col-resize touch-none select-none",
         "hover:bg-accent/30 focus-visible:bg-accent/50 focus-visible:outline-none",
         className,
       ].join(" ")}
