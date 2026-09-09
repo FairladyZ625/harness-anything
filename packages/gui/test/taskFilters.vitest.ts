@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { RelationEdge, SnapshotStatus, TaskRow } from "../src/renderer/model/types.ts";
 import { BOARD_COLUMNS } from "../src/renderer/model/types.ts";
+import { TaskPreviewDrawer } from "../src/renderer/components/TaskPreviewDrawer.tsx";
 import { BoardView } from "../src/renderer/views/BoardView.tsx";
 import { SwimlaneBoard } from "../src/renderer/views/SwimlaneBoard.tsx";
 import {
@@ -924,7 +925,13 @@ describe("draggable narrowing (W9)", () => {
     act(() => {
       doneCard!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
-    expect(selected).toEqual(["t_done"]); // 点击行为不变。
+    expect(selected).toEqual(["t_done"]);
+    act(() => {
+      doneCard!.querySelector("p")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      doneCard!.firstElementChild!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      doneCard!.lastElementChild!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(selected).toEqual(["t_done", "t_done", "t_done", "t_done"]);
     act(() => {
       root.unmount();
     });
@@ -1515,5 +1522,44 @@ describe("swimlane column resize (W11)", () => {
       root.unmount();
     });
     container.remove();
+  });
+});
+
+describe("task preview dismissal", () => {
+  it("closes on backdrop click but keeps drawer contents and pin independent", async () => {
+    const onClose = vi.fn(),
+      onSetPin = vi.fn();
+    const task = makeTask();
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    try {
+      await act(async () =>
+        root.render(
+          createElement(TaskPreviewDrawer, {
+            task,
+            tasks: [task],
+            relations: [],
+            onClose,
+            onOpenDetail: noop,
+            onPreviewTask: noop,
+            onSetPin,
+          }),
+        ),
+      );
+      const backdrop = container.firstElementChild as HTMLElement;
+      act(() => (container.querySelector("aside h2") as HTMLElement).click());
+      expect(onClose).not.toHaveBeenCalled();
+      act(() => (container.querySelector('[data-testid="task-preview-pin-toggle"]') as HTMLElement).click());
+      expect(onSetPin).toHaveBeenCalledWith(task, true);
+      expect(onClose).not.toHaveBeenCalled();
+      act(() => backdrop.click());
+      expect(onClose).toHaveBeenCalledTimes(1);
+      act(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })));
+      expect(onClose).toHaveBeenCalledTimes(2);
+    } finally {
+      act(() => root.unmount());
+      container.remove();
+    }
   });
 });

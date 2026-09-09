@@ -63,7 +63,13 @@ export function TaskPreviewDrawer({
   const orderedEvents = [...(task.events ?? [])].sort((a, b) => b.at.localeCompare(a.at));
 
   return (
-    <div className="fixed inset-0 z-40 flex justify-end bg-bg/45">
+    <div
+      data-testid="task-preview-backdrop"
+      className="fixed inset-0 z-40 flex justify-end bg-bg/45"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
       <aside className="flex h-full w-full max-w-[520px] flex-col border-l border-border-strong bg-surface shadow-2xl shadow-black/40">
         <header className="border-b border-border px-4 py-3">
           <div className="flex items-start gap-3">
