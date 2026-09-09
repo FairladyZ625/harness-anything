@@ -30,6 +30,7 @@ import {
   type ArtifactDescriptor,
   type AuthorizationDecision,
   type CanonicalEventStore,
+  type CanonicalEventV1,
   type CanonicalRelationDirection,
   type CompiledArtifactKindContract,
   type CompiledVerticalContract,
@@ -330,8 +331,7 @@ export async function runArtifactEntityImport(input: {
           contract,
         }),
       readCurrent: (kind, entityId) => readCurrentArtifact(input.store, input.contracts, kind, entityId),
-      resolveSourceBinding: (kind, sourceIdentity) =>
-        resolveSourceBinding(input.store, input.contracts, kind, sourceIdentity),
+      resolveSourceBinding: (kind, sourceIdentity) => resolveSourceBinding(input.store, kind, sourceIdentity),
       randomEntityIdBytes: () => randomBytes(ARTIFACT_ENTITY_ID_BYTES),
       readOperation: (opId) => readEntityOperation(input.store, opId),
       countRelationChanges: (entityRef) =>
@@ -553,17 +553,23 @@ export function readCurrentArtifact(
 ): (ArtifactEntityCurrent & { readonly ownedContent: EntityOwnedContentV1 | null }) | null {
   const contract = contracts.find(({ typeIdentity }) => typeIdentity === kind);
   if (!contract) return null;
-  const folded = artifactReadCache(store, contracts, kind);
-  const state = folded.entities.get(entityId);
+  const state = artifactEntityFold(store).entities.get(`${kind}\0${entityId}`);
   if (!state) return null;
-  const { revision, descriptor, ownedContent } = state;
-  const pinned = pinnedArtifactKindContract(
-    contract,
-    descriptor?.kindVersion ?? contract.latestVersion,
-  ) as unknown as EntityStoreKindContract;
+  // The descriptor is decoded on the way out instead of being held in the fold: one blob read answers the entity
+  // that was actually asked for, so an unreadable blob stays an error about that entity, and the fold never has
+  // to be rebuilt because the reader is holding a different compiled contract than the one that filled it.
+  const descriptor =
+      state.declarationClaimSha === null
+        ? null
+        : readArtifactDescriptor(contract, artifactDeclarationDocument(store, state.declarationClaimSha)),
+    ownedContent = state.ownedContent,
+    pinned = pinnedArtifactKindContract(
+      contract,
+      descriptor?.kindVersion ?? contract.latestVersion,
+    ) as unknown as EntityStoreKindContract;
   return {
     descriptor,
-    revision,
+    revision: state.revision,
     ownedContent,
     ownedDirectories: entityDirectoryFootprint(entityContentRoot(pinned, entityId), ownedContent),
     ownedPaths: (ownedContent?.bindings ?? []).map(({ path: bound, contentSha256 }) => ({
@@ -573,71 +579,102 @@ export function readCurrentArtifact(
   };
 }
 
-interface ArtifactReadState {
+function artifactDeclarationDocument(store: CanonicalEventStore, sha256: string): unknown {
+  const bytes = store.readContentBlob(sha256);
+  if (!bytes) throw new Error(`Artifact descriptor blob ${sha256} is unavailable.`);
+  return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+}
+
+/** One entity as the accepted events left it, including the tombstone a delete leaves behind. */
+interface ArtifactEntityFoldState {
   readonly revision: number;
-  readonly descriptor: ReturnType<typeof readArtifactDescriptor> | null;
+  readonly declarationClaimSha: string | null;
   readonly ownedContent: EntityOwnedContentV1 | null;
-  readonly sourceIdentity: string | null;
 }
 
-interface ArtifactReadFold {
-  readonly entities: Map<string, ArtifactReadState>;
-  readonly generations: Map<string, number>;
+interface ArtifactEntityFold {
+  /** The ledger revision this fold has already consumed. */
+  cut: number;
+  /** Which ledger it was folded from, so a fold can never answer for a repository it was not built from. */
+  readonly ledger: string;
+  /** `entityKind\0entityId` to that entity's current shape. */
+  readonly entities: Map<string, ArtifactEntityFoldState>;
+  /** `entityKind\0entityId` to the source identity that entity is bound to right now. */
+  readonly boundSource: Map<string, string>;
+  /** `entityKind\0sourceIdentity` to how many bindings on that source have already ended. */
+  readonly releases: Map<string, number>;
 }
 
-const artifactReadFolds = new WeakMap<CanonicalEventStore, Map<string, { revision: number; fold: ArtifactReadFold }>>();
+const ARTIFACT_FOLD_BATCH = 4096,
+  artifactEntityFolds = new WeakMap<CanonicalEventStore, ArtifactEntityFold>();
 
-function artifactReadCache(
-  store: CanonicalEventStore,
-  contracts: readonly CompiledArtifactKindContract[],
-  kind: string,
-): ArtifactReadFold {
-  const source = store.read(),
-    cached = artifactReadFolds.get(store)?.get(kind);
-  if (cached?.revision === source.revision) return cached.fold;
-  const entities = new Map<string, ArtifactReadState>();
-  const generations = new Map<string, number>();
-  for (const event of source.events) {
-    if (!isEntityEvent(event) || event.payload.entityKind !== kind) continue;
-    const previous = entities.get(event.payload.entityId);
-    if (event.type === "entity_deleted") {
-      if (previous?.sourceIdentity)
-        generations.set(previous.sourceIdentity, (generations.get(previous.sourceIdentity) ?? 0) + 1);
-      entities.delete(event.payload.entityId);
-      continue;
-    }
-    // Both observations and descriptor updates carry the full descriptor blob; folding only observations would make
-    // every later update start from a stale descriptor and silently drop the previous update.
-    if (
-      !isEntityDeclarationEvent(event) ||
-      (event.type !== "entity_content_observed" && event.type !== "entity_updated" && event.type !== "entity_upserted")
-    )
-      continue;
-    const contract = contracts.find(({ typeIdentity }) => typeIdentity === kind);
-    if (!contract) continue;
-    const claim = event.payload.declarationDocumentClaim,
-      bytes = store.readContentBlob(claim.sha256);
-    if (!bytes) throw new Error(`Artifact descriptor blob ${claim.sha256} is unavailable.`);
-    const nextSource =
-      "sourceIdentity" in event.payload ? String(event.payload.sourceIdentity) : (previous?.sourceIdentity ?? null);
-    if (previous?.sourceIdentity === nextSource) {
-      // unchanged binding
-    } else if (previous?.sourceIdentity !== null && previous?.sourceIdentity !== undefined) {
-      if (previous?.sourceIdentity)
-        generations.set(previous.sourceIdentity, (generations.get(previous.sourceIdentity) ?? 0) + 1);
-    }
-    entities.set(event.payload.entityId, {
-      revision: event.workspaceRevision,
-      descriptor: readArtifactDescriptor(contract, JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes))),
-      ownedContent: ownedContentForDeclarationEvent(event),
-      sourceIdentity: nextSource,
-    });
+/**
+ * The entity state a read needs, folded once and then only moved forward. The accepted cut comes from the
+ * ledger's own metadata row rather than from the event stream, so a read at a cut this store has already folded
+ * loads no events at all, and a read one acceptance later loads that one event instead of the whole history.
+ * The fold belongs to a single store, and states which ledger it was built from, so it can neither be reused
+ * across repositories nor survive the ledger underneath it being replaced.
+ */
+function artifactEntityFold(store: CanonicalEventStore): ArtifactEntityFold {
+  const metadata = store.ledgerMetadata(),
+    ledger = `${metadata.repoId}\0${String(metadata.generation)}`;
+  let fold = artifactEntityFolds.get(store);
+  // A different ledger, or one whose revision moved backwards, is not the history this fold was built from, so it
+  // is dropped rather than patched: the answer has to come from the events that are actually there now.
+  if (!fold || fold.ledger !== ledger || fold.cut > metadata.revision) {
+    fold = { cut: 0, ledger, entities: new Map(), boundSource: new Map(), releases: new Map() };
+    artifactEntityFolds.set(store, fold);
   }
-  const fold = { entities, generations };
-  const byKind = artifactReadFolds.get(store) ?? new Map();
-  byKind.set(kind, { revision: source.revision, fold });
-  artifactReadFolds.set(store, byKind);
+  while (fold.cut < metadata.revision) {
+    const batch = store.readBatch(String(fold.cut), ARTIFACT_FOLD_BATCH);
+    if (batch.events.length === 0) break;
+    for (const event of batch.events) foldArtifactEntityEvent(fold, event);
+    fold.cut = batch.events.at(-1)!.workspaceRevision;
+  }
   return fold;
+}
+
+function foldArtifactEntityEvent(fold: ArtifactEntityFold, event: CanonicalEventV1): void {
+  if (!isEntityEvent(event)) return;
+  const entityKey = `${event.payload.entityKind}\0${event.payload.entityId}`,
+    boundBefore = fold.boundSource.get(entityKey),
+    before = fold.entities.get(entityKey),
+    // Every entity event moves the entity's revision, because the fence the next command has to present is the
+    // last accepted event of any type, not the last one that carried a descriptor.
+    revision = Math.max(before?.revision ?? 0, event.workspaceRevision);
+  if (event.type === "entity_deleted") {
+    // A delete releases the source so re-importing that path mints a new instance instead of resurrecting the
+    // old one, and leaves the entity behind without a descriptor rather than removing what it was deleted at.
+    if (boundBefore !== undefined) releaseArtifactSource(fold, event.payload.entityKind, boundBefore);
+    fold.boundSource.delete(entityKey);
+    fold.entities.set(entityKey, { revision, declarationClaimSha: null, ownedContent: null });
+    return;
+  }
+  if ("sourceIdentity" in event.payload) {
+    const bound = String(event.payload.sourceIdentity);
+    if (boundBefore !== undefined && boundBefore !== bound)
+      releaseArtifactSource(fold, event.payload.entityKind, boundBefore);
+    fold.boundSource.set(entityKey, bound);
+  }
+  // Both observations and descriptor updates carry the full descriptor blob; folding only observations would make
+  // every later update start from a stale descriptor and silently drop the previous update.
+  if (isEntityDeclarationEvent(event) && (event.type === "entity_content_observed" || event.type === "entity_updated"))
+    fold.entities.set(entityKey, {
+      revision,
+      declarationClaimSha: event.payload.declarationDocumentClaim.sha256,
+      ownedContent: ownedContentForDeclarationEvent(event),
+    });
+  else
+    fold.entities.set(entityKey, {
+      revision,
+      declarationClaimSha: before?.declarationClaimSha ?? null,
+      ownedContent: before?.ownedContent ?? null,
+    });
+}
+
+function releaseArtifactSource(fold: ArtifactEntityFold, entityKind: string, sourceIdentity: string): void {
+  const key = `${entityKind}\0${sourceIdentity}`;
+  fold.releases.set(key, (fold.releases.get(key) ?? 0) + 1);
 }
 
 /**
@@ -647,17 +684,18 @@ function artifactReadCache(
  * release count is what tells the import it is starting a new binding, so it does not replay the receipt of the
  * import that the release ended. Only accepted lifecycle events move it — nothing here counts globally.
  */
-function resolveSourceBinding(
+export function resolveSourceBinding(
   store: CanonicalEventStore,
-  contracts: readonly CompiledArtifactKindContract[],
   kind: string,
   sourceIdentity: string,
 ): { readonly entityId: string | null; readonly generation: number } {
-  const fold = artifactReadCache(store, contracts, kind);
-  for (const [entityId, state] of fold.entities)
-    if (state.sourceIdentity === sourceIdentity)
-      return { entityId, generation: fold.generations.get(sourceIdentity) ?? 0 };
-  return { entityId: null, generation: fold.generations.get(sourceIdentity) ?? 0 };
+  const fold = artifactEntityFold(store),
+    prefix = `${kind}\0`,
+    generation = fold.releases.get(`${prefix}${sourceIdentity}`) ?? 0;
+  for (const [entityKey, bound] of fold.boundSource)
+    if (bound === sourceIdentity && entityKey.startsWith(prefix))
+      return { entityId: entityKey.slice(prefix.length), generation };
+  return { entityId: null, generation };
 }
 
 /** The content objects an entity already owns, restated from the ledger so an update carries them forward. */
