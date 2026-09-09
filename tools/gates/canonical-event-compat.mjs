@@ -330,7 +330,10 @@ export function projectFrozenDaemonResponses(rootDir, transformEvent = (event) =
       ["validateDaemonDecisionList", decisionRead],
       [
         "validateDaemonDocumentRead",
-        readProjectedDocument(temporaryRoot, projection, { taskId: DISPATCH_TASK_ID, path: "INDEX.md" }),
+        readProjectedDocument(
+          { rootDir: temporaryRoot, projection, store: eventStore },
+          { taskId: DISPATCH_TASK_ID, path: "INDEX.md" },
+        ),
       ],
       [
         "validateDaemonTaskDocumentList",

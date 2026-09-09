@@ -156,11 +156,12 @@ test("dec_3EDA6CB3-era decision digest fails the production replay with its sour
   assert.match(result.errors.join("\n"), /machine content cut/u);
 });
 
-test("locked-history document reads replay through the rootDir-first production signature without a worktree", () => {
+test("locked-history document reads use the canonical content context without a worktree", () => {
   const responses = new Map(projectFrozenDaemonResponses(sourceRoot).map(({ name, value }) => [name, value]));
   const read = responses.get("validateDaemonDocumentRead"),
     list = responses.get("validateDaemonTaskDocumentList");
   assert.equal(read.ok, true);
+  assert.equal(read.contentKind, "text");
   assert.equal(read.uncommitted, false, "projection-only history must not be labelled uncommitted");
   assert.equal(read.worktreeBody, null);
   assert.equal(list.ok, true);
