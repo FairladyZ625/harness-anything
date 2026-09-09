@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -341,6 +341,173 @@ test("CLI accepted receipt and daemon restart recover an in-flight task", async 
   }
 });
 
+test("CLI writes stay accepted while a stale authored ref lock keeps Git publication pending", async (context) => {
+  const fixture = setup(11),
+    settledTaskId = "task-cli-git-settled",
+    pendingTaskId = "task-cli-git-pending",
+    recoveredTaskId = "task-cli-git-recovered",
+    environment = actorEnvironment(fixture, 0, "agent:git-pending-worker");
+  try {
+    await startClient(fixture);
+    const settled = await expectApplied(fixture, createArgs(settledTaskId, "CLI Git settled baseline"), environment);
+    assert.equal(settled.status, "accepted_durable", JSON.stringify(settled));
+    assert.equal(facetState(settled, "git"), "verified", JSON.stringify(settled));
+    // A real repository fault, not a test hook: a crashed Git process leaves the authored ref locked,
+    // so the SQLite-to-Git follower cannot advance the branch while SQLite keeps accepting writes.
+    const branch = git(fixture.root, "rev-parse", "--abbrev-ref", "HEAD"),
+      refLock = path.join(fixture.root, ".git", "refs", "heads", `${branch}.lock`);
+    assert.ok(existsSync(path.join(fixture.root, ".git", "refs", "heads", branch)), branch);
+    writeFileSync(refLock, "");
+    const pending = await expectApplied(fixture, createArgs(pendingTaskId, "CLI Git pending acceptance"), environment),
+      pendingPackageRoot = path.join(fixture.root, "harness", String(pending.packagePath));
+    assert.equal(pending.status, "accepted_durable", JSON.stringify(pending));
+    assert.equal(facetState(pending, "git"), "pending", JSON.stringify(pending));
+    assert.equal(waitState(pending), "timed_out", JSON.stringify(pending));
+    assert.equal(existsSync(path.join(pendingPackageRoot, "INDEX.md")), false, pendingPackageRoot);
+    const shown = await runResult(
+        fixture,
+        ["receipt", "show", String(pending.opId), "--wait", "git_verified", "--timeout-ms", "0"],
+        environment,
+      ),
+      shownReceipt = JSON.parse(shown.stdout) as Record<string, unknown>;
+    assert.equal(shownReceipt.status, "accepted_durable", shown.stdout);
+    assert.equal(facetState(shownReceipt, "git"), "pending", shown.stdout);
+    assert.deepEqual(shownReceipt.wait, { state: "timed_out", unsatisfied: ["git_verified"] }, shown.stdout);
+    const pendingShow = await expectApplied(fixture, ["task", "show", pendingTaskId], environment),
+      pendingTask = JSON.parse(String(pendingShow.evidence)) as { readonly task?: { readonly status?: string } };
+    assert.equal(typeof pendingTask.task?.status, "string", pendingShow.evidence as string);
+    const failure = await waitForMaterializationFailure(fixture),
+      diagnostic = failure.receipt.diagnostic as { readonly reason?: string; readonly lastError?: string } | undefined;
+    assert.equal(failure.status, 1, failure.stdout);
+    assert.equal(diagnostic?.reason, "deterministic_failure", failure.stdout);
+    assert.match(String(diagnostic?.lastError ?? ""), /lock/iu, failure.stdout);
+    assert.match(String(failure.receipt.nextAction ?? ""), /SQLite-to-Git publication failed/u, failure.stdout);
+    // Recovery is the operator's own repository repair; the follower republishes on the next accepted write.
+    rmSync(refLock);
+    const recovered = await expectApplied(
+      fixture,
+      createArgs(recoveredTaskId, "CLI Git follower recovered"),
+      environment,
+    );
+    assert.equal(facetState(recovered, "git"), "verified", JSON.stringify(recovered));
+    const resettled = await expectApplied(
+      fixture,
+      [
+        "receipt",
+        "show",
+        String(pending.opId),
+        "--wait",
+        "accepted_durable,projection_visible,git_verified,worktree_visible",
+        "--timeout-ms",
+        "5000",
+      ],
+      environment,
+    );
+    assert.deepEqual(resettled.wait, { state: "satisfied", unsatisfied: [] }, JSON.stringify(resettled));
+    assert.equal(facetState(resettled, "git"), "verified", JSON.stringify(resettled));
+    const packageIndex = packagePathFor(`harness/${String(pending.packagePath)}`, "INDEX.md");
+    assert.ok(existsSync(path.join(pendingPackageRoot, "INDEX.md")), pendingPackageRoot);
+    assert.equal(git(fixture.root, "ls-tree", "--name-only", "HEAD", packageIndex), packageIndex);
+    const healthy = await runResult(fixture, ["daemon", "status"], actorEnvironment(fixture, 0, null));
+    assert.equal(healthy.status, 0, healthy.stdout);
+    context.diagnostic(
+      JSON.stringify({
+        schema: "cli-lifecycle-git-pending/v1",
+        fault: "stale-authored-ref-lock",
+        pendingOpId: String(pending.opId),
+        pendingTaskId,
+        recoveredTaskId,
+        pendingShowExit: shown.status,
+        materializationReason: diagnostic?.reason ?? null,
+      }),
+    );
+  } finally {
+    await stopClient(fixture);
+    rmSync(fixture.parent, { recursive: true, force: true });
+  }
+});
+
+test("a locally edited task plan becomes a CLI doc conflict that the conflict command recovers", async (context) => {
+  const fixture = setup(12),
+    taskId = "task-cli-doc-conflict",
+    title = "CLI doc conflict recovery",
+    renamed = "CLI doc conflict recovery renamed",
+    environment = actorEnvironment(fixture, 0, "agent:doc-conflict-worker");
+  try {
+    await startClient(fixture);
+    const created = await expectApplied(fixture, createArgs(taskId, title), environment),
+      packagePath = String(created.packagePath),
+      packageRoot = path.join(fixture.root, "harness", packagePath),
+      planPath = path.join(packageRoot, "task_plan.md"),
+      planLogical = packagePathFor(packagePath, "task_plan.md");
+    writeFileSync(planPath, realizedTaskPlan(title));
+    await expectApplied(fixture, ["doc", "sync", "--submit", "--path", planLogical], environment);
+    // Unsubmitted local worker prose: the authored copy now diverges from the published cut.
+    const drift = "## Drift\n\nUnsubmitted worker prose written before the center retitled the plan.\n",
+      driftedBody = `${readFileSync(planPath, "utf8")}\n${drift}`;
+    writeFileSync(planPath, driftedBody);
+    const eligible = await expectApplied(fixture, ["doc", "status", "--path", planLogical], environment);
+    assert.equal(docScanRows(eligible.evidence)[0]?.state, "eligible", String(eligible.evidence));
+    // The center rewrites the same authored document while the local copy is dirty.
+    const amended = await expectApplied(fixture, ["task", "amend", taskId, "--set", `title:${renamed}`], environment);
+    assert.equal(amended.status, "accepted_durable", JSON.stringify(amended));
+    const scratches = readdirSync(packageRoot).filter((name) => /^task_plan\.conflict-[0-9a-f]{8}\.md$/u.test(name));
+    assert.equal(
+      scratches.length,
+      1,
+      `expected one conflict scratch, found ${JSON.stringify(readdirSync(packageRoot))}`,
+    );
+    const conflictId = /^task_plan\.conflict-([0-9a-f]{8})\.md$/u.exec(scratches[0]!)![1]!,
+      scratchPath = path.join(packageRoot, scratches[0]!);
+    assert.equal(readFileSync(scratchPath, "utf8"), driftedBody);
+    assert.match(readFileSync(planPath, "utf8"), new RegExp(`^# ${renamed}$`, "mu"));
+    const conflicted = await expectApplied(fixture, ["doc", "status", "--path", planLogical], environment);
+    assert.equal(docScanRows(conflicted.evidence)[0]?.state, "conflict", String(conflicted.evidence));
+    // An explicit --path submit of the conflicted document is skipped, not rejected: exit 0 and no_changes,
+    // with the required recovery route carried only in detail.unresolvedTouches and the summary.
+    const blockedSync = await runResult(fixture, ["doc", "sync", "--submit", "--path", planLogical], environment),
+      blockedReceipt = JSON.parse(blockedSync.stdout) as Record<string, unknown>,
+      unresolved =
+        (
+          blockedReceipt.detail as
+            | { readonly unresolvedTouches?: readonly { readonly reason?: string; readonly requiredRoute?: string }[] }
+            | undefined
+        )?.unresolvedTouches ?? [];
+    assert.equal(blockedSync.status, 0, blockedSync.stdout);
+    assert.equal(blockedReceipt.outcome, "no_changes", blockedSync.stdout);
+    assert.equal(blockedReceipt.status, "rejected", blockedSync.stdout);
+    assert.equal(unresolved.length, 1, blockedSync.stdout);
+    assert.equal(unresolved[0]?.requiredRoute, "local-conflict-resolution", blockedSync.stdout);
+    assert.match(unresolved[0]?.reason ?? "", /local conflict scratch requires resolution/u, blockedSync.stdout);
+    assert.match(String(blockedReceipt.summary ?? ""), /\tconflict\t/u, blockedSync.stdout);
+    // Recovery: merge the preserved prose onto the retitled base, then close the conflict by hand.
+    writeFileSync(planPath, `${readFileSync(planPath, "utf8")}\n${drift}`);
+    const resolved = await expectApplied(fixture, ["doc", "conflict", "resolve", conflictId], environment);
+    assert.equal(existsSync(scratchPath), false, scratchPath);
+    const healed = await expectApplied(fixture, ["doc", "status", "--path", planLogical], environment);
+    assert.equal(docScanRows(healed.evidence)[0]?.state, "clean", String(healed.evidence));
+    const canonical = await expectApplied(fixture, ["doc", "show", "--path", planLogical], environment),
+      canonicalBody = String(canonical.evidence ?? "");
+    assert.match(canonicalBody, new RegExp(`# ${renamed}`, "u"), canonicalBody.slice(0, 400));
+    assert.match(canonicalBody, /Unsubmitted worker prose/u, canonicalBody.slice(0, 400));
+    context.diagnostic(
+      JSON.stringify({
+        schema: "cli-lifecycle-doc-conflict/v1",
+        taskId,
+        conflictId,
+        resolvedVia: "doc conflict resolve",
+        resolveOpId: String(resolved.opId ?? ""),
+        blockedSyncExit: blockedSync.status,
+        blockedSyncOutcome: String(blockedReceipt.outcome ?? ""),
+        blockedSyncStatus: String(blockedReceipt.status ?? ""),
+      }),
+    );
+  } finally {
+    await stopClient(fixture);
+    rmSync(fixture.parent, { recursive: true, force: true });
+  }
+});
+
 async function runClient(fixture: Fixture, clientIndex: number): Promise<ChainOutcome[] & { actor: string }> {
   const actor = actorLabel(clientIndex),
     outcomes: ChainOutcome[] = [];
@@ -668,6 +835,58 @@ function actorEnvironment(fixture: Fixture, index: number, actor: string | null)
 
 function packagePathFor(packagePath: string, relative: string): string {
   return path.posix.join(packagePath.replaceAll(path.sep, "/"), relative);
+}
+
+function createArgs(taskId: string, title: string): readonly string[] {
+  return [
+    "task",
+    "create",
+    "--id",
+    taskId,
+    "--title",
+    title,
+    "--preset",
+    "docs-task",
+    "--vertical",
+    "software/coding",
+    "--kind",
+    "docs",
+    "--admin",
+  ];
+}
+
+function facetState(receipt: Record<string, unknown>, facet: "git" | "worktree" | "projection"): string | null {
+  const value = receipt[facet];
+  return value !== null && typeof value === "object" ? ((value as { readonly state?: string }).state ?? null) : null;
+}
+
+function waitState(receipt: Record<string, unknown>): string | null {
+  const value = receipt.wait;
+  return value !== null && typeof value === "object" ? ((value as { readonly state?: string }).state ?? null) : null;
+}
+
+function docScanRows(evidence: unknown): readonly { readonly path: string; readonly state: string }[] {
+  const text = String(evidence ?? "");
+  assert.match(text, /^doc-scan:/u);
+  return (
+    JSON.parse(text.slice("doc-scan:".length)) as {
+      readonly rows: readonly { readonly path: string; readonly state: string }[];
+    }
+  ).rows;
+}
+
+async function waitForMaterializationFailure(
+  fixture: Fixture,
+): Promise<{ readonly status: number | null; readonly stdout: string; readonly receipt: Record<string, unknown> }> {
+  let last = "";
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const result = await runResult(fixture, ["daemon", "status"], actorEnvironment(fixture, 0, null));
+    last = result.stdout;
+    const receipt = JSON.parse(result.stdout) as Record<string, unknown>;
+    if (receipt.code === "materialization_failed") return { status: result.status, stdout: result.stdout, receipt };
+    await delay(50);
+  }
+  throw new Error(`daemon status never reported a failed materialization: ${last}`);
 }
 
 async function expectApplied(
