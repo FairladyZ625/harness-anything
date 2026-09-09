@@ -1,36 +1,26 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import { createServer } from "node:http";
 import path from "node:path";
-
-// 声明 kind 在读面上的名字是稳定身份 entity-kind/KND-…,不再带任何版本段。安装种子里的
-// 三个 kind 的 kindId 是提交过的常量(packages/preset/assets/software-coding/vertical.json)。
-const ADR_KIND = "entity-kind/KND-1f5c0a7e9b3d4c6a8e2f0b1d3c5a7e94";
-const ISSUE_KIND = "entity-kind/KND-2a6d1b8f0c4e5d7b9f3a1c2e4d6b8f05";
-const RESEARCH_KIND = "entity-kind/KND-3b7e2c9a1d5f6e8c0a4b2d3f5e7c9a16";
-// 同一份物理来源,后面会被导进**两个**不同的种类:import 的意图身份含 Kind,所以第二次
-// 不再撞上第一次的 operation。
-const SHARED_SOURCE = "docs/adr/ADR-0001-declared-entity-probe.md";
-const SHARED_SOURCE_DIRECTORY = "docs/adr";
-
-// 本场景自己写进工作副本的素材(不碰 lane 的 fixture 文件):一份会被删掉的来源、一个
-// 多文件目录、一份真 PDF。
-const PROBE_DIRECTORY = "probe";
-const RETIRED_SOURCE = "probe/retired-source.md";
-const LIBRARY_DIRECTORY = "probe/library";
-// 浏览器的起点由既有实体推出来,而读面列举不了仓根,所以素材都放在能从起点走到的位置。
-const PDF_SOURCE = "docs/adr/paper.pdf";
-
-/**
- * v2 属性声明:必填项与 v1 完全不同(v1 一个属性也没有)。v1 期建的实例钉在 v1 上,
- * 发布 v2 之后照常读、照常改;v2 期新建的实例必须把这两个必填项填出来。
- */
-const V2_ATTRIBUTES = JSON.stringify({
-  region: { type: "string", enum: ["north", "south"], required: true },
-  fiscalYear: { type: "integer", required: true },
-  reviewed: { type: "boolean" },
-});
+import { requestDaemonJsonRpcAt } from "../../../packages/daemon/src/client/local-json-rpc-client.ts";
+import {
+  ADR_KIND,
+  ISSUE_KIND,
+  LIBRARY_DIRECTORY,
+  PDF_SOURCE,
+  PROBE_DIRECTORY,
+  RESEARCH_KIND,
+  RETIRED_SOURCE,
+  SHARED_SOURCE,
+  SHARED_SOURCE_DIRECTORY,
+  V2_ATTRIBUTES,
+  centerRow,
+  openedEntityContentPath,
+  recoveredCenter,
+  reopenedAttributeValue,
+  settledOwnedContent,
+  writeProbeMaterial,
+} from "./declared-entity-kinds.support.mjs";
 
 /**
  * 声明出来的实体种类在 GUI 上可见、可建、可填属性、可读正文——而且**不靠 GUI 里的任何
@@ -38,107 +28,20 @@ const V2_ATTRIBUTES = JSON.stringify({
  *
  * 主线是一个任意新 Kind 的完整生命周期:GUI 创建 → v1 期建实例 → 删掉它的来源 → 改显示名
  * → 发布 v2 属性(必填项与 v1 不同)→ v1 期实例仍按 v1 读写 → v2 期用通用属性表单建实例
- * → 回头再读 v1 期实例:来源那一屏说不存在,内容那一屏照常给出被接受时收下的字节 → 停用。
+ * → 另一条 ingress 抢先写一次,证明未被确认的写既不冒充生效也不吃掉草稿 → 回头再读 v1 期
+ * 实例:来源那一屏说不存在,内容那一屏照常给出被接受时收下的字节 → 停用。
  *
  * 种子 kind 补三种形态:ADR 与 Research **导同一份物理来源**(证明 import 意图按 Kind 作用域,
  * 不再互撞);Research 另导一份真 PDF(证明二进制如实呈现,不摆假预览);external-issue 的
  * locator 是 url——daemon 会真的 HTTP GET,所以场景在本机起一个一次性服务当「外部系统」。
  */
-
-/** 一份结构真实的最小 PDF:头部的二进制注释让它不是 UTF-8,读面因此如实判成 binary。 */
-function minimalPdfBytes() {
-  const objects = [
-    "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
-    "2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n",
-    "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Contents 4 0 R" +
-      " /Resources << /Font << /F1 5 0 R >> >> >>\nendobj\n",
-    "4 0 obj\n<< /Length 62 >>\nstream\nBT /F1 12 Tf 20 50 Td (Declared entity probe) Tj ET\nendstream\nendobj\n",
-    "5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n",
-  ];
-  const header = Buffer.from("%PDF-1.4\n%\xe2\xe3\xcf\xd3\n", "latin1");
-  const offsets = [];
-  let body = header;
-  for (const object of objects) {
-    offsets.push(body.length);
-    body = Buffer.concat([body, Buffer.from(object, "latin1")]);
-  }
-  const startxref = body.length;
-  const table =
-    `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n` +
-    offsets.map((offset) => `${String(offset).padStart(10, "0")} 00000 n \n`).join("") +
-    `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${startxref}\n%%EOF\n`;
-  return Buffer.concat([body, Buffer.from(table, "latin1")]);
-}
-
-/** 本场景自己的素材。写在工作副本里,和用户手放进去的文件没有区别。 */
-function writeProbeMaterial(rootDir) {
-  mkdirSync(path.join(rootDir, PROBE_DIRECTORY), { recursive: true });
-  writeFileSync(
-    path.join(rootDir, RETIRED_SOURCE),
-    "# 值班手册 · 一号\n\n这份来源在导入之后会被删掉,实体照样读得到它。\n",
-  );
-  mkdirSync(path.join(rootDir, LIBRARY_DIRECTORY, "chapters"), { recursive: true });
-  writeFileSync(path.join(rootDir, LIBRARY_DIRECTORY, "README.md"), "# 手册合集\n\n目录来源的说明页。\n");
-  writeFileSync(path.join(rootDir, LIBRARY_DIRECTORY, "chapters", "one.md"), "# 第一章\n\n子目录里的第一篇。\n");
-  writeFileSync(path.join(rootDir, LIBRARY_DIRECTORY, "chapters", "two.md"), "# 第二章\n\n子目录里的第二篇。\n");
-  writeFileSync(path.join(rootDir, PDF_SOURCE), minimalPdfBytes());
-}
-
-/**
- * 一个 kind 目录下,authored ledger 已经收管并结算到工作副本的路径。
- *
- * 发布是异步的:回执 applied 之后,SQLite 的那一刀才被结算成 authored Git 的一个提交与
- * 一份工作副本。这里按秒轮询到出现为止,而不是一读就断言——否则测的是时序不是归属。
- */
-async function settledOwnedContent(rootDir, kindDirectory, judge = (listed) => listed.length > 0, timeoutMs = 15_000) {
-  const authoredRoot = path.join(rootDir, "harness"),
-    prefix = `entities/${kindDirectory}`,
-    deadline = Date.now() + timeoutMs;
-  for (;;) {
-    const listed = execFileSync("git", ["-C", authoredRoot, "ls-tree", "-r", "--name-only", "HEAD", prefix], {
-      encoding: "utf8",
-    })
-      .split("\n")
-      .filter(Boolean);
-    if (judge(listed) || Date.now() > deadline) return listed;
-    await new Promise((resolve) => setTimeout(resolve, 250));
-  }
-}
-
-/**
- * 关掉编辑面再打开一次,读那一格现在的值。
- *
- * 每次打开都从**账本此刻的那一行**重新起草,所以这里读到的是被接受的值,不是留在组件里的
- * 草稿——写没写进去,只有这样才分得出来。写是异步落定的,因此按秒轮询到出现为止。
- */
-async function reopenedAttributeValue(page, name, expected, timeoutMs = 15_000) {
-  const deadline = Date.now() + timeoutMs;
-  for (;;) {
-    // 开与关都等到那一态真的出现为止:编辑按钮是一个开关,趁上一次写还在飞的时候按它,
-    // 按到的是「关」而不是「开」。
-    await page.getByTestId("entity-detail-edit").click();
-    await page.getByTestId("entity-detail-attributes").waitFor();
-    const value = await page.getByTestId("entity-detail-attributes").getByLabel(name, { exact: true }).inputValue();
-    await page.getByTestId("entity-detail-edit").click();
-    await page.getByTestId("entity-detail-edit-form").waitFor({ state: "detached" });
-    if (value === expected || Date.now() > deadline) return value;
-    await new Promise((resolve) => setTimeout(resolve, 250));
-  }
-}
-
-/** 从当前打开的实体那一屏读出它的实例身份:身份由中心铸,界面上唯一稳定的出处是内容位置。 */
-async function openedEntityContentPath(page) {
-  await page.getByTestId("entity-managed-content-path").waitFor();
-  return page.getByTestId("entity-managed-content-path").innerText();
-}
-
 export default {
   id: "declared-entity-kinds",
   feature: "entities",
   lane: "isolated",
   description:
     "An arbitrary GUI-declared kind completes create, a v1 instance, a v2 attribute publication, a schema-driven attribute form, reading its own content after the source is deleted, and retirement; seed kinds cover one physical source imported into two kinds, a real PDF, a multi-file directory and a url locator.",
-  async run({ page, fixture }) {
+  async run({ page, fixture, shot }) {
     writeProbeMaterial(fixture.rootDir);
     // 外部系统替身:external-issue 的 url locator 由 daemon 真实 GET。
     const served = await new Promise((resolve) => {
@@ -350,6 +253,129 @@ export default {
         await reopenedAttributeValue(page, "fiscalYear", "2027"),
         "2027",
         "an accepted attribute edit must come back from the ledger read, not from the form's own state",
+      );
+
+      // 8.6 **fence 不成立**:表单开着、草稿还没提交的时候,另一条 ingress 对同一条实体写了
+      //     一次并被中心接受。GUI 这一次保存因此拿着一个过期的 fence——界面不能把它说成
+      //     「已生效」,也不能把人没提交的输入悄悄丢掉。
+      await page.getByTestId("entity-detail-edit").click();
+      await detailAttributes.waitFor();
+      await detailAttributes.getByLabel("fiscalYear", { exact: true }).fill("2099");
+      const staleRow = await centerRow(fixture, v2InstanceId);
+      const independent = await requestDaemonJsonRpcAt(
+        fixture.endpoint,
+        "repo.entity.update",
+        {
+          repo: { repoId: fixture.repoId },
+          payload: {
+            entityKind: staleRow.kind,
+            entityId: staleRow.entityId,
+            expectedVersion: staleRow.revision,
+            title: staleRow.title,
+            locator: staleRow.locator.value,
+            attributes: { ...staleRow.descriptor.attributes, region: "south" },
+          },
+        },
+        2_000,
+        20_000,
+      );
+      assert.equal(
+        independent.outcome,
+        "applied",
+        `the independent ingress must really be accepted; center answered ${JSON.stringify(independent)}`,
+      );
+      // 中心还在,而且已经拿着别人写的那个值——冲突是「有人先写成功了」,不是「服务坏了」。
+      const afterIndependent = await centerRow(fixture, v2InstanceId);
+      assert.equal(afterIndependent.descriptor.attributes.region, "south");
+      assert.ok(afterIndependent.revision > staleRow.revision, "the accepted write must move the revision");
+
+      await page.getByTestId("entity-detail-edit-save").click();
+      const settled = page.locator(
+        [
+          '[data-testid="entity-detail-action-conflict"]',
+          '[data-testid="entity-detail-action-pending"]',
+          '[data-testid="entity-detail-action-rejected"]',
+          '[data-testid="entity-detail-action-applied"]',
+        ].join(", "),
+      );
+      await settled.first().waitFor();
+      const settledText = await settled.first().innerText();
+      // 这次写从来没有被中心确认过。界面说什么都行,唯独不能说它已经生效。
+      assert.equal(
+        await page.getByTestId("entity-detail-action-applied").count(),
+        0,
+        `an unconfirmed write must not be presented as done; the drawer said ${JSON.stringify(settledText)}`,
+      );
+      assert.match(
+        settledText,
+        /不要直接重发|重新读取/u,
+        `the drawer must tell the person to re-read rather than resend; it said ${JSON.stringify(settledText)}`,
+      );
+      // 人没提交的那一格还在:别人的一次写不该顺手清掉这张表。
+      assert.equal(
+        await detailAttributes.getByLabel("fiscalYear", { exact: true }).inputValue(),
+        "2099",
+        "an unsubmitted draft must survive instead of being silently discarded",
+      );
+      assert.equal(
+        await page.getByTestId("entity-detail-edit-form").count(),
+        1,
+        "the edit form stays open so the unsubmitted work is still reachable",
+      );
+
+      // 这一屏就是人看到的那一屏:未确认的写、没丢的草稿、还开着的表单。
+      await shot("declared-entity-kinds-unsettled-write");
+
+      // 中心自己对一个过期 fence 的回答:`revision_conflict`,连同它自己的那句解释。
+      // 这一条走的是同一个 method、同一条 fence 语义,只是调用方不是渲染进程——它证明
+      // 界面上那个 fence 是真的、而且中心确实会拒,不是场景自己编出来的一次失败。
+      const centerOnStaleFence = await requestDaemonJsonRpcAt(
+        fixture.endpoint,
+        "repo.entity.update",
+        {
+          repo: { repoId: fixture.repoId },
+          payload: {
+            entityKind: staleRow.kind,
+            entityId: staleRow.entityId,
+            // 0 是一个同样过期、但从没有哪次操作用过的 fence:用 staleRow.revision 会命中
+            // 上面那次独立写的 opId,被中心当成同一次意图的重放而不是冲突。
+            expectedVersion: 0,
+            title: staleRow.title,
+            locator: staleRow.locator.value,
+            attributes: { ...staleRow.descriptor.attributes },
+          },
+        },
+        2_000,
+        20_000,
+      );
+      assert.equal(centerOnStaleFence.outcome, "op_rejected");
+      assert.equal(
+        centerOnStaleFence.code,
+        "revision_conflict",
+        `the center rejects a stale fence in its own words; it answered ${JSON.stringify(centerOnStaleFence)}`,
+      );
+
+      // 冲突会 latch 仓格,下一条命令自愈。等它重新答得出话,再继续走完剩下的生命周期。
+      await recoveredCenter(fixture, v2InstanceId);
+      // 收表(表单是开着的:那次写没被确认过),再重新起草一次——这一次的表从中心此刻
+      // 那一行起,fence 也换成那一条,同样的值这次落定。
+      await page.getByTestId("entity-detail-edit").click();
+      await page.getByTestId("entity-detail-edit-form").waitFor({ state: "detached" });
+      assert.equal(
+        await reopenedAttributeValue(page, "region", "south"),
+        "south",
+        "the reopened form starts from the row the center now holds",
+      );
+      await page.getByTestId("entity-detail-edit").click();
+      await detailAttributes.waitFor();
+      await detailAttributes.getByLabel("fiscalYear", { exact: true }).fill("2099");
+      await page.getByTestId("entity-detail-edit-save").click();
+      await page.getByTestId("entity-detail-action-applied").waitFor();
+      await page.getByTestId("entity-detail-edit-form").waitFor({ state: "detached" });
+      assert.equal(
+        await reopenedAttributeValue(page, "fiscalYear", "2099"),
+        "2099",
+        "after the fence is refreshed the same value applies and comes back from the ledger",
       );
 
       // 9. 冷缓存回读:重载渲染进程,把 GUI 的全部查询缓存丢掉,再回到那个实例。来源已经

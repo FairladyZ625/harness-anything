@@ -124,3 +124,28 @@ export function readAttributeDraft(
   }
   return { values, issues };
 }
+
+/** 一格上「中心现在的值」与「你还没提交的值」不一致。 */
+export interface EntityFieldDivergence {
+  readonly name: string;
+  /** 中心此刻那一行的值。 */
+  readonly held: string;
+  /** 还留在表单里、没被接受的值。 */
+  readonly draft: string;
+}
+
+/**
+ * fence 不成立之后,把草稿与**重读回来的那一行**逐格对一遍。
+ *
+ * 冲突的意思是「你读到它之后有人改过它」,而不是「你填错了」。界面要说得出改的是哪几格,
+ * 人才判断得了该覆盖还是该重填;只丢一句「已被改过」,再保存一次就是闭着眼睛盖掉别人的写。
+ * 草稿本身不动——没提交的输入不该因为别人的一次写就消失。
+ */
+export function divergedFields(
+  draft: Readonly<Record<string, string>>,
+  held: Readonly<Record<string, string>>,
+): readonly EntityFieldDivergence[] {
+  return Object.keys(draft)
+    .filter((name) => name in held && draft[name] !== held[name])
+    .map((name) => ({ name, held: held[name]!, draft: draft[name]! }));
+}

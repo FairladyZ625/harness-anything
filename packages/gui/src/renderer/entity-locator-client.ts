@@ -203,6 +203,8 @@ export function receiptFailureText(receipt: { readonly outcome: string; readonly
  * - `pending`:中心接受了,canonical 还没跟上(回执带 opId,凭它查,不重放这次写)。
  * - `conflict`:这一条在你读到它之后被别人改过,fence 因此不成立。重读再改,不是重试。
  * - `rejected`:中心拒了这次意图本身,理由用中心自己的话。
+ *
+ * 连接断掉/超时那一类**不是拒绝**:没有回答就说不出中心做了什么,只能按 pending 处理。
  */
 export type EntityWriteState = "applied" | "pending" | "conflict" | "rejected";
 
@@ -214,6 +216,18 @@ export interface EntityWriteSettlement {
 }
 
 const CONFLICT_CODES = ["revision_conflict", "version_conflict", "op_conflict"];
+/**
+ * 这一批码说的是**没拿到中心的回答**,不是中心拒了这次意图:连接断了、请求超时、根本没连上。
+ * 写有没有落定,回答不了的一方是调用者——所以它是 indeterminate,不是 rejected。
+ * 把它说成「被拒」,人会照着「没写进去」去重发;而这次写可能已经被接受了。
+ */
+const UNANSWERED_CODES = [
+  "daemon_closed",
+  "daemon_response_timeout",
+  "daemon_request_failed",
+  "daemon_unavailable",
+  "ECONNRESET",
+];
 
 export function entityWriteSettlement(receipt: {
   readonly outcome: string;
@@ -239,6 +253,12 @@ export function entityWriteSettlement(receipt: {
     };
   if (code !== null && CONFLICT_CODES.includes(code))
     return { state: "conflict", opId, text: `${receiptFailureText(receipt)}这一条已经被改过,请重新读取后再改。` };
+  if (code !== null && UNANSWERED_CODES.includes(code))
+    return {
+      state: "pending",
+      opId,
+      text: `没拿到中心的回答(${code}):这次写可能已经落定,也可能没有。重新读取这一条再决定,不要直接重发。`,
+    };
   return { state: "rejected", opId, text: receiptFailureText(receipt) };
 }
 
