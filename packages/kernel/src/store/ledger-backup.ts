@@ -145,6 +145,17 @@ function existingBackupSources(rootDir: string, authoredRoot: string): readonly 
         if (name !== "ledger.sqlite" && name !== "ledger.sqlite-wal" && name !== "ledger.sqlite-shm")
           candidates.push(path.join(generationRoot, name));
   }
+  const draftsRoot = path.join(rootDir, ".harness", "operations", "conversion-drafts");
+  if (fileSystem.exists(draftsRoot)) {
+    candidates.push(draftsRoot);
+    for (const parent of fileSystem.readDirectory(draftsRoot)) {
+      const manifest = JSON.parse(fileSystem.read(path.join(draftsRoot, parent, "manifest.json"), "utf8")) as {
+        drafts: readonly { preservedPath: string | null }[];
+      };
+      for (const draft of manifest.drafts)
+        if (draft.preservedPath !== null) candidates.push(path.join(authoredRoot, draft.preservedPath));
+    }
+  }
   return candidates.filter((candidate) => fileSystem.exists(candidate));
 }
 

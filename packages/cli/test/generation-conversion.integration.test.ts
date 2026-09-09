@@ -261,6 +261,11 @@ test("offline conversion preserves draft edits and deletion intent before settli
     const removed = report.drafts.find((d: any) => d.path === "context/raw-2.bin");
     assert.equal(removed.preservedPath, null);
     assert.equal(removed.mode, null);
+    const migratedBackup = path.join(f.parent, "migrated-backup");
+    const manifest = createLedgerBackup({ rootInput: f.destination, backupDir: migratedBackup, generation: 2 });
+    assert.ok(manifest.files.some((entry) => entry.path.endsWith("conversion-drafts/" + parent + "/manifest.json")));
+    assert.deepEqual(readFileSync(path.join(migratedBackup, "payload/harness", changed.preservedPath)), draft);
+
     assert.deepEqual(readFileSync(path.join(authored, "context/raw-1.bin")), draft);
     assert.equal(existsSync(path.join(authored, "context/raw-2.bin")), false);
   } finally {
