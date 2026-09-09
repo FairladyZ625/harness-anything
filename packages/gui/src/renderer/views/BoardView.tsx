@@ -1,4 +1,5 @@
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   DndContext,
   PointerSensor,
@@ -156,14 +157,13 @@ const Card = memo(function Card({
 /**
  * draggable 收窄(W9):`useDraggable` 即使 disabled 也向 DndContext 注册节点,
  * 而全板唯一合法拖拽是 planned→active(`taskCan(task,"start")`),done/外部/
- * 归档卡全是无效注册。不可拖卡直接渲染 Card(content-visibility 包装保留,
- * 点击与悬停提示不变),可拖卡才挂 dnd。
+ * 归档卡全是无效注册。不可拖卡直接渲染 Card,可拖卡才挂 dnd。离屏卡的
+ * 按需渲染由列内 windowing(W10)承担,卡片外层不再包 content-visibility。
  *
- * 可聚焦修正(W9 修正):baseline 的 disabled dnd 仍把 role=button/tabIndex=0
- * 铺在包装层,收窄后不能丢——不可拖卡保留同样的可达表面,并补上与点击等价的
- * Enter/Space 键盘激活(baseline 本就没有键盘激活,属存量弱点,此处一并补齐);
- * 唯一省掉的是 dnd 注册本身。不再挂 aria-disabled:卡片选择始终可用,报
- * disabled 反而误导(非拖拽语义由悬停提示承担)。
+ * 可聚焦修正(W9 修正):不可拖卡保留 role=button/tabIndex=0 的可达表面,并补上
+ * 与点击等价的 Enter/Space 键盘激活(baseline 本就没有键盘激活,属存量弱点,
+ * 此处一并补齐);唯一省掉的是 dnd 注册本身。不再挂 aria-disabled:卡片选择
+ * 始终可用,报 disabled 反而误导(非拖拽语义由悬停提示承担)。
  *
  * 键事件只认包装层自身发起的(target===currentTarget):卡内 pin/收藏是原生
  * button,自带 Enter/Space 激活,包装层不得替它们 preventDefault 或触发选卡。
@@ -195,7 +195,6 @@ const DraggableCard = memo(function DraggableCard({
             onSelect(task.taskId);
           }
         }}
-        className="[contain-intrinsic-size:auto_7rem] [content-visibility:auto]"
       >
         <Card
           task={task}
@@ -237,12 +236,7 @@ function DndCard({
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: task.taskId });
   return (
-    <div
-      ref={setNodeRef}
-      {...attributes}
-      {...listeners}
-      className={`[contain-intrinsic-size:auto_7rem] [content-visibility:auto] ${isDragging ? "opacity-30" : ""}`}
-    >
+    <div ref={setNodeRef} {...attributes} {...listeners} className={isDragging ? "opacity-30" : ""}>
       <Card
         task={task}
         onSelect={onSelect}
@@ -254,6 +248,10 @@ function DndCard({
     </div>
   );
 }
+
+/** 列内 windowing(W10):估算卡高含 8px 间距,实测由 measureElement 收敛。 */
+const CARD_ESTIMATE_PX = 108;
+const CARD_OVERSCAN = 6;
 
 function Column({
   status,
@@ -276,10 +274,21 @@ function Column({
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: status });
   const meta = STATUS_META[status];
-  // 完整渲染,不分批(2026-08-25 泽宇裁决:性能顾虑用按需渲染解决,不转嫁给用户点击):
-  // 每张卡外层的拖拽容器带 content-visibility:auto,离屏卡的布局与绘制由渲染器跳过。
   // 列内默认序(W8):lastKnownAt 倒序打底,pin → 收藏稳定置顶。
   const ordered = sortByRecentThenPinAndFavoritesFirst(tasks, favorites);
+  // 按需渲染 = 列内 windowing(W10):每列只挂视口内 + overscan 的卡,DOM 卡片数
+  // 与列总量解耦(基线:canonical done 单列 1699 卡全挂载)。2026-08-25 裁决的
+  // 「性能顾虑用按需渲染解决」即此形态——不需要分批按钮,滚动到哪里挂到哪里。
+  // 拖拽面不受影响:droppable 是列级(整列常挂),拖拽影像走 DragOverlay,
+  // 源卡在拖拽中滚出视口被卸载也不破坏拖拽(dnd-kit 官方虚拟列表模式)。
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const virtualizer = useVirtualizer({
+    count: ordered.length,
+    getScrollElement: () => listRef.current,
+    estimateSize: () => CARD_ESTIMATE_PX,
+    overscan: CARD_OVERSCAN,
+    getItemKey: (index) => ordered[index].taskId,
+  });
   return (
     <div
       ref={setNodeRef}
@@ -306,19 +315,28 @@ function Column({
           </span>
         )}
       </div>
-      <div className="flex flex-col gap-2 overflow-y-auto pb-1">
+      <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto pb-1" data-testid={`board-column-list-${status}`}>
         {ordered.length > 0 ? (
-          ordered.map((t) => (
-            <DraggableCard
-              key={t.taskId}
-              task={t}
-              onSelect={onSelect}
-              spawningDecision={spawningDecisions.get(t.taskId)}
-              isFavorite={favorites.has(t.taskId)}
-              onToggleFavorite={onToggleFavorite}
-              onSetPin={onSetPin}
-            />
-          ))
+          <div className="relative" style={{ height: virtualizer.getTotalSize() }}>
+            {virtualizer.getVirtualItems().map((item) => (
+              <div
+                key={item.key}
+                data-index={item.index}
+                ref={virtualizer.measureElement}
+                className="absolute inset-x-0 top-0 pb-2"
+                style={{ transform: `translateY(${item.start}px)` }}
+              >
+                <DraggableCard
+                  task={ordered[item.index]}
+                  onSelect={onSelect}
+                  spawningDecision={spawningDecisions.get(ordered[item.index].taskId)}
+                  isFavorite={favorites.has(ordered[item.index].taskId)}
+                  onToggleFavorite={onToggleFavorite}
+                  onSetPin={onSetPin}
+                />
+              </div>
+            ))}
+          </div>
         ) : (
           <div className="rounded-lg border border-dashed border-border px-3 py-5 ui-body text-text-faint">
             当前筛选下无 {meta.label} 任务
