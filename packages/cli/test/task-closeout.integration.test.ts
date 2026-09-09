@@ -239,11 +239,10 @@ test("a standard task with only task-package deliverables completes without a fa
         codeDocWitnesses: readonly unknown[];
       };
     assert.equal(evidence.task.status, "done");
-    assert.equal(evidence.codeDocWitnesses.length, 1);
-    assert.deepEqual(
-      (evidence.codeDocWitnesses[0] as { paths: readonly string[] }).paths,
-      [],
-      "an explicit empty codeDocPaths list is preserved in its typed witness",
+    assert.equal(
+      evidence.codeDocWitnesses.length,
+      0,
+      "task-package-only completion does not fabricate a code-doc witness for empty codeDocPaths",
     );
   } finally {
     if (existsSync(userRoot)) runMaybe(root, userRoot, ["daemon", "stop"]);

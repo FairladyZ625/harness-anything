@@ -66,11 +66,13 @@ test("the folded per-store reads are gone and the net read count fell", () => {
   // task_0df76ed3fb then added the three entity reads (kinds / rows / locator): the GUI's entity
   // surface derives from declarations, and those declarations had no read of their own.
   // task_fe66965a89 then added repo.vertical.declaration.read: the repository-scoped vertical
-  // declaration is the writable source behind those kinds and needs its own read.
+  // declaration is the writable source behind those kinds and needs its own read. The artifact
+  // timeline later added repo.artifacts.list as a separate payload-closed read.
   assert.equal(
     daemonGuiReadMethods.length,
-    33,
-    "31 array entries minus 3 folded plus 1 unified plus 3 entity reads plus 1 vertical declaration read",
+    34,
+    "31 array entries minus 3 folded plus 1 unified plus 3 entity reads plus 1 vertical " +
+      "declaration read plus 1 artifact read",
   );
 });
 
