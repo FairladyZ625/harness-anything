@@ -12,8 +12,17 @@ import {
   toolOption,
   toolValue,
 } from "./tool-command-contract.mjs";
+import { guiVitestManifest } from "./gui-test-manifest.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
+const dispatchCommand = Object.freeze({
+  ...dispatchIsolatedTestCommand,
+  options: Object.freeze(
+    dispatchIsolatedTestCommand.options.map((option) =>
+      option.name === "--file" ? { ...option, validate: validateDispatchTestFile } : option,
+    ),
+  ),
+});
 export const sourceRootAllowlist = Object.freeze([
   ".github",
   ".gitignore",
@@ -30,7 +39,7 @@ export const sourceRootAllowlist = Object.freeze([
 ]);
 
 export function parseDispatchArgs(argv) {
-  const parsed = parseToolOptions(dispatchIsolatedTestCommand, argv);
+  const parsed = parseToolOptions(dispatchCommand, argv);
   if (parsed.help) return { help: true };
   const options = {
     target: toolValue(parsed, "--target") ?? toolOption(dispatchIsolatedTestCommand, "--target").defaultValue,
@@ -41,11 +50,29 @@ export function parseDispatchArgs(argv) {
 }
 
 export function testRunnerArgs(options) {
+  if (options.file !== undefined) validateDispatchTestFile(options.file);
+  if (guiVitestManifest.includes(options.file)) {
+    return [
+      "npm",
+      "run",
+      "test:gui",
+      "--workspace",
+      "@harness-anything/gui",
+      "--",
+      options.file.slice("packages/gui/".length),
+    ];
+  }
   return [
     "node",
     "tools/run-node-tests.mjs",
     ...(options.tier === undefined ? ["--file", options.file] : ["--tier", options.tier]),
   ];
+}
+
+function validateDispatchTestFile(value) {
+  if (guiVitestManifest.includes(value)) return;
+  if (value.includes(".vitest.")) throw new Error(`unknown GUI test file: ${value}`);
+  toolOption(dispatchIsolatedTestCommand, "--file").validate(value);
 }
 
 export function sourceArchiveArgs(platform = process.platform, sourceRoot = repoRoot) {
