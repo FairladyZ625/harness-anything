@@ -40,6 +40,16 @@ test("repository vertical migration, upsert conflict, and retirement share one r
     );
     assert.ok(declaration);
     await assert.rejects(
+      () =>
+        run({
+          kind: "vertical-kind-upsert",
+          kindId: declaration.id,
+          declaration: { ...declaration, version: declaration.version + 1 },
+          expectedVersion: initial.revision,
+        }),
+      (error: unknown) => (error as { readonly code?: string }).code === "immutable_schema_version",
+    );
+    await assert.rejects(
       () => run({ kind: "vertical-kind-upsert", kindId: declaration.id, declaration, expectedVersion: 0 }),
       (error: unknown) => (error as { readonly code?: string }).code === "kind_exists",
     );
@@ -97,6 +107,16 @@ test("repository vertical migration, upsert conflict, and retirement share one r
     assert.equal(retiredRow?.retired, true);
     assert.equal(retiredRow?.importable, false);
     assert.equal(retiredRow?.origin, "vertical");
+    await assert.rejects(
+      () =>
+        run({
+          kind: "vertical-kind-upsert",
+          kindId: declaration.id,
+          declaration: { ...declaration, retired: false },
+          expectedVersion: current.revision + 1,
+        }),
+      (error: unknown) => (error as { readonly code?: string }).code === "kind_retired",
+    );
   } finally {
     projection.close();
     rmSync(rootDir, { recursive: true, force: true });
