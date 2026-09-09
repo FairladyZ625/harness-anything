@@ -74,6 +74,7 @@
   "views.listView.cancelFavorites": "Cancel favorites",
   "views.listView.closeout": "closeout",
   "views.listView.collection": "Favorites",
+  "views.listView.columnResize": "Resize the \"{column}\" column",
   "views.listView.currentResults": "Current results",
   "views.listView.engine": "engine",
   "views.listView.externalReadOnly": "External read only",

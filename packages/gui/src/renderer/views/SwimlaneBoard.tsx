@@ -1,14 +1,28 @@
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { CaretRight, Lock, PushPin, Star } from "@phosphor-icons/react";
 import type { TaskRow, SnapshotStatus } from "../model/types";
 import { BOARD_COLUMNS, isExternal } from "../model/types";
 import { STATUS_META, CloseoutBadge, DecisionSourceBadge, FreshnessTag, freshnessBorder } from "../components/badges";
+import { ColumnResizeHandle } from "../components/ColumnResizeHandle.tsx";
+import {
+  boardColumnPreferenceStorage,
+  clearBoardColumnWidth,
+  readBoardColumnWidths,
+  setBoardColumnWidth,
+  writeBoardColumnWidths,
+  type BoardColumnWidths,
+} from "../board-column-preferences.ts";
 import type { SpawningDecisionIndex } from "../model/triadic";
 import { sortByRecentThenPinAndFavoritesFirst } from "../model/taskFilters";
 
 export type LaneGroupBy = "module" | "engine" | "root" | "productLine";
 
-const GRID_COLS = "grid-cols-[180px_repeat(7,230px)]";
+/** 泳道列宽默认值 = 原 GRID_COLS(180px 泳道标签 + 7×230px 状态列);可调区间各自独立。 */
+const LANE_COLUMN_KEY = "lane";
+const LANE_WIDTH_DEFAULT = 180;
+const LANE_WIDTH_RANGE = { min: 120, max: 480 } as const;
+const STATUS_WIDTH_DEFAULT = 230;
+const STATUS_WIDTH_RANGE = { min: 160, max: 640 } as const;
 
 const cellKey = (lane: string, status: SnapshotStatus) => `${lane}::${status}`;
 
@@ -326,6 +340,32 @@ export function SwimlaneBoard({
   const model = useMemo(() => buildSwimlaneModel(tasks, groupBy), [groupBy, tasks]);
   const lanes = model.lanes;
 
+  // 泳道列宽偏好(W11):泳道标签列 + 7 个状态列各一个数字,默认 180/230 等宽;
+  // 表头是唯一手柄面(sticky,滚动时仍可达),行模板跟着表头走。
+  const [widths, setWidths] = useState<BoardColumnWidths>(() => readBoardColumnWidths(boardColumnPreferenceStorage()));
+  const resizeColumn = useCallback(
+    (key: string, px: number) => {
+      const next = setBoardColumnWidth(widths, "swimlane", key, px);
+      setWidths(next);
+      writeBoardColumnWidths(boardColumnPreferenceStorage(), next);
+    },
+    [widths],
+  );
+  const resetColumn = useCallback(
+    (key: string) => {
+      const next = clearBoardColumnWidth(widths, "swimlane", key);
+      setWidths(next);
+      writeBoardColumnWidths(boardColumnPreferenceStorage(), next);
+    },
+    [widths],
+  );
+  const laneWidth = widths.swimlane[LANE_COLUMN_KEY] ?? LANE_WIDTH_DEFAULT;
+  const gridStyle = {
+    gridTemplateColumns: [laneWidth, ...BOARD_COLUMNS.map((status) => widths.swimlane[status] ?? STATUS_WIDTH_DEFAULT)]
+      .map((px) => `${Math.round(px)}px`)
+      .join(" "),
+  };
+
   useEffect(() => {
     if (activeCell && !lanes.includes(activeCell.lane)) setActiveCell(null);
   }, [activeCell, lanes]);
@@ -341,14 +381,34 @@ export function SwimlaneBoard({
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="max-h-[48vh] overflow-auto border-b border-border">
         <div className="min-w-max px-4 pb-4">
-          <div className={`sticky top-0 z-10 grid ${GRID_COLS} gap-2 border-b border-border bg-bg py-2`}>
-            <div className="self-center px-1.5 font-mono ui-meta uppercase tracking-wide text-text-faint">
+          <div className="sticky top-0 z-10 grid gap-2 border-b border-border bg-bg py-2" style={gridStyle}>
+            <div className="relative self-center px-1.5 font-mono ui-meta uppercase tracking-wide text-text-faint">
               {groupBy}
+              <ColumnResizeHandle
+                label="调整泳道标签列宽"
+                width={laneWidth}
+                min={LANE_WIDTH_RANGE.min}
+                max={LANE_WIDTH_RANGE.max}
+                onChange={(px) => resizeColumn(LANE_COLUMN_KEY, px)}
+                onReset={() => resetColumn(LANE_COLUMN_KEY)}
+                testId="swimlane-lane-resize"
+                className="inset-y-0 -right-1"
+              />
             </div>
             {BOARD_COLUMNS.map((status) => {
               const meta = STATUS_META[status];
               return (
-                <div key={status} className="flex items-center gap-1.5 px-1.5">
+                <div key={status} className="relative flex items-center gap-1.5 px-1.5">
+                  <ColumnResizeHandle
+                    label={`调整「${meta.label}」列宽`}
+                    width={widths.swimlane[status] ?? STATUS_WIDTH_DEFAULT}
+                    min={STATUS_WIDTH_RANGE.min}
+                    max={STATUS_WIDTH_RANGE.max}
+                    onChange={(px) => resizeColumn(status, px)}
+                    onReset={() => resetColumn(status)}
+                    testId={`swimlane-column-resize-${status}`}
+                    className="inset-y-0 -right-1"
+                  />
                   <span style={{ color: meta.color }} className="text-base">
                     {meta.icon}
                   </span>
@@ -364,7 +424,8 @@ export function SwimlaneBoard({
             <div
               key={lane}
               data-testid="swimlane-row"
-              className={`grid ${GRID_COLS} gap-2 border-b border-border py-2.5 cv-auto-4-5r`}
+              className="grid gap-2 border-b border-border py-2.5 cv-auto-4-5r"
+              style={gridStyle}
             >
               <div className="flex items-baseline gap-2 self-start px-1.5 pt-1.5">
                 <span
