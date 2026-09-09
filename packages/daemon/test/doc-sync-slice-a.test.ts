@@ -89,6 +89,8 @@ test("status, dry-run, and submit share the repeatable-path scanner and automati
       [
         ["context/a.md", "eligible"],
         ["context/b.md", "eligible"],
+        ["context/ignored.json", "blocked"],
+        ["tasks/task-one/artifacts/data.json", "blocked"],
         ["tasks/task-one/progress.md", "blocked"],
       ],
     );
@@ -303,8 +305,8 @@ test("scanner refuses multi-megabyte JSONL without reading it and names oversize
       rows(status.evidence)
         .filter((row) => row.state !== "clean")
         .map((row) => row.path),
-      [prose],
-      "non-prose JSONL must not enter the authored candidate set before oversized prose is restored",
+      [prose, secondLog, firstLog],
+      "unsupported JSONL remains visible with a reason without loading its bytes",
     );
     write(rootDir, "events/segments/manifest.json", "{}\n");
     const unconfirmed = await cell.run({ kind: "doc-submit", paths: [] }, binding);
@@ -312,8 +314,12 @@ test("scanner refuses multi-megabyte JSONL without reading it and names oversize
     assert.equal(unconfirmed.code, "preview_blocked");
     assert.deepEqual(
       unconfirmed.detail?.unresolvedTouches.map((touch) => [touch.path, touch.requiredRoute]),
-      [["events/segments/manifest.json", "canonical-event"]],
-      "the canonical manifest is rejected before full-submit confirmation; JSONL never enters the scan",
+      [
+        ["events/segments/manifest.json", "canonical-event"],
+        [secondLog, "doc-sync"],
+        [firstLog, "doc-sync"],
+      ],
+      "the canonical manifest and unsupported JSONL are explained before full-submit confirmation",
     );
 
     const confirmed = await cell.run({ kind: "doc-submit", paths: [], all: true }, binding);
