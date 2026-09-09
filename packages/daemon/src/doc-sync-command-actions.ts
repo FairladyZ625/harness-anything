@@ -91,7 +91,7 @@ export function isDocAction(kind: string): boolean {
   );
 }
 
-export async function runDocAction(input: Input): Promise<WriteReceipt> {
+export async function runDocAction(input: Input): Promise<DocSettlementReceipt> {
   if (Buffer.byteLength(JSON.stringify(input.action)) > DOC_COMMAND_FRAME_MAX_BYTES)
     throw docSyncError("invalid_command", "doc command frame exceeds the descriptor-only limit");
   if (input.action.kind.startsWith("doc-conflict-")) return runLocalDocConflictExit(input);
@@ -140,6 +140,32 @@ export async function runDocAction(input: Input): Promise<WriteReceipt> {
         "rerun with --path for an explicit selection or --all for every eligible candidate",
       ].join("\n"),
     });
+  }
+  if (scan) {
+    const explicitSelection = Array.isArray(input.action.paths) && input.action.paths.length > 0;
+    if (explicitSelection && scan.rows.some((row) => row.state === "conflict")) {
+      const rejection = rejectDocSyncAction(
+        `scan:${scan.baseLedgerSha.headDigest}`,
+        "preview_blocked",
+        scanDetail(input, scan, "preview_blocked"),
+      );
+      const conflictIds = scan.rows
+        .filter((row) => row.state === "conflict")
+        .flatMap((row) => row.conflicts)
+        .map((value) => /\.conflict-([0-9a-f]{8})\.(?:md|txt)$/u.exec(value)?.[1] ?? null)
+        .filter((value): value is string => value !== null);
+      return {
+        ...rejection,
+        nextActions: conflictIds.map((id) => `ha doc conflict resolve ${id}`),
+        summary: [
+          "doc-submit: op_rejected",
+          "skipped:",
+          ...scan.rows
+            .filter((row) => row.state === "conflict")
+            .map((row) => `${row.path}\t${row.state}\t${row.reason ?? "candidate is not eligible"}`),
+        ].join("\n"),
+      };
+    }
   }
   if (scan && !scan.rows.some((row) => row.state === "eligible")) {
     const code = scanRejectionCode(scan),
