@@ -142,7 +142,10 @@ export async function publishExit(
         console.error(`[runtime-archive] ${active.dispatchId} could not be archived: ${detail}`);
         outcome = "failed";
         reasonCode = "runtime_archive_failed";
-        body = `Runtime archive publication failed: ${detail || "unknown error"}`;
+        // The worker result is independently durable input to this settlement.
+        // Preserve it in the terminal content while appending the reason that
+        // prevents this Task execution from claiming success.
+        body = `${body}\n\nRuntime archive publication failed: ${detail || "unknown error"}`;
         sha256 = createHash("sha256").update(body).digest("hex");
         result = { sha256, size: Buffer.byteLength(body), mediaType: context.resultMediaType };
         resultRef = `artifact:runtime-result/sha256/${sha256}`;
@@ -197,7 +200,7 @@ export async function publishExit(
         const settlementCode = runtimeErrorCode(error) || "runtime_settlement_failed";
         reasonCode = settlementCode;
         outcome = "failed";
-        body = `Runtime terminal settlement failed (${settlementCode}): ${runtimeErrorMessage(error)}`;
+        body = `${body}\n\nRuntime terminal settlement failed (${settlementCode}): ${runtimeErrorMessage(error)}`;
         sha256 = createHash("sha256").update(body).digest("hex");
         result = { sha256, size: Buffer.byteLength(body), mediaType: context.resultMediaType };
         resultRef = `artifact:runtime-result/sha256/${sha256}`;
