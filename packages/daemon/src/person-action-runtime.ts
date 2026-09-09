@@ -47,8 +47,12 @@ export function makePersonActionRuntime(cell: RepoCellRuntimeContext): EntityAct
         throw cell.cellCodedError("revision_conflict", `Operation ${opId} belongs to a non-People event.`);
       return personReplayReceipt(cell.receiptForOperation(opId, binding), existing.payload.targetPersonId);
     }
+    const document = cell.projection.readDocument("people.yaml");
+    if (document.watermark !== document.sourceRevision)
+      throw cell.cellCodedError("content_not_ready", "People document projection is pending.");
     const peoplePath = path.join(resolveHarnessLayout(cell.rootDir).authoredRoot, "people.yaml"),
-      currentBody = existsSync(peoplePath) ? readFileSync(peoplePath, "utf8") : null,
+      // The authored seed is used only before the first canonical People document exists.
+      currentBody = document.document?.body ?? (existsSync(peoplePath) ? readFileSync(peoplePath, "utf8") : null),
       compile = contract.execution.compile;
     if (!compile) throw cell.cellCodedError("invalid_command", `${action.kind} has no Person event compiler.`);
     const compiled = compile({

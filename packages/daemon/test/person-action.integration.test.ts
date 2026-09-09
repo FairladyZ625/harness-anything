@@ -1,13 +1,13 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { makeTaskEventReader } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
-import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
+import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { initRepo } from "./migration-import.fixtures.ts";
 
 const explainMethod = "repo.entity.actions.explain" as const,
@@ -17,6 +17,7 @@ const explainMethod = "repo.entity.actions.explain" as const,
 test("Person Actions share catalog execution, exact refusal attribution, and explain parity", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-person-action-"));
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  let holdMirror = false;
   try {
     initRepo(root);
     let now = "2026-09-01T01:00:00.000Z";
@@ -25,6 +26,10 @@ test("Person Actions share catalog execution, exact refusal attribution, and exp
       rootDir: canonicalRoot(root),
       ownerId: "person-action-test",
       now: () => now,
+      killpoint: (point) => {
+        if (holdMirror && point === "before_worktree_rename")
+          throw new Error("fixture holds the authored mirror behind acceptance");
+      },
     });
     const ownerBinding = { actor: ownerActor, source: "local" as const },
       added = await cell.run(
@@ -95,6 +100,10 @@ test("Person Actions share catalog execution, exact refusal attribution, and exp
     assert.match(ownerRemoval.nextActions?.[0] ?? "", /bootstrap creator person_zeyu cannot be removed/u);
     assert.equal(peopleEventCount(root), beforeOwnerRefusal);
 
+    await waitForFixturePublication(cell, added.opId, ownerBinding);
+    const peoplePath = path.join(root, "harness", "people.yaml");
+    const beforeDelegationBody = readFileSync(peoplePath, "utf8");
+    holdMirror = true;
     const delegated = await cell.run(
       {
         kind: "people-delegate",
@@ -107,6 +116,8 @@ test("Person Actions share catalog execution, exact refusal attribution, and exp
       ownerBinding,
     );
     assert.equal(delegated.outcome, "applied", JSON.stringify(delegated));
+    // A lagging physical mirror must not erase an already accepted delegation from command validation.
+    writeFileSync(peoplePath, beforeDelegationBody);
     now = "2026-09-01T01:30:00.000Z";
     const beforeRevokeRefusal = peopleEventCount(root),
       aliceBinding = {
@@ -133,6 +144,7 @@ test("Person Actions share catalog execution, exact refusal attribution, and exp
     assert.match(foreignRevoke.nextActions?.[0] ?? "", /Only DelegatedExecutionToken issuer person_zeyu/u);
     assert.equal(peopleEventCount(root), beforeRevokeRefusal);
   } finally {
+    holdMirror = false;
     await cell?.close();
     rmSync(root, { recursive: true, force: true });
   }
