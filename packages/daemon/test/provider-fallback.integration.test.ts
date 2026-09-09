@@ -1,18 +1,18 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { makeTaskEventStore, type AgentDefinitionSnapshot, type AgentRuntimeEventV1 } from "../../kernel/src/index.ts";
 import type { RuntimeInstanceSummary, RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
-import { readDispatchStream, readDispatchStreamHeaders } from "../src/dispatch-stream.ts";
+import { dispatchStreamPath, readDispatchStream, readDispatchStreamHeaders } from "../src/dispatch-stream.ts";
 import type { TaskDispatchRow } from "../src/protocol/daemon-protocol.contract.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { makeRuntimeSpawner } from "../src/runtime-spawn.ts";
-import type { RuntimeProcess } from "../src/runtime-spawn-types.ts";
+import type { RuntimeBinding, RuntimeProcess } from "../src/runtime-spawn-types.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 const binding = {
@@ -105,6 +105,11 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
     );
     const succeeded = await eventually(async () => {
       const rows = (await cell.read("repo.task.dispatches", { taskId: "task_provider_fallback_success" })).dispatches;
+      assert.equal(
+        rows.some((row) => row.fallbackState === "exhausted"),
+        false,
+        JSON.stringify(rows),
+      );
       return rows.length === 2 && rows[1]?.status === "succeeded" ? rows : null;
     });
     assertAttemptChain(succeeded, ["provider-rate-first", "provider-success-second"]);
@@ -336,6 +341,7 @@ test("repeated adoption dispatches one durable fallback continuation", async () 
   let pid = 10_000,
     revision = 0,
     nextLaunches = 0,
+    afterRestart = false,
     scheduled = Promise.resolve();
   const remote = {
       existing: async (opId: string) => receipts.get(opId) ?? null,
@@ -379,8 +385,16 @@ test("repeated adoption dispatches one durable fallback continuation", async () 
       },
     },
     instances = [runtimeInstance("provider-adopt-first"), runtimeInstance("provider-adopt-next")],
-    schedule = (work: () => void | Promise<void>) => {
+    schedule = (work: () => void | Promise<void>, scheduledBinding?: RuntimeBinding) => {
       scheduled = scheduled.then(async () => {
+        if (afterRestart && scheduledBinding) {
+          assert.equal(
+            Object.hasOwn(scheduledBinding, "writerEpoch"),
+            false,
+            "fallback queue must use its current owner",
+          );
+          assert.equal(Object.hasOwn(scheduledBinding, "writerEpochFence"), false);
+        }
         await work();
       });
     },
@@ -429,6 +443,23 @@ test("repeated adoption dispatches one durable fallback continuation", async () 
       return stream?.fallbackState === "scheduled" ? stream : null;
     });
     spawner.close();
+    const journalPath = dispatchStreamPath(root, first.header.dispatchId),
+      lines = readFileSync(journalPath, "utf8").split("\n"),
+      header = JSON.parse(lines[0]!);
+    header.binding = {
+      ...header.binding,
+      writerEpoch: 35,
+      writerEpochFence: {
+        schema: "harness-writer-epoch-fence/v1",
+        stateRoot: path.join(root, "old-epochs"),
+        repoId: "provider-fallback-adopt-twice",
+        holderId: "old-owner",
+        epoch: 35,
+      },
+    };
+    lines[0] = JSON.stringify(header);
+    writeFileSync(journalPath, lines.join("\n"));
+    afterRestart = true;
     spawner = open();
     await spawner.adopt();
     await spawner.adopt();

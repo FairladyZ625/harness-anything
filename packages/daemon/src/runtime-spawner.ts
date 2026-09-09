@@ -1,12 +1,6 @@
 import { createHash } from "node:crypto";
 import path from "node:path";
-import type {
-  AgentRuntimeEventV1,
-  CanonicalEventStore,
-  SessionIdentity,
-  SettingsV1,
-  TaskProjection,
-} from "../../kernel/src/index.ts";
+import type { AgentRuntimeEventV1, CanonicalEventStore, SessionIdentity } from "../../kernel/src/index.ts";
 import {
   consumeKnownError,
   currentSubmittedExecutions,
@@ -19,10 +13,7 @@ import {
 } from "../../kernel/src/index.ts";
 import { createRuntime } from "../../preset/src/preset-resolver.ts";
 import { presetRuntimeDefaults, presetUserRoot } from "../../preset/src/preset-system.ts";
-import type { SquadDispatchSelection } from "./agent-entities.ts";
 import { runtimeTypeMatchesKind } from "./agent-runtime-contract.ts";
-import type { PreparedRuntimeLaunch, RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
-import type { AgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
 import { resolveAgentSkills } from "./agent-skills.ts";
 import {
   openDispatchStream,
@@ -32,7 +23,6 @@ import {
   scrubProviderValue,
   type DispatchStreamWriter,
 } from "./dispatch-stream.ts";
-import type { RuntimeDispatchArchive } from "./doc-sync-actions.ts";
 import { unknownFieldViolation, type JsonObject } from "./protocol/json-rpc-types.ts";
 import { runtimeKindForId } from "./runtime-inventory.ts";
 import { runtimePermissionMode } from "./runtime-permissions.ts";
@@ -85,20 +75,17 @@ import {
   publishExit as publishExitImpl,
   runtimeResultText as runtimeResultTextImpl,
 } from "./runtime-spawn-settlement.ts";
+import { runtimeBindingForDispatch } from "./runtime-spawn-types.ts";
 import type {
   ActiveRuntime,
-  RemoteRuntimePersistence,
   ResumeProcessObservation,
-  RuntimeAgent,
   RuntimeBinding,
-  RuntimeDaemonRoute,
+  RuntimeSpawnerInput,
   RuntimeAttemptTerminal,
-  RuntimeLauncher,
   RuntimeProcess,
   TrustedScheduleRuntime,
   TrustedScheduleSpawn,
 } from "./runtime-spawn-types.ts";
-import type { DaemonLifecycleRecorder } from "./lifecycle-log.ts";
 import type { RuntimeAttemptOutcome, RuntimeFallbackAttempt } from "./runtime-fallback-contract.ts";
 import type { RuntimeEventOf, RuntimeEventType, RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 import {
@@ -113,73 +100,6 @@ export const resultMediaType = "text/plain; charset=utf-8" as const,
   providerErrorLimit = 64 * 1024,
   resumeAdmissionTimeoutMs = 30_000,
   exitNotificationTimeoutMs = 30_000;
-
-export interface RuntimeSpawnerInput {
-  readonly repoId: string;
-  readonly rootDir: string;
-  readonly daemonGeneration: number;
-  readonly runtimeNodeId?: string;
-  readonly runtimeDaemonRoute?: RuntimeDaemonRoute;
-  readonly store?: () => CanonicalEventStore;
-  readonly projection?: () => TaskProjection;
-  readonly readSettings?: () => SettingsV1;
-  readonly remote?: RemoteRuntimePersistence;
-  /** Local runtime event commit; the caller already owns the RepoCell writer queue. */
-  readonly commitRuntimeEvent?: (
-    draft: {
-      readonly type: AgentRuntimeEventV1["type"];
-      readonly payload: Readonly<Record<string, unknown>>;
-      readonly opId: string;
-      readonly resultBody?: string;
-    },
-    binding: RuntimeBinding,
-  ) => Promise<{ readonly event?: AgentRuntimeEventV1; readonly receipt: JsonObject }>;
-  readonly stream: Pick<AgentRuntimeStreamHub, "publish">;
-  readonly now: () => string;
-  readonly runtimeInstances?: () => readonly RuntimeInstanceSummary[];
-  readonly prepareLaunch: (
-    instanceId: string,
-    request: {
-      readonly cwd: string;
-      readonly prompt: string;
-      readonly model?: string;
-      readonly effort?: string;
-      readonly fast?: boolean;
-      readonly providerSessionId?: string;
-      readonly permissionMode?: string;
-    },
-  ) => Promise<PreparedRuntimeLaunch>;
-  readonly prepareWorkerGitEnvironment?: (instanceId: string) => Promise<NodeJS.ProcessEnv | null>;
-  readonly resolveAgent?: (agentId: string) => RuntimeAgent;
-  readonly resolveSquadDispatch?: (
-    squadId: string | undefined,
-    leaderId: string,
-    workerId?: string,
-  ) => SquadDispatchSelection;
-  readonly launch?: RuntimeLauncher;
-  readonly schedule: (work: () => void | Promise<void>, binding?: RuntimeBinding) => void;
-  readonly onRuntimeOutcome?: (
-    event: Extract<AgentRuntimeEventV1, { readonly type: "runtime_session_outcome_observed" }>,
-    schedule: TrustedScheduleRuntime | null,
-  ) => void;
-  readonly onAttemptTerminal?: (terminal: RuntimeAttemptTerminal) => void | Promise<void>;
-  readonly handoffTaskLease?: (input: {
-    readonly taskId: string;
-    readonly runtimeSessionId: string;
-    readonly fromRuntimeSessionId: string | null;
-    readonly binding: RuntimeBinding;
-  }) => Promise<RuntimeBinding>;
-  /** Re-authorizes each local RuntimeSession catalog Action at its commit cut. */
-  readonly authorizeRuntimeEvent?: (input: {
-    readonly type: AgentRuntimeEventV1["type"];
-    readonly payload: AgentRuntimeEventV1["payload"];
-    readonly opId: string;
-    readonly binding: RuntimeBinding;
-  }) => RuntimeBinding;
-  /** Re-authorizes a local terminal archive at the settlement cut. */
-  readonly authorizeRuntimeArchive?: (archive: RuntimeDispatchArchive, binding: RuntimeBinding) => RuntimeBinding;
-  readonly recordLifecycle?: DaemonLifecycleRecorder;
-}
 
 export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
   const processes = new Map<string, ActiveRuntime>(),
@@ -496,6 +416,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
               repoId: input.repoId,
               canonicalRoot: input.rootDir,
               workerRoot: cwd,
+              taskId: taskId!,
               taskPackageRoot: taskMission.packageRoot,
               daemonRoute: missionDaemonRoute!,
               runtimeActor,
@@ -644,7 +565,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         dispatchOpId,
         kindId: definition.kindId,
         permissionMode: launchedPermissionMode ?? null,
-        binding: activeBinding,
+        binding: runtimeBindingForDispatch(activeBinding),
         cwd,
         prompt: scrubProviderValue(prompt) as string,
         mission: scrubProviderValue(mission) as string,
@@ -1003,7 +924,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         )
           return;
         const header = current.header,
-          binding = header.binding,
+          binding = runtimeBindingForDispatch(header.binding!),
           dispatchCwd = header.cwd;
         if (!binding || typeof dispatchCwd !== "string") return;
         const fallback = header.fallbackAttempt!,
@@ -1019,8 +940,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         )
           return;
         try {
-          const receipt = await spawnAttempt(
-            {
+          const continuationPayload: JsonObject = {
               runtimeInstanceId: next.instance,
               ...(header.delegatedByAgentId && header.agentId
                 ? { agentId: header.delegatedByAgentId, targetAgentId: header.agentId }
@@ -1043,12 +963,19 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
               ...(header.taskId ? { taskId: header.taskId } : {}),
               idempotencyKey: `${fallback.rootIdempotencyKey}:fallback:${String(nextAttemptIndex)}`,
             },
-            binding,
+            continuationBinding =
+              input.authorizeRuntimeContinuation?.(
+                continuationPayload,
+                binding,
+                `runtime-continuation:${header.dispatchId}:${nextAttemptIndex}`,
+              ) ?? binding;
+          const receipt = await spawnAttempt(
+            continuationPayload,
+            continuationBinding,
             nextFallback,
             header.schedule,
             header.runtimeSessionId,
-            header.taskId !== null &&
-              header.binding.actor.executor?.id !== `runtime-session:${header.runtimeSessionId}`,
+            header.taskId !== null && binding.actor.executor?.id !== `runtime-session:${header.runtimeSessionId}`,
           );
           writer.appendFallbackState(
             {
@@ -1081,7 +1008,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             binding,
           });
         }
-      }, stream.header.binding);
+      }, runtimeBindingForDispatch(stream.header.binding!));
     }, remainingMs);
     timer.unref();
   }

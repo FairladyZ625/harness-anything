@@ -521,6 +521,8 @@ export async function openRepoWriterCell(
       input.onAttemptTerminal?.(terminal);
     },
     handoffTaskLease: (handoff) => handoffTaskLease(handoff),
+    authorizeRuntimeContinuation: (payload, binding, actionId) =>
+      authorizeRuntimeAction({ ...payload, kind: "runtime-spawn" }, binding, actionId),
     commitRuntimeEvent: async (draft, binding) => {
       const action = { kind: "event" as const, ...draft },
         receipt = runtimeSessionActionIds.includes(draft.type as never)

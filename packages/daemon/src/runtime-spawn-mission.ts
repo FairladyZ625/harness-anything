@@ -240,6 +240,7 @@ export function assembleTaskMission(input: {
   readonly repoId: string;
   readonly canonicalRoot: string;
   readonly workerRoot: string;
+  readonly taskId: string;
   readonly taskPackageRoot: string;
   readonly daemonRoute: RuntimeDaemonRoute;
   readonly runtimeActor: string;
@@ -250,6 +251,7 @@ export function assembleTaskMission(input: {
     "Repository registration: enabled",
     `Canonical repository root: ${input.canonicalRoot}`,
     `Worker repository root: ${input.workerRoot}`,
+    `Canonical Task ID: ${input.taskId}`,
     `Task package root: ${input.taskPackageRoot}`,
     ...(input.daemonRoute.userRoot
       ? [`Daemon user root: ${input.daemonRoute.userRoot}`, `Daemon id: ${input.daemonRoute.daemonId}`]
