@@ -303,25 +303,7 @@ export type {
   SquadDeclarationV1,
 } from "./agent-squad-schema.ts";
 export { EntitySchemaContractError } from "./entity-json-schema.ts";
-export type { EntityDocumentJsonSchema, EntityJsonObjectSchema, EntityJsonSchemaNode } from "./entity-json-schema.ts";
 export { artifactEntityImportActionInput } from "./artifact-entity-actions.ts";
-export {
-  createEntityKindLifecycle,
-  applyEntityKindAction,
-  ENTITY_KIND_LIFECYCLE_EVENT_SCHEMA,
-  ENTITY_KIND_ID_PREFIX,
-  ENTITY_ID_PREFIX,
-} from "./entity-kind-lifecycle.ts";
-export type {
-  EntityKindLifecycle,
-  EntityKindLifecycleAction,
-  EntityKindLifecycleEvent,
-  EntityKindRecord,
-  GenericEntityRecord,
-  KindId,
-  EntityId as GenericEntityId,
-  KindSchemaVersion,
-} from "./entity-kind-lifecycle.ts";
 
 export {
   compileEntityContentObserved,
