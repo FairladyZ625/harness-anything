@@ -213,6 +213,42 @@ export function validateDaemonDocumentRead(value: unknown): readonly string[] {
       "must be null or a 64-character SHA-256",
     ],
     [
+      "contentKind",
+      value.contentKind,
+      value.contentKind === "text" || value.contentKind === "binary",
+      "must be text or binary",
+    ],
+    [
+      "mediaType",
+      value.mediaType,
+      value.mediaType === null || nonEmpty(value.mediaType),
+      "must be null or a non-empty string",
+    ],
+    [
+      "size",
+      value.size,
+      value.size === null || (integer(value.size) && Number(value.size) >= 0),
+      "must be null or a non-negative integer",
+    ],
+    [
+      "bytes",
+      value.bytes,
+      value.bytes === null || (typeof value.bytes === "string" && /^[A-Za-z0-9+/]*={0,2}$/u.test(value.bytes)),
+      "must be null or base64",
+    ],
+    // Bytes are what a raw artifact is; text documents carry their content in `body` and nothing else.
+    ["bytes", value.bytes, value.contentKind === "binary" || value.bytes === null, "must be null for a text document"],
+    // A binary document has no text at all: an empty `body` here means "not text", and a worktree
+    // string would be a lossy re-encoding of bytes rather than the live file.
+    ["body", value.body, value.contentKind !== "binary" || value.body === "", "must be empty for a binary document"],
+    [
+      "worktreeBody",
+      value.worktreeBody,
+      value.contentKind !== "binary" || value.worktreeBody === null,
+      "must be null for a binary document",
+    ],
+    ["repositoryPath", value.repositoryPath, nonEmpty(value.repositoryPath), "must be a non-empty string"],
+    [
       "worktreeBody",
       value.worktreeBody,
       value.worktreeBody === null || typeof value.worktreeBody === "string",

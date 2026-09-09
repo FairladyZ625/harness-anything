@@ -157,6 +157,7 @@ export {
   DOC_SYNC_INLINE_MAX_BYTES,
   type OpaqueTextualMediaType,
   RAW_ARTIFACT_MAX_BYTES,
+  RAW_ARTIFACT_MEDIA_TYPE,
   RAW_ARTIFACT_POLICY_ID,
   worktreeDocumentMediaType,
 } from "./domain/artifact-text-classification.ts";

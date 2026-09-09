@@ -357,8 +357,19 @@ export type DaemonGuiReadResultMap = {
     readonly path: string;
     readonly body: string;
     readonly blobSha256: string | null;
+    /** `binary` = a raw task artifact: `body` is empty because the document is not text,
+     * not because the file is. Renderers must branch on this before showing `body`. */
+    readonly contentKind: "text" | "binary";
+    readonly mediaType: string | null;
+    readonly size: number | null;
+    /** Canonical content-object bytes of a raw artifact, base64. Null for text, for an
+     * unreadable object, and above the inline ceiling — then `repositoryPath` is the route. */
+    readonly bytes: string | null;
+    /** Where this document materializes under the configured authored root. */
+    readonly repositoryPath: string;
     /** Live worktree view (task_e5defe69): disk content now, and whether it diverges
-     * from the committed projection. Null body = no such file on disk. */
+     * from the committed projection. Null body = no such file on disk, or the file is
+     * binary and has no text to show. */
     readonly worktreeBody: string | null;
     readonly uncommitted: boolean;
     readonly watermark: number;

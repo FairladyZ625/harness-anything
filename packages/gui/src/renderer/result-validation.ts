@@ -22,3 +22,26 @@ export function isFactDomainTypeSummaryRow(value: unknown): value is FactDomainT
     Number.isSafeInteger(value.workspaceRevision)
   );
 }
+
+/** repo.tasks.document.read(daemon.document-read/v2)。内容真相字段是这里的重点:
+ * 缺了 contentKind/mediaType/size/bytes/repositoryPath,一份空 `body` 与「这不是文本」
+ * 无法区分,PDF 就会被渲染成一张白页。 */
+export function isTaskDocumentRead(value: unknown): boolean {
+  return (
+    isRendererRecord(value) &&
+    value.ok === true &&
+    (value.status === "ready" || value.status === "pending") &&
+    typeof value.taskId === "string" &&
+    typeof value.path === "string" &&
+    typeof value.body === "string" &&
+    (value.contentKind === "text" || value.contentKind === "binary") &&
+    (value.mediaType === null || typeof value.mediaType === "string") &&
+    (value.size === null || Number.isSafeInteger(value.size)) &&
+    (value.bytes === null || typeof value.bytes === "string") &&
+    typeof value.repositoryPath === "string" &&
+    (value.worktreeBody === null || typeof value.worktreeBody === "string") &&
+    typeof value.uncommitted === "boolean" &&
+    Number.isSafeInteger(value.watermark) &&
+    Number.isSafeInteger(value.sourceRevision)
+  );
+}

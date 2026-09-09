@@ -23,7 +23,12 @@ import type {
   WorkspaceSummaryRead,
   SettingsRead,
 } from "../api/renderer-dto.ts";
-import { isFactDomainTypeSummaryRow, isRendererRecord, type FactDomainTypeSummaryRow } from "./result-validation.ts";
+import {
+  isFactDomainTypeSummaryRow,
+  isRendererRecord,
+  isTaskDocumentRead,
+  type FactDomainTypeSummaryRow,
+} from "./result-validation.ts";
 import { isSettingsSuccess } from "./settings-payload.ts";
 import { invoke } from "./api-client-invoke.ts";
 import { daemonBridgeError } from "./daemon-startup.ts";
@@ -569,21 +574,9 @@ function readTaskDispatchesResult(value: unknown): TaskDispatchesRead {
 }
 
 function readTaskDocumentResult(value: unknown): TaskDocumentProjectionRead {
-  const result = value as Partial<TaskDocumentProjectionRead>;
-  if (
-    !result ||
-    result.ok !== true ||
-    (result.status !== "ready" && result.status !== "pending") ||
-    typeof result.taskId !== "string" ||
-    typeof result.path !== "string" ||
-    typeof result.body !== "string" ||
-    (result.worktreeBody !== null && typeof result.worktreeBody !== "string") ||
-    typeof result.uncommitted !== "boolean" ||
-    !Number.isInteger(result.watermark) ||
-    !Number.isInteger(result.sourceRevision)
-  )
+  if (!isTaskDocumentRead(value))
     throw new Error(localErrorHint(value, "Task document bridge returned an invalid result."));
-  return result as TaskDocumentProjectionRead;
+  return value as TaskDocumentProjectionRead;
 }
 
 function readTaskListResult(value: unknown): TaskListSuccess {

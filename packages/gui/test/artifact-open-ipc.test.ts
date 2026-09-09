@@ -31,7 +31,7 @@ function services(overrides: ServiceOverrides): ArtifactOpenServices {
   return {
     canonicalRootOf: () => "/repo",
     repoModeOf: () => "local",
-    readDocument: async () => ({ body: null, worktreeBody: null, uncommitted: false }),
+    readDocument: async () => ({ body: null, worktreeBody: null, uncommitted: false, bytes: null }),
     artifactCacheRoot: () => "/nonexistent-artifact-cache",
     ...overrides,
   };
@@ -105,7 +105,11 @@ test("client-provided path shapes are rejected instead of resolved", () => {
     "tasks/a/artifacts/../../secrets/keys.md",
     "tasks/a/notes/secret.md",
     "docs/report.md",
-    "tasks/a/artifacts/report.pdf",
+    // 可执行名与浏览器会跑脚本的 .svg 仍然不交给系统查看器。
+    "tasks/a/artifacts/install.sh",
+    "tasks/a/artifacts/setup.exe",
+    "tasks/a/artifacts/diagram.svg",
+    "tasks/a/artifacts/result.bin",
     "tasks/a/artifacts/",
     "",
     "tasks//a/artifacts/x.md",
@@ -115,6 +119,13 @@ test("client-provided path shapes are rejected instead of resolved", () => {
     requireArtifactRelativePath("tasks/a/artifacts/sub/dir/report.htm"),
     "tasks/a/artifacts/sub/dir/report.htm",
   );
+  // raw 任务产物(PDF/截图/日志)是查看器呈现而不执行的名字,必须能打开。
+  for (const value of [
+    "tasks/a/artifacts/reports/dossier.pdf",
+    "tasks/a/artifacts/screenshots/logo.png",
+    "tasks/a/artifacts/logs/dispatch.log",
+  ])
+    assert.equal(requireArtifactRelativePath(value), value);
 });
 
 test("payload accepts exactly repoId, path, and an optional taskId", () => {
@@ -187,7 +198,7 @@ test("a remote-proxy repository materializes a read-only server copy before open
       repoModeOf: (repoId) => (repoId === "proxy-repo" ? "remote-proxy" : "local"),
       readDocument: async (repoId, taskId, artifactPath) => {
         reads.push({ repoId, taskId, path: artifactPath });
-        return { body: "<h1>server body</h1>\n", worktreeBody: null, uncommitted: false };
+        return { body: "<h1>server body</h1>\n", worktreeBody: null, uncommitted: false, bytes: null };
       },
       artifactCacheRoot: () => cacheRoot,
       openPath: async (absolute) => (opened.push(absolute), ""),
@@ -219,6 +230,45 @@ test("a remote-proxy repository materializes a read-only server copy before open
   }
 });
 
+test("a remote-proxy binary artifact materializes its canonical bytes, not a re-encoded string", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-artifact-proxy-raw-"));
+  const cacheRoot = path.join(parent, "artifact-cache");
+  const pdf = Buffer.concat([Buffer.from("%PDF-1.7\n"), Buffer.from([0xff, 0xd8, 0x00, 0x1a, 0x80])]);
+  const opened: string[] = [];
+  let handler: ((event: unknown, payload: unknown) => Promise<unknown>) | null = null;
+  registerArtifactOpenIpc(
+    { handle: (_c, listener) => (handler = listener) },
+    services({
+      repoModeOf: () => "remote-proxy",
+      // 二进制产物的读侧回答:没有正文,只有 canonical 字节。
+      readDocument: async () => ({
+        body: "",
+        worktreeBody: null,
+        uncommitted: false,
+        bytes: pdf.toString("base64"),
+      }),
+      artifactCacheRoot: () => cacheRoot,
+      openPath: async (absolute) => (opened.push(absolute), ""),
+    }),
+    trustedPolicy,
+  );
+  try {
+    const result = (await handler!(trustedEvent, {
+      repoId: "proxy-repo",
+      path: "tasks/task_a/artifacts/dossier.pdf",
+      taskId: "task_a",
+    })) as { ok: boolean; openedPath: string };
+    const expected = path.join(cacheRoot, "proxy-repo", createHash("sha256").update(pdf).digest("hex"), "dossier.pdf");
+    assert.equal(result.ok, true);
+    assert.equal(result.openedPath, expected);
+    assert.deepEqual(opened, [expected]);
+    // 副本必须与原始字节逐字节相同:UTF-8 重编码会把 0xff 变成替换字符。
+    assert.deepEqual(readFileSync(expected), pdf);
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
 test("a remote-proxy open without a task id is rejected instead of guessed", async () => {
   let handler: ((event: unknown, payload: unknown) => Promise<unknown>) | null = null;
   registerArtifactOpenIpc(
@@ -242,7 +292,7 @@ test("a proxy body miss is an explicit failure, not an empty copy", async () => 
     { handle: (_c, listener) => (handler = listener) },
     services({
       repoModeOf: () => "remote-proxy",
-      readDocument: async () => ({ body: null, worktreeBody: null, uncommitted: false }),
+      readDocument: async () => ({ body: null, worktreeBody: null, uncommitted: false, bytes: null }),
       artifactCacheRoot: () => "/nonexistent-artifact-cache",
       openPath: async () => "",
     }),

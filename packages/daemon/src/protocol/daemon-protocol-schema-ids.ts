@@ -88,8 +88,11 @@ export const DAEMON_RELATION_GRAPH_SCHEMA = Object.freeze({
     id: "daemon.decision-list/v1",
     required: Object.freeze(["ok", "decisions", "warnings"]),
   }),
+  // v2 adds the content truth a reader needs before it renders `body`: whether this document is text
+  // at all, its media type and byte length, the canonical bytes of a raw artifact, and the repository
+  // path they materialize at. v1 could only answer a PDF with an empty string.
   DAEMON_DOCUMENT_READ_SCHEMA = Object.freeze({
-    id: "daemon.document-read/v1",
+    id: "daemon.document-read/v2",
     required: Object.freeze([
       "ok",
       "status",
@@ -97,6 +100,11 @@ export const DAEMON_RELATION_GRAPH_SCHEMA = Object.freeze({
       "path",
       "body",
       "blobSha256",
+      "contentKind",
+      "mediaType",
+      "size",
+      "bytes",
+      "repositoryPath",
       "worktreeBody",
       "uncommitted",
       "watermark",
