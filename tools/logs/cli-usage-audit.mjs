@@ -105,20 +105,20 @@ export function auditCliUsage({
   const firstObservedAt = sorted[0]?.atMs ?? null;
   const lastObservedAt = sorted.at(-1)?.atMs ?? null;
   const windows = [7, 30].map((days) => buildWindow(days, sorted, nowMs));
-  const usageByCommand = new Map();
-  for (const record of sorted) {
-    const command = record.command ?? "<unknown>";
-    usageByCommand.set(command, (usageByCommand.get(command) ?? 0) + 1);
-  }
+  const attribution = attributeRequests(sorted, commands);
   const failures = buildFailureFamilies(sorted, commands, slowMs, receipts, events);
   const slowCalls = summarizeSlowCalls(sorted, slowMs);
-  const observedIds = new Set([...usageByCommand.keys()]);
+  const observedIds = new Set(attribution.observedIds);
   const denominator = commands.map((command) => {
-    const count = usageByCommand.get(command.id) ?? usageByCommand.get(command.actionKind) ?? 0;
+    const counts = attribution.byCommand.get(command.id) ?? { direct: 0, uniqueMethod: 0, shared: 0 };
+    const count = counts.direct + counts.uniqueMethod;
     return {
       ...command,
       observedRequests: count,
-      status: count > 0 ? "observed" : "unobserved-needs-review",
+      directObservedRequests: counts.direct,
+      uniqueMethodObservedRequests: counts.uniqueMethod,
+      sharedMethodObservedRequests: counts.shared,
+      status: count > 0 ? "observed" : counts.shared > 0 ? "unattributed-shared-method" : "unobserved-needs-review",
       retirementDisposition: count > 0 ? "retain-observed" : "needs-human-review",
     };
   });
@@ -140,6 +140,12 @@ export function auditCliUsage({
       requestCount: sorted.length,
       uniqueCommands: observedIds.size,
       sourceAttribution,
+      methodAttribution: {
+        uniqueMethodRequests: attribution.uniqueMethodRequests,
+        sharedMethodRequests: attribution.sharedMethodRequests,
+        unattributedMethodRequests: attribution.sharedMethodRequests,
+        note: "shared RPC methods are evidence of traffic but cannot be assigned to a command descriptor",
+      },
       retentionWindowMs: firstObservedAt === null ? 0 : Math.max(0, lastObservedAt - firstObservedAt),
       retentionWindowDays:
         firstObservedAt === null ? 0 : Math.round(((lastObservedAt - firstObservedAt) / DAY_MS) * 100) / 100,
@@ -162,7 +168,7 @@ export function auditCliUsage({
     denominator,
     failures,
     zeroObservation: denominator
-      .filter((row) => row.observedRequests === 0)
+      .filter((row) => row.observedRequests === 0 && row.sharedMethodObservedRequests === 0)
       .map((row) => ({
         id: row.id,
         usage: row.usage,
@@ -177,6 +183,57 @@ export function auditCliUsage({
     },
     slowCalls,
   };
+}
+
+function attributeRequests(records, commands) {
+  const byCommand = new Map();
+  const ownersByMethod = new Map();
+  for (const command of commands) {
+    const identities = new Set([command.id, command.actionKind].filter(Boolean));
+    for (const identity of identities) {
+      const counts = byCommand.get(identity) ?? { direct: 0, uniqueMethod: 0, shared: 0 };
+      byCommand.set(identity, counts);
+    }
+    if (command.method) {
+      const owners = ownersByMethod.get(command.method) ?? [];
+      owners.push(command);
+      ownersByMethod.set(command.method, owners);
+    }
+  }
+  const observedIds = new Set();
+  let uniqueMethodRequests = 0;
+  let sharedMethodRequests = 0;
+  for (const record of records) {
+    const directMatches = commands.filter((command) =>
+      [command.id, command.actionKind].filter(Boolean).includes(record.command),
+    );
+    if (directMatches.length) {
+      for (const command of directMatches) {
+        const counts = byCommand.get(command.id) ?? { direct: 0, uniqueMethod: 0, shared: 0 };
+        counts.direct += 1;
+        byCommand.set(command.id, counts);
+        observedIds.add(command.id);
+      }
+      continue;
+    }
+    const owners = record.method ? (ownersByMethod.get(record.method) ?? []) : [];
+    if (owners.length === 1) {
+      const command = owners[0];
+      const counts = byCommand.get(command.id) ?? { direct: 0, uniqueMethod: 0, shared: 0 };
+      counts.uniqueMethod += 1;
+      byCommand.set(command.id, counts);
+      observedIds.add(command.id);
+      uniqueMethodRequests += 1;
+    } else if (owners.length > 1) {
+      sharedMethodRequests += 1;
+      for (const command of owners) {
+        const counts = byCommand.get(command.id) ?? { direct: 0, uniqueMethod: 0, shared: 0 };
+        counts.shared += 1;
+        byCommand.set(command.id, counts);
+      }
+    }
+  }
+  return { byCommand, observedIds, uniqueMethodRequests, sharedMethodRequests };
 }
 
 function buildWindow(days, records, nowMs) {

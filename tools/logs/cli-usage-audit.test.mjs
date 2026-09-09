@@ -28,6 +28,8 @@ const row = (at, commandName, overrides = {}) => ({
   ...overrides,
 });
 
+const descriptor = (id, method) => ({ id, actionKind: id, method, usage: `ha ${id}`, testCoverage: "unmeasured" });
+
 test("audit keeps the descriptor denominator and refuses to call mixed request logs CLI usage", () => {
   const now = Date.parse("2026-09-08T00:00:00.000Z");
   const report = auditCliUsage({
@@ -43,6 +45,76 @@ test("audit keeps the descriptor denominator and refuses to call mixed request l
   assert.equal(report.denominator.find((item) => item.id === "write").status, "unobserved-needs-review");
   assert.equal(report.windows[0].requestCount, 1);
   assert.equal(report.windows[1].requestCount, 1);
+});
+
+test("a uniquely owned RPC method observes its command descriptor", () => {
+  const report = auditCliUsage({
+    commands: [descriptor("agenda", "repo.agenda.read")],
+    requestRecords: [row("2026-09-07T00:00:00.000Z", undefined, { method: "repo.agenda.read" })],
+    nowMs: Date.parse("2026-09-08T00:00:00.000Z"),
+  });
+  assert.equal(report.denominator[0].observedRequests, 1);
+  assert.equal(report.denominator[0].directObservedRequests, 0);
+  assert.equal(report.denominator[0].uniqueMethodObservedRequests, 1);
+  assert.equal(report.observation.methodAttribution.uniqueMethodRequests, 1);
+});
+
+test("shared RPC traffic remains unattributed instead of observing every alias", () => {
+  const report = auditCliUsage({
+    commands: [
+      descriptor("runtime-batch", "repo.agentRuntime.spawn"),
+      descriptor("runtime-run", "repo.agentRuntime.spawn"),
+    ],
+    requestRecords: [row("2026-09-07T00:00:00.000Z", undefined, { method: "repo.agentRuntime.spawn" })],
+    nowMs: Date.parse("2026-09-08T00:00:00.000Z"),
+  });
+  assert.deepEqual(
+    report.denominator.map((item) => item.observedRequests),
+    [0, 0],
+  );
+  assert.deepEqual(
+    report.denominator.map((item) => item.sharedMethodObservedRequests),
+    [1, 1],
+  );
+  assert.equal(report.observation.methodAttribution.sharedMethodRequests, 1);
+  assert.deepEqual(
+    report.denominator.map((item) => item.status),
+    ["unattributed-shared-method", "unattributed-shared-method"],
+  );
+  assert.equal(report.zeroObservation.length, 0);
+});
+
+test("a direct identity and its matching unique method count one request once", () => {
+  const report = auditCliUsage({
+    commands: [descriptor("agenda", "repo.agenda.read")],
+    requestRecords: [row("2026-09-07T00:00:00.000Z", "agenda", { method: "repo.agenda.read" })],
+    nowMs: Date.parse("2026-09-08T00:00:00.000Z"),
+  });
+  assert.equal(report.denominator[0].observedRequests, 1);
+  assert.equal(report.denominator[0].directObservedRequests, 1);
+  assert.equal(report.denominator[0].uniqueMethodObservedRequests, 0);
+});
+
+test("distinct direct and unique-method records both count", () => {
+  const report = auditCliUsage({
+    commands: [descriptor("agenda", "repo.agenda.read")],
+    requestRecords: [
+      row("2026-09-07T00:00:00.000Z", "agenda"),
+      row("2026-09-07T00:00:01.000Z", undefined, { method: "repo.agenda.read" }),
+    ],
+    nowMs: Date.parse("2026-09-08T00:00:00.000Z"),
+  });
+  assert.equal(report.denominator[0].observedRequests, 2);
+});
+
+test("a genuinely unobserved descriptor remains a zero-observation candidate", () => {
+  const report = auditCliUsage({
+    commands: [descriptor("never-used", "repo.never.used")],
+    requestRecords: [],
+    nowMs: Date.parse("2026-09-08T00:00:00.000Z"),
+  });
+  assert.equal(report.denominator[0].observedRequests, 0);
+  assert.equal(report.zeroObservation[0].id, "never-used");
 });
 
 test("failure families only deduplicate repeated non-null opIds", () => {
