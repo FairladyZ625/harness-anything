@@ -85,7 +85,7 @@ export async function openLane({ lane, workspaceRoot, env, runRoot, startDriver 
       task: { taskId: "task-gui-smoke", title: "Render the real triadic projection" },
       beforeRestart: async (rootDir, repoId, writerFence) => {
         await seedTriadicEvents(rootDir, repoId, writerFence);
-        await seedGuiE2eRuntimeSessions(rootDir, repoId);
+        await seedGuiE2eRuntimeSessions(rootDir, repoId, writerFence);
       },
     });
   } finally {
