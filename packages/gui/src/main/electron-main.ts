@@ -214,6 +214,9 @@ export async function startGuiApp(): Promise<void> {
           readonly worktreeBody?: unknown;
           readonly uncommitted?: unknown;
           readonly bytes?: unknown;
+          readonly contentKind?: unknown;
+          readonly size?: unknown;
+          readonly repositoryPath?: unknown;
           readonly error?: { readonly hint?: unknown };
         };
         if (record.ok !== true || typeof record.body !== "string")
@@ -226,6 +229,9 @@ export async function startGuiApp(): Promise<void> {
           uncommitted: record.uncommitted === true,
           // raw 产物的 canonical 字节;文本产物为 null,物化仍走正文。
           bytes: typeof record.bytes === "string" ? record.bytes : null,
+          contentKind: record.contentKind === "binary" ? ("binary" as const) : ("text" as const),
+          size: typeof record.size === "number" ? record.size : null,
+          repositoryPath: typeof record.repositoryPath === "string" ? record.repositoryPath : null,
         };
       },
       artifactCacheRoot: () => path.join(daemonUserRoot(), "artifact-cache"),

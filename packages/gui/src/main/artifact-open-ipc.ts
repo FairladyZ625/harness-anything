@@ -37,7 +37,9 @@ export interface ArtifactOpenServices {
   /** repoId → registry v2 的模式;remote-proxy 仓走物化副本路径。 */
   readonly repoModeOf: (repoId: string) => string | null;
   /** 经 daemon 读产物正文(remote-proxy 物化副本的数据源);返回 {ok:false} 形态失败。
-   * `bytes` 是 raw 产物的 canonical 字节(base64);非文本产物只认它,不认正文串。 */
+   * `bytes` 是 raw 产物的 canonical 字节(base64);非文本产物只认它,不认正文串。
+   * `contentKind`/`size`/`repositoryPath` 是二进制产物的内容真相:超过内联上限时
+   * bytes 为 null,而它的正文本来就是空串,必须据此拒绝而不是物化一个 0 字节副本。 */
   readonly readDocument: (
     repoId: string,
     taskId: string,
@@ -47,6 +49,9 @@ export interface ArtifactOpenServices {
     readonly worktreeBody: string | null;
     readonly uncommitted: boolean;
     readonly bytes: string | null;
+    readonly contentKind: "text" | "binary";
+    readonly size: number | null;
+    readonly repositoryPath: string | null;
   }>;
   /** 物化副本根目录(`<userRoot>/artifact-cache`);repoId 子目录由本模块追加。 */
   readonly artifactCacheRoot: () => string;
@@ -100,6 +105,14 @@ async function openMaterializedCopy(
   if (input.taskId === undefined || input.taskId.length === 0)
     throw new Error("Opening an artifact of a remote-proxy repository requires its task id.");
   const document = await services.readDocument(input.repoId, input.taskId, input.path);
+  // 二进制产物的正文是空串——那是策略,不是文件为空。超过内联上限时 bytes 为 null,
+  // 落到正文分支就会写出一个同名的 0 字节文件并报成功:查看器打开一张白页,而调用方
+  // 拿到的是 ok:true。这里必须停在明确的失败上,并说出去哪里取这份字节。
+  if (document.contentKind === "binary" && document.bytes === null)
+    throw new Error(
+      `${input.path} is a binary artifact of ${document.size ?? "unknown"} bytes; its canonical bytes are above the ` +
+        `inline read ceiling, so open it from ${document.repositoryPath ?? "the repository host"} instead.`,
+    );
   // 非文本产物没有正文:字节来自 canonical content object。把 UTF-8 重编码写成副本
   // 会交给查看器一个同名的不同文件,所以 bytes 在时一律以 bytes 为准。
   const content =

@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -31,7 +31,15 @@ function services(overrides: ServiceOverrides): ArtifactOpenServices {
   return {
     canonicalRootOf: () => "/repo",
     repoModeOf: () => "local",
-    readDocument: async () => ({ body: null, worktreeBody: null, uncommitted: false, bytes: null }),
+    readDocument: async () => ({
+      body: null,
+      worktreeBody: null,
+      uncommitted: false,
+      bytes: null,
+      contentKind: "text" as const,
+      size: null,
+      repositoryPath: null,
+    }),
     artifactCacheRoot: () => "/nonexistent-artifact-cache",
     ...overrides,
   };
@@ -198,7 +206,15 @@ test("a remote-proxy repository materializes a read-only server copy before open
       repoModeOf: (repoId) => (repoId === "proxy-repo" ? "remote-proxy" : "local"),
       readDocument: async (repoId, taskId, artifactPath) => {
         reads.push({ repoId, taskId, path: artifactPath });
-        return { body: "<h1>server body</h1>\n", worktreeBody: null, uncommitted: false, bytes: null };
+        return {
+          body: "<h1>server body</h1>\n",
+          worktreeBody: null,
+          uncommitted: false,
+          bytes: null,
+          contentKind: "text" as const,
+          size: "<h1>server body</h1>\n".length,
+          repositoryPath: "harness/tasks/task_a/artifacts/report.html",
+        };
       },
       artifactCacheRoot: () => cacheRoot,
       openPath: async (absolute) => (opened.push(absolute), ""),
@@ -246,6 +262,9 @@ test("a remote-proxy binary artifact materializes its canonical bytes, not a re-
         worktreeBody: null,
         uncommitted: false,
         bytes: pdf.toString("base64"),
+        contentKind: "binary" as const,
+        size: pdf.byteLength,
+        repositoryPath: "harness/tasks/task_a/artifacts/dossier.pdf",
       }),
       artifactCacheRoot: () => cacheRoot,
       openPath: async (absolute) => (opened.push(absolute), ""),
@@ -292,7 +311,15 @@ test("a proxy body miss is an explicit failure, not an empty copy", async () => 
     { handle: (_c, listener) => (handler = listener) },
     services({
       repoModeOf: () => "remote-proxy",
-      readDocument: async () => ({ body: null, worktreeBody: null, uncommitted: false, bytes: null }),
+      readDocument: async () => ({
+        body: null,
+        worktreeBody: null,
+        uncommitted: false,
+        bytes: null,
+        contentKind: "text" as const,
+        size: null,
+        repositoryPath: null,
+      }),
       artifactCacheRoot: () => "/nonexistent-artifact-cache",
       openPath: async () => "",
     }),
@@ -307,4 +334,41 @@ test("a proxy body miss is an explicit failure, not an empty copy", async () => 
 test("artifact basename keeps the copy file name inside the cache tree", () => {
   assert.equal(artifactBasename("tasks/a/artifacts/sub/report.md"), "report.md");
   assert.throws(() => artifactBasename("tasks/a/artifacts/"), /plain file name/u);
+});
+
+test("a binary artifact above the inline ceiling is refused with its route, not opened as a 0-byte copy", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-artifact-proxy-large-"));
+  const cacheRoot = path.join(parent, "artifact-cache");
+  const opened: string[] = [];
+  let handler: ((event: unknown, payload: unknown) => Promise<unknown>) | null = null;
+  registerArtifactOpenIpc(
+    { handle: (_c, listener) => (handler = listener) },
+    services({
+      repoModeOf: () => "remote-proxy",
+      // 5 MiB 的 PDF:读侧如实回答二进制与字节数,但字节超过内联上限,只给路由。
+      readDocument: async () => ({
+        body: "",
+        worktreeBody: null,
+        uncommitted: false,
+        bytes: null,
+        contentKind: "binary" as const,
+        size: 5 * 1024 * 1024,
+        repositoryPath: "harness/tasks/task_a/artifacts/huge.pdf",
+      }),
+      artifactCacheRoot: () => cacheRoot,
+      openPath: async (absolute) => (opened.push(absolute), ""),
+    }),
+    trustedPolicy,
+  );
+  try {
+    await assert.rejects(
+      () => handler!(trustedEvent, { repoId: "proxy-repo", path: "tasks/task_a/artifacts/huge.pdf", taskId: "task_a" }),
+      /binary artifact of 5242880 bytes.*harness\/tasks\/task_a\/artifacts\/huge\.pdf/su,
+    );
+    // 判别性对照:空正文分支会写出一个同名 0 字节文件并交给查看器,报成功。
+    assert.deepEqual(opened, [], "no viewer may be handed a copy that does not hold the artifact bytes");
+    assert.equal(existsSync(path.join(cacheRoot, "proxy-repo")), false, "no copy may be materialized at all");
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
 });
