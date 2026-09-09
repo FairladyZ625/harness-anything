@@ -497,6 +497,7 @@ export const localGitWorktreeSettlement = Object.freeze({
     for (const logical of logicalPaths) {
       const target = path.join(repoRoot, ...logical.split("/"));
       try {
+        /* @gate-identity check-bypass-write-boundary/bypass-write-134 */
         rmdirSync(target);
       } catch (error) {
         consumeKnownError(error);

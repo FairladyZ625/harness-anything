@@ -658,6 +658,12 @@
         "api": "closeSync",
         "ref": "dec_FC8D4B2DE22E97774073A0BBF9",
         "reason": "Git follower fast-import stream file is closed before git reads it."
+      },
+      {
+        "value": "bypass-write-134",
+        "api": "rmdirSync",
+        "ref": "dec_78A329289D1AA69527529DA92C",
+        "reason": "The canonical materializer retires only accepted owned directory paths with non-recursive removal; unowned and non-empty directories remain."
       }
     ],
     "exemptHumanOrBootstrap": [],
