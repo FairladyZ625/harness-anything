@@ -385,7 +385,7 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
         cut: { revision: number };
       };
       assert.equal(manifest.schema, "sqlite-ledger-segment-manifest/v1");
-      assert.equal(manifest.generation, 1);
+      assert.equal(manifest.generation, 2);
       assert.equal(manifest.cut.revision, logicalRevisions.get(root));
       assert.equal(
         git(root, "ls-tree", "-r", "--name-only", "HEAD", "harness/events").trim(),

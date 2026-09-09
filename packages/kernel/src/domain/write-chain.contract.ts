@@ -389,7 +389,7 @@ function isContentAddressedTarget(target: WriteTarget): boolean {
   return (
     target.kind === "content_blob" ||
     (target.kind === "ledger_file" &&
-      /^\.harness\/store\/generations\/1\/objects\/sha256\/[0-9a-f]{2}\/[0-9a-f]{62}$/u.test(target.path))
+      /^\.harness\/store\/generations\/(?:1|2)\/objects\/sha256\/[0-9a-f]{2}\/[0-9a-f]{62}$/u.test(target.path))
   );
 }
 
@@ -436,26 +436,41 @@ function sameContentBody(left: string | Uint8Array | undefined, right: string | 
   return left.every((byte, index) => byte === right[index]);
 }
 
-const LEDGER_DATABASE_PATH = ".harness/store/generations/1/ledger.sqlite";
+const LEDGER_DATABASE_PATH = ".harness/store/generations/2/ledger.sqlite";
 const LEDGER_FIXED_PATHS = [
   LEDGER_DATABASE_PATH,
   `${LEDGER_DATABASE_PATH}-wal`,
   `${LEDGER_DATABASE_PATH}-shm`,
   "harness/events/segments/manifest.json",
 ];
+const LEGACY_LEDGER_FIXED_PATHS = [
+  ".harness/store/generations/1/ledger.sqlite",
+  ".harness/store/generations/1/ledger.sqlite-wal",
+  ".harness/store/generations/1/ledger.sqlite-shm",
+  "harness/events/segments/manifest.json",
+];
 
-function ledgerWriteTargets(targets: readonly WriteTarget[]): readonly WriteTarget[] {
+function ledgerWriteTargets(targets: readonly WriteTarget[], generation: 1 | 2 = 2): readonly WriteTarget[] {
+  const databasePath = `.harness/store/generations/${generation}/ledger.sqlite`,
+    objectRoot = `.harness/store/generations/${generation}/objects/sha256`;
   const blobs = targets.filter(
     (target): target is Extract<WriteTarget, { readonly kind: "content_blob" }> => target.kind === "content_blob",
   );
   return [
-    ...LEDGER_FIXED_PATHS.map((path) => ({ kind: "ledger_file" as const, path, operation: "replace" as const })),
+    ...[databasePath, `${databasePath}-wal`, `${databasePath}-shm`, "harness/events/segments/manifest.json"].map(
+      (path) => ({ kind: "ledger_file" as const, path, operation: "replace" as const }),
+    ),
     ...blobs.map((blob) => ({
       kind: "ledger_file" as const,
-      path: `.harness/store/generations/1/objects/sha256/${blob.sha256.slice(0, 2)}/${blob.sha256.slice(2)}`,
+      path: `${objectRoot}/${blob.sha256.slice(0, 2)}/${blob.sha256.slice(2)}`,
       operation: "replace" as const,
     })),
   ];
+}
+
+function ledgerGeneration(targets: readonly WriteTarget[]): 1 | 2 {
+  const explicit = targets.find((target) => target.kind === "ledger_file" && target.path.includes("/generations/1/"));
+  return explicit === undefined ? 2 : 1;
 }
 
 function ledgerTargetShape(targets: readonly WriteTarget[]): string {
@@ -466,7 +481,8 @@ function validLedgerTarget(target: Extract<WriteTarget, { readonly kind: "ledger
   return (
     target.operation === "replace" &&
     (LEDGER_FIXED_PATHS.includes(target.path) ||
-      /^\.harness\/store\/generations\/1\/objects\/sha256\/[0-9a-f]{2}\/[0-9a-f]{62}$/u.test(target.path))
+      LEGACY_LEDGER_FIXED_PATHS.includes(target.path) ||
+      /^\.harness\/store\/generations\/(?:1|2)\/objects\/sha256\/[0-9a-f]{2}\/[0-9a-f]{62}$/u.test(target.path))
   );
 }
 
@@ -540,7 +556,7 @@ export function freezeDeclaredWritePlan<C extends string>(
     ),
   );
   const logicalTargets = normalizeWriteTargets(plan.targets.filter((target) => target.kind !== "ledger_file"));
-  const derivedLedgerTargets = ledgerWriteTargets(logicalTargets);
+  const derivedLedgerTargets = ledgerWriteTargets(logicalTargets, ledgerGeneration(suppliedLedgerTargets));
   const resolvedPlan = { commandType: plan.commandType, targets: [...logicalTargets, ...derivedLedgerTargets] };
   const errors = [
     ...validateDeclaredWritePlan(plan, commandTypes),

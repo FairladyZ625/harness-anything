@@ -38,7 +38,7 @@ test("a real SQLite event gap blocks schema rebuild and preserves the cache byte
     const retained = readFileSync(projection.path),
       missingEvent = events[1]!;
     await writer.drain();
-    const ledgerPath = sqliteLedgerPath(rootDir),
+    const ledgerPath = sqliteLedgerPath(rootDir, 2),
       ledger = new DatabaseSync(ledgerPath);
     try {
       assert.equal(

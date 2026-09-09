@@ -89,7 +89,7 @@ test("RepoCell accepts in SQLite before independently verified Git and worktree 
       readonly generation: number;
       readonly cut: { readonly repoId: string; readonly revision: number; readonly headDigest: string };
     };
-    assert.equal(manifest.generation, 1);
+    assert.equal(manifest.generation, 2);
     assert.equal(manifest.cut.repoId, settled.acceptance?.cut.repoId);
     assert.equal(manifest.cut.revision, settled.acceptance?.cut.revision);
     assert.equal(manifest.cut.headDigest, settled.acceptance?.cut.headDigest);

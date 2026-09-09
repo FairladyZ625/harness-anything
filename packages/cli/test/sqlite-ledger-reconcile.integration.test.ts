@@ -14,7 +14,7 @@ import { localUserDaemonEndpoint } from "../src/daemon/client.ts";
 
 const cli = path.resolve("packages/cli/src/index.ts");
 
-test("local CLI accepts and reconciles the canonical generation-1 SQLite ledger", async (context) => {
+test("local CLI initializes and accepts the native generation-2 SQLite ledger", async (context) => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-cli-sqlite-reconcile-")),
     root = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
@@ -38,10 +38,10 @@ test("local CLI accepts and reconciles the canonical generation-1 SQLite ledger"
       "Zeyu Li",
     ]);
     assert.equal(initialized.ok, true, JSON.stringify(initialized));
-    const databasePath = path.join(root, ".harness/store/generations/1/ledger.sqlite"),
-      snapshotPath = path.join(root, ".harness/store/imports/generation-0.snapshot.json");
-    assert.equal(existsSync(databasePath), true, "init must activate the canonical SQLite ledger directly");
-    assert.equal(existsSync(snapshotPath), true, "init must bind SQLite to its immutable source snapshot");
+    const databasePath = path.join(root, ".harness/store/generations/2/ledger.sqlite"),
+      activationPath = `${databasePath}.activation.json`;
+    assert.equal(existsSync(databasePath), true, "init must activate the native generation-2 SQLite ledger");
+    assert.equal(existsSync(activationPath), true, "init must publish the generation-2 activation certificate");
     for (const title of ["Initial SQLite", "After acceptance one", "After acceptance two"])
       waitForAcceptedReceipt(root, userRoot, run(root, userRoot, ["task", "create", "--title", title]));
 
@@ -51,100 +51,33 @@ test("local CLI accepts and reconciles the canonical generation-1 SQLite ledger"
     writeFileSync(path.join(root, "harness", authoredPath), authoredBody);
     waitForAcceptedReceipt(root, userRoot, run(root, userRoot, ["doc", "sync", "--submit", "--path", authoredPath]));
 
-    const source = JSON.parse(readFileSync(snapshotPath, "utf8")) as {
-        readonly schema: string;
-        readonly sourceDigest: string;
-        readonly eventSegments: readonly unknown[];
-        readonly objects: readonly unknown[];
-      },
-      counts = sqliteCounts(root),
+    const counts = sqliteCounts(root),
       authoredRoot = path.join(root, "harness"),
       manifest = JSON.parse(git(authoredRoot, "show", "HEAD:events/segments/manifest.json")) as {
         readonly schema: string;
         readonly generation: number;
         readonly cut: { readonly repoId: string; readonly revision: number; readonly headDigest: string };
       };
-    assert.equal(source.schema, "immutable-legacy-generation-snapshot/v2");
-    assert.deepEqual(source.eventSegments, []);
-    assert.deepEqual(source.objects, []);
     assert.ok(counts.events > 0, "accepted commands must extend the immutable empty prefix");
     assert.ok(counts.objects > 0, "accepted document claims must have content-object closure");
     assert.equal(manifest.schema, "sqlite-ledger-segment-manifest/v1");
-    assert.equal(manifest.generation, 1);
+    assert.equal(manifest.generation, 2);
     assert.equal(manifest.cut.repoId, repoId);
     assert.equal(manifest.cut.revision, counts.events);
     assert.match(manifest.cut.headDigest, /^sha256:[0-9a-f]{64}$/u);
-    const db = new DatabaseSync(databasePath),
-      originalLastRevision = Number(
-        db.prepare("SELECT last_revision FROM command_outcome ORDER BY rowid LIMIT 1").get()!.last_revision,
-      );
+    const db = new DatabaseSync(databasePath, { readOnly: true });
     try {
-      db.prepare(
-        "UPDATE command_outcome SET last_revision=last_revision+1 WHERE rowid=(SELECT MIN(rowid) FROM command_outcome)",
-      ).run();
+      assert.equal(Number(db.prepare("SELECT COUNT(*) AS count FROM event").get()!.count), counts.events);
     } finally {
       db.close();
     }
-    try {
-      const divergent = report(run(root, userRoot, ["ledger", "reconcile", "--generation", "1"]));
-      assert.equal(divergent.matches, false);
-      assert.deepEqual(
-        {
-          metadataMatches: divergent.metadataMatches,
-          rowDigestMatches: divergent.rowDigestMatches,
-          outcomeMatches: divergent.outcomeMatches,
-          objectMatches: divergent.objectMatches,
-          gitReadbackMatches: divergent.gitReadbackMatches,
-        },
-        {
-          metadataMatches: true,
-          rowDigestMatches: true,
-          outcomeMatches: false,
-          objectMatches: true,
-          gitReadbackMatches: true,
-        },
-      );
-      assert.deepEqual(divergent.differences, ["command outcomes differ from immutable source import outcomes"]);
-      context.diagnostic(JSON.stringify({ sqliteEvents: counts.events, differences: divergent.differences }));
-    } finally {
-      const repair = new DatabaseSync(databasePath);
-      try {
-        repair
-          .prepare("UPDATE command_outcome SET last_revision=? WHERE rowid=(SELECT MIN(rowid) FROM command_outcome)")
-          .run(originalLastRevision);
-      } finally {
-        repair.close();
-      }
-    }
     stop(root, userRoot);
-    assert.equal(run(root, userRoot, ["daemon", "start", "--service"]).ok, true);
-    const exact = report(run(root, userRoot, ["ledger", "reconcile", "--generation", "1"]));
-    assert.equal(exact.schema, "sqlite-ledger-reconciliation/v2");
-    assert.equal(exact.matches, true, JSON.stringify(exact));
-    assert.deepEqual(
-      {
-        metadataMatches: exact.metadataMatches,
-        rowDigestMatches: exact.rowDigestMatches,
-        outcomeMatches: exact.outcomeMatches,
-        objectMatches: exact.objectMatches,
-        gitReadbackMatches: exact.gitReadbackMatches,
-      },
-      {
-        metadataMatches: true,
-        rowDigestMatches: true,
-        outcomeMatches: true,
-        objectMatches: true,
-        gitReadbackMatches: true,
-      },
-    );
-    assert.equal(source.sourceDigest, exact.sourceDigest);
-    assert.deepEqual(exact.expected, { events: 0, outcomes: 0, objects: counts.objects });
-    assert.deepEqual(exact.actual, counts);
     assert.doesNotMatch(
       readFileSync(daemonStdioLogPath(userRoot, "default"), "utf8"),
       /writer epoch fence is unavailable/u,
     );
-    context.diagnostic(JSON.stringify(exact));
+    context.diagnostic(JSON.stringify({ generation: 2, sqliteEvents: counts.events, sqliteObjects: counts.objects }));
+    assert.equal(run(root, userRoot, ["daemon", "start", "--service"]).ok, true);
 
     generateCertificate(keyFile, certFile);
     const writerEpochStateRoot = path.join(userRoot, "fleet"),
@@ -196,12 +129,6 @@ test("local CLI accepts and reconciles the canonical generation-1 SQLite ledger"
   }
 });
 
-function report(receipt: Record<string, unknown>): Record<string, unknown> {
-  assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
-  assert.equal(typeof receipt.evidence, "string");
-  return JSON.parse(String(receipt.evidence)) as Record<string, unknown>;
-}
-
 function run(root: string, userRoot: string, args: readonly string[]): Record<string, unknown> {
   const result = invoke(root, userRoot, args);
   assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`);
@@ -231,12 +158,12 @@ function invoke(
 }
 
 function sqliteCounts(root: string): { readonly events: number; readonly outcomes: number; readonly objects: number } {
-  const db = new DatabaseSync(path.join(root, ".harness/store/generations/1/ledger.sqlite"), { readOnly: true });
+  const db = new DatabaseSync(path.join(root, ".harness/store/generations/2/ledger.sqlite"), { readOnly: true });
   try {
     return {
       events: Number(db.prepare("SELECT COUNT(*) AS count FROM event").get()!.count),
       outcomes: Number(db.prepare("SELECT COUNT(*) AS count FROM command_outcome").get()!.count),
-      objects: countFiles(path.join(root, ".harness/store/generations/1/objects/sha256")),
+      objects: countFiles(path.join(root, ".harness/store/generations/2/objects/sha256")),
     };
   } finally {
     db.close();
