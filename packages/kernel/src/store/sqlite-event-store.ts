@@ -166,12 +166,8 @@ function configureLedgerConnection(db: DatabaseSync, readOnly = false): void {
 }
 
 function isSqliteBusy(error: unknown): boolean {
-  if (typeof error !== "object" || error === null) return false;
-  const candidate = error as { readonly errcode?: unknown; readonly message?: unknown; readonly errstr?: unknown };
   return (
-    candidate.errcode === SQLITE_BUSY ||
-    candidate.errstr === "database is locked" ||
-    candidate.message === "database is locked"
+    typeof error === "object" && error !== null && (error as { readonly errcode?: unknown }).errcode === SQLITE_BUSY
   );
 }
 
