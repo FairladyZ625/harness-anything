@@ -217,7 +217,8 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
     };
     assert.equal(vertical.declarationRevision, materialized.revision);
     assert.deepEqual(vertical.declaration, materialized.definition);
-    const declared = kinds.kinds.find(({ kind }) => kind === "software/coding/architecture-decision-record@1");
+    // The kind name is the stable opaque ref, so address the row by its declared qualified id.
+    const declared = kinds.kinds.find(({ declaration }) => declaration?.id === "architecture-decision-record");
     assert.ok(
       declared,
       `the declared ADR kind must reach the GUI: ${JSON.stringify(kinds.kinds.map(({ kind }) => kind))}`,

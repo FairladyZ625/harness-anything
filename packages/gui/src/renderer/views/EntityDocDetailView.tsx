@@ -13,7 +13,9 @@ import { useFactFacetStats, type EntityLiveCounts } from "../entities-data.ts";
 import type { GovernedEntityRow } from "../graph/governedEntities.ts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { VerticalKindForm } from "../components/entityDoc/VerticalKindForm.tsx";
+import { VerticalKindSchemaForm } from "../components/entityDoc/VerticalKindSchemaForm.tsx";
 import {
+  publishVerticalKindSchema,
   readVerticalDeclaration,
   retireVerticalKind,
   upsertVerticalKind,
@@ -75,16 +77,17 @@ export function EntityDocDetailView({
     queryFn: () => readVerticalDeclaration(repoId),
     enabled: catalogRow?.origin === "vertical",
   });
-  const [kindMode, setKindMode] = useState<"edit" | "retire" | null>(null);
+  const [kindMode, setKindMode] = useState<"edit" | "publish" | "retire" | null>(null);
   const [kindBusy, setKindBusy] = useState(false);
   const [kindError, setKindError] = useState<string | null>(null);
   const [retireReason, setRetireReason] = useState("");
+  // 稳定身份寻址:改名只换 qualified id,kindId 不变,所以按 kindId 找回当前接受的声明。
   const fullDeclaration = verticalQuery.data?.declaration.entityKinds.find(
     (candidate): candidate is ArtifactKindDeclaration =>
       typeof candidate === "object" &&
       candidate !== null &&
-      "id" in candidate &&
-      candidate.id === catalogRow?.declaration?.id,
+      "kindId" in candidate &&
+      candidate.kindId === catalogRow?.declaration?.kindId,
   );
   const finishKindMutation = async (receipt: { readonly outcome: string; readonly code?: unknown }) => {
     if (receipt.outcome !== "applied" && receipt.outcome !== "no_changes")
@@ -160,6 +163,9 @@ export function EntityDocDetailView({
             <div className="flex gap-1">
               <button type="button" onClick={() => setKindMode("edit")}>
                 编辑种类
+              </button>
+              <button type="button" onClick={() => setKindMode("publish")}>
+                发布属性版本
               </button>
               <button type="button" onClick={() => setKindMode("retire")}>
                 停用种类
@@ -306,12 +312,34 @@ export function EntityDocDetailView({
               }}
             />
           )}
+          {kindMode === "publish" && fullDeclaration && (
+            <VerticalKindSchemaForm
+              current={fullDeclaration}
+              busy={kindBusy}
+              error={kindError}
+              onCancel={() => setKindMode(null)}
+              onSubmit={(attributes) => {
+                if (!verticalQuery.data) return;
+                setKindBusy(true);
+                setKindError(null);
+                void publishVerticalKindSchema(repoId, verticalQuery.data, fullDeclaration.kindId ?? kind, attributes)
+                  .then(finishKindMutation)
+                  .catch((cause: unknown) => setKindError(cause instanceof Error ? cause.message : String(cause)))
+                  .finally(() => setKindBusy(false));
+              }}
+            />
+          )}
           {kindMode === "retire" && verticalQuery.data && (
             <form
               onSubmit={(event) => {
                 event.preventDefault();
                 setKindBusy(true);
-                void retireVerticalKind(repoId, verticalQuery.data!, catalogRow!.declaration!.id, retireReason)
+                void retireVerticalKind(
+                  repoId,
+                  verticalQuery.data!,
+                  catalogRow!.declaration!.kindId ?? kind,
+                  retireReason,
+                )
                   .then(finishKindMutation)
                   .catch((cause: unknown) => setKindError(cause instanceof Error ? cause.message : String(cause)))
                   .finally(() => setKindBusy(false));
@@ -535,7 +563,8 @@ function DeclarationFacets({ declaration }: { readonly declaration: EntityKindDe
   if (declaration === null) return null;
   const rows: readonly (readonly [string, string])[] = [
     ["id", declaration.id],
-    ["version", String(declaration.version)],
+    ["kindId", declaration.kindId],
+    ["schemaVersions", declaration.schemaVersions.map((version) => `v${version}`).join(", ")],
     ["idPrefix", declaration.idPrefix],
     ["display.singular", declaration.display.singular],
     ["display.plural", declaration.display.plural],
@@ -548,8 +577,9 @@ function DeclarationFacets({ declaration }: { readonly declaration: EntityKindDe
     <section data-testid="entity-declaration-facets" className="mt-6 border-t border-border pt-4">
       <h2 className="ui-body font-semibold">声明的可配置项</h2>
       <p className="mt-1 ui-micro leading-relaxed text-text-faint">
-        这些值来自本仓 vertical 声明。id / version 一起构成身份——改它们是换一个类型,不是改一个字段; display
-        只影响呈现。编辑与停用都经 daemon 的仓级声明单写路。
+        这些值来自本仓 vertical 声明。kindId 是不可变的稳定身份——改名、发布新属性版本、停用都不换它; schemaVersions
+        只增不改,已入库的实例按它创建时固定的版本读取。display 只影响呈现。 编辑、发布与停用都经 daemon
+        的仓级声明单写路。
       </p>
       <dl className="mt-2 grid grid-cols-[minmax(110px,auto)_1fr] gap-x-3 gap-y-1">
         {rows.map(([label, value]) => (

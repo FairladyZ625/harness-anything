@@ -58,7 +58,7 @@ const BUILTIN: Readonly<Record<string, EntityKindVisual>> = {
   },
 };
 
-/** `software/coding/architecture-decision-record@1` → `A`;取末段首字母,不猜声明里的 idPrefix。 */
+/** `entity-kind/KND-1f5c…` → `K`;取末段首字母,不猜声明里的 idPrefix。 */
 function declaredLetter(kind: string): string {
   const tail = kind.split("/").at(-1) ?? kind;
   return (tail.charAt(0) || "?").toUpperCase();

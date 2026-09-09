@@ -22,7 +22,8 @@ import { importActionFields } from "../src/renderer/components/entityDoc/NewEnti
  * 五个消费面同时不再出现这个 kind。
  */
 
-const ADR_KIND = "software/coding/architecture-decision-record@1";
+const ADR_KIND_ID = "KND-1f5c0a7e9b3d4c6a8e2f0b1d3c5a7e94";
+const ADR_KIND = `entity-kind/${ADR_KIND_ID}`;
 
 function adrRow(): EntityKindRow {
   return {
@@ -34,7 +35,8 @@ function adrRow(): EntityKindRow {
     importable: true,
     declaration: {
       id: "architecture-decision-record",
-      version: 1,
+      kindId: ADR_KIND_ID,
+      schemaVersions: [1],
       idPrefix: "ADR",
       display: { singular: "Architecture Decision Record", plural: "Architecture Decision Records" },
       descriptorSchemaRef: "schema://artifact-descriptor",

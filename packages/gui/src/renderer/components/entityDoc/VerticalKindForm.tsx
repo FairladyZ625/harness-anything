@@ -10,10 +10,11 @@ const LOCATOR_KINDS = ["repository-path", "url", "external-key"] as const;
 /**
  * kind 声明表单(task_a494eac2 Goal 3 收敛)。
  *
- * 编辑时身份/存储字段(id、version、idPrefix、pathTemplate、descriptorSchemaRef、
+ * 编辑时身份/存储字段(id、kindId、idPrefix、pathTemplate、descriptorSchemaRef、
  * locatorKinds)是**只读展示**——它们是类型的身份与存储位置,改它们等于换一个类型;
  * 可编辑的只有 display、maturityVocabulary 与 relations。新建时这些字段还不存在,
  * 以**模板**呈现(预填默认值 + 每字段一句说明),不再是让人盲填的空白表单。
+ * 身份由中心铸造:表单不填 kindId 与属性版本,创建后不可改。
  *
  * relations 用可折叠 JSON 编辑器:解析错误定位到行列,条目结构错误定位到下标。
  */
@@ -31,7 +32,6 @@ export function VerticalKindForm({
   readonly onSubmit: (value: ArtifactKindDeclaration) => void;
 }) {
   const [id, setId] = useState(initial?.id ?? "");
-  const [version, setVersion] = useState(String(initial?.version ?? 1));
   const [idPrefix, setIdPrefix] = useState(initial?.idPrefix ?? "");
   const [schemaRef, setSchemaRef] = useState(initial?.descriptorSchemaRef ?? "schema://artifact-descriptor");
   const [pathTemplate, setPathTemplate] = useState(initial?.store.pathTemplate ?? "entities/{id}.json");
@@ -69,7 +69,6 @@ export function VerticalKindForm({
           onSubmit({
             id,
             entityType: "artifact",
-            version: Number(version),
             idPrefix,
             display: { singular: singular.trim(), plural: plural.trim() },
             descriptorSchemaRef: schemaRef.trim(),
@@ -93,7 +92,7 @@ export function VerticalKindForm({
             {(
               [
                 ["id", initial!.id],
-                ["version", String(initial!.version)],
+                ["kindId", initial!.kindId ?? "(中心未回填)"],
                 ["idPrefix", initial!.idPrefix],
                 ["descriptorSchemaRef", initial!.descriptorSchemaRef],
                 ["store.pathTemplate", initial!.store.pathTemplate],
@@ -110,7 +109,6 @@ export function VerticalKindForm({
           <>
             <div className="grid grid-cols-2 gap-2">
               <Field label="id" value={id} onChange={setId} issue={idError} hint="类型身份,创建后不可改。" />
-              <Field label="version" value={version} onChange={setVersion} type="number" hint="声明版本,从 1 开始。" />
               <Field
                 label="idPrefix"
                 value={idPrefix}

@@ -14,7 +14,8 @@ import {
   describeRelationsIssue,
   locateJsonError,
 } from "../src/renderer/components/entityDoc/VerticalKindForm.tsx";
-import type { ArtifactKindDeclaration } from "../src/renderer/vertical-kind-client.ts";
+import { describeAttributesIssue } from "../src/renderer/components/entityDoc/VerticalKindSchemaForm.tsx";
+import { findKindRow, verticalKindFence, type ArtifactKindDeclaration } from "../src/renderer/vertical-kind-client.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import type { ViewId } from "../src/renderer/navigation/viewHistory.ts";
 
@@ -28,8 +29,9 @@ const REPO_ID = "repo-entities";
 const noop = () => undefined;
 const mounted: { root: Root; container: HTMLElement }[] = [];
 
-/** 与 e2e declared-entity-kinds 场景同一个声明 kind:名字里带斜杠,是排版压力最大的样本。 */
-const ADR_KIND = "software/coding/architecture-decision-record@1";
+/** 声明 kind 的稳定身份:目录与行的 kind 名都是它,不带任何版本段。 */
+const ADR_KIND_ID = "KND-1f5c0a7e9b3d4c6a8e2f0b1d3c5a7e94";
+const ADR_KIND = `entity-kind/${ADR_KIND_ID}`;
 
 function declaredAdrKindRow(overrides: Record<string, unknown> = {}) {
   return {
@@ -41,7 +43,8 @@ function declaredAdrKindRow(overrides: Record<string, unknown> = {}) {
     importable: true,
     declaration: {
       id: "architecture-decision-record",
-      version: 1,
+      kindId: ADR_KIND_ID,
+      schemaVersions: [1],
       idPrefix: "ADR",
       display: { singular: "Architecture Decision Record", plural: "Architecture Decision Records" },
       descriptorSchemaRef: "descriptor/v1",
@@ -73,6 +76,28 @@ function declaredAdrKindRow(overrides: Record<string, unknown> = {}) {
         ],
       },
     },
+    ...overrides,
+  };
+}
+
+/**
+ * `repo.vertical.declaration.read` 里的已接受 kind 行:比目录 declaration 多存 fence
+ * (row.revision,本 Kind 自己的接受版本)与 schemaVersions 的完整正文。
+ */
+function acceptedAdrKindRow(overrides: Record<string, unknown> = {}) {
+  const declaration = declaredAdrKindRow().declaration;
+  return {
+    id: declaration.id,
+    entityType: "artifact",
+    kindId: ADR_KIND_ID,
+    revision: 4,
+    schemaVersions: [{ version: 1, attributes: {} }],
+    idPrefix: declaration.idPrefix,
+    display: declaration.display,
+    descriptorSchemaRef: declaration.descriptorSchemaRef,
+    store: { pathTemplate: declaration.pathTemplate },
+    locatorKinds: declaration.locatorKinds,
+    maturityVocabulary: declaration.maturityVocabulary,
     ...overrides,
   };
 }
@@ -116,9 +141,11 @@ function stubBridge(
     readonly kinds?: readonly unknown[];
     /** 声明实体行读面回包里的 rows。 */
     readonly rows?: readonly unknown[];
+    /** `repo.vertical.declaration.read` 回包里的已接受 kind 行(默认 ADR 一条,revision 4)。 */
+    readonly declarationKinds?: readonly unknown[];
   } = {},
 ) {
-  const calls = { relationGraph: 0 };
+  const calls = { relationGraph: 0, upserts: [] as object[], publishes: [] as object[], retires: [] as object[] };
   vi.stubGlobal("window", {
     harness: {
       getWorkspaceSummary: vi.fn(async () => ({
@@ -200,16 +227,20 @@ function stubBridge(
       readVerticalDeclaration: vi.fn(async () => ({
         schema: "repository-vertical-declaration-read/v1",
         declarationRevision: 7,
-        declaration: {
-          entityKinds: [
-            {
-              ...declaredAdrKindRow().declaration,
-              entityType: "artifact",
-              store: { pathTemplate: declaredAdrKindRow().declaration.pathTemplate },
-            },
-          ],
-        },
+        declaration: { entityKinds: extras.declarationKinds ?? [acceptedAdrKindRow()] },
       })),
+      upsertVerticalKind: vi.fn(async (payload: object) => {
+        calls.upserts.push(payload);
+        return { schema: "command-receipt/v2", ok: true, command: "vertical.kind.upsert", outcome: "applied" };
+      }),
+      publishVerticalKindSchema: vi.fn(async (payload: object) => {
+        calls.publishes.push(payload);
+        return { schema: "command-receipt/v2", ok: true, command: "vertical.kind.publishSchema", outcome: "applied" };
+      }),
+      retireVerticalKind: vi.fn(async (payload: object) => {
+        calls.retires.push(payload);
+        return { schema: "command-receipt/v2", ok: true, command: "vertical.kind.retire", outcome: "applied" };
+      }),
       readEntityLocator: vi.fn(async ({ locatorValue }: { readonly locatorValue: string }) => ({
         schema: "entity-locator-read/v1",
         outcome: "file",
@@ -919,7 +950,9 @@ describe("detail action area (goal 4)", () => {
 const KIND_FORM_INITIAL: ArtifactKindDeclaration = {
   id: "architecture-decision-record",
   entityType: "artifact",
-  version: 2,
+  kindId: ADR_KIND_ID,
+  revision: 4,
+  schemaVersions: [{ version: 1, attributes: {} }],
   idPrefix: "ADR",
   display: { singular: "Architecture Decision Record", plural: "Architecture Decision Records" },
   descriptorSchemaRef: "schema://artifact-descriptor",
@@ -966,7 +999,7 @@ describe("vertical kind form edit mode: identity fields are read-only display", 
     const identity = container.querySelector('[data-testid="vertical-kind-identity"]');
     expect(identity?.textContent).toContain("architecture-decision-record");
     expect(identity?.textContent).toContain("entities/adrs/{id}.json");
-    for (const label of ["id", "version", "idPrefix", "descriptorSchemaRef", "store.pathTemplate"]) {
+    for (const label of ["id", "kindId", "idPrefix", "descriptorSchemaRef", "store.pathTemplate"]) {
       expect(container.querySelector(`input[aria-label="${label}"]`), label).toBeNull();
       expect(container.querySelector(`input[aria-label="${label}"][disabled]`), label).toBeNull();
     }
@@ -1008,7 +1041,7 @@ describe("vertical kind form relations JSON editor localizes errors", () => {
     const relation = {
       type: "relates",
       sourceKind: "task",
-      targetKind: "software/coding/x@1",
+      targetKind: "entity-kind/KND-2a6d1b8f0c4e5d7b9f3a1c2e4d6b8f05",
       reads: "读取理由",
       strength: "weak",
       decisionClaimRef: "decision/dec_X/C1",
@@ -1057,5 +1090,169 @@ describe("vertical kind form submission", () => {
     expect(submit?.disabled).toBe(true);
     await typeInto(container, "idPrefix", "RSRCH");
     expect(submit?.disabled).toBe(false);
+  });
+});
+
+/**
+ * Kind 生命周期写路判据(Kind fence 合同):fence 是该 Kind 自己的接受版本(row.revision),
+ * 不是整份声明的 revision——别的 Kind 被写不会让自己过期;创建用 0 表态;寻址用稳定
+ * kindId,改名只换 qualified id;发布新属性版本是独立动作,不重写已发布正文。
+ */
+describe("kind lifecycle fence and addressing", () => {
+  const SIBLING_KIND_ID = "KND-2a6d1b8f0c4e5d7b9f3a1c2e4d6b8f05";
+
+  it("computes the fence from the addressed Kind's own row, not the declaration revision", async () => {
+    const read = {
+      schema: "repository-vertical-declaration-read/v1" as const,
+      declarationRevision: 7,
+      declaration: {
+        entityKinds: [
+          acceptedAdrKindRow(),
+          acceptedAdrKindRow({ kindId: SIBLING_KIND_ID, id: "research", idPrefix: "RSRCH", revision: 9 }),
+        ],
+      },
+    };
+    expect(verticalKindFence(read, ADR_KIND_ID)).toBe(4);
+    expect(verticalKindFence(read, ADR_KIND)).toBe(4);
+    // 姊妹 Kind 的 revision(9)与整份声明的 revision(7)都不串味;未知 Kind 是创建态 0。
+    expect(verticalKindFence(read, SIBLING_KIND_ID)).toBe(9);
+    expect(verticalKindFence(read, "KND-00000000000000000000000000000000")).toBe(0);
+    expect(findKindRow(read, SIBLING_KIND_ID)?.id).toBe("research");
+  });
+
+  it("creates a kind with fence 0 and no minted identity of its own", async () => {
+    const calls = stubBridge();
+    const container = await renderSurface(view(null));
+    await click(container, "new-vertical-kind");
+    const form = container.querySelector('[data-testid="vertical-kind-form"]');
+    expect(form).not.toBeNull();
+    await typeInto(container, "id", "field-note");
+    await typeInto(container, "idPrefix", "FN");
+    await typeInto(container, "display.singular", "Field Note");
+    await typeInto(container, "display.plural", "Field Notes");
+    await act(async () => {
+      form!.querySelector<HTMLButtonElement>('button[type="submit"]')!.click();
+    });
+    await settle();
+    expect(calls.upserts.length).toBe(1);
+    const payload = calls.upserts[0] as Record<string, unknown>;
+    // 创建:寻址用自选的 qualified id,fence 0;身份(kindId/schemaVersions/revision)由中心铸造,
+    // 声明里不出现,也没有已被删除的 version 字段。
+    expect(payload).toMatchObject({
+      repoId: REPO_ID,
+      kindId: "field-note",
+      expectedVersion: 0,
+      declaration: { id: "field-note", entityType: "artifact", idPrefix: "FN" },
+    });
+    expect(Object.keys(payload.declaration as object)).not.toContain("kindId");
+    expect(Object.keys(payload.declaration as object)).not.toContain("schemaVersions");
+    expect(Object.keys(payload.declaration as object)).not.toContain("version");
+  });
+
+  it("renames through the stable kindId fenced on the row's own revision", async () => {
+    const calls = stubBridge([], { kinds: [declaredAdrKindRow()] });
+    const container = await renderSurface(view(`entitydoc/${ADR_KIND}`));
+    await settle();
+    const edit = Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find(
+      (button) => button.textContent === "编辑种类",
+    );
+    expect(edit).toBeDefined();
+    await act(async () => {
+      edit!.click();
+    });
+    await settle();
+    await typeInto(container, "display.singular", "Decision Record");
+    const form = container.querySelector('[data-testid="vertical-kind-form"]');
+    await act(async () => {
+      form!.querySelector<HTMLButtonElement>('button[type="submit"]')!.click();
+    });
+    await settle();
+    expect(calls.upserts.length).toBe(1);
+    // 改名换的是 qualified id/display;寻址与 fence 都落在 action 的 kindId(稳定身份)上
+    // ——row.revision 4,不是整份声明的 declarationRevision 7。restatement 本身不再
+    // 手填身份:声明里只有 facets,身份由中心持有。
+    expect(calls.upserts[0]).toMatchObject({
+      repoId: REPO_ID,
+      kindId: ADR_KIND_ID,
+      expectedVersion: 4,
+      declaration: { id: "architecture-decision-record", display: { singular: "Decision Record" } },
+    });
+    expect(Object.keys((calls.upserts[0] as Record<string, unknown>).declaration as object)).not.toContain("kindId");
+  });
+
+  it("publishes the next attribute version without touching published bodies", async () => {
+    const calls = stubBridge([], { kinds: [declaredAdrKindRow()] });
+    const container = await renderSurface(view(`entitydoc/${ADR_KIND}`));
+    await settle();
+    const publish = Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find(
+      (button) => button.textContent === "发布属性版本",
+    );
+    expect(publish).toBeDefined();
+    await act(async () => {
+      publish!.click();
+    });
+    await settle();
+    const form = container.querySelector('[data-testid="vertical-kind-schema-form"]');
+    expect(form).not.toBeNull();
+    // 已发布正文只读在场;发布的是 v2。
+    expect(form?.textContent).toContain("已发布版本");
+    expect(form?.textContent).toContain("发布 v2");
+    const attributes = '{"severity":{"type":"string","enum":["low","high"],"required":true}}';
+    await typeTextarea(container, "attributes JSON", attributes);
+    await act(async () => {
+      form!.querySelector<HTMLButtonElement>('button[type="submit"]')!.click();
+    });
+    await settle();
+    expect(calls.publishes.length).toBe(1);
+    expect(calls.publishes[0]).toEqual({
+      repoId: REPO_ID,
+      kindId: ADR_KIND_ID,
+      attributes: { severity: { type: "string", enum: ["low", "high"], required: true } },
+      expectedVersion: 4,
+    });
+  });
+
+  it("retires through the stable kindId fenced on the row's own revision", async () => {
+    const calls = stubBridge([], { kinds: [declaredAdrKindRow()] });
+    const container = await renderSurface(view(`entitydoc/${ADR_KIND}`));
+    await settle();
+    const retire = Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find(
+      (button) => button.textContent === "停用种类",
+    );
+    expect(retire).toBeDefined();
+    await act(async () => {
+      retire!.click();
+    });
+    await settle();
+    await typeInto(container, "停用原因", "生命周期结束");
+    const confirm = Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find(
+      (button) => button.textContent === "确认停用",
+    );
+    expect(confirm).toBeDefined();
+    await act(async () => {
+      confirm!.click();
+    });
+    await settle();
+    expect(calls.retires.length).toBe(1);
+    expect(calls.retires[0]).toMatchObject({
+      repoId: REPO_ID,
+      kindId: ADR_KIND_ID,
+      reason: "生命周期结束",
+      expectedVersion: 4,
+    });
+  });
+});
+
+describe("attribute declaration editor localizes issues", () => {
+  it("mirrors the kernel attribute contract before submission", () => {
+    expect(describeAttributesIssue('{"confidence":{"type":"integer"}}')).toBeNull();
+    expect(describeAttributesIssue('{"severity":{"type":"string","enum":["low","high"],"required":true}}')).toBeNull();
+    expect(describeAttributesIssue("{}")).toBeNull();
+    expect(describeAttributesIssue("not json")).toContain("JSON 解析失败");
+    expect(describeAttributesIssue("[]")).toContain("attributes 必须是 JSON 对象");
+    expect(describeAttributesIssue('{"BadName":{"type":"string"}}')).toContain("名称须以小写字母开头");
+    expect(describeAttributesIssue('{"confidence":{"type":"float"}}')).toContain("type 只能是");
+    expect(describeAttributesIssue('{"severity":{"type":"string","enum":[]}}')).toContain("enum 必须是非空字符串数组");
+    expect(describeAttributesIssue('{"confidence":{"type":"integer","unit":"kg"}}')).toContain("未声明字段 unit");
   });
 });

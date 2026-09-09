@@ -22,6 +22,15 @@ export const entityImportGuiActions = Object.freeze([
     "repo-write",
   ),
   guiAction(
+    "vertical.kind.publishSchema",
+    "repo.vertical.kind.publishSchema",
+    "vertical-kind-publish-schema",
+    shape({ kindId: "string", attributes: "json", expectedVersion: "number" }),
+    "publishVerticalKindSchema",
+    "/api/vertical/kinds/publish-schema",
+    "repo-write",
+  ),
+  guiAction(
     "vertical.kind.retire",
     "repo.vertical.kind.retire",
     "vertical-kind-retire",

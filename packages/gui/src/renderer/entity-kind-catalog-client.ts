@@ -10,7 +10,10 @@ import type { GovernedEntityRow } from "./graph/governedEntities.ts";
  */
 export interface EntityKindDeclaration {
   readonly id: string;
-  readonly version: number;
+  /** Stable opaque identity; the qualified `id` above is only a selection name and may change. */
+  readonly kindId: string;
+  /** Every published schema version, oldest first. Publishing appends; none is ever rewritten. */
+  readonly schemaVersions: readonly number[];
   readonly idPrefix: string;
   readonly display: { readonly singular: string; readonly plural: string };
   readonly descriptorSchemaRef: string;
@@ -94,7 +97,7 @@ export function graphNodeKinds(catalog: EntityKindCatalog): readonly string[] {
   return catalog.kinds.filter(({ relationEndpoint }) => relationEndpoint).map(({ kind }) => kind);
 }
 
-/** ref 前缀 → kind。vertical ref 是多段(`software/coding/x@1/ID`),所以按最长前缀先匹配。 */
+/** ref 前缀 → kind。vertical kind 的 ref 是稳定身份 `entity-kind/KND-…/{id}`,按最长前缀先匹配。 */
 export function kindRefPrefixes(catalog: EntityKindCatalog): readonly { kind: string; prefix: string }[] {
   return catalog.kinds
     .map(({ kind, refTemplate }) => ({ kind, prefix: refTemplate.slice(0, refTemplate.length - "{id}".length) }))
