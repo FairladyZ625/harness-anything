@@ -1,3 +1,4 @@
+import { enqueueRuntimePublication } from "./runtime-publication-queue.ts";
 import {
   executeSquadControl,
   isSquadControlCommand,
@@ -894,72 +895,13 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
       judgments: repoCellTaskQueryJudgments,
     });
   Object.assign(context.extracted, { taskListQueryFromAction, queryRead, relationQueryFromAction });
-  const enqueueRuntimePublication = (
-    commandKind: "runtime-run" | "runtime-cancel",
-    policyAction: RepoTaskAction,
-    binding: RepoCellBinding,
-    execute: (authorizedBinding: RepoCellBinding, revision: number) => JsonObject | Promise<JsonObject>,
-  ): Promise<JsonObject> => {
-    const command = commandDescriptorForAction(commandKind),
-      admission = admitRepoMode(context.mode, command, binding.source);
-    if (!admission.ok) return Promise.reject(context.cellCodedError(admission.code, admission.nextAction));
-    context.queueDepth += 1;
-    const pending = chainRepoCellWrite(context.tail, async () => {
-      context.queueDepth -= 1;
-      if (context.state !== "attached") await context.attemptRecovery();
-      const queuedAdmission = admitRepoMode(context.mode, command, binding.source);
-      if (!queuedAdmission.ok) throw context.cellCodedError(queuedAdmission.code, queuedAdmission.nextAction);
-      if (context.state !== "attached") throw context.cellCodedError("repo_unavailable", context.latched());
-      assertCurrentWriter(context.activeWriter, context.writerToken, context.input.repoId);
-      const revision = context.store.readHead()?.revision ?? 0,
-        authorizationDecision = authorizeRepoCellAction({
-          action: policyAction,
-          binding,
-          actionId: context.operationId(policyAction, binding, context.input.repoId, revision),
-          revision,
-          now: context.now(),
-        });
-      if (authorizationDecision.outcome === "denied")
-        throw Object.assign(new Error(authorizationDecision.nextActions.join(" ")), {
-          code: "authorization_denied",
-          authorizationDecision,
-        });
-      context.activeWriterEpochGuard = binding.assertWriterEpoch ?? null;
-      context.activeWriterEpochFence = binding.withWriterEpochFence ?? null;
-      context.activeWriterEpochFenceDescriptor = binding.writerEpochFence ?? null;
-      try {
-        const result = await execute({ ...binding, authorizationDecision }, revision);
-        const receipt =
-          typeof result.opId === "string" && typeof result.outcome === "string"
-            ? attachReceiptAcceptance(result as unknown as WriteReceipt, context.store, context.projection)
-            : result;
-        return {
-          ...receipt,
-          authorizationDecision: authorizationDecision as unknown as JsonObject,
-        } as unknown as JsonObject;
-      } finally {
-        context.activeWriterEpochGuard = null;
-        context.activeWriterEpochFence = null;
-        context.activeWriterEpochFenceDescriptor = null;
-      }
-    });
-    context.tail = pending.then(
-      () => undefined,
-      () => undefined,
-    );
-    void pending.then(
-      () => context.replica.kick(),
-      () => context.replica.kick(),
-    );
-    return pending;
-  };
   const spawnRuntime: RepoCell["spawnRuntime"] = async (payload, binding) => {
     const bound = bindExecutorClaimAtWriterCut({ kind: "runtime-spawn", ...payload }, binding),
       verified = bound.queued ? await bound.result : bound.result;
     binding = verified.binding;
     payload = Object.fromEntries(Object.entries(verified.action).filter(([field]) => field !== "kind")) as JsonObject;
     const action = { kind: "runtime-spawn", ...payload };
-    return enqueueRuntimePublication("runtime-run", action, binding, async (authorizedBinding) => {
+    return enqueueRuntimePublication(context, "runtime-run", action, binding, async (authorizedBinding) => {
       const taskId = typeof payload.taskId === "string" && payload.taskId ? payload.taskId : null;
       await waitForOptionalTaskProjection({
         invalidWait: (message) => context.cellCodedError("invalid_command", message),
@@ -978,6 +920,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
     binding = verified.binding;
     payload = Object.fromEntries(Object.entries(verified.action).filter(([field]) => field !== "kind")) as JsonObject;
     return enqueueRuntimePublication(
+      context,
       "runtime-cancel",
       { kind: "runtime-cancel", ...payload },
       binding,
@@ -1008,7 +951,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
             runtimeSessionId: action.archive.runtimeSessionId,
           }
         : { ...action, kind: "runtime-run" };
-    return enqueueRuntimePublication("runtime-run", policyAction, binding, async (authorizedBinding) => {
+    return enqueueRuntimePublication(context, "runtime-run", policyAction, binding, async (authorizedBinding) => {
       if (action.kind === "event" && runtimeSessionActionIds.includes(action.type as never)) {
         const receipt = await commitRuntimeSessionAction(context.extracted, action, authorizedBinding);
         return {
