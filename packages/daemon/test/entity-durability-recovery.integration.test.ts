@@ -1,5 +1,8 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { execFileSync, spawn, type ChildProcess } from "node:child_process";
+import { createHash } from "node:crypto";
+import { once } from "node:events";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -591,3 +594,387 @@ test("An instance pinned to schema v1 reads back unchanged from a cold process a
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
+
+/**
+ * The child that dies. It is handed the paths it needs rather than a working directory, because the parent runs
+ * it from the repository root while the workspace it writes to lives in a temporary directory of its own.
+ *
+ * `accept-and-hang` stops being a process at the one boundary that matters: SQLite has committed, the follower
+ * has not been scheduled, and the receipt has not been written. It names the operation it just accepted and then
+ * blocks the thread outright, so the only way out is a signal. `recover` is a process that never saw any of
+ * that: it is given an operation id and has to settle it and read the bytes back out of the center.
+ */
+const sigkillRecoveryFixture = String.raw`
+import { createHash } from "node:crypto";
+import { writeFileSync, writeSync } from "node:fs";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
+
+const [arm, repoRoot, rootDir, repoName, kindRef, locator, marker, wantedOpId] = process.argv.slice(2);
+const load = (relative) => import(pathToFileURL(path.join(repoRoot, relative)).href);
+const emit = (record) => writeSync(1, JSON.stringify({ pid: process.pid, ...record }) + "\n");
+// Every orderly way out of this process leaves a mark. A SIGKILL leaves none, which is the point.
+const note = (why) => {
+  try {
+    writeFileSync(marker, why + "\n");
+  } catch {
+    /* the marker is evidence, never a dependency */
+  }
+};
+for (const hook of ["exit", "beforeExit", "SIGTERM", "SIGINT", "SIGHUP"]) process.on(hook, () => note(hook));
+
+const { makeTaskEventReader } = await load("packages/kernel/src/index.ts");
+const { canonicalRoot, workspaceId } = await load("packages/daemon/src/protocol/daemon-protocol.contract.ts");
+const { openBootstrappedRepoCell } = await load("packages/daemon/test/repo-settings.fixture.ts");
+const { withRoleBinding } = await load("packages/daemon/test/role-binding.fixtures.ts");
+
+const repoId = workspaceId(repoName);
+const binding = withRoleBinding(
+  {
+    actor: {
+      principal: { personId: "person-entity-durability" },
+      executor: { kind: "agent", id: "entity-durability-edge" },
+    },
+    source: "local",
+  },
+  "repo-write",
+);
+const reader = () => makeTaskEventReader({ repoId, rootDir });
+const acceptedEntityEvents = () => reader().read().events.filter((event) => event.schema === "entity-event/v1");
+
+if (arm === "accept-and-hang") {
+  let signalled = false;
+  const cell = await openBootstrappedRepoCell({
+    repoId,
+    rootDir: canonicalRoot(rootDir),
+    ownerId: "entity-sigkill-doomed",
+    now: () => "2026-09-09T20:00:00.000Z",
+    killpoint: (point) => {
+      if (point !== "after_sqlite_commit" || signalled) return;
+      signalled = true;
+      let named = { opId: null, entityId: null, revision: null, readerError: null };
+      try {
+        const accepted = acceptedEntityEvents();
+        named = {
+          opId: accepted.length === 1 ? accepted[0].opId : null,
+          entityId: accepted.length === 1 ? accepted[0].payload.entityId : null,
+          revision: reader().read().revision,
+          readerError: null,
+        };
+      } catch (error) {
+        named = { ...named, readerError: String(error) };
+      }
+      emit({ signal: "after_sqlite_commit", ...named });
+      // Blocks the only thread there is, without burning it. Nothing below runs again in this process.
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);
+    },
+  });
+  try {
+    const receipt = await cell.run(
+      { kind: "entity-import", entityKind: kindRef, locator, expectedVersion: 0 },
+      binding,
+    );
+    emit({ signal: "survived-its-killpoint", outcome: receipt.outcome, opId: receipt.opId });
+  } finally {
+    await cell.close();
+    note("closed");
+  }
+} else if (arm === "recover") {
+  const cell = await openBootstrappedRepoCell({
+    repoId,
+    rootDir: canonicalRoot(rootDir),
+    ownerId: "entity-sigkill-successor",
+    now: () => "2026-09-09T20:30:00.000Z",
+  });
+  try {
+    const settled = await cell.run(
+      { kind: "receipt-show", opId: wantedOpId, waitFor: ["git_verified", "worktree_visible"], timeoutMs: 30000 },
+      binding,
+    );
+    const accepted = acceptedEntityEvents();
+    const owned = accepted.length === 1 ? accepted[0].payload.ownedContent : { bindings: [], directories: [] };
+    const objects = {};
+    for (const bound of owned.bindings) {
+      const bytes = reader().readContentBlob(bound.contentSha256);
+      objects[bound.path] =
+        bytes == null
+          ? null
+          : {
+              byteLength: Buffer.from(bytes).byteLength,
+              sha256: createHash("sha256").update(Buffer.from(bytes)).digest("hex"),
+            };
+    }
+    emit({
+      signal: "recovered",
+      opId: settled.opId,
+      outcome: settled.outcome,
+      status: settled.status ?? null,
+      code: settled.code ?? null,
+      wait: settled.wait?.state ?? null,
+      unsatisfied: settled.wait?.unsatisfied ?? null,
+      acceptanceCut: settled.acceptance?.cut?.revision ?? null,
+      gitState: settled.git?.state ?? null,
+      gitCut: settled.git?.cut?.revision ?? null,
+      worktreeState: settled.worktree?.state ?? null,
+      entityEvents: accepted.length,
+      entityId: accepted.length === 1 ? accepted[0].payload.entityId : null,
+      directories: owned.directories.map((held) => held.path),
+      objects,
+    });
+  } finally {
+    await cell.close();
+    note("closed");
+  }
+} else throw new Error("unknown arm " + arm);
+`;
+
+/** Reads the child's deliberate JSON lines without letting a silent child hang the run. */
+function childRecords(child: ChildProcess): {
+  readonly stderr: () => string;
+  readonly record: (want: string) => Promise<Record<string, unknown>>;
+} {
+  let errors = "",
+    buffered = "";
+  const seen: Record<string, unknown>[] = [],
+    waiting = new Map<string, (row: Record<string, unknown>) => void>();
+  child.stderr?.setEncoding("utf8");
+  child.stderr?.on("data", (chunk: string) => {
+    errors += chunk;
+  });
+  child.stdout?.setEncoding("utf8");
+  child.stdout?.on("data", (chunk: string) => {
+    buffered += chunk;
+    const lines = buffered.split("\n");
+    buffered = lines.pop() ?? "";
+    for (const line of lines) {
+      if (!line.trimStart().startsWith("{")) continue;
+      const row = JSON.parse(line) as Record<string, unknown>;
+      seen.push(row);
+      waiting.get(String(row.signal))?.(row);
+    }
+  });
+  return {
+    stderr: () => errors,
+    record: (want) =>
+      new Promise((resolve, reject) => {
+        const found = seen.find((row) => row.signal === want);
+        if (found) {
+          resolve(found);
+          return;
+        }
+        const timer = setTimeout(() => reject(new Error(`no ${want} record within 90s: ${errors}`)), 90_000);
+        waiting.set(want, (row) => {
+          clearTimeout(timer);
+          resolve(row);
+        });
+        child.on("exit", (code, signal) => {
+          clearTimeout(timer);
+          reject(new Error(`child exited (code ${code}, signal ${signal}) before ${want}: ${errors}`));
+        });
+      }),
+  };
+}
+
+/**
+ * The interruption above is a caught failure: the killpoint throws, the process survives it, and the recovery
+ * happens after that same process closed its cell. What a machine losing power does is not that, so this proves
+ * the same recovery across a real process boundary. A child accepts the import into SQLite, announces the
+ * boundary it reached, and blocks; the parent SIGKILLs it, so no close, no flush and no unwind ever run — the
+ * writer lock it never released still names it. A second child that never saw the first is given nothing but
+ * the operation id, and has to settle it and put back every byte with the imported source already deleted.
+ */
+test(
+  "An entity import SIGKILLed after its SQLite commit is recovered whole by a later process",
+  { skip: process.platform === "win32" ? "requires POSIX SIGKILL semantics" : false },
+  async (context) => {
+    const parent = mkdtempSync(path.join(tmpdir(), "ha-entity-sigkill-recovery-")),
+      rootDir = path.join(parent, "repo"),
+      repoRoot = path.resolve(import.meta.dirname, "..", "..", ".."),
+      scriptPath = path.join(parent, "entity-sigkill-process.fixture.mjs"),
+      sourcePath = "research/killed",
+      absoluteSource = path.join(rootDir, sourcePath),
+      repoName = "entity-sigkill-recovery",
+      repoId = workspaceId(repoName),
+      digestOf = (bytes: Buffer | string) => createHash("sha256").update(bytes).digest("hex"),
+      spawnArm = (arm: string, marker: string, extra: readonly string[] = []) =>
+        spawn(
+          process.execPath,
+          [scriptPath, arm, repoRoot, rootDir, repoName, researchKind, sourcePath, marker, ...extra],
+          { cwd: repoRoot, stdio: ["ignore", "pipe", "pipe"] },
+        );
+    let doomed: ChildProcess | undefined, successor: ChildProcess | undefined;
+    try {
+      mkdirSync(rootDir);
+      initRepo(rootDir);
+      mkdirSync(path.join(absoluteSource, "blobs"), { recursive: true });
+      mkdirSync(path.join(absoluteSource, "reserved"), { recursive: true });
+      writeFileSync(path.join(absoluteSource, "README.md"), readmeBytes);
+      writeFileSync(path.join(absoluteSource, "blobs", "empty.bin"), Buffer.alloc(0));
+      writeFileSync(path.join(absoluteSource, "blobs", "binary.bin"), binaryBytes);
+      git(rootDir, "add", sourcePath);
+      git(rootDir, "commit", "-qm", "add a source whose importer will be killed");
+      writeFileSync(scriptPath, sigkillRecoveryFixture);
+
+      const doomedMarker = path.join(parent, "doomed-orderly-exit.marker");
+      doomed = spawnArm("accept-and-hang", doomedMarker);
+      const doomedOutput = childRecords(doomed),
+        boundary = await doomedOutput.record("after_sqlite_commit"),
+        doomedPid = doomed.pid!;
+      assert.equal(boundary.readerError, null, JSON.stringify(boundary));
+      assert.equal(boundary.pid, doomedPid, JSON.stringify(boundary));
+      assert.notEqual(doomedPid, process.pid, "the acceptance must happen outside the test process");
+      assert.match(String(boundary.opId), /^entity-import-[a-f0-9]{32}$/u, JSON.stringify(boundary));
+
+      // No close, no unwind, no exit handler: the only thing that ends this process is the signal.
+      process.kill(doomedPid, "SIGKILL");
+      const [doomedCode, doomedSignal] = (await once(doomed, "exit")) as [number | null, NodeJS.Signals | null];
+      doomed = undefined;
+      assert.deepEqual(
+        [doomedCode, doomedSignal],
+        [null, "SIGKILL"],
+        `the importer must die by signal rather than exit: ${doomedOutput.stderr()}`,
+      );
+      assert.equal(
+        existsSync(doomedMarker),
+        false,
+        "an orderly shutdown would have left its marker; SIGKILL runs no handler",
+      );
+      assert.equal(
+        readFileSync(`${canonicalRoot(rootDir)}.harness-anything-writer.lock`, "utf8").trim(),
+        String(doomedPid),
+        "the writer lock must still name the process that never released it",
+      );
+
+      // Durable without a flush, a close or a receipt: the commit the dead process announced is still there.
+      const accepted = makeTaskEventReader({ repoId, rootDir }).read(),
+        entityEvents = accepted.events.filter((event) => event.schema === "entity-event/v1");
+      assert.ok(
+        accepted.revision >= Number(boundary.revision),
+        `a killed writer must not take its commit with it: ${JSON.stringify({ accepted: accepted.revision, boundary })}`,
+      );
+      assert.equal(entityEvents.length, 1, JSON.stringify(entityEvents.map(({ opId }) => opId)));
+      const acceptedEvent = entityEvents[0] as unknown as {
+          readonly opId: string;
+          readonly payload: { readonly entityId: string };
+        },
+        entityId = acceptedEvent.payload.entityId,
+        root = `entities/research/${entityId}`;
+      assert.equal(acceptedEvent.opId, boundary.opId, "the ledger must hold the operation the dead process named");
+      assert.equal(entityId, boundary.entityId, JSON.stringify(boundary));
+      assert.equal(
+        existsSync(path.join(rootDir, "harness", root)),
+        false,
+        "the killed process published nothing: acceptance is not publication",
+      );
+
+      // Everything read back from here on is the center's own copy.
+      rmSync(absoluteSource, { recursive: true });
+      const successorMarker = path.join(parent, "successor-orderly-exit.marker");
+      successor = spawnArm("recover", successorMarker, [String(boundary.opId)]);
+      const successorOutput = childRecords(successor),
+        recovered = await successorOutput.record("recovered"),
+        successorPid = successor.pid!,
+        [successorCode] = (await once(successor, "exit")) as [number | null, NodeJS.Signals | null];
+      successor = undefined;
+      assert.equal(successorCode, 0, successorOutput.stderr());
+      assert.equal(
+        existsSync(successorMarker),
+        true,
+        "the successor is expected to end orderly, unlike the doomed one",
+      );
+      context.diagnostic(
+        JSON.stringify({
+          schema: "entity-sigkill-recovery-result/v1",
+          parentPid: process.pid,
+          doomedPid,
+          doomedSignal,
+          doomedExitCode: doomedCode,
+          successorPid,
+          opId: boundary.opId,
+          acceptanceCut: recovered.acceptanceCut,
+          gitCut: recovered.gitCut,
+        }),
+      );
+      assert.deepEqual(
+        [recovered.pid === doomedPid, recovered.pid === process.pid, recovered.pid === successorPid],
+        [false, false, true],
+        "the recovery must be a third process, not the killed one and not the test",
+      );
+      assert.deepEqual(
+        {
+          opId: recovered.opId,
+          outcome: recovered.outcome,
+          status: recovered.status,
+          wait: recovered.wait,
+          entityEvents: recovered.entityEvents,
+        },
+        { opId: boundary.opId, outcome: "applied", status: "accepted_durable", wait: "satisfied", entityEvents: 1 },
+        JSON.stringify(recovered),
+      );
+      // A verified follower facet only settles this operation when its cut reaches this operation's acceptance
+      // cut, which is what `waitFor` checked above; asserting the cuts directly keeps that explicit here.
+      assert.deepEqual(
+        [recovered.gitState, recovered.worktreeState],
+        ["verified", "verified"],
+        JSON.stringify(recovered),
+      );
+      assert.ok(
+        Number(recovered.gitCut) >= Number(recovered.acceptanceCut),
+        `a verified facet at an older cut proves nothing about this operation: ${JSON.stringify(recovered)}`,
+      );
+
+      // Byte proof out of the center's own objects, read by the process that recovered them. The manifest owns
+      // the entity's descriptor document alongside the imported material, so the set is named in full: a
+      // recovery that dropped one of these would otherwise pass by simply not being asked about it.
+      const objects = recovered.objects as Record<string, { readonly byteLength: number; readonly sha256: string }>;
+      assert.deepEqual(
+        Object.keys(objects).sort(),
+        [`${root}.json`, `${root}/README.md`, `${root}/blobs/binary.bin`, `${root}/blobs/empty.bin`].sort(),
+        JSON.stringify(objects),
+      );
+      assert.deepEqual(
+        {
+          readme: objects[`${root}/README.md`],
+          empty: objects[`${root}/blobs/empty.bin`],
+          binary: objects[`${root}/blobs/binary.bin`],
+        },
+        {
+          readme: { byteLength: Buffer.byteLength(readmeBytes), sha256: digestOf(readmeBytes) },
+          empty: { byteLength: 0, sha256: digestOf(Buffer.alloc(0)) },
+          binary: { byteLength: binaryBytes.byteLength, sha256: digestOf(binaryBytes) },
+        },
+        JSON.stringify(objects),
+      );
+      // The descriptor's bytes are minted by the accepted import rather than copied from the source, so what is
+      // checked here is that the recovery produced a readable one naming this entity.
+      assert.ok(Number(objects[`${root}.json`]?.byteLength) > 0, JSON.stringify(objects));
+      assert.equal(
+        (JSON.parse(readFileSync(path.join(rootDir, "harness", `${root}.json`), "utf8")) as { entityId: string })
+          .entityId,
+        entityId,
+      );
+      assert.ok(
+        (recovered.directories as readonly string[]).includes(`${root}/reserved`),
+        `only the manifest can carry an empty directory across the kill: ${JSON.stringify(recovered.directories)}`,
+      );
+
+      // And the same bytes in the two records a later reader actually opens: the tree and the commit.
+      const held = (...segments: readonly string[]) => path.join(rootDir, "harness", root, ...segments);
+      assert.equal(readFileSync(held("README.md"), "utf8"), readmeBytes);
+      assert.equal(statSync(held("blobs", "empty.bin")).size, 0, "a zero-byte object is content, not absence");
+      assert.deepEqual(readFileSync(held("blobs", "binary.bin")), binaryBytes);
+      assert.ok(statSync(held("reserved")).isDirectory());
+      assert.deepEqual(
+        execFileSync("git", ["-C", rootDir, "cat-file", "-p", `HEAD:harness/${root}/blobs/binary.bin`], {
+          maxBuffer: 1 << 24,
+        }),
+        binaryBytes,
+        "the published commit must hold the killed import's own bytes",
+      );
+      assert.equal(existsSync(absoluteSource), false, "the recovery must owe nothing to the deleted source");
+    } finally {
+      for (const child of [doomed, successor]) if (child?.pid !== undefined) child.kill("SIGKILL");
+      rmSync(parent, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    }
+  },
+);
