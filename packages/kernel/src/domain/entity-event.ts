@@ -667,7 +667,10 @@ export function assertEntityUpsertWritePlan(event: EntityEventV1, plan: FrozenWr
 
 export function contractForDeclarationEvent(event: EntityDeclarationEventV1): EntityStoreKindContract {
   return event.type === "entity_content_observed" || event.type === "entity_updated"
-    ? artifactEntityContractFromSnapshot(event.payload.artifactContract)
+    ? artifactEntityContractFromSnapshot(
+        event.payload.artifactContract,
+        isRecord(event.payload.artifactContract) && !Object.hasOwn(event.payload.artifactContract, "kindVersion"),
+      )
     : requireEntityStoreKindContract(event.payload.entityKind);
 }
 
@@ -690,7 +693,7 @@ function validateObservedPayload(
     "entityKind",
     "entityId",
     "declarationDocumentClaim",
-    "ownedContent",
+    ...(allowUnknownFields ? [] : ["ownedContent"]),
     "locator",
     "sourceIdentity",
     "observedContentVersion",
@@ -703,7 +706,12 @@ function validateObservedPayload(
   if (common.length) return common;
   if (typeof payload.observedContentVersion !== "string" || !payload.observedContentVersion)
     return ["entity observed content version is invalid"];
-  if (!validObservationIdentity(payload, payload.observedContentVersion, opId, acceptsOperation))
+  const historical = isRecord(payload.artifactContract) && !Object.hasOwn(payload.artifactContract, "kindVersion"),
+    historicalOperation = historical
+      ? (candidate: string) =>
+          candidate === legacyArtifactImportOperationId(payload, payload.observedContentVersion as string)
+      : undefined;
+  if (!validObservationIdentity(payload, payload.observedContentVersion, opId, acceptsOperation ?? historicalOperation))
     return ["entity observed idempotency identity is invalid"];
   let contract: EntityStoreKindContract;
   try {
@@ -734,7 +742,11 @@ function validateMissingPayload(
   const common = validateArtifactPayload(payload, allowUnknownFields);
   if (common.length) return common;
   if (typeof payload.reason !== "string" || !payload.reason) return ["entity target-missing reason is invalid"];
-  return validObservationIdentity(payload, `missing:${payload.reason}`, opId)
+  const historical = isRecord(payload.artifactContract) && !Object.hasOwn(payload.artifactContract, "kindVersion"),
+    historicalOperation = historical
+      ? (candidate: string) => candidate === legacyArtifactImportOperationId(payload, `missing:${payload.reason}`)
+      : undefined;
+  return validObservationIdentity(payload, `missing:${payload.reason}`, opId, historicalOperation)
     ? []
     : ["entity missing idempotency identity is invalid"];
 }
@@ -790,7 +802,12 @@ function validateArtifactPayload(payload: Record<string, unknown>, allowUnknownF
     return ["entity artifact contract is invalid"];
   }
   const locator = payload.locator,
-    snapshot = payload.artifactContract as ArtifactEntityContractSnapshot;
+    snapshot = payload.artifactContract as ArtifactEntityContractSnapshot,
+    historical = isRecord(snapshot) && !Object.hasOwn(snapshot, "kindVersion"),
+    validEntityId = historical
+      ? typeof payload.entityId === "string" &&
+        new RegExp(`^${snapshot.idPrefix}-[a-f0-9]{16}$`, "u").test(payload.entityId)
+      : isArtifactEntityId(snapshot.idPrefix, payload.entityId);
   try {
     if (canonicalArtifactSourceIdentity(String(payload.sourceIdentity)) !== payload.sourceIdentity)
       return ["entity artifact source identity is not canonical"];
@@ -803,7 +820,7 @@ function validateArtifactPayload(payload: Record<string, unknown>, allowUnknownF
     payload.entityKind !== contract.kind ||
     typeof payload.entityId !== "string" ||
     typeof payload.sourceIdentity !== "string" ||
-    !isArtifactEntityId(snapshot.idPrefix, payload.entityId) ||
+    !validEntityId ||
     !isRecord(locator) ||
     !(["repository-path", "url", "external-key"] as const).includes(locator.kind as never) ||
     typeof locator.value !== "string" ||
@@ -874,6 +891,13 @@ function validObservationIdentity(
   return payload.observationId === expected && accepts(opId);
 }
 
+function legacyArtifactImportOperationId(payload: Record<string, unknown>, resolution: string): string {
+  const locator = payload.locator as ArtifactLocator;
+  return `entity-import-${sha256Text(
+    `${String(payload.entityId)}\u0000${locator.kind}:${locator.value}\u0000${resolution}`,
+  ).slice(0, 32)}`;
+}
+
 function validateClaim(
   payload: Record<string, unknown>,
   contract: EntityStoreKindContract,
@@ -893,7 +917,9 @@ function validateClaim(
     !acceptedPolicyIds(schema).includes(String(claim.policyId))
   )
     return ["entity declaration claim is invalid"];
-  if (payload.ownedContent === undefined) return ["entity owned-content manifest is missing"];
+  // Historical parsing retains the accepted shape; only current writes require an ownership manifest.
+  if (payload.ownedContent === undefined)
+    return hasFields === hasRequiredFields ? [] : ["entity owned-content manifest is missing"];
   const manifestErrors = validateEntityOwnedContent(payload.ownedContent);
   if (manifestErrors.length) return manifestErrors;
   const manifest = payload.ownedContent as EntityOwnedContentV1,

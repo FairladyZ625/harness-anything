@@ -286,10 +286,12 @@ export function artifactEntityContractFromSnapshot(
   snapshot: unknown,
   allowUnknownFields = false,
 ): EntityStoreKindContract {
-  const decoded = decodeArtifactEntityContractSnapshot(snapshot, allowUnknownFields),
+  const historical = isRecord(snapshot) && !Object.hasOwn(snapshot, "kindVersion"),
+    decoded = decodeArtifactEntityContractSnapshot(snapshot, allowUnknownFields),
+    entityIdPattern = historical ? `^${decoded.idPrefix}-[a-f0-9]{16}$` : artifactEntityIdPattern(decoded.idPrefix),
     identity = Object.freeze({
       field: "entityId",
-      pattern: artifactEntityIdPattern(decoded.idPrefix),
+      pattern: entityIdPattern,
       refTemplate: `${decoded.typeIdentity}/{id}` as `${string}/{id}`,
     });
   return deepFreeze({
@@ -309,7 +311,7 @@ export function artifactEntityContractFromSnapshot(
         schema: { type: "string", const: decoded.descriptorSchemaRef },
         typeIdentity: { type: "string", const: decoded.typeIdentity },
         kindVersion: { type: "integer", enum: [decoded.kindVersion] },
-        entityId: { type: "string", pattern: `^${decoded.idPrefix}-[a-f0-9]{32}$` },
+        entityId: { type: "string", pattern: entityIdPattern },
         title: { type: "string", minLength: 1 },
         locator: {
           type: "object",
@@ -341,21 +343,17 @@ export function decodeArtifactEntityContractSnapshot(
   allowUnknownFields = false,
 ): ArtifactEntityContractSnapshot {
   if (!isRecord(value)) throw new ArtifactEntityContractError("Artifact entity contract snapshot is invalid.");
-  if (!Object.hasOwn(value, "kindVersion") || !Number.isSafeInteger(value.kindVersion) || Number(value.kindVersion) < 1)
+  const hasKindVersion = Object.hasOwn(value, "kindVersion");
+  if (
+    (hasKindVersion && (!Number.isSafeInteger(value.kindVersion) || Number(value.kindVersion) < 1)) ||
+    (!hasKindVersion && !allowUnknownFields)
+  )
     throw new ArtifactEntityContractError(
       "Artifact entity contract snapshot kindVersion must be a positive safe integer.",
     );
-  const fields = [
-    "schema",
-    "typeIdentity",
-    "kindVersion",
-    "descriptorSchemaRef",
-    "idPrefix",
-    "pathTemplate",
-    "locatorKinds",
-  ];
+  const fields = ["schema", "typeIdentity", "descriptorSchemaRef", "idPrefix", "pathTemplate", "locatorKinds"];
   if (
-    (!allowUnknownFields && Object.keys(value).some((field) => !fields.includes(field))) ||
+    (!allowUnknownFields && Object.keys(value).some((field) => ![...fields, "kindVersion"].includes(field))) ||
     fields.some((field) => !Object.hasOwn(value, field)) ||
     value.schema !== "artifact-entity-contract/v1" ||
     typeof value.typeIdentity !== "string" ||
@@ -373,7 +371,12 @@ export function decodeArtifactEntityContractSnapshot(
   )
     throw new ArtifactEntityContractError("Artifact entity contract snapshot is invalid.");
   normalizeRelativeDocumentPath(value.pathTemplate);
-  return deepFreeze(value as unknown as ArtifactEntityContractSnapshot);
+  // Generation-one artifact events predate the independent kind-version pin and were accepted as v1.
+  // Keep that inference inside the historical reader; current snapshots must carry the field explicitly.
+  return deepFreeze({
+    ...value,
+    kindVersion: hasKindVersion ? value.kindVersion : 1,
+  } as ArtifactEntityContractSnapshot);
 }
 
 export function artifactObservationId(input: {

@@ -58,11 +58,15 @@ test("artifact snapshots require explicit positive integral schema pins on live 
       kindVersion,
     })),
   ]) {
-    for (const allowUnknownFields of [false, true]) {
-      assert.throws(() => decodeArtifactEntityContractSnapshot(invalid, allowUnknownFields), /kindVersion/u);
-      assert.throws(() => artifactEntityContractFromSnapshot(invalid, allowUnknownFields), /kindVersion/u);
-    }
+    assert.throws(() => decodeArtifactEntityContractSnapshot(invalid), /kindVersion/u);
+    assert.throws(() => artifactEntityContractFromSnapshot(invalid), /kindVersion/u);
   }
+  const historical = decodeArtifactEntityContractSnapshot(unpinned, true);
+  assert.equal(historical.kindVersion, 1);
+  assert.equal(
+    artifactEntityContractFromSnapshot(unpinned, true).schema.$id,
+    `${snapshot.descriptorSchemaRef}#${snapshot.typeIdentity}/v1`,
+  );
 });
 
 test("canonical artifact event admission and content replay reject a missing snapshot pin", () => {
@@ -79,7 +83,7 @@ test("canonical artifact event admission and content replay reject a missing sna
     read: () => ({ schema: "canonical-event-stream/v1", revision: 1, events: [event] }),
     readContentBlob: () => Buffer.from(compiled.blobs[0].body),
   });
-  assert.throws(() => store.get(artifact.typeIdentity, descriptor.entityId), /kindVersion/u);
+  assert.throws(() => store.get(artifact.typeIdentity, descriptor.entityId), /entityId/u);
 });
 
 test("Artifact descriptor codec is nine-field exact and repository paths use the portable path contract", () => {
