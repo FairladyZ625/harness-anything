@@ -335,7 +335,9 @@ export {
 } from "./entity-event.ts";
 export {
   MAX_ENTITY_CONTENT_OBJECT_BYTES,
+  entityDirectoryFootprint,
   entityOwnedDirectories,
+  entityRetiredDirectories,
   type EntityContentDirectory,
   type EntityContentRetirement,
   type EntityOwnedContentV1,

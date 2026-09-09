@@ -482,29 +482,15 @@ export const localGitWorktreeSettlement = Object.freeze({
       hooks.afterRename?.();
     }
   },
-  /** Every directory inside one owned subtree, deepest first. Symbolic links are not followed and not listed. */
-  directoriesUnder: (repoRoot: string, logical: string): readonly string[] => {
-    const walk = (relative: string): readonly string[] => {
-      let entries;
-      try {
-        entries = readdirSync(path.join(repoRoot, ...relative.split("/")), { withFileTypes: true });
-      } catch (error) {
-        consumeKnownError(error);
-        return [];
-      }
-      return entries
-        .filter((entry) => entry.isDirectory())
-        .flatMap((entry) => [...walk(`${relative}/${entry.name}`), `${relative}/${entry.name}`]);
-    };
-    return walk(logical);
-  },
   /**
    * Retiring a directory an entity owned. It is the mirror of the `{ directory }` creation above and travels
-   * through the same writer, so materialization stays one path. Removal is never recursive: `rmdir` refuses a
-   * directory that still holds anything, which is exactly the rule that keeps a file or directory the user added
-   * from being taken away with the entity's own empty ones. Deepest paths must be presented first, so a parent
-   * is only attempted once its retired children are gone. The preserved paths are returned rather than thrown
-   * on, because "someone put something here" is an answer, not a settlement failure.
+   * through the same writer, so materialization stays one path. The caller names the paths, and may only name
+   * ones an accepted event says the owner held; this function never discovers a path for itself. Removal is
+   * never recursive: `rmdir` refuses a directory that still holds anything, which is exactly the rule that keeps
+   * a file or directory the user added from being taken away with the entity's own empty ones. Deepest paths
+   * must be presented first, so a parent is only attempted once its retired children are gone. The preserved
+   * paths are returned rather than thrown on, because "someone put something here" is an answer, not a
+   * settlement failure.
    */
   retireEmptyDirectories: (repoRoot: string, logicalPaths: readonly string[]): readonly string[] => {
     const preserved: string[] = [];

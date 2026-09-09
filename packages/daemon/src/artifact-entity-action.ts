@@ -21,6 +21,7 @@ import {
   composeCanonicalRelationDirections,
   ARTIFACT_ENTITY_ID_BYTES,
   entityContentRoot,
+  entityDirectoryFootprint,
   isEntityDeclarationEvent,
   isEntityEvent,
   MAX_ENTITY_CONTENT_OBJECT_BYTES,
@@ -202,6 +203,7 @@ export function executeArtifactEntityMutation(input: {
             { ...envelope, opId },
             carriedContent(input.store, pinned, entityId, current.ownedContent),
             carriedDirectories(pinned, entityId, current.ownedContent),
+            entityDirectoryFootprint(entityContentRoot(pinned, entityId), current.ownedContent),
           )
         : input.action.kind === "entity-delete"
           ? compileEntityDeleted({
@@ -218,6 +220,9 @@ export function executeArtifactEntityMutation(input: {
                 path,
                 baseBlobSha256: contentSha256,
               })),
+              // The directories go with the files, and only the ones the accepted manifest says the entity held:
+              // a directory the user made inside the content root was never the entity's and is not named here.
+              heldDirectories: entityDirectoryFootprint(entityContentRoot(pinned, entityId), current.ownedContent),
               reason: requiredArtifactText(input.action.reason, "reason"),
             })
           : compileEntityArchived({
@@ -268,6 +273,7 @@ function updatedBundle(
   },
   carried: readonly EntityContentBlob[],
   carriedDirectories: readonly string[],
+  heldDirectories: readonly string[],
 ) {
   const locator =
       typeof action.locator === "string"
@@ -289,6 +295,8 @@ function updatedBundle(
     // An empty directory is only in the manifest because nothing else can hold it; an update that failed to
     // restate it would be un-declaring a directory the caller never asked to give up.
     sourceDirectories: carriedDirectories,
+    // What the entity held before, so anything that falls out of the restated manifest is retired by name.
+    heldDirectories,
     descriptor: {
       ...current,
       locator,
@@ -565,10 +573,15 @@ function readCurrentArtifact(
     ownedContent = ownedContentForDeclarationEvent(event);
   }
   if (revision === 0) return null;
+  const pinned = pinnedArtifactKindContract(
+    contract,
+    descriptor?.kindVersion ?? contract.latestVersion,
+  ) as unknown as EntityStoreKindContract;
   return {
     descriptor,
     revision,
     ownedContent,
+    ownedDirectories: entityDirectoryFootprint(entityContentRoot(pinned, entityId), ownedContent),
     ownedPaths: (ownedContent?.bindings ?? []).map(({ path: bound, contentSha256 }) => ({
       path: bound,
       sha256: contentSha256,

@@ -65,6 +65,12 @@ export interface ArtifactEntityCurrent {
   readonly revision: number;
   /** Every path the entity's latest accepted manifest binds, so a snapshot that drops one can retire it. */
   readonly ownedPaths?: readonly { readonly path: string; readonly sha256: string }[];
+  /**
+   * Every directory that manifest holds. A file retirement can name itself because a file was a claim; a
+   * directory was not, so a snapshot that stops needing one can only retire it by having been told what the
+   * entity held. Anything absent from this list was never the entity's, whatever the worktree looks like.
+   */
+  readonly ownedDirectories?: readonly string[];
 }
 
 export interface ArtifactEntityImportPreview {
@@ -243,6 +249,9 @@ export function makeArtifactEntityService(options: {
                   path,
                   baseBlobSha256: sha256,
                 })),
+                // The same rule for directories: the compiler keeps the ones this snapshot still holds and
+                // retires the rest by name, so a directory nobody declared is never a candidate.
+                heldDirectories: current?.ownedDirectories ?? [],
               })
             : compileEntityTargetMissing({
                 ...eventInput,

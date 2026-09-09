@@ -4,6 +4,7 @@ import {
   entityOwnedContentClaims,
   entityOwnedDirectories,
   entityOwnedDocumentClaims,
+  entityRetiredDirectories,
 } from "../domain/entity-owned-content.ts";
 import { isScheduleEvent } from "../domain/schedule-event.ts";
 import { isSettingsEvent } from "../domain/settings-event.ts";
@@ -91,81 +92,33 @@ export function canonicalDocumentRetirements(
     : [];
 }
 /**
- * The empty directories one event says its owner holds. Git cannot store an empty tree, so the manifest is the
- * only durable record and materialization recreates the directory from it; an event that owns none states none,
- * which is how a delete stops an owner's directories from being recreated on the next rebuild.
+ * The directories one event says its owner holds, and the ones it says the owner has stopped holding. Git cannot
+ * store an empty tree, so the manifest is the only durable record: materialization creates a held directory from
+ * it, and retires a released one from it. Both sides are read off the event and nothing else — a directory that
+ * is merely sitting empty on disk was never claimed by this owner and is not in either list, which is what keeps
+ * a directory the user made inside an entity's content root from being taken away with the entity.
  */
 export function canonicalOwnedDirectories(event: PersistedCanonicalEventV1): {
   readonly ownerRef: string;
-  /** The entity's own content root: the only subtree its directories may ever be retired from. */
-  readonly contentRoot: string;
   /** Directories the manifest states explicitly, because no file of theirs implies them. */
   readonly directories: readonly string[];
-  /** Every directory under the content root that this event still needs to exist. */
-  readonly footprint: readonly string[];
+  /** Directories this owner held under an earlier accepted manifest and holds no longer. */
+  readonly retirements: readonly string[];
 } | null {
   if (!isEntityEvent(event)) return null;
-  if (event.type === "entity_deleted") {
-    const root = deletedContentRoot(event.payload.ownedContent.retirements.map(({ path }) => path));
-    // A delete states no directory at all, which is exactly what makes every directory under its root retirable.
-    return root === null
-      ? null
-      : { ownerRef: event.payload.ownedContent.ownerRef, contentRoot: root, directories: [], footprint: [] };
-  }
+  if (event.type === "entity_deleted")
+    return {
+      ownerRef: event.payload.ownedContent.ownerRef,
+      directories: [],
+      retirements: entityRetiredDirectories(event.payload.ownedContent),
+    };
   if (!isEntityDeclarationEvent(event)) return null;
-  const manifest = ownedContentForDeclarationEvent(event),
-    directories = entityOwnedDirectories(manifest),
-    contentRoot = entityContentRootOfClaim(event.payload.declarationDocumentClaim.path);
+  const manifest = ownedContentForDeclarationEvent(event);
   return {
     ownerRef: manifest.ownerRef,
-    contentRoot,
-    directories,
-    footprint: ownedDirectoryFootprint(
-      contentRoot,
-      directories,
-      manifest.bindings.map(({ path }) => path),
-    ),
+    directories: entityOwnedDirectories(manifest),
+    retirements: entityRetiredDirectories(manifest),
   };
-}
-
-/** The entity's own content root, read off the declaration document the same way the registry derives it. */
-function entityContentRootOfClaim(documentPath: string): string {
-  const basename = documentPath.slice(documentPath.lastIndexOf("/") + 1);
-  return basename.lastIndexOf(".") <= 0 ? documentPath : documentPath.slice(0, documentPath.lastIndexOf("."));
-}
-
-/**
- * A delete retires the declaration document and everything the entity had under that document's root, so the
- * one retirement whose root contains all the others is the declaration, and its root is the entity's.
- */
-function deletedContentRoot(retirements: readonly string[]): string | null {
-  for (const candidate of retirements) {
-    const root = entityContentRootOfClaim(candidate);
-    if (root !== candidate && retirements.every((other) => other === candidate || other.startsWith(`${root}/`)))
-      return root;
-  }
-  return null;
-}
-
-/**
- * The directories an entity materializes: its content root, every declared empty directory, and every directory
- * that holds one of its bound files. Nothing above the content root is included — those are shared with other
- * entities and are not this entity's to retire.
- */
-function ownedDirectoryFootprint(
-  root: string,
-  directories: readonly string[],
-  files: readonly string[],
-): readonly string[] {
-  const held = new Set<string>([root]),
-    prefix = `${root}/`,
-    hold = (candidate: string) => {
-      for (let held_at = candidate; held_at.startsWith(prefix); held_at = held_at.slice(0, held_at.lastIndexOf("/")))
-        held.add(held_at);
-    };
-  for (const directory of directories) hold(directory);
-  for (const file of files) if (file.startsWith(prefix)) hold(file.slice(0, file.lastIndexOf("/")));
-  return [...held];
 }
 
 export function canonicalDocumentMode(event: CanonicalEventV1, documentPath: string): "100644" | "120000" {

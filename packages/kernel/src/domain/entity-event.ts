@@ -18,9 +18,11 @@ import {
 import { parseEntityJsonSchema, serializeEntityJsonSchema } from "./entity-json-schema.ts";
 import {
   createEntityOwnedContent,
+  entityDirectoryFootprint,
   entityOwnedContentClaims,
   entityOwnedDirectories,
   entityOwnedDocumentClaims,
+  entityRetiredDirectories,
   entitySchemaVersion,
   validateEntityOwnedContent,
   type EntityContentRetirement,
@@ -29,6 +31,7 @@ import {
 import {
   ENTITY_DOCUMENT_POLICY_ID,
   entityContentPath,
+  entityContentRoot,
   entityDocumentPath,
   requireEntityStoreKindContract,
   type EntityStoreKindContract,
@@ -264,6 +267,7 @@ export function compileEntityContentObserved(
     readonly sourceContent?: readonly EntityContentBlob[];
     readonly sourceDirectories?: readonly string[];
     readonly retirements?: readonly EntityContentRetirement[];
+    readonly heldDirectories?: readonly string[];
   },
 ): EntityContentObservedBundle {
   const descriptor = decodeArtifactDescriptor(input.contract, input.descriptor),
@@ -272,6 +276,7 @@ export function compileEntityContentObserved(
     ownedContent = declarationOwnedContent(input.contract, descriptor.entityId, claim, sourceContent, {
       directories: input.sourceDirectories,
       retirements: input.retirements,
+      heldDirectories: input.heldDirectories,
     }),
     event: EntityContentObservedEventV1 = {
       ...eventEnvelope(input),
@@ -330,6 +335,7 @@ export function compileEntityUpdated(
     readonly sourceContent?: readonly EntityContentBlob[];
     readonly sourceDirectories?: readonly string[];
     readonly retirements?: readonly EntityContentRetirement[];
+    readonly heldDirectories?: readonly string[];
   },
 ): EntityUpdatedBundle {
   const descriptor = decodeArtifactDescriptor(input.contract, input.descriptor),
@@ -338,6 +344,7 @@ export function compileEntityUpdated(
     ownedContent = declarationOwnedContent(input.contract, descriptor.entityId, claim, sourceContent, {
       directories: input.sourceDirectories,
       retirements: input.retirements,
+      heldDirectories: input.heldDirectories,
     }),
     observationId = artifactObservationId({
       entityId: descriptor.entityId,
@@ -402,6 +409,8 @@ export function compileEntityDeleted(
     readonly reason: string;
     readonly contract?: EntityStoreKindContract;
     readonly contentRetirements?: readonly EntityContentRetirement[];
+    /** The footprint the entity held; a delete keeps none of it, so all of it is retired. */
+    readonly heldDirectories?: readonly string[];
   },
 ): EntityDeletedBundle {
   const contract = input.contract ?? requireEntityStoreKindContract(input.entityKind),
@@ -415,6 +424,10 @@ export function compileEntityDeleted(
         { path, baseBlobSha256: input.baseBlobSha256 },
         ...(input.contentRetirements ?? []).filter((retired) => retired.path !== path),
       ],
+      // A delete states every directory the entity held, because it will hold none of them afterwards. Nothing
+      // is derived from what happens to be on disk: a directory the entity never held is not named here and is
+      // therefore never touched, however empty it is.
+      directoryRetirements: (input.heldDirectories ?? []).map((held) => ({ path: held })),
     }),
     event: EntityDeletedEventV1 = {
       ...eventEnvelope(input),
@@ -548,6 +561,11 @@ export function entityDeletedWritePlan(event: EntityDeletedEventV1): FrozenWrite
           path: retirement.path,
           operation: "delete" as const,
           baseSha256: retirement.baseBlobSha256,
+        })),
+        ...entityRetiredDirectories(event.payload.ownedContent).map((path) => ({
+          kind: "authored_directory" as const,
+          path,
+          operation: "retire" as const,
         })),
         { kind: "projection_invalidation", projection: "entity/v1", key: event.payload.entityId },
       ],
@@ -916,17 +934,11 @@ function declarationOwnedContent(
   owned: {
     readonly directories?: readonly string[];
     readonly retirements?: readonly EntityContentRetirement[];
+    /** The footprint the previous accepted manifest held, so this one can state what fell out of it. */
+    readonly heldDirectories?: readonly string[];
   } = {},
 ): EntityOwnedContentV1 {
-  const bound = new Set([
-    claim.path,
-    ...sourceContent.map(({ relativePath }) => entityContentPath(contract, entityId, relativePath)),
-  ]);
-  return createEntityOwnedContent({
-    ownerRef: `${contract.kind}/${entityId}`,
-    schemaId: contract.schema.$id,
-    schemaVersion: entitySchemaVersion(contract.schema.$id),
-    bindings: [
+  const bindings = [
       claim,
       ...sourceContent.map(({ relativePath, sha256, size, mediaType, policyId }) => ({
         path: entityContentPath(contract, entityId, relativePath),
@@ -936,12 +948,30 @@ function declarationOwnedContent(
         policyId,
       })),
     ],
-    directories: (owned.directories ?? []).map((relativePath) => ({
+    directories = (owned.directories ?? []).map((relativePath) => ({
       path: entityContentPath(contract, entityId, relativePath),
     })),
+    bound = new Set(bindings.map(({ path }) => path)),
+    // Only a directory the entity itself held can fall out of its own footprint, which is what keeps a directory
+    // the user made inside the content root out of every retirement this entity will ever state.
+    footprint = new Set(
+      entityDirectoryFootprint(entityContentRoot(contract, entityId), {
+        directories,
+        bindings: bindings.map(({ path }) => ({ path })),
+      }),
+    );
+  return createEntityOwnedContent({
+    ownerRef: `${contract.kind}/${entityId}`,
+    schemaId: contract.schema.$id,
+    schemaVersion: entitySchemaVersion(contract.schema.$id),
+    bindings,
+    directories,
     // A path this observation still binds is not retired by it: an update that rewrites a file states the new
     // bytes, and only the paths that fell out of the snapshot are retired.
     retirements: (owned.retirements ?? []).filter(({ path }) => !bound.has(path)),
+    directoryRetirements: (owned.heldDirectories ?? [])
+      .filter((held) => !footprint.has(held))
+      .map((path) => ({ path })),
   });
 }
 
@@ -982,6 +1012,11 @@ function declarationWritePlan<Command extends "EntityUpsert" | "EntityContentObs
         kind: "authored_directory" as const,
         path,
         operation: "create" as const,
+      })),
+      ...entityRetiredDirectories(ownedContentForDeclarationEvent(event)).map((path) => ({
+        kind: "authored_directory" as const,
+        path,
+        operation: "retire" as const,
       })),
       { kind: "projection_invalidation", projection, key: claim.path },
       ...entityOwnedContentClaims(ownedContentForDeclarationEvent(event)).map((owned) => ({

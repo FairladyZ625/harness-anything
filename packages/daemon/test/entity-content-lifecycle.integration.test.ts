@@ -48,6 +48,7 @@ interface OwnedContent {
   readonly bindings: readonly { readonly path: string; readonly contentSha256: string }[];
   readonly directories: readonly { readonly path: string }[];
   readonly retirements: readonly { readonly path: string; readonly baseBlobSha256: string }[];
+  readonly directoryRetirements: readonly { readonly path: string }[];
 }
 
 /**
@@ -547,6 +548,178 @@ test("Deleting an entity is refused for a caller with no repository write role",
     // The same call with the repository write role goes through: the action is governed, not disabled.
     const allowed = await cell.run(request, binding);
     assert.equal(allowed.outcome, "applied", JSON.stringify(allowed));
+  } finally {
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+/**
+ * Retirement is read off the entity's own accepted manifests, never off the worktree. A directory the user made
+ * inside an entity's content root was never declared by any of its events, so it is not in the delete's
+ * retirement list and cannot be removed by it — and while it stands, neither can any directory holding it. A
+ * second entity living in the same shared parent is likewise untouched: one owner's delete names only its own.
+ */
+test("A user's own empty directory inside an entity's content root survives that entity's deletion", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-entity-undeclared-directory-")),
+    sourcePath = "research/undeclared-directory",
+    absoluteSource = path.join(rootDir, sourcePath),
+    neighbourPath = "research/neighbour",
+    repoId = workspaceId("entity-undeclared-directory");
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    initRepo(rootDir);
+    mkdirSync(path.join(absoluteSource, "outbox", "pending"), { recursive: true });
+    writeFileSync(path.join(absoluteSource, "README.md"), "# Undeclared directory\n");
+    mkdirSync(path.join(rootDir, neighbourPath, "spool"), { recursive: true });
+    writeFileSync(path.join(rootDir, neighbourPath, "README.md"), "# Neighbour\n");
+    git(rootDir, "add", "research");
+    git(rootDir, "commit", "-qm", "add two sources under one shared parent");
+    cell = await openRepoCell({
+      repoId,
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "entity-undeclared-directory-center",
+      now: () => "2026-09-09T16:00:00.000Z",
+    });
+
+    const importOf = async (locator: string) => {
+        const receipt = await cell!.run(
+          { kind: "entity-import", entityKind: researchKind, locator, expectedVersion: 0 },
+          binding,
+        );
+        assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+        await waitForFixturePublication(cell!, receipt.opId, binding);
+        return {
+          receipt,
+          entityId: (JSON.parse(String(receipt.evidence)) as { preview: { entityId: string } }).preview.entityId,
+        };
+      },
+      imported = await importOf(sourcePath),
+      neighbour = await importOf(neighbourPath),
+      held = (...segments: readonly string[]) =>
+        path.join(rootDir, "harness", `entities/research/${imported.entityId}`, ...segments),
+      neighbourHeld = (...segments: readonly string[]) =>
+        path.join(rootDir, "harness", `entities/research/${neighbour.entityId}`, ...segments);
+    assert.ok(statSync(held("outbox", "pending")).isDirectory());
+    assert.ok(statSync(neighbourHeld("spool")).isDirectory());
+
+    // Two empty directories the entity never declared, made by the user inside the content root it owns.
+    mkdirSync(held("scratch", "deep"), { recursive: true });
+
+    const deleted = await cell.run(
+      {
+        kind: "entity-delete",
+        entityKind: researchKind,
+        entityId: imported.entityId,
+        expectedVersion: imported.receipt.revision,
+        reason: "delete the entity, not the user's directory",
+      },
+      binding,
+    );
+    assert.equal(deleted.outcome, "applied", JSON.stringify(deleted));
+    await waitForFixturePublication(cell, deleted.opId, binding);
+
+    assert.equal(existsSync(held("outbox", "pending")), false, "a declared empty directory must be retired");
+    assert.equal(existsSync(held("outbox")), false, "its parent goes once the child is gone");
+    assert.equal(existsSync(held("README.md")), false, "the entity's own file goes with it");
+    assert.ok(statSync(held("scratch", "deep")).isDirectory(), "an empty directory the user made is not the entity's");
+    assert.ok(statSync(held("scratch")).isDirectory(), "nor is the directory holding it");
+    assert.equal(existsSync(held()), true, "a content root still holding the user's directory must stand");
+    assert.ok(statSync(neighbourHeld("spool")).isDirectory(), "another owner's directory is not in this delete");
+    // And the reason it went that way: the delete named exactly what the entity held, and nothing else.
+    assert.deepEqual(
+      acceptedManifest(repoId, rootDir, deleted.opId).directoryRetirements.map(({ path: retired }) => retired),
+      [
+        `entities/research/${imported.entityId}`,
+        `entities/research/${imported.entityId}/outbox`,
+        `entities/research/${imported.entityId}/outbox/pending`,
+      ],
+      "a delete retires its own footprint, stated by name",
+    );
+
+    // Rebuild reaches the same answer from the ledger alone: still no restoration, still no removal.
+    const recovered = await cell.run({ kind: "doc-materialize" }, binding);
+    assert.equal(recovered.outcome, "applied", JSON.stringify(recovered));
+    assert.equal(existsSync(held("outbox")), false, "recovery must not restore a retired directory");
+    assert.ok(statSync(held("scratch", "deep")).isDirectory(), "recovery must not remove what the entity never held");
+    assert.ok(statSync(neighbourHeld("spool")).isDirectory());
+
+    // Once the user takes their own directory away, the retirement the entity did state completes.
+    rmSync(held("scratch"), { recursive: true });
+    const retried = await cell.run({ kind: "doc-materialize" }, binding);
+    assert.equal(retried.outcome, "applied", JSON.stringify(retried));
+    assert.equal(existsSync(held()), false, "the blocked retirement is re-attempted, not dropped");
+    assert.ok(statSync(neighbourHeld("spool")).isDirectory(), "the surviving entity keeps everything it declared");
+  } finally {
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+/**
+ * Relinking an entity to another locator restates the directories it holds, so it retires none of them — and it
+ * names no path outside its own content root, which is what keeps a concurrent owner in the same shared parent
+ * out of the settlement entirely.
+ */
+test("Relinking an entity retires none of its directories and none of another owner's", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-entity-relink-directory-")),
+    repoId = workspaceId("entity-relink-directory");
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    initRepo(rootDir);
+    mkdirSync(path.join(rootDir, "research/relinked", "queue"), { recursive: true });
+    writeFileSync(path.join(rootDir, "research/relinked", "README.md"), "# Relinked\n");
+    mkdirSync(path.join(rootDir, "research/steady", "queue"), { recursive: true });
+    writeFileSync(path.join(rootDir, "research/steady", "README.md"), "# Steady\n");
+    git(rootDir, "add", "research");
+    git(rootDir, "commit", "-qm", "add a source to relink and a source to leave alone");
+    cell = await openRepoCell({
+      repoId,
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "entity-relink-directory-center",
+      now: () => "2026-09-09T17:00:00.000Z",
+    });
+    const importOf = async (locator: string) => {
+        const receipt = await cell!.run(
+          { kind: "entity-import", entityKind: researchKind, locator, expectedVersion: 0 },
+          binding,
+        );
+        assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+        await waitForFixturePublication(cell!, receipt.opId, binding);
+        return {
+          receipt,
+          entityId: (JSON.parse(String(receipt.evidence)) as { preview: { entityId: string } }).preview.entityId,
+        };
+      },
+      relinked = await importOf("research/relinked"),
+      steady = await importOf("research/steady"),
+      held = (...segments: readonly string[]) =>
+        path.join(rootDir, "harness", `entities/research/${relinked.entityId}`, ...segments),
+      steadyHeld = (...segments: readonly string[]) =>
+        path.join(rootDir, "harness", `entities/research/${steady.entityId}`, ...segments);
+
+    const updated = await cell.run(
+      {
+        kind: "entity-update",
+        entityKind: researchKind,
+        entityId: relinked.entityId,
+        expectedVersion: relinked.receipt.revision,
+        title: "Relinked elsewhere",
+      },
+      binding,
+    );
+    assert.equal(updated.outcome, "applied", JSON.stringify(updated));
+    await waitForFixturePublication(cell, updated.opId, binding);
+    const manifest = acceptedManifest(repoId, rootDir, updated.opId);
+    assert.deepEqual(manifest.directoryRetirements, [], "an update that restates what it holds retires nothing");
+    assert.deepEqual(
+      manifest.directories.map(({ path: empty }) => empty),
+      [`entities/research/${relinked.entityId}/queue`],
+      "the declared empty directory is carried through the update",
+    );
+    assert.ok(statSync(held("queue")).isDirectory());
+    assert.ok(statSync(steadyHeld("queue")).isDirectory(), "the other owner is not part of this settlement");
+    assert.equal(readFileSync(steadyHeld("README.md"), "utf8"), "# Steady\n");
   } finally {
     await cell?.close();
     rmSync(rootDir, { recursive: true, force: true });

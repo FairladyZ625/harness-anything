@@ -153,7 +153,7 @@ export type WriteTarget =
       readonly operation: "delete";
       readonly baseSha256: string;
     }
-  | { readonly kind: "authored_directory"; readonly path: string; readonly operation: "create" }
+  | { readonly kind: "authored_directory"; readonly path: string; readonly operation: "create" | "retire" }
   | { readonly kind: "projection_invalidation"; readonly projection: string; readonly key: string }
   | {
       readonly kind: "lease_sqlite";
@@ -520,7 +520,10 @@ export function validateDeclaredWritePlan(plan: WritePlan, commandTypes: readonl
         !isNonEmptyString(target.mediaType))
     )
       errors.push("content blob target is invalid");
-    if (target.kind === "authored_directory" && (!safeWorkspacePath(target.path) || target.operation !== "create"))
+    if (
+      target.kind === "authored_directory" &&
+      (!safeWorkspacePath(target.path) || (target.operation !== "create" && target.operation !== "retire"))
+    )
       errors.push("authored directory target is invalid");
     if (target.kind === "ledger_file" && !validLedgerTarget(target)) errors.push("ledger target is invalid");
   }
