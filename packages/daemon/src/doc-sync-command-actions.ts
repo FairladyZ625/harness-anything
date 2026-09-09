@@ -91,7 +91,7 @@ export function isDocAction(kind: string): boolean {
   );
 }
 
-export async function runDocAction(input: Input): Promise<WriteReceipt> {
+export async function runDocAction(input: Input): Promise<DocSettlementReceipt> {
   if (Buffer.byteLength(JSON.stringify(input.action)) > DOC_COMMAND_FRAME_MAX_BYTES)
     throw docSyncError("invalid_command", "doc command frame exceeds the descriptor-only limit");
   if (input.action.kind.startsWith("doc-conflict-")) return runLocalDocConflictExit(input);
@@ -141,9 +141,8 @@ export async function runDocAction(input: Input): Promise<WriteReceipt> {
       ].join("\n"),
     });
   }
-  if (scan && !scan.rows.some((row) => row.state === "eligible")) {
-    const explicitSelection =
-      !Object.hasOwn(input.action, "taskId") && Array.isArray(input.action.paths) && input.action.paths.length > 0;
+  if (scan) {
+    const explicitSelection = Array.isArray(input.action.paths) && input.action.paths.length > 0;
     if (explicitSelection && scan.rows.some((row) => row.state === "conflict")) {
       const rejection = rejectDocSyncAction(
         `scan:${scan.baseLedgerSha.headDigest}`,
@@ -167,6 +166,8 @@ export async function runDocAction(input: Input): Promise<WriteReceipt> {
         ].join("\n"),
       };
     }
+  }
+  if (scan && !scan.rows.some((row) => row.state === "eligible")) {
     const code = scanRejectionCode(scan),
       blocked = scanDetail(input, scan, code ?? "preview_blocked");
     return scan.rows.some((row) => row.state === "blocked" || row.state === "deletion")

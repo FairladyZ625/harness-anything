@@ -479,6 +479,21 @@ test("a locally edited task plan becomes a CLI doc conflict that the conflict co
     assert.equal(unresolved[0]?.requiredRoute, "local-conflict-resolution", blockedSync.stdout);
     assert.match(unresolved[0]?.reason ?? "", /local conflict scratch requires resolution/u, blockedSync.stdout);
     assert.match(String(blockedReceipt.summary ?? ""), /\tconflict\t/u, blockedSync.stdout);
+    const siblingPath = path.join(packageRoot, "closeout.md"),
+      siblingLogical = packagePathFor(packagePath, "closeout.md"),
+      siblingBefore = readFileSync(siblingPath, "utf8");
+    writeFileSync(siblingPath, `${siblingBefore}\nLocal sibling change must not hide a selected conflict.\n`);
+    const mixed = await runResult(
+      fixture,
+      ["doc", "sync", "--submit", "--path", planLogical, "--path", siblingLogical],
+      environment,
+    );
+    const mixedReceipt = JSON.parse(mixed.stdout) as Record<string, unknown>;
+    assert.notEqual(mixed.status, 0, mixed.stdout);
+    assert.equal(mixedReceipt.outcome, "op_rejected", mixed.stdout);
+    const siblingCanonical = await expectApplied(fixture, ["doc", "show", "--path", siblingLogical], environment);
+    assert.equal(siblingCanonical.evidence, siblingBefore);
+    writeFileSync(siblingPath, siblingBefore);
     // Recovery: merge the preserved prose onto the retitled base, then close the conflict by hand.
     writeFileSync(planPath, `${readFileSync(planPath, "utf8")}\n${drift}`);
     const resolved = await expectApplied(fixture, ["doc", "conflict", "resolve", conflictId], environment);
