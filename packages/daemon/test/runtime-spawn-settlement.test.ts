@@ -121,6 +121,7 @@ test("terminal settlement reports a runtime archive failure and still publishes 
     archiveError = new Error("archive publication failed"),
     errors: string[] = [],
     published: string[] = [],
+    outcomes: Record<string, unknown>[] = [],
     originalError = console.error,
     context = {
       exiting: new Set<string>(),
@@ -135,8 +136,9 @@ test("terminal settlement reports a runtime archive failure and still publishes 
       resultMediaType: "text/markdown",
       runtimeResultText: () => "failed result",
       markProtocolError: () => undefined,
-      publishRuntimeEvent: async (type: string) => {
+      publishRuntimeEvent: async (type: string, payload: Record<string, unknown> = {}) => {
         published.push(type);
+        if (type === "runtime_session_outcome_observed") outcomes.push(payload);
         return {};
       },
       settleFallback: async () => undefined,
@@ -146,6 +148,8 @@ test("terminal settlement reports a runtime archive failure and still publishes 
     await publishExit(context, runtime, 1);
     assert.match(errors.join("\n"), /could not be archived: archive publication failed/u);
     assert.deepEqual(published, ["runtime_session_exited", "runtime_session_outcome_observed"]);
+    assert.equal(outcomes[0]?.outcome, "failed");
+    assert.equal(outcomes[0]?.reasonCode, "runtime_archive_failed");
   } finally {
     console.error = originalError;
     rmSync(rootDir, { recursive: true, force: true });
