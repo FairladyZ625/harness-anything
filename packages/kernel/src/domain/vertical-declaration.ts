@@ -103,18 +103,6 @@ export function applyVerticalKindCommand(input: {
     });
   }
   if (!isRecord(input.declaration)) verticalError("invalid_field", "Vertical kind declaration must be an object.");
-  if (index >= 0) {
-    const existing = input.definition.entityKinds[index];
-    if (existing.entityType === "artifact" && input.declaration.entityType === "artifact") {
-      if (existing.version !== input.declaration.version)
-        verticalError(
-          "immutable_schema_version",
-          `Vertical kind ${kindId} schema version is immutable; create a new kind identity for version ${input.declaration.version}.`,
-        );
-      if (existing.retired === true)
-        verticalError("kind_retired", `Vertical kind ${kindId} is retired and cannot be reactivated.`);
-    }
-  }
   const entityKinds = [...input.definition.entityKinds];
   if (index < 0) entityKinds.push(input.declaration as VerticalDefinition["entityKinds"][number]);
   else entityKinds[index] = input.declaration as VerticalDefinition["entityKinds"][number];
