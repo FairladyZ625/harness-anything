@@ -4,6 +4,7 @@ import { execFileSync, spawn } from "node:child_process";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import test, { type TestContext } from "node:test";
 import { fleetHostWriterOptions, fleetLedgerRevision } from "./fleet-store.fixture.ts";
 import { openSqliteEventStore } from "../../kernel/src/index.ts";
@@ -34,6 +35,33 @@ function reclaimer() {
 }
 
 test("production Fleet TLS entry sustains 3/10/32 Git-less edge processes across eight repos without duplicate writes", async (t) => {
+  // Remove this probe once the CI-only lock callsite has a causal regression test.
+  const originalExec = DatabaseSync.prototype.exec;
+  DatabaseSync.prototype.exec = function (sql: string): void {
+    try {
+      return originalExec.call(this, sql);
+    } catch (error) {
+      const failure = error as Error & { code?: string; errcode?: number; errstr?: string };
+      t.diagnostic(
+        `Fleet SQLite exec failure: ${JSON.stringify({
+          node: process.version,
+          code: failure.code,
+          errcode: failure.errcode,
+          errstr: failure.errstr,
+          message: failure.message,
+          statementKinds: sql
+            .split(";")
+            .map((statement) => statement.trim().split(/\s+/u)[0])
+            .filter(Boolean),
+          stack: failure.stack,
+        })}`,
+      );
+      throw error;
+    }
+  };
+  t.after(() => {
+    DatabaseSync.prototype.exec = originalExec;
+  });
   const fixture = await scaleFixture(t);
   t.after(() => fixture.close());
   const center = await fixture.center();
