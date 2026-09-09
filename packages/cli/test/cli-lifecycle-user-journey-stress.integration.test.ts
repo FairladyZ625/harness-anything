@@ -304,6 +304,15 @@ test("CLI accepted receipt and daemon restart recover an in-flight task", async 
         ],
         environment,
       );
+    const acceptanceCut = receipt.acceptance?.cut as { readonly generation?: number } | undefined;
+    assert.equal(acceptanceCut?.generation, 2, JSON.stringify(receipt));
+    for (const facet of ["projection", "git", "worktree", "replica"] as const) {
+      const value = receipt[facet] as {
+        readonly state?: string;
+        readonly cut?: { readonly generation?: number } | null;
+      };
+      if (value.state === "verified") assert.equal(value.cut?.generation, 2, `${facet}: ${JSON.stringify(receipt)}`);
+    }
     assert.deepEqual(receipt.wait, { state: "satisfied", unsatisfied: [] });
     assert.equal((receipt.git as { readonly state?: string }).state, "verified");
     const packagePath = String(created.packagePath),
@@ -334,7 +343,17 @@ test("CLI accepted receipt and daemon restart recover an in-flight task", async 
     const final = await expectApplied(fixture, ["task", "show", taskId], environment),
       finalEvidence = JSON.parse(String(final.evidence)) as { readonly task?: { readonly status?: string } };
     assert.equal(finalEvidence.task?.status, "active");
-    context.diagnostic(JSON.stringify({ schema: "cli-lifecycle-restart-recovery/v1", taskId, opId, executionId }));
+    context.diagnostic(
+      JSON.stringify({
+        schema: "cli-lifecycle-restart-recovery/v1",
+        taskId,
+        opId,
+        executionId,
+        acceptanceGeneration: acceptanceCut?.generation ?? null,
+        receiptShowGeneration:
+          (receipt.projection as { readonly cut?: { readonly generation?: number } }).cut?.generation ?? null,
+      }),
+    );
   } finally {
     await stopClient(fixture);
     rmSync(fixture.parent, { recursive: true, force: true });

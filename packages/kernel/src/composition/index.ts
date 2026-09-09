@@ -15,7 +15,12 @@ export type {
 export type { DispatchRecordLeaseSettlement } from "../store/dispatch-record-lease.ts";
 export { ledgerGitPath, resolveLedgerGitLayout } from "../store/ledger-git-layout.ts";
 export { eventShapeMigrations } from "../store/event-shape-migration.ts";
-export { migrateEventsToSqlite, openSqliteEventStore, sqliteLedgerPath } from "../store/sqlite-event-store.ts";
+export {
+  migrateEventsToSqlite,
+  openSqliteEventStore,
+  resolveActiveGeneration,
+  sqliteLedgerPath,
+} from "../store/sqlite-event-store.ts";
 export { reconcileSqliteEvents } from "../store/sqlite-ledger-reconcile.ts";
 export {
   activateEmptyCanonicalGeneration,

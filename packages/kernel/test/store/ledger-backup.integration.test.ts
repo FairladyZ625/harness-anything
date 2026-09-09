@@ -138,9 +138,9 @@ test(
 
 test("VACUUM backup survives source deletion and rejects wrong generation metadata", () => {
   const root = fixture("sqlite"),
-    databasePath = sqliteLedgerPath(root),
+    databasePath = sqliteLedgerPath(root, 1),
     backupDir = path.join(os.tmpdir(), `ha-backup-sqlite-${process.pid}-${Date.now()}`),
-    store = openSqliteEventStore({ repoId: "backup-test", rootInput: root });
+    store = openSqliteEventStore({ repoId: "backup-test", rootInput: root, generation: 1 });
   try {
     execFileSync("git", ["update-ref", "-d", "refs/ha/canonical"], { cwd: path.join(root, "harness") });
     store.appendCommand({

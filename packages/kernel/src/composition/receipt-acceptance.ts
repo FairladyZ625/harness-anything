@@ -59,23 +59,27 @@ export function attachReceiptAcceptance<R extends WriteReceiptDraft>(
   const lastOpId = outcome.memberOpIds.at(-1)!;
   const event = store.readEvent(lastOpId);
   if (!event) throw new Error("committed command outcome has no final event");
-  const { repoId, revision, headDigest } = store.publication(event).cut;
-  const acceptedCut: ReceiptConsumerCut = { repoId, revision, headDigest, generation: 1 };
+  const { repoId, revision, headDigest } = store.publication(event).cut,
+    generation = store.ledgerMetadata().generation;
+  if (generation !== 1 && generation !== 2) throw new Error("store generation is invalid");
+  const acceptedCut: ReceiptConsumerCut = { repoId, revision, headDigest, generation };
   const follower = store.followerStatus();
   const facet = (value: typeof follower.worktree, coversAcceptance: boolean): ReceiptFacet => ({
     state: value.status === "verified" && !coversAcceptance ? "pending" : value.status,
-    cut: coversAcceptance && value.cut ? { ...value.cut, generation: 1 } : null,
+    cut: coversAcceptance && value.cut ? { ...value.cut, generation } : null,
     ...(value.reason ? { reason: value.reason } : {}),
   });
   const gitCoversAcceptance =
     follower.git.status === "verified" &&
     follower.git.cut !== null &&
     follower.git.cut.repoId === acceptedCut.repoId &&
+    generation === acceptedCut.generation &&
     follower.git.cut.revision >= acceptedCut.revision;
   const worktreeCoversAcceptance =
     follower.worktree.status === "verified" &&
     follower.worktree.cut !== null &&
     follower.worktree.cut.repoId === acceptedCut.repoId &&
+    generation === acceptedCut.generation &&
     follower.worktree.cut.revision >= acceptedCut.revision;
   const projected = projection.readCut();
   const visible = projected.watermark >= outcome.lastRevision;

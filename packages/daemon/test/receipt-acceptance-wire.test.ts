@@ -51,12 +51,21 @@ test("wire acceptance agrees with domain acceptance for committed receipts and n
     { memberOpIds: ["op-3", "op-4"] },
     { extra: true },
     { cut: { ...cut, revision: 1 } },
-    { cut: { ...cut, generation: 2 } },
+    { cut: { ...cut, generation: 3 } },
     { cut: { ...cut, repoId: " " } },
     { cut: { ...cut, headDigest: "sha256:bad" } },
     { cut: { ...cut, extra: true } },
   ])
     check({ ...receipt, acceptance: { ...acceptance, ...changed } }, false);
+  check(
+    {
+      ...receipt,
+      acceptance: { ...acceptance, cut: { ...cut, generation: 2 } },
+      projection: { state: "verified", cut: { ...cut, generation: 2 } },
+      git: { state: "verified", cut: { ...cut, generation: 2 }, commitSha: "b".repeat(40) },
+    },
+    true,
+  );
   for (const key of Object.keys(acceptance)) {
     const missing = { ...acceptance };
     delete missing[key];

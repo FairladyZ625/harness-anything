@@ -256,14 +256,15 @@ test("explicit bootstrap activation creates an empty canonical generation only f
   const root = mkdtempSync(path.join(tmpdir(), "ha-empty-bootstrap-generation-")),
     repoId = "empty-bootstrap-generation",
     databasePath = path.join(root, ".harness/store/generations/1/ledger.sqlite"),
+    generationTwoPath = path.join(root, ".harness/store/generations/2/ledger.sqlite"),
     snapshotPath = path.join(root, ".harness/store/imports/generation-0.snapshot.json");
   try {
     initRepo(root);
     activateEmptyCanonicalGeneration({ rootInput: root, repoId });
-    assert.doesNotThrow(() => preflightCanonicalGeneration({ rootInput: root, repoId }));
-    assert.equal(existsSync(snapshotPath), true);
-    assert.equal(existsSync(`${databasePath}.import-source.json`), true);
-    assert.equal(existsSync(`${databasePath}.activation.json`), true);
+    assert.equal(existsSync(snapshotPath), false);
+    assert.equal(existsSync(databasePath), false);
+    assert.equal(existsSync(generationTwoPath), true);
+    assert.equal(existsSync(`${generationTwoPath}.activation.json`), true);
     activateEmptyCanonicalGeneration({ rootInput: root, repoId });
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -681,7 +682,7 @@ test("inactive generation conversion witnesses separated legacy relations at the
     await bump(2);
     await cell.close();
     cell = undefined;
-    const sourceSqlite = openSqliteEventStore({ repoId, rootInput: sourceRoot, readOnly: true });
+    const sourceSqlite = openSqliteEventStore({ repoId, rootInput: sourceRoot, generation: 2, readOnly: true });
     let expected: readonly (readonly [string, number])[];
     try {
       const original = sourceSqlite.events(),

@@ -150,7 +150,23 @@ export function resolveActiveGeneration(input: {
   readonly rootInput: HarnessLayoutInput;
   readonly repoId?: string;
 }): 1 | 2 {
-  return readGenerationTwoActivation(input) === null ? 1 : 2;
+  if (readGenerationTwoActivation(input) !== null) return 2;
+  return hasLegacyGeneration(input.rootInput) ? 1 : 2;
+}
+
+function hasLegacyGeneration(input: HarnessLayoutInput): boolean {
+  const layout = resolveHarnessLayout(input),
+    generationOneLedger = sqliteLedgerPath(input, 1),
+    generationOneCertificate = `${generationOneLedger}.activation.json`,
+    generationOneMarker = `${generationOneLedger}.import-source.json`;
+  return [
+    generationOneLedger,
+    generationOneCertificate,
+    generationOneMarker,
+    path.join(layout.localRoot, "store", "imports", "generation-0.snapshot.json"),
+    path.join(layout.authoredRoot, "events"),
+    path.join(layout.authoredRoot, "objects"),
+  ].some((candidate) => localRuntimeStateFileSystem.exists(candidate));
 }
 
 export function readGenerationTwoActivation(input: {
@@ -260,7 +276,11 @@ export function openSqliteEventStore(options: {
 }): SqliteEventStore {
   if (!options.readOnly && options.repoId === undefined)
     throw new TaskEventStoreError("repo_mismatch", "mutable SQLite ledger opening requires repoId");
-  const generation = options.generation ?? SQLITE_LEDGER_GENERATION,
+  const generation =
+      options.generation ??
+      (options.databasePath === undefined && options.rootInput !== undefined
+        ? resolveActiveGeneration({ rootInput: options.rootInput, repoId: options.repoId })
+        : SQLITE_LEDGER_GENERATION),
     databasePath = options.databasePath ?? sqliteLedgerPath(options.rootInput ?? process.cwd(), generation),
     objectRoot = path.join(path.dirname(databasePath), "objects", "sha256");
   if (options.conversionSourceGeneration !== undefined && (generation !== 2 || options.readOnly))

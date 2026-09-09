@@ -7,7 +7,7 @@ import { resolveHarnessLayout, type HarnessLayoutInput } from "../layout/index.t
 import { localLedgerBackupFileSystem as fileSystem } from "../local/local-layout-file-system.ts";
 import { decodeLegacyEventBytes, readStoppedLegacyGeneration } from "./legacy-generation-source.ts";
 import { localGitText } from "./local-version-control-system.ts";
-import { openSqliteEventStore, sqliteLedgerPath } from "./sqlite-event-store.ts";
+import { openSqliteEventStore, resolveActiveGeneration, sqliteLedgerPath } from "./sqlite-event-store.ts";
 
 export interface LedgerBackupManifestV1 {
   readonly schema: "ledger-backup/v1";
@@ -36,10 +36,11 @@ export function createLedgerBackup(input: {
   const backupDir = path.resolve(input.backupDir);
   if (!path.isAbsolute(input.backupDir)) throw new Error("backup directory must be absolute");
   if (fileSystem.exists(backupDir)) throw new Error("backup directory must not already exist");
-  const layout = resolveHarnessLayout(input.rootInput),
+  const generation = input.generation ?? resolveActiveGeneration({ rootInput: input.rootInput }),
+    layout = resolveHarnessLayout(input.rootInput),
     payloadRoot = path.join(backupDir, "payload"),
     sourcePaths = existingBackupSources(layout.rootDir, layout.authoredRoot),
-    sqlitePath = sqliteLedgerPath(input.rootInput, input.generation),
+    sqlitePath = sqliteLedgerPath(input.rootInput, generation),
     sqlitePresent = fileSystem.exists(sqlitePath);
   fileSystem.mkdir(payloadRoot, { recursive: true });
   copyWorkingTree(layout.rootDir, layout.authoredRoot, payloadRoot);
@@ -74,7 +75,7 @@ export function createLedgerBackup(input: {
           revision: legacy!.eventEntries.length,
           opIds: new Set(legacy!.eventEntries.map(({ event }) => event.opId)).size,
         },
-    sqlite: { present: sqlitePresent, integrity: sqlite?.integrity ?? null, generation: input.generation ?? 1 },
+    sqlite: { present: sqlitePresent, integrity: sqlite?.integrity ?? null, generation },
     files,
   };
   fileSystem.write(path.join(backupDir, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
@@ -113,7 +114,8 @@ export function readOfflineLedgerEvents(input: {
   readonly sinceTime?: string;
   readonly grep?: string;
 }): readonly unknown[] {
-  const databasePath = sqliteLedgerPath(input.rootInput, input.generation),
+  const generation = input.generation ?? resolveActiveGeneration({ rootInput: input.rootInput }),
+    databasePath = sqliteLedgerPath(input.rootInput, generation),
     events = fileSystem.exists(databasePath)
       ? readSqliteEvents(databasePath)
       : readStoppedLegacyGeneration({ rootInput: input.rootInput }).eventEntries.map(({ bytes }) =>

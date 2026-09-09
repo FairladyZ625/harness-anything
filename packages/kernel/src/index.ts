@@ -293,6 +293,7 @@ export {
   makeTaskEventStore,
   makeTaskProjection,
   openSqliteEventStore,
+  resolveActiveGeneration,
   readCertifiedGitFollower,
   sqliteLedgerPath,
   reconcileSqliteEvents,
