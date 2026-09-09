@@ -433,7 +433,7 @@ export const localGitWorktreeSettlement = Object.freeze({
     repoRoot: string,
     files: readonly {
       readonly target: string;
-      readonly body: string;
+      readonly body: string | Uint8Array;
       readonly mode?: "100644" | "120000";
     }[],
     hooks: {
@@ -450,10 +450,10 @@ export const localGitWorktreeSettlement = Object.freeze({
       removeNode(temporary);
       if (file.mode === "120000")
         /* @gate-identity check-bypass-write-boundary/bypass-write-077 */
-        symlinkSync(file.body, temporary);
+        symlinkSync(linkTarget(file.body), temporary);
       else
         /* @gate-identity check-bypass-write-boundary/bypass-write-084 */
-        writeFileSync(temporary, file.body, { encoding: "utf8", mode: 0o644 });
+        writeFileSync(temporary, file.body, { mode: 0o644 });
       return { target, temporary };
     });
     for (const item of pending) {
@@ -482,7 +482,7 @@ export const localGitWorktreeSettlement = Object.freeze({
     files: readonly (
       | {
           readonly target: string;
-          readonly body: string;
+          readonly body: string | Uint8Array;
           readonly mode?: "100644" | "120000";
         }
       | { readonly delete: string }
@@ -495,7 +495,7 @@ export const localGitWorktreeSettlement = Object.freeze({
         .map((file) =>
           "delete" in file
             ? `0 ${zero}\t${file.delete}\0`
-            : `${file.mode ?? "100644"} ${gitBlobOid(file.body)}\t${file.target}\0`,
+            : `${file.mode ?? "100644"} ${gitBlobOidBytes(asBytes(file.body))}\t${file.target}\0`,
         )
         .join("");
     localGitProcesses += 1;
@@ -517,7 +517,7 @@ export const localGitWorktreeSettlement = Object.freeze({
     files: readonly (
       | {
           readonly target: string;
-          readonly body: string;
+          readonly body: string | Uint8Array;
           readonly mode?: "100644" | "120000";
         }
       | { readonly from: string; readonly to: string }
@@ -535,7 +535,7 @@ export const localGitWorktreeSettlement = Object.freeze({
           file,
         ): file is {
           readonly target: string;
-          readonly body: string;
+          readonly body: string | Uint8Array;
           readonly mode?: "100644" | "120000";
         } => "target" in file,
       ),
@@ -614,12 +614,9 @@ export const localGitWorktreeSettlement = Object.freeze({
     for (const item of deletions) removeNode(item.target);
     const zero = "0".repeat(40);
     const indexInput = `${pending
-      .map((file) => `${file.mode} ${gitBlobOid(file.body)}\t${file.logical}\0`)
+      .map((file) => `${file.mode} ${gitBlobOidBytes(asBytes(file.body))}\t${file.logical}\0`)
       .join("")}${pendingRenames
-      .map(
-        (file) =>
-          `0 ${zero}\t${file.fromLogical}\0${file.node.mode} ${gitBlobOid(file.node.body)}\t${file.toLogical}\0`,
-      )
+      .map((file) => `0 ${zero}\t${file.fromLogical}\0${file.node.mode} ${file.node.gitOid}\t${file.toLogical}\0`)
       .join("")}${deletions.map((file) => `0 ${zero}\t${file.logical}\0`).join("")}`;
     if (files.length) localGitProcesses += 1;
     awaitDurableSettlement(
@@ -652,10 +649,7 @@ function preserveConflict(
   if (!node) throw new Error(`conflicting worktree node disappeared at ${logical}`);
   const extension = path.extname(target),
     stem = target.slice(0, target.length - extension.length),
-    id = hashVcsBytes("sha256", `${logical}\0${identity}\0${node.mode}\0${hashVcsBytes("sha256", node.body)}`).slice(
-      0,
-      8,
-    ),
+    id = hashVcsBytes("sha256", `${logical}\0${identity}\0${node.mode}\0${node.sha256}`).slice(0, 8),
     scratch = `${stem}.conflict-${id}${extension}`,
     relative = path.relative(repoRoot, scratch).split(path.sep).join("/");
   ensureConflictExclude(repoRoot);
@@ -663,16 +657,17 @@ function preserveConflict(
     if (node.mode === "120000")
       /* @gate-identity check-bypass-write-boundary/bypass-write-078 */
       symlinkSync(node.body, scratch);
-    else if (durable) durableWrite(scratch, Buffer.from(node.body));
+    else if (durable) durableWrite(scratch, node.bytes);
     else
       /* @gate-identity check-bypass-write-boundary/bypass-write-089 */
-      writeFileSync(scratch, node.body, { encoding: "utf8", mode: 0o600 });
+      writeFileSync(scratch, node.bytes, { mode: 0o600 });
   }
   return relative;
 }
 function readNode(target: string): {
   readonly mode: "100644" | "120000";
   readonly body: string;
+  readonly bytes: Buffer;
   readonly sha256: string;
   readonly gitOid: string;
   readonly size: number;
@@ -685,6 +680,7 @@ function readNode(target: string): {
     return {
       mode,
       body: bytes.toString("utf8"),
+      bytes,
       sha256: hashVcsBytes("sha256", bytes),
       gitOid: gitBlobOidBytes(bytes),
       size: bytes.byteLength,
@@ -745,8 +741,11 @@ function processMayBeAlive(pid: number): boolean {
     return true;
   }
 }
-function gitBlobOid(body: string): string {
-  return gitBlobOidBytes(Buffer.from(body));
+function asBytes(body: string | Uint8Array): Buffer {
+  return typeof body === "string" ? Buffer.from(body, "utf8") : Buffer.isBuffer(body) ? body : Buffer.from(body);
+}
+function linkTarget(body: string | Uint8Array): string {
+  return typeof body === "string" ? body : asBytes(body).toString("utf8");
 }
 function gitBlobOidBytes(bytes: Uint8Array): string {
   return createHash("sha1").update(`blob ${bytes.byteLength}\0`).update(bytes).digest("hex");
@@ -824,7 +823,7 @@ function commandErrorSummary(error: unknown): string | undefined {
 const settlementWorkerKind = "harness-durable-settlement/v1";
 let settlementWorker: Worker | null = null;
 interface DurableSettlementInput {
-  readonly files?: readonly { readonly temporary: string; readonly body: string }[];
+  readonly files?: readonly { readonly temporary: string; readonly body: string | Uint8Array }[];
   readonly directories?: readonly string[];
   readonly index?: { readonly repoRoot: string; readonly input: string; readonly skipWorktreeInput?: string };
 }

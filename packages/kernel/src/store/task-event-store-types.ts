@@ -70,7 +70,7 @@ export interface CanonicalWriteBundle extends CanonicalEventWriteBundle {
 export type GitFileMode = "100644" | "120000";
 export interface PublicationWrite {
   readonly target: string;
-  readonly body: string;
+  readonly body: string | Uint8Array;
   readonly mode: GitFileMode;
 }
 export interface PublicationRename {

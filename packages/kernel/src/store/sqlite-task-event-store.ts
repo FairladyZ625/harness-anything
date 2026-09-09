@@ -276,7 +276,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
       const target = "target" in file ? file.target : file.delete,
         current = worktreeFingerprint(localGitWorktreeSettlement.readNode(`${currentLedger.rootDir}/${target}`)),
         settled =
-          "target" in file ? `${file.mode}:${sha256Text(file.body)}:${Buffer.byteLength(file.body)}` : "missing";
+          "target" in file ? `${file.mode}:${publicationDigest(file.body)}:${Buffer.byteLength(file.body)}` : "missing";
       if (current === "missing" && (restoreMissing || !permitted.has(target))) permitted.set(target, "missing");
       return current === permitted.get(target) || current === settled;
     });
@@ -544,7 +544,7 @@ function followerFiles(
   readContent: (sha256: string) => Uint8Array | null,
   cut: LedgerCutIdentity,
 ): (PublicationWrite | PublicationDelete)[] {
-  const latest = new Map<string, { body: string; mode: "100644" | "120000" }>(),
+  const latest = new Map<string, { body: Uint8Array; mode: "100644" | "120000" }>(),
     retired = new Set<string>();
   for (const event of events) {
     for (const retirement of canonicalDocumentRetirements(event)) {
@@ -556,7 +556,7 @@ function followerFiles(
       if (!bytes || bytes.byteLength !== claim.size || sha256Bytes(bytes) !== claim.sha256)
         throw new TaskEventStoreError("invalid_store", `content object ${claim.sha256} is missing or corrupt`);
       latest.set(claim.path, {
-        body: Buffer.from(bytes).toString("utf8"),
+        body: bytes,
         mode: canonicalDocumentMode(event, claim.path),
       });
       retired.delete(claim.path);
@@ -727,7 +727,7 @@ function verifyDocumentClosure(
     if (
       bytes === null ||
       bytes.byteLength !== expected.size ||
-      sha256Text(bytes.toString("utf8")) !== expected.sha256 ||
+      sha256Bytes(bytes) !== expected.sha256 ||
       tree.get(target)?.mode !== expected.mode
     )
       throw new TaskEventStoreError("publication_indeterminate", `Git follower document differs at ${logical}`);
@@ -749,8 +749,8 @@ function verifyGitFiles(repoRoot: string, commit: string, files: readonly Public
     );
   for (const file of files) {
     if ("target" in file) {
-      const body = bodies.get(file.target)?.toString("utf8") ?? null;
-      if (body !== file.body || tree.get(file.target)?.mode !== file.mode)
+      const body = bodies.get(file.target) ?? null;
+      if (body === null || !body.equals(publicationBytes(file.body)) || tree.get(file.target)?.mode !== file.mode)
         throw new TaskEventStoreError("publication_indeterminate", `Git follower read-back differs at ${file.target}`);
     } else if ("delete" in file && tree.has(file.delete)) {
       throw new TaskEventStoreError("publication_indeterminate", `Git follower did not retire ${file.delete}`);
@@ -767,7 +767,7 @@ function verifyWorktreeFiles(repoRoot: string, files: readonly PublicationFile[]
   for (const file of files) {
     if ("target" in file) {
       const node = localGitWorktreeSettlement.readNode(`${repoRoot}/${file.target}`);
-      if (node?.body !== file.body || node.mode !== file.mode)
+      if (node?.sha256 !== publicationDigest(file.body) || node.mode !== file.mode)
         throw new Error(`worktree follower read-back differs at ${file.target}`);
     } else if ("delete" in file && localGitWorktreeSettlement.readNode(`${repoRoot}/${file.delete}`) !== null) {
       throw new Error(`worktree follower did not retire ${file.delete}`);
@@ -797,14 +797,14 @@ function settleWorktree(
       !settleVisibleChange(
         repoRoot,
         file.target,
-        `${file.mode}:${sha256Text(file.body)}:${Buffer.byteLength(file.body)}`,
+        `${file.mode}:${publicationDigest(file.body)}:${Buffer.byteLength(file.body)}`,
         baseline,
         killpoint,
         (hooks) => {
           if (preserve.has(file.target)) {
             hooks.beforeRename();
             const node = localGitWorktreeSettlement.readNode(`${repoRoot}/${file.target}`);
-            if (node && node.body !== file.body)
+            if (node && node.sha256 !== publicationDigest(file.body))
               localGitWorktreeSettlement.preserveVisibleConflict(
                 repoRoot,
                 `${repoRoot}/${file.target}`,
@@ -873,9 +873,7 @@ function captureGitBaseline(
       const bytes = bodies.get(target) ?? null;
       return [
         target,
-        bytes === null
-          ? "missing"
-          : `${tree.get(target)?.mode}:${sha256Text(bytes.toString("utf8"))}:${bytes.byteLength}`,
+        bytes === null ? "missing" : `${tree.get(target)?.mode}:${sha256Bytes(bytes)}:${bytes.byteLength}`,
       ];
     }),
   );
@@ -889,7 +887,7 @@ function worktreeMatchesBaseline(
   const settled = new Map(
     files.flatMap((file) =>
       "target" in file
-        ? [[file.target, `${file.mode}:${sha256Text(file.body)}:${Buffer.byteLength(file.body)}`]]
+        ? [[file.target, `${file.mode}:${publicationDigest(file.body)}:${Buffer.byteLength(file.body)}`]]
         : "delete" in file
           ? [[file.delete, "missing"]]
           : [],
@@ -900,6 +898,14 @@ function worktreeMatchesBaseline(
     if (current !== fingerprint && current !== settled.get(target)) return false;
   }
   return true;
+}
+
+function publicationBytes(body: string | Uint8Array): Buffer {
+  return typeof body === "string" ? Buffer.from(body, "utf8") : Buffer.isBuffer(body) ? body : Buffer.from(body);
+}
+
+function publicationDigest(body: string | Uint8Array): string {
+  return sha256Bytes(publicationBytes(body));
 }
 
 function worktreeFingerprint(node: ReturnType<typeof localGitWorktreeSettlement.readNode>): string {

@@ -11,7 +11,7 @@ export function prepareCommit(
 ): string {
   const message = `harness sqlite outbox ${opId}`,
     timestamp = Math.floor(Date.parse(occurredAt) / 1_000);
-  function* fastImportInput(): Generator<string> {
+  function* fastImportInput(): Generator<string | Uint8Array> {
     yield [
       `commit ${ref}\n`,
       "mark :1\n",

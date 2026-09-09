@@ -17,12 +17,15 @@ import {
 import { parseEntityJsonSchema, serializeEntityJsonSchema } from "./entity-json-schema.ts";
 import {
   createEntityOwnedContent,
+  entityOwnedContentClaims,
+  entityOwnedDocumentClaims,
   entitySchemaVersion,
   validateEntityOwnedContent,
   type EntityOwnedContentV1,
 } from "./entity-owned-content.ts";
 import {
   ENTITY_DOCUMENT_POLICY_ID,
+  entityContentPath,
   entityDocumentPath,
   requireEntityStoreKindContract,
   type EntityStoreKindContract,
@@ -166,6 +169,20 @@ interface EntityDeclarationBlob {
   readonly body: string;
 }
 
+/**
+ * One raw source object the center takes ownership of. `relativePath` is the object's place inside the
+ * entity's own content root, never the path it happened to be read from: two entities that import a file
+ * called `raw.pdf` from different sources must not settle on the same authored target.
+ */
+export interface EntityContentBlob {
+  readonly relativePath: string;
+  readonly sha256: string;
+  readonly size: number;
+  readonly mediaType: string;
+  readonly policyId: string;
+  readonly body: Uint8Array;
+}
+
 export interface EntityUpsertBundle {
   readonly event: EntityUpsertEventV1;
   readonly plan: FrozenWritePlan<"EntityUpsert">;
@@ -175,7 +192,7 @@ export interface EntityUpsertBundle {
 export interface EntityContentObservedBundle {
   readonly event: EntityContentObservedEventV1;
   readonly plan: FrozenWritePlan<"EntityContentObserved">;
-  readonly blobs: readonly [EntityDeclarationBlob];
+  readonly blobs: readonly (EntityDeclarationBlob | EntityContentBlob)[];
 }
 
 export interface EntityTargetMissingBundle {
@@ -187,7 +204,7 @@ export interface EntityTargetMissingBundle {
 export interface EntityUpdatedBundle {
   readonly event: EntityUpdatedEventV1;
   readonly plan: FrozenWritePlan<"EntityUpdated">;
-  readonly blobs: readonly [EntityDeclarationBlob];
+  readonly blobs: readonly (EntityDeclarationBlob | EntityContentBlob)[];
 }
 
 export interface EntityArchivedBundle {
@@ -241,11 +258,13 @@ export function compileEntityContentObserved(
     readonly descriptor: ArtifactDescriptor;
     readonly resolver: string;
     readonly observationId: string;
+    readonly sourceContent?: readonly EntityContentBlob[];
   },
 ): EntityContentObservedBundle {
   const descriptor = decodeArtifactDescriptor(input.contract, input.descriptor),
     { body, claim } = declarationContent(input.contract, descriptor.entityId, descriptor),
-    ownedContent = declarationOwnedContent(input.contract, descriptor.entityId, claim),
+    sourceContent = input.sourceContent ?? [],
+    ownedContent = declarationOwnedContent(input.contract, descriptor.entityId, claim, sourceContent),
     event: EntityContentObservedEventV1 = {
       ...eventEnvelope(input),
       type: "entity_content_observed",
@@ -263,7 +282,7 @@ export function compileEntityContentObserved(
       },
     };
   assertValidCurrent(event);
-  return { event, plan: entityContentObservedWritePlan(event), blobs: [blob(claim, body)] };
+  return { event, plan: entityContentObservedWritePlan(event), blobs: [blob(claim, body), ...sourceContent] };
 }
 
 export function compileEntityTargetMissing(
@@ -300,11 +319,13 @@ export function compileEntityUpdated(
     readonly contract: EntityStoreKindContract;
     readonly contractSnapshot: ArtifactEntityContractSnapshot;
     readonly descriptor: ArtifactDescriptor;
+    readonly sourceContent?: readonly EntityContentBlob[];
   },
 ): EntityUpdatedBundle {
   const descriptor = decodeArtifactDescriptor(input.contract, input.descriptor),
     { body, claim } = declarationContent(input.contract, descriptor.entityId, descriptor),
-    ownedContent = declarationOwnedContent(input.contract, descriptor.entityId, claim),
+    sourceContent = input.sourceContent ?? [],
+    ownedContent = declarationOwnedContent(input.contract, descriptor.entityId, claim, sourceContent),
     observationId = artifactObservationId({
       entityId: descriptor.entityId,
       locator: descriptor.locator,
@@ -327,7 +348,11 @@ export function compileEntityUpdated(
       },
     };
   assertValidCurrent(event);
-  return { event, plan: declarationWritePlan("EntityUpdated", event, "entity/v1"), blobs: [blob(claim, body)] };
+  return {
+    event,
+    plan: declarationWritePlan("EntityUpdated", event, "entity/v1"),
+    blobs: [blob(claim, body), ...sourceContent],
+  };
 }
 
 export function compileEntityArchived(
@@ -607,14 +632,11 @@ export function contractForDeclarationEvent(event: EntityDeclarationEventV1): En
 }
 
 export function ownedContentForDeclarationEvent(event: EntityDeclarationEventV1): EntityOwnedContentV1 {
-  return (
-    event.payload.ownedContent ??
-    declarationOwnedContent(
-      contractForDeclarationEvent(event),
-      event.payload.entityId,
-      event.payload.declarationDocumentClaim,
-    )
-  );
+  // The manifest an event was accepted with is the only description of what that event owns. Recomputing one
+  // from the registry a reader happens to hold today would answer a question about the present, not the event.
+  if (event.payload.ownedContent === undefined)
+    throw new Error("entity declaration event carries no owned-content manifest");
+  return event.payload.ownedContent;
 }
 
 function validateObservedPayload(
@@ -628,7 +650,7 @@ function validateObservedPayload(
     "entityKind",
     "entityId",
     "declarationDocumentClaim",
-    ...(allowUnknownFields ? [] : ["ownedContent"]),
+    "ownedContent",
     "locator",
     "sourceIdentity",
     "observedContentVersion",
@@ -649,7 +671,7 @@ function validateObservedPayload(
   } catch {
     return ["entity artifact contract is invalid"];
   }
-  return validateClaim(payload, contract, hasFields, "entity-event/v1", allowUnknownFields);
+  return validateClaim(payload, contract, hasFields, "entity-event/v1", true);
 }
 
 function validateMissingPayload(
@@ -802,7 +824,7 @@ function validateClaim(
   contract: EntityStoreKindContract,
   hasFields: typeof hasOnlyFields | typeof hasRequiredFields = hasOnlyFields,
   schema: unknown = "entity-event/v1",
-  allowUnknownFields = false,
+  allowAdditionalOwnedContent = false,
 ): readonly string[] {
   const claim = payload.declarationDocumentClaim;
   if (
@@ -816,21 +838,20 @@ function validateClaim(
     !acceptedPolicyIds(schema).includes(String(claim.policyId))
   )
     return ["entity declaration claim is invalid"];
-  if (payload.ownedContent === undefined) return allowUnknownFields ? [] : ["entity owned-content manifest is missing"];
+  if (payload.ownedContent === undefined) return ["entity owned-content manifest is missing"];
   const manifestErrors = validateEntityOwnedContent(payload.ownedContent);
   if (manifestErrors.length) return manifestErrors;
-  const manifest = payload.ownedContent as EntityOwnedContentV1;
+  const manifest = payload.ownedContent as EntityOwnedContentV1,
+    declarationBinding = manifest.bindings.find(({ path }) => path === claim.path),
+    declarationObject = manifest.content.find(({ sha256 }) => sha256 === claim.sha256);
   return manifest.ownerRef === `${contract.kind}/${String(payload.entityId)}` &&
     manifest.schemaId === contract.schema.$id &&
     manifest.schemaVersion === entitySchemaVersion(contract.schema.$id) &&
-    manifest.bindings.length === 1 &&
-    manifest.bindings[0]?.path === claim.path &&
-    manifest.bindings[0]?.contentSha256 === claim.sha256 &&
-    manifest.bindings[0]?.policyId === claim.policyId &&
-    manifest.content.length === 1 &&
-    manifest.content[0]?.sha256 === claim.sha256 &&
-    manifest.content[0]?.byteLength === claim.size &&
-    manifest.content[0]?.mediaType === claim.mediaType &&
+    declarationBinding?.contentSha256 === claim.sha256 &&
+    declarationBinding?.policyId === claim.policyId &&
+    declarationObject?.byteLength === claim.size &&
+    declarationObject?.mediaType === claim.mediaType &&
+    (allowAdditionalOwnedContent || (manifest.bindings.length === 1 && manifest.content.length === 1)) &&
     manifest.retirements.length === 0
     ? []
     : ["entity owned-content manifest must exactly bind its declaration"];
@@ -852,12 +873,22 @@ function declarationOwnedContent(
   contract: EntityStoreKindContract,
   entityId: string,
   claim: EntityDeclarationClaim,
+  sourceContent: readonly EntityContentBlob[] = [],
 ): EntityOwnedContentV1 {
   return createEntityOwnedContent({
     ownerRef: `${contract.kind}/${entityId}`,
     schemaId: contract.schema.$id,
     schemaVersion: entitySchemaVersion(contract.schema.$id),
-    bindings: [claim],
+    bindings: [
+      claim,
+      ...sourceContent.map(({ relativePath, sha256, size, mediaType, policyId }) => ({
+        path: entityContentPath(contract, entityId, relativePath),
+        sha256,
+        size,
+        mediaType,
+        policyId,
+      })),
+    ],
   });
 }
 
@@ -878,8 +909,23 @@ function declarationWritePlan<Command extends "EntityUpsert" | "EntityContentObs
         size: claim.size,
         mediaType: claim.mediaType,
       },
+      ...entityOwnedDocumentClaims(ownedContentForDeclarationEvent(event))
+        .filter((owned) => owned.path !== claim.path)
+        .map((owned) => ({
+          kind: "authored_file" as const,
+          path: owned.path,
+          operation: "replace" as const,
+          sha256: owned.sha256,
+          size: owned.size,
+          mediaType: owned.mediaType,
+        })),
       { kind: "projection_invalidation", projection, key: claim.path },
-      { kind: "content_blob", sha256: claim.sha256, size: claim.size, mediaType: claim.mediaType },
+      ...entityOwnedContentClaims(ownedContentForDeclarationEvent(event)).map((owned) => ({
+        kind: "content_blob" as const,
+        sha256: owned.sha256,
+        size: owned.size,
+        mediaType: owned.mediaType,
+      })),
     ];
   return freezeDeclaredWritePlan({ commandType, targets }, [commandType]);
 }

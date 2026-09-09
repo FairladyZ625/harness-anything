@@ -17,6 +17,7 @@ import {
   type ArtifactLocator,
   type ArtifactSourceIdentityInput,
   type CompiledArtifactKindContract,
+  type EntityContentBlob,
   type EntityContentObservedBundle,
   type EntityEventV1,
   type EntityTargetMissingBundle,
@@ -29,6 +30,8 @@ export interface ArtifactSourceObserved {
   readonly witness: ArtifactContentWitness;
   readonly title: string;
   readonly resolver: string;
+  /** Raw source objects the center takes ownership of, already addressed by their own bytes. */
+  readonly content?: readonly EntityContentBlob[];
 }
 
 export interface ArtifactSourceMissing {
@@ -193,6 +196,7 @@ export function makeArtifactEntityService(options: {
               },
               resolver: resolution.resolver,
               observationId,
+              sourceContent: resolution.content,
             })
           : compileEntityTargetMissing({
               ...eventInput,

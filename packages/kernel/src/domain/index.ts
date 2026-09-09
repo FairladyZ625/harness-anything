@@ -324,7 +324,9 @@ export {
   isEntityDeclarationEvent,
   isEntityEvent,
 } from "./entity-event.ts";
+export { MAX_ENTITY_CONTENT_OBJECT_BYTES } from "./entity-owned-content.ts";
 export type {
+  EntityContentBlob,
   EntityContentObservedBundle,
   EntityDeletedBundle,
   EntityEventV1,

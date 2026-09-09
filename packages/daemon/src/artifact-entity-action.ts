@@ -20,6 +20,7 @@ import {
   composeCanonicalRelationDirections,
   isEntityDeclarationEvent,
   isEntityEvent,
+  MAX_ENTITY_CONTENT_OBJECT_BYTES,
   normalizeRelativeDocumentPath,
   type ArtifactDescriptor,
   type AuthorizationDecision,
@@ -28,6 +29,7 @@ import {
   type CompiledArtifactKindContract,
   type CompiledVerticalContract,
   type EntityActionContract,
+  type EntityContentBlob,
   type EntityEventV1,
   type TaskProjection,
   type WriteReceiptDraft as WriteReceipt,
@@ -365,11 +367,12 @@ async function resolveArtifactSource(input: {
       };
     if (statSync(target).isDirectory()) {
       const readme = path.join(target, "README.md"),
-        content = directoryContentManifest(target);
+        directory = directoryContent(target);
       return {
         status: "observed",
         source,
-        witness: { kind: "content", content },
+        witness: { kind: "content", content: directory.fingerprint },
+        content: directory.objects,
         title:
           existsSync(readme) && statSync(readme).isFile()
             ? titleFromContent(readFileSync(readme), relative)
@@ -377,12 +380,13 @@ async function resolveArtifactSource(input: {
         resolver: `repository:${input.repositoryId}`,
       };
     }
-    const content = readFileSync(target);
+    const content = readSourceObject(target, path.basename(relative));
     return {
       status: "observed",
       source,
-      witness: { kind: "content", content },
-      title: titleFromContent(content, relative),
+      witness: { kind: "content", content: content.body },
+      content: [content],
+      title: titleFromContent(content.body, relative),
       resolver: `repository:${input.repositoryId}`,
     };
   }
@@ -392,12 +396,14 @@ async function resolveArtifactSource(input: {
     const code = response.status;
     if (code === 404 || code === 410) return { status: "missing", source, reason: `HTTP ${code}`, resolver: "http" };
     if (!response.ok) throw new Error(`URL resolver returned HTTP ${response.status}.`);
-    const content = new Uint8Array(await response.arrayBuffer());
+    const content = new Uint8Array(await response.arrayBuffer()),
+      name = path.basename(new URL(locator.value).pathname) || new URL(locator.value).hostname;
     return {
       status: "observed",
       source,
       witness: { kind: "content", content },
-      title: path.basename(new URL(locator.value).pathname) || new URL(locator.value).hostname,
+      content: [sourceObject(name, content)],
+      title: name,
       resolver: "http",
     };
   }
@@ -407,27 +413,57 @@ async function resolveArtifactSource(input: {
   );
 }
 
-const SYSTEM_DIRECTORY_ENTRIES = new Set([".DS_Store", "Thumbs.db", "desktop.ini"]);
+const SYSTEM_DIRECTORY_ENTRIES = new Set([".DS_Store", "Thumbs.db", "desktop.ini"]),
+  ENTITY_CONTENT_POLICY_ID = "entity-content/v1";
 
-function directoryContentManifest(root: string): string {
-  const files: Array<{ readonly path: string; readonly sha256: string }> = [];
+function directoryContent(root: string): {
+  readonly fingerprint: string;
+  readonly objects: readonly EntityContentBlob[];
+} {
+  const objects: EntityContentBlob[] = [];
   function visit(directory: string): void {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
       if (SYSTEM_DIRECTORY_ENTRIES.has(entry.name) || entry.name.startsWith("._")) continue;
       const target = path.join(directory, entry.name);
       if (entry.isDirectory()) visit(target);
-      else if (entry.isFile()) {
-        const relative = path.relative(root, target).split(path.sep).join("/");
-        files.push({
-          path: relative,
-          sha256: createHash("sha256").update(readFileSync(target)).digest("hex"),
-        });
-      } else throw new Error(`Directory artifact entry ${target} is neither a file nor a directory.`);
+      else if (entry.isFile())
+        objects.push(readSourceObject(target, path.relative(root, target).split(path.sep).join("/")));
+      else throw new Error(`Directory artifact entry ${target} is neither a file nor a directory.`);
     }
   }
   visit(root);
-  files.sort((left, right) => Buffer.compare(Buffer.from(left.path, "utf8"), Buffer.from(right.path, "utf8")));
-  return files.map(({ path: relative, sha256 }) => `${sha256}  ${JSON.stringify(relative)}`).join("\n");
+  objects.sort((left, right) =>
+    Buffer.compare(Buffer.from(left.relativePath, "utf8"), Buffer.from(right.relativePath, "utf8")),
+  );
+  return {
+    fingerprint: objects.map(({ relativePath, sha256 }) => `${sha256}  ${JSON.stringify(relativePath)}`).join("\n"),
+    objects,
+  };
+}
+
+function readSourceObject(target: string, relativePath: string): EntityContentBlob {
+  const size = statSync(target).size;
+  // Refusing before the read keeps an oversized source from being paged into the center at all; the whole
+  // snapshot is rejected rather than silently landing without one of its files.
+  if (size > MAX_ENTITY_CONTENT_OBJECT_BYTES)
+    throw new ArtifactEntityServiceError(
+      "invalid_command",
+      `Source object ${relativePath} is ${size} bytes, above the ${MAX_ENTITY_CONTENT_OBJECT_BYTES}-byte per-file limit.`,
+    );
+  return sourceObject(relativePath, readFileSync(target));
+}
+
+function sourceObject(relativePath: string, body: Uint8Array): EntityContentBlob {
+  return {
+    relativePath: normalizeRelativeDocumentPath(relativePath),
+    sha256: createHash("sha256").update(body).digest("hex"),
+    size: body.byteLength,
+    // Raw bytes are the artifact. The center records what it holds and how long it is, and leaves
+    // interpretation to whoever reads it, so no kind ever needs a media-type branch here.
+    mediaType: "application/octet-stream",
+    policyId: ENTITY_CONTENT_POLICY_ID,
+    body,
+  };
 }
 
 function readCurrentArtifact(
