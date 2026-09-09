@@ -330,7 +330,8 @@ export async function runArtifactEntityImport(input: {
           contract,
         }),
       readCurrent: (kind, entityId) => readCurrentArtifact(input.store, input.contracts, kind, entityId),
-      resolveSourceBinding: (kind, sourceIdentity) => resolveSourceBinding(input.store, kind, sourceIdentity),
+      resolveSourceBinding: (kind, sourceIdentity) =>
+        resolveSourceBinding(input.store, input.contracts, kind, sourceIdentity),
       randomEntityIdBytes: () => randomBytes(ARTIFACT_ENTITY_ID_BYTES),
       readOperation: (opId) => readEntityOperation(input.store, opId),
       countRelationChanges: (entityRef) =>
@@ -552,31 +553,10 @@ export function readCurrentArtifact(
 ): (ArtifactEntityCurrent & { readonly ownedContent: EntityOwnedContentV1 | null }) | null {
   const contract = contracts.find(({ typeIdentity }) => typeIdentity === kind);
   if (!contract) return null;
-  let revision = 0,
-    descriptor: ReturnType<typeof readArtifactDescriptor> | null = null,
-    ownedContent: EntityOwnedContentV1 | null = null;
-  for (const event of store.read().events) {
-    if (!isEntityEvent(event) || event.payload.entityKind !== kind || event.payload.entityId !== entityId) continue;
-    revision = Math.max(revision, event.workspaceRevision);
-    if (event.type === "entity_deleted") {
-      descriptor = null;
-      ownedContent = null;
-      continue;
-    }
-    // Both observations and descriptor updates carry the full descriptor blob; folding only observations would make
-    // every later update start from a stale descriptor and silently drop the previous update.
-    if (
-      !isEntityDeclarationEvent(event) ||
-      (event.type !== "entity_content_observed" && event.type !== "entity_updated")
-    )
-      continue;
-    const claim = event.payload.declarationDocumentClaim,
-      bytes = store.readContentBlob(claim.sha256);
-    if (!bytes) throw new Error(`Artifact descriptor blob ${claim.sha256} is unavailable.`);
-    descriptor = readArtifactDescriptor(contract, JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)));
-    ownedContent = ownedContentForDeclarationEvent(event);
-  }
-  if (revision === 0) return null;
+  const folded = artifactReadCache(store, contracts, kind);
+  const state = folded.entities.get(entityId);
+  if (!state) return null;
+  const { revision, descriptor, ownedContent } = state;
   const pinned = pinnedArtifactKindContract(
     contract,
     descriptor?.kindVersion ?? contract.latestVersion,
@@ -593,6 +573,71 @@ export function readCurrentArtifact(
   };
 }
 
+interface ArtifactReadState {
+  readonly revision: number;
+  readonly descriptor: ReturnType<typeof readArtifactDescriptor> | null;
+  readonly ownedContent: EntityOwnedContentV1 | null;
+  readonly sourceIdentity: string | null;
+}
+
+interface ArtifactReadFold {
+  readonly entities: Map<string, ArtifactReadState>;
+  readonly generations: Map<string, number>;
+}
+
+const artifactReadFolds = new WeakMap<CanonicalEventStore, { revision: number; fold: ArtifactReadFold }>();
+
+function artifactReadCache(
+  store: CanonicalEventStore,
+  contracts: readonly CompiledArtifactKindContract[],
+  kind: string,
+): ArtifactReadFold {
+  const source = store.read(),
+    cached = artifactReadFolds.get(store);
+  if (cached?.revision === source.revision) return cached.fold;
+  const entities = new Map<string, ArtifactReadState>();
+  const generations = new Map<string, number>();
+  for (const event of source.events) {
+    if (!isEntityEvent(event) || event.payload.entityKind !== kind) continue;
+    const previous = entities.get(event.payload.entityId);
+    if (event.type === "entity_deleted") {
+      if (previous?.sourceIdentity)
+        generations.set(previous.sourceIdentity, (generations.get(previous.sourceIdentity) ?? 0) + 1);
+      entities.delete(event.payload.entityId);
+      continue;
+    }
+    // Both observations and descriptor updates carry the full descriptor blob; folding only observations would make
+    // every later update start from a stale descriptor and silently drop the previous update.
+    if (
+      !isEntityDeclarationEvent(event) ||
+      (event.type !== "entity_content_observed" && event.type !== "entity_updated" && event.type !== "entity_upserted")
+    )
+      continue;
+    const contract = contracts.find(({ typeIdentity }) => typeIdentity === kind);
+    if (!contract) continue;
+    const claim = event.payload.declarationDocumentClaim,
+      bytes = store.readContentBlob(claim.sha256);
+    if (!bytes) throw new Error(`Artifact descriptor blob ${claim.sha256} is unavailable.`);
+    const nextSource =
+      "sourceIdentity" in event.payload ? String(event.payload.sourceIdentity) : (previous?.sourceIdentity ?? null);
+    if (previous?.sourceIdentity === nextSource) {
+      // unchanged binding
+    } else if (previous?.sourceIdentity !== null && previous?.sourceIdentity !== undefined) {
+      if (previous?.sourceIdentity)
+        generations.set(previous.sourceIdentity, (generations.get(previous.sourceIdentity) ?? 0) + 1);
+    }
+    entities.set(event.payload.entityId, {
+      revision: event.workspaceRevision,
+      descriptor: readArtifactDescriptor(contract, JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes))),
+      ownedContent: ownedContentForDeclarationEvent(event),
+      sourceIdentity: nextSource,
+    });
+  }
+  const fold = { entities, generations };
+  artifactReadFolds.set(store, { revision: source.revision, fold });
+  return fold;
+}
+
 /**
  * Which entity a source is bound to, read from the accepted events rather than recomputed from the path, and how
  * many times that binding has already ended. A rebind moves the binding with the entity and a deleted entity
@@ -602,25 +647,15 @@ export function readCurrentArtifact(
  */
 function resolveSourceBinding(
   store: CanonicalEventStore,
+  contracts: readonly CompiledArtifactKindContract[],
   kind: string,
   sourceIdentity: string,
 ): { readonly entityId: string | null; readonly generation: number } {
-  const boundSource = new Map<string, string>();
-  let generation = 0;
-  for (const event of store.read().events) {
-    if (!isEntityEvent(event) || event.payload.entityKind !== kind) continue;
-    const previous = boundSource.get(event.payload.entityId);
-    if (event.type === "entity_deleted") {
-      if (previous === sourceIdentity) generation += 1;
-      boundSource.delete(event.payload.entityId);
-    } else if ("sourceIdentity" in event.payload) {
-      const next = String(event.payload.sourceIdentity);
-      if (previous === sourceIdentity && next !== sourceIdentity) generation += 1;
-      boundSource.set(event.payload.entityId, next);
-    }
-  }
-  for (const [entityId, bound] of boundSource) if (bound === sourceIdentity) return { entityId, generation };
-  return { entityId: null, generation };
+  const fold = artifactReadCache(store, contracts, kind);
+  for (const [entityId, state] of fold.entities)
+    if (state.sourceIdentity === sourceIdentity)
+      return { entityId, generation: fold.generations.get(sourceIdentity) ?? 0 };
+  return { entityId: null, generation: fold.generations.get(sourceIdentity) ?? 0 };
 }
 
 /** The content objects an entity already owns, restated from the ledger so an update carries them forward. */
