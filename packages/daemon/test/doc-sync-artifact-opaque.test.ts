@@ -157,7 +157,7 @@ test("artifact add treats every artifacts/ path as opaque while preserving media
   }
 });
 
-test("artifact add still rejects escapes, symlinked path segments, and non-UTF-8 sources", async () => {
+test("artifact add still rejects escapes, symlinked path segments, and undecodable textual names", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-artifact-guards-"));
   initRepo(rootDir);
   const cell = await openRepoCell({
@@ -186,14 +186,23 @@ test("artifact add still rejects escapes, symlinked path segments, and non-UTF-8
       binding,
     )) as Record<string, unknown>;
     assert.equal(viaSymlink.code, "invalid_artifact_path");
-    writeFileSync(
-      path.join(rootDir, "logo.png"),
-      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0xff, 0xfe, 0x00, 0x0a]),
-    );
+    // A name that claims a textual format keeps its UTF-8 requirement: a broken report is an error,
+    // not a binary. Names that never promised text take the raw route (doc-sync-artifact-raw-bytes).
+    writeFileSync(path.join(rootDir, "broken.md"), Buffer.from([0x23, 0x20, 0xff, 0xfe, 0x0a]));
     assert.equal(
       (
         (await cell.run(
-          { kind: "task-artifact-add", taskId: "task-guards", source: "logo.png", destination: "img/logo.png" },
+          { kind: "task-artifact-add", taskId: "task-guards", source: "broken.md", destination: "reports/broken.md" },
+          binding,
+        )) as Record<string, unknown>
+      ).code,
+      "artifact_invalid_utf8",
+    );
+    writeFileSync(path.join(rootDir, "broken.json"), Buffer.from([0x7b, 0xff, 0x7d]));
+    assert.equal(
+      (
+        (await cell.run(
+          { kind: "task-artifact-add", taskId: "task-guards", source: "broken.json", destination: "data/broken.json" },
           binding,
         )) as Record<string, unknown>
       ).code,

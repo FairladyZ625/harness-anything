@@ -202,6 +202,7 @@ export type PersistedCanonicalEventV1 = CanonicalEventV1 | LegacyAgentEntityEven
 export interface DocumentState {
   readonly path: PortableDocumentPath;
   readonly blobSha256: string;
+  /** Empty for a raw-artifact document: its bytes are not text, so `policyId` is what tells a reader that. */
   readonly body: string;
   readonly size: DocByteLength;
   readonly mediaType: string;
@@ -213,7 +214,8 @@ export interface DocContentBlob {
   readonly sha256: string;
   readonly size: DocByteLength;
   readonly mediaType: string;
-  readonly body: string;
+  /** Raw-artifact claims carry their bytes; every textual policy carries the decoded body. */
+  readonly body: string | Uint8Array;
 }
 
 export interface DocWriteDecisionInput {

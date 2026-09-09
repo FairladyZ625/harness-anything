@@ -1,7 +1,7 @@
 // @write-boundary-exemption rebuildable-projection
 import { DatabaseSync } from "node:sqlite";
 import { emptyTaskLifecycleSnapshot } from "../domain/task-lifecycle.contract.ts";
-import { OPAQUE_TEXTUAL_POLICY_ID } from "../domain/artifact-text-classification.ts";
+import { OPAQUE_TEXTUAL_POLICY_ID, RAW_ARTIFACT_POLICY_ID } from "../domain/artifact-text-classification.ts";
 import {
   docByteLength,
   isDecisionEvent,
@@ -426,15 +426,18 @@ export function applyEvent(
       const bytes = readBlob(change.candidate.sha256);
       if (!bytes || bytes.byteLength !== change.candidate.size)
         throw new Error(`document blob ${change.candidate.sha256} is unavailable`);
-      let body: string;
-      try {
-        body = new TextDecoder("utf-8", {
-          fatal: true,
-          ignoreBOM: change.policyId === OPAQUE_TEXTUAL_POLICY_ID,
-        }).decode(bytes);
-      } catch {
-        throw new Error(`document blob ${change.candidate.sha256} is not UTF-8`);
-      }
+      // A raw artifact has no text body to project. Its identity is the claim digest, which is checked
+      // above against the stored bytes, so reading it back means reading the content object, not this row.
+      let body = "";
+      if (change.policyId !== RAW_ARTIFACT_POLICY_ID)
+        try {
+          body = new TextDecoder("utf-8", {
+            fatal: true,
+            ignoreBOM: change.policyId === OPAQUE_TEXTUAL_POLICY_ID,
+          }).decode(bytes);
+        } catch {
+          throw new Error(`document blob ${change.candidate.sha256} is not UTF-8`);
+        }
       if (!verifyDocEventChange(change, base?.body ?? "", body))
         throw new Error(`document proof mismatch for ${change.path}`);
       const document: DocumentState = {

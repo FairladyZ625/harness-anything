@@ -2,12 +2,14 @@ import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import type { CanonicalEventStore, TaskProjection } from "../../kernel/src/index.ts";
 import {
+  classifyRawArtifactPath,
   classifyTextualArtifactPath,
   DOC_SYNC_INLINE_MAX_BYTES,
   documentPath,
   isDocEvent,
   ledgerGitPath,
   parseDocWriteIntent,
+  RAW_ARTIFACT_MAX_BYTES,
   resolveDocRoute,
   resolveHarnessLayout,
   resolveLedgerGitLayout,
@@ -338,8 +340,15 @@ export function runArtifactAdd(input: Input): ArtifactAddReceipt {
   if (!hasExactDocSyncActionFields(input.action, ["kind", "taskId", "source", "destination"]))
     throw docSyncError("invalid_command", "task artifact add requires taskId, source, and destination");
   const target = taskArtifactTarget(input, taskId, destinationValue),
-    source = artifactSource(input, sourceValue),
-    receipt = publishTaskArtifactBytes(input, target, readFileSync(source.absolute));
+    source = artifactSource(input, sourceValue);
+  // Size is settled from the file, not from a buffer: a source past the blob contract is refused
+  // without first reading 50 MB of it into the daemon.
+  if (lstatSync(source.absolute).size > RAW_ARTIFACT_MAX_BYTES)
+    throw docSyncError(
+      "artifact_too_large",
+      `artifact source exceeds the ${RAW_ARTIFACT_MAX_BYTES} byte content object contract`,
+    );
+  const receipt = publishTaskArtifactBytes(input, target, readFileSync(source.absolute));
   return receipt.outcome === "applied" || receipt.outcome === "pending"
     ? { ...receipt, source: source.relative, destination: target.destination }
     : receipt;
@@ -374,10 +383,11 @@ function taskArtifactTarget(input: Input, taskId: string, destinationValue: stri
   } catch {
     throw docSyncError(
       "invalid_artifact_path",
-      "destination must be a UTF-8 textual artifact path under the current task artifacts/ directory",
+      "destination must be an artifact path under the current task artifacts/ directory",
     );
   }
-  const classification = classifyTextualArtifactPath(destination);
+  const classification = classifyTextualArtifactPath(destination),
+    rawClassification = classifyRawArtifactPath(destination);
   if (
     !destination.startsWith(`${task.packagePath}/artifacts/`) ||
     classification === null ||
@@ -385,7 +395,7 @@ function taskArtifactTarget(input: Input, taskId: string, destinationValue: stri
   )
     throw docSyncError(
       "invalid_artifact_path",
-      "destination must be a UTF-8 textual artifact path under the current task artifacts/ directory",
+      "destination must be an artifact path under the current task artifacts/ directory",
     );
   const layout = resolveHarnessLayout(input.rootDir),
     ledger = resolveLedgerGitLayout(input.rootDir),
@@ -397,6 +407,7 @@ function taskArtifactTarget(input: Input, taskId: string, destinationValue: stri
     taskId,
     destination,
     classification,
+    rawClassification,
     authoredTarget,
     gitTarget,
     ledgerRootDir: ledger.rootDir,
@@ -410,7 +421,17 @@ function publishTaskArtifactBytes(
   target: ReturnType<typeof taskArtifactTarget>,
   bytes: Uint8Array,
 ): ArtifactAddReceipt {
-  const { taskId, destination, classification, authoredTarget, gitTarget, ledgerRootDir, projected, tracked } = target;
+  const {
+    taskId,
+    destination,
+    classification,
+    rawClassification,
+    authoredTarget,
+    gitTarget,
+    ledgerRootDir,
+    projected,
+    tracked,
+  } = target;
   const projectedEdit =
     projected.document !== null &&
     existsSync(authoredTarget) &&
@@ -446,11 +467,15 @@ function publishTaskArtifactBytes(
       code: "projection_pending",
       origin: "N/A",
     };
-  try {
-    new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-  } catch {
-    throw docSyncError("artifact_invalid_utf8", "artifact source must be valid UTF-8");
-  }
+  // The bytes decide the policy, not the file name. Text keeps its opaque textual classification and
+  // its real media type; anything that is not UTF-8 is published as raw bytes under the same claim
+  // schema, so a PDF or a log with one stray byte keeps its filename and its exact content.
+  const policy = utf8Decodable(bytes) ? classification : rawClassification;
+  if (policy === null)
+    throw docSyncError(
+      "artifact_invalid_utf8",
+      `${destination} names a textual format, so its source must be valid UTF-8`,
+    );
   const sha = sha256Bytes(bytes),
     base = input.store.currentCut(),
     execution = resolveDocExecutionBinding(
@@ -472,12 +497,12 @@ function publishTaskArtifactBytes(
           {
             path: destination,
             baseBlobSha256: null,
-            policyId: classification.policyId,
+            policyId: policy.policyId,
             candidate: {
               ref: `doc-sync-claims/${sha}`,
               sha256: sha,
               size: bytes.byteLength,
-              mediaType: classification.mediaType,
+              mediaType: policy.mediaType,
             },
           },
         ],
@@ -486,4 +511,13 @@ function publishTaskArtifactBytes(
     ),
     receipt = publishDocIntent(input, intent, [bytes], lease);
   return receipt.outcome === "applied" || receipt.outcome === "pending" ? { ...receipt, destination } : receipt;
+}
+
+function utf8Decodable(bytes: Uint8Array): boolean {
+  try {
+    new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    return true;
+  } catch {
+    return false;
+  }
 }

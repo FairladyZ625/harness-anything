@@ -4,6 +4,7 @@ import { consumeKnownError, makeTaskProjectionReader, type TaskProjection } from
 import {
   canonicalEventCut,
   documentPath,
+  RAW_ARTIFACT_POLICY_ID,
   resolveDocRoute,
   resolveHarnessLayout,
   worktreeDocumentMediaType,
@@ -80,6 +81,16 @@ export function readAction(input: Input): WriteReceipt {
     );
   if (input.action.kind === "doc-show" && ready && reads[0]?.document === null)
     return rejectDocSyncAction(`read:doc-show:${current.headDigest}`, "document_not_found", receiptDetail);
+  // A raw artifact is owned and materialized like any other document, so saying "not found" would hide it.
+  // It just has no text to print: name the owner and where the bytes are instead of returning an empty body.
+  const rawDocument = input.action.kind === "doc-show" && ready ? reads[0]?.document : null;
+  if (rawDocument != null && rawDocument.policyId === RAW_ARTIFACT_POLICY_ID)
+    return rejectDocSyncAction(
+      `read:doc-show:${current.headDigest}`,
+      "document_not_text",
+      receiptDetail,
+      `${rawDocument.path} is a raw task artifact of ${rawDocument.size} bytes; read the materialized file or content object ${rawDocument.blobSha256}`,
+    );
   const evidence =
     input.action.kind === "doc-show"
       ? (reads[0]?.document?.body ?? "document:not-found")

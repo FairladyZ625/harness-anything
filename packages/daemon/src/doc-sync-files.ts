@@ -136,13 +136,18 @@ export function proof(
   };
 }
 
-export function rejectDocSyncAction(opId: string, code: string, receiptDetail: DocSyncReceiptDetail): WriteReceipt {
+export function rejectDocSyncAction(
+  opId: string,
+  code: string,
+  receiptDetail: DocSyncReceiptDetail,
+  routing?: string,
+): WriteReceipt {
   return {
     outcome: "op_rejected",
     opId,
     code,
     origin: "doc-sync-contract",
-    evidence: `contract-rejection:${code}`,
+    evidence: routing === undefined ? `contract-rejection:${code}` : `contract-rejection:${code}:${routing}`,
     detail: receiptDetail,
   };
 }

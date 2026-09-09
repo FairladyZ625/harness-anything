@@ -3,6 +3,21 @@ export const OPAQUE_TEXTUAL_MEDIA_TYPE = "text/x-harness-opaque";
 // Doc sync is an inline prose channel capped by its 256 KiB descriptor frame.
 // Larger raw content belongs to the <=50,000,000 byte blob contract in dec_776B4D61DF711D9F31126D375D.
 export const DOC_SYNC_INLINE_MAX_BYTES = 256 * 1024;
+/**
+ * Task outputs that are not text at all — PDF, PNG, a compiled binary, a log with a lone 0x80 byte.
+ * They ride the same content claim schema and the same content-object store as prose; the only thing
+ * this policy changes is that nothing between the claim and the worktree decodes the bytes.
+ */
+export const RAW_ARTIFACT_POLICY_ID = "raw-artifact-bytes/v1";
+export const RAW_ARTIFACT_MEDIA_TYPE = "application/octet-stream";
+/** The <=50,000,000 byte blob contract in dec_776B4D61DF711D9F31126D375D, shared with entity-owned content. */
+export const RAW_ARTIFACT_MAX_BYTES = 50_000_000;
+
+export type RawArtifactClassification = Readonly<{
+  kind: "raw-artifact";
+  mediaType: typeof RAW_ARTIFACT_MEDIA_TYPE;
+  policyId: typeof RAW_ARTIFACT_POLICY_ID;
+}>;
 export type OpaqueTextualMediaType =
   | "application/json"
   | "application/yaml"
@@ -62,6 +77,22 @@ export function classifyDocSyncCandidatePath(value: string): TextualArtifactClas
     extension === ".log"
     ? null
     : classification;
+}
+
+/**
+ * Where raw bytes may live: inside a registered task's own `artifacts/` subtree, at a name that claims no
+ * textual format. A `.md` or `.json` artifact that will not decode is a broken text file and stays an
+ * error; a `.pdf`, `.png`, or `.log` never promised to be text in the first place. Prose routes are
+ * untouched either way, so an undecodable file becomes a document only because a Task claimed it here.
+ */
+export function classifyRawArtifactPath(value: string): RawArtifactClassification | null {
+  return taskArtifactSubtreePath(value) && textualFileType(value) === null
+    ? { kind: "raw-artifact", mediaType: RAW_ARTIFACT_MEDIA_TYPE, policyId: RAW_ARTIFACT_POLICY_ID }
+    : null;
+}
+
+export function taskArtifactSubtreePath(value: string): boolean {
+  return /^tasks\/[^/]+\/artifacts\/.+/u.test(value);
 }
 
 export function isOpaqueTextualMediaType(value: unknown): value is OpaqueTextualMediaType {

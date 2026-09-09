@@ -650,7 +650,10 @@ test("new non-textual artifacts are inapplicable while binary replacement of can
     writeFileSync(freshTarget, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0xff, 0x00]));
     const status = await cell.run({ kind: "doc-status", paths: [fresh] }, binding),
       row = rows(status.evidence)[0] as { readonly state: string; readonly reason?: string } | undefined;
-    assert.deepEqual([row?.state, row?.reason], ["inapplicable", "non-textual artifact is outside doc sync"]);
+    assert.deepEqual(
+      [row?.state, row?.reason],
+      ["inapplicable", "non-textual artifact is outside doc sync; publish it with ha task artifact add"],
+    );
     assert.deepEqual(status.detail?.unresolvedTouches, []);
     const noOp = (await cell.run({ kind: "doc-submit", paths: [fresh] }, binding)) as Record<string, unknown>;
     assert.equal(noOp.outcome, "no_changes");

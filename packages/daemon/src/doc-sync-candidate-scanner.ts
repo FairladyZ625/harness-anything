@@ -312,7 +312,7 @@ export function scanDocCandidates(input: {
     if (nonTextualArtifact)
       return scannedCandidateRow(
         "inapplicable",
-        "non-textual artifact is outside doc sync",
+        "non-textual artifact is outside doc sync; publish it with ha task artifact add",
         bytes,
         base,
         candidate,
