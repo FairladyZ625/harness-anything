@@ -1,5 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -121,6 +122,8 @@ test("terminal settlement reports a runtime archive failure and still publishes 
     archiveError = new Error("archive publication failed"),
     errors: string[] = [],
     published: string[] = [],
+    outcomeBodies: string[] = [],
+    outcomes: Record<string, unknown>[] = [],
     originalError = console.error,
     context = {
       exiting: new Set<string>(),
@@ -135,8 +138,18 @@ test("terminal settlement reports a runtime archive failure and still publishes 
       resultMediaType: "text/markdown",
       runtimeResultText: () => "failed result",
       markProtocolError: () => undefined,
-      publishRuntimeEvent: async (type: string) => {
+      publishRuntimeEvent: async (
+        type: string,
+        payload: Record<string, unknown> = {},
+        _opId?: string,
+        _binding?: unknown,
+        body?: string,
+      ) => {
         published.push(type);
+        if (type === "runtime_session_outcome_observed") {
+          outcomes.push(payload);
+          outcomeBodies.push(String(body));
+        }
         return {};
       },
       settleFallback: async () => undefined,
@@ -146,8 +159,105 @@ test("terminal settlement reports a runtime archive failure and still publishes 
     await publishExit(context, runtime, 1);
     assert.match(errors.join("\n"), /could not be archived: archive publication failed/u);
     assert.deepEqual(published, ["runtime_session_exited", "runtime_session_outcome_observed"]);
+    assert.equal(outcomes[0]?.outcome, "failed");
+    assert.equal(outcomes[0]?.reasonCode, "runtime_archive_failed");
+    const expectedBody = "failed result\n\nRuntime archive publication failed: archive publication failed";
+    assert.deepEqual(outcomeBodies, [expectedBody]);
+    assert.equal(
+      outcomes[0]?.resultRef,
+      `artifact:runtime-result/sha256/${createHash("sha256").update(expectedBody).digest("hex")}`,
+      "the failed terminal resultRef must identify content that still contains the worker result",
+    );
   } finally {
     console.error = originalError;
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("terminal settlement keeps the worker result when fallback settlement fails", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-settlement-failure-")),
+    runtime = active({
+      process: {
+        pid: 124,
+        onOutput: () => undefined,
+        onErrorOutput: () => undefined,
+        onExit: () => undefined,
+        terminate: () => undefined,
+      },
+      runtimeSessionId: "runtime-settlement-failure",
+      dispatchOpId: "settlement-dispatch-op",
+      binding: {
+        actor: {
+          principal: { kind: "human", id: "operator" },
+          executor: { kind: "agent", id: "runtime-session:runtime-settlement-failure" },
+        },
+        source: "local",
+      },
+      task: null,
+      schedule: null,
+      cwd: rootDir,
+      prompt: "settle this result",
+      onExitCommand: null,
+      reasoningEffort: null,
+      fast: false,
+      startedAt: "2026-09-03T00:00:00.000Z",
+      stream: {
+        ref: "runtime-stream:dispatch_0123456789abcdef01234567",
+        appendAttemptOutcome: () => undefined,
+      } as never,
+      buffer: "",
+      durableOutputCount: 0,
+      stdoutObserved: true,
+      providerSessionId: "provider-session",
+      resumeProviderSessionId: null,
+      finalText: null,
+      cancelBinding: null,
+      cancelOpId: null,
+    }),
+    outcomeBodies: string[] = [],
+    outcomes: Record<string, unknown>[] = [],
+    context = {
+      exiting: new Set<string>(),
+      processes: new Map([[runtime.runtimeSessionId, runtime]]),
+      input: {
+        repoId: "canonical",
+        rootDir,
+        now: () => "2026-09-03T00:01:00.000Z",
+        stream: { publish: () => ({}) },
+        remote: { archive: async () => ({ outcome: "applied" }) },
+      },
+      resultMediaType: "text/markdown",
+      runtimeResultText: () => "worker delivery",
+      markProtocolError: () => undefined,
+      publishRuntimeEvent: async (
+        type: string,
+        payload: Record<string, unknown> = {},
+        _opId?: string,
+        _binding?: unknown,
+        body?: string,
+      ) => {
+        if (type === "runtime_session_outcome_observed") {
+          outcomes.push(payload);
+          outcomeBodies.push(String(body));
+        }
+        return {};
+      },
+      settleFallback: async () => {
+        throw Object.assign(new Error("lease release failed"), { code: "runtime_lease_release_failed" });
+      },
+    } as unknown as RuntimeSpawnerContext;
+  try {
+    await publishExit(context, runtime, 0);
+    const expectedBody =
+      "worker delivery\n\nRuntime terminal settlement failed (runtime_lease_release_failed): lease release failed";
+    assert.deepEqual(outcomeBodies, [expectedBody]);
+    assert.equal(outcomes[0]?.outcome, "failed");
+    assert.equal(outcomes[0]?.reasonCode, "runtime_lease_release_failed");
+    assert.equal(
+      outcomes[0]?.resultRef,
+      `artifact:runtime-result/sha256/${createHash("sha256").update(expectedBody).digest("hex")}`,
+    );
+  } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
 });

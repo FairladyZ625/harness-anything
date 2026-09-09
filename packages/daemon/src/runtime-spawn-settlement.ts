@@ -136,8 +136,19 @@ export async function publishExit(
       } catch (error) {
         consumeKnownError(error);
         const detail = String(scrubProviderValue(error instanceof Error ? error.message : String(error))).slice(0, 512);
-        // The exit event below must still publish: a lost report must not leave the runtime "live".
+        // A required task report is part of the success cut. Keep the terminal
+        // event honest when publication fails, while still publishing the exit
+        // event so the runtime cannot remain live forever.
         console.error(`[runtime-archive] ${active.dispatchId} could not be archived: ${detail}`);
+        outcome = "failed";
+        reasonCode = "runtime_archive_failed";
+        // The worker result is independently durable input to this settlement.
+        // Preserve it in the terminal content while appending the reason that
+        // prevents this Task execution from claiming success.
+        body = `${body}\n\nRuntime archive publication failed: ${detail || "unknown error"}`;
+        sha256 = createHash("sha256").update(body).digest("hex");
+        result = { sha256, size: Buffer.byteLength(body), mediaType: context.resultMediaType };
+        resultRef = `artifact:runtime-result/sha256/${sha256}`;
       }
     }
     if (cancelled) {
@@ -189,7 +200,7 @@ export async function publishExit(
         const settlementCode = runtimeErrorCode(error) || "runtime_settlement_failed";
         reasonCode = settlementCode;
         outcome = "failed";
-        body = `Runtime terminal settlement failed (${settlementCode}): ${runtimeErrorMessage(error)}`;
+        body = `${body}\n\nRuntime terminal settlement failed (${settlementCode}): ${runtimeErrorMessage(error)}`;
         sha256 = createHash("sha256").update(body).digest("hex");
         result = { sha256, size: Buffer.byteLength(body), mediaType: context.resultMediaType };
         resultRef = `artifact:runtime-result/sha256/${sha256}`;
