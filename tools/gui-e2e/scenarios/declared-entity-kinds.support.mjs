@@ -144,22 +144,6 @@ export async function centerRow(fixture, entityId) {
   return row;
 }
 
-/**
- * 一次 `revision_conflict` 会 latch 仓格(`repo-cell-errors.ts` 把它算作 fatal),下一条命令
- * 触发重探并自愈。等到它重新答得出这一行为止,再继续——否则测的是自愈时序不是产品。
- */
-export async function recoveredCenter(fixture, entityId, timeoutMs = 20_000) {
-  const deadline = Date.now() + timeoutMs;
-  for (;;) {
-    try {
-      return await centerRow(fixture, entityId);
-    } catch (error) {
-      if (Date.now() > deadline) throw error;
-      await new Promise((resolve) => setTimeout(resolve, 250));
-    }
-  }
-}
-
 /** 从当前打开的实体那一屏读出它的实例身份:身份由中心铸,界面上唯一稳定的出处是内容位置。 */
 export async function openedEntityContentPath(page) {
   await page.getByTestId("entity-managed-content-path").waitFor();

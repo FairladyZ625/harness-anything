@@ -16,7 +16,6 @@ import {
   V2_ATTRIBUTES,
   centerRow,
   openedEntityContentPath,
-  recoveredCenter,
   reopenedAttributeValue,
   settledOwnedContent,
   writeProbeMaterial,
@@ -28,7 +27,8 @@ import {
  *
  * 主线是一个任意新 Kind 的完整生命周期:GUI 创建 → v1 期建实例 → 删掉它的来源 → 改显示名
  * → 发布 v2 属性(必填项与 v1 不同)→ v1 期实例仍按 v1 读写 → v2 期用通用属性表单建实例
- * → 另一条 ingress 抢先写一次,证明未被确认的写既不冒充生效也不吃掉草稿 → 回头再读 v1 期
+ * → 另一条 ingress 抢先写一次:中心答冲突,界面照原话说出来、把中心现在的值摆在草稿旁边、
+ * 等人自己按下重填 → 回头再读 v1 期
  * 实例:来源那一屏说不存在,内容那一屏照常给出被接受时收下的字节 → 停用。
  *
  * 种子 kind 补三种形态:ADR 与 Research **导同一份物理来源**(证明 import 意图按 Kind 作用域,
@@ -262,20 +262,21 @@ export default {
       await detailAttributes.waitFor();
       await detailAttributes.getByLabel("fiscalYear", { exact: true }).fill("2099");
       const staleRow = await centerRow(fixture, v2InstanceId);
+      const independentIntent = {
+        repo: { repoId: fixture.repoId },
+        payload: {
+          entityKind: staleRow.kind,
+          entityId: staleRow.entityId,
+          expectedVersion: staleRow.revision,
+          title: staleRow.title,
+          locator: staleRow.locator.value,
+          attributes: { ...staleRow.descriptor.attributes, region: "south" },
+        },
+      };
       const independent = await requestDaemonJsonRpcAt(
         fixture.endpoint,
         "repo.entity.update",
-        {
-          repo: { repoId: fixture.repoId },
-          payload: {
-            entityKind: staleRow.kind,
-            entityId: staleRow.entityId,
-            expectedVersion: staleRow.revision,
-            title: staleRow.title,
-            locator: staleRow.locator.value,
-            attributes: { ...staleRow.descriptor.attributes, region: "south" },
-          },
-        },
+        independentIntent,
         2_000,
         20_000,
       );
@@ -284,32 +285,52 @@ export default {
         "applied",
         `the independent ingress must really be accepted; center answered ${JSON.stringify(independent)}`,
       );
+      // 同一次意图原样重发一次:中心交回同一次操作的回执,连接照常留着。这一条守的是回执
+      // 信封本身——回执少一个字段,调用方的结果校验就会抛,流的错误路会把这条连接关掉,
+      // 下面那次冲突也就再读不到中心的原话了。
+      const replayed = await requestDaemonJsonRpcAt(
+        fixture.endpoint,
+        "repo.entity.update",
+        independentIntent,
+        2_000,
+        20_000,
+      );
+      assert.equal(
+        replayed.outcome,
+        "no_changes",
+        `an identical intent must replay its own outcome; center answered ${JSON.stringify(replayed)}`,
+      );
+      assert.equal(replayed.opId, independent.opId, "a replay is the same operation, not a second one");
+      assert.equal(replayed.code, "no_changes", "the replay receipt must carry the code its envelope requires");
+      assert.equal(replayed.origin, "daemon", "the replay receipt must say who answered");
       // 中心还在,而且已经拿着别人写的那个值——冲突是「有人先写成功了」,不是「服务坏了」。
       const afterIndependent = await centerRow(fixture, v2InstanceId);
       assert.equal(afterIndependent.descriptor.attributes.region, "south");
       assert.ok(afterIndependent.revision > staleRow.revision, "the accepted write must move the revision");
 
       await page.getByTestId("entity-detail-edit-save").click();
-      const settled = page.locator(
-        [
-          '[data-testid="entity-detail-action-conflict"]',
-          '[data-testid="entity-detail-action-pending"]',
-          '[data-testid="entity-detail-action-rejected"]',
-          '[data-testid="entity-detail-action-applied"]',
-        ].join(", "),
-      );
-      await settled.first().waitFor();
-      const settledText = await settled.first().innerText();
-      // 这次写从来没有被中心确认过。界面说什么都行,唯独不能说它已经生效。
-      assert.equal(
-        await page.getByTestId("entity-detail-action-applied").count(),
-        0,
-        `an unconfirmed write must not be presented as done; the drawer said ${JSON.stringify(settledText)}`,
-      );
+      // 中心对这条过期 fence 的回答是 `revision_conflict`,界面因此落在**冲突**这一态:
+      // 不是「已生效」,也不是「没拿到回答」——后者是连接被掐断时才该说的话。
+      const conflictNote = page.getByTestId("entity-detail-action-conflict");
+      await conflictNote.waitFor();
       assert.match(
-        settledText,
-        /不要直接重发|重新读取/u,
-        `the drawer must tell the person to re-read rather than resend; it said ${JSON.stringify(settledText)}`,
+        await conflictNote.innerText(),
+        /已经被改过,请重新读取后再改/u,
+        "the drawer must tell the person this row moved under them",
+      );
+      for (const absent of ["applied", "pending", "rejected"])
+        assert.equal(
+          await page.getByTestId(`entity-detail-action-${absent}`).count(),
+          0,
+          `an answered conflict must not also be reported as ${absent}`,
+        );
+      // 别人刚写进去的那个值就摆在草稿旁边:这一屏说得出「中心现在是什么」,
+      // 而不是只给一句笼统的失败。
+      await page.locator('[data-testid="entity-detail-conflict-field-region"]', { hasText: "south" }).waitFor();
+      assert.match(
+        await page.getByTestId("entity-detail-conflict-field-region").innerText(),
+        /中心「south」.*你的「north」/su,
+        "the conflict pane must name the value the center now holds beside the draft",
       );
       // 人没提交的那一格还在:别人的一次写不该顺手清掉这张表。
       assert.equal(
@@ -323,8 +344,8 @@ export default {
         "the edit form stays open so the unsubmitted work is still reachable",
       );
 
-      // 这一屏就是人看到的那一屏:未确认的写、没丢的草稿、还开着的表单。
-      await shot("declared-entity-kinds-unsettled-write");
+      // 这一屏就是人看到的那一屏:中心的原话、中心现在的值、没丢的草稿、还开着的表单。
+      await shot("declared-entity-kinds-write-conflict");
 
       // 中心自己对一个过期 fence 的回答:`revision_conflict`,连同它自己的那句解释。
       // 这一条走的是同一个 method、同一条 fence 语义,只是调用方不是渲染进程——它证明
@@ -355,19 +376,29 @@ export default {
         `the center rejects a stale fence in its own words; it answered ${JSON.stringify(centerOnStaleFence)}`,
       );
 
-      // 冲突会 latch 仓格,下一条命令自愈。等它重新答得出话,再继续走完剩下的生命周期。
-      await recoveredCenter(fixture, v2InstanceId);
-      // 收表(表单是开着的:那次写没被确认过),再重新起草一次——这一次的表从中心此刻
-      // 那一行起,fence 也换成那一条,同样的值这次落定。
-      await page.getByTestId("entity-detail-edit").click();
-      await page.getByTestId("entity-detail-edit-form").waitFor({ state: "detached" });
+      // 两次被拒的 fence 之后,仓格照常答话:一次冲突是一个答案,不是一次故障,
+      // 不该把这条仓格打翻、让后面的读去等自愈。
+      const stillServing = await centerRow(fixture, v2InstanceId);
       assert.equal(
-        await reopenedAttributeValue(page, "region", "south"),
-        "south",
-        "the reopened form starts from the row the center now holds",
+        stillServing.revision,
+        afterIndependent.revision,
+        "a rejected fence must leave the cell serving the row it already holds",
       );
-      await page.getByTestId("entity-detail-edit").click();
-      await detailAttributes.waitFor();
+
+      // 人自己按下「用中心现在的值重填」:覆盖草稿是他按的一个动作,不是界面替他做的。
+      await page.getByTestId("entity-detail-conflict-adopt").click();
+      assert.equal(await detailAttributes.getByLabel("region", { exact: true }).inputValue(), "south");
+      assert.equal(
+        await detailAttributes.getByLabel("fiscalYear", { exact: true }).inputValue(),
+        "2027",
+        "adopting takes every one of the center's values, not only the field that clashed",
+      );
+      assert.equal(
+        await page.getByTestId("entity-detail-conflict-incoming").count(),
+        0,
+        "once the draft is the center's own row there is nothing left to compare",
+      );
+      // 再改成他本来要的那个值:fence 现在是中心那一条,这一次落定。
       await detailAttributes.getByLabel("fiscalYear", { exact: true }).fill("2099");
       await page.getByTestId("entity-detail-edit-save").click();
       await page.getByTestId("entity-detail-action-applied").waitFor();
@@ -375,7 +406,12 @@ export default {
       assert.equal(
         await reopenedAttributeValue(page, "fiscalYear", "2099"),
         "2099",
-        "after the fence is refreshed the same value applies and comes back from the ledger",
+        "after the person adopts the center's row the same value applies and comes back from the ledger",
+      );
+      assert.equal(
+        await reopenedAttributeValue(page, "region", "south"),
+        "south",
+        "the independent write's value must survive the person's retry",
       );
 
       // 9. 冷缓存回读:重载渲染进程,把 GUI 的全部查询缓存丢掉,再回到那个实例。来源已经
