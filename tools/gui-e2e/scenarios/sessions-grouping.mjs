@@ -45,8 +45,8 @@ const definitionSnapshot = (instanceId, installationId) => ({
 });
 
 /** 夹具种子:在 daemon 停机窗口里追加 agent-runtime 事件(lanes.mjs 的 beforeRestart 调用)。 */
-export async function seedGuiE2eRuntimeSessions(rootDir, repoId) {
-  const store = makeTaskEventStore({ rootDir, repoId }),
+export async function seedGuiE2eRuntimeSessions(rootDir, repoId, writerFence) {
+  const store = makeTaskEventStore({ rootDir, repoId, writerFence: () => writerFence }),
     projection = makeTaskProjection({ rootDir, eventStore: store }),
     actor = { principal: { personId: "person-gui" }, executor: null },
     claim = (body) => {
