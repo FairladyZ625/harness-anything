@@ -745,7 +745,7 @@ export const taskActionDescriptorProjection = {
             field: "ci",
             type: "string",
             required: false,
-            cli: { name: "--ci", kind: "single", error: "invalid_field" },
+            cli: { format: "canonical receipt reference", name: "--ci", kind: "single", error: "invalid_field" },
           },
           {
             field: "paths",

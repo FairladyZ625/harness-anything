@@ -1,6 +1,7 @@
 import path from "node:path";
 import {
   consumeKnownError,
+  entityContentPath,
   entityContentRoot,
   normalizeRelativeDocumentPath,
   resolveHarnessLayout,
@@ -87,7 +88,7 @@ export function readEntityContent(input: {
   const { contract, entityId, ownedContent } = input.source,
     entityRef = `${input.source.entityKind}/${entityId}`,
     contentRoot = entityContentRoot(contract, entityId),
-    manifestPath = relative ? `${contentRoot}/${relative}` : contentRoot,
+    manifestPath = relative ? entityContentPath(contract, entityId, relative) : contentRoot,
     repositoryPath = `${authoredRootPrefix(input.rootDir)}${manifestPath}`;
   if (!ownedContent) return contentResult("missing", entityRef, relative, repositoryPath);
 

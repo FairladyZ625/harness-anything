@@ -6,6 +6,7 @@ import {
   compileTaskProgress,
   completionBlockers,
   completionEvidenceBasis,
+  completionEvidenceResults,
   consumeKnownError,
   isTaskProgressEvent,
   requireTransitionDocumentKind,
@@ -15,6 +16,9 @@ import {
   taskProgressWritePlan,
   validFactStillHoldsAttestation,
   type CompletionReadinessContext,
+  type CompletionEvidenceBasis,
+  type CompletionEvidenceProvenance,
+  type CompletionEvidenceResult,
   type CompletionEvidenceV1,
   type FactRetirementAssessment,
   type FactStillHoldsAttestation,
@@ -61,15 +65,23 @@ function readCiEvidence(
         expectation: "Pull a completed rewrite-ci main run and use its event reference.",
       },
     });
+  const result: CompletionEvidenceResult = verification.conclusion === "success" ? "pass" : "fail";
+  if (!completionEvidenceResults.includes(result)) return null;
+  const basis: CompletionEvidenceBasis = { ...completionEvidenceBasis(execution), ledgerCut: event.workspaceRevision },
+    provenance: CompletionEvidenceProvenance = {
+      source: "runner",
+      runId: event.payload.run.runId,
+      rawResult: `event:${event.opId}`,
+    };
   return {
     schema: "completion-evidence/v1",
     evidenceId: `ci-${event.opId}`,
     checkerId: "ci",
     gateId: "ci",
-    result: verification.conclusion === "success" ? "pass" : "fail",
+    result,
     observed: true,
-    basis: { ...completionEvidenceBasis(execution), ledgerCut: event.workspaceRevision },
-    provenance: { source: "runner", runId: event.payload.run.runId, rawResult: `event:${event.opId}` },
+    basis,
+    provenance,
   };
 }
 

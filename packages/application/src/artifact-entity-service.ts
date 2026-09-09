@@ -1,6 +1,7 @@
 import {
   artifactEntityContractSnapshot,
   artifactImportOperationId,
+  importBindingGeneration,
   artifactObservationId,
   canonicalArtifactLocator,
   canonicalSourceIdentity,
@@ -173,8 +174,10 @@ export function makeArtifactEntityService(options: {
         locator,
         resolution: resolutionWitness,
         bindingGeneration: binding.generation,
-      }),
-      replay = options.readOperation(opId),
+      });
+    if (importBindingGeneration(opId) !== binding.generation)
+      throw new ArtifactEntityServiceError("invalid_command", `Operation ${opId} has an invalid binding generation.`);
+    const replay = options.readOperation(opId),
       // Identity is minted once and then only looked up: a caller that names the entity is re-pointing that
       // exact instance, an accepted operation already carries the identity it minted, and the source binding
       // decides whether an unnamed import continues an existing entity or starts a new one. A dry run does not

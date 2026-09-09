@@ -71,7 +71,7 @@ test("an unknown command domain reports unknown with the available set instead o
   }
   assert.equal(logs.length, 1);
   assert.match(logs[0] ?? "", /Commands for migrate:\n {2}ha migrate import/u);
-  assert.doesNotMatch(logs[0] ?? "", /rekey-facts|dispatch-records|settings-wal-flush|migrate ledger/u);
+  assert.match(logs[0] ?? "", /migrate ledger/u);
 });
 
 test("entity import and update carry declared attributes as one typed JSON object", () => {
@@ -250,7 +250,6 @@ test("retired mutation migrations are explicitly absent from the thin router", (
     ["migrate", "settings-wal-flush"],
     ["migrate", "dispatch-records"],
     ["migrate", "squads"],
-    ["migrate", "ledger"],
   ])
     assert.equal(parseThinCommand(argv).ok, false, argv.join(" "));
 });
@@ -311,7 +310,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
     gui: ["gui"],
     init: ["repo-bootstrap"],
     ledger: ["ledger-reconcile"],
-    migrate: ["migrate-import", "vertical-declaration-migrate"],
+    migrate: ["migrate-import", "migrate-ledger", "vertical-declaration-migrate"],
     preset: [
       "preset-audit",
       "preset-check",

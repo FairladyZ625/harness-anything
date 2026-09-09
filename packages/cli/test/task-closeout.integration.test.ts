@@ -28,7 +28,17 @@ test("a submitted fixture reaches done through one ha task closeout command", (c
   try {
     startDaemon(root, userRoot);
     run(root, userRoot, ["daemon", "repo", "register", "--repo-id", "closeout-e2e", "--root", root, "--no-link"]);
-    const created = run(root, userRoot, ["task", "create", "--id", taskId, "--admin", "--title", "Closeout E2E"]),
+    const created = run(root, userRoot, [
+        "task",
+        "create",
+        "--id",
+        taskId,
+        "--admin",
+        "--title",
+        "Closeout E2E",
+        "--preset",
+        "docs-task",
+      ]),
       packagePath = String(created.packagePath),
       closeoutPath = `${packagePath}/closeout.md`,
       commitSha = git(root, "rev-parse", "HEAD");
@@ -84,7 +94,7 @@ test("a submitted fixture reaches done through one ha task closeout command", (c
         evidenceChecked: ["submitted execution"],
       },
       consent: { approved: true },
-      completion: { ci: "passed", codeDocPaths: ["README.md"] },
+      completion: { ci: "not_applicable", codeDocPaths: [] },
     });
     const closeout = runMaybe(root, userRoot, ["task", "closeout", taskId, "--json-input", "@-"], undefined, judgment);
     context.diagnostic(`closeout-e2e-output=${closeout.stdout}`);
@@ -121,7 +131,17 @@ test("a standard task with only task-package deliverables completes without a fa
   try {
     startDaemon(root, userRoot);
     run(root, userRoot, ["daemon", "repo", "register", "--repo-id", "closeout-report", "--root", root, "--no-link"]);
-    const created = run(root, userRoot, ["task", "create", "--id", taskId, "--admin", "--title", "Report Closeout"]),
+    const created = run(root, userRoot, [
+        "task",
+        "create",
+        "--id",
+        taskId,
+        "--admin",
+        "--title",
+        "Report Closeout",
+        "--preset",
+        "docs-task",
+      ]),
       packagePath = String(created.packagePath),
       closeoutPath = `${packagePath}/closeout.md`,
       reportPath = `${packagePath}/artifacts/report.md`,
@@ -149,7 +169,7 @@ test("a standard task with only task-package deliverables completes without a fa
     );
     writeFileSync(path.join(root, "harness", packagePath, "task_plan.md"), realizedPlan("Report Closeout"));
     run(root, userRoot, ["doc", "sync", "--submit", "--path", `${packagePath}/task_plan.md`]);
-    assert.deepEqual(created.completionGates, ["ci", "code-doc-reconciliation"]);
+    assert.deepEqual(created.completionGates, []);
     run(root, userRoot, [
       "fact",
       "record",
@@ -205,7 +225,7 @@ test("a standard task with only task-package deliverables completes without a fa
           evidenceChecked: [reportPath],
         },
         consent: { approved: true },
-        completion: { ci: "passed", codeDocPaths: [] },
+        completion: { ci: "not_applicable", codeDocPaths: [] },
       }),
     );
     const closeout = runMaybe(root, userRoot, ["task", "closeout", taskId, "--from-file", "judgment.json"]);

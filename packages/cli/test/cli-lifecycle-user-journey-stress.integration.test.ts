@@ -545,8 +545,10 @@ async function runChain(
 ): Promise<ChainOutcome> {
   const taskId = `task-cli-stress-${clientIndex}-${chainIndex}`,
     executionId = `execution-cli-stress-${clientIndex}-${chainIndex}`,
-    standard = chainIndex === 2,
-    preset = standard ? "standard-task" : "docs-task",
+    // This stress fixture exercises lifecycle transport, not CI ingestion. Keep every chain on the
+    // no-gate docs preset so completion uses the honest not_applicable contract.
+    standard = false,
+    preset = "docs-task",
     workerEnvironment = actorEnvironment(fixture, clientIndex, actor),
     reviewerEnvironment = actorEnvironment(fixture, clientIndex, `agent:reviewer-${clientIndex}-${chainIndex}`),
     startedAt = Date.now();

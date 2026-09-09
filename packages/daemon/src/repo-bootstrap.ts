@@ -13,7 +13,6 @@ import {
   resolveHarnessLayout,
   type SettingsV1,
   type ActorIdentity,
-  type HarnessLayout,
   type WriterGeneration,
   type WriterGenerationToken,
 } from "../../kernel/src/index.ts";
@@ -350,11 +349,11 @@ function configureLedgerOnly(input: RepoBootstrapInput, authoredBranch?: string)
   };
 }
 /** Every reader of the machine configuration resolves it under the authored root, so init writes it there instead of at the default spelling. */
-function machineDocumentRoot(rootDir: string, layout: HarnessLayout): string {
+function machineDocumentRoot(rootDir: string, layout: ReturnType<typeof resolveHarnessLayout>): string {
   return path.relative(rootDir, layout.authoredRoot).split(path.sep).join("/");
 }
 /** A repository that already declares its layout seeds the authored configuration from that declaration, so init never mints a second document that disagrees about where the authored root is. */
-function configuredBody(layout: HarnessLayout): string | undefined {
+function configuredBody(layout: ReturnType<typeof resolveHarnessLayout>): string | undefined {
   return layout.configPath !== undefined && existsSync(layout.configPath)
     ? readFileSync(layout.configPath, "utf8")
     : undefined;

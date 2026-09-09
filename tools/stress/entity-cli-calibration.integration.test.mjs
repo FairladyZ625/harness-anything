@@ -114,6 +114,8 @@ function taskChain(f, reader, index) {
     "--admin",
     "--title",
     `Calibration ${f.seed} ${index}`,
+    "--preset",
+    "docs-task",
     "--no-wait",
   ]);
   f.publish(created, "task.create");
@@ -166,7 +168,7 @@ function taskChain(f, reader, index) {
     input: {
       review: { verdict: "approved", reason: "Fixture bytes checked.", evidenceChecked: [reportPath] },
       consent: { approved: true },
-      completion: { ci: "passed", codeDocPaths: [] },
+      completion: { ci: "not_applicable", codeDocPaths: [] },
     },
   });
   f.check("task.closeout.real-stages", () =>

@@ -800,7 +800,10 @@ test("review binding permits independent runtimes but still rejects the executio
           "arbiter",
         );
     const taskId = "task-runtime-bound";
-    const created = await cell.run({ kind: "task-create", taskId, title: "Runtime-bound review" }, implementer);
+    const created = await cell.run(
+      { kind: "task-create", taskId, title: "Runtime-bound review", presetId: "docs-task" },
+      implementer,
+    );
     assert.equal(created.outcome, "applied");
     await waitForFixturePublication(cell, created.opId, implementer);
     await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
@@ -966,7 +969,7 @@ test("review binding permits independent runtimes but still rejects the executio
       operator,
     );
     assert.equal(consented.outcome, "applied", JSON.stringify(consented));
-    const completed = await cell.run({ kind: "task-complete", taskId, executionId, ci: "passed" }, operator);
+    const completed = await cell.run({ kind: "task-complete", taskId, executionId }, operator);
     assert.equal(completed.outcome, "applied", JSON.stringify(completed));
 
     const directTaskId = "task-direct-review",

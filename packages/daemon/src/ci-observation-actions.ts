@@ -82,8 +82,9 @@ export async function pullAndIngestCiObservations(
         conclusion: string;
         attempt: number;
       };
+      const { status: runLifecycleState } = summary;
       // Publish immutable observations only once the run has a final conclusion.
-      if (summary.status !== "completed") continue;
+      if (runLifecycleState !== "completed") continue;
       const runRoot = path.join(temporaryRoot, String(run.databaseId));
       try {
         await runGh(

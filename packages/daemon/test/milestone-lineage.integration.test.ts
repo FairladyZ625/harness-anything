@@ -47,7 +47,13 @@ async function reachGreenInReview(
     rootDir,
     async () => {
       const created = await cell.run(
-        { kind: "task-create", taskId, title, ...(taskClass === "milestone" ? { taskClass } : {}) },
+        {
+          kind: "task-create",
+          taskId,
+          title,
+          presetId: "docs-task",
+          ...(taskClass === "milestone" ? { taskClass } : {}),
+        },
         binding,
       );
       await waitForFixturePublication(cell, created.opId, binding);
@@ -133,16 +139,10 @@ test("an orphan milestone task stops at completion until the prescribed decision
       ownerId: "milestone-lineage",
     });
     await reachGreenInReview(cell, rootDir, taskId, executionId, "Milestone Lineage", "milestone");
-    // Satisfy the mechanical gates first (CI witness, code-doc witness); the lineage gap must be what remains.
-    const ci = (await cell.run(
-      { kind: "task-complete", taskId, executionId, ci: "passed" },
-      binding,
-    )) as unknown as Record<string, unknown>;
-    assert.equal(ci.code, "code_doc_missing", JSON.stringify(ci));
-    const reconciled = (await cell.run(
-      { kind: "task-complete", taskId, executionId, ci: "passed", paths: ["README.md"] },
-      binding,
-    )) as unknown as Record<string, unknown>;
+    const reconciled = (await cell.run({ kind: "task-complete", taskId, executionId }, binding)) as unknown as Record<
+      string,
+      unknown
+    >;
     // RED before the rule: this facade call used to land task_completed. After it, the orphan stops with the named edge and the exact command.
     assert.deepEqual(
       { outcome: reconciled.outcome, code: reconciled.code, stoppedAt: reconciled.stoppedAt },
@@ -230,10 +230,10 @@ test("a standard task still completes with no decision relations at all", async 
       ownerId: "standard-lineage",
     });
     await reachGreenInReview(cell, rootDir, taskId, executionId, "Standard Lineage");
-    const completed = (await cell.run(
-      { kind: "task-complete", taskId, executionId, ci: "passed", paths: ["README.md"] },
-      binding,
-    )) as unknown as Record<string, unknown>;
+    const completed = (await cell.run({ kind: "task-complete", taskId, executionId }, binding)) as unknown as Record<
+      string,
+      unknown
+    >;
     assert.equal(completed.outcome, "applied", JSON.stringify(completed));
     assert.equal(
       makeTaskEventReader({ repoId: "standard-lineage", rootDir })

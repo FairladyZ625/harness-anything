@@ -103,10 +103,10 @@ test("task complete rejects an undeclared upstream Fact and persists a still-hol
     assert.match(String(relationReceipt.evidence), new RegExp(`decision/${decisionId}/CH1.*task/${taskId}`, "u"));
     assert.match(String(relationReceipt.evidence), new RegExp(`decision/${decisionId}/C1.*${factRef}`, "u"));
 
-    const blocked = (await cell.run(
-      { kind: "task-complete", taskId, executionId, ci: "passed", paths: ["README.md"] },
-      binding,
-    )) as unknown as Record<string, unknown>;
+    const blocked = (await cell.run({ kind: "task-complete", taskId, executionId }, binding)) as unknown as Record<
+      string,
+      unknown
+    >;
     assert.deepEqual(
       { outcome: blocked.outcome, code: blocked.code, stoppedAt: blocked.stoppedAt },
       {
@@ -160,7 +160,7 @@ async function reachGreenInReview(
   await createRealizedTaskPlanFixture(
     rootDir,
     async () => {
-      const created = await cell.run({ kind: "task-create", taskId, title }, binding);
+      const created = await cell.run({ kind: "task-create", taskId, title, presetId: "docs-task" }, binding);
       // The authored task package reaches the worktree through the Git follower; wait for it before editing the plan.
       const shown = await cell.run(
         { kind: "receipt-show", opId: created.opId, waitFor: ["worktree_visible"], timeoutMs: 5_000 },

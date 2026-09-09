@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import {
   compileCompletionGateWitness,
   judgeCompletionEvidence,
+  type CompletionEvidenceJudgment,
   deriveTaskRoot,
   hasCloseoutEvidence,
   isTaskEvent,
@@ -29,7 +30,7 @@ export function publishCiWitness(
   );
   if (!execution?.submission)
     throw cell.cellCodedError("invalid_transition", "CI witness requires a submitted execution.");
-  const judgment = judgeCompletionEvidence(evidence, { execution, gateId: "ci" });
+  const judgment: CompletionEvidenceJudgment = judgeCompletionEvidence(evidence, { execution, gateId: "ci" });
   if (!judgment.accepted)
     throw cell.cellCodedError(
       "invalid_proof",

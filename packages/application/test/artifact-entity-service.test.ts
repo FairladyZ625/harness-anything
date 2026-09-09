@@ -2,7 +2,12 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { compileVerticalContract, type ArtifactDescriptor, type EntityEventV1 } from "../../kernel/src/index.ts";
+import {
+  ARTIFACT_ENTITY_ID_BYTES,
+  compileVerticalContract,
+  type ArtifactDescriptor,
+  type EntityEventV1,
+} from "../../kernel/src/index.ts";
 import { makeArtifactEntityService } from "../src/artifact-entity-service.ts";
 
 const sourceVertical = JSON.parse(
@@ -48,6 +53,11 @@ test("two edges derive one identity and operation; replay precedes the Entity re
         resolver: "repository:canonical",
       }),
       readCurrent: () => current,
+      resolveSourceBinding: () => ({
+        entityId: current?.descriptor.entityId ?? null,
+        generation: 0,
+      }),
+      randomEntityIdBytes: () => new Uint8Array(ARTIFACT_ENTITY_ID_BYTES),
       readOperation: (opId) => operations.get(opId) ?? null,
       countRelationChanges: () => 3,
     }),
@@ -88,6 +98,8 @@ test("dry-run and missing resolution compile plans without mutating any dependen
         reads += 1;
         return null;
       },
+      resolveSourceBinding: () => ({ entityId: null, generation: 0 }),
+      randomEntityIdBytes: () => new Uint8Array(ARTIFACT_ENTITY_ID_BYTES),
       readOperation: () => null,
       countRelationChanges: () => 0,
     }),
@@ -95,11 +107,12 @@ test("dry-run and missing resolution compile plans without mutating any dependen
       { kind: contract.typeIdentity, locator: "docs/missing.md", expectedVersion: 0, dryRun: true },
       envelope,
     );
-  assert.equal(prepared.bundle.event.type, "entity_target_missing");
-  assert.equal(prepared.bundle.blobs.length, 0);
+  assert.equal(prepared.bundle, null);
+  assert.equal(prepared.preview.eventType, "entity_target_missing");
+  assert.equal(prepared.bundle, null);
   assert.equal(prepared.preview.candidateContentVersion, null);
   assert.equal(prepared.preview.dryRun, true);
-  assert.equal(reads, 1);
+  assert.equal(reads, 0);
 });
 
 test("a resolver network error is unknown, not an authoritative missing observation", async () => {
@@ -111,6 +124,8 @@ test("a resolver network error is unknown, not an authoritative missing observat
       throw new Error("network unavailable");
     },
     readCurrent: () => current,
+    resolveSourceBinding: () => ({ entityId: null, generation: 0 }),
+    randomEntityIdBytes: () => new Uint8Array(ARTIFACT_ENTITY_ID_BYTES),
     readOperation: () => {
       operationReads += 1;
       return null;

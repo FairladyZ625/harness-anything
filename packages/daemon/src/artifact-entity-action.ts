@@ -20,8 +20,11 @@ import {
   pinnedArtifactKindContract,
   composeCanonicalRelationDirections,
   ARTIFACT_ENTITY_ID_BYTES,
+  entityDocumentPath,
   entityContentRoot,
   entityDirectoryFootprint,
+  entityOwnedDirectories,
+  entityRetiredDirectories,
   isEntityDeclarationEvent,
   isEntityEvent,
   MAX_ENTITY_CONTENT_OBJECT_BYTES,
@@ -36,6 +39,8 @@ import {
   type CompiledVerticalContract,
   type EntityActionContract,
   type EntityContentBlob,
+  type EntityContentDirectory,
+  type EntityContentRetirement,
   type EntityEventV1,
   type EntityOwnedContentV1,
   type EntityStoreKindContract,
@@ -219,7 +224,7 @@ export function executeArtifactEntityMutation(input: {
               contentRetirements: (current.ownedContent?.bindings ?? []).map(({ path, contentSha256 }) => ({
                 path,
                 baseBlobSha256: contentSha256,
-              })),
+              })) satisfies readonly EntityContentRetirement[],
               // The directories go with the files, and only the ones the accepted manifest says the entity held:
               // a directory the user made inside the content root was never the entity's and is not named here.
               heldDirectories: entityDirectoryFootprint(entityContentRoot(pinned, entityId), current.ownedContent),
@@ -481,7 +486,7 @@ function directoryContent(root: string): {
   readonly emptyDirectories: readonly string[];
 } {
   const objects: EntityContentBlob[] = [],
-    emptyDirectories: string[] = [];
+    emptyDirectories: EntityContentDirectory[] = [];
   // Only a directory with no surviving entry at all is stated: a directory that holds one is already implied
   // by whatever it holds, and materializing the deeper path creates it on the way.
   function visit(directory: string): boolean {
@@ -496,21 +501,23 @@ function directoryContent(root: string): {
       held = true;
     }
     if (!held && directory !== root)
-      emptyDirectories.push(normalizeRelativeDocumentPath(path.relative(root, directory).split(path.sep).join("/")));
+      emptyDirectories.push({
+        path: normalizeRelativeDocumentPath(path.relative(root, directory).split(path.sep).join("/")),
+      });
     return held;
   }
   visit(root);
   objects.sort((left, right) =>
     Buffer.compare(Buffer.from(left.relativePath, "utf8"), Buffer.from(right.relativePath, "utf8")),
   );
-  emptyDirectories.sort();
+  emptyDirectories.sort((left, right) => left.path.localeCompare(right.path));
   return {
     fingerprint: [
       ...objects.map(({ relativePath, sha256 }) => `${sha256}  ${JSON.stringify(relativePath)}`),
-      ...emptyDirectories.map((relativePath) => `directory  ${JSON.stringify(relativePath)}`),
+      ...emptyDirectories.map(({ path: relativePath }) => `directory  ${JSON.stringify(relativePath)}`),
     ].join("\n"),
     objects,
-    emptyDirectories,
+    emptyDirectories: emptyDirectories.map(({ path: relativePath }) => relativePath),
   };
 }
 
@@ -732,8 +739,11 @@ function carriedDirectories(
   ownedContent: EntityOwnedContentV1 | null,
 ): readonly string[] {
   if (!ownedContent) return [];
-  const root = `${entityContentRoot(contract, entityId)}/`;
-  return ownedContent.directories.flatMap(({ path: held }) => (held.startsWith(root) ? [held.slice(root.length)] : []));
+  const root = `${entityContentRoot(contract, entityId)}/`,
+    retired = new Set(entityRetiredDirectories(ownedContent));
+  return entityOwnedDirectories(ownedContent).flatMap((held) =>
+    held.startsWith(root) && !retired.has(held) ? [held.slice(root.length)] : [],
+  );
 }
 
 function declarationRetirement(
@@ -741,8 +751,8 @@ function declarationRetirement(
   entityId: string,
   ownedContent: EntityOwnedContentV1 | null,
 ): string {
-  const root = `${entityContentRoot(contract, entityId)}/`,
-    declaration = (ownedContent?.bindings ?? []).find(({ path: bound }) => !bound.startsWith(root));
+  const declarationPath = entityDocumentPath(contract, entityId),
+    declaration = (ownedContent?.bindings ?? []).find(({ path: bound }) => bound === declarationPath);
   if (!declaration) throw new Error(`Entity ${entityId} has no accepted declaration document to retire.`);
   return declaration.contentSha256;
 }

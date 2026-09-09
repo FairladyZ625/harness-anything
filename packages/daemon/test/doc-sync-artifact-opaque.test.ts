@@ -501,7 +501,7 @@ test("an identifier-free lifecycle publishes dirty artifacts and completes on th
   });
   const taskId = "task-complete";
   try {
-    const created = await cell.run({ kind: "task-create", taskId, title: "Complete" }, binding);
+    const created = await cell.run({ kind: "task-create", taskId, title: "Complete", presetId: "docs-task" }, binding);
     assert.equal(created.outcome, "applied", JSON.stringify(created));
     await waitForFixturePublication(cell, created.opId, binding);
     assert.equal(
@@ -532,10 +532,7 @@ test("an identifier-free lifecycle publishes dirty artifacts and completes on th
       manual = `${packagePath}/artifacts/reports/manual.html`;
     write(rootDir, manual, "<!doctype html>\n<title>Manual report</title>\n");
     await reachGreenInReview(cell, rootDir, taskId, packagePath);
-    const completed = (await cell.run(
-      { kind: "task-complete", taskId, ci: "passed", paths: ["README.md"] },
-      binding,
-    )) as Record<string, unknown>;
+    const completed = (await cell.run({ kind: "task-complete", taskId }, binding)) as Record<string, unknown>;
     assert.equal(completed.outcome, "applied", JSON.stringify(completed));
     assert.equal(completed.commitSha, null);
     const store = makeTaskEventReader({ repoId, rootDir });
