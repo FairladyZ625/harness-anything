@@ -12,8 +12,17 @@ import {
   toolOption,
   toolValue,
 } from "./tool-command-contract.mjs";
+import { guiVitestManifest } from "./gui-test-manifest.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
+const dispatchCommand = Object.freeze({
+  ...dispatchIsolatedTestCommand,
+  options: Object.freeze(
+    dispatchIsolatedTestCommand.options.map((option) =>
+      option.name === "--file" ? { ...option, validate: validateDispatchTestFile } : option,
+    ),
+  ),
+});
 export const sourceRootAllowlist = Object.freeze([
   ".github",
   ".gitignore",
@@ -30,22 +39,52 @@ export const sourceRootAllowlist = Object.freeze([
 ]);
 
 export function parseDispatchArgs(argv) {
-  const parsed = parseToolOptions(dispatchIsolatedTestCommand, argv);
+  const parsed = parseToolOptions(dispatchCommand, argv);
   if (parsed.help) return { help: true };
   const options = {
     target: toolValue(parsed, "--target") ?? toolOption(dispatchIsolatedTestCommand, "--target").defaultValue,
     tier: toolValue(parsed, "--tier"),
     file: toolValue(parsed, "--file"),
   };
+  validateFileSelection(options.file);
   return options;
 }
 
 export function testRunnerArgs(options) {
+  validateFileSelection(options.file);
+  if (guiVitestManifest.includes(options.file)) {
+    return [
+      "npm",
+      "run",
+      "test:gui",
+      "--workspace",
+      "@harness-anything/gui",
+      "--",
+      options.file.slice("packages/gui/".length),
+    ];
+  }
   return [
     "node",
     "tools/run-node-tests.mjs",
     ...(options.tier === undefined ? ["--file", options.file] : ["--tier", options.tier]),
   ];
+}
+
+function validateFileSelection(file) {
+  if (file?.startsWith("packages/gui/test/") && !guiVitestManifest.includes(file)) {
+    throw new Error(`unknown GUI test file: ${file}`);
+  }
+}
+
+function validateDispatchTestFile(value) {
+  if (
+    value.startsWith("/") ||
+    value.split("/").includes("..") ||
+    value.includes("\\") ||
+    !/\.(?:(?:test|spec)\.(?:mjs|js|ts)|vitest\.(?:mjs|js|ts))$/u.test(value)
+  ) {
+    throw new Error(`--file must be a POSIX repository-relative test file; received ${JSON.stringify(value)}`);
+  }
 }
 
 export function sourceArchiveArgs(platform = process.platform, sourceRoot = repoRoot) {

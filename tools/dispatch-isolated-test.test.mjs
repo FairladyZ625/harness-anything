@@ -48,7 +48,7 @@ test("dispatcher accepts all isolated targets and validates exact file paths", (
   assert.throws(() => parseDispatchArgs(["--file", "../outside.test.mjs"]), /repository-relative/u);
 });
 
-test("dispatcher builds runner commands for either supported selector", () => {
+test("dispatcher builds runner commands for Node selectors and registered GUI files", () => {
   assert.deepEqual(testRunnerArgs({ tier: "integration", file: undefined }), [
     "node",
     "tools/run-node-tests.mjs",
@@ -61,6 +61,26 @@ test("dispatcher builds runner commands for either supported selector", () => {
     "--file",
     "tools/a.test.mjs",
   ]);
+  assert.deepEqual(testRunnerArgs({ tier: undefined, file: "packages/gui/test/task-pin-actions.vitest.ts" }), [
+    "npm",
+    "run",
+    "test:gui",
+    "--workspace",
+    "@harness-anything/gui",
+    "--",
+    "test/task-pin-actions.vitest.ts",
+  ]);
+});
+
+test("dispatcher rejects unregistered GUI files", () => {
+  assert.throws(
+    () => parseDispatchArgs(["--file", "packages/gui/test/unregistered.vitest.ts"]),
+    /unknown GUI test file: packages\/gui\/test\/unregistered\.vitest\.ts/u,
+  );
+  assert.throws(
+    () => testRunnerArgs({ tier: undefined, file: "packages/gui/test/unregistered.vitest.ts" }),
+    /unknown GUI test file/u,
+  );
 });
 
 test("source root allowlist contains only current test inputs", () => {
@@ -160,6 +180,16 @@ test("remote scripts preflight before executing tests with a dedicated root and 
   assert.match(powerShell, /\$ProgressPreference = 'SilentlyContinue'/u);
   assert.match(powerShell, /test-hermetic-preflight\.mjs --user-root 'C:\\Temp\\run\\\.test-isolation-state'/u);
   assert.match(powerShell, /\$env:HARNESS_DAEMON_USER_ROOT = 'C:\\Temp\\run\\\.test-isolation-state'/u);
+});
+
+test("remote scripts preserve the GUI workspace-relative file argument", () => {
+  const options = { tier: undefined, file: "packages/gui/test/task-pin-actions.vitest.ts" };
+  const posix = posixTestScript("/tmp/run", "/tmp/run/.test-isolation-state", options);
+  const powerShell = powerShellTestScript("C:\\Temp\\run", "C:\\Temp\\run\\.test-isolation-state", options);
+  assert.match(posix, /'test\/task-pin-actions\.vitest\.ts'/u);
+  assert.match(powerShell, /'test\/task-pin-actions\.vitest\.ts'/u);
+  assert.doesNotMatch(posix, /'packages\/gui\/test\/task-pin-actions\.vitest\.ts'/u);
+  assert.doesNotMatch(powerShell, /'packages\/gui\/test\/task-pin-actions\.vitest\.ts'/u);
 });
 
 function withFixture(run) {
