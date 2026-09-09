@@ -165,6 +165,8 @@ test("entity rows only project declared kinds and keep canonical refs", () => {
                 value: {
                   title: "ADR-0020 · Decision 与 ADR 边界",
                   locator: { kind: "repository-path", value: "harness/adr/ADR-0020.md" },
+                  kindVersion: 2,
+                  attributes: { region: "north", fiscalYear: 2026, reviewed: true },
                 },
               },
             ]
@@ -187,8 +189,53 @@ test("entity rows only project declared kinds and keep canonical refs", () => {
       locator: { kind: "repository-path", value: "harness/adr/ADR-0020.md" },
       revision: 42,
       archived: false,
+      // 这一条钉在哪一版、按那一版填了什么,都是它自己描述符里的事实:调用方靠这两个
+      // 才说得出该按哪一版读写,不必替它猜一版。
+      descriptor: { kindVersion: 2, attributes: { region: "north", fiscalYear: 2026, reviewed: true } },
     },
   ]);
+});
+
+/**
+ * 阴性对照:描述符事实读不出来时是 `null`,不是一张编出来的空属性表。空表会被调用方当成
+ * 「这一条什么都没填」,照它提交一次就把描述符里本来有的值抹掉。
+ */
+test("a row that cannot state its pinned version reports no descriptor facts", () => {
+  const catalog = buildEntityKindCatalog(repositoryKinds(), 1);
+  const rows = readDeclaredEntityRows({
+    catalog,
+    projection: {
+      listEntities: (kind: string) =>
+        kind === ADR_KIND
+          ? [
+              {
+                kind,
+                id: "ADR-00000000000000000000000000000001",
+                ownerId: null,
+                workspaceRevision: 1,
+                freshness: "current" as const,
+                currentVersion: null,
+                // 版本号在,但属性里有一个描述符契约根本不允许的形状。
+                value: { kindVersion: 1, attributes: { nested: { deep: true } } },
+              },
+              {
+                kind,
+                id: "ADR-00000000000000000000000000000002",
+                ownerId: null,
+                workspaceRevision: 1,
+                freshness: "current" as const,
+                currentVersion: null,
+                value: { attributes: {} },
+              },
+            ]
+          : [],
+    },
+  });
+  assert.deepEqual(validateEntityRowList(rows), []);
+  assert.deepEqual(
+    rows.rows.map(({ descriptor }) => descriptor),
+    [null, null],
+  );
 });
 
 test("entity rows include daemon-local runtime instances with Provider deep links", () => {
@@ -224,6 +271,8 @@ test("entity rows include daemon-local runtime instances with Provider deep link
       locator: { kind: "entity-ref", value: "provider/codex-sol" },
       revision: 0,
       archived: false,
+      // 它不是 Artifact 描述符:没有版本可钉,也就没有属性可读——如实说 null。
+      descriptor: null,
     },
   ]);
 });

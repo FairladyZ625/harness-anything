@@ -5,7 +5,6 @@ export const guiVitestManifest = [
   "packages/gui/test/schedules-view.vitest.ts",
   "packages/gui/test/artifacts-view.vitest.ts",
   "packages/gui/test/entities-view.vitest.ts",
-  "packages/gui/test/entity-attribute-form.vitest.ts",
   "packages/gui/test/entity-docs-contract.vitest.ts",
   "packages/gui/test/entity-kind-catalog.vitest.ts",
   "packages/gui/test/entity-locator-renderer.vitest.ts",

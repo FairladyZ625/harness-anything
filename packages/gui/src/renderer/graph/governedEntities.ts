@@ -14,6 +14,14 @@ export interface GovernedEntityRow {
   readonly locator: { readonly kind: string; readonly value: string } | null;
   readonly revision: number;
   readonly archived: boolean;
+  /**
+   * 这一条自己说出来的描述符事实:它钉住的那一版属性声明,以及它按那一版填的值。
+   * 不是 Artifact 描述符的行(runtime instance)为 `null`——没有版本可钉,也就没有属性可改。
+   */
+  readonly descriptor: {
+    readonly kindVersion: number;
+    readonly attributes: Readonly<Record<string, string | number | boolean>>;
+  } | null;
 }
 
 /** 没有标题就显示 entityId——不编造一个好看的名字。 */

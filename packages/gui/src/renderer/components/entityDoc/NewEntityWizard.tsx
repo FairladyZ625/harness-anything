@@ -20,8 +20,8 @@ import {
   entityAttributeFields,
   readAttributeDraft,
   type EntityAttributeDraft,
-  type EntityAttributeField,
 } from "../../entity-attribute-form.ts";
+import { EntityAttributeFields } from "./EntityAttributeFields.tsx";
 import { RepoPathBrowser, commonParentDirectory } from "./RepoPathBrowser.tsx";
 
 /** 选中的来源:仓内路径(文件或目录)或外部 url。两种都只是一个 locator 字符串。 */
@@ -220,15 +220,13 @@ export function NewEntityWizard({
               <span className="ml-2 font-mono normal-case text-text-faint">v{pinnedSchema.version}</span>
             )}
           </h3>
-          {attributeFields.map((field) => (
-            <AttributeInput
-              key={field.name}
-              field={field}
-              value={attributeDraft[field.name] ?? ""}
-              issue={attributeReading.issues[field.name] ?? null}
-              onChange={(value) => setAttributeDraft((previous) => ({ ...previous, [field.name]: value }))}
-            />
-          ))}
+          <EntityAttributeFields
+            fields={attributeFields}
+            draft={attributeDraft}
+            issues={attributeReading.issues}
+            testIdPrefix="new-entity-attribute"
+            onChange={(name, value) => setAttributeDraft((previous) => ({ ...previous, [name]: value }))}
+          />
         </section>
       )}
 
@@ -314,76 +312,6 @@ export function NewEntityWizard({
         )}
       </section>
     </div>
-  );
-}
-
-/**
- * 一个声明属性的输入控件。控件形态只由**声明**决定:给了取值清单就是下拉,布尔是复选框,
- * 数字是数字框——没有任何按 kind 名字写死的分支,新声明一个种类不必回来改这里。
- */
-function AttributeInput({
-  field,
-  value,
-  issue,
-  onChange,
-}: {
-  readonly field: EntityAttributeField;
-  readonly value: string;
-  readonly issue: string | null;
-  readonly onChange: (value: string) => void;
-}) {
-  const label = (
-    <span className="flex items-baseline gap-2">
-      <span className="font-mono">{field.name}</span>
-      <span className={field.required ? "ui-micro text-accent" : "ui-micro text-text-faint"}>
-        {field.required ? "必填" : "可选"}
-      </span>
-    </span>
-  );
-  if (field.type === "boolean")
-    return (
-      <label
-        className="flex items-center gap-2 ui-meta text-text-muted"
-        data-testid={`new-entity-attribute-${field.name}`}
-      >
-        <input
-          type="checkbox"
-          aria-label={field.name}
-          checked={value === "true"}
-          onChange={(event) => onChange(event.target.checked ? "true" : "false")}
-        />
-        {label}
-      </label>
-    );
-  return (
-    <label className="flex flex-col gap-1 ui-meta text-text-muted" data-testid={`new-entity-attribute-${field.name}`}>
-      {label}
-      {field.options !== null ? (
-        <select
-          aria-label={field.name}
-          value={value}
-          onChange={(event) => onChange(event.target.value)}
-          className="rounded border border-border bg-surface px-2 py-1 ui-meta text-text"
-        >
-          <option value="">未选择</option>
-          {field.options.map((option) => (
-            <option key={option} value={option}>
-              {option}
-            </option>
-          ))}
-        </select>
-      ) : (
-        <input
-          aria-label={field.name}
-          type={field.type === "string" ? "text" : "number"}
-          {...(field.type === "integer" ? { step: 1 } : {})}
-          value={value}
-          onChange={(event) => onChange(event.target.value)}
-          className="rounded border border-border bg-surface px-2 py-1 ui-meta text-text"
-        />
-      )}
-      {issue !== null && value.trim() !== "" && <span className="ui-micro text-status-blocked">{issue}</span>}
-    </label>
   );
 }
 

@@ -80,6 +80,17 @@ export const entityImportGuiActions = Object.freeze([
     "/api/entities/archive",
     "repo-write",
   ),
+  // Archive keeps the descriptor and its files; delete retires both. Both already exist as one
+  // center action apiece, so the GUI names the second one too rather than making archive mean both.
+  guiAction(
+    "entity.delete",
+    "repo.entity.delete",
+    "entity-delete",
+    shape({ entityKind: "string", entityId: "string", expectedVersion: "number", reason: "string" }),
+    "deleteEntity",
+    "/api/entities/delete",
+    "repo-write",
+  ),
 ] as const);
 
 /** Agent/Squad 声明文档的写入面;两者共用 generic entity store 的同一条写路。 */

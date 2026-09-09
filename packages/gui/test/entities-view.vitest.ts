@@ -15,6 +15,14 @@ import {
   locateJsonError,
 } from "../src/renderer/components/entityDoc/VerticalKindForm.tsx";
 import { describeAttributesIssue } from "../src/renderer/components/entityDoc/VerticalKindSchemaForm.tsx";
+import {
+  attributeDraftFrom,
+  emptyAttributeDraft,
+  entityAttributeFields,
+  readAttributeDraft,
+} from "../src/renderer/entity-attribute-form.ts";
+import { soleContentFile } from "../src/renderer/entity-content-client.ts";
+import { entityWriteSettlement } from "../src/renderer/entity-locator-client.ts";
 import { findKindRow, verticalKindFence, type ArtifactKindDeclaration } from "../src/renderer/vertical-kind-client.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import type { ViewId } from "../src/renderer/navigation/viewHistory.ts";
@@ -109,6 +117,11 @@ function governedRow(
     readonly locator?: string;
     readonly revision?: number;
     readonly archived?: boolean;
+    /** 这一条自己说出来的描述符事实:钉住的那一版,以及它按那一版填的值。 */
+    readonly descriptor?: {
+      readonly kindVersion: number;
+      readonly attributes: Record<string, string | number | boolean>;
+    } | null;
   } = {},
 ) {
   return {
@@ -118,6 +131,7 @@ function governedRow(
     title,
     locator: { kind: "repository-path", value: overrides.locator ?? `docs/adr/${entityId}.md` },
     revision: overrides.revision ?? 0,
+    descriptor: overrides.descriptor === undefined ? { kindVersion: 1, attributes: {} } : overrides.descriptor,
     ...(overrides.archived === undefined ? {} : { archived: overrides.archived }),
   };
 }
@@ -710,6 +724,7 @@ interface CrudBridgeState {
   imports: unknown[];
   updates: unknown[];
   archives: unknown[];
+  deletes: unknown[];
 }
 
 /**
@@ -748,6 +763,7 @@ function stubCrudBridge(
     imports: [],
     updates: [],
     archives: [],
+    deletes: [],
   };
   vi.stubGlobal("window", {
     harness: {
@@ -876,22 +892,61 @@ function stubCrudBridge(
       }),
       updateEntity: vi.fn(async (payload: object) => {
         state.updates.push(payload);
+        // 被接受的那一次写落进行里:下一次读因此读到的是账本,不是表单的本地回声。
+        const input = payload as {
+          entityId: string;
+          title?: string;
+          locator?: string;
+          attributes?: Record<string, string | number | boolean>;
+        };
+        state.rows = state.rows.map((row) =>
+          row.entityId !== input.entityId
+            ? row
+            : {
+                ...row,
+                title: input.title ?? row.title,
+                locator: input.locator ? { kind: "repository-path", value: input.locator } : row.locator,
+                revision: row.revision + 1,
+                descriptor:
+                  row.descriptor === null || input.attributes === undefined
+                    ? row.descriptor
+                    : { ...row.descriptor, attributes: input.attributes },
+              },
+        );
         return {
           schema: "command-receipt/v2",
           ok: true,
           command: "entity.update",
           outcome: "applied",
           opId: "op-update-1",
+          proof: { durable: true, canonicalVisible: true, worktreeVisible: true },
         };
       }),
       archiveEntity: vi.fn(async (payload: object) => {
         state.archives.push(payload);
+        const { entityId } = payload as { entityId: string };
+        // 归档留下这一行,只把它标成已归档——删除才把它取走。
+        state.rows = state.rows.map((row) => (row.entityId === entityId ? { ...row, archived: true } : row));
         return {
           schema: "command-receipt/v2",
           ok: true,
           command: "entity.archive",
           outcome: "applied",
           opId: "op-archive-1",
+          proof: { durable: true, canonicalVisible: true, worktreeVisible: false },
+        };
+      }),
+      deleteEntity: vi.fn(async (payload: object) => {
+        state.deletes.push(payload);
+        const { entityId } = payload as { entityId: string };
+        state.rows = state.rows.filter((row) => row.entityId !== entityId);
+        return {
+          schema: "command-receipt/v2",
+          ok: true,
+          command: "entity.delete",
+          outcome: "applied",
+          opId: "op-delete-1",
+          proof: { durable: true, canonicalVisible: true, worktreeVisible: true },
         };
       }),
     },
@@ -1238,7 +1293,8 @@ describe("detail action area (goal 4)", () => {
       title: "新标题",
       locator: "docs/adr/ADR-0001.md",
     });
-    // 归档:带原因走 repo.entity.archive。
+    // 归档:带原因走 repo.entity.archive。fence 是**刚才那次写之后**重读到的 revision——
+    // 界面拿的是账本此刻的那一行,不是页面打开时记住的那一个。
     await click(container, "entity-detail-archive");
     const reason = container.querySelector<HTMLInputElement>('input[aria-label="归档原因"]');
     await act(async () => {
@@ -1250,9 +1306,156 @@ describe("detail action area (goal 4)", () => {
     expect(state.archives[0]).toMatchObject({
       repoId: REPO_ID,
       entityId: "ADR-0001",
-      expectedVersion: 4,
+      expectedVersion: 5,
       reason: "过期",
     });
+  });
+
+  /**
+   * 已存在实例的属性编辑:读面给出这一条钉住的那一版与它现在的值 → 表单按那一版长出并
+   * 预填 → 写走 `repo.entity.update` 的同一条 fence → 再读回来的是账本里的值。
+   *
+   * v1 与 v2 两条同 kind 实例同屏存在,证明表单认的是**这一条钉的那一版**,不是 kind 最新那一版。
+   */
+  const ADR_SCHEMA_VERSIONS = [
+    { version: 1, attributes: {} },
+    {
+      version: 2,
+      attributes: {
+        region: { type: "string", enum: ["north", "south"], required: true },
+        fiscalYear: { type: "integer", required: true },
+        reviewed: { type: "boolean" },
+      },
+    },
+  ];
+
+  function pinnedRows() {
+    return [
+      governedRow("ADR-0001", "v1 期的那一条", {
+        locator: "docs/adr/ADR-0001.md",
+        revision: 4,
+        descriptor: { kindVersion: 1, attributes: {} },
+      }),
+      governedRow("ADR-0002", "v2 期的那一条", {
+        locator: "docs/adr/ADR-0002.md",
+        revision: 7,
+        descriptor: { kindVersion: 2, attributes: { region: "north", fiscalYear: 2026, reviewed: true } },
+      }),
+    ];
+  }
+
+  const pinnedBridge = () =>
+    stubCrudBridge(pinnedRows(), [acceptedAdrKindRow({ schemaVersions: ADR_SCHEMA_VERSIONS })]);
+
+  it("edits an existing instance's attributes against the version it pinned", async () => {
+    const state = pinnedBridge();
+    const container = await renderCrudView(`entitydoc/${ADR_KIND}`);
+    await click(container, "governed-entity-row-ADR-0002");
+    await click(container, "entity-detail-edit");
+    // 表单按这一条钉的 v2 长出,并且从它**现在填的值**起——不是空表。
+    const attributes = container.querySelector('[data-testid="entity-detail-attributes"]');
+    expect(attributes?.textContent).toContain("v2");
+    expect(container.querySelector<HTMLSelectElement>('select[aria-label="region"]')?.value).toBe("north");
+    expect(container.querySelector<HTMLInputElement>('input[aria-label="fiscalYear"]')?.value).toBe("2026");
+    expect(container.querySelector<HTMLInputElement>('input[aria-label="reviewed"]')?.checked).toBe(true);
+    await typeInto(container, "fiscalYear", "2027");
+    await click(container, "entity-detail-edit-save");
+    // 递出去的是按声明还原了类型的值,fence 是这一行现在的 revision。
+    expect(state.updates[0]).toMatchObject({
+      repoId: REPO_ID,
+      entityKind: ADR_KIND,
+      entityId: "ADR-0002",
+      expectedVersion: 7,
+      attributes: { region: "north", fiscalYear: 2027, reviewed: true },
+    });
+    expect((state.updates[0] as { attributes: { fiscalYear: unknown } }).attributes.fiscalYear).toBe(2027);
+    // 再打开一次:值来自失效后重读的那一行,而不是留在组件里的草稿。
+    await click(container, "entity-detail-edit");
+    await vi.waitFor(() =>
+      expect(container.querySelector<HTMLInputElement>('input[aria-label="fiscalYear"]')?.value).toBe("2027"),
+    );
+  });
+
+  it("keeps a v1 instance on v1 after v2 is published", async () => {
+    pinnedBridge();
+    const container = await renderCrudView(`entitydoc/${ADR_KIND}`);
+    await click(container, "governed-entity-row-ADR-0001");
+    await click(container, "entity-detail-edit");
+    // 这一条钉在 v1 上,那一版一个属性也没声明:页面因此不摆 v2 的必填项。
+    expect(container.querySelector('[data-testid="entity-detail-attributes"]')).toBeNull();
+    expect(container.querySelector('input[aria-label="fiscalYear"]')).toBeNull();
+    expect(container.querySelector('[data-testid="entity-detail-edit-form"]')).not.toBeNull();
+  });
+
+  it("refuses to submit an emptied required attribute instead of erasing it", async () => {
+    const state = pinnedBridge();
+    const container = await renderCrudView(`entitydoc/${ADR_KIND}`);
+    await click(container, "governed-entity-row-ADR-0002");
+    await click(container, "entity-detail-edit");
+    await typeInto(container, "fiscalYear", "");
+    await click(container, "entity-detail-edit-save");
+    expect(container.querySelector('[data-testid="entity-detail-attributes-incomplete"]')).not.toBeNull();
+    expect(state.updates.length).toBe(0);
+  });
+
+  it("deletes through the entity-delete action and takes the row with it", async () => {
+    const state = pinnedBridge();
+    const container = await renderCrudView(`entitydoc/${ADR_KIND}`);
+    await click(container, "governed-entity-row-ADR-0002");
+    await click(container, "entity-detail-delete");
+    await typeInto(container, "删除原因", "探针结束");
+    await click(container, "entity-detail-delete-confirm");
+    expect(state.deletes[0]).toMatchObject({
+      repoId: REPO_ID,
+      entityKind: ADR_KIND,
+      entityId: "ADR-0002",
+      expectedVersion: 7,
+      reason: "探针结束",
+    });
+    // 删除取走这一行;同 kind 的另一条不受影响——删一个实体不动别人的东西。
+    await vi.waitFor(() => expect(container.querySelector('[data-testid="governed-entity-row-ADR-0002"]')).toBeNull());
+    expect(container.querySelector('[data-testid="governed-entity-row-ADR-0001"]')).not.toBeNull();
+    expect(state.archives.length).toBe(0);
+  });
+
+  it("keeps an archived entity listed and says delete is the other thing", async () => {
+    const state = pinnedBridge();
+    const container = await renderCrudView(`entitydoc/${ADR_KIND}`);
+    await click(container, "governed-entity-row-ADR-0002");
+    await click(container, "entity-detail-archive");
+    await typeInto(container, "归档原因", "过期");
+    await click(container, "entity-detail-archive-confirm");
+    await vi.waitFor(() =>
+      expect(container.querySelector('[data-testid="entity-detail-actions-archived"]')).not.toBeNull(),
+    );
+    // 归档与删除的区别写在人看得到的地方:归档留下描述符与文件。
+    expect(container.querySelector('[data-testid="entity-detail-actions-archived"]')?.textContent).toContain("都还在");
+    expect(state.deletes.length).toBe(0);
+  });
+
+  it("says a write was accepted but not yet canonically visible instead of calling it done", async () => {
+    const state = pinnedBridge();
+    const bridge = (window as unknown as { harness: Record<string, unknown> }).harness;
+    bridge.updateEntity = vi.fn(async (payload: object) => {
+      state.updates.push(payload);
+      return {
+        schema: "command-receipt/v2",
+        ok: true,
+        command: "entity.update",
+        outcome: "applied",
+        opId: "entity-update-ADR-0002-7",
+        proof: { durable: true, canonicalVisible: false, worktreeVisible: true },
+      };
+    });
+    const container = await renderCrudView(`entitydoc/${ADR_KIND}`);
+    await click(container, "governed-entity-row-ADR-0002");
+    await click(container, "entity-detail-edit");
+    await typeInto(container, "title", "尚未可见");
+    await click(container, "entity-detail-edit-save");
+    const pending = container.querySelector('[data-testid="entity-detail-action-pending"]');
+    expect(pending).not.toBeNull();
+    expect(pending?.textContent).toContain("entity-update-ADR-0002-7");
+    expect(container.querySelector('[data-testid="entity-detail-action-applied"]')).toBeNull();
   });
 });
 
@@ -1569,5 +1772,182 @@ describe("attribute declaration editor localizes issues", () => {
     expect(describeAttributesIssue('{"confidence":{"type":"float"}}')).toContain("type 只能是");
     expect(describeAttributesIssue('{"severity":{"type":"string","enum":[]}}')).toContain("enum 必须是非空字符串数组");
     expect(describeAttributesIssue('{"confidence":{"type":"integer","unit":"kg"}}')).toContain("未声明字段 unit");
+  });
+});
+
+/**
+ * 属性表单的判定面(E5)。这一层决定「填什么、怎么算填对了、递出去的是什么类型」,
+ * 与渲染分开——判定分开才测得动,也才保证 GUI 里没有按 kind 名字写死的分支。
+ */
+describe("declared attributes become form fields", () => {
+  it("takes every supported declaration in the order the author wrote it", () => {
+    expect(
+      entityAttributeFields({
+        region: { type: "string", enum: ["north", "south"], required: true },
+        fiscalYear: { type: "integer" },
+        reviewed: { type: "boolean", required: true },
+        weight: { type: "number" },
+      }),
+    ).toEqual([
+      { name: "region", type: "string", options: ["north", "south"], required: true },
+      { name: "fiscalYear", type: "integer", options: null, required: false },
+      { name: "reviewed", type: "boolean", options: null, required: true },
+      { name: "weight", type: "number", options: null, required: false },
+    ]);
+  });
+
+  it("leaves out declarations no control can honestly generate", () => {
+    // 猜一个控件出来,人填进去的值会在中心被拒——那比不摆更糟。
+    expect(entityAttributeFields({ nested: { type: "object" }, loose: "string", empty: null })).toEqual([]);
+    expect(entityAttributeFields(null)).toEqual([]);
+    expect(entityAttributeFields([{ type: "string" }])).toEqual([]);
+    expect(entityAttributeFields(undefined)).toEqual([]);
+  });
+
+  it("starts booleans at false and everything else unfilled", () => {
+    const fields = entityAttributeFields({ reviewed: { type: "boolean" }, region: { type: "string" } });
+    expect(emptyAttributeDraft(fields)).toEqual({ reviewed: "false", region: "" });
+  });
+
+  it("starts an existing instance from the values it already holds", () => {
+    // 改一条既有实例时从空表起,就是在请人把已有的值重打一遍——漏打的那一个会被抹掉。
+    const fields = entityAttributeFields({
+      region: { type: "string", enum: ["north", "south"] },
+      fiscalYear: { type: "integer" },
+      reviewed: { type: "boolean" },
+      note: { type: "string" },
+    });
+    expect(attributeDraftFrom(fields, { region: "south", fiscalYear: 2026, reviewed: true, retired: "yes" })).toEqual({
+      region: "south",
+      fiscalYear: "2026",
+      reviewed: "true",
+      // 这一版声明里有、这一条没填的属性留空;别的版本才有的 `retired` 不进这一版的草稿。
+      note: "",
+    });
+  });
+});
+
+describe("a draft becomes the values the center is given", () => {
+  const fields = entityAttributeFields({
+    region: { type: "string", enum: ["north", "south"], required: true },
+    fiscalYear: { type: "integer", required: true },
+    weight: { type: "number" },
+    note: { type: "string" },
+    reviewed: { type: "boolean" },
+  });
+
+  it("restores the declared types instead of shipping every value as a string", () => {
+    const reading = readAttributeDraft(fields, {
+      region: "north",
+      fiscalYear: "2026",
+      weight: "1.5",
+      note: "  之后再说  ",
+      reviewed: "true",
+    });
+    expect(reading.issues).toEqual({});
+    expect(reading.values).toEqual({
+      region: "north",
+      fiscalYear: 2026,
+      weight: 1.5,
+      note: "之后再说",
+      reviewed: true,
+    });
+    expect(typeof reading.values.fiscalYear).toBe("number");
+  });
+
+  it("omits an untouched optional attribute rather than inventing an empty value", () => {
+    // 声明没给它默认值:替调用者写一个空串,就是在描述符里写下一个人没说过的事实。
+    const reading = readAttributeDraft(fields, { region: "south", fiscalYear: "1", weight: "", note: "" });
+    expect(Object.keys(reading.values).sort()).toEqual(["fiscalYear", "region", "reviewed"]);
+    expect(reading.values.reviewed).toBe(false);
+  });
+
+  it("names the cell that is wrong and refuses to guess past it", () => {
+    const reading = readAttributeDraft(fields, {
+      region: "east",
+      fiscalYear: "2026.5",
+      weight: "很重",
+      reviewed: "false",
+    });
+    expect(reading.issues).toEqual({
+      region: "只能是:north、south。",
+      fiscalYear: "必须是整数。",
+      weight: "必须是数字。",
+    });
+    // 判定不通过的格子不进提交值。
+    expect(Object.keys(reading.values)).toEqual(["reviewed"]);
+  });
+
+  it("calls an empty required attribute out by name", () => {
+    expect(readAttributeDraft(fields, { region: "", fiscalYear: "" }).issues).toEqual({
+      region: "必填。",
+      fiscalYear: "必填。",
+    });
+  });
+});
+
+describe("opening an entity's own content", () => {
+  it("opens a lone file and leaves a real choice to the reader", () => {
+    expect(soleContentFile([{ path: "ADR-0001.md", directory: false, sizeBytes: 12 }])).toBe("ADR-0001.md");
+    expect(
+      soleContentFile([
+        { path: "README.md", directory: false, sizeBytes: 12 },
+        { path: "notes.md", directory: false, sizeBytes: 12 },
+      ]),
+    ).toBeNull();
+    expect(
+      soleContentFile([
+        { path: "README.md", directory: false, sizeBytes: 12 },
+        { path: "research", directory: true, sizeBytes: null },
+      ]),
+    ).toBeNull();
+    expect(soleContentFile([])).toBeNull();
+  });
+});
+
+/**
+ * 写回执落到哪一态。`ok` 不是判据:中心接受了一次写,和这次写已经在 canonical 可见,
+ * 是两件事;界面把它们合成一句「成功」,人就分不清「已生效」与「已接受、还没到」。
+ * 这里的回执形状逐字取自 daemon 的三条产出:`artifact-entity-action.ts` 的 proof、
+ * `repo-cell-settlement.ts` 的 `rejected(opId, code)`、以及授权面补上的 rejectionExplanation。
+ */
+describe("an entity write receipt states which state it settled in", () => {
+  it("separates canonical visibility from acceptance", () => {
+    expect(
+      entityWriteSettlement({
+        outcome: "applied",
+        opId: "entity-update-ADR-0001-4",
+        proof: { durable: true, canonicalVisible: true, worktreeVisible: true },
+      }),
+    ).toMatchObject({ state: "applied" });
+    const pending = entityWriteSettlement({
+      outcome: "applied",
+      opId: "entity-update-ADR-0001-4",
+      proof: { durable: true, canonicalVisible: false, worktreeVisible: true },
+    });
+    expect(pending.state).toBe("pending");
+    expect(pending.text).toContain("entity-update-ADR-0001-4");
+    expect(entityWriteSettlement({ outcome: "no_changes", opId: "N/A" })).toMatchObject({ state: "applied" });
+    expect(entityWriteSettlement({ outcome: "pending", opId: "op-1" }).state).toBe("pending");
+  });
+
+  it("tells a stale fence apart from a refusal, in the center's own words", () => {
+    const conflict = entityWriteSettlement({
+      outcome: "op_rejected",
+      opId: "entity-update-ADR-0001-4",
+      code: "revision_conflict",
+      rejectionExplanation: "Entity ADR-0001 expected revision 4, current revision is 5.",
+    });
+    expect(conflict.state).toBe("conflict");
+    expect(conflict.text).toContain("current revision is 5");
+    expect(conflict.text).toContain("重新读取");
+    const rejected = entityWriteSettlement({
+      outcome: "op_rejected",
+      opId: "entity-update-ADR-0001-4",
+      code: "invalid_command",
+      rejectionExplanation: 'artifact descriptor field "attributes" is missing required field "region"',
+    });
+    expect(rejected.state).toBe("rejected");
+    expect(rejected.text).toContain("region");
   });
 });

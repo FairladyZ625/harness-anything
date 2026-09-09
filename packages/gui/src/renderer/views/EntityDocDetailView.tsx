@@ -391,7 +391,7 @@ export function EntityDocDetailView({
             repoId={repoId}
             doc={doc}
             catalogRow={catalogRow}
-            pinnedSchema={latestPublishedSchema(fullDeclaration)}
+            declaration={fullDeclaration ?? null}
             governedRowCount={governedRows.length}
             selectedEntity={selectedEntity}
             creating={
@@ -422,7 +422,7 @@ function DetailRendererPane({
   repoId,
   doc,
   catalogRow,
-  pinnedSchema,
+  declaration,
   governedRowCount,
   selectedEntity,
   creating,
@@ -433,8 +433,8 @@ function DetailRendererPane({
   readonly repoId: string;
   readonly doc: EntityKindDoc;
   readonly catalogRow: EntityKindRow | null;
-  /** 新实例会被钉到的那一版属性声明;向导据它长出属性表单。 */
-  readonly pinnedSchema: PinnedAttributeSchema | null;
+  /** 这个 kind 已被接受的完整声明;新建按最新版填,既有实例按它自己钉的那一版填。 */
+  readonly declaration: ArtifactKindDeclaration | null;
   readonly governedRowCount: number;
   readonly selectedEntity: GovernedEntityRow | null;
   readonly creating: boolean;
@@ -459,7 +459,7 @@ function DetailRendererPane({
         repoId={repoId}
         row={catalogRow}
         seedRows={governedRowsForSeed}
-        pinnedSchema={pinnedSchema}
+        pinnedSchema={latestPublishedSchema(declaration)}
         onCancel={onCancelCreate}
         onImported={onImported}
       />
@@ -476,7 +476,16 @@ function DetailRendererPane({
     );
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col" data-testid="entity-doc-renderer">
-      <EntityDetailActions repoId={repoId} entity={selectedEntity} />
+      {/*
+       * 按实体身份挂 key:换一条实体就是换一个操作对象,上一条的草稿与上一次写的回执状态
+       * 不该跟着走——那会让人在 B 上看到写 A 的结果,或者提交一张按 A 起草的表。
+       */}
+      <EntityDetailActions
+        key={selectedEntity.ref}
+        repoId={repoId}
+        entity={selectedEntity}
+        pinnedSchema={pinnedSchemaOf(declaration, selectedEntity.descriptor?.kindVersion ?? null)}
+      />
       <EntityBody repoId={repoId} entity={selectedEntity} />
     </div>
   );
@@ -525,10 +534,23 @@ function EntityBody({ repoId, entity }: { readonly repoId: string; readonly enti
 }
 
 /** kind 最新已发布的那一版属性声明——新建的实例钉的就是它。没有任何已发布版本时为 null。 */
-function latestPublishedSchema(declaration: ArtifactKindDeclaration | undefined): PinnedAttributeSchema | null {
+function latestPublishedSchema(declaration: ArtifactKindDeclaration | null): PinnedAttributeSchema | null {
   const published = [...(declaration?.schemaVersions ?? [])].sort((left, right) => left.version - right.version);
   const latest = published.at(-1);
   return latest === undefined ? null : { version: latest.version, attributes: latest.attributes };
+}
+
+/**
+ * 一条既有实例该按哪一版填:它自己钉住的那一版,不是 kind 最新那一版。发布 v2 之后,
+ * v1 期的实例照旧按 v1 读写;这里找不到那一版就是 null,宁可不摆表单也不换一版给它。
+ */
+function pinnedSchemaOf(
+  declaration: ArtifactKindDeclaration | null,
+  kindVersion: number | null,
+): PinnedAttributeSchema | null {
+  if (kindVersion === null) return null;
+  const pinned = declaration?.schemaVersions?.find((version) => version.version === kindVersion);
+  return pinned === undefined ? null : { version: pinned.version, attributes: pinned.attributes };
 }
 
 function RendererEmptyState({ message }: { readonly message: string }) {

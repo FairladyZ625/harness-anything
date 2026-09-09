@@ -64,6 +64,26 @@ export function emptyAttributeDraft(fields: readonly EntityAttributeField[]): En
 }
 
 /**
+ * 已有值 → 草稿。改一条既有实例时,表单从它**现在填的那些值**起,而不是从空表起——
+ * 空表会让人以为这一条什么都没填,而提交一张空表就是把已有的值抹掉。
+ *
+ * 值按声明的那一版对上号:声明里没有的名字不进草稿(它属于别的版本),声明里有而这一条
+ * 没填的属性留空,不替它编一个。
+ */
+export function attributeDraftFrom(
+  fields: readonly EntityAttributeField[],
+  values: Readonly<Record<string, string | number | boolean>>,
+): EntityAttributeDraft {
+  return Object.fromEntries(
+    fields.map((field) => {
+      const held = values[field.name];
+      if (field.type === "boolean") return [field.name, held === true ? "true" : "false"];
+      return [field.name, held === undefined || typeof held === "boolean" ? "" : String(held)];
+    }),
+  );
+}
+
+/**
  * 草稿 → 提交值。留空的可选属性**不出现在结果里**:声明没给它默认值,替调用者编一个
  * 空串就是在描述符里写下一个人没说过的事实。
  */

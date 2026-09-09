@@ -51,6 +51,13 @@ type LocatorBridge = {
     readonly expectedVersion: number;
     readonly reason: string;
   }) => Promise<unknown>;
+  readonly deleteEntity: (payload: {
+    readonly repoId: string;
+    readonly entityKind: string;
+    readonly entityId: string;
+    readonly expectedVersion: number;
+    readonly reason: string;
+  }) => Promise<unknown>;
 };
 
 const bridge = (): Partial<LocatorBridge> => (window.harness as unknown as Partial<LocatorBridge> | undefined) ?? {};
@@ -133,9 +140,9 @@ async function mutationResult(channel: ((payload: never) => Promise<unknown>) | 
 }
 
 /**
- * 描述符更新。属性值不在这里递:一个已存在的实例钉在它当初那一版属性声明上,而行读面
- * (`repo.entity.rows.read`)不带这个版本号,也不带它现在的属性值——GUI 因此说不出这一条
- * 该按哪一版填,替它猜一版会被中心按另一版判定。缺的是行读面上的一个事实,不是这条写路。
+ * 描述符更新。属性值按**这个实例钉住的那一版**声明填,版本号与当前值都来自行读面
+ * (`repo.entity.rows.read` 的 `descriptor`),不由这里推断——中心按它真正钉的那一版判定,
+ * 猜一版就是把人填的值送去被拒。
  */
 export function updateEntity(input: {
   readonly repoId: string;
@@ -145,6 +152,7 @@ export function updateEntity(input: {
   readonly title?: string;
   readonly locator?: string;
   readonly contentVersion?: string;
+  readonly attributes?: Readonly<Record<string, unknown>>;
 }): Promise<GuiActionResult> {
   return mutationResult(bridge().updateEntity as ((payload: never) => Promise<unknown>) | undefined, input);
 }
@@ -159,11 +167,84 @@ export function archiveEntity(input: {
   return mutationResult(bridge().archiveEntity as ((payload: never) => Promise<unknown>) | undefined, input);
 }
 
+/**
+ * 删除:描述符与这个实体收管的每一份文件一起退役。归档留下它们,删除不留——两件不同的
+ * 事各有一条中心动作,GUI 不把其中一条当另一条用。
+ *
+ * 退役的只有**这个实体自己那一份**:来源文件不归它所有,中心的接受清单里也没有它,
+ * 所以删这个实体不会动到来源,也不会动到别的实体引用的东西。
+ */
+export function deleteEntity(input: {
+  readonly repoId: string;
+  readonly entityKind: string;
+  readonly entityId: string;
+  readonly expectedVersion: number;
+  readonly reason: string;
+}): Promise<GuiActionResult> {
+  return mutationResult(bridge().deleteEntity as ((payload: never) => Promise<unknown>) | undefined, input);
+}
+
 /** 回执不是 applied/no_changes 时的人话:优先中心给的 rejectionExplanation,否则报 outcome+code。 */
 export function receiptFailureText(receipt: { readonly outcome: string; readonly [key: string]: unknown }): string {
   const explanation = receipt.rejectionExplanation;
-  const code = (receipt.error as { readonly code?: string } | undefined)?.code;
+  const code = receiptCode(receipt);
   return typeof explanation === "string" && explanation.length > 0
     ? explanation
     : `命令返回 ${receipt.outcome}${code ? `(${code})` : ""}。`;
+}
+
+/**
+ * 一份实体写回执落到哪一态。**`ok` 不是判据**——中心接受了一次写,和这次写已经在 canonical
+ * 可见,是两件事,回执把它们分开说了:`outcome` 说中心怎么处置这次意图,`proof.canonicalVisible`
+ * 说落定的那一刀有没有推进到能读出来。界面把这两件事合成一句「成功」,人就分不清「已生效」
+ * 与「已接受、还没到」。
+ *
+ * - `applied`:中心接受,并且已经在 canonical 可见。`no_changes` 是同一意图的重放,同样落定。
+ * - `pending`:中心接受了,canonical 还没跟上(回执带 opId,凭它查,不重放这次写)。
+ * - `conflict`:这一条在你读到它之后被别人改过,fence 因此不成立。重读再改,不是重试。
+ * - `rejected`:中心拒了这次意图本身,理由用中心自己的话。
+ */
+export type EntityWriteState = "applied" | "pending" | "conflict" | "rejected";
+
+export interface EntityWriteSettlement {
+  readonly state: EntityWriteState;
+  readonly opId: string | null;
+  /** 界面可以直接显示的一句话;`applied` 也有,因为「已生效」本身要被说出来。 */
+  readonly text: string;
+}
+
+const CONFLICT_CODES = ["revision_conflict", "version_conflict", "op_conflict"];
+
+export function entityWriteSettlement(receipt: {
+  readonly outcome: string;
+  readonly [key: string]: unknown;
+}): EntityWriteSettlement {
+  const opId = typeof receipt.opId === "string" && receipt.opId !== "N/A" ? receipt.opId : null,
+    code = receiptCode(receipt),
+    proof = receipt.proof as { readonly canonicalVisible?: unknown } | undefined;
+  if (receipt.outcome === "applied" || receipt.outcome === "no_changes") {
+    // 老回执可以完全不带 proof;那种回执说不出可见性,按它说得出的那一层(已接受)算落定。
+    if (proof === undefined || proof.canonicalVisible !== false) return { state: "applied", opId, text: "已生效。" };
+    return {
+      state: "pending",
+      opId,
+      text: `已被中心接受,canonical 还没读到这一刀${opId ? `;凭 ${opId} 查回执,不要重发。` : "。"}`,
+    };
+  }
+  if (receipt.outcome === "pending" || receipt.outcome === "indeterminate")
+    return {
+      state: "pending",
+      opId,
+      text: `中心尚未给出结果${opId ? `;凭 ${opId} 查回执,不要重发。` : "。"}`,
+    };
+  if (code !== null && CONFLICT_CODES.includes(code))
+    return { state: "conflict", opId, text: `${receiptFailureText(receipt)}这一条已经被改过,请重新读取后再改。` };
+  return { state: "rejected", opId, text: receiptFailureText(receipt) };
+}
+
+/** 回执里的错误码:中心把它放在顶层,授权面另外包一层 `error.code`。 */
+function receiptCode(receipt: { readonly [key: string]: unknown }): string | null {
+  const nested = (receipt.error as { readonly code?: unknown } | undefined)?.code;
+  if (typeof nested === "string" && nested) return nested;
+  return typeof receipt.code === "string" && receipt.code ? receipt.code : null;
 }

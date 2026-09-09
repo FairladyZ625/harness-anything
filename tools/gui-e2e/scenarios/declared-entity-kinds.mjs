@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import path from "node:path";
 
@@ -90,7 +90,7 @@ function writeProbeMaterial(rootDir) {
  * 发布是异步的:回执 applied 之后,SQLite 的那一刀才被结算成 authored Git 的一个提交与
  * 一份工作副本。这里按秒轮询到出现为止,而不是一读就断言——否则测的是时序不是归属。
  */
-async function settledOwnedContent(rootDir, kindDirectory, timeoutMs = 15_000) {
+async function settledOwnedContent(rootDir, kindDirectory, judge = (listed) => listed.length > 0, timeoutMs = 15_000) {
   const authoredRoot = path.join(rootDir, "harness"),
     prefix = `entities/${kindDirectory}`,
     deadline = Date.now() + timeoutMs;
@@ -100,7 +100,28 @@ async function settledOwnedContent(rootDir, kindDirectory, timeoutMs = 15_000) {
     })
       .split("\n")
       .filter(Boolean);
-    if (listed.length > 0 || Date.now() > deadline) return listed;
+    if (judge(listed) || Date.now() > deadline) return listed;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+}
+
+/**
+ * 关掉编辑面再打开一次,读那一格现在的值。
+ *
+ * 每次打开都从**账本此刻的那一行**重新起草,所以这里读到的是被接受的值,不是留在组件里的
+ * 草稿——写没写进去,只有这样才分得出来。写是异步落定的,因此按秒轮询到出现为止。
+ */
+async function reopenedAttributeValue(page, name, expected, timeoutMs = 15_000) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    // 开与关都等到那一态真的出现为止:编辑按钮是一个开关,趁上一次写还在飞的时候按它,
+    // 按到的是「关」而不是「开」。
+    await page.getByTestId("entity-detail-edit").click();
+    await page.getByTestId("entity-detail-attributes").waitFor();
+    const value = await page.getByTestId("entity-detail-attributes").getByLabel(name, { exact: true }).inputValue();
+    await page.getByTestId("entity-detail-edit").click();
+    await page.getByTestId("entity-detail-edit-form").waitFor({ state: "detached" });
+    if (value === expected || Date.now() > deadline) return value;
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
 }
@@ -202,6 +223,7 @@ export default {
         /^harness\/entities\/runbooks\/RUN-[0-9a-f]{32}$/u,
         `the content read states where the entity's own bytes live; got ${firstContentPath}`,
       );
+      const v1InstanceId = firstContentPath.split("/").at(-1);
       await page.getByTestId("entity-managed-content-text").waitFor();
       assert.match(await page.getByTestId("entity-managed-content-text").innerText(), /实体照样读得到它/u);
 
@@ -242,6 +264,13 @@ export default {
       await page.getByTestId("entity-detail-edit").click();
       const runbookEdit = page.getByTestId("entity-detail-edit-form");
       await runbookEdit.waitFor();
+      // 编辑面按**这一条钉住的那一版**长出来。它钉在 v1 上,那一版一个属性也没声明,
+      // 所以这里不该出现 v2 的必填项——表单认的是实例的版本,不是 kind 的最新版本。
+      assert.equal(
+        await page.getByTestId("entity-detail-attributes").count(),
+        0,
+        "a v1-pinned instance must not be asked for the attributes v2 introduced",
+      );
       await runbookEdit.getByLabel("title").fill("Runbook · v1 pinned");
       await page.getByTestId("entity-detail-edit-save").click();
       await page.getByTestId("governed-entity-list").getByText("Runbook · v1 pinned").waitFor();
@@ -295,6 +324,33 @@ export default {
         2,
         "the v2 import created a second instance",
       );
+      const v2ContentPath = await openedEntityContentPath(page);
+      const v2InstanceId = v2ContentPath.split("/").at(-1);
+
+      // 8.5 **改一条已存在实例的属性**:读面给出它钉的那一版与它现在的值 → 表单按那一版预填
+      //     → 写走同一条 fence → 再读回来的是账本里的值,不是留在组件里的草稿。
+      await page.getByTestId("entity-detail-edit").click();
+      await page.getByTestId("entity-detail-edit-form").waitFor();
+      const detailAttributes = page.getByTestId("entity-detail-attributes");
+      await detailAttributes.waitFor();
+      assert.match(await detailAttributes.innerText(), /v2/u, "the edit form states which pinned version it fills");
+      assert.equal(
+        await detailAttributes.getByLabel("fiscalYear", { exact: true }).inputValue(),
+        "2026",
+        "the form starts from the values this instance already holds, not from an empty table",
+      );
+      assert.equal(await detailAttributes.getByLabel("region", { exact: true }).inputValue(), "north");
+      await detailAttributes.getByLabel("fiscalYear", { exact: true }).fill("2027");
+      await page.getByTestId("entity-detail-edit-save").click();
+      // 回执落定之前不动这张表。等的是界面把回执的状态说出来那一刻,不是一个固定的睡眠——
+      // 「已被中心接受」与「canonical 已经读得到」是两件事,这一句说的是后者。
+      await page.getByTestId("entity-detail-action-applied").waitFor();
+      await page.getByTestId("entity-detail-edit-form").waitFor({ state: "detached" });
+      assert.equal(
+        await reopenedAttributeValue(page, "fiscalYear", "2027"),
+        "2027",
+        "an accepted attribute edit must come back from the ledger read, not from the form's own state",
+      );
 
       // 9. 冷缓存回读:重载渲染进程,把 GUI 的全部查询缓存丢掉,再回到那个实例。来源已经
       //     不在工作副本里(第 7 步删的),实体自己的那一份照常读得到。
@@ -324,6 +380,45 @@ export default {
         /不存在/u,
         "the source pane must say the path is gone rather than borrow the entity's own bytes",
       );
+
+      // 9.5 删除:描述符与这个实体收管的那一份内容一起退役——归档两者都留下,删除不留。
+      //      被删的只有它自己那一份:来源不归它所有,同 kind 的另一条也不受影响。
+      await page.getByRole("button", { name: /Runbook · v2 probe/u }).click();
+      await page.getByTestId("entity-detail-delete").click();
+      await page.getByTestId("entity-detail-delete-form").waitFor();
+      await page.getByLabel("删除原因").fill("E2E delete probe");
+      await page.getByTestId("entity-detail-delete-confirm").click();
+      await page.getByRole("button", { name: /Runbook · v2 probe/u }).waitFor({ state: "detached" });
+      assert.equal(
+        await page.getByTestId("governed-entity-list").getByRole("button").count(),
+        1,
+        "delete takes the row with it; the other instance of the same kind stays",
+      );
+      const afterDelete = await settledOwnedContent(
+        fixture.rootDir,
+        "runbooks",
+        (listed) => !listed.some((entry) => entry.startsWith(`entities/runbooks/${v2InstanceId}`)),
+      );
+      assert.equal(
+        afterDelete.some((entry) => entry.startsWith(`entities/runbooks/${v2InstanceId}`)),
+        false,
+        `the deleted entity's own files must be retired; ledger still holds ${afterDelete.join(", ")}`,
+      );
+      assert.ok(
+        afterDelete.some((entry) => entry.startsWith(`entities/runbooks/${v1InstanceId}`)),
+        `deleting one entity must not touch another's files; ledger holds ${afterDelete.join(", ")}`,
+      );
+      // 来源不归它所有,所以来源目录仍在工作副本里,一个文件也没少。
+      for (const held of ["README.md", "chapters/one.md", "chapters/two.md"])
+        assert.ok(
+          existsSync(path.join(fixture.rootDir, LIBRARY_DIRECTORY, held)),
+          `deleting an entity must not delete the source it was imported from: ${held} is gone`,
+        );
+      // 幸存的那一条照常读得出自己的正文(两屏的选择跨实体保留,所以先切回内容屏)。
+      await page.getByRole("button", { name: /Runbook · v1 pinned/u }).click();
+      await page.getByTestId("entity-body-tab-content").click();
+      await page.getByTestId("entity-managed-content-text").waitFor();
+      assert.match(await page.getByTestId("entity-managed-content-text").innerText(), /实体照样读得到它/u);
 
       // 10. 停用:已有材料仍可读,但不再允许新建;目录卡片灰显。
       await page.getByRole("button", { name: "停用种类" }).click();

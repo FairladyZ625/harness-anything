@@ -149,15 +149,20 @@ test("preload exposes only the approved API methods", () => {
   assert.throws(() => assertPreloadPayload("getTasks", { repoId: "repo-a", staleRepoId: "repo-b" }), /not allowed/u);
   assert.throws(() => assertPreloadPayload("getSystemStatus", { repoId: "repo-a" }), /not allowed/u);
   assert.equal(getPreloadApiCapability("getTasks").status, "shipped");
-  // 36 explicit actions plus the complete declaration read are the 37 editing-facing facets.
+  // 37 explicit actions plus the complete declaration read are the 38 editing-facing facets.
   const editingFacets = [
     ...daemonGuiActionMethods.map(({ guiBridgeMethod }) => guiBridgeMethod),
     "readVerticalDeclaration",
   ];
-  assert.equal(editingFacets.length, 37);
+  assert.equal(editingFacets.length, 38);
   assert.equal(preloadAllowlist.includes("readVerticalDeclaration"), true);
-  // entity.update / entity.archive plus vertical kind upsert / publish-schema / retire are explicit GUI facets.
-  assert.equal(daemonGuiActionMethods.length, 36);
+  // entity.update / entity.archive / entity.delete plus vertical kind upsert / publish-schema / retire
+  // are explicit GUI facets.
+  assert.equal(daemonGuiActionMethods.length, 37);
+  assert.equal(
+    daemonGuiActionMethods.some(({ method }) => method === "repo.entity.delete"),
+    true,
+  );
   assert.equal(
     daemonGuiActionMethods.some(({ method }) => method === "repo.task.run"),
     false,
