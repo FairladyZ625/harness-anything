@@ -46,12 +46,11 @@ export function parseDispatchArgs(argv) {
     tier: toolValue(parsed, "--tier"),
     file: toolValue(parsed, "--file"),
   };
-  validateFileSelection(options.file);
   return options;
 }
 
 export function testRunnerArgs(options) {
-  validateFileSelection(options.file);
+  if (options.file !== undefined) validateDispatchTestFile(options.file);
   if (guiVitestManifest.includes(options.file)) {
     return [
       "npm",
@@ -70,21 +69,10 @@ export function testRunnerArgs(options) {
   ];
 }
 
-function validateFileSelection(file) {
-  if (file?.startsWith("packages/gui/test/") && !guiVitestManifest.includes(file)) {
-    throw new Error(`unknown GUI test file: ${file}`);
-  }
-}
-
 function validateDispatchTestFile(value) {
-  if (
-    value.startsWith("/") ||
-    value.split("/").includes("..") ||
-    value.includes("\\") ||
-    !/\.(?:(?:test|spec)\.(?:mjs|js|ts)|vitest\.(?:mjs|js|ts))$/u.test(value)
-  ) {
-    throw new Error(`--file must be a POSIX repository-relative test file; received ${JSON.stringify(value)}`);
-  }
+  if (guiVitestManifest.includes(value)) return;
+  if (value.includes(".vitest.")) throw new Error(`unknown GUI test file: ${value}`);
+  toolOption(dispatchIsolatedTestCommand, "--file").validate(value);
 }
 
 export function sourceArchiveArgs(platform = process.platform, sourceRoot = repoRoot) {

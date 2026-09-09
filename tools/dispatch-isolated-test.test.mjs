@@ -83,6 +83,23 @@ test("dispatcher rejects unregistered GUI files", () => {
   );
 });
 
+test("GUI routing preserves native tests and accepts registered TSX", () => {
+  const native = "packages/gui/test/local-doc-ipc.test.ts";
+  assert.equal(parseDispatchArgs(["--file", native]).file, native);
+  assert.deepEqual(testRunnerArgs({ file: native }), ["node", "tools/run-node-tests.mjs", "--file", native]);
+  const tsx = "packages/gui/test/first-run-guide.vitest.tsx";
+  assert.equal(parseDispatchArgs(["--file", tsx]).file, tsx);
+  assert.deepEqual(testRunnerArgs({ file: tsx }), [
+    "npm",
+    "run",
+    "test:gui",
+    "--workspace",
+    "@harness-anything/gui",
+    "--",
+    "test/first-run-guide.vitest.tsx",
+  ]);
+});
+
 test("source root allowlist contains only current test inputs", () => {
   assert.deepEqual(sourceRootAllowlist, [
     ".github",
