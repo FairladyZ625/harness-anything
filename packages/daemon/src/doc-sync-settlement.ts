@@ -163,7 +163,7 @@ export function submitSummary(
 }
 
 export function admissionRejection(
-  input: Pick<Input, "binding" | "workspaceId" | "store" | "projection"> & {
+  input: Pick<Input, "binding" | "workspaceId" | "store" | "projection" | "runtimeArchive"> & {
     readonly taskDocumentChannel?: DocIntentChannel;
   },
   intent: DocWriteIntent,
@@ -177,10 +177,13 @@ export function admissionRejection(
   // ride the lease-brokered task command (class A); an explicit submit that
   // names the currently held execution keeps decideDocWrite's holder check as
   // its authority, while a channel-less (null execution) submit is refused.
+  // A terminal runtime archive is not a doc-submit: its canonical occurrence,
+  // actor, and exact artifact set are validated by decideDocWrite below.
   if (
     (input.taskDocumentChannel ?? "doc-submit") === "doc-submit" &&
     typeof input.binding.source === "object" &&
-    input.binding.source.kind === "assignment"
+    input.binding.source.kind === "assignment" &&
+    input.runtimeArchive === undefined
   ) {
     // Fleet assignment ingress treats the whole authored `tasks/<package>/`
     // namespace as class A, including a package that has not projected yet.
