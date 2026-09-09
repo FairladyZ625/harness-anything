@@ -585,7 +585,7 @@ interface ArtifactReadFold {
   readonly generations: Map<string, number>;
 }
 
-const artifactReadFolds = new WeakMap<CanonicalEventStore, { revision: number; fold: ArtifactReadFold }>();
+const artifactReadFolds = new WeakMap<CanonicalEventStore, Map<string, { revision: number; fold: ArtifactReadFold }>>();
 
 function artifactReadCache(
   store: CanonicalEventStore,
@@ -593,7 +593,7 @@ function artifactReadCache(
   kind: string,
 ): ArtifactReadFold {
   const source = store.read(),
-    cached = artifactReadFolds.get(store);
+    cached = artifactReadFolds.get(store)?.get(kind);
   if (cached?.revision === source.revision) return cached.fold;
   const entities = new Map<string, ArtifactReadState>();
   const generations = new Map<string, number>();
@@ -634,7 +634,9 @@ function artifactReadCache(
     });
   }
   const fold = { entities, generations };
-  artifactReadFolds.set(store, { revision: source.revision, fold });
+  const byKind = artifactReadFolds.get(store) ?? new Map();
+  byKind.set(kind, { revision: source.revision, fold });
+  artifactReadFolds.set(store, byKind);
   return fold;
 }
 
