@@ -144,7 +144,7 @@ const AuditRow = memo(function AuditRow({
               title={t("views.listView.pinnedToday")}
               data-testid={`task-pinned-marker-${task.taskId}`}
               className={[
-                "mt-0.5 inline-flex shrink-0 items-center gap-0.5 rounded",
+                "mt-0.5 inline-flex max-w-full shrink-0 items-center gap-0.5 truncate rounded",
                 "border border-accent/40 px-1 font-mono ui-micro text-accent",
               ].join(" ")}
             >
@@ -157,10 +157,18 @@ const AuditRow = memo(function AuditRow({
           <span className="min-w-0 truncate">
             {task.module === "unassigned" || !task.module ? t("views.listView.notProjected") : task.module}
           </span>
-          {task.blocking === "unknown" && <span className="text-stale">{t("views.listView.blockingUnknown")}</span>}
-          {spawningDecision && <DecisionSourceBadge decisionId={spawningDecision} compact />}
+          {task.blocking === "unknown" && (
+            <span className="min-w-0 truncate text-stale">{t("views.listView.blockingUnknown")}</span>
+          )}
+          {/* 长 decision 徽章自身 max-w-full 只封盒不裁内容(flex 项 min-content=整串),会画进相邻列;
+              外包一层可收缩截断项收敛,整串 ID 仍由徽章自己的 title 悬停与 DOM 文本保住。 */}
+          {spawningDecision && (
+            <span className="min-w-0 truncate">
+              <DecisionSourceBadge decisionId={spawningDecision} compact />
+            </span>
+          )}
           {isExternal(task) && (
-            <span className="inline-flex items-center gap-1">
+            <span className="inline-flex min-w-0 items-center gap-1 truncate">
               <Lock weight="bold" />
               外部只读
             </span>
@@ -168,19 +176,23 @@ const AuditRow = memo(function AuditRow({
         </div>
       </td>
       <td className="px-3 py-2 align-top" data-testid={`task-inline-state-${task.taskId}`}>
+        {/* flex 列 cross 轴上的 truncate 没有盒宽可裁(2026-09-09 二次 Electron 验收:
+            节点/lease 行画进相邻列),必须配 max-w-full 让列宽成为截断上限。 */}
         <div className="flex flex-col items-start gap-1">
           <StatusBadge status={task.canonicalStatus ?? task.coordinationStatus} />
           {task.canonicalStatus && task.canonicalStatus !== task.coordinationStatus && (
-            <span className="truncate font-mono ui-micro text-text-faint">coordination={task.coordinationStatus}</span>
+            <span className="max-w-full truncate font-mono ui-micro text-text-faint">
+              coordination={task.coordinationStatus}
+            </span>
           )}
-          <span className="truncate font-mono ui-micro text-text-faint">
+          <span className="max-w-full truncate font-mono ui-micro text-text-faint">
             {t("views.listView.nodeLabel")}
             {task.currentNode ?? "—"}
           </span>
           {task.activeExecutionId ? (
             <span
               title={t("views.listView.leaseTitle")}
-              className="max-w-[16rem] truncate font-mono ui-micro text-text-muted"
+              className="max-w-full truncate font-mono ui-micro text-text-muted"
             >
               {task.activeExecutionId}
               {task.leaseHolder ? ` · ${task.leaseHolder}` : ""}
@@ -195,7 +207,11 @@ const AuditRow = memo(function AuditRow({
         <CloseoutBadge value={task.closeoutReadiness} />
       </td>
       <td className="px-3 py-2 align-top">
-        <EngineBadge engine={task.engine} locked={isExternal(task)} />
+        {/* engine 是 inline-flex 整串不可断行(验收实测 kernel/task-lifecycle/v1 距列界 1px),
+            外包收缩截断项防更窄列越界。 */}
+        <span className="inline-block max-w-full truncate">
+          <EngineBadge engine={task.engine} locked={isExternal(task)} />
+        </span>
       </td>
       <td className="px-3 py-2 align-top">
         <FreshnessTag freshness={task.freshness} lastKnownAt={task.lastKnownAt} />
