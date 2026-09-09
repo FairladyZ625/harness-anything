@@ -7,7 +7,6 @@ import { decisionProjectionFields } from "./decision-projection-fields.ts";
 import { DecisionStream } from "../src/renderer/components/overview/DecisionStream.tsx";
 import { TaskStream, tasksAheadOfStatus } from "../src/renderer/components/overview/TaskStream.tsx";
 import { BoardView } from "../src/renderer/views/BoardView.tsx";
-import { SwimlaneBoard } from "../src/renderer/views/SwimlaneBoard.tsx";
 import { OverviewView } from "../src/renderer/views/OverviewView.tsx";
 import { PinnedStream, pinnedAgendaItems } from "../src/renderer/components/overview/PinnedStream.tsx";
 import { DecisionPreviewDrawer } from "../src/renderer/components/DecisionPreviewDrawer.tsx";
@@ -271,49 +270,10 @@ describe("overview task stream", () => {
     expect(tabText(overview, "overview-status-blocked")).toBe("已阻塞 1");
   });
 
-  it("renders the whole board and swimlane up front with no reveal button", () => {
-    const rows = Array.from({ length: 45 }, (_, index) =>
-      task({
-        taskId: `task_${index}`,
-        title: `Task ${index}`,
-        rootTaskId: `root_${index}`,
-        coordinationStatus: "active",
-      }),
-    );
-    const board = renderToStaticMarkup(
-      createElement(BoardView, {
-        tasks: rows,
-        allTasks: rows,
-        filters: DEFAULT_TASK_FILTERS,
-        onFiltersChange: noop,
-        onSelect: noop,
-        relations: [],
-        favorites: new Set<string>(),
-        onToggleFavorite: noop,
-        onSetPin: noop,
-      }),
-    );
-    expect(board.match(/data-testid="board-task-card"/gu)).toHaveLength(45);
-    expect(board).toContain('data-testid="board-pin-toggle-task_0"');
-    expect(board).not.toContain('data-testid="board-column-more-active"');
-    expect(board).not.toContain("再显示");
-
-    const swimlane = renderToStaticMarkup(
-      createElement(SwimlaneBoard, {
-        tasks: rows,
-        groupBy: "root",
-        onSelect: noop,
-        drill: { lane: "root_0", status: "active", groupBy: "root" },
-        spawningDecisions: new Map(),
-        favorites: new Set<string>(),
-        onToggleFavorite: noop,
-        onSetPin: noop,
-      }),
-    );
-    expect(swimlane.match(/data-testid="swimlane-row"/gu)).toHaveLength(45);
-    expect(swimlane).toContain('data-testid="swimlane-pin-toggle-task_0"');
-    expect(swimlane).not.toContain('data-testid="swimlane-more"');
-  });
+  // 「无 reveal 按钮 + 窗口有界」的看板/泳道断言在 test/taskFilters.vitest.ts 的
+  // windowing(W10)用例里:列内/泳道行 windowing 后卡片只在挂载后的视口窗口出现,
+  // SSR markup 里没有卡片,断言必须走真实 DOM(happy-dom);本文件其余测试保持
+  // node 环境 SSR。
 
   // The test above renders TaskStream directly, so it proves the leaf agrees with the
   // census but says nothing about the page that feeds it. Render the overview page so

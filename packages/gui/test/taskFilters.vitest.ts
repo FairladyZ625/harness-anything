@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
-import { beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { act, createElement } from "react";
-import { createRoot } from "react-dom/client";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, createElement, type ReactElement } from "react";
+import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { RelationEdge, SnapshotStatus, TaskRow } from "../src/renderer/model/types.ts";
 import { BOARD_COLUMNS } from "../src/renderer/model/types.ts";
@@ -271,36 +271,90 @@ const daysAgo = (days: number) => new Date(Date.now() - days * 86_400_000).toISO
 
 const noop = () => undefined;
 
-function boardMarkup(
+const boardProps = (overrides: {
+  tasks: TaskRow[];
+  filters?: TaskFilters;
+  favorites?: ReadonlySet<string>;
+  onSelect?: (id: string) => void;
+  onFiltersChange?: (next: TaskFilters) => void;
+}) => ({
+  tasks: overrides.tasks,
+  allTasks: overrides.tasks,
+  filters: overrides.filters ?? { ...DEFAULT_TASK_FILTERS },
+  onFiltersChange: overrides.onFiltersChange ?? noop,
+  onSelect: overrides.onSelect ?? noop,
+  relations: [],
+  favorites: overrides.favorites ?? new Set<string>(),
+  onToggleFavorite: noop,
+  onSetPin: noop,
+});
+
+/**
+ * 真实 DOM 渲染的看板 HTML(W10 起列内是 windowing:卡片在挂载后按视口窗口
+ * 出现,SSR markup 里没有卡片,断言卡片必须走 createRoot + act)。夹具都很小,
+ * 600px 视口桩 + overscan 下整窗覆盖,「看到全部」与既有断言兼容。
+ */
+async function boardHtml(
   tasks: TaskRow[],
   filters: TaskFilters = { ...DEFAULT_TASK_FILTERS },
   favorites: ReadonlySet<string> = new Set<string>(),
-): string {
-  return renderToStaticMarkup(
-    createElement(BoardView, {
-      tasks,
-      allTasks: tasks,
-      filters,
-      onFiltersChange: noop,
-      onSelect: noop,
-      relations: [],
-      favorites,
-      onToggleFavorite: noop,
-      onSetPin: noop,
-    }),
-  );
+): Promise<string> {
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  try {
+    await act(async () => {
+      root.render(createElement(BoardView, boardProps({ tasks, filters, favorites })));
+    });
+    return container.innerHTML;
+  } finally {
+    act(() => {
+      root.unmount();
+    });
+    container.remove();
+  }
 }
 
 const orderedIds = (markup: string, titles: string[]): string[] =>
   [...titles].sort((a, b) => markup.indexOf(a) - markup.indexOf(b));
 
+/**
+ * 桩高与组件 estimateSize 对齐(列卡 108px / 泳道行 84px):virtualizer 只实测
+ * 挂载过的项,估算与实测一致时窗口位置可按「scrollTop ÷ 行高」确定性推算,
+ * 滚动断言不依赖混合尺寸的边界项。视口(offsetHeight)统一 600px。
+ */
+let measureHeight = 108;
+const setMeasureHeight = (px: number) => {
+  measureHeight = px;
+};
+
 beforeAll(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   setActiveLocale("en-US");
+  // windowing(W10)测量桩:happy-dom 没有布局,virtualizer 的视口读 offsetHeight,
+  // measureElement 读 getBoundingClientRect。视口与行高分途:窗口项(带
+  // data-index 的定位包装)按 measureHeight 上报,滚动容器与其余元素按 600px
+  // 视口上报——估算=实测时窗口位置可按「scrollTop ÷ 行高」推算。
+  vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (this: HTMLElement) {
+    return this.hasAttribute("data-index") ? measureHeight : 600;
+  });
+  vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+    const height = (this as HTMLElement).hasAttribute?.("data-index") ? measureHeight : 600;
+    return {
+      width: 600,
+      height,
+      top: 0,
+      left: 0,
+      bottom: height,
+      right: 600,
+      x: 0,
+      y: 0,
+    } as DOMRect;
+  });
 });
 
 describe("board column default order (W8)", () => {
-  it("renders lastKnownAt desc with pinned and favorited tasks lifted to the top", () => {
+  it("renders lastKnownAt desc with pinned and favorited tasks lifted to the top", async () => {
     const tasks = [
       makeTask({ taskId: "t_old", title: "card-old", lastKnownAt: daysAgo(30) }),
       makeTask({ taskId: "t_new", title: "card-new", lastKnownAt: daysAgo(1) }),
@@ -308,7 +362,7 @@ describe("board column default order (W8)", () => {
       makeTask({ taskId: "t_fav", title: "card-fav", lastKnownAt: daysAgo(40) }),
       makeTask({ taskId: "t_mid", title: "card-mid", lastKnownAt: daysAgo(10) }),
     ];
-    const markup = boardMarkup(tasks, { ...DEFAULT_TASK_FILTERS }, new Set(["t_fav"]));
+    const markup = await boardHtml(tasks, { ...DEFAULT_TASK_FILTERS }, new Set(["t_fav"]));
     expect(orderedIds(markup, ["card-pin", "card-fav", "card-new", "card-mid", "card-old"])).toEqual([
       "card-pin",
       "card-fav",
@@ -318,14 +372,14 @@ describe("board column default order (W8)", () => {
     ]);
   });
 
-  it("keeps same-timestamp cards in stable relative order", () => {
+  it("keeps same-timestamp cards in stable relative order", async () => {
     const at = daysAgo(5);
     const tasks = [
       makeTask({ taskId: "t_first", title: "card-first", lastKnownAt: at }),
       makeTask({ taskId: "t_second", title: "card-second", lastKnownAt: at }),
       makeTask({ taskId: "t_third", title: "card-third", lastKnownAt: at }),
     ];
-    const markup = boardMarkup(tasks);
+    const markup = await boardHtml(tasks);
     expect(orderedIds(markup, ["card-first", "card-second", "card-third"])).toEqual([
       "card-first",
       "card-second",
@@ -354,8 +408,8 @@ describe("cold terminal collapse in BoardView (W8)", () => {
     }),
   ];
 
-  it("collapses cold terminal cards by default and shows the count with an expand entry", () => {
-    const markup = boardMarkup(fixture());
+  it("collapses cold terminal cards by default and shows the count with an expand entry", async () => {
+    const markup = await boardHtml(fixture());
     for (const visible of ["card-open", "card-recent-done", "card-cold-pinned"]) expect(markup).toContain(visible);
     for (const cold of ["card-cold-a", "card-cold-b"]) expect(markup).not.toContain(cold);
     // 折叠显形(W6):计数与展开入口都在 DOM 里,不是静默消失。
@@ -367,27 +421,27 @@ describe("cold terminal collapse in BoardView (W8)", () => {
     expect(markup).toContain('data-testid="board-status-done-count">2</span>');
   });
 
-  it("renders every cold terminal card once expanded, with the count still visible", () => {
-    const markup = boardMarkup(fixture(), { ...DEFAULT_TASK_FILTERS, expandColdTerminal: true });
+  it("renders every cold terminal card once expanded, with the count still visible", async () => {
+    const markup = await boardHtml(fixture(), { ...DEFAULT_TASK_FILTERS, expandColdTerminal: true });
     for (const title of ["card-cold-a", "card-cold-b"]) expect(markup).toContain(title);
     expect(markup).toContain("Hide cold terminal (2)");
     expect(markup).toContain('aria-checked="true"');
     expect(markup).toContain('data-testid="board-status-done-count">4</span>');
   });
 
-  it("filter bar count matches the number of rendered cards, collapsed and expanded", () => {
+  it("filter bar count matches the number of rendered cards, collapsed and expanded", async () => {
     // 同源对照(r1 评审):filter bar 的「N / M tasks」必须与同一份 markup 里实际
     // 渲染的卡片数一致——折叠时 N=可见卡数,展开后恢复为筛选后的总数。
-    const collapsed = boardMarkup(fixture());
+    const collapsed = await boardHtml(fixture());
     expect(collapsed.split('data-testid="board-task-card"').length - 1).toBe(3);
     expect(collapsed).toContain("3 / 5 tasks");
-    const expanded = boardMarkup(fixture(), { ...DEFAULT_TASK_FILTERS, expandColdTerminal: true });
+    const expanded = await boardHtml(fixture(), { ...DEFAULT_TASK_FILTERS, expandColdTerminal: true });
     expect(expanded.split('data-testid="board-task-card"').length - 1).toBe(5);
     expect(expanded).toContain("5 / 5 tasks");
   });
 
-  it("no toggle is rendered when the current filter leaves no cold terminal tasks", () => {
-    const markup = boardMarkup([
+  it("no toggle is rendered when the current filter leaves no cold terminal tasks", async () => {
+    const markup = await boardHtml([
       makeTask({ taskId: "t_open", title: "card-open", coordinationStatus: "active", lastKnownAt: daysAgo(5) }),
     ]);
     expect(markup).not.toContain('data-testid="board-cold-terminal-toggle"');
@@ -461,19 +515,34 @@ describe("swimlane default order (W8)", () => {
     }),
   ];
 
-  it("orders lanes by each lane's latest lastKnownAt, most recent first", () => {
-    const markup = renderToStaticMarkup(
-      createElement(SwimlaneBoard, {
-        tasks: laneFixture(),
-        groupBy: "root",
-        onSelect: noop,
-        drill: null,
-        spawningDecisions: new Map(),
-        favorites: new Set<string>(),
-        onToggleFavorite: noop,
-        onSetPin: noop,
-      }),
-    );
+  it("orders lanes by each lane's latest lastKnownAt, most recent first", async () => {
+    // 泳道行是 windowing(W10):行在挂载后按视口窗口出现,行序断言走真实 DOM。
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    let markup;
+    try {
+      await act(async () => {
+        root.render(
+          createElement(SwimlaneBoard, {
+            tasks: laneFixture(),
+            groupBy: "root",
+            onSelect: noop,
+            drill: null,
+            spawningDecisions: new Map(),
+            favorites: new Set<string>(),
+            onToggleFavorite: noop,
+            onSetPin: noop,
+          }),
+        );
+      });
+      markup = container.innerHTML;
+    } finally {
+      act(() => {
+        root.unmount();
+      });
+      container.remove();
+    }
     expect(orderedIds(markup, ["Lane B", "Lane A", "Lane C"])).toEqual(["Lane B", "Lane A", "Lane C"]);
   });
 
@@ -815,8 +884,8 @@ describe("draggable narrowing (W9)", () => {
     // 14 天窗口内的 done 不是冷终态(W8),默认折叠不会把它藏掉。
     makeTask({ taskId: "t_done", title: "card-done", coordinationStatus: "done", lastKnownAt: daysAgo(2) });
 
-  it("registers exactly one draggable node: the start-capable card", () => {
-    const markup = boardMarkup([draggableTask(), frozenTask()]);
+  it("registers exactly one draggable node: the start-capable card", async () => {
+    const markup = await boardHtml([draggableTask(), frozenTask()]);
     expect(markup.split('data-testid="board-task-card"').length - 1).toBe(2); // 两张卡都在。
     expect(markup.split('aria-roledescription="draggable"').length - 1).toBe(1); // 只有可拖卡挂 dnd。
     // 两张卡的包装层都可聚焦(可拖卡经 dnd attributes,不可拖卡显式声明),焦点不随收窄丢失。
@@ -1005,6 +1074,181 @@ describe("swimlane single-pass grouping (W9)", () => {
 });
 
 /**
+ * 看板 windowing(W10)的行为判据(2026-09-09 并入自 board-windowing.vitest.ts,
+ * 按任务指示归入既有 happy-dom 文件,不新增独立 .vitest 文件):
+ *  - 挂载面:列内卡数与泳道行数只随视口 + overscan 走,与列总量/泳道总量解耦
+ *    (W10 基线:canonical done 单列 1699 卡全挂载、泳道 928 行全挂载);
+ *  - 可达面:窗口随滚动移动,深处条目滚动可达,不引入「再显示」分批按钮;
+ *  - 显形面:列/泳道头计数徽章继续显示全量口径,窗口不是静默截断(W6 先例);
+ *  - 交互面:窗口内可拖卡的 dnd 注册面保留(列级 droppable + DragOverlay 不变,
+ *    细粒度 dnd 断言在上方 W9 用例里)。
+ */
+/** 桩高 600px:初始窗口 ≈ 视口 1 项 + 前后 overscan 6,给足余量的上界。 */
+const MOUNTED_WINDOW_BOUND = 40;
+
+interface MountedBoard {
+  container: HTMLDivElement;
+  root: Root;
+  html: () => string;
+}
+
+async function mountLive(node: ReactElement): Promise<MountedBoard> {
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  await act(async () => {
+    root.render(node);
+  });
+  return { container, root, html: () => container.innerHTML };
+}
+
+async function unmountLive(board: MountedBoard): Promise<void> {
+  await act(async () => {
+    board.root.unmount();
+  });
+  board.container.remove();
+}
+
+/** happy-dom 没有布局:滚动用显式 scrollTop + scroll 事件 + 两帧 rAF 冲刷窗口重算。 */
+async function scrollTo(element: HTMLElement, top: number): Promise<void> {
+  await act(async () => {
+    element.scrollTop = top;
+    element.dispatchEvent(new Event("scroll"));
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  });
+}
+
+describe("board column windowing (W10)", () => {
+  const columnTasks = (count: number): TaskRow[] =>
+    Array.from({ length: count }, (_, index) =>
+      makeTask({
+        taskId: `task_${index}`,
+        title: `Task ${index}`,
+        coordinationStatus: "planned",
+        capabilities: projectedTaskFields("planned", { can: ["start"] }).capabilities,
+        lastKnownAt: daysAgo(index + 1),
+      }),
+    );
+
+  async function mountColumnWindow(tasks: TaskRow[]): Promise<MountedBoard> {
+    setMeasureHeight(108); // 列卡估算高(CARD_ESTIMATE_PX)
+    return mountLive(createElement(BoardView, boardProps({ tasks })));
+  }
+
+  it("mounts a viewport-bounded card subset while the column count badge shows the total", async () => {
+    const board = await mountColumnWindow(columnTasks(1200));
+    try {
+      const html = board.html();
+      expect(board.container.querySelectorAll('[data-testid="board-task-card"]').length).toBeGreaterThan(0);
+      expect(board.container.querySelectorAll('[data-testid="board-task-card"]').length).toBeLessThanOrEqual(
+        MOUNTED_WINDOW_BOUND,
+      ); // 上界与总量 1200 无关。
+      expect(html).toContain('data-testid="board-status-planned-count">1200</span>'); // 全量口径显形。
+      expect(html).not.toContain("再显示"); // 不是分批按钮,是窗口。
+      expect(html).not.toContain('data-testid="board-column-more-');
+    } finally {
+      await unmountLive(board);
+    }
+  });
+
+  it("moves the window on scroll: deep cards become reachable, far cards unmount", async () => {
+    const board = await mountColumnWindow(columnTasks(1200));
+    try {
+      const list = board.container.querySelector('[data-testid="board-column-list-planned"]') as HTMLElement;
+      expect(list).not.toBeNull();
+      expect(board.html()).toContain("Task 0");
+      // 桩高 = 估算 108px:滚到第 ~111 项(108 × 111),窗口移到中段。
+      await scrollTo(list, 108 * 111);
+      const html = board.html();
+      expect(html).toContain("Task 111"); // 深处条目可达。
+      expect(html).not.toContain("Task 0"); // 远端条目卸载,这就是窗口的意义。
+      expect(board.container.querySelectorAll('[data-testid="board-task-card"]').length).toBeLessThanOrEqual(
+        MOUNTED_WINDOW_BOUND,
+      );
+    } finally {
+      await unmountLive(board);
+    }
+  });
+
+  it("keeps the dnd drag surface on windowed start-capable cards", async () => {
+    const board = await mountColumnWindow(columnTasks(30));
+    try {
+      const html = board.html();
+      expect(html).toContain('aria-roledescription="draggable"'); // 窗口内可拖卡仍注册 dnd。
+      expect((html.match(/aria-roledescription="draggable"/gu) ?? []).length).toBe(
+        board.container.querySelectorAll('[data-testid="board-task-card"]').length,
+      );
+    } finally {
+      await unmountLive(board);
+    }
+  });
+});
+
+describe("swimlane row windowing (W10)", () => {
+  const laneTasks = (count: number): TaskRow[] =>
+    Array.from({ length: count }, (_, index) =>
+      makeTask({
+        taskId: `task_${index}`,
+        title: `Task ${index}`,
+        coordinationStatus: "planned",
+        rootTaskId: `root_${index}`,
+        rootTitle: `Lane ${index}`,
+        lastKnownAt: daysAgo(index + 1),
+      }),
+    );
+
+  async function mountSwimlaneWindow(tasks: TaskRow[]): Promise<MountedBoard> {
+    setMeasureHeight(84); // 泳道行估算高(LANE_ROW_ESTIMATE_PX)
+    return mountLive(
+      createElement(SwimlaneBoard, {
+        tasks,
+        groupBy: "root",
+        onSelect: noop,
+        drill: null,
+        spawningDecisions: new Map(),
+        favorites: new Set<string>(),
+        onToggleFavorite: noop,
+        onSetPin: noop,
+      }),
+    );
+  }
+
+  it("mounts a viewport-bounded row subset while header totals show the full count", async () => {
+    const board = await mountSwimlaneWindow(laneTasks(400));
+    try {
+      const html = board.html();
+      expect(board.container.querySelectorAll('[data-testid="swimlane-row"]').length).toBeGreaterThan(0);
+      expect(board.container.querySelectorAll('[data-testid="swimlane-row"]').length).toBeLessThanOrEqual(
+        MOUNTED_WINDOW_BOUND,
+      ); // 行上界与 400 条泳道无关。
+      expect(html).toContain('data-testid="swimlane-status-planned-count">400</span>');
+      expect(html).toContain("Lane 0");
+      expect(html).not.toContain("Lane 399"); // 初始窗口只到近端。
+    } finally {
+      await unmountLive(board);
+    }
+  });
+
+  it("scrolls the lane window to the far end: last lanes reachable, first unmount", async () => {
+    const board = await mountSwimlaneWindow(laneTasks(400));
+    try {
+      const scroller = board.container.querySelector('[data-testid="swimlane-scroll"]') as HTMLElement;
+      expect(scroller).not.toBeNull();
+      // happy-dom 无布局,scrollHeight 不可用;滚到末行(84 × 399)。
+      await scrollTo(scroller, 84 * 399);
+      const html = board.html();
+      expect(html).toContain("Lane 399"); // 最深泳道可达。
+      expect(html).not.toContain(">Lane 0<"); // 近端行卸载。
+      expect(board.container.querySelectorAll('[data-testid="swimlane-row"]').length).toBeLessThanOrEqual(
+        MOUNTED_WINDOW_BOUND,
+      );
+    } finally {
+      await unmountLive(board);
+    }
+  });
+});
+
+/**
  * 看板列宽偏好与 resize(W11):三种布局共用一份「每列一个数字 + 默认值」的
  * localStorage 记忆(不进台账、不进 URL);未设置的列走各视图默认——列模式
  * basis-1/4 等分、泳道 180+7×230、列表 table-fixed 自动分配。手柄键盘可达
@@ -1088,8 +1332,8 @@ describe("board column resize: column mode (W11)", () => {
     localStorage.removeItem(WIDTH_KEY);
   });
 
-  it("renders equal-quarter columns by default with one keyboard-reachable handle per column", () => {
-    const markup = boardMarkup([makeTask({ coordinationStatus: "planned" })]);
+  it("renders equal-quarter columns by default with one keyboard-reachable handle per column", async () => {
+    const markup = await boardHtml([makeTask({ coordinationStatus: "planned" })]);
     expect(markup.split('data-testid="board-column-resize-').length - 1).toBe(BOARD_COLUMNS.length);
     const handle = markup.match(/<div[^>]*data-testid="board-column-resize-planned"[^>]*>/u)![0];
     expect(handle).toContain('role="separator"');
@@ -1098,11 +1342,12 @@ describe("board column resize: column mode (W11)", () => {
     expect(markup).not.toContain('style="width');
   });
 
-  it("applies a persisted width as an explicit column width", () => {
+  it("applies a persisted width as an explicit column width", async () => {
     localStorage.setItem(WIDTH_KEY, JSON.stringify({ column: { planned: 360 } }));
-    const markup = boardMarkup([makeTask({ coordinationStatus: "planned" })]);
+    const markup = await boardHtml([makeTask({ coordinationStatus: "planned" })]);
     const column = markup.match(/<div[^>]*data-testid="board-column-planned"[^>]*>/u)![0];
-    expect(column).toContain('style="width:360px"');
+    // 活 DOM 的 style 序列化在冒号后带空格、句尾带分号。
+    expect(column).toMatch(/style="width:\s*360px/u);
     expect(column).not.toContain("basis-1/4");
     const handle = markup.match(/<div[^>]*data-testid="board-column-resize-planned"[^>]*>/u)![0];
     expect(handle).toContain('aria-valuenow="360"');
@@ -1186,23 +1431,32 @@ describe("swimlane column resize (W11)", () => {
     makeTask({ taskId: "t_p1", rootTaskId: "root-a", rootTitle: "Lane A", coordinationStatus: "planned" }),
   ];
 
-  it("renders the default 180px lane + 7×230px status template on header and rows", () => {
-    const markup = renderToStaticMarkup(
+  // 泳道行是 windowing(W10):行在挂载后按视口窗口出现,SSR markup 里没有行,
+  // 「表头 + 行都带模板」的断言必须走真实 DOM 挂载。
+  it("renders the default 180px lane + 7×230px status template on header and rows", async () => {
+    setMeasureHeight(84);
+    const board = await mountLive(
       createElement(SwimlaneBoard, {
         tasks: laneResizeFixture(),
         groupBy: "root",
         onSelect: noop,
         drill: null,
-        relations: [],
+        spawningDecisions: new Map(),
         favorites: new Set<string>(),
         onToggleFavorite: noop,
         onSetPin: noop,
       }),
     );
-    const template = `grid-template-columns:${["180px", ...Array(7).fill("230px")].join(" ")}`;
-    expect(markup.split(template).length - 1).toBeGreaterThanOrEqual(2); // sticky 表头 + 每泳道行。
-    expect(markup.split('data-testid="swimlane-column-resize-').length - 1).toBe(BOARD_COLUMNS.length);
-    expect(markup).toContain('data-testid="swimlane-lane-resize"');
+    try {
+      const markup = board.html();
+      // 活 DOM 的 style 序列化在冒号后带空格,用宽容正则计数(表头 + 每泳道行)。
+      const template = new RegExp(`grid-template-columns:\\s*${["180px", ...Array(7).fill("230px")].join(" ")}`, "gu");
+      expect(markup.match(template)).toHaveLength(2); // sticky 表头 + 单泳道行(fixture 1 条泳道)。
+      expect(markup.split('data-testid="swimlane-column-resize-').length - 1).toBe(BOARD_COLUMNS.length);
+      expect(markup).toContain('data-testid="swimlane-lane-resize"');
+    } finally {
+      await unmountLive(board);
+    }
   });
 
   it("derives the template from persisted lane and status widths", () => {

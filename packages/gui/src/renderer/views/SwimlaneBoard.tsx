@@ -1,4 +1,5 @@
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { CaretRight, Lock, PushPin, Star } from "@phosphor-icons/react";
 import type { TaskRow, SnapshotStatus } from "../model/types";
 import { BOARD_COLUMNS, isExternal } from "../model/types";
@@ -23,6 +24,10 @@ const LANE_WIDTH_DEFAULT = 180;
 const LANE_WIDTH_RANGE = { min: 120, max: 480 } as const;
 const STATUS_WIDTH_DEFAULT = 230;
 const STATUS_WIDTH_RANGE = { min: 160, max: 640 } as const;
+
+/** 泳道行 windowing(W10):估算行高 = 单元格 min-h 62px + py-2.5 + border,实测收敛。 */
+const LANE_ROW_ESTIMATE_PX = 84;
+const LANE_ROW_OVERSCAN = 4;
 
 const cellKey = (lane: string, status: SnapshotStatus) => `${lane}::${status}`;
 
@@ -175,6 +180,67 @@ const LaneCard = memo(function LaneCard({
     </div>
   );
 });
+
+/**
+ * 单条泳道行(windowing 后的挂载单元):结构不变——lane 标签 + 7 个状态格;
+ * 外层由 windowing 定位(absolute + translateY),data-index 供 virtualizer
+ * 的 measureElement 反查行号,行高实测收敛(标签换行时行会高于估算)。
+ * 列模板跟随表头的 gridTemplateColumns(W11):表头/行同一份宽度偏好。
+ */
+function LaneRow({
+  lane,
+  index,
+  offset,
+  gridTemplate,
+  measureRef,
+  model,
+  groupBy,
+  activeCell,
+  highlighted,
+  onPickCell,
+}: {
+  lane: string;
+  index: number;
+  offset: number;
+  gridTemplate: string;
+  measureRef: (element: Element | null) => void;
+  model: SwimlaneModel;
+  groupBy: LaneGroupBy;
+  activeCell: ActiveCell | null;
+  highlighted: string | null;
+  onPickCell: (cell: ActiveCell) => void;
+}) {
+  return (
+    <div
+      data-index={index}
+      ref={measureRef}
+      data-testid="swimlane-row"
+      className="absolute inset-x-0 top-0 grid gap-2 border-b border-border py-2.5"
+      style={{ gridTemplateColumns: gridTemplate, transform: `translateY(${offset}px)` }}
+    >
+      <div className="flex items-baseline gap-2 self-start px-1.5 pt-1.5">
+        <span className="font-mono ui-prose font-semibold text-text" title={groupBy === "root" ? lane : undefined}>
+          {model.labels.get(lane) ?? lane}
+        </span>
+        <span className="font-mono ui-body text-text-faint">{model.laneSizes.get(lane) ?? 0}</span>
+      </div>
+      {BOARD_COLUMNS.map((status) => {
+        const key = cellKey(lane, status);
+        const selected = activeCell?.lane === lane && activeCell.status === status;
+        return (
+          <LaneCell
+            key={status}
+            status={status}
+            cellTasks={cellOf(model, lane, status)}
+            selected={selected}
+            highlighted={highlighted === key}
+            onPick={() => onPickCell({ lane, status })}
+          />
+        );
+      })}
+    </div>
+  );
+}
 
 function LaneCell({
   status,
@@ -340,6 +406,28 @@ export function SwimlaneBoard({
   const model = useMemo(() => buildSwimlaneModel(tasks, groupBy), [groupBy, tasks]);
   const lanes = model.lanes;
 
+  // 泳道行 windowing(W10):基线 canonical 928 行全挂载、切到首行 4.8s;只挂
+  // 视口 ± overscan 后 DOM 行数与泳道总量解耦。行高不定(lane 标签换行),
+  // estimateSize 起步、measureElement 实测收敛;sticky 表头在滚动容器内、
+  // 位于行容器上方,scrollMargin = 表头实测高度让可视窗口换算进行坐标系。
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const headerRef = useRef<HTMLDivElement | null>(null);
+  const [headerHeight, setHeaderHeight] = useState(0);
+  useEffect(() => {
+    const element = headerRef.current;
+    if (!element || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => setHeaderHeight(element.offsetHeight));
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  const laneVirtualizer = useVirtualizer({
+    count: lanes.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => LANE_ROW_ESTIMATE_PX,
+    overscan: LANE_ROW_OVERSCAN,
+    getItemKey: (index) => lanes[index],
+    scrollMargin: headerHeight,
+  });
   // 泳道列宽偏好(W11):泳道标签列 + 7 个状态列各一个数字,默认 180/230 等宽;
   // 表头是唯一手柄面(sticky,滚动时仍可达),行模板跟着表头走。
   const [widths, setWidths] = useState<BoardColumnWidths>(() => readBoardColumnWidths(boardColumnPreferenceStorage()));
@@ -379,9 +467,13 @@ export function SwimlaneBoard({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="max-h-[48vh] overflow-auto border-b border-border">
+      <div ref={scrollRef} data-testid="swimlane-scroll" className="max-h-[48vh] overflow-auto border-b border-border">
         <div className="min-w-max px-4 pb-4">
-          <div className="sticky top-0 z-10 grid gap-2 border-b border-border bg-bg py-2" style={gridStyle}>
+          <div
+            ref={headerRef}
+            className="sticky top-0 z-10 grid gap-2 border-b border-border bg-bg py-2"
+            style={gridStyle}
+          >
             <div className="relative self-center px-1.5 font-mono ui-meta uppercase tracking-wide text-text-faint">
               {groupBy}
               <ColumnResizeHandle
@@ -420,38 +512,29 @@ export function SwimlaneBoard({
               );
             })}
           </div>
-          {lanes.map((lane) => (
+          {lanes.length > 0 && (
             <div
-              key={lane}
-              data-testid="swimlane-row"
-              className="grid gap-2 border-b border-border py-2.5 cv-auto-4-5r"
-              style={gridStyle}
+              className="relative"
+              style={{ height: laneVirtualizer.getTotalSize() }}
+              data-testid="swimlane-row-window"
             >
-              <div className="flex items-baseline gap-2 self-start px-1.5 pt-1.5">
-                <span
-                  className="font-mono ui-prose font-semibold text-text"
-                  title={groupBy === "root" ? lane : undefined}
-                >
-                  {model.labels.get(lane) ?? lane}
-                </span>
-                <span className="font-mono ui-body text-text-faint">{model.laneSizes.get(lane) ?? 0}</span>
-              </div>
-              {BOARD_COLUMNS.map((status) => {
-                const key = cellKey(lane, status);
-                const selected = activeCell?.lane === lane && activeCell.status === status;
-                return (
-                  <LaneCell
-                    key={status}
-                    status={status}
-                    cellTasks={cellOf(model, lane, status)}
-                    selected={selected}
-                    highlighted={highlight === key}
-                    onPick={() => setActiveCell({ lane, status })}
-                  />
-                );
-              })}
+              {laneVirtualizer.getVirtualItems().map((row) => (
+                <LaneRow
+                  key={row.key}
+                  lane={lanes[row.index]}
+                  index={row.index}
+                  offset={row.start}
+                  gridTemplate={gridStyle.gridTemplateColumns}
+                  measureRef={laneVirtualizer.measureElement}
+                  model={model}
+                  groupBy={groupBy}
+                  activeCell={activeCell}
+                  highlighted={highlight}
+                  onPickCell={setActiveCell}
+                />
+              ))}
             </div>
-          ))}
+          )}
           {lanes.length === 0 && (
             <div className="rounded-lg border border-dashed border-border px-4 py-8 ui-prose text-text-faint">
               当前筛选下没有可展示的泳道任务。
