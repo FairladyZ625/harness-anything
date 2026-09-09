@@ -12,6 +12,7 @@ import {
 } from "../../entity-locator-client.ts";
 import {
   attributeDraftFrom,
+  divergedFields,
   entityAttributeFields,
   readAttributeDraft,
   type EntityAttributeDraft,
@@ -30,6 +31,10 @@ import type { PinnedAttributeSchema } from "./NewEntityWizard.tsx";
  * 编辑面有 title、locator 与**这个实例钉住的那一版**属性;contentVersion 不在这里——它是中心
  * 按接受的字节导出的内容摘要,不接受手填。属性表单按行读面给出的 `descriptor` 长出来:
  * 版本号是它当初钉的那一版,初值是它现在填的那些值,GUI 不替它猜一版,也不把已有的值抹掉。
+ *
+ * fence 不成立时(别人在你读到它之后改过它),表单**留在原地**:草稿一格不动,重读回来的
+ * 那一行逐格摆在旁边,覆盖与重填都由人自己按一次。没提交的输入不因为别人的一次写而消失,
+ * 也不在人没看见改了什么的情况下盖回去。
  */
 export function EntityDetailActions({
   repoId,
@@ -52,6 +57,26 @@ export function EntityDetailActions({
   const [attributeDraft, setAttributeDraft] = useState<EntityAttributeDraft>({});
   const attributeReading = readAttributeDraft(attributeFields, attributeDraft);
   const attributeIssues = Object.keys(attributeReading.issues).length;
+  const locatorLabel = `${entity.locator?.kind ?? "locator"} locator`;
+  /**
+   * 中心此刻那一行的值。冲突之后行读面已经失效重读,所以这里读到的就是「现在」——
+   * 与草稿逐格对出来的差,是别人这一次真的改了什么。
+   */
+  const heldValues: Readonly<Record<string, string>> = {
+    title: entity.title ?? "",
+    [locatorLabel]: entity.locator?.value ?? "",
+    ...attributeDraftFrom(attributeFields, entity.descriptor?.attributes ?? {}),
+  };
+  const draftValues: Readonly<Record<string, string>> = { title, [locatorLabel]: locator, ...attributeDraft };
+  const conflicted = mode === "edit" && settlement?.state === "conflict";
+  const diverged = conflicted ? divergedFields(draftValues, heldValues) : [];
+  /** 用中心现在的值重填这张表:覆盖草稿是人按下去的一个动作,不是界面替他做的。 */
+  const adoptHeld = () => {
+    setTitle(heldValues.title ?? "");
+    setLocator(heldValues[locatorLabel] ?? "");
+    setAttributeDraft(attributeDraftFrom(attributeFields, entity.descriptor?.attributes ?? {}));
+    setSettlement(null);
+  };
   /**
    * 每次打开编辑面都从**账本此刻的那一行**重新起草。保留上一次的草稿会让人看到自己刚才
    * 输入的内容而不是被接受的内容,写没写进去也就分不出来了。
@@ -61,15 +86,20 @@ export function EntityDetailActions({
     setLocator(entity.locator?.value ?? "");
     setAttributeDraft(attributeDraftFrom(attributeFields, entity.descriptor?.attributes ?? {}));
     setError(null);
+    setSettlement(null);
     setMode("edit");
   };
   const finish = (receipt: { readonly outcome: string; readonly [key: string]: unknown }) => {
     const settled = entityWriteSettlement(receipt);
     setSettlement(settled);
-    if (settled.state === "conflict" || settled.state === "rejected") {
-      setError(settled.text);
-      // 冲突后重读:界面上的 fence 必须换成中心现在那一条,人才改得下去。
-      if (settled.state === "conflict")
+    // 落定态本身就是一句话(`entity-detail-action-<state>`);再往 error 里抄一份,同一件事
+    // 会在同一屏上说两遍。`error` 只留给根本没拿到回执的那一类失败。
+    //
+    // **只有被确认落定的那一次写才收表**。冲突是别人先写成功了,pending 是这次写有没有落定
+    // 还说不出来——两种情况下人手上的东西都还没有着落,把表关掉就是替他把没写成的稿子丢了。
+    if (settled.state !== "applied") {
+      // 重读:界面上的 fence 必须换成中心现在那一条,人才改得下去。表单不关,草稿不动。
+      if (settled.state === "conflict" || settled.state === "pending")
         void queryClient.invalidateQueries({ queryKey: entityKindQueryKeys.rows(repoId) });
       return;
     }
@@ -82,6 +112,8 @@ export function EntityDetailActions({
   const openReasoned = (next: "archive" | "delete") => {
     setReason("");
     setError(null);
+    // 上一个动作的回执说的是上一个动作;换一件事做就不该还挂在屏幕上。
+    setSettlement(null);
     setMode(mode === next ? null : next);
   };
   if (entity.archived)
@@ -143,6 +175,7 @@ export function EntityDetailActions({
             event.preventDefault();
             if (attributeIssues > 0) return;
             setError(null);
+            setSettlement(null);
             void updateEntity({
               repoId,
               entityKind: entity.kind,
@@ -157,11 +190,7 @@ export function EntityDetailActions({
           }}
         >
           <input aria-label="title" value={title} onChange={(event) => setTitle(event.target.value)} />
-          <input
-            aria-label={`${entity.locator?.kind ?? "locator"} locator`}
-            value={locator}
-            onChange={(event) => setLocator(event.target.value)}
-          />
+          <input aria-label={locatorLabel} value={locator} onChange={(event) => setLocator(event.target.value)} />
           {attributeFields.length > 0 && (
             <section className="mt-1 flex flex-col gap-1" data-testid="entity-detail-attributes">
               <h4 className="ui-micro uppercase tracking-wide text-text-faint">
@@ -182,6 +211,42 @@ export function EntityDetailActions({
             <p data-testid="entity-detail-attributes-incomplete" className="ui-micro text-status-blocked">
               上面的属性还有 {attributeIssues} 项要补。
             </p>
+          )}
+          {conflicted && (
+            <section
+              data-testid="entity-detail-conflict-incoming"
+              className="mt-1 flex flex-col gap-1 rounded-md border border-status-blocked/40 px-2 py-1.5"
+            >
+              <p className="ui-micro text-text-muted">
+                你还没提交的修改留在上面这张表里。中心现在是第 {entity.revision} 版:
+              </p>
+              {diverged.length === 0 ? (
+                <p data-testid="entity-detail-conflict-same" className="ui-micro text-text-faint">
+                  你填的这几格和中心现在的值一样,再保存一次就行。
+                </p>
+              ) : (
+                <ul className="flex flex-col gap-0.5">
+                  {diverged.map((field) => (
+                    <li
+                      key={field.name}
+                      data-testid={`entity-detail-conflict-field-${field.name}`}
+                      className="ui-micro text-text-muted"
+                    >
+                      <span className="font-mono">{field.name}</span>:中心「{field.held || "(空)"}」,你的「
+                      {field.draft || "(空)"}」
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <button
+                type="button"
+                data-testid="entity-detail-conflict-adopt"
+                onClick={adoptHeld}
+                className="self-start rounded-md border border-border px-2 py-1 ui-micro text-text-muted"
+              >
+                用中心现在的值重填
+              </button>
+            </section>
           )}
           <button type="submit" data-testid="entity-detail-edit-save" disabled={attributeIssues > 0}>
             保存

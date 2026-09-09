@@ -17,6 +17,7 @@ import {
 import { describeAttributesIssue } from "../src/renderer/components/entityDoc/VerticalKindSchemaForm.tsx";
 import {
   attributeDraftFrom,
+  divergedFields,
   emptyAttributeDraft,
   entityAttributeFields,
   readAttributeDraft,
@@ -1457,6 +1458,146 @@ describe("detail action area (goal 4)", () => {
     expect(pending?.textContent).toContain("entity-update-ADR-0002-7");
     expect(container.querySelector('[data-testid="entity-detail-action-applied"]')).toBeNull();
   });
+
+  /**
+   * fence 不成立:别人在你读到这一行之后改过它。界面要做三件事——说清撞的是什么、
+   * 把重读回来的那一行摆出来、**不动**人还没提交的草稿。第三件是最容易被顺手做掉的:
+   * 关掉表单或按新行重新起草,人刚输入的东西就没了,而他根本没被告知。
+   */
+  const conflictingBridge = () => {
+    const state = pinnedBridge();
+    const bridge = (window as unknown as { harness: Record<string, unknown> }).harness;
+    bridge.updateEntity = vi.fn(async (payload: object) => {
+      state.updates.push(payload);
+      // 另一条 ingress 已经把 region 改成 south 并被接受,所以这一行现在是第 8 版。
+      state.rows = state.rows.map((row) =>
+        row.entityId !== "ADR-0002"
+          ? row
+          : {
+              ...row,
+              revision: 8,
+              descriptor: { kindVersion: 2, attributes: { region: "south", fiscalYear: 2026, reviewed: true } },
+            },
+      );
+      return {
+        schema: "command-receipt/v2",
+        ok: false,
+        command: "entity.update",
+        outcome: "op_rejected",
+        opId: "entity-update-ADR-0002-7",
+        code: "revision_conflict",
+        rejectionExplanation: "Entity ADR-0002 expected revision 7, current revision is 8.",
+      };
+    });
+    return state;
+  };
+
+  it("keeps an unsubmitted draft and names what the center now holds when the fence fails", async () => {
+    const state = conflictingBridge();
+    const container = await renderCrudView(`entitydoc/${ADR_KIND}`);
+    await click(container, "governed-entity-row-ADR-0002");
+    await click(container, "entity-detail-edit");
+    await typeInto(container, "fiscalYear", "2099");
+    await click(container, "entity-detail-edit-save");
+    await vi.waitFor(() =>
+      expect(container.querySelector('[data-testid="entity-detail-action-conflict"]')).not.toBeNull(),
+    );
+    expect(container.querySelector('[data-testid="entity-detail-action-conflict"]')?.textContent).toContain(
+      "current revision is 8",
+    );
+    // 表单还开着,草稿一格没动。
+    expect(container.querySelector('[data-testid="entity-detail-edit-form"]')).not.toBeNull();
+    expect(container.querySelector<HTMLInputElement>('input[aria-label="fiscalYear"]')?.value).toBe("2099");
+    // 重读回来的那一行说得出别人改了哪一格。
+    await vi.waitFor(() =>
+      expect(container.querySelector('[data-testid="entity-detail-conflict-field-region"]')).not.toBeNull(),
+    );
+    expect(container.querySelector('[data-testid="entity-detail-conflict-field-region"]')?.textContent).toContain(
+      "south",
+    );
+    // 同一件事只说一遍:回执落定态已经说了,error 那一行不再抄一份。
+    expect(container.querySelector('[data-testid="entity-detail-action-error"]')).toBeNull();
+    expect(state.updates.length).toBe(1);
+  });
+
+  it("overwrites the draft with the center's values only when the person asks for it", async () => {
+    conflictingBridge();
+    const container = await renderCrudView(`entitydoc/${ADR_KIND}`);
+    await click(container, "governed-entity-row-ADR-0002");
+    await click(container, "entity-detail-edit");
+    await typeInto(container, "fiscalYear", "2099");
+    await click(container, "entity-detail-edit-save");
+    await vi.waitFor(() =>
+      expect(container.querySelector('[data-testid="entity-detail-conflict-adopt"]')).not.toBeNull(),
+    );
+    await click(container, "entity-detail-conflict-adopt");
+    // 按下之后才用中心的值重填,并且冲突那一段随之收起——不是界面替他做的。
+    expect(container.querySelector<HTMLInputElement>('input[aria-label="fiscalYear"]')?.value).toBe("2026");
+    expect(container.querySelector<HTMLSelectElement>('select[aria-label="region"]')?.value).toBe("south");
+    expect(container.querySelector('[data-testid="entity-detail-conflict-incoming"]')).toBeNull();
+  });
+
+  it("retries the same draft against the revision the center now holds", async () => {
+    const state = conflictingBridge();
+    const container = await renderCrudView(`entitydoc/${ADR_KIND}`);
+    await click(container, "governed-entity-row-ADR-0002");
+    await click(container, "entity-detail-edit");
+    await typeInto(container, "fiscalYear", "2099");
+    await click(container, "entity-detail-edit-save");
+    await vi.waitFor(() =>
+      expect(container.querySelector('[data-testid="entity-detail-conflict-incoming"]')).not.toBeNull(),
+    );
+    await click(container, "entity-detail-edit-save");
+    // 第二次用的是重读回来的那一版 fence,递出去的仍是人自己的草稿。
+    await vi.waitFor(() => expect(state.updates.length).toBe(2));
+    expect(state.updates[1]).toMatchObject({
+      entityId: "ADR-0002",
+      expectedVersion: 8,
+      attributes: { region: "north", fiscalYear: 2099, reviewed: true },
+    });
+  });
+
+  it("keeps the drawer and the draft when the center never answered the write", async () => {
+    const state = pinnedBridge();
+    const bridge = (window as unknown as { harness: Record<string, unknown> }).harness;
+    bridge.updateEntity = vi.fn(async (payload: object) => {
+      state.updates.push(payload);
+      return {
+        schema: "command-receipt/v2",
+        ok: false,
+        command: "entity.update",
+        outcome: "op_rejected",
+        opId: "N/A",
+        code: "daemon_closed",
+        rejectionExplanation: "Local daemon request failed. Cause: daemon closed before JSON-RPC response 12",
+      };
+    });
+    const container = await renderCrudView(`entitydoc/${ADR_KIND}`);
+    await click(container, "governed-entity-row-ADR-0002");
+    await click(container, "entity-detail-edit");
+    await typeInto(container, "fiscalYear", "2099");
+    await click(container, "entity-detail-edit-save");
+    await vi.waitFor(() =>
+      expect(container.querySelector('[data-testid="entity-detail-action-pending"]')).not.toBeNull(),
+    );
+    // 没被确认落定的一次写不收表:人手上的稿子还没有着落,关掉它就是替他丢了。
+    expect(container.querySelector('[data-testid="entity-detail-edit-form"]')).not.toBeNull();
+    expect(container.querySelector<HTMLInputElement>('input[aria-label="fiscalYear"]')?.value).toBe("2099");
+    expect(container.querySelector('[data-testid="entity-detail-action-applied"]')).toBeNull();
+  });
+
+  it("drops the previous action's settlement when another action is opened", async () => {
+    conflictingBridge();
+    const container = await renderCrudView(`entitydoc/${ADR_KIND}`);
+    await click(container, "governed-entity-row-ADR-0002");
+    await click(container, "entity-detail-edit");
+    await click(container, "entity-detail-edit-save");
+    await vi.waitFor(() =>
+      expect(container.querySelector('[data-testid="entity-detail-action-conflict"]')).not.toBeNull(),
+    );
+    await click(container, "entity-detail-archive");
+    expect(container.querySelector('[data-testid="entity-detail-action-conflict"]')).toBeNull();
+  });
 });
 
 /**
@@ -1949,5 +2090,32 @@ describe("an entity write receipt states which state it settled in", () => {
     });
     expect(rejected.state).toBe("rejected");
     expect(rejected.text).toContain("region");
+  });
+
+  it("treats an unanswered write as indeterminate rather than as a refusal", () => {
+    // 连接断在回答之前:中心做没做,这一侧说不出来。说成「被拒」,人会照着「没写进去」重发。
+    const unanswered = entityWriteSettlement({
+      outcome: "op_rejected",
+      opId: "N/A",
+      code: "daemon_closed",
+      rejectionExplanation: "Local daemon request failed. Cause: daemon closed before JSON-RPC response 12",
+    });
+    expect(unanswered.state).toBe("pending");
+    expect(unanswered.text).toContain("daemon_closed");
+    expect(unanswered.text).toContain("不要直接重发");
+    expect(entityWriteSettlement({ outcome: "op_rejected", code: "daemon_response_timeout" }).state).toBe("pending");
+    // 中心真的答了「拒」的那一类不受影响。
+    expect(entityWriteSettlement({ outcome: "op_rejected", code: "invalid_command" }).state).toBe("rejected");
+  });
+
+  it("names only the fields the center actually moved under the draft", () => {
+    const diverged = divergedFields(
+      { title: "我的标题", region: "north", fiscalYear: "2099", reviewed: "true" },
+      { title: "我的标题", region: "south", fiscalYear: "2026", reviewed: "true" },
+    );
+    expect(diverged.map(({ name }) => name)).toEqual(["region", "fiscalYear"]);
+    expect(diverged[0]).toMatchObject({ name: "region", held: "south", draft: "north" });
+    // 草稿里有、而这一版声明里没有的名字不进对照表:它属于别的版本,拿不出「中心现在的值」。
+    expect(divergedFields({ retired: "x" }, {})).toEqual([]);
   });
 });
