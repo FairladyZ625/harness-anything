@@ -171,8 +171,6 @@ function planConversion(source: SqliteEventStore) {
           reasons.push("repeated installation observation preserved read-only; it adds no new installation fact");
         installations.set(key, value);
       }
-      if (event.type === "decision_related" || event.type === "task_relation_added")
-        throw new Error("retired relation ingress requires an explicit relation identity and reference mapping");
       const issues = validateCurrentCanonicalEvent(event);
       if (issues.length) throw new Error(issues.join("; "));
       for (const claim of contentClaims(event)) {

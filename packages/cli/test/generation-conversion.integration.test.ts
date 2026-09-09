@@ -273,6 +273,40 @@ test("offline conversion preserves draft edits and deletion intent before settli
   }
 });
 
+test("valid historical decision relations retain their document transition instead of becoming witnesses", () => {
+  const f = fixture();
+  try {
+    const event = JSON.parse(
+      readFileSync(
+        new URL(
+          "../../kernel/fixtures/canonical-events/decision-event-v1/accepted-decision-related-d9b187661997.json",
+          import.meta.url,
+        ),
+        "utf8",
+      ),
+    );
+    event.workspaceRevision = 1;
+    event.opId = "op-1";
+    event.payload.decisionDocumentClaim.sha256 = f.hash;
+    event.payload.decisionDocumentClaim.size = f.body.length;
+    const raw = JSON.stringify(event) + "\n";
+    const db = new DatabaseSync(sqliteLedgerPath(f.root, 1));
+    db.prepare("UPDATE event SET event_json=?, digest=?, occurred_at=? WHERE revision=1").run(
+      raw,
+      `sha256:${sha256Bytes(Buffer.from(raw))}`,
+      event.occurredAt,
+    );
+    db.close();
+    createLedgerBackup({ rootInput: f.root, backupDir: f.backupDir });
+    const result = invoke(["--source", f.backupDir, "--mode", "dry-run"]);
+    assert.equal(result.status, 0, JSON.stringify(result.receipt));
+    assert.equal(result.receipt.plan.mappings[0].disposition, "converted");
+    assert.equal(result.receipt.plan.mappings[0].destinationDigest, `sha256:${sha256Bytes(Buffer.from(raw))}`);
+  } finally {
+    rmSync(f.parent, { recursive: true, force: true });
+  }
+});
+
 test("live generation 2 writes cannot backfill recordedAt", () => {
   const f = fixture(),
     store = openSqliteEventStore({ repoId: "conversion-test", rootInput: f.root, generation: 2 });
