@@ -42,7 +42,7 @@ export function createLedgerBackup(input: {
     sqlitePath = sqliteLedgerPath(input.rootInput, input.generation),
     sqlitePresent = fileSystem.exists(sqlitePath);
   fileSystem.mkdir(payloadRoot, { recursive: true });
-  copyTrackedWorkingTree(layout.rootDir, layout.authoredRoot, payloadRoot);
+  copyWorkingTree(layout.rootDir, layout.authoredRoot, payloadRoot);
   for (const sourcePath of sourcePaths) copySource(layout.rootDir, sourcePath, payloadRoot);
   for (const generation of [1, 2]) {
     const database = sqliteLedgerPath(input.rootInput, generation);
@@ -148,19 +148,24 @@ function existingBackupSources(rootDir: string, authoredRoot: string): readonly 
   return candidates.filter((candidate) => fileSystem.exists(candidate));
 }
 
-function trackedWorkingTreeSources(authoredRoot: string): readonly string[] {
+function workingTreeSources(authoredRoot: string): readonly string[] {
   const entries = localGitText(authoredRoot, "ls-files", "--stage", "-z").split("\0").filter(Boolean);
-  return entries.flatMap((entry) => {
+  const tracked = entries.flatMap((entry) => {
     const tab = entry.indexOf("\t"),
       [mode] = entry.slice(0, tab).split(" ");
     if (tab < 0 || mode === "160000") return [];
     return [path.join(authoredRoot, entry.slice(tab + 1))];
   });
+  const untracked = localGitText(authoredRoot, "ls-files", "--others", "--exclude-standard", "-z")
+    .split("\0")
+    .filter(Boolean)
+    .map((entry) => path.join(authoredRoot, entry));
+  return [...new Set([...tracked, ...untracked])];
 }
 
-function copyTrackedWorkingTree(rootDir: string, authoredRoot: string, payloadRoot: string): void {
+function copyWorkingTree(rootDir: string, authoredRoot: string, payloadRoot: string): void {
   const included = new Set([authoredRoot]);
-  for (const source of trackedWorkingTreeSources(authoredRoot)) {
+  for (const source of workingTreeSources(authoredRoot)) {
     for (let candidate = source; !included.has(candidate); candidate = path.dirname(candidate)) included.add(candidate);
   }
   fileSystem.copy(authoredRoot, path.join(payloadRoot, path.relative(rootDir, authoredRoot)), {

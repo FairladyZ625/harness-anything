@@ -8,6 +8,7 @@ import {
 import { sha256Bytes, sha256Text } from "../integrity/stable-hash.ts";
 import { resolveHarnessLayout, type HarnessLayoutInput } from "../layout/index.ts";
 import { consumeKnownError } from "../error-consumption.ts";
+import { localRuntimeStateFileSystem as conversionFiles } from "../local/local-layout-file-system.ts";
 import {
   canonicalDocumentClaims,
   canonicalDocumentMode,
@@ -94,7 +95,7 @@ export function publishConvertedGeneration(input: {
         .generation === input.store.metadata().generation &&
       certifiedFollowerRevision(ledger, parent, input.store) === revision;
   if (alreadyCertified) {
-    const baseline = captureGitBaseline(ledger.rootDir, parent, files);
+    const baseline = captureConversionBaseline(input.rootInput, ledger.rootDir, parent, files);
     localGitWorktreeSettlement.index(ledger.rootDir, files);
     if (!worktreeMatchesBaseline(ledger.rootDir, baseline, files) || !settleWorktree(ledger.rootDir, files, baseline))
       throw new TaskEventStoreError("publication_indeterminate", "authored worktree has concurrent edits");
@@ -104,7 +105,7 @@ export function publishConvertedGeneration(input: {
   }
   const tempRef = `refs/ha-sqlite-outbox/${sha256Text(`conversion:${revision}:${cut.headDigest}`)}`,
     commit = prepareCommit(ledger.rootDir, tempRef, parent, files, `conversion-${revision}`, new Date().toISOString()),
-    baseline = captureGitBaseline(ledger.rootDir, parent, files);
+    baseline = captureConversionBaseline(input.rootInput, ledger.rootDir, parent, files);
   finalizeRefs(ledger.rootDir, authoredRef, commit, parent, tempRef);
   verifyGitFiles(ledger.rootDir, commit, files);
   verifyAuthoredRef(ledger.rootDir, authoredRef, commit);
@@ -974,6 +975,42 @@ function settleVisibleChange(
     throw error;
   }
   return true;
+}
+
+/** Offline conversion preserves the restored draft overlay before settling accepted content. */
+function captureConversionBaseline(
+  rootInput: HarnessLayoutInput,
+  repoRoot: string,
+  parent: string,
+  files: readonly PublicationFile[],
+): ReadonlyMap<string, string> {
+  const baseline = new Map(captureGitBaseline(repoRoot, parent, files));
+  const drafts: { path: string; mode: string | null; sha256: string | null; preservedPath: string | null }[] = [];
+  for (const file of files) {
+    const target = "target" in file ? file.target : "delete" in file ? file.delete : null;
+    if (target === null) continue;
+    const node = localGitWorktreeSettlement.readNode(`${repoRoot}/${target}`);
+    const current = worktreeFingerprint(node);
+    const settled =
+      "target" in file ? `${file.mode}:${publicationDigest(file.body)}:${Buffer.byteLength(file.body)}` : "missing";
+    if (current === baseline.get(target) || current === settled) continue;
+    const preservedPath = node
+      ? localGitWorktreeSettlement.preserveConflict(repoRoot, `${repoRoot}/${target}`, target, parent)
+      : null;
+    if (node && localGitWorktreeSettlement.readNode(`${repoRoot}/${preservedPath}`)?.sha256 !== node.sha256)
+      throw new TaskEventStoreError("publication_indeterminate", `draft preservation differs: ${target}`);
+    drafts.push({ path: target, mode: node?.mode ?? null, sha256: node?.sha256 ?? null, preservedPath });
+    baseline.set(target, current);
+  }
+  if (drafts.length) {
+    const directory = `${resolveHarnessLayout(rootInput).localRoot}/operations/conversion-drafts/${parent}`;
+    conversionFiles.mkdirp(directory);
+    const manifest = `${JSON.stringify({ schema: "conversion-drafts/v1", parent, drafts }, null, 2)}\n`;
+    const target = `${directory}/manifest.json`;
+    if (!conversionFiles.createExclusiveText(target, manifest) && conversionFiles.readText(target) !== manifest)
+      throw new TaskEventStoreError("publication_indeterminate", "conversion draft preservation manifest differs");
+  }
+  return baseline;
 }
 
 function captureGitBaseline(

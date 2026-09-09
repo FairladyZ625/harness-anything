@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { spawnSync, execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -228,6 +228,41 @@ test("an accepted content size mismatch is corruption, not a historical witness"
     assert.equal(result.status, 1, JSON.stringify(result.receipt));
     assert.match(result.receipt.hint, /corrupt accepted content/);
     assert.equal(existsSync(f.destination), false);
+  } finally {
+    rmSync(f.parent, { recursive: true, force: true });
+  }
+});
+
+test("offline conversion preserves draft edits and deletion intent before settling accepted files", () => {
+  const f = fixture();
+  try {
+    const authored = path.join(f.root, "harness");
+    mkdirSync(path.join(authored, "context"), { recursive: true });
+    writeFileSync(path.join(authored, "context/raw-1.bin"), f.body);
+    writeFileSync(path.join(authored, "context/raw-2.bin"), f.body);
+    execFileSync("git", ["-C", authored, "add", "."]);
+    execFileSync("git", ["-C", authored, "commit", "-qm", "accepted baseline"]);
+    const draft = Buffer.from([0, 255, 23, 45]);
+    writeFileSync(path.join(authored, "context/raw-1.bin"), draft);
+    rmSync(path.join(authored, "context/raw-2.bin"));
+    writeFileSync(path.join(authored, "untracked-note.txt"), "keep this draft");
+    createLedgerBackup({ rootInput: f.root, backupDir: f.backupDir });
+    const result = invoke(["--source", f.backupDir, "--mode", "convert", "--destination", f.destination]);
+    assert.equal(result.status, 0, JSON.stringify(result.receipt));
+    const destinationAuthored = path.join(f.destination, "harness");
+    assert.deepEqual(readFileSync(path.join(destinationAuthored, "context/raw-1.bin")), f.body);
+    assert.deepEqual(readFileSync(path.join(destinationAuthored, "context/raw-2.bin")), f.body);
+    assert.equal(readFileSync(path.join(destinationAuthored, "untracked-note.txt"), "utf8"), "keep this draft");
+    const manifests = path.join(f.destination, ".harness/operations/conversion-drafts");
+    const parent = readdirSync(manifests)[0]!;
+    const report = JSON.parse(readFileSync(path.join(manifests, parent, "manifest.json"), "utf8"));
+    const changed = report.drafts.find((d: any) => d.path === "context/raw-1.bin");
+    assert.deepEqual(readFileSync(path.join(destinationAuthored, changed.preservedPath)), draft);
+    const removed = report.drafts.find((d: any) => d.path === "context/raw-2.bin");
+    assert.equal(removed.preservedPath, null);
+    assert.equal(removed.mode, null);
+    assert.deepEqual(readFileSync(path.join(authored, "context/raw-1.bin")), draft);
+    assert.equal(existsSync(path.join(authored, "context/raw-2.bin")), false);
   } finally {
     rmSync(f.parent, { recursive: true, force: true });
   }
