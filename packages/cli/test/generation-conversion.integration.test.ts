@@ -11,6 +11,7 @@ import {
   createLedgerBackup,
   openSqliteEventStore,
   sqliteLedgerPath,
+  sqliteContentObjectPath,
   sha256Bytes,
   type DocEventV1,
   type AgentRuntimeEventV1,
@@ -302,6 +303,49 @@ test("valid historical decision relations retain their document transition inste
     assert.equal(result.status, 0, JSON.stringify(result.receipt));
     assert.equal(result.receipt.plan.mappings[0].disposition, "converted");
     assert.equal(result.receipt.plan.mappings[0].destinationDigest, `sha256:${sha256Bytes(Buffer.from(raw))}`);
+  } finally {
+    rmSync(f.parent, { recursive: true, force: true });
+  }
+});
+
+test("source witnesses carry available legacy declaration bytes into generation two", () => {
+  const f = fixture();
+  try {
+    const event = JSON.parse(
+      readFileSync(
+        new URL("../../kernel/fixtures/canonical-events/entity-event-v1/accepted.json", import.meta.url),
+        "utf8",
+      ),
+    );
+    event.workspaceRevision = 1;
+    event.opId = "op-1";
+    const legacyBody = Buffer.from("legacy declaration bytes unavailable to other events\n");
+    const legacyHash = sha256Bytes(legacyBody);
+    const legacyPath = sqliteContentObjectPath(f.root, legacyHash, 1);
+    mkdirSync(path.dirname(legacyPath), { recursive: true });
+    writeFileSync(legacyPath, legacyBody);
+    event.payload.declarationDocumentClaim.sha256 = legacyHash;
+    event.payload.declarationDocumentClaim.size = legacyBody.length;
+    const raw = JSON.stringify(event) + "\n";
+    const db = new DatabaseSync(sqliteLedgerPath(f.root, 1));
+    db.prepare("UPDATE event SET event_json=?, digest=?, occurred_at=? WHERE revision=1").run(
+      raw,
+      `sha256:${sha256Bytes(Buffer.from(raw))}`,
+      event.occurredAt,
+    );
+    db.close();
+    createLedgerBackup({ rootInput: f.root, backupDir: f.backupDir });
+    const result = invoke(["--source", f.backupDir, "--mode", "convert", "--destination", f.destination]);
+    assert.equal(result.status, 0, JSON.stringify(result.receipt));
+    rmSync(path.dirname(sqliteLedgerPath(f.destination, 1)), { recursive: true });
+    const target = openSqliteEventStore({ rootInput: f.destination, generation: 2, readOnly: true });
+    try {
+      const witness = target.eventAtRevision(1)! as any;
+      assert.ok(witness.payload.entity.referencedContentClaims.some((c: any) => c.sha256 === legacyHash));
+      assert.deepEqual(Buffer.from(target.readContentObject(legacyHash)!), legacyBody);
+    } finally {
+      target.close();
+    }
   } finally {
     rmSync(f.parent, { recursive: true, force: true });
   }

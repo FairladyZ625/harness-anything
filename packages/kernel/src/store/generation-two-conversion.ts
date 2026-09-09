@@ -189,7 +189,7 @@ function planConversion(source: SqliteEventStore) {
       const reason = error instanceof Error ? error.message : String(error);
       if (reason.startsWith("corrupt accepted content ")) throw error;
       reasons.push(reason);
-      candidate = historicalWitness(original, row);
+      candidate = historicalWitness(original, row, source);
       reasons.push("source-witness-only: original event bytes retained as a read-only content object");
     }
     if (candidate) events.push(candidate);
@@ -234,7 +234,11 @@ function planConversion(source: SqliteEventStore) {
   return { plan, events, rows };
 }
 
-function historicalWitness(original: CanonicalEventV1, row: SqliteEventRow): MigrationImportEventV1 {
+function historicalWitness(
+  original: CanonicalEventV1,
+  row: SqliteEventRow,
+  source: SqliteEventStore,
+): MigrationImportEventV1 {
   const raw = new TextEncoder().encode(row.eventJson),
     sha256 = sha256Bytes(raw),
     sourcePath = `history/source-witness/${row.revision}-${row.opId}.json`;
@@ -260,11 +264,43 @@ function historicalWitness(original: CanonicalEventV1, row: SqliteEventRow): Mig
           mediaType: "application/json",
           policyId: "typed-migration-import/v1",
         },
-        referencedContentClaims: [],
+        referencedContentClaims: historicalContentClaims(original, source),
         destinationPreimage: { nodeKind: "file", sha256, size: raw.byteLength },
       },
     },
   };
+}
+
+function historicalContentClaims(event: CanonicalEventV1, source: SqliteEventStore) {
+  type Claim = { sha256: string; size: number; mediaType: string };
+  let claims: readonly Claim[] = [];
+  try {
+    claims = contentClaims(event);
+  } catch (error) {
+    consumeKnownError(error);
+  }
+  // Legacy declarations predate ownedContent, but their accepted primary claim is still authoritative.
+  const payload = event.payload as unknown as Record<string, unknown>;
+  const candidates: unknown[] = [...claims, payload.declarationDocumentClaim, payload.decisionDocumentClaim];
+  const result = new Map<string, Claim>();
+  for (const candidate of candidates) {
+    if (candidate === null || typeof candidate !== "object") continue;
+    const claim = candidate as Claim;
+    if (
+      typeof claim.sha256 !== "string" ||
+      !/^[0-9a-f]{64}$/.test(claim.sha256) ||
+      !Number.isSafeInteger(claim.size) ||
+      claim.size < 0 ||
+      typeof claim.mediaType !== "string"
+    )
+      continue;
+    const bytes = source.readContentObject(claim.sha256);
+    if (!bytes) continue;
+    if (bytes.byteLength !== claim.size || sha256Bytes(bytes) !== claim.sha256)
+      throw new Error(`corrupt historical content ${claim.sha256}`);
+    result.set(claim.sha256, { sha256: claim.sha256, size: claim.size, mediaType: claim.mediaType });
+  }
+  return [...result.values()].sort((a, b) => a.sha256.localeCompare(b.sha256));
 }
 
 function assertOutcomeCoverage(source: SqliteEventStore, rows: readonly SqliteEventRow[]) {
@@ -310,7 +346,11 @@ function convert(
         converted = members.map((mapping) => events[mapping.destinationRevision! - 1]!),
         blobs = converted.flatMap((event, index) =>
           contentClaims(event).map((claim) => {
-            const witness = members[index]!.disposition === "retained-read-only";
+            const witness =
+              members[index]!.disposition === "retained-read-only" &&
+              event.schema === "migration-import-event/v1" &&
+              event.payload.entity.kind === "repo-document" &&
+              claim.sha256 === event.payload.entity.documentClaim.sha256;
             const body = witness
               ? new TextEncoder().encode(rows[members[index]!.sourceRevision - 1]!.eventJson)
               : source.readContentObject(claim.sha256)!;
