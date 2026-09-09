@@ -91,7 +91,7 @@ export const KERNEL_ENTITY_CONTRACT = Object.freeze({
     schemaId: "agent-declaration/v1",
     refTemplate: "agent/{id}",
     statuses: [],
-    actions: ["install", "validate", "list", "inspect"],
+    actions: ["install", "delete", "validate", "list", "inspect"],
   },
   decision: {
     schemaId: "decision-package",
@@ -257,7 +257,7 @@ export const KERNEL_ENTITY_CONTRACT = Object.freeze({
     schemaId: "squad-declaration/v1",
     refTemplate: "squad/{id}",
     statuses: [],
-    actions: ["install", "validate", "list", "inspect", "run", "status", "cancel"],
+    actions: ["install", "delete", "validate", "list", "inspect", "run", "status", "cancel"],
   },
   task: {
     schemaId: "task-frontmatter",
