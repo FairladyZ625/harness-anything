@@ -26,12 +26,43 @@ test("task create rejects ids that cannot form task entity references", async (t
     { actor, source: "local" },
   );
   assert.equal(rejected.outcome, "op_rejected");
-  assert.equal(rejected.code, "invalid_task_id");
+  assert.equal(rejected.code, "invalid_field");
   const accepted = await cell.run(
     { kind: "task-create", taskId: "task-t0", title: "Valid id" },
     { actor, source: "local" },
   );
   assert.equal(accepted.outcome, "applied");
+  // Bench F7: the same admission guard covers every lifecycle identity, not only task create.
+  const proposed = await cell.run(
+      {
+        kind: "decision-propose",
+        jsonInput: JSON.stringify({
+          title: "Reckon target",
+          question: "Which task delivers it?",
+          riskTier: "low",
+          urgency: "low",
+          vertical: "software/coding",
+          preset: "standard-task",
+          decisionClass: "ordinary",
+          appliesTo: { modules: ["daemon"], productLines: ["harness-anything"] },
+          chosen: [{ id: "CH1", text: "Deliver it" }],
+          rejected: [{ id: "RJ1", text: "Skip it", whyNot: "It is needed" }],
+          claims: [{ id: "C1", text: "It is needed", loadBearing: false }],
+        }),
+      },
+      { actor, source: "local" },
+    ),
+    decisionId = (JSON.parse(String(proposed.evidence)) as { readonly decisionId: string }).decisionId;
+  for (const action of [
+    { kind: "decision-reckon", decisionId, taskId: "t0" },
+    { kind: "task-start", commandType: "StartExecution", taskId: "task-t0", executionId: "exec.1" },
+    { kind: "task-review-execution", commandType: "RecordReview", taskId: "task-t0", reviewId: "review.1" },
+  ]) {
+    const refused = await cell.run(action, { actor, source: "local" });
+    assert.deepEqual([refused.outcome, refused.code], ["op_rejected", "invalid_field"], JSON.stringify(refused));
+  }
+  const listed = await cell.run({ kind: "task-list" }, { actor, source: "local" });
+  assert.match(String(listed.evidence), /task-t0/u);
 });
 
 test("task create publishes complete metadata and first-class relations survive cold rebuild", async () => {
