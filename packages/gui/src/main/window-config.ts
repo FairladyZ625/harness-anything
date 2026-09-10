@@ -103,7 +103,10 @@ export function isTrustedRendererUrl(url: string, options: TrustedRendererUrlOpt
     if (parsed.origin === devRendererOrigin) return options.allowDevRenderer === true;
     if (parsed.protocol !== "file:") return false;
     const packagedRendererUrl = options.packagedRendererUrl ?? createPackagedRendererUrl();
-    return parsed.href === new URL(packagedRendererUrl).href;
+    const expected = new URL(packagedRendererUrl);
+    return process.platform === "win32"
+      ? parsed.href.toLowerCase() === expected.href.toLowerCase()
+      : parsed.href === expected.href;
   } catch {
     return false;
   }
@@ -131,7 +134,9 @@ export function isNavigableAppDocumentUrl(url: string, options: AppDocumentUrlOp
     }
     if (parsed.protocol !== "file:") return false;
     const packagedRendererUrl = new URL(options.packagedRendererUrl ?? createPackagedRendererUrl());
-    return parsed.href === packagedRendererUrl.href;
+    return process.platform === "win32"
+      ? parsed.href.toLowerCase() === packagedRendererUrl.href.toLowerCase()
+      : parsed.href === packagedRendererUrl.href;
   } catch {
     return false;
   }

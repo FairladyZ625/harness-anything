@@ -35,6 +35,11 @@ import { registerFirstRunIpcHandlers } from "./first-run-ipc.ts";
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
 
+process.on("uncaughtException", (err) => console.error("[FATAL] uncaughtException:", err));
+process.on("unhandledRejection", (err) => console.error("[FATAL] unhandledRejection:", err));
+
+let _globalMainWindow: BrowserWindow | null = null;
+
 export function createMainWindow(): BrowserWindow {
   const preloadPath = path.join(guiPackageRoot(), "dist-electron/electron-preload.cjs");
   const rendererUrl = process.env.ELECTRON_RENDERER_URL;
@@ -56,7 +61,10 @@ export function createMainWindow(): BrowserWindow {
     },
   });
 
-  mainWindow.once("ready-to-show", () => mainWindow.show());
+  mainWindow.once("ready-to-show", () => {
+    mainWindow.show();
+    mainWindow.focus();
+  });
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: evaluateWindowOpenRequest().action }));
   // 单文档应用:窗口只可停在入口文档上。dev 态同源任意路径(Markdown 外链的绝对
   // 路径会解析到 dev origin 之下)同样拒绝 —— 那会把窗口带离应用,落在 dev server
@@ -265,11 +273,15 @@ export async function startGuiApp(): Promise<void> {
 
 function createTrustedMainWindow(trustedWebContentsIds: Set<number>): BrowserWindow {
   const mainWindow = createMainWindow();
+  _globalMainWindow = mainWindow;
   // Capture the id now: by the time "closed" fires the native window is
   // destroyed and reading mainWindow.webContents throws "Object has been destroyed".
   const webContentsId = mainWindow.webContents.id;
   trustedWebContentsIds.add(webContentsId);
-  mainWindow.once("closed", () => trustedWebContentsIds.delete(webContentsId));
+  mainWindow.once("closed", () => {
+    trustedWebContentsIds.delete(webContentsId);
+    _globalMainWindow = null;
+  });
   return mainWindow;
 }
 
@@ -294,5 +306,7 @@ app.on("window-all-closed", () => {
 });
 
 if (app.isPackaged || process.argv.some((arg) => /electron-main\.(?:js|ts)$/u.test(arg))) {
-  void startGuiApp();
+  startGuiApp().catch((err) => {
+    console.error("[FATAL] startGuiApp failed:", err);
+  });
 }
