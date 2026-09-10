@@ -15,6 +15,7 @@ import {
 } from "../src/dispatch-stream.ts";
 import { adoptRuntimes } from "../src/runtime-spawn-adoption.ts";
 import { cancelRuntime } from "../src/runtime-spawn-control.ts";
+import { adoptNativeProcess } from "../src/runtime-spawn-process.ts";
 import { readRuntimeSessionActivityEvidence } from "../src/dispatch-read.ts";
 import { runtimeBindingForDispatch } from "../src/runtime-spawn-types.ts";
 import { runtimeSessionActionPreparer } from "../src/runtime-session-action-runtime.ts";
@@ -262,6 +263,101 @@ test("adoption skips a stream above Node's string limit while runtime cancel sti
     assert.equal(published, true);
   } finally {
     console.warn = warning;
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("a dispatch observer delivers each pre-exit line once and stops polling at process_exit without a release", async (t) => {
+  t.mock.timers.enable({ apis: ["setInterval"] });
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-dispatch-observer-exit-"));
+  try {
+    const dispatchId = "dispatch_aaaaaaaaaaaaaaaaaaaaaaaa",
+      pid = 2_147_483_647;
+    openDispatchStream(rootDir, {
+      dispatchId,
+      taskId: null,
+      executionId: null,
+      runtimeSessionId: "runtime_aaaaaaaaaaaaaaaaaaaaaaaa",
+      instanceId: "instance-1",
+      startedAt: "2026-09-10T00:00:00.000Z",
+    });
+    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_started", pid });
+    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "provider_event", event: { seq: 1 } });
+    // Nothing below calls release(): settlement skips it on its early return, on a throw, and
+    // across the writer-thread proxy, so the observer itself must stop at process_exit.
+    const observed = adoptNativeProcess(rootDir, dispatchId, pid),
+      outputs: string[] = [],
+      exits: Array<number | null> = [];
+    observed.onOutput((chunk) => outputs.push(chunk));
+    observed.onExit((code) => exits.push(code));
+    await Promise.resolve();
+    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "provider_event", event: { seq: 2 } });
+    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "provider_output_invalid", output: "not json" });
+    t.mock.timers.tick(250);
+    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "provider_event", event: { seq: 3 } });
+    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_exit", exitCode: 0, signal: null });
+    t.mock.timers.tick(250);
+    const delivered = ['{"seq":1}\n', '{"seq":2}\n', "not json\n", '{"seq":3}\n'];
+    assert.deepEqual(outputs, delivered);
+    assert.deepEqual(exits, [0]);
+
+    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "provider_event", event: { seq: "after-exit" } });
+    t.mock.timers.tick(60_000);
+    assert.deepEqual(outputs, delivered, "no drain tick may read the stream after process_exit");
+    assert.deepEqual(exits, [0]);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("runtime cancel settles provider lines flushed while the provider is terminated", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-dispatch-cancel-tail-"));
+  try {
+    const dispatchId = "dispatch_bbbbbbbbbbbbbbbbbbbbbbbb",
+      runtimeSessionId = "runtime_bbbbbbbbbbbbbbbbbbbbbbbb";
+    openDispatchStream(rootDir, {
+      dispatchId,
+      taskId: null,
+      executionId: null,
+      runtimeSessionId,
+      instanceId: "instance-1",
+      startedAt: "2026-09-10T00:00:00.000Z",
+    });
+    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_started", pid: 2_147_483_647 });
+    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "provider_event", event: { seq: 1 } });
+    const consumed: string[] = [],
+      settledAfter: number[] = [],
+      active = {
+        dispatchId,
+        durableOutputCount: 0,
+        process: {
+          // Cancel holds the write queue, so these lines cannot reach settlement through the drain.
+          terminateTree: async () => {
+            appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "provider_event", event: { seq: 2 } });
+            appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_exit", exitCode: null, signal: "SIGTERM" });
+          },
+        },
+      };
+    const receipt = await cancelRuntime(
+      {
+        input: { rootDir, repoId: "cancel-tail" },
+        processes: new Map([[runtimeSessionId, active]]),
+        consumeLine: async (runtime: typeof active, line: string) => {
+          runtime.durableOutputCount += 1;
+          consumed.push(line);
+        },
+        publishExit: async () => {
+          settledAfter.push(consumed.length);
+        },
+        controlReceipt: () => ({ ok: true, detail: "cancelled" }),
+      } as never,
+      { runtimeSessionId },
+      { actor: { principal: { personId: "operator" }, executor: null }, source: "local" },
+    );
+    assert.equal(receipt.detail, "cancelled");
+    assert.deepEqual(consumed, ['{"seq":1}', '{"seq":2}']);
+    assert.deepEqual(settledAfter, [2]);
+  } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
