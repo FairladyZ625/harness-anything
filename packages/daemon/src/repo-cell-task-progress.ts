@@ -455,8 +455,8 @@ function factRetirementAssessment(
       .flatMap((read) => read.rows)
       .filter((edge) => edge.relationType === "evidenced-by")
       .map((edge) => edge.targetRef),
-    livenessReads = upstreamFactRefs.map((source) =>
-      cell.projection.readRelationQuery({ source, relationType: "supersedes-fact", state: "active", limit: 500 }),
+    livenessReads = upstreamFactRefs.map((target) =>
+      cell.projection.readRelationQuery({ target, relationType: "supersedes-fact", state: "active", limit: 500 }),
     );
   if (livenessReads.some((read) => read.status !== "ready" || read.page?.nextCursor))
     throw cell.cellCodedError(
