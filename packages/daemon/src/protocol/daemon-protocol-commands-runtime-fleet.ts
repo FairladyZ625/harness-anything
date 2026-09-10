@@ -63,15 +63,6 @@ export const runtimeFleetProtocolCommands = Object.freeze([
         { code: "invalid_field" },
         { requires: ["--task"], conflictsWith: ["--prompt"] },
       ),
-      cliInput(
-        "--wait-projection",
-        "single",
-        false,
-        {
-          code: "invalid_field",
-        },
-        { regex: "^(?:0|[1-9][0-9]*)$" },
-      ),
       cliInput("--cwd", "single", false, {
         code: "invalid_field",
       }),

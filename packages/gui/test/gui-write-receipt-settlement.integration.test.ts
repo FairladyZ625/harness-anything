@@ -1,7 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseDaemonGuiActionResponse } from "../../daemon/src/protocol/gui-result-validation.ts";
 import { createLocalGuiServiceBridge } from "../src/main/local-composition-root.ts";
 import { harnessClient } from "../src/renderer/api-client.ts";
 import { settleTaskReceipt } from "../src/renderer/task-actions.ts";
@@ -11,21 +10,27 @@ type Receipt = Record<string, unknown> & {
   readonly opId: string;
   readonly outcome: string;
   readonly status?: string;
-  readonly proof?: { readonly canonicalVisible?: boolean; readonly worktreeVisible?: boolean | null };
-  readonly worktree?: { readonly state?: string };
-  readonly wait?: { readonly state?: string; readonly unsatisfied?: readonly string[] };
+  readonly code?: string;
 };
 
 /**
  * renderer 的 `window.harness` 只是把每个 bridge 方法转给 main 进程的同名调用,
  * 这里用真 daemon 上的 GUI service bridge 顶上去,于是 `harnessClient` 的写路
- * 是真的 renderer → main → daemon,而不是 mock。
+ * 是真的 renderer → main → daemon,而不是 mock。每个经过的 bridge 方法都记下来。
  */
-function installRendererBridge(bridge: { invoke: (method: string, payload: unknown) => Promise<unknown> }): () => void {
+function installRendererBridge(
+  bridge: { invoke: (method: string, payload: unknown) => Promise<unknown> },
+  invoked: string[],
+): () => void {
   const previous = (globalThis as { window?: unknown }).window;
   const harness = new Proxy(
     {},
-    { get: (_target, method: string) => (payload: unknown) => bridge.invoke(method, payload) },
+    {
+      get: (_target, method: string) => (payload: unknown) => {
+        invoked.push(method);
+        return bridge.invoke(method, payload);
+      },
+    },
   );
   Object.defineProperty(globalThis, "window", { value: { harness }, configurable: true, writable: true });
   return () => {
@@ -33,7 +38,7 @@ function installRendererBridge(bridge: { invoke: (method: string, payload: unkno
   };
 }
 
-test("GUI task writes settle through the daemon receipt wait instead of stalling on canonical_not_visible", async () => {
+test("GUI task writes settle from their own durable receipt without a follow-up receipt read", async () => {
   const fixture = await startGuiResidentDaemonFixture({
     daemonId: "gui-receipt-settlement",
     repoId: "gui-receipt",
@@ -45,65 +50,29 @@ test("GUI task writes settle through the daemon receipt wait instead of stalling
     repoId: process.env.HARNESS_DAEMON_REPO_ID,
   };
   Object.assign(process.env, fixture.env);
-  const bridge = createLocalGuiServiceBridge(fixture.rootDir),
-    restoreWindow = installRendererBridge(bridge),
+  const invoked: string[] = [],
+    bridge = createLocalGuiServiceBridge(fixture.rootDir),
+    restoreWindow = installRendererBridge(bridge, invoked),
     scope = { repoId: fixture.repoId },
     taskId = "task-gui-receipt";
   try {
-    // 复现:写回执本身是 follower 发布之前那一瞬的快照——canonical 已经接受,
-    // 但 worktree 还没追平,renderer 的落定判据因此永远不成立。
-    const written = parseDaemonGuiActionResponse(
-      "repo.task.pin",
-      await bridge.invoke("pinTask", { ...scope, taskId }),
-    ) as unknown as Receipt;
-    assert.equal(written.status, "accepted_durable", JSON.stringify(written));
-    assert.equal(written.worktree?.state, "pending", JSON.stringify(written));
-    assert.notEqual(written.proof?.worktreeVisible, true, JSON.stringify(written));
-    assert.equal(
-      (await settleTaskReceipt(written as never, ({ opId }) => harnessClient.showReceipt({ ...scope, opId }))).state,
-      "pending",
-      "an unsettled write receipt must not be reported as applied",
-    );
+    // The write receipt already carries durable acceptance and projection visibility; Git and
+    // worktree follower progress is not awaited, so the receipt is applied as returned.
+    for (const written of [
+      (await harnessClient.pinTask({ ...scope, taskId })) as unknown as Receipt,
+      (await harnessClient.unpinTask({ ...scope, taskId })) as unknown as Receipt,
+    ]) {
+      assert.equal(written.status, "accepted_durable", JSON.stringify(written));
+      assert.equal("wait" in written, false, JSON.stringify(written));
+      assert.equal(settleTaskReceipt(written as never).state, "applied", JSON.stringify(written));
+    }
+    assert.deepEqual(invoked, ["pinTask", "unpinTask"]);
 
-    // 修复:renderer 客户端把同一条 daemon 落定协议用上,写回执交回来时已经可见。
-    const settled = (await harnessClient.unpinTask({ ...scope, taskId })) as unknown as Receipt;
-    assert.equal(settled.status, "accepted_durable", JSON.stringify(settled));
-    assert.equal(settled.wait?.state, "satisfied", JSON.stringify(settled));
-    assert.equal(settled.outcome, "applied", JSON.stringify(settled));
-    assert.equal(settled.proof?.canonicalVisible, true, JSON.stringify(settled));
-    assert.equal(settled.proof?.worktreeVisible, true, JSON.stringify(settled));
-    assert.deepEqual(
-      await settleTaskReceipt(settled as never, ({ opId }) => harnessClient.showReceipt({ ...scope, opId })),
-      {
-        state: "applied",
-        opId: settled.opId,
-        revision: settled.revision,
-        receipt: settled,
-      },
-    );
-
-    // 可区分回归:真正未知的操作不会被落定等待说成成功,它仍然是被拒的读。
-    const unknown = (await harnessClient.showReceipt({
-      ...scope,
-      opId: "op-never-published",
-      waitFor: ["projection_visible", "git_verified", "worktree_visible"],
-      timeoutMs: 250,
-    })) as unknown as Receipt;
+    // An operation that never published stays a rejected read; it is never reported as applied.
+    const unknown = (await harnessClient.showReceipt({ ...scope, opId: "op-never-published" })) as unknown as Receipt;
     assert.equal(unknown.outcome, "op_rejected", JSON.stringify(unknown));
     assert.equal(unknown.code, "operation_not_published", JSON.stringify(unknown));
-    assert.equal(
-      (await settleTaskReceipt(unknown as never, ({ opId }) => harnessClient.showReceipt({ ...scope, opId }))).state,
-      "op_rejected",
-    );
-
-    // 落定谓词是 daemon 校验的:renderer 不能拿它当自由文本。
-    const unsupported = (await harnessClient.showReceipt({
-      ...scope,
-      opId: settled.opId,
-      waitFor: ["whatever_i_want"],
-    })) as unknown as Receipt;
-    assert.equal(unsupported.ok, false, JSON.stringify(unsupported));
-    assert.equal(unsupported.code, "unsupported_wait_condition", JSON.stringify(unsupported));
+    assert.equal(settleTaskReceipt(unknown as never).state, "op_rejected");
   } finally {
     restoreWindow();
     for (const [key, value] of Object.entries({

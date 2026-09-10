@@ -22,6 +22,7 @@ import type {
   LeaseInterval,
   PresetSnapshotProjectionRead,
   ProjectionApplyReceipt,
+  ProjectionCatchUpReceipt,
   ProjectionRebuildReceipt,
   ReplicaProjectionBasis,
   TaskProgressProjectionRead,
@@ -67,7 +68,7 @@ export interface TaskProjection {
   readonly close: () => void;
   readonly apply: (event: CanonicalEventV1, plan?: FrozenWritePlan) => ProjectionApplyReceipt;
   readonly rebuild: () => ProjectionRebuildReceipt;
-  readonly catchUp?: () => ProjectionRebuildReceipt;
+  readonly catchUp?: () => ProjectionCatchUpReceipt;
   readonly readStateDigest: () => `sha256:${string}` | null;
   readonly readCut: () => {
     readonly status: "ready" | "pending";

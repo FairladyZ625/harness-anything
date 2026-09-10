@@ -63,6 +63,7 @@ test("a live source daemon refuses to declare an executor for a reviewed executi
       planPath = `${packagePath}/task_plan.md`,
       closeoutPath = `${packagePath}/closeout.md`;
     assert.equal(created.outcome, "applied", JSON.stringify(created));
+    published(root, userRoot, daemonId, created);
     writeFileSync(path.join(root, "harness", planPath), realizedTaskPlan("Executor null live"));
     assert.equal(run(root, userRoot, daemonId, ["doc", "sync", "--submit", "--path", planPath]).outcome, "applied");
     assert.equal(
@@ -86,7 +87,9 @@ test("a live source daemon refuses to declare an executor for a reviewed executi
       path.join(root, "harness", closeoutPath),
       "# Closeout\n\n## Summary\n\nExecutor attribution recovered.\n\n## Verification\n\nLive daemon route.\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nCovered by the executor declaration contract.\n",
     );
-    assert.equal(run(root, userRoot, daemonId, ["doc", "sync", "--submit", "--task", taskId]).outcome, "applied");
+    const closeoutSync = run(root, userRoot, daemonId, ["doc", "sync", "--submit", "--task", taskId]);
+    assert.equal(closeoutSync.outcome, "applied");
+    published(root, userRoot, daemonId, closeoutSync);
     const commitSha = git(root, "rev-parse", "HEAD");
     writeFileSync(
       path.join(root, "submission.json"),
@@ -272,6 +275,12 @@ function run(
   const result = runMaybe(root, userRoot, daemonId, args, actor);
   assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`);
   return JSON.parse(result.stdout) as Record<string, unknown>;
+}
+
+// Writes return at durable acceptance; a test that reads Git or the worktree waits for both followers explicitly.
+function published(root: string, userRoot: string, daemonId: string, receipt: Record<string, unknown>) {
+  const wait = ["--wait", "git_verified,worktree_visible", "--timeout-ms", "5000"];
+  return run(root, userRoot, daemonId, ["receipt", "show", String(receipt.opId), ...wait]);
 }
 
 function runMaybe(

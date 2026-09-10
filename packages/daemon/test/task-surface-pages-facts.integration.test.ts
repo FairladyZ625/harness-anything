@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { performance } from "node:perf_hooks";
 import test from "node:test";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
@@ -137,24 +136,18 @@ test("wide task reads keep byte-identical unparameterized results and serve narr
       binding,
     );
     assert.equal(placement.outcome, "applied", JSON.stringify(placement));
-    const missingStartedAt = performance.now(),
-      missingFact = await cell.run(
-        {
-          kind: "fact-record",
-          taskId: "task_missing",
-          statement: "This Fact must not be published",
-          evidenceSource: "test:missing-task",
-          confidence: "high",
-          memoryClass: "semantic",
-          waitProjectionMs: 30_000,
-        },
-        binding,
-      );
-    assert.equal(missingFact.code, "task_not_found");
-    assert.ok(
-      performance.now() - missingStartedAt < 1_000,
-      "a missing canonical task must not consume the wait budget",
+    const missingFact = await cell.run(
+      {
+        kind: "fact-record",
+        taskId: "task_missing",
+        statement: "This Fact must not be published",
+        evidenceSource: "test:missing-task",
+        confidence: "high",
+        memoryClass: "semantic",
+      },
+      binding,
     );
+    assert.equal(missingFact.code, "task_not_found");
     const factReceipt = await cell.run(
       {
         kind: "fact-record",
@@ -163,7 +156,6 @@ test("wide task reads keep byte-identical unparameterized results and serve narr
         evidenceSource: "task-relation/depends-on",
         confidence: "high",
         memoryClass: "semantic",
-        waitProjectionMs: 0,
       },
       binding,
     );

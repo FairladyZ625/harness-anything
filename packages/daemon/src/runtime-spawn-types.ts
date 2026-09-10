@@ -26,6 +26,7 @@ export interface RuntimeProcess {
   readonly pid: number;
   readonly onOutput: (listener: (chunk: string, persisted?: boolean) => void) => void;
   readonly onErrorOutput: (listener: (chunk: string) => void) => void;
+  /** Fires only after onOutput delivered every provider line; exit settlement does not re-read the stream. */
   readonly onExit: (listener: (code: number | null) => void) => void;
   readonly terminate: () => void;
   readonly terminateTree?: () => Promise<void>;

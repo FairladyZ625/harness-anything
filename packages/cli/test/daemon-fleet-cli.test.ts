@@ -28,6 +28,7 @@ test(
       register(fixture);
       const created = run(fixture, "center", ["task", "create", "--id", "task-fleet", "--admin", "--title", "Fleet"]);
       assert.equal(created.outcome, "applied");
+      published(fixture, "center", created);
       const planPath = `${String(created.packagePath)}/task_plan.md`;
       writeFileSync(path.join(fixture.repo, "harness", planPath), realizedTaskPlan("Fleet"));
       assert.equal(run(fixture, "center", ["doc", "sync", "--submit", "--path", planPath]).outcome, "applied");
@@ -395,6 +396,11 @@ function run(
   const result = maybeRun(fixture, machine, args);
   assert.equal(result.status, 0, `${result.stderr}\n${JSON.stringify(result.receipt)}`);
   return result.receipt;
+}
+// Writes return at durable acceptance; a test that reads Git or the worktree waits for both followers explicitly.
+function published(fixture: ReturnType<typeof setup>, machine: "center" | "edge", receipt: Record<string, unknown>) {
+  const wait = ["--wait", "git_verified,worktree_visible", "--timeout-ms", "5000"];
+  return run(fixture, machine, ["receipt", "show", String(receipt.opId), ...wait]);
 }
 function maybeRun(
   fixture: ReturnType<typeof setup>,

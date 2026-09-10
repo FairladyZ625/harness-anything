@@ -236,15 +236,6 @@ export const docFactProtocolCommands = Object.freeze([
       cliInput("--memory-tag", "repeated", false, {
         code: "invalid_field",
       }),
-      cliInput(
-        "--wait-projection",
-        "single",
-        false,
-        {
-          code: "invalid_field",
-        },
-        { regex: "^(?:0|[1-9][0-9]*)$" },
-      ),
       cliInput("--supersedes", "single", false, {
         code: "invalid_field",
       }),

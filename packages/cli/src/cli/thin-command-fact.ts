@@ -1,5 +1,5 @@
 import type { SafePath } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
-import { accepted, projectionWaitMs, readFlags, rejected } from "./thin-command-flags.ts";
+import { accepted, readFlags, rejected } from "./thin-command-flags.ts";
 import { parseProjected } from "./thin-command-projection.ts";
 import type { ThinCliInputDirectory, ThinParseResult } from "./thin-command-types.ts";
 
@@ -81,7 +81,6 @@ export function parseFactRecord(
     confidence = f.one.get("--confidence") ?? "medium",
     domainTypes = f.many.get("--type") ?? [],
     memoryClass = f.one.get("--memory-class") ?? "episodic",
-    waitProjectionMs = projectionWaitMs(f.one.get("--wait-projection")),
     supersedes = f.one.get("--supersedes"),
     rationale = f.one.get("--rationale");
   if (positionalTaskId && flaggedTaskId)
@@ -93,8 +92,6 @@ export function parseFactRecord(
       "Use --statement <observation> or --text <observation>; --source <source> is also required.",
       json,
     );
-  if (waitProjectionMs === null)
-    return rejected("invalid_field", "Use a non-negative safe integer projection wait limit in milliseconds.", json);
   if (Boolean(supersedes) !== Boolean(rationale))
     return rejected(
       "missing_field",
@@ -114,7 +111,6 @@ export function parseFactRecord(
     ...(domainTypes.length ? { domainTypes } : {}),
     memoryClass,
     memoryTags: f.many.get("--memory-tag") ?? [],
-    ...(waitProjectionMs === undefined ? {} : { waitProjectionMs }),
     ...(supersedes && rationale ? { supersedes: { factRef: supersedes, rationale } } : {}),
   });
 }

@@ -14,7 +14,16 @@ import {
   repositorySettings,
 } from "../../kernel/src/index.ts";
 
-import { cli, git, register, run, setup, setupEmpty, stop } from "./daemon-multi-repo-lifecycle-cli.fixtures.ts";
+import {
+  cli,
+  git,
+  register,
+  run,
+  settleFollower,
+  setup,
+  setupEmpty,
+  stop,
+} from "./daemon-multi-repo-lifecycle-cli.fixtures.ts";
 test("REQ-CTX-01..10 empty init publishes the canonical scaffold, authority parity, fixed receipt, and phantom-free Configure-Verify", () => {
   const fixture = setupEmpty();
   try {
@@ -308,7 +317,7 @@ test("local init isolates the ledger from later project commits and removes trac
       "Still writable",
     ]);
     assert.equal(written.outcome, "applied", JSON.stringify(written));
-    assert.match(String(written.commitSha), /^[0-9a-f]{40}$/u);
+    assert.match(String(settleFollower(fixture.repo, fixture.userRoot, written).commitSha), /^[0-9a-f]{40}$/u);
     assert.ok(written.cut);
     assert.equal(git(fixture.repo, "rev-parse", "HEAD"), projectHead);
     assert.notEqual(git(ledgerRoot, "rev-parse", "HEAD"), ledgerHead);
@@ -365,7 +374,8 @@ test("center registration keeps an external ledger repository readable and writa
         "Center ledger",
       ]);
     assert.equal(written.outcome, "applied", JSON.stringify(written));
-    assert.match(String(written.commitSha), /^[0-9a-f]{40}$/u);
+    const visible = settleFollower(fixture.alpha, fixture.userRoot, written);
+    assert.match(String(visible.commitSha), /^[0-9a-f]{40}$/u);
     assert.ok(written.cut);
     assert.notEqual(git(fixture.alpha, "rev-parse", "HEAD"), before);
     assert.match(
@@ -375,7 +385,7 @@ test("center registration keeps an external ledger repository readable and writa
     stop(fixture.alpha, fixture.userRoot);
     const after = git(fixture.alpha, "rev-parse", "HEAD");
     assert.notEqual(after, before);
-    assert.equal((written.git as { commitSha: string }).commitSha, after);
+    assert.equal((visible.git as { commitSha: string }).commitSha, after);
     assert.equal(
       git(fixture.alpha, "ls-tree", "-r", "--name-only", "HEAD")
         .split("\n")

@@ -6,6 +6,7 @@ import { serializeCanonicalEvent } from "../../src/domain/doc-sync.contract.ts";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
 import { makeTaskProjection, makeTaskProjectionReader } from "../../src/projection/rebuildable-task-projection.ts";
 import { closeDatabase, withDatabase } from "../../src/projection/rebuildable-task-projection-database.ts";
+import { readStateDigest } from "../../src/projection/rebuildable-task-projection-sql.ts";
 import type { EventStreamPort } from "../../src/projection/rebuildable-task-projection-types.ts";
 import { lifecycleFixture } from "./task-lifecycle-fixture.ts";
 
@@ -123,10 +124,8 @@ function runRebuilder(): void {
     const marker = db
         .prepare("SELECT count(*) AS count FROM sqlite_master WHERE type = 'table' AND name = 'warm_owner_marker'")
         .get() as { readonly count: number },
-      digest = db.prepare("SELECT state_digest FROM projection_meta WHERE singleton = 1").get() as {
-        readonly state_digest: string | null;
-      };
-    return { sameHandle: db === replacedHandle, markerPresent: marker.count > 0, stateDigest: digest.state_digest };
+      stateDigest = readStateDigest(db, ownerAStore.readHead()?.revision ?? 0);
+    return { sameHandle: db === replacedHandle, markerPresent: marker.count > 0, stateDigest };
   });
   ownerA.close();
   parentPort!.postMessage({

@@ -177,6 +177,7 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
       packagePath = String(created.packagePath),
       artifactRoot = path.join(root, "harness", packagePath, "artifacts");
     const planPath = path.join(root, "harness", packagePath, "task_plan.md");
+    published(root, env, created);
     writeFileSync(planPath, realizedPlan("Runtime archive"));
     run(root, env, ["doc", "sync", "--submit", "--path", `${packagePath}/task_plan.md`]);
     const inventory = run(root, env, ["runtime", "instance", "list"]),
@@ -232,6 +233,7 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
         /\n\n## CI\/Gate Authority Stop Condition\n\n[^\n]+/u,
         "",
       );
+    published(root, env, automaticTask);
     writeFileSync(path.join(root, "harness", automaticPlanPath), oneSectionMissing);
     const automaticArgs = [
         "runtime",
@@ -327,8 +329,6 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
             `Concurrent projection observation ${String(index + 1)}`,
             "--source",
             `test:runtime-cli-concurrency:${String(index + 1)}`,
-            "--wait-projection",
-            "30000",
           ]),
         ),
         runAsync(root, env, [
@@ -339,8 +339,6 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
           `progress-middle:${taskId}`,
           "--task",
           taskId,
-          "--wait-projection",
-          "30000",
           "--no-stream",
         ]),
       ]),
@@ -353,7 +351,7 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
     );
     assert.equal(progressResult.status, 0, `${progressResult.stderr}\n${JSON.stringify(progressResult.receipt)}`);
     context.diagnostic(
-      `projection wait concurrency: ${JSON.stringify({ factWrites: factWrites.length, runtime: progressResult.receipt.outcome })}`,
+      `projection readiness concurrency: ${JSON.stringify({ factWrites: factWrites.length, runtime: progressResult.receipt.outcome })}`,
     );
     const progressRun = progressResult.receipt,
       progressDispatchId = String((progressRun.spawn as Record<string, unknown>).dispatchId),
@@ -952,6 +950,7 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
       ]),
       submittedPackagePath = String(submittedTask.packagePath),
       submittedPlanPath = `${submittedPackagePath}/task_plan.md`;
+    published(root, env, submittedTask);
     writeFileSync(path.join(root, "harness", submittedPlanPath), realizedPlan("Submitted runtime archive"));
     run(root, env, ["doc", "sync", "--submit", "--path", submittedPlanPath]);
     run(root, env, ["task", "start", submittedTaskId, "--execution-id", submittedExecutionId]);
@@ -1581,6 +1580,11 @@ function run(root: string, env: NodeJS.ProcessEnv, args: readonly string[]): Rec
   const result = runMaybe(root, env, args);
   assert.equal(result.status, 0, `${result.stderr}\n${JSON.stringify(result.receipt)}`);
   return result.receipt;
+}
+// Writes return at durable acceptance; a test that reads Git or the worktree waits for both followers explicitly.
+function published(root: string, env: NodeJS.ProcessEnv, receipt: Record<string, unknown>): Record<string, unknown> {
+  const wait = ["--wait", "git_verified,worktree_visible", "--timeout-ms", "5000"];
+  return run(root, env, ["receipt", "show", String(receipt.opId), ...wait]);
 }
 function runMaybe(
   root: string,

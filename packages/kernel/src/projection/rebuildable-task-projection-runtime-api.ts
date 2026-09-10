@@ -23,7 +23,7 @@ import {
   squadRunProjectionReady,
   upsertSquadRun,
 } from "./rebuildable-task-projection-squad-runs.ts";
-import { refreshStateDigestAtSourceCut, transaction } from "./rebuildable-task-projection-sql.ts";
+import { transaction } from "./rebuildable-task-projection-sql.ts";
 export type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
 export type { TaskProjection } from "./task-projection-port.ts";
 
@@ -86,36 +86,18 @@ export function runtimeLeaseApi(
         return row ? effectiveLease(db, row.task_id, at ?? now()) : null;
       }),
     reserveLease: (lease, now) =>
-      withDatabase(projectionPath, readHead, (db) =>
-        transaction(db, () => {
-          const reserved = reserve(db, lease, now);
-          refreshStateDigestAtSourceCut(db, readHead()?.revision ?? 0);
-          return reserved;
-        }),
-      ),
+      withDatabase(projectionPath, readHead, (db) => transaction(db, () => reserve(db, lease, now))),
     activateLease: (lease) =>
       withDatabase(projectionPath, readHead, (db) =>
-        transaction(db, () => {
-          const active = changeLease(db, lease, "held", lease.expiresAt, now());
-          refreshStateDigestAtSourceCut(db, readHead()?.revision ?? 0);
-          return active;
-        }),
+        transaction(db, () => changeLease(db, lease, "held", lease.expiresAt, now())),
       ),
     renewLease: (lease, expiresAt) =>
       withDatabase(projectionPath, readHead, (db) =>
-        transaction(db, () => {
-          const renewed = changeLease(db, lease, "held", expiresAt, now());
-          refreshStateDigestAtSourceCut(db, readHead()?.revision ?? 0);
-          return renewed;
-        }),
+        transaction(db, () => changeLease(db, lease, "held", expiresAt, now())),
       ),
     releaseLease: (lease) =>
       withDatabase(projectionPath, readHead, (db) =>
-        transaction(db, () => {
-          const released = changeLease(db, lease, "released", lease.expiresAt, now());
-          refreshStateDigestAtSourceCut(db, readHead()?.revision ?? 0);
-          return released;
-        }),
+        transaction(db, () => changeLease(db, lease, "released", lease.expiresAt, now())),
       ),
   };
 }

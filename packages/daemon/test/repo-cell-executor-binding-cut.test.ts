@@ -178,6 +178,68 @@ test("a reviewer bound to an earlier execution receives a reviewer redispatch co
   assert.equal(context.observedActor, null);
 });
 
+test("an executor-claimed write verifies its claim inside its one publication turn", async () => {
+  const valid = contextFor(
+      Promise.resolve(),
+      () => runtimeSession,
+      () => lease,
+    ),
+    applied = createRepoCellApi(valid).run(action, binding);
+  assert.equal(valid.tailAssignments, 1);
+  assert.equal((await applied).outcome, "applied");
+  assert.equal(valid.tailAssignments, 1);
+  assert.deepEqual(valid.observedActor, runtimeActor);
+
+  const invalid = contextFor(
+      Promise.resolve(),
+      () => null,
+      () => lease,
+    ),
+    rejected = await createRepoCellApi(invalid).run(
+      { ...action, executor: { kind: "agent", id: "runtime-session:unrelated-runtime" } },
+      binding,
+    );
+  assert.equal(rejected.code, "executor_binding_invalid");
+  assert.equal(invalid.tailAssignments, 1);
+  assert.equal(invalid.observedActor, null);
+});
+
+test("runtime.run verifies its executor claim and spawns in one publication turn", async () => {
+  const payload = {
+      runtimeInstanceId: "runtime-instance",
+      cwd: { scope: "repo-root" },
+      prompt: "Continue the held execution",
+      taskId,
+      idempotencyKey: "claimed-runtime-run",
+    },
+    context = contextFor(
+      Promise.resolve(),
+      () => runtimeSession,
+      () => lease,
+    ),
+    spawned = createRepoCellApi(context).spawnRuntime({ ...payload, executor: runtimeActor.executor }, binding);
+  assert.equal(context.tailAssignments, 1);
+  await spawned;
+  assert.equal(context.tailAssignments, 1);
+  assert.deepEqual(context.spawned, [{ payload, actor: runtimeActor }]);
+  assert.equal(context.taskReads, 0, "the spawner owns the single task projection check");
+
+  const invalid = contextFor(
+    Promise.resolve(),
+    () => null,
+    () => lease,
+  );
+  await assert.rejects(
+    createRepoCellApi(invalid).spawnRuntime(
+      { ...payload, executor: { kind: "agent", id: "runtime-session:unrelated-runtime" } },
+      binding,
+    ),
+    (error: unknown) => (error as { readonly code?: unknown }).code === "executor_binding_invalid",
+  );
+  assert.equal(invalid.tailAssignments, 1);
+  assert.deepEqual(invalid.spawned, []);
+});
+
 test("executor-free actions reach the publication queue synchronously", async () => {
   const context = contextFor(
       Promise.resolve(),
@@ -213,6 +275,8 @@ function contextFor(
 ): RepoCellApiContext & {
   readonly observedActor: RepoCellBinding["actor"] | null;
   readonly tailAssignments: number;
+  readonly taskReads: number;
+  readonly spawned: readonly { readonly payload: unknown; readonly actor: RepoCellBinding["actor"] }[];
 } {
   let currentTail = tail,
     tailAssignments = 0;
@@ -285,9 +349,10 @@ function contextFor(
         }),
       },
       projection: {
-        read: (candidateTaskId: string) => ({
-          packagePath: candidateTaskId === taskId ? `tasks/${packageBasenameFor(taskId)}` : null,
-        }),
+        read: (candidateTaskId: string) => {
+          fixture.taskReads += 1;
+          return { packagePath: candidateTaskId === taskId ? `tasks/${packageBasenameFor(taskId)}` : null };
+        },
         readRuntimeSession,
         currentLease,
         readCut: () => ({ status: "ready", watermark: 3, sourceRevision: 3 }),
@@ -310,11 +375,21 @@ function contextFor(
           },
         });
       },
+      runtimeSpawner: {
+        spawn: (payload: unknown, verified: RepoCellBinding) => {
+          fixture.spawned.push({ payload, actor: verified.actor });
+          return Promise.resolve({ ok: true });
+        },
+      },
       observedActor: null as RepoCellBinding["actor"] | null,
+      taskReads: 0,
+      spawned: [] as { readonly payload: unknown; readonly actor: RepoCellBinding["actor"] }[],
     };
   return fixture as unknown as RepoCellApiContext & {
     readonly observedActor: RepoCellBinding["actor"] | null;
     readonly tailAssignments: number;
+    readonly taskReads: number;
+    readonly spawned: readonly { readonly payload: unknown; readonly actor: RepoCellBinding["actor"] }[];
   };
 }
 

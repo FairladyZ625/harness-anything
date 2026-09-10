@@ -16,7 +16,6 @@ import {
   daemonUserRoot,
   resolveLocalDaemonEndpoint,
 } from "../../../daemon/src/client/local-daemon-target.ts";
-import { defaultProjectionWaitMs } from "../../../daemon/src/projection-readiness-wait.ts";
 import { validateProjectPath } from "../api/local-api.ts";
 import { createGuiServiceBridgeForDaemon, type GuiServiceBridge, type ShippedGuiRoute } from "../api/service-bridge.ts";
 import { streamDaemonFacetAt } from "./agent-runtime-stream-client.ts";
@@ -189,12 +188,10 @@ function requestTimeoutMs(route: ShippedGuiRoute, payload: JsonObject): number {
   if (["signInRuntimeInstance", "signOutRuntimeInstance"].includes(route.guiBridgeMethod)) return 1_000;
   // Reads share the daemon with the single-writer queue; sustained ledger writes hold the
   // workspace for seconds at a time, so any deadline that undercuts a normal write window
-  // turns ordinary contention into a visible GUI error (200ms and 2s both did, live).
-  // The daemon may legitimately hold a read for its projection catch-up budget, so the GUI deadline
-  // is that budget: anything shorter reports an honest catch-up as a failure (200ms, 2s and 10s all
-  // did, live; 泽宇 2026-09-01/02 三次亲裁调高). Connection-level failures still surface within
+  // turns ordinary contention into a visible GUI error (200ms, 2s and 10s all did, live;
+  // 泽宇 2026-09-01/02 三次亲裁调高). Connection-level failures still surface within
   // CONNECT_TIMEOUT_MS through the socket connect path.
-  return defaultProjectionWaitMs;
+  return 30_000;
 }
 function repoPayload(value: unknown): { readonly repoId: string; readonly payload: JsonObject } {
   if (!value || typeof value !== "object" || Array.isArray(value))

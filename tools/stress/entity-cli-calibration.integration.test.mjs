@@ -116,7 +116,6 @@ function taskChain(f, reader, index) {
     `Calibration ${f.seed} ${index}`,
     "--preset",
     "docs-task",
-    "--no-wait",
   ]);
   f.publish(created, "task.create");
   const packagePath = created.packagePath,
@@ -125,7 +124,7 @@ function taskChain(f, reader, index) {
     assertBytes(f.root, planPath, readFileSync(path.join(f.root, "harness", planPath)), created, reader),
   );
   writeFileSync(path.join(f.root, "harness", planPath), realizedTaskPlan(`Calibration ${f.seed} ${index}`));
-  const prose = f.invoke("task.prose.acceptance", ["doc", "sync", "--submit", "--path", planPath, "--no-wait"]);
+  const prose = f.invoke("task.prose.acceptance", ["doc", "sync", "--submit", "--path", planPath]);
   f.publish(prose, "task.prose");
   f.invoke("task.fact", [
     "fact",
@@ -148,7 +147,7 @@ function taskChain(f, reader, index) {
       "## Residual Risk\n\nPilot only.\n\n## Same Mechanism Elsewhere\n\nTask report ownership.\n",
   );
   f.invoke("doc.status", ["doc", "status", "--task", taskId], { actor });
-  const report = f.invoke("task.report.acceptance", ["doc", "sync", "--submit", "--task", taskId, "--no-wait"], {
+  const report = f.invoke("task.report.acceptance", ["doc", "sync", "--submit", "--task", taskId], {
     actor,
   });
   f.publish(report, "task.report", actor);
@@ -203,7 +202,6 @@ function entityChain(f, reader, index) {
     locator,
     "--expected-version",
     "0",
-    "--no-wait",
   ]);
   f.publish(imported, "entity.import");
   const id = evidence(imported).preview.entityId,
@@ -232,7 +230,6 @@ function entityChain(f, reader, index) {
     `Updated ${f.seed}/${index}`,
     "--expected-version",
     String(imported.revision),
-    "--no-wait",
   ]);
   f.publish(updated, "entity.update");
   const warm = f.invoke("entity.get-warm", ["entity", "get", kind, "--id", id]);

@@ -88,12 +88,7 @@ import type {
 } from "./runtime-spawn-types.ts";
 import type { RuntimeAttemptOutcome, RuntimeFallbackAttempt } from "./runtime-fallback-contract.ts";
 import type { RuntimeEventOf, RuntimeEventType, RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
-import {
-  defaultProjectionWaitMs,
-  isProjectionWaitMs,
-  projectionWaitBudget,
-  waitForTaskProjection,
-} from "./projection-readiness-wait.ts";
+import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import { continuationMission, initialFallbackAttempt, requiredRuntimeFast } from "./runtime-spawn-fallback.ts";
 
 export const resultMediaType = "text/plain; charset=utf-8" as const,
@@ -165,7 +160,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         "prompt",
         "promptSource",
         "missionName",
-        "waitProjectionMs",
         "onExitCommand",
         "taskId",
         "idempotencyKey",
@@ -218,13 +212,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       providerSessionId =
         typeof payload.providerSessionId === "string"
           ? requiredRuntimeSpawnText(payload.providerSessionId, "providerSessionId")
-          : resumed?.providerSessionId,
-      waitProjectionMs = payload.waitProjectionMs ?? defaultProjectionWaitMs;
-    if (!isProjectionWaitMs(waitProjectionMs))
-      throw runtimeSpawnError(
-        "invalid_runtime_spawn",
-        "waitProjectionMs must be a non-negative safe integer number of milliseconds.",
-      );
+          : resumed?.providerSessionId;
     if (missionName && !taskId)
       throw runtimeSpawnError("invalid_runtime_mission", "Use --mission <name> only with --task <task-id>.");
     if (missionName && explicitMission)
@@ -238,16 +226,10 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       projection = input.remote ? null : requiredRuntimeProjection(input),
       remoteTask = taskId && input.remote ? await input.remote.taskContext(taskId, missionName) : null;
     const reviewerBinding = role === "reviewer";
-    if (taskId && !input.remote)
-      await waitForTaskProjection({
-        budget: projectionWaitBudget(waitProjectionMs),
-        projection: projection!,
-        store: store!,
-        taskId,
-        purpose: "runtime.run",
-      });
-    const leaseAtAdmission = taskId && !input.remote ? projection!.currentLease(taskId) : null,
-      taskSnapshot = taskId && !input.remote ? projection!.read(taskId).snapshot : null,
+    // Every local spawn (runtime.run, squad turns, fallback continuations) runs in the RepoCell write queue.
+    const taskSnapshot =
+        taskId && !input.remote ? requireCurrentTaskProjection(projection!, taskId, "runtime.run").snapshot : null,
+      leaseAtAdmission = taskId && !input.remote ? projection!.currentLease(taskId) : null,
       reviewExecutions =
         taskSnapshot?.task?.status === "in_review" &&
         taskSnapshot.task.currentNode === "review" &&

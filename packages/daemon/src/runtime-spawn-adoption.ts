@@ -9,7 +9,11 @@ import {
 import { removeRuntimeCallbackRelay } from "./runtime-callback-relay.ts";
 import { createActiveRuntime, attachActiveRuntime } from "./runtime-spawn-active.ts";
 import { adoptNativeProcess, runtimePidIsAlive } from "./runtime-spawn-process.ts";
-import { durableOutputRecordCount, restoreDurableOutputRecords } from "./runtime-spawn-provider-stream.ts";
+import {
+  consumeDurableOutput,
+  durableOutputRecordCount,
+  restoreDurableOutputRecords,
+} from "./runtime-spawn-provider-stream.ts";
 import { runtimeBindingForDispatch, type RuntimeBinding } from "./runtime-spawn-types.ts";
 import type { RuntimePermissionMode } from "./runtime-permissions.ts";
 import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
@@ -130,7 +134,11 @@ export async function adoptRuntimes(context: RuntimeSpawnerContext): Promise<voi
             exitCode: active.lossExitCode,
             signal: active.lossSignal,
           });
-          context.input.schedule(() => context.publishExit(active, active.lossExitCode), active.binding);
+          // No process_exit orders this settlement after the drain's last line. Settle from the stream.
+          context.input.schedule(async () => {
+            await consumeDurableOutput(context, active);
+            await context.publishExit(active, active.lossExitCode);
+          }, active.binding);
         }
       }, 50);
       timer.unref();

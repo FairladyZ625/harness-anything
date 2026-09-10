@@ -190,12 +190,6 @@
         "reason": "Reads the disposable projection watermark."
       },
       {
-        "value": "bypass-write-032",
-        "api": "sqlite.prepare",
-        "ref": "task_1de89b0fd52d2c7a67617d1a2a",
-        "reason": "Reads the disposable projection state digest."
-      },
-      {
         "value": "bypass-write-033",
         "api": "sqlite.prepare",
         "ref": "task_6e3a253ed79c2c458543c7d3d7",

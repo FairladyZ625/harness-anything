@@ -101,8 +101,9 @@ test("a real docs task with no declared ci gate closes out on not_applicable and
         "u",
       ),
     );
-    const created = run(root, userRoot, ["task", "create", "--from-file", "create.json"]),
-      packagePath = String(created.packagePath),
+    const created = run(root, userRoot, ["task", "create", "--from-file", "create.json"]);
+    published(root, userRoot, created);
+    const packagePath = String(created.packagePath),
       planPath = `${packagePath}/task_plan.md`,
       closeoutPath = `${packagePath}/closeout.md`,
       commitSha = git(root, "rev-parse", "HEAD");
@@ -259,6 +260,11 @@ function run(root: string, userRoot: string, args: readonly string[], actor?: st
   const result = runMaybe(root, userRoot, args, actor);
   assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`);
   return JSON.parse(result.stdout) as Record<string, unknown>;
+}
+// Writes return at durable acceptance; a test that reads Git or the worktree waits for both followers explicitly.
+function published(root: string, userRoot: string, receipt: Record<string, unknown>): Record<string, unknown> {
+  const wait = ["--wait", "git_verified,worktree_visible", "--timeout-ms", "5000"];
+  return run(root, userRoot, ["receipt", "show", String(receipt.opId), ...wait]);
 }
 function runMaybe(
   root: string,

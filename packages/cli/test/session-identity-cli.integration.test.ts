@@ -99,6 +99,7 @@ test("interactive CLI Task, Fact, and Decision writes carry resolver-owned sessi
       principal: { personId: "owner" },
       executor: { kind: "agent", id: "claude-session:claude-interactive-session" },
     });
+    published(fixture, proposed);
     const decisionDocument = readFileSync(path.join(fixture.root, "harness", String(proposed.path)), "utf8");
     assert.match(decisionDocument, new RegExp(claudeIdentity.sessionId, "u"));
     assert.doesNotMatch(decisionDocument, /local-must-not-be-forwarded/u);
@@ -195,6 +196,11 @@ function run(
   });
   assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`);
   return JSON.parse(result.stdout) as Record<string, unknown>;
+}
+// Writes return at durable acceptance; a test that reads Git or the worktree waits for both followers explicitly.
+function published(fixture: { root: string; userRoot: string }, receipt: Record<string, unknown>) {
+  const wait = ["--wait", "git_verified,worktree_visible", "--timeout-ms", "5000"];
+  return run(fixture, ["receipt", "show", String(receipt.opId), ...wait]);
 }
 function cliEnv(root: string, userRoot: string, session: Readonly<Record<string, string>>): NodeJS.ProcessEnv {
   const {

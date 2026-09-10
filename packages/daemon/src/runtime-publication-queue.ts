@@ -1,7 +1,7 @@
 import { assertCurrentWriter, attachReceiptAcceptance, type WriteReceipt } from "../../kernel/src/index.ts";
 import { commandDescriptorForAction } from "./protocol/daemon-protocol.contract.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
-import { authorizeRepoCellAction } from "./repo-cell-authorization.ts";
+import { authorizeRepoCellAction, bindVerifiedExecutorClaim } from "./repo-cell-authorization.ts";
 import type { RepoCellApiContext } from "./repo-cell-api.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { chainRepoCellWrite } from "./repo-cell.ts";
@@ -26,11 +26,17 @@ export function enqueueRuntimePublication(
     if (!queuedAdmission.ok) throw context.cellCodedError(queuedAdmission.code, queuedAdmission.nextAction);
     if (context.state !== "attached") throw context.cellCodedError("repo_unavailable", context.latched());
     assertCurrentWriter(context.activeWriter, context.writerToken, context.input.repoId);
-    const revision = context.store.readHead()?.revision ?? 0,
-      authorizationDecision = authorizeRepoCellAction({
+    // An executor claim is verified at the same writer cut that authorizes and executes it.
+    const claimed = bindVerifiedExecutorClaim({
         action: policyAction,
         binding,
-        actionId: context.operationId(policyAction, binding, context.input.repoId, revision),
+        projection: context.projection,
+        now: context.now(),
+      }),
+      revision = context.store.readHead()?.revision ?? 0,
+      authorizationDecision = authorizeRepoCellAction({
+        ...claimed,
+        actionId: context.operationId(claimed.action, claimed.binding, context.input.repoId, revision),
         revision,
         now: context.now(),
       });
@@ -43,7 +49,7 @@ export function enqueueRuntimePublication(
     context.activeWriterEpochFence = binding.withWriterEpochFence ?? null;
     context.activeWriterEpochFenceDescriptor = binding.writerEpochFence ?? null;
     try {
-      const result = await execute({ ...binding, authorizationDecision }, revision);
+      const result = await execute({ ...claimed.binding, authorizationDecision }, revision);
       const receipt =
         typeof result.opId === "string" && typeof result.outcome === "string"
           ? attachReceiptAcceptance(result as unknown as WriteReceipt, context.store, context.projection)

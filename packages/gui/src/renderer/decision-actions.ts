@@ -19,7 +19,6 @@ type ReceiptRecord = GuiActionResult & {
     readonly appliedCut?: number;
     readonly durable?: boolean;
     readonly canonicalVisible?: boolean;
-    readonly worktreeVisible?: boolean | null;
   };
   readonly path?: string;
   readonly commitSha?: string | null;
@@ -37,15 +36,10 @@ export interface DecisionSettlement {
   readonly receipt: ReceiptRecord;
 }
 
-export async function settleDecisionReceipt(
-  initial: GuiActionResult,
-  showReceipt: (payload: { readonly opId: string }) => Promise<GuiActionResult>,
-): Promise<DecisionSettlement> {
-  let receipt = initial as ReceiptRecord;
-  if ((receipt.outcome === "pending" || receipt.outcome === "indeterminate") && receipt.opId !== "N/A") {
-    receipt = (await showReceipt({ opId: receipt.opId })) as ReceiptRecord;
-  }
-  const proof = receipt.proof;
+// Settles from the write receipt itself; Git and worktree follower fields are shown, never awaited.
+export function settleDecisionReceipt(initial: GuiActionResult): DecisionSettlement {
+  const receipt = initial as ReceiptRecord,
+    proof = receipt.proof;
   const validCommitIdentity =
     receipt.commitSha === null || (typeof receipt.commitSha === "string" && receipt.commitSha.length > 0);
   const completeDecisionReceipt =
@@ -53,14 +47,12 @@ export async function settleDecisionReceipt(
     receipt.path.length > 0 &&
     validCommitIdentity &&
     typeof receipt.documentSha256 === "string" &&
-    receipt.documentSha256.length > 0 &&
-    receipt.worktreeVisible === true;
+    receipt.documentSha256.length > 0;
   if (
     receipt.outcome === "applied" &&
     completeDecisionReceipt &&
     proof?.durable === true &&
     proof.canonicalVisible === true &&
-    proof.worktreeVisible === true &&
     proof.committedRevision === proof.appliedCut
   ) {
     return { state: "applied", opId: receipt.opId, receipt };
@@ -202,9 +194,7 @@ export function useDecisionActions(repoId: string) {
       const finish = async (settlement: DecisionSettlement): Promise<DecisionMutationFeedback> => {
         if (settlement.state !== "applied") {
           if (settlement.state === "pending")
-            pendingResolvers.current.set(operationKey("proposal"), async (receipt) =>
-              finish(await settleDecisionReceipt(receipt, ({ opId }) => harnessClient.showReceipt({ repoId, opId }))),
-            );
+            pendingResolvers.current.set(operationKey("proposal"), (receipt) => finish(settleDecisionReceipt(receipt)));
           return failure("proposal", "propose", settlement);
         }
         const decisionId = decisionIdFromEvidence(settlement.receipt.evidence);
@@ -234,9 +224,7 @@ export function useDecisionActions(repoId: string) {
             receipt: visibleReceipt(settlement.receipt),
           });
         }
-        pendingResolvers.current.set(operationKey("proposal"), async (receipt) =>
-          finish(await settleDecisionReceipt(receipt, ({ opId }) => harnessClient.showReceipt({ repoId, opId }))),
-        );
+        pendingResolvers.current.set(operationKey("proposal"), (receipt) => finish(settleDecisionReceipt(receipt)));
         return publish("proposal", {
           state: "pending",
           kind: "propose",
@@ -245,11 +233,7 @@ export function useDecisionActions(repoId: string) {
           hint: `${decisionId} 尚未出现在 canonical projection；勿重放 mutation。`,
         });
       };
-      return finish(
-        await settleDecisionReceipt(await harnessClient.proposeDecision({ repoId, ...input }), ({ opId }) =>
-          harnessClient.showReceipt({ repoId, opId }),
-        ),
-      );
+      return finish(settleDecisionReceipt(await harnessClient.proposeDecision({ repoId, ...input })));
     });
   const judge = (
     decision: DecisionRow,
@@ -277,8 +261,8 @@ export function useDecisionActions(repoId: string) {
       const finish = async (settlement: DecisionSettlement): Promise<DecisionMutationFeedback> => {
         if (settlement.state !== "applied") {
           if (settlement.state === "pending")
-            pendingResolvers.current.set(operationKey(decision.decisionId), async (receipt) =>
-              finish(await settleDecisionReceipt(receipt, ({ opId }) => harnessClient.showReceipt({ repoId, opId }))),
+            pendingResolvers.current.set(operationKey(decision.decisionId), (receipt) =>
+              finish(settleDecisionReceipt(receipt)),
             );
           return failure(decision.decisionId, action, settlement);
         }
@@ -299,8 +283,8 @@ export function useDecisionActions(repoId: string) {
             receipt: visibleReceipt(settlement.receipt),
           });
         }
-        pendingResolvers.current.set(operationKey(decision.decisionId), async (receipt) =>
-          finish(await settleDecisionReceipt(receipt, ({ opId }) => harnessClient.showReceipt({ repoId, opId }))),
+        pendingResolvers.current.set(operationKey(decision.decisionId), (receipt) =>
+          finish(settleDecisionReceipt(receipt)),
         );
         return publish(decision.decisionId, {
           state: "pending",
@@ -310,7 +294,7 @@ export function useDecisionActions(repoId: string) {
           hint: "receipt 已 applied，但 canonical decision/consent 尚不可见；勿重放 mutation。",
         });
       };
-      return finish(await settleDecisionReceipt(initial, ({ opId }) => harnessClient.showReceipt({ repoId, opId })));
+      return finish(settleDecisionReceipt(initial));
     });
   const checkReceipt = async (key: string): Promise<DecisionMutationFeedback | undefined> => {
     const scopedKey = operationKey(key),

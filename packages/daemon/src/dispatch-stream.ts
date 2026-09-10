@@ -392,16 +392,16 @@ export function appendRuntimeWorkerRecord(
   dispatchId: string,
   value: Readonly<Record<string, unknown>>,
 ): void {
-  appendJsonl(dispatchStreamPath(rootDir, dispatchId), { schema: streamSchema, ...value });
+  appendDispatchStreamRecord(dispatchStreamPath(rootDir, dispatchId), value);
 }
 
-export function readRuntimeWorkerChunk(
-  rootDir: string,
-  dispatchId: string,
-  offset: number,
-  limit = 1024 * 1024,
-): Buffer {
-  const descriptor = openSync(dispatchStreamPath(rootDir, dispatchId), fsConstants.O_RDONLY);
+/** Append to a dispatch stream whose path the caller resolved once for the dispatch's lifetime. */
+export function appendDispatchStreamRecord(target: string, value: Readonly<Record<string, unknown>>): void {
+  appendJsonl(target, { schema: streamSchema, ...value });
+}
+
+export function readRuntimeWorkerChunk(target: string, offset: number, limit = 1024 * 1024): Buffer {
+  const descriptor = openSync(target, fsConstants.O_RDONLY);
   try {
     const size = fstatSync(descriptor).size;
     if (size <= offset) return Buffer.alloc(0);

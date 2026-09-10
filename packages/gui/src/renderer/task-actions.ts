@@ -23,7 +23,6 @@ type ReceiptRecord = GuiActionResult & {
     readonly appliedCut?: number;
     readonly durable?: boolean;
     readonly canonicalVisible?: boolean;
-    readonly worktreeVisible?: boolean | null;
   };
 };
 
@@ -36,20 +35,15 @@ export interface TaskSettlement {
   readonly receipt: GuiActionResult;
 }
 
-export async function settleTaskReceipt(
-  initial: GuiActionResult,
-  showReceipt: (payload: { readonly opId: string }) => Promise<GuiActionResult>,
-): Promise<TaskSettlement> {
-  let receipt = initial as ReceiptRecord;
-  if ((receipt.outcome === "pending" || receipt.outcome === "indeterminate") && receipt.opId !== "N/A") {
-    receipt = (await showReceipt({ opId: receipt.opId })) as ReceiptRecord;
-  }
-  const proof = receipt.proof;
+// The write receipt is the settlement input: durable acceptance plus projection visibility is applied.
+// Git and worktree follower progress stays display-only; the ledger poll carries later cuts.
+export function settleTaskReceipt(initial: GuiActionResult): TaskSettlement {
+  const receipt = initial as ReceiptRecord,
+    proof = receipt.proof;
   if (
     receipt.outcome === "applied" &&
     proof?.durable === true &&
     proof.canonicalVisible === true &&
-    proof.worktreeVisible === true &&
     proof.committedRevision === proof.appliedCut
   ) {
     return {
@@ -201,9 +195,8 @@ export function useTaskActions(repoId: string) {
           opId: "awaiting-receipt",
           hint: `正在申请 lease · ${executionId}`,
         });
-        const settlement = await settleTaskReceipt(
+        const settlement = settleTaskReceipt(
           await harnessClient.startTask({ repoId, taskId: task.taskId, executionId }),
-          ({ opId }) => harnessClient.showReceipt({ repoId, opId }),
         );
         return reread(task.taskId, "start", settlement, (data) =>
           data.rows.some(
@@ -229,14 +222,13 @@ export function useTaskActions(repoId: string) {
           opId: "awaiting-receipt",
           hint: "正在追加 typed progress…",
         });
-        const settlement = await settleTaskReceipt(
+        const settlement = settleTaskReceipt(
           await harnessClient.appendTaskProgress({
             repoId,
             taskId: task.taskId,
             executionId: task.activeExecutionId,
             ...input,
           }),
-          ({ opId }) => harnessClient.showReceipt({ repoId, opId }),
         );
         return reread(task.taskId, "progress", settlement, (data) =>
           data.rows.some(
@@ -258,14 +250,13 @@ export function useTaskActions(repoId: string) {
           opId: "awaiting-receipt",
           hint: "正在原子提交 SubmissionV1…",
         });
-        const settlement = await settleTaskReceipt(
+        const settlement = settleTaskReceipt(
           await harnessClient.submitTask({
             repoId,
             taskId: task.taskId,
             executionId: task.activeExecutionId ?? "",
             submission,
           }),
-          ({ opId }) => harnessClient.showReceipt({ repoId, opId }),
         );
         return reread(task.taskId, "submit", settlement, (data) =>
           data.rows.some((row) => row.taskId === task.taskId && rowCan(row, "review") && row.snapshot.lease === null),
@@ -285,9 +276,8 @@ export function useTaskActions(repoId: string) {
           opId: "awaiting-receipt",
           hint: pinned ? "正在 pin(今天当前在做)…" : "正在解除 pin…",
         });
-        const settlement = await settleTaskReceipt(
+        const settlement = settleTaskReceipt(
           await (pinned ? harnessClient.pinTask : harnessClient.unpinTask)({ repoId, taskId: task.taskId }),
-          ({ opId }) => harnessClient.showReceipt({ repoId, opId }),
         );
         return reread(task.taskId, "pin", settlement, (data) =>
           data.rows.some((row) => row.taskId === task.taskId && (row.snapshot.task?.pinned === true) === pinned),

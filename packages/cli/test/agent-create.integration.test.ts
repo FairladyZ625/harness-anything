@@ -158,6 +158,7 @@ test("agent create runs and ontology-squad reinstall stays on the canonical Enti
       "--title",
       "Agent create",
     ]) as Record<string, unknown>;
+    published(root, env, created);
     const planPath = `${String(created.packagePath)}/task_plan.md`;
     writeFileSync(path.join(root, "harness", planPath), realizedTaskPlan("Agent create"));
     assert.equal(run(root, env, ["doc", "sync", "--submit", "--path", planPath]).outcome, "applied");
@@ -280,6 +281,11 @@ function run(root: string, env: NodeJS.ProcessEnv, args: readonly string[]): Rec
   const result = runMaybe(root, env, args);
   assert.equal(result.status, 0, `${result.stderr}\n${JSON.stringify(result.receipt)}`);
   return result.receipt;
+}
+// Writes return at durable acceptance; a test that reads Git or the worktree waits for both followers explicitly.
+function published(root: string, env: NodeJS.ProcessEnv, receipt: Record<string, unknown>): Record<string, unknown> {
+  const wait = ["--wait", "git_verified,worktree_visible", "--timeout-ms", "5000"];
+  return run(root, env, ["receipt", "show", String(receipt.opId), ...wait]);
 }
 function runMaybe(
   root: string,

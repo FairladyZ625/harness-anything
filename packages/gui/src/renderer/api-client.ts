@@ -32,7 +32,7 @@ import {
 } from "./result-validation.ts";
 import { isSettingsSuccess } from "./settings-payload.ts";
 import { invoke } from "./api-client-invoke.ts";
-import { readGuiActionResult, settleWriteReceipt, type ReceiptRead } from "./command-receipt.ts";
+import { readGuiActionResult } from "./command-receipt.ts";
 import { daemonBridgeError } from "./daemon-startup.ts";
 
 export interface TaskListSuccess {
@@ -363,10 +363,6 @@ export interface DecisionProposalInput {
   }>;
 }
 
-/** 写回执经 daemon 的落定谓词收口后才交给调用方(见 command-receipt.ts)。 */
-const settled = (repoId: string, receipt: GuiActionResult): Promise<GuiActionResult> =>
-  settleWriteReceipt(repoId, receipt, harnessClient.showReceipt);
-
 export const harnessClient = {
   async getSystemStatus(): Promise<SystemStatusSuccess> {
     return readSystemStatus(await invoke("daemon.gui.system.read", {}, "getSystemStatus"));
@@ -446,10 +442,7 @@ export const harnessClient = {
     return readDecisionShowResult(await invoke("repo.decision.show", payload, "showDecision"));
   },
   async proposeDecision(payload: RepoScope & DecisionProposalInput): Promise<GuiActionResult> {
-    return settled(
-      payload.repoId,
-      readGuiActionResult(await invoke("repo.decision.propose", payload, "proposeDecision")),
-    );
+    return readGuiActionResult(await invoke("repo.decision.propose", payload, "proposeDecision"));
   },
   async acceptDecision(
     payload: RepoScope & {
@@ -458,28 +451,22 @@ export const harnessClient = {
       readonly judgmentOnlyRationale?: string;
     },
   ): Promise<GuiActionResult> {
-    return settled(
-      payload.repoId,
-      readGuiActionResult(await invoke("repo.decision.accept", payload, "acceptDecision")),
-    );
+    return readGuiActionResult(await invoke("repo.decision.accept", payload, "acceptDecision"));
   },
   async rejectDecision(
     payload: RepoScope & { readonly decisionId: string; readonly reason: string },
   ): Promise<GuiActionResult> {
-    return settled(
-      payload.repoId,
-      readGuiActionResult(await invoke("repo.decision.reject", payload, "rejectDecision")),
-    );
+    return readGuiActionResult(await invoke("repo.decision.reject", payload, "rejectDecision"));
   },
   async deferDecision(
     payload: RepoScope & { readonly decisionId: string; readonly reason: string },
   ): Promise<GuiActionResult> {
-    return settled(payload.repoId, readGuiActionResult(await invoke("repo.decision.defer", payload, "deferDecision")));
+    return readGuiActionResult(await invoke("repo.decision.defer", payload, "deferDecision"));
   },
   async startTask(
     payload: RepoScope & { readonly taskId: string; readonly executionId: string },
   ): Promise<GuiActionResult> {
-    return settled(payload.repoId, readGuiActionResult(await invoke("repo.task.start", payload, "startTask")));
+    return readGuiActionResult(await invoke("repo.task.start", payload, "startTask"));
   },
   async appendTaskProgress(
     payload: RepoScope & {
@@ -490,10 +477,7 @@ export const harnessClient = {
       readonly baseDocumentSha256?: string | null;
     },
   ): Promise<GuiActionResult> {
-    return settled(
-      payload.repoId,
-      readGuiActionResult(await invoke("repo.task.progress.append", payload, "appendTaskProgress")),
-    );
+    return readGuiActionResult(await invoke("repo.task.progress.append", payload, "appendTaskProgress"));
   },
   async submitTask(
     payload: RepoScope & {
@@ -502,17 +486,17 @@ export const harnessClient = {
       readonly submission: GuiSubmissionV1;
     },
   ): Promise<GuiActionResult> {
-    return settled(payload.repoId, readGuiActionResult(await invoke("repo.task.submit", payload, "submitTask")));
+    return readGuiActionResult(await invoke("repo.task.submit", payload, "submitTask"));
   },
   /** 台账 pin 的唯一 GUI 写通道:daemon 侧就是 `ha task pin` 的 pinned-only amend。 */
   async pinTask(payload: RepoScope & { readonly taskId: string }): Promise<GuiActionResult> {
-    return settled(payload.repoId, readGuiActionResult(await invoke("repo.task.pin", payload, "pinTask")));
+    return readGuiActionResult(await invoke("repo.task.pin", payload, "pinTask"));
   },
   async unpinTask(payload: RepoScope & { readonly taskId: string }): Promise<GuiActionResult> {
-    return settled(payload.repoId, readGuiActionResult(await invoke("repo.task.unpin", payload, "unpinTask")));
+    return readGuiActionResult(await invoke("repo.task.unpin", payload, "unpinTask"));
   },
-  /** 只读的 canonical receipt 查询;`waitFor`/`timeoutMs` 是 daemon 的落定谓词,不是重放。 */
-  async showReceipt(payload: Parameters<ReceiptRead>[0]): Promise<GuiActionResult> {
+  /** 只读的 canonical receipt 查询,不是重放。 */
+  async showReceipt(payload: RepoScope & { readonly opId: string }): Promise<GuiActionResult> {
     return readGuiActionResult(await invoke("repo.receipt.show", payload, "showReceipt"));
   },
   async getCatalogSnapshot(payload: RepoScope): Promise<CatalogSnapshotSuccess> {

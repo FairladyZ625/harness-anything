@@ -331,6 +331,7 @@ test("release acceptance: changes_requested rework keeps both same-named reports
       reportLogical = `${packagePath}/artifacts/reports/implementation.md`,
       reportFile = path.join(root, "harness", reportLogical);
     assert.equal(created.status, "accepted_durable", JSON.stringify(created));
+    settle(root, userRoot, String(created.opId));
     writeFileSync(path.join(root, "harness", packagePath, "task_plan.md"), realizedPlan("Release Acceptance Rework"));
     run(root, userRoot, ["doc", "sync", "--submit", "--path", `${packagePath}/task_plan.md`]);
     run(root, userRoot, [
@@ -348,7 +349,10 @@ test("release acceptance: changes_requested rework keeps both same-named reports
     run(root, userRoot, ["task", "start", taskId, "--execution-id", firstExecutionId], worker);
     writeFileSync(reportFile, firstBody);
     const firstPublication = run(root, userRoot, ["doc", "sync", "--submit", "--task", taskId], worker);
-    assert.equal((firstPublication.git as { state: string }).state, "verified");
+    assert.equal(
+      (settle(root, userRoot, String(firstPublication.opId), worker).git as { state: string }).state,
+      "verified",
+    );
     const firstCommit = git(root, "rev-parse", "HEAD");
     run(
       root,
@@ -403,6 +407,7 @@ test("release acceptance: changes_requested rework keeps both same-named reports
     writeFileSync(reportFile, secondBody);
     const secondPublication = run(root, userRoot, ["doc", "sync", "--submit", "--task", taskId], worker);
     assert.equal(secondPublication.status, "accepted_durable", JSON.stringify(secondPublication));
+    settle(root, userRoot, String(secondPublication.opId), worker);
     const headCommit = git(root, "rev-parse", "HEAD");
     assert.deepEqual(gitBytes(root, `HEAD:harness/${reportLogical}`), Buffer.from(secondBody));
     assert.deepEqual(gitBytes(root, `${firstCommit}:harness/${reportLogical}`), Buffer.from(firstBody));
@@ -524,6 +529,7 @@ test("release acceptance: JSON, PDF and binary artifacts publish byte-exact, rou
       ]),
       packagePath = String(created.packagePath);
     assert.equal(created.status, "accepted_durable", JSON.stringify(created));
+    settle(root, userRoot, String(created.opId));
     writeFileSync(
       path.join(root, "harness", packagePath, "task_plan.md"),
       realizedPlan("Release Acceptance Artifacts"),

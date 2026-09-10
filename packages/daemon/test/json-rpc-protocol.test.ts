@@ -325,7 +325,7 @@ test("GUI action facets are exact, typed, and exclude the generic runner", () =>
     ["repo.receipt.show", { opId: "op_A" }],
     ["repo.settings.update", { defaultPreset: "strict-task", locale: "zh-CN", idempotencyKey: "settings-once" }],
     ["repo.gui.catalog.reread", {}],
-    ["repo.agentRuntime.spawn", { runtimeInstanceId: "instance-codex", cwd: { scope: "repo-root" }, prompt: "Inspect", taskId: null, waitProjectionMs: 0, idempotencyKey: "runtime-once" }],
+    ["repo.agentRuntime.spawn", { runtimeInstanceId: "instance-codex", cwd: { scope: "repo-root" }, prompt: "Inspect", taskId: null, idempotencyKey: "runtime-once" }],
     ["repo.agent.entity.write", { declaration: { schema: "agent-declaration/v1", id: "gui-created-agent", name: "GUI Created Agent", instructions: "Keep the roster intact.\nSecond line.", runtime_type: "any", role: "worker", model: "gpt-5.6-terra", skills: [{ id: "review", path: "skills/review" }], prompts: ["prompt://gui"], preset: "standard-task" } }],
     ["repo.squad.entity.write", { declaration: { schema: "squad-declaration/v1", id: "gui-created-squad", name: "GUI Created Squad", leader: "gui-created-agent", workers: ["gui-created-agent"], leaderTurnBudget: 8, roster: "## GUI Squad\n\n  GUI Created Agent\n\n" } }],
     ["repo.schedule.create", { scheduleId: "schedule-a", name: "Schedule A", mode: "detect", everyMs: 300000, agentId: "agent-a", runtimeInstanceId: "instance-a", mission: "Run A.", idempotencyKey: "schedule-create-once" }],
@@ -348,7 +348,6 @@ test("GUI action facets are exact, typed, and exclude the generic runner", () =>
   assert.equal(parseDaemonRpcParams("repo.decision.list", { repo: { repoId: "alpha" }, payload: { limit: 501 } }).ok, false);
   assert.equal(parseDaemonRpcParams("repo.decision.list", { repo: { repoId: "alpha" }, payload: { cursor: "" } }).ok, false);
   assert.equal(parseDaemonRpcParams("repo.agentRuntime.spawn", { repo: { repoId: "alpha" }, payload: { runtimeInstanceId: "instance-codex", cwd: { scope: "repo-root" }, taskId: "task-a", idempotencyKey: "task-derived" } }).ok, true);
-  assert.equal(parseDaemonRpcParams("repo.agentRuntime.spawn", { repo: { repoId: "alpha" }, payload: { runtimeInstanceId: "instance-codex", cwd: { scope: "repo-root" }, taskId: "task-a", waitProjectionMs: -1, idempotencyKey: "invalid-wait" } }).ok, false);
   assert.equal(parseDaemonRpcParams("repo.agentRuntime.spawn", { repo: { repoId: "alpha" }, payload: { runtimeInstanceId: "instance-codex", cwd: { scope: "repo-root" }, taskId: null, idempotencyKey: "missing-mission" } }).ok, false);
   assert.equal(parseDaemonRpcParams("repo.task.submit", { repo: { repoId: "alpha" }, payload: { taskId: "task-a", executionId: "execution-a", submission: { ...submission, outputs: "wrong" } } }).ok, false);
   assert.equal(parseDaemonRpcParams("repo.decision.propose", { repo: { repoId: "alpha" }, payload: { ...proposal, appliesTo: { ...proposal.appliesTo, extra: [] } } }).ok, false);
