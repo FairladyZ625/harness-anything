@@ -65,15 +65,6 @@ export function readProjectionCut(
   };
 }
 
-export function readStateDigest(db: DatabaseSync): `sha256:${string}` | null {
-  const row =
-    /* @gate-identity check-bypass-write-boundary/bypass-write-032 */
-    db.prepare("SELECT state_digest FROM projection_meta WHERE singleton = 1").get() as {
-      readonly state_digest: string | null;
-    };
-  return row.state_digest === null ? null : (row.state_digest as `sha256:${string}`);
-}
-
 export function isAtSourceCut(db: DatabaseSync, sourceRevision: number): boolean {
   const state =
     /* @gate-identity check-bypass-write-boundary/bypass-write-033 */
@@ -91,17 +82,18 @@ export function isAtSourceCut(db: DatabaseSync, sourceRevision: number): boolean
   );
 }
 
-export function refreshStateDigestAtSourceCut(db: DatabaseSync, sourceRevision: number): `sha256:${string}` | null {
-  if (!isAtSourceCut(db, sourceRevision)) return null;
-  let digest = sha256Text("task-projection-state/v1");
-  for (const [table, order] of stateDigestTables) {
-    digest = sha256Text(`${digest}\n${table}`);
-    for (const row of prepareQuery(db, `SELECT * FROM ${table} ORDER BY ${order}`).iterate())
-      digest = sha256Text(`${digest}\n${canonicalJson(row as ProjectionSqlRow)}`);
-  }
-  const value = `sha256:${digest}` as `sha256:${string}`;
-  runSql(db, "UPDATE projection_meta SET state_digest = ? WHERE singleton = 1", value);
-  return value;
+// Hashes every projection row, so only explicit rebuilds and read-side checks call it; writes never do.
+export function readStateDigest(db: DatabaseSync, sourceRevision: number): `sha256:${string}` | null {
+  return queryTransaction(db, () => {
+    if (!isAtSourceCut(db, sourceRevision)) return null;
+    let digest = sha256Text("task-projection-state/v1");
+    for (const [table, order] of stateDigestTables) {
+      digest = sha256Text(`${digest}\n${table}`);
+      for (const row of prepareQuery(db, `SELECT * FROM ${table} ORDER BY ${order}`).iterate())
+        digest = sha256Text(`${digest}\n${canonicalJson(row as ProjectionSqlRow)}`);
+    }
+    return `sha256:${digest}` as const;
+  });
 }
 export function transaction<A>(db: DatabaseSync, run: () => A): A {
   /* @gate-identity check-bypass-write-boundary/bypass-write-028 */

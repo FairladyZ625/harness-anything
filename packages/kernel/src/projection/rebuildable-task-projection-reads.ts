@@ -18,7 +18,7 @@ import {
   parseEventJson,
   queryPreparedRows,
   readProjectionCut,
-  refreshStateDigestAtSourceCut,
+  readStateDigest,
   transaction,
   watermark,
 } from "./rebuildable-task-projection-sql.ts";
@@ -209,7 +209,7 @@ export function rebuildProjection(
     transaction(db, () => {
       markRuntimeSessionsUnknown(db);
       const current = watermark(db),
-        digest = refreshStateDigestAtSourceCut(db, readHead()?.revision ?? 0);
+        digest = readStateDigest(db, readHead()?.revision ?? 0);
       if (digest === null) throw new Error("projection rebuild did not reach a source-complete state digest");
       return { current, digest };
     }),

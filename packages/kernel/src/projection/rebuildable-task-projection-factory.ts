@@ -49,13 +49,7 @@ import { entityQueryApi } from "./rebuildable-task-projection-entity-api.ts";
 import { runtimeLeaseApi } from "./rebuildable-task-projection-runtime-api.ts";
 import { taskQueryApi } from "./rebuildable-task-projection-task-queries.ts";
 import { markRuntimeSessionsUnknown } from "./rebuildable-task-projection-runtime.ts";
-import {
-  readStateDigest,
-  readProjectionCut,
-  refreshStateDigestAtSourceCut,
-  transaction,
-  watermark,
-} from "./rebuildable-task-projection-sql.ts";
+import { readStateDigest, readProjectionCut, transaction, watermark } from "./rebuildable-task-projection-sql.ts";
 export type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
 export type { TaskProjection } from "./task-projection-port.ts";
 
@@ -86,11 +80,7 @@ export function makeTaskProjection(options: {
     throw new Error("task projection catch-up limit must be between 1 and 4096");
   if (localRuntimeStateFileSystem.exists(projectionPath)) {
     try {
-      withDatabase(projectionPath, readHead, (db) =>
-        transaction(db, () => {
-          if (markRuntimeSessionsUnknown(db) > 0) refreshStateDigestAtSourceCut(db, readHead()?.revision ?? 0);
-        }),
-      );
+      withDatabase(projectionPath, readHead, (db) => transaction(db, () => markRuntimeSessionsUnknown(db)));
     } catch (error) {
       if (error instanceof ProjectionSchemaMismatchError && error.observed < taskProjectionSchemaVersion) {
         consumeKnownError(error);
@@ -136,10 +126,9 @@ export function makeTaskProjection(options: {
       if (isDecisionEvent(event)) assertDecisionWritePlan(event, plan);
       if (isMigrationImportEvent(event)) assertMigrationImportWritePlan(event, plan);
       if (isLedgerLayoutMigrationEvent(event)) assertLedgerLayoutMigrationWritePlan(event, plan);
-      const receipt = withDatabase(projectionPath, readHead, (db) =>
-        reduceBatch(db, [event], limit, options.eventStore.readContentBlob, readHead()?.revision ?? 0),
+      return withDatabase(projectionPath, readHead, (db) =>
+        reduceBatch(db, [event], limit, options.eventStore.readContentBlob),
       );
-      return receipt;
     },
     rebuild: () => {
       closeDatabase(projectionPath, readHead);
@@ -166,21 +155,11 @@ export function makeTaskProjection(options: {
           reportedWatermark = round.watermark;
         }
         if (round.watermark !== round.sourceRevision) continue;
-        const settled = withDatabase(projectionPath, readHead, (db) =>
-          transaction(db, () => ({
-            watermark: watermark(db),
-            stateDigest: refreshStateDigestAtSourceCut(db, readHead()?.revision ?? 0),
-          })),
-        );
-        if (settled.stateDigest === null) throw new Error("projection catch-up did not reach the source cut");
-        return {
-          watermark: settled.watermark,
-          stateDigest: settled.stateDigest,
-          metrics: { sqliteTransactions: sqliteTransactions + 1, reducedItems, maxBatchItems },
-        };
+        return { watermark: round.watermark, metrics: { sqliteTransactions, reducedItems, maxBatchItems } };
       }
     },
-    readStateDigest: () => withDatabase(projectionPath, readHead, readStateDigest),
+    readStateDigest: () =>
+      withDatabase(projectionPath, readHead, (db) => readStateDigest(db, readHead()?.revision ?? 0)),
     readCut: () => withDatabase(projectionPath, readHead, (db) => readProjectionCut(db, readHead)),
     read: (taskId) => readProjection(projectionPath, readHead, options.eventStore, taskId, limit, now),
     list: (query) => listProjection(projectionPath, readHead, options.eventStore, limit, now, query),
@@ -219,7 +198,8 @@ export function makeTaskProjectionReader(options: {
     runtimeQueries = runtimeLeaseApi(context),
     queries: TaskProjectionQueries = {
       path: projectionPath,
-      readStateDigest: () => withDatabase(projectionPath, readHead, readStateDigest),
+      readStateDigest: () =>
+        withDatabase(projectionPath, readHead, (db) => readStateDigest(db, readHead()?.revision ?? 0)),
       readCut: () => withDatabase(projectionPath, readHead, (db) => readProjectionCut(db, readHead)),
       read: (taskId) => readProjection(projectionPath, readHead, unavailableSource, taskId, 4096, now),
       list: (query) => listProjection(projectionPath, readHead, unavailableSource, 4096, now, query),

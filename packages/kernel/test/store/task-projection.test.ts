@@ -433,7 +433,7 @@ test("migration-sized catch-up reduces 5k events in bounded projection transacti
       projection = makeTaskProjection({ rootDir, eventStore });
     const receipt = projection.catchUp!();
     assert.equal(receipt.watermark, count);
-    assert.deepEqual(receipt.metrics, { sqliteTransactions: 3, reducedItems: count, maxBatchItems: 4_096 });
+    assert.deepEqual(receipt.metrics, { sqliteTransactions: 2, reducedItems: count, maxBatchItems: 4_096 });
     projection.close();
   });
 });
@@ -677,6 +677,27 @@ test("migration truth-gap archives remain queryable after a cold projection rebu
   });
 });
 
+test("steady apply reads only the projection rows its event touches", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const eventStore = makeTaskEventStore({ repoId: "test-repo", rootDir });
+    const projection = makeTaskProjection({ rootDir, eventStore, now: () => "2026-08-11T00:30:00.000Z" });
+    const [first, ...rest] = lifecycleFixture().events;
+    eventStore.append(taskBundle(first!));
+    projection.apply(first!);
+    // Task lifecycle events never write decision content pins; any whole-state scan would still read the table.
+    const db = new DatabaseSync(projection.path);
+    db.exec("DROP TABLE decision_content_pin");
+    db.close();
+    for (const event of rest) {
+      eventStore.append(taskBundle(event));
+      assert.deepEqual(projection.apply(event).metrics, { sqliteTransactions: 1, reducedItems: 1 });
+    }
+    assert.equal(projection.read("task-1").snapshot.task?.status, "done");
+    projection.close();
+  });
+});
+
 test("steady apply and rebuild use the same reducer and reproduce watermark, op index, lease intervals", async () => {
   await withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir);
@@ -721,7 +742,7 @@ test("steady apply and rebuild use the same reducer and reproduce watermark, op 
     ]);
     const incrementalStateDigest = projection.readStateDigest();
     if (incrementalStateDigest === null)
-      assert.fail("a source-complete incremental projection must persist its state digest");
+      assert.fail("a source-complete incremental projection must report its state digest");
 
     projection.close();
     rmSync(projection.path, { force: true });

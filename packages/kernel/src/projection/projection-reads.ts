@@ -102,9 +102,11 @@ export interface TaskRelationProjectionRead {
 export interface ProjectionApplyReceipt {
   readonly metrics: { readonly sqliteTransactions: 1; readonly reducedItems: number };
 }
-export interface ProjectionRebuildReceipt {
-  readonly watermark: number;
+export interface ProjectionRebuildReceipt extends ProjectionCatchUpReceipt {
   readonly stateDigest: `sha256:${string}`;
+}
+export interface ProjectionCatchUpReceipt {
+  readonly watermark: number;
   readonly metrics: {
     readonly sqliteTransactions: number;
     readonly reducedItems: number;
