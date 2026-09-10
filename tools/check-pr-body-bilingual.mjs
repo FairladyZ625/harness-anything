@@ -2,6 +2,7 @@
 import { readFileSync } from "node:fs";
 import process from "node:process";
 import { agentProtocolCommands } from "../packages/daemon/src/protocol/daemon-protocol-commands-agent.ts";
+import { clientLocalCommands } from "../packages/cli/src/cli/thin-command-help.ts";
 import { computeProductionDelta } from "./gates/production-delta.mjs";
 import { changedFiles, repoRoot } from "./gates/git.mjs";
 
@@ -61,7 +62,7 @@ export function checkGateHarvestDeclarations(body) {
   };
 }
 
-export function eventMigrationCommandNames(commands = agentProtocolCommands) {
+export function eventMigrationCommandNames(commands = [...agentProtocolCommands, ...clientLocalCommands]) {
   return commands
     .filter(({ path }) => path[0] === "migrate" && typeof path[1] === "string")
     .map(({ path }) => path[1])

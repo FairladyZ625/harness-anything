@@ -51,8 +51,8 @@ test("Entity catalogs omit actions that decisions assign to another owner or no 
   );
   assert.deepEqual(catalogs.agent?.statusVocabulary, []);
   assert.equal(catalogs.agent?.transitions.catalogRef, "kernel/agent-action/v1");
-  assert.deepEqual(catalogs.agent?.transitions.available, ["install", "validate", "list", "inspect"]);
-  assert.deepEqual(declared("agent"), ["install", "validate", "list", "inspect"]);
+  assert.deepEqual(catalogs.agent?.transitions.available, ["install", "delete", "validate", "list", "inspect"]);
+  assert.deepEqual(declared("agent"), ["install", "delete", "validate", "list", "inspect"]);
   assert.deepEqual(catalogs.policy?.statusVocabulary, []);
   assert.deepEqual(catalogs.policy?.transitions.available, []);
   assert.deepEqual(declared("policy"), []);

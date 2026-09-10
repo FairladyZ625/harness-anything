@@ -26,6 +26,7 @@ import { validationError } from "./daemon-protocol-validate-entities.ts";
 import { validateArtifactsList } from "./artifacts-gui-contract.ts";
 import { validateDaemonUseCaseProjection } from "./daemon-protocol-use-case-projection.ts";
 import { validateEntityRowList } from "../entity-rows-read.ts";
+import { validateEntityContentRead } from "../entity-content-read.ts";
 import { validateEntityLocatorRead } from "../entity-locator-read.ts";
 import { isJsonObject } from "./json-rpc-types.ts";
 import { validateSquadRunRead, validateSquadRunsList } from "../squad-run-contract.ts";
@@ -101,6 +102,7 @@ const resultValidators = {
   "repo.vertical.declaration.read": validateVerticalDeclarationRead,
   "repo.entity.rows.read": validateEntityRowList,
   "repo.entity.locator.read": validateEntityLocatorRead,
+  "repo.entity.content.read": validateEntityContentRead,
   "repo.settings.read": validateDaemonSettingsRead,
   "repo.ci.observatory.read": validateCiObservatoryRead,
   "repo.workspace.summary.read": validateDaemonWorkspaceSummary,

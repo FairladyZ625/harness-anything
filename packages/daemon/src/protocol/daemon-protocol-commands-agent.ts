@@ -13,7 +13,10 @@ export const agentProtocolCommands = Object.freeze([
     actionKind: "vertical-kind-upsert",
     phase: "Governed-Entity-W2",
     path: ["vertical", "entity-kind", "upsert"],
-    summary: "Create or replace one Artifact kind from a complete vertical declaration JSON object.",
+    summary:
+      "Create one Artifact kind, or restate the mutable facets of an existing one. " +
+      "Creation mints the kind's stable identity and version 1 of its attribute schema; " +
+      "a rename keeps every existing reference.",
     method: "repo.vertical.kind.upsert",
     inputs: [
       cliInput(
@@ -22,31 +25,46 @@ export const agentProtocolCommands = Object.freeze([
         true,
         { code: "missing_field" },
         {
-          jsonFields: [
-            "id",
-            "entityType",
-            "version",
-            "idPrefix",
-            "display",
-            "descriptorSchemaRef",
-            "store",
-            "locatorKinds",
-          ],
+          jsonFields: ["id", "entityType", "idPrefix", "display", "descriptorSchemaRef", "store", "locatorKinds"],
           jsonAllowedFields: [
             "retired",
             "retiredAt",
             "reason",
+            "kindId",
             "id",
             "entityType",
-            "version",
             "idPrefix",
             "display",
             "descriptorSchemaRef",
             "store",
             "locatorKinds",
+            "attributes",
             "relations",
             "maturityVocabulary",
           ],
+        },
+      ),
+    ],
+  }),
+  defineCenterForwardWriteCommand({
+    id: "vertical-kind-publish-schema-cli",
+    actionKind: "vertical-kind-publish-schema",
+    phase: "Governed-Entity-W2",
+    path: ["vertical", "entity-kind", "publish-schema", "<kind>"],
+    summary:
+      "Publish the next immutable attribute schema version of one Artifact kind. " +
+      "Existing instances keep the version they were accepted against.",
+    method: "repo.vertical.kind.publishSchema",
+    positional: "kindId",
+    inputs: [
+      cliInput(
+        "--from-file",
+        "single",
+        true,
+        { code: "missing_field" },
+        {
+          jsonFields: [],
+          jsonAllowedFields: ["<attribute name>: { type, enum, required }"],
         },
       ),
     ],
@@ -265,6 +283,9 @@ export const agentProtocolCommands = Object.freeze([
         code: "invalid_field",
       }),
       cliInput("--dry-run", "boolean", false, { code: "invalid_field" }, { field: "dryRun" }),
+      // One JSON object rather than a flag per attribute: the Kind declares its own attribute names at runtime,
+      // so the CLI cannot enumerate them, and JSON is the only form that keeps a number a number.
+      cliInput("--attributes", "single", false, { code: "invalid_field" }, { projection: "json-object" }),
     ],
   }),
   defineCenterForwardWriteCommand({
@@ -289,6 +310,29 @@ export const agentProtocolCommands = Object.freeze([
       cliInput("--title", "single", false, { code: "invalid_field" }),
       cliInput("--locator", "single", false, { code: "invalid_field" }),
       cliInput("--content-version", "single", false, { code: "invalid_field" }, { field: "contentVersion" }),
+      cliInput("--attributes", "single", false, { code: "invalid_field" }, { projection: "json-object" }),
+    ],
+  }),
+  defineCenterForwardWriteCommand({
+    id: "entity-delete",
+    phase: "Governed-Entity-W2",
+    path: ["entity", "delete", "<kind>"],
+    summary: "Delete one compiled vertical Artifact Entity and retire every file it owns.",
+    method: "repo.task.run",
+    positional: "entityKind",
+    inputs: [
+      cliInput("--id", "single", true, { code: "missing_field" }, { field: "entityId" }),
+      cliInput("--reason", "single", true, { code: "missing_field" }),
+      cliInput(
+        "--expected-version",
+        "single",
+        true,
+        { code: "missing_field" },
+        {
+          regex: "^(?:0|[1-9][0-9]*)$",
+          projection: "number",
+        },
+      ),
     ],
   }),
   defineCenterForwardWriteCommand({
@@ -371,6 +415,18 @@ export const agentProtocolCommands = Object.freeze([
       cliInput("--dry-run", "boolean", false, { code: "invalid_field" }, { field: "dryRun" }),
     ],
   }),
+  defineLedgerWriteCommand({
+    id: "agent-delete",
+    phase: "Runtime-B",
+    path: ["agent", "delete", "<id>"],
+    summary: "Delete an Agent current view while retaining its canonical history.",
+    method: "repo.task.run",
+    positional: "agentId",
+    inputs: [
+      cliInput("--reason", "single", true, { code: "missing_field" }),
+      cliInput("--expected-version", "single", true, { code: "missing_field" }, { projection: "number" }),
+    ],
+  }),
   defineRepoReadCommand({
     id: "squad-list",
     phase: "Runtime-B",
@@ -448,6 +504,18 @@ export const agentProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--source", "single", true, { code: "missing_field" }, { field: "packageSource" }),
       cliInput("--dry-run", "boolean", false, { code: "invalid_field" }, { field: "dryRun" }),
+    ],
+  }),
+  defineLedgerWriteCommand({
+    id: "squad-delete",
+    phase: "Runtime-B",
+    path: ["squad", "delete", "<id>"],
+    summary: "Delete a Squad current view while retaining its canonical history.",
+    method: "repo.task.run",
+    positional: "squadId",
+    inputs: [
+      cliInput("--reason", "single", true, { code: "missing_field" }),
+      cliInput("--expected-version", "single", true, { code: "missing_field" }, { projection: "number" }),
     ],
   }),
   defineHostAdminCommand({

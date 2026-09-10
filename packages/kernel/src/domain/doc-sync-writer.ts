@@ -2,7 +2,12 @@ import { consumeKnownError } from "../error-consumption.ts";
 import { sha256Bytes, stableStringify } from "../integrity/stable-hash.ts";
 import { eventObjectTarget } from "../layout/ledger-object-layout.ts";
 import { type PortableDocumentPath } from "../layout/portable-path.ts";
-import { classifyTextualArtifactPath, OPAQUE_TEXTUAL_POLICY_ID } from "./artifact-text-classification.ts";
+import {
+  classifyTextualArtifactPath,
+  OPAQUE_TEXTUAL_POLICY_ID,
+  RAW_ARTIFACT_MAX_BYTES,
+  RAW_ARTIFACT_POLICY_ID,
+} from "./artifact-text-classification.ts";
 import { additiveProof, decisionDocumentPath, opaqueProof, touch } from "./doc-sync-regions.ts";
 import { DOC_POLICY_ID, docRouteRegistry, DocSyncContractError } from "./doc-sync-types.ts";
 import type {
@@ -196,6 +201,40 @@ function decideDocWriteInternal(input: DocWriteDecisionInput, requireAuthorizati
       sha256Bytes(claim ?? new Uint8Array()) !== change.candidate.sha256
     )
       return reject("content_claim_mismatch");
+    if (change.policyId === RAW_ARTIFACT_POLICY_ID) {
+      // Raw bytes never become a string on the way in. The claim identity, the content object, and the
+      // worktree file are all the same byte sequence, so there is nothing here for a decoder to change.
+      if (!taskArtifactPath(change.path)) {
+        unresolvedTouches.push(
+          touch(change.path, null, "raw artifact bytes are limited to a task artifacts subtree", "task-artifact-add"),
+        );
+        continue;
+      }
+      if (change.candidate.size > RAW_ARTIFACT_MAX_BYTES) {
+        unresolvedTouches.push(
+          touch(change.path, null, `raw artifact exceeds ${RAW_ARTIFACT_MAX_BYTES} bytes`, "task-artifact-add"),
+        );
+        continue;
+      }
+      changes.push({
+        path: change.path,
+        baseBlobSha256: change.baseBlobSha256,
+        candidate: {
+          sha256: change.candidate.sha256,
+          size: change.candidate.size,
+          mediaType: change.candidate.mediaType,
+        },
+        policyId: change.policyId,
+        regionProofs: opaqueProof().proofs,
+      });
+      blobs.push({
+        sha256: change.candidate.sha256,
+        size: change.candidate.size,
+        mediaType: change.candidate.mediaType,
+        body: claim,
+      });
+      continue;
+    }
     let body: string;
     try {
       body = new TextDecoder("utf-8", {
@@ -380,7 +419,7 @@ export function resolveDocRoute(path: PortableDocumentPath): {
 
 export function verifyDocEventChange(change: DocEventChange, baseBody: string, candidateBody: string): boolean {
   const compiled =
-    change.policyId === OPAQUE_TEXTUAL_POLICY_ID
+    change.policyId === OPAQUE_TEXTUAL_POLICY_ID || change.policyId === RAW_ARTIFACT_POLICY_ID
       ? opaqueProof()
       : additiveProof(change.path, baseBody, candidateBody, change.candidate.mediaType, change.baseBlobSha256 === null);
   return compiled.unresolved.length === 0 && stableStringify(compiled.proofs) === stableStringify(change.regionProofs);

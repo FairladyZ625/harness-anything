@@ -8,10 +8,12 @@ import {
 import { sha256Bytes, sha256Text } from "../integrity/stable-hash.ts";
 import { resolveHarnessLayout, type HarnessLayoutInput } from "../layout/index.ts";
 import { consumeKnownError } from "../error-consumption.ts";
+import { localRuntimeStateFileSystem as conversionFiles } from "../local/local-layout-file-system.ts";
 import {
   canonicalDocumentClaims,
   canonicalDocumentMode,
   canonicalDocumentRetirements,
+  canonicalOwnedDirectories,
   contentClaims,
 } from "./task-event-store-claims-layout.ts";
 import { canonicalEventCut, canonicalLedgerCut } from "./task-event-store-contract.ts";
@@ -76,22 +78,34 @@ export function publishConvertedGeneration(input: {
   if (revision === 0) return { commitSha: parent, revision, changed: false };
   const event = input.store.eventAtRevision(revision),
     cut = canonicalLedgerCut(input.repoId, event ? eventHead(event) : null),
-    files = followerFiles(ledger, parent, readEventsThrough(input.store, revision), input.store.readContentObject, cut),
+    closureEvents = readEventsThrough(input.store, revision),
+    files = followerFiles(
+      ledger,
+      parent,
+      closureEvents,
+      input.store.readContentObject,
+      cut,
+      input.store.metadata().generation,
+    ),
+    directories = followerDirectories(ledger, closureEvents),
     manifestTarget = ledgerGitPath(ledger, "events/segments/manifest.json"),
     alreadyCertified =
       localGitObjectRefStore.readPath(ledger.rootDir, parent, manifestTarget) !== null &&
+      JSON.parse(localGitObjectRefStore.readPath(ledger.rootDir, parent, manifestTarget)!.toString("utf8"))
+        .generation === input.store.metadata().generation &&
       certifiedFollowerRevision(ledger, parent, input.store) === revision;
   if (alreadyCertified) {
-    const baseline = captureGitBaseline(ledger.rootDir, parent, files);
+    const baseline = captureConversionBaseline(input.rootInput, ledger.rootDir, parent, files);
     localGitWorktreeSettlement.index(ledger.rootDir, files);
     if (!worktreeMatchesBaseline(ledger.rootDir, baseline, files) || !settleWorktree(ledger.rootDir, files, baseline))
       throw new TaskEventStoreError("publication_indeterminate", "authored worktree has concurrent edits");
     verifyWorktreeFiles(ledger.rootDir, files);
+    settleWorktreeDirectories(ledger.rootDir, directories);
     return { commitSha: parent, revision, changed: false };
   }
   const tempRef = `refs/ha-sqlite-outbox/${sha256Text(`conversion:${revision}:${cut.headDigest}`)}`,
     commit = prepareCommit(ledger.rootDir, tempRef, parent, files, `conversion-${revision}`, new Date().toISOString()),
-    baseline = captureGitBaseline(ledger.rootDir, parent, files);
+    baseline = captureConversionBaseline(input.rootInput, ledger.rootDir, parent, files);
   finalizeRefs(ledger.rootDir, authoredRef, commit, parent, tempRef);
   verifyGitFiles(ledger.rootDir, commit, files);
   verifyAuthoredRef(ledger.rootDir, authoredRef, commit);
@@ -99,6 +113,7 @@ export function publishConvertedGeneration(input: {
   if (!worktreeMatchesBaseline(ledger.rootDir, baseline, files) || !settleWorktree(ledger.rootDir, files, baseline))
     throw new TaskEventStoreError("publication_indeterminate", "authored worktree has concurrent edits");
   verifyWorktreeFiles(ledger.rootDir, files);
+  settleWorktreeDirectories(ledger.rootDir, directories);
   return { commitSha: commit, revision, changed: true };
 }
 
@@ -146,6 +161,7 @@ export interface SqliteTaskEventStoreOptions {
   readonly withAppendFence?: <T>(operation: () => T) => T;
   readonly onMaterializationHealthChange?: (health: MaterializationHealth) => void;
   readonly mutable?: boolean;
+  readonly generation?: 1 | 2;
   readonly killpoint?: (point: import("./task-event-store-types.ts").EventPublicationKillpoint) => void;
 }
 
@@ -157,6 +173,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
     repoId: options.repoId,
     rootInput: input,
     readOnly: options.mutable === false,
+    generation: options.generation,
   });
   let resolvedLedger: ReturnType<typeof resolveLedgerGitLayout> | null = null;
   const ledger = () => (resolvedLedger ??= resolveLedgerGitLayout(input));
@@ -263,6 +280,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
     files: readonly (PublicationWrite | PublicationDelete)[],
     baseline: ReadonlyMap<string, string>,
     commit: string,
+    directories: FollowerDirectorySettlement,
     restoreMissing = false,
   ): boolean => {
     const permitted = new Map(baseline),
@@ -282,7 +300,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
       const target = "target" in file ? file.target : file.delete,
         current = worktreeFingerprint(localGitWorktreeSettlement.readNode(`${currentLedger.rootDir}/${target}`)),
         settled =
-          "target" in file ? `${file.mode}:${sha256Text(file.body)}:${Buffer.byteLength(file.body)}` : "missing";
+          "target" in file ? `${file.mode}:${publicationDigest(file.body)}:${Buffer.byteLength(file.body)}` : "missing";
       if (current === "missing" && (restoreMissing || !permitted.has(target))) permitted.set(target, "missing");
       return current === permitted.get(target) || current === settled;
     });
@@ -292,6 +310,11 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
     }
     if (!settleWorktree(currentLedger.rootDir, eligible, permitted, options.killpoint, preserve, commit)) return false;
     verifyWorktreeFiles(currentLedger.rootDir, eligible);
+    // Creating an owned directory is additive and idempotent, so it runs even when a concurrent edit made part
+    // of this settlement ineligible: a partial pass must not be the reason a directory stays missing. Retiring
+    // one is equally safe under a partial pass, because a directory whose files have not been removed yet is
+    // still occupied and is therefore left standing.
+    settleWorktreeDirectories(currentLedger.rootDir, directories);
     if (eligible.length < files.length) return false;
     acceptedWorktree.clear();
     return true;
@@ -314,11 +337,18 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
     const verifiedRevision =
         certified?.commit === parent ? certified.revision : certifiedFollowerRevision(currentLedger, parent, sqlite),
       pendingEvents = readPendingEvents(sqlite, Math.min(verifiedRevision, settledWorktreeRevision)),
-      files = followerFiles(currentLedger, parent, pendingEvents, readContent, accepted);
+      files = followerFiles(currentLedger, parent, pendingEvents, readContent, accepted, sqlite.metadata().generation);
     certified = { commit: parent, revision: verifiedRevision };
     if (verifiedRevision === accepted.revision) {
       const closureEvents = readEventsThrough(sqlite, accepted.revision),
-        closureFiles = followerFiles(currentLedger, parent, closureEvents, readContent, accepted),
+        closureFiles = followerFiles(
+          currentLedger,
+          parent,
+          closureEvents,
+          readContent,
+          accepted,
+          sqlite.metadata().generation,
+        ),
         physicalCommit = pendingWorktreeBaseline ? null : recoverPhysicalWorktreeCommit(currentLedger, parent, sqlite),
         baseline = pendingWorktreeBaseline
           ? new Map(pendingWorktreeBaseline)
@@ -334,7 +364,16 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
       };
       localGitWorktreeSettlement.index(currentLedger.rootDir, closureFiles);
       pendingWorktreeBaseline = baseline;
-      if (settleFollowerWorktree(currentLedger, closureFiles, baseline, parent, restoreMissing)) {
+      if (
+        settleFollowerWorktree(
+          currentLedger,
+          closureFiles,
+          baseline,
+          parent,
+          followerDirectories(currentLedger, closureEvents),
+          restoreMissing,
+        )
+      ) {
         pendingWorktreeBaseline = null;
         settledWorktreeRevision = accepted.revision;
       }
@@ -380,7 +419,16 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
       worktree: pendingFollower("worktree settlement has not verified the Git cut").worktree,
     };
     localGitWorktreeSettlement.index(currentLedger.rootDir, files);
-    if (settleFollowerWorktree(currentLedger, files, baseline, commit, restoreMissing)) {
+    if (
+      settleFollowerWorktree(
+        currentLedger,
+        files,
+        baseline,
+        commit,
+        followerDirectories(currentLedger, pendingEvents),
+        restoreMissing,
+      )
+    ) {
       pendingWorktreeBaseline = null;
       settledWorktreeRevision = accepted.revision;
     }
@@ -442,7 +490,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
   if (options.mutable !== false) void scheduleFollower();
 
   return {
-    canonicalRef: "sqlite:generation-1",
+    canonicalRef: `sqlite:generation-${sqlite.metadata().generation}`,
     read: () => ({ schema: "canonical-event-stream/v1", revision: sqlite.revision(), events: sqlite.events() }),
     readHead: head,
     currentCut: cut,
@@ -556,8 +604,9 @@ function followerFiles(
   events: readonly CanonicalEventV1[],
   readContent: (sha256: string) => Uint8Array | null,
   cut: LedgerCutIdentity,
+  generation: number,
 ): (PublicationWrite | PublicationDelete)[] {
-  const latest = new Map<string, { body: string; mode: "100644" | "120000" }>(),
+  const latest = new Map<string, { body: Uint8Array; mode: "100644" | "120000" }>(),
     retired = new Set<string>();
   for (const event of events) {
     for (const retirement of canonicalDocumentRetirements(event)) {
@@ -569,13 +618,13 @@ function followerFiles(
       if (!bytes || bytes.byteLength !== claim.size || sha256Bytes(bytes) !== claim.sha256)
         throw new TaskEventStoreError("invalid_store", `content object ${claim.sha256} is missing or corrupt`);
       latest.set(claim.path, {
-        body: Buffer.from(bytes).toString("utf8"),
+        body: bytes,
         mode: canonicalDocumentMode(event, claim.path),
       });
       retired.delete(claim.path);
     }
   }
-  const manifest = `${JSON.stringify({ schema: "sqlite-ledger-segment-manifest/v1", generation: 1, cut })}\n`;
+  const manifest = `${JSON.stringify({ schema: "sqlite-ledger-segment-manifest/v1", generation, cut })}\n`;
   const eventsPrefix = ledgerGitPath(ledger, "events/"),
     objectsPrefix = ledgerGitPath(ledger, "objects/sha256/");
   for (const entry of localGitObjectRefStore.listTree(ledger.rootDir, parent)) {
@@ -595,6 +644,70 @@ function followerFiles(
     })),
     { target: ledgerGitPath(ledger, "events/segments/manifest.json"), body: manifest, mode: "100644" },
   ];
+}
+
+interface FollowerDirectorySettlement {
+  /** Directories no file implies, so materialization has to make them itself. */
+  readonly create: readonly string[];
+  /** Directories an owner declared before and declares no longer, deepest first so a parent follows its child. */
+  readonly retire: readonly string[];
+}
+
+/**
+ * The directories the accepted events own, and the ones they have released. Each entity event restates its
+ * owner's whole set, so the last event of an owner decides both: a deleted owner declares none and names every
+ * directory it used to hold. Only paths an event actually names appear here, so nothing that was never declared
+ * is ever a retirement candidate no matter what the worktree looks like.
+ */
+function followerDirectories(
+  ledger: ReturnType<typeof resolveLedgerGitLayout>,
+  events: readonly CanonicalEventV1[],
+): FollowerDirectorySettlement {
+  const declaredByOwner = new Map<string, readonly string[]>(),
+    retiredByOwner = new Map<string, readonly string[]>();
+  for (const event of events) {
+    const owned = canonicalOwnedDirectories(event);
+    if (!owned) continue;
+    declaredByOwner.set(owned.ownerRef, owned.directories);
+    retiredByOwner.set(owned.ownerRef, owned.retirements);
+  }
+  const create = [...new Set([...declaredByOwner.values()].flat())]
+      .map((logical) => ledgerGitPath(ledger, logical))
+      .sort(),
+    held = new Set(create);
+  return {
+    create,
+    // Reverse path order is depth order: `a/b/c` sorts after `a/b`, which sorts after `a`.
+    retire: [...new Set([...retiredByOwner.values()].flat())]
+      .map((logical) => ledgerGitPath(ledger, logical))
+      .filter((directory) => !held.has(directory))
+      .sort()
+      .reverse(),
+  };
+}
+
+function settleWorktreeDirectories(repoRoot: string, settlement: FollowerDirectorySettlement): void {
+  if (settlement.create.length > 0)
+    localGitWorktreeSettlement.visible(
+      repoRoot,
+      settlement.create.map((directory) => ({ directory })),
+    );
+  for (const directory of settlement.create)
+    if (!localGitWorktreeSettlement.isDirectory(`${repoRoot}/${directory}`))
+      throw new TaskEventStoreError(
+        "publication_indeterminate",
+        `worktree follower did not restore directory ${directory}`,
+      );
+  if (settlement.retire.length === 0) return;
+  // A directory that still holds something is left alone: what the user put there is not the entity's to retire,
+  // and neither is any directory that is only standing because it holds it.
+  const preserved = new Set(localGitWorktreeSettlement.retireEmptyDirectories(repoRoot, settlement.retire));
+  for (const directory of settlement.retire)
+    if (!preserved.has(directory) && localGitWorktreeSettlement.isDirectory(`${repoRoot}/${directory}`))
+      throw new TaskEventStoreError(
+        "publication_indeterminate",
+        `worktree follower did not retire directory ${directory}`,
+      );
 }
 
 function sqliteBatch(
@@ -650,7 +763,7 @@ function certifiedFollowerRevision(
     };
     const revision = Number(parsed.cut?.revision);
     if (
-      parsed.generation !== 1 ||
+      parsed.generation !== sqlite.metadata().generation ||
       parsed.cut?.repoId !== sqlite.metadata().repoId ||
       !Number.isSafeInteger(revision) ||
       revision < 0 ||
@@ -667,6 +780,7 @@ function certifiedFollowerRevision(
       readEventsThrough(sqlite, revision),
       sqlite.readContentObject,
       expected,
+      sqlite.metadata().generation,
     );
     verifyGitFiles(ledger.rootDir, commit, closure);
     return revision;
@@ -740,7 +854,7 @@ function verifyDocumentClosure(
     if (
       bytes === null ||
       bytes.byteLength !== expected.size ||
-      sha256Text(bytes.toString("utf8")) !== expected.sha256 ||
+      sha256Bytes(bytes) !== expected.sha256 ||
       tree.get(target)?.mode !== expected.mode
     )
       throw new TaskEventStoreError("publication_indeterminate", `Git follower document differs at ${logical}`);
@@ -762,8 +876,8 @@ function verifyGitFiles(repoRoot: string, commit: string, files: readonly Public
     );
   for (const file of files) {
     if ("target" in file) {
-      const body = bodies.get(file.target)?.toString("utf8") ?? null;
-      if (body !== file.body || tree.get(file.target)?.mode !== file.mode)
+      const body = bodies.get(file.target) ?? null;
+      if (body === null || !body.equals(publicationBytes(file.body)) || tree.get(file.target)?.mode !== file.mode)
         throw new TaskEventStoreError("publication_indeterminate", `Git follower read-back differs at ${file.target}`);
     } else if ("delete" in file && tree.has(file.delete)) {
       throw new TaskEventStoreError("publication_indeterminate", `Git follower did not retire ${file.delete}`);
@@ -780,7 +894,7 @@ function verifyWorktreeFiles(repoRoot: string, files: readonly PublicationFile[]
   for (const file of files) {
     if ("target" in file) {
       const node = localGitWorktreeSettlement.readNode(`${repoRoot}/${file.target}`);
-      if (node?.body !== file.body || node.mode !== file.mode)
+      if (node?.sha256 !== publicationDigest(file.body) || node.mode !== file.mode)
         throw new Error(`worktree follower read-back differs at ${file.target}`);
     } else if ("delete" in file && localGitWorktreeSettlement.readNode(`${repoRoot}/${file.delete}`) !== null) {
       throw new Error(`worktree follower did not retire ${file.delete}`);
@@ -810,14 +924,14 @@ function settleWorktree(
       !settleVisibleChange(
         repoRoot,
         file.target,
-        `${file.mode}:${sha256Text(file.body)}:${Buffer.byteLength(file.body)}`,
+        `${file.mode}:${publicationDigest(file.body)}:${Buffer.byteLength(file.body)}`,
         baseline,
         killpoint,
         (hooks) => {
           if (preserve.has(file.target)) {
             hooks.beforeRename();
             const node = localGitWorktreeSettlement.readNode(`${repoRoot}/${file.target}`);
-            if (node && node.body !== file.body)
+            if (node && node.sha256 !== publicationDigest(file.body))
               localGitWorktreeSettlement.preserveVisibleConflict(
                 repoRoot,
                 `${repoRoot}/${file.target}`,
@@ -863,6 +977,42 @@ function settleVisibleChange(
   return true;
 }
 
+/** Offline conversion preserves the restored draft overlay before settling accepted content. */
+function captureConversionBaseline(
+  rootInput: HarnessLayoutInput,
+  repoRoot: string,
+  parent: string,
+  files: readonly PublicationFile[],
+): ReadonlyMap<string, string> {
+  const baseline = new Map(captureGitBaseline(repoRoot, parent, files));
+  const drafts: { path: string; mode: string | null; sha256: string | null; preservedPath: string | null }[] = [];
+  for (const file of files) {
+    const target = "target" in file ? file.target : "delete" in file ? file.delete : null;
+    if (target === null) continue;
+    const node = localGitWorktreeSettlement.readNode(`${repoRoot}/${target}`);
+    const current = worktreeFingerprint(node);
+    const settled =
+      "target" in file ? `${file.mode}:${publicationDigest(file.body)}:${Buffer.byteLength(file.body)}` : "missing";
+    if (current === baseline.get(target) || current === settled) continue;
+    const preservedPath = node
+      ? localGitWorktreeSettlement.preserveConflict(repoRoot, `${repoRoot}/${target}`, target, parent)
+      : null;
+    if (node && localGitWorktreeSettlement.readNode(`${repoRoot}/${preservedPath}`)?.sha256 !== node.sha256)
+      throw new TaskEventStoreError("publication_indeterminate", `draft preservation differs: ${target}`);
+    drafts.push({ path: target, mode: node?.mode ?? null, sha256: node?.sha256 ?? null, preservedPath });
+    baseline.set(target, current);
+  }
+  if (drafts.length) {
+    const directory = `${resolveHarnessLayout(rootInput).localRoot}/operations/conversion-drafts/${parent}`;
+    conversionFiles.mkdirp(directory);
+    const manifest = `${JSON.stringify({ schema: "conversion-drafts/v1", parent, drafts }, null, 2)}\n`;
+    const target = `${directory}/manifest.json`;
+    if (!conversionFiles.createExclusiveText(target, manifest) && conversionFiles.readText(target) !== manifest)
+      throw new TaskEventStoreError("publication_indeterminate", "conversion draft preservation manifest differs");
+  }
+  return baseline;
+}
+
 function captureGitBaseline(
   repoRoot: string,
   commit: string,
@@ -886,9 +1036,7 @@ function captureGitBaseline(
       const bytes = bodies.get(target) ?? null;
       return [
         target,
-        bytes === null
-          ? "missing"
-          : `${tree.get(target)?.mode}:${sha256Text(bytes.toString("utf8"))}:${bytes.byteLength}`,
+        bytes === null ? "missing" : `${tree.get(target)?.mode}:${sha256Bytes(bytes)}:${bytes.byteLength}`,
       ];
     }),
   );
@@ -902,7 +1050,7 @@ function worktreeMatchesBaseline(
   const settled = new Map(
     files.flatMap((file) =>
       "target" in file
-        ? [[file.target, `${file.mode}:${sha256Text(file.body)}:${Buffer.byteLength(file.body)}`]]
+        ? [[file.target, `${file.mode}:${publicationDigest(file.body)}:${Buffer.byteLength(file.body)}`]]
         : "delete" in file
           ? [[file.delete, "missing"]]
           : [],
@@ -913,6 +1061,14 @@ function worktreeMatchesBaseline(
     if (current !== fingerprint && current !== settled.get(target)) return false;
   }
   return true;
+}
+
+function publicationBytes(body: string | Uint8Array): Buffer {
+  return typeof body === "string" ? Buffer.from(body, "utf8") : Buffer.isBuffer(body) ? body : Buffer.from(body);
+}
+
+function publicationDigest(body: string | Uint8Array): string {
+  return sha256Bytes(publicationBytes(body));
 }
 
 function worktreeFingerprint(node: ReturnType<typeof localGitWorktreeSettlement.readNode>): string {

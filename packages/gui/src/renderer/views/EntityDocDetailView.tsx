@@ -6,14 +6,17 @@ import { findEntityKind, type EntityKindDeclaration, type EntityKindRow } from "
 import { GovernedEntityPanel } from "../components/entityDoc/GovernedEntityPanel.tsx";
 import { EntityDetailActions } from "../components/entityDoc/EntityDetailActions.tsx";
 import { EntityLocatorPreview } from "../components/entityDoc/EntityLocatorPreview.tsx";
-import { NewEntityWizard } from "../components/entityDoc/NewEntityWizard.tsx";
+import { EntityManagedContent } from "../components/entityDoc/EntityManagedContent.tsx";
+import { NewEntityWizard, type PinnedAttributeSchema } from "../components/entityDoc/NewEntityWizard.tsx";
 import { FactFacetLive, FactTypeVocabulary } from "../components/entityDoc/FactVocabularySections.tsx";
 import type { ViewId } from "../navigation/viewHistory.ts";
 import { useFactFacetStats, type EntityLiveCounts } from "../entities-data.ts";
 import type { GovernedEntityRow } from "../graph/governedEntities.ts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { VerticalKindForm } from "../components/entityDoc/VerticalKindForm.tsx";
+import { VerticalKindSchemaForm } from "../components/entityDoc/VerticalKindSchemaForm.tsx";
 import {
+  publishVerticalKindSchema,
   readVerticalDeclaration,
   retireVerticalKind,
   upsertVerticalKind,
@@ -75,16 +78,17 @@ export function EntityDocDetailView({
     queryFn: () => readVerticalDeclaration(repoId),
     enabled: catalogRow?.origin === "vertical",
   });
-  const [kindMode, setKindMode] = useState<"edit" | "retire" | null>(null);
+  const [kindMode, setKindMode] = useState<"edit" | "publish" | "retire" | null>(null);
   const [kindBusy, setKindBusy] = useState(false);
   const [kindError, setKindError] = useState<string | null>(null);
   const [retireReason, setRetireReason] = useState("");
+  // 稳定身份寻址:改名只换 qualified id,kindId 不变,所以按 kindId 找回当前接受的声明。
   const fullDeclaration = verticalQuery.data?.declaration.entityKinds.find(
     (candidate): candidate is ArtifactKindDeclaration =>
       typeof candidate === "object" &&
       candidate !== null &&
-      "id" in candidate &&
-      candidate.id === catalogRow?.declaration?.id,
+      "kindId" in candidate &&
+      candidate.kindId === catalogRow?.declaration?.kindId,
   );
   const finishKindMutation = async (receipt: { readonly outcome: string; readonly code?: unknown }) => {
     if (receipt.outcome !== "applied" && receipt.outcome !== "no_changes")
@@ -160,6 +164,9 @@ export function EntityDocDetailView({
             <div className="flex gap-1">
               <button type="button" onClick={() => setKindMode("edit")}>
                 编辑种类
+              </button>
+              <button type="button" onClick={() => setKindMode("publish")}>
+                发布属性版本
               </button>
               <button type="button" onClick={() => setKindMode("retire")}>
                 停用种类
@@ -306,12 +313,34 @@ export function EntityDocDetailView({
               }}
             />
           )}
+          {kindMode === "publish" && fullDeclaration && (
+            <VerticalKindSchemaForm
+              current={fullDeclaration}
+              busy={kindBusy}
+              error={kindError}
+              onCancel={() => setKindMode(null)}
+              onSubmit={(attributes) => {
+                if (!verticalQuery.data) return;
+                setKindBusy(true);
+                setKindError(null);
+                void publishVerticalKindSchema(repoId, verticalQuery.data, fullDeclaration.kindId ?? kind, attributes)
+                  .then(finishKindMutation)
+                  .catch((cause: unknown) => setKindError(cause instanceof Error ? cause.message : String(cause)))
+                  .finally(() => setKindBusy(false));
+              }}
+            />
+          )}
           {kindMode === "retire" && verticalQuery.data && (
             <form
               onSubmit={(event) => {
                 event.preventDefault();
                 setKindBusy(true);
-                void retireVerticalKind(repoId, verticalQuery.data!, catalogRow!.declaration!.id, retireReason)
+                void retireVerticalKind(
+                  repoId,
+                  verticalQuery.data!,
+                  catalogRow!.declaration!.kindId ?? kind,
+                  retireReason,
+                )
                   .then(finishKindMutation)
                   .catch((cause: unknown) => setKindError(cause instanceof Error ? cause.message : String(cause)))
                   .finally(() => setKindBusy(false));
@@ -362,6 +391,7 @@ export function EntityDocDetailView({
             repoId={repoId}
             doc={doc}
             catalogRow={catalogRow}
+            declaration={fullDeclaration ?? null}
             governedRowCount={governedRows.length}
             selectedEntity={selectedEntity}
             creating={
@@ -392,6 +422,7 @@ function DetailRendererPane({
   repoId,
   doc,
   catalogRow,
+  declaration,
   governedRowCount,
   selectedEntity,
   creating,
@@ -402,6 +433,8 @@ function DetailRendererPane({
   readonly repoId: string;
   readonly doc: EntityKindDoc;
   readonly catalogRow: EntityKindRow | null;
+  /** 这个 kind 已被接受的完整声明;新建按最新版填,既有实例按它自己钉的那一版填。 */
+  readonly declaration: ArtifactKindDeclaration | null;
   readonly governedRowCount: number;
   readonly selectedEntity: GovernedEntityRow | null;
   readonly creating: boolean;
@@ -426,6 +459,7 @@ function DetailRendererPane({
         repoId={repoId}
         row={catalogRow}
         seedRows={governedRowsForSeed}
+        pinnedSchema={latestPublishedSchema(declaration)}
         onCancel={onCancelCreate}
         onImported={onImported}
       />
@@ -440,20 +474,83 @@ function DetailRendererPane({
         }
       />
     );
-  if (selectedEntity.locator === null)
-    return (
-      <div className="flex flex-1 items-center justify-center p-6" data-testid="entity-locator-none">
-        <p className="max-w-sm text-center ui-meta leading-relaxed text-text-faint">
-          {selectedEntity.title ?? selectedEntity.entityId} 没有 locator,没有可渲染的正文。
-        </p>
-      </div>
-    );
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col" data-testid="entity-doc-renderer">
-      <EntityDetailActions repoId={repoId} entity={selectedEntity} />
-      <EntityLocatorPreview repoId={repoId} locator={selectedEntity.locator} />
+      {/*
+       * 按实体身份挂 key:换一条实体就是换一个操作对象,上一条的草稿与上一次写的回执状态
+       * 不该跟着走——那会让人在 B 上看到写 A 的结果,或者提交一张按 A 起草的表。
+       */}
+      <EntityDetailActions
+        key={selectedEntity.ref}
+        repoId={repoId}
+        entity={selectedEntity}
+        pinnedSchema={pinnedSchemaOf(declaration, selectedEntity.descriptor?.kindVersion ?? null)}
+      />
+      <EntityBody repoId={repoId} entity={selectedEntity} />
     </div>
   );
+}
+
+/**
+ * 实体正文的两屏:**内容**是这个实体自己收管的那一份,**来源**是它当初来自的那个位置
+ * 此刻的样子。默认开在内容上——那才是这个实体的东西,来源被移走或删掉都不影响它。
+ */
+function EntityBody({ repoId, entity }: { readonly repoId: string; readonly entity: GovernedEntityRow }) {
+  const [pane, setPane] = useState<"content" | "source">("content");
+  return (
+    <>
+      <div className="flex shrink-0 gap-1 border-b border-border px-3 py-1.5" data-testid="entity-body-tabs">
+        {(["content", "source"] as const).map((id) => (
+          <button
+            key={id}
+            type="button"
+            data-testid={`entity-body-tab-${id}`}
+            aria-pressed={pane === id}
+            onClick={() => setPane(id)}
+            className={[
+              "rounded-md border px-2 py-0.5 ui-micro",
+              pane === id
+                ? "border-border-strong bg-surface-raised text-text"
+                : "border-transparent text-text-muted hover:text-text",
+            ].join(" ")}
+          >
+            {id === "content" ? "内容" : "来源"}
+          </button>
+        ))}
+      </div>
+      {pane === "content" ? (
+        <EntityManagedContent repoId={repoId} entityKind={entity.kind} entityId={entity.entityId} />
+      ) : entity.locator === null ? (
+        <div className="flex flex-1 items-center justify-center p-6" data-testid="entity-locator-none">
+          <p className="max-w-sm text-center ui-meta leading-relaxed text-text-faint">
+            {entity.title ?? entity.entityId} 没有记录来源。
+          </p>
+        </div>
+      ) : (
+        <EntityLocatorPreview repoId={repoId} locator={entity.locator} />
+      )}
+    </>
+  );
+}
+
+/** kind 最新已发布的那一版属性声明——新建的实例钉的就是它。没有任何已发布版本时为 null。 */
+function latestPublishedSchema(declaration: ArtifactKindDeclaration | null): PinnedAttributeSchema | null {
+  const published = [...(declaration?.schemaVersions ?? [])].sort((left, right) => left.version - right.version);
+  const latest = published.at(-1);
+  return latest === undefined ? null : { version: latest.version, attributes: latest.attributes };
+}
+
+/**
+ * 一条既有实例该按哪一版填:它自己钉住的那一版,不是 kind 最新那一版。发布 v2 之后,
+ * v1 期的实例照旧按 v1 读写;这里找不到那一版就是 null,宁可不摆表单也不换一版给它。
+ */
+function pinnedSchemaOf(
+  declaration: ArtifactKindDeclaration | null,
+  kindVersion: number | null,
+): PinnedAttributeSchema | null {
+  if (kindVersion === null) return null;
+  const pinned = declaration?.schemaVersions?.find((version) => version.version === kindVersion);
+  return pinned === undefined ? null : { version: pinned.version, attributes: pinned.attributes };
 }
 
 function RendererEmptyState({ message }: { readonly message: string }) {
@@ -535,7 +632,8 @@ function DeclarationFacets({ declaration }: { readonly declaration: EntityKindDe
   if (declaration === null) return null;
   const rows: readonly (readonly [string, string])[] = [
     ["id", declaration.id],
-    ["version", String(declaration.version)],
+    ["kindId", declaration.kindId],
+    ["schemaVersions", declaration.schemaVersions.map((version) => `v${version}`).join(", ")],
     ["idPrefix", declaration.idPrefix],
     ["display.singular", declaration.display.singular],
     ["display.plural", declaration.display.plural],
@@ -548,8 +646,9 @@ function DeclarationFacets({ declaration }: { readonly declaration: EntityKindDe
     <section data-testid="entity-declaration-facets" className="mt-6 border-t border-border pt-4">
       <h2 className="ui-body font-semibold">声明的可配置项</h2>
       <p className="mt-1 ui-micro leading-relaxed text-text-faint">
-        这些值来自本仓 vertical 声明。id / version 一起构成身份——改它们是换一个类型,不是改一个字段; display
-        只影响呈现。编辑与停用都经 daemon 的仓级声明单写路。
+        这些值来自本仓 vertical 声明。kindId 是不可变的稳定身份——改名、发布新属性版本、停用都不换它; schemaVersions
+        只增不改,已入库的实例按它创建时固定的版本读取。display 只影响呈现。 编辑、发布与停用都经 daemon
+        的仓级声明单写路。
       </p>
       <dl className="mt-2 grid grid-cols-[minmax(110px,auto)_1fr] gap-x-3 gap-y-1">
         {rows.map(([label, value]) => (

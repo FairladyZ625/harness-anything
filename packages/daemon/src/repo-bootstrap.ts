@@ -143,8 +143,15 @@ export function resolveRepoBootstrap(
       },
       rolePolicy: { roleId: "owner", commandClasses: ["admin", "repo-write", "repo-read", "arbiter"] },
     }).body,
-    harnessDocument = machineDocument(rootDir, "harness/harness.yaml", config, request.name),
-    identityDocuments = [harnessDocument, machineDocument(rootDir, "harness/people.yaml", people)],
+    layout = resolveHarnessLayout(rootDir),
+    machineRoot = machineDocumentRoot(rootDir, layout),
+    harnessDocument = machineDocument(
+      rootDir,
+      `${machineRoot}/harness.yaml`,
+      configuredBody(layout) ?? config,
+      request.name,
+    ),
+    identityDocuments = [harnessDocument, machineDocument(rootDir, `${machineRoot}/people.yaml`, people)],
     initialized = identityDocuments.every(({ existingSha256 }) => existingSha256 !== null);
   if (initialized !== identityDocuments.some(({ existingSha256 }) => existingSha256 !== null))
     throw repoBootstrapError(
@@ -158,8 +165,7 @@ export function resolveRepoBootstrap(
     );
   const machineDocuments = [...identityDocuments, ...(request.addNpmScripts ? [npmScriptsDocument(rootDir)] : [])],
     settings = readSettingsFacet(harnessDocument.body);
-  const layout = resolveHarnessLayout(rootDir),
-    oldStandardsRoot = path.join(layout.authoredRoot, "standards");
+  const oldStandardsRoot = path.join(layout.authoredRoot, "standards");
   if (oldStandardsRoot !== layout.standardsRoot && existsSync(oldStandardsRoot) && !existsSync(layout.standardsRoot))
     throw repoBootstrapError(
       "standards_migration_required",
@@ -301,7 +307,9 @@ export function bootstrapRepo(
   return {
     authoredBranch: boundBranch,
     outcome: verified ? (writtenDocuments.length || commit ? "applied" : "noop") : "indeterminate",
-    summary: verified ? "initialized harness at harness/harness.yaml" : "init publication readback failed",
+    summary: verified
+      ? `initialized harness at ${machineDocumentRoot(rootDir, layout)}/harness.yaml`
+      : "init publication readback failed",
     created,
     updated,
     preserved,
@@ -339,6 +347,16 @@ function configureLedgerOnly(input: RepoBootstrapInput, authoredBranch?: string)
     plan: {},
     publication: { ok: true, commit: null, changedPaths: [] },
   };
+}
+/** Machine configuration is read and initialized under the configured authored root. */
+function machineDocumentRoot(rootDir: string, layout: ReturnType<typeof resolveHarnessLayout>): string {
+  return path.relative(rootDir, layout.authoredRoot).split(path.sep).join("/");
+}
+/** Seed authored configuration from the existing layout declaration to avoid conflicting root paths. */
+function configuredBody(layout: ReturnType<typeof resolveHarnessLayout>): string | undefined {
+  return layout.configPath !== undefined && existsSync(layout.configPath)
+    ? readFileSync(layout.configPath, "utf8")
+    : undefined;
 }
 function machineDocument(rootDir: string, target: string, fallbackBody: string, name?: string): BootstrapDocument {
   const absolute = path.join(rootDir, ...target.split("/")),

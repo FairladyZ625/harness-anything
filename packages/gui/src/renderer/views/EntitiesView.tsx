@@ -163,7 +163,7 @@ export function EntitiesView({
 }
 
 /**
- * 目录卡片。长 kind 名(声明实体的 `software/coding/x@1`)与它的路径模板都是
+ * 目录卡片。长 kind 名(声明实体的 `entity-kind/KND-…`)与它的路径模板都是
  * 不含空格的机器字面量,常规断行救不了:kind 名 `break-all` 兜底换行并把全名放进
  * `title`,路径模板独立成第二行——两者不再共享一行窄空间互相顶出去。
  */

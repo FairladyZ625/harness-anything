@@ -2,7 +2,12 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { consumeKnownError, openSqliteEventStore, sqliteLedgerPath } from "../../kernel/src/index.ts";
+import {
+  consumeKnownError,
+  openSqliteEventStore,
+  resolveActiveGeneration,
+  sqliteLedgerPath,
+} from "../../kernel/src/index.ts";
 
 export interface WriterEpochLease {
   readonly repoId: string;
@@ -206,8 +211,11 @@ function validateWriterEpochFenceDescriptor(descriptor: WriterEpochFenceDescript
 }
 
 export function readLedgerWriterEpoch(repoId: string, rootDir: string | null | undefined): number {
-  if (typeof rootDir !== "string" || !existsSync(sqliteLedgerPath(rootDir))) return 0;
-  const ledger = openSqliteEventStore({ repoId, rootInput: rootDir, readOnly: true });
+  if (typeof rootDir !== "string") return 0;
+  const generation = resolveActiveGeneration({ rootInput: rootDir, repoId }),
+    databasePath = sqliteLedgerPath(rootDir, generation);
+  if (!existsSync(databasePath)) return 0;
+  const ledger = openSqliteEventStore({ repoId, rootInput: rootDir, generation, readOnly: true });
   try {
     return ledger.writerFence()?.epoch ?? 0;
   } finally {

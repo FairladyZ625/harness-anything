@@ -2,10 +2,11 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import {
   parseCanonicalEvent,
+  validateCurrentCanonicalEvent,
   serializePersistedCanonicalEvent,
   type CanonicalEventV1,
 } from "../domain/doc-sync.contract.ts";
-import { sha256Text } from "../integrity/stable-hash.ts";
+import { sha256Bytes, sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 import { resolveHarnessLayout, type HarnessLayoutInput } from "../layout/index.ts";
 import { localRuntimeStateFileSystem } from "../local/local-layout-file-system.ts";
 import { localContentObjectFileSystem } from "../local/local-layout-file-system.ts";
@@ -33,6 +34,8 @@ export interface SqliteEventRow {
   readonly revision: number;
   readonly opId: string;
   readonly eventJson: string;
+  readonly occurredAt: string;
+  readonly recordedAt: string;
   readonly digest: `sha256:${string}`;
 }
 
@@ -91,6 +94,8 @@ export interface SqliteEventStore {
   readonly databasePath: string;
   readonly sqliteVersion: string;
   readonly claimWriter: (fence: SqliteWriterFence) => void;
+  /** Hand the ledger back when an offline holder stops writing, so a live writer is not fenced out. */
+  readonly releaseWriter: (fence: SqliteWriterFence) => void;
   readonly writerFence: () => SqliteWriterFence | null;
   readonly appendCommand: (input: {
     readonly fence: SqliteWriterFence;
@@ -99,6 +104,10 @@ export interface SqliteEventStore {
     readonly blobs?: readonly CanonicalContentBlob[];
     readonly rejectionCode?: string;
     readonly beforeOutcome?: () => void;
+    readonly historicalRecord?: {
+      readonly recordedAt: string;
+      readonly eventRecordedAt: readonly string[];
+    };
   }) => SqliteCommandOutcome;
   readonly outcome: (opId: string) => SqliteCommandOutcome | null;
   readonly readCommandOutcome: (opId: string) => SqliteCommandOutcome | null;
@@ -117,6 +126,180 @@ export interface SqliteEventStore {
 
 export function sqliteLedgerPath(input: HarnessLayoutInput, generation = SQLITE_LEDGER_GENERATION): string {
   return path.join(resolveHarnessLayout(input).localRoot, "store", "generations", String(generation), "ledger.sqlite");
+}
+
+export interface GenerationTwoActivationV2 {
+  readonly schema: "generation-activation/v2";
+  readonly repoId: string;
+  readonly sourceDigest: string;
+  readonly importedPrefixRevision: number;
+  readonly generation: 2;
+}
+
+export function generationTwoActivationPath(input: HarnessLayoutInput): string {
+  return `${sqliteLedgerPath(input, 2)}.activation.json`;
+}
+
+export function generationActivationCertificatePath(input: HarnessLayoutInput): string {
+  return `${sqliteLedgerPath(input, 1)}.activation.json`;
+}
+
+export function preflightCanonicalGeneration(input: {
+  readonly rootInput: HarnessLayoutInput;
+  readonly repoId: string;
+}): void {
+  const layout = resolveHarnessLayout(input.rootInput),
+    databasePath = sqliteLedgerPath(input.rootInput, 1),
+    certificatePath = generationActivationCertificatePath(layout.rootDir),
+    markerPath = `${databasePath}.import-source.json`;
+  if (
+    !localRuntimeStateFileSystem.exists(databasePath) ||
+    !localRuntimeStateFileSystem.exists(markerPath) ||
+    !localRuntimeStateFileSystem.exists(certificatePath)
+  )
+    throw new TaskEventStoreError(
+      "invalid_store",
+      "canonical generation is not activated; run operator conversion before attaching this repository",
+    );
+  const marker = JSON.parse(localRuntimeStateFileSystem.readText(markerPath)),
+    certificate = JSON.parse(localRuntimeStateFileSystem.readText(certificatePath));
+  if (
+    certificate.schema !== "generation-activation/v1" ||
+    certificate.repoId !== input.repoId ||
+    certificate.sourceDigest !== marker.sourceDigest ||
+    !Number.isSafeInteger(certificate.importedPrefixRevision) ||
+    certificate.importedPrefixRevision < 0
+  )
+    throw new TaskEventStoreError("invalid_store", "generation activation certificate differs");
+  const store = openSqliteEventStore({ repoId: input.repoId, databasePath, generation: 1, readOnly: true });
+  try {
+    if (store.revision() < certificate.importedPrefixRevision)
+      throw new TaskEventStoreError("invalid_store", "generation revision precedes its activation certificate");
+  } finally {
+    store.close();
+  }
+}
+
+export function activateEmptyCanonicalGeneration(input: {
+  readonly rootInput: HarnessLayoutInput;
+  readonly repoId: string;
+}): void {
+  const layout = resolveHarnessLayout(input.rootInput);
+  if (preflightGenerationTwoActivation(input) !== null) return;
+  const databasePath = sqliteLedgerPath(input.rootInput, 1),
+    snapshotPath = path.join(layout.localRoot, "store", "imports", "generation-0.snapshot.json");
+  if (localRuntimeStateFileSystem.exists(generationActivationCertificatePath(layout.rootDir))) {
+    preflightCanonicalGeneration(input);
+    return;
+  }
+  if (
+    localRuntimeStateFileSystem.exists(path.join(layout.authoredRoot, "events")) ||
+    localRuntimeStateFileSystem.exists(path.join(layout.authoredRoot, "objects"))
+  )
+    throw new TaskEventStoreError(
+      "invalid_store",
+      "canonical generation is not activated; run operator conversion before attaching this repository",
+    );
+  if (localRuntimeStateFileSystem.exists(databasePath) || localRuntimeStateFileSystem.exists(snapshotPath))
+    throw new TaskEventStoreError(
+      "invalid_store",
+      "legacy generation exists without activation; run operator conversion before attaching this repository",
+    );
+  const generationTwoPath = sqliteLedgerPath(input.rootInput, 2),
+    generationTwoCertificatePath = `${generationTwoPath}.activation.json`,
+    generationTwo = openSqliteEventStore({
+      repoId: input.repoId,
+      databasePath: generationTwoPath,
+      generation: 2,
+    });
+  generationTwo.close();
+  const activation = {
+    schema: "generation-activation/v2" as const,
+    repoId: input.repoId,
+    sourceDigest: sha256Text(stableStringify({ repoId: input.repoId, generation: 2, importedPrefixRevision: 0 })),
+    importedPrefixRevision: 0,
+    generation: 2 as const,
+  };
+  if (
+    !localRuntimeStateFileSystem.createExclusiveText(generationTwoCertificatePath, `${JSON.stringify(activation)}\n`)
+  ) {
+    const existing = JSON.parse(localRuntimeStateFileSystem.readText(generationTwoCertificatePath));
+    if (stableStringify(existing) !== stableStringify(activation))
+      throw new TaskEventStoreError("invalid_store", "generation 2 activation certificate differs");
+  }
+}
+
+/**
+ * The one production generation selector. Writers, readers, offline commands and every restart
+ * resolve the same answer from the same certificate. A certificate that is malformed or names
+ * another repository fails the caller instead of silently falling back to generation 1, so a
+ * damaged activation can never be mistaken for "not activated yet".
+ */
+export function resolveActiveGeneration(input: {
+  readonly rootInput: HarnessLayoutInput;
+  readonly repoId?: string;
+}): 1 | 2 {
+  if (readGenerationTwoActivation(input) !== null) return 2;
+  return hasLegacyGeneration(input.rootInput) ? 1 : 2;
+}
+
+function hasLegacyGeneration(input: HarnessLayoutInput): boolean {
+  const layout = resolveHarnessLayout(input),
+    generationOneLedger = sqliteLedgerPath(input, 1),
+    generationOneCertificate = `${generationOneLedger}.activation.json`,
+    generationOneMarker = `${generationOneLedger}.import-source.json`;
+  return [
+    generationOneLedger,
+    generationOneCertificate,
+    generationOneMarker,
+    path.join(layout.localRoot, "store", "imports", "generation-0.snapshot.json"),
+    path.join(layout.authoredRoot, "events"),
+    path.join(layout.authoredRoot, "objects"),
+  ].some((candidate) => localRuntimeStateFileSystem.exists(candidate));
+}
+
+export function readGenerationTwoActivation(input: {
+  readonly rootInput: HarnessLayoutInput;
+  readonly repoId?: string;
+}): GenerationTwoActivationV2 | null {
+  const certificatePath = generationTwoActivationPath(input.rootInput);
+  if (!localRuntimeStateFileSystem.exists(certificatePath)) return null;
+  const certificate = JSON.parse(localRuntimeStateFileSystem.readText(certificatePath)) as GenerationTwoActivationV2;
+  if (
+    certificate.schema !== "generation-activation/v2" ||
+    certificate.generation !== 2 ||
+    typeof certificate.repoId !== "string" ||
+    typeof certificate.sourceDigest !== "string" ||
+    !Number.isSafeInteger(certificate.importedPrefixRevision) ||
+    certificate.importedPrefixRevision < 0 ||
+    (input.repoId !== undefined && certificate.repoId !== input.repoId)
+  )
+    throw new TaskEventStoreError("invalid_store", "generation 2 activation certificate differs");
+  if (!localRuntimeStateFileSystem.exists(sqliteLedgerPath(input.rootInput, 2)))
+    throw new TaskEventStoreError("invalid_store", "generation 2 activation names a missing ledger");
+  return certificate;
+}
+
+/** Writer-side depth check; the ledger must still carry the imported prefix the certificate names. */
+export function preflightGenerationTwoActivation(input: {
+  readonly rootInput: HarnessLayoutInput;
+  readonly repoId: string;
+}): GenerationTwoActivationV2 | null {
+  const certificate = readGenerationTwoActivation(input);
+  if (certificate === null) return null;
+  const store = openSqliteEventStore({
+    repoId: certificate.repoId,
+    databasePath: sqliteLedgerPath(input.rootInput, 2),
+    generation: 2,
+    readOnly: true,
+  });
+  try {
+    if (store.revision() < certificate.importedPrefixRevision)
+      throw new TaskEventStoreError("invalid_store", "generation 2 revision precedes its activation certificate");
+  } finally {
+    store.close();
+  }
+  return certificate;
 }
 
 export function sqliteContentObjectPath(
@@ -177,12 +360,20 @@ export function openSqliteEventStore(options: {
   readonly databasePath?: string;
   readonly generation?: number;
   readonly readOnly?: boolean;
+  /** Offline generation conversion only; ordinary writers cannot backfill acceptance time. */
+  readonly conversionSourceGeneration?: 1;
 }): SqliteEventStore {
   if (!options.readOnly && options.repoId === undefined)
     throw new TaskEventStoreError("repo_mismatch", "mutable SQLite ledger opening requires repoId");
-  const generation = options.generation ?? SQLITE_LEDGER_GENERATION,
+  const generation =
+      options.generation ??
+      (options.databasePath === undefined && options.rootInput !== undefined
+        ? resolveActiveGeneration({ rootInput: options.rootInput, repoId: options.repoId })
+        : SQLITE_LEDGER_GENERATION),
     databasePath = options.databasePath ?? sqliteLedgerPath(options.rootInput ?? process.cwd(), generation),
     objectRoot = path.join(path.dirname(databasePath), "objects", "sha256");
+  if (options.conversionSourceGeneration !== undefined && (generation !== 2 || options.readOnly))
+    throw new TaskEventStoreError("invalid_store", "conversion requires a writable generation 2 destination");
   if (!options.readOnly) localRuntimeStateFileSystem.mkdirp(path.dirname(databasePath));
   const db = /* @gate-identity check-bypass-write-boundary/bypass-write-128 */ new DatabaseSync(databasePath, {
     readOnly: options.readOnly ?? false,
@@ -217,6 +408,16 @@ export function openSqliteEventStore(options: {
       throw error;
     }
   };
+  // All lease mutations share the store's transaction and the same repository ownership boundary.
+  const persistWriterLease = (fence: SqliteWriterFence | null): void => {
+    /* @gate-identity check-bypass-write-boundary/bypass-write-122 */ db.prepare(
+      fence === null
+        ? "DELETE FROM writer_lease WHERE repo_id=?"
+        : "INSERT INTO writer_lease(repo_id, holder, epoch) VALUES (?, ?, ?) " +
+            "ON CONFLICT(repo_id) DO UPDATE SET holder=excluded.holder, epoch=excluded.epoch",
+    ).run(...(fence === null ? [repoId] : [fence.repoId, fence.holder, fence.epoch]));
+  };
+
   const claimWriter = (fence: SqliteWriterFence): void =>
     transaction(() => {
       assertFenceShape(fence, repoId);
@@ -228,14 +429,34 @@ export function openSqliteEventStore(options: {
         );
       if (current && fence.epoch === current.epoch && fence.holder !== current.holder)
         throw new TaskEventStoreError("revision_conflict", `writer epoch ${fence.epoch} belongs to another holder`);
-      /* @gate-identity check-bypass-write-boundary/bypass-write-122 */ db.prepare(
-        "INSERT INTO writer_lease(repo_id, holder, epoch) VALUES (?, ?, ?) " +
-          "ON CONFLICT(repo_id) DO UPDATE SET holder=excluded.holder, epoch=excluded.epoch",
-      ).run(fence.repoId, fence.holder, fence.epoch);
+      persistWriterLease(fence);
+    });
+
+  const releaseWriter = (fence: SqliteWriterFence): void =>
+    transaction(() => {
+      assertFenceShape(fence, repoId);
+      const current = readWriter(db, repoId);
+      if (!current || current.holder !== fence.holder || current.epoch !== fence.epoch) return;
+      persistWriterLease(null);
     });
 
   const outcome = (opId: string): SqliteCommandOutcome | null => readOutcome(db, query, opId);
   const appendCommand: SqliteEventStore["appendCommand"] = (input) => {
+    if ((options.conversionSourceGeneration !== undefined) !== (input.historicalRecord !== undefined))
+      throw new TaskEventStoreError("invalid_write_plan", "historical timestamps require an offline conversion writer");
+    if (
+      input.historicalRecord &&
+      (input.historicalRecord.eventRecordedAt.length !== input.events.length ||
+        [input.historicalRecord.recordedAt, ...input.historicalRecord.eventRecordedAt].some(
+          (stamp) => !Number.isFinite(Date.parse(stamp)),
+        ))
+    )
+      throw new TaskEventStoreError("invalid_write_plan", "historical acceptance timestamps are incomplete");
+    if (generation === 2)
+      for (const event of input.events) {
+        const errors = validateCurrentCanonicalEvent(event);
+        if (errors.length) throw new TaskEventStoreError("invalid_write_plan", errors.join("; "));
+      }
     prepareContentObjects(objectRoot, input.events, input.blobs ?? []);
     return transaction(() => {
       assertFenceShape(input.fence, repoId);
@@ -256,10 +477,7 @@ export function openSqliteEventStore(options: {
           "revision_conflict",
           `writer epoch ${input.fence.epoch} belongs to another holder`,
         );
-      /* @gate-identity check-bypass-write-boundary/bypass-write-121 */ db.prepare(
-        "INSERT INTO writer_lease(repo_id, holder, epoch) VALUES (?, ?, ?) " +
-          "ON CONFLICT(repo_id) DO UPDATE SET holder=excluded.holder, epoch=excluded.epoch",
-      ).run(input.fence.repoId, input.fence.holder, input.fence.epoch);
+      persistWriterLease(input.fence);
       if (input.rejectionCode && input.events.length)
         throw new TaskEventStoreError("invalid_write_plan", "a rejected command cannot append events");
       const head = readRevision(db);
@@ -273,8 +491,16 @@ export function openSqliteEventStore(options: {
         const eventJson = serializePersistedCanonicalEvent(event),
           digest = `sha256:${sha256Text(eventJson)}`;
         /* @gate-identity check-bypass-write-boundary/bypass-write-120 */ db.prepare(
-          "INSERT INTO event(revision, op_id, event_json, digest, occurred_at) " + "VALUES (?, ?, ?, ?, ?)",
-        ).run(revision, event.opId, eventJson, digest, event.occurredAt);
+          "INSERT INTO event(revision, op_id, event_json, digest, occurred_at, recorded_at) " +
+            "VALUES (?, ?, ?, ?, ?, COALESCE(?, strftime('%Y-%m-%dT%H:%M:%fZ','now')))",
+        ).run(
+          revision,
+          event.opId,
+          eventJson,
+          digest,
+          event.occurredAt,
+          input.historicalRecord?.eventRecordedAt[offset] ?? null,
+        );
         applyDerivedGuards(db, event);
       }
       const firstRevision = input.events.length ? head + 1 : null,
@@ -288,8 +514,8 @@ export function openSqliteEventStore(options: {
       /* @gate-identity check-bypass-write-boundary/bypass-write-118 */ db.prepare(
         "INSERT INTO command_outcome(" +
           "op_id, status, first_revision, last_revision, intent_digest, " +
-          "intent_summary, rejection_code" +
-          ") VALUES (?, ?, ?, ?, ?, ?, ?)",
+          "intent_summary, rejection_code, recorded_at" +
+          ") VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, strftime('%Y-%m-%dT%H:%M:%fZ','now')))",
       ).run(
         input.intent.opId,
         status,
@@ -298,6 +524,7 @@ export function openSqliteEventStore(options: {
         input.intent.intentDigest,
         input.intent.summary,
         input.rejectionCode ?? null,
+        input.historicalRecord?.recordedAt ?? null,
       );
       return readOutcome(db, query, input.intent.opId)!;
     });
@@ -306,6 +533,7 @@ export function openSqliteEventStore(options: {
     databasePath,
     sqliteVersion,
     claimWriter,
+    releaseWriter,
     writerFence: () => {
       const writer = readWriter(db, repoId);
       return writer ? { repoId, ...writer } : null;
@@ -465,12 +693,16 @@ function readMetadata(query: SqliteQuery): SqliteLedgerMetadata {
 }
 
 function readEventRows(query: SqliteQuery): readonly SqliteEventRow[] {
-  return query("SELECT revision, op_id, event_json, digest FROM event ORDER BY revision").map((row) => ({
-    revision: Number(row.revision),
-    opId: String(row.op_id),
-    eventJson: String(row.event_json),
-    digest: String(row.digest) as `sha256:${string}`,
-  }));
+  return query("SELECT revision, op_id, event_json, digest, occurred_at, recorded_at FROM event ORDER BY revision").map(
+    (row) => ({
+      revision: Number(row.revision),
+      opId: String(row.op_id),
+      eventJson: String(row.event_json),
+      occurredAt: String(row.occurred_at),
+      recordedAt: String(row.recorded_at),
+      digest: String(row.digest) as `sha256:${string}`,
+    }),
+  );
 }
 
 function readOutcomes(db: DatabaseSync, query: SqliteQuery): readonly SqliteCommandOutcome[] {
@@ -489,15 +721,22 @@ function prepareContentObjects(
     for (const claim of contentClaims(event)) {
       const existing = readContentObject(objectRoot, claim.sha256);
       if (existing !== null) {
-        if (existing.byteLength !== claim.size || sha256Text(Buffer.from(existing).toString("utf8")) !== claim.sha256)
+        if (existing.byteLength !== claim.size || sha256Bytes(existing) !== claim.sha256)
           throw new TaskEventStoreError("invalid_store", `content object ${claim.sha256} is corrupt`);
         continue;
       }
-      const blob = supplied.get(claim.sha256);
-      if (!blob || blob.size !== claim.size || sha256Text(blob.body) !== claim.sha256)
+      const blob = supplied.get(claim.sha256),
+        bytes = blob === undefined ? null : typeof blob.body === "string" ? Buffer.from(blob.body) : blob.body;
+      if (
+        !blob ||
+        !bytes ||
+        blob.size !== claim.size ||
+        bytes.byteLength !== claim.size ||
+        sha256Bytes(bytes) !== claim.sha256
+      )
         throw new TaskEventStoreError("invalid_write_plan", `event content object ${claim.sha256} is missing`);
       const target = objectPath(objectRoot, claim.sha256);
-      localContentObjectFileSystem.replace(target, blob.body);
+      localContentObjectFileSystem.replace(target, bytes);
     }
   }
 }
@@ -510,7 +749,7 @@ function objectPath(objectRoot: string, sha256: string): string {
 function readContentObject(objectRoot: string, sha256: string): Uint8Array | null {
   const target = objectPath(objectRoot, sha256);
   return localContentObjectFileSystem.exists(target)
-    ? Buffer.from(localContentObjectFileSystem.readText(target))
+    ? Buffer.from(localContentObjectFileSystem.readBytes(target))
     : null;
 }
 

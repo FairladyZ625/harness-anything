@@ -112,13 +112,20 @@ export async function runTaskCommandWithDocs(
   const carriedChanges = adjudication.decision.event.payload.changes.filter(
     (change): change is DocEventChange => change.candidate !== null,
   );
+  // Task-carried documents are prose slots — progress.md, the lifecycle contract documents. Raw bytes
+  // reach a task only through its declared artifact route, so a non-text blob here is a routing error.
+  const carriedBlobs = adjudication.decision.blobs.map((blob) => {
+    if (typeof blob.body !== "string")
+      throw cell.cellCodedError("invalid_command", "task-carried documents must be UTF-8 text");
+    return { ...blob, body: blob.body };
+  });
   if (carriedChanges.length !== adjudication.decision.event.payload.changes.length)
     throw cell.cellCodedError("invalid_command", "task-carried documents cannot contain retirement changes");
   if (taskAction.kind === "task-progress-append") {
     try {
       const progress = cell.appendProgress(taskAction, binding, {
         changes: carriedChanges,
-        blobs: adjudication.decision.blobs,
+        blobs: carriedBlobs,
       });
       return {
         ...progress,
@@ -140,7 +147,7 @@ export async function runTaskCommandWithDocs(
   const resolvedLifecycle = getExecutableEntityAction(taskAction.kind)?.execution?.lifecycle,
     bodyOverrides = new Map(
       carriedChanges.map((change) => {
-        const blob = adjudication.decision.blobs.find((candidate) => candidate.sha256 === change.candidate!.sha256);
+        const blob = carriedBlobs.find((candidate) => candidate.sha256 === change.candidate!.sha256);
         if (!blob) throw cell.cellCodedError("content_not_ready", `Candidate body for ${change.path} is unavailable.`);
         return [change.path, blob.body] as const;
       }),
@@ -180,7 +187,7 @@ export async function runTaskCommandWithDocs(
   try {
     transition = await cell.service.executeWithDocuments(command, proof, {
       changes: carriedChanges,
-      blobs: adjudication.decision.blobs,
+      blobs: carriedBlobs,
     });
   } finally {
     recycleClaims(cell.rootDir, intent);

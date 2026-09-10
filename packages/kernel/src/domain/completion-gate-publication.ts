@@ -4,6 +4,7 @@ import { compileTaskLifecycleWrite, type LifecycleDocumentState } from "./task-l
 import { validateTaskEvent, type CompletionGateVerifiedEvent } from "./task-lifecycle-event.ts";
 import { TaskLifecycleContractError, type TaskLifecycleSnapshot } from "./task-lifecycle.contract.ts";
 import type { CompletionGateWitnessV1 } from "./completion-gate-witness.ts";
+import type { CompletionEvidenceV1 } from "./completion-evidence.ts";
 
 export function compileCompletionGateWitness(input: {
   readonly snapshot: TaskLifecycleSnapshot;
@@ -11,6 +12,7 @@ export function compileCompletionGateWitness(input: {
   readonly executionId: string;
   readonly gateId: string;
   readonly result: "pass";
+  readonly evidence?: CompletionEvidenceV1;
   readonly receiptId: string;
   readonly checkerId: string;
   readonly commitSha: string;
@@ -57,6 +59,13 @@ export function compileCompletionGateWitness(input: {
       actor: input.actor,
       source: input.source,
       verifiedAt: input.occurredAt,
+      ...(input.evidence
+        ? {
+            observed: input.evidence.observed,
+            basis: input.evidence.basis,
+            provenance: input.evidence.provenance,
+          }
+        : {}),
     },
     event: CompletionGateVerifiedEvent = {
       schema: "task-event/v1",

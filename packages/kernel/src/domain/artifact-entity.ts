@@ -1,6 +1,10 @@
-import { sha256Bytes, sha256Text } from "../integrity/stable-hash.ts";
+import { sha256Bytes, sha256Text, stablePayloadHash } from "../integrity/stable-hash.ts";
 import { normalizeRelativeDocumentPath } from "../layout/portable-path.ts";
-import type { ArtifactEntityKindDefinition } from "../schemas/vertical-definition.ts";
+import type {
+  ArtifactEntityKindDefinition,
+  EntityAttributeDeclaration,
+  EntityKindSchemaVersion,
+} from "../schemas/vertical-definition.ts";
 import { artifactEntityIdPattern } from "./entity-ref.ts";
 import {
   parseEntityJsonSchema,
@@ -19,12 +23,17 @@ import { isRecord } from "./write-chain.contract.ts";
 export const ARTIFACT_DESCRIPTOR_FIELDS = Object.freeze([
   "schema",
   "typeIdentity",
+  "kindVersion",
   "entityId",
   "title",
   "locator",
   "contentVersion",
+  "attributes",
   "source",
 ] as const);
+
+/** Attribute values are pure JSON scalars: they describe the material, never how to act on it. */
+export type ArtifactAttributeValue = string | number | boolean;
 
 export type ArtifactLocatorKind = "repository-path" | "url" | "external-key";
 
@@ -35,11 +44,15 @@ export interface ArtifactLocator {
 
 export interface ArtifactDescriptor {
   readonly schema: string;
+  /** The kind's stable opaque ref; it does not move when the kind is renamed or gains a schema version. */
   readonly typeIdentity: string;
+  /** The immutable kind schema version this instance was accepted against. */
+  readonly kindVersion: number;
   readonly entityId: string;
   readonly title: string;
   readonly locator: ArtifactLocator;
   readonly contentVersion: string;
+  readonly attributes: Readonly<Record<string, ArtifactAttributeValue>>;
   readonly source: string;
 }
 
@@ -65,6 +78,8 @@ export type ArtifactContentWitness =
 export interface ArtifactEntityContractSnapshot {
   readonly schema: "artifact-entity-contract/v1";
   readonly typeIdentity: string;
+  /** The immutable kind schema version explicitly pinned when the event was accepted. */
+  readonly kindVersion: number;
   readonly descriptorSchemaRef: string;
   readonly idPrefix: string;
   readonly pathTemplate: string;
@@ -114,16 +129,25 @@ export function canonicalArtifactUrl(value: string): string {
   return parsed.toString();
 }
 
-export function deriveArtifactEntityId(input: {
-  readonly idPrefix: string;
-  readonly typeIdentity: string;
-  readonly sourceIdentity: string;
-}): string {
-  const prefix = requiredIdentityPart(input.idPrefix, "idPrefix"),
-    sourceIdentity = requiredIdentityPart(input.sourceIdentity, "sourceIdentity"),
-    digest = sha256(sourceIdentity).slice(0, 16);
-  requiredIdentityPart(input.typeIdentity, "typeIdentity");
-  return `${prefix}-${digest}`;
+/**
+ * Mint one instance identity. The suffix is 128 bits of caller-supplied randomness, never a function of
+ * the source: an entity keeps this identity when its file is renamed, moved, or re-pointed at another
+ * source, and two entities that happen to hold identical bytes stay distinct. The domain validates the
+ * shape and leaves the randomness to the application boundary so replay stays pure.
+ */
+export function mintArtifactEntityId(input: { readonly idPrefix: string; readonly randomBytes: Uint8Array }): string {
+  const prefix = requiredIdentityPart(input.idPrefix, "idPrefix");
+  if (!/^[A-Z][A-Z0-9]{0,15}$/u.test(prefix))
+    throw new ArtifactEntityContractError("Artifact idPrefix must be an uppercase alphanumeric prefix.");
+  if (input.randomBytes.byteLength !== ARTIFACT_ENTITY_ID_BYTES)
+    throw new ArtifactEntityContractError(`Artifact entity identity needs ${ARTIFACT_ENTITY_ID_BYTES} random bytes.`);
+  return `${prefix}-${Buffer.from(input.randomBytes).toString("hex")}`;
+}
+
+export const ARTIFACT_ENTITY_ID_BYTES = 16;
+
+export function isArtifactEntityId(idPrefix: string, value: unknown): value is string {
+  return typeof value === "string" && new RegExp(artifactEntityIdPattern(idPrefix), "u").test(value);
 }
 
 export function deriveArtifactContentVersion(witness: ArtifactContentWitness): string {
@@ -141,18 +165,25 @@ export function deriveArtifactContentVersion(witness: ArtifactContentWitness): s
   return `sha256:${sha256Bytes(bytes)}`;
 }
 
+/**
+ * The descriptor contract of one pinned kind schema version. `attributes` is closed over exactly the
+ * declared names of that version, so an instance accepted against version 1 keeps validating against
+ * version 1 after version 2 is published, and a kind declared at runtime needs no source branch.
+ */
 export function artifactDescriptorSchema(
   artifact: Pick<ArtifactEntityKindDefinition, "descriptorSchemaRef" | "idPrefix" | "locatorKinds">,
   typeIdentity: string,
+  schemaVersion: EntityKindSchemaVersion,
 ): EntityDocumentJsonSchema<ArtifactDescriptor> {
   return deepFreeze({
     $schema: "https://json-schema.org/draft/2020-12/schema",
-    $id: `${artifact.descriptorSchemaRef}#${typeIdentity}`,
+    $id: artifactDescriptorSchemaId(artifact.descriptorSchemaRef, typeIdentity, schemaVersion.version),
     type: "object",
     properties: {
       schema: { type: "string", const: artifact.descriptorSchemaRef },
       typeIdentity: { type: "string", const: typeIdentity },
-      entityId: { type: "string", pattern: `^${artifact.idPrefix}-[a-f0-9]{16}$` },
+      kindVersion: { type: "integer", enum: [schemaVersion.version] },
+      entityId: { type: "string", pattern: `^${artifact.idPrefix}-[a-f0-9]{32}$` },
       title: { type: "string", minLength: 1 },
       locator: {
         type: "object",
@@ -164,11 +195,35 @@ export function artifactDescriptorSchema(
         additionalProperties: false,
       },
       contentVersion: { type: "string", minLength: 1 },
+      attributes: attributesSchema(schemaVersion.attributes),
       source: { type: "string", minLength: 1 },
     },
     required: ARTIFACT_DESCRIPTOR_FIELDS,
     additionalProperties: false,
   });
+}
+
+export function artifactDescriptorSchemaId(descriptorSchemaRef: string, typeIdentity: string, version: number): string {
+  return `${descriptorSchemaRef}#${typeIdentity}/v${version}`;
+}
+
+function attributesSchema(attributes: EntityKindSchemaVersion["attributes"]) {
+  return {
+    type: "object" as const,
+    properties: Object.fromEntries(
+      Object.entries(attributes).map(([name, declaration]) => [name, attributeNode(declaration)]),
+    ),
+    required: Object.entries(attributes)
+      .filter(([, declaration]) => declaration.required === true)
+      .map(([name]) => name),
+    additionalProperties: false,
+  };
+}
+
+function attributeNode(declaration: EntityAttributeDeclaration) {
+  return declaration.type === "string"
+    ? { type: "string" as const, ...(declaration.enum ? { enum: [...declaration.enum] } : {}) }
+    : { type: declaration.type, ...(declaration.enum ? { enum: [...declaration.enum] } : {}) };
 }
 
 export function decodeArtifactDescriptor(
@@ -185,14 +240,8 @@ export function decodeArtifactDescriptor(
     throw new ArtifactEntityContractError("Artifact descriptor typeIdentity does not match its kind contract.");
   if (canonicalArtifactSourceIdentity(descriptor.source) !== descriptor.source)
     throw new ArtifactEntityContractError("Artifact descriptor source identity must already be canonical.");
-  const prefix = descriptor.entityId.slice(0, descriptor.entityId.indexOf("-")),
-    expected = deriveArtifactEntityId({
-      idPrefix: prefix,
-      typeIdentity: descriptor.typeIdentity,
-      sourceIdentity: descriptor.source,
-    });
-  if (descriptor.entityId !== expected)
-    throw new ArtifactEntityContractError("Artifact descriptor entityId does not match its immutable source identity.");
+  // `source` is a binding the center records, not a seed the identity is recomputed from: reading an entity
+  // never re-derives its id, which is what lets a move keep the id while restating where the material came from.
   return deepFreeze({ ...descriptor, locator });
 }
 
@@ -220,10 +269,12 @@ export function artifactEntityContractSnapshot(input: {
     "descriptorSchemaRef" | "idPrefix" | "locatorKinds" | "store"
   >;
   readonly typeIdentity: string;
+  readonly kindVersion: number;
 }): ArtifactEntityContractSnapshot {
   return deepFreeze({
     schema: "artifact-entity-contract/v1",
     typeIdentity: input.typeIdentity,
+    kindVersion: input.kindVersion,
     descriptorSchemaRef: input.declaration.descriptorSchemaRef,
     idPrefix: input.declaration.idPrefix,
     pathTemplate: input.declaration.store.pathTemplate,
@@ -235,10 +286,12 @@ export function artifactEntityContractFromSnapshot(
   snapshot: unknown,
   allowUnknownFields = false,
 ): EntityStoreKindContract {
-  const decoded = decodeArtifactEntityContractSnapshot(snapshot, allowUnknownFields),
+  const historical = isRecord(snapshot) && !Object.hasOwn(snapshot, "kindVersion"),
+    decoded = decodeArtifactEntityContractSnapshot(snapshot, allowUnknownFields),
+    entityIdPattern = historical ? `^${decoded.idPrefix}-[a-f0-9]{16}$` : artifactEntityIdPattern(decoded.idPrefix),
     identity = Object.freeze({
       field: "entityId",
-      pattern: artifactEntityIdPattern(decoded.idPrefix),
+      pattern: entityIdPattern,
       refTemplate: `${decoded.typeIdentity}/{id}` as `${string}/{id}`,
     });
   return deepFreeze({
@@ -247,14 +300,35 @@ export function artifactEntityContractFromSnapshot(
     residency: { authored: "ledger" as const },
     relationEndpoint: { eligible: true as const },
     baseActions: ["pin", "unpin", "relate", "unrelate", "update", "archive", "explain"],
-    schema: artifactDescriptorSchema(
-      {
-        descriptorSchemaRef: decoded.descriptorSchemaRef,
-        idPrefix: decoded.idPrefix,
-        locatorKinds: decoded.locatorKinds,
+    // The event pins which kind schema version it was accepted against; the declared attribute names of
+    // that version live in the kind record, which never rewrites a published version. Replaying an event
+    // therefore checks the envelope and the pin, and leaves attribute admission to the kind contract.
+    schema: deepFreeze({
+      $schema: "https://json-schema.org/draft/2020-12/schema",
+      $id: artifactDescriptorSchemaId(decoded.descriptorSchemaRef, decoded.typeIdentity, decoded.kindVersion),
+      type: "object",
+      properties: {
+        schema: { type: "string", const: decoded.descriptorSchemaRef },
+        typeIdentity: { type: "string", const: decoded.typeIdentity },
+        kindVersion: { type: "integer", enum: [decoded.kindVersion] },
+        entityId: { type: "string", pattern: entityIdPattern },
+        title: { type: "string", minLength: 1 },
+        locator: {
+          type: "object",
+          properties: {
+            kind: { type: "string", enum: decoded.locatorKinds },
+            value: { type: "string", minLength: 1 },
+          },
+          required: ["kind", "value"],
+          additionalProperties: false,
+        },
+        contentVersion: { type: "string", minLength: 1 },
+        attributes: { type: "object", properties: {}, required: [], additionalProperties: true },
+        source: { type: "string", minLength: 1 },
       },
-      decoded.typeIdentity,
-    ),
+      required: ARTIFACT_DESCRIPTOR_FIELDS,
+      additionalProperties: false,
+    }),
     relations: { directions: [], edges: [] },
     canonicalProjection: { embeddedEvents: [], row: { idField: "entityId", ownerField: null } },
     actionCatalog: null,
@@ -268,10 +342,18 @@ export function decodeArtifactEntityContractSnapshot(
   value: unknown,
   allowUnknownFields = false,
 ): ArtifactEntityContractSnapshot {
+  if (!isRecord(value)) throw new ArtifactEntityContractError("Artifact entity contract snapshot is invalid.");
+  const hasKindVersion = Object.hasOwn(value, "kindVersion");
+  if (
+    (hasKindVersion && (!Number.isSafeInteger(value.kindVersion) || Number(value.kindVersion) < 1)) ||
+    (!hasKindVersion && !allowUnknownFields)
+  )
+    throw new ArtifactEntityContractError(
+      "Artifact entity contract snapshot kindVersion must be a positive safe integer.",
+    );
   const fields = ["schema", "typeIdentity", "descriptorSchemaRef", "idPrefix", "pathTemplate", "locatorKinds"];
   if (
-    !isRecord(value) ||
-    (!allowUnknownFields && Object.keys(value).some((field) => !fields.includes(field))) ||
+    (!allowUnknownFields && Object.keys(value).some((field) => ![...fields, "kindVersion"].includes(field))) ||
     fields.some((field) => !Object.hasOwn(value, field)) ||
     value.schema !== "artifact-entity-contract/v1" ||
     typeof value.typeIdentity !== "string" ||
@@ -289,7 +371,12 @@ export function decodeArtifactEntityContractSnapshot(
   )
     throw new ArtifactEntityContractError("Artifact entity contract snapshot is invalid.");
   normalizeRelativeDocumentPath(value.pathTemplate);
-  return deepFreeze(value as unknown as ArtifactEntityContractSnapshot);
+  // Generation-one artifact events predate the independent kind-version pin and were accepted as v1.
+  // Keep that inference inside the historical reader; current snapshots must carry the field explicitly.
+  return deepFreeze({
+    ...value,
+    kindVersion: hasKindVersion ? value.kindVersion : 1,
+  } as ArtifactEntityContractSnapshot);
 }
 
 export function artifactObservationId(input: {
@@ -301,30 +388,74 @@ export function artifactObservationId(input: {
   return `obs_${sha256(identity).slice(0, 24)}`;
 }
 
+/**
+ * Import is idempotent on the *intent*, not on the instance it produces: the same source, locator and observed
+ * content is one operation however many times it is presented. Keying this on the entity id would break the
+ * moment identity became a mint instead of a hash of the path — a retry would mint a second id, compute a
+ * second opId, and store a duplicate entity for the same material.
+ *
+ * The intent is scoped to the binding the source is living under. A source that has been released — its entity
+ * deleted, or the binding moved to another source — has ended the import that claimed it, so presenting the same
+ * bytes again is a *new* intent and must mint a new instance instead of replaying a receipt for an entity that
+ * no longer exists. The generation is counted off the accepted release events of that one source, so a retry
+ * inside the same generation still recomputes the original operation and returns the outcome it was accepted
+ * with. It is written into the id so a reader can recompute the identity from the id alone.
+ *
+ * The intent is also scoped to the Kind it is presented under. One file can be material for a Research Note and
+ * for an ADR at the same time, and those are two observations of it, not one: without the Kind in the identity
+ * the second import recomputes the first Kind's operation and is refused as `is not the requested observation`.
+ * The Kind is named by its stable identity, never by a display name or alias, so renaming a Kind leaves every
+ * accepted operation recomputable.
+ */
 export function artifactImportOperationId(input: {
-  readonly entityId: string;
+  readonly entityKind: string;
+  readonly sourceIdentity: string;
   readonly locator: ArtifactLocator;
   readonly resolution: string;
+  readonly bindingGeneration?: number;
 }): string {
-  const identity = `${input.entityId}\u0000${input.locator.kind}:${input.locator.value}\u0000${input.resolution}`;
-  return `entity-import-${sha256(identity).slice(0, 32)}`;
+  const generation = input.bindingGeneration ?? 0;
+  if (!Number.isSafeInteger(generation) || generation < 0)
+    throw new Error(`source binding generation ${String(input.bindingGeneration)} is not a generation`);
+  if (!input.entityKind) throw new Error("an import operation identity requires the Kind it is presented under");
+  const scope = generation === 0 ? "" : `\u0000binding-generation:${generation}`,
+    identity =
+      `${input.entityKind}\u0000${input.sourceIdentity}\u0000` +
+      `${input.locator.kind}:${input.locator.value}\u0000${input.resolution}${scope}`;
+  return `entity-import-${sha256(identity).slice(0, 32)}${generation === 0 ? "" : `-b${generation}`}`;
 }
 
-/** Mutations (`entity_updated` / `entity_archived`) key their operation identity on the revision fence the caller
- * presented, not on the store revision the event lands at: a retry that presents the same fence recomputes the same
- * opId and replays the applied operation instead of surfacing `revision_conflict`, while an update that leaves
- * contentVersion untouched never collides with the `entity-import-*` event that first observed that content. */
+/** The binding generation an import operation id was minted under, read back from the id itself. */
+export function importBindingGeneration(opId: string): number {
+  const match = /-b([1-9][0-9]{0,9})$/u.exec(opId);
+  return match ? Number(match[1]) : 0;
+}
+
+/** The fence identifies the version being edited; the stated payload distinguishes competing intents at that
+ * fence. Hash only mutation inputs, with stable object ordering so transport key order does not change a retry. */
 export function artifactMutationOperationId(input: {
-  readonly mutation: "update" | "archive";
+  readonly mutation: "update" | "archive" | "delete";
   readonly entityId: string;
   readonly expectedVersion: number;
+  readonly request: Readonly<Record<string, unknown>>;
 }): string {
-  return `entity-${input.mutation}-${input.entityId}-${input.expectedVersion}`;
+  const fields =
+      input.mutation === "update"
+        ? ["entityKind", "title", "locator", "contentVersion", "attributes"]
+        : ["entityKind", "reason"],
+    intent = Object.fromEntries(
+      fields.filter((key) => input.request[key] !== undefined).map((key) => [key, input.request[key]]),
+    );
+  return `entity-${input.mutation}-${input.entityId}-${input.expectedVersion}-${stablePayloadHash(intent)}`;
 }
 
-export function isArtifactMutationOperationId(mutation: "update" | "archive", entityId: string, opId: string): boolean {
+export function isArtifactMutationOperationId(
+  mutation: "update" | "archive" | "delete",
+  entityId: string,
+  opId: string,
+): boolean {
   const prefix = `entity-${mutation}-${entityId}-`;
-  return opId.startsWith(prefix) && /^(?:0|[1-9][0-9]*)$/u.test(opId.slice(prefix.length));
+  return opId.startsWith(prefix) && /^(?:0|[1-9][0-9]*)-[a-f0-9]{64}$/u.test(opId.slice(prefix.length));
 }
 
 function isArtifactDescriptor(value: unknown): value is ArtifactDescriptor {
@@ -334,9 +465,15 @@ function isArtifactDescriptor(value: unknown): value is ArtifactDescriptor {
     Object.keys(value).every((field) => (ARTIFACT_DESCRIPTOR_FIELDS as readonly string[]).includes(field)) &&
     typeof value.schema === "string" &&
     typeof value.typeIdentity === "string" &&
+    Number.isSafeInteger(value.kindVersion) &&
+    Number(value.kindVersion) >= 1 &&
     typeof value.entityId === "string" &&
     typeof value.title === "string" &&
     typeof value.contentVersion === "string" &&
+    isRecord(value.attributes) &&
+    Object.values(value.attributes).every(
+      (attribute) => typeof attribute === "string" || typeof attribute === "number" || typeof attribute === "boolean",
+    ) &&
     typeof value.source === "string" &&
     isRecord(value.locator) &&
     typeof value.locator.kind === "string" &&

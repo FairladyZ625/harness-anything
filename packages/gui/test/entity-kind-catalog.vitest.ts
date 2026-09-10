@@ -13,7 +13,6 @@ import { resolveEntityDocFocus } from "../src/renderer/views/EntitiesView.tsx";
 import { entityDetailTargetOf } from "../src/renderer/navigation/entityRoutes.ts";
 import { parseEndpoint } from "../src/renderer/graph/endpoint.ts";
 import { partitionGoverned } from "../src/renderer/graph/territory.ts";
-import { importActionFields } from "../src/renderer/components/entityDoc/NewEntityWizard.tsx";
 
 /**
  * GUI 的实体种类集合只有一个来源:已注册 kind 读面。这里锁住那条派生链——
@@ -22,7 +21,8 @@ import { importActionFields } from "../src/renderer/components/entityDoc/NewEnti
  * 五个消费面同时不再出现这个 kind。
  */
 
-const ADR_KIND = "software/coding/architecture-decision-record@1";
+const ADR_KIND_ID = "KND-1f5c0a7e9b3d4c6a8e2f0b1d3c5a7e94";
+const ADR_KIND = `entity-kind/${ADR_KIND_ID}`;
 
 function adrRow(): EntityKindRow {
   return {
@@ -34,7 +34,8 @@ function adrRow(): EntityKindRow {
     importable: true,
     declaration: {
       id: "architecture-decision-record",
-      version: 1,
+      kindId: ADR_KIND_ID,
+      schemaVersions: [1],
       idPrefix: "ADR",
       display: { singular: "Architecture Decision Record", plural: "Architecture Decision Records" },
       descriptorSchemaRef: "schema://artifact-descriptor",
@@ -157,9 +158,7 @@ describe("declared kinds reach every GUI consumer through the catalog", () => {
     expect(resolveEntityDocFocus(`entitydoc/${ADR_KIND}`, withAdr)).toEqual({ kind: ADR_KIND, entityRef: null });
   });
 
-  it("derives the new-entity form fields from the import action contract", () => {
-    // kind / expectedVersion / relink 三类字段不出现在向导里(见 NewEntityWizard 注释)。
-    expect(importActionFields(adrRow()).map(({ field }) => field)).toEqual(["locator", "title"]);
+  it("offers the new-entity entry only for the kinds the read declares importable", () => {
     expect(importableKinds(withAdr).map(({ kind }) => kind)).toEqual([ADR_KIND]);
   });
 });

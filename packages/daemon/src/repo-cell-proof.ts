@@ -11,6 +11,7 @@ import {
   isIndependentFrom,
   isSameExecution,
   isSamePerson,
+  judgeCompletionEvidence,
   localGitObjectRefStore,
   makeTaskProjection,
   normalizeCommandEnvelope,
@@ -168,20 +169,19 @@ export async function proofFor(
         : validExternalCompletionEvidence(command, projection, rootDir),
       explicitlyUnreviewed = independentActor ? false : validNoIndependentReview(command, projection, rootDir);
     if (!independentActor && !externalCompletionEvidence && !explicitlyUnreviewed) {
-      const principalSettingGuidance =
-        principalIndependenceRequired
+      const principalSettingGuidance = principalIndependenceRequired
+        ? [
+            "Repository setting reviewIndependence currently equals principal, so the reviewer and execution " +
+              "actor must have different principals.",
+            "ha settings update --review-independence execution",
+          ]
+        : dispatchlessExecution
           ? [
-              "Repository setting reviewIndependence currently equals principal, so the reviewer and execution " +
-                "actor must have different principals.",
-              "ha settings update --review-independence execution",
+              "Have a different person run the review, or use HARNESS_ACTOR=agent:<id> for an auditable " +
+                "same-principal review; ha task declare-executor requires an existing dispatch record and is " +
+                "unavailable for this execution.",
             ]
-          : dispatchlessExecution
-            ? [
-                "Have a different person run the review, or use HARNESS_ACTOR=agent:<id> for an auditable " +
-                  "same-principal review; ha task declare-executor requires an existing dispatch record and is " +
-                  "unavailable for this execution.",
-              ]
-            : reviewCriterion.nextActions;
+          : reviewCriterion.nextActions;
       throw cellCriterionError(
         "actor_unauthorized",
         principalIndependenceRequired
@@ -488,7 +488,9 @@ export function gateChecks(snapshot: Snapshot, executionId: string) {
   const execution = snapshot.executions.find(
     (value) => value.executionId === executionId && value.iteration === snapshot.task?.iteration,
   );
-  return (snapshot.task?.completionGateIds ?? []).map((gate) => {
+  const gates = snapshot.task?.completionGateIds ?? [];
+  if (gates.length === 0) return [{ gate: "none", status: "pass", witnessRef: null }];
+  return gates.map((gate) => {
     const candidate =
         gate === "code-doc-reconciliation" ? currentCodeDocWitness(snapshot.codeDocWitnesses, executionId) : undefined,
       codeDoc =
@@ -499,14 +501,20 @@ export function gateChecks(snapshot: Snapshot, executionId: string) {
           ? candidate
           : undefined,
       witness =
-        gate !== "code-doc-reconciliation"
+        gate !== "code-doc-reconciliation" && execution?.schema === "execution/v1"
           ? snapshot.gateWitnesses.find(
               (value) =>
                 value.gateId === gate &&
                 value.executionId === executionId &&
-                value.commitSha === execution?.submission?.commitSha &&
-                value.iteration === execution?.iteration &&
-                value.result === "pass",
+                value.commitSha === execution.submission?.commitSha &&
+                value.iteration === execution.iteration &&
+                value.result === "pass" &&
+                (value.basis === undefined || value.provenance === undefined || value.observed === undefined
+                  ? true
+                  : judgeCompletionEvidence(
+                      { ...value, basis: value.basis, provenance: value.provenance, observed: value.observed },
+                      { execution, gateId: gate },
+                    ).accepted),
             )
           : undefined;
     return {

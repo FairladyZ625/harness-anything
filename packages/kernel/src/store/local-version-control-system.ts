@@ -15,6 +15,7 @@ import {
   readlinkSync,
   realpathSync,
   renameSync,
+  rmdirSync,
   statSync,
   symlinkSync,
   unlinkSync,
@@ -429,32 +430,50 @@ export const localGitWorktreeSettlement = Object.freeze({
   },
   hasChanges: (repoRoot: string, scope: string, ignored: ReadonlySet<string> = new Set()): boolean =>
     localGitWorktreeSettlement.changesFingerprint(repoRoot, scope, ignored) !== null,
+  isDirectory: (target: string): boolean => {
+    try {
+      return lstatSync(target).isDirectory();
+    } catch (error) {
+      consumeKnownError(error);
+      return false;
+    }
+  },
   visible: (
     repoRoot: string,
-    files: readonly {
-      readonly target: string;
-      readonly body: string;
-      readonly mode?: "100644" | "120000";
-    }[],
+    files: readonly (
+      | {
+          readonly target: string;
+          readonly body: string | Uint8Array;
+          readonly mode?: "100644" | "120000";
+        }
+      | { readonly directory: string }
+    )[],
     hooks: {
       readonly beforeRename?: () => void;
       readonly afterRename?: () => void;
     } = {},
   ): void => {
-    const pending = files.map((file, index) => {
-      const target = path.join(repoRoot, ...file.target.split("/"));
-      const temporary = path.join(path.dirname(target), `.ha-visible-${process.pid}-${index}`);
+    // A directory an entity owns but puts no file in has nothing to rename into place: creating it is the
+    // whole operation. It travels through this same writer so materialization stays one path.
+    const pending = files.flatMap((file, index) => {
+      const directory =
+        "directory" in file
+          ? path.join(repoRoot, ...file.directory.split("/"))
+          : path.dirname(path.join(repoRoot, ...file.target.split("/")));
       /* @gate-identity check-bypass-write-boundary/bypass-write-076 */
-      mkdirSync(path.dirname(target), { recursive: true });
-      sweepStaleSettlementMarkers(path.dirname(target));
+      mkdirSync(directory, { recursive: true });
+      sweepStaleSettlementMarkers(directory);
+      if ("directory" in file) return [];
+      const target = path.join(repoRoot, ...file.target.split("/"));
+      const temporary = path.join(directory, `.ha-visible-${process.pid}-${index}`);
       removeNode(temporary);
       if (file.mode === "120000")
         /* @gate-identity check-bypass-write-boundary/bypass-write-077 */
-        symlinkSync(file.body, temporary);
+        symlinkSync(linkTarget(file.body), temporary);
       else
         /* @gate-identity check-bypass-write-boundary/bypass-write-084 */
-        writeFileSync(temporary, file.body, { encoding: "utf8", mode: 0o644 });
-      return { target, temporary };
+        writeFileSync(temporary, file.body, { mode: 0o644 });
+      return [{ target, temporary }];
     });
     for (const item of pending) {
       hooks.beforeRename?.();
@@ -462,6 +481,30 @@ export const localGitWorktreeSettlement = Object.freeze({
       renameSync(item.temporary, item.target);
       hooks.afterRename?.();
     }
+  },
+  /**
+   * Retiring a directory an entity owned. It is the mirror of the `{ directory }` creation above and travels
+   * through the same writer, so materialization stays one path. The caller names the paths, and may only name
+   * ones an accepted event says the owner held; this function never discovers a path for itself. Removal is
+   * never recursive: `rmdir` refuses a directory that still holds anything, which is exactly the rule that keeps
+   * a file or directory the user added from being taken away with the entity's own empty ones. Deepest paths
+   * must be presented first, so a parent is only attempted once its retired children are gone. The preserved
+   * paths are returned rather than thrown on, because "someone put something here" is an answer, not a
+   * settlement failure.
+   */
+  retireEmptyDirectories: (repoRoot: string, logicalPaths: readonly string[]): readonly string[] => {
+    const preserved: string[] = [];
+    for (const logical of logicalPaths) {
+      const target = path.join(repoRoot, ...logical.split("/"));
+      try {
+        /* @gate-identity check-bypass-write-boundary/bypass-write-134 */
+        rmdirSync(target);
+      } catch (error) {
+        consumeKnownError(error);
+        if (existsSync(target)) preserved.push(logical);
+      }
+    }
+    return preserved;
   },
   deleteVisible: (
     repoRoot: string,
@@ -482,7 +525,7 @@ export const localGitWorktreeSettlement = Object.freeze({
     files: readonly (
       | {
           readonly target: string;
-          readonly body: string;
+          readonly body: string | Uint8Array;
           readonly mode?: "100644" | "120000";
         }
       | { readonly delete: string }
@@ -495,7 +538,7 @@ export const localGitWorktreeSettlement = Object.freeze({
         .map((file) =>
           "delete" in file
             ? `0 ${zero}\t${file.delete}\0`
-            : `${file.mode ?? "100644"} ${gitBlobOid(file.body)}\t${file.target}\0`,
+            : `${file.mode ?? "100644"} ${gitBlobOidBytes(asBytes(file.body))}\t${file.target}\0`,
         )
         .join("");
     localGitProcesses += 1;
@@ -517,7 +560,7 @@ export const localGitWorktreeSettlement = Object.freeze({
     files: readonly (
       | {
           readonly target: string;
-          readonly body: string;
+          readonly body: string | Uint8Array;
           readonly mode?: "100644" | "120000";
         }
       | { readonly from: string; readonly to: string }
@@ -535,7 +578,7 @@ export const localGitWorktreeSettlement = Object.freeze({
           file,
         ): file is {
           readonly target: string;
-          readonly body: string;
+          readonly body: string | Uint8Array;
           readonly mode?: "100644" | "120000";
         } => "target" in file,
       ),
@@ -614,12 +657,9 @@ export const localGitWorktreeSettlement = Object.freeze({
     for (const item of deletions) removeNode(item.target);
     const zero = "0".repeat(40);
     const indexInput = `${pending
-      .map((file) => `${file.mode} ${gitBlobOid(file.body)}\t${file.logical}\0`)
+      .map((file) => `${file.mode} ${gitBlobOidBytes(asBytes(file.body))}\t${file.logical}\0`)
       .join("")}${pendingRenames
-      .map(
-        (file) =>
-          `0 ${zero}\t${file.fromLogical}\0${file.node.mode} ${gitBlobOid(file.node.body)}\t${file.toLogical}\0`,
-      )
+      .map((file) => `0 ${zero}\t${file.fromLogical}\0${file.node.mode} ${file.node.gitOid}\t${file.toLogical}\0`)
       .join("")}${deletions.map((file) => `0 ${zero}\t${file.logical}\0`).join("")}`;
     if (files.length) localGitProcesses += 1;
     awaitDurableSettlement(
@@ -652,10 +692,7 @@ function preserveConflict(
   if (!node) throw new Error(`conflicting worktree node disappeared at ${logical}`);
   const extension = path.extname(target),
     stem = target.slice(0, target.length - extension.length),
-    id = hashVcsBytes("sha256", `${logical}\0${identity}\0${node.mode}\0${hashVcsBytes("sha256", node.body)}`).slice(
-      0,
-      8,
-    ),
+    id = hashVcsBytes("sha256", `${logical}\0${identity}\0${node.mode}\0${node.sha256}`).slice(0, 8),
     scratch = `${stem}.conflict-${id}${extension}`,
     relative = path.relative(repoRoot, scratch).split(path.sep).join("/");
   ensureConflictExclude(repoRoot);
@@ -663,16 +700,17 @@ function preserveConflict(
     if (node.mode === "120000")
       /* @gate-identity check-bypass-write-boundary/bypass-write-078 */
       symlinkSync(node.body, scratch);
-    else if (durable) durableWrite(scratch, Buffer.from(node.body));
+    else if (durable) durableWrite(scratch, node.bytes);
     else
       /* @gate-identity check-bypass-write-boundary/bypass-write-089 */
-      writeFileSync(scratch, node.body, { encoding: "utf8", mode: 0o600 });
+      writeFileSync(scratch, node.bytes, { mode: 0o600 });
   }
   return relative;
 }
 function readNode(target: string): {
   readonly mode: "100644" | "120000";
   readonly body: string;
+  readonly bytes: Buffer;
   readonly sha256: string;
   readonly gitOid: string;
   readonly size: number;
@@ -685,6 +723,7 @@ function readNode(target: string): {
     return {
       mode,
       body: bytes.toString("utf8"),
+      bytes,
       sha256: hashVcsBytes("sha256", bytes),
       gitOid: gitBlobOidBytes(bytes),
       size: bytes.byteLength,
@@ -745,8 +784,11 @@ function processMayBeAlive(pid: number): boolean {
     return true;
   }
 }
-function gitBlobOid(body: string): string {
-  return gitBlobOidBytes(Buffer.from(body));
+function asBytes(body: string | Uint8Array): Buffer {
+  return typeof body === "string" ? Buffer.from(body, "utf8") : Buffer.isBuffer(body) ? body : Buffer.from(body);
+}
+function linkTarget(body: string | Uint8Array): string {
+  return typeof body === "string" ? body : asBytes(body).toString("utf8");
 }
 function gitBlobOidBytes(bytes: Uint8Array): string {
   return createHash("sha1").update(`blob ${bytes.byteLength}\0`).update(bytes).digest("hex");
@@ -824,7 +866,7 @@ function commandErrorSummary(error: unknown): string | undefined {
 const settlementWorkerKind = "harness-durable-settlement/v1";
 let settlementWorker: Worker | null = null;
 interface DurableSettlementInput {
-  readonly files?: readonly { readonly temporary: string; readonly body: string }[];
+  readonly files?: readonly { readonly temporary: string; readonly body: string | Uint8Array }[];
   readonly directories?: readonly string[];
   readonly index?: { readonly repoRoot: string; readonly input: string; readonly skipWorktreeInput?: string };
 }

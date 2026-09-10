@@ -92,7 +92,7 @@ function mappedCoverage(required) {
   return required
     .filter(
       ({ id, source, boundary }) =>
-        id === "event-schema:ci-run-observation/v1" ||
+        id === "event-schema:ci-run-observation/v2" ||
         (source.includes("sqlite-event-store.ts") && ["commit", "claimWriter"].includes(boundary)) ||
         (source.includes("durable-file.ts") && ["fsync", "rename"].includes(boundary)),
     )

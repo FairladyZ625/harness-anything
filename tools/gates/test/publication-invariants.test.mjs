@@ -38,16 +38,16 @@ test("G29 compares the complete published byte delta with the frozen plan declar
       started.frozenPlan.targets.filter((target) => target.kind === "ledger_file"),
       [
         ...[
-          ".harness/store/generations/1/ledger.sqlite",
-          ".harness/store/generations/1/ledger.sqlite-wal",
-          ".harness/store/generations/1/ledger.sqlite-shm",
+          ".harness/store/generations/2/ledger.sqlite",
+          ".harness/store/generations/2/ledger.sqlite-wal",
+          ".harness/store/generations/2/ledger.sqlite-shm",
           "harness/events/segments/manifest.json",
         ].map((path) => ({ kind: "ledger_file", path, operation: "replace" })),
         ...started.frozenPlan.targets
           .filter((target) => target.kind === "content_blob")
           .map((target) => ({
             kind: "ledger_file",
-            path: `.harness/store/generations/1/objects/sha256/${target.sha256.slice(0, 2)}/${target.sha256.slice(2)}`,
+            path: `.harness/store/generations/2/objects/sha256/${target.sha256.slice(0, 2)}/${target.sha256.slice(2)}`,
             operation: "replace",
           })),
       ],
@@ -167,8 +167,7 @@ test("G29 doc publication rejects extra, missing, and late targets before Git or
     git(rootDir, "commit", "--allow-empty", "-qm", "base");
     store = makeTaskEventStore({ repoId: "test-repo", rootDir });
     projection = makeTaskProjection({ rootDir, eventStore: store });
-    const
-      body = "# Notes\n",
+    const body = "# Notes\n",
       hash = sha256Text(body),
       base = store.currentCut(),
       baseCommit = store.currentCommit();

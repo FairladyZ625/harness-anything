@@ -1,5 +1,11 @@
 import { isAgentRuntimeEvent, runtimeEventContentClaims } from "../domain/agent-runtime.ts";
-import { isEntityDeclarationEvent, isEntityEvent } from "../domain/entity-event.ts";
+import { isEntityDeclarationEvent, isEntityEvent, ownedContentForDeclarationEvent } from "../domain/entity-event.ts";
+import {
+  entityOwnedContentClaims,
+  entityOwnedDirectories,
+  entityOwnedDocumentClaims,
+  entityRetiredDirectories,
+} from "../domain/entity-owned-content.ts";
 import { isScheduleEvent } from "../domain/schedule-event.ts";
 import { isSettingsEvent } from "../domain/settings-event.ts";
 import { isVerticalDeclarationEvent } from "../domain/vertical-declaration.ts";
@@ -27,7 +33,8 @@ export function canonicalDocumentClaims(event: PersistedCanonicalEventV1): reado
   readonly size: number;
   readonly mediaType: string;
 }[] {
-  if (isEntityEvent(event)) return isEntityDeclarationEvent(event) ? [event.payload.declarationDocumentClaim] : [];
+  if (isEntityEvent(event))
+    return isEntityDeclarationEvent(event) ? entityOwnedDocumentClaims(ownedContentForDeclarationEvent(event)) : [];
   if (isScheduleEvent(event))
     return "declarationDocumentClaim" in event.payload ? [event.payload.declarationDocumentClaim] : [];
   if (isSettingsEvent(event)) return [event.payload.harnessDocumentClaim];
@@ -68,7 +75,14 @@ export function canonicalDocumentClaims(event: PersistedCanonicalEventV1): reado
 export function canonicalDocumentRetirements(
   event: PersistedCanonicalEventV1,
 ): readonly { readonly path: string; readonly baseBlobSha256: string }[] {
-  if (isEntityEvent(event)) return [];
+  // An update that drops a file the entity used to own retires that path, exactly like a delete does; folding
+  // only `entity_deleted` here would leave the dropped file standing in the worktree with no event owning it.
+  if (isEntityEvent(event))
+    return event.type === "entity_deleted"
+      ? event.payload.ownedContent.retirements
+      : isEntityDeclarationEvent(event)
+        ? ownedContentForDeclarationEvent(event).retirements
+        : [];
   if (isScheduleEvent(event) && "declarationDocumentRetirement" in event.payload)
     return [event.payload.declarationDocumentRetirement];
   return isDocEvent(event)
@@ -77,6 +91,36 @@ export function canonicalDocumentRetirements(
       )
     : [];
 }
+/**
+ * The directories one event says its owner holds, and the ones it says the owner has stopped holding. Git cannot
+ * store an empty tree, so the manifest is the only durable record: materialization creates a held directory from
+ * it, and retires a released one from it. Both sides are read off the event and nothing else — a directory that
+ * is merely sitting empty on disk was never claimed by this owner and is not in either list, which is what keeps
+ * a directory the user made inside an entity's content root from being taken away with the entity.
+ */
+export function canonicalOwnedDirectories(event: PersistedCanonicalEventV1): {
+  readonly ownerRef: string;
+  /** Directories the manifest states explicitly, because no file of theirs implies them. */
+  readonly directories: readonly string[];
+  /** Directories this owner held under an earlier accepted manifest and holds no longer. */
+  readonly retirements: readonly string[];
+} | null {
+  if (!isEntityEvent(event)) return null;
+  if (event.type === "entity_deleted")
+    return {
+      ownerRef: event.payload.ownedContent.ownerRef,
+      directories: [],
+      retirements: entityRetiredDirectories(event.payload.ownedContent),
+    };
+  if (!isEntityDeclarationEvent(event)) return null;
+  const manifest = ownedContentForDeclarationEvent(event);
+  return {
+    ownerRef: manifest.ownerRef,
+    directories: entityOwnedDirectories(manifest),
+    retirements: entityRetiredDirectories(manifest),
+  };
+}
+
 export function canonicalDocumentMode(event: CanonicalEventV1, documentPath: string): "100644" | "120000" {
   return isMigrationImportEvent(event) &&
     event.payload.entity.kind === "repo-document" &&
@@ -99,7 +143,7 @@ export function contentClaims(event: CanonicalEventV1): readonly {
     ? event.payload.changes.flatMap((change) => (change.candidate === null ? [] : [change.candidate]))
     : isEntityEvent(event)
       ? isEntityDeclarationEvent(event)
-        ? [event.payload.declarationDocumentClaim]
+        ? entityOwnedContentClaims(ownedContentForDeclarationEvent(event))
         : []
       : isTaskEvent(event)
         ? [

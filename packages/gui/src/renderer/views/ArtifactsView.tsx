@@ -7,12 +7,14 @@ import {
   ArrowsOutLineHorizontal,
   FileHtml,
   FileText,
+  FileX,
 } from "@phosphor-icons/react";
 import type {
   ArtifactGuiKind,
   ArtifactGuiRowDto,
   ArtifactsListResult,
 } from "../../../../daemon/src/protocol/artifacts-gui-contract.ts";
+import { BinaryArtifactPanel } from "../components/BinaryArtifactPanel.tsx";
 import { DocReader } from "../components/DocReader.tsx";
 import { HtmlArtifactPreview } from "../components/HtmlArtifactPreview.tsx";
 import { Badge, Chip, Empty, Hint } from "../components/runtime/parts.tsx";
@@ -34,6 +36,7 @@ import { openArtifactExternally } from "../artifact-open-client.ts";
 const KIND_LABEL: Record<ArtifactGuiKind, MessageKey> = {
   html: "artifacts.kind.html",
   md: "artifacts.kind.md",
+  raw: "artifacts.kind.raw",
 };
 const TIME_SOURCE_LABEL: Record<ArtifactGuiRowDto["timeSource"], MessageKey> = {
   ledger: "artifacts.timeSource.ledger",
@@ -74,7 +77,11 @@ export function ArtifactsView({
         <span className="truncate font-mono ui-micro text-text-faint">{t("artifacts.subtitle")}</span>
         {query.data && (
           <span className="ml-auto whitespace-nowrap font-mono ui-micro text-text-faint">
-            {t("artifacts.counts", { html: String(query.data.counts.html), md: String(query.data.counts.md) })}
+            {t("artifacts.counts", {
+              html: String(query.data.counts.html),
+              md: String(query.data.counts.md),
+              raw: String(query.data.counts.raw),
+            })}
           </span>
         )}
       </header>
@@ -178,6 +185,7 @@ export function ArtifactsWorkspace({
               <Chip>{t("artifacts.list.count", { count: String(rows.length) })}</Chip>
               <KindToggle value={kind} kind="html" count={data?.counts.html} onChange={onKindChange} />
               <KindToggle value={kind} kind="md" count={data?.counts.md} onChange={onKindChange} />
+              <KindToggle value={kind} kind="raw" count={data?.counts.raw} onChange={onKindChange} />
               <button
                 type="button"
                 data-testid="artifacts-drawer-collapse"
@@ -252,6 +260,8 @@ function ArtifactRow({
         >
           {row.kind === "html" ? (
             <FileHtml weight="duotone" className="size-3.5 shrink-0 text-text-faint" />
+          ) : row.kind === "raw" ? (
+            <FileX weight="duotone" className="size-3.5 shrink-0 text-text-faint" />
           ) : (
             <FileText weight="duotone" className="size-3.5 shrink-0 text-text-faint" />
           )}
@@ -345,6 +355,7 @@ function ArtifactPreviewPane({
         </div>
       ) : (
         <ArtifactPreviewBody
+          repoId={repoId}
           row={row}
           onNavigateTask={onNavigateTask}
           document={document}
@@ -358,6 +369,7 @@ function ArtifactPreviewPane({
 }
 
 function ArtifactPreviewBody({
+  repoId,
   row,
   onNavigateTask,
   document,
@@ -365,6 +377,7 @@ function ArtifactPreviewBody({
   openError,
   remoteProxy,
 }: {
+  readonly repoId: string;
   readonly row: ArtifactGuiRowDto;
   readonly onNavigateTask: (taskId: string) => void;
   readonly document: ReturnType<typeof useTaskDocumentQuery>;
@@ -434,12 +447,22 @@ function ArtifactPreviewBody({
         data-testid="artifact-preview-content"
         className={`min-h-0 flex-1 p-3 ${html ? "overflow-hidden" : "overflow-y-auto"}`}
       >
-        {row.taskId === null ? (
+        {taskId === null ? (
           <PreviewNote text={t("artifacts.preview.noTask")} />
         ) : document.isPending ? (
           <PreviewNote text={t("artifacts.preview.pending")} />
         ) : document.isError ? (
           <PreviewNote text={t("artifacts.preview.failed", { error: document.error.message })} />
+        ) : /* 二进制产物先于「未物化」判定:它的 body 本来就是空的,交给 DocReader 会是一张
+             白页,而 blobSha256 为 null 只说明还没入账,不说明这个文件不存在。 */
+        document.data.contentKind === "binary" ? (
+          <BinaryArtifactPanel
+            repoId={repoId}
+            taskId={taskId}
+            path={row.path}
+            packagePath={row.packagePath}
+            read={document.data}
+          />
         ) : document.data.blobSha256 === null && document.data.worktreeBody === null ? (
           <PreviewNote text={t("artifacts.preview.absent")} />
         ) : // 工作树实时内容优先(与 Task 详情文件页同一规则):未提交的产物是真实工作。

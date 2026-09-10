@@ -1,4 +1,4 @@
-import { parseSquadDeclarationV1, type SquadDeclarationV1 } from "./agent-squad-schema.ts";
+import { parseSquadDeclarationV1, requiredPreparedText, type SquadDeclarationV1 } from "./agent-squad-schema.ts";
 import type {
   EntityActionContract,
   EntityActionInputContract,
@@ -13,6 +13,7 @@ import { assertTransitionDocumentReady, requireTransitionDocumentKind } from "./
 
 export const squadActionIds = Object.freeze([
   "install",
+  "delete",
   "validate",
   "list",
   "inspect",
@@ -22,11 +23,15 @@ export const squadActionIds = Object.freeze([
 ] as const);
 export type SquadActionId = (typeof squadActionIds)[number];
 
-export interface SquadActionDraft {
-  readonly kind: "entity";
-  readonly entityKind: "squad";
-  readonly entity: SquadDeclarationV1;
-}
+export type SquadActionDraft =
+  | { readonly kind: "entity"; readonly entityKind: "squad"; readonly entity: SquadDeclarationV1 }
+  | {
+      readonly kind: "entity-delete";
+      readonly entityKind: "squad";
+      readonly entityId: string;
+      readonly baseBlobSha256: string;
+      readonly reason: string;
+    };
 
 const input = (fields: readonly EntityActionInputField[]): EntityActionInputContract =>
   Object.freeze({
@@ -150,6 +155,36 @@ const declarations: readonly SquadActionDeclaration[] = Object.freeze([
     concurrency: installConcurrency,
     effects: Object.freeze([{ ref: "entity-event/entity_upserted", projection: "SquadProjection" }]),
     explain: "Install one validated Squad declaration through the canonical entity event stream.",
+    targetIdField: "entityId",
+  },
+  {
+    id: "delete",
+    ingress: "squad-delete",
+    input: input([
+      field("squadId", "string", true),
+      field("reason", "string", true),
+      field("expectedVersion", "number", true),
+      field("idempotencyKey"),
+    ]),
+    read: false,
+    compile: compileSquadDeleteAction,
+    implementation: "compiled-event",
+    topology: "center-forward-write",
+    criteria: Object.freeze([
+      criterion("squad/entity-present", "squad_not_found", "The Squad exists before deletion."),
+      criterion("squad/entity-revision", "revision_conflict", "expectedVersion matches the latest Squad revision."),
+    ]),
+    concurrency: Object.freeze({
+      ...installConcurrency,
+      expectedVersion: Object.freeze({
+        authority: "entity-event/v1 Squad projection revision",
+        required: true,
+        conflict: "revision_conflict",
+      }),
+      idempotency: Object.freeze({ ...operationId, scope: "squad/{id}/delete", retry: "canonical-event-replay" }),
+    }),
+    effects: Object.freeze([{ ref: "entity-event/entity_deleted", projection: "SquadProjection" }]),
+    explain: "Delete one Squad current view while retaining its accepted content object history.",
     targetIdField: "entityId",
   },
   {
@@ -348,9 +383,20 @@ export function compileSquadInstallAction(input: EntityActionCompileInput): Squa
   return { kind: "entity", entityKind: "squad", entity };
 }
 
+export function compileSquadDeleteAction(input: EntityActionCompileInput): SquadActionDraft {
+  return {
+    kind: "entity-delete",
+    entityKind: "squad",
+    entityId: requiredPreparedText("Squad", input.action.entityId, "entityId"),
+    baseBlobSha256: requiredPreparedText("Squad", input.action.baseBlobSha256, "baseBlobSha256"),
+    reason: requiredPreparedText("Squad", input.action.reason, "reason"),
+  };
+}
+
 export function squadActionUsage(action: EntityActionContract, squadId = "<squad-id>"): string {
   const usage: Record<SquadActionId, string> = {
     install: "ha squad install --source <squad-package> [--dry-run]",
+    delete: `ha squad delete ${squadId} --expected-version <revision> --reason <reason>`,
     validate: "ha squad validate --source <squad-package>",
     list: "ha squad list",
     inspect: `ha squad inspect ${squadId}`,

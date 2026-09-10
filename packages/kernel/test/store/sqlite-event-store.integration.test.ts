@@ -328,7 +328,7 @@ test("SQLite content admission reuses exact objects after reopen and rejects cor
     await first.drain();
   }
   const reopened = makeTaskEventStore(options),
-    objectPath = sqliteContentObjectPath(rootDir, hash);
+    objectPath = sqliteContentObjectPath(rootDir, hash, 2);
   try {
     const beforeReuse = statSync(objectPath),
       reused = docBundle(reopened, body, 2, "content-reused", "context/reused.md");

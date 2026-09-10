@@ -52,8 +52,10 @@ for (const counterexample of [
     name: "duplicate idPrefix",
     mutate(vertical: VerticalJson) {
       const adr = artifact(vertical);
+      // A second kind with its own identity and store, colliding only on the prefix entity ids carry.
       vertical.entityKinds.push({
         ...adr,
+        kindId: "KND-4c8f3d0b2e6a7f9d1b5c3e4a6f8d0b27",
         id: "research-report",
         store: { pathTemplate: "entities/research-reports/{id}.json" },
       });

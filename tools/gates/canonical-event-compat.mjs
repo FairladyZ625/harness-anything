@@ -1,3 +1,6 @@
+import { readOnlyGenerationOneFixtures } from "./canonical-event-generations.mjs";
+import { decodeLegacyEventBytes } from "../../packages/kernel/src/store/legacy-generation-source.ts";
+import { validateCurrentCanonicalEvent } from "../../packages/kernel/src/domain/doc-sync-canonical-events.ts";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -136,6 +139,12 @@ function frozenCanonicalEventCount(rootDir, schemas) {
 
 export function validateFrozenCanonicalEvents(rootDir, schemas, parseCanonicalEvent) {
   const errors = [];
+  for (const relativePath of readOnlyGenerationOneFixtures.keys())
+    if (
+      schemas.some((entry) => relativePath.startsWith(`${FIXTURE_ROOT}/${fixtureDirectory(entry.schema)}/`)) &&
+      !existsSync(path.join(rootDir, relativePath))
+    )
+      errors.push(`${relativePath}: retained generation 1 sample is missing`);
   for (const entry of schemas) {
     const relativeDirectory = path.posix.join(FIXTURE_ROOT, fixtureDirectory(entry.schema));
     const directory = path.join(rootDir, relativeDirectory);
@@ -164,6 +173,20 @@ export function validateFrozenCanonicalEvents(rootDir, schemas, parseCanonicalEv
       }
       if (value === null || typeof value !== "object" || Array.isArray(value) || value.schema !== entry.schema) {
         errors.push(`${relativePath}: expected ${entry.schema}, found ${String(value?.schema)}`);
+        continue;
+      }
+      const retainedDigest = readOnlyGenerationOneFixtures.get(relativePath);
+      if (retainedDigest !== undefined) {
+        try {
+          if (sha256Text(body) !== retainedDigest) throw new Error("retained generation 1 bytes changed");
+          if (decodeLegacyEventBytes(body, relativePath).bytes !== body)
+            throw new Error("historical reader changed bytes");
+          if (validateCurrentCanonicalEvent(value).length === 0)
+            throw new Error("historical-only shape entered live admission");
+        } catch (error) {
+          consumeKnownError(error);
+          errors.push(`${relativePath}: ${error instanceof Error ? error.message : String(error)}`);
+        }
         continue;
       }
       const issues = entry.validate(value);
@@ -307,7 +330,10 @@ export function projectFrozenDaemonResponses(rootDir, transformEvent = (event) =
       ["validateDaemonDecisionList", decisionRead],
       [
         "validateDaemonDocumentRead",
-        readProjectedDocument(temporaryRoot, projection, { taskId: DISPATCH_TASK_ID, path: "INDEX.md" }),
+        readProjectedDocument(
+          { rootDir: temporaryRoot, projection, store: eventStore },
+          { taskId: DISPATCH_TASK_ID, path: "INDEX.md" },
+        ),
       ],
       [
         "validateDaemonTaskDocumentList",
@@ -367,6 +393,9 @@ function main() {
     daemon = validateFrozenDaemonReadside(rootDir);
   const errors = [
     ...validateFrozenCanonicalEvents(rootDir, canonicalEventSchemas, parseCanonicalEvent),
+    ...validateFrozenCanonicalEvents(rootDir, [
+      { schema: "ci-run-observation/v1", validate: validateCurrentCanonicalEvent },
+    ]),
     ...daemon.errors,
   ];
   if (errors.length > 0) {
@@ -376,7 +405,7 @@ function main() {
     const sampleCount = frozenCanonicalEventCount(rootDir, canonicalEventSchemas);
     console.log(
       `canonical-event-compat: ok (${sampleCount} samples across ${canonicalEventSchemas.length} canonical schemas, ` +
-        `${daemonResponseValidators.length} daemon response validators from ${daemon.eventCount} historical events, ` +
+        `1 retired CI schema sample, ${daemonResponseValidators.length} daemon response validators from ${daemon.eventCount} historical events, ` +
         `${daemon.durationMs.toFixed(1)}ms)`,
     );
   }

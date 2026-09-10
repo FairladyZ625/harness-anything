@@ -169,3 +169,27 @@ function objectAt(value: unknown, objectPath: ObjectPath): Record<string, unknow
     throw new Error(`fixture path is not an object: ${objectPath.join(".")}`);
   return current as Record<string, unknown>;
 }
+test("historical entity ownership gaps remain readable but cannot become current writes", () => {
+  const raw = readFileSync(
+    new URL(
+      "../../fixtures/canonical-events/entity-event-v1/accepted-entity-upserted-ddcb7509cb2d.json",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  const original = JSON.parse(raw);
+  assert.equal(original.payload.ownedContent, undefined);
+  assert.deepEqual(parseCanonicalEvent(raw), original);
+  assert.notEqual(validateCurrentCanonicalEvent(original).length, 0);
+});
+
+test("historical artifact contract snapshots remain readable without inventing a current pin", () => {
+  const raw = readFileSync(
+      new URL("../../fixtures/canonical-events/entity-event-v1/accepted.json", import.meta.url),
+      "utf8",
+    ),
+    original = JSON.parse(raw);
+  assert.equal(original.payload.artifactContract.kindVersion, undefined);
+  assert.deepEqual(parseCanonicalEvent(raw), original);
+  assert.notEqual(validateCurrentCanonicalEvent(original).length, 0);
+});

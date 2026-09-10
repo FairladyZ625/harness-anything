@@ -49,7 +49,7 @@ export type DocIntentAdjudication =
           readonly sha256: string;
           readonly size: number;
           readonly mediaType: string;
-          readonly body: string;
+          readonly body: string | Uint8Array;
         }[];
         readonly authorizationDecision: AuthorizationDecision;
       };

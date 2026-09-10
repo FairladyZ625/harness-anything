@@ -118,6 +118,11 @@ export interface PreparedAgentEntityInstall {
   };
 }
 
+export interface PreparedAgentEntityDelete {
+  readonly entityId: string;
+  readonly baseBlobSha256: string;
+}
+
 const manifestName = { agent: "agent.json", squad: "squad.json" } as const;
 export function runAgentEntityAction(input: {
   readonly rootDir: string;
@@ -495,6 +500,39 @@ export function prepareAgentEntityInstall(input: {
       issues: [],
     },
   };
+}
+
+export function prepareAgentEntityDelete(input: {
+  readonly action: Readonly<Record<string, unknown>> & { readonly kind: string };
+  readonly entityStore: EntityStore;
+}): PreparedAgentEntityDelete {
+  const kind = entityKind(input.action.kind),
+    idField = kind === "agent" ? "agentId" : "squadId",
+    entityId = requiredEntityText(input.action[idField], idField),
+    expectedVersion = input.action.expectedVersion,
+    reason = requiredEntityText(input.action.reason, "reason");
+  if (!Number.isSafeInteger(expectedVersion) || Number(expectedVersion) < 1)
+    throw entityError("invalid_command", "expectedVersion must be a positive Entity revision for deletion.");
+  const current = input.entityStore.get(kind, entityId);
+  if (current === null)
+    throw attributeEntityActionCriterion(
+      entityError(`${kind}_not_found`, `${entityId} is not an installed ${kind}.`),
+      "delete",
+      `${kind}/entity-present`,
+    );
+  if (current.workspaceRevision !== Number(expectedVersion))
+    throw attributeEntityActionCriterion(
+      entityError(
+        "revision_conflict",
+        `${kind} ${entityId} expected revision ${String(expectedVersion)}, current revision is ${String(
+          current.workspaceRevision,
+        )}.`,
+      ),
+      "delete",
+      `${kind}/entity-revision`,
+    );
+  if (!reason.trim()) throw entityError("invalid_command", "reason is required.");
+  return { entityId, baseBlobSha256: current.documentSha256 };
 }
 function repairableStoredDeclaration(
   entityStore: EntityStore,

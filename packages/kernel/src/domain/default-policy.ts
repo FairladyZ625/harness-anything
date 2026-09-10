@@ -2,6 +2,7 @@ import type { PolicyActionRule, PolicyDeclarationV1 } from "./policy.ts";
 
 const repositoryWriteActions = Object.freeze([
   "agent-create",
+  "agent-delete",
   "agent-install",
   "ci-observe-pull",
   "decision-amend",
@@ -27,6 +28,7 @@ const repositoryWriteActions = Object.freeze([
   "entity-import",
   "entity-update",
   "entity-archive",
+  "entity-delete",
   "fact-reclassify",
   "fact-record",
   "fact-type-register",
@@ -56,6 +58,7 @@ const repositoryWriteActions = Object.freeze([
   "script-run",
   "settings-update",
   "squad-cancel",
+  "squad-delete",
   "squad-install",
   "squad-run",
   "task-amend",
@@ -84,6 +87,7 @@ const repositoryWriteActions = Object.freeze([
   "terminal-spawn",
   "terminal-terminate",
   "vertical-declaration-migrate",
+  "vertical-kind-publish-schema",
   "vertical-kind-retire",
   "vertical-kind-upsert",
 ] as const);

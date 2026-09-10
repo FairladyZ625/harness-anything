@@ -66,6 +66,7 @@ const artifactEntityImportProtocolInput = Object.freeze({
     { field: "sourceIdentity", type: "string", required: false },
     { field: "idempotencyKey", type: "string", required: false },
     { field: "dryRun", type: "boolean", required: false },
+    { field: "attributes", type: "json-object", required: false },
   ]),
   exactlyOneOf: Object.freeze([]),
 } as const satisfies typeof artifactEntityImportActionInput);
@@ -117,7 +118,11 @@ function validateProjectedTaskActionInput(
             entry !== null &&
             typeof (entry as { readonly factRef?: unknown }).factRef === "string" &&
             typeof (entry as { readonly rationale?: unknown }).rationale === "string",
-        ));
+        )) ||
+      // A declared object field is admitted as an object here and judged for content by the schema that owns
+      // its vocabulary; this layer has no way to know a runtime-declared Kind's attribute names.
+      (type === "json-object" && isJsonObject(item)) ||
+      (type === "json-object-array" && Array.isArray(item) && item.every((entry) => isJsonObject(entry)));
     if (!valid) errors.push(validationError(entityId, `action.${field.field}`, item, `must be ${type}`));
     if (field.enum && !field.enum.includes(String(item)))
       errors.push(validationError(entityId, `action.${field.field}`, item, `must be one of ${field.enum.join(", ")}`));

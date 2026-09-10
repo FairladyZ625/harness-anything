@@ -20,7 +20,10 @@ export class EntityKindCatalogContractError extends Error {
  */
 export interface EntityKindDeclarationV1 {
   readonly id: string;
-  readonly version: number;
+  /** Stable opaque identity; the qualified `id` above is only a selection name. */
+  readonly kindId: string;
+  /** Every published schema version, oldest first. Publishing appends; nothing here is ever rewritten. */
+  readonly schemaVersions: readonly number[];
   readonly idPrefix: string;
   readonly display: { readonly singular: string; readonly plural: string };
   readonly descriptorSchemaRef: string;
@@ -30,7 +33,7 @@ export interface EntityKindDeclarationV1 {
 }
 
 export interface EntityKindCatalogRowV1 {
-  /** Built-in kind name, or the vertical type identity `<vertical>/<id>@<version>`. */
+  /** Built-in kind name, or the declared kind's stable ref `entity-kind/KND-...`. */
   readonly kind: string;
   readonly origin: "builtin" | "vertical";
   readonly verticalId: string | null;
@@ -64,13 +67,8 @@ export function buildEntityKindCatalog(
     declarationRevision,
     kinds: Object.freeze([
       ...entityKindContracts.map((contract) => catalogRow(contract, "builtin", null, null)),
-      ...artifactKinds.map(({ declaration, entityKindContract, typeIdentity }) =>
-        catalogRow(
-          entityKindContract,
-          "vertical",
-          typeIdentity.slice(0, typeIdentity.length - `/${declaration.id}@${declaration.version}`.length),
-          declaration,
-        ),
+      ...artifactKinds.map(({ declaration, entityKindContract, verticalId }) =>
+        catalogRow(entityKindContract, "vertical", verticalId, declaration),
       ),
     ]),
   });
@@ -96,7 +94,8 @@ function catalogRow(
         ? null
         : Object.freeze({
             id: declaration.id,
-            version: declaration.version,
+            kindId: declaration.kindId,
+            schemaVersions: Object.freeze(declaration.schemaVersions.map(({ version }) => version)),
             idPrefix: declaration.idPrefix,
             display: Object.freeze({ singular: declaration.display.singular, plural: declaration.display.plural }),
             descriptorSchemaRef: declaration.descriptorSchemaRef,
@@ -166,7 +165,8 @@ function validateCatalogRow(value: unknown): readonly string[] {
 
 const declarationFields = [
   "id",
-  "version",
+  "kindId",
+  "schemaVersions",
   "idPrefix",
   "display",
   "descriptorSchemaRef",
@@ -179,11 +179,17 @@ function validateDeclaration(value: unknown): readonly string[] {
   if (!catalogRecord(value) || !catalogExact(value, declarationFields))
     return ["declaration fields are incomplete or unknown"];
   const errors: string[] = [];
-  for (const field of ["id", "idPrefix", "descriptorSchemaRef", "pathTemplate"])
+  for (const field of ["id", "kindId", "idPrefix", "descriptorSchemaRef", "pathTemplate"])
     if (typeof value[field] !== "string" || (value[field] as string).length === 0)
       errors.push(`declaration ${field} must be a non-empty string`);
-  if (typeof value.version !== "number" || !Number.isInteger(value.version) || value.version < 1)
-    errors.push("declaration version must be a positive integer");
+  if (typeof value.kindId === "string" && !/^KND-[0-9a-f]{32}$/u.test(value.kindId))
+    errors.push("declaration kindId must be an opaque KND identity");
+  if (
+    !Array.isArray(value.schemaVersions) ||
+    value.schemaVersions.length === 0 ||
+    value.schemaVersions.some((version) => !Number.isInteger(version) || Number(version) < 1)
+  )
+    errors.push("declaration schemaVersions must be a non-empty list of positive integers");
   if (
     !catalogRecord(value.display) ||
     typeof value.display.singular !== "string" ||

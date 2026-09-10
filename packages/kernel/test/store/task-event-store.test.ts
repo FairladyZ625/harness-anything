@@ -102,7 +102,7 @@ test("Git follower no longer advances canonical and authored refs to one SHA whi
   try {
     const receipt = store.append(docBundle(store, "# Git readback\n", 1, "contract-doc", "context/contract.md"));
     assert.equal(receipt.commitSha, null);
-    assert.equal(store.canonicalRef, "sqlite:generation-1");
+    assert.equal(store.canonicalRef, "sqlite:generation-2");
     assert.equal(store.followerStatus().git.status, "pending");
     assert.equal(git(rootDir, "rev-parse", "HEAD"), beforeHead);
     assert.equal(git(rootDir, "for-each-ref", "--format=%(objectname)", "refs/ha/canonical"), beforeCanonical);
@@ -118,7 +118,7 @@ test("Git follower no longer advances canonical and authored refs to one SHA whi
     for (const [relative, bytes] of beforeBytes)
       assert.deepEqual(readFileSync(path.join(rootDir, relative)), bytes, `${relative} bytes changed`);
     assert.equal(statSync(path.join(rootDir, "notes/prose.md")).mode & 0o777, beforeMode);
-    const sqlite = openSqliteEventStore({ repoId, rootInput: rootDir, readOnly: true });
+    const sqlite = openSqliteEventStore({ repoId, rootInput: rootDir, generation: 2, readOnly: true });
     try {
       const certified = readCertifiedGitFollower({ rootInput: rootDir, repoId, store: sqlite }),
         document = certified.documents.find((candidate) => candidate.path.endsWith("context/contract.md"));
@@ -320,7 +320,10 @@ test("corrupt accepted content cannot be certified by publishing the same corrup
   try {
     const bundle = docBundle(store, "accepted\n", 1, "corrupt-content", "context/accepted.md");
     store.append(bundle);
-    writeFileSync(sqliteContentObjectPath(rootDir, bundle.blobs[0]!.sha256), "corrupted\n");
+    writeFileSync(
+      sqliteContentObjectPath(rootDir, bundle.blobs[0]!.sha256, store.ledgerMetadata().generation),
+      "corrupted\n",
+    );
     await store.settlePendingMaterialization!("detect corrupt content");
     assert.equal(store.readCommandOutcome("corrupt-content")?.status, "accepted_durable");
     assert.equal(store.followerStatus().git.status, "pending");

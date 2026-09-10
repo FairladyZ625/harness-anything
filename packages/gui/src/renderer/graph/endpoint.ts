@@ -34,7 +34,7 @@ export interface NodePos {
  *   schedule/<id>        → { id: "schedule/<id>", entity: "schedule" }
  *
  * 其余 kind 由调用方传入 `declaredKinds`(已注册 kind 读面派生),ref 整串即节点 id。
- * vertical 的 ref 是多段(`software/coding/x@1/ADR-…`),所以按最长前缀先匹配。
+ * vertical 的 ref 是多段(`entity-kind/KND-…/ADR-…`),所以按最长前缀先匹配。
  * 不传 declaredKinds = 只认内建五类,与本函数原来的行为一致。
  */
 export function parseEndpoint(

@@ -42,7 +42,12 @@ export function projectFlags(
   for (const [name, value] of flags.one) {
     const input = inputs?.get(commandId)?.inputs.find((candidate) => candidate.name === name),
       field = input?.field ?? projectedField(commandId, name);
-    projected[field] = input?.projection === "number" || field === "limit" || field === "ttlMs" ? Number(value) : value;
+    projected[field] =
+      input?.projection === "json-object"
+        ? jsonObjectFlag(value)
+        : input?.projection === "number" || field === "limit" || field === "ttlMs"
+          ? Number(value)
+          : value;
   }
   for (const [name, values] of flags.many) {
     const input = inputs?.get(commandId)?.inputs.find((candidate) => candidate.name === name),
@@ -64,6 +69,20 @@ export function projectFlags(
     projected[input?.field ?? projectedField(commandId, name)] = true;
   }
   return projected;
+}
+
+/**
+ * A declared object-valued flag. The CLI parses it here rather than forwarding the text, so a number stated in
+ * the JSON stays a number all the way to the schema that judges it; a malformed value is left as the caller's
+ * own string so the action input validator names the field it rejected instead of the CLI guessing at intent.
+ */
+function jsonObjectFlag(value: string): unknown {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : value;
+  } catch {
+    return value;
+  }
 }
 
 export function parseProjected(

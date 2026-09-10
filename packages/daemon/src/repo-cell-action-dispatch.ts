@@ -29,11 +29,17 @@ export async function executeAction(
   action: RepoTaskAction,
   binding: RepoCellBinding,
 ): Promise<WriteReceipt> {
-  if (["vertical-declaration-migrate", "vertical-kind-upsert", "vertical-kind-retire"].includes(action.kind))
+  if (
+    [
+      "vertical-declaration-migrate",
+      "vertical-kind-upsert",
+      "vertical-kind-publish-schema",
+      "vertical-kind-retire",
+    ].includes(action.kind)
+  )
     return runVerticalDeclarationAction({
       action,
       binding,
-      rootDir: cell.rootDir,
       store: cell.store,
       projection: cell.projection,
       now: cell.now,
@@ -129,7 +135,7 @@ export async function executeAction(
       ),
     );
   }
-  if (["entity-import", "entity-update", "entity-archive"].includes(action.kind))
+  if (["entity-import", "entity-update", "entity-archive", "entity-delete"].includes(action.kind))
     return cell.entityActionExecutor.run(
       action,
       binding,
@@ -220,7 +226,7 @@ export async function executeAction(
   if (/^entity-(?:get|list)$/u.test(action.kind)) {
     const revision = cell.store.readHead()?.revision ?? 0,
       requestedKind = cell.requiredCellText(action.entityKind, "entityKind"),
-      kind = resolveEntityReadKind(requestedKind, compiledArtifactKinds(cell.rootDir, cell.input.repoId));
+      kind = resolveEntityReadKind(requestedKind, compiledArtifactKinds(cell.projection, cell.input.repoId));
     if (action.kind === "entity-list")
       return cell.readResult(
         cell.operationId(action, binding, cell.input.repoId, revision),

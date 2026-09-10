@@ -10,11 +10,18 @@ type DeclarationRead = {
   readonly declaration: { readonly entityKinds: readonly unknown[] };
 };
 
+const facadeKinds = ["vertical-kind-upsert", "vertical-kind-publish-schema", "vertical-kind-retire"];
+
 export function isVerticalKindFacadeCommand(command: ThinCommand): boolean {
-  const kind = command.action.kind;
-  return (kind === "vertical-kind-upsert" || kind === "vertical-kind-retire") && !("expectedVersion" in command.action);
+  return facadeKinds.includes(command.action.kind) && !("expectedVersion" in command.action);
 }
 
+/**
+ * Read the addressed Kind's own accepted revision, then send the command fenced on it. A Kind is its
+ * own concurrency subject, so a command here is never staled by an unrelated Kind someone else wrote.
+ * Immutability of the opaque identity, the id prefix, the store path and every published schema
+ * version is the center's judgement, not a second copy of the rules here.
+ */
 export async function runVerticalKindFacadeCommand(command: ThinCommand): Promise<JsonObject> {
   const current = await runCommandThroughDaemon({
     ...command,
@@ -29,54 +36,63 @@ export async function runVerticalKindFacadeCommand(command: ThinCommand): Promis
         kind: "vertical-kind-retire",
         kindId: command.action.kindId,
         reason: command.action.reason,
-        expectedVersion: current.declarationRevision,
+        expectedVersion: kindFence(current, String(command.action.kindId)),
       },
     });
 
   const source = String(command.action.fromFile),
     file = path.isAbsolute(source) ? source : path.join(command.rootDir, source);
-  let declaration: unknown;
+  let body: unknown;
   try {
-    declaration = JSON.parse(readFileSync(file, "utf8"));
+    body = JSON.parse(readFileSync(file, "utf8"));
   } catch (error) {
     return rejectedReceipt(command, "invalid_field", `--from-file could not be read as JSON: ${errorText(error)}`);
   }
-  if (!isJsonRecord(declaration) || declaration.entityType !== "artifact" || typeof declaration.id !== "string")
+  if (command.action.kind === "vertical-kind-publish-schema") {
+    if (!isJsonRecord(body))
+      return rejectedReceipt(command, "invalid_field", "--from-file must contain one attribute declaration object.");
+    return runCommandThroughDaemon({
+      ...command,
+      action: {
+        kind: "vertical-kind-publish-schema",
+        kindId: command.action.kindId,
+        attributes: body,
+        expectedVersion: kindFence(current, String(command.action.kindId)),
+      },
+    });
+  }
+  if (!isJsonRecord(body) || body.entityType !== "artifact" || typeof body.id !== "string")
     return rejectedReceipt(
       command,
       "invalid_field",
       "--from-file must contain one complete Artifact kind declaration.",
     );
-  const existing = current.declaration.entityKinds.find(
-    (candidate) => isJsonRecord(candidate) && candidate.id === declaration.id,
-  );
-  if (isJsonRecord(existing)) {
-    if (existing.idPrefix !== declaration.idPrefix)
-      return rejectedReceipt(
-        command,
-        "destructive_kind_change",
-        "idPrefix is immutable because existing entity ids depend on it.",
-      );
-    if (
-      isJsonRecord(existing.store) &&
-      isJsonRecord(declaration.store) &&
-      existing.store.pathTemplate !== declaration.store.pathTemplate
-    )
-      return rejectedReceipt(
-        command,
-        "destructive_kind_change",
-        "store.pathTemplate is immutable because existing entity documents depend on it.",
-      );
-  }
+  // An existing kind is addressed by its stable identity when the declaration states one, so a rename
+  // reaches the same row instead of creating a second kind under the new name.
+  const kindId = typeof body.kindId === "string" ? body.kindId : body.id;
   return runCommandThroughDaemon({
     ...command,
     action: {
       kind: "vertical-kind-upsert",
-      kindId: declaration.id,
-      declaration,
-      expectedVersion: current.declarationRevision,
+      kindId,
+      declaration: body,
+      expectedVersion: kindFence(current, kindId),
     },
   });
+}
+
+/**
+ * The revision the addressed Kind was last accepted at, or `0` when no Kind answers to that name yet,
+ * which is how a caller states the intent to create one.
+ */
+function kindFence(read: DeclarationRead, kindId: string): number {
+  const row = read.declaration.entityKinds.find(
+    (candidate) =>
+      isJsonRecord(candidate) &&
+      candidate.entityType === "artifact" &&
+      (candidate.kindId === kindId || `entity-kind/${String(candidate.kindId)}` === kindId || candidate.id === kindId),
+  ) as { readonly revision?: unknown } | undefined;
+  return Number.isSafeInteger(row?.revision) ? Number(row?.revision) : 0;
 }
 
 function isDeclarationRead(value: unknown): value is DeclarationRead {

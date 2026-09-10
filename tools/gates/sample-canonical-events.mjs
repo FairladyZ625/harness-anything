@@ -231,7 +231,7 @@ function originsDocument(samples, ref) {
     "These registered schemas do not occur at the sampled canonical cut and retain their existing fixtures:",
     "",
     "- `agent-entity-event/v1`: de-identified historical `agent_entity_written` event `op_ecb4101d…`.",
-    "- `ci-run-observation/v1`: CI artifact ingestion contract fixture.",
+    "- `ci-run-observation/v2`: CI artifact ingestion contract fixture.",
     "- `ledger-layout-event/v1`: de-identified canonical layout migration event `op_73c908af…`.",
     "",
   ].join("\n");

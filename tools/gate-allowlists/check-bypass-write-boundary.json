@@ -582,12 +582,6 @@
         "reason": "SQLite ledger statement run inside the coordinated command transaction, or the explicit `ha migrate ledger --generation 1` command."
       },
       {
-        "value": "bypass-write-121",
-        "api": "sqlite.prepare",
-        "ref": "dec_B1F5FF7648436C985F38F14226",
-        "reason": "SQLite ledger statement run inside the coordinated command transaction, or the explicit `ha migrate ledger --generation 1` command."
-      },
-      {
         "value": "bypass-write-122",
         "api": "sqlite.prepare",
         "ref": "dec_B1F5FF7648436C985F38F14226",
@@ -658,6 +652,12 @@
         "api": "closeSync",
         "ref": "dec_FC8D4B2DE22E97774073A0BBF9",
         "reason": "Git follower fast-import stream file is closed before git reads it."
+      },
+      {
+        "value": "bypass-write-134",
+        "api": "rmdirSync",
+        "ref": "dec_78A329289D1AA69527529DA92C",
+        "reason": "The canonical materializer retires only accepted owned directory paths with non-recursive removal; unowned and non-empty directories remain."
       }
     ],
     "exemptHumanOrBootstrap": [],

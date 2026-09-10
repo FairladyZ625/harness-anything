@@ -33,7 +33,7 @@ interface CanonicalEventSchemaRegistration {
 
 export const canonicalEventSchemas: readonly CanonicalEventSchemaRegistration[] = Object.freeze([
   {
-    schema: "ci-run-observation/v1",
+    schema: "ci-run-observation/v2",
     validate: validateCiRunObservationEvent,
     validateCurrent: validateCurrentCiRunObservationEvent,
   },

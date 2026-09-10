@@ -19,6 +19,17 @@ const execution = (ingress: string) =>
 const input = (fields: EntityActionInputContract["fields"]): EntityActionInputContract =>
   Object.freeze({ schema: "entity-action-input/v1", fields: Object.freeze(fields), exactlyOneOf: Object.freeze([]) });
 
+/**
+ * Attributes are stated as one object rather than as declared per-Kind flags: the Kinds this action serves are
+ * declared at runtime, so no source-time field list could name them. What is admissible is decided against the
+ * schema version the instance is pinned to, which is the only place that knows the Kind's own vocabulary.
+ */
+const attributesInputField = {
+  field: "attributes",
+  type: "json-object",
+  required: false,
+} as const satisfies EntityActionInputContract["fields"][number];
+
 export const artifactEntityImportActionInput = input([
   { field: "entityKind", type: "string", required: true },
   { field: "locator", type: "string", required: true },
@@ -28,6 +39,7 @@ export const artifactEntityImportActionInput = input([
   { field: "sourceIdentity", type: "string", required: false },
   { field: "idempotencyKey", type: "string", required: false },
   { field: "dryRun", type: "boolean", required: false },
+  attributesInputField,
 ]);
 
 const action = (kind: string, identity: EntityKindContract["id"], id: string, ingress: string): EntityActionContract =>
@@ -61,6 +73,18 @@ export function artifactEntityActionCatalog(
           { field: "title", type: "string", required: false },
           { field: "locator", type: "string", required: false },
           { field: "contentVersion", type: "string", required: false },
+          attributesInputField,
+        ]),
+      }),
+      Object.freeze({
+        // Delete retires the material; archive only closes it. Both run through the same revision fence, and
+        // the events that carried the bytes stay in the ledger either way.
+        ...action(kind, identity, "delete", "entity-delete"),
+        input: input([
+          { field: "entityKind", type: "string", required: true },
+          { field: "entityId", type: "string", required: true },
+          { field: "reason", type: "string", required: true },
+          { field: "expectedVersion", type: "number", required: true },
         ]),
       }),
       Object.freeze({

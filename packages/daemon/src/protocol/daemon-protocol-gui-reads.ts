@@ -18,6 +18,7 @@ import {
   DAEMON_ENTITY_KIND_CATALOG_SCHEMA,
   DAEMON_VERTICAL_DECLARATION_READ_SCHEMA,
   DAEMON_ENTITY_ROW_LIST_SCHEMA,
+  DAEMON_ENTITY_CONTENT_READ_SCHEMA,
   DAEMON_ENTITY_LOCATOR_READ_SCHEMA,
   DAEMON_OBSERVE_TAIL_SCHEMA,
   DAEMON_PROTOCOL_ERROR_SCHEMA,
@@ -276,6 +277,28 @@ export const daemonGuiReadMethods = Object.freeze([
     commandClass: "repo-read",
   },
   {
+    // Owned content, addressed by entity identity rather than by a repository path: the bindings an entity was
+    // accepted with are authored-root relative, and the authored root is configurable, so no caller can be
+    // asked to assemble that path itself.
+    id: "entity.content.read",
+    phase: "Governed-Entity-W2-0",
+    method: "repo.entity.content.read",
+    requiresRepo: true,
+    params: shape({
+      repo: shape({ repoId: "string" }),
+      payload: shape({ entityKind: "string", entityId: "string", path: "string?" }),
+    }),
+    guiBridgeMethod: "readEntityContent",
+    httpMethod: "POST",
+    path: "/api/entities/content",
+    inputSchemaId: "gui.entity-content-read/v1",
+    outputSchemaId: DAEMON_ENTITY_CONTENT_READ_SCHEMA.id,
+    errorSchemaId: DAEMON_PROTOCOL_ERROR_SCHEMA.id,
+    serviceMethod: "readEntityContent",
+    auth: "local-session-token",
+    commandClass: "repo-read",
+  },
+  {
     id: "workspace.summary.read",
     phase: "W2-GUI",
     method: "repo.workspace.summary.read",
@@ -395,7 +418,7 @@ export const daemonGuiReadMethods = Object.freeze([
     guiBridgeMethod: "listArtifacts",
     httpMethod: "GET",
     path: "/api/artifacts",
-    inputSchemaId: "gui.artifacts-list/v1",
+    inputSchemaId: "gui.artifacts-list/v2",
     outputSchemaId: DAEMON_ARTIFACTS_LIST_SCHEMA.id,
     errorSchemaId: DAEMON_PROTOCOL_ERROR_SCHEMA.id,
     serviceMethod: "listArtifacts",

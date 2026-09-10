@@ -8,7 +8,7 @@ import test from "node:test";
 import { makeTaskEventReader } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
-import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
+import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { initRepo } from "./task-surface.fixtures.ts";
 
 const binding = withRoleBinding(
@@ -64,8 +64,12 @@ test("task read-set derives one ordered projection per cut and never writes back
       ["task_read_set_related", "Related sibling"],
       ["task_read_set_late", "Late sibling"],
       ["task_read_set_isolated", "Isolated task"],
-    ] as const)
-      assert.equal((await cell.run({ kind: "task-create", taskId, title }, binding)).outcome, "applied");
+    ] as const) {
+      const created = await cell.run({ kind: "task-create", taskId, title }, binding);
+      assert.equal(created.outcome, "applied");
+      // Complete setup publication before fingerprinting reads; acceptance alone leaves the follower running.
+      await waitForFixturePublication(cell, created.opId, binding);
+    }
 
     for (const [targetRef, relationType, rationale] of [
       ["task/task_read_set_required", "depends-on", "The host waits for the required dependency."],

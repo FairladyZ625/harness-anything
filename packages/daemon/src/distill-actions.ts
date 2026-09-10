@@ -86,10 +86,24 @@ export function readDistillEntity(projection: any, entityRef: string): DistillEn
 
 export function artifactDescriptorFromProjection(value: Readonly<Record<string, unknown>>): ArtifactDescriptor {
   if (
-    !exactFields(value, ["schema", "typeIdentity", "entityId", "title", "locator", "contentVersion", "source"]) ||
+    !exactFields(value, [
+      "schema",
+      "typeIdentity",
+      "kindVersion",
+      "entityId",
+      "title",
+      "locator",
+      "contentVersion",
+      "attributes",
+      "source",
+    ]) ||
     ![value.schema, value.typeIdentity, value.entityId, value.title, value.contentVersion, value.source].every(
       nonEmptyString,
     ) ||
+    !Number.isSafeInteger(value.kindVersion) ||
+    typeof value.attributes !== "object" ||
+    value.attributes === null ||
+    Array.isArray(value.attributes) ||
     !isLocator(value.locator)
   )
     throw distillActionError("invalid_command", "Distill entity must be a governed artifact descriptor.");

@@ -107,14 +107,14 @@ test("G03 derives exact ledger declarations from canonical targets", () => {
     plan.targets.filter((target) => target.kind === "ledger_file"),
     [
       ...[
-        ".harness/store/generations/1/ledger.sqlite",
-        ".harness/store/generations/1/ledger.sqlite-wal",
-        ".harness/store/generations/1/ledger.sqlite-shm",
+        ".harness/store/generations/2/ledger.sqlite",
+        ".harness/store/generations/2/ledger.sqlite-wal",
+        ".harness/store/generations/2/ledger.sqlite-shm",
         "harness/events/segments/manifest.json",
       ].map((path) => ({ kind: "ledger_file", path, operation: "replace" })),
       {
         kind: "ledger_file",
-        path: `.harness/store/generations/1/objects/sha256/aa/${"a".repeat(62)}`,
+        path: `.harness/store/generations/2/objects/sha256/aa/${"a".repeat(62)}`,
         operation: "replace",
       },
     ],

@@ -278,6 +278,7 @@ function contextFor(
           commitSha: null,
           cut: { repoId: "repository", revision: 3, headDigest: "sha256:fixture" },
         }),
+        ledgerMetadata: () => ({ repoId: "repository", generation: 1, revision: 3 }),
         followerStatus: () => ({
           git: { status: "pending", cut: null, commitSha: null },
           worktree: { status: "pending", cut: null, commitSha: null },

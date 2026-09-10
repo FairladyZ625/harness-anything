@@ -329,6 +329,36 @@ describe("Task detail expression", () => {
     expect(byTestId("doc-uncommitted-task_plan.md").textContent).toContain("未提交");
   });
 
+  it("shows a raw artifact as binary with its real metadata and read route, not a blank reader", async () => {
+    installBridge();
+    await mount();
+
+    await clickTab("文件");
+    const reports = [...byTestId("task-document-tree").querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("reports/"),
+    )!;
+    await act(async () => {
+      reports.click();
+    });
+    const pdf = [...byTestId("task-document-tree").querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("dossier.pdf"),
+    )!;
+    expect(pdf).toBeInstanceOf(HTMLButtonElement);
+    await act(async () => {
+      pdf.click();
+    });
+    await flushEffects();
+
+    // 白页缺陷的判别控制:PDF 走二进制面板,不进 DocReader,也不留一张空正文。
+    const panel = byTestId("task-document-binary");
+    expect(panel.textContent).toContain("二进制产物,不是文本");
+    expect(panel.textContent).toContain("application/octet-stream");
+    expect(panel.textContent).toContain("4096");
+    expect(panel.textContent).toContain("harness/tasks/task-w3-night/artifacts/reports/dossier.pdf");
+    expect(byTestId("task-document-binary-open")).toBeInstanceOf(HTMLButtonElement);
+    expect(byTestId("task-files-tab").querySelector(".prose-harness")).toBeNull();
+  });
+
   it("adapts the detail card and reader to container width; manual layout controls still override", async () => {
     installBridge();
     await mount();
@@ -420,23 +450,33 @@ describe("Task detail expression", () => {
 
 function installBridge({ uncommittedPlan = false }: { readonly uncommittedPlan?: boolean } = {}) {
   const bridge = {
-    getTaskDocument: vi.fn(async ({ taskId, path }: { taskId: string; path: string }) => ({
-      ok: true,
-      status: "ready",
-      taskId,
-      path,
-      body:
-        path === "task_plan.md"
-          ? "# Canonical plan body"
-          : path.endsWith(".html")
-            ? '<style>body{color:#123}</style><h1>Night report</h1><script>window.open("https://example.invalid")</script>'
-            : `# ${path}`,
-      blobSha256: `sha256:${"d".repeat(64)}`,
-      worktreeBody: uncommittedPlan && path === "task_plan.md" ? "# Live worktree plan body" : null,
-      uncommitted: uncommittedPlan && path === "task_plan.md",
-      watermark: 7,
-      sourceRevision: 7,
-    })),
+    getTaskDocument: vi.fn(async ({ taskId, path }: { taskId: string; path: string }) => {
+      // 二进制产物的读侧回答:没有正文,带媒体类型/字节数/内容地址/仓库路径与 canonical 字节。
+      const binary = path.endsWith(".pdf");
+      return {
+        ok: true,
+        status: "ready",
+        taskId,
+        path,
+        body: binary
+          ? ""
+          : path === "task_plan.md"
+            ? "# Canonical plan body"
+            : path.endsWith(".html")
+              ? '<style>body{color:#123}</style><h1>Night report</h1><script>window.open("https://example.invalid")</script>'
+              : `# ${path}`,
+        blobSha256: `sha256:${"d".repeat(64)}`,
+        contentKind: binary ? "binary" : "text",
+        mediaType: binary ? "application/octet-stream" : "text/markdown",
+        size: binary ? 4096 : 20,
+        bytes: binary ? Buffer.from("%PDF-1.7").toString("base64") : null,
+        repositoryPath: `harness/tasks/task-w3-night/${path}`,
+        worktreeBody: uncommittedPlan && path === "task_plan.md" ? "# Live worktree plan body" : null,
+        uncommitted: uncommittedPlan && path === "task_plan.md",
+        watermark: 7,
+        sourceRevision: 7,
+      };
+    }),
     getTaskDocuments: vi.fn(async () => ({
       ok: true,
       status: "ready",
@@ -462,6 +502,13 @@ function installBridge({ uncommittedPlan = false }: { readonly uncommittedPlan?:
           blobSha256: "a".repeat(64),
           size: 120,
           mediaType: "text/html",
+          uncommitted: false,
+        },
+        {
+          path: "artifacts/reports/dossier.pdf",
+          blobSha256: "b".repeat(64),
+          size: 4096,
+          mediaType: "application/octet-stream",
           uncommitted: false,
         },
       ],

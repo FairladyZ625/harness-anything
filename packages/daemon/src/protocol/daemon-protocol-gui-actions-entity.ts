@@ -22,6 +22,15 @@ export const entityImportGuiActions = Object.freeze([
     "repo-write",
   ),
   guiAction(
+    "vertical.kind.publishSchema",
+    "repo.vertical.kind.publishSchema",
+    "vertical-kind-publish-schema",
+    shape({ kindId: "string", attributes: "json", expectedVersion: "number" }),
+    "publishVerticalKindSchema",
+    "/api/vertical/kinds/publish-schema",
+    "repo-write",
+  ),
+  guiAction(
     "vertical.kind.retire",
     "repo.vertical.kind.retire",
     "vertical-kind-retire",
@@ -34,7 +43,13 @@ export const entityImportGuiActions = Object.freeze([
     "entity.import",
     "repo.entity.import",
     "entity-import",
-    shape({ entityKind: "string", locator: "string", expectedVersion: "number", title: "string?" }),
+    shape({
+      entityKind: "string",
+      locator: "string",
+      expectedVersion: "number",
+      title: "string?",
+      attributes: "json?",
+    }),
     "importEntity",
     "/api/entities/import",
     "repo-write",
@@ -50,6 +65,7 @@ export const entityImportGuiActions = Object.freeze([
       title: "string?",
       locator: "string?",
       contentVersion: "string?",
+      attributes: "json?",
     }),
     "updateEntity",
     "/api/entities/update",
@@ -62,6 +78,17 @@ export const entityImportGuiActions = Object.freeze([
     shape({ entityKind: "string", entityId: "string", expectedVersion: "number", reason: "string" }),
     "archiveEntity",
     "/api/entities/archive",
+    "repo-write",
+  ),
+  // Archive keeps the descriptor and its files; delete retires both. Both already exist as one
+  // center action apiece, so the GUI names the second one too rather than making archive mean both.
+  guiAction(
+    "entity.delete",
+    "repo.entity.delete",
+    "entity-delete",
+    shape({ entityKind: "string", entityId: "string", expectedVersion: "number", reason: "string" }),
+    "deleteEntity",
+    "/api/entities/delete",
     "repo-write",
   ),
 ] as const);

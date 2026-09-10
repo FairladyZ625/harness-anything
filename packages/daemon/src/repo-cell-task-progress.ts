@@ -5,6 +5,8 @@ import {
   assessTransitionDocument,
   compileTaskProgress,
   completionBlockers,
+  completionEvidenceBasis,
+  completionEvidenceResults,
   consumeKnownError,
   isTaskProgressEvent,
   requireTransitionDocumentKind,
@@ -14,6 +16,10 @@ import {
   taskProgressWritePlan,
   validFactStillHoldsAttestation,
   type CompletionReadinessContext,
+  type CompletionEvidenceBasis,
+  type CompletionEvidenceProvenance,
+  type CompletionEvidenceResult,
+  type CompletionEvidenceV1,
   type FactRetirementAssessment,
   type FactStillHoldsAttestation,
   type TaskProgressEventV1,
@@ -25,6 +31,60 @@ import { scanDocCandidates } from "./doc-sync-candidate-scanner.ts";
 import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 import { readTaskTransitionDocument } from "./transition-document-access.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
+
+function readCiEvidence(
+  cell: RepoCellOperationalContext,
+  value: unknown,
+  execution: Snapshot["executions"][number] | undefined,
+): CompletionEvidenceV1 | null {
+  if (
+    value === undefined ||
+    value === "passed" ||
+    !execution ||
+    execution.schema !== "execution/v1" ||
+    !execution.submission
+  )
+    return null;
+  if (typeof value !== "string" || !value.trim()) return null;
+  const reference = value.startsWith("event:") ? value.slice("event:".length) : value,
+    event = cell.store.readEvent(reference);
+  if (!event || event.type !== "ci_run_observed") return null;
+  if (event.payload.run.sha !== execution.submission.commitSha)
+    throw cell.cellCodedError(
+      "invalid_proof",
+      `CI run ${event.payload.run.runId} tested ${event.payload.run.sha}; ` +
+        `this execution submitted ${execution.submission.commitSha}. Use an observation for the submitted commit.`,
+    );
+  const verification = event.payload.verification;
+  if (!verification)
+    throw Object.assign(cell.cellCodedError("invalid_proof", "CI observation has no verified workflow conclusion."), {
+      diagnostic: {
+        kind: "validation" as const,
+        entity: `CI observation event:${event.opId}`,
+        field: "ci",
+        actual: "no verified workflow conclusion",
+        expectation: "Pull a completed rewrite-ci main run and use its event reference.",
+      },
+    });
+  const result: CompletionEvidenceResult = verification.conclusion === "success" ? "pass" : "fail";
+  if (!completionEvidenceResults.includes(result)) return null;
+  const basis: CompletionEvidenceBasis = { ...completionEvidenceBasis(execution), ledgerCut: event.workspaceRevision },
+    provenance: CompletionEvidenceProvenance = {
+      source: "runner",
+      runId: event.payload.run.runId,
+      rawResult: `event:${event.opId}`,
+    };
+  return {
+    schema: "completion-evidence/v1",
+    evidenceId: `ci-${event.opId}`,
+    checkerId: "ci",
+    gateId: "ci",
+    result,
+    observed: true,
+    basis,
+    provenance,
+  };
+}
 
 export function appendProgress(
   cell: RepoCellOperationalContext,
@@ -129,17 +189,21 @@ export async function completeTask(
     executionId = cell.completeExecutionId(action, initial.snapshot, taskId),
     allowed = ["kind", "taskId", "executionId", "verb", "commandType", "ci", "paths", "factHolds"],
     paths = cell.cellStringList(action.paths),
-    factRetirementAttestations = stillHoldsAttestations(cell, action.factHolds);
+    factRetirementAttestations = stillHoldsAttestations(cell, action.factHolds),
+    submittedExecution = initial.snapshot.executions.find(
+      (value) => value.executionId === executionId && value.iteration === initial.snapshot.task?.iteration,
+    ),
+    ciEvidence = readCiEvidence(cell, action.ci, submittedExecution);
   if (
     Object.keys(action).some((field) => !allowed.includes(field)) ||
-    (action.ci !== undefined && action.ci !== "passed") ||
+    (action.ci !== undefined && ciEvidence === null) ||
     (action.paths !== undefined && (!Array.isArray(action.paths) || paths.length !== action.paths.length))
   )
     throw cell.cellCodedError(
       "invalid_command",
       [
-        "Complete accepts --ci passed and optional canonical --path values only; ",
-        "the submitted commit and iteration are derived automatically.",
+        "Complete accepts a canonical CI receipt reference and optional canonical --path values; ",
+        "a self-reported --ci passed value is not evidence.",
       ].join(""),
     );
   const steps: WriteReceipt[] = [],
@@ -148,7 +212,7 @@ export async function completeTask(
         kind: "task-complete",
         taskId,
         executionId,
-        ...(action.ci === "passed" ? { ci: "passed" } : {}),
+        ...(ciEvidence ? { ci: ciEvidence.provenance.rawResult } : {}),
         ...(paths.length ? { paths } : {}),
         ...(factRetirementAttestations.length ? { factHolds: factRetirementAttestations } : {}),
       },
@@ -219,8 +283,15 @@ export async function completeTask(
         ? cell.completionApplied(completed, cell.projection.read(taskId).snapshot, executionId, [...steps, completed])
         : cell.completionSettlement(completed, current.snapshot, executionId, steps, "complete-settlement");
     }
-    if (blocker.code === "ci_missing" && action.ci === "passed") {
-      const step = cell.publishCiWitness(taskId, executionId, current.snapshot, current.packagePath, binding);
+    if (blocker.code === "ci_missing" && ciEvidence !== null) {
+      const step = cell.publishCiWitness(
+        taskId,
+        executionId,
+        current.snapshot,
+        current.packagePath,
+        binding,
+        ciEvidence,
+      );
       steps.push(step);
       continue;
     }

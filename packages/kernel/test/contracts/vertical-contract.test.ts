@@ -23,7 +23,12 @@ test("artifact declarations compile to immutable BaseEntity and generic entity-s
   assert.equal(compiled.artifactKinds.length, 1);
 
   const artifactContract = compiled.artifactKinds[0]!;
-  assert.equal(artifactContract.typeIdentity, "custom/engineering/architecture-decision-record@1");
+  assert.equal(artifactContract.typeIdentity, `entity-kind/${adrKindId}`);
+  assert.equal(artifactContract.verticalId, "custom/engineering");
+  assert.deepEqual(
+    artifactContract.schemaVersions.map(({ version }) => version),
+    [1],
+  );
   assert.deepEqual(artifactContract.entityTypeContract.residency, { authored: "ledger" });
   assert.equal(artifactContract.entityTypeContract.relationEndpoint.eligible, true);
   assert.deepEqual(artifactContract.entityTypeContract.baseActions, baseEntityActionIds);
@@ -43,10 +48,12 @@ test("artifact declarations compile to immutable BaseEntity and generic entity-s
   assert.deepEqual(Object.keys(artifactContract.entityKindContract.schema.properties), [
     "schema",
     "typeIdentity",
+    "kindVersion",
     "entityId",
     "title",
     "locator",
     "contentVersion",
+    "attributes",
     "source",
   ]);
   assert.equal(Object.isFrozen(compiled), true);
@@ -81,6 +88,7 @@ test("artifact compilation rejects builtin identities and duplicate prefixes or 
         verticalWith(
           artifact(),
           artifact({
+            kindId: "KND-4c8f3d0b2e6a7f9d1b5c3e4a6f8d0b27",
             id: "research-report",
             store: { pathTemplate: "entities/research-reports/{id}.json" },
           }),
@@ -94,6 +102,7 @@ test("artifact compilation rejects builtin identities and duplicate prefixes or 
         verticalWith(
           artifact(),
           artifact({
+            kindId: "KND-4c8f3d0b2e6a7f9d1b5c3e4a6f8d0b27",
             id: "research-report",
             idPrefix: "RPT",
             store: { pathTemplate: "ENTITIES/architecture-decision-records/{id}.json" },
@@ -139,11 +148,16 @@ test("the center revision fence compiles only the accepted edge candidate", () =
   assert.equal(accepted.revision, 1);
   assert.deepEqual(
     accepted.verticals[0]?.artifactKinds.map(({ typeIdentity }) => typeIdentity),
-    ["custom/engineering/architecture-decision-record@1"],
+    [`entity-kind/${adrKindId}`],
   );
 
   const staleEdgeCandidate = verticalWith(
-    artifact({ id: "research-report", idPrefix: "RPT", store: { pathTemplate: "../invalid/{id}.json" } }),
+    artifact({
+      kindId: "KND-4c8f3d0b2e6a7f9d1b5c3e4a6f8d0b27",
+      id: "research-report",
+      idPrefix: "RPT",
+      store: { pathTemplate: "../invalid/{id}.json" },
+    }),
   );
   assert.throws(
     () =>
@@ -171,11 +185,14 @@ function verticalWith(...artifacts: readonly unknown[]): Record<string, unknown>
   };
 }
 
+const adrKindId = "KND-1f5c0a7e9b3d4c6a8e2f0b1d3c5a7e94";
+
 function artifact(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
+    kindId: adrKindId,
     id: "architecture-decision-record",
     entityType: "artifact",
-    version: 1,
+    schemaVersions: [{ version: 1, attributes: {} }],
     idPrefix: "ADR",
     display: { singular: "Architecture Decision Record", plural: "Architecture Decision Records" },
     descriptorSchemaRef: "schema://artifact-descriptor",

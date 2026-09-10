@@ -206,3 +206,9 @@ function serialize<T>(schema: EntityDocumentJsonSchema<T>, value: unknown, label
     throw new AgentEntityContractError(error instanceof Error ? error.message : String(error));
   }
 }
+
+/** A compile hook only ever sees text a prepared Agent or Squad action already validated upstream. */
+export function requiredPreparedText(entity: "Agent" | "Squad", value: unknown, field: string): string {
+  if (typeof value !== "string" || !value.trim()) throw new Error(`Prepared ${entity} ${field} is required.`);
+  return value;
+}

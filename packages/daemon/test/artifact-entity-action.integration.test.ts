@@ -9,11 +9,11 @@ import test from "node:test";
 import { deriveArtifactContentVersion, makeTaskEventReader, makeTaskProjection } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
-import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
+import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { initRepo } from "./task-surface.fixtures.ts";
 
-const kind = "software/coding/architecture-decision-record@1",
-  researchKind = "software/coding/research@1",
+const kind = "entity-kind/KND-1f5c0a7e9b3d4c6a8e2f0b1d3c5a7e94",
+  researchKind = "entity-kind/KND-3b7e2c9a1d5f6e8c0a4b2d3f5e7c9a16",
   binding = withRoleBinding(
     {
       actor: {
@@ -60,7 +60,7 @@ test("Artifact import is dry-run safe, edge-idempotent, fenced, and cold-rebuild
     );
     assert.deepEqual(
       explained.subjects[0]?.actions.map(({ action }) => action.id),
-      ["import", "update", "archive", "distill-candidate"],
+      ["import", "update", "delete", "archive", "distill-candidate"],
     );
     assert.equal(explained.subjects[0]?.actions[0]?.available, null);
 
@@ -71,19 +71,23 @@ test("Artifact import is dry-run safe, edge-idempotent, fenced, and cold-rebuild
       previewReceipt = await cell.run({ ...request, dryRun: true }, binding);
     assert.equal(previewReceipt.outcome, "pending", JSON.stringify(previewReceipt));
     const preview = JSON.parse(String(previewReceipt.evidence)) as {
-      entityId: string;
+      entityId: string | null;
       candidateContentVersion: string;
-      artifactOwner: string;
+      artifactOwner: string | null;
       operationId: string;
     };
     assert.equal(observer.read().events.length, beforeEvents, "dry-run must not append an event");
     assert.equal(git(rootDir, "status", "--porcelain=v1"), beforeStatus, "dry-run must not touch the worktree");
-    assert.match(preview.entityId, /^ADR-[a-f0-9]{16}$/u);
+    // A dry run of never-accepted material has no identity to report: minting happens on acceptance, so a
+    // preview that named an id would be predicting one no event will ever carry.
+    assert.equal(preview.entityId, null);
+    assert.equal(preview.artifactOwner, null);
     assert.match(preview.candidateContentVersion, /^sha256:[a-f0-9]{64}$/u);
-    assert.equal(preview.artifactOwner, `entity/${preview.entityId}/revision/${beforeEvents + 1}`);
 
     const first = await cell.run(request, binding),
-      replay = await cell.run(request, secondaryNodeBinding);
+      replay = await cell.run(request, secondaryNodeBinding),
+      entityId = (JSON.parse(String(first.evidence)) as { preview: { entityId: string } }).preview.entityId;
+    assert.match(entityId, /^ADR-[a-f0-9]{32}$/u);
     assert.equal(first.outcome, "applied", JSON.stringify(first));
     assert.equal(replay.outcome, "no_changes", JSON.stringify(replay));
     assert.equal(first.opId, replay.opId);
@@ -106,7 +110,7 @@ test("Artifact import is dry-run safe, edge-idempotent, fenced, and cold-rebuild
       "applied",
     );
     const candidateCut = observer.read().revision;
-    const entityRef = `${kind}/${preview.entityId}`,
+    const entityRef = `${kind}/${entityId}`,
       firstCandidateReceipt = await cell.run({ kind: "distill-candidate", taskId: "task-distill", entityRef }, binding),
       firstCandidateReport = JSON.parse(String(firstCandidateReceipt.evidence)) as { candidatePath: string },
       firstCandidate = JSON.parse(
@@ -146,7 +150,7 @@ test("Artifact import is dry-run safe, edge-idempotent, fenced, and cold-rebuild
         preview: { entityId: string; candidateContentVersion: string };
       };
     assert.equal(updated.outcome, "applied", JSON.stringify(updated));
-    assert.equal(updatedEvidence.preview.entityId, preview.entityId);
+    assert.equal(updatedEvidence.preview.entityId, entityId);
     assert.notEqual(updatedEvidence.preview.candidateContentVersion, preview.candidateContentVersion);
 
     rmSync(absoluteSource);
@@ -166,7 +170,7 @@ test("Artifact import is dry-run safe, edge-idempotent, fenced, and cold-rebuild
       {
         kind: "entity-update",
         entityKind: kind,
-        entityId: preview.entityId,
+        entityId: entityId,
         expectedVersion: missing.revision,
         title: "Revised title",
         locator: sourcePath,
@@ -181,7 +185,7 @@ test("Artifact import is dry-run safe, edge-idempotent, fenced, and cold-rebuild
       {
         kind: "entity-update",
         entityKind: kind,
-        entityId: preview.entityId,
+        entityId: entityId,
         expectedVersion: descriptorUpdate.revision,
         title: "Revised title again",
       },
@@ -195,7 +199,7 @@ test("Artifact import is dry-run safe, edge-idempotent, fenced, and cold-rebuild
       {
         kind: "entity-update",
         entityKind: kind,
-        entityId: preview.entityId,
+        entityId: entityId,
         expectedVersion: descriptorUpdate.revision,
         title: "Revised title again",
       },
@@ -208,7 +212,7 @@ test("Artifact import is dry-run safe, edge-idempotent, fenced, and cold-rebuild
       {
         kind: "entity-archive",
         entityKind: kind,
-        entityId: preview.entityId,
+        entityId: entityId,
         expectedVersion: titleOnlyUpdate.revision,
         reason: "Superseded by ADR-0002",
       },
@@ -219,7 +223,7 @@ test("Artifact import is dry-run safe, edge-idempotent, fenced, and cold-rebuild
       {
         kind: "entity-archive",
         entityKind: kind,
-        entityId: preview.entityId,
+        entityId: entityId,
         expectedVersion: titleOnlyUpdate.revision,
         reason: "Superseded by ADR-0002",
       },
@@ -245,7 +249,7 @@ test("Artifact import is dry-run safe, edge-idempotent, fenced, and cold-rebuild
     const listed = await cell.run({ kind: "entity-list", entityKind: kind }, binding),
       shortListed = await cell.run({ kind: "entity-list", entityKind: "architecture-decision-record" }, binding),
       shortGet = await cell.run(
-        { kind: "entity-get", entityKind: "architecture-decision-record", entityId: preview.entityId },
+        { kind: "entity-get", entityKind: "architecture-decision-record", entityId: entityId },
         binding,
       ),
       listedEntities = (
@@ -266,10 +270,10 @@ test("Artifact import is dry-run safe, edge-idempotent, fenced, and cold-rebuild
     assert.equal(shortListEvidence.kind, kind);
     assert.equal(shortGetEvidence.kind, kind);
     assert.deepEqual(shortListEvidence.entities, listedEntities);
-    assert.equal(shortGetEvidence.entity.id, preview.entityId);
+    assert.equal(shortGetEvidence.entity.id, entityId);
     assert.deepEqual(
       listedEntities.map(({ id }) => id),
-      [preview.entityId],
+      [entityId],
     );
     assert.equal(listedEntities[0]?.freshness, "orphaned");
     assert.equal(listedEntities[0]?.currentVersion, null);
@@ -280,9 +284,9 @@ test("Artifact import is dry-run safe, edge-idempotent, fenced, and cold-rebuild
       rebuilt = makeTaskProjection({ rootDir, eventStore: rebuildStore, now: () => "2026-09-02T02:01:00.000Z" });
     try {
       const receipt = rebuilt.rebuild(),
-        row = rebuilt.getEntity(kind, preview.entityId);
+        row = rebuilt.getEntity(kind, entityId);
       assert.equal(receipt.watermark, rebuildStore.readHead()?.revision);
-      assert.equal(row?.id, preview.entityId);
+      assert.equal(row?.id, entityId);
       assert.equal(row?.workspaceRevision, archived.revision);
       assert.equal(row?.value.contentVersion, "revision:manual-2");
       assert.equal(row?.value.title, "Revised title again");
@@ -332,7 +336,7 @@ test("Directory artifact import fingerprints files, replays unchanged content, a
     assert.equal(first.outcome, "applied", JSON.stringify(first));
     assert.equal(replay.outcome, "no_changes", JSON.stringify(replay));
     assert.equal(replay.opId, first.opId);
-    assert.match(firstPreview.entityId, /^RES-[a-f0-9]{16}$/u);
+    assert.match(firstPreview.entityId, /^RES-[a-f0-9]{32}$/u);
 
     const manifest = [
       `${sha256(readmeContent)}  "README.md"`,
@@ -411,6 +415,147 @@ test("Directory artifact import fingerprints files, replays unchanged content, a
     assert.equal(
       (JSON.parse(String(missingReceipt.evidence)) as { eventType: string }).eventType,
       "entity_target_missing",
+    );
+  } finally {
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("Artifact import publishes original bytes to Git and the worktree independently of the source", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-binary-artifact-import-")),
+    sourcePath = "evidence/raw.pdf",
+    absoluteSource = path.join(rootDir, sourcePath),
+    unrelatedPath = "notes/scratch.md",
+    repoId = workspaceId("binary-artifact-import"),
+    // NUL and 0xFF are the point: a byte sequence no UTF-8 decode round-trips.
+    bytes = Buffer.concat([Buffer.from("%PDF-1.7\n%"), Buffer.from([0, 255, 10, 128, 1]), Buffer.from("\n%%EOF\n")]);
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    initRepo(rootDir);
+    mkdirSync(path.dirname(absoluteSource), { recursive: true });
+    mkdirSync(path.join(rootDir, path.dirname(unrelatedPath)), { recursive: true });
+    writeFileSync(absoluteSource, bytes);
+    writeFileSync(path.join(rootDir, unrelatedPath), "committed line\n");
+    git(rootDir, "add", sourcePath, unrelatedPath);
+    git(rootDir, "commit", "-qm", "add binary artifact source");
+    writeFileSync(path.join(rootDir, unrelatedPath), "uncommitted edit nobody asked to publish\n");
+    cell = await openRepoCell({
+      repoId,
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "binary-artifact-import-center",
+      now: () => "2026-09-09T02:00:00.000Z",
+    });
+
+    const receipt = await cell.run(
+        { kind: "entity-import", entityKind: researchKind, locator: sourcePath, expectedVersion: 0 },
+        binding,
+      ),
+      entityId = (JSON.parse(String(receipt.evidence)) as { preview: { entityId: string } }).preview.entityId,
+      ownedPath = `entities/research/${entityId}/raw.pdf`;
+    assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+
+    const store = makeTaskEventReader({ repoId, rootDir }),
+      observed = store.read().events.find((event) => event.opId === receipt.opId) as unknown as {
+        payload: {
+          ownedContent: {
+            content: readonly { sha256: string; byteLength: number }[];
+            bindings: readonly { path: string }[];
+          };
+        };
+      };
+    const owned = observed.payload.ownedContent.content.find(({ byteLength }) => byteLength === bytes.byteLength);
+    assert.ok(owned, "the accepted event must own a content object the size of the source");
+    assert.deepEqual(Buffer.from(store.readContentBlob(owned.sha256) ?? []), bytes);
+    assert.ok(
+      observed.payload.ownedContent.bindings.some(({ path: bound }) => bound === ownedPath),
+      `owned content must bind under the entity, saw ${JSON.stringify(observed.payload.ownedContent.bindings)}`,
+    );
+
+    // Everything below reads only what the center published, so a passing assertion cannot be the source file.
+    rmSync(absoluteSource);
+    await waitForFixturePublication(cell, receipt.opId, binding);
+    assert.deepEqual(
+      execFileSync("git", ["-C", rootDir, "show", `HEAD:harness/${ownedPath}`], { maxBuffer: 1 << 24 }),
+      bytes,
+      "Git read-back must retain NUL and invalid UTF-8 bytes",
+    );
+    assert.deepEqual(
+      readFileSync(path.join(rootDir, "harness", ownedPath)),
+      bytes,
+      "materialization must write the owned snapshot byte for byte",
+    );
+    assert.equal(existsSync(absoluteSource), false, "publishing must not recreate the external source");
+    assert.equal(
+      readFileSync(path.join(rootDir, unrelatedPath), "utf8"),
+      "uncommitted edit nobody asked to publish\n",
+      "publication must settle only what this event owns",
+    );
+  } finally {
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("Artifact import owns empty and non-text files across a directory source", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-directory-binary-import-")),
+    sourcePath = "research/binary-package",
+    absoluteSource = path.join(rootDir, sourcePath),
+    repoId = workspaceId("directory-binary-import"),
+    latin1 = Buffer.from([0xc0, 0xc1, 0xf5, 0xff]),
+    duplicate = Buffer.from("identical bytes\n");
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    initRepo(rootDir);
+    mkdirSync(path.join(absoluteSource, "nested"), { recursive: true });
+    writeFileSync(path.join(absoluteSource, "invalid.bin"), latin1);
+    writeFileSync(path.join(absoluteSource, "zero.bin"), Buffer.alloc(0));
+    writeFileSync(path.join(absoluteSource, "one.txt"), duplicate);
+    writeFileSync(path.join(absoluteSource, "nested", "two.txt"), duplicate);
+    git(rootDir, "add", sourcePath);
+    git(rootDir, "commit", "-qm", "add binary directory source");
+    cell = await openRepoCell({
+      repoId,
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "directory-binary-import-center",
+      now: () => "2026-09-09T03:00:00.000Z",
+    });
+
+    const receipt = await cell.run(
+        { kind: "entity-import", entityKind: researchKind, locator: sourcePath, expectedVersion: 0 },
+        binding,
+      ),
+      entityId = (JSON.parse(String(receipt.evidence)) as { preview: { entityId: string } }).preview.entityId,
+      root = `entities/research/${entityId}`;
+    assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+    await waitForFixturePublication(cell, receipt.opId, binding);
+    rmSync(absoluteSource, { recursive: true });
+
+    assert.deepEqual(readFileSync(path.join(rootDir, "harness", root, "invalid.bin")), latin1);
+    assert.deepEqual(readFileSync(path.join(rootDir, "harness", root, "zero.bin")), Buffer.alloc(0));
+    // Same bytes at two paths: one content object, two bindings, neither overwriting the other.
+    assert.deepEqual(readFileSync(path.join(rootDir, "harness", root, "one.txt")), duplicate);
+    assert.deepEqual(readFileSync(path.join(rootDir, "harness", root, "nested/two.txt")), duplicate);
+
+    const store = makeTaskEventReader({ repoId, rootDir }),
+      manifest = (
+        store.read().events.find((event) => event.opId === receipt.opId) as unknown as {
+          payload: {
+            ownedContent: {
+              content: readonly { sha256: string; byteLength: number }[];
+              bindings: readonly { path: string }[];
+            };
+          };
+        }
+      ).payload.ownedContent;
+    assert.equal(
+      manifest.content.filter(({ sha256: digest }) => digest === sha256("identical bytes\n")).length,
+      1,
+      "identical bytes must be stored once",
+    );
+    assert.deepEqual(
+      manifest.bindings.map(({ path: bound }) => bound).filter((bound) => bound.startsWith(`${root}/`)),
+      [`${root}/invalid.bin`, `${root}/nested/two.txt`, `${root}/one.txt`, `${root}/zero.bin`],
     );
   } finally {
     await cell?.close();

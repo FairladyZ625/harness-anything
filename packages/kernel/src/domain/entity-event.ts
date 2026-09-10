@@ -4,19 +4,34 @@ import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 import {
   artifactEntityContractFromSnapshot,
   artifactImportOperationId,
+  importBindingGeneration,
   isArtifactMutationOperationId,
   artifactObservationId,
   canonicalArtifactLocator,
   canonicalArtifactSourceIdentity,
   decodeArtifactDescriptor,
-  deriveArtifactEntityId,
+  isArtifactEntityId,
   type ArtifactDescriptor,
   type ArtifactEntityContractSnapshot,
   type ArtifactLocator,
 } from "./artifact-entity.ts";
 import { parseEntityJsonSchema, serializeEntityJsonSchema } from "./entity-json-schema.ts";
 import {
+  createEntityOwnedContent,
+  entityDirectoryFootprint,
+  entityOwnedContentClaims,
+  entityOwnedDirectories,
+  entityOwnedDocumentClaims,
+  entityRetiredDirectories,
+  entitySchemaVersion,
+  validateEntityOwnedContent,
+  type EntityContentRetirement,
+  type EntityOwnedContentV1,
+} from "./entity-owned-content.ts";
+import {
   ENTITY_DOCUMENT_POLICY_ID,
+  entityContentPath,
+  entityContentRoot,
   entityDocumentPath,
   requireEntityStoreKindContract,
   type EntityStoreKindContract,
@@ -47,6 +62,7 @@ interface EntityUpsertPayload {
   readonly entityKind: string;
   readonly entityId: string;
   readonly declarationDocumentClaim: EntityDeclarationClaim;
+  readonly ownedContent: EntityOwnedContentV1;
 }
 
 export interface ArtifactContentObservedPayload extends EntityUpsertPayload {
@@ -74,6 +90,13 @@ export interface ArtifactEntityArchivedPayload {
   readonly entityId: string;
   readonly reason: string;
   readonly artifactContract: ArtifactEntityContractSnapshot;
+}
+
+export interface EntityDeletedPayload {
+  readonly entityKind: string;
+  readonly entityId: string;
+  readonly reason: string;
+  readonly ownedContent: EntityOwnedContentV1;
 }
 
 export type EntityUpsertEventV1 = EventEnvelope<
@@ -106,12 +129,19 @@ export type EntityArchivedEventV1 = EventEnvelope<
   ActorIdentity,
   ArtifactEntityArchivedPayload
 >;
+export type EntityDeletedEventV1 = EventEnvelope<
+  "entity-event/v1",
+  "entity_deleted",
+  ActorIdentity,
+  EntityDeletedPayload
+>;
 export type EntityEventV1 =
   | EntityUpsertEventV1
   | EntityContentObservedEventV1
   | EntityTargetMissingEventV1
   | EntityUpdatedEventV1
-  | EntityArchivedEventV1;
+  | EntityArchivedEventV1
+  | EntityDeletedEventV1;
 
 // Append-only history predating the generic store carries the upsert payload under this retired envelope.
 export type LegacyAgentEntityEventV1 = EventEnvelope<
@@ -133,6 +163,7 @@ const entityEventEnvelopes: ReadonlyArray<readonly [schema: string, type: string
   ["entity-event/v1", "entity_target_missing"],
   ["entity-event/v1", "entity_updated"],
   ["entity-event/v1", "entity_archived"],
+  ["entity-event/v1", "entity_deleted"],
   ["agent-entity-event/v1", "agent_entity_written"],
 ];
 const LEGACY_AGENT_ENTITY_POLICY_ID = "typed-agent-entity/v1";
@@ -144,6 +175,20 @@ interface EntityDeclarationBlob {
   readonly body: string;
 }
 
+/**
+ * One raw source object the center takes ownership of. `relativePath` is the object's place inside the
+ * entity's own content root, never the path it happened to be read from: two entities that import a file
+ * called `raw.pdf` from different sources must not settle on the same authored target.
+ */
+export interface EntityContentBlob {
+  readonly relativePath: string;
+  readonly sha256: string;
+  readonly size: number;
+  readonly mediaType: string;
+  readonly policyId: string;
+  readonly body: Uint8Array;
+}
+
 export interface EntityUpsertBundle {
   readonly event: EntityUpsertEventV1;
   readonly plan: FrozenWritePlan<"EntityUpsert">;
@@ -153,7 +198,7 @@ export interface EntityUpsertBundle {
 export interface EntityContentObservedBundle {
   readonly event: EntityContentObservedEventV1;
   readonly plan: FrozenWritePlan<"EntityContentObserved">;
-  readonly blobs: readonly [EntityDeclarationBlob];
+  readonly blobs: readonly (EntityDeclarationBlob | EntityContentBlob)[];
 }
 
 export interface EntityTargetMissingBundle {
@@ -165,12 +210,18 @@ export interface EntityTargetMissingBundle {
 export interface EntityUpdatedBundle {
   readonly event: EntityUpdatedEventV1;
   readonly plan: FrozenWritePlan<"EntityUpdated">;
-  readonly blobs: readonly [EntityDeclarationBlob];
+  readonly blobs: readonly (EntityDeclarationBlob | EntityContentBlob)[];
 }
 
 export interface EntityArchivedBundle {
   readonly event: EntityArchivedEventV1;
   readonly plan: FrozenWritePlan<"EntityArchived">;
+  readonly blobs: readonly [];
+}
+
+export interface EntityDeletedBundle {
+  readonly event: EntityDeletedEventV1;
+  readonly plan: FrozenWritePlan<"EntityDelete">;
   readonly blobs: readonly [];
 }
 
@@ -196,10 +247,11 @@ export function compileEntityUpsert(
   if (contractErrors.length) throw new Error(contractErrors.join("; "));
   if (typeof entityId !== "string") throw new Error(`${input.entityKind} declaration has no string identity`);
   const { body, claim } = declarationContent(contract, entityId, entity),
+    ownedContent = declarationOwnedContent(contract, entityId, claim),
     event: EntityUpsertEventV1 = {
       ...eventEnvelope(input),
       type: "entity_upserted",
-      payload: { entityKind: contract.kind, entityId, declarationDocumentClaim: claim },
+      payload: { entityKind: contract.kind, entityId, declarationDocumentClaim: claim, ownedContent },
     };
   assertValidCurrent(event);
   return { event, plan: entityUpsertWritePlan(event), blobs: [blob(claim, body)] };
@@ -212,10 +264,20 @@ export function compileEntityContentObserved(
     readonly descriptor: ArtifactDescriptor;
     readonly resolver: string;
     readonly observationId: string;
+    readonly sourceContent?: readonly EntityContentBlob[];
+    readonly sourceDirectories?: readonly string[];
+    readonly retirements?: readonly EntityContentRetirement[];
+    readonly heldDirectories?: readonly string[];
   },
 ): EntityContentObservedBundle {
   const descriptor = decodeArtifactDescriptor(input.contract, input.descriptor),
     { body, claim } = declarationContent(input.contract, descriptor.entityId, descriptor),
+    sourceContent = input.sourceContent ?? [],
+    ownedContent = declarationOwnedContent(input.contract, descriptor.entityId, claim, sourceContent, {
+      directories: input.sourceDirectories,
+      retirements: input.retirements,
+      heldDirectories: input.heldDirectories,
+    }),
     event: EntityContentObservedEventV1 = {
       ...eventEnvelope(input),
       type: "entity_content_observed",
@@ -223,6 +285,7 @@ export function compileEntityContentObserved(
         entityKind: input.contract.kind,
         entityId: descriptor.entityId,
         declarationDocumentClaim: claim,
+        ownedContent,
         locator: descriptor.locator,
         sourceIdentity: descriptor.source,
         observedContentVersion: descriptor.contentVersion,
@@ -232,7 +295,7 @@ export function compileEntityContentObserved(
       },
     };
   assertValidCurrent(event);
-  return { event, plan: entityContentObservedWritePlan(event), blobs: [blob(claim, body)] };
+  return { event, plan: entityContentObservedWritePlan(event), blobs: [blob(claim, body), ...sourceContent] };
 }
 
 export function compileEntityTargetMissing(
@@ -269,10 +332,20 @@ export function compileEntityUpdated(
     readonly contract: EntityStoreKindContract;
     readonly contractSnapshot: ArtifactEntityContractSnapshot;
     readonly descriptor: ArtifactDescriptor;
+    readonly sourceContent?: readonly EntityContentBlob[];
+    readonly sourceDirectories?: readonly string[];
+    readonly retirements?: readonly EntityContentRetirement[];
+    readonly heldDirectories?: readonly string[];
   },
 ): EntityUpdatedBundle {
   const descriptor = decodeArtifactDescriptor(input.contract, input.descriptor),
     { body, claim } = declarationContent(input.contract, descriptor.entityId, descriptor),
+    sourceContent = input.sourceContent ?? [],
+    ownedContent = declarationOwnedContent(input.contract, descriptor.entityId, claim, sourceContent, {
+      directories: input.sourceDirectories,
+      retirements: input.retirements,
+      heldDirectories: input.heldDirectories,
+    }),
     observationId = artifactObservationId({
       entityId: descriptor.entityId,
       locator: descriptor.locator,
@@ -285,6 +358,7 @@ export function compileEntityUpdated(
         entityKind: input.contract.kind,
         entityId: descriptor.entityId,
         declarationDocumentClaim: claim,
+        ownedContent,
         locator: descriptor.locator,
         sourceIdentity: descriptor.source,
         observedContentVersion: descriptor.contentVersion,
@@ -294,7 +368,11 @@ export function compileEntityUpdated(
       },
     };
   assertValidCurrent(event);
-  return { event, plan: declarationWritePlan("EntityUpdated", event, "entity/v1"), blobs: [blob(claim, body)] };
+  return {
+    event,
+    plan: declarationWritePlan("EntityUpdated", event, "entity/v1"),
+    blobs: [blob(claim, body), ...sourceContent],
+  };
 }
 
 export function compileEntityArchived(
@@ -316,6 +394,53 @@ export function compileEntityArchived(
   };
   assertValidCurrent(event);
   return { event, plan: entityArchivedWritePlan(event), blobs: [] };
+}
+
+/**
+ * Delete retires every path the entity still binds, not just its declaration: an entity that owns a
+ * directory of raw source objects must leave none of them behind as an unowned file. The events that
+ * carried those bytes stay in the ledger, so the deletion is recoverable history rather than erasure.
+ */
+export function compileEntityDeleted(
+  input: EntityEventEnvelopeInput & {
+    readonly entityKind: string;
+    readonly entityId: string;
+    readonly baseBlobSha256: string;
+    readonly reason: string;
+    readonly contract?: EntityStoreKindContract;
+    readonly contentRetirements?: readonly EntityContentRetirement[];
+    /** The footprint the entity held; a delete keeps none of it, so all of it is retired. */
+    readonly heldDirectories?: readonly string[];
+  },
+): EntityDeletedBundle {
+  const contract = input.contract ?? requireEntityStoreKindContract(input.entityKind),
+    path = normalizeRelativeDocumentPath(entityDocumentPath(contract, input.entityId)),
+    ownedContent = createEntityOwnedContent({
+      ownerRef: `${contract.kind}/${input.entityId}`,
+      schemaId: contract.schema.$id,
+      schemaVersion: entitySchemaVersion(contract.schema.$id),
+      bindings: [],
+      retirements: [
+        { path, baseBlobSha256: input.baseBlobSha256 },
+        ...(input.contentRetirements ?? []).filter((retired) => retired.path !== path),
+      ],
+      // A delete states every directory the entity held, because it will hold none of them afterwards. Nothing
+      // is derived from what happens to be on disk: a directory the entity never held is not named here and is
+      // therefore never touched, however empty it is.
+      directoryRetirements: (input.heldDirectories ?? []).map((held) => ({ path: held })),
+    }),
+    event: EntityDeletedEventV1 = {
+      ...eventEnvelope(input),
+      type: "entity_deleted",
+      payload: {
+        entityKind: contract.kind,
+        entityId: input.entityId,
+        reason: input.reason.trim(),
+        ownedContent,
+      },
+    };
+  assertValidCurrent(event);
+  return { event, plan: entityDeletedWritePlan(event), blobs: [] };
 }
 
 export function validateEntityEvent(value: unknown): readonly string[] {
@@ -370,9 +495,10 @@ function validateEntityEventFields(value: unknown, allowUnknownFields: boolean):
       ? []
       : ["entity archive payload is invalid"];
   }
+  if (value.type === "entity_deleted") return validateDeletedPayload(value.payload, hasFields, allowUnknownFields);
   if (value.type === "entity_target_missing")
     return validateMissingPayload(value.payload, hasFields, String(value.opId), allowUnknownFields);
-  return validateUpsertPayload(value.schema, value.payload, hasFields);
+  return validateUpsertPayload(value.schema, value.payload, hasFields, allowUnknownFields);
 }
 
 export function isEntityEvent(event: { readonly schema: string; readonly type: string }): event is StoredEntityEventV1 {
@@ -380,7 +506,7 @@ export function isEntityEvent(event: { readonly schema: string; readonly type: s
 }
 
 export function isEntityDeclarationEvent(event: StoredEntityEventV1): event is EntityDeclarationEventV1 {
-  return event.type !== "entity_target_missing" && event.type !== "entity_archived";
+  return event.type !== "entity_target_missing" && event.type !== "entity_archived" && event.type !== "entity_deleted";
 }
 
 export function entityUpsertWritePlan(event: EntityUpsertEventV1): FrozenWritePlan<"EntityUpsert"> {
@@ -423,6 +549,31 @@ export function entityArchivedWritePlan(event: EntityArchivedEventV1): FrozenWri
   );
 }
 
+export function entityDeletedWritePlan(event: EntityDeletedEventV1): FrozenWritePlan<"EntityDelete"> {
+  return freezeDeclaredWritePlan(
+    {
+      commandType: "EntityDelete",
+      targets: [
+        { kind: "event_file", path: eventObjectTarget(event.opId), operation: "create" },
+        { kind: "event_head", path: "harness/events/head.json", operation: "replace" },
+        ...event.payload.ownedContent.retirements.map((retirement) => ({
+          kind: "authored_file_delete" as const,
+          path: retirement.path,
+          operation: "delete" as const,
+          baseSha256: retirement.baseBlobSha256,
+        })),
+        ...entityRetiredDirectories(event.payload.ownedContent).map((path) => ({
+          kind: "authored_directory" as const,
+          path,
+          operation: "retire" as const,
+        })),
+        { kind: "projection_invalidation", projection: "entity/v1", key: event.payload.entityId },
+      ],
+    },
+    ["EntityDelete"],
+  );
+}
+
 export function assertEntityEventInputs(
   event: EntityEventV1,
   plan: FrozenWritePlan | undefined,
@@ -430,13 +581,17 @@ export function assertEntityEventInputs(
     readonly sha256: string;
     readonly size: number;
     readonly mediaType: string;
-    readonly body: string;
+    readonly body: string | Uint8Array;
   }[],
 ): void {
-  if (event.type === "entity_target_missing" || event.type === "entity_archived") {
+  if (event.type === "entity_target_missing" || event.type === "entity_archived" || event.type === "entity_deleted") {
     assertExactWritePlan(
       plan,
-      event.type === "entity_archived" ? entityArchivedWritePlan(event) : entityTargetMissingWritePlan(event),
+      event.type === "entity_archived"
+        ? entityArchivedWritePlan(event)
+        : event.type === "entity_deleted"
+          ? entityDeletedWritePlan(event)
+          : entityTargetMissingWritePlan(event),
     );
     if (blobs.length) throw new Error("entity target-missing event must not carry content blobs");
     return;
@@ -455,6 +610,7 @@ export function assertEntityEventInputs(
     !declarationBlob ||
     declarationBlob.size !== claim.size ||
     declarationBlob.mediaType !== claim.mediaType ||
+    typeof declarationBlob.body !== "string" ||
     sha256Text(declarationBlob.body) !== claim.sha256
   )
     throw new Error("entity declaration blob must be exact");
@@ -487,7 +643,7 @@ export function assertEntityUpsertInputs(
     readonly sha256: string;
     readonly size: number;
     readonly mediaType: string;
-    readonly body: string;
+    readonly body: string | Uint8Array;
   }[],
 ): void {
   assertEntityEventInputs(event, plan, blobs);
@@ -499,18 +655,31 @@ export function assertEntityUpsertWritePlan(event: EntityEventV1, plan: FrozenWr
       ? entityTargetMissingWritePlan(event)
       : event.type === "entity_archived"
         ? entityArchivedWritePlan(event)
-        : event.type === "entity_content_observed"
-          ? entityContentObservedWritePlan(event)
-          : event.type === "entity_updated"
-            ? declarationWritePlan("EntityUpdated", event, "entity/v1")
-            : entityUpsertWritePlan(event);
+        : event.type === "entity_deleted"
+          ? entityDeletedWritePlan(event)
+          : event.type === "entity_content_observed"
+            ? entityContentObservedWritePlan(event)
+            : event.type === "entity_updated"
+              ? declarationWritePlan("EntityUpdated", event, "entity/v1")
+              : entityUpsertWritePlan(event);
   assertExactWritePlan(plan, expected);
 }
 
 export function contractForDeclarationEvent(event: EntityDeclarationEventV1): EntityStoreKindContract {
   return event.type === "entity_content_observed" || event.type === "entity_updated"
-    ? artifactEntityContractFromSnapshot(event.payload.artifactContract)
+    ? artifactEntityContractFromSnapshot(
+        event.payload.artifactContract,
+        isRecord(event.payload.artifactContract) && !Object.hasOwn(event.payload.artifactContract, "kindVersion"),
+      )
     : requireEntityStoreKindContract(event.payload.entityKind);
+}
+
+export function ownedContentForDeclarationEvent(event: EntityDeclarationEventV1): EntityOwnedContentV1 {
+  // The manifest an event was accepted with is the only description of what that event owns. Recomputing one
+  // from the registry a reader happens to hold today would answer a question about the present, not the event.
+  if (event.payload.ownedContent === undefined)
+    throw new Error("entity declaration event carries no owned-content manifest");
+  return event.payload.ownedContent;
 }
 
 function validateObservedPayload(
@@ -524,6 +693,7 @@ function validateObservedPayload(
     "entityKind",
     "entityId",
     "declarationDocumentClaim",
+    ...(allowUnknownFields ? [] : ["ownedContent"]),
     "locator",
     "sourceIdentity",
     "observedContentVersion",
@@ -536,7 +706,12 @@ function validateObservedPayload(
   if (common.length) return common;
   if (typeof payload.observedContentVersion !== "string" || !payload.observedContentVersion)
     return ["entity observed content version is invalid"];
-  if (!validObservationIdentity(payload, payload.observedContentVersion, opId, acceptsOperation))
+  const historical = isRecord(payload.artifactContract) && !Object.hasOwn(payload.artifactContract, "kindVersion"),
+    historicalOperation = historical
+      ? (candidate: string) =>
+          candidate === legacyArtifactImportOperationId(payload, payload.observedContentVersion as string)
+      : undefined;
+  if (!validObservationIdentity(payload, payload.observedContentVersion, opId, acceptsOperation ?? historicalOperation))
     return ["entity observed idempotency identity is invalid"];
   let contract: EntityStoreKindContract;
   try {
@@ -544,7 +719,7 @@ function validateObservedPayload(
   } catch {
     return ["entity artifact contract is invalid"];
   }
-  return validateClaim(payload, contract, hasFields);
+  return validateClaim(payload, contract, hasFields, "entity-event/v1", true);
 }
 
 function validateMissingPayload(
@@ -567,9 +742,56 @@ function validateMissingPayload(
   const common = validateArtifactPayload(payload, allowUnknownFields);
   if (common.length) return common;
   if (typeof payload.reason !== "string" || !payload.reason) return ["entity target-missing reason is invalid"];
-  return validObservationIdentity(payload, `missing:${payload.reason}`, opId)
+  const historical = isRecord(payload.artifactContract) && !Object.hasOwn(payload.artifactContract, "kindVersion"),
+    historicalOperation = historical
+      ? (candidate: string) => candidate === legacyArtifactImportOperationId(payload, `missing:${payload.reason}`)
+      : undefined;
+  return validObservationIdentity(payload, `missing:${payload.reason}`, opId, historicalOperation)
     ? []
     : ["entity missing idempotency identity is invalid"];
+}
+
+function validateDeletedPayload(
+  payload: Record<string, unknown>,
+  hasFields: typeof hasOnlyFields | typeof hasRequiredFields,
+  _allowUnknownFields: boolean,
+): readonly string[] {
+  if (!hasFields(payload, ["entityKind", "entityId", "reason", "ownedContent"]))
+    return ["entity delete payload is invalid"];
+  const errors = validateEntityOwnedContent(payload.ownedContent);
+  if (errors.length) return errors;
+  const manifest = payload.ownedContent as EntityOwnedContentV1;
+  let contract: EntityStoreKindContract;
+  try {
+    // A kind declared at runtime is not in the kernel registry; the manifest states the schema the event was
+    // accepted against, so a delete replays without asking today's registry what that kind looks like.
+    contract = requireEntityStoreKindContract(String(payload.entityKind));
+  } catch {
+    return manifest.ownerRef === `${String(payload.entityKind)}/${String(payload.entityId)}` &&
+      manifest.content.length === 0 &&
+      manifest.bindings.length === 0 &&
+      manifest.retirements.length >= 1 &&
+      typeof payload.reason === "string" &&
+      payload.reason.trim().length > 0
+      ? []
+      : ["entity delete owned-content retirement is invalid"];
+  }
+  if (
+    typeof payload.entityId !== "string" ||
+    !new RegExp(contract.id.pattern, "u").test(payload.entityId) ||
+    typeof payload.reason !== "string" ||
+    !payload.reason.trim()
+  )
+    return ["entity delete identity or reason is invalid"];
+  return manifest.ownerRef === `${contract.kind}/${payload.entityId}` &&
+    manifest.schemaId === contract.schema.$id &&
+    manifest.schemaVersion === entitySchemaVersion(contract.schema.$id) &&
+    manifest.content.length === 0 &&
+    manifest.bindings.length === 0 &&
+    manifest.directories.length === 0 &&
+    manifest.retirements.some(({ path }) => path === entityDocumentPath(contract, String(payload.entityId)))
+    ? []
+    : ["entity delete owned-content retirement is invalid"];
 }
 
 function validateArtifactPayload(payload: Record<string, unknown>, allowUnknownFields: boolean): readonly string[] {
@@ -580,24 +802,25 @@ function validateArtifactPayload(payload: Record<string, unknown>, allowUnknownF
     return ["entity artifact contract is invalid"];
   }
   const locator = payload.locator,
-    snapshot = payload.artifactContract as ArtifactEntityContractSnapshot;
-  let expectedEntityId: string;
+    snapshot = payload.artifactContract as ArtifactEntityContractSnapshot,
+    historical = isRecord(snapshot) && !Object.hasOwn(snapshot, "kindVersion"),
+    validEntityId = historical
+      ? typeof payload.entityId === "string" &&
+        new RegExp(`^${snapshot.idPrefix}-[a-f0-9]{16}$`, "u").test(payload.entityId)
+      : isArtifactEntityId(snapshot.idPrefix, payload.entityId);
   try {
-    expectedEntityId = deriveArtifactEntityId({
-      idPrefix: snapshot.idPrefix,
-      typeIdentity: contract.kind,
-      sourceIdentity: String(payload.sourceIdentity),
-    });
     if (canonicalArtifactSourceIdentity(String(payload.sourceIdentity)) !== payload.sourceIdentity)
       return ["entity artifact source identity is not canonical"];
   } catch {
     return ["entity artifact source identity is invalid"];
   }
+  // The identity is opaque: the event states which source it is bound to, and replay checks the identity's
+  // shape rather than recomputing it, so a move restates the binding without minting a second entity.
   if (
     payload.entityKind !== contract.kind ||
     typeof payload.entityId !== "string" ||
     typeof payload.sourceIdentity !== "string" ||
-    expectedEntityId !== payload.entityId ||
+    !validEntityId ||
     !isRecord(locator) ||
     !(["repository-path", "url", "external-key"] as const).includes(locator.kind as never) ||
     typeof locator.value !== "string" ||
@@ -620,8 +843,16 @@ function validateUpsertPayload(
   schema: unknown,
   payload: Record<string, unknown>,
   hasFields: typeof hasOnlyFields | typeof hasRequiredFields,
+  allowUnknownFields: boolean,
 ): readonly string[] {
-  if (!hasFields(payload, ["entityKind", "entityId", "declarationDocumentClaim"]))
+  if (
+    !hasFields(payload, [
+      "entityKind",
+      "entityId",
+      "declarationDocumentClaim",
+      ...(allowUnknownFields ? [] : ["ownedContent"]),
+    ])
+  )
     return ["entity upsert payload is invalid"];
   let contract: EntityStoreKindContract;
   try {
@@ -631,7 +862,7 @@ function validateUpsertPayload(
   }
   if (typeof payload.entityId !== "string" || !new RegExp(contract.id.pattern, "u").test(payload.entityId))
     return ["entity event kind and identity are invalid"];
-  return validateClaim(payload, contract, hasFields, schema);
+  return validateClaim(payload, contract, hasFields, schema, allowUnknownFields);
 }
 
 function validObservationIdentity(
@@ -642,11 +873,29 @@ function validObservationIdentity(
 ): boolean {
   const locator = payload.locator as unknown as ArtifactLocator,
     entityId = String(payload.entityId),
+    sourceIdentity = String(payload.sourceIdentity),
     expected = artifactObservationId({ entityId, locator, resolution }),
     accepts =
       acceptsOperation ??
-      ((candidate: string) => candidate === artifactImportOperationId({ entityId, locator, resolution }));
+      ((candidate: string) =>
+        // The generation the import was accepted under is part of the id, so the check stays an exact
+        // recomputation even though the reader cannot see the binding history the writer counted.
+        candidate ===
+        artifactImportOperationId({
+          entityKind: String(payload.entityKind),
+          sourceIdentity,
+          locator,
+          resolution,
+          bindingGeneration: importBindingGeneration(candidate),
+        }));
   return payload.observationId === expected && accepts(opId);
+}
+
+function legacyArtifactImportOperationId(payload: Record<string, unknown>, resolution: string): string {
+  const locator = payload.locator as ArtifactLocator;
+  return `entity-import-${sha256Text(
+    `${String(payload.entityId)}\u0000${locator.kind}:${locator.value}\u0000${resolution}`,
+  ).slice(0, 32)}`;
 }
 
 function validateClaim(
@@ -654,6 +903,7 @@ function validateClaim(
   contract: EntityStoreKindContract,
   hasFields: typeof hasOnlyFields | typeof hasRequiredFields = hasOnlyFields,
   schema: unknown = "entity-event/v1",
+  allowAdditionalOwnedContent = false,
 ): readonly string[] {
   const claim = payload.declarationDocumentClaim;
   if (
@@ -667,7 +917,28 @@ function validateClaim(
     !acceptedPolicyIds(schema).includes(String(claim.policyId))
   )
     return ["entity declaration claim is invalid"];
-  return [];
+  // Historical parsing retains the accepted shape; only current writes require an ownership manifest.
+  if (payload.ownedContent === undefined)
+    return hasFields === hasRequiredFields ? [] : ["entity owned-content manifest is missing"];
+  const manifestErrors = validateEntityOwnedContent(payload.ownedContent);
+  if (manifestErrors.length) return manifestErrors;
+  const manifest = payload.ownedContent as EntityOwnedContentV1,
+    declarationBinding = manifest.bindings.find(({ path }) => path === claim.path),
+    declarationObject = manifest.content.find(({ sha256 }) => sha256 === claim.sha256);
+  return manifest.ownerRef === `${contract.kind}/${String(payload.entityId)}` &&
+    manifest.schemaId === contract.schema.$id &&
+    manifest.schemaVersion === entitySchemaVersion(contract.schema.$id) &&
+    declarationBinding?.contentSha256 === claim.sha256 &&
+    declarationBinding?.policyId === claim.policyId &&
+    declarationObject?.byteLength === claim.size &&
+    declarationObject?.mediaType === claim.mediaType &&
+    (allowAdditionalOwnedContent ||
+      (manifest.bindings.length === 1 &&
+        manifest.content.length === 1 &&
+        manifest.directories.length === 0 &&
+        manifest.retirements.length === 0))
+    ? []
+    : ["entity owned-content manifest must exactly bind its declaration"];
 }
 
 function declarationContent(contract: EntityStoreKindContract, entityId: string, entity: unknown) {
@@ -680,6 +951,55 @@ function declarationContent(contract: EntityStoreKindContract, entityId: string,
       policyId: contract.entityStore.document.policyId,
     };
   return { body, claim };
+}
+
+function declarationOwnedContent(
+  contract: EntityStoreKindContract,
+  entityId: string,
+  claim: EntityDeclarationClaim,
+  sourceContent: readonly EntityContentBlob[] = [],
+  owned: {
+    readonly directories?: readonly string[];
+    readonly retirements?: readonly EntityContentRetirement[];
+    /** The footprint the previous accepted manifest held, so this one can state what fell out of it. */
+    readonly heldDirectories?: readonly string[];
+  } = {},
+): EntityOwnedContentV1 {
+  const bindings = [
+      claim,
+      ...sourceContent.map(({ relativePath, sha256, size, mediaType, policyId }) => ({
+        path: entityContentPath(contract, entityId, relativePath),
+        sha256,
+        size,
+        mediaType,
+        policyId,
+      })),
+    ],
+    directories = (owned.directories ?? []).map((relativePath) => ({
+      path: entityContentPath(contract, entityId, relativePath),
+    })),
+    bound = new Set(bindings.map(({ path }) => path)),
+    // Only a directory the entity itself held can fall out of its own footprint, which is what keeps a directory
+    // the user made inside the content root out of every retirement this entity will ever state.
+    footprint = new Set(
+      entityDirectoryFootprint(entityContentRoot(contract, entityId), {
+        directories,
+        bindings: bindings.map(({ path }) => ({ path })),
+      }),
+    );
+  return createEntityOwnedContent({
+    ownerRef: `${contract.kind}/${entityId}`,
+    schemaId: contract.schema.$id,
+    schemaVersion: entitySchemaVersion(contract.schema.$id),
+    bindings,
+    directories,
+    // A path this observation still binds is not retired by it: an update that rewrites a file states the new
+    // bytes, and only the paths that fell out of the snapshot are retired.
+    retirements: (owned.retirements ?? []).filter(({ path }) => !bound.has(path)),
+    directoryRetirements: (owned.heldDirectories ?? [])
+      .filter((held) => !footprint.has(held))
+      .map((path) => ({ path })),
+  });
 }
 
 function declarationWritePlan<Command extends "EntityUpsert" | "EntityContentObserved" | "EntityUpdated">(
@@ -699,8 +1019,39 @@ function declarationWritePlan<Command extends "EntityUpsert" | "EntityContentObs
         size: claim.size,
         mediaType: claim.mediaType,
       },
+      ...entityOwnedDocumentClaims(ownedContentForDeclarationEvent(event))
+        .filter((owned) => owned.path !== claim.path)
+        .map((owned) => ({
+          kind: "authored_file" as const,
+          path: owned.path,
+          operation: "replace" as const,
+          sha256: owned.sha256,
+          size: owned.size,
+          mediaType: owned.mediaType,
+        })),
+      ...ownedContentForDeclarationEvent(event).retirements.map((retired) => ({
+        kind: "authored_file_delete" as const,
+        path: retired.path,
+        operation: "delete" as const,
+        baseSha256: retired.baseBlobSha256,
+      })),
+      ...entityOwnedDirectories(ownedContentForDeclarationEvent(event)).map((path) => ({
+        kind: "authored_directory" as const,
+        path,
+        operation: "create" as const,
+      })),
+      ...entityRetiredDirectories(ownedContentForDeclarationEvent(event)).map((path) => ({
+        kind: "authored_directory" as const,
+        path,
+        operation: "retire" as const,
+      })),
       { kind: "projection_invalidation", projection, key: claim.path },
-      { kind: "content_blob", sha256: claim.sha256, size: claim.size, mediaType: claim.mediaType },
+      ...entityOwnedContentClaims(ownedContentForDeclarationEvent(event)).map((owned) => ({
+        kind: "content_blob" as const,
+        sha256: owned.sha256,
+        size: owned.size,
+        mediaType: owned.mediaType,
+      })),
     ];
   return freezeDeclaredWritePlan({ commandType, targets }, [commandType]);
 }

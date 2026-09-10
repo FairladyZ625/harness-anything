@@ -1,3 +1,4 @@
+import { validateCurrentCiRunObservationEvent } from "../domain/ci-run-observation-event.ts";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -50,7 +51,8 @@ export type EventShapeMigrationName =
   | "review-submission-pins"
   | "decision-digests"
   | "schedule-definitions"
-  | "settings-wal-flush";
+  | "settings-wal-flush"
+  | "ci-workflow-verification";
 export type EventShapeMigrationKind =
   | "task-v2-snapshots-migrate"
   | "legacy-import-normalization-migrate"
@@ -614,6 +616,27 @@ const scheduleDefinitionsMigration: EventShapeMigrationSpec = {
   },
 };
 
+export const ciWorkflowVerificationMigration = {
+  name: "ci-workflow-verification",
+  matches: (event: CanonicalEventV1) => String(event.schema) === "ci-run-observation/v1",
+  rewrite: (event: CanonicalEventV1) => {
+    if (String(event.schema) !== "ci-run-observation/v1") return null;
+    const rewritten = {
+      ...event,
+      schema: "ci-run-observation/v2",
+      payload: { ...event.payload, verification: null },
+    } as CanonicalEventV1;
+    const issues = validateCurrentCiRunObservationEvent(rewritten);
+    if (issues.length) throw new Error(`Invalid historical CI observation ${event.opId}: ${issues.join("; ")}`);
+    return {
+      event: rewritten,
+      category: "historical CI measurements retained without workflow verification",
+      before: { schema: event.schema },
+      after: { schema: rewritten.schema, verification: null },
+    };
+  },
+} satisfies EventShapeMigrationSpec;
+
 export const eventShapeMigrations: Readonly<Record<EventShapeMigrationKind, EventShapeMigrationSpec>> = {
   "task-v2-snapshots-migrate": taskV2SnapshotsMigration,
   "legacy-import-normalization-migrate": legacyImportNormalizationMigration,
@@ -623,6 +646,8 @@ export const eventShapeMigrations: Readonly<Record<EventShapeMigrationKind, Even
   "schedule-definitions-migrate": scheduleDefinitionsMigration,
   "settings-wal-flush-migrate": settingsWalFlushMigration,
 };
+
+const generationShapeMigrations = [...Object.values(eventShapeMigrations), ciWorkflowVerificationMigration];
 
 /**
  * Plans the generation-0 to generation-1 shape conversion without changing the source store.
@@ -678,7 +703,7 @@ function replayRewrites(
       if (batch.prefetchContent) prefetchContent = batch.prefetchContent;
     }
   };
-  const migrations = Object.values(eventShapeMigrations);
+  const migrations = generationShapeMigrations;
   // Each cut-dependent candidate is the first and only event in its batch. TaskProjection applies
   // the previous batch before requesting the next one, so rewrite sees the exact pre-event cut.
   // The stream head remains the real final head, which makes one catchUp settle one state digest.
@@ -771,7 +796,7 @@ function rewriteToFixedPoint(
 function summarizeMigrationFamilies(
   rewrites: LegacyGenerationConversionPlan["rewrites"],
 ): readonly EventShapeMigrationFamilyReport[] {
-  return Object.values(eventShapeMigrations).map(({ name }) => {
+  return generationShapeMigrations.map(({ name }) => {
     const revisions = rewrites.filter((rewrite) => rewrite.migration === name).map((rewrite) => rewrite.revision);
     return {
       name,

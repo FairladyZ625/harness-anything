@@ -74,6 +74,14 @@ export {
   isCloseoutReadiness,
 } from "./closeout-readiness.ts";
 export type { CloseoutReadiness, CloseoutSnapshot } from "./closeout-readiness.ts";
+export { completionEvidenceBasis, completionEvidenceResults, judgeCompletionEvidence } from "./completion-evidence.ts";
+export type {
+  CompletionEvidenceBasis,
+  CompletionEvidenceJudgment,
+  CompletionEvidenceProvenance,
+  CompletionEvidenceResult,
+  CompletionEvidenceV1,
+} from "./completion-evidence.ts";
 export { blockingOf } from "./task-blocking.ts";
 export type { BlockingLabel } from "./task-blocking.ts";
 
@@ -158,12 +166,20 @@ export type { ContractVersion } from "./contract-version.ts";
 export { normalizePersistedTimestamp, timestamp } from "./timestamp.ts";
 
 export {
+  entityContentPath,
+  entityContentRoot,
+  entityDocumentPath,
   getExecutableEntityAction,
   getEntityKindContract,
   getTaskActionForTransition,
   requireEntityStoreKindContract,
 } from "./entity-kind-registry.ts";
-export type { EntityActionContract, EntityActionInputField, EntityResidencyFacets } from "./entity-kind-registry.ts";
+export type {
+  EntityActionContract,
+  EntityActionInputField,
+  EntityResidencyFacets,
+  EntityStoreKindContract,
+} from "./entity-kind-registry.ts";
 // 只导出有消费者的两个:目录构造与结果校验。schema id / 序列化 / 错误类型由
 // daemon 的 schema registry 按路径引用(与 entity-action-explanation 同一惯例),
 // 不进 kernel 公共面。
@@ -175,7 +191,11 @@ export type { UseCaseProjectionName } from "./use-case-projection-catalog.ts";
 
 export { projectBaseEntityAtCut, requireEntityTypeContract } from "./base-entity.ts";
 export type { BaseEntity } from "./base-entity.ts";
-export { compiledRelationDirections, compileVerticalContract } from "./vertical-contract.ts";
+export {
+  compiledRelationDirections,
+  compileVerticalContract,
+  pinnedArtifactKindContract,
+} from "./vertical-contract.ts";
 export type { CompiledArtifactKindContract, CompiledVerticalContract } from "./vertical-contract.ts";
 export { composeCanonicalRelationDirections } from "./relation-direction.ts";
 export type { CanonicalRelationDirection } from "./relation-direction.ts";
@@ -257,7 +277,9 @@ export {
   applyVerticalKindCommand,
   compileVerticalDeclarationEvent,
   parseVerticalDeclarationDocument,
+  VERTICAL_DECLARATION_PATH,
 } from "./vertical-declaration.ts";
+export type { VerticalDeclarationDocumentV1, VerticalKindCommandResult } from "./vertical-declaration.ts";
 export { decodeVerticalDefinition } from "../schemas/vertical-definition.ts";
 export type { VerticalDefinition } from "../schemas/vertical-definition.ts";
 export { buildVerticalDeclarationRead, validateVerticalDeclarationRead } from "./vertical-declaration.ts";
@@ -310,14 +332,28 @@ export {
   compileEntityArchived,
   compileEntityUpdated,
   compileEntityTargetMissing,
+  compileEntityDeleted,
   compileEntityUpsert,
   contractForDeclarationEvent,
+  entityDeletedWritePlan,
   entityUpsertWritePlan,
   isEntityDeclarationEvent,
   isEntityEvent,
+  ownedContentForDeclarationEvent,
 } from "./entity-event.ts";
+export {
+  MAX_ENTITY_CONTENT_OBJECT_BYTES,
+  entityDirectoryFootprint,
+  entityOwnedDirectories,
+  entityRetiredDirectories,
+  type EntityContentDirectory,
+  type EntityContentRetirement,
+  type EntityOwnedContentV1,
+} from "./entity-owned-content.ts";
 export type {
+  EntityContentBlob,
   EntityContentObservedBundle,
+  EntityDeletedBundle,
   EntityEventV1,
   EntityTargetMissingBundle,
   EntityUpsertBundle,
@@ -325,19 +361,23 @@ export type {
 export {
   artifactEntityContractSnapshot,
   artifactImportOperationId,
+  importBindingGeneration,
   artifactObservationId,
   artifactMutationOperationId,
   canonicalArtifactLocator,
   canonicalSourceIdentity,
   decodeArtifactDescriptor,
   deriveArtifactContentVersion,
-  deriveArtifactEntityId,
+  isArtifactEntityId,
+  mintArtifactEntityId,
+  ARTIFACT_ENTITY_ID_BYTES,
 } from "./artifact-entity.ts";
 export type {
+  ArtifactAttributeValue,
   ArtifactContentWitness,
   ArtifactDescriptor,
   ArtifactLocator,
   ArtifactSourceIdentityInput,
 } from "./artifact-entity.ts";
-export type { CiRunObservationEventV1 } from "./ci-run-observation-event.ts";
+export type { CiRunObservationEventV2 } from "./ci-run-observation-event.ts";
 export { ciRunObservationWritePlan, validateCurrentCiRunObservationEvent } from "./ci-run-observation-event.ts";

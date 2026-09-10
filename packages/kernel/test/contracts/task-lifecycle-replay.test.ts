@@ -8,7 +8,13 @@ import {
   type TaskEventV1,
   type TaskLifecycleSnapshot,
 } from "../../src/index.ts";
-import { emptyTaskLifecycleSnapshot } from "../../src/domain/task-lifecycle.contract.ts";
+import { lifecycleFixture, implementer } from "../store/task-lifecycle-fixture.ts";
+import { closeoutReadiness } from "../../src/domain/closeout-readiness.ts";
+import {
+  applyTransition,
+  normalizeTaskLifecycleCommand,
+  emptyTaskLifecycleSnapshot,
+} from "../../src/domain/task-lifecycle.contract.ts";
 
 const actor = { principal: { personId: "person-owner" }, executor: null } as const;
 const metadata = {
@@ -100,4 +106,76 @@ test("lease release replay ignores only the retired longRunning task metadata", 
       }),
     /replayed lease release is incomplete/u,
   );
+});
+
+function legacyCompletion() {
+  const fixture = lifecycleFixture();
+  let snapshot = fixture.events.slice(0, -1).reduce(reduceTaskEvent, emptyTaskLifecycleSnapshot());
+  const current = snapshot.executions[0]!;
+  snapshot = {
+    ...snapshot,
+    task: { ...snapshot.task!, completionGateIds: ["ci"] },
+    gateWitnesses: [
+      {
+        schema: "completion-gate-witness/v1",
+        witnessId: "gate-legacy",
+        taskId: current.taskId,
+        executionId: current.executionId,
+        gateId: "ci",
+        checkerId: "standard",
+        receiptId: "op-legacy-ci",
+        commitSha: current.submission!.commitSha,
+        iteration: current.iteration,
+        result: "pass",
+        actor: implementer,
+        source: "local",
+        verifiedAt: "2026-08-11T00:04:30.000Z",
+      },
+    ],
+  };
+  const last = fixture.events.at(-1)!;
+  assert.equal(last.type, "task_completed");
+  const completed = {
+    ...last,
+    payload: { ...last.payload, task: { ...snapshot.task!, status: "done" } },
+  } as TaskEventV1;
+  return { snapshot, completed, current };
+}
+
+test("accepted completion keeps legacy receipts without admitting a new unbound completion", () => {
+  const { snapshot, completed, current } = legacyCompletion();
+  const replayed = reduceTaskEvent(snapshot, completed);
+  assert.equal(replayed.task?.status, "done");
+  assert.equal(replayed.executions[0]?.state, "accepted");
+  assert.deepEqual(replayed.gateWitnesses, snapshot.gateWitnesses);
+  assert.equal(replayed.gateWitnesses[0]?.basis, undefined);
+  assert.equal(closeoutReadiness(snapshot).readiness, "incomplete");
+  const command = normalizeTaskLifecycleCommand(
+    { workspaceId: "workspace-1", actor: implementer, source: "local", expectedRevision: snapshot.revision },
+    { type: "CompleteTask", taskId: current.taskId, executionId: current.executionId },
+  );
+  assert.throws(
+    () =>
+      applyTransition(snapshot, command, {
+        capability: "task-complete@v1",
+        capabilityRef: "cap-complete",
+        actorRole: "owner",
+        noActiveLease: true,
+        gateReceipts: [],
+      }),
+    /gate|witness|completion/i,
+  );
+});
+
+test("accepted history still rejects missing approval and mismatched gate bindings", () => {
+  const { snapshot, completed } = legacyCompletion();
+  for (const invalid of [
+    { ...snapshot, task: { ...snapshot.task!, iteration: snapshot.task!.iteration + 1 } },
+    { ...snapshot, reviews: [] },
+    { ...snapshot, consents: [] },
+    { ...snapshot, gateWitnesses: [] },
+    { ...snapshot, gateWitnesses: snapshot.gateWitnesses.map((w) => ({ ...w, commitSha: "b".repeat(40) })) },
+    { ...snapshot, gateWitnesses: snapshot.gateWitnesses.map((w) => ({ ...w, executionId: "other-execution" })) },
+  ])
+    assert.throws(() => reduceTaskEvent(invalid, completed), /accepted task and execution state/);
 });

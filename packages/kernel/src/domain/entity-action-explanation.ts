@@ -1,5 +1,5 @@
 import { validateActorIdentity } from "./actor-identity.ts";
-import { parseEntityRef, type EntityRef } from "./entity-ref.ts";
+import { ENTITY_KIND_REF_PATTERN, parseEntityRef, type EntityRef } from "./entity-ref.ts";
 import {
   getEntityKindContract,
   type EntityActionContract,
@@ -353,7 +353,7 @@ function actionContract(value: unknown): EntityActionContract | null {
 function explanationCatalog(kind: string) {
   const registered = getEntityKindContract(kind)?.actionCatalog;
   if (registered) return registered;
-  if (!/^[a-z0-9][a-z0-9/-]*\/[a-z0-9][a-z0-9-]*@[1-9][0-9]*$/u.test(kind)) return null;
+  if (!new RegExp(`^${ENTITY_KIND_REF_PATTERN}$`, "u").test(kind)) return null;
   return artifactEntityActionCatalog(kind, {
     field: "entityId",
     pattern: "^[A-Z][A-Z0-9]{0,15}-[a-f0-9]{16}$",

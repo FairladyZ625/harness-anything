@@ -11,6 +11,7 @@ import {
 } from "./base-entity.ts";
 import { CONTRACT_VERSION_1_0, type ContractVersion } from "./contract-version.ts";
 import { DEFAULT_POLICY } from "./default-policy.ts";
+import { normalizeRelativeDocumentPath } from "../layout/portable-path.ts";
 import { explainEntityJsonSchema, type EntityDocumentJsonSchema } from "./entity-json-schema.ts";
 import { decisionSchema, executionSchema, factSchema, reviewSchema, taskSchema } from "./entity-document-schemas.ts";
 import {
@@ -267,7 +268,7 @@ export interface EntityActionInputField {
     };
     readonly conflictsWith?: readonly string[];
     readonly format?: string;
-    readonly projection?: "number" | "fact-hold-array";
+    readonly projection?: "number" | "fact-hold-array" | "json-object";
   };
 }
 
@@ -996,4 +997,19 @@ export function entityDocumentPath(contract: EntityStoreKindContract, id: string
   if (!new RegExp(contract.id.pattern, "u").test(id))
     throw Object.assign(new Error(`${id} is not a valid ${contract.kind} id.`), { code: "invalid_entity_id" });
   return contract.entityStore.document.pathTemplate.replace("{id}", id);
+}
+
+/**
+ * Where an entity's owned raw objects live. The entity's own declaration path, minus its extension, is the
+ * root; the object keeps its shape underneath. Two entities therefore never contend for the same target no
+ * matter what their sources were called.
+ */
+export function entityContentRoot(contract: EntityStoreKindContract, id: string): string {
+  const document = entityDocumentPath(contract, id),
+    extension = document.slice(document.lastIndexOf("/") + 1).lastIndexOf(".");
+  return extension <= 0 ? document : document.slice(0, document.lastIndexOf("."));
+}
+
+export function entityContentPath(contract: EntityStoreKindContract, id: string, relativePath: string): string {
+  return normalizeRelativeDocumentPath(`${entityContentRoot(contract, id)}/${relativePath}`);
 }

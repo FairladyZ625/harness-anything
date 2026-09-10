@@ -85,6 +85,8 @@ export function authorizeDurableRepoCellAction(
   switch (input.action.kind) {
     case "agent-create":
       return authorizeRepoCellAction(input);
+    case "agent-delete":
+      return authorizeRepoCellAction(input);
     case "agent-install":
       return authorizeRepoCellAction(input);
     case "ci-observe-pull":
@@ -148,6 +150,8 @@ export function authorizeDurableRepoCellAction(
     case "entity-update":
       return authorizeRepoCellAction(input);
     case "entity-archive":
+      return authorizeRepoCellAction(input);
+    case "entity-delete":
       return authorizeRepoCellAction(input);
     case "fact-reclassify":
       return authorizeRepoCellAction(input);
@@ -241,6 +245,8 @@ export function authorizeDurableRepoCellAction(
       return authorizeRepoCellAction(input);
     case "squad-cancel":
       return authorizeRepoCellAction(input);
+    case "squad-delete":
+      return authorizeRepoCellAction(input);
     case "squad-install":
       return authorizeRepoCellAction(input);
     case "squad-run":
@@ -298,6 +304,8 @@ export function authorizeDurableRepoCellAction(
     case "terminal-terminate":
       return authorizeRepoCellAction(input);
     case "vertical-declaration-migrate":
+      return authorizeRepoCellAction(input);
+    case "vertical-kind-publish-schema":
       return authorizeRepoCellAction(input);
     case "vertical-kind-retire":
       return authorizeRepoCellAction(input);

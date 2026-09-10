@@ -63,7 +63,7 @@ export function entityDetailTargetOf(ref: string, declaredKinds: readonly string
   // 与 preset/<id> 同一条「目录页内详情」路径——落 entities 视图,focusedEntityRef
   // 区分目录/详情,推栈回撤原路返回。
   if (ref.startsWith("entitydoc/")) {
-    // kind 可以带斜杠(vertical type identity 形如 software/coding/x@1),整段保留。
+    // kind 可以带斜杠(vertical kind 的稳定 ref 形如 entity-kind/KND-…),整段保留。
     const kind = ref.slice("entitydoc/".length);
     if (!kind) return null;
     return { view: "entities", focusedEntityRef: `entitydoc/${kind}` };

@@ -17,7 +17,7 @@ import {
 import { TaskEventStoreError, type CanonicalWriteBundle } from "./task-event-store-types.ts";
 
 type DocumentNode = {
-  readonly body: string;
+  readonly body: string | Uint8Array;
   readonly sha256: string;
   readonly size: number;
   readonly nodeKind: "file" | "symbolic-link";
@@ -56,7 +56,7 @@ export function assertAuthorizedReplacements(
           if (bytes === null) throw new TaskEventStoreError("invalid_store", `Missing content for ${target}`);
           return {
             ...claim,
-            body: Buffer.from(bytes).toString("utf8"),
+            body: bytes,
             nodeKind: canonicalDocumentMode(event, target) === "120000" ? "symbolic-link" : "file",
           };
         }
@@ -102,10 +102,16 @@ function authorize(
   }
   if (isSettingsEvent(event)) {
     const base = current(event.payload.harnessDocumentClaim.path),
+      baseBody =
+        base === null
+          ? null
+          : typeof base.body === "string"
+            ? base.body
+            : new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(base.body),
       candidate = blobs.find((blob) => blob.sha256 === event.payload.harnessDocumentClaim.sha256)?.body;
-    if (base === null || sha256Text(base.body) !== event.payload.baseDocumentSha256)
+    if (baseBody === null || sha256Text(baseBody) !== event.payload.baseDocumentSha256)
       throw new TaskEventStoreError("revision_conflict", "harness.yaml changed before the Settings write committed");
-    if (candidate !== writeRepositorySettingsFacet(base.body, event.payload.settings))
+    if (typeof candidate !== "string" || candidate !== writeRepositorySettingsFacet(baseBody, event.payload.settings))
       throw new TaskEventStoreError(
         "invalid_write_plan",
         "Settings may change only their owned harness.yaml facet fields",
@@ -118,7 +124,7 @@ function authorize(
     if ((base?.sha256 ?? null) !== event.payload.baseDocumentSha256)
       throw new TaskEventStoreError("revision_conflict", "people.yaml changed before the People write committed");
     if (
-      candidate === undefined ||
+      typeof candidate !== "string" ||
       candidate !== serializePeopleRosterDocument(event.payload.roster) ||
       serializePeopleRosterDocument(parsePeopleRosterDocument(candidate)) !== candidate
     )

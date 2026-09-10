@@ -91,7 +91,7 @@ export const KERNEL_ENTITY_CONTRACT = Object.freeze({
     schemaId: "agent-declaration/v1",
     refTemplate: "agent/{id}",
     statuses: [],
-    actions: ["install", "validate", "list", "inspect"],
+    actions: ["install", "delete", "validate", "list", "inspect"],
   },
   decision: {
     schemaId: "decision-package",
@@ -257,7 +257,7 @@ export const KERNEL_ENTITY_CONTRACT = Object.freeze({
     schemaId: "squad-declaration/v1",
     refTemplate: "squad/{id}",
     statuses: [],
-    actions: ["install", "validate", "list", "inspect", "run", "status", "cancel"],
+    actions: ["install", "delete", "validate", "list", "inspect", "run", "status", "cancel"],
   },
   task: {
     schemaId: "task-frontmatter",
@@ -774,8 +774,8 @@ export function governedEntityDoc(row: EntityKindRow): EntityKindDoc {
     definition:
       declaration === null
         ? `由 vertical 声明的实体种类 ${row.kind}。`
-        : `${declaration.display.singular}:由 ${row.verticalId ?? "vertical"} 声明的实体种类。正文不进账本——` +
-          `账本里只有描述符,locator(${declaration.locatorKinds.join(" / ")})指向正文所在。`,
+        : `${declaration.display.singular}:由 ${row.verticalId ?? "vertical"} 声明的实体种类。导入时正文随实体收进台账,来源之后移动或删除都不影响阅读;` +
+          `locator(${declaration.locatorKinds.join(" / ")})记录它来自哪里。`,
     fields: row.explanation.documentSchema.fields.map((field) => ({
       name: field.name,
       required: field.required,

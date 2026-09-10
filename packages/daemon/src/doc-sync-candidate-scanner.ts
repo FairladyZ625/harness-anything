@@ -21,6 +21,7 @@ import {
   isTaskBoundRuntimeWriter,
   sameWriteSource,
   sha256Bytes,
+  stableStringify,
   taskIsDescendantOf,
   type ActorIdentity,
   type CanonicalEventStore,
@@ -106,15 +107,9 @@ export function scanDocCandidates(input: {
       : [
           ...new Set(input.inventory?.rows.map((row) => row.path) ?? dirtyPaths(ledger.rootDir, ledger.authoredPrefix)),
         ].filter((value) => value.startsWith(enumerationScope)),
-    paths = candidates
-      .filter(
-        (value) =>
-          selected?.length ||
-          classifyDocSyncCandidatePath(value) !== null ||
-          !resolveDocRoute(documentPath(value)).allowed,
-      )
-      .sort(),
+    paths = candidates.sort(),
     baseLedgerSha = input.inventory?.baseLedgerSha ?? input.store.currentCut(),
+    readCandidate = candidateByteReader(input.store, baseLedgerSha, layout.authoredRoot),
     execution = resolveDocExecutionBinding(
       paths,
       input.executionId,
@@ -165,7 +160,7 @@ export function scanDocCandidates(input: {
             fileSize <= DOC_SYNC_INLINE_MAX_BYTES &&
             safe &&
             existsSync(target)
-          ? readFileSync(target)
+          ? readCandidate(target)
           : null,
       bytes = rawBytes === null ? null : canonicalProseBytes(rawBytes, classification?.policyId),
       base = projected.document?.blobSha256 ?? null,
@@ -317,7 +312,7 @@ export function scanDocCandidates(input: {
     if (nonTextualArtifact)
       return scannedCandidateRow(
         "inapplicable",
-        "non-textual artifact is outside doc sync",
+        "non-textual artifact is outside doc sync; publish it with ha task artifact add",
         bytes,
         base,
         candidate,
@@ -370,10 +365,12 @@ export function scanAuthoredCandidateInventory(input: {
 }): AuthoredCandidateInventoryV1 {
   const layout = resolveHarnessLayout(input.rootDir),
     ledger = resolveLedgerGitLayout(input.rootDir),
-    paths = dirtyPaths(ledger.rootDir, ledger.authoredPrefix).sort();
+    paths = dirtyPaths(ledger.rootDir, ledger.authoredPrefix).sort(),
+    baseLedgerSha = input.store.currentCut(),
+    readCandidate = candidateByteReader(input.store, baseLedgerSha, layout.authoredRoot);
   return {
     schema: "harness-authored-candidate-inventory/v1",
-    baseLedgerSha: input.store.currentCut(),
+    baseLedgerSha,
     rows: paths.map((logical) => {
       const safe = directFile(layout.authoredRoot, logical),
         classification = classifyDocSyncCandidatePath(logical),
@@ -382,7 +379,7 @@ export function scanAuthoredCandidateInventory(input: {
         size = safe && existsSync(target) ? lstatSync(target).size : null,
         rawBytes =
           (classification !== null || !route.allowed) && size !== null && size <= DOC_SYNC_INLINE_MAX_BYTES
-            ? readFileSync(target)
+            ? readCandidate(target)
             : null,
         bytes = rawBytes === null ? null : canonicalProseBytes(rawBytes, classification?.policyId);
       return {
@@ -615,4 +612,30 @@ function canonicalProseBytes(bytes: Uint8Array, policyId: string | undefined): U
   } catch {
     return bytes;
   }
+}
+
+// Only the previous scan's file inputs survive. Canonical document state and
+// ownership still come from the center projection; conflicts and file metadata
+// are observed on every scan, including when the ledger has not advanced.
+const candidateBytes = new WeakMap<
+  CanonicalEventStore,
+  {
+    readonly key: string;
+    readonly files: Map<string, { readonly identity: string; readonly bytes: Uint8Array }>;
+  }
+>();
+
+function candidateByteReader(store: CanonicalEventStore, cut: LedgerCutIdentity, authoredRoot: string) {
+  const key = stableStringify({ authoredRoot, cut, generation: store.ledgerMetadata().generation }),
+    previous = candidateBytes.get(store),
+    files = new Map<string, { readonly identity: string; readonly bytes: Uint8Array }>();
+  candidateBytes.set(store, { key, files });
+  return (target: string): Uint8Array => {
+    const stat = lstatSync(target, { bigint: true }),
+      identity = [stat.dev, stat.ino, stat.mode, stat.size, stat.mtimeNs, stat.ctimeNs].join(":"),
+      cached = previous?.key === key ? previous.files.get(target) : undefined,
+      bytes = cached?.identity === identity ? cached.bytes : readFileSync(target);
+    files.set(target, { identity, bytes });
+    return bytes;
+  };
 }

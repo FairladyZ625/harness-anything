@@ -851,6 +851,8 @@ test("semantic sources and agent execution cross the daemon before transport-bou
       "--admin",
       "--title",
       "Executor Axis",
+      "--preset",
+      "docs-task",
     ]);
     assert.equal(created.outcome, "applied", JSON.stringify(created));
     assert.equal(
@@ -963,8 +965,7 @@ test("semantic sources and agent execution cross the daemon before transport-bou
       "applied",
     );
     assert.equal(
-      run(fixture.root, fixture.userRoot, ["task", "complete", taskId, "--execution-id", executionId, "--ci", "passed"])
-        .outcome,
+      run(fixture.root, fixture.userRoot, ["task", "complete", taskId, "--execution-id", executionId]).outcome,
       "applied",
     );
 

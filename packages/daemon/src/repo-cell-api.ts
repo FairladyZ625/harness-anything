@@ -1,3 +1,4 @@
+import { enqueueRuntimePublication } from "./runtime-publication-queue.ts";
 import {
   executeSquadControl,
   isSquadControlCommand,
@@ -11,8 +12,6 @@ import {
   readAcceptedCommandOutcome,
   waitForReceiptAcceptance,
 } from "../../kernel/src/index.ts";
-import { readFileSync } from "node:fs";
-import path from "node:path";
 import {
   assertCurrentWriter,
   buildVerticalDeclarationRead,
@@ -21,7 +20,6 @@ import {
   durablePolicyActions,
   getExecutableEntityAction,
   projectDecisionReadiness,
-  parseVerticalDeclarationDocument,
   relationDirections,
   relationStates,
   relationTypes,
@@ -40,8 +38,15 @@ import {
 } from "../../kernel/src/index.ts";
 import { type PresetRunReceiptV1, type createPresetProcessService } from "../../preset/src/index.ts";
 import { readAgentEntityGuiProjection } from "./agent-entities.ts";
-import { canonicalVertical, compiledArtifactKinds } from "./artifact-entity-action.ts";
+import {
+  canonicalVertical,
+  compiledArtifactKinds,
+  readCurrentArtifact,
+  resolveEntityReadKind,
+} from "./artifact-entity-action.ts";
+import { requireCanonicalVerticalDeclaration } from "./vertical-declaration-action.ts";
 import { readDeclaredEntityRows } from "./entity-rows-read.ts";
+import { readEntityContent, type EntityContentSource } from "./entity-content-read.ts";
 import { readEntityLocator } from "./entity-locator-read.ts";
 import { discoverAgentSkills } from "./agent-skills.ts";
 import { readTaskDispatches } from "./dispatch-read.ts";
@@ -501,20 +506,16 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
     "repo.projection.read": (payload: Readonly<Record<string, unknown>>) => useCaseProjection(payload),
     "repo.entity.actions.explain": explainAuthenticationRequired,
     "repo.vertical.declaration.read": () =>
-      buildVerticalDeclarationRead(
-        parseVerticalDeclarationDocument(
-          JSON.parse(readFileSync(path.join(context.rootDir, "harness", "vertical.json"), "utf8")),
-        ),
-      ),
+      buildVerticalDeclarationRead(requireCanonicalVerticalDeclaration(context.projection)),
     "repo.entity.kinds.read": () => {
-      const vertical = canonicalVertical(context.rootDir, context.input.repoId);
+      const vertical = canonicalVertical(context.projection, context.input.repoId);
       return buildEntityKindCatalog(vertical.contract.artifactKinds, vertical.revision);
     },
     "repo.entity.rows.read": () =>
       readDeclaredEntityRows({
         catalog: buildEntityKindCatalog(
-          compiledArtifactKinds(context.rootDir, context.input.repoId),
-          canonicalVertical(context.rootDir, context.input.repoId).revision,
+          compiledArtifactKinds(context.projection, context.input.repoId),
+          canonicalVertical(context.projection, context.input.repoId).revision,
         ),
         projection: context.projection,
         runtimeInstances: context.input.runtimeInstances ?? (() => []),
@@ -525,6 +526,27 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
         locatorKind: context.requiredCellText(payload.locatorKind, "locatorKind"),
         locatorValue: context.requiredCellText(payload.locatorValue, "locatorValue"),
       }),
+    "repo.entity.content.read": (payload: Readonly<Record<string, unknown>>) => {
+      const contracts = compiledArtifactKinds(context.projection, context.input.repoId),
+        kind = resolveEntityReadKind(context.requiredCellText(payload.entityKind, "entityKind"), contracts),
+        entityId = context.requiredCellText(payload.entityId, "entityId"),
+        current = readCurrentArtifact(context.store, contracts, kind, entityId),
+        contract = contracts.find(({ typeIdentity }) => typeIdentity === kind);
+      return readEntityContent({
+        rootDir: context.rootDir,
+        source:
+          contract && current?.descriptor
+            ? {
+                entityKind: kind,
+                contract: contract.entityKindContract as unknown as EntityContentSource["contract"],
+                entityId,
+                ownedContent: current.ownedContent,
+                readContentBlob: (sha256) => context.store.readContentBlob(sha256),
+              }
+            : null,
+        ...(payload.path === undefined ? {} : { requestedPath: context.requiredCellText(payload.path, "path") }),
+      });
+    },
     "repo.agenda.read": (payload: Readonly<Record<string, unknown>>) =>
       queryRead().agenda(agendaQueryFromPayload(payload)),
     "repo.triadic.relationGraph": (payload: Readonly<Record<string, unknown>>) => relationGraphFromPayload(payload),
@@ -559,7 +581,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
     "repo.squad.run.read": (payload: Readonly<Record<string, unknown>>) =>
       context.squadCoordinator.read(context.requiredCellText(payload.squadRunId, "squadRunId")),
     "repo.decisions.list": (payload: Readonly<Record<string, unknown>>) => decisionListFromPayload(payload),
-    "repo.tasks.document.read": (payload) => readProjectedDocument(context.rootDir, context.projection, payload),
+    "repo.tasks.document.read": (payload) => readProjectedDocument(context, payload),
     "repo.tasks.documents.list": (payload) => listProjectedTaskDocuments(context.rootDir, context.projection, payload),
     "repo.artifacts.list": (payload) =>
       readArtifactsGui(
@@ -873,72 +895,13 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
       judgments: repoCellTaskQueryJudgments,
     });
   Object.assign(context.extracted, { taskListQueryFromAction, queryRead, relationQueryFromAction });
-  const enqueueRuntimePublication = (
-    commandKind: "runtime-run" | "runtime-cancel",
-    policyAction: RepoTaskAction,
-    binding: RepoCellBinding,
-    execute: (authorizedBinding: RepoCellBinding, revision: number) => JsonObject | Promise<JsonObject>,
-  ): Promise<JsonObject> => {
-    const command = commandDescriptorForAction(commandKind),
-      admission = admitRepoMode(context.mode, command, binding.source);
-    if (!admission.ok) return Promise.reject(context.cellCodedError(admission.code, admission.nextAction));
-    context.queueDepth += 1;
-    const pending = chainRepoCellWrite(context.tail, async () => {
-      context.queueDepth -= 1;
-      if (context.state !== "attached") await context.attemptRecovery();
-      const queuedAdmission = admitRepoMode(context.mode, command, binding.source);
-      if (!queuedAdmission.ok) throw context.cellCodedError(queuedAdmission.code, queuedAdmission.nextAction);
-      if (context.state !== "attached") throw context.cellCodedError("repo_unavailable", context.latched());
-      assertCurrentWriter(context.activeWriter, context.writerToken, context.input.repoId);
-      const revision = context.store.readHead()?.revision ?? 0,
-        authorizationDecision = authorizeRepoCellAction({
-          action: policyAction,
-          binding,
-          actionId: context.operationId(policyAction, binding, context.input.repoId, revision),
-          revision,
-          now: context.now(),
-        });
-      if (authorizationDecision.outcome === "denied")
-        throw Object.assign(new Error(authorizationDecision.nextActions.join(" ")), {
-          code: "authorization_denied",
-          authorizationDecision,
-        });
-      context.activeWriterEpochGuard = binding.assertWriterEpoch ?? null;
-      context.activeWriterEpochFence = binding.withWriterEpochFence ?? null;
-      context.activeWriterEpochFenceDescriptor = binding.writerEpochFence ?? null;
-      try {
-        const result = await execute({ ...binding, authorizationDecision }, revision);
-        const receipt =
-          typeof result.opId === "string" && typeof result.outcome === "string"
-            ? attachReceiptAcceptance(result as unknown as WriteReceipt, context.store, context.projection)
-            : result;
-        return {
-          ...receipt,
-          authorizationDecision: authorizationDecision as unknown as JsonObject,
-        } as unknown as JsonObject;
-      } finally {
-        context.activeWriterEpochGuard = null;
-        context.activeWriterEpochFence = null;
-        context.activeWriterEpochFenceDescriptor = null;
-      }
-    });
-    context.tail = pending.then(
-      () => undefined,
-      () => undefined,
-    );
-    void pending.then(
-      () => context.replica.kick(),
-      () => context.replica.kick(),
-    );
-    return pending;
-  };
   const spawnRuntime: RepoCell["spawnRuntime"] = async (payload, binding) => {
     const bound = bindExecutorClaimAtWriterCut({ kind: "runtime-spawn", ...payload }, binding),
       verified = bound.queued ? await bound.result : bound.result;
     binding = verified.binding;
     payload = Object.fromEntries(Object.entries(verified.action).filter(([field]) => field !== "kind")) as JsonObject;
     const action = { kind: "runtime-spawn", ...payload };
-    return enqueueRuntimePublication("runtime-run", action, binding, async (authorizedBinding) => {
+    return enqueueRuntimePublication(context, "runtime-run", action, binding, async (authorizedBinding) => {
       const taskId = typeof payload.taskId === "string" && payload.taskId ? payload.taskId : null;
       await waitForOptionalTaskProjection({
         invalidWait: (message) => context.cellCodedError("invalid_command", message),
@@ -957,6 +920,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
     binding = verified.binding;
     payload = Object.fromEntries(Object.entries(verified.action).filter(([field]) => field !== "kind")) as JsonObject;
     return enqueueRuntimePublication(
+      context,
       "runtime-cancel",
       { kind: "runtime-cancel", ...payload },
       binding,
@@ -987,7 +951,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
             runtimeSessionId: action.archive.runtimeSessionId,
           }
         : { ...action, kind: "runtime-run" };
-    return enqueueRuntimePublication("runtime-run", policyAction, binding, async (authorizedBinding) => {
+    return enqueueRuntimePublication(context, "runtime-run", policyAction, binding, async (authorizedBinding) => {
       if (action.kind === "event" && runtimeSessionActionIds.includes(action.type as never)) {
         const receipt = await commitRuntimeSessionAction(context.extracted, action, authorizedBinding);
         return {

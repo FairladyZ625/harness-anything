@@ -7,10 +7,14 @@ import { EntityDirectoryBrowser } from "./EntityDirectoryBrowser.tsx";
 import { PdfLocatorCard } from "./PdfLocatorCard.tsx";
 
 /**
- * 实体 locator 的渲染面。渲染器由 `selectEntityLocatorRenderer` 的那张表选,本文件不再
- * 按扩展名判第二次;四种渲染器都是仓里既有的实现(DocReader / HtmlArtifactPreview /
- * EntityDirectoryBrowser / PDF 事实卡),这里只负责喂数据。认不出来的指针显示元数据卡
+ * 实体某一个仓内指针的渲染面。渲染器由 `selectEntityLocatorRenderer` 那张表选——先读、
+ * 再按读面回来的 outcome 与后缀选,本文件不再自己判第二次,也不再按「末段有没有点」
+ * 猜目录。四种渲染器都是仓里既有的实现(DocReader / HtmlArtifactPreview /
+ * EntityDirectoryBrowser / PDF 事实卡),这里只负责喂数据;认不出来的指针显示元数据卡
  * ——不假装能渲染。
+ *
+ * 这一屏读的是**来源**——实体当初来自的那个仓内路径此刻的样子。实体自己收管的那份内容
+ * 由 `EntityManagedContent` 读,两者共用同一张渲染器选择表。
  */
 export function EntityLocatorPreview({
   repoId,
@@ -19,28 +23,28 @@ export function EntityLocatorPreview({
   readonly repoId: string;
   readonly locator: EntityLocator;
 }) {
-  const renderer = selectEntityLocatorRenderer(locator);
   const read = useQuery(entityLocatorContentQuery(repoId, locator));
 
-  if (renderer === "opaque") return <OpaqueLocator locator={locator} note="这个指针没有对应的 GUI 渲染器。" />;
-  if (renderer === "pdf") return <PdfLocatorCard path={locator.value} />;
+  // 非仓内指针没有可读字节:读面本身就不发,直接元数据卡。
+  if (locator.kind !== "repository-path")
+    return <OpaqueLocator locator={locator} note="这个指针不是仓内路径,GUI 没有对应的渲染器。" />;
   if (read.isPending) return <PreviewNote testId="entity-locator-pending" text={`读取 ${locator.value} …`} />;
   if (read.isError) return <PreviewNote testId="entity-locator-failed" text={`读取失败:${read.error.message}`} />;
 
   const content = read.data;
-  if (content.outcome !== "file" && content.outcome !== "directory")
-    return <OpaqueLocator locator={locator} note={outcomeNote(content.outcome, content.path)} />;
+  const renderer = selectEntityLocatorRenderer(locator, content.outcome);
 
-  if (renderer === "directory" || content.outcome === "directory")
+  if (renderer === "directory")
     return <EntityDirectoryBrowser repoId={repoId} locator={{ ...locator, value: content.path }} />;
-
+  if (renderer === "pdf") return <PdfLocatorCard path={content.path} />;
+  if (renderer === "opaque")
+    return <OpaqueLocator locator={locator} note={outcomeNote(content.outcome, content.path)} />;
   if (renderer === "html")
     return (
       <div className="min-h-0 flex-1" data-testid="entity-locator-html">
         <HtmlArtifactPreview fillAvailable content={content.content ?? ""} path={content.path} />
       </div>
     );
-
   return (
     <div className="min-h-0 flex-1 overflow-y-auto" data-testid="entity-locator-markdown">
       <DocReader content={content.content ?? ""} />
@@ -49,10 +53,11 @@ export function EntityLocatorPreview({
 }
 
 function outcomeNote(outcome: string, path: string): string {
-  if (outcome === "missing") return `${path} 在工作区里不存在——描述符还在,正文不在了。`;
+  if (outcome === "missing") return `${path} 在工作区里不存在。这个实体自己的正文不受影响,在「内容」里读。`;
   if (outcome === "too-large") return `${path} 超过阅读面上限,不在 GUI 内展开。`;
-  if (outcome === "binary") return `${path} 是二进制文件,不在 GUI 内展开。`;
-  return `${path} 不是仓内路径指针。`;
+  if (outcome === "binary") return `${path} 是二进制文件,读面不载它的字节,GUI 内展不开。`;
+  if (outcome === "unsupported") return `${path} 不是仓内路径指针。`;
+  return `${path} 是仓内文件,但没有对应的 GUI 渲染器。`;
 }
 
 /**

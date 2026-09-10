@@ -59,7 +59,10 @@ export function readTaskActionExplanation(
   if (issues.length > 0) throw invalidCommand(issues.join("; "));
   const request = payload as unknown as EntityActionExplainRequestV1;
   if (request.mode === "catalog")
-    return catalogExplanation(request.entityKind ?? request.refs[0] ?? "task", binding, dependencies.rootDir);
+    return catalogExplanation(request.entityKind ?? request.refs[0] ?? "task", binding, {
+      projection: dependencies.projection,
+      repositoryId: dependencies.rootDir,
+    });
 
   const stream = dependencies.store.read(),
     cut = `canonical:${stream.revision}`,
@@ -311,7 +314,11 @@ function personRosterAtCut(
   }
 }
 
-function catalogExplanation(kind: string, binding: RepoCellBinding, rootDir: string): EntityActionExplanationSetV1 {
+function catalogExplanation(
+  kind: string,
+  binding: RepoCellBinding,
+  vertical: { readonly projection: TaskProjection; readonly repositoryId: string },
+): EntityActionExplanationSetV1 {
   const dependencies = {
     actor: binding.actor,
     authorize: () => {
@@ -321,7 +328,9 @@ function catalogExplanation(kind: string, binding: RepoCellBinding, rootDir: str
   if (kind === "task") return makeTaskActionExplanationService(dependencies).catalog();
   if (kind === "person") return makePersonActionExplanationService(dependencies).catalog();
   if (kind === "squad") return makeSquadActionExplanationService(dependencies).catalog();
-  const artifact = compiledArtifactKinds(rootDir, rootDir).find(({ typeIdentity }) => typeIdentity === kind),
+  const artifact = compiledArtifactKinds(vertical.projection, vertical.repositoryId).find(
+      ({ typeIdentity }) => typeIdentity === kind,
+    ),
     catalog = artifact?.entityKindContract.actionCatalog;
   if (artifact && catalog) {
     const result: EntityActionExplanationSetV1 = {

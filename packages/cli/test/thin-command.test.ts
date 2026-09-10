@@ -71,7 +71,48 @@ test("an unknown command domain reports unknown with the available set instead o
   }
   assert.equal(logs.length, 1);
   assert.match(logs[0] ?? "", /Commands for migrate:\n {2}ha migrate import/u);
-  assert.doesNotMatch(logs[0] ?? "", /rekey-facts|dispatch-records|settings-wal-flush|migrate ledger/u);
+  assert.match(logs[0] ?? "", /migrate ledger/u);
+});
+
+test("entity import and update carry declared attributes as one typed JSON object", () => {
+  const imported = parseThinCommand([
+    "entity",
+    "import",
+    "--kind",
+    "entity-kind/KND-3b7e2c9a1d5f6e8c0a4b2d3f5e7c9a16",
+    "--locator",
+    "surveys/north",
+    "--expected-version",
+    "0",
+    "--attributes",
+    '{"region":"north","fiscalYear":2026}',
+  ]);
+  assert.equal(imported.ok, true);
+  if (!imported.ok) return;
+  // The Kind declares its own attribute names at runtime, so the CLI cannot enumerate them as flags; JSON is
+  // also the only form in which a number stated by the caller is still a number when the schema judges it.
+  assert.deepEqual(imported.command.action, {
+    kind: "entity-import",
+    entityKind: "entity-kind/KND-3b7e2c9a1d5f6e8c0a4b2d3f5e7c9a16",
+    locator: "surveys/north",
+    expectedVersion: 0,
+    attributes: { region: "north", fiscalYear: 2026 },
+  });
+
+  const updated = parseThinCommand([
+    "entity",
+    "update",
+    "entity-kind/KND-3b7e2c9a1d5f6e8c0a4b2d3f5e7c9a16",
+    "--id",
+    "SRV-0a826f22e9c85d8b0a826f22e9c85d8b",
+    "--expected-version",
+    "1",
+    "--attributes",
+    '{"region":"south"}',
+  ]);
+  assert.equal(updated.ok, true);
+  if (!updated.ok) return;
+  assert.deepEqual((updated.command.action as { readonly attributes: unknown }).attributes, { region: "south" });
 });
 
 test("entity import projects its concurrency and dry-run flags into one daemon Action", () => {
@@ -182,6 +223,22 @@ test("vertical entity-kind commands coexist with the existing vertical command s
       reason: "Superseded",
     });
   assert.equal(parseThinCommand(["vertical", "entity-kind", "retire", "runbook"]).ok, false);
+  const publish = parseThinCommand([
+    "vertical",
+    "entity-kind",
+    "publish-schema",
+    "runbook",
+    "--from-file",
+    "attributes.json",
+  ]);
+  assert.equal(publish.ok, true, JSON.stringify(publish));
+  if (publish.ok)
+    assert.deepEqual(publish.command.action, {
+      kind: "vertical-kind-publish-schema",
+      kindId: "runbook",
+      fromFile: "attributes.json",
+    });
+  assert.equal(parseThinCommand(["vertical", "entity-kind", "publish-schema", "runbook"]).ok, false);
 });
 
 test("retired mutation migrations are explicitly absent from the thin router", () => {
@@ -193,7 +250,6 @@ test("retired mutation migrations are explicitly absent from the thin router", (
     ["migrate", "settings-wal-flush"],
     ["migrate", "dispatch-records"],
     ["migrate", "squads"],
-    ["migrate", "ledger"],
   ])
     assert.equal(parseThinCommand(argv).ok, false, argv.join(" "));
 });
@@ -201,7 +257,7 @@ test("retired mutation migrations are explicitly absent from the thin router", (
 test("capabilities is an exact-set projection of the command contract", () => {
   assert.deepEqual(deriveCliCapabilities(), {
     agenda: ["agenda"],
-    agent: ["agent-create", "agent-inspect", "agent-install", "agent-list", "agent-validate"],
+    agent: ["agent-create", "agent-delete", "agent-inspect", "agent-install", "agent-list", "agent-validate"],
     ci: ["ci-observe-pull"],
     daemon: [
       "daemon-connection-add",
@@ -248,13 +304,13 @@ test("capabilities is an exact-set projection of the command contract", () => {
       "doc-sync-dry-run",
       "doc-sync-submit",
     ],
-    entity: ["entity-archive", "entity-get", "entity-import", "entity-list", "entity-update"],
+    entity: ["entity-archive", "entity-delete", "entity-get", "entity-import", "entity-list", "entity-update"],
     explain: ["explain"],
     fact: ["fact-reclassify", "fact-record", "fact-search", "fact-show", "fact-type-list", "fact-type-register"],
     gui: ["gui"],
     init: ["repo-bootstrap"],
     ledger: ["ledger-reconcile"],
-    migrate: ["migrate-import", "vertical-declaration-migrate"],
+    migrate: ["migrate-import", "migrate-ledger", "vertical-declaration-migrate"],
     preset: [
       "preset-audit",
       "preset-check",
@@ -306,6 +362,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
     ],
     squad: [
       "squad-cancel",
+      "squad-delete",
       "squad-inspect",
       "squad-install",
       "squad-list",
@@ -343,7 +400,12 @@ test("capabilities is an exact-set projection of the command contract", () => {
       "task-unpin",
     ],
     template: ["template-list", "template-render"],
-    vertical: ["vertical-kind-retire-cli", "vertical-kind-upsert-cli", "vertical-validate"],
+    vertical: [
+      "vertical-kind-publish-schema-cli",
+      "vertical-kind-retire-cli",
+      "vertical-kind-upsert-cli",
+      "vertical-validate",
+    ],
   });
 });
 

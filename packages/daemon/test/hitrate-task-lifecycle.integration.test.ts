@@ -42,7 +42,10 @@ test("task start, inline submit, and code-doc reconcile reuse daemon-known lifec
     ownerId: "hitrate-lifecycle",
   });
   try {
-    const created = await cell.run({ kind: "task-create", taskId, title: "Lifecycle hit rate" }, holder);
+    const created = await cell.run(
+      { kind: "task-create", taskId, title: "Lifecycle hit rate", presetId: "docs-task" },
+      holder,
+    );
     assert.equal(created.outcome, "applied");
     await waitForFixturePublication(cell, created.opId, holder);
     const fact = await cell.run(
@@ -307,7 +310,7 @@ test("task start, inline submit, and code-doc reconcile reuse daemon-known lifec
       consentEvent?.type === "review_consent_recorded" ? consentEvent.payload.consent.submissionDigest : null,
       submissionDigest(amendedPacket),
     );
-    const completed = await cell.run({ kind: "task-complete", taskId, ci: "passed" }, holder);
+    const completed = await cell.run({ kind: "task-complete", taskId }, holder);
     assert.equal(completed.outcome, "applied", JSON.stringify(completed));
 
     const amendCompleted = (await cell.run(

@@ -20,7 +20,7 @@ test("each worker outcome calls back into a new leader turn and a failed worker 
   mkdirSync(root, { recursive: true });
   mkdirSync(binRoot, { recursive: true });
   mkdirSync(path.join(parent, "tmp"), { recursive: true });
-  writeResidentProvider(path.join(binRoot, "codex"), path.join(root, ".harness/store/generations/1/ledger.sqlite"));
+  writeResidentProvider(path.join(binRoot, "codex"), path.join(root, ".harness/store/generations/2/ledger.sqlite"));
   const env = isolatedDaemonEnvironment({
     HOME: path.join(parent, "home"),
     TMPDIR: daemonSocketTemp(parent),

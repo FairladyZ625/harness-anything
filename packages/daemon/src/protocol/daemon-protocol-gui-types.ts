@@ -339,6 +339,7 @@ export type DaemonGuiReadResultMap = {
   };
   readonly "repo.entity.rows.read": import("../entity-rows-read.ts").EntityRowListV1;
   readonly "repo.entity.locator.read": import("../entity-locator-read.ts").EntityLocatorReadV1;
+  readonly "repo.entity.content.read": import("../entity-content-read.ts").EntityContentReadV1;
   readonly "repo.settings.read": {
     readonly schema: "daemon.settings-read/v1";
     readonly ok: true;
@@ -356,8 +357,19 @@ export type DaemonGuiReadResultMap = {
     readonly path: string;
     readonly body: string;
     readonly blobSha256: string | null;
+    /** `binary` = a raw task artifact: `body` is empty because the document is not text,
+     * not because the file is. Renderers must branch on this before showing `body`. */
+    readonly contentKind: "text" | "binary";
+    readonly mediaType: string | null;
+    readonly size: number | null;
+    /** Canonical content-object bytes of a raw artifact, base64. Null for text, for an
+     * unreadable object, and above the inline ceiling — then `repositoryPath` is the route. */
+    readonly bytes: string | null;
+    /** Where this document materializes under the configured authored root. */
+    readonly repositoryPath: string;
     /** Live worktree view (task_e5defe69): disk content now, and whether it diverges
-     * from the committed projection. Null body = no such file on disk. */
+     * from the committed projection. Null body = no such file on disk, or the file is
+     * binary and has no text to show. */
     readonly worktreeBody: string | null;
     readonly uncommitted: boolean;
     readonly watermark: number;
@@ -404,6 +416,11 @@ export type DaemonGuiReadPayloadMap = {
   readonly "repo.vertical.declaration.read": Readonly<Record<string, never>>;
   readonly "repo.entity.rows.read": Readonly<Record<string, never>>;
   readonly "repo.entity.locator.read": { readonly locatorKind: string; readonly locatorValue: string };
+  readonly "repo.entity.content.read": {
+    readonly entityKind: string;
+    readonly entityId: string;
+    readonly path?: string;
+  };
   readonly "repo.settings.read": Readonly<Record<string, never>>;
   readonly "repo.ci.observatory.read": { readonly window?: number };
   readonly "repo.workspace.summary.read": Readonly<Record<string, never>>;
@@ -416,7 +433,7 @@ export type DaemonGuiReadPayloadMap = {
   };
   readonly "repo.tasks.documents.list": { readonly taskId: string };
   /** absent kind = html(时间线默认面);md 是显式 opt-in。 */
-  readonly "repo.artifacts.list": { readonly kind?: "html" | "md" };
+  readonly "repo.artifacts.list": { readonly kind?: "html" | "md" | "raw" };
   readonly "repo.agentRuntime.overview": {
     readonly taskId?: string;
     readonly limit?: number;

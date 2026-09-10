@@ -183,7 +183,16 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
                                           locatorKind: "repository-path",
                                           locatorValue: `harness/${documentPath}`,
                                         }
-                                      : scope;
+                                      : // 收管内容读按实体身份寻址,所以必须给一个 kind 与一个实例 id。
+                                        // 这个仓里还没有 ADR 实例,读面因此如实答 `missing`——
+                                        // 这条烟测要的是这条读真的答得出话,不是它答了什么。
+                                        contract.id === "entity.content.read"
+                                        ? {
+                                            ...scope,
+                                            entityKind: "architecture-decision-record",
+                                            entityId: "ADR-00000000000000000000000000000000",
+                                          }
+                                        : scope;
       const result = await bridge.invoke(contract.guiBridgeMethod, payload);
       const parsed =
         contract.id === "gui.control.receipt"
@@ -217,7 +226,8 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
     };
     assert.equal(vertical.declarationRevision, materialized.revision);
     assert.deepEqual(vertical.declaration, materialized.definition);
-    const declared = kinds.kinds.find(({ kind }) => kind === "software/coding/architecture-decision-record@1");
+    // The kind name is the stable opaque ref, so address the row by its declared qualified id.
+    const declared = kinds.kinds.find(({ declaration }) => declaration?.id === "architecture-decision-record");
     assert.ok(
       declared,
       `the declared ADR kind must reach the GUI: ${JSON.stringify(kinds.kinds.map(({ kind }) => kind))}`,

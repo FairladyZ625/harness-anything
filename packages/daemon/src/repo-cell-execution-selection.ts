@@ -246,7 +246,7 @@ export function completeRetryCommand(taskId: string, executionId: string, action
     " --execution-id ",
     `${executionId}`,
     "",
-    `${action.ci === "passed" ? " --ci passed" : ""}`,
+    `${typeof action.ci === "string" ? ` --ci ${action.ci}` : ""}`,
     "",
     `${cellStringList(action.paths)
       .map((value) => ` --path ${value}`)

@@ -10,33 +10,50 @@ import {
   relationDirectionRegistry,
   resolveEntityReadKind,
 } from "../src/artifact-entity-action.ts";
+import type { VerticalDeclarationReader } from "../src/vertical-declaration-action.ts";
 import { readDeclaredEntityRows, validateEntityRowList } from "../src/entity-rows-read.ts";
 import { readEntityLocator, validateEntityLocatorRead } from "../src/entity-locator-read.ts";
 import { daemonGuiReadMethods, validateDaemonRpcCall } from "../src/protocol/daemon-protocol.contract.ts";
 import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
 import { defaultAssets } from "../../preset/src/preset-resolver-common.ts";
 
-const ADR_KIND = "software/coding/architecture-decision-record@1",
-  RESEARCH_KIND = "software/coding/research@1",
-  repositoryRoot = mkdtempSync(path.join(tmpdir(), "ha-vertical-catalog-"));
-mkdirSync(path.join(repositoryRoot, "harness"), { recursive: true });
-writeFileSync(
-  path.join(repositoryRoot, "harness", "vertical.json"),
-  JSON.stringify({
+const ADR_KIND = "entity-kind/KND-1f5c0a7e9b3d4c6a8e2f0b1d3c5a7e94",
+  ISSUE_KIND = "entity-kind/KND-2a6d1b8f0c4e5d7b9f3a1c2e4d6b8f05",
+  RESEARCH_KIND = "entity-kind/KND-3b7e2c9a1d5f6e8c0a4b2d3f5e7c9a16",
+  // Kind state is read from the canonical declaration record, so the fixture is that record, not a
+  // worktree file: this drives the same production read an edge node with no `vertical.json` uses.
+  declarationBody = JSON.stringify({
     schema: "repository-vertical-declaration/v1",
     revision: 1,
     definition: JSON.parse(readFileSync(path.join(defaultAssets, "vertical.json"), "utf8")),
   }),
-);
-test.after(() => rmSync(repositoryRoot, { recursive: true, force: true }));
-const repositoryKinds = () => compiledArtifactKinds(repositoryRoot, "catalog-contract");
+  canonicalDeclaration: VerticalDeclarationReader = {
+    readDocument: (documentPath: string) => ({
+      status: "ready",
+      document:
+        documentPath === "vertical.json"
+          ? {
+              path: documentPath,
+              blobSha256: "0".repeat(64),
+              body: declarationBody,
+              size: Buffer.byteLength(declarationBody),
+              mediaType: "application/json",
+              policyId: "vertical-declaration/v1",
+              workspaceRevision: 1,
+            }
+          : null,
+      watermark: 1,
+      sourceRevision: 1,
+    }),
+  } as VerticalDeclarationReader;
+const repositoryKinds = () => compiledArtifactKinds(canonicalDeclaration, "catalog-contract");
 
 /**
  * 已注册 kind 读面的契约:GUI 的实体种类集合只能从这里来。
  *
  * 两条不变量:内核内建 kind 与 vertical 声明的 kind 出现在**同一份**清单里且各自
- * 带同源解释;声明出来的 kind 用完整 type identity(`<vertical>/<id>@<version>`)——
- * 短名不是它的身份,拿短名去 import 会被拒。
+ * 带同源解释;声明出来的 kind 用它被铸造时的稳定不透明身份(`entity-kind/KND-...`)——
+ * 短名只是选择用的限定名,拿短名去 import 会被拒。
  */
 test("entity kind catalog carries builtin and declared kinds through the same explanation", () => {
   const catalog = buildEntityKindCatalog(repositoryKinds(), 1);
@@ -88,7 +105,7 @@ test("the declared research kind is importable and carries both governed relatio
   assert.equal(research.declaration?.pathTemplate, "entities/research/{id}.json");
   assert.deepEqual(research.declaration?.locatorKinds, ["repository-path"]);
   assert.deepEqual(
-    relationDirectionRegistry(repositoryRoot, "catalog-contract")
+    relationDirectionRegistry(canonicalDeclaration, "catalog-contract")
       .filter(({ sourceKind }) => sourceKind === RESEARCH_KIND)
       .map(({ type, sourceKind, targetKind }) => ({ type, sourceKind, targetKind })),
     [
@@ -101,9 +118,10 @@ test("the declared research kind is importable and carries both governed relatio
 test("entity projection reads resolve vertical declaration ids to canonical kind identities", () => {
   const kinds = repositoryKinds();
   assert.equal(resolveEntityReadKind("architecture-decision-record", kinds), ADR_KIND);
-  assert.equal(resolveEntityReadKind("external-issue", kinds), "software/coding/external-issue@1");
+  assert.equal(resolveEntityReadKind("external-issue", kinds), ISSUE_KIND);
   assert.equal(resolveEntityReadKind("research", kinds), RESEARCH_KIND);
   assert.equal(resolveEntityReadKind(RESEARCH_KIND, kinds), RESEARCH_KIND);
+  assert.equal(resolveEntityReadKind(RESEARCH_KIND.slice("entity-kind/".length), kinds), RESEARCH_KIND);
   assert.equal(resolveEntityReadKind("agent", kinds), "agent");
 });
 
@@ -147,6 +165,8 @@ test("entity rows only project declared kinds and keep canonical refs", () => {
                 value: {
                   title: "ADR-0020 · Decision 与 ADR 边界",
                   locator: { kind: "repository-path", value: "harness/adr/ADR-0020.md" },
+                  kindVersion: 2,
+                  attributes: { region: "north", fiscalYear: 2026, reviewed: true },
                 },
               },
             ]
@@ -169,8 +189,53 @@ test("entity rows only project declared kinds and keep canonical refs", () => {
       locator: { kind: "repository-path", value: "harness/adr/ADR-0020.md" },
       revision: 42,
       archived: false,
+      // 这一条钉在哪一版、按那一版填了什么,都是它自己描述符里的事实:调用方靠这两个
+      // 才说得出该按哪一版读写,不必替它猜一版。
+      descriptor: { kindVersion: 2, attributes: { region: "north", fiscalYear: 2026, reviewed: true } },
     },
   ]);
+});
+
+/**
+ * 阴性对照:描述符事实读不出来时是 `null`,不是一张编出来的空属性表。空表会被调用方当成
+ * 「这一条什么都没填」,照它提交一次就把描述符里本来有的值抹掉。
+ */
+test("a row that cannot state its pinned version reports no descriptor facts", () => {
+  const catalog = buildEntityKindCatalog(repositoryKinds(), 1);
+  const rows = readDeclaredEntityRows({
+    catalog,
+    projection: {
+      listEntities: (kind: string) =>
+        kind === ADR_KIND
+          ? [
+              {
+                kind,
+                id: "ADR-00000000000000000000000000000001",
+                ownerId: null,
+                workspaceRevision: 1,
+                freshness: "current" as const,
+                currentVersion: null,
+                // 版本号在,但属性里有一个描述符契约根本不允许的形状。
+                value: { kindVersion: 1, attributes: { nested: { deep: true } } },
+              },
+              {
+                kind,
+                id: "ADR-00000000000000000000000000000002",
+                ownerId: null,
+                workspaceRevision: 1,
+                freshness: "current" as const,
+                currentVersion: null,
+                value: { attributes: {} },
+              },
+            ]
+          : [],
+    },
+  });
+  assert.deepEqual(validateEntityRowList(rows), []);
+  assert.deepEqual(
+    rows.rows.map(({ descriptor }) => descriptor),
+    [null, null],
+  );
 });
 
 test("entity rows include daemon-local runtime instances with Provider deep links", () => {
@@ -206,6 +271,8 @@ test("entity rows include daemon-local runtime instances with Provider deep link
       locator: { kind: "entity-ref", value: "provider/codex-sol" },
       revision: 0,
       archived: false,
+      // 它不是 Artifact 描述符:没有版本可钉,也就没有属性可读——如实说 null。
+      descriptor: null,
     },
   ]);
 });

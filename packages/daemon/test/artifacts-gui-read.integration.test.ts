@@ -44,8 +44,20 @@ test("repo.artifacts.list joins the ledger timeline across task packages", { tim
     // 台账侧:task-artifact-add 走真实 doc 事件(destination 自动落 artifacts/)。
     writeFileSync(path.join(rootDir, "weathering.html"), "<h1>Weathering escalation</h1>\n");
     writeFileSync(path.join(rootDir, "report.md"), "# Report\n\nMission report.\n");
-    for (const destination of ["reports/weathering-escalation-decisions.html", "reports/report.md"]) {
-      const source = destination.endsWith(".html") ? "weathering.html" : "report.md";
+    // 一份真实的二进制产物:UTF-8 解不开,只能按原始字节走 raw 策略。
+    const pdf = Buffer.concat([
+      Buffer.from("%PDF-1.7\n"),
+      Buffer.from([0xff, 0xd8, 0x00, 0x80]),
+      Buffer.from("\n%%EOF"),
+    ]);
+    writeFileSync(path.join(rootDir, "dossier.pdf"), pdf);
+    const sources: Readonly<Record<string, string>> = {
+      "reports/weathering-escalation-decisions.html": "weathering.html",
+      "reports/report.md": "report.md",
+      "reports/dossier.pdf": "dossier.pdf",
+    };
+    for (const destination of Object.keys(sources)) {
+      const source = sources[destination]!;
       const added = await cell.run(
         { kind: "task-artifact-add", taskId: "task-artifact", source, destination },
         binding,
@@ -66,7 +78,7 @@ test("repo.artifacts.list joins the ledger timeline across task packages", { tim
     assert.equal(html.ok, true);
     assert.equal(html.kind, "html");
     assert.equal(html.repoId, workspaceId(repoId));
-    assert.deepEqual(html.counts, { html: 2, md: 1 });
+    assert.deepEqual(html.counts, { html: 2, md: 1, raw: 1 });
     // 两个文件都产自本测试的"现在",先后取决于毫秒级时钟,断言集合而非顺序。
     const htmlPaths = [...html.artifacts.map((row) => row.path)].sort();
     assert.deepEqual(htmlPaths, ["artifacts/reports/weathering-escalation-decisions.html", "artifacts/unsynced.html"]);
@@ -95,6 +107,31 @@ test("repo.artifacts.list joins the ledger timeline across task packages", { tim
     );
     assert.equal(markdown.artifacts[0]!.timeSource, "ledger");
     assert.equal(markdown.artifacts[0]!.taskId, "task-artifact");
+
+    // raw 面:这条行以前根本不存在,时间线只认 html/md,已入账的 PDF 是不可见的。
+    const raw = await list({ kind: "raw" });
+    assert.equal(raw.kind, "raw");
+    assert.deepEqual(
+      raw.artifacts.map((row) => row.path),
+      ["artifacts/reports/dossier.pdf"],
+    );
+    const dossier = raw.artifacts[0]!;
+    assert.equal(dossier.mediaType, "application/octet-stream");
+    assert.equal(dossier.sizeBytes, pdf.byteLength);
+    assert.equal(dossier.taskId, "task-artifact");
+    assert.equal(dossier.packagePath, packagePath);
+    assert.equal(dossier.timeSource, "ledger", "an accepted raw artifact carries ledger time, not mtime");
+    // 阴性:二进制行不得漏进文本面。
+    assert.ok(!html.artifacts.some((row) => row.path.endsWith(".pdf")));
+    assert.ok(!markdown.artifacts.some((row) => row.path.endsWith(".pdf")));
+    // 行上的字节数与媒体类型是真的:与 document.read 的同一份内容对象一致。
+    const read = (await cell.read("repo.tasks.document.read", {
+      taskId: "task-artifact",
+      path: "artifacts/reports/dossier.pdf",
+    })) as { readonly contentKind: string; readonly size: number | null; readonly mediaType: string | null };
+    assert.equal(read.contentKind, "binary");
+    assert.equal(read.size, dossier.sizeBytes);
+    assert.equal(read.mediaType, dossier.mediaType);
   } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });

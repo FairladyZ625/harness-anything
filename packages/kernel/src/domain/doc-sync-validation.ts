@@ -1,6 +1,13 @@
 import { stableStringify } from "../integrity/stable-hash.ts";
 import { normalizeRelativeDocumentPath, type PortableDocumentPath } from "../layout/portable-path.ts";
-import { isOpaqueTextualMediaType, OPAQUE_TEXTUAL_POLICY_ID } from "./artifact-text-classification.ts";
+import {
+  classifyRawArtifactPath,
+  isOpaqueTextualMediaType,
+  OPAQUE_TEXTUAL_POLICY_ID,
+  RAW_ARTIFACT_MEDIA_TYPE,
+  RAW_ARTIFACT_POLICY_ID,
+  taskArtifactSubtreePath,
+} from "./artifact-text-classification.ts";
 import { DOC_CODEC_ID, DOC_POLICY_ID } from "./doc-sync-types.ts";
 import { MIGRATION_DOCUMENT_POLICY_ID } from "./migration-import-event.ts";
 import type { LedgerCutIdentity, LedgerIdentity } from "./receipt-domain-registry.ts";
@@ -74,12 +81,12 @@ function validateDocEventIdentity(
   return validRetirement && valid && new Set(paths).size === paths.length ? [] : ["doc event change is invalid"];
 }
 
-export function validDocSyncClaim(value: unknown): boolean {
+export function validDocSyncClaim(value: unknown, policyId?: unknown): boolean {
   if (value === null) return true;
   if (
     !isRecord(value) ||
     !hasOnlyFields(value, ["ref", "sha256", "size", "mediaType"]) ||
-    !validDocSyncStoredClaim(value, false, true)
+    !validDocSyncStoredClaim(value, false, true, policyId)
   )
     return false;
   try {
@@ -90,7 +97,12 @@ export function validDocSyncClaim(value: unknown): boolean {
   }
 }
 
-function validDocSyncStoredClaim(value: unknown, allowUnknownFields = false, includesRef = false): boolean {
+function validDocSyncStoredClaim(
+  value: unknown,
+  allowUnknownFields = false,
+  includesRef = false,
+  policyId?: unknown,
+): boolean {
   return (
     isRecord(value) &&
     (allowUnknownFields ? hasRequiredFields : hasOnlyFields)(value, [
@@ -104,6 +116,8 @@ function validDocSyncStoredClaim(value: unknown, allowUnknownFields = false, inc
     (value.size as number) >= 0 &&
     (value.mediaType === "text/markdown" ||
       value.mediaType === "text/plain" ||
+      // Raw bytes are the one media type a policy has to earn: only the raw-artifact policy may claim it.
+      (value.mediaType === RAW_ARTIFACT_MEDIA_TYPE && policyId === RAW_ARTIFACT_POLICY_ID) ||
       isOpaqueTextualMediaType(value.mediaType))
   );
 }
@@ -152,13 +166,14 @@ function validDocEventMutation(value: unknown, allowUnknownFields: boolean): boo
       value.policyUpgrade === undefined
     );
   return (
-    validDocSyncStoredClaim(value.candidate, allowUnknownFields) &&
+    validDocSyncStoredClaim(value.candidate, allowUnknownFields, false, value.policyId) &&
     ((value.policyId === DOC_POLICY_ID &&
       policyMatchesClaim(value.policyId, value.candidate) &&
       value.regionProofs.length > 0 &&
       value.regionProofs.every((proof) => validRegionProof(proof, allowUnknownFields)) &&
       (value.policyUpgrade === undefined || validPolicyUpgrade(value.policyUpgrade, allowUnknownFields))) ||
-      (value.policyId === OPAQUE_TEXTUAL_POLICY_ID &&
+      ((value.policyId === OPAQUE_TEXTUAL_POLICY_ID ||
+        (value.policyId === RAW_ARTIFACT_POLICY_ID && classifyRawArtifactPath(String(value.path)) !== null)) &&
         value.regionProofs.length === 0 &&
         value.policyUpgrade === undefined &&
         policyMatchesClaim(value.policyId, value.candidate)))
@@ -221,7 +236,9 @@ export function policyMatchesClaim(policyId: string, candidate: unknown): boolea
     isRecord(candidate) &&
     (policyId === DOC_POLICY_ID
       ? candidate.mediaType === "text/markdown" || candidate.mediaType === "text/plain"
-      : policyId === OPAQUE_TEXTUAL_POLICY_ID && isOpaqueTextualMediaType(candidate.mediaType))
+      : policyId === RAW_ARTIFACT_POLICY_ID
+        ? candidate.mediaType === RAW_ARTIFACT_MEDIA_TYPE
+        : policyId === OPAQUE_TEXTUAL_POLICY_ID && isOpaqueTextualMediaType(candidate.mediaType))
   );
 }
 
@@ -237,5 +254,5 @@ export function taskFromPath(value: PortableDocumentPath): string | null {
 }
 
 export function taskArtifactPath(value: PortableDocumentPath): boolean {
-  return /^tasks\/[^/]+\/artifacts\/.+/u.test(value);
+  return taskArtifactSubtreePath(value);
 }

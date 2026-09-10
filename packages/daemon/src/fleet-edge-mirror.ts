@@ -22,6 +22,7 @@ import {
 import { randomBytes } from "node:crypto";
 import path from "node:path";
 import {
+  classifyRawArtifactPath,
   consumeKnownError,
   DOC_SYNC_INLINE_MAX_BYTES,
   documentPath,
@@ -59,8 +60,8 @@ export interface FleetMirrorScan {
     readonly reason: string;
     readonly size?: number;
     readonly maxInlineBytes?: number;
-    readonly code?: "doc_candidate_too_large";
-    readonly requiredRoute?: "blob-content";
+    readonly code?: "doc_candidate_too_large" | "raw_artifact_outside_doc_sync";
+    readonly requiredRoute?: "blob-content" | "typed-binary-content";
   }[];
 }
 export type FleetConflictTrigger = "pull" | "push-rejected" | "command-rejected";
@@ -269,7 +270,30 @@ export function scanFleetMirrorWorktree(
     blocked: FleetMirrorScan["blocked"][number][] = [];
   let cleanCount = 0;
   for (const logical of fleetMirrorMaterializedPaths(materializedRoot)) {
-    if (!fleetMirrorProsePath(logical) || (wanted !== null && !wanted.has(logical))) continue;
+    if (wanted !== null && !wanted.has(logical)) continue;
+    if (!fleetMirrorProsePath(logical)) {
+      // Doc sync carries prose, and most non-prose paths in the harness tree are generated
+      // machine documents nobody pushes by hand. A raw task artifact is different: it is a real
+      // Task output someone put here, and skipping it silently is the same defect as an empty
+      // body standing in for binary content — the file just disappears from the answer. Report
+      // the ones that are not already the center's copy, with the command that owns them.
+      const raw = classifyRawArtifactPath(logical);
+      if (raw === null) continue;
+      const rawTarget = path.join(materializedRoot, ...logical.split("/")),
+        rawBase = view.entries.get(logical) ?? null;
+      if (rawBase !== null && rawBase.sha256 === sha256Bytes(readFileSync(rawTarget))) {
+        cleanCount += 1;
+        continue;
+      }
+      blocked.push({
+        path: logical,
+        size: statSync(rawTarget).size,
+        code: "raw_artifact_outside_doc_sync",
+        requiredRoute: "typed-binary-content",
+        reason: "non-textual artifact is outside doc sync; publish it with ha task artifact add",
+      });
+      continue;
+    }
     const route = fleetMirrorRoute(logical);
     if (route === null) {
       blocked.push({ path: logical, reason: "path is not canonical NFC prose" });

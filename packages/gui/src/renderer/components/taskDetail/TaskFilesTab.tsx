@@ -5,6 +5,7 @@ import { HtmlArtifactPreview } from "../HtmlArtifactPreview.tsx";
 import { buildDocTree, projectedDocuments } from "../../model/docTree.ts";
 import type { TaskRow } from "../../model/types.ts";
 import { useTaskDocumentListQuery, useTaskDocumentQuery } from "../../task-data.ts";
+import { BinaryArtifactPanel } from "../BinaryArtifactPanel.tsx";
 import { DocTree } from "./DocTree.tsx";
 import { isHtmlDocument } from "../../entity-locator-renderer.ts";
 
@@ -111,6 +112,12 @@ function TaskFileBody({ repoId, taskId, path, packagePath, onOpenDoc }: TaskFile
   if (document.isPending) return <FileEmpty text="正在读取文档投影…" />;
   if (document.isError) return <p className="ui-meta text-danger">文档读取失败：{document.error.message}</p>;
   if (document.data.status !== "ready") return <FileEmpty text="文档投影尚未追平。" />;
+  // 二进制产物没有正文:把空 body 交给 DocReader 就是一张白页,读者分不清「不是文本」和
+  // 「空文件」。改为如实报出媒体类型、字节数、内容地址与取字节的路径。
+  if (document.data.contentKind === "binary")
+    return (
+      <BinaryArtifactPanel repoId={repoId} taskId={taskId} path={path} packagePath={packagePath} read={document.data} />
+    );
   // 工作树实时内容优先(task_e5defe69):未提交的编辑是真实工作,必须可见并被标注,
   // 而不是把读者留在已提交的旧文里;文件只在投影里(磁盘上已删)时如实回落到投影文。
   const uncommitted = document.data.uncommitted,

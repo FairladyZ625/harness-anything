@@ -5,9 +5,7 @@ import {
   normalizeRelativeDocumentPath,
   type PortableDocumentPath,
 } from "../layout/portable-path.ts";
-import {
-  DocSyncContractError,
-} from "./doc-sync-types.ts";
+import { DocSyncContractError } from "./doc-sync-types.ts";
 import type {
   ContentClaim,
   CurrentDocEventV1,
@@ -17,11 +15,7 @@ import type {
   LedgerCommitSha,
 } from "./doc-sync-types.ts";
 import type { LedgerCutIdentity } from "./receipt-domain-registry.ts";
-import {
-  hasOnlyFields,
-  isNonEmptyString,
-  isRecord,
-} from "./write-chain.contract.ts";
+import { hasOnlyFields, isNonEmptyString, isRecord } from "./write-chain.contract.ts";
 
 import { serializeCanonicalEvent } from "./doc-sync-canonical-events.ts";
 import {
@@ -34,10 +28,7 @@ import {
 } from "./doc-sync-validation.ts";
 
 export function validateDocWriteIntent(value: unknown): readonly string[] {
-  if (
-    !isRecord(value) ||
-    !hasOnlyFields(value, ["schema", "executionId", "baseLedgerSha", "changes"])
-  )
+  if (!isRecord(value) || !hasOnlyFields(value, ["schema", "executionId", "baseLedgerSha", "changes"]))
     return ["doc intent fields are incomplete or unknown"];
   const errors: string[] = [];
   if (
@@ -52,30 +43,20 @@ export function validateDocWriteIntent(value: unknown): readonly string[] {
   for (const change of Array.isArray(value.changes) ? value.changes : []) {
     if (
       !isRecord(change) ||
-      !hasOnlyFields(change, [
-        "path",
-        "baseBlobSha256",
-        "policyId",
-        "candidate",
-      ]) ||
+      !hasOnlyFields(change, ["path", "baseBlobSha256", "policyId", "candidate"]) ||
       !safeDocSyncPath(change.path) ||
       !nullableBlobSha(change.baseBlobSha256) ||
       !isNonEmptyString(change.policyId) ||
-      !validDocSyncClaim(change.candidate)
+      !validDocSyncClaim(change.candidate, change.policyId)
     )
       errors.push("doc change path, base, policy, or claim is invalid");
-    else if (paths.has(change.path))
-      errors.push(`duplicate doc path ${change.path}`);
+    else if (paths.has(change.path)) errors.push(`duplicate doc path ${change.path}`);
     else paths.add(change.path);
   }
   try {
     assertNoPortablePathCollisions(
       Array.isArray(value.changes)
-        ? value.changes.flatMap((change) =>
-            isRecord(change) && typeof change.path === "string"
-              ? [change.path]
-              : [],
-          )
+        ? value.changes.flatMap((change) => (isRecord(change) && typeof change.path === "string" ? [change.path] : []))
         : [],
     );
   } catch (error) {
@@ -87,42 +68,30 @@ export function validateDocWriteIntent(value: unknown): readonly string[] {
 
 export function ledgerCommitSha(repoId: string, sha: string): LedgerCommitSha {
   if (!/^[a-z][a-z0-9-]{0,62}$/u.test(repoId) || !commitSha(sha))
-    throw new DocSyncContractError(
-      "ledger commit requires a canonical repoId and Git SHA",
-    );
+    throw new DocSyncContractError("ledger commit requires a canonical repoId and Git SHA");
   return Object.freeze({ repoId, sha }) as LedgerCommitSha;
 }
 
 export function docClaimRef(value: string): DocClaimRef {
   const normalized = normalizeRelativeDocumentPath(value);
   if (normalized !== value || !normalized.startsWith("doc-sync-claims/"))
-    throw new DocSyncContractError(
-      "claim ref must be a canonical doc-sync-claims path",
-    );
+    throw new DocSyncContractError("claim ref must be a canonical doc-sync-claims path");
   return normalized as unknown as DocClaimRef;
 }
 
 export function docByteLength(value: number): DocByteLength {
   if (!Number.isSafeInteger(value) || value < 0)
-    throw new DocSyncContractError(
-      "claim size must be a non-negative byte length",
-    );
+    throw new DocSyncContractError("claim size must be a non-negative byte length");
   return value as DocByteLength;
 }
 
 export function documentPath(value: string): PortableDocumentPath {
   const normalized = normalizeRelativeDocumentPath(value);
-  if (normalized !== value)
-    throw new DocSyncContractError(
-      "document path must already be canonical NFC",
-    );
+  if (normalized !== value) throw new DocSyncContractError("document path must already be canonical NFC");
   return normalized;
 }
 
-export function parseDocWriteIntent(
-  value: unknown,
-  repoId: string,
-): DocWriteIntent {
+export function parseDocWriteIntent(value: unknown, repoId: string): DocWriteIntent {
   const errors = validateDocWriteIntent(value);
   if (errors.length) throw new DocSyncContractError(errors.join("; "));
   const raw = value as {
@@ -142,9 +111,7 @@ export function parseDocWriteIntent(
     }[];
   };
   if (raw.baseLedgerSha.repoId !== repoId)
-    throw new DocSyncContractError(
-      "doc intent cut belongs to another repository",
-    );
+    throw new DocSyncContractError("doc intent cut belongs to another repository");
   return {
     ...raw,
     changes: raw.changes.map((change) => ({

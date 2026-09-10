@@ -1,6 +1,7 @@
 import {
   artifactEntityContractSnapshot,
   artifactImportOperationId,
+  importBindingGeneration,
   artifactObservationId,
   canonicalArtifactLocator,
   canonicalSourceIdentity,
@@ -8,13 +9,18 @@ import {
   compileEntityTargetMissing,
   decodeArtifactDescriptor,
   deriveArtifactContentVersion,
-  deriveArtifactEntityId,
+  isArtifactEntityId,
+  mintArtifactEntityId,
+  ARTIFACT_ENTITY_ID_BYTES,
+  pinnedArtifactKindContract,
   type ActorIdentity,
+  type ArtifactAttributeValue,
   type ArtifactContentWitness,
   type ArtifactDescriptor,
   type ArtifactLocator,
   type ArtifactSourceIdentityInput,
   type CompiledArtifactKindContract,
+  type EntityContentBlob,
   type EntityContentObservedBundle,
   type EntityEventV1,
   type EntityTargetMissingBundle,
@@ -27,6 +33,10 @@ export interface ArtifactSourceObserved {
   readonly witness: ArtifactContentWitness;
   readonly title: string;
   readonly resolver: string;
+  /** Raw source objects the center takes ownership of, already addressed by their own bytes. */
+  readonly content?: readonly EntityContentBlob[];
+  /** Directories the source holds that contain no file; Git cannot carry them, the manifest can. */
+  readonly directories?: readonly string[];
 }
 
 export interface ArtifactSourceMissing {
@@ -46,18 +56,30 @@ export interface ArtifactEntityImportRequest {
   /** Explicit relink pins the original source identity while changing only the locator. */
   readonly entityId?: string;
   readonly sourceIdentity?: string;
+  /** Pure values, admitted by the kind schema version this instance is pinned to. */
+  readonly attributes?: Readonly<Record<string, ArtifactAttributeValue>>;
   readonly dryRun?: boolean;
 }
 
 export interface ArtifactEntityCurrent {
   readonly descriptor: ArtifactDescriptor | null;
   readonly revision: number;
+  /** Every path the entity's latest accepted manifest binds, so a snapshot that drops one can retire it. */
+  readonly ownedPaths?: readonly { readonly path: string; readonly sha256: string }[];
+  /**
+   * Every directory that manifest holds. A file retirement can name itself because a file was a claim; a
+   * directory was not, so a snapshot that stops needing one can only retire it by having been told what the
+   * entity held. Anything absent from this list was never the entity's, whatever the worktree looks like.
+   */
+  readonly ownedDirectories?: readonly string[];
 }
 
 export interface ArtifactEntityImportPreview {
   readonly schema: "artifact-entity-import-preview/v1";
-  readonly entityId: string;
+  /** `null` on a dry run of material the center has never accepted: the instance is minted on acceptance. */
+  readonly entityId: string | null;
   readonly typeIdentity: string;
+  readonly kindVersion: number;
   readonly sourceIdentity: string;
   readonly locator: ArtifactLocator;
   readonly currentContentVersion: string | null;
@@ -65,7 +87,7 @@ export interface ArtifactEntityImportPreview {
   readonly relationChanges: number;
   readonly expectedVersion: number;
   readonly currentRevision: number;
-  readonly artifactOwner: string;
+  readonly artifactOwner: string | null;
   readonly eventType: EntityEventV1["type"];
   readonly operationId: string;
   readonly dryRun: boolean;
@@ -73,7 +95,8 @@ export interface ArtifactEntityImportPreview {
 
 export interface PreparedArtifactEntityImport {
   readonly contract: CompiledArtifactKindContract;
-  readonly bundle: EntityContentObservedBundle | EntityTargetMissingBundle;
+  /** `null` only when a dry run has no identity to compile against; every accepted path carries a bundle. */
+  readonly bundle: EntityContentObservedBundle | EntityTargetMissingBundle | null;
   readonly preview: ArtifactEntityImportPreview;
   readonly replay: EntityEventV1 | null;
 }
@@ -95,6 +118,16 @@ export function makeArtifactEntityService(options: {
     contract: CompiledArtifactKindContract,
   ) => Promise<ArtifactSourceResolution>;
   readonly readCurrent: (kind: string, entityId: string) => ArtifactEntityCurrent | null;
+  /**
+   * Source binding is a first-class lookup, not a hash of the path: this is how a retry finds its entity, and
+   * how an import that follows a released binding learns it is starting a new one rather than continuing the
+   * old one.
+   */
+  readonly resolveSourceBinding: (
+    kind: string,
+    sourceIdentity: string,
+  ) => { readonly entityId: string | null; readonly generation: number };
+  readonly randomEntityIdBytes: () => Uint8Array;
   readonly readOperation: (opId: string) => EntityEventV1 | null;
   readonly countRelationChanges: (entityRef: string) => number;
 }) {
@@ -121,39 +154,71 @@ export function makeArtifactEntityService(options: {
         "invalid_command",
         "Explicit sourceIdentity is only valid for relink and requires entityId.",
       );
-    const entityId = deriveArtifactEntityId({
-      idPrefix: contract.declaration.idPrefix,
-      typeIdentity: contract.typeIdentity,
-      sourceIdentity,
-    });
-    if (request.entityId && request.entityId !== entityId)
+    if (request.entityId !== undefined && !isArtifactEntityId(contract.declaration.idPrefix, request.entityId))
       throw new ArtifactEntityServiceError(
         "invalid_command",
-        `Relink entityId ${request.entityId} does not match frozen source identity ${sourceIdentity}.`,
+        `Entity identity ${request.entityId} is not a ${contract.declaration.idPrefix} identity.`,
       );
-    const current = options.readCurrent(contract.typeIdentity, entityId),
-      candidateContentVersion =
+    const candidateContentVersion =
         resolution.status === "observed" ? deriveArtifactContentVersion(resolution.witness) : null,
       resolutionWitness = resolution.status === "observed" ? candidateContentVersion! : `missing:${resolution.reason}`,
-      observationId = artifactObservationId({ entityId, locator, resolution: resolutionWitness }),
-      opId = artifactImportOperationId({ entityId, locator, resolution: resolutionWitness }),
-      replay = options.readOperation(opId);
-    if (replay && !isMatchingReplay(replay, contract.typeIdentity, entityId, observationId))
+      binding = options.resolveSourceBinding(contract.typeIdentity, sourceIdentity),
+      // The operation names the intent, so the same request always lands on the same operation even before any
+      // identity exists. Only after that lookup fails is a new instance minted. The intent is scoped to the
+      // generation of the source binding, so re-importing a source whose entity was deleted is a new operation
+      // instead of a replay of a receipt for an entity that is gone.
+      opId = artifactImportOperationId({
+        // The Kind the caller presented, so one source observed by two Kinds is two intents.
+        entityKind: contract.typeIdentity,
+        sourceIdentity,
+        locator,
+        resolution: resolutionWitness,
+        bindingGeneration: binding.generation,
+      });
+    if (importBindingGeneration(opId) !== binding.generation)
+      throw new ArtifactEntityServiceError("invalid_command", `Operation ${opId} has an invalid binding generation.`);
+    const replay = options.readOperation(opId),
+      // Identity is minted once and then only looked up: a caller that names the entity is re-pointing that
+      // exact instance, an accepted operation already carries the identity it minted, and the source binding
+      // decides whether an unnamed import continues an existing entity or starts a new one. A dry run does not
+      // mint, because an identity that no event will ever carry is a prediction, not an identity.
+      resolvedEntityId = request.entityId ?? binding.entityId ?? (replay ? replay.payload.entityId : null),
+      entityId =
+        resolvedEntityId ??
+        (request.dryRun === true
+          ? null
+          : mintArtifactEntityId({
+              idPrefix: contract.declaration.idPrefix,
+              randomBytes: mintedBytes(options.randomEntityIdBytes()),
+            })),
+      current = entityId === null ? null : options.readCurrent(contract.typeIdentity, entityId),
+      observationId =
+        entityId === null ? null : artifactObservationId({ entityId, locator, resolution: resolutionWitness });
+    if (
+      replay &&
+      (observationId === null || !isMatchingReplay(replay, contract.typeIdentity, entityId!, observationId))
+    )
       throw new ArtifactEntityServiceError("invalid_command", `Operation ${opId} is not the requested observation.`);
     if (!replay && request.expectedVersion !== (current?.revision ?? 0))
       throw new ArtifactEntityServiceError(
         "revision_conflict",
-        `Entity ${entityId} expected revision ${request.expectedVersion}, ` +
+        `Entity ${String(entityId)} expected revision ${request.expectedVersion}, ` +
           `current revision is ${current?.revision ?? 0}.`,
       );
-    if (current?.descriptor && current.descriptor.source !== sourceIdentity)
-      throw new ArtifactEntityServiceError(
-        "invalid_command",
-        `Entity ${entityId} is pinned to source identity ${current.descriptor.source}.`,
-      );
-    const contractSnapshot = artifactEntityContractSnapshot(contract),
+    if (request.entityId !== undefined && current === null)
+      throw new ArtifactEntityServiceError("invalid_command", `Entity ${String(entityId)} does not exist to re-point.`);
+    // A new instance pins the kind's newest published version; an existing one keeps the version it was
+    // accepted against, so publishing version 2 never silently reinterprets material already in the ledger.
+    const kindVersion = current?.descriptor?.kindVersion ?? contract.latestVersion,
+      pinnedContract = pinnedArtifactKindContract(contract, kindVersion),
+      attributes = request.attributes ?? current?.descriptor?.attributes ?? {},
+      contractSnapshot = artifactEntityContractSnapshot({
+        declaration: contract.declaration,
+        typeIdentity: contract.typeIdentity,
+        kindVersion,
+      }),
       eventInput = {
-        eventId: `event-${observationId}`,
+        eventId: `event-${String(observationId)}`,
         opId,
         workspaceRevision: envelope.workspaceRevision,
         actor: envelope.actor,
@@ -161,38 +226,54 @@ export function makeArtifactEntityService(options: {
         occurredAt: envelope.occurredAt,
       },
       bundle =
-        resolution.status === "observed"
-          ? compileEntityContentObserved({
-              ...eventInput,
-              contract: contract.entityKindContract as Parameters<typeof compileEntityContentObserved>[0]["contract"],
-              contractSnapshot,
-              descriptor: {
-                schema: descriptorSchemaRef(contract),
-                typeIdentity: contract.typeIdentity,
-                entityId,
-                title: request.title?.trim() || resolution.title.trim(),
+        entityId === null
+          ? null
+          : resolution.status === "observed"
+            ? compileEntityContentObserved({
+                ...eventInput,
+                contract: pinnedContract as Parameters<typeof compileEntityContentObserved>[0]["contract"],
+                contractSnapshot,
+                descriptor: {
+                  schema: descriptorSchemaRef(contract),
+                  typeIdentity: contract.typeIdentity,
+                  kindVersion,
+                  entityId: entityId!,
+                  title: request.title?.trim() || resolution.title.trim(),
+                  locator,
+                  contentVersion: candidateContentVersion!,
+                  attributes,
+                  source: sourceIdentity,
+                },
+                resolver: resolution.resolver,
+                observationId: observationId!,
+                sourceContent: resolution.content,
+                sourceDirectories: resolution.directories,
+                // Everything the previous snapshot bound is a retirement candidate; the compiler keeps the ones
+                // this snapshot still binds, so an update retires exactly the files that fell out of the source.
+                retirements: (current?.ownedPaths ?? []).map(({ path, sha256 }) => ({
+                  path,
+                  baseBlobSha256: sha256,
+                })),
+                // The same rule for directories: the compiler keeps the ones this snapshot still holds and
+                // retires the rest by name, so a directory nobody declared is never a candidate.
+                heldDirectories: current?.ownedDirectories ?? [],
+              })
+            : compileEntityTargetMissing({
+                ...eventInput,
+                contractSnapshot,
+                entityId: entityId!,
                 locator,
-                contentVersion: candidateContentVersion!,
-                source: sourceIdentity,
-              },
-              resolver: resolution.resolver,
-              observationId,
-            })
-          : compileEntityTargetMissing({
-              ...eventInput,
-              contractSnapshot,
-              entityId,
-              locator,
-              sourceIdentity,
-              resolver: resolution.resolver,
-              observationId,
-              reason: resolution.reason,
-            });
-    const entityRef = `${contract.typeIdentity}/${entityId}`,
+                sourceIdentity,
+                resolver: resolution.resolver,
+                observationId: observationId!,
+                reason: resolution.reason,
+              });
+    const entityRef = `${contract.typeIdentity}/${String(entityId)}`,
       preview: ArtifactEntityImportPreview = Object.freeze({
         schema: "artifact-entity-import-preview/v1",
         entityId,
         typeIdentity: contract.typeIdentity,
+        kindVersion,
         sourceIdentity,
         locator,
         currentContentVersion: current?.descriptor?.contentVersion ?? null,
@@ -200,14 +281,25 @@ export function makeArtifactEntityService(options: {
         relationChanges: options.countRelationChanges(entityRef),
         expectedVersion: request.expectedVersion,
         currentRevision: current?.revision ?? 0,
-        artifactOwner: `entity/${entityId}/revision/${String(envelope.workspaceRevision)}`,
-        eventType: bundle.event.type,
+        artifactOwner: entityId === null ? null : `entity/${entityId}/revision/${String(envelope.workspaceRevision)}`,
+        eventType:
+          bundle?.event.type ??
+          (resolution.status === "observed" ? "entity_content_observed" : "entity_target_missing"),
         operationId: opId,
         dryRun: request.dryRun === true,
       });
     return Object.freeze({ contract, bundle, preview, replay });
   };
   return Object.freeze({ prepare });
+}
+
+function mintedBytes(bytes: Uint8Array): Uint8Array {
+  if (bytes.byteLength !== ARTIFACT_ENTITY_ID_BYTES)
+    throw new ArtifactEntityServiceError(
+      "invalid_command",
+      `Entity identity minting needs ${ARTIFACT_ENTITY_ID_BYTES} random bytes.`,
+    );
+  return bytes;
 }
 
 function resolveLocator(value: string, contract: CompiledArtifactKindContract): ArtifactLocator {
@@ -267,6 +359,16 @@ function isMatchingReplay(event: EntityEventV1, kind: string, entityId: string, 
   );
 }
 
+/**
+ * Read a stored descriptor through the schema version it pinned, not through the kind's newest one.
+ * This is what keeps an instance imported under version 1 readable after version 2 is published.
+ */
 export function readArtifactDescriptor(contract: CompiledArtifactKindContract, value: unknown): ArtifactDescriptor {
-  return decodeArtifactDescriptor(contract.entityKindContract, value);
+  const pinned =
+    typeof value === "object" &&
+    value !== null &&
+    Number.isSafeInteger((value as { kindVersion?: unknown }).kindVersion)
+      ? Number((value as { readonly kindVersion: number }).kindVersion)
+      : contract.latestVersion;
+  return decodeArtifactDescriptor(pinnedArtifactKindContract(contract, pinned), value);
 }
