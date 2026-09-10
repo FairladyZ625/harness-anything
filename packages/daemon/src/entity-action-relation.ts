@@ -48,11 +48,7 @@ export function executeRelationAction(input: {
             direction: (typeof action.direction === "string" ? action.direction : "directed") as "directed",
           })
         : requiredRelationText(action.relationId, "relationId"),
-    current = input.projection.readRelationTruth().edges.find((edge) => edge.relationId === requestedRelationId) as
-      | (ReturnType<TaskProjection["readRelationTruth"]>["edges"][number] & {
-          readonly workspaceRevision?: number;
-        })
-      | undefined,
+    current = input.projection.readRelationEdge(requestedRelationId),
     targetRef = requestedTargetRef ?? current?.targetRef,
     source = sourceRef ? input.projection.readEntityVersionWitness(sourceRef) : null,
     target = targetRef ? input.projection.readEntityVersionWitness(targetRef) : null,
@@ -93,8 +89,13 @@ export function executeRelationAction(input: {
         current.rationale === candidate.rationale &&
         current.state === "active";
     if (!same) reject("revision_conflict", `Relation ${relationId} already exists with different projected facets.`);
-    const revision = current.workspaceRevision ?? headRevision;
-    return relationNoChanges({ relationId, revision, headRevision, opId, authorizationDecision });
+    return relationNoChanges({
+      relationId,
+      revision: current.workspaceRevision,
+      headRevision,
+      opId,
+      authorizationDecision,
+    });
   }
   const aggregateRevision = current?.workspaceRevision ?? 0;
   if (Number(expectedVersion) !== aggregateRevision)
@@ -133,9 +134,9 @@ export function executeRelationAction(input: {
     appended = input.store.append({ event: compiled, plan, blobs: [] });
   if (replay === null) input.projection.apply(compiled, plan);
   publicationKillpoints(input.killpoint);
-  const projected = input.projection.readRelationTruth().edges.find((edge) => edge.relationId === relationId),
+  const projected = input.projection.readRelationEdge(relationId),
     visible =
-      projected !== undefined &&
+      projected !== null &&
       projected.state === (compiled.type === "relation_retired" ? "retired" : "active") &&
       (compiled.type !== "relation_reconfirmed" || projected.freshness === "current");
   return {

@@ -2,7 +2,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { reduceTaskEvent, type TaskEventV1 } from "../domain/task-lifecycle.contract.ts";
 import { currentTaskForWrite } from "../domain/task.ts";
-import { docByteLength, verifyDocEventChange, type DocumentState } from "../domain/doc-sync.contract.ts";
+import { docByteLength, type DocumentState } from "../domain/doc-sync.contract.ts";
 import { lifecycleDocumentPaths } from "../domain/task-lifecycle-publication.ts";
 import { slugifyTaskTitle } from "../layout/index.ts";
 import { refreshDecisionDocumentSearch } from "./decision-event-projection.ts";
@@ -126,7 +126,7 @@ export function applyTaskEvent(
     } catch {
       throw new Error(`carried document blob ${change.candidate.sha256} is not UTF-8`);
     }
-    if (change.baseBlobSha256 !== (base?.blobSha256 ?? null) || !verifyDocEventChange(change, base?.body ?? "", body))
+    if (change.baseBlobSha256 !== (base?.blobSha256 ?? null))
       throw new Error(`carried document proof mismatch for ${change.path}`);
     const document: DocumentState = {
       path: change.path as DocumentState["path"],

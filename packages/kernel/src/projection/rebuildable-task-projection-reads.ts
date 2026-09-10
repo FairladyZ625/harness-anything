@@ -15,7 +15,6 @@ import { discardDatabase, withDatabase } from "./rebuildable-task-projection-dat
 import { catchUpRound } from "./rebuildable-task-projection-catch-up.ts";
 import { markRuntimeSessionsUnknown, readSnapshot } from "./rebuildable-task-projection-runtime.ts";
 import {
-  parseEventJson,
   queryPreparedRows,
   readProjectionCut,
   readStateDigest,
@@ -79,7 +78,7 @@ export function listProjection(
           generation: row.generation,
           workspaceRevision: row.workspace_revision,
           createdAt: row.created_at,
-          updatedAt: parseEventJson(row.event_json).occurredAt,
+          updatedAt: (JSON.parse(row.event_json) as { readonly occurredAt: string }).occurredAt,
           snapshot: readSnapshot(db, row.task_id, at),
         })),
         watermark: cut.watermark,

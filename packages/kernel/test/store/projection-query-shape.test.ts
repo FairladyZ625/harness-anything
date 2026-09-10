@@ -5,7 +5,6 @@ import test from "node:test";
 import {
   createDecisionProjectionTables,
   listDecisionAgendaRowsPage,
-  listDecisionRows,
   listDecisionRowsPage,
   readDecisionGraphRows,
   readDecisionRows,
@@ -196,17 +195,15 @@ for (const [label, read] of [
   });
 }
 
-test("decision list paging walks the full corpus exactly once and keeps the unparameterized read intact", () => {
-  const db = new DatabaseSync(":memory:");
+test("decision list reads every match without paging parameters and a constant number of statements per page", (context) => {
+  const counted = countingDatabase(),
+    { db } = counted;
   try {
     seed(db, 7, 1);
     const unpaged = listDecisionRowsPage(db, {});
     assert.equal(unpaged.rows.length, 7);
+    // Unparameterized reads still return every match; the GUI board and readiness read the whole corpus.
     assert.equal(unpaged.page, undefined);
-    assert.deepEqual(
-      listDecisionRows(db, {}).map(({ decisionId }) => decisionId),
-      unpaged.rows.map(({ decisionId }) => decisionId),
-    );
 
     const first = listDecisionRowsPage(db, { limit: 3 });
     assert.deepEqual(
@@ -256,6 +253,15 @@ test("decision list paging walks the full corpus exactly once and keeps the unpa
     assert.throws(() => listDecisionRowsPage(db, { limit: 0 }), /between 1 and 500/u);
     assert.throws(() => listDecisionRowsPage(db, { limit: 501 }), /between 1 and 500/u);
     assert.throws(() => listDecisionRowsPage(db, { cursor: "not-a-cursor" }), /cursor is invalid/u);
+
+    // One id scan plus one batched row read: the statement count must not grow with the corpus.
+    const before = counted.executions();
+    listDecisionRowsPage(db, { limit: 4 });
+    const four = counted.executions() - before;
+    listDecisionRowsPage(db, { limit: 7 });
+    const seven = counted.executions() - four - before;
+    context.diagnostic(`decision list page statements: 4 rows -> ${four}; 7 rows -> ${seven}`);
+    assert.equal(seven, four, "the decision list read scales per page instead of per row set");
   } finally {
     db.close();
   }

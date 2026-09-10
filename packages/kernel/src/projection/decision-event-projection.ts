@@ -15,7 +15,6 @@ export { reduceDecisionEvent, refreshDecisionDocumentSearch } from "./decision-p
 export {
   decisionLegacyId,
   listDecisionAgendaRowsPage,
-  listDecisionRows,
   listDecisionRowsPage,
   readDecisionGraphRows,
   readDecisionRow,

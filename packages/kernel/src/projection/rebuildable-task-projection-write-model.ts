@@ -1,11 +1,10 @@
 // @write-boundary-exemption rebuildable-projection
 import { DatabaseSync } from "node:sqlite";
-import { docByteLength, verifyDocEventChange, type DocumentState } from "../domain/doc-sync.contract.ts";
+import { docByteLength, type DocumentState } from "../domain/doc-sync.contract.ts";
 import { type TaskProgressEventV1 } from "../domain/task-progress-event.ts";
 import { isTaskBoundRuntimeWriter, resolveTaskBoundRuntimeBinding } from "../domain/task-bound-runtime-authority.ts";
 import { type DecisionEventV1 } from "../domain/decision-event.ts";
 import { type FactEventV1 } from "../domain/fact-event.ts";
-import { sha256Text } from "../integrity/stable-hash.ts";
 import {
   readDecisionDocumentState,
   reduceDecisionEvent,
@@ -65,7 +64,6 @@ export function projectProgress(
   if (event.payload.baseDocumentSha256 !== (base?.blobSha256 ?? null) || !bytes || bytes.byteLength !== claim.size)
     throw new Error(`progress document base or blob mismatch for task ${taskId}`);
   const body = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-  if (sha256Text(body) !== claim.sha256) throw new Error(`progress append proof mismatch for task ${taskId}`);
   const document: DocumentState = {
     path: claim.path as DocumentState["path"],
     blobSha256: claim.sha256,
@@ -104,10 +102,7 @@ export function projectProgress(
     } catch {
       throw new Error(`carried document blob ${change.candidate.sha256} is not UTF-8`);
     }
-    if (
-      change.baseBlobSha256 !== (carriedBase?.blobSha256 ?? null) ||
-      !verifyDocEventChange(change, carriedBase?.body ?? "", carriedBody)
-    )
+    if (change.baseBlobSha256 !== (carriedBase?.blobSha256 ?? null))
       throw new Error(`carried document proof mismatch for ${change.path}`);
     const carriedDocument: DocumentState = {
       path: change.path as DocumentState["path"],
@@ -135,7 +130,6 @@ export function projectFact(
     throw new Error(`fact document path or blob mismatch for ${event.factId}`);
   reduceFactEvent(db, event);
   const body = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-  if (sha256Text(body) !== claim.sha256) throw new Error(`fact document projection mismatch for task ${event.taskId}`);
   const document: DocumentState = {
     path: claim.path as DocumentState["path"],
     blobSha256: claim.sha256,
@@ -177,8 +171,6 @@ export function projectDecision(
   const state = readDecisionDocumentState(db, event.decisionId);
   if (!state) throw new Error(`decision projection missing for ${event.decisionId}`);
   const body = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-  if (sha256Text(body) !== claim.sha256)
-    throw new Error(`decision document projection mismatch for ${event.decisionId}`);
   const document: DocumentState = {
     path: claim.path as DocumentState["path"],
     blobSha256: claim.sha256,

@@ -3,7 +3,10 @@ import assert from "node:assert/strict";
 import { performance } from "node:perf_hooks";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
-import { createDecisionProjectionTables, listDecisionRows } from "../../src/projection/decision-event-projection.ts";
+import {
+  createDecisionProjectionTables,
+  listDecisionRowsPage,
+} from "../../src/projection/decision-event-projection.ts";
 import {
   createFactProjectionTables,
   readFactGraphRows,
@@ -135,9 +138,9 @@ test("10k Decision FTS searches stay indexed after refresh with p95 below 10ms",
     db.prepare(
       "INSERT INTO decision_fts VALUES ('dec_PERF_00000','Refreshed token0','Should token0 ship?','','','')",
     ).run();
-    assert.equal(listDecisionRows(db, { search: "token0" })[0]?.decisionId, "dec_PERF_00000");
+    assert.equal(listDecisionRowsPage(db, { search: "token0" }).rows[0]?.decisionId, "dec_PERF_00000");
     assert.equal(
-      listDecisionRows(db, {}).length,
+      listDecisionRowsPage(db, {}).rows.length,
       10_000,
       "decision list must return every row instead of silently truncating",
     );
@@ -145,7 +148,7 @@ test("10k Decision FTS searches stay indexed after refresh with p95 below 10ms",
     for (let index = 0; index < 200; index += 1) {
       const target = 9_800 + index,
         startedAt = performance.now(),
-        rows = listDecisionRows(db, { search: `token${target}` });
+        rows = listDecisionRowsPage(db, { search: `token${target}` }).rows;
       samples.push(performance.now() - startedAt);
       assert.equal(rows[0]?.decisionId, `dec_PERF_${String(target).padStart(5, "0")}`);
     }

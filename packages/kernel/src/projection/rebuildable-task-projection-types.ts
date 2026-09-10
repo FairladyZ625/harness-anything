@@ -2,9 +2,10 @@ import type { CanonicalEventV1 } from "../domain/doc-sync.contract.ts";
 
 // Source-stream and shared projection operation shapes.
 export interface EventStreamPort {
+  // The digest identifies the ledger a cache was scanned from; only catching-up owners supply it.
   readonly readHead: () => {
     readonly revision: number;
-    readonly eventDigest: `sha256:${string}`;
+    readonly eventDigest?: `sha256:${string}`;
   } | null;
   readonly readBatch: (
     cursor: string | null,

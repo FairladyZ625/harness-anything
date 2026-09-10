@@ -5,7 +5,6 @@ import { currentTaskForWrite } from "../domain/task.ts";
 import { docByteLength, type DocumentState } from "../domain/doc-sync.contract.ts";
 import { requireEntityKindContract } from "../domain/entity-kind-registry.ts";
 import { type MigrationDocumentClaim, type MigrationImportEventV1 } from "../domain/migration-import-event.ts";
-import { sha256Text } from "../integrity/stable-hash.ts";
 import { refreshDecisionDocumentSearch } from "./decision-event-projection.ts";
 import { refreshTaskRelationProjection } from "./task-query-projection.ts";
 import type { EventStreamPort } from "./rebuildable-task-projection-types.ts";
@@ -256,7 +255,6 @@ export function storeMigrationDocument(
   if (!bytes || bytes.byteLength !== claim.size)
     throw new Error(`migration document blob ${claim.sha256} is unavailable`);
   const body = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-  if (sha256Text(body) !== claim.sha256) throw new Error(`migration document blob ${claim.sha256} hash mismatch`);
   const document: DocumentState = {
     path: claim.path as DocumentState["path"],
     blobSha256: claim.sha256,
