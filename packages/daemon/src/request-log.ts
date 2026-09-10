@@ -1,5 +1,4 @@
-import { mkdir, open, rename, rm } from "node:fs/promises";
-import type { FileHandle } from "node:fs/promises";
+import { appendFile, mkdir, rename, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { consumeKnownError, resolveHarnessLayout } from "../../kernel/src/index.ts";
 // Classification lives here rather than at the dispatch point: the schema registry names the
@@ -83,7 +82,6 @@ export function openDaemonRequestLog(options: DaemonRequestLogOptions): DaemonRe
   const logPaths = new Map<string, string>();
   let reportedFailure = false;
   let chain: Promise<void> = Promise.resolve();
-  let handle: FileHandle | null = null;
 
   return {
     record: (entry) => {
@@ -91,24 +89,14 @@ export function openDaemonRequestLog(options: DaemonRequestLogOptions): DaemonRe
       if (!logPath) return;
       chain = chain.then(() => writeRequestLogLine(logPath, `${JSON.stringify(buildRecord(entry, now()))}\n`));
     },
-    settle: async () => {
-      await chain;
-      if (handle) await handle.close();
-      handle = null;
-    },
+    settle: () => chain,
   };
 
   async function writeRequestLogLine(logPath: string, line: string): Promise<void> {
     try {
       await mkdir(path.dirname(logPath), { recursive: true });
-      if (!handle) handle = await open(logPath, "a");
-      if ((await handle.stat()).size >= maxBytes) {
-        await handle.close();
-        handle = null;
-        await rotate(logPath, keptFiles);
-        handle = await open(logPath, "a");
-      }
-      await handle.write(line, null, "utf8");
+      if ((await fileSize(logPath)) >= maxBytes) await rotate(logPath, keptFiles);
+      await appendFile(logPath, line, "utf8");
     } catch (error) {
       consumeKnownError(error);
       if (!reportedFailure) {
@@ -181,6 +169,15 @@ async function rotate(logPath: string, keptFiles: number): Promise<void> {
     }
   }
   await rename(logPath, `${logPath}.1`);
+}
+
+async function fileSize(filePath: string): Promise<number> {
+  try {
+    return (await stat(filePath)).size;
+  } catch (error) {
+    if (isMissingFile(error)) return 0;
+    throw error;
+  }
 }
 
 function isMissingFile(error: unknown): boolean {
