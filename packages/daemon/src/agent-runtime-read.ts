@@ -1,5 +1,4 @@
 import {
-  runtimeDefinitionSnapshotArtifact,
   latestRuntimeActivityAt,
   runtimeSessionInActivityWindow,
   runtimeSessionMissingOutcomeEvidence,
@@ -138,17 +137,8 @@ export function makeAgentRuntimeReadModel(input: {
             "runtime_definition_snapshot_invalid",
             `Runtime definition snapshot ${session.definitionSnapshotRef} does not match its session.`,
           );
-        const artifact = runtimeDefinitionSnapshotArtifact(snapshot);
-        if (
-          snapshot.instanceId !== session.instanceId ||
-          snapshot.installationId !== session.installationId ||
-          artifact.ref !== session.definitionSnapshotRef ||
-          artifact.body !== text
-        )
-          throw coded(
-            "runtime_definition_snapshot_invalid",
-            `Runtime definition snapshot ${session.definitionSnapshotRef} does not match its session.`,
-          );
+        // blob 按它自己的 sha 取出(内容寻址),快照与 session/installation 的绑定
+        // 在写入时已由 kernel agent-runtime 校验;这里不再重算哈希自比。
         return { snapshot, persisted: true };
       }
     }

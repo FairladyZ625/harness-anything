@@ -3,7 +3,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, createElement, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { RelationEdge, SnapshotStatus, TaskRow } from "../src/renderer/model/types.ts";
+import type { SnapshotStatus, TaskRow } from "../src/renderer/model/types.ts";
 import { BOARD_COLUMNS } from "../src/renderer/model/types.ts";
 import { TaskPreviewDrawer } from "../src/renderer/components/TaskPreviewDrawer.tsx";
 import { BoardView } from "../src/renderer/views/BoardView.tsx";
@@ -284,7 +284,6 @@ const boardProps = (overrides: {
   filters: overrides.filters ?? { ...DEFAULT_TASK_FILTERS },
   onFiltersChange: overrides.onFiltersChange ?? noop,
   onSelect: overrides.onSelect ?? noop,
-  relations: [],
   favorites: overrides.favorites ?? new Set<string>(),
   onToggleFavorite: noop,
   onSetPin: noop,
@@ -461,7 +460,6 @@ describe("cold terminal collapse in BoardView (W8)", () => {
           filters: { ...DEFAULT_TASK_FILTERS },
           onFiltersChange: (next) => seen.push(next),
           onSelect: noop,
-          relations: [],
           favorites: new Set<string>(),
           onToggleFavorite: noop,
           onSetPin: noop,
@@ -530,7 +528,6 @@ describe("swimlane default order (W8)", () => {
             groupBy: "root",
             onSelect: noop,
             drill: null,
-            spawningDecisions: new Map(),
             favorites: new Set<string>(),
             onToggleFavorite: noop,
             onSetPin: noop,
@@ -590,7 +587,6 @@ describe("swimlane default order (W8)", () => {
         groupBy: "root",
         onSelect: noop,
         drill: { lane: "root-a", status: drillStatus, groupBy: "root" },
-        spawningDecisions: new Map(),
         favorites: new Set<string>(),
         onToggleFavorite: noop,
         onSetPin: noop,
@@ -635,7 +631,6 @@ const STABLE_FILTERS = Object.defineProperty({ ...DEFAULT_TASK_FILTERS }, "expan
 const STABLE_FAVORITES = new Set<string>();
 // props 全部稳定是 memo 生效的前提,探针必须自己遵守(生产路径由上层
 // useCallback/query structuralSharing 保证)。
-const STABLE_RELATIONS: RelationEdge[] = [];
 
 function countingTask(id: string, counters: Map<string, number>, overrides: Partial<TaskRow> = {}): TaskRow {
   const base = makeTask({ taskId: id, title: `card-${id}`, ...overrides });
@@ -665,7 +660,7 @@ async function mountBoard() {
   const container = document.createElement("div");
   document.body.append(container);
   const root = createRoot(container);
-  const renderBoard = (tasks: TaskRow[], relations: RelationEdge[] = STABLE_RELATIONS) =>
+  const renderBoard = (tasks: TaskRow[]) =>
     act(async () => {
       root.render(
         createElement(BoardView, {
@@ -674,7 +669,6 @@ async function mountBoard() {
           filters: STABLE_FILTERS,
           onFiltersChange: noop,
           onSelect: noop,
-          relations,
           favorites: STABLE_FAVORITES,
           onToggleFavorite: noop,
           onSetPin: noop,
@@ -754,51 +748,25 @@ describe("board render convergence (W9)", () => {
 });
 
 /**
- * 关系更新收敛(W9 修正):全局 relations 数组止步于 BoardView 的单遍徽章索引,
- * 卡片只收自己的标量。真实 derives 增量不再打穿全板 memo——与看板任务无关的
- * 边变化 0 卡重渲染,命中某一任务的边变化只有该卡重渲染;点击与键盘行为保持。
- * (此前的 STABLE_RELATIONS 探针测不出这条路径:它从不换 relations 数组。)
+ * 行内徽章收敛(原「关系更新收敛 W9 修正」,B6 起徽章由行内 placement 派生):
+ * 卡片只读自己的行。徽章变化随行换新引用,只有该卡重渲染;点击与键盘行为保持。
  */
-describe("relation update convergence (W9 correction)", () => {
-  const derives = (decisionId: string, taskId: string): RelationEdge => ({
-    kind: "derives",
-    direction: "directed",
-    from: `decision/${decisionId}`,
-    to: `task/${taskId}`,
-  });
-
-  it("relation refresh touching only unrelated tasks re-renders no cards", async () => {
+describe("row badge convergence", () => {
+  it("row badge change re-renders only that row's card", async () => {
     const counters = new Map<string, number>();
     const tasks = boardFixture(counters);
     const board = await mountBoard();
-    await board.renderBoard(tasks, [derives("dec_a", "t_0")]);
-    await board.renderBoard(tasks, [derives("dec_a", "t_0")]); // 落定基线(dnd 异步测量)。
+    await board.renderBoard(tasks);
+    await board.renderBoard(tasks); // 落定基线(dnd 异步测量)。
     const settled = new Map(counters);
-    const settledBoardReads = boardRenderReads;
 
-    // 新数组身份(react-query 刷新形态),新增边只指向看板外的任务。
-    await board.renderBoard(tasks, [derives("dec_a", "t_0"), derives("dec_off", "t_offboard")]);
-    for (const [id, reads] of settled) {
-      expect(counters.get(id)).toBe(reads); // 无关关系变更:卡片渲染数 0。
-    }
-    expect(boardRenderReads).toBeGreaterThan(settledBoardReads); // 看板本体确实重渲染了:0 卡 ≠ 0 渲染。
-
-    act(() => {
-      board.root.unmount();
+    // t_2 的行获得新的决策来源徽章(placement.spawningDecisionIds) → 只有 t_2 的卡片换 props。
+    const changed = countingTask("t_2", counters, {
+      coordinationStatus: "active",
+      lastKnownAt: new Date().toISOString(),
+      spawningDecisionIds: ["dec_new"],
     });
-    board.container.remove();
-  });
-
-  it("relation update targeting one board task re-renders only that card", async () => {
-    const counters = new Map<string, number>();
-    const tasks = boardFixture(counters);
-    const board = await mountBoard();
-    await board.renderBoard(tasks, [derives("dec_a", "t_0")]);
-    await board.renderBoard(tasks, [derives("dec_a", "t_0")]);
-    const settled = new Map(counters);
-
-    // t_2 获得新的决策来源徽章 → 只有 t_2 的卡片换 props。
-    await board.renderBoard(tasks, [derives("dec_a", "t_0"), derives("dec_new", "t_2")]);
+    await board.renderBoard([...tasks.slice(0, 2), changed, ...tasks.slice(3)]);
 
     for (const id of ["t_0", "t_1", "t_3", "t_4"]) {
       expect(counters.get(id)).toBe(settled.get(id)); // 徽章值未变的行跳过。
@@ -812,9 +780,9 @@ describe("relation update convergence (W9 correction)", () => {
     board.container.remove();
   });
 
-  it("keeps click and keyboard activation on non-draggable cards across a relation refresh", async () => {
-    // done 卡(无 start 能力)走非拖拽分支;渲染一轮后换 relations 数组,
-    // 验证可聚焦表面与激活路径不随关系刷新退化。
+  it("keeps click and keyboard activation on non-draggable cards across a row refresh", async () => {
+    // done 卡(无 start 能力)走非拖拽分支;渲染一轮后换行数组(徽章随行进来),
+    // 验证可聚焦表面与激活路径不随重渲染退化。
     const doneTask = makeTask({
       taskId: "t_done",
       title: "card-done",
@@ -825,24 +793,23 @@ describe("relation update convergence (W9 correction)", () => {
     const container = document.createElement("div");
     document.body.append(container);
     const root = createRoot(container);
-    const render = (relations: RelationEdge[]) =>
+    const render = (tasks: TaskRow[]) =>
       act(async () => {
         root.render(
           createElement(BoardView, {
-            tasks: [doneTask],
-            allTasks: [doneTask],
+            tasks,
+            allTasks: tasks,
             filters: { ...DEFAULT_TASK_FILTERS },
             onFiltersChange: noop,
             onSelect: (id) => selected.push(id),
-            relations,
             favorites: new Set<string>(),
             onToggleFavorite: noop,
             onSetPin: noop,
           }),
         );
       });
-    await render([]);
-    await render([derives("dec_new", "t_done")]);
+    await render([doneTask]);
+    await render([{ ...doneTask, spawningDecisionIds: ["dec_new"] }]);
 
     const card = container.querySelector('[data-testid="board-task-card"]')!;
     expect(card.textContent).toContain("dec_new");
@@ -910,7 +877,6 @@ describe("draggable narrowing (W9)", () => {
           filters: { ...DEFAULT_TASK_FILTERS },
           onFiltersChange: noop,
           onSelect: (id) => selected.push(id),
-          relations: [],
           favorites: new Set<string>(),
           onToggleFavorite: noop,
           onSetPin: noop,
@@ -956,7 +922,6 @@ describe("draggable narrowing (W9)", () => {
           filters: { ...DEFAULT_TASK_FILTERS },
           onFiltersChange: noop,
           onSelect: (id) => selected.push(id),
-          relations: [],
           favorites: new Set<string>(),
           onToggleFavorite: (id) => favorites.push(id),
           onSetPin: (task, pinned) => pins.push([task.taskId, pinned]),
@@ -1043,7 +1008,6 @@ describe("swimlane single-pass grouping (W9)", () => {
         groupBy: "root",
         onSelect: noop,
         drill: null,
-        spawningDecisions: new Map(),
         favorites: new Set<string>(),
         onToggleFavorite: noop,
         onSetPin: noop,
@@ -1065,7 +1029,6 @@ describe("swimlane single-pass grouping (W9)", () => {
         groupBy: "root",
         onSelect: noop,
         drill: { lane: "root-a", status: "planned", groupBy: "root" },
-        spawningDecisions: new Map(),
         favorites: new Set<string>(),
         onToggleFavorite: noop,
         onSetPin: noop,
@@ -1212,7 +1175,6 @@ describe("swimlane row windowing (W10)", () => {
         groupBy: "root",
         onSelect: noop,
         drill: null,
-        spawningDecisions: new Map(),
         favorites: new Set<string>(),
         onToggleFavorite: noop,
         onSetPin: noop,
@@ -1286,7 +1248,6 @@ async function mountBoardView(tasks: TaskRow[]) {
         filters: { ...DEFAULT_TASK_FILTERS },
         onFiltersChange: noop,
         onSelect: noop,
-        relations: [],
         favorites: new Set<string>(),
         onToggleFavorite: noop,
         onSetPin: noop,
@@ -1448,7 +1409,6 @@ describe("swimlane column resize (W11)", () => {
         groupBy: "root",
         onSelect: noop,
         drill: null,
-        spawningDecisions: new Map(),
         favorites: new Set<string>(),
         onToggleFavorite: noop,
         onSetPin: noop,
@@ -1474,7 +1434,6 @@ describe("swimlane column resize (W11)", () => {
         groupBy: "root",
         onSelect: noop,
         drill: null,
-        relations: [],
         favorites: new Set<string>(),
         onToggleFavorite: noop,
         onSetPin: noop,
@@ -1494,7 +1453,6 @@ describe("swimlane column resize (W11)", () => {
           groupBy: "root",
           onSelect: noop,
           drill: null,
-          relations: [],
           favorites: new Set<string>(),
           onToggleFavorite: noop,
           onSetPin: noop,

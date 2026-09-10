@@ -254,7 +254,6 @@ describe("overview task stream", () => {
         filters: DEFAULT_TASK_FILTERS,
         onFiltersChange: noop,
         onSelect: noop,
-        relations: [],
         favorites: new Set<string>(),
         onToggleFavorite: noop,
       }),

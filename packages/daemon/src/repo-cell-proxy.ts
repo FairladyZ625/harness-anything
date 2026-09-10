@@ -70,16 +70,15 @@ export async function openRepoCellProxy(
     await lock.close();
     throw error;
   }
+  let ledgerReader: ReturnType<typeof makeTaskEventReader> | null = null;
   const reader = makeTaskProjectionReader({ rootDir: input.rootDir, ...(input.now ? { now: input.now } : {}) }),
     ledgerOptions = { repoId: input.repoId, rootDir: input.rootDir, authoredBranch: input.authoredBranch },
-    readCurrentLedger = <T>(read: (store: ReturnType<typeof makeTaskEventReader>) => T): T => {
-      const store = makeTaskEventReader(ledgerOptions);
-      try {
-        return read(store);
-      } finally {
-        void store.drain();
-      }
-    },
+    // 一个惰性创建的长连接只读读者:WAL 模式下只读连接上每条语句自成一个读事务,
+    // 已能看到最新提交,读最新数据不需要每次重开连接。全部读共用同一个 store
+    // 引用,entity fold 的 WeakMap<CanonicalEventStore,…> 缓存才会命中(逐请求
+    // 新 store 让它永远 miss)。打开失败不缓存,下次读重试。
+    ledgerReadStore = () => (ledgerReader ??= makeTaskEventReader(ledgerOptions)),
+    readCurrentLedger = <T>(read: (store: ReturnType<typeof makeTaskEventReader>) => T): T => read(ledgerReadStore()),
     replica = openReplicaCutSource({
       repoId: input.repoId,
       localRoot: path.dirname(path.dirname(reader.path)),
@@ -154,7 +153,7 @@ export async function openRepoCellProxy(
     binding?: RepoCellBinding,
   ): Awaited<ReturnType<RepoCell["read"]>> => {
     const writableProjection = projection as TaskProjection,
-      readStore = makeTaskEventReader(ledgerOptions),
+      readStore = ledgerReadStore(),
       unsupportedWrite = async (): Promise<never> => {
         throw cellCodedError("repo_unavailable", "A query-only RepoCell reader cannot start writer work.");
       },
@@ -209,13 +208,11 @@ export async function openRepoCellProxy(
         cellCodedError,
         latched,
       } as unknown as RepoCellApiContext;
-    try {
-      return createRepoCellApi(context)[repoCellSynchronousRead](method, payload, binding) as Awaited<
-        ReturnType<RepoCell["read"]>
-      >;
-    } finally {
-      void readStore.drain();
-    }
+    // readStore 是共享长连接,读完后不关闭;WAL 只读连接的语句级读事务自行结束,
+    // 不留快照,下次读自然看到最新提交。
+    return createRepoCellApi(context)[repoCellSynchronousRead](method, payload, binding) as Awaited<
+      ReturnType<RepoCell["read"]>
+    >;
   };
   const run: RepoCell["run"] = async (action, binding, signal) => {
     if (closed)
@@ -347,6 +344,7 @@ export async function openRepoCellProxy(
       } finally {
         replica.close();
         reader.close();
+        void ledgerReader?.drain();
         await lock.close();
       }
     },

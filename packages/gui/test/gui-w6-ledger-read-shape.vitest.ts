@@ -143,6 +143,21 @@ describe("W6 Goal 第二项:cursor/limit 读面不得被消费成「拉完为止
     expect(steady.cut.rows).toHaveLength(LEDGER_ROWS);
   });
 
+  it("cut pending(投影追赶中)也走增量,不每 2s 重读整页", async () => {
+    // B6:daemon 报 pending 时 rows 相对所报 watermark 仍然完整,增量读即可;
+    // 改前的分支在这里无条件 restart,轮询期间每次都拉满 TASK_LIST_PAGE_LIMIT 行。
+    const ledger = installFakeLedger();
+    let cut = (await refresh(ledger)).cut;
+    for (let tick = 0; tick < 3; tick += 1) cut = (await refresh(ledger, cut)).cut;
+    ledger.state.status = "pending";
+    ledger.touch(7);
+    const pending = await refresh(ledger, cut);
+    expect(pending.requests).toBe(1);
+    expect(ledger.calls.at(-1)).toEqual({ cursor: null, changedAfterRevision: cut.watermark, rows: 1 });
+    expect(pending.cut.rows).toHaveLength(LEDGER_ROWS);
+    expect(pending.cut.status).toBe("pending"); // 「正在追赶」仍显形。
+  });
+
   it("超过一页的增量也不 drain:截断显形成 pending,水位停在上一轮", async () => {
     const ledger = installFakeLedger();
     let cut = (await refresh(ledger)).cut;

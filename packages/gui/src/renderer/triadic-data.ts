@@ -14,8 +14,8 @@ import { activeProducesFactRefs } from "./model/triadic.ts";
 
 /**
  * 读面分层的键空间(fact F-D5605ABF 的消费者清单 + 2026-08-29 CEO 裁决):
- *   - `derives`  / `decisionSummary` — 根级常驻 chrome(看板决策徽章、⌘K 决策条目、
- *     任务详情的决策标题)读的窄面;
+ *   - `decisionSummary` — 根级常驻 chrome(⌘K 决策条目、任务详情的决策标题)
+ *     读的窄面;
  *   - `activeEdges` — 任务↔任务/决策↔决策边的窄面,只在预览抽屉、任务详情或会话页
  *     挂载时读;
  *   - `facts` — ⌘K 面板的事实条目,面板打开时才读;
@@ -26,7 +26,6 @@ import { activeProducesFactRefs } from "./model/triadic.ts";
 export const triadicQueryKeys = {
   all: (repoId: string) => ["triadic", repoId] as const,
   graph: (repoId: string) => ["triadic", repoId, "relation-graph"] as const,
-  derives: (repoId: string) => ["triadic", repoId, "relation-graph", "edges", "derives-active-directed"] as const,
   activeEdges: (repoId: string) => ["triadic", repoId, "relation-graph", "edgeset"] as const,
   facts: (repoId: string) => ["triadic", repoId, "relation-graph", "facts"] as const,
   runtimeEdges: (repoId: string) => ["triadic", repoId, "relation-graph", "runtime-edges"] as const,
@@ -53,32 +52,6 @@ function relationReadState(
     relationState: query.isError ? "error" : enabled && query.isPending ? "loading" : "ready",
     relationWarnings: query.data?.warnings ?? [],
   };
-}
-
-/**
- * 根级常驻读面:decision→task 的 active directed `derives` 边。
- * 看板徽章(`spawningDecisionOf`)、任务预览抽屉与会话页的决策引用只需要这一种边;
- * 量过的切面是 258,037 B,是完整 4.96 MB 图投影的 2.8%。
- */
-export function useDecisionDerivesQuery(
-  repoId: string | null,
-  options: { readonly enabled?: boolean } = {},
-): RelationReadState {
-  const enabled = repoId !== null && options.enabled !== false;
-  const query = useQuery({
-    queryKey: triadicQueryKeys.derives(repoId ?? "unselected"),
-    queryFn: () =>
-      harnessClient.getRelationGraph({
-        repoId: repoId!,
-        facet: "edges",
-        relationType: "derives",
-        state: "active",
-        direction: "directed",
-      }),
-    enabled,
-    staleTime: 10_000,
-  });
-  return useMemo(() => relationReadState(query, enabled), [query.data, query.isPending, query.isError, enabled]);
 }
 
 /**

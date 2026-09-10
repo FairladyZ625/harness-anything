@@ -11,7 +11,7 @@ import {
   SIGNAL_SEVERITY,
 } from "../src/renderer/model/fact-triage.ts";
 import { buildEntityJumpContext, buildFactTriageContext } from "../src/renderer/model/copy-context.ts";
-import { buildSpawningDecisionIndex, spawningDecisionOf } from "../src/renderer/model/triadic.ts";
+import { spawningDecisionBadge } from "../src/renderer/model/triadic.ts";
 import { buildTriadicRendererData } from "../src/renderer/triadic-data.ts";
 import { FactInspector } from "../src/renderer/components/FactInspector.tsx";
 
@@ -561,42 +561,12 @@ describe("cross-entity navigation projection", () => {
     expect(rendered.relations.map((relation) => relation.relationId)).toEqual(["rel_active"]);
   });
 
-  it("derives the TaskDetail decision source from the real relation graph", () => {
-    const relations = [edge("decision/dec_parent", "task/task_a", "derives")];
-
-    expect(spawningDecisionOf(baseTask({ spawningDecision: "task_parent" }), relations)).toBe("dec_parent");
-  });
-
-  it("buildSpawningDecisionIndex applies the same priorities as spawningDecisionOf in one pass", () => {
-    const tasks = [
-      baseTask({ taskId: "task_row", spawningDecisionIds: ["dec_row"], spawningDecision: "task_stale" }),
-      baseTask({ taskId: "task_derived", spawningDecision: "task_fallback" }),
-      baseTask({ taskId: "task_multi", spawningDecision: "task_fallback" }),
-      baseTask({ taskId: "task_fallback", spawningDecision: "decision/dec_fb/anchor" }),
-      baseTask({ taskId: "task_clean" }),
-    ];
-    const relations = [
-      edge("decision/dec_derived", "task/task_derived", "derives"),
-      edge("decision/dec_row2", "task/task_row", "derives"), // 行内 placement 仍优先
-      edge("decision/dec_x", "task/task_multi", "derives"),
-      edge("decision/dec_x/C1", "task/task_multi", "derives"), // 同决策不同锚点:归并为同一来源
-      edge("decision/dec_y", "task/task_multi", "derives"), // 再加一个来源才是「多来源」
-      edge("decision/dec_undirected", "task/task_derived", "derives", { direction: "undirected" }),
-      edge("decision/dec_other_kind", "task/task_derived", "evidences"),
-      edge("task/task_from", "task/task_derived", "derives"), // from 不是 decision/
-      edge("decision/dec_offboard", "task/task_offboard", "derives"),
-    ];
-    const index = buildSpawningDecisionIndex(tasks, relations);
-
-    expect(index.get("task_row")).toBe("dec_row"); // 行内 placement 单值优先
-    expect(index.get("task_derived")).toBe("dec_derived"); // 唯一 directed derives 来源,兜底字段让位
-    expect(index.get("task_multi")).toBeUndefined(); // 多来源 → 无徽章(不走兜底)
-    expect(index.get("task_fallback")).toBe("dec_fb"); // 无命中边 → 旧字段兜底,normalize 截锚点
-    expect(index.get("task_clean")).toBeUndefined();
-    expect(index.has("task_offboard")).toBe(false); // 看板外的目标不产生条目
-    for (const task of tasks) {
-      expect(index.get(task.taskId)).toBe(spawningDecisionOf(task, relations)); // 与逐行实现逐字段等价
-    }
+  it("derives the TaskDetail decision source from the row placement only", () => {
+    // 徽章不再读关系边:行内 placement.spawningDecisionIds 是 daemon 按同一批
+    // directed derives 边推导的结果,唯一来源才有徽章,多来源/缺失 → 无徽章。
+    expect(spawningDecisionBadge(baseTask({ spawningDecisionIds: ["dec_parent"] }))).toBe("dec_parent");
+    expect(spawningDecisionBadge(baseTask({ spawningDecisionIds: ["dec_a", "dec_b"] }))).toBeUndefined();
+    expect(spawningDecisionBadge(baseTask({}))).toBeUndefined();
   });
 
   it("keeps fact anchors without inventing fact bodies absent from L2", () => {

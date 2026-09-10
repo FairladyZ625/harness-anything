@@ -46,52 +46,14 @@ export function normalizeTaskId(raw: string): string {
   return raw.replace(/^task\//, "").split("/")[0];
 }
 
-/** 徽章优先级核心:行内 placement > 唯一 directed derives 来源 > 行内旧字段兜底;多来源不定 → 无徽章。 */
-function spawningDecisionFromDerived(task: TaskRow, derivedDecisionIds: ReadonlyArray<string>): string | undefined {
-  const fromRow = task.spawningDecisionIds ?? [];
-  if (fromRow.length === 1) return fromRow[0];
-  if (derivedDecisionIds.length === 1) return derivedDecisionIds[0];
-  if (derivedDecisionIds.length > 1) return undefined;
-  return task.spawningDecision ? normalizeDecisionId(task.spawningDecision) : undefined;
-}
-
-/** taskId → 决策来源徽章 的派生索引;卡片按行取标量,未受影响行标量值不变。 */
-export type SpawningDecisionIndex = ReadonlyMap<string, string | undefined>;
-
 /**
- * 单遍徽章索引(W9 修正):一次遍历 relations 收集各 task 的 directed derives
- * 来源,再一次遍历行产出 taskId → 徽章。看板/泳道/列表的 memo 卡片只收自己的
- * 标量,关系刷新时全局 relations 数组不再打穿卡片 memo——只有徽章值变化的行
- * 换新 props。语义与 `spawningDecisionOf` 同源(共用优先级核心)。
+ * 看板/列表/泳道行上的决策来源徽章。daemon 在 `repo.tasks.list` 的
+ * `placement.spawningDecisionIds` 里已按同一批 directed `derives` 边推导好
+ * (F-84CF0391):唯一来源取该值,多来源不定 → 无徽章。
  */
-export function buildSpawningDecisionIndex(
-  tasks: ReadonlyArray<TaskRow>,
-  relations: ReadonlyArray<RelationEdge>,
-): SpawningDecisionIndex {
-  const derivedByTask = new Map<string, string[]>();
-  for (const relation of relations) {
-    if (relation.kind !== "derives" || relation.direction !== "directed" || !relation.from.startsWith("decision/")) {
-      continue;
-    }
-    const decisionIds = derivedByTask.get(normalizeTaskId(relation.to));
-    const decisionId = normalizeDecisionId(relation.from);
-    if (decisionIds === undefined) derivedByTask.set(normalizeTaskId(relation.to), [decisionId]);
-    else if (!decisionIds.includes(decisionId)) decisionIds.push(decisionId);
-  }
-  const index = new Map<string, string | undefined>();
-  for (const task of tasks) {
-    index.set(task.taskId, spawningDecisionFromDerived(task, derivedByTask.get(task.taskId) ?? []));
-  }
-  return index;
-}
-
-/**
- * 看板/列表行上的决策来源徽章。第一优先级是 daemon 在 `repo.tasks.list`
- * `placement.spawningDecisionIds` 里推导好的同一批 directed `derives` 边
- * (F-84CF0391);`relations` 已过 current 收口,边切面还没到位时也不缺徽章。
- */
-export function spawningDecisionOf(task: TaskRow, relations: RelationEdge[] = []): string | undefined {
-  return buildSpawningDecisionIndex([task], relations).get(task.taskId);
+export function spawningDecisionBadge(task: Readonly<Pick<TaskRow, "spawningDecisionIds">>): string | undefined {
+  const ids = task.spawningDecisionIds;
+  return ids !== undefined && ids.length === 1 ? ids[0] : undefined;
 }
 
 export function derivedTasks(decision: DecisionRow, relations: RelationEdge[], tasks: readonly TaskRow[]): TaskRow[] {
