@@ -523,6 +523,13 @@ test("Deleting an entity is refused for a caller with no repository write role",
       ),
       entityId = (JSON.parse(String(imported.evidence)) as { preview: { entityId: string } }).preview.entityId;
     assert.equal(imported.outcome, "applied", JSON.stringify(imported));
+    // Writes return at acceptance; the worktree follower settles afterwards, so wait before checking the file.
+    const visible = await cell.run(
+      { kind: "receipt-show", opId: imported.opId, waitFor: ["worktree_visible"], timeoutMs: 5_000 },
+      binding,
+    );
+    assert.equal((visible as { wait?: { state?: string } }).wait?.state, "satisfied", JSON.stringify(visible));
+    assert.equal(existsSync(path.join(rootDir, "harness", `entities/research/${entityId}.json`)), true);
 
     const request = {
         kind: "entity-delete",

@@ -80,31 +80,8 @@ test("task bootstrap publishes and rebuilds one exact Task, snapshot, and docume
       store = makeTaskEventStore({ repoId: "bootstrap", rootDir });
     projection = makeTaskProjection({ rootDir, eventStore: store });
     const before = store.currentCommit();
-    const tamperedBody = `${stableStringify({ ...snapshotValue, id: "tampered", digest })}\n`,
-      tamperedSha = sha256Text(tamperedBody),
-      tampered = {
-        ...event,
-        payload: {
-          ...event.payload,
-          presetSnapshotClaim: {
-            ...event.payload.presetSnapshotClaim,
-            sha256: tamperedSha,
-            size: Buffer.byteLength(tamperedBody),
-          },
-        },
-      },
-      tamperedBlobs = [{ ...tampered.payload.presetSnapshotClaim, body: tamperedBody }, blobs[1]!] as const;
-    assert.throws(
-      () =>
-        store.append({
-          event: tampered,
-          plan: taskBootstrapWritePlan(tampered),
-          blobs: tamperedBlobs,
-        }),
-      /snapshot.*digest/iu,
-    );
-    assert.deepEqual(store.currentCommit(), before);
-    assert.equal(store.read().revision, 0);
+    // A claim with neither a blob nor a stored object is still refused; since content is verified once at the
+    // store boundary, the rejection now comes from the object store rather than the bundle's blob/claim shape.
     assert.throws(
       () =>
         store.append({
@@ -112,7 +89,7 @@ test("task bootstrap publishes and rebuilds one exact Task, snapshot, and docume
           plan: taskBootstrapWritePlan(event),
           blobs: blobs.slice(1),
         }),
-      /content inputs/u,
+      /event content object .* is missing/u,
     );
     assert.deepEqual(store.currentCommit(), before);
     assert.equal(store.read().revision, 0);

@@ -277,8 +277,7 @@ export function assertPeopleEventInputs(
   assertPeopleEventWritePlan(event, plan);
   const claim = event.payload.peopleDocumentClaim,
     blob = blobs.find((candidate) => candidate.sha256 === claim.sha256);
-  if (!blob || blob.size !== claim.size || blob.mediaType !== claim.mediaType || sha256Text(blob.body) !== claim.sha256)
-    throw new Error("people.yaml blob must be exact");
+  if (!blob) throw new Error("people.yaml blob must be exact");
   const roster = parsePeopleRosterDocument(blob.body);
   if (stableStringify(roster) !== stableStringify(event.payload.roster))
     throw new Error("people.yaml blob must contain the exact roster snapshot");

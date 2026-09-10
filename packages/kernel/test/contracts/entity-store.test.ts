@@ -6,7 +6,8 @@ import test from "node:test";
 import { createEntityStore } from "../../src/index.ts";
 import { validateAgentDeclarationV1 } from "../../src/domain/agent-squad-schema.ts";
 import { explainEntityKind } from "../../src/domain/entity-kind-registry.ts";
-import { assertEntityUpsertInputs, type EntityEventV1 } from "../../src/domain/entity-event.ts";
+import { type EntityEventV1 } from "../../src/domain/entity-event.ts";
+import { assertContentInputs } from "../../src/store/task-event-store-validation.ts";
 import type { EntityUpsertBundle } from "../../src/domain/entity-event-compile.ts";
 import { validateWriteReceipt } from "../../src/domain/write-chain.contract.ts";
 import { createEntityOwnedContent, MAX_ENTITY_CONTENT_OBJECT_BYTES } from "../../src/domain/entity-owned-content.ts";
@@ -264,7 +265,12 @@ test("Entity upsert rejects schema-invalid declarations and tampered declaration
   );
   const bundle = upsert(store, "agent", agent, 1),
     tampered = [{ ...bundle.blobs[0], body: `${bundle.blobs[0].body} ` }];
-  assert.throws(() => assertEntityUpsertInputs(bundle.event, bundle.plan, tampered), /declaration blob must be exact/u);
+  // Blob bytes are verified once, at the store boundary; a body that disagrees with its claim's SHA is
+  // rejected there rather than by a second hash inside the domain assertion.
+  assert.throws(
+    () => assertContentInputs([bundle.event.payload.declarationDocumentClaim], tampered, "entity upsert"),
+    /content inputs must exactly match/u,
+  );
 });
 
 test("entity_upsert receipt detail is closed and registered", () => {

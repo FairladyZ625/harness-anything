@@ -101,7 +101,7 @@ test("standard and milestone bootstrap compile one exact canonical birth and reb
           plan: standard.plan,
           blobs: standard.blobs.slice(1),
         }),
-      /content inputs/u,
+      /event content object .* is missing/u,
     );
     assert.deepEqual(store.currentCommit(), before);
     const receipt = store.append({

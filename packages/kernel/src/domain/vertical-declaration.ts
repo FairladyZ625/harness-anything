@@ -505,8 +505,7 @@ export function assertVerticalDeclarationEventInputs(
     throw new Error("vertical declaration write plan is not exact");
   const claim = event.payload.declarationDocumentClaim,
     blob = blobs.find((candidate) => candidate.sha256 === claim.sha256);
-  if (!blob || blob.size !== claim.size || blob.mediaType !== claim.mediaType || sha256Text(blob.body) !== claim.sha256)
-    throw new Error("vertical declaration blob must be exact");
+  if (!blob) throw new Error("vertical declaration blob must be exact");
   const parsed = parseVerticalDeclarationDocument(JSON.parse(blob.body));
   if (stableStringify(parsed) !== stableStringify(event.payload.declaration))
     throw new Error("vertical declaration blob does not match event snapshot");

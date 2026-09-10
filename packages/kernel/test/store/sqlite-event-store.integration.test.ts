@@ -347,10 +347,9 @@ test("SQLite content admission reuses exact objects after reopen and rejects mis
 
     const missingBody = "# Missing input\n",
       missing = docBundle(reopened, missingBody, 3, "content-missing", "context/missing.md");
-    assert.throws(
-      () => reopened.append({ ...missing, blobs: [] }),
-      /doc content inputs must exactly match the frozen write plan/u,
-    );
+    // Content is verified once at the store boundary: a claim with neither a blob nor a stored object is
+    // refused by the object store, not by a second blob/claim shape check in bundle validation.
+    assert.throws(() => reopened.append({ ...missing, blobs: [] }), /event content object .* is missing/u);
     assert.equal(reopened.readEvent(missing.event.opId), null);
     assert.equal(reopened.readCommandOutcome(missing.event.opId), null);
     assert.equal(reopened.readContentBlob(sha256Text(missingBody)), null);

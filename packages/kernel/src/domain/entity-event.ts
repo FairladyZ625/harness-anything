@@ -342,13 +342,7 @@ export function assertEntityEventInputs(
   const claim = event.payload.declarationDocumentClaim,
     declarationBlob = blobs.find((candidate) => candidate.sha256 === claim.sha256),
     contract = contractForDeclarationEvent(event);
-  if (
-    !declarationBlob ||
-    declarationBlob.size !== claim.size ||
-    declarationBlob.mediaType !== claim.mediaType ||
-    typeof declarationBlob.body !== "string" ||
-    sha256Text(declarationBlob.body) !== claim.sha256
-  )
+  if (!declarationBlob || typeof declarationBlob.body !== "string")
     throw new Error("entity declaration blob must be exact");
   let value: unknown;
   try {
@@ -696,7 +690,7 @@ export function declarationOwnedContent(
   contract: EntityStoreKindContract,
   entityId: string,
   claim: EntityDeclarationClaim,
-  sourceContent: readonly EntityContentBlob[] = [],
+  sourceContent: readonly Omit<EntityContentBlob, "body">[] = [],
   owned: {
     readonly directories?: readonly string[];
     readonly retirements?: readonly EntityContentRetirement[];

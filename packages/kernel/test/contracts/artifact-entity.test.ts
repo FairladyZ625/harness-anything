@@ -21,6 +21,7 @@ import {
 } from "../../src/index.ts";
 import {
   artifactEntityContractFromSnapshot,
+  artifactMutationOperationId,
   canonicalArtifactUrl,
   decodeArtifactEntityContractSnapshot,
   encodeArtifactDescriptor,
@@ -30,6 +31,8 @@ import {
   validateCurrentEntityEvent,
   validateEntityEvent,
 } from "../../src/domain/entity-event.ts";
+import { compileEntityUpdated } from "../../src/domain/entity-event-compile.ts";
+import { assertContentInputs } from "../../src/store/task-event-store-validation.ts";
 
 const vertical = JSON.parse(
   readFileSync(new URL("../../fixtures/schemas/vertical-definition/valid.json", import.meta.url), "utf8"),
@@ -192,9 +195,11 @@ test("observed and missing artifact events are self-validating generic entity ev
     "the generic store must rebuild a compiled kind from the event snapshot without a kind-specific store",
   );
   assert.throws(() =>
-    assertEntityEventInputs(compiledObserved.event, compiledObserved.plan, [
-      { ...compiledObserved.blobs[0], body: `${compiledObserved.blobs[0].body} ` },
-    ]),
+    assertContentInputs(
+      [compiledObserved.event.payload.declarationDocumentClaim],
+      [{ ...compiledObserved.blobs[0], body: `${compiledObserved.blobs[0].body} ` }],
+      "entity observed",
+    ),
   );
 
   const missingResolution = "missing:ENOENT",
@@ -221,6 +226,52 @@ test("observed and missing artifact events are self-validating generic entity ev
     missing.plan.targets.some(({ kind }) => kind === "authored_file"),
     false,
   );
+});
+
+test("an entity update restates owned content as manifest metadata without carrying its bytes", () => {
+  const artifact = compiledArtifact(),
+    source = canonicalSourceIdentity({ kind: "repository-path", repositoryId: "canonical", path: "docs/adr.md" }),
+    descriptor = makeDescriptor(artifact, source),
+    opId = artifactMutationOperationId({
+      mutation: "update",
+      entityId: descriptor.entityId,
+      expectedVersion: 1,
+      request: { entityKind: descriptor.typeIdentity, title: "ADR One revised" },
+    }),
+    carried = {
+      relativePath: "notes/keep.md",
+      sha256: "b".repeat(64),
+      size: 5,
+      mediaType: "text/markdown",
+      policyId: "markdown-body-replaceable/v1",
+    },
+    updated = compileEntityUpdated({
+      contract: artifact.entityKindContract as EntityStoreKindContract,
+      contractSnapshot: artifactEntityContractSnapshot({ ...artifact, kindVersion: 1 }),
+      descriptor,
+      sourceContent: [carried],
+      eventId: `event-${opId}`,
+      opId,
+      workspaceRevision: 2,
+      actor,
+      source: "local",
+      occurredAt: "2026-09-10T00:00:00.000Z",
+    });
+  // The manifest still binds what the entity owns, restated from metadata alone …
+  const binding = updated.event.payload.ownedContent.bindings.find(({ path }) => path.endsWith("notes/keep.md"));
+  assert.equal(binding?.contentSha256, carried.sha256);
+  assert.deepEqual(
+    updated.event.payload.ownedContent.content.find(({ sha256 }) => sha256 === carried.sha256),
+    {
+      sha256: carried.sha256,
+      byteLength: carried.size,
+      mediaType: carried.mediaType,
+    },
+  );
+  // … but the bundle carries only the declaration's bytes: the store already holds the carried object,
+  // and a claim with neither a blob nor a stored object is rejected at the store boundary.
+  assert.equal(updated.blobs.length, 1);
+  assert.equal(updated.blobs[0].sha256, updated.event.payload.declarationDocumentClaim.sha256);
 });
 
 const adrKindId = "KND-1f5c0a7e9b3d4c6a8e2f0b1d3c5a7e94";

@@ -418,7 +418,9 @@ export function normalizeContentAddressedInputs<T extends ContentAddressedInput>
     const prior = bySha256.get(input.sha256);
     if (
       prior !== undefined &&
-      (prior.size !== input.size || prior.mediaType !== input.mediaType || !sameContentBody(prior.body, input.body))
+      (prior.size !== input.size ||
+        prior.mediaType !== input.mediaType ||
+        (typeof prior.body === "string" && typeof input.body === "string" && prior.body !== input.body))
     )
       throw new WriteChainContractError(
         "invalid_write_plan",
@@ -427,13 +429,6 @@ export function normalizeContentAddressedInputs<T extends ContentAddressedInput>
     if (prior === undefined) bySha256.set(input.sha256, input);
   }
   return [...bySha256.values()];
-}
-
-function sameContentBody(left: string | Uint8Array | undefined, right: string | Uint8Array | undefined): boolean {
-  if (typeof left === "string" || typeof right === "string" || left === undefined || right === undefined)
-    return left === right;
-  if (left.byteLength !== right.byteLength) return false;
-  return left.every((byte, index) => byte === right[index]);
 }
 
 const LEDGER_DATABASE_PATH = ".harness/store/generations/2/ledger.sqlite";

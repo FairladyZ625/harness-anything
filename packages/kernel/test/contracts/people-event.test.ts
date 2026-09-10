@@ -6,6 +6,7 @@ import {
   compilePeopleRosterActionEvent,
   validatePeopleEvent,
 } from "../../src/domain/people-event.ts";
+import { assertContentInputs } from "../../src/store/task-event-store-validation.ts";
 
 test("people_changed carries the Action result, parent CAS, exact blob, and frozen write plan", () => {
   const compiled = compilePeopleRosterActionEvent({
@@ -33,14 +34,20 @@ test("people_changed carries the Action result, parent CAS, exact blob, and froz
   assert.doesNotThrow(() =>
     assertPeopleEventInputs(compiled.bundle!.event, compiled.bundle!.plan, compiled.bundle!.blobs),
   );
+  // Blob bytes are verified once, at the store boundary: a body that disagrees with its claim's SHA is
+  // rejected there (assertContentInputs), not by a second hash inside the domain assertion.
   assert.throws(
     () =>
-      assertPeopleEventInputs(compiled.bundle!.event, compiled.bundle!.plan, [
-        {
-          ...compiled.bundle!.blobs[0],
-          body: `${compiled.bundle!.blobs[0].body} `,
-        },
-      ]),
-    /must be exact/u,
+      assertContentInputs(
+        [compiled.bundle!.event.payload.peopleDocumentClaim],
+        [
+          {
+            ...compiled.bundle!.blobs[0],
+            body: `${compiled.bundle!.blobs[0].body} `,
+          },
+        ],
+        "people",
+      ),
+    /content inputs must exactly match/u,
   );
 });

@@ -217,8 +217,7 @@ export function assertSettingsEventInputs(
   assertSettingsEventWritePlan(event, plan);
   const claim = event.payload.harnessDocumentClaim,
     blob = blobs.find((candidate) => candidate.sha256 === claim.sha256);
-  if (!blob || blob.size !== claim.size || blob.mediaType !== claim.mediaType || sha256Text(blob.body) !== claim.sha256)
-    throw new Error("settings harness.yaml blob must be exact");
+  if (!blob) throw new Error("settings harness.yaml blob must be exact");
   if (
     stableStringify(repositorySettings(readSettingsFacet(blob.body))) !==
     stableStringify(repositorySettings(event.payload.settings))

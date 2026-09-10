@@ -339,8 +339,7 @@ export function assertScheduleEventInputs(
   }
   const claim = event.payload.declarationDocumentClaim,
     blob = blobs.find((candidate) => candidate.sha256 === claim.sha256);
-  if (!blob || blob.size !== claim.size || blob.mediaType !== claim.mediaType || sha256Text(blob.body) !== claim.sha256)
-    throw new Error("schedule definition blob must be exact");
+  if (!blob) throw new Error("schedule definition blob must be exact");
   let value: unknown;
   try {
     value = JSON.parse(blob.body);
