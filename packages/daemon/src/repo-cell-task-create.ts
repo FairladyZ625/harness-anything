@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
 import {
-  parseEntityRef,
   sessionProvenance,
   taskBootstrapWritePlan,
   type WriteReceiptDraft as WriteReceipt,
@@ -146,11 +145,6 @@ export function prepareTaskCreateAt(
     canonicalOpId = cell.operationId(canonicalAction, binding, cell.input.repoId, 0),
     opId = dryRun ? `preview:${createHash("sha256").update(canonicalOpId).digest("hex")}` : canonicalOpId,
     existing = dryRun ? null : cell.store.readEvent(opId);
-  if (typeof canonicalAction.taskId === "string" && parseEntityRef(`task/${canonicalAction.taskId}`)?.kind !== "task")
-    throw cell.cellCodedError(
-      "invalid_task_id",
-      `Task id ${canonicalAction.taskId} cannot be parsed as a task entity reference.`,
-    );
   if (existing) {
     return cell.receiptForOperation(opId, binding);
   }
