@@ -317,7 +317,6 @@ function contextFor(
       },
       activeWriter,
       writerToken: bindWriterGenerationToken(activeWriter),
-      activeWriterEpochGuard: null,
       activeWriterEpochFence: null,
       activeWriterEpochFenceDescriptor: null,
       withLayoutAdvisory: <T>(value: T) => value,

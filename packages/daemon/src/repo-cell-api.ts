@@ -131,7 +131,6 @@ export interface RepoCellApiContext {
   tail: Promise<void>;
   readonly activeWriter: Parameters<typeof assertCurrentWriter>[0];
   readonly writerToken: Parameters<typeof assertCurrentWriter>[1];
-  activeWriterEpochGuard: (() => void) | null;
   activeWriterEpochFence: (<T>(operation: () => T) => T) | null;
   activeWriterEpochFenceDescriptor: NonNullable<RepoCellBinding["writerEpochFence"]> | null;
   readonly withHumanSummary: (receipt: WriteReceiptDraft) => WriteReceiptDraft;
@@ -321,7 +320,6 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
             "RepoCell closed or changed state before this queued command could execute.",
           );
         assertCurrentWriter(context.activeWriter, context.writerToken, context.input.repoId);
-        context.activeWriterEpochGuard = binding.assertWriterEpoch ?? null;
         context.activeWriterEpochFence = binding.withWriterEpochFence ?? null;
         context.activeWriterEpochFenceDescriptor = binding.writerEpochFence ?? null;
         const revisionBeforeExecution = context.store.readHead()?.revision ?? 0;
@@ -367,7 +365,6 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
             );
           throw error;
         } finally {
-          context.activeWriterEpochGuard = null;
           context.activeWriterEpochFence = null;
           context.activeWriterEpochFenceDescriptor = null;
         }

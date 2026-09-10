@@ -85,7 +85,6 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         transportKind: "fleet-tls" as const,
         assignmentBinding: assignment,
         writerEpoch: lease.epoch,
-        assertWriterEpoch: () => writerEpoch.assert(assignment.repoId, lease.epoch, lease.holderId),
         withWriterEpochFence: <T>(operation: () => T) =>
           writerEpoch.withAppendFence(assignment.repoId, lease.epoch, lease.holderId, operation),
         writerEpochFence: {

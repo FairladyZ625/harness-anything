@@ -93,10 +93,10 @@ export type RepoWriterMessageV1 =
   | RepoWriterStatusV1
   | RepoWriterControlV1;
 
-export type SerializableRepoCellBindingV1 = Omit<RepoCellBinding, "assertWriterEpoch" | "withWriterEpochFence">;
+export type SerializableRepoCellBindingV1 = Omit<RepoCellBinding, "withWriterEpochFence">;
 
 export function serializableRepoCellBinding(binding: RepoCellBinding): SerializableRepoCellBindingV1 {
-  const { assertWriterEpoch: _assert, withWriterEpochFence: _fence, ...serializable } = binding;
+  const { withWriterEpochFence: _fence, ...serializable } = binding;
   return serializable;
 }
 

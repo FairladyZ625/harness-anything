@@ -993,7 +993,6 @@ test("repo-cell restart re-adopts a live native runtime and settles an exit reco
         source: "local" as const,
         writerEpoch: oldLease.epoch,
         writerEpochFence: oldFence,
-        assertWriterEpoch: () => oldAuthority!.assert(repoId, oldLease.epoch, oldLease.holderId),
         withWriterEpochFence: <T>(operation: () => T) =>
           oldAuthority!.withAppendFence(repoId, oldLease.epoch, oldLease.holderId, operation),
       },
@@ -1095,7 +1094,6 @@ test("repo-cell restart re-adopts a live native runtime and settles an exit reco
         source: "local" as const,
         writerEpoch: newLease.epoch,
         writerEpochFence: newFence,
-        assertWriterEpoch: () => newAuthority!.assert(repoId, newLease.epoch, newLease.holderId),
         withWriterEpochFence: <T>(operation: () => T) =>
           newAuthority!.withAppendFence(repoId, newLease.epoch, newLease.holderId, operation),
       };

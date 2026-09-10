@@ -1005,8 +1005,6 @@ export async function openRepoWriterCell(
     },
     activeWriter,
     writerToken,
-    // repo-cell-api still assigns the retired pre-append guard; nothing reads it.
-    activeWriterEpochGuard: null as (() => void) | null,
     get activeWriterEpochFence() {
       return activeWriterEpochFence ?? defaultWriterEpochFence;
     },
