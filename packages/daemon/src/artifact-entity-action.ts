@@ -399,12 +399,7 @@ export async function runArtifactEntityImport(input: {
       randomEntityIdBytes: () => randomBytes(ARTIFACT_ENTITY_ID_BYTES),
       readOperation: (opId) => readEntityOperation(input.store, opId),
       countRelationChanges: (entityRef) =>
-        input.projection
-          .readRelationTruth()
-          .edges.filter(
-            ({ sourceRef, targetRef, state }) =>
-              state === "active" && (sourceRef === entityRef || targetRef === entityRef),
-          ).length,
+        input.projection.readRelationQuery({ entity: entityRef, state: "active" }).rows.length,
     }),
     prepared = await service.prepare(
       {

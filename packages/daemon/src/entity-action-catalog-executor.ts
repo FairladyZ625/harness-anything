@@ -569,9 +569,8 @@ function compileDraft(
   if (document.watermark !== document.sourceRevision)
     reject("content_not_ready", `Decision document ${path} is pending.`);
   const relations = projection
-    .readDecisionGraph()
-    .edges.filter((edge) => edge.ownerRef === `decision/${draft.event.decisionId}`)
-    .map((edge) => ({
+    .readRelationQuery({ ownerRef: `decision/${draft.event.decisionId}` })
+    .rows.map((edge) => ({
       relation_id: edge.relationId,
       source: edge.sourceRef,
       target: edge.targetRef,
