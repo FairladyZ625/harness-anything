@@ -159,9 +159,12 @@ export function openFleetLeaseBroker(options: {
     stateFile = path.join(options.stateRoot, "leases.json"),
     state = loadBrokerState(stateFile);
   const parks = new Map<string, ParkRegistration>(),
+    queuedByOpId = new Map<string, { readonly key: string; readonly item: WaitItem }>(),
     inFlight = new Set<string>(),
     pumping = new Set<string>(),
     taskLocks = new Map<string, Promise<void>>();
+  for (const [key, items] of Object.entries(state.queue))
+    for (const item of items) queuedByOpId.set(item.opId, { key, item });
   const taskKey = (repoId: string, taskId: string): string => `${repoId}|${taskId}`,
     splitKey = (key: string): { readonly repoId: string; readonly taskId: string } => {
       const at = key.indexOf("|");
@@ -602,9 +605,8 @@ export function openFleetLeaseBroker(options: {
       };
     const key = taskKey(assignment.repoId, taskId);
     const disposition = await withTaskLock(key, async (): Promise<TaskDisposition> => {
-      const queuedElsewhere = Object.entries(state.queue)
-        .flatMap(([queuedKey, items]) => items.map((item) => ({ queuedKey, item })))
-        .find(({ item }) => item.opId === frame.opId);
+      const queued = queuedByOpId.get(frame.opId),
+        queuedElsewhere = queued ? { queuedKey: queued.key, item: queued.item } : undefined;
       if (queuedElsewhere) {
         if (
           queuedElsewhere.queuedKey !== key ||
@@ -618,6 +620,7 @@ export function openFleetLeaseBroker(options: {
           };
         if (Date.parse(queuedElsewhere.item.deadlineAt) <= nowMs) {
           state.queue[key] = (state.queue[key] ?? []).filter((item) => item.opId !== frame.opId);
+          queuedByOpId.delete(frame.opId);
           persist();
         } else return { parked: parkOn(key, queuedElsewhere.item, clientGone) };
       }
@@ -731,6 +734,7 @@ export function openFleetLeaseBroker(options: {
       deadlineAt: new Date(nowMs + waitMs).toISOString(),
     };
     state.queue[key] = [...items, item];
+    queuedByOpId.set(opId, { key, item });
     persist();
     return parkOn(key, item, clientGone);
   }
@@ -763,6 +767,7 @@ export function openFleetLeaseBroker(options: {
       };
       const drop = (): void => {
         state.queue[key] = (state.queue[key] ?? []).filter((queued) => queued.opId !== item.opId);
+        queuedByOpId.delete(item.opId);
         persist();
         void pumpQueue(key);
       };
@@ -805,6 +810,8 @@ export function openFleetLeaseBroker(options: {
     for (const key of Object.keys(state.queue)) {
       const keep = (state.queue[key] ?? []).filter((item) => Date.parse(item.deadlineAt) > nowMs);
       if (keep.length !== (state.queue[key] ?? []).length) {
+        for (const item of state.queue[key] ?? [])
+          if (Date.parse(item.deadlineAt) <= nowMs) queuedByOpId.delete(item.opId);
         state.queue[key] = keep;
         changed = true;
         void pumpQueue(key);

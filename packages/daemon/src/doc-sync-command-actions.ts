@@ -445,21 +445,18 @@ function publishTaskArtifactBytes(
     );
   if (tracked || (existsSync(authoredTarget) && !sameUntrackedSource) || projected.document !== null) {
     const sha = sha256Bytes(bytes),
+      document = projected.document,
+      // The projection names the revision that last wrote this path, so a same-bytes republish reads that one event.
       replay =
-        existsSync(authoredTarget) &&
-        projected.document?.blobSha256 === sha &&
-        sha256Bytes(readFileSync(authoredTarget)) === sha
-          ? input.store
-              .read()
-              .events.findLast(
-                (event) =>
-                  isDocEvent(event) &&
-                  event.payload.changes.some(
-                    (change) => change.path === destination && change.candidate?.sha256 === sha,
-                  ),
-              )
+        document?.blobSha256 === sha && existsSync(authoredTarget) && sha256Bytes(readFileSync(authoredTarget)) === sha
+          ? input.store.readBatch(String(document.workspaceRevision - 1), 1).events[0]
           : undefined;
-    if (replay && isDocEvent(replay)) return { ...readDocReceipt(input, replay), destination };
+    if (
+      replay &&
+      isDocEvent(replay) &&
+      replay.payload.changes.some((change) => change.path === destination && change.candidate?.sha256 === sha)
+    )
+      return { ...readDocReceipt(input, replay), destination };
     throw docSyncError("artifact_collision", `artifact destination already exists: ${destination}`);
   }
   if (projected.watermark !== projected.sourceRevision)

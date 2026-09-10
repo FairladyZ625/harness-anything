@@ -1,4 +1,5 @@
-import { appendFileSync, mkdirSync, renameSync, rmSync, statSync } from "node:fs";
+import { mkdir, open, rename, rm } from "node:fs/promises";
+import type { FileHandle } from "node:fs/promises";
 import path from "node:path";
 import { consumeKnownError, resolveHarnessLayout } from "../../kernel/src/index.ts";
 // Classification lives here rather than at the dispatch point: the schema registry names the
@@ -57,6 +58,7 @@ export interface DaemonRequestLogRecord {
 
 export interface DaemonRequestLog {
   readonly record: (entry: DaemonRequestLogEntry) => void;
+  readonly settle: () => Promise<void>;
 }
 
 export interface DaemonRequestLogOptions {
@@ -80,25 +82,41 @@ export function openDaemonRequestLog(options: DaemonRequestLogOptions): DaemonRe
   // that cost is paid once instead of on every request.
   const logPaths = new Map<string, string>();
   let reportedFailure = false;
+  let chain: Promise<void> = Promise.resolve();
+  let handle: FileHandle | null = null;
 
   return {
     record: (entry) => {
-      try {
-        const logPath = resolveLogPath(entry.repoId);
-        if (!logPath) return;
-        mkdirSync(path.dirname(logPath), { recursive: true });
-        rotate(logPath, maxBytes, keptFiles);
-        appendFileSync(logPath, `${JSON.stringify(buildRecord(entry, now()))}\n`, "utf8");
-      } catch (error) {
-        // An observability sink must never fail the request it observes, but a sink that fails
-        // forever in silence is worse than no sink: report the first failure, then stay quiet.
-        consumeKnownError(error);
-        if (reportedFailure) return;
+      const logPath = resolveLogPath(entry.repoId);
+      if (!logPath) return;
+      chain = chain.then(() => writeRequestLogLine(logPath, `${JSON.stringify(buildRecord(entry, now()))}\n`));
+    },
+    settle: async () => {
+      await chain;
+      if (handle) await handle.close();
+      handle = null;
+    },
+  };
+
+  async function writeRequestLogLine(logPath: string, line: string): Promise<void> {
+    try {
+      await mkdir(path.dirname(logPath), { recursive: true });
+      if (!handle) handle = await open(logPath, "a");
+      if ((await handle.stat()).size >= maxBytes) {
+        await handle.close();
+        handle = null;
+        await rotate(logPath, keptFiles);
+        handle = await open(logPath, "a");
+      }
+      await handle.write(line, null, "utf8");
+    } catch (error) {
+      consumeKnownError(error);
+      if (!reportedFailure) {
         reportedFailure = true;
         (options.onFailure ?? defaultFailureReporter)(error);
       }
-    },
-  };
+    }
+  }
 
   function resolveLogPath(repoId: string): string | undefined {
     const cached = logPaths.get(repoId);
@@ -148,36 +166,21 @@ function commandClassOrNull(command: string): string | null {
   }
 }
 
-function rotate(logPath: string, maxBytes: number, keptFiles: number): void {
-  if (fileSize(logPath) < maxBytes) return;
+async function rotate(logPath: string, keptFiles: number): Promise<void> {
   if (keptFiles < 1) {
-    rmSync(logPath, { force: true });
+    await rm(logPath, { force: true });
     return;
   }
-  rmSync(`${logPath}.${keptFiles}`, { force: true });
+  await rm(`${logPath}.${keptFiles}`, { force: true });
   for (let index = keptFiles - 1; index >= 1; index -= 1) {
-    if (fileExists(`${logPath}.${index}`)) renameSync(`${logPath}.${index}`, `${logPath}.${index + 1}`);
+    try {
+      await rename(`${logPath}.${index}`, `${logPath}.${index + 1}`);
+    } catch (error) {
+      consumeKnownError(error);
+      if (!isMissingFile(error)) throw error;
+    }
   }
-  renameSync(logPath, `${logPath}.1`);
-}
-
-function fileSize(filePath: string): number {
-  try {
-    return statSync(filePath).size;
-  } catch (error) {
-    if (isMissingFile(error)) return 0;
-    throw error;
-  }
-}
-
-function fileExists(filePath: string): boolean {
-  try {
-    statSync(filePath);
-    return true;
-  } catch (error) {
-    if (isMissingFile(error)) return false;
-    throw error;
-  }
+  await rename(logPath, `${logPath}.1`);
 }
 
 function isMissingFile(error: unknown): boolean {
