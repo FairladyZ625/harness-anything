@@ -100,6 +100,41 @@ test("failure guidance renders structured missing-section, validator, and worksp
   );
 });
 
+test("a rejected receipt's own explanation replaces the generic code-only hint", () => {
+  assert.equal(
+    humanError({
+      code: "preset_snapshot_mismatch",
+      diagnostic: { kind: "failure", code: "preset_snapshot_mismatch" },
+      rejectionExplanation: "Run ha preset upgrade task-a before completion.",
+    }).hint,
+    "Run ha preset upgrade task-a before completion.",
+  );
+  assert.deepEqual(
+    renderCliReceipt({
+      ok: false,
+      code: "invalid_proof",
+      diagnostic: { kind: "failure", code: "invalid_proof" },
+      rejectionExplanation:
+        "CI run 34491684357 tested a1b2c3; this execution submitted d4e5f6. Use an observation for the submitted commit.",
+    }),
+    {
+      stream: "stderr",
+      text:
+        "error code=invalid_proof hint=CI run 34491684357 tested a1b2c3; this execution submitted d4e5f6. " +
+        "Use an observation for the submitted commit.",
+    },
+  );
+  // A richer structured diagnostic still wins over a plain rejectionExplanation string.
+  assert.equal(
+    humanError({
+      code: "invalid_result",
+      diagnostic: { kind: "validation", entity: "task-a", field: "status", actual: "weird", expectation: "planned" },
+      rejectionExplanation: "generic wrapper text",
+    }).hint,
+    "Validation failed for entity=task-a field=status; actual=weird; planned.",
+  );
+});
+
 test("write_rejected renders the inner receipt reason and summary without suggesting a retry", () => {
   assert.deepEqual(
     renderCliReceipt({

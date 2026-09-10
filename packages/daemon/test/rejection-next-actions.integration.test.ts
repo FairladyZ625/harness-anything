@@ -263,6 +263,111 @@ test("executor declaration and completion context refusals name projection rebui
   }
 });
 
+test("symptom task_5df51336056c76d54946b231a7: decision propose packet issues name the field instead of a bare invalid_command", async () => {
+  const rootDir = workspace("decision-packet-issues"),
+    repoId = workspaceId("decision-packet-issues");
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "decision-packet-issues" });
+    const rejected = await cell.run(
+      {
+        kind: "decision-propose",
+        body: "# Over-length whyNot\n",
+        jsonInput: JSON.stringify({
+          title: "Over-length whyNot",
+          question: "Does the packet validator name the problem?",
+          riskTier: "medium",
+          urgency: "medium",
+          vertical: "default",
+          preset: "default",
+          decisionClass: "ordinary",
+          appliesTo: { modules: ["daemon"], productLines: [] },
+          chosen: [{ id: "CH1", text: "Use events" }],
+          rejected: [{ id: "RJ1", text: "Use files", whyNot: "x".repeat(200) }],
+          claims: [],
+          fulfillments: [],
+        }),
+      },
+      binding("decision-packet-issues"),
+    );
+    assert.equal(rejected.outcome, "op_rejected", JSON.stringify(rejected));
+    assert.equal(rejected.code, "invalid_command");
+    assert.match(String(rejected.rejectionExplanation), /whyNot/u);
+  } finally {
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("symptom task_6edcc0d990dae7e42f4bc93ff9 (review-execution before submit): review before submission names the required state instead of a bare invalid_command", async () => {
+  const rootDir = workspace("review-before-submit"),
+    taskId = "task-review-before-submit",
+    executionId = "exec-review-before-submit",
+    owner = binding("review-before-submit-owner"),
+    reviewer = withRoleBinding(binding("review-before-submit-reviewer"), "arbiter");
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    cell = await openRepoCell({
+      repoId: workspaceId("review-before-submit"),
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "review-before-submit",
+    });
+    const created = await cell.run({ kind: "task-create", taskId, title: "Review before submit" }, owner);
+    assert.equal(created.outcome, "applied");
+    await waitForFixturePublication(cell, created.opId, owner);
+    await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
+      cell!.run({ kind: "doc-submit", paths: [planPath] }, owner),
+    );
+    assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, owner)).outcome, "applied");
+    writeFileSync(
+      path.join(rootDir, "review.json"),
+      JSON.stringify({ verdict: "approved", reason: "Independent review.", evidenceChecked: ["integration"] }),
+    );
+    const rejected = await cell.run(
+      { kind: "task-review-execution", taskId, executionId, reviewId: "review-early", fromFile: "review.json" },
+      reviewer,
+    );
+    assert.equal(rejected.outcome, "op_rejected", JSON.stringify(rejected));
+    assert.equal(rejected.code, "invalid_transition", JSON.stringify(rejected));
+    assert.match(String(rejected.rejectionExplanation), /submitted execution/u);
+    assert.deepEqual(rejected.diagnostic, {
+      kind: "validation",
+      entity: `execution ${executionId}`,
+      field: "status",
+      actual: "active",
+      expectation: "Execution status must be submitted on the current task iteration before review",
+    });
+  } finally {
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("symptom task_356fe6c7a05cb987d93a807b46: relation relate against a nonexistent entity names the missing ref instead of a bare entity_not_found", async () => {
+  const rootDir = workspace("relation-entity-not-found"),
+    repoId = workspaceId("relation-entity-not-found");
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "relation-entity-not-found" });
+    const rejected = await cell.run(
+      {
+        kind: "relation-relate",
+        sourceRef: "task/task-does-not-exist-1",
+        targetRef: "task/task-does-not-exist-2",
+        relationType: "depends-on",
+        expectedVersion: 0,
+      },
+      binding("relation-entity-not-found"),
+    );
+    assert.equal(rejected.outcome, "op_rejected", JSON.stringify(rejected));
+    assert.equal(rejected.code, "entity_not_found", JSON.stringify(rejected));
+    assert.match(String(rejected.rejectionExplanation), /task-does-not-exist-1 does not exist/u);
+  } finally {
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 function binding(executorId: string) {
   return {
     actor: { principal: { personId: "person-owner" }, executor: { kind: "agent" as const, id: executorId } },

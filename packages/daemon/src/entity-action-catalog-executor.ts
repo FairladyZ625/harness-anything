@@ -456,7 +456,9 @@ export function deriveActionResult(
         ? criterionRefs.map((criterionRef) => resolveActionCriterion(contract, criterionRef))
         : [],
     explanation = rejected
-      ? (unmetCriteria[0]?.explain ?? `Action ${contract.target.kind}.${contract.id} was rejected.`)
+      ? (unmetCriteria[0]?.explain ??
+        receipt.rejectionExplanation ??
+        `Action ${contract.target.kind}.${contract.id} was rejected.`)
       : null;
   return {
     ...receipt,

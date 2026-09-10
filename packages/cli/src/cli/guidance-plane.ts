@@ -186,22 +186,29 @@ export function humanError(receipt: Record<string, unknown>): { readonly code: s
   if (code === "daemon_stopping") return { code, hint: renderTemplate("failure", "daemon-stopping", {}) };
   if (code === "fact_type_unregistered") return { code, hint: renderTemplate("failure", "fact-type-unregistered", {}) };
   if (code === "daemon_restarting" && typeof outer.hint === "string") return { code, hint: outer.hint };
-  const diagnostic = record(receipt.diagnostic) ? receipt.diagnostic : null,
+  const rawDiagnostic = record(receipt.diagnostic) ? receipt.diagnostic : null,
+    // A bare {kind:"failure"} diagnostic is the code-only placeholder `rejected()` always attaches;
+    // it renders to the same generic sentence as the final fallback, so treat it as no diagnostic
+    // and let a specific rejectionExplanation or unmet-criteria detail take priority instead.
+    diagnostic = rawDiagnostic && rawDiagnostic.kind !== "failure" ? rawDiagnostic : null,
     diagnosticHint = diagnostic ? renderDiagnostic(diagnostic) : null,
+    explanationHint = typeof receipt.rejectionExplanation === "string" ? receipt.rejectionExplanation : null,
     declaredGuidance = renderReceiptGuidance(receipt),
     baseHint =
       diagnosticHint ??
+      explanationHint ??
       (declaredGuidance.length > 0 ? declaredGuidance.join(" ") : null) ??
       renderTemplate("failure", "failure", { code }),
-    criteria = diagnosticHint
-      ? []
-      : Array.isArray(receipt.unmetCriteria)
-        ? receipt.unmetCriteria.flatMap((entry) =>
-            record(entry) && typeof entry.ref === "string" && typeof entry.explain === "string"
-              ? [{ ref: entry.ref, explain: entry.explain }]
-              : [],
-          )
-        : [],
+    criteria =
+      diagnosticHint || explanationHint
+        ? []
+        : Array.isArray(receipt.unmetCriteria)
+          ? receipt.unmetCriteria.flatMap((entry) =>
+              record(entry) && typeof entry.ref === "string" && typeof entry.explain === "string"
+                ? [{ ref: entry.ref, explain: entry.explain }]
+                : [],
+            )
+          : [],
     hint =
       criteria.length === 0 ? baseHint : `${baseHint} ${renderTemplate("failure", "unmet-criteria", { criteria })}`;
   return { code, hint };
