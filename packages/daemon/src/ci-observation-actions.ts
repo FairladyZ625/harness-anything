@@ -25,43 +25,49 @@ export async function pullAndIngestCiObservations(
   binding: RepoCellBinding,
   runGh: RunGh = (command, args, options) => runProcessTextAsync(command, args, options.cwd),
 ): Promise<WriteReceipt> {
-  const limit = Number(action.limit ?? 20);
+  const limit = Number(action.limit ?? 20),
+    namedRuns = Array.isArray(action.runs) ? action.runs.map(Number) : null;
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100)
     throw cell.cellCodedError("invalid_command", "CI observation pull limit must be 1..100.");
+  if (namedRuns && action.limit !== undefined)
+    throw cell.cellCodedError("invalid_command", "Use --run <run-id> or --limit <count>, not both.");
+  if (namedRuns && (namedRuns.length > 100 || namedRuns.some((id) => !Number.isSafeInteger(id) || id < 1)))
+    throw cell.cellCodedError("invalid_command", "CI observation pull accepts 1..100 positive --run ids.");
   const temporaryRoot = mkdtempSync(path.join(tmpdir(), "ha-ci-observe-"));
   try {
-    const runs = selectCiObservationRuns(
-      (
-        await Promise.all(
-          ["rewrite-ci.yml", "rebuild-gates.yml"].map(
-            async (workflow) =>
-              JSON.parse(
-                await runGh(
-                  "gh",
-                  [
-                    "run",
-                    "list",
-                    "--workflow",
-                    workflow,
-                    "--limit",
-                    String(limit),
-                    "--json",
-                    "databaseId,headBranch,createdAt",
-                  ],
-                  { cwd: cell.rootDir },
-                ),
-              ) as readonly CiWorkflowRun[],
-          ),
-        )
-      ).flat(),
-      limit,
-    );
+    const runs: readonly Pick<CiWorkflowRun, "databaseId">[] =
+      namedRuns?.map((databaseId) => ({ databaseId })) ??
+      selectCiObservationRuns(
+        (
+          await Promise.all(
+            ["rewrite-ci.yml", "rebuild-gates.yml"].map(
+              async (workflow) =>
+                JSON.parse(
+                  await runGh(
+                    "gh",
+                    [
+                      "run",
+                      "list",
+                      "--workflow",
+                      workflow,
+                      "--limit",
+                      String(limit),
+                      "--json",
+                      "databaseId,headBranch,createdAt",
+                    ],
+                    { cwd: cell.rootDir },
+                  ),
+                ) as readonly CiWorkflowRun[],
+            ),
+          )
+        ).flat(),
+        limit,
+      );
     const eventRefs: string[] = [];
     let imported = 0,
       duplicate = 0,
       lastRevision = cell.store.readHead()?.revision ?? 0;
     for (const run of runs) {
-      if (run.headBranch !== "main") continue;
       const summary = JSON.parse(
         await runGh(
           "gh",
@@ -83,8 +89,8 @@ export async function pullAndIngestCiObservations(
         attempt: number;
       };
       const { status: runLifecycleState } = summary;
-      // Publish immutable observations only once the run has a final conclusion.
-      if (runLifecycleState !== "completed") continue;
+      // Publish immutable observations only for main runs that have a final conclusion.
+      if (summary.headBranch !== "main" || runLifecycleState !== "completed") continue;
       const runRoot = path.join(temporaryRoot, String(run.databaseId));
       try {
         await runGh(
@@ -154,7 +160,13 @@ export async function pullAndIngestCiObservations(
       outcome: visible ? "applied" : "pending",
       opId: `ci-observe-pull-${Date.now()}`,
       revision: lastRevision,
-      evidence: JSON.stringify({ schema: "ci-observe-pull/v1", imported, duplicate, requestedRuns: limit, eventRefs }),
+      evidence: JSON.stringify({
+        schema: "ci-observe-pull/v1",
+        imported,
+        duplicate,
+        requestedRuns: namedRuns?.length ?? limit,
+        eventRefs,
+      }),
       visibility: "center",
       proof: {
         committedRevision: lastRevision,
