@@ -356,7 +356,7 @@ function verifyDocumentClosure(
       commit,
       [...closure.documents.keys()].flatMap((logical) => {
         const entry = tree.get(ledgerGitPath(ledger, logical));
-        return entry ? [{ target: entry.target, size: entry.size }] : [];
+        return entry ? [{ target: entry.target, size: entry.size, oid: entry.oid }] : [];
       }),
     );
   for (const [logical, expected] of closure.documents) {
@@ -393,7 +393,7 @@ export function verifyGitFiles(repoRoot: string, commit: string, files: readonly
       commit,
       files.flatMap((file) => {
         const entry = "target" in file ? tree.get(file.target) : undefined;
-        return entry ? [{ target: entry.target, size: entry.size }] : [];
+        return entry ? [{ target: entry.target, size: entry.size, oid: entry.oid }] : [];
       }),
     );
   for (const file of files) {
@@ -552,7 +552,7 @@ export function captureGitBaseline(
       commit,
       targets.flatMap((target) => {
         const entry = tree.get(target);
-        return entry ? [{ target, size: entry.size }] : [];
+        return entry ? [{ target, size: entry.size, oid: entry.oid }] : [];
       }),
     );
   return new Map(
