@@ -148,7 +148,7 @@ export function main(argv = process.argv.slice(2)) {
     const prBody = prBodyFile === null ? (process.env.PR_BODY ?? "") : readFileSync(prBodyFile, "utf8");
     const result = evaluateProductionDelta({ rootDir, base, prBody });
     const { churn, net } = reportComputedDelta(result.computed);
-    writeCiGateResult("G33", result.ok, {
+    writeCiGateResult("G33", result.ok ? "pass" : "fail", {
       addedLines: result.computed.added,
       deletedLines: result.computed.deleted,
       churn,
@@ -164,7 +164,7 @@ export function main(argv = process.argv.slice(2)) {
     console.log("G33 production-delta: pass");
     return 0;
   } catch (error) {
-    writeCiGateResult("G33", false, {});
+    writeCiGateResult("G33", "fail", {});
     console.error(`G33 production-delta: ${error.message}`);
     return 1;
   }

@@ -9,6 +9,7 @@ import {
   type FrozenWritePlan,
 } from "./write-chain.contract.ts";
 import { eventObjectTarget } from "../layout/ledger-object-layout.ts";
+import { completionEvidenceResults, type CompletionEvidenceResult } from "./completion-evidence.ts";
 
 export const CI_RUN_OBSERVATION_SCHEMA = Object.freeze({
   id: "ci-run-observation/v2",
@@ -37,7 +38,7 @@ export type CiRunObservationTest = {
 
 export type CiRunObservationGate = {
   readonly gate: string;
-  readonly pass: boolean;
+  readonly result: CompletionEvidenceResult;
   readonly metrics: Readonly<Record<string, number>>;
 };
 
@@ -166,9 +167,9 @@ function validTest(value: unknown, allowUnknownFields: boolean): boolean {
 function validGate(value: unknown, allowUnknownFields: boolean): boolean {
   if (
     !isRecord(value) ||
-    !hasContractFields(value, ["gate", "pass", "metrics"], allowUnknownFields) ||
+    !hasContractFields(value, ["gate", "result", "metrics"], allowUnknownFields) ||
     !nonEmpty(value.gate) ||
-    typeof value.pass !== "boolean" ||
+    !completionEvidenceResults.includes(value.result as CompletionEvidenceResult) ||
     !isRecord(value.metrics)
   )
     return false;

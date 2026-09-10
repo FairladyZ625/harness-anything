@@ -1705,7 +1705,7 @@ async function publishCiObservation(
             runner: "fixture-runner",
           },
           tests: [],
-          gates: [{ gate: "ci", pass: true, metrics: { runAttempt: 1 } }],
+          gates: [{ gate: "ci", result: "pass", metrics: { runAttempt: 1 } }],
         }),
       );
       return "";

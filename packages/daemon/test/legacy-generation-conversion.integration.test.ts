@@ -1095,7 +1095,11 @@ test("offline conversion retains old CI labels as unverified measurements", () =
     assert.equal(plan.events.length, 1);
     const converted = plan.events[0]!;
     assert.equal(converted.schema, "ci-run-observation/v2");
-    assert.deepEqual(converted.payload, { ...legacy.payload, verification: null });
+    assert.deepEqual(converted.payload, {
+      ...legacy.payload,
+      gates: [{ gate: "ci", result: "pass", metrics: { runAttempt: 1 } }],
+      verification: null,
+    });
     assert.equal(converted.opId, legacy.opId);
     assert.equal(converted.workspaceRevision, legacy.workspaceRevision);
     assert.equal(JSON.stringify(legacy), original, "source object and its original fields remain untouched");

@@ -77,7 +77,7 @@ test("CI observatory aggregates filtered runs, retries, percentiles, shards, gat
           retry: 0,
         },
       ],
-      [{ gate: "G32", pass: false, metrics: { durationMs: 20 } }],
+      [{ gate: "G32", result: "fail", metrics: { durationMs: 20 } }],
     ),
     event(
       2,
@@ -111,7 +111,7 @@ test("CI observatory aggregates filtered runs, retries, percentiles, shards, gat
           retry: 0,
         },
       ],
-      [{ gate: "G32", pass: true, metrics: { durationMs: 12, count: 3 } }],
+      [{ gate: "G32", result: "pass", metrics: { durationMs: 12, count: 3 } }],
     ),
     event(1, { branch: "feature/ignored" }, [
       { file: "ignored.ts", name: "ignored", tier: "fast", shard: 1, durationMs: 99, status: "failed", retry: 0 },
@@ -154,6 +154,35 @@ test("CI observatory aggregates filtered runs, retries, percentiles, shards, gat
 
 test("CI observatory rejects out-of-range windows before reading the projection", () => {
   assert.throws(() => readCiObservatory({ rootDir: process.cwd(), projection: {} as never, window: 0 }), /1\.\.100/u);
+});
+
+test("CI observatory does not count an advisory gate as a passing run", () => {
+  const rootDir = mkdtempSync(path.join(process.cwd(), ".tmp-ci-observatory-advisory-"));
+  mkdirSync(path.join(rootDir, "tools"), { recursive: true });
+  writeFileSync(
+    path.join(rootDir, "tools/test-quarantine.json"),
+    JSON.stringify({ schema: "harness-test-quarantine/v1", tests: [] }),
+  );
+  try {
+    const result = readCiObservatory({
+      rootDir,
+      projection: {
+        readCiRunObservations: () => ({
+          status: "ready",
+          events: [
+            event(1, { runId: "advisory-run" }, [], [{ gate: "G32", result: "advisory", metrics: { count: 1 } }]),
+          ],
+          watermark: 1,
+          sourceRevision: 1,
+        }),
+      } as never,
+      window: 1,
+    });
+    assert.equal(result.runs[0]?.pass, false);
+    assert.equal(result.gateTrends[0]?.points[0]?.pass, false);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
 });
 
 test("CI observatory fails closed on malformed quarantine ownership", () => {
@@ -537,7 +566,7 @@ test("CI completion verdict comes from the completed matching workflow run, not 
                 runner: "fixture",
               },
               tests: [],
-              gates: [{ gate: "ci", pass: true, metrics: {} }],
+              gates: [{ gate: "ci", result: "pass", metrics: {} }],
             }),
           );
           return "";

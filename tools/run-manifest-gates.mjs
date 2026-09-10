@@ -354,7 +354,11 @@ function main(argv) {
       continue;
     }
     const result = runCommand(entry.id, entry.command);
-    gateResults.push({ gate: canonicalGateId(entry.id), pass: result.ok, metrics: { durationMs: result.durationMs } });
+    gateResults.push({
+      gate: canonicalGateId(entry.id),
+      result: result.ok ? "pass" : "fail",
+      metrics: { durationMs: result.durationMs },
+    });
     if (!result.ok) {
       failedGateIds.push(entry.id);
       if (options.packageSurface) break;

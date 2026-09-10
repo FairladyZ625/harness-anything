@@ -57,6 +57,12 @@ export function closeoutReadiness(
   const cuts = currentExecutionCuts(snapshot),
     cut = cuts.length === 1 ? cuts[0] : undefined;
   if (task.status === "done") {
+    if (!cut)
+      return {
+        readiness: "incomplete",
+        blocker: "execution",
+        gates: gateResults(snapshot, availability),
+      };
     const gates = gateResults(snapshot, availability, cut?.executionId, cut?.submission?.commitSha, cut?.iteration),
       missing = gates.some(({ status }) => status !== "passed");
     return {

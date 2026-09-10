@@ -91,7 +91,7 @@ export function readCiObservatory(input: {
       occurredAt: event.occurredAt,
       pass:
         finalTestOutcomes(event).every((entry) => !outcomeIs(entry, "failed")) &&
-        event.payload.gates.every((entry) => entry.pass),
+        event.payload.gates.every((entry) => entry.result === "pass"),
       testCount: event.payload.tests.length,
       gateCount: event.payload.gates.length,
     })),
@@ -211,7 +211,7 @@ function gateRows(events: readonly CiRunObservationEventV2[]): CiObservatoryRead
           ...current,
           points: [
             ...current.points,
-            { runId: event.payload.run.runId, occurredAt: event.occurredAt, value, pass: gate.pass },
+            { runId: event.payload.run.runId, occurredAt: event.occurredAt, value, pass: gate.result === "pass" },
           ],
         });
       }

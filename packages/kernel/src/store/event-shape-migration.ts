@@ -621,10 +621,20 @@ export const ciWorkflowVerificationMigration = {
   matches: (event: CanonicalEventV1) => String(event.schema) === "ci-run-observation/v1",
   rewrite: (event: CanonicalEventV1) => {
     if (String(event.schema) !== "ci-run-observation/v1") return null;
+    const legacyPayload = event.payload as unknown as {
+      readonly gates?: readonly { readonly gate: string; readonly pass: boolean; readonly metrics: unknown }[];
+    };
+    const gates = Array.isArray(legacyPayload.gates)
+      ? legacyPayload.gates.map((gate) => ({
+          gate: gate.gate,
+          result: gate.pass ? "pass" : "fail",
+          metrics: gate.metrics,
+        }))
+      : legacyPayload.gates;
     const rewritten = {
       ...event,
       schema: "ci-run-observation/v2",
-      payload: { ...event.payload, verification: null },
+      payload: { ...event.payload, gates, verification: null },
     } as CanonicalEventV1;
     const issues = validateCurrentCiRunObservationEvent(rewritten);
     if (issues.length) throw new Error(`Invalid historical CI observation ${event.opId}: ${issues.join("; ")}`);

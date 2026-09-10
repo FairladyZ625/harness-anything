@@ -122,6 +122,18 @@ test("closeout readiness requires a passing exact-cut gate, not witness existenc
   );
 });
 
+test("a done projection without an execution cut is not passed", () => {
+  const withoutCut = closeout("pass");
+  assert.equal(
+    closeoutReadiness({ ...withoutCut, task: { ...withoutCut.task!, status: "done" }, executions: [] }).readiness,
+    "incomplete",
+  );
+  assert.equal(
+    closeoutReadiness({ ...withoutCut, task: { ...withoutCut.task!, status: "done" }, executions: [] }).blocker,
+    "execution",
+  );
+});
+
 test("code-doc reconciliation depends only on an explicit witness, never deliverable prose", () => {
   const base = closeout("pass"),
     withDeliverables = (deliverables: readonly string[]) => ({

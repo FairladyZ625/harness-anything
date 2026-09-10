@@ -21,7 +21,7 @@ const event: CiRunObservationEventV2 = {
     verification: null,
     run: { runId: "run-1", sha: "abc", branch: "main", prNumber: null, job: "test", wallclockMs: 10, runner: "ubuntu" },
     tests: [{ file: "a.test.ts", name: "works", tier: "fast", shard: null, durationMs: 5, status: "passed", retry: 0 }],
-    gates: [{ gate: "G32", pass: true, metrics: { count: 1 } }],
+    gates: [{ gate: "G32", result: "pass", metrics: { count: 1 } }],
   },
 };
 
@@ -42,7 +42,7 @@ test("ci run observation rejects invalid retry and metric values", () => {
   assert.match(
     validateCurrentCiRunObservationEvent({
       ...event,
-      payload: { ...event.payload, gates: [{ gate: "G32", pass: true, metrics: { count: Number.NaN } }] },
+      payload: { ...event.payload, gates: [{ gate: "G32", result: "pass", metrics: { count: Number.NaN } }] },
     }).join("\n"),
     /invalid/u,
   );
@@ -62,7 +62,7 @@ test("v2 requires explicit workflow verification and rejects legacy envelopes", 
   assert.deepEqual(validateCurrentCiRunObservationEvent(verified), []);
   for (const candidate of [
     { ...verified, schema: "ci-run-observation/v1" },
-    { ...verified, payload: { run, tests: [], gates: [{ gate: "ci", pass: true, metrics: { runAttempt: 2 } }] } },
+    { ...verified, payload: { run, tests: [], gates: [{ gate: "ci", result: "pass", metrics: { runAttempt: 2 } }] } },
     { ...verified, payload: { ...verified.payload, verification: { ...verification, attempt: 3 } } },
     { ...verified, payload: { ...verified.payload, verification: { ...verification, headSha: "other" } } },
     { ...verified, payload: { ...verified.payload, run: { ...run, branch: "feature" } } },
