@@ -13,6 +13,7 @@ import {
   resolveTaskBoundRuntimeBinding,
   runtimeSessionIdFromActor,
   stableStringify,
+  localGitObjectRefStore,
   taskProgressWritePlan,
   validFactStillHoldsAttestation,
   type CompletionReadinessContext,
@@ -49,11 +50,17 @@ function readCiEvidence(
   const reference = value.startsWith("event:") ? value.slice("event:".length) : value,
     event = cell.store.readEvent(reference);
   if (!event || event.type !== "ci_run_observed") return null;
-  if (event.payload.run.sha !== execution.submission.commitSha)
+  const run = event.payload.run,
+    submitted = execution.submission.commitSha;
+  // A main run on a commit that contains the submission proves the merged delivery is green.
+  if (
+    run.sha !== submitted &&
+    !(run.branch === "main" && localGitObjectRefStore.isAncestor(cell.rootDir, submitted, run.sha))
+  )
     throw cell.cellCodedError(
       "invalid_proof",
-      `CI run ${event.payload.run.runId} tested ${event.payload.run.sha}; ` +
-        `this execution submitted ${execution.submission.commitSha}. Use an observation for the submitted commit.`,
+      `CI run ${run.runId} tested ${run.sha}; this execution submitted ${submitted}. ` +
+        "Use an observation for the submitted commit or for a main commit that contains it.",
     );
   const verification = event.payload.verification;
   if (!verification)

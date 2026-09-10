@@ -1472,6 +1472,33 @@ test("task complete rejects a passing observation for another submitted commit",
   }
 });
 
+test("task complete accepts a verified main run on a commit that contains the submission", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-complete-ci-descendant-")),
+    taskId = "task-complete-ci-descendant",
+    executionId = "execution-complete-ci-descendant",
+    repoId = workspaceId("complete-ci-descendant");
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    initRepo(rootDir);
+    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "complete-ci-descendant" });
+    await prepareReadyCompletion(cell, rootDir, repoId, taskId, executionId, "CI Descendant", false);
+    const submitted = makeTaskEventReader({ repoId, rootDir })
+      .read()
+      .events.find(
+        (event) => event.type === "execution_submitted" && event.payload.execution.executionId === executionId,
+      );
+    assert.ok(submitted && submitted.type === "execution_submitted");
+    const submittedSha = String(submitted.payload.execution.submission?.commitSha),
+      laterMain = git(rootDir, "commit-tree", `${submittedSha}^{tree}`, "-p", submittedSha, "-m", "later main"),
+      observation = await publishCiObservation(repoId, rootDir, executionId, laterMain, "run-later-main"),
+      attempt = await cell.run({ kind: "task-complete", taskId, executionId, ci: observation }, repoWriteBinding);
+    assert.equal(attempt.code, "code_doc_missing", JSON.stringify(attempt));
+  } finally {
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 function initRepo(rootDir: string): void {
   git(rootDir, "init", "--quiet");
   git(rootDir, "config", "user.name", "RepoCell Test");
