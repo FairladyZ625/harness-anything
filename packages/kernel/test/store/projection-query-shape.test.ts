@@ -195,17 +195,15 @@ for (const [label, read] of [
   });
 }
 
-test("decision list pages with a bounded default and a constant number of statements", (context) => {
+test("decision list reads every match without paging parameters and a constant number of statements per page", (context) => {
   const counted = countingDatabase(),
     { db } = counted;
   try {
     seed(db, 7, 1);
     const unpaged = listDecisionRowsPage(db, {});
     assert.equal(unpaged.rows.length, 7);
-    // The default is one bounded page, not an unbounded read over every decision.
-    assert.equal(unpaged.page.limit, 100);
-    assert.equal(unpaged.page.cursor, null);
-    assert.equal(unpaged.page.nextCursor, null);
+    // Unparameterized reads still return every match; the GUI board and readiness read the whole corpus.
+    assert.equal(unpaged.page, undefined);
 
     const first = listDecisionRowsPage(db, { limit: 3 });
     assert.deepEqual(

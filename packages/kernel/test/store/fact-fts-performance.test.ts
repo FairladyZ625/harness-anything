@@ -139,18 +139,11 @@ test("10k Decision FTS searches stay indexed after refresh with p95 below 10ms",
       "INSERT INTO decision_fts VALUES ('dec_PERF_00000','Refreshed token0','Should token0 ship?','','','')",
     ).run();
     assert.equal(listDecisionRowsPage(db, { search: "token0" }).rows[0]?.decisionId, "dec_PERF_00000");
-    // The unparameterized list is one bounded page; cursor walking still reaches every row.
-    const firstPage = listDecisionRowsPage(db, {});
-    assert.equal(firstPage.rows.length, 100, "decision list default page must stay bounded");
-    assert.equal(firstPage.page.limit, 100);
-    let walked = firstPage.rows.length,
-      pageCursor = firstPage.page.nextCursor;
-    while (pageCursor !== null) {
-      const page = listDecisionRowsPage(db, { cursor: pageCursor });
-      walked += page.rows.length;
-      pageCursor = page.page.nextCursor;
-    }
-    assert.equal(walked, 10_000, "decision list paging must reach every row without silent truncation");
+    assert.equal(
+      listDecisionRowsPage(db, {}).rows.length,
+      10_000,
+      "decision list must return every row instead of silently truncating",
+    );
     const samples: number[] = [];
     for (let index = 0; index < 200; index += 1) {
       const target = 9_800 + index,
