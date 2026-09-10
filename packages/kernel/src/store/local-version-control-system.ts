@@ -323,28 +323,31 @@ export const localGitObjectRefStore = Object.freeze({
   readPaths: (
     repoRoot: string,
     commit: string,
-    entries: readonly { readonly target: string; readonly size: number }[],
+    entries: readonly { readonly target: string; readonly size: number; readonly oid: string }[],
   ): ReadonlyMap<string, Buffer> => {
     // One `cat-file --batch` per bounded chunk instead of one `git show` per path: the
     // canonical ledger holds ~10^5 event and content blobs, and per-path processes turned
-    // a stopped-generation read into hours.
+    // a stopped-generation read into hours. Each blob is addressed by the id the caller's
+    // `ls-tree` of this same commit returned: `<commit>:<path>` makes git walk every tree
+    // on the path and scan it entry by entry, so a directory of N files costs O(N) per
+    // lookup and a whole-closure read turns quadratic.
     const bytesByTarget = new Map<string, Buffer>();
-    let chunk: { readonly target: string; readonly size: number }[] = [],
+    let chunk: { readonly target: string; readonly size: number; readonly oid: string }[] = [],
       chunkBytes = 0;
     const flush = () => {
       if (chunk.length === 0) return;
       const output = withStdinFile(
         repoRoot,
         ".ha-cat-file-batch-",
-        [chunk.map(({ target }) => `${commit}:${target}\n`).join("")],
+        [chunk.map(({ oid }) => `${oid}\n`).join("")],
         (inputFd) => localGitBytes(repoRoot, ["cat-file", "--batch"], inputFd),
       );
       let offset = 0;
-      for (const { target } of chunk) {
+      for (const { target, oid } of chunk) {
         const newline = output.indexOf(0x0a, offset);
         if (newline < 0) throw new Error(`Git cat-file --batch output ended before ${target}`);
         const header = output.subarray(offset, newline).toString("utf8"),
-          size = /^[0-9a-f]{40} blob ([0-9]+)$/u.exec(header)?.[1];
+          size = header.startsWith(`${oid} blob `) ? /^[0-9a-f]{40} blob ([0-9]+)$/u.exec(header)?.[1] : undefined;
         if (size === undefined) throw new Error(`Git cat-file --batch could not read ${commit}:${target}: ${header}`);
         const start = newline + 1,
           end = start + Number(size);
