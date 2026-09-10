@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { consumeKnownError } from "../../kernel/src/index.ts";
-import { appendRuntimeWorkerRecord, scrubProviderValue } from "./dispatch-stream.ts";
+import { appendDispatchStreamRecord, dispatchStreamPath, scrubProviderValue } from "./dispatch-stream.ts";
 import { createRuntimeCallbackRelay } from "./runtime-callback-relay.ts";
 import type { RuntimeCallbackRelay } from "./runtime-spawn-types.ts";
 
@@ -18,8 +18,9 @@ type RuntimeWorkerManifest = {
 
 async function runRuntimeWorkerHost(): Promise<void> {
   const manifest = parseManifest(await readStandardInput());
+  const stream = dispatchStreamPath(manifest.rootDir, manifest.dispatchId);
   const append = (value: Readonly<Record<string, unknown>>): void =>
-    appendRuntimeWorkerRecord(manifest.rootDir, manifest.dispatchId, {
+    appendDispatchStreamRecord(stream, {
       occurredAt: new Date().toISOString(),
       ...value,
     });

@@ -11,6 +11,7 @@ import { consumeKnownError } from "../../kernel/src/index.ts";
 import type { PreparedRuntimeLaunch, RuntimeInstanceKind } from "./agent-runtime-instances.ts";
 import {
   appendRuntimeWorkerRecord,
+  dispatchStreamPath,
   readRuntimeWorkerChunk,
   scrubProviderValue,
   type DispatchStreamWriter,
@@ -242,18 +243,12 @@ function signalRuntimeTargets(
     }
 }
 
-async function survivingRuntimePids(pids: readonly number[]): Promise<readonly number[]> {
-  const wanted = new Set(pids),
-    rows = await readPosixProcessRows();
-  return rows.filter(({ pid }) => wanted.has(pid)).map(({ pid }) => pid);
-}
-
 async function awaitRuntimeProcessExit(pids: readonly number[], timeoutMs: number): Promise<readonly number[]> {
   const deadline = Date.now() + timeoutMs;
-  let survivors = await survivingRuntimePids(pids);
+  let survivors = pids.filter(runtimePidIsAlive);
   while (survivors.length > 0 && Date.now() < deadline) {
     await delay(Math.min(25, Math.max(1, deadline - Date.now())));
-    survivors = await survivingRuntimePids(pids);
+    survivors = survivors.filter(runtimePidIsAlive);
   }
   return survivors;
 }
@@ -501,6 +496,7 @@ function observeDispatchProcess(
   pid: number,
   skipPersistedOutputRecords = 0,
 ): RuntimeProcess {
+  const stream = dispatchStreamPath(rootDir, dispatchId);
   const outputs: Array<{ readonly chunk: string; readonly persisted: boolean }> = [];
   const errors: string[] = [];
   const decoder = new StringDecoder("utf8");
@@ -525,12 +521,15 @@ function observeDispatchProcess(
     if (exited) return;
     exited = true;
     exitCode = code;
+    // process_exit follows the host's last provider line. Stop here, not in release(), which settlement
+    // skips on its early return, on a throw, and behind the writer-thread proxy.
+    clearInterval(timer);
     if (exitListener) exitListener(code);
   };
   const drain = (): void => {
     if (released) return;
     try {
-      const bytes = readRuntimeWorkerChunk(rootDir, dispatchId, offset);
+      const bytes = readRuntimeWorkerChunk(stream, offset);
       if (bytes.length === 0) return;
       offset += bytes.length;
       buffer += decoder.write(bytes);
@@ -547,13 +546,14 @@ function observeDispatchProcess(
         } else if (record?.kind === "provider_stderr") emitError(String(record.chunk));
         else if (record?.kind === "process_exit") {
           emitExit(Number.isInteger(record.exitCode) ? Number(record.exitCode) : null);
+          return;
         }
       }
     } catch (error) {
       consumeKnownError(error);
     }
   };
-  const timer = setInterval(drain, 20);
+  const timer = setInterval(drain, 250);
   timer.unref();
   queueMicrotask(drain);
   return {

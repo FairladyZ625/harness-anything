@@ -27,6 +27,9 @@ export async function cancelRuntime(
     await consumeDurableOutput(context, active, cancelDurableDrainTimeoutMs);
     if (active.process.terminateTree) await active.process.terminateTree();
     else active.process.terminate();
+    // Cancel holds the write queue: lines flushed during termination drain into work queued behind
+    // it, which is dropped once settlement retires the runtime. Settle them from the stream.
+    await consumeDurableOutput(context, active);
     await context.publishExit(active, null);
     return context.controlReceipt(opId, runtimeSessionId);
   }
