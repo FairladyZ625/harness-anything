@@ -128,15 +128,17 @@ test("Git can verify an accepted document while a concurrently edited worktree r
       git(rootDir, "status", "--short", "--", "harness/context/published.md"),
       "M harness/context/published.md",
     );
+    assert.deepEqual(store.followerStatus().worktree.conflicts, ["harness/context/published.md"]);
     unlinkSync(path.join(rootDir, "harness/context/published.md"));
-    await store.settlePendingMaterialization?.("test recovery");
+    store.materialize();
     assert.equal(store.followerStatus().worktree.status, "verified");
+    assert.equal(readFileSync(path.join(rootDir, "harness/context/published.md"), "utf8"), "# Published\n");
   } finally {
     await store.drain();
   }
 });
 
-test("certified reopen resumes from the last physical cut without overwriting later user edits", async () => {
+test("certified reopen resumes from the worktree's own manifest without overwriting later user edits", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-sqlite-worktree-reopen-"));
   initRepo(rootDir);
   const collision = path.join(rootDir, "harness/context/collision.md"),
@@ -153,15 +155,20 @@ test("certified reopen resumes from the last physical cut without overwriting la
   first.append(docBundle(first, "# Canonical later\n", 3, "reopen-later", "context/later.md"));
   await first.settlePendingMaterialization?.("blocked second cut");
   assert.equal(first.followerStatus().worktree.status, "pending");
+  assert.deepEqual(first.followerStatus().worktree.conflicts, ["harness/context/collision.md"]);
+  assert.equal(readFileSync(collision, "utf8"), "local collision\n");
   await first.drain();
 
   unlinkSync(collision);
   const reopened = makeTaskEventStore({ repoId, rootDir });
   try {
+    // The reported path is not retried on its own: the reopen resumes at the settled cut, and materializing restores.
     await reopened.settlePendingMaterialization?.("resume physical cut");
+    assert.throws(() => readFileSync(collision), { code: "ENOENT" });
+    assert.equal(readFileSync(later, "utf8"), "# Canonical later\n");
+    reopened.materialize();
     assert.equal(reopened.followerStatus().worktree.status, "verified");
     assert.equal(readFileSync(collision, "utf8"), "# Canonical collision\n");
-    assert.equal(readFileSync(later, "utf8"), "# Canonical later\n");
   } finally {
     await reopened.drain();
   }
@@ -171,7 +178,6 @@ test("certified reopen resumes from the last physical cut without overwriting la
   try {
     await editedReopen.settlePendingMaterialization?.("preserve edit after reopen");
     assert.equal(readFileSync(later, "utf8"), "real user edit\n");
-    assert.equal(editedReopen.followerStatus().worktree.status, "pending");
   } finally {
     await editedReopen.drain();
   }
@@ -179,7 +185,6 @@ test("certified reopen resumes from the last physical cut without overwriting la
   const deletedReopen = makeTaskEventStore({ repoId, rootDir });
   try {
     await deletedReopen.settlePendingMaterialization?.("preserve local deletion");
-    assert.equal(deletedReopen.followerStatus().worktree.status, "pending");
     assert.throws(() => readFileSync(later), { code: "ENOENT" });
     const acceptedRevision = deletedReopen.currentCut().revision;
     deletedReopen.materialize();
@@ -383,7 +388,7 @@ test("certified Git follower rejects document tampering even when its manifest i
     try {
       assert.throws(
         () => readCertifiedGitFollower({ rootInput: rootDir, repoId, store: sqlite }),
-        /read-back differs/u,
+        /Git follower document differs at context\/canonical\.md/u,
       );
     } finally {
       sqlite.close();

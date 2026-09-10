@@ -47,16 +47,12 @@ export function publishConvertedGeneration(input: {
   const event = input.store.eventAtRevision(revision),
     cut = canonicalLedgerCut(input.repoId, event ? eventHead(event) : null),
     closureEvents = readEventsThrough(input.store, revision),
-    files = followerFiles(
-      ledger,
-      parent,
-      closureEvents,
-      input.store.readContentObject,
-      cut,
-      input.store.metadata().generation,
-    ),
+    files = [
+      ...followerFiles(ledger, closureEvents, input.store.readContentObject, cut, input.store.metadata().generation),
+      ...legacyRetirements(ledger, parent),
+    ],
     directories = followerDirectories(ledger, closureEvents),
-    manifestTarget = ledgerGitPath(ledger, "events/segments/manifest.json"),
+    manifestTarget = ledgerGitPath(ledger, followerManifestPath),
     alreadyCertified =
       localGitObjectRefStore.readPath(ledger.rootDir, parent, manifestTarget) !== null &&
       JSON.parse(localGitObjectRefStore.readPath(ledger.rootDir, parent, manifestTarget)!.toString("utf8"))
@@ -65,9 +61,11 @@ export function publishConvertedGeneration(input: {
   if (alreadyCertified) {
     const baseline = captureConversionBaseline(input.rootInput, ledger.rootDir, parent, files);
     localGitWorktreeSettlement.index(ledger.rootDir, files);
-    if (!worktreeMatchesBaseline(ledger.rootDir, baseline, files) || !settleWorktree(ledger.rootDir, files, baseline))
+    if (
+      !worktreeMatchesBaseline(ledger.rootDir, baseline, files) ||
+      settleWorktree(ledger.rootDir, files, baseline).length > 0
+    )
       throw new TaskEventStoreError("publication_indeterminate", "authored worktree has concurrent edits");
-    verifyWorktreeFiles(ledger.rootDir, files);
     settleWorktreeDirectories(ledger.rootDir, directories);
     return { commitSha: parent, revision, changed: false };
   }
@@ -75,12 +73,12 @@ export function publishConvertedGeneration(input: {
     commit = prepareCommit(ledger.rootDir, tempRef, parent, files, `conversion-${revision}`, new Date().toISOString()),
     baseline = captureConversionBaseline(input.rootInput, ledger.rootDir, parent, files);
   finalizeRefs(ledger.rootDir, authoredRef, commit, parent, tempRef);
-  verifyGitFiles(ledger.rootDir, commit, files);
-  verifyAuthoredRef(ledger.rootDir, authoredRef, commit);
   localGitWorktreeSettlement.index(ledger.rootDir, files);
-  if (!worktreeMatchesBaseline(ledger.rootDir, baseline, files) || !settleWorktree(ledger.rootDir, files, baseline))
+  if (
+    !worktreeMatchesBaseline(ledger.rootDir, baseline, files) ||
+    settleWorktree(ledger.rootDir, files, baseline).length > 0
+  )
     throw new TaskEventStoreError("publication_indeterminate", "authored worktree has concurrent edits");
-  verifyWorktreeFiles(ledger.rootDir, files);
   settleWorktreeDirectories(ledger.rootDir, directories);
   return { commitSha: commit, revision, changed: true };
 }
@@ -112,9 +110,11 @@ export function readCertifiedGitFollower(input: {
   };
 }
 
+const followerManifestPath = "events/segments/manifest.json";
+
+/** The publication of `events`: their documents' latest bytes, their retirements, and last the cut's manifest. */
 export function followerFiles(
   ledger: ReturnType<typeof resolveLedgerGitLayout>,
-  parent: string,
   events: readonly CanonicalEventV1[],
   readContent: (sha256: string) => Uint8Array | null,
   cut: LedgerCutIdentity,
@@ -138,26 +138,28 @@ export function followerFiles(
       retired.delete(claim.path);
     }
   }
-  const manifest = `${JSON.stringify({ schema: "sqlite-ledger-segment-manifest/v1", generation, cut })}\n`;
-  const eventsPrefix = ledgerGitPath(ledger, "events/"),
-    objectsPrefix = ledgerGitPath(ledger, "objects/sha256/");
-  for (const entry of localGitObjectRefStore.listTree(ledger.rootDir, parent, [eventsPrefix, objectsPrefix])) {
-    if (
-      (entry.target.startsWith(eventsPrefix) && !entry.target.endsWith("events/segments/manifest.json")) ||
-      entry.target.startsWith(objectsPrefix)
-    )
-      retired.add(entry.target);
-  }
-  for (const target of localGitWorktreeSettlement.indexedPaths(ledger.rootDir, [eventsPrefix, objectsPrefix])) {
-    if (target !== `${eventsPrefix}segments/manifest.json`) retired.add(target);
-  }
   return [
     ...[...latest].map(([target, value]) => ({ target: ledgerGitPath(ledger, target), ...value })),
-    ...[...retired].map((target) => ({
-      delete: target.startsWith(ledger.authoredPrefix) ? target : ledgerGitPath(ledger, target),
-    })),
-    { target: ledgerGitPath(ledger, "events/segments/manifest.json"), body: manifest, mode: "100644" },
+    ...[...retired].map((target) => ({ delete: ledgerGitPath(ledger, target) })),
+    { target: ledgerGitPath(ledger, followerManifestPath), body: followerManifest(generation, cut), mode: "100644" },
   ];
+}
+
+function followerManifest(generation: number, cut: LedgerCutIdentity): string {
+  return `${JSON.stringify({ schema: "sqlite-ledger-segment-manifest/v1", generation, cut })}\n`;
+}
+
+/** Pre-SQLite paths the index tracks, and with a `parent`, its tree holds: conversion retires both. */
+export function legacyRetirements(
+  ledger: ReturnType<typeof resolveLedgerGitLayout>,
+  parent: string | null,
+): PublicationDelete[] {
+  const scopes = [ledgerGitPath(ledger, "events/"), ledgerGitPath(ledger, "objects/sha256/")],
+    retired = new Set(localGitWorktreeSettlement.indexedPaths(ledger.rootDir, scopes));
+  if (parent !== null)
+    for (const entry of localGitObjectRefStore.listTree(ledger.rootDir, parent, scopes)) retired.add(entry.target);
+  retired.delete(ledgerGitPath(ledger, followerManifestPath));
+  return [...retired].map((target) => ({ delete: target }));
 }
 
 export interface FollowerDirectorySettlement {
@@ -224,14 +226,35 @@ export function settleWorktreeDirectories(repoRoot: string, settlement: Follower
       );
 }
 
+/**
+ * The revision whose cut `commit`'s manifest binds by head digest. Content addressing binds the rest of the tree to
+ * that commit, so it is not re-rendered here; `readCertifiedGitFollower` is the full read-back.
+ */
 export function certifiedFollowerRevision(
   ledger: ReturnType<typeof resolveLedgerGitLayout>,
   commit: string,
   sqlite: ReturnType<typeof openSqliteEventStore>,
 ): number {
-  const target = ledgerGitPath(ledger, "events/segments/manifest.json"),
-    bytes = localGitObjectRefStore.readPath(ledger.rootDir, commit, target);
-  if (!bytes) return 0;
+  const bytes = localGitObjectRefStore.readPath(ledger.rootDir, commit, ledgerGitPath(ledger, followerManifestPath));
+  return bytes ? manifestRevision(bytes, sqlite) : 0;
+}
+
+/** The revision the worktree's own manifest names, or 0 (settle the whole closure) when it names no SQLite cut. */
+export function physicalWorktreeRevision(
+  ledger: ReturnType<typeof resolveLedgerGitLayout>,
+  sqlite: ReturnType<typeof openSqliteEventStore>,
+): number {
+  const node = localGitWorktreeSettlement.readNode(`${ledger.rootDir}/${ledgerGitPath(ledger, followerManifestPath)}`);
+  if (node?.mode !== "100644") return 0;
+  try {
+    return manifestRevision(node.bytes, sqlite);
+  } catch (error) {
+    consumeKnownError(error);
+    return 0;
+  }
+}
+
+function manifestRevision(bytes: Buffer, sqlite: ReturnType<typeof openSqliteEventStore>): number {
   const parsed = decodeFollowerManifest(bytes),
     revision = Number(parsed.cut?.revision);
   if (
@@ -246,22 +269,44 @@ export function certifiedFollowerRevision(
     expected = canonicalLedgerCut(sqlite.metadata().repoId, event ? eventHead(event) : null);
   if (parsed.cut.headDigest !== expected.headDigest)
     throw new TaskEventStoreError("publication_indeterminate", "Git follower manifest cut differs from SQLite");
-  const closure = followerFiles(
-    ledger,
-    commit,
-    readEventsThrough(sqlite, revision),
-    sqlite.readContentObject,
-    expected,
-    sqlite.metadata().generation,
-  );
-  verifyGitFiles(ledger.rootDir, commit, closure);
   return revision;
 }
 
+/** What the ledger held at `revision` for each target: what a worktree settled there holds until settled again. */
+export function ledgerWorktreeBaseline(
+  ledger: ReturnType<typeof resolveLedgerGitLayout>,
+  sqlite: ReturnType<typeof openSqliteEventStore>,
+  revision: number,
+  files: readonly (PublicationWrite | PublicationDelete)[],
+): ReadonlyMap<string, string> {
+  const event = sqlite.eventAtRevision(revision),
+    held = new Map(
+      [...documentClosure(event ? readEventsThrough(sqlite, revision) : []).documents].map(([logical, document]) => [
+        ledgerGitPath(ledger, logical),
+        `${document.mode}:${document.sha256}:${document.size}`,
+      ]),
+    );
+  if (event) {
+    const manifest = followerManifest(
+      sqlite.metadata().generation,
+      canonicalLedgerCut(sqlite.metadata().repoId, eventHead(event)),
+    );
+    held.set(
+      ledgerGitPath(ledger, followerManifestPath),
+      `100644:${publicationDigest(manifest)}:${Buffer.byteLength(manifest)}`,
+    );
+  }
+  return new Map(
+    files.map((file) => {
+      const target = "target" in file ? file.target : file.delete;
+      return [target, held.get(target) ?? "missing"];
+    }),
+  );
+}
+
 /**
- * Only a manifest that is not JSON is undecodable. Everything the certification does afterwards reads the
- * ledger, not the manifest, and `publishFollower` runs the same reads outside this function — so folding their
- * failures into a decode verdict would name the wrong file and hide the failure that actually happened.
+ * Only a manifest that is not JSON is undecodable; one that decodes but names no cut SQLite holds is reported as
+ * that, so a decode verdict never hides the identity failure that actually happened.
  */
 function decodeFollowerManifest(bytes: Buffer): {
   readonly generation?: unknown;
@@ -375,55 +420,7 @@ function verifyDocumentClosure(
       throw new TaskEventStoreError("publication_indeterminate", `Git follower retirement differs at ${logical}`);
 }
 
-/** Every Git path a publication entry names, whether it publishes bytes, moves them or retires them. */
-function publicationTargets(file: PublicationFile): readonly string[] {
-  if ("target" in file) return [file.target];
-  if ("delete" in file) return [file.delete];
-  return [file.from, file.to];
-}
-
-export function verifyGitFiles(repoRoot: string, commit: string, files: readonly PublicationFile[]): void {
-  const tree = new Map(
-      localGitObjectRefStore
-        .listTree(repoRoot, commit, files.flatMap(publicationTargets))
-        .map((entry) => [entry.target, entry] as const),
-    ),
-    bodies = localGitObjectRefStore.readPaths(
-      repoRoot,
-      commit,
-      files.flatMap((file) => {
-        const entry = "target" in file ? tree.get(file.target) : undefined;
-        return entry ? [{ target: entry.target, size: entry.size, oid: entry.oid }] : [];
-      }),
-    );
-  for (const file of files) {
-    if ("target" in file) {
-      const body = bodies.get(file.target) ?? null;
-      if (body === null || !body.equals(publicationBytes(file.body)) || tree.get(file.target)?.mode !== file.mode)
-        throw new TaskEventStoreError("publication_indeterminate", `Git follower read-back differs at ${file.target}`);
-    } else if ("delete" in file && tree.has(file.delete)) {
-      throw new TaskEventStoreError("publication_indeterminate", `Git follower did not retire ${file.delete}`);
-    }
-  }
-}
-
-export function verifyAuthoredRef(repoRoot: string, authoredRef: string, commit: string): void {
-  if (localGitObjectRefStore.resolveCommit(repoRoot, authoredRef) !== commit)
-    throw new TaskEventStoreError("publication_indeterminate", "authored ref moved before Git follower read-back");
-}
-
-export function verifyWorktreeFiles(repoRoot: string, files: readonly PublicationFile[]): void {
-  for (const file of files) {
-    if ("target" in file) {
-      const node = localGitWorktreeSettlement.readNode(`${repoRoot}/${file.target}`);
-      if (node?.sha256 !== publicationDigest(file.body) || node.mode !== file.mode)
-        throw new Error(`worktree follower read-back differs at ${file.target}`);
-    } else if ("delete" in file && localGitWorktreeSettlement.readNode(`${repoRoot}/${file.delete}`) !== null) {
-      throw new Error(`worktree follower did not retire ${file.delete}`);
-    }
-  }
-}
-
+/** Returns the targets a caller changed before their rename: they keep the caller's bytes, the rest still settle. */
 export function settleWorktree(
   repoRoot: string,
   files: readonly PublicationFile[],
@@ -431,16 +428,17 @@ export function settleWorktree(
   killpoint?: (point: import("./task-event-store-types.ts").EventPublicationKillpoint) => void,
   preserve: ReadonlySet<string> = new Set(),
   commit = "",
-): boolean {
+): readonly string[] {
   const deletes = files.flatMap((file) => ("delete" in file ? [file.delete] : [])),
-    writes = files.flatMap((file) => ("target" in file ? [file] : []));
+    writes = files.flatMap((file) => ("target" in file ? [file] : [])),
+    conflicts: string[] = [];
   for (const target of deletes)
     if (
       !settleVisibleChange(repoRoot, target, "missing", baseline, killpoint, (hooks) =>
         localGitWorktreeSettlement.deleteVisible(repoRoot, [target], hooks),
       )
     )
-      return false;
+      conflicts.push(target);
   for (const file of writes)
     if (
       !settleVisibleChange(
@@ -465,8 +463,8 @@ export function settleWorktree(
         },
       )
     )
-      return false;
-  return true;
+      conflicts.push(file.target);
+  return conflicts;
 }
 
 function settleVisibleChange(

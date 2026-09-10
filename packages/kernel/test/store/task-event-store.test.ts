@@ -1,11 +1,12 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { attachReceiptAcceptance } from "../../src/composition/receipt-acceptance.ts";
 import { taskLifecycleWritePlan } from "../../src/domain/task-lifecycle-publication.ts";
+import { localContentObjectFileSystem } from "../../src/local/local-layout-file-system.ts";
 import { localGitObjectRefStore } from "../../src/store/local-version-control-system.ts";
 import { openSqliteEventStore, sqliteContentObjectPath } from "../../src/store/sqlite-event-store.ts";
 import { makeTaskEventStore, readCertifiedGitFollower } from "../../src/store/task-event-store.ts";
@@ -151,7 +152,67 @@ test("acceptance subprocess cost is independent of 100 versus 10,000-event histo
   }
 });
 
-test("repeated settlement preserves concurrent edits to a claimed document and resumes after resolution", async () => {
+test("each settlement renders and settles only its own events while a concurrent edit keeps its bytes", async (t) => {
+  const rootDir = fixture("incremental-follower"),
+    edited = path.join(rootDir, "harness/context/edited.md");
+  initRepo(rootDir);
+  mkdirSync(path.dirname(edited), { recursive: true });
+  writeFileSync(edited, "user edit\n");
+  let settledFiles = 0;
+  const contentReads = t.mock.method(localContentObjectFileSystem, "readBytes"),
+    options = {
+      repoId,
+      rootDir,
+      writerFence,
+      killpoint: (point: string) => {
+        if (point === "before_worktree_rename") settledFiles += 1;
+      },
+    },
+    measure = async (store: ReturnType<typeof makeTaskEventStore>, context: string) => {
+      contentReads.mock.resetCalls();
+      settledFiles = 0;
+      await store.settlePendingMaterialization!(context);
+      return { contentReads: contentReads.mock.callCount(), settledFiles };
+    };
+  const store = makeTaskEventStore(options),
+    perCut: Awaited<ReturnType<typeof measure>>[] = [];
+  try {
+    store.append(docBundle(store, "accepted\n", 1, "incremental-edited", "context/edited.md"));
+    await store.settlePendingMaterialization!("cut claiming the edited document");
+    for (let revision = 2; revision <= 6; revision += 1) {
+      const logical = `context/later-${revision}.md`;
+      store.append(docBundle(store, `accepted ${revision}\n`, revision, `incremental-${revision}`, logical));
+      perCut.push(await measure(store, `cut ${revision}`));
+      assert.equal(readFileSync(path.join(rootDir, "harness", logical), "utf8"), `accepted ${revision}\n`);
+    }
+    // One content object, and its document plus the manifest, per cut: never the history behind it.
+    assert.deepEqual(
+      perCut,
+      perCut.map(() => ({ contentReads: 1, settledFiles: 2 })),
+    );
+    assert.equal(readFileSync(edited, "utf8"), "user edit\n");
+    const head = store.currentCut(),
+      physical = JSON.parse(readFileSync(path.join(rootDir, "harness/events/segments/manifest.json"), "utf8"));
+    assert.deepEqual(store.followerStatus().git.cut, head);
+    assert.deepEqual(store.followerStatus().worktree.cut, head);
+    assert.deepEqual(physical.cut, head);
+    assert.equal(store.followerStatus().worktree.status, "pending");
+    assert.deepEqual(store.followerStatus().worktree.conflicts, ["harness/context/edited.md"]);
+  } finally {
+    await store.drain();
+  }
+  // The worktree's own manifest says where it stands, so a reopen settles nothing and leaves the edit alone.
+  const reopened = makeTaskEventStore(options);
+  try {
+    assert.deepEqual(await measure(reopened, "reopen at the settled cut"), { contentReads: 0, settledFiles: 0 });
+    assert.equal(reopened.followerStatus().git.status, "verified");
+    assert.equal(readFileSync(edited, "utf8"), "user edit\n");
+  } finally {
+    await reopened.drain();
+  }
+});
+
+test("repeated settlement preserves concurrent edits to a claimed document until materialization restores it", async () => {
   const rootDir = fixture("claimed-edit"),
     target = path.join(rootDir, "harness/context/owned.md");
   initRepo(rootDir);
@@ -163,12 +224,15 @@ test("repeated settlement preserves concurrent edits to a claimed document and r
   await store.settlePendingMaterialization!("retry must not bless user bytes");
   assert.equal(store.followerStatus().git.status, "verified");
   assert.equal(store.followerStatus().worktree.status, "pending");
+  assert.deepEqual(store.followerStatus().worktree.conflicts, ["harness/context/owned.md"]);
   assert.equal(readFileSync(target, "utf8"), "user edit\n");
   await store.drain();
   assert.equal(readFileSync(target, "utf8"), "user edit\n");
   rmSync(target);
   store = makeTaskEventStore({ repoId, rootDir, writerFence });
-  await store.settlePendingMaterialization!("user restored pre-publication state");
+  await store.settlePendingMaterialization!("a reported path is not retried on its own");
+  assert.equal(existsSync(target), false);
+  store.materialize();
   assert.equal(store.followerStatus().worktree.status, "verified");
   assert.equal(readFileSync(target, "utf8"), "accepted content\n");
   await store.drain();
@@ -198,9 +262,10 @@ test("a caller edit at the rename boundary is preserved as a pending worktree co
     await store.settlePendingMaterialization!("inject boundary edit");
     assert.equal(store.followerStatus().git.status, "verified");
     assert.equal(store.followerStatus().worktree.status, "pending");
+    assert.deepEqual(store.followerStatus().worktree.conflicts, ["harness/context/boundary.md"]);
     assert.equal(readFileSync(target, "utf8"), "caller edit at settlement boundary\n");
     rmSync(target);
-    await store.settlePendingMaterialization!("caller resolved boundary edit");
+    store.materialize();
     assert.equal(store.followerStatus().worktree.status, "verified");
     assert.equal(readFileSync(target, "utf8"), "accepted content\n");
   } finally {
@@ -208,7 +273,7 @@ test("a caller edit at the rename boundary is preserved as a pending worktree co
   }
 });
 
-test("Git verification fails when the authored ref moves after its atomic update", async () => {
+test("an authored ref moved after the follower's atomic update is followed, not fought, by the next run", async () => {
   const rootDir = fixture("authored-ref-readback");
   initRepo(rootDir);
   const branch = git(rootDir, "symbolic-ref", "--short", "HEAD"),
@@ -229,10 +294,13 @@ test("Git verification fails when the authored ref moves after its atomic update
     store.append(docBundle(store, "accepted content\n", 1, "ref-moved", "context/ref-moved.md"));
     await store.settlePendingMaterialization!("move authored ref after update");
     assert.equal(git(rootDir, "rev-parse", "HEAD"), parent);
-    assert.equal(store.followerStatus().git.status, "pending");
-    assert.match(store.followerStatus().git.reason!, /authored ref moved/u);
-    await store.settlePendingMaterialization!("publish after ref stabilizes");
+    await store.settlePendingMaterialization!("publish on top of the moved ref");
+    const head = git(rootDir, "rev-parse", "HEAD");
+    assert.notEqual(head, parent);
+    assert.equal(git(rootDir, "rev-parse", "HEAD^"), parent);
+    assert.equal(git(rootDir, "show", "HEAD:harness/context/ref-moved.md"), "accepted content");
     assert.equal(store.followerStatus().git.status, "verified");
+    assert.equal(store.followerStatus().git.commitSha, head);
   } finally {
     await store.drain();
   }
@@ -303,11 +371,15 @@ test("new cuts cannot certify worktree visibility over an older unresolved docum
     await store.settlePendingMaterialization!("new cut with prior conflict");
     assert.equal(store.followerStatus().git.status, "verified");
     assert.equal(store.followerStatus().worktree.status, "pending");
+    assert.deepEqual(store.followerStatus().worktree.conflicts, ["harness/context/conflicted.md"]);
     assert.equal(readFileSync(target, "utf8"), "user edit\n");
-    rmSync(target);
-    await store.settlePendingMaterialization!("resolved both cuts");
+    assert.equal(readFileSync(path.join(rootDir, "harness/context/next.md"), "utf8"), "next document\n");
+    // Once the worktree holds the accepted bytes the conflict is gone, so a later cut can certify visibility.
+    writeFileSync(target, "accepted\n");
+    store.append(docBundle(store, "third document\n", 3, "third-cut", "context/third.md"));
+    await store.settlePendingMaterialization!("conflict resolved to the accepted bytes");
     assert.equal(store.followerStatus().worktree.status, "verified");
-    assert.equal(readFileSync(target, "utf8"), "accepted\n");
+    assert.deepEqual(store.followerStatus().worktree.conflicts, []);
   } finally {
     await store.drain();
   }

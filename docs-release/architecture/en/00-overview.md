@@ -14,9 +14,10 @@ complete event interval and command outcome. A Git commit is not an acceptance b
 `packages/kernel/src/store/sqlite-event-store.ts` implements that transaction.
 `sqlite-task-event-store.ts` adapts the canonical event-store port and publishes
 accepted events' authored documents and `events/segments/manifest.json` to Git.
-The publisher reads back the manifest and document bodies, modes, and retirements
-before certifying the Git cut. Worktree visibility is checked separately and may
-remain pending when authored files have concurrent edits.
+Each run publishes only the events accepted since the cut Git's manifest names, on
+top of that commit, and the authored worktree settles the same events. A file with a
+concurrent edit keeps the user's bytes and is reported as a conflict; the worktree
+facet stays pending until a later event or `ha doc materialize` settles that file.
 
 The old segment WAL, merged shadow reader, publication pointer family, and
 materializer worker are retired. SQLite's own transaction journal remains an

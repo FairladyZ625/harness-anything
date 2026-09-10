@@ -11,8 +11,9 @@ Git 和读取投影从这份记录派生。
 
 `packages/kernel/src/store/sqlite-event-store.ts` 实现接受事务；
 `sqlite-task-event-store.ts` 实现 canonical store 端口，并把已接受事件派生的文档和
-`events/segments/manifest.json` 发布到 Git。只有独立回读 manifest、文档内容、文件模式及
-退役路径后才认证 Git cut。Worktree 可见性单独检查；并发撰写修改可以让该 facet 保持 pending。
+`events/segments/manifest.json` 发布到 Git。每次只把 Git manifest 所指 cut 之后新接受的事件
+提交在该 commit 之上，撰写 worktree 结算同一批事件。有并发修改的文件保留用户字节并报告为冲突；
+worktree facet 保持 pending，直到后续事件或 `ha doc materialize` 结算该文件。
 
 旧 segment WAL、合并 shadow reader、publication pointer 家族和 materializer worker 已退役。
 SQLite 自身的事务日志仍是数据库实现细节。
