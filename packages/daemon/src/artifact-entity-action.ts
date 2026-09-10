@@ -79,15 +79,30 @@ export function compiledArtifactKinds(
 }
 
 /**
- * Resolve a caller-supplied kind name to the kind's stable ref. A kind has exactly one identity for
- * its whole life, so this never has to choose between versions, and an archived kind resolves like any
- * other: archiving stops new imports, it does not hide the material already stored under that kind.
+ * The one matcher every kind-addressed surface goes through: a kind answers to its stable ref
+ * (`entity-kind/KND-...`), its bare kindId, or the qualified name it is currently declared with. A kind
+ * has exactly one identity for its whole life, so this never has to choose between versions, and an
+ * archived kind resolves like any other: archiving stops new imports, it does not hide the material
+ * already stored under that kind.
+ */
+export function findArtifactKindContract(
+  kind: string,
+  contracts: readonly CompiledArtifactKindContract[],
+): CompiledArtifactKindContract | null {
+  return (
+    contracts.find(
+      ({ declaration, typeIdentity }) =>
+        typeIdentity === kind || declaration.kindId === kind || declaration.id === kind,
+    ) ?? null
+  );
+}
+
+/**
+ * Resolve a caller-supplied kind name to the kind's stable ref; an unmatched name is returned unchanged
+ * so callers that only filter by it read an honest empty result instead of a resolved-looking one.
  */
 export function resolveEntityReadKind(kind: string, contracts: readonly CompiledArtifactKindContract[]): string {
-  const match = contracts.find(
-    ({ declaration, typeIdentity }) => typeIdentity === kind || declaration.kindId === kind || declaration.id === kind,
-  );
-  return match?.typeIdentity ?? kind;
+  return findArtifactKindContract(kind, contracts)?.typeIdentity ?? kind;
 }
 
 /**
@@ -112,7 +127,7 @@ export function resolveArtifactImportAction(
   contracts: readonly CompiledArtifactKindContract[],
 ): EntityActionContract | null {
   if (typeof kind !== "string") return null;
-  const contract = contracts.find(({ typeIdentity }) => typeIdentity === kind);
+  const contract = findArtifactKindContract(kind, contracts);
   return contract?.entityKindContract.actionCatalog?.actions.find(({ id }) => id === "import") ?? null;
 }
 
@@ -131,14 +146,21 @@ export async function executeArtifactEntityImport(input: {
   readonly receipt: ArtifactImportReceipt;
 }> {
   const contracts = compiledArtifactKinds(input.projection, input.repositoryId),
+    requestedKind = String(input.action.entityKind),
+    compiled = findArtifactKindContract(requiredArtifactText(input.action.entityKind, "entityKind"), contracts),
     contract = resolveArtifactImportAction(input.action.entityKind, contracts);
+  // Writes address kinds the same three ways reads do, but they owe the caller a distinction reads do not:
+  // an undeclared kind is not the kind's fault, while a declared kind without an executable import action
+  // (an archived one) is a supported kind refusing this command.
+  if (!compiled)
+    throw new ArtifactEntityServiceError("entity_kind_not_found", `Artifact kind ${requestedKind} is not declared.`);
   if (!contract?.execution)
-    throw Object.assign(
-      new Error(`Artifact kind ${String(input.action.entityKind)} has no executable import action.`),
-      { code: "unsupported_command" },
-    );
-  const receipt = await runArtifactEntityImport({ ...input, contracts });
-  return { action: { ...input.action, entityId: receipt.entityId ?? undefined }, contract, receipt };
+    throw Object.assign(new Error(`Artifact kind ${requestedKind} has no executable import action.`), {
+      code: "unsupported_command",
+    });
+  const action: RepoTaskAction = { ...input.action, entityKind: compiled.typeIdentity },
+    receipt = await runArtifactEntityImport({ ...input, action, contracts });
+  return { action: { ...action, entityId: receipt.entityId ?? undefined }, contract, receipt };
 }
 
 export function executeArtifactEntityMutation(input: {
@@ -156,27 +178,32 @@ export function executeArtifactEntityMutation(input: {
   readonly receipt: ArtifactImportReceipt;
 } {
   const contracts = compiledArtifactKinds(input.projection, input.repositoryId),
-    kind = requiredArtifactText(input.action.entityKind, "entityKind"),
+    requestedKind = requiredArtifactText(input.action.entityKind, "entityKind"),
     entityId = requiredArtifactText(input.action.entityId, "entityId"),
-    compiled = contracts.find(({ typeIdentity }) => typeIdentity === kind),
-    contract = compiled?.entityKindContract.actionCatalog?.actions.find(({ id }) => id === input.action.kind.slice(7));
-  if (!compiled || !contract?.execution)
-    throw Object.assign(new Error(`Artifact kind ${kind} has no executable ${input.action.kind} action.`), {
+    compiled = findArtifactKindContract(requestedKind, contracts);
+  if (!compiled)
+    throw new ArtifactEntityServiceError("entity_kind_not_found", `Artifact kind ${requestedKind} is not declared.`);
+  // The event stream and the operation id speak the stable ref, so a mutation stated with a qualified
+  // name is the same operation as one stated with the ref: both replay to the same receipt.
+  const kind = compiled.typeIdentity,
+    action: RepoTaskAction = { ...input.action, entityKind: kind },
+    contract = compiled.entityKindContract.actionCatalog?.actions.find(({ id }) => id === action.kind.slice(7));
+  if (!contract?.execution)
+    throw Object.assign(new Error(`Artifact kind ${requestedKind} has no executable ${action.kind} action.`), {
       code: "unsupported_command",
     });
   const current = readCurrentArtifact(input.store, contracts, kind, entityId),
-    expectedVersion = Number(input.action.expectedVersion);
+    expectedVersion = Number(action.expectedVersion);
   if (!Number.isSafeInteger(expectedVersion))
     throw new ArtifactEntityServiceError(
       "revision_conflict",
       `Entity ${entityId} expected revision ${String(expectedVersion)} is invalid.`,
     );
-  const mutation =
-      input.action.kind === "entity-update" ? "update" : input.action.kind === "entity-delete" ? "delete" : "archive",
-    opId = artifactMutationOperationId({ mutation, entityId, expectedVersion, request: input.action }),
+  const mutation = action.kind === "entity-update" ? "update" : action.kind === "entity-delete" ? "delete" : "archive",
+    opId = artifactMutationOperationId({ mutation, entityId, expectedVersion, request: action }),
     replayed = readEntityOperation(input.store, opId);
   // Only the same stated intent at the same fence replays; a competing payload must reach the CAS below.
-  if (replayed) return { action: input.action, contract, receipt: mutationReplayReceipt(replayed, input) };
+  if (replayed) return { action, contract, receipt: mutationReplayReceipt(replayed, input) };
   if (!current?.descriptor)
     throw Object.assign(new Error(`Entity ${kind}/${entityId} does not exist.`), { code: "entity_not_found" });
   if (expectedVersion !== current.revision)
@@ -199,9 +226,9 @@ export function executeArtifactEntityMutation(input: {
     },
     pinned = pinnedArtifactKindContract(compiled, kindVersion) as unknown as EntityStoreKindContract,
     bundle =
-      input.action.kind === "entity-update"
+      action.kind === "entity-update"
         ? updatedBundle(
-            input.action,
+            action,
             current.descriptor,
             compiled,
             contractSnapshot,
@@ -210,7 +237,7 @@ export function executeArtifactEntityMutation(input: {
             carriedDirectories(pinned, entityId, current.ownedContent),
             entityDirectoryFootprint(entityContentRoot(pinned, entityId), current.ownedContent),
           )
-        : input.action.kind === "entity-delete"
+        : action.kind === "entity-delete"
           ? compileEntityDeleted({
               ...envelope,
               eventId: `event-${opId}`,
@@ -228,7 +255,7 @@ export function executeArtifactEntityMutation(input: {
               // The directories go with the files, and only the ones the accepted manifest says the entity held:
               // a directory the user made inside the content root was never the entity's and is not named here.
               heldDirectories: entityDirectoryFootprint(entityContentRoot(pinned, entityId), current.ownedContent),
-              reason: requiredArtifactText(input.action.reason, "reason"),
+              reason: requiredArtifactText(action.reason, "reason"),
             })
           : compileEntityArchived({
               ...envelope,
@@ -236,7 +263,7 @@ export function executeArtifactEntityMutation(input: {
               opId,
               contractSnapshot,
               entityId,
-              reason: requiredArtifactText(input.action.reason, "reason"),
+              reason: requiredArtifactText(action.reason, "reason"),
             }),
     appended = input.store.append(bundle),
     _applied = input.projection.apply(bundle.event, bundle.plan),
@@ -261,7 +288,7 @@ export function executeArtifactEntityMutation(input: {
       cut: appended.cut,
       ...(visible ? {} : { guidance: [{ kind: "retry-receipt", args: { opId: bundle.event.opId } }] }),
     };
-  return { action: input.action, contract, receipt };
+  return { action, contract, receipt };
 }
 
 function updatedBundle(
