@@ -87,6 +87,21 @@ test("completion blocker matrix returns one canonical next for every substantive
       assert.equal((blockers[0]?.next.command.length ?? 0) > 0, true, code);
       assert.equal((blockers[0]?.next.reason.length ?? 0) > 0, true, code);
     }
+    const missingSections = completionBlockers(consented.snapshot, "execution-1", {
+      ...ready,
+      closeout: "placeholder",
+      closeoutMissingSections: [
+        { section: "Summary", reason: "empty" },
+        { section: "Verification", reason: "empty" },
+      ],
+    })[0]!;
+    assert.match(missingSections.next.reason, /missing sections: Summary, Verification/);
+    const templateSection = completionBlockers(consented.snapshot, "execution-1", {
+      ...ready,
+      closeout: "placeholder",
+      closeoutMissingSections: [{ section: "Residual Risk", reason: "scaffold" }],
+    })[0]!;
+    assert.match(templateSection.next.reason, /still template: Residual Risk/);
     // The lineage blocker names the missing edge with the exact command that writes it.
     const lineage = completionBlockers(orphanMilestone, "execution-1", ready)[0]!;
     assert.equal(
