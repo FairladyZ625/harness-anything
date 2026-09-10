@@ -27,7 +27,6 @@ export {
   createImmutableLegacyGenerationSnapshotFromStoppedRepository,
 } from "../store/legacy-generation-conversion.ts";
 export type { StoppedLegacySourceEvidenceV1 } from "../store/legacy-generation-conversion.ts";
-export { resolveRetirableDocument } from "../store/ledger-document.ts";
 export type {
   CanonicalContentBlob,
   CanonicalEventAppendReceipt,

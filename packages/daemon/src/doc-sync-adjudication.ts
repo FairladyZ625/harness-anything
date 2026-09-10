@@ -4,7 +4,6 @@ import {
   docSyncWritePlan,
   parseDocWriteIntent,
   resolveTaskBoundRuntimeBinding,
-  resolveRetirableDocument,
   runtimeSessionIdFromActor,
   sha256Bytes,
   taskIsDescendantOf,
@@ -83,12 +82,7 @@ export function adjudicateDocIntent(
   const admission = admissionRejection(input, intent, lease);
   if (admission) return { accepted: false, code: admission.code, detail: admission.detail, authorizationDecision };
   const cut = input.store.currentCut(),
-    events = retirementReason === undefined ? [] : input.store.read().events,
-    currentDocuments = documents.map((read, index) =>
-      retirementReason === undefined
-        ? read.document
-        : resolveRetirableDocument(input.rootDir, intent.changes[index]!.path, read.document, events),
-    );
+    currentDocuments = documents.map((read) => read.document);
   const resolvedTaskIds = intent.changes.map((change) => input.projection.taskIdForDocumentPath(change.path)),
     runtimeSessionId = runtimeSessionIdFromActor(input.binding.actor),
     runtimeSession = runtimeSessionId === null ? null : input.projection.readRuntimeSession(runtimeSessionId),

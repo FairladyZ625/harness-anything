@@ -3,11 +3,8 @@ import { isPeopleEvent } from "../domain/people-event.ts";
 import { parsePeopleRosterDocument, serializePeopleRosterDocument } from "../domain/people-roster.ts";
 import { isSettingsEvent } from "../domain/settings-event.ts";
 import { writeRepositorySettingsFacet } from "../domain/settings.ts";
-import { sha256Text } from "../integrity/stable-hash.ts";
 import { localGitWorktreeSettlement } from "./local-version-control-system.ts";
 import { resolveHarnessLayout, type HarnessLayoutInput } from "../layout/index.ts";
-import type { PortableDocumentPath } from "../layout/portable-path.ts";
-import { resolveRetirableDocument } from "./ledger-document.ts";
 import type { SqliteEventStore } from "./sqlite-event-store.ts";
 import {
   canonicalDocumentClaims,
@@ -22,6 +19,37 @@ type DocumentNode = {
   readonly size: number;
   readonly nodeKind: "file" | "symbolic-link";
 };
+type DocumentHead = Omit<DocumentNode, "body">;
+
+/**
+ * Per-store cache of each path's latest claimed-or-retired head, advanced by `eventsAfter` instead
+ * of rescanning the ledger on every write: O(N) the first time a store needs it, O(delta) after.
+ */
+const documentHeadCaches = new WeakMap<
+  SqliteEventStore,
+  { revision: number; heads: Map<string, DocumentHead | "retired"> }
+>();
+
+function documentHeadCache(store: SqliteEventStore): Map<string, DocumentHead | "retired"> {
+  const cache = documentHeadCaches.get(store) ?? { revision: 0, heads: new Map<string, DocumentHead | "retired">() };
+  documentHeadCaches.set(store, cache);
+  // Page the first build: the live ledger holds over 100 MB of event JSON.
+  for (const revision = store.revision(); cache.revision < revision; ) {
+    const events = store.eventsAfter(cache.revision, Math.min(1024, revision - cache.revision));
+    if (events.length === 0) throw new TaskEventStoreError("invalid_store", `Missing events after ${cache.revision}`);
+    for (const event of events) {
+      for (const claim of canonicalDocumentClaims(event))
+        cache.heads.set(claim.path, {
+          sha256: claim.sha256,
+          size: claim.size,
+          nodeKind: canonicalDocumentMode(event, claim.path) === "120000" ? "symbolic-link" : "file",
+        });
+      for (const retirement of canonicalDocumentRetirements(event)) cache.heads.set(retirement.path, "retired");
+    }
+    cache.revision += events.length;
+  }
+  return cache.heads;
+}
 
 export function assertAuthorizedReplacements(
   store: SqliteEventStore,
@@ -39,38 +67,20 @@ export function assertAuthorizedReplacements(
   if (!members.some(({ event }) => requiresAuthorization(event))) return;
   const authoredRoot = resolveHarnessLayout(input).authoredRoot,
     pending = new Map<string, DocumentNode | null>(),
+    heads = documentHeadCache(store),
     local = (target: string): DocumentNode | null => {
       const node = localGitWorktreeSettlement.readNode(`${authoredRoot}/${target}`);
       return node && { ...node, nodeKind: node.mode === "120000" ? "symbolic-link" : "file" };
     },
     current = (target: string): DocumentNode | null => {
       if (pending.has(target)) return pending.get(target)!;
-      // Search recent claims first without loading the entire ledger into memory.
-      for (let end = store.revision(); end > 0; end = Math.max(0, end - 256)) {
-        const start = Math.max(0, end - 256);
-        for (const event of store.eventsAfter(start, end - start).toReversed()) {
-          if (canonicalDocumentRetirements(event).some((claim) => claim.path === target)) return null;
-          const claim = canonicalDocumentClaims(event).find((candidate) => candidate.path === target);
-          if (!claim) continue;
-          const bytes = store.readContentObject(claim.sha256);
-          if (bytes === null) throw new TaskEventStoreError("invalid_store", `Missing content for ${target}`);
-          return {
-            ...claim,
-            body: bytes,
-            nodeKind: canonicalDocumentMode(event, target) === "120000" ? "symbolic-link" : "file",
-          };
-        }
-      }
-      // Legacy tracked documents can be retired after their worktree copy is removed.
-      // This fallback runs only after proving that SQLite has never claimed/retired the path;
-      // Git supplies the bootstrap preimage, never command acceptance.
-      if (members.some(({ event }) => canonicalDocumentRetirements(event).some((claim) => claim.path === target))) {
-        const historical = resolveRetirableDocument(input, target as PortableDocumentPath, null, []);
-        if (historical !== null)
-          return { body: historical.body, sha256: historical.blobSha256, size: historical.size, nodeKind: "file" };
-      }
+      const head = heads.get(target);
+      if (head === "retired") return null;
       // Only a never-claimed bootstrap document can take its baseline from authored bytes.
-      return local(target);
+      if (head === undefined) return local(target);
+      const bytes = store.readContentObject(head.sha256);
+      if (bytes === null) throw new TaskEventStoreError("invalid_store", `Missing content for ${target}`);
+      return { ...head, body: bytes };
     };
   for (const member of members) {
     if (store.event(member.event.opId)) continue; // SQLite still verifies the replay's exact intent digest.
@@ -101,16 +111,14 @@ function authorize(
     return;
   }
   if (isSettingsEvent(event)) {
-    const base = current(event.payload.harnessDocumentClaim.path),
-      baseBody =
-        base === null
-          ? null
-          : typeof base.body === "string"
-            ? base.body
-            : new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(base.body),
-      candidate = blobs.find((blob) => blob.sha256 === event.payload.harnessDocumentClaim.sha256)?.body;
-    if (baseBody === null || sha256Text(baseBody) !== event.payload.baseDocumentSha256)
+    const base = current(event.payload.harnessDocumentClaim.path);
+    if (base === null || base.sha256 !== event.payload.baseDocumentSha256)
       throw new TaskEventStoreError("revision_conflict", "harness.yaml changed before the Settings write committed");
+    const baseBody =
+        typeof base.body === "string"
+          ? base.body
+          : new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(base.body),
+      candidate = blobs.find((blob) => blob.sha256 === event.payload.harnessDocumentClaim.sha256)?.body;
     if (typeof candidate !== "string" || candidate !== writeRepositorySettingsFacet(baseBody, event.payload.settings))
       throw new TaskEventStoreError(
         "invalid_write_plan",
