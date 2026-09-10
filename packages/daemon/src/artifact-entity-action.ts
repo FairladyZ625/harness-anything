@@ -379,13 +379,21 @@ export async function runArtifactEntityImport(input: {
   const service = makeArtifactEntityService({
       contracts: input.contracts,
       resolveSource: (locator, contract) =>
-        input.sourceResolution ??
-        resolveArtifactSource({
-          rootDir: input.rootDir,
-          repositoryId: input.repositoryId,
-          locator,
-          contract,
-        }),
+        input.sourceResolution
+          ? Promise.resolve(input.sourceResolution)
+          : locator.kind === "url"
+            ? Promise.reject(
+                new ArtifactEntityServiceError(
+                  "source_resolution_failed",
+                  "URL source resolution must complete before the import enters the write queue.",
+                ),
+              )
+            : resolveArtifactSource({
+                rootDir: input.rootDir,
+                repositoryId: input.repositoryId,
+                locator,
+                contract,
+              }),
       readCurrent: (kind, entityId) => readCurrentArtifact(input.store, input.contracts, kind, entityId),
       resolveSourceBinding: (kind, sourceIdentity) => resolveSourceBinding(input.store, kind, sourceIdentity),
       randomEntityIdBytes: () => randomBytes(ARTIFACT_ENTITY_ID_BYTES),

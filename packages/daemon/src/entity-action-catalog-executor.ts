@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { makeDecisionService, makeFactService } from "../../application/src/index.ts";
+import { makeDecisionService, makeFactService, type ArtifactSourceResolution } from "../../application/src/index.ts";
 import {
   compileEntityUpsert,
   compileEntityDeleted,
@@ -50,7 +50,6 @@ import {
   executeArtifactEntityImport,
   executeArtifactEntityMutation,
   artifactImportSourceResolution,
-  type ArtifactSourceResolution,
 } from "./artifact-entity-action.ts";
 import { executeRelationAction, publicationKillpoints, reject } from "./entity-action-relation.ts";
 
@@ -75,7 +74,6 @@ export interface EntityActionCatalogRuntimes {
   readonly entity?: Readonly<Record<string, EntityActionCatalogRunner>>;
   readonly task?: EntityActionCatalogRunner;
   readonly prepare?: Readonly<Record<string, EntityActionCatalogPreparer>>;
-  readonly artifactImportSourceResolution?: ArtifactSourceResolution;
 }
 
 export function makeEntityActionCatalogExecutor(input: {
@@ -135,11 +133,11 @@ export function makeEntityActionCatalogExecutor(input: {
         projection: input.projection,
         now: input.now,
         authorizationDecision,
-        sourceResolution:
-          runtimes.artifactImportSourceResolution ??
-          (action as RepoTaskAction & { readonly [artifactImportSourceResolution]?: ArtifactSourceResolution })[
-            artifactImportSourceResolution
-          ],
+        sourceResolution: (
+          action as RepoTaskAction & {
+            readonly [artifactImportSourceResolution]?: ArtifactSourceResolution;
+          }
+        )[artifactImportSourceResolution],
       }).then((result) => deriveActionResult(result.contract, result.action, result.receipt));
     }
     if (action.kind === "entity-update" || action.kind === "entity-archive" || action.kind === "entity-delete") {
