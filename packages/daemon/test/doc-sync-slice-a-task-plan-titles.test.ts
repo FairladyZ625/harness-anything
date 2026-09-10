@@ -101,7 +101,7 @@ test("amending the title retitles the published plan through the typed route and
     const retitled = readFileSync(target, "utf8");
     assert.match(retitled.split("\n")[0] ?? "", /^# amend retitle second title$/u);
     assert.match(retitled, /## Worker Notes\n\nfirst round of worker prose/u);
-    const amendEvent = makeTaskEventStore({ repoId, rootDir }).readEvent(amended.opId!);
+    const amendEvent = makeTaskEventStore({ repoId, rootDir, mutable: false }).readEvent(amended.opId!);
     assert.equal(amendEvent?.type, "task_amended");
     if (amendEvent?.type === "task_amended") {
       const planClaim = amendEvent.payload.documentClaims.find((claim) => claim.path === plan);
@@ -251,7 +251,8 @@ test("authored CRLF prose is canonicalized on scanner read and submitted as LF",
     write(rootDir, logical, canonical.replace(/\n/gu, "\r\n"));
     const submitted = await cell.run({ kind: "doc-submit", paths: [logical] }, binding);
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
-    const event = makeTaskEventStore({ repoId, rootDir }).readEvent(submitted.opId);
+    // A default store would schedule its own Git follower and race the cell's writer for the branch ref.
+    const event = makeTaskEventStore({ repoId, rootDir, mutable: false }).readEvent(submitted.opId);
     assert.equal(event?.schema, "doc-event/v1");
     if (event?.schema === "doc-event/v1") {
       assert.equal(event.payload.changes[0]?.candidate.sha256, sha256Text(canonical));
