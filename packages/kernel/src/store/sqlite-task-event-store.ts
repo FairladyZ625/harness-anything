@@ -71,7 +71,6 @@ export interface SqliteTaskEventStoreOptions {
   readonly authoredBranch?: string;
   readonly writerFence?: () => DaemonWriterFence;
   readonly activationPreflight?: (input: { readonly rootInput: HarnessLayoutInput; readonly repoId: string }) => void;
-  readonly beforeAppend?: () => void;
   readonly withAppendFence?: <T>(operation: () => T) => T;
   readonly onMaterializationHealthChange?: (health: MaterializationHealth) => void;
   readonly mutable?: boolean;
@@ -122,7 +121,6 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
   const append = (bundle: CanonicalWriteBundle): CanonicalEventAppendReceipt => {
     if (options.mutable === false) throw new TaskEventStoreError("invalid_write_plan", "event reader is read-only");
     validateCanonicalWriteBundle(bundle);
-    options.beforeAppend?.();
     options.killpoint?.("before_event_write");
     const members = [...(bundle.preceding ?? []), bundle],
       appended = members.map((member) => member.event),
@@ -434,7 +432,10 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
   }
 }
 
-/** A machine-written file the window restates may still hold any earlier snapshot of it that an interrupted pass left. */
+/**
+ * A machine-written file the window restates may still hold any earlier snapshot of it that an interrupted pass
+ * left.
+ */
 function recoverGeneratedWorktreeBaseline(
   ledger: ReturnType<typeof resolveLedgerGitLayout>,
   events: readonly CanonicalEventV1[],
