@@ -43,8 +43,9 @@ test("a submitted fixture reaches done through one ha task closeout command", (c
       closeoutPath = `${packagePath}/closeout.md`,
       commitSha = git(root, "rev-parse", "HEAD");
     assert.equal(created.status, "accepted_durable");
-    assert.equal((created.worktree as { state: string }).state, "verified");
-    assert.equal((created.git as { state: string }).state, "verified");
+    const createdVisible = published(root, userRoot, created);
+    assert.equal((createdVisible.worktree as { state: string }).state, "verified");
+    assert.equal((createdVisible.git as { state: string }).state, "verified");
     assert.equal(existsSync(path.join(root, "harness", packagePath, "task_plan.md")), true);
     const schema = JSON.parse(
         String(run(root, userRoot, ["task", "closeout", taskId, "--print-schema"]).summary),
@@ -148,8 +149,9 @@ test("a standard task with only task-package deliverables completes without a fa
       reader = makeTaskEventReader({ rootDir: root, repoId: "closeout-report" }),
       bootstrap = reader.readEvent(String(created.opId));
     assert.equal(created.status, "accepted_durable", JSON.stringify(created));
-    assert.equal((created.git as { state: string }).state, "verified");
-    assert.equal((created.worktree as { state: string }).state, "verified");
+    const createdVisible = published(root, userRoot, created);
+    assert.equal((createdVisible.git as { state: string }).state, "verified");
+    assert.equal((createdVisible.worktree as { state: string }).state, "verified");
     assert.equal(bootstrap?.schema, "task-bootstrap-event/v1");
     if (bootstrap?.schema !== "task-bootstrap-event/v1")
       throw new Error("task create did not publish a bootstrap event");
@@ -190,8 +192,9 @@ test("a standard task with only task-package deliverables completes without a fa
     const reportPublication = run(root, userRoot, ["doc", "sync", "--submit", "--task", taskId], "agent:worker"),
       reportEvent = reader.readEvent(String(reportPublication.opId));
     assert.equal(reportPublication.status, "accepted_durable", JSON.stringify(reportPublication));
-    assert.equal((reportPublication.git as { state: string }).state, "verified");
-    assert.equal((reportPublication.worktree as { state: string }).state, "verified");
+    const reportVisible = published(root, userRoot, reportPublication);
+    assert.equal((reportVisible.git as { state: string }).state, "verified");
+    assert.equal((reportVisible.worktree as { state: string }).state, "verified");
     assert.equal(reportEvent?.schema, "doc-event/v1");
     if (reportEvent?.schema !== "doc-event/v1")
       throw new Error("task report did not enter the canonical document event");
@@ -270,6 +273,7 @@ test("two executions publishing one report basename keep both durable contents a
       reportPath = `${packagePath}/artifacts/reports/implementation.md`,
       reportFile = path.join(root, "harness", reportPath);
     assert.equal(created.status, "accepted_durable", JSON.stringify(created));
+    published(root, userRoot, created);
     writeFileSync(path.join(root, "harness", packagePath, "task_plan.md"), realizedPlan("Report Ownership"));
     run(root, userRoot, ["doc", "sync", "--submit", "--path", `${packagePath}/task_plan.md`]);
     run(root, userRoot, [
@@ -293,7 +297,7 @@ test("two executions publishing one report basename keep both durable contents a
     const firstPublication = run(root, userRoot, ["doc", "sync", "--submit", "--task", taskId], "agent:worker"),
       firstEvent = reader.readEvent(String(firstPublication.opId));
     assert.equal(firstPublication.status, "accepted_durable", JSON.stringify(firstPublication));
-    assert.equal((firstPublication.git as { state: string }).state, "verified");
+    assert.equal((published(root, userRoot, firstPublication).git as { state: string }).state, "verified");
     if (firstEvent?.schema !== "doc-event/v1") throw new Error("the first report did not enter a document event");
     assert.equal(
       firstEvent.payload.executionId,
@@ -347,7 +351,7 @@ test("two executions publishing one report basename keep both durable contents a
       secondEvent = reader.readEvent(String(secondPublication.opId));
     context.diagnostic(`report-owner-second=${JSON.stringify(secondPublication)}`);
     assert.equal(secondPublication.status, "accepted_durable", JSON.stringify(secondPublication));
-    assert.equal((secondPublication.git as { state: string }).state, "verified");
+    assert.equal((published(root, userRoot, secondPublication).git as { state: string }).state, "verified");
     assert.notEqual(secondPublication.opId, firstPublication.opId);
     if (secondEvent?.schema !== "doc-event/v1") throw new Error("the second report did not enter a document event");
     assert.equal(
@@ -476,6 +480,11 @@ function run(root: string, userRoot: string, args: readonly string[], actor?: st
   const result = runMaybe(root, userRoot, args, actor);
   assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`);
   return JSON.parse(result.stdout) as Record<string, unknown>;
+}
+// Writes return at durable acceptance; a test that reads Git or the worktree waits for both followers explicitly.
+function published(root: string, userRoot: string, receipt: Record<string, unknown>): Record<string, unknown> {
+  const wait = ["--wait", "git_verified,worktree_visible", "--timeout-ms", "5000"];
+  return run(root, userRoot, ["receipt", "show", String(receipt.opId), ...wait]);
 }
 function runMaybe(
   root: string,

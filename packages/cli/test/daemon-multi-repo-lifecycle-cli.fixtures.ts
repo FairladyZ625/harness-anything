@@ -139,6 +139,26 @@ export function run(root: string, userRoot: string, args: readonly string[], ent
   assert.equal(result.status, 0, `${result.stderr}\n${JSON.stringify(result.receipt)}`);
   return result.receipt;
 }
+// Writes return at durable acceptance; a test that reads Git or the worktree waits for both followers explicitly.
+export function settleFollower(
+  root: string,
+  userRoot: string,
+  receipt: Record<string, unknown>,
+): Record<string, unknown> {
+  const settled = run(root, userRoot, [
+    "receipt",
+    "show",
+    String(receipt.opId),
+    "--wait",
+    "git_verified,worktree_visible",
+    "--timeout-ms",
+    "5000",
+  ]);
+  assert.equal((settled.wait as { state: string }).state, "satisfied", JSON.stringify(settled));
+  assert.equal((settled.git as { state: string }).state, "verified");
+  assert.equal((settled.worktree as { state: string }).state, "verified");
+  return settled;
+}
 export function runMaybe(
   root: string,
   userRoot: string,

@@ -41,13 +41,13 @@ test("daemon control reports Git follower failure while SQLite keeps accepting c
     writeFileSync(indexLock, "held by CLI contract test\n");
     const indexAccepted = runJson(fixture, ["task", "create", "--title", "SQLite accepts with caller index locked"]);
     assert.equal(indexAccepted.outcome, "applied", JSON.stringify(indexAccepted));
-    assert.equal((indexAccepted.git as Record<string, unknown>).state, "verified");
+    assert.equal((gitSettled(fixture, indexAccepted).git as Record<string, unknown>).state, "verified");
     assert.equal(readFileSync(indexLock, "utf8"), "held by CLI contract test\n");
     rmSync(indexLock);
     const branchRef = git(fixture.repo, "symbolic-ref", "HEAD");
     refLock = path.join(fixture.repo, ".git", `${branchRef}.lock`);
     writeFileSync(refLock, "hold follower ref\n");
-    const pending = runJson(fixture, ["task", "create", "--title", "Accepted before Git failure", "--no-wait"]);
+    const pending = runJson(fixture, ["task", "create", "--title", "Accepted before Git failure"]);
     assert.equal(pending.status, "accepted_durable");
     assert.ok(pending.acceptance);
     const observed = runJson(fixture, [
@@ -64,13 +64,13 @@ test("daemon control reports Git follower failure while SQLite keeps accepting c
     const failedStatus = runJsonResult(fixture, ["daemon", "status"]);
     const failedRepo = (failedStatus.receipt.repos as readonly Record<string, unknown>[])[0]!;
     assert.equal((failedRepo.materialization as Record<string, unknown>).state, "failed");
-    const next = runJson(fixture, ["task", "create", "--title", "SQLite remains accepting", "--no-wait"]);
+    const next = runJson(fixture, ["task", "create", "--title", "SQLite remains accepting"]);
     assert.equal(next.status, "accepted_durable");
     rmSync(refLock);
     refLock = null;
     const recoveredWrite = runJson(fixture, ["task", "create", "--title", "Accepted after follower repair"]);
     assert.equal(recoveredWrite.status, "accepted_durable");
-    assert.equal((recoveredWrite.git as Record<string, unknown>).state, "verified");
+    assert.equal((gitSettled(fixture, recoveredWrite).git as Record<string, unknown>).state, "verified");
     const recovered = runJson(fixture, ["receipt", "show", String(pending.opId)]);
     assert.equal((recovered.git as Record<string, unknown>).state, "verified");
 
@@ -142,6 +142,10 @@ function runJson(fixture: ReturnType<typeof setup>, args: readonly string[]): Re
     log = existsSync(daemonLog) ? readFileSync(daemonLog, "utf8") : "daemon log absent";
   assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}\n${log}`);
   return JSON.parse(result.stdout) as Record<string, unknown>;
+}
+// Writes return their acceptance receipt; Git follower progress is observed through the explicit receipt wait.
+function gitSettled(fixture: ReturnType<typeof setup>, receipt: Record<string, unknown>): Record<string, unknown> {
+  return runJson(fixture, ["receipt", "show", String(receipt.opId), "--wait", "git_verified", "--timeout-ms", "5000"]);
 }
 function runText(fixture: ReturnType<typeof setup>, args: readonly string[]) {
   return spawnSync(process.execPath, [cli, "--root", fixture.repo, ...args], {

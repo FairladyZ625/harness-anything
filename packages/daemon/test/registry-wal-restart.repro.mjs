@@ -32,10 +32,9 @@ export async function reproduceRegistrySqliteRestart(arm, options = {}) {
   downgradeRegistryToV1(userRoot);
   startDaemon(fixture);
   await waitForAttached(fixture);
-  const taskReceipt = runCli(fixture, ["--no-wait", "task", "create", "--title", `Daemon SQLite ${arm}`]),
+  const taskReceipt = runCli(fixture, ["task", "create", "--title", `Daemon SQLite ${arm}`]),
     taskId = String(taskReceipt.taskId),
     factReceipt = runCli(fixture, [
-      "--no-wait",
       "fact",
       "record",
       taskId,

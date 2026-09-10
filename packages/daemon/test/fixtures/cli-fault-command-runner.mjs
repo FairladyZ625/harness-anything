@@ -89,7 +89,7 @@ try {
   // Task-create reaches the lookup under test; list/show independently probe service availability.
   for (let round = 0; round < 4; round += 1) {
     const [created, listed, read] = await Promise.all([
-      cli(["task", "create", "--title", `Child ${round}`, "--parent", taskId, "--no-wait"]),
+      cli(["task", "create", "--title", `Child ${round}`, "--parent", taskId]),
       cli(["task", "list", "--limit", "1"]),
       cli(["task", "show", taskId]),
     ]);

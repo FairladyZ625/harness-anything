@@ -16,6 +16,7 @@ import {
   register,
   run,
   runMaybe,
+  settleFollower,
   setup,
   stop,
   waitForRun,
@@ -102,9 +103,8 @@ test("real CLI dogfoods a user-layer v3 preset through daemon phases and RepoCel
         canonicalVisible: directProof.canonicalVisible,
       },
     );
-    const directGit = directReceipt.git as Record<string, unknown>;
-    assert.equal(directGit.state, "verified");
-    assert.equal(directReceipt.commitSha, directGit.commitSha);
+    const directVisible = settleFollower(fixture.alpha, fixture.userRoot, directReceipt);
+    assert.equal(directVisible.commitSha, (directVisible.git as Record<string, unknown>).commitSha);
     assert.ok(directReceipt.cut);
     stop(fixture.alpha, fixture.userRoot);
     const materialized = makeTaskEventReader({

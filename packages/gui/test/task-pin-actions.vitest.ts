@@ -25,7 +25,8 @@ const receipt = (over: Partial<GuiActionResult> = {}): GuiActionResult =>
     outcome: "applied",
     opId: "op-pin-1",
     revision: 9,
-    proof: { committedRevision: 9, appliedCut: 9, durable: true, canonicalVisible: true, worktreeVisible: true },
+    // A fresh write receipt: projection visible, worktree follower not yet caught up.
+    proof: { committedRevision: 9, appliedCut: 9, durable: true, canonicalVisible: true, worktreeVisible: false },
     ...over,
   }) as unknown as GuiActionResult;
 
@@ -214,7 +215,6 @@ describe("useTaskActions pin write channel", () => {
         proof: { committedRevision: 9, appliedCut: 9, durable: true, canonicalVisible: false, worktreeVisible: true },
       });
       vi.spyOn(harnessClient, "pinTask").mockImplementation(async () => unproven);
-      vi.spyOn(harnessClient, "showReceipt").mockImplementation(async () => unproven as never);
       const invisible = await actions!.setTaskPin(task(false), true);
       expect(invisible).toMatchObject({ state: "pending", kind: "pin", code: "canonical_not_visible" });
       await actions!.setTaskPin(task(false), true);
@@ -237,9 +237,7 @@ describe("useTaskActions pin write channel", () => {
     const task = { taskId: "task-pin" };
     const pin = vi.fn(async () => receipt({ outcome: "pending", opId: "op-pin-pending" }));
     vi.spyOn(harnessClient, "pinTask").mockImplementation(pin);
-    vi.spyOn(harnessClient, "showReceipt").mockImplementation(
-      async () => receipt({ outcome: "pending", opId: "op-pin-pending" }) as never,
-    );
+    const showReceipt = vi.spyOn(harnessClient, "showReceipt");
 
     let actions: ReturnType<typeof useTaskActions> | undefined;
     try {
@@ -259,6 +257,8 @@ describe("useTaskActions pin write channel", () => {
       expect(first.code).not.toBe("projection_not_visible");
       await actions!.setTaskPin(task, true);
       expect(pin).toHaveBeenCalledTimes(1);
+      // The write receipt is shown as returned: no follow-up receipt read on the writer queue.
+      expect(showReceipt).not.toHaveBeenCalled();
     } finally {
       await act(async () => {
         root.unmount();

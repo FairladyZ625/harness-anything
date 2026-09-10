@@ -86,6 +86,7 @@ test("each worker outcome calls back into a new leader turn and a failed worker 
         "Resident Squad",
       ]),
       residentPackage = String(residentTask.packagePath);
+    published(root, env, residentTask);
     writeFileSync(path.join(root, "harness", residentPackage, "task_plan.md"), realizedPlan("Resident Squad"));
     run(root, env, ["doc", "sync", "--submit", "--path", `${residentPackage}/task_plan.md`]);
     mkdirSync(path.join(root, "squadwork"));
@@ -316,6 +317,7 @@ test("a Claude leader dispatches Codex workers by each worker declaration and re
     ] as const) {
       const created = run(root, env, ["task", "create", "--id", taskId, "--admin", "--title", title]),
         packagePath = String(created.packagePath);
+      published(root, env, created);
       writeFileSync(path.join(root, "harness", packagePath, "task_plan.md"), realizedPlan(title));
       run(root, env, ["doc", "sync", "--submit", "--path", `${packagePath}/task_plan.md`]);
     }
@@ -596,6 +598,12 @@ function run(root: string, env: NodeJS.ProcessEnv, args: readonly string[]): Rec
   const result = runMaybe(root, env, args);
   assert.equal(result.status, 0, `${result.stderr}\n${JSON.stringify(result.receipt)}`);
   return result.receipt;
+}
+
+// Writes return at durable acceptance; a test that reads Git or the worktree waits for both followers explicitly.
+function published(root: string, env: NodeJS.ProcessEnv, receipt: Record<string, unknown>): Record<string, unknown> {
+  const wait = ["--wait", "git_verified,worktree_visible", "--timeout-ms", "5000"];
+  return run(root, env, ["receipt", "show", String(receipt.opId), ...wait]);
 }
 
 function runMaybe(

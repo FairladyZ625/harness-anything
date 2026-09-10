@@ -60,14 +60,6 @@ export function parseThinCommand(
   cwd = process.cwd(),
   commands: readonly ProtocolCommand[] = daemonProtocolCommands,
 ): ThinParseResult {
-  if (argv.includes("--no-wait")) {
-    const parsed = parseThinCommand(
-      argv.filter((value) => value !== "--no-wait"),
-      cwd,
-      commands,
-    );
-    return parsed.ok ? { ...parsed, command: { ...parsed.command, noWait: true } } : parsed;
-  }
   const rootDir = safePath(globalOption(argv, "--root") ?? cwd),
     repoId = globalOption(argv, "--repo"),
     json = argv.includes("--json"),
@@ -128,14 +120,7 @@ export function renderThinHelp(catalog: readonly ThinHelpCatalogEntry[] = [], do
           ...rows.filter(({ usage }) => usage.includes("--service")).map(({ usage }) => `  ${usage}`),
         ],
     presetRows = catalog.length ? ["", "Recommended presets:", ...catalog.map(renderPresetHelpEntry)] : [];
-  return [
-    "Harness Anything thin CLI",
-    "",
-    ...body,
-    "",
-    "Writes wait up to 5 seconds for Git and worktree visibility; --no-wait returns after acceptance.",
-    ...presetRows,
-  ].join("\n");
+  return ["Harness Anything thin CLI", "", ...body, ...presetRows].join("\n");
 }
 
 function renderPresetHelpEntry(entry: ThinHelpCatalogEntry): string {

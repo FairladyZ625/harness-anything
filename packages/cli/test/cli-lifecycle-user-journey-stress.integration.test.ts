@@ -114,6 +114,7 @@ test("CLI changes-requested recovery releases and re-enters a new execution", as
       packagePath = String(created.packagePath),
       packageRoot = path.join(fixture.root, "harness", packagePath),
       closeoutPath = path.join(packageRoot, "closeout.md");
+    await published(fixture, created, workerEnvironment);
     writeFileSync(path.join(packageRoot, "task_plan.md"), realizedTaskPlan("CLI changes requested recovery"));
     writeFileSync(
       closeoutPath,
@@ -370,7 +371,7 @@ test("CLI writes stay accepted while a stale authored ref lock keeps Git publica
     await startClient(fixture);
     const settled = await expectApplied(fixture, createArgs(settledTaskId, "CLI Git settled baseline"), environment);
     assert.equal(settled.status, "accepted_durable", JSON.stringify(settled));
-    assert.equal(facetState(settled, "git"), "verified", JSON.stringify(settled));
+    assert.equal(facetState(await published(fixture, settled, environment), "git"), "verified");
     // A real repository fault, not a test hook: a crashed Git process leaves the authored ref locked,
     // so the SQLite-to-Git follower cannot advance the branch while SQLite keeps accepting writes.
     const branch = git(fixture.root, "rev-parse", "--abbrev-ref", "HEAD"),
@@ -381,7 +382,6 @@ test("CLI writes stay accepted while a stale authored ref lock keeps Git publica
       pendingPackageRoot = path.join(fixture.root, "harness", String(pending.packagePath));
     assert.equal(pending.status, "accepted_durable", JSON.stringify(pending));
     assert.equal(facetState(pending, "git"), "pending", JSON.stringify(pending));
-    assert.equal(waitState(pending), "timed_out", JSON.stringify(pending));
     assert.equal(existsSync(path.join(pendingPackageRoot, "INDEX.md")), false, pendingPackageRoot);
     const shown = await runResult(
         fixture,
@@ -408,7 +408,7 @@ test("CLI writes stay accepted while a stale authored ref lock keeps Git publica
       createArgs(recoveredTaskId, "CLI Git follower recovered"),
       environment,
     );
-    assert.equal(facetState(recovered, "git"), "verified", JSON.stringify(recovered));
+    assert.equal(facetState(await published(fixture, recovered, environment), "git"), "verified");
     const resettled = await expectApplied(
       fixture,
       [
@@ -459,8 +459,13 @@ test("a locally edited task plan becomes a CLI doc conflict that the conflict co
       packageRoot = path.join(fixture.root, "harness", packagePath),
       planPath = path.join(packageRoot, "task_plan.md"),
       planLogical = packagePathFor(packagePath, "task_plan.md");
+    await published(fixture, created, environment);
     writeFileSync(planPath, realizedTaskPlan(title));
-    await expectApplied(fixture, ["doc", "sync", "--submit", "--path", planLogical], environment);
+    await published(
+      fixture,
+      await expectApplied(fixture, ["doc", "sync", "--submit", "--path", planLogical], environment),
+      environment,
+    );
     // Unsubmitted local worker prose: the authored copy now diverges from the published cut.
     const drift = "## Drift\n\nUnsubmitted worker prose written before the center retitled the plan.\n",
       driftedBody = `${readFileSync(planPath, "utf8")}\n${drift}`;
@@ -470,6 +475,8 @@ test("a locally edited task plan becomes a CLI doc conflict that the conflict co
     // The center rewrites the same authored document while the local copy is dirty.
     const amended = await expectApplied(fixture, ["task", "amend", taskId, "--set", `title:${renamed}`], environment);
     assert.equal(amended.status, "accepted_durable", JSON.stringify(amended));
+    // The dirty plan keeps worktree_visible unsatisfied; the Git cut is the follower run that writes the scratch.
+    await published(fixture, amended, environment, "git_verified");
     const scratches = readdirSync(packageRoot).filter((name) => /^task_plan\.conflict-[0-9a-f]{8}\.md$/u.test(name));
     assert.equal(
       scratches.length,
@@ -595,6 +602,7 @@ async function runChain(
     planPath = path.join(packageRoot, "task_plan.md"),
     closeoutPath = path.join(packageRoot, "closeout.md"),
     artifactPath = path.join(packageRoot, "artifacts", "chain.txt");
+  await published(fixture, created, workerEnvironment);
   writeFileSync(planPath, realizedTaskPlan(`CLI stress ${clientIndex}-${chainIndex}`));
   writeFileSync(artifactPath, `synthetic chain ${clientIndex}-${chainIndex}\n`);
   await expectApplied(
@@ -895,11 +903,6 @@ function facetState(receipt: Record<string, unknown>, facet: "git" | "worktree" 
   return value !== null && typeof value === "object" ? ((value as { readonly state?: string }).state ?? null) : null;
 }
 
-function waitState(receipt: Record<string, unknown>): string | null {
-  const value = receipt.wait;
-  return value !== null && typeof value === "object" ? ((value as { readonly state?: string }).state ?? null) : null;
-}
-
 function docScanRows(evidence: unknown): readonly { readonly path: string; readonly state: string }[] {
   const text = String(evidence ?? "");
   assert.match(text, /^doc-scan:/u);
@@ -934,6 +937,20 @@ async function expectApplied(
   const receipt = JSON.parse(result.stdout) as Record<string, unknown>;
   assert.equal(receipt.outcome, "applied", result.stdout);
   return receipt;
+}
+
+// Writes return at durable acceptance; a test that reads Git or the worktree waits for the followers explicitly.
+function published(
+  fixture: Fixture,
+  receipt: Record<string, unknown>,
+  environment: NodeJS.ProcessEnv,
+  wait = "git_verified,worktree_visible",
+): Promise<Record<string, unknown>> {
+  return expectApplied(
+    fixture,
+    ["receipt", "show", String(receipt.opId), "--wait", wait, "--timeout-ms", "5000"],
+    environment,
+  );
 }
 
 async function expectNoop(

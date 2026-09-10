@@ -44,6 +44,7 @@ test("CLI imports two immutable legacy Git Harness repositories into a SQLite ce
       ),
       true,
     );
+    published(center, userRoot, receipt);
     const maps = readdirSync(path.join(center, "harness/migrations"), {
       recursive: true,
     })
@@ -185,6 +186,11 @@ function run(root: string, userRoot: string, args: readonly string[]): Record<st
   });
   assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`);
   return JSON.parse(result.stdout) as Record<string, unknown>;
+}
+// Writes return at durable acceptance; a test that reads Git or the worktree waits for both followers explicitly.
+function published(root: string, userRoot: string, receipt: Record<string, unknown>): Record<string, unknown> {
+  const wait = ["--wait", "git_verified,worktree_visible", "--timeout-ms", "5000"];
+  return run(root, userRoot, ["receipt", "show", String(receipt.opId), ...wait]);
 }
 function environment(root: string, userRoot: string): NodeJS.ProcessEnv {
   const { HARNESS_ACTOR: _actor, HARNESS_DAEMON_ENDPOINT: _endpoint, ...base } = process.env;

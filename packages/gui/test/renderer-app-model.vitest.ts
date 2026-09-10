@@ -40,59 +40,52 @@ describe("renderer app model", () => {
     ]);
   });
 
-  it("settles task writes only from durable canonical receipts and resolves pending by opId", async () => {
-    const showReceipt = vi.fn(async () => receipt({ outcome: "applied", opId: "op-pending" }));
-    const settled = await settleTaskReceipt(
-      receipt({
-        outcome: "pending",
-        opId: "op-pending",
-        proof: {
-          committedRevision: 8,
-          appliedCut: 7,
-          durable: true,
-          canonicalVisible: false,
-          worktreeVisible: true,
-        },
-        nextAction: "ha receipt show op-pending",
-      }),
-      showReceipt,
-    );
-
-    expect(showReceipt).toHaveBeenCalledOnce();
-    expect(showReceipt).toHaveBeenCalledWith({ opId: "op-pending" });
-    expect(settled).toMatchObject({ state: "applied", opId: "op-pending" });
+  it("settles task writes from the write receipt alone while the worktree follower lags", () => {
     expect(
-      await settleTaskReceipt(
+      settleTaskReceipt(
         receipt({
+          proof: { committedRevision: 8, appliedCut: 8, durable: true, canonicalVisible: true, worktreeVisible: false },
+        }),
+      ),
+    ).toMatchObject({ state: "applied", opId: "op-applied", revision: 8 });
+    expect(
+      settleTaskReceipt(
+        receipt({
+          outcome: "pending",
+          opId: "op-pending",
           proof: {
             committedRevision: 8,
-            appliedCut: 8,
+            appliedCut: 7,
             durable: true,
             canonicalVisible: false,
-            worktreeVisible: true,
+            worktreeVisible: false,
           },
+          nextAction: "ha receipt show op-pending",
         }),
-        showReceipt,
+      ),
+    ).toMatchObject({ state: "pending", opId: "op-pending", code: "pending", hint: "ha receipt show op-pending" });
+    expect(
+      settleTaskReceipt(
+        receipt({
+          proof: { committedRevision: 8, appliedCut: 8, durable: true, canonicalVisible: false, worktreeVisible: true },
+        }),
       ),
     ).toMatchObject({ state: "pending", code: "canonical_not_visible" });
   });
 
-  it("preserves raw rejection code, hint, and opId", async () => {
-    const settled = await settleTaskReceipt(
-      {
-        schema: "command-receipt/v2",
-        ok: false,
-        command: "task-submit",
-        outcome: "op_rejected",
-        opId: "op-rejected",
-        code: "invalid_submission",
-        origin: "daemon",
-        evidence: "rejection:invalid_submission",
-        nextAction: "Fix the packet.",
-        error: { code: "invalid_submission", hint: "Completion claim is required." },
-      },
-      vi.fn(),
-    );
+  it("preserves raw rejection code, hint, and opId", () => {
+    const settled = settleTaskReceipt({
+      schema: "command-receipt/v2",
+      ok: false,
+      command: "task-submit",
+      outcome: "op_rejected",
+      opId: "op-rejected",
+      code: "invalid_submission",
+      origin: "daemon",
+      evidence: "rejection:invalid_submission",
+      nextAction: "Fix the packet.",
+      error: { code: "invalid_submission", hint: "Completion claim is required." },
+    });
     expect(settled).toMatchObject({
       state: "op_rejected",
       opId: "op-rejected",
@@ -101,58 +94,45 @@ describe("renderer app model", () => {
     });
   });
 
-  it("settles decision writes once by opId and requires the complete durable worktree proof", async () => {
-    const showReceipt = vi.fn(async () => decisionReceipt({ outcome: "applied", opId: "op-decision" }));
-    const settled = await settleDecisionReceipt(
-      decisionReceipt({ outcome: "pending", opId: "op-decision", nextAction: "receipt show" }),
-      showReceipt,
-    );
-
-    expect(showReceipt).toHaveBeenCalledOnce();
-    expect(showReceipt).toHaveBeenCalledWith({ opId: "op-decision" });
-    expect(settled).toMatchObject({
+  it("settles decision writes from the complete durable write receipt", () => {
+    expect(settleDecisionReceipt(decisionReceipt())).toMatchObject({
       state: "applied",
-      opId: "op-decision",
+      opId: "op-applied",
       receipt: {
         consentId: "djc_0123456789abcdef0123456789",
         path: "decisions/decision-dec_test/decision.md",
-        worktreeVisible: true,
       },
     });
-    expect(await settleDecisionReceipt(decisionReceipt({ worktreeVisible: false }), vi.fn())).toMatchObject({
+    expect(
+      settleDecisionReceipt(decisionReceipt({ outcome: "pending", opId: "op-decision", nextAction: "receipt show" })),
+    ).toMatchObject({ state: "pending", opId: "op-decision", code: "pending", hint: "receipt show" });
+    expect(settleDecisionReceipt(decisionReceipt({ documentSha256: undefined }))).toMatchObject({
       state: "pending",
       code: "canonical_not_visible",
     });
   });
 
-  it("renders an applied decision receipt while its Git commit identity is pending", async () => {
-    const showReceipt = vi.fn();
-    const settled = await settleDecisionReceipt(decisionReceipt({ commitSha: null }), showReceipt);
-
-    expect(showReceipt).not.toHaveBeenCalled();
-    expect(settled).toMatchObject({
+  it("renders an applied decision receipt while its Git commit and worktree are pending", () => {
+    expect(settleDecisionReceipt(decisionReceipt({ commitSha: null, worktreeVisible: false }))).toMatchObject({
       state: "applied",
       opId: "op-applied",
-      receipt: { commitSha: null, worktreeVisible: true },
+      receipt: { commitSha: null, worktreeVisible: false },
     });
   });
 
-  it("preserves decision rejection origin/code/hint/opId and never resolves it as success", async () => {
-    const settled = await settleDecisionReceipt(
-      {
-        schema: "command-receipt/v2",
-        ok: false,
-        command: "decision-accept",
-        outcome: "op_rejected",
-        opId: "op-reject",
-        code: "judgment_only_rationale_required",
-        origin: "daemon",
-        nextAction: "Provide an independent rationale.",
-        evidence: "rejection:judgment_only_rationale_required",
-        error: { code: "judgment_only_rationale_required", hint: "No reachable claim evidence." },
-      },
-      vi.fn(),
-    );
+  it("preserves decision rejection origin/code/hint/opId and never resolves it as success", () => {
+    const settled = settleDecisionReceipt({
+      schema: "command-receipt/v2",
+      ok: false,
+      command: "decision-accept",
+      outcome: "op_rejected",
+      opId: "op-reject",
+      code: "judgment_only_rationale_required",
+      origin: "daemon",
+      nextAction: "Provide an independent rationale.",
+      evidence: "rejection:judgment_only_rationale_required",
+      error: { code: "judgment_only_rationale_required", hint: "No reachable claim evidence." },
+    });
 
     expect(settled).toMatchObject({
       state: "op_rejected",

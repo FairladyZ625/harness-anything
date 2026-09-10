@@ -8,21 +8,16 @@ import { requestLocalDaemonJsonRpc } from "../../daemon/src/client/local-json-rp
 import { makeTaskEventReader } from "../../kernel/src/index.ts";
 import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
 
-import { cli, git, register, run, runMaybe, setup, stop } from "./daemon-multi-repo-lifecycle-cli.fixtures.ts";
-function settleFollower(root: string, userRoot: string, receipt: Record<string, unknown>): void {
-  const settled = run(root, userRoot, [
-    "receipt",
-    "show",
-    String(receipt.opId),
-    "--wait",
-    "git_verified,worktree_visible",
-    "--timeout-ms",
-    "5000",
-  ]);
-  assert.equal((settled.wait as { state: string }).state, "satisfied", JSON.stringify(settled));
-  assert.equal((settled.git as { state: string }).state, "verified");
-  assert.equal((settled.worktree as { state: string }).state, "verified");
-}
+import {
+  cli,
+  git,
+  register,
+  run,
+  runMaybe,
+  settleFollower,
+  setup,
+  stop,
+} from "./daemon-multi-repo-lifecycle-cli.fixtures.ts";
 test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite before Git follower verification", async () => {
   const fixture = setup();
   try {
@@ -138,7 +133,7 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
       "integration",
     ]);
     assert.equal(factRecord.outcome, "applied", JSON.stringify(factRecord));
-    assert.match(String(factRecord.commitSha), /^[0-9a-f]{40}$/u);
+    assert.match(String(settleFollower(fixture.alpha, fixture.userRoot, factRecord).commitSha), /^[0-9a-f]{40}$/u);
     assert.ok(factRecord.cut);
     const fact = JSON.parse(String(factRecord.evidence)) as {
       factId: string;
@@ -179,11 +174,9 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
       decisionPath = `decisions/decision-${decision.decisionId}/decision.md`;
     assert.equal(decision.state, "proposed");
     assert.equal(decisionPropose.path, decisionPath);
-    assert.equal(decisionPropose.worktreeVisible, true);
-    assert.match(String(decisionPropose.commitSha), /^[0-9a-f]{40}$/u);
+    assert.match(String(settleFollower(fixture.alpha, fixture.userRoot, decisionPropose).commitSha), /^[0-9a-f]{40}$/u);
     assert.ok(decisionPropose.cut);
     assert.match(String(decisionPropose.documentSha256), /^[0-9a-f]{64}$/u);
-    settleFollower(fixture.alpha, fixture.userRoot, decisionPropose);
     assert.match(
       readFileSync(path.join(fixture.alpha, "harness", decisionPath), "utf8"),
       /^---\nschema: decision-package\/v1[\s\S]*\nstate: proposed[\s\S]*\n---\n\n# Canonical Decision from CLI\n$/u,
@@ -281,10 +274,8 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
       "test:reports/cli.txt:passed",
     ]);
     assert.equal(progress.progressPath, "tasks/task-alpha-alpha/progress.md");
-    assert.match(String(progress.commitSha), /^[0-9a-f]{40}$/u);
+    assert.match(String(settleFollower(fixture.alpha, fixture.userRoot, progress).commitSha), /^[0-9a-f]{40}$/u);
     assert.ok(progress.cut);
-    assert.equal(progress.worktreeVisible, true);
-    settleFollower(fixture.alpha, fixture.userRoot, progress);
     assert.match(String(progress.evidence), /file:tasks\/task-alpha-alpha\/progress\.md/u);
     assert.match(
       readFileSync(path.join(fixture.alpha, "harness/tasks/task-alpha-alpha/progress.md"), "utf8"),
@@ -340,6 +331,7 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
     writeFileSync(blockedFile, stableMachineDocument);
     const stableSubmit = run(fixture.alpha, fixture.userRoot, ["doc", "sync", "--submit", "--path", blockedPath]);
     assert.equal(stableSubmit.outcome, "applied", JSON.stringify(stableSubmit));
+    settleFollower(fixture.alpha, fixture.userRoot, stableSubmit);
     writeFileSync(blockedFile, "---\nschema: changed\n---\n# Stable\n");
     writeFileSync(path.join(fixture.alpha, "harness", eligiblePath), "# Eligible\n");
     const partial = runMaybe(fixture.alpha, fixture.userRoot, ["doc", "sync", "--submit", "--all"]);

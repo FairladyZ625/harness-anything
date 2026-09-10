@@ -887,10 +887,14 @@ test("semantic sources and agent execution cross the daemon before transport-bou
       "# Closeout\n\n## Summary\n\nExecutor attribution restored.\n\n## Verification\n\nEnd-to-end daemon flow.\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nNot applicable to this fixture.\n",
       "utf8",
     );
-    assert.equal(
-      run(fixture.root, fixture.userRoot, ["doc", "sync", "--submit", "--task", taskId], "agent:claude-code").outcome,
-      "applied",
+    const closeoutSync = run(
+      fixture.root,
+      fixture.userRoot,
+      ["doc", "sync", "--submit", "--task", taskId],
+      "agent:claude-code",
     );
+    assert.equal(closeoutSync.outcome, "applied");
+    published(fixture.root, fixture.userRoot, closeoutSync);
     const commitSha = git(fixture.root, "rev-parse", "HEAD");
 
     writeFileSync(
@@ -1196,6 +1200,11 @@ function run(root: string, userRoot: string, args: readonly string[], actor?: st
   });
   assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`);
   return JSON.parse(result.stdout) as Record<string, unknown>;
+}
+// Writes return at durable acceptance; a test that reads Git or the worktree waits for both followers explicitly.
+function published(root: string, userRoot: string, receipt: Record<string, unknown>): Record<string, unknown> {
+  const wait = ["--wait", "git_verified,worktree_visible", "--timeout-ms", "5000"];
+  return run(root, userRoot, ["receipt", "show", String(receipt.opId), ...wait]);
 }
 function waitForDaemonDown(userRoot: string): void {
   const socketPath = localUserDaemonEndpoint(userRoot, "default");

@@ -153,6 +153,27 @@ export function runCliPackageSmoke(root = process.cwd()) {
       ),
       "task create",
     );
+    // Writes return at durable acceptance; the package directory appears once both followers publish it.
+    expectOk(
+      runJson(
+        binPath,
+        [
+          "--root",
+          projectDir,
+          "--json",
+          "receipt",
+          "show",
+          String(created.opId),
+          "--wait",
+          "git_verified,worktree_visible",
+          "--timeout-ms",
+          "5000",
+        ],
+        projectDir,
+        env(userRoot, home),
+      ),
+      "receipt show",
+    );
     const planPath = `${String(created.packagePath)}/task_plan.md`;
     writeFileSync(path.join(projectDir, "harness", planPath), realizedTaskPlan("Smoke Task"));
     expectOk(
@@ -167,15 +188,6 @@ export function runCliPackageSmoke(root = process.cwd()) {
     expectOk(
       runJson(binPath, ["--root", projectDir, "--json", "task", "show", "task-smoke"], projectDir, env(userRoot, home)),
       "task show",
-    );
-    expectOk(
-      runJson(
-        binPath,
-        ["--root", projectDir, "--json", "receipt", "show", String(created.opId)],
-        projectDir,
-        env(userRoot, home),
-      ),
-      "receipt show",
     );
     expectOk(
       runJson(

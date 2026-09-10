@@ -23,9 +23,7 @@ import { cliErrorMessage } from "../cli-error.ts";
 import type { ThinCommand } from "../cli/thin-command.ts";
 import { fleetEdgeRegistration, fleetScheduleRoute } from "./fleet-command-route.ts";
 import { withAutostart } from "./with-autostart.ts";
-import { settleCommandVisibility } from "./command-visibility.ts";
 import { assertCanonicalCliEntry, cliEntryNotCanonicalCode } from "./cli-entry-guard.ts";
-export { settleCommandVisibility } from "./command-visibility.ts";
 export { fleetScheduleRoute } from "./fleet-command-route.ts";
 export {
   daemonIdFromEnv,
@@ -252,26 +250,7 @@ export async function runCommandThroughDaemon(
     daemonAutostartOptions(command, autostart, env, target.userRoot, target.daemonId),
   );
   result = await settleRepoWarming(result, request, target.userRoot, target.daemonId);
-  if (command.action.kind !== "preset-run-start")
-    return settleCommandVisibility(command, result, (opId) =>
-      requestLocalDaemonJsonRpcForTarget(
-        target,
-        "repo.task.read",
-        {
-          repo: { repoId: target.repoId },
-          payload: {
-            action: {
-              kind: "receipt-show",
-              opId,
-              waitFor: ["worktree_visible", "git_verified"],
-              timeoutMs: 5_000,
-            },
-          },
-        },
-        75,
-        10_000,
-      ),
-    );
+  if (command.action.kind !== "preset-run-start") return result;
   let observed = 0;
   for (;;) {
     const phases = Array.isArray(result.phases)

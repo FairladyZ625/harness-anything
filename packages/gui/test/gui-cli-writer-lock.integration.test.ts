@@ -85,6 +85,7 @@ test("GUI and CLI write the same canonical through one resident daemon", async (
     assert.equal(cliResult.receipt.outcome, "applied", JSON.stringify(cliResult.receipt));
     assert.doesNotMatch(cliResult.stderr, /writer lock|EEXIST/iu);
 
+    for (const receipt of [guiResult as Record<string, unknown>, cliResult.receipt]) published(root, env, receipt);
     const listed = await bridge.invoke("listAgents", { repoId });
     const agents = (listed as { readonly agents?: readonly { readonly id: string }[] }).agents ?? [];
     assert.deepEqual(agents.map(({ id }) => id).sort(), ["cli-agent", "gui-agent"]);
@@ -114,6 +115,14 @@ function runCli(root: string, env: NodeJS.ProcessEnv, args: readonly string[]) {
     receipt: result.stdout.trim() ? (JSON.parse(result.stdout) as Record<string, unknown>) : {},
     stderr: result.stderr,
   };
+}
+
+// Writes return at durable acceptance; a test that reads Git or the worktree waits for both followers explicitly.
+function published(root: string, env: NodeJS.ProcessEnv, receipt: Record<string, unknown>): Record<string, unknown> {
+  const wait = ["--wait", "git_verified,worktree_visible", "--timeout-ms", "5000"],
+    shown = runCli(root, env, ["receipt", "show", String(receipt.opId), ...wait]);
+  assert.equal(shown.status, 0, `${shown.stderr}\n${JSON.stringify(shown.receipt)}`);
+  return shown.receipt;
 }
 
 async function runCliAsync(root: string, env: NodeJS.ProcessEnv, args: readonly string[]) {
