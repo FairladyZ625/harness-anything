@@ -6,11 +6,8 @@ import test from "node:test";
 import { createEntityStore } from "../../src/index.ts";
 import { validateAgentDeclarationV1 } from "../../src/domain/agent-squad-schema.ts";
 import { explainEntityKind } from "../../src/domain/entity-kind-registry.ts";
-import {
-  assertEntityUpsertInputs,
-  type EntityEventV1,
-  type EntityUpsertBundle,
-} from "../../src/domain/entity-event.ts";
+import { assertEntityUpsertInputs, type EntityEventV1 } from "../../src/domain/entity-event.ts";
+import type { EntityUpsertBundle } from "../../src/domain/entity-event-compile.ts";
 import { validateWriteReceipt } from "../../src/domain/write-chain.contract.ts";
 import { createEntityOwnedContent, MAX_ENTITY_CONTENT_OBJECT_BYTES } from "../../src/domain/entity-owned-content.ts";
 

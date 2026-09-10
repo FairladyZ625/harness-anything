@@ -756,38 +756,52 @@ function certifiedFollowerRevision(
   const target = ledgerGitPath(ledger, "events/segments/manifest.json"),
     bytes = localGitObjectRefStore.readPath(ledger.rootDir, commit, target);
   if (!bytes) return 0;
+  const parsed = decodeFollowerManifest(bytes),
+    revision = Number(parsed.cut?.revision);
+  if (
+    parsed.generation !== sqlite.metadata().generation ||
+    parsed.cut?.repoId !== sqlite.metadata().repoId ||
+    !Number.isSafeInteger(revision) ||
+    revision < 0 ||
+    revision > sqlite.revision()
+  )
+    throw new TaskEventStoreError("publication_indeterminate", "Git follower manifest identity is invalid");
+  const event = sqlite.eventAtRevision(revision),
+    expected = canonicalLedgerCut(sqlite.metadata().repoId, event ? eventHead(event) : null);
+  if (parsed.cut.headDigest !== expected.headDigest)
+    throw new TaskEventStoreError("publication_indeterminate", "Git follower manifest cut differs from SQLite");
+  const closure = followerFiles(
+    ledger,
+    commit,
+    readEventsThrough(sqlite, revision),
+    sqlite.readContentObject,
+    expected,
+    sqlite.metadata().generation,
+  );
+  verifyGitFiles(ledger.rootDir, commit, closure);
+  return revision;
+}
+
+/**
+ * Only a manifest that is not JSON is undecodable. Everything the certification does afterwards reads the
+ * ledger, not the manifest, and `publishFollower` runs the same reads outside this function — so folding their
+ * failures into a decode verdict would name the wrong file and hide the failure that actually happened.
+ */
+function decodeFollowerManifest(bytes: Buffer): {
+  readonly generation?: unknown;
+  readonly cut?: { repoId?: unknown; revision?: unknown; headDigest?: unknown };
+} {
+  const undecodable = () =>
+    new TaskEventStoreError("publication_indeterminate", "Git follower manifest cannot be decoded");
+  let parsed: unknown;
   try {
-    const parsed = JSON.parse(bytes.toString("utf8")) as {
-      readonly generation?: unknown;
-      readonly cut?: { repoId?: unknown; revision?: unknown; headDigest?: unknown };
-    };
-    const revision = Number(parsed.cut?.revision);
-    if (
-      parsed.generation !== sqlite.metadata().generation ||
-      parsed.cut?.repoId !== sqlite.metadata().repoId ||
-      !Number.isSafeInteger(revision) ||
-      revision < 0 ||
-      revision > sqlite.revision()
-    )
-      throw new TaskEventStoreError("publication_indeterminate", "Git follower manifest identity is invalid");
-    const event = sqlite.eventAtRevision(revision),
-      expected = canonicalLedgerCut(sqlite.metadata().repoId, event ? eventHead(event) : null);
-    if (parsed.cut.headDigest !== expected.headDigest)
-      throw new TaskEventStoreError("publication_indeterminate", "Git follower manifest cut differs from SQLite");
-    const closure = followerFiles(
-      ledger,
-      commit,
-      readEventsThrough(sqlite, revision),
-      sqlite.readContentObject,
-      expected,
-      sqlite.metadata().generation,
-    );
-    verifyGitFiles(ledger.rootDir, commit, closure);
-    return revision;
+    parsed = JSON.parse(bytes.toString("utf8"));
   } catch (error) {
-    if (error instanceof TaskEventStoreError) throw error;
-    throw new TaskEventStoreError("publication_indeterminate", "Git follower manifest cannot be decoded");
+    consumeKnownError(error);
+    throw undecodable();
   }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) throw undecodable();
+  return parsed as ReturnType<typeof decodeFollowerManifest>;
 }
 
 function eventHead(event: CanonicalEventV1): EventHead {

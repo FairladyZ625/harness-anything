@@ -1,10 +1,9 @@
 import type { HarnessLayoutInput } from "../layout/index.ts";
+import { compileEntityUpsert, type EntityUpsertBundle } from "../domain/entity-event-compile.ts";
 import {
-  compileEntityUpsert,
   contractForDeclarationEvent,
   isEntityDeclarationEvent,
   isEntityEvent,
-  type EntityUpsertBundle,
   type StoredEntityEventV1,
 } from "../domain/entity-event.ts";
 import { interpretEntityValue } from "../domain/entity-kind-projection.ts";
