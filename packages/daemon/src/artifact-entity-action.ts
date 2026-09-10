@@ -512,9 +512,23 @@ async function resolveArtifactSource(input: {
   if (locator.kind === "url") {
     const controller = new AbortController(),
       timeout = setTimeout(() => controller.abort(), ARTIFACT_SOURCE_FETCH_TIMEOUT_MS);
-    let response: Response;
+    // One deadline covers the response headers and the body: a response that stalls after its headers times out.
     try {
-      response = await fetch(locator.value, { redirect: "follow", signal: controller.signal });
+      const response = await fetch(locator.value, { redirect: "follow", signal: controller.signal }),
+        source = { kind: "url" as const, url: locator.value },
+        code = response.status;
+      if (code === 404 || code === 410) return { status: "missing", source, reason: `HTTP ${code}`, resolver: "http" };
+      if (!response.ok) throw new Error(`URL resolver returned HTTP ${response.status}.`);
+      const content = new Uint8Array(await response.arrayBuffer()),
+        name = path.basename(new URL(locator.value).pathname) || new URL(locator.value).hostname;
+      return {
+        status: "observed",
+        source,
+        witness: { kind: "content", content },
+        content: [sourceObject(name, content)],
+        title: name,
+        resolver: "http",
+      };
     } catch (error) {
       if (controller.signal.aborted)
         throw new ArtifactEntityServiceError(
@@ -525,20 +539,6 @@ async function resolveArtifactSource(input: {
     } finally {
       clearTimeout(timeout);
     }
-    const source = { kind: "url" as const, url: locator.value };
-    const code = response.status;
-    if (code === 404 || code === 410) return { status: "missing", source, reason: `HTTP ${code}`, resolver: "http" };
-    if (!response.ok) throw new Error(`URL resolver returned HTTP ${response.status}.`);
-    const content = new Uint8Array(await response.arrayBuffer()),
-      name = path.basename(new URL(locator.value).pathname) || new URL(locator.value).hostname;
-    return {
-      status: "observed",
-      source,
-      witness: { kind: "content", content },
-      content: [sourceObject(name, content)],
-      title: name,
-      resolver: "http",
-    };
   }
   throw new ArtifactEntityServiceError(
     "source_resolution_failed",
