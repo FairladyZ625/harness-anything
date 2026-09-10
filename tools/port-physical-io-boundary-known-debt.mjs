@@ -41,7 +41,7 @@ for (const [index, entry] of portPhysicalIoBoundaryKnownDebt.entries()) {
       throw new Error(`portPhysicalIoBoundaryKnownDebt[${index}] must include non-empty ${field}`);
     }
   }
-  if (!/^(dec_[A-Za-z0-9_]+|task_[A-Z0-9]+)$/u.test(entry.decision)) {
+  if (!/^(dec_[A-Za-z0-9_]+|task_[A-Za-z0-9]+)$/u.test(entry.decision)) {
     throw new Error(`portPhysicalIoBoundaryKnownDebt[${index}].decision must cite a decision id or task id`);
   }
 }

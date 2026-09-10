@@ -277,7 +277,7 @@ function parseDeletionAllowlist(text, displayPath) {
       errors.push(`${label}.value must be an exact repository test file path`);
       continue;
     }
-    if (typeof entry.ref !== "string" || !/^(?:ADR-\d{4}|dec_[A-Za-z0-9_]+|task_[A-Z0-9]+)/u.test(entry.ref)) {
+    if (typeof entry.ref !== "string" || !/^(?:ADR-\d{4}|dec_[A-Za-z0-9_]+|task_[A-Za-z0-9]+)/u.test(entry.ref)) {
       errors.push(`${label}.ref must cite an ADR, decision, or task id`);
     }
     if (typeof entry.reason !== "string" || entry.reason.trim() === "")

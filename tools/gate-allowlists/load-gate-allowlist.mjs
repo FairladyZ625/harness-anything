@@ -39,7 +39,8 @@ export function loadGateAllowlist(gateId, options = {}) {
   const currentCount = validateEntryTree(gateId, parsed.entries, "entries");
 
   const previousCount = previousEntryCount(displayPath);
-  const trend = previousCount === null ? "previous=unavailable" : `previous=${previousCount} delta=${currentCount - previousCount}`;
+  const trend =
+    previousCount === null ? "previous=unavailable" : `previous=${previousCount} delta=${currentCount - previousCount}`;
   const growth = previousCount !== null && currentCount > previousCount ? " GROWTH_REQUIRES_GOVERNANCE_REVIEW" : "";
   console.log(`[gate-allowlist] ${gateId}: current=${currentCount} ${trend}${growth}`);
 
@@ -68,7 +69,7 @@ export function patternEntries(entries) {
   return entries.map((entry) => ({
     label: entry.label,
     pattern: new RegExp(entry.pattern, entry.flags ?? "u"),
-    includePathPattern: typeof entry.includePathPattern === "string" ? new RegExp(entry.includePathPattern, "u") : null
+    includePathPattern: typeof entry.includePathPattern === "string" ? new RegExp(entry.includePathPattern, "u") : null,
   }));
 }
 
@@ -92,7 +93,7 @@ function validateEntry(gateId, entry, label) {
   if (typeof entry.ref !== "string" || entry.ref.trim() === "") {
     fail(gateId, `${label} must include a non-empty ref`);
   }
-  if (!/^(?:ADR-\d{4}|dec_[A-Za-z0-9_]+|task_[A-Z0-9]+)/u.test(entry.ref)) {
+  if (!/^(?:ADR-\d{4}|dec_[A-Za-z0-9_]+|task_[A-Za-z0-9]+)/u.test(entry.ref)) {
     fail(gateId, `${label}.ref must cite an ADR, decision, or task id`);
   }
   if (typeof entry.reason !== "string" || entry.reason.trim() === "") {
@@ -105,7 +106,7 @@ function previousEntryCount(displayPath) {
     const raw = execFileSync("git", ["show", `HEAD^:${displayPath}`], {
       cwd: toolRoot,
       encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"]
+      stdio: ["ignore", "pipe", "ignore"],
     });
     const parsed = JSON.parse(raw);
     if (!isObject(parsed) || !isObject(parsed.entries)) return null;
