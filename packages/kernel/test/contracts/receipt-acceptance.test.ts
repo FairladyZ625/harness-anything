@@ -1,7 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import { attachReceiptAcceptance } from "../../src/composition/receipt-acceptance.ts";
+import { attachReceiptAcceptance, waitForReceiptAcceptance } from "../../src/composition/receipt-acceptance.ts";
 import { validateWriteReceipt } from "../../src/domain/receipt-domain-registry.ts";
 import { unsatisfiedReceiptPredicates, type ReceiptAcceptanceFields } from "../../src/domain/receipt-acceptance.ts";
 import { validateReceiptAcceptance } from "../../src/domain/receipt-acceptance.ts";
@@ -119,6 +119,37 @@ test("wait timeout preserves durable acceptance and lists unsatisfied facets", (
     }).join("\n"),
     /wait result/u,
   );
+});
+
+test("wait returns when the follower settles instead of polling out the deadline", async () => {
+  const startedAt = performance.now(),
+    receipt = await waitForReceiptAcceptance(
+      () => ({ outcome: "applied", opId: "command", ...accepted }),
+      ["git_verified"],
+      5000,
+      undefined,
+      async () => {},
+    ),
+    wait = (receipt as { wait?: { state: string; unsatisfied: readonly string[] } }).wait;
+  assert.equal(wait?.state, "timed_out");
+  assert.deepEqual(wait?.unsatisfied, ["git_verified"]);
+  // A settled-but-unsatisfied follower ends the wait at once; a fixed 25 ms poll would
+  // rebuild the receipt until the full 5000 ms deadline elapsed.
+  assert.ok(performance.now() - startedAt < 2000);
+});
+
+test("wait honors the deadline when the follower settlement never resolves", async () => {
+  const startedAt = performance.now(),
+    receipt = await waitForReceiptAcceptance(
+      () => ({ outcome: "applied", opId: "command", ...accepted }),
+      ["git_verified"],
+      50,
+      undefined,
+      () => new Promise(() => {}),
+    ),
+    wait = (receipt as { wait?: { state: string; unsatisfied: readonly string[] } }).wait;
+  assert.equal(wait?.state, "timed_out");
+  assert.ok(performance.now() - startedAt >= 40);
 });
 
 test("an intent-conflict rejection cannot borrow acceptance from the operation id's older command", () => {

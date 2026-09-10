@@ -1,9 +1,5 @@
 import { decodePresetPackageV3, parsePresetJson } from "./preset-package.ts";
-import {
-  defaultBundled,
-  isPresetResolutionRecord,
-  presetFailure,
-} from "./preset-resolver-common.ts";
+import { defaultBundled, isPresetResolutionRecord, presetFailure } from "./preset-resolver-common.ts";
 import { consumeKnownError } from "./preset.contract.ts";
 import { randomUUID } from "node:crypto";
 import {
@@ -61,10 +57,7 @@ export function installPresetPackage(input: {
     objectRoot = path.join(objects, decoded.packageDigest),
     temporaryObject = path.join(objects, `.install-${randomUUID()}`),
     pointer = path.join(active, `${decoded.manifest.id}.json`),
-    temporaryPointer = path.join(
-      active,
-      `.${decoded.manifest.id}-${randomUUID()}.tmp`,
-    ),
+    temporaryPointer = path.join(active, `.${decoded.manifest.id}-${randomUUID()}.tmp`),
     changed = activeDigest(pointer) !== decoded.packageDigest,
     report = {
       presetId: decoded.manifest.id,
@@ -75,12 +68,10 @@ export function installPresetPackage(input: {
       issues: [],
     };
   if (input.dryRun) {
-    for (const directory of [userRoot, objects, active])
-      assertInstallDirectory(directory);
+    for (const directory of [userRoot, objects, active]) assertInstallDirectory(directory);
     return report;
   }
-  for (const directory of [userRoot, objects, active])
-    ensureInstallDirectory(directory);
+  for (const directory of [userRoot, objects, active]) ensureInstallDirectory(directory);
   try {
     if (!existsSync(objectRoot)) {
       cpSync(decoded.root, temporaryObject, {
@@ -89,18 +80,10 @@ export function installPresetPackage(input: {
       });
       const copied = decodePresetPackageV3(temporaryObject);
       if (copied.packageDigest !== decoded.packageDigest)
-        throw presetFailure(
-          "digest_mismatch",
-          "Copied preset package does not match its preflight digest.",
-        );
+        throw presetFailure("digest_mismatch", "Copied preset package does not match its preflight digest.");
       renameSync(temporaryObject, objectRoot);
-    } else if (
-      decodePresetPackageV3(objectRoot).packageDigest !== decoded.packageDigest
-    )
-      throw presetFailure(
-        "digest_mismatch",
-        "Immutable preset object does not match its directory digest.",
-      );
+    } else if (decodePresetPackageV3(objectRoot).packageDigest !== decoded.packageDigest)
+      throw presetFailure("digest_mismatch", "Immutable preset object does not match its directory digest.");
     input.killpoint?.("after-object");
     writeFileSync(
       temporaryPointer,
@@ -115,8 +98,7 @@ export function installPresetPackage(input: {
     input.killpoint?.("after-pointer");
     return report;
   } finally {
-    if (existsSync(temporaryObject))
-      rmSync(temporaryObject, { recursive: true, force: true });
+    if (existsSync(temporaryObject)) rmSync(temporaryObject, { recursive: true, force: true });
     if (existsSync(temporaryPointer)) rmSync(temporaryPointer, { force: true });
   }
 }
@@ -128,59 +110,30 @@ export function uninstallPresetPackage(input: {
 }): boolean {
   if (!/^[a-z0-9][a-z0-9-]{0,127}$/u.test(input.presetId))
     throw presetFailure("invalid_preset_id", "Preset id is invalid.");
-  const pointer = path.join(
-    path.resolve(input.userRoot),
-    "active",
-    `${input.presetId}.json`,
-  );
+  const pointer = path.join(path.resolve(input.userRoot), "active", `${input.presetId}.json`);
   if (!existsSync(pointer)) return false;
   if (!lstatSync(pointer).isFile() || lstatSync(pointer).isSymbolicLink())
-    throw presetFailure(
-      "invalid_pointer",
-      "Active pointer is not a regular file.",
-    );
+    throw presetFailure("invalid_pointer", "Active pointer is not a regular file.");
   if (!input.dryRun) unlinkSync(pointer);
   return true;
 }
 
 export function ensureInstallDirectory(target: string): void {
-  if (
-    existsSync(target) &&
-    (!lstatSync(target).isDirectory() || lstatSync(target).isSymbolicLink())
-  )
-    throw presetFailure(
-      "invalid_install_root",
-      `Preset install directory ${target} is not regular.`,
-    );
+  if (existsSync(target) && (!lstatSync(target).isDirectory() || lstatSync(target).isSymbolicLink()))
+    throw presetFailure("invalid_install_root", `Preset install directory ${target} is not regular.`);
   mkdirSync(target, { recursive: true });
 }
 
 export function assertInstallDirectory(target: string): void {
-  if (
-    existsSync(target) &&
-    (!lstatSync(target).isDirectory() || lstatSync(target).isSymbolicLink())
-  )
-    throw presetFailure(
-      "invalid_install_root",
-      `Preset install directory ${target} is not regular.`,
-    );
+  if (existsSync(target) && (!lstatSync(target).isDirectory() || lstatSync(target).isSymbolicLink()))
+    throw presetFailure("invalid_install_root", `Preset install directory ${target} is not regular.`);
 }
 
 export function activeDigest(pointer: string): string | undefined {
   try {
-    if (
-      !existsSync(pointer) ||
-      !lstatSync(pointer).isFile() ||
-      lstatSync(pointer).isSymbolicLink()
-    )
-      return undefined;
-    const value = parsePresetJson(
-      readFileSync(pointer, "utf8"),
-      "invalid_pointer",
-    );
-    return isPresetResolutionRecord(value) && typeof value.digest === "string"
-      ? value.digest
-      : undefined;
+    if (!existsSync(pointer) || !lstatSync(pointer).isFile() || lstatSync(pointer).isSymbolicLink()) return undefined;
+    const value = parsePresetJson(readFileSync(pointer, "utf8"), "invalid_pointer");
+    return isPresetResolutionRecord(value) && typeof value.digest === "string" ? value.digest : undefined;
   } catch (error) {
     consumeKnownError(error);
     return undefined;

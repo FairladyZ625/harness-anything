@@ -74,7 +74,8 @@ export async function runMigrationImport(input: MigrationImportRunInput): Promis
       input.store.append({ ...terminal, preceding: bundles.slice(0, -1) });
       input.projection.catchUp?.();
     }
-    const combined = combineMigrationReceipts(receipts, sourceRoots);
+    const combined = combineMigrationReceipts(receipts, sourceRoots),
+      appliedCut = input.projection.readCut().watermark;
     return terminal
       ? {
           ...combined,
@@ -82,9 +83,9 @@ export async function runMigrationImport(input: MigrationImportRunInput): Promis
           revision: terminal.event.workspaceRevision,
           proof: {
             committedRevision: terminal.event.workspaceRevision,
-            appliedCut: input.projection.list().watermark,
+            appliedCut,
             durable: true,
-            canonicalVisible: input.projection.list().watermark >= terminal.event.workspaceRevision,
+            canonicalVisible: appliedCut >= terminal.event.workspaceRevision,
             worktreeVisible: false,
           },
         }
@@ -94,7 +95,7 @@ export async function runMigrationImport(input: MigrationImportRunInput): Promis
           opId: `migration-import-no-changes-${sha256Text(sourceRoots.join("\0"))}`,
           proof: {
             committedRevision: input.store.readHead()?.revision ?? 0,
-            appliedCut: input.projection.list().watermark,
+            appliedCut,
             durable: false,
             canonicalVisible: false,
             worktreeVisible: false,

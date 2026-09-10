@@ -11,7 +11,7 @@ import {
   runtimeSessionIdFromActor,
   type AuthorizationDecision,
 } from "../../kernel/src/index.ts";
-import { createRuntime } from "../../preset/src/preset-resolver.ts";
+import { presetDocumentBody } from "../../preset/src/preset-resolver.ts";
 import { presetRuntimeDefaults, presetUserRoot } from "../../preset/src/preset-system.ts";
 import { runtimeTypeMatchesKind } from "./agent-runtime-contract.ts";
 import { resolveAgentSkills } from "./agent-skills.ts";
@@ -343,18 +343,17 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                 "Agent preset resolution requires the repository Settings projection.",
               );
             const defaults = presetRuntimeDefaults(input.readSettings());
-            return createRuntime({
+            // The spawn prompt needs the preset's PRESET.md text only; a full resolve would
+            // re-hash the whole catalog for a body the catalog already decoded.
+            return presetDocumentBody({
               userRoot: presetUserRoot(input.rootDir),
-            }).resolveInternal({
-              presetId: agent.preset!,
               verticalId: defaults.verticalId,
-              profileId: defaults.profileId,
-              locale: defaults.locale,
-              purpose: "inspect",
-            }).document.body;
+              presetId: agent.preset!,
+            });
           })()
         : undefined,
       runtimeSessions = input.remote ? await input.remote.readRuntimeSessions() : projection!.readRuntimeSessions(),
+      runtimeInstances = input.runtimeInstances?.() ?? [],
       fallbackAttempt =
         inheritedFallback ??
         initialFallbackAttempt(
@@ -364,7 +363,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           providerSessionId,
           idempotencyKey,
           mission,
-          input.runtimeInstances?.() ?? [],
+          runtimeInstances,
           runtimeSessions,
         ),
       fallbackCandidate = fallbackAttempt?.candidates[fallbackAttempt.attemptIndex],
@@ -374,10 +373,10 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         providerSessionId: providerSessionId ?? undefined,
         agent,
         model: selectedModel,
-        instances: input.runtimeInstances?.() ?? [],
+        instances: runtimeInstances,
         sessions: runtimeSessions,
       }),
-      runtimeInstance = input.runtimeInstances?.().find((instance) => instance.instanceId === runtimeInstanceId),
+      runtimeInstance = runtimeInstances.find((instance) => instance.instanceId === runtimeInstanceId),
       configuredPermissionMode = runtimeInstance?.permissionMode ?? undefined,
       effectivePermissionMode = permissionMode ?? configuredPermissionMode,
       callbackRelay =

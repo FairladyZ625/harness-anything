@@ -1,23 +1,31 @@
 import { decodePackage, parsePresetJson } from "./preset-package.ts";
-import { asFailure, key, presetFailure } from "./preset-resolver-common.ts";
+import { asFailure, defaultBundled, key, presetFailure } from "./preset-resolver-common.ts";
 import type { Candidate } from "./preset-resolver-types.ts";
 import type { PresetLayer } from "./preset.contract.ts";
 import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 
-export function effectiveCatalog(
-  bundledRoot: string,
-  userRoot: string,
-): Map<string, Candidate> {
+// Bundled packages ship inside this package and cannot change under a running process, so their
+// decode is cached per process; user packages are the mutable surface and stay enumerated live.
+const bundledCache = new Map<string, readonly Candidate[]>();
+
+function cachedBundled(bundledRoot: string): readonly Candidate[] {
+  const resolved = path.resolve(bundledRoot);
+  let cached = bundledCache.get(resolved);
+  if (cached === undefined) {
+    cached = enumerateBundled(resolved);
+    bundledCache.set(resolved, cached);
+  }
+  return cached;
+}
+
+export function effectiveCatalog(bundledRoot: string, userRoot: string): Map<string, Candidate> {
   const result = new Map<string, Candidate>();
-  for (const item of enumerateBundled(bundledRoot))
-    result.set(key(item.verticalId, item.id), item);
+  for (const item of cachedBundled(bundledRoot)) result.set(key(item.verticalId, item.id), item);
   for (const item of enumerateUser(userRoot)) {
     const targets =
       item.verticalId === "*"
-        ? [...result]
-            .filter(([, candidate]) => candidate.id === item.id)
-            .map(([catalogKey]) => catalogKey)
+        ? [...result].filter(([, candidate]) => candidate.id === item.id).map(([catalogKey]) => catalogKey)
         : [key(item.verticalId, item.id)];
     if (targets.length === 0) targets.push(key("*", item.id));
     for (const target of targets) {
@@ -29,15 +37,11 @@ export function effectiveCatalog(
           : {
               ...item,
               verticalId: shadowed?.verticalId ?? item.verticalId,
-              ...(shadowed?.decoded
-                ? { shadow: { title: shadowed.decoded.manifest.title } }
-                : {}),
+              ...(shadowed?.decoded ? { shadow: { title: shadowed.decoded.manifest.title } } : {}),
               error: presetFailure(
                 "shadow_invalid",
                 `${item.error?.message ?? "User package is invalid"}${
-                  shadowed
-                    ? `; bundled ${shadowed.id} remains blocked`
-                    : ""
+                  shadowed ? `; bundled ${shadowed.id} remains blocked` : ""
                 }.`,
               ),
             },
@@ -47,23 +51,33 @@ export function effectiveCatalog(
   return result;
 }
 
+/** Returns the selected package's PRESET.md body without running a full preset resolution. */
+export function presetDocumentBody(input: {
+  readonly bundledRoot?: string;
+  readonly userRoot: string;
+  readonly verticalId: string;
+  readonly presetId: string;
+}): string {
+  const selected = effectiveCatalog(input.bundledRoot ?? defaultBundled, input.userRoot).get(
+    key(input.verticalId, input.presetId),
+  );
+  if (!selected?.decoded)
+    throw selected?.error ?? presetFailure("preset_not_found", `Preset ${input.presetId} is not installed.`);
+  return selected.decoded.document.body;
+}
+
 export function enumerateBundled(root: string): Candidate[] {
   if (!existsSync(root)) return [];
   return readdirSync(root, { withFileTypes: true })
     .filter((entry) => entry.isDirectory() && !entry.isSymbolicLink())
-    .map((entry) =>
-      decodeCandidate(path.join(root, entry.name), "bundled", entry.name),
-    );
+    .map((entry) => decodeCandidate(path.join(root, entry.name), "bundled", entry.name));
 }
 
 export function enumerateUser(root: string): Candidate[] {
   const active = path.join(root, "active");
   if (!existsSync(active)) return [];
   if (!lstatSync(active).isDirectory() || lstatSync(active).isSymbolicLink())
-    throw presetFailure(
-      "invalid_pointer_root",
-      "Active preset inventory is not a regular directory.",
-    );
+    throw presetFailure("invalid_pointer_root", "Active preset inventory is not a regular directory.");
   return readdirSync(active, { withFileTypes: true })
     .filter((entry) => entry.name.endsWith(".json"))
     .map((entry) => {
@@ -72,16 +86,9 @@ export function enumerateUser(root: string): Candidate[] {
       let verticalId = "*";
       try {
         if (entry.isSymbolicLink() || !entry.isFile())
-          throw presetFailure(
-            "invalid_pointer",
-            `Active pointer ${id} is not a regular file.`,
-          );
-        const pointer = parsePresetJson(
-          readFileSync(source, "utf8"),
-          "invalid_pointer",
-        ) as Record<string, unknown>;
-        if (typeof pointer.verticalId === "string")
-          verticalId = pointer.verticalId;
+          throw presetFailure("invalid_pointer", `Active pointer ${id} is not a regular file.`);
+        const pointer = parsePresetJson(readFileSync(source, "utf8"), "invalid_pointer") as Record<string, unknown>;
+        if (typeof pointer.verticalId === "string") verticalId = pointer.verticalId;
         if (
           Object.keys(pointer).length !== 4 ||
           pointer.schema !== "preset-active-pointer/v1" ||
@@ -90,10 +97,7 @@ export function enumerateUser(root: string): Candidate[] {
           typeof pointer.digest !== "string" ||
           !/^[0-9a-f]{64}$/u.test(pointer.digest)
         )
-          throw presetFailure(
-            "invalid_pointer",
-            `Active pointer ${id} is invalid.`,
-          );
+          throw presetFailure("invalid_pointer", `Active pointer ${id} is invalid.`);
         return decodeCandidate(
           path.join(root, "preset-objects", pointer.digest),
           "user",
@@ -127,19 +131,10 @@ export function decodeCandidate(
         "path_id_mismatch",
         `Package directory ${directoryId} does not match ${decoded.manifest.id}.`,
       );
-    if (
-      pointerVertical !== undefined &&
-      decoded.manifest.vertical !== pointerVertical
-    )
-      throw presetFailure(
-        "invalid_pointer",
-        `Pointer vertical does not match package ${directoryId}.`,
-      );
+    if (pointerVertical !== undefined && decoded.manifest.vertical !== pointerVertical)
+      throw presetFailure("invalid_pointer", `Pointer vertical does not match package ${directoryId}.`);
     if (pointerDigest !== undefined && decoded.packageDigest !== pointerDigest)
-      throw presetFailure(
-        "digest_mismatch",
-        `Pointer digest does not match package ${directoryId}.`,
-      );
+      throw presetFailure("digest_mismatch", `Pointer digest does not match package ${directoryId}.`);
     return {
       id: decoded.manifest.id,
       verticalId: decoded.manifest.vertical,
@@ -150,10 +145,7 @@ export function decodeCandidate(
   } catch (error) {
     return {
       id: directoryId,
-      verticalId:
-        typeof pointerVertical === "string"
-          ? pointerVertical
-          : "software/coding",
+      verticalId: typeof pointerVertical === "string" ? pointerVertical : "software/coding",
       layer,
       source: root,
       error: asFailure(error),

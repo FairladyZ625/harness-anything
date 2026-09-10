@@ -112,7 +112,7 @@ function coordinatorReceipt(
   revision: number,
   effects: readonly string[],
 ): WriteReceipt {
-  const cut = cell.projection.list();
+  const cut = cell.projection.readCut();
   return {
     ...raw,
     outcome: "applied",

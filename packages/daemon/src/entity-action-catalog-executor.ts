@@ -176,6 +176,7 @@ export function makeEntityActionCatalogExecutor(input: {
       existingOutcome = readAcceptedCommandOutcome(input.store, opId),
       authorizationDecision = decisionAuthorization(action, binding, opId, input),
       occurredAt = input.store.readEvent(opId)?.occurredAt ?? input.now(),
+      pendingCut = input.projection.readCut(),
       base = {
         opId,
         revision: existingOutcome?.lastRevision ?? initialRevision,
@@ -187,10 +188,10 @@ export function makeEntityActionCatalogExecutor(input: {
         visibility: "center" as const,
         proof: {
           committedRevision: existingOutcome?.lastRevision ?? initialRevision,
-          appliedCut: input.projection.list().watermark,
+          appliedCut: pendingCut.watermark,
           durable: existingOutcome !== null,
           canonicalVisible:
-            existingOutcome?.lastRevision != null && input.projection.list().watermark >= existingOutcome.lastRevision,
+            existingOutcome?.lastRevision != null && pendingCut.watermark >= existingOutcome.lastRevision,
           worktreeVisible: false,
         },
         authorizationDecision,
@@ -219,14 +220,15 @@ export function makeEntityActionCatalogExecutor(input: {
     publicationKillpoints(input.killpoint);
     const outcome = readAcceptedCommandOutcome(input.store, opId),
       revision = outcome?.lastRevision ?? terminal.event.workspaceRevision,
-      canonicalVisible = input.projection.list().watermark >= revision;
+      appliedCut = input.projection.readCut().watermark,
+      canonicalVisible = appliedCut >= revision;
     return {
       outcome: canonicalVisible ? "applied" : "pending",
       ...base,
       revision,
       proof: {
         committedRevision: revision,
-        appliedCut: input.projection.list().watermark,
+        appliedCut,
         durable: outcome !== null,
         canonicalVisible,
         worktreeVisible: false,

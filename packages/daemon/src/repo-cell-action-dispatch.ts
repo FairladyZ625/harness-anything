@@ -272,7 +272,7 @@ export async function executeAction(
       opId = cell.operationId(action, binding, cell.input.repoId, revision),
       localWrite = ["preset-install", "preset-seed", "preset-uninstall"].includes(action.kind);
     if (!localWrite) {
-      const cut = cell.projection.list(),
+      const cut = cell.projection.readCut(),
         canonicalVisible = cut.status === "ready",
         base = {
           opId,
@@ -303,7 +303,7 @@ export async function executeAction(
       visibility: "center",
       proof: {
         committedRevision: revision,
-        appliedCut: cell.projection.list().watermark,
+        appliedCut: cell.projection.readCut().watermark,
         durable,
         canonicalVisible: false,
         worktreeVisible: durable,
