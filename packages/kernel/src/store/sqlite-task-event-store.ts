@@ -627,7 +627,7 @@ function followerFiles(
   const manifest = `${JSON.stringify({ schema: "sqlite-ledger-segment-manifest/v1", generation, cut })}\n`;
   const eventsPrefix = ledgerGitPath(ledger, "events/"),
     objectsPrefix = ledgerGitPath(ledger, "objects/sha256/");
-  for (const entry of localGitObjectRefStore.listTree(ledger.rootDir, parent)) {
+  for (const entry of localGitObjectRefStore.listTree(ledger.rootDir, parent, [eventsPrefix, objectsPrefix])) {
     if (
       (entry.target.startsWith(eventsPrefix) && !entry.target.endsWith("events/segments/manifest.json")) ||
       entry.target.startsWith(objectsPrefix)
@@ -853,7 +853,14 @@ function verifyDocumentClosure(
   commit: string,
   closure: ReturnType<typeof documentClosure>,
 ): void {
-  const tree = new Map(localGitObjectRefStore.listTree(ledger.rootDir, commit).map((entry) => [entry.target, entry])),
+  const tree = new Map(
+      localGitObjectRefStore
+        .listTree(ledger.rootDir, commit, [
+          ...[...closure.documents.keys()].map((logical) => ledgerGitPath(ledger, logical)),
+          ...[...closure.retirements].map((logical) => ledgerGitPath(ledger, logical)),
+        ])
+        .map((entry) => [entry.target, entry] as const),
+    ),
     bodies = localGitObjectRefStore.readPaths(
       ledger.rootDir,
       commit,
@@ -878,8 +885,19 @@ function verifyDocumentClosure(
       throw new TaskEventStoreError("publication_indeterminate", `Git follower retirement differs at ${logical}`);
 }
 
+/** Every Git path a publication entry names, whether it publishes bytes, moves them or retires them. */
+function publicationTargets(file: PublicationFile): readonly string[] {
+  if ("target" in file) return [file.target];
+  if ("delete" in file) return [file.delete];
+  return [file.from, file.to];
+}
+
 function verifyGitFiles(repoRoot: string, commit: string, files: readonly PublicationFile[]): void {
-  const tree = new Map(localGitObjectRefStore.listTree(repoRoot, commit).map((entry) => [entry.target, entry])),
+  const tree = new Map(
+      localGitObjectRefStore
+        .listTree(repoRoot, commit, files.flatMap(publicationTargets))
+        .map((entry) => [entry.target, entry] as const),
+    ),
     bodies = localGitObjectRefStore.readPaths(
       repoRoot,
       commit,
@@ -1032,11 +1050,13 @@ function captureGitBaseline(
   commit: string,
   files: readonly PublicationFile[],
 ): ReadonlyMap<string, string> {
-  const tree = new Map(localGitObjectRefStore.listTree(repoRoot, commit).map((entry) => [entry.target, entry])),
-    targets = files.flatMap((file) => {
+  const targets = files.flatMap((file) => {
       const target = "target" in file ? file.target : "delete" in file ? file.delete : null;
       return target === null ? [] : [target];
     }),
+    tree = new Map(
+      localGitObjectRefStore.listTree(repoRoot, commit, targets).map((entry) => [entry.target, entry] as const),
+    ),
     bodies = localGitObjectRefStore.readPaths(
       repoRoot,
       commit,

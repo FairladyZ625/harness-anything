@@ -33,7 +33,7 @@ export function resolveRetirableDocument(
     target = ledgerGitPath(ledger, logical),
     head = localGitObjectRefStore.resolveCommit(ledger.rootDir, "HEAD"),
     entry = localGitObjectRefStore
-      .listTree(ledger.rootDir, head, target)
+      .listTree(ledger.rootDir, head, [target])
       .find((candidate) => candidate.target === target);
   if (entry?.mode !== "100644") return null;
   const bytes = localGitObjectRefStore.readPath(ledger.rootDir, head, target);

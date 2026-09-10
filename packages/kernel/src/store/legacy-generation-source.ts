@@ -31,7 +31,7 @@ export function readStoppedLegacyGeneration(input: { readonly rootInput: Harness
     gitHeadBytes = localGitObjectRefStore.readPath(ledger.rootDir, commit, `${eventsRoot}/head.json`),
     gitHead = gitHeadBytes === null ? null : parseLegacyHead(gitHeadBytes.toString("utf8"), "Git"),
     eventTree = localGitObjectRefStore
-      .listTree(ledger.rootDir, commit, eventsRoot)
+      .listTree(ledger.rootDir, commit, [eventsRoot])
       .filter(({ target }) => target !== `${eventsRoot}/head.json` && target.endsWith(".json")),
     eventBytes = localGitObjectRefStore.readPaths(ledger.rootDir, commit, eventTree),
     gitEvents = eventTree
@@ -236,7 +236,7 @@ function readStoppedObjects(
 ): readonly { readonly sha256: string; readonly size: number; readonly bytes: Uint8Array }[] {
   const objects = new Map<string, Buffer>(),
     prefix = ledgerGitPath(ledger, "objects/sha256"),
-    objectTree = localGitObjectRefStore.listTree(ledger.rootDir, commit, prefix),
+    objectTree = localGitObjectRefStore.listTree(ledger.rootDir, commit, [prefix]),
     objectBytes = localGitObjectRefStore.readPaths(ledger.rootDir, commit, objectTree);
   for (const { mode, target } of objectTree) {
     const sha256 = target.slice(prefix.length + 1).replace("/", ""),
