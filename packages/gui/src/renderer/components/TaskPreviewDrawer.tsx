@@ -81,7 +81,10 @@ export function TaskPreviewDrawer({
     >
       <aside
         ref={panelRef}
-        className="pointer-events-auto flex h-full w-full max-w-[520px] flex-col border-l border-border-strong bg-surface shadow-2xl shadow-black/40"
+        className={[
+          "pointer-events-auto flex h-full w-full max-w-[520px] flex-col",
+          "border-l border-border-strong bg-surface shadow-2xl shadow-black/40",
+        ].join(" ")}
       >
         <header className="border-b border-border px-4 py-3">
           <div className="flex items-start gap-3">
