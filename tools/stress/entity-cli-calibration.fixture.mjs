@@ -11,7 +11,7 @@ import { lastTimingRecord, percentile } from "../measure-cli-command-timing.mjs"
 export const workload = Object.freeze({ seeds: [1103, 2207, 3301], tasks: 3, entities: 3, binaryBytes: 4096 });
 export const frame = (type, value) => console.log(`ENTITY_CLI_CALIBRATION\t${JSON.stringify({ type, ...value })}`);
 
-export function fixture(seed) {
+export function fixture(seed, { daemonId = "entity-cli-calibration", frames = true } = {}) {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-entity-cli-calibration-"));
   const root = path.join(parent, "repo"),
     userRoot = path.join(parent, "user");
@@ -26,7 +26,7 @@ export function fixture(seed) {
   }
   Object.assign(env, {
     HARNESS_DAEMON_USER_ROOT: userRoot,
-    HARNESS_DAEMON_ID: "entity-cli-calibration",
+    HARNESS_DAEMON_ID: daemonId,
     HARNESS_GIT_AUTHOR_NAME: "Calibration Fixture",
     HARNESS_GIT_AUTHOR_EMAIL: "calibration@example.test",
     GIT_CONFIG_GLOBAL: "/dev/null",
@@ -34,14 +34,16 @@ export function fixture(seed) {
   });
   const rows = [],
     checks = [];
-  const invoke = (metric, args, { actor, input, requireSuccess = true } = {}) => {
+  const invoke = (metric, args, { actor, input, requireSuccess = true, timeoutMs = 30_000, offline = false } = {}) => {
     const startedAt = new Date().toISOString(),
       started = performance.now();
-    const result = spawnSync(process.execPath, [cli, "--root", root, "--json", ...args], {
+    // Offline storage commands (backup, restore, events, migrate ledger) are recognised by argv[0].
+    const argv = offline ? [...args, "--root", root, "--json"] : ["--root", root, "--json", ...args];
+    const result = spawnSync(process.execPath, [cli, ...argv], {
       env: { ...env, ...(actor ? { HARNESS_ACTOR: actor } : {}) },
       encoding: "utf8",
-      timeout: 30_000,
-      maxBuffer: 8 * 1024 * 1024,
+      timeout: timeoutMs,
+      maxBuffer: 512 * 1024 * 1024,
       ...(input === undefined ? {} : { input: JSON.stringify(input) }),
     });
     let receipt = null;
@@ -65,7 +67,7 @@ export function fixture(seed) {
       timing: lastTimingRecord(result.stderr ?? ""),
     };
     rows.push(row);
-    frame("command", row);
+    if (frames) frame("command", row);
     if (requireSuccess) {
       assert.equal(result.status, 0, `${metric}: ${result.stdout}\n${result.stderr}`);
       assert.equal(receipt?.ok, true, `${metric}: ${result.stdout}`);
@@ -122,7 +124,7 @@ export function fixture(seed) {
       rmSync(parent, { recursive: true, force: true, maxRetries: 5 });
     }
   };
-  return { seed, parent, root, userRoot, rows, checks, invoke, check, publish, close };
+  return { seed, parent, root, userRoot, env, rows, checks, invoke, check, publish, close };
 }
 
 export function resourceSnapshot(root) {
