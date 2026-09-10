@@ -123,11 +123,7 @@ export function executeRelationAction(input: {
   if (
     compiled.type === "relation_created" &&
     compiled.payload.relation.type === "depends-on" &&
-    hasRelationPath(
-      input.projection.readRelationTruth().edges,
-      compiled.payload.relation.target,
-      compiled.payload.relation.source,
-    )
+    hasRelationPath(input.projection, compiled.payload.relation.target, compiled.payload.relation.source)
   )
     reject("relation_cycle", "The requested depends-on Relation would create a blocking cycle.");
   const plan = relationEventWritePlan(compiled),
@@ -192,15 +188,7 @@ function requiredRelationText(value: unknown, field: string): string {
   reject("invalid_command", `${field} is required.`);
 }
 
-function hasRelationPath(
-  edges: ReturnType<TaskProjection["readRelationTruth"]>["edges"],
-  start: string,
-  goal: string,
-): boolean {
-  const graph = new Map<string, string[]>();
-  for (const edge of edges)
-    if (edge.state === "active" && edge.relationType === "depends-on")
-      graph.set(edge.sourceRef, [...(graph.get(edge.sourceRef) ?? []), edge.targetRef]);
+function hasRelationPath(projection: TaskProjection, start: string, goal: string): boolean {
   const queue = [start],
     seen = new Set<string>();
   while (queue.length) {
@@ -208,7 +196,11 @@ function hasRelationPath(
     if (current === goal) return true;
     if (seen.has(current)) continue;
     seen.add(current);
-    queue.push(...(graph.get(current) ?? []));
+    queue.push(
+      ...projection
+        .readRelationQuery({ source: current, relationType: "depends-on", state: "active" })
+        .rows.map((edge) => edge.targetRef),
+    );
   }
   return false;
 }

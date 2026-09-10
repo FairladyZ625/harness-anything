@@ -44,6 +44,7 @@ export interface TaskRelationQuery {
   readonly target?: string;
   readonly relationType?: string;
   readonly state?: string;
+  readonly ownerRef?: string;
   readonly freshness?: RelationFreshness;
   readonly updatedAfter?: string;
   readonly updatedBefore?: string;
@@ -680,6 +681,10 @@ export function readTaskRelationPage(
   if (query.state !== undefined) {
     where.push("state = ?");
     values.push(query.state);
+  }
+  if (query.ownerRef !== undefined) {
+    where.push("owner_ref = ?");
+    values.push(query.ownerRef);
   }
   if (query.updatedAfter !== undefined) {
     where.push("updated_at >= ?");

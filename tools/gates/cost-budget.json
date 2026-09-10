@@ -203,20 +203,6 @@
     },
     "knownScaling": [
       {
-        "operation": "decision-propose",
-        "metric": "sqlRowsRead",
-        "reason": "entity-action-catalog-executor.ts compileDraft calls projection.readDecisionGraph() only to keep the edges owned by this one decision; readDecisionGraphRows builds the whole graph including decisionCoverage (kernel projection/decision-projection-coverage.ts), which reads every task (SELECT task_id,json_extract(snapshot_json,'$.task.status') AS status FROM task_snapshot ORDER BY task_id), every fact (SELECT ref FROM fact ORDER BY ref), and every decision, claim, option and relation edge. The replacement-authorization backward scan named in the task plan is now a per-process cache (#2410) and shows only in the first call.",
-        "deletionTaskId": "task_2b8f79fa4412cb726a26f9bfc7",
-        "expiresAt": "2026-09-24T00:00:00.000Z"
-      },
-      {
-        "operation": "decision-reject",
-        "metric": "sqlRowsRead",
-        "reason": "Same path as decision-propose: entity-action-catalog-executor.ts compileDraft calls projection.readDecisionGraph() only to keep the edges owned by this one decision; readDecisionGraphRows builds the whole graph including decisionCoverage (kernel projection/decision-projection-coverage.ts), which reads every task (SELECT task_id,json_extract(snapshot_json,'$.task.status') AS status FROM task_snapshot ORDER BY task_id), every fact (SELECT ref FROM fact ORDER BY ref), and every decision, claim, option and relation edge.",
-        "deletionTaskId": "task_2b8f79fa4412cb726a26f9bfc7",
-        "expiresAt": "2026-09-24T00:00:00.000Z"
-      },
-      {
         "operation": "runtime-overview",
         "metric": "sqlRowsRead",
         "reason": "workspaceSummaryFromProjection -> projection.readWorkspaceSummary() -> readWorkspaceSummaryRows (kernel projection/workspace-summary-projection.ts) reads every task (SELECT task_id, status, COALESCE(json_extract(snapshot_json, '$.task.packageDisposition'), 'active') AS package_disposition FROM task_snapshot ORDER BY task_id) and every decision (SELECT decision_id, state FROM decision ORDER BY decision_id) to count them in memory.",
