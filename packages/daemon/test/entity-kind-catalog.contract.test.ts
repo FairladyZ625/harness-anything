@@ -8,6 +8,7 @@ import { buildEntityKindCatalog, validateEntityKindCatalog } from "../../kernel/
 import {
   compiledArtifactKinds,
   relationDirectionRegistry,
+  resolveArtifactImportAction,
   resolveEntityReadKind,
 } from "../src/artifact-entity-action.ts";
 import type { VerticalDeclarationReader } from "../src/vertical-declaration-action.ts";
@@ -53,7 +54,7 @@ const repositoryKinds = () => compiledArtifactKinds(canonicalDeclaration, "catal
  *
  * 两条不变量:内核内建 kind 与 vertical 声明的 kind 出现在**同一份**清单里且各自
  * 带同源解释;声明出来的 kind 用它被铸造时的稳定不透明身份(`entity-kind/KND-...`)——
- * 短名只是选择用的限定名,拿短名去 import 会被拒。
+ * 短名只是选择用的限定名,目录里只列稳定身份,读写命令会把它解析到同一身份。
  */
 test("entity kind catalog carries builtin and declared kinds through the same explanation", () => {
   const catalog = buildEntityKindCatalog(repositoryKinds(), 1);
@@ -123,6 +124,16 @@ test("entity projection reads resolve vertical declaration ids to canonical kind
   assert.equal(resolveEntityReadKind(RESEARCH_KIND, kinds), RESEARCH_KIND);
   assert.equal(resolveEntityReadKind(RESEARCH_KIND.slice("entity-kind/".length), kinds), RESEARCH_KIND);
   assert.equal(resolveEntityReadKind("agent", kinds), "agent");
+});
+
+/** 写面与读面共用同一匹配器:三种拼法都解析到同一 contract,未声明的名字不解析出任何动作。 */
+test("the import action resolves every kind spelling the reads accept and none for an undeclared kind", () => {
+  const kinds = repositoryKinds();
+  assert.equal(resolveArtifactImportAction("architecture-decision-record", kinds)?.id, "import");
+  assert.equal(resolveArtifactImportAction(ADR_KIND, kinds)?.id, "import");
+  assert.equal(resolveArtifactImportAction(ADR_KIND.slice("entity-kind/".length), kinds)?.id, "import");
+  assert.equal(resolveArtifactImportAction("no-such-kind", kinds), null);
+  assert.equal(resolveArtifactImportAction(undefined, kinds), null);
 });
 
 test("builtin rows carry no declaration and declared rows always do", () => {
