@@ -241,6 +241,10 @@ test("remote-edge full submit requires explicit all confirmation", { timeout: 60
   const unconfirmed = await fixture.edgeDocSync("node-one");
   assert.equal(unconfirmed.ok, false, JSON.stringify(unconfirmed));
   assert.equal(unconfirmed.code, "doc_submit_confirmation_required");
+  assert.match(
+    String(unconfirmed.rejectionExplanation),
+    /full authored-tree submission requires explicit confirmation/u,
+  );
   assert.deepEqual(
     (unconfirmed.rows as readonly { readonly path: string }[]).map((row) => row.path),
     [shared],

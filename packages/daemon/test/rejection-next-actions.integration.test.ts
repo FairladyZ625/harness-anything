@@ -368,6 +368,25 @@ test("symptom task_356fe6c7a05cb987d93a807b46: relation relate against a nonexis
   }
 });
 
+test("review-execution against a nonexistent task names the missing task", async () => {
+  const rootDir = workspace("review-task-not-found"),
+    repoId = workspaceId("review-task-not-found");
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "review-task-not-found" });
+    const rejected = await cell.run(
+      { kind: "task-review-execution", taskId: "task-does-not-exist", reviewId: "review-missing" },
+      binding("review-task-not-found"),
+    );
+    assert.equal(rejected.outcome, "op_rejected", JSON.stringify(rejected));
+    assert.equal(rejected.code, "entity_not_found", JSON.stringify(rejected));
+    assert.match(String(rejected.rejectionExplanation), /Task task-does-not-exist does not exist/u);
+  } finally {
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 function binding(executorId: string) {
   return {
     actor: { principal: { personId: "person-owner" }, executor: { kind: "agent" as const, id: executorId } },

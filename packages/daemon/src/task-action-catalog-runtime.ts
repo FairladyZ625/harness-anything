@@ -47,6 +47,7 @@ export async function runTaskActionCatalogRuntime(
           })
         : [],
     activeLease = cell.projection.currentLease(taskId, cell.now());
+  if (!current.snapshot.task) throw cell.cellCodedError("entity_not_found", `Task ${taskId} does not exist.`);
   if (
     lifecycle?.coordination === "reserve" &&
     !preview &&

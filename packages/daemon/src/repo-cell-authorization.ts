@@ -539,6 +539,8 @@ export function withAuthorizationDecision(
   unmetCriteria: readonly EntityActionUnmetCriterionV1[] = receipt.unmetCriteria ?? [],
   rejectionExplanation: string | undefined = receipt.rejectionExplanation ?? undefined,
 ): WriteReceipt {
+  const summary = (receipt as WriteReceipt & Readonly<{ readonly summary?: unknown }>).summary,
+    summaryExplanation = typeof summary === "string" && summary.trim() ? summary : undefined;
   return {
     acceptance: null,
     projection: { state: "pending", cut: null },
@@ -551,7 +553,9 @@ export function withAuthorizationDecision(
     unmetCriteria,
     rejectionExplanation:
       receipt.outcome === "op_rejected" || receipt.outcome === "indeterminate"
-        ? (rejectionExplanation ?? `Action rejected after ${authorizationDecision.policyRef} qualification.`)
+        ? (rejectionExplanation ??
+          summaryExplanation ??
+          `Action rejected after ${authorizationDecision.policyRef} qualification.`)
         : null,
     nextActions: Object.freeze([...new Set([...(receipt.nextActions ?? []), ...authorizationDecision.nextActions])]),
   };
