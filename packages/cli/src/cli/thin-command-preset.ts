@@ -1,5 +1,6 @@
 import type { SafePath } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { accepted, nonEmpty, promptInput, readFlags, rejectInput, rejected } from "./thin-command-flags.ts";
+import { projectFlags } from "./thin-command-projection.ts";
 import { parseTaskCreate } from "./thin-command-task-create.ts";
 import type { ProtocolCommand, ThinCliInput, ThinCliInputDirectory, ThinParseResult } from "./thin-command-types.ts";
 
@@ -67,22 +68,14 @@ export function parsePreset(
       positionalFields ? "Use preset:<id>/<entrypoint>." : `Invalid ${positionalField}.`,
       json,
     );
-  let payload: Record<string, unknown>;
-  const declared = route.inputs as readonly (ThinCliInput & {
-    readonly field: string;
-    readonly codec?: "json";
-  })[];
-  try {
-    payload = Object.fromEntries(
-      declared.flatMap((input) => {
-        if (input.kind === "boolean") return f.booleans.has(input.name) ? [[input.field, true]] : [];
-        const value = f.one.get(input.name);
-        return value ? [[input.field, input.codec === "json" ? JSON.parse(value) : value]] : [];
-      }),
-    );
-  } catch {
-    return rejectInput(inputs, route.id, "--inputs", json);
-  }
+  const payload: Record<string, unknown> = { ...projectFlags(route.id, f, inputs) };
+  for (const input of route.inputs as readonly (ThinCliInput & { readonly field: string; readonly codec?: "json" })[])
+    if (input.codec === "json" && typeof payload[input.field] === "string")
+      try {
+        payload[input.field] = JSON.parse(payload[input.field] as string);
+      } catch {
+        return rejectInput(inputs, route.id, input.name, json);
+      }
   const position =
       matched && positionalFields
         ? {

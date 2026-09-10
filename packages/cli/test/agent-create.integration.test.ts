@@ -125,6 +125,17 @@ test("agent create runs and ontology-squad reinstall stays on the canonical Enti
     );
     assert.equal(entityGet.entity.value.id, "meta-designer");
     assert.deepEqual(ontologyGet.entity.value, ontologySquad);
+    const version = String((ontologyGet.entity as unknown as { currentVersion: number }).currentVersion),
+      deleted = run(root, env, [
+        "squad",
+        "delete",
+        ontologySquad.id,
+        "--reason",
+        "retired",
+        "--expected-version",
+        version,
+      ]);
+    assert.equal(deleted.outcome, "applied", JSON.stringify(deleted));
     const inventory = run(root, env, ["runtime", "instance", "list"]),
       installation = (inventory.installations as Array<Record<string, unknown>>).find(
         (row) => row.version === "codex agent-create-fixture",

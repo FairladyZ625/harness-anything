@@ -114,6 +114,23 @@ test("entity import and update carry declared attributes as one typed JSON objec
   assert.deepEqual((updated.command.action as { readonly attributes: unknown }).attributes, { region: "south" });
 });
 
+test("agent and squad delete project their reason and expected version into the daemon Action", () => {
+  for (const [noun, idField] of [
+    ["agent", "agentId"],
+    ["squad", "squadId"],
+  ] as const) {
+    const parsed = parseThinCommand([noun, "delete", "worker-a", "--reason", "retired", "--expected-version", "3"]);
+    assert.equal(parsed.ok, true);
+    if (!parsed.ok) return;
+    assert.deepEqual(parsed.command.action, {
+      kind: `${noun}-delete`,
+      [idField]: "worker-a",
+      reason: "retired",
+      expectedVersion: 3,
+    });
+  }
+});
+
 test("entity import projects its concurrency and dry-run flags into one daemon Action", () => {
   const parsed = parseThinCommand([
     "entity",
