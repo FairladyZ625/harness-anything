@@ -331,6 +331,82 @@ test("CI observation pull writes canonical events once per run and job", async (
   }
 });
 
+test("CI observation pull imports named main runs without listing recent runs", async () => {
+  const rootDir = mkdtempSync(path.join(process.cwd(), ".tmp-ci-observation-named-")),
+    events: CiRunObservationEventV2[] = [],
+    calls: string[] = [];
+  const cell = {
+    rootDir,
+    now: () => "2026-09-10T00:00:00.000Z",
+    cellCodedError: (_code: string, message: string) => new Error(message),
+    store: {
+      readHead: () => (events.length ? { revision: events.length } : null),
+      readEvent: (opId: string) => events.find((event) => event.opId === opId),
+      append: ({ event }: { event: CiRunObservationEventV2 }) => {
+        events.push(event);
+        return { revision: events.length };
+      },
+    },
+    projection: { apply: () => undefined, readCiRunObservations: () => ({ watermark: events.length }) },
+  };
+  const runGh = async (_command: string, args: readonly string[]) => {
+    calls.push(`${args[1]}:${args[2]}`);
+    if (args[1] === "view")
+      return JSON.stringify({
+        workflowName: "rewrite-ci",
+        headSha: `sha-${args[2]}`,
+        headBranch: args[2] === "700" ? "main" : "codex/feature",
+        status: "completed",
+        conclusion: "success",
+        attempt: 1,
+      });
+    assert.equal(args[1], "download");
+    const output = String(args[args.indexOf("--dir") + 1]);
+    mkdirSync(output, { recursive: true });
+    writeFileSync(
+      path.join(output, "observation.json"),
+      JSON.stringify({
+        schema: "ci-run-artifact/v1",
+        run: {
+          runId: `${args[2]}.1`,
+          sha: `sha-${args[2]}`,
+          branch: "main",
+          prNumber: null,
+          job: "full-check (24)",
+          wallclockMs: 20,
+          runner: "ubuntu",
+        },
+        tests: [],
+        gates: [],
+      }),
+    );
+    return "";
+  };
+  try {
+    const receipt = await pullAndIngestCiObservations(
+      cell as never,
+      { kind: "ci-observe-pull", runs: ["700", "701"] },
+      { actor, source: "local" },
+      runGh,
+    );
+    assert.deepEqual(calls, ["view:700", "download:700", "view:701"]);
+    assert.equal(events.length, 1);
+    assert.equal(events[0]?.payload.verification?.headSha, "sha-700");
+    assert.equal(JSON.parse(receipt.evidence).requestedRuns, 2);
+    await assert.rejects(
+      pullAndIngestCiObservations(
+        cell as never,
+        { kind: "ci-observe-pull", runs: ["700"], limit: 5 },
+        { actor, source: "local" },
+        runGh,
+      ),
+      /not both/u,
+    );
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("CI completion verdict comes from the completed matching workflow run, not artifact labels", async () => {
   const cases = [
     {
