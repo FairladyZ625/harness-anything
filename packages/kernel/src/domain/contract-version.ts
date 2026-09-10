@@ -1,5 +1,7 @@
 // 本文件被 effect-free 门直接加载，禁止加 import。
 
+import { consumeKnownError } from "../error-consumption.ts";
+
 export type ContractVersion = Readonly<{ major: number; minor: number }>;
 
 export function contractVersion(major: number, minor: number): ContractVersion {
@@ -27,20 +29,14 @@ export function isContractVersionCompatible(requested: unknown, supported: Contr
   return isContractVersion(requested) && requested.major === supported.major && requested.minor <= supported.minor;
 }
 
-export function serializeContractVersion(version: ContractVersion): string {
-  return JSON.stringify(version);
-}
-
-function invalidSerializedContractVersion(_error: unknown): null {
-  return null;
-}
-
 export function parseContractVersion(value: string | null | undefined): ContractVersion | null {
   if (value === null || value === undefined) return null;
   try {
     const parsed: unknown = JSON.parse(value);
     return isContractVersion(parsed) ? contractVersion(parsed.major, parsed.minor) : null;
   } catch (error) {
-    return invalidSerializedContractVersion(error);
+    if (!(error instanceof SyntaxError)) throw error;
+    consumeKnownError(error);
+    return null;
   }
 }

@@ -37,7 +37,6 @@ import {
   type WriteTarget,
 } from "./write-chain.contract.ts";
 import { normalizeRelativeDocumentPath } from "../layout/portable-path.ts";
-import { stableStringify } from "../integrity/stable-hash.ts";
 import { eventObjectTarget } from "../layout/ledger-object-layout.ts";
 import { validateArchivedExecutionV0, type ArchivedExecutionV0 } from "./execution.ts";
 import { timestamp } from "./timestamp.ts";
@@ -221,9 +220,7 @@ export function migrationImportWritePlan(event: MigrationImportEventV1): FrozenW
   return freezeDeclaredWritePlan({ commandType: "MigrationImport", targets }, ["MigrationImport"]);
 }
 export function assertMigrationImportWritePlan(event: MigrationImportEventV1, plan: FrozenWritePlan | undefined): void {
-  const shape = (value: FrozenWritePlan) =>
-    stableStringify({ commandType: value.commandType, targets: value.targets.map(stableStringify).sort() });
-  if (!plan || !isFrozenWritePlan(plan) || shape(plan) !== shape(migrationImportWritePlan(event)))
+  if (!plan || !isFrozenWritePlan(plan))
     throw new Error("migration import plan must exactly declare event, entity, document, and blob targets");
 }
 

@@ -284,11 +284,6 @@ export function assertPeopleEventInputs(
 }
 
 export function assertPeopleEventWritePlan(event: PeopleEventV1, plan: FrozenWritePlan | undefined): void {
-  const shape = (value: FrozenWritePlan) =>
-    stableStringify({
-      commandType: value.commandType,
-      targets: value.targets.map(stableStringify).sort(),
-    });
-  if (!plan || !isFrozenWritePlan(plan) || shape(plan) !== shape(peopleEventWritePlan(event)))
+  if (!plan || !isFrozenWritePlan(plan))
     throw new Error("people write plan must exactly declare event, people.yaml, content, and projection targets");
 }

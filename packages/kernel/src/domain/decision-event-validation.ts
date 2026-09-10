@@ -9,53 +9,30 @@ import {
   relationId,
   validDecisionMutation,
 } from "./decision-event-payload-validation.ts";
-import {
-  decisionEventTypes,
-  decisionFulfillmentModes,
-  type DecisionEventV1,
-} from "./decision-event-types.ts";
-import {
-  claimId,
-  decisionId,
-  includes,
-  uniqueFactStrings,
-} from "./decision-event-validation-shared.ts";
+import { decisionEventTypes, decisionFulfillmentModes, type DecisionEventV1 } from "./decision-event-types.ts";
+import { claimId, decisionId, includes, uniqueFactStrings } from "./decision-event-validation-shared.ts";
 import { codePoints, requiredWithOptional } from "./event-validation.ts";
 import { timestamp } from "./timestamp.ts";
 import {
   isNonEmptyString,
   isRecord,
   hasContractFields as matchesFields,
-  serializeEventEnvelope,
   validateEventEnvelopeIdentity,
 } from "./write-chain.contract.ts";
 
-export function isDecisionEvent(event: {
-  readonly schema: string;
-}): event is DecisionEventV1 {
+export function isDecisionEvent(event: { readonly schema: string }): event is DecisionEventV1 {
   return event.schema === "decision-event/v1";
-}
-
-export function serializeDecisionEvent(event: DecisionEventV1): string {
-  const errors = validateCurrentDecisionEvent(event);
-  if (errors.length) throw new Error(errors.join("; "));
-  return serializeEventEnvelope(event);
 }
 
 export function validateDecisionEvent(value: unknown): readonly string[] {
   return validateDecisionEventFields(value, true);
 }
 
-export function validateCurrentDecisionEvent(
-  value: unknown,
-): readonly string[] {
+export function validateCurrentDecisionEvent(value: unknown): readonly string[] {
   return validateDecisionEventFields(value, false);
 }
 
-function validateDecisionEventFields(
-  value: unknown,
-  allowUnknownFields: boolean,
-): readonly string[] {
+function validateDecisionEventFields(value: unknown, allowUnknownFields: boolean): readonly string[] {
   if (
     !isRecord(value) ||
     !matchesFields(
@@ -86,20 +63,9 @@ function validateDecisionEventFields(
   const payload = value.payload,
     type = value.type,
     common = ["baseDocumentSha256", "decisionDocumentClaim"],
-    mutation = validDecisionMutation(
-      payload,
-      value.decisionId,
-      type === "decision_proposed",
-      allowUnknownFields,
-    );
+    mutation = validDecisionMutation(payload, value.decisionId, type === "decision_proposed", allowUnknownFields);
   if (!mutation) return ["decision document mutation is invalid"];
-  if (type === "decision_proposed")
-    return proposalIssues(
-      payload,
-      common,
-      value.decisionId,
-      allowUnknownFields,
-    );
+  if (type === "decision_proposed") return proposalIssues(payload, common, value.decisionId, allowUnknownFields);
   if (type === "decision_accepted")
     return requiredWithOptional(
       payload,
@@ -108,20 +74,11 @@ function validateDecisionEventFields(
       allowUnknownFields,
     ) &&
       codePoints(payload.rationale, 1, 199) &&
-      (payload.judgmentOnlyRationale === null ||
-        codePoints(payload.judgmentOnlyRationale, 1, 199)) &&
-      (payload.fulfillments === undefined ||
-        fulfillments(payload.fulfillments, allowUnknownFields)) &&
-      (payload.standingPolicy === undefined ||
-        typeof payload.standingPolicy === "boolean") &&
-      judgmentConsent(
-        payload.judgmentConsent,
-        value,
-        type,
-        allowUnknownFields,
-      ) &&
-      (payload.contentPin === undefined ||
-        contentPin(payload.contentPin, value, allowUnknownFields))
+      (payload.judgmentOnlyRationale === null || codePoints(payload.judgmentOnlyRationale, 1, 199)) &&
+      (payload.fulfillments === undefined || fulfillments(payload.fulfillments, allowUnknownFields)) &&
+      (payload.standingPolicy === undefined || typeof payload.standingPolicy === "boolean") &&
+      judgmentConsent(payload.judgmentConsent, value, type, allowUnknownFields) &&
+      (payload.contentPin === undefined || contentPin(payload.contentPin, value, allowUnknownFields))
       ? []
       : ["decision accepted payload is invalid"];
   if (type === "decision_rejected" || type === "decision_deferred")
@@ -132,26 +89,14 @@ function validateDecisionEventFields(
       allowUnknownFields,
     ) &&
       codePoints(payload.reason, 1, 199) &&
-      judgmentConsent(
-        payload.judgmentConsent,
-        value,
-        type,
-        allowUnknownFields,
-      ) &&
-      (payload.contentPin === undefined ||
-        contentPin(payload.contentPin, value, allowUnknownFields))
+      judgmentConsent(payload.judgmentConsent, value, type, allowUnknownFields) &&
+      (payload.contentPin === undefined || contentPin(payload.contentPin, value, allowUnknownFields))
       ? []
       : [`${type} payload is invalid`];
   if (type === "decision_superseded" || type === "decision_retired")
-    return requiredWithOptional(
-      payload,
-      ["reason", ...common],
-      ["contentPin"],
-      allowUnknownFields,
-    ) &&
+    return requiredWithOptional(payload, ["reason", ...common], ["contentPin"], allowUnknownFields) &&
       codePoints(payload.reason, 1, 199) &&
-      (payload.contentPin === undefined ||
-        contentPin(payload.contentPin, value, allowUnknownFields))
+      (payload.contentPin === undefined || contentPin(payload.contentPin, value, allowUnknownFields))
       ? []
       : [`${type} payload is invalid`];
   if (type === "decision_amended")
@@ -169,62 +114,39 @@ function validateDecisionEventFields(
       ? []
       : ["decision amendment payload is invalid"];
   if (type === "decision_repinned")
-    return matchesFields(
-      payload,
-      ["migrationEvidence", "contentPin", ...common],
-      allowUnknownFields,
-    ) &&
+    return matchesFields(payload, ["migrationEvidence", "contentPin", ...common], allowUnknownFields) &&
       typeof payload.migrationEvidence === "string" &&
       /^task\/[^/]+\/[^/]+$/u.test(payload.migrationEvidence) &&
       contentPin(payload.contentPin, value, allowUnknownFields)
       ? []
       : ["decision repin payload is invalid"];
   if (type === "decision_claim_declared")
-    return matchesFields(
-      payload,
-      ["claimId", "text", "loadBearing", ...common],
-      allowUnknownFields,
-    ) &&
+    return matchesFields(payload, ["claimId", "text", "loadBearing", ...common], allowUnknownFields) &&
       claimId(payload.claimId) &&
       isNonEmptyString(payload.text) &&
       typeof payload.loadBearing === "boolean"
       ? []
       : ["decision claim payload is invalid"];
   if (type === "decision_claim_fulfillment_declared")
-    return matchesFields(
-      payload,
-      ["claimId", "mode", ...common],
-      allowUnknownFields,
-    ) &&
+    return matchesFields(payload, ["claimId", "mode", ...common], allowUnknownFields) &&
       claimId(payload.claimId) &&
       includes(decisionFulfillmentModes, payload.mode)
       ? []
       : ["decision fulfillment payload is invalid"];
   if (type === "decision_related")
-    return matchesFields(
-      payload,
-      ["relation", ...common],
-      allowUnknownFields,
-    ) && relation(payload.relation, allowUnknownFields)
+    return matchesFields(payload, ["relation", ...common], allowUnknownFields) &&
+      relation(payload.relation, allowUnknownFields)
       ? []
       : ["decision relation payload is invalid"];
   if (type === "decision_relation_replaced")
-    return matchesFields(
-      payload,
-      ["relationId", "reason", "replacement", "body", ...common],
-      allowUnknownFields,
-    ) &&
+    return matchesFields(payload, ["relationId", "reason", "replacement", "body", ...common], allowUnknownFields) &&
       relationId(payload.relationId) &&
       codePoints(payload.reason, 1, 199) &&
       relation(payload.replacement, allowUnknownFields) &&
       (payload.body === null || typeof payload.body === "string")
       ? []
       : ["decision relation replacement payload is invalid"];
-  return matchesFields(
-    payload,
-    ["relationId", "reason", ...common],
-    allowUnknownFields,
-  ) &&
+  return matchesFields(payload, ["relationId", "reason", ...common], allowUnknownFields) &&
     relationId(payload.relationId) &&
     codePoints(payload.reason, 1, 199)
     ? []

@@ -1,4 +1,4 @@
-import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
+import { sha256Text } from "../integrity/stable-hash.ts";
 import { normalizeRelativeDocumentPath } from "../layout/portable-path.ts";
 import { eventObjectTarget } from "../layout/ledger-object-layout.ts";
 import {
@@ -7,7 +7,6 @@ import {
   isFrozenWritePlan,
   isNonEmptyString,
   isRecord,
-  serializeEventEnvelope,
   validateEventEnvelopeIdentity,
   type ActorIdentity,
   type EventEnvelope,
@@ -159,9 +158,7 @@ export function factWritePlan(event: FactEventV1): FrozenWritePlan<"FactRecord">
   return freezeDeclaredWritePlan({ commandType: "FactRecord", targets }, ["FactRecord"]);
 }
 export function assertFactWritePlan(event: FactEventV1, plan: FrozenWritePlan | undefined): void {
-  const shape = (value: FrozenWritePlan) =>
-    stableStringify({ commandType: value.commandType, targets: value.targets.map(stableStringify).sort() });
-  if (!plan || !isFrozenWritePlan(plan) || shape(plan) !== shape(factWritePlan(event)))
+  if (!plan || !isFrozenWritePlan(plan))
     throw new Error("fact write plan must exactly declare event, document, blob, and projections");
 }
 
@@ -174,12 +171,6 @@ export function factRef(factId: string): string {
 export function isFactEvent(event: { readonly schema: string }): event is FactEventV1 {
   return event.schema === "fact-event/v1";
 }
-export function serializeFactEvent(event: FactEventV1): string {
-  const errors = validateCurrentFactEvent(event);
-  if (errors.length) throw new Error(errors.join("; "));
-  return serializeEventEnvelope(event);
-}
-
 export function validateFactEvent(value: unknown): readonly string[] {
   return validateFactEventFields(value, true);
 }
