@@ -87,6 +87,9 @@ export function scanDocCandidates(input: {
 }): DocCandidateScan {
   const layout = resolveHarnessLayout(input.rootDir),
     ledger = resolveLedgerGitLayout(input.rootDir),
+    // artifactSource resolves --source against the product repository root, which is not
+    // the ledger Git top level when the authored root is its own nested repository.
+    sourcePrefix = relative(input.rootDir, layout.authoredRoot),
     task = input.taskId === undefined ? null : input.projection.read(input.taskId),
     taskPrefix =
       input.taskId === undefined
@@ -219,15 +222,13 @@ export function scanDocCandidates(input: {
         "add",
         claimingTaskId,
         "--source",
-        `${ledger.authoredPrefix ? `${ledger.authoredPrefix}/` : ""}${logical}`,
+        `${sourcePrefix ? `${sourcePrefix}/` : ""}${logical}`,
         "--destination",
         logical.slice(`tasks/${taskDirectory}/`.length),
       ]);
       return scannedCandidateRow(
         "inapplicable",
-        rawClassification === null || (candidate === null && fileSize !== null && fileSize > DOC_SYNC_INLINE_MAX_BYTES)
-          ? `task artifact is outside doc sync; publish it with ${nextAction}`
-          : "non-textual artifact is outside doc sync; publish it with ha task artifact add",
+        `task artifact is outside doc sync; publish it with ${nextAction}`,
         bytes,
         base,
         candidate,

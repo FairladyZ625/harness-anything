@@ -374,6 +374,62 @@ test("doc status uses the configured authored root and quotes artifact source pa
   }
 });
 
+test("doc status nextAction round-trips when the authored root is its own nested Git repository", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-artifact-nested-ledger-"));
+  initRepo(rootDir);
+  // Canonical layout: the authored root is an independent Git repository nested inside the
+  // product repository. The prefix relative to the ledger Git top level is then empty, so the
+  // artifact add source must be derived from the product root, not from the ledger prefix.
+  const ledgerRoot = path.join(rootDir, "harness");
+  mkdirSync(ledgerRoot, { recursive: true });
+  git(ledgerRoot, "init", "-q");
+  git(ledgerRoot, "config", "user.name", "Doc Raw Test");
+  git(ledgerRoot, "config", "user.email", "doc-raw@example.invalid");
+  git(ledgerRoot, "config", "gc.auto", "0");
+  writeFileSync(path.join(ledgerRoot, ".gitkeep"), "");
+  git(ledgerRoot, "add", ".gitkeep");
+  git(ledgerRoot, "commit", "-qm", "ledger base");
+  const repoId = workspaceId("artifact-nested-ledger"),
+    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "artifact-nested-ledger" }),
+    binding = { actor, source: "local" as const };
+  try {
+    const created = (await cell.run(
+      { kind: "task-create", taskId: "task-nested", title: "Nested Ledger" },
+      binding,
+    )) as { readonly outcome: string; readonly packagePath: string };
+    assert.equal(created.outcome, "applied", JSON.stringify(created));
+    const logical = `${created.packagePath}/artifacts/report.json`,
+      target = path.join(ledgerRoot, ...logical.split("/")),
+      bytes = Buffer.from('{"schema":"report/v1","nested":true}\n');
+    mkdirSync(path.dirname(target), { recursive: true });
+    writeFileSync(target, bytes);
+    const status = (await cell.run({ kind: "doc-status", paths: [logical] }, binding)) as Record<string, unknown>,
+      nextAction = String((status.detail as { readonly nextAction?: string }).nextAction),
+      routed = /^ha task artifact add (\S+) --source ('[^']*'|\S+) --destination ('[^']*'|\S+)$/u.exec(nextAction),
+      unquote = (token: string): string => token.replace(/^'(.*)'$/u, "$1");
+    assert.ok(routed, nextAction);
+    assert.equal(unquote(routed[2]!), `harness/${logical}`, nextAction);
+    assert.equal(unquote(routed[3]!), "artifacts/report.json", nextAction);
+    const added = (await cell.run(
+      {
+        kind: "task-artifact-add",
+        taskId: routed[1]!,
+        source: unquote(routed[2]!),
+        destination: unquote(routed[3]!),
+      },
+      binding,
+    )) as Record<string, unknown>;
+    assert.equal(added.outcome, "applied", JSON.stringify(added));
+    assert.equal(added.source, `harness/${logical}`);
+    assert.deepEqual(readFileSync(target), bytes, "same-path takeover preserves the original bytes");
+    await waitForFixturePublication(cell, String(added.opId), binding);
+    assert.deepEqual(gitBytes(ledgerRoot, logical), bytes, "the nested ledger Git cut holds the same bytes");
+  } finally {
+    await cell.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 function gitBytes(rootDir: string, target: string): Buffer {
   return execFileSync("git", ["-C", rootDir, "show", `HEAD:${target}`], { maxBuffer: 64 * 1024 * 1024 });
 }
