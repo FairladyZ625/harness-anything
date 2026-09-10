@@ -517,3 +517,29 @@ test("task lifecycle mutations publish L1 events, exact documents, and replayabl
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
+
+test("a lifecycle rejection bound to a declared criterion reports the guard's own reason", async (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-rejection-reason-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  initRepo(rootDir);
+  const cell = await openRepoCell({
+    repoId: workspaceId("task-rejection-reason"),
+    rootDir: canonicalRoot(rootDir),
+    ownerId: "task-rejection-reason",
+  });
+  t.after(() => cell.close());
+  await cell.run({ kind: "task-create", taskId: "task-reason", title: "Reason" }, { actor, source: "local" });
+  const refused = await cell.run(
+    {
+      kind: "task-review-execution",
+      commandType: "RecordReview",
+      taskId: "task-reason",
+      reviewId: "review-reason",
+      jsonInput: JSON.stringify({ verdict: "approved", reason: "Looks done.", evidenceChecked: ["read"] }),
+    },
+    { actor, source: "local" },
+  );
+  assert.equal(refused.unmetCriteria?.[0]?.ref, "task-lifecycle-review-transitions/review.validate");
+  assert.match(String(refused.rejectionExplanation), /Current submitted execution candidates: none/u);
+  assert.notEqual(refused.rejectionExplanation, refused.unmetCriteria?.[0]?.explain);
+});
