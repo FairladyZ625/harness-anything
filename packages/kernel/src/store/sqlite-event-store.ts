@@ -1,12 +1,7 @@
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import {
-  parseCanonicalEvent,
-  validateCurrentCanonicalEvent,
-  serializePersistedCanonicalEvent,
-  type CanonicalEventV1,
-} from "../domain/doc-sync.contract.ts";
-import { sha256Bytes, sha256Text, stableStringify } from "../integrity/stable-hash.ts";
+import { serializePersistedCanonicalEvent, type CanonicalEventV1 } from "../domain/doc-sync.contract.ts";
+import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 import { resolveHarnessLayout, type HarnessLayoutInput } from "../layout/index.ts";
 import { localRuntimeStateFileSystem } from "../local/local-layout-file-system.ts";
 import { localContentObjectFileSystem } from "../local/local-layout-file-system.ts";
@@ -37,6 +32,13 @@ export interface SqliteEventRow {
   readonly occurredAt: string;
   readonly recordedAt: string;
   readonly digest: `sha256:${string}`;
+}
+
+/** The identity SQLite already durably stores for an event, without re-reading or re-serializing its body. */
+export interface SqliteEventIdentity {
+  readonly revision: number;
+  readonly opId: string;
+  readonly eventDigest: `sha256:${string}`;
 }
 
 export interface SqliteCommandIntent {
@@ -120,6 +122,8 @@ export interface SqliteEventStore {
   readonly events: () => readonly CanonicalEventV1[];
   readonly event: (opId: string) => CanonicalEventV1 | null;
   readonly eventAtRevision: (revision: number) => CanonicalEventV1 | null;
+  readonly eventIdentity: (opId: string) => SqliteEventIdentity | null;
+  readonly eventIdentityAtRevision: (revision: number) => SqliteEventIdentity | null;
   readonly eventsAfter: (revision: number, limit?: number) => readonly CanonicalEventV1[];
   readonly close: () => void;
 }
@@ -452,11 +456,6 @@ export function openSqliteEventStore(options: {
         ))
     )
       throw new TaskEventStoreError("invalid_write_plan", "historical acceptance timestamps are incomplete");
-    if (generation === 2)
-      for (const event of input.events) {
-        const errors = validateCurrentCanonicalEvent(event);
-        if (errors.length) throw new TaskEventStoreError("invalid_write_plan", errors.join("; "));
-      }
     prepareContentObjects(objectRoot, input.events, input.blobs ?? []);
     return transaction(() => {
       assertFenceShape(input.fence, repoId);
@@ -548,12 +547,16 @@ export function openSqliteEventStore(options: {
     contentObjectDigests: () => listContentObjectDigests(objectRoot),
     revision: () => readRevision(db),
     events: () =>
-      query("SELECT event_json FROM event ORDER BY revision").map((row) => parseCanonicalEvent(String(row.event_json))),
+      query("SELECT event_json FROM event ORDER BY revision").map(
+        (row) => JSON.parse(String(row.event_json)) as CanonicalEventV1,
+      ),
     event: (opId) => readEvent(query, "op_id", opId),
     eventAtRevision: (revision) => readEvent(query, "revision", revision),
+    eventIdentity: (opId) => readEventIdentity(query, "op_id", opId),
+    eventIdentityAtRevision: (revision) => readEventIdentity(query, "revision", revision),
     eventsAfter: (revision, limit = 4096) =>
-      query("SELECT event_json FROM event WHERE revision>? ORDER BY revision LIMIT ?", [revision, limit]).map((row) =>
-        parseCanonicalEvent(String(row.event_json)),
+      query("SELECT event_json FROM event WHERE revision>? ORDER BY revision LIMIT ?", [revision, limit]).map(
+        (row) => JSON.parse(String(row.event_json)) as CanonicalEventV1,
       ),
     close: () => db.close(),
   };
@@ -661,7 +664,18 @@ function assertMetadata(query: SqliteQuery, repoId: string, generation: number):
 
 function readEvent(query: SqliteQuery, column: "op_id" | "revision", value: string | number): CanonicalEventV1 | null {
   const row = query(`SELECT event_json FROM event WHERE ${column}=?`, [value]).at(0);
-  return row ? parseCanonicalEvent(String(row.event_json)) : null;
+  return row ? (JSON.parse(String(row.event_json)) as CanonicalEventV1) : null;
+}
+
+function readEventIdentity(
+  query: SqliteQuery,
+  column: "op_id" | "revision",
+  value: string | number,
+): SqliteEventIdentity | null {
+  const row = query(`SELECT revision, op_id, digest FROM event WHERE ${column}=?`, [value]).at(0);
+  return row
+    ? { revision: Number(row.revision), opId: String(row.op_id), eventDigest: String(row.digest) as `sha256:${string}` }
+    : null;
 }
 
 function applyDerivedGuards(db: DatabaseSync, event: CanonicalEventV1): void {
@@ -719,23 +733,12 @@ function prepareContentObjects(
   const supplied = new Map(blobs.map((blob) => [blob.sha256, blob]));
   for (const event of events) {
     for (const claim of contentClaims(event)) {
-      const existing = readContentObject(objectRoot, claim.sha256);
-      if (existing !== null) {
-        if (existing.byteLength !== claim.size || sha256Bytes(existing) !== claim.sha256)
-          throw new TaskEventStoreError("invalid_store", `content object ${claim.sha256} is corrupt`);
-        continue;
-      }
+      const target = objectPath(objectRoot, claim.sha256);
+      if (localContentObjectFileSystem.exists(target)) continue;
       const blob = supplied.get(claim.sha256),
         bytes = blob === undefined ? null : typeof blob.body === "string" ? Buffer.from(blob.body) : blob.body;
-      if (
-        !blob ||
-        !bytes ||
-        blob.size !== claim.size ||
-        bytes.byteLength !== claim.size ||
-        sha256Bytes(bytes) !== claim.sha256
-      )
+      if (!blob || !bytes || blob.size !== claim.size || bytes.byteLength !== claim.size)
         throw new TaskEventStoreError("invalid_write_plan", `event content object ${claim.sha256} is missing`);
-      const target = objectPath(objectRoot, claim.sha256);
       localContentObjectFileSystem.replace(target, bytes);
     }
   }

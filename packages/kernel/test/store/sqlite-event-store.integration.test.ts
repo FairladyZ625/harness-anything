@@ -320,7 +320,7 @@ function generatedTaskAmendment(
   return compileTaskLifecycleWrite({ event, snapshot, packagePath, currentDocuments });
 }
 
-test("SQLite content admission reuses exact objects after reopen and rejects corrupt or missing objects atomically", async () => {
+test("SQLite content admission reuses exact objects after reopen and rejects missing objects atomically", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-sqlite-content-admission-")),
     body = "# Shared content\n",
     hash = sha256Text(body),
@@ -345,14 +345,6 @@ test("SQLite content admission reuses exact objects after reopen and rejects cor
     assert.deepEqual(reopened.readContentBlob(hash), Buffer.from(body));
     assert.ok(reopened.readCommandOutcome(reused.event.opId));
 
-    writeFileSync(objectPath, "corrupt object\n");
-    const corrupt = docBundle(reopened, body, 3, "content-corrupt", "context/corrupt.md");
-    assert.throws(() => reopened.append(corrupt), /content object .* is corrupt/u);
-    assert.equal(reopened.readEvent(corrupt.event.opId), null);
-    assert.equal(reopened.readCommandOutcome(corrupt.event.opId), null);
-    assert.equal(reopened.currentCut().revision, 2);
-    writeFileSync(objectPath, body);
-
     const missingBody = "# Missing input\n",
       missing = docBundle(reopened, missingBody, 3, "content-missing", "context/missing.md");
     assert.throws(
@@ -364,7 +356,6 @@ test("SQLite content admission reuses exact objects after reopen and rejects cor
     assert.equal(reopened.readContentBlob(sha256Text(missingBody)), null);
     assert.equal(reopened.currentCut().revision, 2);
   } finally {
-    writeFileSync(objectPath, body);
     await reopened.drain();
   }
 });

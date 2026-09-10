@@ -52,15 +52,18 @@ export function canonicalEventWritePlan(event: CanonicalEventV1, projection: str
   );
 }
 export function canonicalEventCut(repoId: string, event: CanonicalEventV1): CanonicalEventCut {
-  const head: EventHead = {
+  return canonicalEventCutFromHead(repoId, {
     revision: event.workspaceRevision,
     opId: event.opId,
     eventDigest: `sha256:${sha256Text(serializePersistedCanonicalEvent(event))}`,
-  };
+  });
+}
+/** Same identity as `canonicalEventCut`, from an event digest the store already has on hand. */
+export function canonicalEventCutFromHead(repoId: string, head: EventHead): CanonicalEventCut {
   return {
     repoId,
-    revision: event.workspaceRevision,
-    opId: event.opId,
+    revision: head.revision,
+    opId: head.opId,
     headDigest: `sha256:${sha256Text(serializeEventHead(head))}`,
   };
 }

@@ -426,12 +426,6 @@
         "reason": "RepoCell-owned settlement atomically publishes the authored target."
       },
       {
-        "value": "bypass-write-083",
-        "api": "mkdirSync",
-        "ref": "task_01KZWZEW11C499EACS9M5HVJZ8",
-        "reason": "Materialization creates only Git's local info directory for scratch exclusion."
-      },
-      {
         "value": "bypass-write-084",
         "api": "writeFileSync",
         "ref": "task_01KZWZEW11C499EACS9M5HVJZ8",
@@ -484,12 +478,6 @@
         "api": "closeSync",
         "ref": "task_01KZWZEW11C499EACS9M5HVJZ8",
         "reason": "Materialization closes the temporary conflict scratch."
-      },
-      {
-        "value": "bypass-write-093",
-        "api": "renameSync",
-        "ref": "task_01KZWZEW11C499EACS9M5HVJZ8",
-        "reason": "Materialization atomically publishes the deterministic conflict scratch."
       },
       {
         "value": "bypass-write-094",

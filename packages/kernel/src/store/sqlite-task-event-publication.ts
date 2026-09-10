@@ -1,5 +1,5 @@
-import { type EventHead, type LedgerCutIdentity } from "../domain/write-chain.contract.ts";
-import { serializePersistedCanonicalEvent, type CanonicalEventV1 } from "../domain/doc-sync.contract.ts";
+import { type LedgerCutIdentity } from "../domain/write-chain.contract.ts";
+import type { CanonicalEventV1 } from "../domain/doc-sync.contract.ts";
 import { sha256Bytes, sha256Text } from "../integrity/stable-hash.ts";
 import { resolveHarnessLayout, type HarnessLayoutInput } from "../layout/index.ts";
 import { consumeKnownError } from "../error-consumption.ts";
@@ -44,8 +44,7 @@ export function publishConvertedGeneration(input: {
     parent = localGitObjectRefStore.resolveCommit(ledger.rootDir, authoredRef),
     revision = input.store.revision();
   if (revision === 0) return { commitSha: parent, revision, changed: false };
-  const event = input.store.eventAtRevision(revision),
-    cut = canonicalLedgerCut(input.repoId, event ? eventHead(event) : null),
+  const cut = canonicalLedgerCut(input.repoId, input.store.eventIdentityAtRevision(revision)),
     closureEvents = readEventsThrough(input.store, revision),
     files = [
       ...followerFiles(ledger, closureEvents, input.store.readContentObject, cut, input.store.metadata().generation),
@@ -96,8 +95,7 @@ export function readCertifiedGitFollower(input: {
     revision = certifiedFollowerRevision(ledger, commitSha, input.store);
   if (revision !== input.store.revision())
     throw new TaskEventStoreError("publication_indeterminate", "Git follower does not certify the current SQLite cut");
-  const event = input.store.eventAtRevision(revision),
-    cut = canonicalLedgerCut(input.repoId, event ? eventHead(event) : null),
+  const cut = canonicalLedgerCut(input.repoId, input.store.eventIdentityAtRevision(revision)),
     closure = documentClosure(readEventsThrough(input.store, revision));
   verifyDocumentClosure(ledger, commitSha, closure);
   return {
@@ -265,8 +263,7 @@ function manifestRevision(bytes: Buffer, sqlite: ReturnType<typeof openSqliteEve
     revision > sqlite.revision()
   )
     throw new TaskEventStoreError("publication_indeterminate", "Git follower manifest identity is invalid");
-  const event = sqlite.eventAtRevision(revision),
-    expected = canonicalLedgerCut(sqlite.metadata().repoId, event ? eventHead(event) : null);
+  const expected = canonicalLedgerCut(sqlite.metadata().repoId, sqlite.eventIdentityAtRevision(revision));
   if (parsed.cut.headDigest !== expected.headDigest)
     throw new TaskEventStoreError("publication_indeterminate", "Git follower manifest cut differs from SQLite");
   return revision;
@@ -279,17 +276,17 @@ export function ledgerWorktreeBaseline(
   revision: number,
   files: readonly (PublicationWrite | PublicationDelete)[],
 ): ReadonlyMap<string, string> {
-  const event = sqlite.eventAtRevision(revision),
+  const identity = sqlite.eventIdentityAtRevision(revision),
     held = new Map(
-      [...documentClosure(event ? readEventsThrough(sqlite, revision) : []).documents].map(([logical, document]) => [
+      [...documentClosure(identity ? readEventsThrough(sqlite, revision) : []).documents].map(([logical, document]) => [
         ledgerGitPath(ledger, logical),
         `${document.mode}:${document.sha256}:${document.size}`,
       ]),
     );
-  if (event) {
+  if (identity) {
     const manifest = followerManifest(
       sqlite.metadata().generation,
-      canonicalLedgerCut(sqlite.metadata().repoId, eventHead(event)),
+      canonicalLedgerCut(sqlite.metadata().repoId, identity),
     );
     held.set(
       ledgerGitPath(ledger, followerManifestPath),
@@ -323,14 +320,6 @@ function decodeFollowerManifest(bytes: Buffer): {
   }
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) throw undecodable();
   return parsed as ReturnType<typeof decodeFollowerManifest>;
-}
-
-function eventHead(event: CanonicalEventV1): EventHead {
-  return {
-    revision: event.workspaceRevision,
-    opId: event.opId,
-    eventDigest: `sha256:${sha256Text(serializePersistedCanonicalEvent(event))}`,
-  };
 }
 
 export function readEventsThrough(

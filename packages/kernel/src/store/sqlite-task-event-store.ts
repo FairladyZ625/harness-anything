@@ -9,7 +9,7 @@ import { sha256Text } from "../integrity/stable-hash.ts";
 import { resolveHarnessLayout, type HarnessLayoutInput } from "../layout/index.ts";
 import { consumeKnownError } from "../error-consumption.ts";
 import { canonicalDocumentClaims, contentClaims } from "./task-event-store-claims-layout.ts";
-import { canonicalEventCut, canonicalLedgerCut } from "./task-event-store-contract.ts";
+import { canonicalEventCut, canonicalEventCutFromHead, canonicalLedgerCut } from "./task-event-store-contract.ts";
 import { isTaskBootstrapEvent } from "../domain/task-bootstrap-event.ts";
 import { resolveLedgerGitLayout, ledgerGitPath } from "./ledger-git-layout.ts";
 import { localGitObjectRefStore, localGitWorktreeSettlement } from "./local-version-control-system.ts";
@@ -103,16 +103,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
     scheduled: Promise<void> | null = null,
     certified: { readonly commit: string; readonly revision: number } | null = null;
 
-  const head = (): EventHead | null => {
-    const event = sqlite.eventAtRevision(sqlite.revision());
-    return event
-      ? {
-          revision: event.workspaceRevision,
-          opId: event.opId,
-          eventDigest: `sha256:${sha256Text(serializePersistedCanonicalEvent(event))}`,
-        }
-      : null;
-  };
+  const head = (): EventHead | null => sqlite.eventIdentityAtRevision(sqlite.revision());
   const cut = () => canonicalLedgerCut(options.repoId, head());
   const readContent = (sha256: string) => sqlite.readContentObject(sha256);
   const acceptedWorktree = new Map<string, { fingerprint: string; preserve: boolean }>(),
@@ -130,16 +121,21 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
       acceptedBaseline = new Map<string, { fingerprint: string; preserve: boolean }>();
     assertAuthorizedReplacements(sqlite, input, members);
     for (const event of appended) {
+      const task = isTaskEvent(event);
       for (const claim of canonicalDocumentClaims(event)) {
-        const node = localGitWorktreeSettlement.readNode(`${authoredRoot}/${claim.path}`);
-        if (!node || node.mode !== "100644") continue;
         const prose =
+          !task &&
           event.schema === "doc-event/v1" &&
           event.payload.changes.some(
             (change) => change.path === claim.path && change.policyId === "markdown-body-replaceable/v1",
           );
-        if (isTaskEvent(event) || (prose && sha256Text(node.body.replace(/\r\n/gu, "\n")) === claim.sha256))
-          acceptedBaseline.set(claim.path, { fingerprint: worktreeFingerprint(node), preserve: isTaskEvent(event) });
+        if (!task && !prose) continue;
+        const node = localGitWorktreeSettlement.readNode(`${authoredRoot}/${claim.path}`);
+        if (!node || node.mode !== "100644") continue;
+        const matches =
+          task ||
+          (node.body.includes("\r\n") ? sha256Text(node.body.replace(/\r\n/gu, "\n")) : node.sha256) === claim.sha256;
+        if (matches) acceptedBaseline.set(claim.path, { fingerprint: worktreeFingerprint(node), preserve: task });
       }
     }
     const fence = options.writerFence?.() ?? { repoId: options.repoId, holderId: "direct-store", epoch: 1 },
@@ -175,7 +171,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
           follower.git.commitSha
             ? ledgerCommitSha(options.repoId, follower.git.commitSha)
             : null,
-        cut: canonicalEventCut(options.repoId, bundle.event),
+        cut: canonicalEventCutFromHead(options.repoId, sqlite.eventIdentity(bundle.event.opId)!),
         metrics: { gitProcesses: 0, nodeSyncs: 0, changedPaths: [] },
       };
       options.killpoint?.("after_response_write");
@@ -217,7 +213,8 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
         const target = "target" in file ? file.target : file.delete,
           current = worktreeFingerprint(localGitWorktreeSettlement.readNode(`${currentLedger.rootDir}/${target}`));
         if (current === "missing" && (restoreMissing || !permitted.has(target))) permitted.set(target, "missing");
-        if (current === permitted.get(target) || current === settledFingerprint(file)) return true;
+        if (current === settledFingerprint(file)) return false;
+        if (current === permitted.get(target)) return true;
         conflicts.push(target);
         return false;
       }),
@@ -389,6 +386,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
     currentCut: cut,
     currentCommit: () =>
       ledgerCommitSha(options.repoId, localGitObjectRefStore.resolveCommit(ledger().rootDir, authoredRef())),
+    // Migration import asks for the cut of a prepared event before it commits, so derive it from the event.
     publication: (event) => ({ commitSha: null, cut: canonicalEventCut(options.repoId, event) }),
     revisionAt: () => null,
     readEvent: sqlite.event,
