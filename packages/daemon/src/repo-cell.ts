@@ -197,7 +197,6 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
 }
 
 export function chainRepoCellWrite<T>(tail: Promise<void>, work: () => T | PromiseLike<T>): Promise<T> {
-  return tail.then(
-    () => new Promise<T>((resolve, reject) => setImmediate(() => Promise.resolve(work()).then(resolve, reject))),
-  );
+  // One event-loop turn between serialized writes, so timers and I/O are not starved by a write backlog.
+  return tail.then(() => new Promise<void>((resolve) => setImmediate(resolve))).then(work);
 }

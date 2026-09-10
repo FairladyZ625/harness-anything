@@ -425,6 +425,92 @@ test("URL source resolution times out when response body never completes", async
   }
 });
 
+test("URL source resolution completes while seven writers keep the repository queue busy", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-url-import-load-")),
+    repoId = workspaceId("url-import-load");
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined,
+    writing = true;
+  const server = createServer((_request, response) => response.end("# Remote note\n"));
+  const writers: Promise<number>[] = [];
+  try {
+    initRepo(rootDir);
+    cell = await openRepoCell({
+      repoId,
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "url-import-load-center",
+      now: () => "2026-09-11T02:00:00.000Z",
+    });
+    const created = await cell.run(
+      {
+        kind: "vertical-kind-upsert",
+        kindId: "remote-note",
+        expectedVersion: 0,
+        declaration: {
+          id: "remote-note",
+          entityType: "artifact",
+          idPrefix: "RN",
+          display: { singular: "Remote Note", plural: "Remote Notes" },
+          descriptorSchemaRef: "schema://artifact-descriptor",
+          store: { pathTemplate: "entities/remote-notes/{id}.json" },
+          locatorKinds: ["url"],
+        },
+      },
+      binding,
+    );
+    const kindRef = (JSON.parse(String(created.evidence)) as { kindRef: string }).kindRef;
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(0, "127.0.0.1", () => resolve());
+    });
+    const address = server.address();
+    assert.ok(address && typeof address === "object");
+    const openCell = cell;
+    for (let writer = 0; writer < 7; writer += 1)
+      writers.push(
+        (async () => {
+          let written = 0;
+          while (writing) {
+            await openCell.run(
+              {
+                kind: "fact-record",
+                statement: `Load writer ${String(writer)} observation ${String(written)}.`,
+                evidenceSource: "test:url-import-load",
+                confidence: "high",
+                memoryClass: "episodic",
+                memoryTags: [],
+              },
+              binding,
+            );
+            written += 1;
+          }
+          return written;
+        })(),
+      );
+    const started = Date.now(),
+      imported = await cell.run(
+        {
+          kind: "entity-import",
+          entityKind: kindRef,
+          locator: `http://127.0.0.1:${String(address.port)}/note.md`,
+          expectedVersion: 0,
+        },
+        binding,
+      ),
+      elapsed = Date.now() - started;
+    writing = false;
+    const written = (await Promise.all(writers)).reduce((sum, count) => sum + count, 0);
+    assert.equal(imported.outcome, "applied", JSON.stringify(imported));
+    assert.ok(elapsed < 5_000, `URL import took ${String(elapsed)} ms under load`);
+    assert.ok(written > 0, "the writers kept the queue busy");
+  } finally {
+    writing = false;
+    await Promise.allSettled(writers);
+    await cell?.close();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("Directory artifact import fingerprints files, replays unchanged content, and records missing", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-directory-artifact-import-")),
     sourcePath = "research/2026-09-05-directory-artifacts",
