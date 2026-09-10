@@ -1621,6 +1621,20 @@ test("dispatch reclaims an orphaned task lease instead of requiring a manual rel
         ((await cell.run({ kind: "task-show", taskId }, binding)) as Record<string, unknown>).summary,
       );
       assert.match(lapsed, /\nlease: [^\n]*phase=orphaned/u, lapsed);
+      // Only the same principal or the task owner may reclaim it; another person is refused.
+      await assert.rejects(
+        cell.spawnRuntime(
+          {
+            runtimeInstanceId: definition.instanceId,
+            cwd: { scope: "repo-root" },
+            prompt: "Reclaim another person's orphaned lease.",
+            taskId,
+            idempotencyKey: "orphan-lease-stranger",
+          },
+          { ...binding, actor: { principal: { personId: "person-orphan-stranger" }, executor: null } },
+        ),
+        /same principal reclaiming an orphaned lease/u,
+      );
       const receipt = await cell.spawnRuntime(
         {
           runtimeInstanceId: definition.instanceId,

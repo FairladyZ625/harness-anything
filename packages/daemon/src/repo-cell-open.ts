@@ -804,9 +804,7 @@ export async function openRepoWriterCell(
           heldRuntimeSessionId !== null &&
           heldRuntimeSessionId === fromRuntimeSessionId &&
           isSamePerson(lease.actor, binding.actor);
-      // An orphaned lease's holder session has already ended (it is definitionally past
-      // expiresAt), so any dispatcher may reclaim it; the ownership check below only
-      // guards a still-live held lease against being stolen from its active holder.
+      // An orphaned lease is past expiresAt; the release rule decides who may reclaim it.
       if (lease.phase === "held" && !dispatcherOwnsLease && !trustedRuntimeHandoff)
         throw cellCodedError(
           "lease_conflict",
@@ -819,7 +817,7 @@ export async function openRepoWriterCell(
         },
         releaseBinding = authorizeRuntimeAction(
           releaseAction,
-          { ...binding, actor: lease.actor },
+          lease.phase === "orphaned" ? binding : { ...binding, actor: lease.actor },
           `runtime-task-handoff-release:${taskId}:${runtimeSessionId}:${String(lease.version)}`,
         ),
         released = await operationalContext.taskSurfaceWrite(releaseAction, releaseBinding);
