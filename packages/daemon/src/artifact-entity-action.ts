@@ -54,7 +54,8 @@ import { requireCanonicalVerticalDeclaration, type VerticalDeclarationReader } f
 const compiledVerticals = new Map<string, CompiledVerticalContract>(),
   compiledDirections = new Map<string, readonly CanonicalRelationDirection[]>();
 export const artifactImportSourceResolution = Symbol("artifactImportSourceResolution");
-const ARTIFACT_SOURCE_FETCH_TIMEOUT_MS = 10_000;
+const ARTIFACT_SOURCE_FETCH_TIMEOUT_MS = 10_000,
+  ARTIFACT_SOURCE_BODY_MAX_BYTES = 10 * 1024 * 1024;
 /** `entityId` is null only for a dry run of material the center has never accepted; nothing is minted then. */
 type ArtifactImportReceipt = WriteReceipt & { readonly entityId: string | null };
 
@@ -522,27 +523,73 @@ async function resolveArtifactSource(input: {
           `URL resolver timed out after ${ARTIFACT_SOURCE_FETCH_TIMEOUT_MS} ms.`,
         );
       throw error;
-    } finally {
-      clearTimeout(timeout);
     }
     const source = { kind: "url" as const, url: locator.value };
     const code = response.status;
-    if (code === 404 || code === 410) return { status: "missing", source, reason: `HTTP ${code}`, resolver: "http" };
-    if (!response.ok) throw new Error(`URL resolver returned HTTP ${response.status}.`);
-    const content = new Uint8Array(await response.arrayBuffer()),
-      name = path.basename(new URL(locator.value).pathname) || new URL(locator.value).hostname;
-    return {
-      status: "observed",
-      source,
-      witness: { kind: "content", content },
-      content: [sourceObject(name, content)],
-      title: name,
-      resolver: "http",
-    };
+    if (code === 404 || code === 410) {
+      clearTimeout(timeout);
+      return { status: "missing", source, reason: `HTTP ${code}`, resolver: "http" };
+    }
+    if (!response.ok) {
+      clearTimeout(timeout);
+      throw new Error(`URL resolver returned HTTP ${response.status}.`);
+    }
+    try {
+      const content = await readResponseBody(response, controller),
+        name = path.basename(new URL(locator.value).pathname) || new URL(locator.value).hostname;
+      return {
+        status: "observed",
+        source,
+        witness: { kind: "content", content },
+        content: [sourceObject(name, content)],
+        title: name,
+        resolver: "http",
+      };
+    } catch (error) {
+      if (controller.signal.aborted)
+        throw new ArtifactEntityServiceError(
+          "source_resolution_timeout",
+          `URL resolver timed out after ${ARTIFACT_SOURCE_FETCH_TIMEOUT_MS} ms.`,
+        );
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
   }
   throw new ArtifactEntityServiceError(
     "source_resolution_failed",
     `No external-key resolver is installed for ${input.contract.typeIdentity}.`,
+  );
+}
+
+async function readResponseBody(response: Response, _controller: AbortController): Promise<Uint8Array> {
+  const declaredLength = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declaredLength) && declaredLength > ARTIFACT_SOURCE_BODY_MAX_BYTES) throw sourceBodyTooLarge();
+  if (!response.body) {
+    const content = new Uint8Array(await response.arrayBuffer());
+    if (content.byteLength > ARTIFACT_SOURCE_BODY_MAX_BYTES) throw sourceBodyTooLarge();
+    return content;
+  }
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for await (const value of response.body as AsyncIterable<Uint8Array>) {
+    size += value.byteLength;
+    if (size > ARTIFACT_SOURCE_BODY_MAX_BYTES) throw sourceBodyTooLarge();
+    chunks.push(value);
+  }
+  const content = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    content.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return content;
+}
+
+function sourceBodyTooLarge(): ArtifactEntityServiceError {
+  return new ArtifactEntityServiceError(
+    "source_resolution_failed",
+    `URL resolver response exceeds ${ARTIFACT_SOURCE_BODY_MAX_BYTES} bytes.`,
   );
 }
 

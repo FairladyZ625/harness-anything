@@ -197,5 +197,7 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
 }
 
 export function chainRepoCellWrite<T>(tail: Promise<void>, work: () => T | PromiseLike<T>): Promise<T> {
-  return tail.then(work);
+  return tail.then(
+    () => new Promise<T>((resolve, reject) => setImmediate(() => Promise.resolve(work()).then(resolve, reject))),
+  );
 }

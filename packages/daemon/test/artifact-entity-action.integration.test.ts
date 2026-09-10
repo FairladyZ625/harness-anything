@@ -364,6 +364,67 @@ test("URL source resolution does not block a concurrent repository write", async
   }
 });
 
+test("URL source resolution times out when response body never completes", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-url-body-timeout-")),
+    repoId = workspaceId("url-body-timeout");
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  const server = createServer((_request, response) => {
+    response.writeHead(200, { "content-type": "text/plain" });
+    response.write("partial");
+  });
+  try {
+    initRepo(rootDir);
+    cell = await openRepoCell({
+      repoId,
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "url-body-timeout-center",
+      now: () => "2026-09-11T02:00:00.000Z",
+    });
+    const created = await cell.run(
+      {
+        kind: "vertical-kind-upsert",
+        kindId: "remote-note",
+        expectedVersion: 0,
+        declaration: {
+          id: "remote-note",
+          entityType: "artifact",
+          idPrefix: "RN",
+          display: { singular: "Remote Note", plural: "Remote Notes" },
+          descriptorSchemaRef: "schema://artifact-descriptor",
+          store: { pathTemplate: "entities/remote-notes/{id}.json" },
+          locatorKinds: ["url"],
+        },
+      },
+      binding,
+    );
+    const kindRef = (JSON.parse(String(created.evidence)) as { kindRef: string }).kindRef;
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(0, "127.0.0.1", () => resolve());
+    });
+    const address = server.address();
+    assert.ok(address && typeof address === "object");
+    const started = Date.now(),
+      imported = await cell.run(
+        {
+          kind: "entity-import",
+          entityKind: kindRef,
+          locator: `http://127.0.0.1:${String(address.port)}/partial.md`,
+          expectedVersion: 0,
+        },
+        binding,
+      );
+    assert.equal(imported.outcome, "op_rejected", JSON.stringify(imported));
+    assert.equal(imported.code, "source_resolution_timeout", JSON.stringify(imported));
+    assert.ok(Date.now() - started >= 9_000);
+    assert.ok(Date.now() - started < 12_000);
+  } finally {
+    await cell?.close();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("Directory artifact import fingerprints files, replays unchanged content, and records missing", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-directory-artifact-import-")),
     sourcePath = "research/2026-09-05-directory-artifacts",
