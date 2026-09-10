@@ -22,7 +22,6 @@ import { assertTaskLifecycleWritePlan } from "../domain/task-lifecycle-publicati
 import {
   assertTaskBootstrapWritePlan,
   isTaskBootstrapEvent,
-  taskBootstrapClaims,
   type TaskBootstrapEventV1,
 } from "../domain/task-bootstrap-event.ts";
 import { assertTaskProgressWritePlan, isTaskProgressEvent } from "../domain/task-progress-event.ts";
@@ -38,7 +37,7 @@ import {
   type FrozenWritePlan,
   type WriteTarget,
 } from "../domain/write-chain.contract.ts";
-import { sha256Bytes, sha256Text, stableStringify } from "../integrity/stable-hash.ts";
+import { sha256Bytes, stableStringify } from "../integrity/stable-hash.ts";
 import { assertPublishableOpId, eventObjectTarget } from "../layout/ledger-object-layout.ts";
 import type { CanonicalContentBlob, CanonicalEventWriteBundle } from "./task-event-store-types.ts";
 import { TaskEventStoreError } from "./task-event-store-types.ts";
@@ -54,7 +53,7 @@ export function assertBundle(bundle: CanonicalEventWriteBundle): void {
     const docErrors = validateCurrentDocEvent(event);
     if (docErrors.length)
       throw new TaskEventStoreError("invalid_write_plan", "doc event write requires the current cut identity");
-    assertDocWritePlan(event, plan, blobs);
+    assertDocWritePlan(event, plan);
   }
   const currentErrors = validateCurrentCanonicalEvent(event);
   if (currentErrors.length)
@@ -116,7 +115,7 @@ export function assertBundle(bundle: CanonicalEventWriteBundle): void {
         "lifecycle write plan must exactly declare event, documents, blobs, lease, and projections",
       );
     }
-  if (isTaskBootstrapEvent(event)) assertBootstrapInputs(event, plan, blobs);
+  if (isTaskBootstrapEvent(event)) assertBootstrapInputs(event, plan);
   if (isSnapshotUpgradeEvent(event))
     try {
       assertSnapshotUpgradeInputs(event, plan, requireTextBlobs(blobs));
@@ -227,11 +226,7 @@ function requireTextBlobs(blobs: readonly CanonicalContentBlob[]): readonly (Can
     throw new TaskEventStoreError("invalid_write_plan", "this canonical event accepts text content only");
   return blobs as readonly (CanonicalContentBlob & { readonly body: string })[];
 }
-export function assertDocWritePlan(
-  event: DocEventV1,
-  plan: FrozenWritePlan,
-  blobs: readonly CanonicalContentBlob[],
-): void {
+export function assertDocWritePlan(event: DocEventV1, plan: FrozenWritePlan): void {
   try {
     assertDocSyncWritePlan(event, plan as FrozenWritePlan<"DocSyncSubmit">);
   } catch {
@@ -240,17 +235,8 @@ export function assertDocWritePlan(
       "doc write plan must exactly declare event, head, projection, and content targets",
     );
   }
-  assertContentInputs(
-    event.payload.changes.flatMap(({ candidate }) => (candidate === null ? [] : [candidate])),
-    blobs,
-    "doc",
-  );
 }
-export function assertBootstrapInputs(
-  event: TaskBootstrapEventV1,
-  plan: FrozenWritePlan,
-  blobs: readonly CanonicalContentBlob[],
-): void {
+export function assertBootstrapInputs(event: TaskBootstrapEventV1, plan: FrozenWritePlan): void {
   try {
     assertTaskBootstrapWritePlan(event, plan as FrozenWritePlan<"TaskBootstrap">);
   } catch {
@@ -259,24 +245,6 @@ export function assertBootstrapInputs(
       "task bootstrap write plan must exactly declare event, task, snapshot, documents, and blobs",
     );
   }
-  const claims = taskBootstrapClaims(event);
-  assertContentInputs(claims, blobs, "task bootstrap");
-  const claim = claims[0];
-  if (!claim || !("digest" in claim))
-    throw new TaskEventStoreError("invalid_write_plan", "task bootstrap snapshot claim is missing");
-  const blob = blobs.find((candidate) => candidate.sha256 === claim.sha256);
-  let value: Record<string, unknown>;
-  try {
-    value = JSON.parse(typeof blob?.body === "string" ? blob.body : "") as Record<string, unknown>;
-  } catch {
-    throw new TaskEventStoreError("invalid_write_plan", "task bootstrap snapshot claim must be JSON");
-  }
-  const { digest, ...snapshot } = value;
-  if (digest !== claim.digest || claim.digest !== `sha256:${sha256Text(stableStringify(snapshot))}`)
-    throw new TaskEventStoreError(
-      "invalid_write_plan",
-      "task bootstrap snapshot claim digest must match its canonical bytes",
-    );
 }
 export function assertContentInputs(
   claims: readonly {
@@ -301,23 +269,21 @@ export function assertContentInputs(
     if (!(error instanceof WriteChainContractError)) throw error;
     throw new TaskEventStoreError("invalid_write_plan", `${label} content inputs conflict for one SHA`);
   }
-  const shape = (
-    items: readonly {
-      readonly sha256: string;
-      readonly size: number;
-      readonly mediaType: string;
-    }[],
-  ) =>
-    stableStringify(
-      items
-        .map(({ sha256, size, mediaType }) => ({ sha256, size, mediaType }))
-        .sort((a, b) => a.sha256.localeCompare(b.sha256)),
-    );
+  // Blobs may cover a subset of the claims: an object the store already holds needs no bytes resupplied, and
+  // prepareContentObjects rejects a claim with neither a blob nor a stored object. Every supplied blob is
+  // hashed here — the one place content bytes are verified — and must match the claim it stands for.
+  const claimsBySha = new Map(normalizedClaims.map((claim) => [claim.sha256, claim]));
   if (
-    shape(normalizedBlobs) !== shape(normalizedClaims) ||
     normalizedBlobs.some((blob) => {
-      const bytes = typeof blob.body === "string" ? Buffer.from(blob.body) : blob.body;
-      return bytes.byteLength !== blob.size || sha256Bytes(bytes) !== blob.sha256;
+      const claim = claimsBySha.get(blob.sha256),
+        bytes = typeof blob.body === "string" ? Buffer.from(blob.body) : blob.body;
+      return (
+        claim === undefined ||
+        claim.size !== blob.size ||
+        claim.mediaType !== blob.mediaType ||
+        bytes.byteLength !== blob.size ||
+        sha256Bytes(bytes) !== blob.sha256
+      );
     })
   )
     throw new TaskEventStoreError(

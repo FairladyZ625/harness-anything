@@ -233,7 +233,7 @@ export function executeArtifactEntityMutation(input: {
             compiled,
             contractSnapshot,
             { ...envelope, opId },
-            carriedContent(input.store, pinned, entityId, current.ownedContent),
+            carriedContent(pinned, entityId, current.ownedContent),
             carriedDirectories(pinned, entityId, current.ownedContent),
             entityDirectoryFootprint(entityContentRoot(pinned, entityId), current.ownedContent),
           )
@@ -303,7 +303,7 @@ function updatedBundle(
     readonly source: RepoCellBinding["source"];
     readonly occurredAt: string;
   },
-  carried: readonly EntityContentBlob[],
+  carried: readonly Omit<EntityContentBlob, "body">[],
   carriedDirectories: readonly string[],
   heldDirectories: readonly string[],
 ) {
@@ -731,21 +731,19 @@ export function resolveSourceBinding(
   return { entityId: null, generation };
 }
 
-/** The content objects an entity already owns, restated from the ledger so an update carries them forward. */
+/** The content objects an entity already owns, restated as manifest metadata so an update carries them forward. */
 function carriedContent(
-  store: CanonicalEventStore,
   contract: EntityStoreKindContract,
   entityId: string,
   ownedContent: EntityOwnedContentV1 | null,
-): readonly EntityContentBlob[] {
+): readonly Omit<EntityContentBlob, "body">[] {
   if (!ownedContent) return [];
   const root = `${entityContentRoot(contract, entityId)}/`,
-    sizes = new Map(ownedContent.content.map((entry) => [entry.sha256, entry]));
+    objects = new Map(ownedContent.content.map((entry) => [entry.sha256, entry]));
   return ownedContent.bindings.flatMap(({ path: bound, contentSha256, policyId }) => {
     if (!bound.startsWith(root)) return [];
-    const bytes = store.readContentBlob(contentSha256),
-      object = sizes.get(contentSha256);
-    if (!bytes || !object) throw new Error(`Entity content object ${contentSha256} is unavailable.`);
+    const object = objects.get(contentSha256);
+    if (!object) throw new Error(`Entity content object ${contentSha256} is unavailable.`);
     return [
       {
         relativePath: bound.slice(root.length),
@@ -753,7 +751,6 @@ function carriedContent(
         size: object.byteLength,
         mediaType: object.mediaType,
         policyId,
-        body: bytes,
       },
     ];
   });

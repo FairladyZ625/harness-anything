@@ -189,7 +189,11 @@ export function compileEntityUpdated(
     readonly contract: EntityStoreKindContract;
     readonly contractSnapshot: ArtifactEntityContractSnapshot;
     readonly descriptor: ArtifactDescriptor;
-    readonly sourceContent?: readonly EntityContentBlob[];
+    /**
+     * Owned content restated as manifest metadata; the store already holds those bytes, so only
+     * new content is carried.
+     */
+    readonly sourceContent?: readonly Omit<EntityContentBlob, "body">[];
     readonly sourceDirectories?: readonly string[];
     readonly retirements?: readonly EntityContentRetirement[];
     readonly heldDirectories?: readonly string[];
@@ -228,7 +232,7 @@ export function compileEntityUpdated(
   return {
     event,
     plan: declarationWritePlan("EntityUpdated", event, "entity/v1"),
-    blobs: [blob(claim, body), ...sourceContent],
+    blobs: [blob(claim, body)],
   };
 }
 
