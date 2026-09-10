@@ -38,6 +38,18 @@ test("local CLI initializes and accepts the native generation-2 SQLite ledger", 
       "Zeyu Li",
     ]);
     assert.equal(initialized.ok, true, JSON.stringify(initialized));
+    const absentGenerationOne = invoke(root, userRoot, ["ledger", "reconcile", "--generation", "1"]);
+    assert.notEqual(absentGenerationOne.status, 0, JSON.stringify(absentGenerationOne));
+    assert.equal(absentGenerationOne.receipt.outcome, "op_rejected", JSON.stringify(absentGenerationOne.receipt));
+    assert.equal(
+      absentGenerationOne.receipt.code,
+      "legacy_source_missing",
+      JSON.stringify(absentGenerationOne.receipt),
+    );
+    assert.equal(
+      absentGenerationOne.receipt.rejectionExplanation,
+      "This repository started at generation 2; there is no generation 1 import to reconcile.",
+    );
     const databasePath = path.join(root, ".harness/store/generations/2/ledger.sqlite"),
       activationPath = `${databasePath}.activation.json`;
     assert.equal(existsSync(databasePath), true, "init must activate the native generation-2 SQLite ledger");

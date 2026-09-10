@@ -1,4 +1,5 @@
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
+import { existsSync } from "node:fs";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import {
   legacyGenerationSnapshotPath,
@@ -16,10 +17,16 @@ export async function runLedgerReconcileAction(
   const generation = Number(action.generation ?? 1);
   if (generation !== 1)
     throw cell.cellCodedError("invalid_command", "only canonical SQLite generation 1 can reconcile");
+  const databasePath = sqliteLedgerPath(cell.rootDir, 1);
+  if (!existsSync(databasePath))
+    throw cell.cellCodedError(
+      "legacy_source_missing",
+      "This repository started at generation 2; there is no generation 1 import to reconcile.",
+    );
   const revision = cell.store.readHead()?.revision ?? 0,
     sqlite = openSqliteEventStore({
       repoId: cell.input.repoId,
-      databasePath: sqliteLedgerPath(cell.rootDir, 1),
+      databasePath,
       generation: 1,
       readOnly: true,
     });
