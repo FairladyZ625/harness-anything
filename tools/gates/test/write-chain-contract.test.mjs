@@ -90,55 +90,6 @@ test("G03 rejects an unsafe target before freezing the write plan", () => {
   );
 });
 
-test("G03 derives exact ledger declarations from canonical targets", () => {
-  const plan = freezeDeclaredWritePlan(
-    {
-      commandType: "CreateReplayTask",
-      targets: [
-        { kind: "event_file", path: "harness/events/op-1.json", operation: "create" },
-        { kind: "event_head", path: "harness/events/head.json", operation: "replace" },
-        { kind: "projection_invalidation", projection: "task-lifecycle/v1", key: "task-1" },
-        { kind: "content_blob", sha256: "a".repeat(64), size: 4, mediaType: "text/plain" },
-      ],
-    },
-    ["CreateReplayTask"],
-  );
-  assert.deepEqual(
-    plan.targets.filter((target) => target.kind === "ledger_file"),
-    [
-      ...[
-        ".harness/store/generations/2/ledger.sqlite",
-        ".harness/store/generations/2/ledger.sqlite-wal",
-        ".harness/store/generations/2/ledger.sqlite-shm",
-        "harness/events/segments/manifest.json",
-      ].map((path) => ({ kind: "ledger_file", path, operation: "replace" })),
-      {
-        kind: "ledger_file",
-        path: `.harness/store/generations/2/objects/sha256/aa/${"a".repeat(62)}`,
-        operation: "replace",
-      },
-    ],
-  );
-  assert.throws(
-    () =>
-      freezeDeclaredWritePlan(
-        {
-          commandType: "CreateReplayTask",
-          targets: [
-            ...plan.targets,
-            {
-              kind: "ledger_file",
-              path: `.harness/store/generations/1/objects/sha256/bb/${"b".repeat(62)}`,
-              operation: "replace",
-            },
-          ],
-        },
-        ["CreateReplayTask"],
-      ),
-    /ledger targets must exactly derive/u,
-  );
-});
-
 test("G03 keys authored targets by path even when their content is identical", () => {
   const sha256 = "a".repeat(64);
   const plan = freezeDeclaredWritePlan(
@@ -203,7 +154,7 @@ test("G03 still rejects two authored writes to the same path", () => {
   );
 });
 
-test("G03 folds identical content targets and their derived ledger object target by SHA", () => {
+test("G03 folds identical content targets by SHA and rejects conflicting ones", () => {
   const content = { kind: "content_blob", sha256: "a".repeat(64), size: 4, mediaType: "text/plain" };
   const plan = freezeDeclaredWritePlan(
     {
@@ -220,19 +171,12 @@ test("G03 folds identical content targets and their derived ledger object target
   );
 
   assert.equal(plan.targets.filter((target) => target.kind === "content_blob").length, 1);
-  assert.equal(
-    plan.targets.filter((target) => target.kind === "ledger_file" && target.path.includes("/objects/")).length,
-    1,
-  );
   assert.throws(
     () =>
       freezeDeclaredWritePlan(
         {
           commandType: "DocSyncSubmit",
-          targets: [
-            ...plan.targets.filter((target) => target.kind !== "ledger_file"),
-            { ...content, mediaType: "application/octet-stream" },
-          ],
+          targets: [...plan.targets, { ...content, mediaType: "application/octet-stream" }],
         },
         ["DocSyncSubmit"],
       ),

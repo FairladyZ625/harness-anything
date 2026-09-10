@@ -552,7 +552,7 @@ test("SQLite document admission rejects extra and missing frozen plan targets be
         {
           commandType: plan.commandType,
           targets: [
-            ...plan.targets.filter((target) => target.kind !== "ledger_file"),
+            ...plan.targets,
             {
               kind: "content_blob",
               sha256: "f".repeat(64),
@@ -566,7 +566,7 @@ test("SQLite document admission rejects extra and missing frozen plan targets be
       missing = freezeDeclaredWritePlan(
         {
           commandType: plan.commandType,
-          targets: plan.targets.filter((target) => target.kind !== "content_blob" && target.kind !== "ledger_file"),
+          targets: plan.targets.filter((target) => target.kind !== "content_blob"),
         },
         [plan.commandType],
       );
