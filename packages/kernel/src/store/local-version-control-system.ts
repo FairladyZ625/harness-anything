@@ -33,9 +33,10 @@ import { makeLocalVersionControlCommands } from "./local-version-control-command
 const gitMaxBuffer = 256 * 1024 * 1024,
   gitBatchChunkBytes = 64 * 1024 * 1024,
   gitBatchChunkEntries = 4_096,
-  // Windows CreateProcess limits the quoted command line to 32,767 UTF-16 characters.
-  // Leave room for quoting and Git's fixed arguments; POSIX keeps the measured batch size.
-  gitPathspecChunkBytes = (process.platform === "win32" ? 8 : 128) * 1024;
+  // Windows CreateProcess limits the quoted command line to 32,767 UTF-16 characters, but
+  // cmd.exe /d /s /c limits the command line to 8,191 characters.
+  // Leave room for quoting, repo path, and Git's fixed arguments; 4 KiB safely fits.
+  gitPathspecChunkBytes = (process.platform === "win32" ? 4 : 128) * 1024;
 
 export function makeLocalVersionControlSystem(): VersionControlSystem {
   return makeLocalVersionControlCommands({
