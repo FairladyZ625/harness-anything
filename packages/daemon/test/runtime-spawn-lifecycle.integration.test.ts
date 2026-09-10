@@ -1529,6 +1529,145 @@ test(
   },
 );
 
+test("dispatch reclaims an orphaned task lease instead of requiring a manual release", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-orphan-lease-"));
+  let clock = "2026-09-11T00:00:00.000Z";
+  try {
+    initIngressRepo(root, 4313);
+    const cell = await openRepoCell({
+      repoId: workspaceId("runtime-orphan-lease"),
+      rootDir: canonicalRoot(root),
+      ownerId: "orphan-lease-test",
+      now: () => clock,
+      runtimeDaemonRoute: {
+        userRoot: path.join(root, ".daemon-user"),
+        daemonId: "orphan-lease-test",
+        endpoint: path.join(root, ".daemon-user", "daemon.sock"),
+      },
+      runtimeInstances: () => [
+        {
+          schemaVersion: 2,
+          instanceId: definition.instanceId,
+          name: "Codex Orphan Lease",
+          kindId: definition.kindId,
+          installationId: definition.installationId,
+          providerId: definition.providerId,
+          models: [definition.model],
+          defaultModel: definition.model,
+          enabled: true,
+          permissionMode: "workspace-write",
+          codex: {},
+          authMode: definition.authMode,
+          authState: "configured",
+          authReadiness: { status: "ready", code: null, hint: null },
+          isolationState: "enforced",
+        },
+      ],
+      prepareRuntimeLaunch: async (_instanceId, request) => ({
+        definition,
+        installation,
+        executablePath: installation.executablePath,
+        args: ["exec", "--json", "-"],
+        env: process.env,
+        cwd: request.cwd,
+        prompt: request.prompt,
+      }),
+      runtimeLaunch: () => ({
+        pid: process.pid,
+        onOutput: () => undefined,
+        onErrorOutput: () => undefined,
+        onExit: () => undefined,
+        terminate: () => undefined,
+      }),
+    });
+    try {
+      const taskId = "task-runtime-orphan-lease",
+        executionId = "execution-runtime-orphan-lease",
+        binding = {
+          actor: { principal: { personId: "person-orphan-lease" }, executor: null },
+          source: "local" as const,
+        };
+      const created = await cell.run({ kind: "task-create", taskId, title: "Orphan lease dispatch" }, binding);
+      assert.equal(created.outcome, "applied");
+      await waitForFixturePublication(cell, created.opId, binding);
+      await realizeTaskPlanFixture(
+        root,
+        String((created as Record<string, unknown>).packagePath),
+        (planPath) => cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
+        "Orphan lease dispatch",
+      );
+      assert.equal(
+        (
+          await cell.run(
+            {
+              kind: "task-start",
+              taskId,
+              executionId,
+              executor: { kind: "agent", id: "orphan-lease-worker" },
+              ttlMs: 60_000,
+            },
+            binding,
+          )
+        ).outcome,
+        "applied",
+      );
+      const held = String(
+        ((await cell.run({ kind: "task-show", taskId }, binding)) as Record<string, unknown>).summary,
+      );
+      assert.match(held, /\nlease: [^\n]*phase=held/u, held);
+      // Past the 60s TTL the lease projects as orphaned with no manual `ha task release`.
+      clock = "2026-09-11T00:01:01.000Z";
+      const lapsed = String(
+        ((await cell.run({ kind: "task-show", taskId }, binding)) as Record<string, unknown>).summary,
+      );
+      assert.match(lapsed, /\nlease: [^\n]*phase=orphaned/u, lapsed);
+      // Only the same principal or the task owner may reclaim it; another person is refused.
+      await assert.rejects(
+        cell.spawnRuntime(
+          {
+            runtimeInstanceId: definition.instanceId,
+            cwd: { scope: "repo-root" },
+            prompt: "Reclaim another person's orphaned lease.",
+            taskId,
+            idempotencyKey: "orphan-lease-stranger",
+          },
+          { ...binding, actor: { principal: { personId: "person-orphan-stranger" }, executor: null } },
+        ),
+        /same principal reclaiming an orphaned lease/u,
+      );
+      const receipt = await cell.spawnRuntime(
+        {
+          runtimeInstanceId: definition.instanceId,
+          cwd: { scope: "repo-root" },
+          prompt: "Reclaim the orphaned lease and continue the task.",
+          taskId,
+          idempotencyKey: "orphan-lease-reclaim",
+        },
+        binding,
+      );
+      assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+      const projection = makeTaskProjection({
+        rootDir: root,
+        eventStore: makeTaskEventReader({ repoId: "runtime-orphan-lease", rootDir: root }),
+      });
+      try {
+        const snapshot = projection.read(taskId).snapshot;
+        assert.equal(snapshot.lease?.phase, "held");
+        assert.deepEqual(snapshot.lease?.actor.executor, {
+          kind: "agent",
+          id: `runtime-session:${receipt.runtimeSessionId}`,
+        });
+      } finally {
+        projection.close();
+      }
+    } finally {
+      await cell.close();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("runtime exit notification records a bounded timeout", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-exit-notification-")),
     executablePath = writeProviderExecutable(

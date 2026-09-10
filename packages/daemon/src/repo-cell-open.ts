@@ -791,7 +791,10 @@ export async function openRepoWriterCell(
           execution.iteration === snapshot.task?.iteration &&
           execution.state === "active",
       )?.executionId;
-    if (lease?.phase === "held" && !isSameExecution(lease.actor, runtimeBinding.actor)) {
+    if (
+      (lease?.phase === "held" || lease?.phase === "orphaned") &&
+      !isSameExecution(lease.actor, runtimeBinding.actor)
+    ) {
       const heldRuntimeSessionId =
           lease.actor.executor?.kind === "agent" && lease.actor.executor.id.startsWith("runtime-session:")
             ? lease.actor.executor.id.slice("runtime-session:".length)
@@ -801,7 +804,8 @@ export async function openRepoWriterCell(
           heldRuntimeSessionId !== null &&
           heldRuntimeSessionId === fromRuntimeSessionId &&
           isSamePerson(lease.actor, binding.actor);
-      if (!dispatcherOwnsLease && !trustedRuntimeHandoff)
+      // An orphaned lease is past expiresAt; the release rule decides who may reclaim it.
+      if (lease.phase === "held" && !dispatcherOwnsLease && !trustedRuntimeHandoff)
         throw cellCodedError(
           "lease_conflict",
           `Task ${taskId} is held by another RuntimeSession; wait for it to settle before dispatching again.`,
@@ -813,7 +817,7 @@ export async function openRepoWriterCell(
         },
         releaseBinding = authorizeRuntimeAction(
           releaseAction,
-          { ...binding, actor: lease.actor },
+          lease.phase === "orphaned" ? binding : { ...binding, actor: lease.actor },
           `runtime-task-handoff-release:${taskId}:${runtimeSessionId}:${String(lease.version)}`,
         ),
         released = await operationalContext.taskSurfaceWrite(releaseAction, releaseBinding);

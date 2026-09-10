@@ -34,7 +34,7 @@ import {
 } from "../../src/domain/migration-import-event.ts";
 import { OPAQUE_TEXTUAL_POLICY_ID } from "../../src/domain/artifact-text-classification.ts";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
-import { lifecycleFixture } from "./task-lifecycle-fixture.ts";
+import { lifecycleFixture, twoRoundLifecycleEvents } from "./task-lifecycle-fixture.ts";
 import { withTempStoreAsync } from "./helpers.ts";
 
 test("task/doc reducers share one SQLite transaction and L2 rebuild restores exact document bytes", async () => {
@@ -769,6 +769,35 @@ test("steady apply and rebuild use the same reducer and reproduce watermark, op 
     assert.equal(projection.read("task-1").snapshot.task?.title, "Fixture");
     projection.rebuild();
     assert.equal(projection.read("task-1").snapshot.executions[0]?.state, "accepted");
+  });
+});
+
+test("executions project in iteration order regardless of internal entity id ordering", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const eventStore = makeTaskEventStore({ repoId: "test-repo", rootDir }),
+      projection = makeTaskProjection({ rootDir, eventStore }),
+      { events } = twoRoundLifecycleEvents({
+        taskId: "task-execution-order",
+        // Alphabetically reversed against arrival order: a naive `ORDER BY entity_id`
+        // would list the second round before the first.
+        firstExecutionId: "execution-zz-round-one",
+        secondExecutionId: "execution-aa-round-two",
+      });
+    for (const event of events) {
+      eventStore.append(taskBundle(event));
+      projection.apply(event);
+    }
+    assert.deepEqual(
+      projection.read("task-execution-order").snapshot.executions.map((execution) => ({
+        executionId: execution.executionId,
+        iteration: execution.iteration,
+      })),
+      [
+        { executionId: "execution-zz-round-one", iteration: 0 },
+        { executionId: "execution-aa-round-two", iteration: 1 },
+      ],
+    );
   });
 });
 

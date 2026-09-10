@@ -121,7 +121,10 @@ export function readSnapshot(db: DatabaseSync, taskId: string, now?: string): Ta
     throw new Error(`projection snapshot mismatch for task ${taskId}`);
   const executions = queryRows(
       db,
-      "SELECT value_json FROM entity_projection WHERE entity_kind = 'execution' AND task_id = ? ORDER BY entity_id",
+      [
+        "SELECT value_json FROM entity_projection WHERE entity_kind = 'execution' AND task_id = ?",
+        "ORDER BY json_extract(value_json, '$.iteration'), json_extract(value_json, '$.claimedAt'), entity_id",
+      ].join(" "),
       taskId,
     ).map((value) => JSON.parse(String(value.value_json)) as TaskLifecycleSnapshot["executions"][number]),
     reviews = queryRows(
