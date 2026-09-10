@@ -18,15 +18,15 @@
     "baseline": {
       "task-create": {
         "sqlRowsRead": 79,
-        "sha256Calls": 74,
-        "sha256Bytes": 153967,
+        "sha256Calls": 67,
+        "sha256Bytes": 138799,
         "gitProcesses": 6,
         "fileReadBytes": 173463
       },
       "doc-submit": {
         "sqlRowsRead": 194,
-        "sha256Calls": 102,
-        "sha256Bytes": 65234,
+        "sha256Calls": 101,
+        "sha256Bytes": 63915,
         "gitProcesses": 6,
         "fileReadBytes": 10056
       },
@@ -111,15 +111,15 @@
     "budgets": {
       "task-create": {
         "sqlRowsRead": 79,
-        "sha256Calls": 74,
-        "sha256Bytes": 153967,
+        "sha256Calls": 67,
+        "sha256Bytes": 138799,
         "gitProcesses": 6,
         "fileReadBytes": 173463
       },
       "doc-submit": {
         "sqlRowsRead": 194,
-        "sha256Calls": 102,
-        "sha256Bytes": 65234,
+        "sha256Calls": 101,
+        "sha256Bytes": 63915,
         "gitProcesses": 6,
         "fileReadBytes": 10056
       },
