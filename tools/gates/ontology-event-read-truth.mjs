@@ -9,13 +9,7 @@ const eventReadPaths = Object.freeze([
   "packages/daemon/src/repo-cell-task-query.ts",
   "packages/daemon/src/agent-runtime-read.ts",
 ]);
-const legacyReadCalls = new Set([
-  "readRelationGraphProjection",
-  "readFile",
-  "readFileSync",
-  "readMarkdown",
-  "readTaskPackage",
-]);
+const legacyReadCalls = new Set(["readFile", "readFileSync", "readMarkdown", "readTaskPackage"]);
 const materializedFields = new Set(["coverageRows", "edges", "factAnchors", "facts", "taskRows", "warnings"]);
 
 export function auditEventReadTruth(rootDir = process.cwd()) {

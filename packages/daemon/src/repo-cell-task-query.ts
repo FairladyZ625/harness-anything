@@ -27,7 +27,6 @@ export interface TaskQueryCell {
   readonly taskListQueryFromAction: (action: RepoTaskAction) => TaskProjectionListQuery;
   readonly relationQueryFromAction: (action: RepoTaskAction) => TaskRelationQuery;
   readonly queryRead: () => TaskQueryReadModel;
-  readonly directChildCounts: () => Map<string, number>;
   readonly operationId: (
     action: RepoTaskAction,
     binding: RepoCellBinding,
@@ -224,9 +223,8 @@ export function assertTaskWipCapacity(cell: TaskQueryCell, taskId: string, nextS
 
 // Only WIP-occupying task rows (plus the activating task itself, which may still be
 // planned) are read: one SQL-status-filtered list() call per occupying status, so the row
-// count stays bounded by the worktable rather than the whole task ledger. Each row's
-// directChildCount comes from a parentTaskId-filtered index read, which is bounded by that
-// task's actual child count instead of a full-table scan.
+// count stays bounded by the worktable rather than the whole task ledger. Direct child
+// counts for those rows come from one grouped count query.
 export function wipSnapshotEntries(cell: TaskQueryCell, activatingTaskId: string): readonly TaskWipSnapshotEntryV1[] {
   const occupying = taskWipOccupyingStatuses.flatMap((status) => cell.projection.list({ status }).rows),
     activating = occupying.some((row) => row.taskId === activatingTaskId)
@@ -234,7 +232,8 @@ export function wipSnapshotEntries(cell: TaskQueryCell, activatingTaskId: string
       : cell.projection.read(activatingTaskId),
     rows = activating?.snapshot.task
       ? [...occupying, { taskId: activatingTaskId, snapshot: activating.snapshot }]
-      : occupying;
+      : occupying,
+    childCounts = cell.projection.readTaskChildCounts(rows.map((row) => row.taskId));
   return rows.map((row) => ({
     taskId: row.taskId,
     title: row.snapshot.task?.title ?? "",
@@ -242,21 +241,8 @@ export function wipSnapshotEntries(cell: TaskQueryCell, activatingTaskId: string
     taskClass: row.snapshot.task?.taskClass ?? "standard",
     packageDisposition: requiredPackageDisposition(row.taskId, row.snapshot.task?.packageDisposition),
     hasCloseoutEvidence: hasCloseoutEvidence(row.snapshot.executions),
-    directChildCount: cell.projection.readTaskIndex({ parentTaskId: row.taskId }).rows.length,
+    directChildCount: childCounts[row.taskId] ?? 0,
   }));
-}
-
-export function directChildCounts(cell: TaskQueryCell): Map<string, number> {
-  return directChildCountsFrom(cell.projection.list().rows);
-}
-
-function directChildCountsFrom(rows: ReturnType<TaskProjection["list"]>["rows"]): Map<string, number> {
-  const counts = new Map<string, number>();
-  for (const row of rows) {
-    const parentTaskId = row.snapshot.task?.metadata?.parentTaskId;
-    if (parentTaskId) counts.set(parentTaskId, (counts.get(parentTaskId) ?? 0) + 1);
-  }
-  return counts;
 }
 
 export function listRelations(cell: TaskQueryCell, action: RepoTaskAction, binding: RepoCellBinding): WriteReceipt {
