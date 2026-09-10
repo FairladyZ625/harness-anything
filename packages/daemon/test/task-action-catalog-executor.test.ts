@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { getExecutableEntityAction } from "../../kernel/src/index.ts";
 import { makeEntityActionCatalogExecutor, deriveActionResult } from "../src/entity-action-catalog-executor.ts";
+import { rejectExecutionSelection } from "../src/repo-cell-execution-selection.ts";
 import { cellCriterionError } from "../src/repo-cell-errors.ts";
 import { failed } from "../src/repo-cell-settlement.ts";
 
@@ -128,4 +129,49 @@ test("criterion-bearing failures resolve descriptors by action plus ref even whe
     );
     assert.deepEqual(receipt.unmetCriteria, [descriptor]);
   }
+});
+
+test("a plain coded-error rejection forwards the guard's own message instead of the generic sentence", () => {
+  const contract = getExecutableEntityAction("task-complete");
+  assert.ok(contract);
+  const receipt = deriveActionResult(
+    contract,
+    { kind: "task-complete", taskId: "task_contract" },
+    failed(
+      "op-preset-mismatch",
+      Object.assign(new Error("Run ha preset upgrade task_contract before completion."), {
+        code: "preset_snapshot_mismatch",
+      }),
+    ),
+  );
+  assert.equal(receipt.code, "preset_snapshot_mismatch");
+  assert.equal(receipt.rejectionExplanation, "Run ha preset upgrade task_contract before completion.");
+});
+
+test("symptom task_4ba380067767eb1d0744ba7844: ambiguous execution selection names its candidates instead of a bare invalid_command", () => {
+  const contract = getExecutableEntityAction("task-review-execution");
+  assert.ok(contract);
+  let thrown: unknown;
+  try {
+    rejectExecutionSelection(
+      [{ executionId: "exec-changes-requested" }, { executionId: "exec-submitted" }],
+      "Current submitted execution",
+      "Run ha task show task_contract; if the task is active, run ha task submit task_contract " +
+        "--json-input '<submission-json>'.",
+      (candidate) =>
+        `ha task review-execution task_contract --execution-id ${candidate} ` +
+        "--review-id <review-id> --from-file <review.json>",
+    );
+  } catch (error) {
+    thrown = error;
+  }
+  assert.ok(thrown, "rejectExecutionSelection must throw for multiple candidates");
+  const receipt = deriveActionResult(
+    contract,
+    { kind: "task-review-execution", taskId: "task_contract" },
+    failed("op-ambiguous-review", thrown),
+  );
+  assert.equal(receipt.code, "invalid_command");
+  assert.match(String(receipt.rejectionExplanation), /candidates: exec-changes-requested, exec-submitted/u);
+  assert.match(String(receipt.rejectionExplanation), /Choose one explicitly/u);
 });

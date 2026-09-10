@@ -980,6 +980,10 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
       if (
         action.kind === "projection-rebuild" ||
         action.kind === "doc-materialize" ||
+        // ci-observe-pull mints a synthetic opId over a batch of separately-opId'd imports; that
+        // opId is never itself an accepted command outcome, so acceptance lookup would mislabel
+        // its own already-correct applied/pending outcome as acceptance_unknown.
+        action.kind === "ci-observe-pull" ||
         (!(durablePolicyActions as readonly string[]).includes(action.kind) && action.kind !== "receipt-show")
       )
         return receipt;

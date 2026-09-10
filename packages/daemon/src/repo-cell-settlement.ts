@@ -6,7 +6,13 @@ import {
   type TaskProgressEvidence,
   type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
-import { actionCriterionFailure, cellCodedError, cellCriterionError, cellErrorCode } from "./repo-cell-errors.ts";
+import {
+  actionCriterionFailure,
+  cellCodedError,
+  cellCriterionError,
+  cellErrorCode,
+  cellErrorMessage,
+} from "./repo-cell-errors.ts";
 import { gateChecks, selectedReviewId } from "./repo-cell-proof.ts";
 import type { Snapshot } from "./repo-cell-types.ts";
 import { diagnosticForError } from "./receipt-guidance.ts";
@@ -125,8 +131,13 @@ export function failed(
       : rejected(opId, code);
   const diagnostic = diagnosticForError(error),
     diagnosed = diagnostic ? { ...receipt, diagnostic } : receipt,
+    // A rejected guard's thrown message is its own explanation; forward it so the receipt is
+    // self-describing instead of falling back to a code-only sentence downstream. Indeterminate
+    // outcomes keep their retry guidance untouched — they were never a guard rejection.
+    message = receipt.outcome === "op_rejected" ? cellErrorMessage(error) : "",
+    explained = message ? { ...diagnosed, rejectionExplanation: message } : diagnosed,
     criterionFailure = actionCriterionFailure(error);
-  if (criterionFailure === null) return diagnosed;
+  if (criterionFailure === null) return explained;
   if (!contract || !action)
     throw cellCodedError(
       "invalid_store",
@@ -145,7 +156,7 @@ export function failed(
       `Action ${contract.target.kind}.${contract.id} does not declare criterion ${criterionFailure.criterionRef}.`,
     );
   return {
-    ...diagnosed,
+    ...explained,
     evidence: `criterion:${criterion.ref}`,
     unmetCriteria: [criterion],
     rejectionExplanation: criterion.explain,
