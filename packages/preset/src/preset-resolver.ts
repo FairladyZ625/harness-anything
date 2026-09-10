@@ -1,5 +1,4 @@
 export { createCanonicalPresetResolver } from "./preset-resolver-api.ts";
-export { readInstalledPresetManifest } from "./preset-resolver-api.ts";
 export { compileRepositoryScaffold } from "./preset-repository-scaffold.ts";
 export { assertRepositoryScaffoldPlanCurrent } from "./preset-repository-scaffold.ts";
 export { validatePresetPackage } from "./preset-validation.ts";

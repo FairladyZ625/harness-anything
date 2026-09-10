@@ -7,15 +7,31 @@ import { compileVerticalContract, TemplateCatalogSchema } from "../../kernel/src
 import type { CompiledVerticalContract, TemplateCatalog } from "../../kernel/src/index.ts";
 import { requiredRegularFile, safeTemplatePath } from "./preset-materialization.ts";
 import { parsePresetJson } from "./preset-package.ts";
-import { isPresetResolutionRecord, presetFailure, resolverContentHash } from "./preset-resolver-common.ts";
+import {
+  defaultAssets,
+  isPresetResolutionRecord,
+  presetFailure,
+  resolverContentHash,
+} from "./preset-resolver-common.ts";
 import type { CanonicalAssets, CatalogSource, DecodedPresetPackageV3, Provider } from "./preset-resolver-types.ts";
 import { Schema } from "effect";
 import { existsSync, lstatSync } from "node:fs";
 import path from "node:path";
 
+const canonicalAssetsCache = new Map<string, CanonicalAssets>();
+
 export function loadCanonicalAssets(source: string): CanonicalAssets {
   const resolvedSource = path.resolve(source),
-    sourceIsFile = existsSync(resolvedSource) && lstatSync(resolvedSource).isFile(),
+    cached = canonicalAssetsCache.get(resolvedSource);
+  if (cached) return cached;
+  const assets = loadCanonicalAssetsUncached(resolvedSource);
+  if (resolvedSource !== path.resolve(defaultAssets)) return assets;
+  canonicalAssetsCache.set(resolvedSource, assets);
+  return assets;
+}
+
+function loadCanonicalAssetsUncached(resolvedSource: string): CanonicalAssets {
+  const sourceIsFile = existsSync(resolvedSource) && lstatSync(resolvedSource).isFile(),
     root = sourceIsFile ? path.dirname(resolvedSource) : resolvedSource,
     verticalPath = sourceIsFile ? resolvedSource : path.join(root, "vertical.json"),
     verticalBody = requiredRegularFile(verticalPath, "missing_vertical"),
