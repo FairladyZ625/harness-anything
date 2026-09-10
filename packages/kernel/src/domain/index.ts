@@ -334,6 +334,12 @@ export {
   compileEntityTargetMissing,
   compileEntityDeleted,
   compileEntityUpsert,
+  type EntityContentObservedBundle,
+  type EntityDeletedBundle,
+  type EntityTargetMissingBundle,
+  type EntityUpsertBundle,
+} from "./entity-event-compile.ts";
+export {
   contractForDeclarationEvent,
   entityDeletedWritePlan,
   entityUpsertWritePlan,
@@ -350,14 +356,7 @@ export {
   type EntityContentRetirement,
   type EntityOwnedContentV1,
 } from "./entity-owned-content.ts";
-export type {
-  EntityContentBlob,
-  EntityContentObservedBundle,
-  EntityDeletedBundle,
-  EntityEventV1,
-  EntityTargetMissingBundle,
-  EntityUpsertBundle,
-} from "./entity-event.ts";
+export type { EntityContentBlob, EntityEventV1 } from "./entity-event.ts";
 export {
   artifactEntityContractSnapshot,
   artifactImportOperationId,

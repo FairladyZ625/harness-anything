@@ -14,7 +14,7 @@ import {
 } from "../../src/store/task-event-store.ts";
 import { localGitObjectRefStore } from "../../src/store/local-version-control-system.ts";
 import { taskLifecycleWritePlan } from "../../src/domain/task-lifecycle-publication.ts";
-import { compileEntityUpsert } from "../../src/domain/entity-event.ts";
+import { compileEntityUpsert } from "../../src/domain/entity-event-compile.ts";
 import type { TaskEventV1 } from "../../src/domain/task-lifecycle.contract.ts";
 import {
   DOC_CODEC_ID,
