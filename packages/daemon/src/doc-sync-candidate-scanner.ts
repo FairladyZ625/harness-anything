@@ -151,11 +151,16 @@ export function scanDocCandidates(input: {
       conflicts = inventoried?.conflicts ?? candidateConflicts(input.rootDir, layout.authoredRoot, logical),
       safe = inventoried?.safe ?? directFile(layout.authoredRoot, logical),
       classification = classifyDocSyncCandidatePath(logical),
+      taskArtifactCandidate =
+        claimingTaskId !== null &&
+        classification === null &&
+        /^tasks\/[^/]+\/artifacts\//u.test(document) &&
+        baseDocumentIsNew(projected),
       existingMediaType = classifyTextualArtifactPath(logical)?.mediaType ?? null,
       fileSize = inventoried ? inventoried.size : safe && existsSync(target) ? lstatSync(target).size : null,
       rawBytes = inventoried
         ? inventoried.bytes
-        : (classification !== null || !route.allowed || projected.document !== null) &&
+        : (classification !== null || taskArtifactCandidate || !route.allowed || projected.document !== null) &&
             fileSize !== null &&
             fileSize <= DOC_SYNC_INLINE_MAX_BYTES &&
             safe &&
@@ -201,6 +206,16 @@ export function scanDocCandidates(input: {
         classification?.mediaType ?? null,
         "task_package_unregistered",
         "ha task artifact add",
+      );
+    if (taskArtifactCandidate && candidate !== null)
+      return scannedCandidateRow(
+        "inapplicable",
+        `task artifact is outside doc sync; publish it with ha task artifact add ${claimingTaskId} ` +
+          `--source harness/${logical} --destination ${logical.slice(`tasks/${taskDirectory}/`.length)}`,
+        bytes,
+        base,
+        candidate,
+        classification?.mediaType ?? null,
       );
     if (classification === null && candidate !== null && candidate === base)
       return scannedCandidateRow("clean", null, bytes, base, candidate, existingMediaType);
@@ -359,6 +374,10 @@ export function scanDocCandidates(input: {
   }
 }
 
+function baseDocumentIsNew(projected: ReturnType<TaskProjection["readDocument"]>): boolean {
+  return projected.document === null;
+}
+
 export function scanAuthoredCandidateInventory(input: {
   readonly rootDir: string;
   readonly store: CanonicalEventStore;
@@ -378,7 +397,9 @@ export function scanAuthoredCandidateInventory(input: {
         target = path.join(layout.authoredRoot, ...logical.split("/")),
         size = safe && existsSync(target) ? lstatSync(target).size : null,
         rawBytes =
-          (classification !== null || !route.allowed) && size !== null && size <= DOC_SYNC_INLINE_MAX_BYTES
+          (classification !== null || !route.allowed || /^tasks\/[^/]+\/artifacts\//u.test(logical)) &&
+          size !== null &&
+          size <= DOC_SYNC_INLINE_MAX_BYTES
             ? readCandidate(target)
             : null,
         bytes = rawBytes === null ? null : canonicalProseBytes(rawBytes, classification?.policyId);

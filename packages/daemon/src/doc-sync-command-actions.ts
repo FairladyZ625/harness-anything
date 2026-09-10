@@ -339,8 +339,8 @@ export function runArtifactAdd(input: Input): ArtifactAddReceipt {
     destinationValue = requiredDocSyncText(input.action.destination, "destination");
   if (!hasExactDocSyncActionFields(input.action, ["kind", "taskId", "source", "destination"]))
     throw docSyncError("invalid_command", "task artifact add requires taskId, source, and destination");
-  const target = taskArtifactTarget(input, taskId, destinationValue),
-    source = artifactSource(input, sourceValue);
+  const source = artifactSource(input, sourceValue),
+    target = taskArtifactTarget(input, taskId, destinationValue, source.absolute);
   // Size is settled from the file, not from a buffer: a source past the blob contract is refused
   // without first reading 50 MB of it into the daemon.
   if (lstatSync(source.absolute).size > RAW_ARTIFACT_MAX_BYTES)
@@ -370,7 +370,7 @@ export function publishTaskArtifact(
   return publishTaskArtifactBytes(publicationInput, target, artifact.bytes);
 }
 
-function taskArtifactTarget(input: Input, taskId: string, destinationValue: string) {
+function taskArtifactTarget(input: Input, taskId: string, destinationValue: string, sourceAbsolute?: string) {
   const task = input.projection.read(taskId);
   if (task.watermark !== task.sourceRevision || !task.packagePath || !task.snapshot.task)
     throw docSyncError("content_not_ready", `Task ${taskId} is not ready for artifact add`);
@@ -390,7 +390,7 @@ function taskArtifactTarget(input: Input, taskId: string, destinationValue: stri
     rawClassification = classifyRawArtifactPath(destination);
   if (
     !destination.startsWith(`${task.packagePath}/artifacts/`) ||
-    classification === null ||
+    (classification === null && rawClassification === null) ||
     !directPaths(input.rootDir, [destination])
   )
     throw docSyncError(
@@ -402,7 +402,8 @@ function taskArtifactTarget(input: Input, taskId: string, destinationValue: stri
     authoredTarget = path.join(layout.authoredRoot, ...destination.split("/")),
     gitTarget = ledgerGitPath(ledger, destination),
     projected = input.projection.readDocument(destination),
-    tracked = gitTracked(ledger.rootDir, gitTarget);
+    tracked = gitTracked(ledger.rootDir, gitTarget),
+    sameUntrackedSource = sourceAbsolute === authoredTarget && !tracked && projected.document === null;
   return {
     taskId,
     destination,
@@ -413,6 +414,7 @@ function taskArtifactTarget(input: Input, taskId: string, destinationValue: stri
     ledgerRootDir: ledger.rootDir,
     projected,
     tracked,
+    sameUntrackedSource,
   };
 }
 
@@ -431,6 +433,7 @@ function publishTaskArtifactBytes(
     ledgerRootDir,
     projected,
     tracked,
+    sameUntrackedSource,
   } = target;
   const projectedEdit =
     projected.document !== null &&
@@ -441,7 +444,7 @@ function publishTaskArtifactBytes(
       "artifact_tracked_edit",
       `destination is a tracked edit; use ha doc sync --submit --path ${destination}`,
     );
-  if (tracked || existsSync(authoredTarget) || projected.document !== null) {
+  if (tracked || (existsSync(authoredTarget) && !sameUntrackedSource) || projected.document !== null) {
     const sha = sha256Bytes(bytes),
       replay =
         existsSync(authoredTarget) &&

@@ -115,7 +115,7 @@ export const taskExecutionProtocolCommands = Object.freeze([
     id: "task-artifact-add",
     phase: "W3",
     path: ["task", "artifact", "add", "<task-id>"],
-    summary: "Publish an untracked UTF-8 artifact through canonical doc sync.",
+    summary: "Publish an untracked task artifact through canonical doc sync.",
     method: "repo.task.run",
     inputs: [
       cliInput("--source", "single", true, {
