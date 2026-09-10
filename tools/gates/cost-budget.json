@@ -17,56 +17,56 @@
     },
     "baseline": {
       "task-create": {
-        "sqlRowsRead": 432,
+        "sqlRowsRead": 434,
         "sha256Calls": 120,
         "sha256Bytes": 266257,
         "gitProcesses": 6,
         "fileReadBytes": 256691
       },
       "doc-submit": {
-        "sqlRowsRead": 191,
-        "sha256Calls": 165,
-        "sha256Bytes": 182035,
+        "sqlRowsRead": 193,
+        "sha256Calls": 135,
+        "sha256Bytes": 175686,
         "gitProcesses": 6,
         "fileReadBytes": 11287
       },
       "task-start": {
-        "sqlRowsRead": 775,
+        "sqlRowsRead": 777,
         "sha256Calls": 86,
         "sha256Bytes": 189039,
         "gitProcesses": 6,
         "fileReadBytes": 5711
       },
       "task-progress-append": {
-        "sqlRowsRead": 217,
-        "sha256Calls": 44,
-        "sha256Bytes": 38285,
+        "sqlRowsRead": 219,
+        "sha256Calls": 43,
+        "sha256Bytes": 38203,
         "gitProcesses": 6,
         "fileReadBytes": 659
       },
       "fact-record": {
-        "sqlRowsRead": 243,
-        "sha256Calls": 48,
-        "sha256Bytes": 21740,
+        "sqlRowsRead": 245,
+        "sha256Calls": 47,
+        "sha256Bytes": 21483,
         "gitProcesses": 6,
         "fileReadBytes": 1009
       },
       "decision-propose": {
-        "sqlRowsRead": 639,
-        "sha256Calls": 50,
-        "sha256Bytes": 41492,
+        "sqlRowsRead": 641,
+        "sha256Calls": 49,
+        "sha256Bytes": 40365,
         "gitProcesses": 6,
         "fileReadBytes": 2831
       },
       "decision-reject": {
-        "sqlRowsRead": 466,
-        "sha256Calls": 69,
-        "sha256Bytes": 70797,
+        "sqlRowsRead": 468,
+        "sha256Calls": 68,
+        "sha256Bytes": 68683,
         "gitProcesses": 6,
         "fileReadBytes": 9313
       },
       "relation-relate": {
-        "sqlRowsRead": 960,
+        "sqlRowsRead": 300,
         "sha256Calls": 59,
         "sha256Bytes": 26938,
         "gitProcesses": 6,
@@ -81,85 +81,85 @@
       },
       "task-list": {
         "sqlRowsRead": 609,
-        "sha256Calls": 1,
-        "sha256Bytes": 756,
+        "sha256Calls": 0,
+        "sha256Bytes": 0,
         "gitProcesses": 0,
         "fileReadBytes": 0
       },
       "task-show": {
         "sqlRowsRead": 441,
-        "sha256Calls": 1,
-        "sha256Bytes": 756,
+        "sha256Calls": 0,
+        "sha256Bytes": 0,
         "gitProcesses": 0,
         "fileReadBytes": 164
       },
       "agenda": {
         "sqlRowsRead": 421,
-        "sha256Calls": 1,
-        "sha256Bytes": 756,
+        "sha256Calls": 0,
+        "sha256Bytes": 0,
         "gitProcesses": 0,
         "fileReadBytes": 431
       },
       "runtime-overview": {
         "sqlRowsRead": 175,
-        "sha256Calls": 1,
-        "sha256Bytes": 756,
+        "sha256Calls": 0,
+        "sha256Bytes": 0,
         "gitProcesses": 0,
         "fileReadBytes": 0
       }
     },
     "budgets": {
       "task-create": {
-        "sqlRowsRead": 432,
+        "sqlRowsRead": 434,
         "sha256Calls": 120,
         "sha256Bytes": 266257,
         "gitProcesses": 6,
         "fileReadBytes": 256691
       },
       "doc-submit": {
-        "sqlRowsRead": 191,
-        "sha256Calls": 165,
-        "sha256Bytes": 182035,
+        "sqlRowsRead": 193,
+        "sha256Calls": 135,
+        "sha256Bytes": 175686,
         "gitProcesses": 6,
         "fileReadBytes": 11287
       },
       "task-start": {
-        "sqlRowsRead": 775,
+        "sqlRowsRead": 777,
         "sha256Calls": 86,
         "sha256Bytes": 189039,
         "gitProcesses": 6,
         "fileReadBytes": 5711
       },
       "task-progress-append": {
-        "sqlRowsRead": 217,
-        "sha256Calls": 44,
-        "sha256Bytes": 38285,
+        "sqlRowsRead": 219,
+        "sha256Calls": 43,
+        "sha256Bytes": 38203,
         "gitProcesses": 6,
         "fileReadBytes": 659
       },
       "fact-record": {
-        "sqlRowsRead": 243,
-        "sha256Calls": 48,
-        "sha256Bytes": 21740,
+        "sqlRowsRead": 245,
+        "sha256Calls": 47,
+        "sha256Bytes": 21483,
         "gitProcesses": 6,
         "fileReadBytes": 1009
       },
       "decision-propose": {
-        "sqlRowsRead": 639,
-        "sha256Calls": 50,
-        "sha256Bytes": 41492,
+        "sqlRowsRead": 641,
+        "sha256Calls": 49,
+        "sha256Bytes": 40365,
         "gitProcesses": 6,
         "fileReadBytes": 2831
       },
       "decision-reject": {
-        "sqlRowsRead": 466,
-        "sha256Calls": 69,
-        "sha256Bytes": 70797,
+        "sqlRowsRead": 468,
+        "sha256Calls": 68,
+        "sha256Bytes": 68683,
         "gitProcesses": 6,
         "fileReadBytes": 9313
       },
       "relation-relate": {
-        "sqlRowsRead": 960,
+        "sqlRowsRead": 300,
         "sha256Calls": 59,
         "sha256Bytes": 26938,
         "gitProcesses": 6,
@@ -174,41 +174,34 @@
       },
       "task-list": {
         "sqlRowsRead": 609,
-        "sha256Calls": 1,
-        "sha256Bytes": 756,
+        "sha256Calls": 0,
+        "sha256Bytes": 0,
         "gitProcesses": 0,
         "fileReadBytes": 0
       },
       "task-show": {
         "sqlRowsRead": 441,
-        "sha256Calls": 1,
-        "sha256Bytes": 756,
+        "sha256Calls": 0,
+        "sha256Bytes": 0,
         "gitProcesses": 0,
         "fileReadBytes": 164
       },
       "agenda": {
         "sqlRowsRead": 421,
-        "sha256Calls": 1,
-        "sha256Bytes": 756,
+        "sha256Calls": 0,
+        "sha256Bytes": 0,
         "gitProcesses": 0,
         "fileReadBytes": 431
       },
       "runtime-overview": {
         "sqlRowsRead": 175,
-        "sha256Calls": 1,
-        "sha256Bytes": 756,
+        "sha256Calls": 0,
+        "sha256Bytes": 0,
         "gitProcesses": 0,
         "fileReadBytes": 0
       }
     },
     "knownScaling": [
-      {
-        "operation": "relation-relate",
-        "metric": "sqlRowsRead",
-        "reason": "relation-relate calls readRelationTruth(), which loads every relation edge before the acyclic-dependency check; already known per dec_EF5F3820E81FB8A5266F1F3342 CH1 background.",
-        "deletionTaskId": "PENDING-CEO-ASSIGNMENT",
-        "expiresAt": "2026-09-24T00:00:00.000Z"
-      },
       {
         "operation": "decision-propose",
         "metric": "sqlRowsRead",
