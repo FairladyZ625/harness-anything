@@ -21,7 +21,7 @@ import { lifecycleHarness } from "../../../packages/application/test/task-lifecy
 import { assertWriteTargetDeclared } from "../../../packages/application/src/task-lifecycle-service.ts";
 import { removeTemporaryDirectory } from "../../temporary-directory-cleanup.mjs";
 
-test("G29 tracks the lease_sqlite lifecycle across start and submit while leaving unrelated files untouched", async () => {
+test("G29 compares the complete published byte delta with the frozen plan declaration", async () => {
   const harness = lifecycleHarness();
   try {
     await harness.create();
@@ -41,9 +41,11 @@ test("G29 tracks the lease_sqlite lifecycle across start and submit while leavin
     writeFileSync(sentinel, Buffer.from([0, 1, 2, 255]));
     await harness.eventStore.settlePendingMaterialization();
 
+    const before = snapshotTree(harness.rootDir);
     const receipt = await harness.submit("execution-1");
     await harness.eventStore.settlePendingMaterialization();
     assert.equal(receipt.outcome, "applied");
+    assertChangedPathsDeclared(before, snapshotTree(harness.rootDir), receipt.frozenPlan);
     assert.deepEqual(
       receipt.frozenPlan.targets.filter((target) => target.kind === "lease_sqlite"),
       [{ kind: "lease_sqlite", table: "lease_cas", taskId: "task-1", operation: "release" }],
@@ -234,14 +236,28 @@ function SQLITE_DATABASE_FOOTPRINT(mainFile) {
   return [mainFile, `${mainFile}-wal`, `${mainFile}-shm`];
 }
 
+/** Every accepted command appends to the canonical store; its physical files are not plan targets. */
+const STORE_FOOTPRINT = [
+  ...SQLITE_DATABASE_FOOTPRINT(".harness/store/generations/2/ledger.sqlite"),
+  "harness/events/segments/manifest.json",
+];
+
 function declaredMatchers(plan) {
-  return plan.targets.flatMap((target) => {
-    if (target.kind === "event_file" || target.kind === "event_head") return [exact(target.path)];
-    if (target.kind === "authored_file") return [exact(`harness/${target.path}`)];
-    if (target.kind === "projection_invalidation" || target.kind === "lease_sqlite")
-      return SQLITE_DATABASE_FOOTPRINT(".harness/cache/task.sqlite").map(exact);
-    return target.kind === "content_blob" ? [exact(`harness/${contentObjectRelativePath(target.sha256)}`)] : [];
-  });
+  return [
+    ...STORE_FOOTPRINT.map(exact),
+    ...plan.targets.flatMap((target) => {
+      if (target.kind === "event_file" || target.kind === "event_head") return [exact(target.path)];
+      if (target.kind === "authored_file") return [exact(`harness/${target.path}`)];
+      if (target.kind === "projection_invalidation" || target.kind === "lease_sqlite")
+        return SQLITE_DATABASE_FOOTPRINT(".harness/cache/task.sqlite").map(exact);
+      if (target.kind !== "content_blob") return [];
+      const { sha256 } = target;
+      return [
+        exact(`harness/${contentObjectRelativePath(sha256)}`),
+        exact(`.harness/store/generations/2/objects/sha256/${sha256.slice(0, 2)}/${sha256.slice(2)}`),
+      ];
+    }),
+  ];
 }
 
 function exact(expected) {
