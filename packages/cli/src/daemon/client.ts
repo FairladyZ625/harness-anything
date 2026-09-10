@@ -280,7 +280,7 @@ export async function runCommandThroughDaemon(
           : {}),
       };
     }
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await new Promise((resolve) => setTimeout(resolve, 250));
     try {
       result = await requestLocalDaemonJsonRpcForTarget(
         target,

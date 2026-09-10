@@ -125,7 +125,11 @@ export function decodeCandidate(
   pointerDigest?: unknown,
 ): Candidate {
   try {
-    const decoded = decodePackage(root, layer === "user");
+    const decoded = decodePackage(
+      root,
+      layer === "user",
+      typeof pointerDigest === "string" ? pointerDigest : undefined,
+    );
     if (decoded.manifest.id !== directoryId)
       throw presetFailure(
         "path_id_mismatch",
@@ -133,8 +137,6 @@ export function decodeCandidate(
       );
     if (pointerVertical !== undefined && decoded.manifest.vertical !== pointerVertical)
       throw presetFailure("invalid_pointer", `Pointer vertical does not match package ${directoryId}.`);
-    if (pointerDigest !== undefined && decoded.packageDigest !== pointerDigest)
-      throw presetFailure("digest_mismatch", `Pointer digest does not match package ${directoryId}.`);
     return {
       id: decoded.manifest.id,
       verticalId: decoded.manifest.vertical,
