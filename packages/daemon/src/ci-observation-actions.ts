@@ -94,7 +94,8 @@ export async function pullAndIngestCiObservations(
         if (namedRuns)
           throw cell.cellCodedError(
             "invalid_command",
-            `CI run ${run.databaseId} is ${runLifecycleState} on ${summary.headBranch}; only completed main runs can be imported.`,
+            `CI run ${run.databaseId} is ${runLifecycleState} on ${summary.headBranch}; ` +
+              "only completed main runs can be imported.",
           );
         continue;
       }
