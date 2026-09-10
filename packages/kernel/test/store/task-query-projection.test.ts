@@ -593,3 +593,93 @@ test("fact search pages concatenate to the full result, honor windows, and keep 
     db.close();
   }
 });
+
+test("fact search liveness reads stay bounded by supersedes edges", () => {
+  const db = new DatabaseSync(":memory:");
+  try {
+    createRelationGraphProjectionTables(db);
+    createFactProjectionTables(db);
+    const insertFact = db.prepare(
+        "INSERT INTO fact(task_id, fact_id, ref, statement, evidence_source, observed_at, confidence, memory_class, op_id, workspace_revision, row_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      ),
+      insertFts = db.prepare("INSERT INTO fact_fts(fact_id, statement, evidence_source) VALUES (?, ?, ?)");
+    db.exec("BEGIN");
+    for (let index = 0; index < 2000; index += 1) {
+      const factId = `F-${String(index).padStart(8, "0")}`,
+        ref = `fact/${factId}`,
+        row = {
+          schema: "fact-row/v1",
+          ref,
+          taskId: "task-scale",
+          factId,
+          statement: `scale observation ${index}`,
+          evidenceSource: "scale",
+          observedAt: "2026-08-18T00:00:00.000Z",
+          confidence: "high",
+          memoryClass: "semantic",
+          memoryTags: [],
+          provenance: [],
+          actor: { principal: { personId: "scale" }, executor: null },
+          source: "local",
+          occurredAt: "2026-08-18T00:00:00.000Z",
+          workspaceRevision: index + 1,
+        };
+      insertFact.run(
+        "task-scale",
+        factId,
+        ref,
+        row.statement,
+        row.evidenceSource,
+        row.observedAt,
+        row.confidence,
+        row.memoryClass,
+        `op-${index}`,
+        index + 1,
+        JSON.stringify(row),
+      );
+      insertFts.run(factId, row.statement, row.evidenceSource);
+    }
+    db.prepare("INSERT INTO relation_edge VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)").run(
+      "rel-scale",
+      "fact/F-00000001",
+      "fact/F-00000000",
+      "supersedes-fact",
+      "active",
+      null,
+      "fact/F-00000001",
+      2001,
+      JSON.stringify({
+        relationId: "rel-scale",
+        sourceRef: "fact/F-00000001",
+        targetRef: "fact/F-00000000",
+        relationType: "supersedes-fact",
+        state: "active",
+      }),
+    );
+    db.exec("COMMIT");
+    const original = db.prepare;
+    let rowsRead = 0;
+    db.prepare = ((...args: Parameters<typeof original>) => {
+      const statement = original.apply(db, args);
+      const all = statement.all.bind(statement),
+        get = statement.get.bind(statement);
+      statement.all = (...values: unknown[]) => {
+        const result = all(...values);
+        rowsRead += Array.isArray(result) ? result.length : 0;
+        return result;
+      };
+      statement.get = (...values: unknown[]) => {
+        const result = get(...values);
+        rowsRead += result === undefined ? 0 : 1;
+        return result;
+      };
+      return statement;
+    }) as typeof db.prepare;
+    const result = searchFactRowsPage(db, { query: "scale", limit: 500 });
+    assert.equal(result.rows?.length, 500);
+    console.log(JSON.stringify({ factCount: 2000, sqlRowsRead: rowsRead }));
+    assert.ok(rowsRead < 5000, `narrow liveness read ${rowsRead} rows`);
+  } finally {
+    db.close();
+  }
+});
