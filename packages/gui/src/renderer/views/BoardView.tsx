@@ -466,6 +466,18 @@ export const BoardView = memo(function BoardView({
   // 关系刷新(增量页换 relations 数组)不再打穿全板卡片 memo。
   const spawningDecisions = useMemo(() => buildSpawningDecisionIndex(allTasks, relations), [allTasks, relations]);
 
+  // pin 也是一次台账写入:回执落定与投影追平之间有真实延迟(实测约 2s),那段时间
+  // 按钮看起来「点了没反应」。写入报告面与拖拽 start 共用同一条,pin 也挂进去。
+  const reportedSetPin = useCallback(
+    (task: TaskRow, pinned: boolean) => {
+      setDragMessage(null);
+      setLastMutationTaskId(task.taskId);
+      onSetPin?.(task, pinned);
+    },
+    [onSetPin],
+  );
+  const setPin = onSetPin ? reportedSetPin : undefined;
+
   const onDragStart = (e: DragStartEvent) => setActiveTask(boardTasks.find((t) => t.taskId === e.active.id) ?? null);
 
   const onDragEnd = (event: DragEndEvent) => {
@@ -579,7 +591,7 @@ export const BoardView = memo(function BoardView({
           spawningDecisions={spawningDecisions}
           favorites={favorites}
           onToggleFavorite={onToggleFavorite}
-          onSetPin={onSetPin}
+          onSetPin={setPin}
           embedded
         />
       ) : layout === "swimlane" ? (
@@ -592,7 +604,7 @@ export const BoardView = memo(function BoardView({
           spawningDecisions={spawningDecisions}
           favorites={favorites}
           onToggleFavorite={onToggleFavorite}
-          onSetPin={onSetPin}
+          onSetPin={setPin}
         />
       ) : (
         <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
@@ -607,7 +619,7 @@ export const BoardView = memo(function BoardView({
                 spawningDecisions={spawningDecisions}
                 favorites={favorites}
                 onToggleFavorite={onToggleFavorite}
-                onSetPin={onSetPin}
+                onSetPin={setPin}
                 width={columnWidths.column[status]}
                 onResize={resizeColumn}
                 onReset={resetColumn}

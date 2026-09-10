@@ -90,6 +90,12 @@ export interface TaskMutationFeedback {
   readonly hint: string;
 }
 
+/**
+ * 回执已 applied、只是「canonical 可见」或「task projection 追平」还没到位。这两种落定里
+ * 写入已经不在飞,in-flight 锁必须放开;它们与 pending/indeterminate(归属未知)不是一回事。
+ */
+const settledButInvisible: ReadonlySet<string> = new Set(["canonical_not_visible", "projection_not_visible"]);
+
 export function useTaskActions(repoId: string) {
   const queryClient = useQueryClient(),
     locks = useRef(new Map<string, Promise<TaskMutationFeedback>>());
@@ -161,7 +167,12 @@ export function useTaskActions(repoId: string) {
       if (held) return held;
       const promise = run().then(
         (result) => {
-          if (result.state !== "pending") locks.current.delete(lockKey);
+          // 锁只挡「这次写入还在飞」。回执本身已 applied、只差可见性追平的那两种落定
+          // 不是在飞写入:继续挡住会把控件永久锁死——实测 pin 一次(回执
+          // canonical_not_visible)之后 unpin 再也发不出去。真正归属未知的回执
+          // (pending/indeterminate)照旧挡住,start 那条会另铸 executionId,不得重放。
+          if (result.state !== "pending" || (result.code !== undefined && settledButInvisible.has(result.code)))
+            locks.current.delete(lockKey);
           return result;
         },
         (error) => {

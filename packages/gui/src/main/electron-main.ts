@@ -2,7 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, session, shell, type MenuIte
 import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { readDaemonRegistry, type HarnessLayoutOverrides } from "../../../kernel/src/index.ts";
+import { readDaemonRegistry } from "../../../kernel/src/index.ts";
 import { registerHarnessIpcHandlers } from "./ipc-handlers.ts";
 import { registerArtifactOpenIpc } from "./artifact-open-ipc.ts";
 import { registerLocalDocIpc } from "./local-doc-ipc.ts";
@@ -176,7 +176,7 @@ export async function startGuiApp(): Promise<void> {
   installContentSecurityPolicy();
   const trustedWebContentsIds = new Set<number>();
   const rootDir = resolveGuiProjectRoot(),
-    bridge = createLocalGuiServiceBridge(rootDir, resolveGuiLayoutOverrides()),
+    bridge = createLocalGuiServiceBridge(rootDir),
     controlled = addLocalMainControls({
       bridge,
       target: async (repoId) => resolveLocalDaemonTarget({ rootDir, ...(repoId ? { repoIdOverride: repoId } : {}) }),
@@ -275,11 +275,6 @@ function createTrustedMainWindow(trustedWebContentsIds: Set<number>): BrowserWin
 
 export function resolveGuiProjectRoot(): string {
   return path.resolve(process.env.HARNESS_GUI_ROOT ?? process.cwd());
-}
-
-export function resolveGuiLayoutOverrides(): HarnessLayoutOverrides | undefined {
-  const authoredRoot = process.env.HARNESS_AUTHORED_ROOT;
-  return authoredRoot && authoredRoot.length > 0 ? { authoredRoot } : undefined;
 }
 
 function guiPackageRoot(): string {
