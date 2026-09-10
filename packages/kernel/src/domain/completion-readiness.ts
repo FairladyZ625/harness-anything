@@ -1,6 +1,7 @@
 import type { TaskLifecycleSnapshot } from "./task-lifecycle.contract.ts";
 import { closeoutReadiness } from "./closeout-readiness.ts";
 import { approvedReviewHistoryForExecution } from "./review.ts";
+import type { TransitionDocumentMissingSection } from "./transition-document-readiness.ts";
 
 export type CompletionBlockerCode =
   | "not_in_review"
@@ -29,6 +30,7 @@ export interface CompletionBlocker {
 export interface CompletionReadinessContext {
   readonly closeout: "ready" | "placeholder" | "dirty_eligible" | "missing";
   readonly closeoutPath: string;
+  readonly closeoutMissingSections?: readonly TransitionDocumentMissingSection[];
   readonly eligibleDirtyPaths: readonly string[];
   readonly producesFactCount: number;
 }
@@ -142,11 +144,19 @@ export function completionBlockers(
       "Publish eligible closeout and artifact edits through doc-sync.",
     );
   if (context.closeout !== "ready")
-    return one(
-      "closeout_placeholder",
-      "closeout",
-      `edit harness/${context.closeoutPath}`,
-      "Replace the canonical closeout placeholder before completion.",
-    );
+    return one("closeout_placeholder", "closeout", `edit harness/${context.closeoutPath}`, closeoutReason(context));
   return [];
+}
+
+function closeoutReason(context: CompletionReadinessContext): string {
+  const sections = context.closeoutMissingSections ?? [],
+    missing = sections.filter(({ reason }) => reason === "empty").map(({ section }) => section),
+    scaffold = sections.filter(({ reason }) => reason === "scaffold").map(({ section }) => section),
+    details = [
+      missing.length ? `missing sections: ${missing.join(", ")}` : "",
+      scaffold.length ? `still template: ${scaffold.join(", ")}` : "",
+    ].filter(Boolean);
+  return details.length
+    ? `closeout.md ${details.join("; ")}.`
+    : "Replace the canonical closeout placeholder before completion.";
 }

@@ -562,6 +562,10 @@ export function completionContext(
     }),
     closeoutPath = closeoutDocument.path,
     projected = cell.projection.readDocument(closeoutPath),
+    closeoutAssessment = assessTransitionDocument(
+      requireTransitionDocumentKind("task.complete"),
+      projected.document?.body ?? "",
+    ),
     scan = scanDocCandidates({
       rootDir: cell.rootDir,
       workspaceId: cell.input.repoId,
@@ -577,7 +581,7 @@ export function completionContext(
       ? "dirty_eligible"
       : projected.document === null
         ? "missing"
-        : !assessTransitionDocument(requireTransitionDocumentKind("task.complete"), projected.document.body).ready
+        : !closeoutAssessment.ready
           ? "placeholder"
           : "ready";
   const producesFactCount = cell.projection
@@ -594,5 +598,11 @@ export function completionContext(
         row.state === "active" &&
         row.targetRef.startsWith("fact/"),
     ).length;
-  return { closeout, closeoutPath, eligibleDirtyPaths, producesFactCount };
+  return {
+    closeout,
+    closeoutPath,
+    closeoutMissingSections: closeoutAssessment.missingSections,
+    eligibleDirtyPaths,
+    producesFactCount,
+  };
 }

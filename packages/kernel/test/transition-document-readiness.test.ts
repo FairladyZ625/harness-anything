@@ -127,6 +127,14 @@ test("closeout uses the same required-section and scaffold rules", () => {
     ).ready,
     true,
   );
+  assert.deepEqual(
+    assessTransitionDocument(
+      "task.closeout",
+      "# Closeout\n\n## Summary（交付了什么）\n\nDone.\n\n## Verification\n\nTests passed.\n\n" +
+        "## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nNot applicable.",
+    ).missingSections.map(({ section }) => section),
+    ["Summary"],
+  );
 });
 
 test("decision and declaration documents reject their canonical blank scaffolds", () => {
