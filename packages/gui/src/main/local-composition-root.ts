@@ -44,10 +44,10 @@ interface DaemonClient {
   ) => Promise<JsonObject>;
 }
 let client: Promise<DaemonClient> | undefined;
-export function createLocalGuiServiceBridge(
-  rootDir: string,
-  _layoutOverrides?: { readonly authoredRoot?: string },
-): GuiServiceBridge {
+// 没有 layout 覆写入口:GUI 的每一次读写都走 daemon JSON-RPC,authored root 由 daemon 按
+// 目标仓库自己的 harness.yaml 解析(非默认 authoredRoot 也因此照常可读)。GUI 侧再开一个
+// 覆写参数只会让人以为它能改别人的 authored root。
+export function createLocalGuiServiceBridge(rootDir: string): GuiServiceBridge {
   const root = path.resolve(rootDir);
   validateProjectPath(root, ".");
   return createGuiServiceBridgeForDaemon(

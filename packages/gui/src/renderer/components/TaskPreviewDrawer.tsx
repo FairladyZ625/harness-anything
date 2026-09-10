@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { ArrowSquareOut, CheckCircle, Lock, PushPin, X, XCircle } from "@phosphor-icons/react";
 import type { RelationEdge, TaskRow } from "../model/types";
 import { isExternal } from "../model/types";
@@ -36,13 +36,25 @@ export function TaskPreviewDrawer({
   onPreviewTask: (id: string) => void;
   onSetPin?: (task: TaskRow, pinned: boolean) => void;
 }) {
+  const panelRef = useRef<HTMLElement | null>(null);
+  // 抽屉是非模态的:压暗层不接指针事件,点在它下面的看板卡上那一次点击就直接换卡
+  // (实测:遮罩接事件时换一张卡要点两次,第一次只关抽屉、看起来「什么都没发生」)。
+  // 「点外面关掉」仍然成立,判据从「点中了遮罩」换成「按下的位置不在抽屉里」。
   useEffect(() => {
     if (!task) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
     };
+    const onPointerDown = (event: MouseEvent) => {
+      if (event.target instanceof Node && panelRef.current?.contains(event.target) === true) return;
+      onClose();
+    };
     window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    window.addEventListener("mousedown", onPointerDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("mousedown", onPointerDown);
+    };
   }, [onClose, task]);
   if (!task) return null;
 
@@ -65,12 +77,12 @@ export function TaskPreviewDrawer({
   return (
     <div
       data-testid="task-preview-backdrop"
-      className="fixed inset-0 z-40 flex justify-end bg-bg/45"
-      onClick={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
+      className="pointer-events-none fixed inset-0 z-40 flex justify-end bg-bg/45"
     >
-      <aside className="flex h-full w-full max-w-[520px] flex-col border-l border-border-strong bg-surface shadow-2xl shadow-black/40">
+      <aside
+        ref={panelRef}
+        className="pointer-events-auto flex h-full w-full max-w-[520px] flex-col border-l border-border-strong bg-surface shadow-2xl shadow-black/40"
+      >
         <header className="border-b border-border px-4 py-3">
           <div className="flex items-start gap-3">
             <div className="min-w-0 flex-1">
