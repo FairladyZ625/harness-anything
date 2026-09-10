@@ -78,9 +78,14 @@ export function completionStopped(
   if (!contract) throw cellCodedError("invalid_store", "Task complete Action contract is unavailable.");
   const receipt = failed(
     opId,
-    cellCriterionError(blocker.code, blocker.next.command, "complete", "closeout-readiness/closeoutReadiness", [
-      blocker.next.command,
-    ]),
+    cellCriterionError(
+      blocker.code,
+      // What is wrong, then what to run; every completion blocker carries both.
+      `${blocker.next.reason} Next: ${blocker.next.command}`,
+      "complete",
+      "closeout-readiness/closeoutReadiness",
+      [blocker.next.command],
+    ),
     contract,
     action,
   );

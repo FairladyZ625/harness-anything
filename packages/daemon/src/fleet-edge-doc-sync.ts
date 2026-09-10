@@ -191,6 +191,9 @@ export async function runFleetEdgeDocSync(input: FleetEdgeDocSyncRequest): Promi
         rideAlongTaskPaths: rideAlong,
         outOfScopePaths: outOfScope,
         guidance: "Submit named paths or rerun with --all to confirm the full eligible candidate set.",
+        rejectionExplanation:
+          "full authored-tree submission requires explicit confirmation; " +
+          "submit named paths or rerun with --all to confirm the full eligible candidate set.",
       });
     // PUSHING
     const pushed = await runFleetWriteClient({
