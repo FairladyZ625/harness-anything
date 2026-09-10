@@ -1,10 +1,5 @@
 import { type EventHead, type LedgerCutIdentity } from "../domain/write-chain.contract.ts";
-import {
-  isTaskEvent,
-  ledgerCommitSha,
-  serializePersistedCanonicalEvent,
-  type CanonicalEventV1,
-} from "../domain/doc-sync.contract.ts";
+import { serializePersistedCanonicalEvent, type CanonicalEventV1 } from "../domain/doc-sync.contract.ts";
 import { sha256Bytes, sha256Text } from "../integrity/stable-hash.ts";
 import { resolveHarnessLayout, type HarnessLayoutInput } from "../layout/index.ts";
 import { consumeKnownError } from "../error-consumption.ts";
@@ -14,42 +9,15 @@ import {
   canonicalDocumentMode,
   canonicalDocumentRetirements,
   canonicalOwnedDirectories,
-  contentClaims,
 } from "./task-event-store-claims-layout.ts";
-import { canonicalEventCut, canonicalLedgerCut } from "./task-event-store-contract.ts";
-import { isTaskBootstrapEvent } from "../domain/task-bootstrap-event.ts";
+import { canonicalLedgerCut } from "./task-event-store-contract.ts";
 import { resolveLedgerGitLayout, ledgerGitPath } from "./ledger-git-layout.ts";
-import { localGitObjectRefStore, localGitText, localGitWorktreeSettlement } from "./local-version-control-system.ts";
-import { openSqliteEventStore, type SqliteCommandOutcome } from "./sqlite-event-store.ts";
+import { localGitObjectRefStore, localGitWorktreeSettlement } from "./local-version-control-system.ts";
+import { openSqliteEventStore } from "./sqlite-event-store.ts";
 import type { SqliteEventStore } from "./sqlite-event-store.ts";
-import { validateCanonicalWriteBundle } from "./task-event-store-contract.ts";
-import type {
-  CanonicalEventAppendReceipt,
-  CanonicalEventStore,
-  CanonicalWriteBundle,
-  EventFileBatch,
-  MaterializationHealth,
-  PublicationFile,
-  PublicationWrite,
-  PublicationDelete,
-} from "./task-event-store-types.ts";
+import type { PublicationFile, PublicationWrite, PublicationDelete } from "./task-event-store-types.ts";
 import { TaskEventStoreError } from "./task-event-store-types.ts";
-import { assertAuthorizedReplacements } from "./task-event-store-replacement-authorization.ts";
 import { finalizeRefs, prepareCommit } from "./task-event-store-git-refs.ts";
-
-export interface DaemonWriterFence {
-  readonly repoId: string;
-  readonly holderId: string;
-  readonly epoch: number;
-}
-
-export interface FollowerFacet {
-  readonly status: "pending" | "verified";
-  readonly cut: LedgerCutIdentity | null;
-  readonly commitSha: string | null;
-  readonly reason?: string;
-  readonly conflicts?: readonly string[];
-}
 
 export interface CertifiedGitFollower {
   readonly commitSha: string;
@@ -327,7 +295,7 @@ export function readEventsThrough(
   return readPendingEvents(sqlite, 0).filter((event) => event.workspaceRevision <= revision);
 }
 
-function readPendingEvents(
+export function readPendingEvents(
   sqlite: ReturnType<typeof openSqliteEventStore>,
   revision: number,
 ): readonly CanonicalEventV1[] {

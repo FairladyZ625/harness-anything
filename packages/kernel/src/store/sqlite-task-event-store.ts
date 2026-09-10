@@ -5,23 +5,15 @@ import {
   serializePersistedCanonicalEvent,
   type CanonicalEventV1,
 } from "../domain/doc-sync.contract.ts";
-import { sha256Bytes, sha256Text } from "../integrity/stable-hash.ts";
+import { sha256Text } from "../integrity/stable-hash.ts";
 import { resolveHarnessLayout, type HarnessLayoutInput } from "../layout/index.ts";
 import { consumeKnownError } from "../error-consumption.ts";
-import { localRuntimeStateFileSystem as conversionFiles } from "../local/local-layout-file-system.ts";
-import {
-  canonicalDocumentClaims,
-  canonicalDocumentMode,
-  canonicalDocumentRetirements,
-  canonicalOwnedDirectories,
-  contentClaims,
-} from "./task-event-store-claims-layout.ts";
+import { canonicalDocumentClaims, contentClaims } from "./task-event-store-claims-layout.ts";
 import { canonicalEventCut, canonicalLedgerCut } from "./task-event-store-contract.ts";
 import { isTaskBootstrapEvent } from "../domain/task-bootstrap-event.ts";
 import { resolveLedgerGitLayout, ledgerGitPath } from "./ledger-git-layout.ts";
 import { localGitObjectRefStore, localGitText, localGitWorktreeSettlement } from "./local-version-control-system.ts";
 import { openSqliteEventStore, type SqliteCommandOutcome } from "./sqlite-event-store.ts";
-import type { SqliteEventStore } from "./sqlite-event-store.ts";
 import { validateCanonicalWriteBundle } from "./task-event-store-contract.ts";
 import type {
   CanonicalEventAppendReceipt,
@@ -29,7 +21,6 @@ import type {
   CanonicalWriteBundle,
   EventFileBatch,
   MaterializationHealth,
-  PublicationFile,
   PublicationWrite,
   PublicationDelete,
 } from "./task-event-store-types.ts";
@@ -39,7 +30,6 @@ import { finalizeRefs, prepareCommit } from "./task-event-store-git-refs.ts";
 import {
   certifiedFollowerRevision,
   captureGitBaseline,
-  captureConversionBaseline,
   followerDirectories,
   followerFiles,
   readEventsThrough,
@@ -48,9 +38,9 @@ import {
   verifyAuthoredRef,
   verifyGitFiles,
   verifyWorktreeFiles,
-  worktreeMatchesBaseline,
   worktreeFingerprint,
   publicationDigest,
+  readPendingEvents,
   type FollowerDirectorySettlement,
 } from "./sqlite-task-event-publication.ts";
 
@@ -66,18 +56,6 @@ export interface FollowerFacet {
   readonly commitSha: string | null;
   readonly reason?: string;
   readonly conflicts?: readonly string[];
-}
-
-export interface CertifiedGitFollower {
-  readonly commitSha: string;
-  readonly cut: LedgerCutIdentity;
-  readonly documents: readonly {
-    readonly path: string;
-    readonly mode: "100644" | "120000";
-    readonly sha256: string;
-    readonly size: number;
-  }[];
-  readonly retirements: readonly string[];
 }
 
 export interface SqliteCanonicalEventStore extends CanonicalEventStore {
@@ -556,18 +534,4 @@ function sqliteBatch(
         replay.flatMap((event) => contentClaims(event).map((claim) => [claim.sha256, readContent(claim.sha256)])),
       ),
   };
-}
-
-function readPendingEvents(
-  sqlite: ReturnType<typeof openSqliteEventStore>,
-  revision: number,
-): readonly CanonicalEventV1[] {
-  const events: CanonicalEventV1[] = [];
-  let cursor = revision;
-  for (;;) {
-    const page = sqlite.eventsAfter(cursor);
-    events.push(...page);
-    if (page.length < 4096) return events;
-    cursor = page.at(-1)!.workspaceRevision;
-  }
 }
