@@ -205,7 +205,7 @@ test("task reads fail closed when event truth has no packageDisposition", () => 
     cell = { projection } as unknown as TaskQueryCell;
 
   assert.throws(() => read.guiTasks(), /missing packageDisposition for task_missing/u);
-  assert.throws(() => wipSnapshotEntries(cell), /missing packageDisposition for task_missing/u);
+  assert.throws(() => wipSnapshotEntries(cell, "task_missing"), /missing packageDisposition for task_missing/u);
 });
 
 test("relation graph validator accepts the canonical cut and rejects invented fields", () => {

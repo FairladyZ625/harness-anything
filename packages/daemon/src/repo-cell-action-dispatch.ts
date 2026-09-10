@@ -159,13 +159,8 @@ export async function executeAction(
       targetRevision = targetId
         ? cell.projection.read(targetId).snapshot.revision
         : (cell.store.readHead()?.revision ?? 0),
-      lifecycle = actionContract.execution.lifecycle,
-      leasedStart =
-        lifecycle?.coordination === "reserve" &&
-        targetId !== null &&
-        ["held", "reserving"].includes(cell.projection.currentLease(targetId, cell.now())?.phase ?? "");
-    if (lifecycle?.coordination === "reserve" && targetId && !leasedStart)
-      cell.assertTaskWipCapacity(targetId, "active");
+      lifecycle = actionContract.execution.lifecycle;
+    if (lifecycle?.coordination === "reserve" && targetId) cell.assertTaskWipCapacity(targetId, "active");
     return cell.entityActionExecutor.run(
       action,
       binding,

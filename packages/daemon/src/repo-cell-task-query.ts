@@ -43,7 +43,7 @@ export interface TaskQueryCell {
   ) => WriteReceipt;
   readonly cellCodedError: (code: string, message: string, diagnostic?: ReceiptDiagnostic) => Error;
   readonly requiredCellText: (value: unknown, name: string) => string;
-  readonly wipSnapshotEntries: () => readonly TaskWipSnapshotEntryV1[];
+  readonly wipSnapshotEntries: (activatingTaskId: string) => readonly TaskWipSnapshotEntryV1[];
   readonly legacyReviewLint: typeof import("./repo-cell-review-lint.ts").legacyReviewLint;
   readonly projectionReady: (value: { readonly status: string }) => boolean;
   readonly now: () => string;
@@ -195,7 +195,7 @@ export function taskWipEnteringAction(
 }
 
 export function assertTaskWipCapacity(cell: TaskQueryCell, taskId: string, nextStatus: DomainStatus): void {
-  const tasks = cell.wipSnapshotEntries(),
+  const tasks = cell.wipSnapshotEntries(taskId),
     activating = tasks.find((task: TaskWipSnapshotEntryV1) => task.taskId === taskId);
   if (!activating) return;
   const allowed =
@@ -219,21 +219,28 @@ export function assertTaskWipCapacity(cell: TaskQueryCell, taskId: string, nextS
     );
 }
 
-export function wipSnapshotEntries(cell: TaskQueryCell): readonly TaskWipSnapshotEntryV1[] {
-  const rows = cell.projection.list().rows,
-    childCounts = directChildCountsFrom(rows);
-  return rows.map((row) => {
-    const task = row.snapshot.task;
-    return {
-      taskId: row.taskId,
-      title: task?.title ?? "",
-      status: task?.status ?? "planned",
-      taskClass: task?.taskClass ?? "standard",
-      packageDisposition: requiredPackageDisposition(row.taskId, task?.packageDisposition),
-      hasCloseoutEvidence: hasCloseoutEvidence(row.snapshot.executions),
-      directChildCount: childCounts.get(row.taskId) ?? 0,
-    };
-  });
+// Only WIP-occupying task rows (plus the activating task itself, which may still be
+// planned) are read: one SQL-status-filtered list() call per occupying status, so the row
+// count stays bounded by the worktable rather than the whole task ledger. Each row's
+// directChildCount comes from a parentTaskId-filtered index read, which is bounded by that
+// task's actual child count instead of a full-table scan.
+export function wipSnapshotEntries(cell: TaskQueryCell, activatingTaskId: string): readonly TaskWipSnapshotEntryV1[] {
+  const occupying = taskWipOccupyingStatuses.flatMap((status) => cell.projection.list({ status }).rows),
+    activating = occupying.some((row) => row.taskId === activatingTaskId)
+      ? null
+      : cell.projection.read(activatingTaskId),
+    rows = activating?.snapshot.task
+      ? [...occupying, { taskId: activatingTaskId, snapshot: activating.snapshot }]
+      : occupying;
+  return rows.map((row) => ({
+    taskId: row.taskId,
+    title: row.snapshot.task?.title ?? "",
+    status: row.snapshot.task?.status ?? "planned",
+    taskClass: row.snapshot.task?.taskClass ?? "standard",
+    packageDisposition: requiredPackageDisposition(row.taskId, row.snapshot.task?.packageDisposition),
+    hasCloseoutEvidence: hasCloseoutEvidence(row.snapshot.executions),
+    directChildCount: cell.projection.readTaskIndex({ parentTaskId: row.taskId }).rows.length,
+  }));
 }
 
 export function directChildCounts(cell: TaskQueryCell): Map<string, number> {
