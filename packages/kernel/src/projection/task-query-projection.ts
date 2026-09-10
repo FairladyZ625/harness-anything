@@ -5,7 +5,7 @@ import type { DatabaseSync } from "node:sqlite";
 import type { RuntimeSession } from "../domain/agent-runtime.ts";
 import type { EntityRelationRecord, RelationType } from "../domain/entity-relation.ts";
 import type { EntityVersion, EntityVersionWitness, RelationFreshness } from "../domain/entity-freshness.ts";
-import { validateTaskV2, type ReplayTaskStatus, type TaskV2 } from "../domain/task.ts";
+import type { ReplayTaskStatus, TaskV2 } from "../domain/task.ts";
 import type { TaskIndexProjectionRow } from "./projection-reads.ts";
 import { queryRows, type ProjectionSqlRow } from "./rebuildable-task-projection-sql.ts";
 import { readEntityVersionWitnesses } from "./entity-freshness-projection.ts";
@@ -30,6 +30,13 @@ export interface TaskProjectionListQuery {
   readonly limit?: number;
   readonly cursor?: string;
   readonly pinnedFirst?: boolean;
+  readonly parentTaskId?: string | null;
+  readonly module?: string;
+  readonly workKind?: string;
+  readonly riskTier?: string;
+  readonly urgency?: string;
+  readonly search?: string;
+  readonly activePackagesOnly?: boolean;
 }
 export interface TaskRelationQuery {
   readonly entity?: string;
@@ -81,7 +88,52 @@ export interface NarrowTaskRow {
 /** One projection scan for the CLI task index. The row is intentionally limited
  * to list/tree fields, so callers do not hydrate executions, reviews, leases, or
  * relation graphs only to discard them after a metadata filter. */
-export function readTaskIndexRows(db: DatabaseSync): readonly TaskIndexProjectionRow[] {
+export function readTaskIndexRows(
+  db: DatabaseSync,
+  query: TaskProjectionListQuery = {},
+): { readonly rows: readonly TaskIndexProjectionRow[]; readonly page: ProjectionPage | null } {
+  const values: (string | number | null)[] = [],
+    where: string[] = [],
+    field = (jsonPath: string) => `json_extract(task_snapshot.snapshot_json, '${jsonPath}')`;
+  for (const [value, expression] of [
+    [query.status, "task_snapshot.status"],
+    [query.module, field("$.task.metadata.moduleKey")],
+    [query.workKind, field("$.task.metadata.workKind")],
+    [query.riskTier, field("$.task.metadata.riskTier")],
+    [query.urgency, field("$.task.metadata.urgency")],
+  ] as const)
+    if (value !== undefined) {
+      where.push(`${expression} = ?`);
+      values.push(value);
+    }
+  if (query.parentTaskId !== undefined) {
+    where.push(`${field("$.task.metadata.parentTaskId")} IS ?`);
+    values.push(query.parentTaskId);
+  }
+  if (query.updatedAfter !== undefined) {
+    where.push("task_snapshot.updated_at >= ?");
+    values.push(query.updatedAfter);
+  }
+  if (query.updatedBefore !== undefined) {
+    where.push("task_snapshot.updated_at <= ?");
+    values.push(query.updatedBefore);
+  }
+  if (query.activePackagesOnly) where.push(`COALESCE(${field("$.task.packageDisposition")}, 'active') = 'active'`);
+  if (query.search !== undefined) {
+    where.push(
+      `(lower(task_snapshot.task_id) LIKE ? ESCAPE '\\' OR lower(${field("$.task.title")}) LIKE ? ESCAPE '\\')`,
+    );
+    const search = query.search.toLocaleLowerCase().replace(/[\\%_]/gu, "\\$&");
+    values.push(`${search}%`, `%${search}%`);
+  }
+  if (query.cursor !== undefined) {
+    const [taskId] = decodePageCursor(query.cursor, 1);
+    where.push("task_snapshot.task_id > ?");
+    values.push(taskId!);
+  }
+  const paged = query.limit !== undefined || query.cursor !== undefined,
+    limit = query.limit === undefined ? (paged ? 100 : null) : checkedPageLimit(query.limit);
+  if (limit !== null) values.push(limit + 1);
   const rows = queryRows<{
     readonly task_id: string;
     readonly package_path: string | null;
@@ -92,36 +144,50 @@ export function readTaskIndexRows(db: DatabaseSync): readonly TaskIndexProjectio
     [
       "SELECT task_snapshot.task_id, task_package.package_path, task_snapshot.updated_at,",
       "task_snapshot.snapshot_json FROM task_snapshot",
-      "LEFT JOIN task_package USING(task_id) ORDER BY task_snapshot.task_id",
+      `LEFT JOIN task_package USING(task_id)${where.length ? ` WHERE ${where.join(" AND ")}` : ""}`,
+      `ORDER BY task_snapshot.task_id${limit === null ? "" : " LIMIT ?"}`,
     ].join(" "),
+    ...values,
   );
-  return rows.flatMap((row) => {
-    let task: TaskV2 | null;
-    try {
-      task = (JSON.parse(row.snapshot_json) as { readonly task?: TaskV2 | null }).task ?? null;
-    } catch {
-      throw new Error(`projection snapshot mismatch for task ${row.task_id}`);
-    }
-    if (task === null) return [];
-    if (validateTaskV2(task, true).length) throw new Error(`projection snapshot mismatch for task ${row.task_id}`);
-    return [
-      {
-        taskId: row.task_id,
-        title: task.title,
-        status: task.status,
-        pinned: task.pinned,
-        parentTaskId: task.metadata?.parentTaskId ?? null,
-        moduleKey: task.metadata?.moduleKey ?? null,
-        workKind: task.metadata?.workKind ?? null,
-        riskTier: task.metadata?.riskTier ?? null,
-        urgency: task.metadata?.urgency ?? null,
-        taskClass: task.taskClass,
-        packageDisposition: task.packageDisposition ?? "active",
-        packagePath: row.package_path,
-        updatedAt: row.updated_at,
-      },
-    ];
-  });
+  const visible = limit === null ? rows : rows.slice(0, limit),
+    projected = visible.flatMap((row) => {
+      let task: TaskV2 | null;
+      try {
+        task = (JSON.parse(row.snapshot_json) as { readonly task?: TaskV2 | null }).task ?? null;
+      } catch {
+        throw new Error(`projection snapshot mismatch for task ${row.task_id}`);
+      }
+      if (task === null) return [];
+      return [
+        {
+          taskId: row.task_id,
+          title: task.title,
+          status: task.status,
+          pinned: task.pinned,
+          parentTaskId: task.metadata?.parentTaskId ?? null,
+          moduleKey: task.metadata?.moduleKey ?? null,
+          workKind: task.metadata?.workKind ?? null,
+          riskTier: task.metadata?.riskTier ?? null,
+          urgency: task.metadata?.urgency ?? null,
+          taskClass: task.taskClass,
+          packageDisposition: task.packageDisposition ?? "active",
+          packagePath: row.package_path,
+          updatedAt: row.updated_at,
+        },
+      ];
+    });
+  const last = projected.at(-1);
+  return {
+    rows: projected,
+    page:
+      limit === null
+        ? null
+        : {
+            limit,
+            cursor: query.cursor ?? null,
+            nextCursor: rows.length > limit && last ? encodePageCursor([last.taskId]) : null,
+          },
+  };
 }
 
 /** Derive display-only creation time from the first canonical event for a task.

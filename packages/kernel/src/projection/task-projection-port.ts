@@ -36,7 +36,7 @@ import type {
 import type { EventBackedRelationTruth } from "./relation-graph-projection.ts";
 import type { VersionedRelationProjectionRow } from "./relation-entity-projection.ts";
 import type { EntityFreshness, EntityVersion, EntityVersionWitness } from "../domain/entity-freshness.ts";
-import type { TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
+import type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
 
 export interface RuntimeSessionPageQuery {
   readonly taskId?: string;
@@ -80,7 +80,9 @@ export interface TaskProjection {
   readonly getEntity: (entityKind: string, entityId: string) => EntityProjectionRow | null;
   readonly read: (taskId: string) => TaskProjectionRead;
   readonly list: (query?: TaskProjectionListQuery) => TaskProjectionListRead;
-  readonly readTaskIndex: () => import("./projection-reads.ts").TaskIndexProjectionRead;
+  readonly readTaskIndex: (
+    query?: TaskProjectionListQuery,
+  ) => import("./projection-reads.ts").TaskIndexProjectionRead & { readonly page: ProjectionPage | null };
   readonly readWorkspaceSummary: () => WorkspaceSummaryProjectionRead;
   readonly readTaskRelations: () => TaskRelationProjectionRead;
   readonly readTaskRelationNeighborhood: (

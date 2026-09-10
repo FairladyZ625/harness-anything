@@ -501,6 +501,12 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
             .then((receipt) => ({ ...receipt, authorizationDecision: authorizationDecision! }))
         : reject("unsupported_command");
   };
+  let readinessCache:
+    | {
+        readonly key: string;
+        readonly rows: ReturnType<typeof projectDecisionReadiness>;
+      }
+    | undefined;
   const readHandlers = {
     "repo.ci.observatory.read": (payload: Readonly<Record<string, unknown>>) =>
       readCiObservatory({
@@ -632,14 +638,14 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
     {
       const source = makeGitReadinessSource(),
         projectHead = source.run(context.rootDir, ["rev-parse", "HEAD"]),
-        readiness = projectDecisionReadiness(
-          {
-            rootDir: context.rootDir,
-            commitSha: projectHead.ok ? projectHead.stdout : "",
-            decisions: read.decisions,
-          },
-          source,
-        );
+        commitSha = projectHead.ok ? projectHead.stdout : "",
+        cacheKey = `${commitSha}\n${JSON.stringify(read.decisions)}`;
+      if (readinessCache?.key !== cacheKey)
+        readinessCache = {
+          key: cacheKey,
+          rows: projectDecisionReadiness({ rootDir: context.rootDir, commitSha, decisions: read.decisions }, source),
+        };
+      const readiness = readinessCache.rows;
       return {
         ok: true,
         ...(payload.projection === "full" ? { projection: "full" as const } : {}),

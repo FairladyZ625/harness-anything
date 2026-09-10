@@ -62,7 +62,28 @@ export function listTasks(cell: TaskQueryCell, action: RepoTaskAction, binding: 
       "invalid_command",
       "Task list --depth requires --parent <task-id> so the recursive subtree has one root.",
     );
-  const read = cell.projection.readTaskIndex();
+  const filters = {
+      ...(query.status ? { status: query.status } : {}),
+      ...(typeof action.module === "string" ? { module: action.module } : {}),
+      ...(typeof action.workKind === "string" ? { workKind: action.workKind } : {}),
+      ...(typeof action.riskTier === "string" ? { riskTier: action.riskTier } : {}),
+      ...(typeof action.urgency === "string" ? { urgency: action.urgency } : {}),
+      ...(typeof action.search === "string" ? { search: action.search } : {}),
+      ...(query.updatedAfter ? { updatedAfter: query.updatedAfter } : {}),
+      ...(query.updatedBefore ? { updatedBefore: query.updatedBefore } : {}),
+    },
+    flat = depth === undefined,
+    read = cell.projection.readTaskIndex(
+      flat
+        ? {
+            ...filters,
+            parentTaskId: typeof action.parentTaskId === "string" ? action.parentTaskId : null,
+            ...(query.limit === undefined ? {} : { limit: query.limit }),
+            ...(query.cursor === undefined ? {} : { cursor: query.cursor }),
+            activePackagesOnly: true,
+          }
+        : { activePackagesOnly: true },
+    );
   let selected: ReturnType<typeof selectTaskIndex>;
   try {
     selected = selectTaskIndex(
@@ -70,18 +91,13 @@ export function listTasks(cell: TaskQueryCell, action: RepoTaskAction, binding: 
       {
         ...(typeof action.parentTaskId === "string" ? { parentTaskId: action.parentTaskId } : {}),
         ...(depth === undefined ? {} : { depth }),
-        filters: {
-          ...(query.status ? { status: query.status } : {}),
-          ...(typeof action.module === "string" ? { module: action.module } : {}),
-          ...(typeof action.workKind === "string" ? { workKind: action.workKind } : {}),
-          ...(typeof action.riskTier === "string" ? { riskTier: action.riskTier } : {}),
-          ...(typeof action.urgency === "string" ? { urgency: action.urgency } : {}),
-          ...(typeof action.search === "string" ? { search: action.search } : {}),
-          ...(query.updatedAfter ? { updatedAfter: query.updatedAfter } : {}),
-          ...(query.updatedBefore ? { updatedBefore: query.updatedBefore } : {}),
-        },
-        ...(query.limit === undefined ? {} : { limit: query.limit }),
-        ...(query.cursor === undefined ? {} : { cursor: query.cursor }),
+        ...(flat
+          ? {}
+          : {
+              filters,
+              ...(query.limit === undefined ? {} : { limit: query.limit }),
+              ...(query.cursor === undefined ? {} : { cursor: query.cursor }),
+            }),
       },
     );
   } catch (error) {
@@ -133,7 +149,7 @@ export function listTasks(cell: TaskQueryCell, action: RepoTaskAction, binding: 
             }),
             count: selected.rows.length,
             warnings: read.warnings,
-            ...(selected.page ? { page: selected.page } : {}),
+            ...(read.page ? { page: read.page } : {}),
           };
   const payload = {
       ...value,
