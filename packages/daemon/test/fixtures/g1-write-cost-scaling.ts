@@ -1,8 +1,9 @@
 // harness-test-tier: integration
 // G1 write-cost-scaling gate fixture: builds a ledger of a given size with a realistic mix of
-// event kinds, then drives every durable write kind and hot read once through the production
-// daemon request path, measuring deterministic cost (SQL rows read, sha256 calls/bytes, git
-// subprocess count, file-read bytes) at the point each operation actually executes:
+// event kinds, then drives every durable write kind and hot read twice through the production
+// daemon request path (a warm-up call, then the steady-state call the gate judges), measuring
+// deterministic cost (SQL rows read, sha256 calls/bytes, git subprocess count, file-read bytes)
+// at the point each operation actually executes:
 //   - writes and receipt-show execute inside the writer worker thread (instrumented via the
 //     `--import` preload g1-writer-probe-import.mjs, mirroring writer-request-cost.integration.test.ts);
 //   - task-list/task-show/agenda/workspace-summary are intercepted host-side by the RepoCell
@@ -11,12 +12,12 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { Worker } from "node:worker_threads";
 import {
   compileDecisionWrite,
   compileFactWrite,
+  deriveRelationId,
   docSyncWritePlan,
   DOC_POLICY_ID,
   makeTaskEventStore,
@@ -24,6 +25,7 @@ import {
   sha256Text,
   taskLifecycleWritePlan,
   type DocEventV1,
+  type TaskEventV1,
 } from "../../../kernel/src/index.ts";
 // These four are internal-only shapes with no public-barrel re-export (kernel/src/index.ts); the
 // fixture still needs their exact structural types to hand-build canonically-valid events, so it
@@ -85,6 +87,26 @@ function factIdFor(index: number): string {
   return `F-${code}`;
 }
 
+const bulkActor = { principal: { personId: "person-g1-bulk" }, executor: { kind: "agent" as const, id: "g1-bulk" } };
+
+function bulkTask(taskId: string, title: string, status: "planned" | "cancelled"): TaskCreatedEvent["payload"]["task"] {
+  return {
+    schema: "task/v2",
+    taskId,
+    title,
+    taskClass: "standard",
+    status,
+    graph: REPLAY_TASK_GRAPH,
+    currentNode: "implementation",
+    iteration: 0,
+    createdBy: bulkActor,
+    completionGateIds: [],
+    presetSnapshotDigest: null,
+    pinned: false,
+    packageDisposition: "active",
+  };
+}
+
 function taskCreatedEvent(revision: number, taskId: string, title: string): TaskCreatedEvent {
   return {
     schema: "task-event/v1",
@@ -93,25 +115,31 @@ function taskCreatedEvent(revision: number, taskId: string, title: string): Task
     opId: `op-${taskId}`,
     taskId,
     type: "task_created",
-    actor: { principal: { personId: "person-g1-bulk" }, executor: { kind: "agent", id: "g1-bulk" } },
+    actor: bulkActor,
+    source: "local",
+    occurredAt: "2026-08-11T00:00:00.000Z",
+    payload: { task: bulkTask(taskId, title, "planned") },
+  };
+}
+
+/** A lifecycle transition shaped the way the kernel's cancel transition emits it
+ * (task-lifecycle-command-transitions.ts transitionTask): the whole task at its new status. Cancelled
+ * rather than blocked: a blocked task occupies a WIP slot, and the measured task-start needs one. */
+function taskCancelledEvent(revision: number, taskId: string, title: string): TaskEventV1 {
+  return {
+    schema: "task-event/v1",
+    eventId: `event-${taskId}-cancelled`,
+    workspaceRevision: revision,
+    opId: `op-${taskId}-cancelled`,
+    taskId,
+    type: "task_transitioned",
+    actor: bulkActor,
     source: "local",
     occurredAt: "2026-08-11T00:00:00.000Z",
     payload: {
-      task: {
-        schema: "task/v2",
-        taskId,
-        title,
-        taskClass: "standard",
-        status: "planned",
-        graph: REPLAY_TASK_GRAPH,
-        currentNode: "implementation",
-        iteration: 0,
-        createdBy: { principal: { personId: "person-g1-bulk" }, executor: { kind: "agent", id: "g1-bulk" } },
-        completionGateIds: [],
-        presetSnapshotDigest: null,
-        pinned: false,
-        packageDisposition: "active",
-      },
+      task: bulkTask(taskId, title, "cancelled"),
+      mutation: { command: "transition", reason: "G1 bulk lifecycle transition.", fields: ["status"] },
+      documentClaims: [],
     },
   };
 }
@@ -172,7 +200,14 @@ function docWriteBundle(
 function decisionDraft(
   decisionId: string,
   revision: number,
+  taskId: string,
 ): Extract<DecisionEventDraftV1, { readonly type: "decision_proposed" }> {
+  const relation = {
+    source: `decision/${decisionId}/CH1`,
+    target: `task/${taskId}`,
+    type: "derives" as const,
+    direction: "directed" as const,
+  };
   return {
     schema: "decision-event/v1",
     eventId: `event-${decisionId}`,
@@ -197,7 +232,16 @@ function decisionDraft(
       body: `\n# G1 bulk decision ${decisionId}\n\nFixture decision seeded for the G1 cost-scaling ledger.\n`,
       claims: [{ id: "C1", text: "The fixture ledger carries a real decision with a claim.", loadBearing: true }],
       fulfillments: [],
-      relations: [],
+      relations: [
+        {
+          ...relation,
+          relation_id: deriveRelationId(relation),
+          strength: "strong",
+          origin: "declared",
+          rationale: "G1 bulk decision derives one bulk task.",
+          state: "active",
+        },
+      ],
       provenance: [
         {
           runtime: "unavailable" as const,
@@ -241,28 +285,36 @@ function factDraft(index: number, revision: number): FactEventDraftV1 {
 }
 
 /** Bulk-seeds a ledger to roughly `eventCount` events via direct, canonically-validated appends
- * (no daemon round trip), then edits a settled authored file so materialization stays dirty
- * through every later write — reproducing the concurrent-edit shape #2409 fixed. */
-function seedLedger(
+ * (no daemon round trip) and waits for its follower to publish them, so the measuring writer
+ * attaches to a fully settled Git and worktree. Every seeded kind grows with the ledger, so a cost
+ * that scans tasks, lifecycle transitions, documents, facts, decisions, claims or relations shows up. */
+async function seedLedger(
   rootDir: string,
   repoId: string,
   eventCount: number,
   fence: WriterEpochFenceDescriptor,
-): { readonly editedPath: string } {
+): Promise<{ readonly editedPath: string }> {
   const store = makeTaskEventStore({
     repoId,
     rootDir,
     writerFence: () => ({ repoId: fence.repoId, holderId: fence.holderId, epoch: fence.epoch }),
   });
   try {
-    const taskCount = Math.max(1, Math.floor(eventCount * 0.85)),
+    const taskCount = Math.max(1, Math.floor(eventCount * 0.7)),
+      cancelledCount = Math.floor(eventCount * 0.1),
       docCount = Math.max(1, Math.floor(eventCount * 0.1)),
-      factCount = Math.max(1, eventCount - taskCount - docCount - 2);
+      decisionCount = Math.max(1, Math.floor(eventCount * 0.02)),
+      factCount = Math.max(1, eventCount - taskCount - cancelledCount - docCount - decisionCount),
+      bulkTaskId = (index: number) => `g1-bulk-task-${String(index).padStart(6, "0")}`;
     let revision = store.read().revision;
     for (let index = 0; index < taskCount; index += 1) {
       revision += 1;
-      const taskId = `g1-bulk-task-${String(index).padStart(6, "0")}`,
-        event = taskCreatedEvent(revision, taskId, `G1 bulk task ${index}`);
+      const event = taskCreatedEvent(revision, bulkTaskId(index), `G1 bulk task ${index}`);
+      store.append({ event, plan: taskLifecycleWritePlan(event), blobs: [] });
+    }
+    for (let index = 0; index < cancelledCount; index += 1) {
+      revision += 1;
+      const event = taskCancelledEvent(revision, bulkTaskId(index), `G1 bulk task ${index}`);
       store.append({ event, plan: taskLifecycleWritePlan(event), blobs: [] });
     }
     let editedPath = "";
@@ -283,18 +335,19 @@ function seedLedger(
       const compiled = compileFactWrite({ event: factDraft(index, revision) });
       store.append({ event: compiled.event, plan: compiled.plan, blobs: compiled.blobs });
     }
-    revision += 1;
-    const decisionId = "dec_G1BULK1",
-      compiled = compileDecisionWrite({
-        event: decisionDraft(decisionId, revision),
+    for (let index = 0; index < decisionCount; index += 1) {
+      revision += 1;
+      const compiled = compileDecisionWrite({
+        event: decisionDraft(`dec_G1BULK${String(index).padStart(6, "0")}`, revision, bulkTaskId(index)),
         currentDecision: null,
         currentRelations: [],
         currentDocument: null,
       });
-    store.append({ event: compiled.event, plan: compiled.plan, blobs: compiled.blobs });
+      store.append({ event: compiled.event, plan: compiled.plan, blobs: compiled.blobs });
+    }
     return { editedPath };
   } finally {
-    void store.drain();
+    await store.drain();
   }
 }
 
@@ -347,15 +400,26 @@ function probeControl(worker: Worker, command: "reset" | "snapshot"): Promise<Re
   });
 }
 
-async function measureWorkerOperation<T>(
-  worker: Worker,
-  run: () => Promise<T>,
-): Promise<{ readonly result: T; readonly counters: Record<string, number> }> {
-  await probeControl(worker, "reset");
-  const result = await run();
-  const counters = (await probeControl(worker, "snapshot")) as Record<string, number>;
-  return { result, counters };
+type Measure = (run: () => Promise<unknown>) => Promise<{ readonly result: unknown; readonly counters: Counters }>;
+type Counters = Record<string, number>;
+
+// The worker snapshots after the follower settlement the request queued (g1-writer-probe-import.mjs),
+// so a write's window is the request plus the Git/worktree publication it triggered.
+function writerMeasure(worker: Worker): Measure {
+  return async (run) => {
+    await probeControl(worker, "reset");
+    const result = await run();
+    const counters = (await probeControl(worker, "snapshot")) as Counters;
+    return { result, counters };
+  };
 }
+
+// Host-side reads run synchronously inside the proxy call, so the window closes with the call.
+const hostMeasure: Measure = async (run) => {
+  resetCostProbe();
+  const result = await run();
+  return { result, counters: snapshotCostProbe() };
+};
 
 function assertApplied(label: string, result: unknown): void {
   const outcome = (result as { readonly outcome?: string } | undefined)?.outcome;
@@ -363,11 +427,19 @@ function assertApplied(label: string, result: unknown): void {
     throw new Error(`G1 ${label} was not applied (outcome=${outcome}): ${JSON.stringify(result)}`);
 }
 
+interface Subject {
+  readonly taskId: string;
+  createOpId?: string;
+  packagePath?: string;
+  decisionId?: string;
+}
+
 export interface G1ScaleMeasurement {
   readonly eventCount: number;
-  readonly counts: Record<string, Record<string, number>>;
-  readonly seedMs: number;
-  readonly measureMs: number;
+  /** Steady-state cost: the second call of each operation, the one the gate judges. */
+  readonly counts: Record<string, Counters>;
+  /** The first call of each operation, including one-time per-process work; reference only. */
+  readonly firstCall: Record<string, Counters>;
 }
 
 export async function measureWriteCostScaling(eventCount: number): Promise<G1ScaleMeasurement> {
@@ -379,8 +451,23 @@ export async function measureWriteCostScaling(eventCount: number): Promise<G1Sca
   initRepo(repoDir);
   const rootDir = canonicalRoot(repoDir);
   installCostProbe();
-  const counts: Record<string, Record<string, number>> = {};
-  const seedStartedAt = Date.now();
+  const counts: Record<string, Counters> = {},
+    firstCall: Record<string, Counters> = {},
+    // Every operation runs once to warm per-process caches, then once more to be judged: G1
+    // budgets the work each call does, not a process's one-time setup.
+    subjects: Subject[] = [{ taskId: "g1-warm-task" }, { taskId: "g1-measure-task" }];
+  const each = async (
+    operation: string,
+    measure: Measure,
+    run: (subject: Subject) => Promise<unknown>,
+    check: (result: unknown, subject: Subject) => void = (result) => assertApplied(operation, result),
+  ): Promise<void> => {
+    for (const [index, subject] of subjects.entries()) {
+      const measured = await measure(() => run(subject));
+      check(measured.result, subject);
+      (index === 0 ? firstCall : counts)[operation] = measured.counters;
+    }
+  };
   try {
     const authority = openPersistentWriterEpoch({ stateRoot, holderId: "g1-cost-scaling" }),
       lease = authority.acquire(repoId);
@@ -397,154 +484,110 @@ export async function measureWriteCostScaling(eventCount: number): Promise<G1Sca
     await (
       await openBootstrappedRepoCell({ repoId, rootDir, ownerId: "g1-cost-seed", defaultWriterEpochFence: fence })
     ).close();
-    const seeded = seedLedger(repoDir, repoId, eventCount, fence);
-    const seedMs = Date.now() - seedStartedAt;
+    const seeded = await seedLedger(repoDir, repoId, eventCount, fence);
+    // A ledger-owned prose file carries an unsubmitted local edit when the writer attaches, and
+    // keeps it through warmup and every measured write: the state a daemon (re)starts into on a
+    // live ledger. The follower must leave the edit alone without replaying history around it;
+    // 944a86ced did replay it, on every write, once a settlement had met the edit.
+    writeFileSync(path.join(repoDir, "harness", seeded.editedPath), "G1 local edit kept dirty through every write.\n");
 
-    const measureStartedAt = Date.now();
-    const handle = await openProbedSupervisor(repoId, rootDir, "g1-cost-measure", fence);
+    const handle = await openProbedSupervisor(repoId, rootDir, "g1-cost-measure", fence),
+      measure = writerMeasure(handle.worker);
     try {
-      // Warm up materialization on the already-attached probed writer, then dirty the settled
-      // authored file with a local edit that must survive every later write in this same
-      // attach — the exact shape 944a86ced regressed on. Introducing the edit only after a clean
-      // attach (rather than before) matches production: the daemon attaches once and stays warm.
       await handle.supervisor.request("settlePendingMaterialization", "g1 warmup");
-      if (seeded.editedPath)
-        writeFileSync(
-          path.join(repoDir, "harness", seeded.editedPath),
-          "G1 local edit kept dirty through every write.\n",
+      const run = (action: Record<string, unknown>, binding = writeBinding) =>
+        handle.supervisor.request<{ readonly opId: string; readonly packagePath: string; readonly evidence: string }>(
+          "run",
+          { action },
+          binding,
         );
 
-      const taskId = "g1-measure-task";
-      const created = await measureWorkerOperation(handle.worker, () =>
-        handle.supervisor.request<{ readonly opId: string; readonly packagePath: string }>(
-          "run",
-          { action: { kind: "task-create", taskId, title: "G1 measured create" } },
-          writeBinding,
-        ),
+      await each(
+        "task-create",
+        measure,
+        (subject) => run({ kind: "task-create", taskId: subject.taskId, title: `G1 measured ${subject.taskId}` }),
+        (result, subject) => {
+          assertApplied("task-create", result);
+          const created = result as { readonly opId: string; readonly packagePath: string };
+          subject.createOpId = created.opId;
+          subject.packagePath = created.packagePath;
+        },
       );
-      counts["task-create"] = created.counters;
-      assertApplied("task-create", created.result);
-      const createOpId = created.result.opId,
-        packagePath = created.result.packagePath;
-
-      const planPath = `${packagePath}/task_plan.md`;
-      mkdirSync(path.dirname(path.join(repoDir, "harness", planPath)), { recursive: true });
-      writeFileSync(path.join(repoDir, "harness", planPath), realizedTaskPlan("G1 measured task"));
-      const submitted = await measureWorkerOperation(handle.worker, () =>
-        handle.supervisor.request("run", { action: { kind: "doc-submit", paths: [planPath] } }, writeBinding),
+      await each("doc-submit", measure, (subject) => {
+        const planPath = `${subject.packagePath}/task_plan.md`;
+        mkdirSync(path.dirname(path.join(repoDir, "harness", planPath)), { recursive: true });
+        writeFileSync(path.join(repoDir, "harness", planPath), realizedTaskPlan(`G1 measured ${subject.taskId}`));
+        return run({ kind: "doc-submit", paths: [planPath] });
+      });
+      await each("task-start", measure, (subject) =>
+        run({ kind: "task-start", taskId: subject.taskId, executionId: `${subject.taskId}-execution` }),
       );
-      counts["doc-submit"] = submitted.counters;
-      assertApplied("doc-submit", submitted.result);
-
-      const executionId = "g1-measure-execution";
-      const started = await measureWorkerOperation(handle.worker, () =>
-        handle.supervisor.request("run", { action: { kind: "task-start", taskId, executionId } }, writeBinding),
+      await each("task-progress-append", measure, (subject) =>
+        run({ kind: "task-progress-append", taskId: subject.taskId, text: "G1 measured progress note.", evidence: [] }),
       );
-      counts["task-start"] = started.counters;
-      assertApplied("task-start", started.result);
-
-      const progressed = await measureWorkerOperation(handle.worker, () =>
-        handle.supervisor.request(
-          "run",
-          { action: { kind: "task-progress-append", taskId, text: "G1 measured progress note.", evidence: [] } },
-          writeBinding,
-        ),
+      await each("fact-record", measure, (subject) =>
+        run({
+          kind: "fact-record",
+          taskId: subject.taskId,
+          statement: `G1 measured fact for ${subject.taskId}.`,
+          evidenceSource: "g1:measure",
+          confidence: "high",
+          memoryClass: "semantic",
+          memoryTags: [],
+        }),
       );
-      counts["task-progress-append"] = progressed.counters;
-      assertApplied("task-progress-append", progressed.result);
-
-      const recorded = await measureWorkerOperation(handle.worker, () =>
-        handle.supervisor.request(
-          "run",
+      await each(
+        "decision-propose",
+        measure,
+        (subject) =>
+          run({
+            kind: "decision-propose",
+            body: realizedDecisionBody(`G1 measured decision for ${subject.taskId}`),
+            jsonInput: JSON.stringify({
+              title: `G1 measured decision for ${subject.taskId}`,
+              question: "Does one decision propose without extra cost at scale?",
+              riskTier: "medium",
+              urgency: "medium",
+              vertical: "software/coding",
+              preset: "standard-task",
+              decisionClass: "ordinary",
+              appliesTo: { modules: ["daemon"], productLines: [] },
+              chosen: [{ id: "CH1", text: "Measure the propose action directly." }],
+              rejected: [
+                { id: "RJ1", text: "Skip decision coverage.", whyNot: "Decisions are a durable write kind too." },
+              ],
+              claims: [{ id: "C1", text: "G1 measures decision-propose and one transition.", loadBearing: true }],
+              fulfillments: [],
+            }),
+          }),
+        (result, subject) => {
+          const evidence = (result as { readonly evidence?: string }).evidence;
+          if (!evidence?.startsWith("{"))
+            throw new Error(`G1 decision-propose was not applied: ${JSON.stringify(result)}`);
+          subject.decisionId = (JSON.parse(evidence) as { readonly decisionId: string }).decisionId;
+        },
+      );
+      await each("decision-reject", measure, (subject) =>
+        run(
           {
-            action: {
-              kind: "fact-record",
-              taskId,
-              statement: "G1 measured fact for the cost-scaling gate.",
-              evidenceSource: "g1:measure",
-              confidence: "high",
-              memoryClass: "semantic",
-              memoryTags: [],
-            },
-          },
-          writeBinding,
-        ),
-      );
-      counts["fact-record"] = recorded.counters;
-      assertApplied("fact-record", recorded.result);
-
-      const decisionPacket = {
-        title: "G1 measured decision",
-        question: "Does one decision propose without extra cost at scale?",
-        riskTier: "medium",
-        urgency: "medium",
-        vertical: "software/coding",
-        preset: "standard-task",
-        decisionClass: "ordinary",
-        appliesTo: { modules: ["daemon"], productLines: [] },
-        chosen: [{ id: "CH1", text: "Measure the propose action directly." }],
-        rejected: [{ id: "RJ1", text: "Skip decision coverage.", whyNot: "Decisions are a durable write kind too." }],
-        claims: [{ id: "C1", text: "G1 measures decision-propose and one transition.", loadBearing: true }],
-        fulfillments: [],
-      };
-      const proposed = await measureWorkerOperation(handle.worker, () =>
-        handle.supervisor.request<{ readonly evidence: string }>(
-          "run",
-          {
-            action: {
-              kind: "decision-propose",
-              body: realizedDecisionBody("G1 measured decision"),
-              jsonInput: JSON.stringify(decisionPacket),
-            },
-          },
-          writeBinding,
-        ),
-      );
-      counts["decision-propose"] = proposed.counters;
-      if (!proposed.result.evidence?.startsWith("{"))
-        throw new Error(`G1 decision-propose was not applied: ${JSON.stringify(proposed.result)}`);
-      const decisionId = (JSON.parse(proposed.result.evidence) as { readonly decisionId: string }).decisionId;
-
-      const accepted = await measureWorkerOperation(handle.worker, () =>
-        handle.supervisor.request(
-          "run",
-          {
-            action: {
-              kind: "decision-reject",
-              decisionId,
-              reason: "G1 measured rejection reason for the cost-scaling gate fixture decision.",
-            },
+            kind: "decision-reject",
+            decisionId: subject.decisionId,
+            reason: "G1 measured rejection reason for the cost-scaling gate fixture decision.",
           },
           arbiterBinding,
         ),
       );
-      counts["decision-reject"] = accepted.counters;
-      assertApplied("decision-reject", accepted.result);
-
-      const related = await measureWorkerOperation(handle.worker, () =>
-        handle.supervisor.request(
-          "run",
-          {
-            action: {
-              kind: "relation-relate",
-              sourceRef: `decision/${decisionId}/CH1`,
-              targetRef: `task/${taskId}`,
-              relationType: "derives",
-              rationale: "G1 measured relation for the cost-scaling gate.",
-              expectedVersion: 0,
-            },
-          },
-          writeBinding,
-        ),
+      await each("relation-relate", measure, (subject) =>
+        run({
+          kind: "relation-relate",
+          sourceRef: `decision/${subject.decisionId}/CH1`,
+          targetRef: `task/${subject.taskId}`,
+          relationType: "derives",
+          rationale: "G1 measured relation for the cost-scaling gate.",
+          expectedVersion: 0,
+        }),
       );
-      counts["relation-relate"] = related.counters;
-      assertApplied("relation-relate", related.result);
-
-      const shown = await measureWorkerOperation(handle.worker, () =>
-        handle.supervisor.request("run", { action: { kind: "receipt-show", opId: createOpId } }, writeBinding),
-      );
-      counts["receipt-show"] = shown.counters;
-      assertApplied("receipt-show", shown.result);
+      await each("receipt-show", measure, (subject) => run({ kind: "receipt-show", opId: subject.createOpId }));
     } finally {
       await handle.supervisor.close();
     }
@@ -556,31 +599,32 @@ export async function measureWriteCostScaling(eventCount: number): Promise<G1Sca
       defaultWriterEpochFence: fence,
     });
     try {
-      resetCostProbe();
-      await readCell.read("repo.tasks.list");
-      counts["task-list"] = snapshotCostProbe();
-
-      resetCostProbe();
-      await readCell.run({ kind: "task-show", taskId: "g1-measure-task" }, writeBinding);
-      counts["task-show"] = snapshotCostProbe();
-
-      resetCostProbe();
-      await readCell.read("repo.agenda.read");
-      counts["agenda"] = snapshotCostProbe();
-
-      resetCostProbe();
-      readCell.workspaceSummary();
-      counts["runtime-overview"] = snapshotCostProbe();
+      // List reads are judged at a page the 200-event ledger already fills in every bucket (it seeds
+      // 120 planned tasks and 4 proposed decisions), so both scales return the same full page and
+      // any row growth is work outside it. An unbounded full-set read scales with its result by
+      // definition and is not what G1 budgets.
+      const limit = 3;
+      await each("task-list", hostMeasure, () => readCell.run({ kind: "task-list", limit }, writeBinding));
+      await each("task-show", hostMeasure, (subject) =>
+        readCell.run({ kind: "task-show", taskId: subject.taskId }, writeBinding),
+      );
+      await each(
+        "agenda",
+        hostMeasure,
+        () => readCell.read("repo.agenda.read", { limit }),
+        () => undefined,
+      );
+      await each(
+        "runtime-overview",
+        hostMeasure,
+        async () => readCell.workspaceSummary(),
+        () => undefined,
+      );
     } finally {
       await readCell.close();
     }
-    const measureMs = Date.now() - measureStartedAt;
-    return { eventCount, counts, seedMs, measureMs };
+    return { eventCount, counts, firstCall };
   } finally {
     rmSync(parent, { recursive: true, force: true });
   }
-}
-
-export function g1FixturesDir(): string {
-  return path.dirname(fileURLToPath(import.meta.url));
 }

@@ -12,10 +12,15 @@ parentPort?.on("message", (message) => {
     resetCostProbe();
     parentPort.postMessage({ schema: "g1-cost-probe-ack/v1", requestId: message.requestId });
   } else if (message.command === "snapshot") {
-    parentPort.postMessage({
-      schema: "g1-cost-probe-result/v1",
-      requestId: message.requestId,
-      counters: snapshotCostProbe(),
-    });
+    // An append settles the Git/worktree follower from a setImmediate it queues before the
+    // response goes out (sqlite-task-event-store.ts scheduleFollower). Snapshotting one immediate
+    // turn later closes the window after that settlement without scheduling another one.
+    setImmediate(() =>
+      parentPort.postMessage({
+        schema: "g1-cost-probe-result/v1",
+        requestId: message.requestId,
+        counters: snapshotCostProbe(),
+      }),
+    );
   }
 });

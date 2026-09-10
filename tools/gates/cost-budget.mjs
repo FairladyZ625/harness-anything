@@ -165,16 +165,17 @@ export async function evaluateCostBudget({
 
 // --- G1 write-path scale invariant -----------------------------------------------------------
 // Extends the cost-budget gate (dec_EF5F3820E81FB8A5266F1F3342 CH1, refining dec_D507BBA7174F4BF61521CAEB61):
-// every durable write kind and hot read runs once through the production daemon request path on a
-// 200-event and a 2000-event ledger; a 10x history growth must not cost meaningfully more per call.
+// every durable write kind and hot read runs through the production daemon request path on a
+// 200-event and a 2000-event ledger, and its steady-state call (the one after a warm-up call) is
+// judged; a 10x history growth must not cost meaningfully more per call.
 export const G1_SCALES = Object.freeze({ small: 200, large: 2000 });
 
 // Fixed, per-metric absolute margins (not per operation): the measured 200-scale and 2000-scale
 // counts for an unexempted (operation, metric) pair must differ by no more than this. Values come
 // from the noise observed on flat operations at head (task_78327209a449760a74d1992de3 report):
 export const G1_MARGINS = Object.freeze({
-  // Flat operations show 0 row difference between scales; 20 tolerates incidental plan/query
-  // shape changes (e.g. an added WHERE clause) without masking a real O(N) regression.
+  // Flat operations show 0 row difference between scales. The scarcest seeded kinds (decisions and
+  // their relations) still grow by 36 rows between scales, so a scan of any one kind exceeds 20.
   sqlRowsRead: 20,
   // Every operation hashes a fixed number of times regardless of scale; 2 covers incidental
   // additions (e.g. one more content-addressed blob) without hiding a growing hash count.
@@ -258,10 +259,10 @@ function g1HasReceipt(receipts, operation, metric, limit, now) {
 export async function measureG1WriteCostScaling(rootDir, scales) {
   const moduleUrl = pathToFileURL(path.join(rootDir, "packages/daemon/test/fixtures/g1-write-cost-scaling.ts")).href;
   const { measureWriteCostScaling, G1_OPERATIONS, G1_METRICS } = await import(moduleUrl);
-  const [small, large] = await Promise.all([
-    measureWriteCostScaling(scales.small),
-    measureWriteCostScaling(scales.large),
-  ]);
+  // One scale after the other: host-side reads are counted by process-wide probe counters, which a
+  // concurrently seeding or measuring scale would add its own work to.
+  const small = await measureWriteCostScaling(scales.small),
+    large = await measureWriteCostScaling(scales.large);
   return { small, large, operations: G1_OPERATIONS, metrics: G1_METRICS };
 }
 
@@ -297,7 +298,8 @@ export async function evaluateG1WriteCostScaling({
         );
       if (measuredSmall > budget.budgets[operation][metric])
         errors.push(
-          `${operation}.${metric}: measured ${measuredSmall} at ${G1_SCALES.small} events exceeds budget ${budget.budgets[operation][metric]}`,
+          `${operation}.${metric}: measured ${measuredSmall} at ${G1_SCALES.small} events exceeds budget ` +
+            `${budget.budgets[operation][metric]}`,
         );
 
       // Scale-invariance: 2000-scale must not exceed 200-scale plus the fixed per-metric margin,
@@ -307,15 +309,18 @@ export async function evaluateG1WriteCostScaling({
       if (exemption) {
         if (Date.parse(exemption.expiresAt) <= now.getTime())
           errors.push(
-            `${operation}.${metric}: knownScaling exemption expired at ${exemption.expiresAt} (deletion task ${exemption.deletionTaskId}); renew or fix and remove it`,
+            `${operation}.${metric}: knownScaling exemption expired at ${exemption.expiresAt} ` +
+              `(deletion task ${exemption.deletionTaskId}); renew or fix and remove it`,
           );
         else if (withinMargin)
           errors.push(
-            `${operation}.${metric}: knownScaling exemption is stale (measured ${measuredSmall}->${measuredLarge} is already within the margin); remove the exemption`,
+            `${operation}.${metric}: knownScaling exemption is stale (measured ${measuredSmall}->${measuredLarge} ` +
+              `is already within the margin); remove the exemption`,
           );
       } else if (!withinMargin)
         errors.push(
-          `${operation}.${metric}: measured ${measuredSmall} at ${G1_SCALES.small} events grew to ${measuredLarge} at ${G1_SCALES.large} events, ` +
+          `${operation}.${metric}: measured ${measuredSmall} at ${G1_SCALES.small} events grew to ` +
+            `${measuredLarge} at ${G1_SCALES.large} events, ` +
             `exceeding the +${G1_MARGINS[metric]} margin with no knownScaling exemption`,
         );
     }

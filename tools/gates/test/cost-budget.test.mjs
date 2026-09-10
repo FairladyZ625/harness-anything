@@ -4,7 +4,14 @@ import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { evaluateCostBudget, evaluateG1WriteCostScaling, measureCosts, readCostFixture } from "../cost-budget.mjs";
+import { pathToFileURL } from "node:url";
+import {
+  evaluateCostBudget,
+  evaluateG1WriteCostScaling,
+  measureCosts,
+  measureG1WriteCostScaling,
+  readCostFixture,
+} from "../cost-budget.mjs";
 import { signReceipt } from "../receipt-verify.mjs";
 
 function fixture() {
@@ -233,6 +240,32 @@ test("G1 requires a signed receipt to raise a committed budget above baseline", 
   );
   const withReceipt = await evaluateG1WriteCostScaling({ rootDir, measured });
   assert.equal(withReceipt.ok, true, JSON.stringify(withReceipt.errors));
+});
+
+test("G1 measures the two ledger scales one after the other", async () => {
+  const rootDir = mkdtempSync(path.join(os.tmpdir(), "ha-g1-sequential-")),
+    fixtureDir = path.join(rootDir, "packages/daemon/test/fixtures");
+  mkdirSync(fixtureDir, { recursive: true });
+  // Each fake measurement yields mid-flight; overlapping scales would record a second start first.
+  writeFileSync(
+    path.join(fixtureDir, "g1-write-cost-scaling.ts"),
+    [
+      "export const G1_OPERATIONS = ['op-a'];",
+      "export const G1_METRICS = ['sqlRowsRead'];",
+      "export const events = [];",
+      "export async function measureWriteCostScaling(eventCount) {",
+      "  events.push(`start:${eventCount}`);",
+      "  await new Promise((resolve) => setTimeout(resolve, 5));",
+      "  events.push(`end:${eventCount}`);",
+      "  return { eventCount, counts: { 'op-a': { sqlRowsRead: eventCount } } };",
+      "}",
+      "",
+    ].join("\n"),
+  );
+  const measured = await measureG1WriteCostScaling(rootDir, { small: 200, large: 2000 });
+  const { events } = await import(pathToFileURL(path.join(fixtureDir, "g1-write-cost-scaling.ts")).href);
+  assert.deepEqual(events, ["start:200", "end:200", "start:2000", "end:2000"]);
+  assert.deepEqual([measured.small.eventCount, measured.large.eventCount], [200, 2000]);
 });
 
 test("G1 rejects a budget file missing an operation the measurement covers", async () => {

@@ -31,7 +31,8 @@ export function installCostProbe() {
 
   const statementProto = StatementSync.prototype,
     originalAll = statementProto.all,
-    originalGet = statementProto.get;
+    originalGet = statementProto.get,
+    originalIterate = statementProto.iterate;
   statementProto.all = function all(...args) {
     const result = originalAll.apply(this, args);
     counters.sqlRowsRead += rowCount(result);
@@ -41,6 +42,18 @@ export function installCostProbe() {
     const result = originalGet.apply(this, args);
     counters.sqlRowsRead += rowCount(result);
     return result;
+  };
+  // Streaming reads (the projection state digest walks every table this way) return their rows
+  // one step at a time, so each step the caller takes is one row read.
+  statementProto.iterate = function iterate(...args) {
+    const iterator = originalIterate.apply(this, args),
+      next = iterator.next.bind(iterator);
+    iterator.next = (...nextArgs) => {
+      const step = next(...nextArgs);
+      if (!step.done) counters.sqlRowsRead += 1;
+      return step;
+    };
+    return iterator;
   };
 
   const hashProto = crypto.Hash.prototype,
