@@ -288,7 +288,6 @@ export {
   makeTaskEventReader,
   openEntityStore,
   resolveLedgerGitLayout,
-  resolveRetirableDocument,
   eventShapeMigrations,
   makeTaskEventStore,
   makeTaskProjection,

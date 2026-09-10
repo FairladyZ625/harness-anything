@@ -13,7 +13,6 @@ import {
   resolveDocRoute,
   resolveHarnessLayout,
   resolveLedgerGitLayout,
-  resolveRetirableDocument,
   sha256Bytes,
   stableStringify,
   type ActorIdentity,
@@ -306,7 +305,7 @@ export function runDocRetire(input: Input): DocSettlementReceipt {
   const read = input.projection.readDocument(target);
   if (read.watermark !== read.sourceRevision)
     throw docSyncError("projection_pending", "retry after the canonical projection catches up");
-  const document = resolveRetirableDocument(input.rootDir, target, read.document, input.store.read().events);
+  const document = read.document;
   if (document === null) throw docSyncError("document_not_found", `canonical document does not exist: ${target}`);
   const authoredTarget = path.join(resolveHarnessLayout(input.rootDir).authoredRoot, ...target.split("/"));
   if (existsSync(authoredTarget) && sha256Bytes(readFileSync(authoredTarget)) !== document.blobSha256)

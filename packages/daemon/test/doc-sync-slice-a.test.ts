@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -561,7 +561,7 @@ function unresolvedDetail(...unresolvedTouches: ReturnType<typeof touch>[]) {
   return detail(intent, current, "unresolved_touch", null, unresolvedTouches);
 }
 
-test("full scans do not infer legacy retirement while explicit retire remains available", async () => {
+test("doc retire refuses a document the canonical projection never claimed, even when Git HEAD tracks it", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-retire-tracked-"));
   initRepo(rootDir);
   const logical = "tmp/legacy-tracked.md",
@@ -570,7 +570,7 @@ test("full scans do not infer legacy retirement while explicit retire remains av
   write(rootDir, logical, body);
   git(rootDir, "add", `harness/${logical}`);
   git(rootDir, "commit", "-qm", "track legacy document");
-  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined = await openRepoCell({
+  const cell = await openRepoCell({
     repoId: workspaceId("retire-tracked"),
     rootDir: canonicalRoot(rootDir),
     ownerId: "retire-tracked-daemon",
@@ -586,42 +586,11 @@ test("full scans do not infer legacy retirement while explicit retire remains av
     assert.deepEqual(status.detail?.deletions, []);
 
     const retired = await cell.run({ kind: "doc-retire", path: logical, reason }, binding);
-    assert.equal(retired.outcome, "applied", JSON.stringify(retired));
-    await waitForWorktree(cell, retired);
-    assert.match(retired.evidence ?? "", /^doc-retirement:/u);
-    assert.equal(
-      makeTaskEventReader({ repoId: "retire-tracked", rootDir }).readEvent(retired.opId)?.schema,
-      "doc-event/v1",
-    );
-    assert.equal(
-      rows((await cell.run({ kind: "doc-status", paths: [] }, binding)).evidence).some(
-        (row) => row.state === "deletion",
-      ),
-      false,
-    );
-    await cell.close();
-    cell = undefined;
-    assert.equal(git(rootDir, "ls-tree", "--name-only", "HEAD", `harness/${logical}`), "");
-    assert.equal(git(rootDir, "ls-files", `harness/${logical}`), "");
-    assert.equal(existsSync(path.join(rootDir, "harness", logical)), false);
-    const reopened = await openRepoCell({
-      repoId: workspaceId("retire-tracked"),
-      rootDir: canonicalRoot(rootDir),
-      ownerId: "retire-tracked-reopened",
-    });
-    try {
-      assert.deepEqual(
-        rows((await reopened.run({ kind: "doc-status", paths: [] }, binding)).evidence).map((row) => [
-          row.path,
-          row.state,
-        ]),
-        [],
-      );
-    } finally {
-      await reopened.close();
-    }
+    assert.equal(retired.outcome, "op_rejected", JSON.stringify(retired));
+    assert.equal(retired.code, "document_not_found");
+    assert.equal(git(rootDir, "ls-tree", "--name-only", "HEAD", `harness/${logical}`), `harness/${logical}`);
   } finally {
-    await cell?.close();
+    await cell.close();
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
