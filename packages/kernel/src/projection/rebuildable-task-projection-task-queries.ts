@@ -125,14 +125,14 @@ export function taskQueryApi(
 > {
   const { eventStore, limit, projectionPath, readHead } = context;
   return {
-    readTaskIndex: () => {
+    readTaskIndex: (query = {}) => {
       const existed = localRuntimeStateFileSystem.exists(projectionPath);
       return withDatabase(projectionPath, readHead, (db) => {
         const cut = readProjectionCut(db, readHead);
         return {
           schema: "task-index-projection/v1" as const,
           status: cut.status,
-          rows: readTaskIndexRows(db),
+          ...readTaskIndexRows(db, query),
           watermark: cut.watermark,
           sourceRevision: cut.sourceRevision,
           warnings: !existed && cut.sourceRevision > 0 ? (["projection_missing"] as const) : [],

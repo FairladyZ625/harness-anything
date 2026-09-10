@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
+import { REPLAY_TASK_GRAPH } from "../../src/domain/task-graph.ts";
 import {
   createDecisionProjectionTables,
   listDecisionAgendaRowsPage,
@@ -20,9 +21,53 @@ import {
   createTaskRelationProjectionTable,
   listTaskRowsNarrow,
   readTaskDependencyClosureRows,
+  readTaskIndexRows,
   readTaskRelationsByTargets,
   readTaskStatusRows,
 } from "../../src/projection/task-query-projection.ts";
+
+test("filtered task index parses only the returned page", () => {
+  const db = new DatabaseSync(":memory:");
+  try {
+    db.exec(
+      "CREATE TABLE task_snapshot (task_id TEXT PRIMARY KEY, status TEXT, updated_at TEXT NOT NULL, snapshot_json TEXT NOT NULL); " +
+        "CREATE TABLE task_package (task_id TEXT PRIMARY KEY, package_path TEXT)",
+    );
+    const insert = db.prepare("INSERT INTO task_snapshot VALUES (?, ?, ?, ?)"),
+      task = (taskId: string) =>
+        JSON.stringify({
+          task: {
+            schema: "task/v2",
+            taskId,
+            title: `Match ${taskId}`,
+            taskClass: "standard",
+            status: "active",
+            graph: REPLAY_TASK_GRAPH,
+            currentNode: "implementation",
+            iteration: 0,
+            pinned: false,
+            createdBy: { principal: { personId: "person-fixture" }, executor: null },
+            completionGateIds: [],
+            presetSnapshotDigest: null,
+            packageDisposition: "active",
+          },
+        });
+    insert.run("task_001", "active", "2026-09-10T00:00:00.000Z", task("task_001"));
+    insert.run("task_002", "active", "2026-09-10T00:00:00.000Z", task("task_002"));
+    for (let index = 3; index <= 1_000; index += 1)
+      insert.run(`task_${String(index).padStart(3, "0")}`, "done", "2026-09-10T00:00:00.000Z", "invalid");
+
+    const page = readTaskIndexRows(db, { status: "active", limit: 1 });
+    assert.deepEqual(
+      page.rows.map(({ taskId }) => taskId),
+      ["task_001"],
+    );
+    assert.ok(page.page?.nextCursor);
+    assert.throws(() => readTaskIndexRows(db), /projection snapshot mismatch for task task_003/u);
+  } finally {
+    db.close();
+  }
+});
 
 // Counts statement executions so the assertions describe query shape, not wall-clock time:
 // an N+1 regression changes the count deterministically on any machine, under any load.

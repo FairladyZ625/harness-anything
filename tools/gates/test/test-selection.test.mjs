@@ -34,6 +34,9 @@ test("G26 selects the changed test tier and governance mechanism tiers", () => {
     selectTests(["tools/gates/evidence-contract.mjs"]).errors.join("\n"),
     /require a tools\/gates\/test data fixture/u,
   );
+  const budgetData = selectTests(["tools/gates/cost-budget.json"]);
+  assert.equal(budgetData.ok, true, budgetData.errors.join("\n"));
+  assert.deepEqual(budgetData.required, ["fast", "contract"]);
 });
 
 test("G25 does not inherit the tooling production label outside its governance predicate", () => {

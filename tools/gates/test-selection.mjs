@@ -39,7 +39,9 @@ export function selectTests(changedPaths, options = {}) {
     }
     const { module, kind } = classifyPath(filePath);
     if (
-      (filePath.startsWith("tools/gates/") && !filePath.startsWith("tools/gates/test/")) ||
+      (filePath.startsWith("tools/gates/") &&
+        !filePath.startsWith("tools/gates/test/") &&
+        !filePath.endsWith(".json")) ||
       filePath === "eslint.config.mjs" ||
       filePath === ".github/workflows/rebuild-gates.yml"
     )
