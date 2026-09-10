@@ -13,6 +13,7 @@ import {
   resolveTaskBoundRuntimeBinding,
   runtimeSessionIdFromActor,
   stableStringify,
+  localGitObjectRefStore,
   taskProgressWritePlan,
   validFactStillHoldsAttestation,
   type CompletionReadinessContext,
@@ -49,11 +50,25 @@ function readCiEvidence(
   const reference = value.startsWith("event:") ? value.slice("event:".length) : value,
     event = cell.store.readEvent(reference);
   if (!event || event.type !== "ci_run_observed") return null;
-  if (event.payload.run.sha !== execution.submission.commitSha)
+  const exactCommit = event.payload.run.sha === execution.submission.commitSha;
+  let mainDescendant = false;
+  if (!exactCommit && event.payload.run.branch === "main") {
+    try {
+      mainDescendant = localGitObjectRefStore.isAncestor(
+        cell.rootDir,
+        execution.submission.commitSha,
+        event.payload.run.sha,
+      );
+    } catch (error) {
+      consumeKnownError(error);
+      mainDescendant = false;
+    }
+  }
+  if (!exactCommit && !mainDescendant)
     throw cell.cellCodedError(
       "invalid_proof",
       `CI run ${event.payload.run.runId} tested ${event.payload.run.sha}; ` +
-        `this execution submitted ${execution.submission.commitSha}. Use an observation for the submitted commit.`,
+        `this execution submitted ${execution.submission.commitSha}. Use an observation for the submitted commit or its green main descendant.`,
     );
   const verification = event.payload.verification;
   if (!verification)
@@ -68,7 +83,11 @@ function readCiEvidence(
     });
   const result: CompletionEvidenceResult = verification.conclusion === "success" ? "pass" : "fail";
   if (!completionEvidenceResults.includes(result)) return null;
-  const basis: CompletionEvidenceBasis = { ...completionEvidenceBasis(execution), ledgerCut: event.workspaceRevision },
+  const basis: CompletionEvidenceBasis = {
+      ...completionEvidenceBasis(execution),
+      ...(exactCommit ? {} : { testedCommit: event.payload.run.sha, testedCommitIsMainDescendant: true }),
+      ledgerCut: event.workspaceRevision,
+    },
     provenance: CompletionEvidenceProvenance = {
       source: "runner",
       runId: event.payload.run.runId,

@@ -71,6 +71,9 @@ export function validateCompletionGateWitnessV1(
         (record.basis.iteration !== 0 && record.basis.iteration !== 1) ||
         !/^sha256:[0-9a-f]{64}$/u.test(record.basis.submissionDigest) ||
         (record.basis.codeCommit !== undefined && !isNativeCommitSha(record.basis.codeCommit)) ||
+        (record.basis.testedCommit !== undefined && !isNativeCommitSha(record.basis.testedCommit)) ||
+        (record.basis.testedCommitIsMainDescendant !== undefined &&
+          typeof record.basis.testedCommitIsMainDescendant !== "boolean") ||
         (record.basis.ledgerCut !== undefined &&
           (!Number.isSafeInteger(record.basis.ledgerCut) || record.basis.ledgerCut < 0)))) ||
     (record.provenance !== undefined &&
