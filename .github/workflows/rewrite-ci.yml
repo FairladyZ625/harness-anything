@@ -122,6 +122,7 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      - run: npm run harness:check-poll-spin-boundary
       - run: node tools/run-manifest-gates.mjs --workflow-job crlf-checkout
       - name: Upload structured CI observation artifact
         if: always()
@@ -301,6 +302,7 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      - run: npm run harness:check-fallback-boundaries
       - name: Run boundary gates
         env:
           GITHUB_TOKEN: ${{ github.token }}

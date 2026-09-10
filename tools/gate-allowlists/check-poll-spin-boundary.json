@@ -1,0 +1,140 @@
+{
+  "schema": "harness-anything/gate-allowlist/v1",
+  "gateId": "check-poll-spin-boundary",
+  "entries": {
+    "exceptions": [
+      {
+        "key": "packages/cli/src/daemon/client.ts#settleRepoWarming#clock-loop",
+        "event": "baseline-2026-09-10: no awaitable completion event is exposed by the current API",
+        "ref": "dec_EF5F3820E81FB8A5266F1F3342",
+        "reason": "Existing polling or synchronous bridge at the CH3 baseline."
+      },
+      {
+        "key": "packages/cli/src/daemon/control.ts#waitForDaemonStop#short-timer",
+        "event": "baseline-2026-09-10: no awaitable completion event is exposed by the current API",
+        "ref": "dec_EF5F3820E81FB8A5266F1F3342",
+        "reason": "Existing polling or synchronous bridge at the CH3 baseline."
+      },
+      {
+        "key": "packages/cli/src/daemon/control.ts#waitProcessExit#short-timer",
+        "event": "baseline-2026-09-10: no awaitable completion event is exposed by the current API",
+        "ref": "dec_EF5F3820E81FB8A5266F1F3342",
+        "reason": "Existing polling or synchronous bridge at the CH3 baseline."
+      },
+      {
+        "key": "packages/daemon/src/client/daemon-autostart.ts#ensureLocalDaemonRunning#await-in-loop",
+        "event": "baseline-2026-09-10: no awaitable completion event is exposed by the current API",
+        "ref": "dec_EF5F3820E81FB8A5266F1F3342",
+        "reason": "Existing polling or synchronous bridge at the CH3 baseline."
+      },
+      {
+        "key": "packages/daemon/src/client/daemon-autostart.ts#waitForDaemonGenerationChange#await-in-loop",
+        "event": "baseline-2026-09-10: no awaitable completion event is exposed by the current API",
+        "ref": "dec_EF5F3820E81FB8A5266F1F3342",
+        "reason": "Existing polling or synchronous bridge at the CH3 baseline."
+      },
+      {
+        "key": "packages/daemon/src/daemon-singleton.ts#readHolderPid#short-timer",
+        "event": "baseline-2026-09-10: no awaitable completion event is exposed by the current API",
+        "ref": "dec_EF5F3820E81FB8A5266F1F3342",
+        "reason": "Existing polling or synchronous bridge at the CH3 baseline."
+      },
+      {
+        "key": "packages/daemon/src/fleet-edge-mirror.ts#acquireFleetMirrorFileLock#short-timer",
+        "event": "baseline-2026-09-10: no awaitable completion event is exposed by the current API",
+        "ref": "dec_EF5F3820E81FB8A5266F1F3342",
+        "reason": "Existing polling or synchronous bridge at the CH3 baseline."
+      },
+      {
+        "key": "packages/daemon/src/fleet-edge-task.ts#runFleetEdgeTask#await-in-loop",
+        "event": "baseline-2026-09-10: no awaitable completion event is exposed by the current API",
+        "ref": "dec_EF5F3820E81FB8A5266F1F3342",
+        "reason": "Existing polling or synchronous bridge at the CH3 baseline."
+      },
+      {
+        "key": "packages/daemon/src/lease-broker.ts#parkOn#short-timer",
+        "event": "baseline-2026-09-10: no awaitable completion event is exposed by the current API",
+        "ref": "dec_EF5F3820E81FB8A5266F1F3342",
+        "reason": "Existing polling or synchronous bridge at the CH3 baseline."
+      },
+      {
+        "key": "packages/daemon/src/repo-writer-worker.ts#syncCapability#atomics-wait",
+        "event": "baseline-2026-09-10: no awaitable completion event is exposed by the current API",
+        "ref": "dec_EF5F3820E81FB8A5266F1F3342",
+        "reason": "Existing polling or synchronous bridge at the CH3 baseline."
+      },
+      {
+        "key": "packages/daemon/src/runtime-spawn-adoption.ts#adoptRuntimes#short-timer",
+        "event": "baseline-2026-09-10: no awaitable completion event is exposed by the current API",
+        "ref": "dec_EF5F3820E81FB8A5266F1F3342",
+        "reason": "Existing polling or synchronous bridge at the CH3 baseline."
+      },
+      {
+        "key": "packages/daemon/src/runtime-spawn-process.ts#awaitRuntimeProcessExit#await-in-loop",
+        "event": "baseline-2026-09-10: no awaitable completion event is exposed by the current API",
+        "ref": "dec_EF5F3820E81FB8A5266F1F3342",
+        "reason": "Existing polling or synchronous bridge at the CH3 baseline."
+      },
+      {
+        "key": "packages/daemon/src/runtime-spawn-process.ts#awaitRuntimeProcessExit#clock-loop",
+        "event": "baseline-2026-09-10: no awaitable completion event is exposed by the current API",
+        "ref": "dec_EF5F3820E81FB8A5266F1F3342",
+        "reason": "Existing polling or synchronous bridge at the CH3 baseline."
+      },
+      {
+        "key": "packages/daemon/src/runtime-spawn-provider-stream.ts#consumeDurableOutput#await-in-loop",
+        "event": "baseline-2026-09-10: no awaitable completion event is exposed by the current API",
+        "ref": "dec_EF5F3820E81FB8A5266F1F3342",
+        "reason": "Existing polling or synchronous bridge at the CH3 baseline."
+      },
+      {
+        "key": "packages/daemon/src/runtime-spawn-provider-stream.ts#consumeDurableOutput#clock-loop",
+        "event": "baseline-2026-09-10: no awaitable completion event is exposed by the current API",
+        "ref": "dec_EF5F3820E81FB8A5266F1F3342",
+        "reason": "Existing polling or synchronous bridge at the CH3 baseline."
+      },
+      {
+        "key": "packages/gui/src/renderer/views/SessionsView.tsx#SessionsView#short-timer",
+        "event": "baseline-2026-09-10: no awaitable completion event is exposed by the current API",
+        "ref": "dec_EF5F3820E81FB8A5266F1F3342",
+        "reason": "Existing polling or synchronous bridge at the CH3 baseline."
+      },
+      {
+        "key": "packages/kernel/src/store/local-version-control-system.ts#awaitDurableSettlement#atomics-wait",
+        "event": "baseline-2026-09-10: no awaitable completion event is exposed by the current API",
+        "ref": "dec_EF5F3820E81FB8A5266F1F3342",
+        "reason": "Existing polling or synchronous bridge at the CH3 baseline."
+      },
+      {
+        "key": "packages/kernel/src/store/local-version-control-system.ts#getSettlementWorker#atomics-wait",
+        "event": "baseline-2026-09-10: no awaitable completion event is exposed by the current API",
+        "ref": "dec_EF5F3820E81FB8A5266F1F3342",
+        "reason": "Existing polling or synchronous bridge at the CH3 baseline."
+      },
+      {
+        "key": "packages/kernel/src/store/sqlite-event-store.ts#configureLedgerConnection#atomics-wait",
+        "event": "baseline-2026-09-10: no awaitable completion event is exposed by the current API",
+        "ref": "dec_EF5F3820E81FB8A5266F1F3342",
+        "reason": "Existing polling or synchronous bridge at the CH3 baseline."
+      },
+      {
+        "key": "packages/preset/src/preset-process-service.ts#execute#short-timer",
+        "event": "baseline-2026-09-10: no awaitable completion event is exposed by the current API",
+        "ref": "dec_EF5F3820E81FB8A5266F1F3342",
+        "reason": "Existing polling or synchronous bridge at the CH3 baseline."
+      },
+      {
+        "key": "packages/preset/src/preset-process-service.ts#terminateChild#short-timer",
+        "event": "baseline-2026-09-10: no awaitable completion event is exposed by the current API",
+        "ref": "dec_EF5F3820E81FB8A5266F1F3342",
+        "reason": "Existing polling or synchronous bridge at the CH3 baseline."
+      },
+      {
+        "key": "tools/gates/windows-first-run.mjs#evaluateWindowsFirstRun#clock-loop",
+        "event": "baseline-2026-09-10: no awaitable completion event is exposed by the current API",
+        "ref": "dec_EF5F3820E81FB8A5266F1F3342",
+        "reason": "Existing polling or synchronous bridge at the CH3 baseline."
+      }
+    ]
+  }
+}

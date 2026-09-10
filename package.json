@@ -56,6 +56,8 @@
     "harness:check-cli-error-codes": "node tools/check-cli-error-codes.mjs",
     "harness:check-error-classification": "node tools/check-error-classification.mjs",
     "harness:check-import-boundaries": "node tools/check-import-boundaries.mjs",
+    "harness:check-poll-spin-boundary": "node tools/check-poll-spin-boundary.mjs",
+    "harness:check-fallback-boundaries": "node tools/check-fallback-boundaries.mjs",
     "harness:scan-forbidden-symbols": "node tools/scan-forbidden-symbols.mjs",
     "harness:check-duplicate-definitions": "node tools/check-duplicate-definitions.mjs",
     "harness:check-integrity-single-source": "node tools/check-integrity-single-source.mjs",

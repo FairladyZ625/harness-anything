@@ -1,11 +1,7 @@
 import { createHash } from "node:crypto";
 import path from "node:path";
 
-const FUNCTION_NODE_TYPES = new Set([
-  "ArrowFunctionExpression",
-  "FunctionDeclaration",
-  "FunctionExpression"
-]);
+const FUNCTION_NODE_TYPES = new Set(["ArrowFunctionExpression", "FunctionDeclaration", "FunctionExpression"]);
 const SUCCESS_WORDS = new Set(["clean", "ok", "success", "succeeded"]);
 
 function normalizedFilename(filename) {
@@ -36,6 +32,19 @@ function baselineLocationIndependentKey(filename, hash) {
   return `${normalizedFilename(filename)}#${hash}`;
 }
 
+function enclosingFunction(node) {
+  for (let current = node.parent; current; current = current.parent) {
+    if (current.type === "FunctionDeclaration" && current.id) return current.id.name;
+    if (["FunctionExpression", "ArrowFunctionExpression"].includes(current.type)) {
+      if (current.parent?.type === "VariableDeclarator" && current.parent.id.type === "Identifier")
+        return current.parent.id.name;
+      if (current.parent?.type === "Property") return current.parent.key.name ?? current.parent.key.value;
+    }
+    if (current.type === "MethodDefinition") return current.key.name ?? current.key.value;
+  }
+  return "<module>";
+}
+
 function baselineMembership(baselineEntries) {
   const keys = new Set();
   for (const entry of baselineEntries) {
@@ -52,7 +61,8 @@ function baselineMembership(baselineEntries) {
 
 function calleeName(callee) {
   if (callee?.type === "Identifier") return callee.name;
-  if (callee?.type === "MemberExpression" && !callee.computed && callee.property.type === "Identifier") return callee.property.name;
+  if (callee?.type === "MemberExpression" && !callee.computed && callee.property.type === "Identifier")
+    return callee.property.name;
   return null;
 }
 
@@ -73,15 +83,25 @@ function successLike(node) {
   if (node === null || node === undefined) return true;
   if (node.type === "Identifier") return node.name === "undefined" || SUCCESS_WORDS.has(node.name);
   if (node.type === "UnaryExpression" && node.operator === "void") return true;
-  if (node.type === "Literal") return node.value === null || node.value === true || (typeof node.value === "string" && SUCCESS_WORDS.has(node.value.toLowerCase()));
+  if (node.type === "Literal")
+    return (
+      node.value === null ||
+      node.value === true ||
+      (typeof node.value === "string" && SUCCESS_WORDS.has(node.value.toLowerCase()))
+    );
   if (node.type === "CallExpression") return SUCCESS_WORDS.has(calleeName(node.callee));
   if (node.type !== "ObjectExpression") return false;
   return node.properties.some((property) => {
     if (property.type !== "Property" || property.computed) return false;
     const key = property.key.type === "Identifier" ? property.key.name : property.key.value;
-    if ((key === "ok" || key === "success") && property.value.type === "Literal" && property.value.value === true) return true;
+    if ((key === "ok" || key === "success") && property.value.type === "Literal" && property.value.value === true)
+      return true;
     if (!["kind", "outcome", "result", "status", "verdict"].includes(key)) return false;
-    return property.value.type === "Literal" && typeof property.value.value === "string" && SUCCESS_WORDS.has(property.value.value.toLowerCase());
+    return (
+      property.value.type === "Literal" &&
+      typeof property.value.value === "string" &&
+      SUCCESS_WORDS.has(property.value.value.toLowerCase())
+    );
   });
 }
 
@@ -89,9 +109,12 @@ function statementTerminates(statement) {
   if (!statement) return false;
   if (statement.type === "ReturnStatement" || statement.type === "ThrowStatement") return true;
   if (statement.type === "BlockStatement") return statementTerminates(statement.body.at(-1));
-  if (statement.type === "IfStatement") return statement.alternate !== null
-    && statementTerminates(statement.consequent)
-    && statementTerminates(statement.alternate);
+  if (statement.type === "IfStatement")
+    return (
+      statement.alternate !== null &&
+      statementTerminates(statement.consequent) &&
+      statementTerminates(statement.alternate)
+    );
   return false;
 }
 
@@ -99,23 +122,31 @@ export default {
   meta: {
     type: "problem",
     docs: {
-      description: "Require caught failures to be propagated, explicitly consumed, or returned as failures"
+      description: "Require caught failures to be propagated, explicitly consumed, or returned as failures",
     },
-    schema: [{
-      type: "object",
-      properties: {
-        baseline: { type: "array", items: { type: "string" }, uniqueItems: true }
+    schema: [
+      {
+        type: "object",
+        properties: {
+          baseline: { type: "array", items: { type: "string" }, uniqueItems: true },
+          substitutionBaseline: { type: "array", items: { type: "string" }, uniqueItems: true },
+        },
+        additionalProperties: false,
       },
-      additionalProperties: false
-    }],
+    ],
     messages: {
-      fallthrough: "Caught failure can fall through without rethrow or consumeKnownError(). Baseline key: {{fingerprint}}",
-      success: "Caught failure is projected as undefined or success without consumeKnownError(). Baseline key: {{fingerprint}}"
-    }
+      fallthrough:
+        "Caught failure can fall through without rethrow or consumeKnownError(). Baseline key: {{fingerprint}}",
+      success:
+        "Caught failure is projected as undefined or success without consumeKnownError(). Baseline key: {{fingerprint}}",
+      substitute:
+        "Caught failure is replaced with another producer's value. Baseline key: {{key}}; register the reachable branch in tools/gate-allowlists/check-fallback-boundaries.json.",
+    },
   },
   create(context) {
     const sourceCode = context.sourceCode;
     const baselineKeys = baselineMembership(context.options[0]?.baseline ?? []);
+    const substitutionBaseline = new Set(context.options[0]?.substitutionBaseline ?? []);
     return {
       CatchClause(node) {
         const catchSourceText = sourceCode.getText(node);
@@ -125,10 +156,19 @@ export default {
 
         let explicitlyConsumed = false;
         const suspiciousReturns = [];
+        const substitutions = [];
         walk(node.body, sourceCode.visitorKeys, (child) => {
-          if (child.type === "CallExpression" && calleeName(child.callee) === "consumeKnownError") explicitlyConsumed = true;
+          if (child.type === "CallExpression" && calleeName(child.callee) === "consumeKnownError")
+            explicitlyConsumed = true;
           if (child.type === "ReturnStatement" && successLike(child.argument)) suspiciousReturns.push(child);
+          if (child.type === "ReturnStatement" && child.argument?.type === "CallExpression") substitutions.push(child);
+          if (child.type === "AssignmentExpression" && child.right.type === "CallExpression") substitutions.push(child);
         });
+        const substitutionKey = `${normalizedFilename(context.filename)}#${enclosingFunction(node)}`;
+        if (!substitutionBaseline.has(substitutionKey)) {
+          for (const substitution of substitutions)
+            context.report({ node: substitution, messageId: "substitute", data: { key: substitutionKey } });
+        }
         if (explicitlyConsumed) return;
 
         for (const returnNode of suspiciousReturns) {
@@ -137,7 +177,7 @@ export default {
         if (!statementTerminates(node.body.body.at(-1))) {
           context.report({ node: node.body, messageId: "fallthrough", data: { fingerprint } });
         }
-      }
+      },
     };
-  }
+  },
 };

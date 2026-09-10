@@ -47,6 +47,10 @@ const jsonPolicies = Object.freeze({
       "browserWindowRequiredPatterns",
     ],
   },
+  "check-fallback-boundaries.json": {
+    pathSections: { fullHistoryScans: "file" },
+    nonPathSections: ["consumeKnownError", "catchSubstitutions"],
+  },
   "check-import-boundaries.json": {
     pathSections: {
       guiAdapterCompositionRoots: "value",
@@ -68,6 +72,10 @@ const jsonPolicies = Object.freeze({
     pathSections: {},
     nonPathSections: ["zeroConsumptionExports"],
   },
+  "check-poll-spin-boundary.json": {
+    pathSections: {},
+    nonPathSections: ["exceptions"],
+  },
   "check-private-boundary.json": {
     pathSections: {},
     nonPathSections: ["privateContentMarkers"],
@@ -81,7 +89,9 @@ const jsonPolicies = Object.freeze({
 const explicitExclusions = Object.freeze([
   "check-implementation-contracts.packageLockVersions (package-lock keys, not checkout paths)",
   "check-implementation-contracts.forbiddenLockfiles (absence is the contract)",
+  "check-fallback-boundaries.consumeKnownError/catchSubstitutions (file#function keys the gate exact-syncs)",
   "check-integration-test-shards.intentionalTestDeletions (intentional deletion tombstones)",
+  "check-poll-spin-boundary.exceptions (file#function#kind keys the gate exact-syncs)",
   "scan-forbidden-symbols.forbiddenSymbols (symbol and regex entries)",
 ]);
 
