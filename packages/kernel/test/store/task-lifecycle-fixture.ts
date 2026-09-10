@@ -142,11 +142,109 @@ export function lifecycleFixture(
   return { events, snapshot };
 }
 
+export function twoRoundLifecycleEvents(
+  options: {
+    readonly taskId?: string;
+    readonly firstExecutionId?: string;
+    readonly secondExecutionId?: string;
+  } = {},
+): {
+  readonly events: readonly TaskEventV1[];
+  readonly snapshot: TaskLifecycleSnapshot;
+} {
+  const taskId = options.taskId ?? "task-two-round",
+    firstExecutionId = options.firstExecutionId ?? "execution-round-one",
+    secondExecutionId = options.secondExecutionId ?? "execution-round-two";
+  const events: TaskEventV1[] = [];
+  let snapshot = emptyTaskLifecycleSnapshot();
+  const run = (
+    command: TaskLifecycleCommand,
+    proof: CreateReplayTaskProof | StartExecutionProof | SubmitExecutionProof | ReviewProof,
+  ) => {
+    const result = applyTransition(snapshot, command, proof as never);
+    snapshot = result.snapshot;
+    events.push(result.event);
+  };
+  run(
+    command(implementer, 1, {
+      type: "CreateReplayTask",
+      taskId,
+      title: "Two-round fixture",
+      taskClass: "standard",
+      graph: REPLAY_TASK_GRAPH,
+      completionGateIds: [],
+      presetSnapshotDigest: null,
+    }),
+    { taskIdUnique: true, actorBinding: implementer },
+  );
+  run(
+    command(implementer, 2, {
+      type: "StartExecution",
+      taskId,
+      executionId: firstExecutionId,
+    }),
+    {
+      actorBinding: implementer,
+      reservation: {
+        taskId,
+        executionId: firstExecutionId,
+        expiresAt: "2026-08-11T01:00:00.000Z",
+        ttlMs: 1_800_000,
+        previousHolder: null,
+        reason: "initial_claim",
+        version: 0,
+      },
+    },
+  );
+  run(
+    command(implementer, 3, {
+      type: "SubmitExecution",
+      taskId,
+      executionId: firstExecutionId,
+      submission: {
+        completionClaim: "implemented",
+        deliverables: [],
+        outputs: [],
+        verificationNotes: ["tests"],
+        knownGaps: [],
+        residualRisks: [],
+        commitSha,
+      },
+    }),
+    { actorBinding: implementer, leaseVersion: 0, sessionDisposition: "complete" },
+  );
+  run(reviewCommand(4, taskId, firstExecutionId, "changes_requested", "review-round-one"), {
+    actorBinding: reviewer,
+    capability: "execution-review@v1",
+    capabilityRef: "cap-review",
+  });
+  run(
+    command(implementer, 5, {
+      type: "StartExecution",
+      taskId,
+      executionId: secondExecutionId,
+    }),
+    {
+      actorBinding: implementer,
+      reservation: {
+        taskId,
+        executionId: secondExecutionId,
+        expiresAt: "2026-08-11T01:05:00.000Z",
+        ttlMs: 1_800_000,
+        previousHolder: null,
+        reason: "initial_claim",
+        version: 0,
+      },
+    },
+  );
+  return { events, snapshot };
+}
+
 function reviewCommand(
   revision: number,
   taskId: string,
   executionId: string,
-  verdict: "approved",
+  verdict: "approved" | "changes_requested",
   reviewId: string,
 ): RecordReviewCommand {
   const submission = {
