@@ -379,7 +379,13 @@ export function assertDocSyncWritePlan(
   event: DocEventV1,
   plan: FrozenWritePlan<"DocSyncSubmit"> | undefined,
 ): asserts plan is FrozenWritePlan<"DocSyncSubmit"> {
-  if (plan === undefined || !isFrozenWritePlan(plan))
+  const expected = docSyncWritePlan(event),
+    shape = (candidate: FrozenWritePlan<"DocSyncSubmit">) =>
+      stableStringify({
+        commandType: candidate.commandType,
+        targets: candidate.targets.map(stableStringify).sort(),
+      });
+  if (plan === undefined || !isFrozenWritePlan(plan) || shape(plan) !== shape(expected))
     throw new DocSyncContractError("doc write plan must exactly declare event, head, projection, and content targets");
 }
 
