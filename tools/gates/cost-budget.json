@@ -8,5 +8,256 @@
   "budgets": {
     "projectionRebuildGitProcesses": 4,
     "firstScreenReadRpcs": 7
+  },
+  "writeCostScaling": {
+    "schema": "write-cost-scaling-budget/v1",
+    "scales": {
+      "small": 200,
+      "large": 2000
+    },
+    "baseline": {
+      "task-create": {
+        "sqlRowsRead": 432,
+        "sha256Calls": 120,
+        "sha256Bytes": 266257,
+        "gitProcesses": 6,
+        "fileReadBytes": 256691
+      },
+      "doc-submit": {
+        "sqlRowsRead": 191,
+        "sha256Calls": 165,
+        "sha256Bytes": 182035,
+        "gitProcesses": 6,
+        "fileReadBytes": 11287
+      },
+      "task-start": {
+        "sqlRowsRead": 775,
+        "sha256Calls": 86,
+        "sha256Bytes": 189039,
+        "gitProcesses": 6,
+        "fileReadBytes": 5711
+      },
+      "task-progress-append": {
+        "sqlRowsRead": 217,
+        "sha256Calls": 44,
+        "sha256Bytes": 38285,
+        "gitProcesses": 6,
+        "fileReadBytes": 659
+      },
+      "fact-record": {
+        "sqlRowsRead": 243,
+        "sha256Calls": 48,
+        "sha256Bytes": 21740,
+        "gitProcesses": 6,
+        "fileReadBytes": 1009
+      },
+      "decision-propose": {
+        "sqlRowsRead": 639,
+        "sha256Calls": 50,
+        "sha256Bytes": 41492,
+        "gitProcesses": 6,
+        "fileReadBytes": 2831
+      },
+      "decision-reject": {
+        "sqlRowsRead": 672,
+        "sha256Calls": 69,
+        "sha256Bytes": 70797,
+        "gitProcesses": 6,
+        "fileReadBytes": 9313
+      },
+      "relation-relate": {
+        "sqlRowsRead": 960,
+        "sha256Calls": 59,
+        "sha256Bytes": 26938,
+        "gitProcesses": 6,
+        "fileReadBytes": 495
+      },
+      "receipt-show": {
+        "sqlRowsRead": 38,
+        "sha256Calls": 15,
+        "sha256Bytes": 12945,
+        "gitProcesses": 0,
+        "fileReadBytes": 0
+      },
+      "task-list": {
+        "sqlRowsRead": 609,
+        "sha256Calls": 1,
+        "sha256Bytes": 756,
+        "gitProcesses": 0,
+        "fileReadBytes": 0
+      },
+      "task-show": {
+        "sqlRowsRead": 441,
+        "sha256Calls": 1,
+        "sha256Bytes": 756,
+        "gitProcesses": 0,
+        "fileReadBytes": 164
+      },
+      "agenda": {
+        "sqlRowsRead": 421,
+        "sha256Calls": 1,
+        "sha256Bytes": 756,
+        "gitProcesses": 0,
+        "fileReadBytes": 431
+      },
+      "runtime-overview": {
+        "sqlRowsRead": 175,
+        "sha256Calls": 1,
+        "sha256Bytes": 756,
+        "gitProcesses": 0,
+        "fileReadBytes": 0
+      }
+    },
+    "budgets": {
+      "task-create": {
+        "sqlRowsRead": 432,
+        "sha256Calls": 120,
+        "sha256Bytes": 266257,
+        "gitProcesses": 6,
+        "fileReadBytes": 256691
+      },
+      "doc-submit": {
+        "sqlRowsRead": 191,
+        "sha256Calls": 165,
+        "sha256Bytes": 182035,
+        "gitProcesses": 6,
+        "fileReadBytes": 11287
+      },
+      "task-start": {
+        "sqlRowsRead": 775,
+        "sha256Calls": 86,
+        "sha256Bytes": 189039,
+        "gitProcesses": 6,
+        "fileReadBytes": 5711
+      },
+      "task-progress-append": {
+        "sqlRowsRead": 217,
+        "sha256Calls": 44,
+        "sha256Bytes": 38285,
+        "gitProcesses": 6,
+        "fileReadBytes": 659
+      },
+      "fact-record": {
+        "sqlRowsRead": 243,
+        "sha256Calls": 48,
+        "sha256Bytes": 21740,
+        "gitProcesses": 6,
+        "fileReadBytes": 1009
+      },
+      "decision-propose": {
+        "sqlRowsRead": 639,
+        "sha256Calls": 50,
+        "sha256Bytes": 41492,
+        "gitProcesses": 6,
+        "fileReadBytes": 2831
+      },
+      "decision-reject": {
+        "sqlRowsRead": 672,
+        "sha256Calls": 69,
+        "sha256Bytes": 70797,
+        "gitProcesses": 6,
+        "fileReadBytes": 9313
+      },
+      "relation-relate": {
+        "sqlRowsRead": 960,
+        "sha256Calls": 59,
+        "sha256Bytes": 26938,
+        "gitProcesses": 6,
+        "fileReadBytes": 495
+      },
+      "receipt-show": {
+        "sqlRowsRead": 38,
+        "sha256Calls": 15,
+        "sha256Bytes": 12945,
+        "gitProcesses": 0,
+        "fileReadBytes": 0
+      },
+      "task-list": {
+        "sqlRowsRead": 609,
+        "sha256Calls": 1,
+        "sha256Bytes": 756,
+        "gitProcesses": 0,
+        "fileReadBytes": 0
+      },
+      "task-show": {
+        "sqlRowsRead": 441,
+        "sha256Calls": 1,
+        "sha256Bytes": 756,
+        "gitProcesses": 0,
+        "fileReadBytes": 164
+      },
+      "agenda": {
+        "sqlRowsRead": 421,
+        "sha256Calls": 1,
+        "sha256Bytes": 756,
+        "gitProcesses": 0,
+        "fileReadBytes": 431
+      },
+      "runtime-overview": {
+        "sqlRowsRead": 175,
+        "sha256Calls": 1,
+        "sha256Bytes": 756,
+        "gitProcesses": 0,
+        "fileReadBytes": 0
+      }
+    },
+    "knownScaling": [
+      {
+        "operation": "relation-relate",
+        "metric": "sqlRowsRead",
+        "reason": "relation-relate calls readRelationTruth(), which loads every relation edge before the acyclic-dependency check; already known per dec_EF5F3820E81FB8A5266F1F3342 CH1 background.",
+        "deletionTaskId": "PENDING-CEO-ASSIGNMENT",
+        "expiresAt": "2026-09-24T00:00:00.000Z"
+      },
+      {
+        "operation": "decision-propose",
+        "metric": "sqlRowsRead",
+        "reason": "decision-propose is a decision write; assertAuthorizedReplacements (task-event-store-replacement-authorization.ts) scans backward through the ledger for prior document claims on every decision/settings/people write; already known per dec_EF5F3820E81FB8A5266F1F3342 CH1 background.",
+        "deletionTaskId": "PENDING-CEO-ASSIGNMENT",
+        "expiresAt": "2026-09-24T00:00:00.000Z"
+      },
+      {
+        "operation": "decision-reject",
+        "metric": "sqlRowsRead",
+        "reason": "decision-reject is also a decision write and hits the same assertAuthorizedReplacements backward scan as decision-propose; already known per dec_EF5F3820E81FB8A5266F1F3342 CH1 background.",
+        "deletionTaskId": "PENDING-CEO-ASSIGNMENT",
+        "expiresAt": "2026-09-24T00:00:00.000Z"
+      },
+      {
+        "operation": "task-create",
+        "metric": "sqlRowsRead",
+        "reason": "task-create's row count grows with ledger size at head (empirically 432 at 200 events, 3492 at 2000 events); newly discovered by G1, not on the pre-known list, root cause not isolated by this task (no production hooks were added to trace it further).",
+        "deletionTaskId": "PENDING-CEO-ASSIGNMENT",
+        "expiresAt": "2026-09-24T00:00:00.000Z"
+      },
+      {
+        "operation": "task-start",
+        "metric": "sqlRowsRead",
+        "reason": "task-start's row count grows with ledger size at head (empirically 775 at 200 events, 3835 at 2000 events); newly discovered by G1, not on the pre-known list, root cause not isolated by this task.",
+        "deletionTaskId": "PENDING-CEO-ASSIGNMENT",
+        "expiresAt": "2026-09-24T00:00:00.000Z"
+      },
+      {
+        "operation": "task-list",
+        "metric": "sqlRowsRead",
+        "reason": "task-list's row count grows with total task count at head (empirically 609 at 200 events, 5199 at 2000 events); newly discovered by G1, not on the pre-known list, root cause not isolated by this task.",
+        "deletionTaskId": "PENDING-CEO-ASSIGNMENT",
+        "expiresAt": "2026-09-24T00:00:00.000Z"
+      },
+      {
+        "operation": "task-show",
+        "metric": "sqlRowsRead",
+        "reason": "task-show for one task's row count grows with total task count at head (empirically 441 at 200 events, 3501 at 2000 events, suggesting a blocking/dependency scan over every task); newly discovered by G1, not on the pre-known list.",
+        "deletionTaskId": "PENDING-CEO-ASSIGNMENT",
+        "expiresAt": "2026-09-24T00:00:00.000Z"
+      },
+      {
+        "operation": "runtime-overview",
+        "metric": "sqlRowsRead",
+        "reason": "workspace-summary row count grows with total task count at head (empirically 175 at 200 events, 1705 at 2000 events, suggesting it aggregates across every task); newly discovered by G1, not on the pre-known list.",
+        "deletionTaskId": "PENDING-CEO-ASSIGNMENT",
+        "expiresAt": "2026-09-24T00:00:00.000Z"
+      }
+    ]
   }
 }

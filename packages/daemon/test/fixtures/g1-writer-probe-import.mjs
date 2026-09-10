@@ -1,0 +1,21 @@
+// Worker preload for the G1 write-cost-scaling gate: installs the shared cost probe inside the
+// writer worker thread (where durable writes actually execute) and answers reset/snapshot
+// control messages from the parent thread over the existing worker message channel.
+import { parentPort } from "node:worker_threads";
+import { installCostProbe, resetCostProbe, snapshotCostProbe } from "./g1-cost-probe.mjs";
+
+installCostProbe();
+
+parentPort?.on("message", (message) => {
+  if (message?.schema !== "g1-cost-probe-control/v1") return;
+  if (message.command === "reset") {
+    resetCostProbe();
+    parentPort.postMessage({ schema: "g1-cost-probe-ack/v1", requestId: message.requestId });
+  } else if (message.command === "snapshot") {
+    parentPort.postMessage({
+      schema: "g1-cost-probe-result/v1",
+      requestId: message.requestId,
+      counters: snapshotCostProbe(),
+    });
+  }
+});
