@@ -26,10 +26,11 @@ export function useCatalogPreset(repoId: string, presetId: string | null, locale
   });
 }
 
-export function useCatalogReread(repoId: string, expectedDigest: string | undefined) {
+/** 手动重读是「读最新」:不带 CAS 期望值,daemon 端 reread 即取当前快照。 */
+export function useCatalogReread(repoId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: () => harnessClient.rereadCatalog({ repoId, ...(expectedDigest ? { expectedDigest } : {}) }),
+    mutationFn: () => harnessClient.rereadCatalog({ repoId }),
     onSuccess: async (receipt) => {
       if (receipt.ok && receipt.outcome === "applied")
         await queryClient.invalidateQueries({ queryKey: catalogQueryKeys.all(repoId) });

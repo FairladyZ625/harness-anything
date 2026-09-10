@@ -9,10 +9,14 @@ import { SessionsView } from "../src/renderer/views/SessionsView.tsx";
 import { AgentSquadView } from "../src/renderer/views/AgentSquadView.tsx";
 import { agentEntityClient } from "../src/renderer/agent-entity-client.ts";
 import { ProvidersView } from "../src/renderer/views/ProvidersView.tsx";
-import { settleEntitySaveReceipt } from "../src/renderer/components/runtime/useRuntimeWorkspace.ts";
+import {
+  settleEntitySaveReceipt,
+  useAgentSquadWorkspace,
+} from "../src/renderer/components/runtime/useRuntimeWorkspace.ts";
 import { NAV_GROUPS } from "../src/renderer/navigation/navConfig.tsx";
 import { agentRuntimeClient } from "../src/renderer/agent-runtime-client.ts";
 import { harnessClient } from "../src/renderer/api-client.ts";
+import { runtimeCommandClient } from "../src/renderer/runtime-command-client.ts";
 import { runtimeInstanceClient } from "../src/renderer/runtime-instance-client.ts";
 import {
   prewarmRuntimeInstanceCatalog,
@@ -291,6 +295,105 @@ describe("runtime entry split (W6 IA)", () => {
 
     expect(showReceipt).toHaveBeenCalledWith({ repoId: "repo-a", opId: "entity-op" });
     expect(settled).toMatchObject({ outcome: "applied", opId: "entity-op" });
+  });
+
+  // R6(F1):派工绑定等待只读新 session 自己的 associations,不再拉全仓无过滤的
+  // sessionGroups(limit 1000)在内存里找 taskId——旧实现每 250ms 一整表,
+  // 读放大随全仓 session-group 历史增长,与目标任务无关。
+  it("waits for the dispatch task binding on the spawned session alone, not the whole session-group list", async () => {
+    vi.spyOn(runtimeCommandClient, "spawn").mockResolvedValue({
+      schema: "command-receipt/v2",
+      ok: true,
+      command: "runtime.spawn",
+      outcome: "applied",
+      opId: "op-dispatch-binding",
+      runtimeSessionId: "runtime-dispatch",
+      dispatchId: "dispatch_binding",
+      proof: { durable: true, canonicalVisible: true, worktreeVisible: true },
+    } as never);
+    let dispatchPromise: Promise<unknown> | undefined;
+    await mountView(
+      createElement(function Probe() {
+        const workspace = useAgentSquadWorkspace("repo-a", null);
+        return createElement(
+          "button",
+          {
+            "data-testid": "dispatch-binding-probe",
+            onClick: () => {
+              dispatchPromise = workspace.dispatch({
+                subject: { kind: "agent", agent: { agentId: "terra", agentName: "terra", runtimeType: "codex" } },
+                mission: "binding probe",
+                cwd: { scope: "repo-root" },
+                taskId: "task-bound",
+                idempotencyKey: "gui-dispatch-binding-probe",
+              });
+            },
+          },
+          "dispatch",
+        );
+      }),
+    );
+    // 收据 settle 需要 overview 里出现新 session;绑定等待只允许读该 session。
+    vi.spyOn(agentRuntimeClient, "overview").mockImplementation(
+      async () =>
+        ({
+          ok: true,
+          status: "ready",
+          installations: [],
+          instances: [],
+          sessions: [session("runtime-dispatch", "task-bound")],
+          watermark: 1,
+          sourceRevision: 1,
+        }) as never,
+    );
+    vi.mocked(agentRuntimeClient.session).mockClear();
+    vi.mocked(agentRuntimeClient.sessionGroups).mockClear();
+
+    await click("dispatch-binding-probe");
+    const settledDispatch = (await act(async () => dispatchPromise)) as { readonly state?: string };
+
+    expect(settledDispatch.state).toBe("applied");
+    expect(agentRuntimeClient.session).toHaveBeenCalledWith("repo-a", "runtime-dispatch");
+    expect(agentRuntimeClient.sessionGroups).not.toHaveBeenCalled();
+  });
+
+  // R6(F5):agent 保存的落定判据是回执(outcome applied + canonicalVisible),
+  // 保存后只失效列表查询,由挂载面的正常 refetch 带新目录——不再强制
+  // staleTime:0 同步回读整份 agents 列表。
+  it("settles a saved agent from its receipt and refreshes the list through invalidation alone", async () => {
+    const save = vi.spyOn(agentEntityClient, "saveAgent").mockResolvedValue({
+      outcome: "applied",
+      opId: "op-save-agent",
+      revision: 4,
+      proof: { durable: true, canonicalVisible: true, worktreeVisible: true },
+    });
+    const listAgents = vi.spyOn(agentEntityClient, "listAgents");
+    let savePromise: Promise<unknown> | undefined;
+    await mountView(
+      createElement(function Probe() {
+        const workspace = useAgentSquadWorkspace("repo-a", null);
+        return createElement(
+          "button",
+          {
+            "data-testid": "save-agent-probe",
+            onClick: () => {
+              savePromise = workspace.saveAgent({ id: "terra", name: "terra" } as never);
+            },
+          },
+          "save",
+        );
+      }),
+    );
+    expect(save).not.toHaveBeenCalled();
+    const readsBeforeSave = listAgents.mock.calls.length;
+
+    await click("save-agent-probe");
+    const saved = (await act(async () => savePromise)) as { readonly outcome?: string };
+
+    expect(saved).toMatchObject({ outcome: "applied" });
+    expect(save).toHaveBeenCalledTimes(1);
+    // 恰好一次失效驱动的 refetch(挂载中的 agents 查询),没有额外的强制整表重读。
+    expect(listAgents.mock.calls.length).toBe(readsBeforeSave + 1);
   });
 
   it("exposes the runtime nav entries with the terminal page, Schedules, and no aggregate agents entry", () => {

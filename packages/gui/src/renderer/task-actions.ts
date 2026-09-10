@@ -2,16 +2,9 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useRef, useState } from "react";
 import type { GuiActionResult } from "../api/renderer-dto.ts";
 import type { GuiSubmissionV1 } from "../api/renderer-dto.ts";
-import { harnessClient, type TaskListSuccess } from "./api-client.ts";
-import type { TaskCapabilityId, TaskRow } from "./model/types.ts";
-import { readTaskList, taskQueryKeys } from "./task-data.ts";
-
-/**
- * 写后重读的落定判据:读重读行自己的能力投影(dec_5B135F46 CH4 第二层),
- * 而不是在 renderer 里再比一次状态词——落定与否是 daemon 已经判完的事。
- */
-const rowCan = (row: TaskListSuccess["rows"][number], id: TaskCapabilityId): boolean =>
-  row.capabilities.some((capability) => capability.id === id && capability.available);
+import { harnessClient } from "./api-client.ts";
+import type { TaskRow } from "./model/types.ts";
+import { taskQueryKeys } from "./task-data.ts";
 
 type ReceiptRecord = GuiActionResult & {
   readonly revision?: number;
@@ -31,7 +24,6 @@ export interface TaskSettlement {
   readonly opId: string;
   readonly code?: string;
   readonly hint?: string;
-  readonly revision?: number;
   readonly receipt: GuiActionResult;
 }
 
@@ -49,7 +41,6 @@ export function settleTaskReceipt(initial: GuiActionResult): TaskSettlement {
     return {
       state: "applied",
       opId: receipt.opId,
-      ...(Number.isInteger(receipt.revision) ? { revision: receipt.revision } : {}),
       receipt,
     };
   }
@@ -59,7 +50,6 @@ export function settleTaskReceipt(initial: GuiActionResult): TaskSettlement {
       opId: receipt.opId,
       code: receipt.outcome === "applied" ? "canonical_not_visible" : (receipt.code ?? receipt.outcome),
       hint: receipt.nextAction ?? "用 opId 查询 canonical receipt；不要重放 mutation。",
-      ...(Number.isInteger(receipt.revision) ? { revision: receipt.revision } : {}),
       receipt,
     };
   }
@@ -85,10 +75,10 @@ export interface TaskMutationFeedback {
 }
 
 /**
- * 回执已 applied、只是「canonical 可见」或「task projection 追平」还没到位。这两种落定里
- * 写入已经不在飞,in-flight 锁必须放开;它们与 pending/indeterminate(归属未知)不是一回事。
+ * 回执已 applied、只是「canonical 可见」还没到位。这种落定里写入已经不在飞,
+ * in-flight 锁必须放开;它与 pending/indeterminate(归属未知)不是一回事。
  */
-const settledButInvisible: ReadonlySet<string> = new Set(["canonical_not_visible", "projection_not_visible"]);
+const settledButInvisible: ReadonlySet<string> = new Set(["canonical_not_visible"]);
 
 export function useTaskActions(repoId: string) {
   const queryClient = useQueryClient(),
@@ -119,7 +109,6 @@ export function useTaskActions(repoId: string) {
       taskId: string,
       kind: TaskMutationFeedback["kind"],
       settlement: TaskSettlement,
-      visible: (data: TaskListSuccess) => boolean,
     ): Promise<TaskMutationFeedback> => {
       if (settlement.state !== "applied")
         return publish(taskId, {
@@ -129,28 +118,15 @@ export function useTaskActions(repoId: string) {
           code: settlement.code,
           hint: settlement.hint ?? "canonical receipt 尚未 settled；不要重放 mutation。",
         });
-      const queryKey = taskQueryKeys.list(repoId),
-        previous = queryClient.getQueryData<TaskListSuccess>(queryKey);
-      const data = await queryClient.fetchQuery({
-        queryKey,
-        queryFn: () => readTaskList(repoId, previous),
-        staleTime: 0,
+      // 回执本身就是落定证明(durable + canonicalVisible + committedRevision===appliedCut):
+      // 只失效任务切面,新行状态由挂载中的台账探针正常 refetch 带上来,不强制整表重读。
+      await queryClient.invalidateQueries({ queryKey: taskQueryKeys.all(repoId), refetchType: "active" });
+      return publish(taskId, {
+        state: "success",
+        kind,
+        opId: settlement.opId,
+        hint: "canonical receipt 已确认落定。",
       });
-      const revisionVisible = settlement.revision === undefined || data.watermark >= settlement.revision;
-      return revisionVisible && visible(data)
-        ? publish(taskId, {
-            state: "success",
-            kind,
-            opId: settlement.opId,
-            hint: "canonical projection 已重读并确认。",
-          })
-        : publish(taskId, {
-            state: "pending",
-            kind,
-            opId: settlement.opId,
-            code: "projection_not_visible",
-            hint: "receipt 已 applied，但 task projection 尚未显示目标 cut；用 opId 继续查询，勿重放 mutation。",
-          });
     },
     [repoId, queryClient, publish],
   );
@@ -198,12 +174,7 @@ export function useTaskActions(repoId: string) {
         const settlement = settleTaskReceipt(
           await harnessClient.startTask({ repoId, taskId: task.taskId, executionId }),
         );
-        return reread(task.taskId, "start", settlement, (data) =>
-          data.rows.some(
-            (row) =>
-              row.taskId === task.taskId && rowCan(row, "progress") && row.snapshot.lease?.executionId === executionId,
-          ),
-        );
+        return reread(task.taskId, "start", settlement);
       }),
     [once, reread],
   );
@@ -230,14 +201,7 @@ export function useTaskActions(repoId: string) {
             ...input,
           }),
         );
-        return reread(task.taskId, "progress", settlement, (data) =>
-          data.rows.some(
-            (row) =>
-              row.taskId === task.taskId &&
-              rowCan(row, "progress") &&
-              row.snapshot.lease?.executionId === task.activeExecutionId,
-          ),
-        );
+        return reread(task.taskId, "progress", settlement);
       }),
     [once, reread],
   );
@@ -258,9 +222,7 @@ export function useTaskActions(repoId: string) {
             submission,
           }),
         );
-        return reread(task.taskId, "submit", settlement, (data) =>
-          data.rows.some((row) => row.taskId === task.taskId && rowCan(row, "review") && row.snapshot.lease === null),
-        );
+        return reread(task.taskId, "submit", settlement);
       }),
     [once, reread],
   );
@@ -279,9 +241,7 @@ export function useTaskActions(repoId: string) {
         const settlement = settleTaskReceipt(
           await (pinned ? harnessClient.pinTask : harnessClient.unpinTask)({ repoId, taskId: task.taskId }),
         );
-        return reread(task.taskId, "pin", settlement, (data) =>
-          data.rows.some((row) => row.taskId === task.taskId && (row.snapshot.task?.pinned === true) === pinned),
-        );
+        return reread(task.taskId, "pin", settlement);
       }),
     [once, reread],
   );

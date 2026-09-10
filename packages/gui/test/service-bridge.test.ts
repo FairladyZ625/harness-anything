@@ -127,10 +127,13 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
     const catalog = (await bridge.invoke("getCatalogSnapshot", scope)) as {
       defaults: { presetId: string };
     };
-    const reread = (await bridge.invoke("rereadCatalog", {
-      ...scope,
-      expectedDigest: (catalog as { catalogDigest: string }).catalogDigest,
-    })) as { schema: string; ok: boolean; operationId: string; repoId: string };
+    // R6:手动重读是「读最新」,不带 CAS 期望值(GUI 不再回传 catalogDigest)。
+    const reread = (await bridge.invoke("rereadCatalog", scope)) as {
+      schema: string;
+      ok: boolean;
+      operationId: string;
+      repoId: string;
+    };
     assert.deepEqual(
       { schema: reread.schema, ok: reread.ok, repoId: reread.repoId },
       { schema: "catalog-reread-receipt/v1", ok: true, repoId: fixture.repoId },
