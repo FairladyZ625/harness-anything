@@ -677,9 +677,24 @@ export function contractForDeclarationEvent(event: EntityDeclarationEventV1): En
 export function ownedContentForDeclarationEvent(event: EntityDeclarationEventV1): EntityOwnedContentV1 {
   // The manifest an event was accepted with is the only description of what that event owns. Recomputing one
   // from the registry a reader happens to hold today would answer a question about the present, not the event.
-  if (event.payload.ownedContent === undefined)
-    throw new Error("entity declaration event carries no owned-content manifest");
+  if (event.payload.ownedContent === undefined) return acceptedShapeOwnedContent(event);
   return event.payload.ownedContent;
+}
+
+/**
+ * The manifest an event accepted before manifests existed states. Upserts were accepted under a shape that
+ * admitted exactly one owned file — the declaration document the payload already names — and no directory and
+ * no retirement, so that claim is the whole manifest and reading it invents nothing. The artifact declarations
+ * carried source content the payload does not enumerate, so theirs cannot be recovered from the event at all.
+ */
+function acceptedShapeOwnedContent(event: EntityDeclarationEventV1): EntityOwnedContentV1 {
+  if (event.type === "entity_content_observed" || event.type === "entity_updated")
+    throw new Error(`${event.type} event carries no owned-content manifest`);
+  return declarationOwnedContent(
+    requireEntityStoreKindContract(event.payload.entityKind),
+    event.payload.entityId,
+    event.payload.declarationDocumentClaim,
+  );
 }
 
 function validateObservedPayload(
