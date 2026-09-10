@@ -16,6 +16,7 @@ export {
   ArtifactEntityServiceError,
   makeArtifactEntityService,
   readArtifactDescriptor,
+  resolveArtifactLocator,
 } from "./artifact-entity-service.ts";
 export type {
   ArtifactEntityCurrent,

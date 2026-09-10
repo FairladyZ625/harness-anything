@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -297,6 +298,68 @@ test("Artifact import is dry-run safe, edge-idempotent, fenced, and cold-rebuild
     }
   } finally {
     await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("URL source resolution does not block a concurrent repository write", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-url-artifact-import-")),
+    repoId = workspaceId("url-artifact-import");
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  const server = createServer(() => {});
+  try {
+    initRepo(rootDir);
+    cell = await openRepoCell({
+      repoId,
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "url-artifact-import-center",
+      now: () => "2026-09-11T02:00:00.000Z",
+    });
+    const created = await cell.run(
+      {
+        kind: "vertical-kind-upsert",
+        kindId: "remote-note",
+        expectedVersion: 0,
+        declaration: {
+          id: "remote-note",
+          entityType: "artifact",
+          idPrefix: "RN",
+          display: { singular: "Remote Note", plural: "Remote Notes" },
+          descriptorSchemaRef: "schema://artifact-descriptor",
+          store: { pathTemplate: "entities/remote-notes/{id}.json" },
+          locatorKinds: ["url"],
+        },
+      },
+      binding,
+    );
+    assert.equal(created.outcome, "applied", JSON.stringify(created));
+    const kindRef = (JSON.parse(String(created.evidence)) as { kindRef: string }).kindRef;
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(0, "127.0.0.1", () => resolve());
+    });
+    const address = server.address();
+    assert.ok(address && typeof address === "object");
+    const url = `http://127.0.0.1:${String(address.port)}/hanging.md`;
+    const importing = cell.run(
+      { kind: "entity-import", entityKind: kindRef, locator: url, expectedVersion: 0 },
+      binding,
+    );
+    const started = Date.now();
+    const write = await Promise.race([
+      cell.run({ kind: "task-create", taskId: "url-import-concurrent-write", title: "Concurrent write" }, binding),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("concurrent write exceeded 2 seconds")), 2_000),
+      ),
+    ]);
+    assert.equal(write.outcome, "applied", JSON.stringify(write));
+    assert.ok(Date.now() - started < 2_000);
+    const imported = await importing;
+    assert.equal(imported.outcome, "op_rejected", JSON.stringify(imported));
+    assert.equal(imported.code, "source_resolution_timeout", JSON.stringify(imported));
+  } finally {
+    await cell?.close();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
     rmSync(rootDir, { recursive: true, force: true });
   }
 });

@@ -59,6 +59,7 @@ export function errorOperationId(error: unknown): string | null {
 }
 
 export function cellErrorCode(error: unknown): string {
+  if (error instanceof ArtifactEntityServiceError) return error.code;
   const normalized = normalizeDomainError(error);
   switch (normalized._tag) {
     case "LeaseConflictError":

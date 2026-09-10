@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { makeDecisionService, makeFactService } from "../../application/src/index.ts";
+import { makeDecisionService, makeFactService, type ArtifactSourceResolution } from "../../application/src/index.ts";
 import {
   compileEntityUpsert,
   compileEntityDeleted,
@@ -46,7 +46,11 @@ import {
   matchingRuntimeSessionReplayBundle,
   type RuntimeSessionBundle,
 } from "./entity-action-runtime-session.ts";
-import { executeArtifactEntityImport, executeArtifactEntityMutation } from "./artifact-entity-action.ts";
+import {
+  executeArtifactEntityImport,
+  executeArtifactEntityMutation,
+  artifactImportSourceResolution,
+} from "./artifact-entity-action.ts";
 import { executeRelationAction, publicationKillpoints, reject } from "./entity-action-relation.ts";
 
 type ExecutableAction = EntityActionContract & { readonly execution: EntityActionExecutionContract };
@@ -129,6 +133,11 @@ export function makeEntityActionCatalogExecutor(input: {
         projection: input.projection,
         now: input.now,
         authorizationDecision,
+        sourceResolution: (
+          action as RepoTaskAction & {
+            readonly [artifactImportSourceResolution]?: ArtifactSourceResolution;
+          }
+        )[artifactImportSourceResolution],
       }).then((result) => deriveActionResult(result.contract, result.action, result.receipt));
     }
     if (action.kind === "entity-update" || action.kind === "entity-archive" || action.kind === "entity-delete") {
