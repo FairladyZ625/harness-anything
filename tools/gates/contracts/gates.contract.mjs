@@ -63,6 +63,20 @@ export default Object.freeze({
     { id: "G36", phase: "P2", job: "line-density", command: "node tools/gates/line-density.mjs --base origin/main" },
     { id: "G37", phase: "P4", job: "entity-id-links", command: "node tools/gates/entity-id-links.mjs" },
     { id: "G38", phase: "P2", job: "cost-budget", command: "node tools/gates/cost-budget.mjs" },
+    {
+      id: "G39",
+      phase: "P2",
+      workflow: ".github/workflows/rewrite-ci.yml",
+      job: "crlf-checkout",
+      command: "npm run harness:check-poll-spin-boundary",
+    },
+    {
+      id: "G40",
+      phase: "P2",
+      workflow: ".github/workflows/rewrite-ci.yml",
+      job: "boundaries",
+      command: "npm run harness:check-fallback-boundaries",
+    },
   ],
   schemas: [],
 });

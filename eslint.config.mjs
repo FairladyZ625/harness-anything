@@ -6,8 +6,18 @@ import noSwallowedFailure from "./tools/gates/eslint-rules/no-swallowed-failure.
 import noManualContractProjection from "./tools/gates/eslint-rules/no-manual-contract-projection.js";
 import noWriterBypass from "./tools/gates/eslint-rules/no-writer-bypass.js";
 import processPortOnly from "./tools/gates/eslint-rules/process-port-only.js";
+import noPollSpin from "./tools/gates/eslint-rules/no-poll-spin.js";
+import { readFileSync } from "node:fs";
 import { noSwallowedFailureBaseline } from "./tools/gates/no-swallowed-failure-baseline.mjs";
 import { processPortOnlyBaseline } from "./tools/gates/process-port-only-baseline.mjs";
+
+const pollSpinBaseline = JSON.parse(
+  readFileSync(new URL("./tools/gate-allowlists/check-poll-spin-boundary.json", import.meta.url), "utf8"),
+).entries.exceptions.map((entry) => entry.key);
+const fallbackEntries = JSON.parse(
+  readFileSync(new URL("./tools/gate-allowlists/check-fallback-boundaries.json", import.meta.url), "utf8"),
+).entries;
+const fallbackBaseline = fallbackEntries.catchSubstitutions;
 
 const nodeGlobals = Object.fromEntries(
   [
@@ -273,14 +283,19 @@ export default tseslint.config(
           "no-writer-bypass": noWriterBypass,
           "no-swallowed-failure": noSwallowedFailure,
           "process-port-only": processPortOnly,
+          "no-poll-spin": noPollSpin,
         },
       },
     },
     rules: {
       "ha/no-manual-contract-projection": "error",
       "ha/no-writer-bypass": "error",
-      "ha/no-swallowed-failure": ["error", { baseline: noSwallowedFailureBaseline }],
+      "ha/no-swallowed-failure": [
+        "error",
+        { baseline: noSwallowedFailureBaseline, substitutionBaseline: fallbackBaseline },
+      ],
       "ha/process-port-only": ["error", { baseline: processPortOnlyBaseline }],
+      "ha/no-poll-spin": ["error", { baseline: pollSpinBaseline }],
     },
   },
   {
