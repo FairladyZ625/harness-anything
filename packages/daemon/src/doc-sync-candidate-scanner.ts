@@ -6,6 +6,7 @@ import { existsSync, lstatSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import {
   classifyDocSyncCandidatePath,
+  classifyRawArtifactPath,
   classifyTextualArtifactPath,
   decideDocWriteCriteria,
   DOC_SYNC_INLINE_MAX_BYTES,
@@ -30,7 +31,7 @@ import {
   type TaskProjection,
   type WriteSource,
 } from "../../kernel/src/index.ts";
-import { blockedCandidateNextAction } from "./doc-sync-details.ts";
+import { blockedCandidateNextAction, formatShellCommand } from "./doc-sync-details.ts";
 import { docSyncError } from "./doc-sync-files.ts";
 
 export type DocCandidateState = "clean" | "eligible" | "inapplicable" | "blocked" | "deletion" | "conflict";
@@ -150,14 +151,18 @@ export function scanDocCandidates(input: {
       projected = input.projection.readDocument(document),
       conflicts = inventoried?.conflicts ?? candidateConflicts(input.rootDir, layout.authoredRoot, logical),
       safe = inventoried?.safe ?? directFile(layout.authoredRoot, logical),
+      fileSize = inventoried ? inventoried.size : safe && existsSync(target) ? lstatSync(target).size : null,
       classification = classifyDocSyncCandidatePath(logical),
+      rawClassification = classifyRawArtifactPath(document),
+      rawTaskArtifactCandidate = rawClassification !== null && !/\.(?:jsonl|log)$/u.test(document),
       taskArtifactCandidate =
         claimingTaskId !== null &&
-        classification === null &&
+        (classification === null
+          ? !/\.(?:jsonl|log)$/u.test(document)
+          : rawTaskArtifactCandidate && fileSize !== null && fileSize > DOC_SYNC_INLINE_MAX_BYTES) &&
         /^tasks\/[^/]+\/artifacts\//u.test(document) &&
         baseDocumentIsNew(projected),
       existingMediaType = classifyTextualArtifactPath(logical)?.mediaType ?? null,
-      fileSize = inventoried ? inventoried.size : safe && existsSync(target) ? lstatSync(target).size : null,
       rawBytes = inventoried
         ? inventoried.bytes
         : (classification !== null || taskArtifactCandidate || !route.allowed || projected.document !== null) &&
@@ -207,16 +212,32 @@ export function scanDocCandidates(input: {
         "task_package_unregistered",
         "ha task artifact add",
       );
-    if (taskArtifactCandidate && candidate !== null)
+    if (taskArtifactCandidate) {
+      const nextAction = formatShellCommand("ha", [
+        "task",
+        "artifact",
+        "add",
+        claimingTaskId,
+        "--source",
+        `${ledger.authoredPrefix ? `${ledger.authoredPrefix}/` : ""}${logical}`,
+        "--destination",
+        logical.slice(`tasks/${taskDirectory}/`.length),
+      ]);
       return scannedCandidateRow(
         "inapplicable",
-        `task artifact is outside doc sync; publish it with ha task artifact add ${claimingTaskId} ` +
-          `--source harness/${logical} --destination ${logical.slice(`tasks/${taskDirectory}/`.length)}`,
+        rawClassification === null || (candidate === null && fileSize !== null && fileSize > DOC_SYNC_INLINE_MAX_BYTES)
+          ? `task artifact is outside doc sync; publish it with ${nextAction}`
+          : "non-textual artifact is outside doc sync; publish it with ha task artifact add",
         bytes,
         base,
         candidate,
         classification?.mediaType ?? null,
+        null,
+        null,
+        null,
+        fileSize,
       );
+    }
     if (classification === null && candidate !== null && candidate === base)
       return scannedCandidateRow("clean", null, bytes, base, candidate, existingMediaType);
     if (classification === null)
