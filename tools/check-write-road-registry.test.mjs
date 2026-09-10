@@ -21,6 +21,19 @@ test("write-road registry rejects an undeclared physical write sink", () =>
     assert.match(findWriteRoadRegistryViolations(root).join("\n"), /physical write sink is not declared/u);
   }));
 
+test("write-road registry rejects an undeclared promise-based write sink", () =>
+  withFixture((root) => {
+    write(
+      root,
+      "packages/daemon/src/async-log.ts",
+      `import { appendFile } from "node:fs/promises";\nawait appendFile(target, body);\n`,
+    );
+    assert.match(
+      findWriteRoadRegistryViolations(root).join("\n"),
+      /async-log\.ts: physical write sink is not declared/u,
+    );
+  }));
+
 test("write-road registry binds the workspace admission lock to RepoCell", () =>
   withFixture((root) => {
     const file = path.join(root, "tools/write-road-registry.json"),

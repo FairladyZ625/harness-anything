@@ -98,8 +98,8 @@ function discoverPhysicalWriteFiles(rootDir) {
   return files
     .filter((file) => {
       const body = read(path.join(rootDir, file));
-      const fsImports = [...body.matchAll(/import\s*\{([\s\S]*?)\}\s*from\s*["']node:fs["']/gu)].flatMap((match) =>
-        match[1].split(",").map((name) => name.trim().split(/\s+as\s+/u)[0]),
+      const fsImports = [...body.matchAll(/import\s*\{([\s\S]*?)\}\s*from\s*["']node:fs(?:\/promises)?["']/gu)].flatMap(
+        (match) => match[1].split(",").map((name) => name.trim().split(/\s+as\s+/u)[0]),
       );
       const fsWrite = fsImports.some((name) => mutatingFs.has(name));
       const gitWrite = /\b(?:execFileSync|spawnSync)\(\s*["']git["']/u.test(body);
