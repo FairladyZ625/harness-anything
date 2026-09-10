@@ -399,8 +399,14 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     });
     const loaded = cells.get(repoId);
     if (loaded && loaded.status().mode !== registered.repo.mode) await closeCell(repoId);
-    if (registered.repo.authoredBranch === null)
-      throw hostCodedError("registry_repo_invalid", `Workspace repository ${repoId} has no authored branch.`);
+    if (registered.repo.authoredBranch === null || registered.repo.canonicalRoot === null)
+      throw hostCodedError(
+        "registry_repo_invalid",
+        `Workspace repository ${repoId} has no authored branch or canonical root.`,
+      );
+    // The registry row, not the caller's path, is what the attach is opened against: registering a
+    // subdirectory records the enclosing harness root, and publication re-reads that same row.
+    const registeredRoot = canonicalRoot(registered.repo.canonicalRoot);
     if (!cells.has(repoId))
       try {
         markWarming(
@@ -408,18 +414,18 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           warmingStatus({
             ...registered.repo,
             repoId: id,
-            canonicalRoot: root,
+            canonicalRoot: registeredRoot,
           }),
         );
         await openRegistered({
           ...registered.repo,
           repoId: id,
-          canonicalRoot: root,
+          canonicalRoot: registeredRoot,
           authoredBranch: registered.repo.authoredBranch,
         });
       } catch (error) {
         consumeKnownError(error);
-        latchUnavailable(repoId, unavailableStatus(repoId, root, registered.repo.mode, error));
+        latchUnavailable(repoId, unavailableStatus(repoId, registeredRoot, registered.repo.mode, error));
       }
     return registered;
   };

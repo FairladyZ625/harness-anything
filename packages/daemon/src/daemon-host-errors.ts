@@ -88,6 +88,19 @@ export function attachBudgetError(repoId: string, timeoutMs: number): Error {
   return error;
 }
 
+export function revokedAttachError(repoId: string): Error {
+  const error = new Error(
+    [
+      "Repository ",
+      `${repoId}`,
+      " changed registration while it was attaching; the daemon discarded that attach and keeps ",
+      "the repo unavailable until the next probe reopens it under the current registry row.",
+    ].join(""),
+  ) as Error & { code: string };
+  error.code = "repo_attach_revoked";
+  return error;
+}
+
 export function failedConfigureVerify(
   receipt: RepoBootstrapReceipt,
   repoId: string,
