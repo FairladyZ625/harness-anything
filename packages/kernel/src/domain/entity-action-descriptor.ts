@@ -259,29 +259,6 @@ export function projectActionState(
   return matches[0]!.coordinate;
 }
 
-function projectFields(
-  fields: readonly EntityActionInputField[],
-  value: Readonly<Record<string, unknown>>,
-): Readonly<Record<string, unknown>> {
-  return Object.fromEntries(
-    fields.flatMap((field) => {
-      if (!(field.field in value)) return [];
-      const item = value[field.field];
-      if (field.fields !== undefined && typeof item === "object" && item !== null && !Array.isArray(item)) {
-        return [[field.field, projectFields(field.fields, item as Readonly<Record<string, unknown>>)]];
-      }
-      return [[field.field, item]];
-    }),
-  );
-}
-
-export function projectActionResult(
-  descriptor: Pick<EntityActionContract, "result">,
-  value: Readonly<Record<string, unknown>>,
-): Readonly<Record<string, unknown>> {
-  return projectFields(descriptor.result.fields, value);
-}
-
 export function validateEntityActionDescriptor(descriptor: EntityActionContract): readonly string[] {
   const errors: string[] = [];
   const inputPaths = new Set(fieldPaths(descriptor.input.fields, "input"));

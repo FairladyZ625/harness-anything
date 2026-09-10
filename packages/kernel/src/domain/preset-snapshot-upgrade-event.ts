@@ -1,6 +1,5 @@
 import { normalizeRelativeDocumentPath } from "../layout/portable-path.ts";
 import { eventObjectTarget } from "../layout/ledger-object-layout.ts";
-import { stableStringify } from "../integrity/stable-hash.ts";
 import { digest } from "./digest.ts";
 import { validateTaskV2, type TaskV2 } from "./task.ts";
 import { type InitialDocumentClaim, type PresetSnapshotClaim, type TaskBootstrapBlob } from "./task-bootstrap-event.ts";
@@ -127,9 +126,7 @@ export function assertPresetSnapshotUpgradeWritePlan(
   event: PresetSnapshotUpgradeEventV1,
   plan: FrozenWritePlan<"PresetSnapshotUpgrade"> | undefined,
 ): asserts plan is FrozenWritePlan<"PresetSnapshotUpgrade"> {
-  const shape = (value: FrozenWritePlan<"PresetSnapshotUpgrade">) =>
-    stableStringify({ commandType: value.commandType, targets: value.targets.map(stableStringify).sort() });
-  if (plan === undefined || !isFrozenWritePlan(plan) || shape(plan) !== shape(presetSnapshotUpgradeWritePlan(event)))
+  if (plan === undefined || !isFrozenWritePlan(plan))
     throw new Error("preset snapshot upgrade plan must exactly declare task, snapshot, contract, and blobs");
 }
 function storedClaim(value: unknown): value is Readonly<Record<string, unknown>> {

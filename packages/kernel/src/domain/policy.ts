@@ -2,7 +2,6 @@ import {
   EntitySchemaContractError,
   ENTITY_ID_PATTERN,
   parseEntityJsonSchema,
-  serializeEntityJsonSchema,
   validateEntityJsonSchema,
   type EntityDocumentJsonSchema,
 } from "./entity-json-schema.ts";
@@ -174,10 +173,6 @@ export function parsePolicyDeclarationV1(value: unknown): PolicyDeclarationV1 {
   const errors = validatePolicyDeclarationV1(value);
   if (errors.length) throw new PolicyEntityContractError(errors.join("; "));
   return parseEntityJsonSchema(POLICY_DECLARATION_V1_SCHEMA, value, "policy declaration");
-}
-
-export function serializePolicyDeclarationV1(value: unknown): string {
-  return serializeEntityJsonSchema(POLICY_DECLARATION_V1_SCHEMA, parsePolicyDeclarationV1(value), "policy declaration");
 }
 
 function validatePredicateExpression(value: unknown): readonly string[] {

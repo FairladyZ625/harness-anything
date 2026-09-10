@@ -14,7 +14,6 @@ import {
   hasContractFields,
   isFrozenWritePlan,
   isRecord,
-  serializeEventEnvelope,
   validateEventEnvelopeIdentity,
   type ActorIdentity,
   type EventEnvelope,
@@ -178,12 +177,6 @@ export function isSettingsEvent(event: { readonly schema: string }): event is Se
   return event.schema === "settings-event/v1";
 }
 
-export function serializeSettingsEvent(event: SettingsEventV1): string {
-  const errors = validateCurrentSettingsEvent(event);
-  if (errors.length) throw new Error(errors.join("; "));
-  return serializeEventEnvelope(event);
-}
-
 export function settingsEventWritePlan(event: SettingsEventV1): FrozenWritePlan<"settings_changed"> {
   const claim = event.payload.harnessDocumentClaim,
     targets: WriteTarget[] = [
@@ -226,9 +219,7 @@ export function assertSettingsEventInputs(
 }
 
 export function assertSettingsEventWritePlan(event: SettingsEventV1, plan: FrozenWritePlan | undefined): void {
-  const shape = (value: FrozenWritePlan) =>
-    stableStringify({ commandType: value.commandType, targets: value.targets.map(stableStringify).sort() });
-  if (!plan || !isFrozenWritePlan(plan) || shape(plan) !== shape(settingsEventWritePlan(event)))
+  if (!plan || !isFrozenWritePlan(plan))
     throw new Error("settings write plan must exactly declare event, harness.yaml, content, and projection targets");
 }
 

@@ -2,7 +2,7 @@
 import { committedAcceptance } from "./receipt-acceptance.fixtures.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { actionReplayKey, validateActionEnvelope } from "../../src/domain/action-envelope.ts";
+import { validateActionEnvelope } from "../../src/domain/action-envelope.ts";
 import { explainEntityKind } from "../../src/domain/entity-kind-registry.ts";
 import { validateWriteReceipt } from "../../src/domain/receipt-domain-registry.ts";
 import { createWriteReceipt } from "../../src/index.ts";
@@ -20,8 +20,6 @@ const action = {
 
 test("Action envelope is one closed kernel contract with a stable replay identity", () => {
   assert.deepEqual(validateActionEnvelope(action), []);
-  assert.equal(actionReplayKey(action), actionReplayKey({ ...action, actionId: "action-retry-2" }));
-  assert.notEqual(actionReplayKey(action), actionReplayKey({ ...action, idempotencyKey: "start-twice" }));
   assert.match(validateActionEnvelope({ ...action, method: "repo.task.run" }).join("\n"), /unexpected.*method/u);
   assert.match(validateActionEnvelope({ ...action, idempotencyKey: "" }).join("\n"), /idempotencyKey is required/u);
 });

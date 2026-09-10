@@ -1,4 +1,3 @@
-import { stablePayloadHash } from "../integrity/stable-hash.ts";
 import type { ActorIdentity } from "./actor-identity.ts";
 import { validateActorIdentity } from "./actor-identity.ts";
 import { isNonEmptyString } from "./contract-validation.ts";
@@ -44,15 +43,3 @@ export function validateActionEnvelope(value: unknown): readonly string[] {
 }
 
 /** Stable deduplication identity for retries; actionId identifies an attempt and is deliberately excluded. */
-export function actionReplayKey(action: ActionEnvelope): `sha256:${string}` {
-  const errors = validateActionEnvelope(action);
-  if (errors.length) throw new Error(`invalid Action envelope: ${errors.join("; ")}`);
-  return `sha256:${stablePayloadHash({
-    version: action.version,
-    kind: action.kind,
-    target: action.target,
-    actor: action.actor,
-    authorizationRef: action.authorizationRef,
-    idempotencyKey: action.idempotencyKey,
-  })}`;
-}

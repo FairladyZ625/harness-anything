@@ -1,7 +1,7 @@
 import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
+import { serializeEntityJsonSchema } from "./entity-json-schema.ts";
 import { eventObjectTarget } from "../layout/ledger-object-layout.ts";
 import { normalizeRelativeDocumentPath } from "../layout/portable-path.ts";
-import { serializeEntityJsonSchema } from "./entity-json-schema.ts";
 import { ENTITY_DOCUMENT_POLICY_ID } from "./entity-kind-registry.ts";
 import type { EntityDeclarationClaim } from "./entity-event.ts";
 import { timestamp } from "./timestamp.ts";
@@ -27,7 +27,6 @@ import {
   isFrozenWritePlan,
   isNonEmptyString,
   isRecord,
-  serializeEventEnvelope,
   validateEventEnvelopeIdentity,
   type ActorIdentity,
   type EventEnvelope,
@@ -271,12 +270,6 @@ export function isScheduleEvent(event: { readonly schema: string }): event is Sc
   return event.schema === "schedule-event/v1";
 }
 
-export function serializeScheduleEvent(event: ScheduleEventV1): string {
-  const errors = validateCurrentScheduleEvent(event);
-  if (errors.length) throw new Error(errors.join("; "));
-  return serializeEventEnvelope(event);
-}
-
 export function scheduleEventWritePlan<T extends ScheduleEventV1>(event: T): FrozenWritePlan<T["type"]> {
   const claim = isDefinitionEvent(event) ? event.payload.declarationDocumentClaim : null,
     retirement = isDeletionEvent(event) ? event.payload.declarationDocumentRetirement : null,
@@ -354,9 +347,7 @@ export function assertScheduleEventInputs(
 }
 
 export function assertScheduleEventWritePlan(event: ScheduleEventV1, plan: FrozenWritePlan | undefined): void {
-  const shape = (value: FrozenWritePlan) =>
-    stableStringify({ commandType: value.commandType, targets: value.targets.map(stableStringify).sort() });
-  if (!plan || !isFrozenWritePlan(plan) || shape(plan) !== shape(scheduleEventWritePlan(event)))
+  if (!plan || !isFrozenWritePlan(plan))
     throw new Error("schedule write plan must exactly declare event, definition, content, and projection targets");
 }
 

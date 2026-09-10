@@ -1,4 +1,3 @@
-import { stableStringify } from "../integrity/stable-hash.ts";
 import { normalizeRelativeDocumentPath, type PortableDocumentPath } from "../layout/portable-path.ts";
 import {
   classifyRawArtifactPath,
@@ -17,7 +16,6 @@ import {
   isNonEmptyString,
   isRecord,
   validateEventEnvelopeIdentity,
-  type WriteSource,
 } from "./write-chain.contract.ts";
 
 import { docClaimRef } from "./doc-sync-codec.ts";
@@ -240,10 +238,6 @@ export function policyMatchesClaim(policyId: string, candidate: unknown): boolea
         ? candidate.mediaType === RAW_ARTIFACT_MEDIA_TYPE
         : policyId === OPAQUE_TEXTUAL_POLICY_ID && isOpaqueTextualMediaType(candidate.mediaType))
   );
-}
-
-export function sameWriteChannel(left: WriteSource, right: WriteSource): boolean {
-  return stableStringify(left) === stableStringify(right);
 }
 
 export function taskFromPath(value: PortableDocumentPath): string | null {

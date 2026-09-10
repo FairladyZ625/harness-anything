@@ -911,10 +911,6 @@ export function getEntityKindContract(kind: string): EntityKindContract | undefi
   return entityKindContractByKind.get(kind);
 }
 
-export function isEntityKind(kind: string): kind is EntityKind {
-  return entityKindContractByKind.has(kind);
-}
-
 export function isRelationEndpointKind(kind: string): kind is EntityKind {
   return getEntityKindContract(kind)?.relationEndpoint.eligible === true;
 }

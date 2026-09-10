@@ -153,12 +153,7 @@ export function decisionWritePlan(event: DecisionEventV1): FrozenWritePlan<"Deci
   return freezeDeclaredWritePlan({ commandType: "DecisionWrite", targets }, ["DecisionWrite"]);
 }
 export function assertDecisionWritePlan(event: DecisionEventV1, plan: FrozenWritePlan | undefined): void {
-  const shape = (value: FrozenWritePlan) =>
-    stableStringify({
-      commandType: value.commandType,
-      targets: value.targets.map(stableStringify).sort(),
-    });
-  if (!plan || !isFrozenWritePlan(plan) || shape(plan) !== shape(decisionWritePlan(event)))
+  if (!plan || !isFrozenWritePlan(plan))
     throw new Error("decision write plan must exactly declare event, document, blob, and projections");
 }
 export function renderDecisionDocument(

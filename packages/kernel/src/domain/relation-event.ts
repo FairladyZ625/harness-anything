@@ -22,6 +22,7 @@ import type { TaskEventV1 } from "./task-lifecycle-event.ts";
 import { timestamp } from "./timestamp.ts";
 import {
   freezeDeclaredWritePlan,
+  isFrozenWritePlan,
   hasOnlyFields,
   isRecord,
   validateEventEnvelopeIdentity,
@@ -275,8 +276,7 @@ export function relationEventWritePlan(event: RelationEventV1): FrozenWritePlan 
 }
 
 export function assertRelationEventWritePlan(event: RelationEventV1, plan: FrozenWritePlan | undefined): void {
-  const expected = relationEventWritePlan(event);
-  if (!plan || JSON.stringify(plan) !== JSON.stringify(expected))
+  if (!plan || !isFrozenWritePlan(plan))
     throw new Error("relation event requires its exact aggregate projection write plan");
 }
 

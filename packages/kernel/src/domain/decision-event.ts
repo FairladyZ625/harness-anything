@@ -11,9 +11,4 @@ export {
   reduceDecisionDocument,
   renderDecisionDocument,
 } from "./decision-event-document.ts";
-export {
-  isDecisionEvent,
-  serializeDecisionEvent,
-  validateCurrentDecisionEvent,
-  validateDecisionEvent,
-} from "./decision-event-validation.ts";
+export { isDecisionEvent, validateCurrentDecisionEvent, validateDecisionEvent } from "./decision-event-validation.ts";
