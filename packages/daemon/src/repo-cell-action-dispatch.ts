@@ -6,6 +6,7 @@ import {
   executionExecutorDeclarationCandidates,
   getExecutableEntityAction,
   lifecycleDocumentPaths,
+  requireEntityTypeContract,
   type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
 import { runPresetAction } from "../../preset/src/index.ts";
@@ -29,6 +30,7 @@ export async function executeAction(
   action: RepoTaskAction,
   binding: RepoCellBinding,
 ): Promise<WriteReceipt> {
+  validateCanonicalIdentityInputs(cell, action);
   if (
     [
       "vertical-declaration-migrate",
@@ -341,6 +343,22 @@ export async function executeAction(
   if (action.kind === "task-declare-executor") return cell.declareExecutionExecutor(action, binding);
   if (action.kind === "task-closeout") return cell.closeoutTask(action, binding);
   return cell.lifecycleAction(action, binding);
+}
+
+export function validateCanonicalIdentityInputs(cell: RepoCellOperationalContext, action: RepoTaskAction): void {
+  const fields = [
+    ["taskId", "task"],
+    ["executionId", "execution"],
+    ["reviewId", "review"],
+  ] as const;
+  for (const [field, kind] of fields) {
+    const value = action[field];
+    if (typeof value !== "string" || value.length === 0) continue;
+    const identity = requireEntityTypeContract(kind).id,
+      pattern = identity.refPattern ?? identity.pattern;
+    if (!new RegExp(`(?:${pattern})`, "u").test(value))
+      throw cell.cellCodedError("invalid_field", `${field} must match the canonical ${kind} identifier pattern.`);
+  }
 }
 
 export function declareExecutionExecutor(

@@ -6,6 +6,31 @@ import { makeEntityActionCatalogExecutor, deriveActionResult } from "../src/enti
 import { rejectExecutionSelection } from "../src/repo-cell-execution-selection.ts";
 import { cellCriterionError } from "../src/repo-cell-errors.ts";
 import { failed } from "../src/repo-cell-settlement.ts";
+import { validateCanonicalIdentityInputs } from "../src/repo-cell-action-dispatch.ts";
+
+test("shared action admission rejects replay-invalid lifecycle identities", () => {
+  const cell = {
+    cellCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),
+  } as never;
+  for (const [field, value] of [
+    ["taskId", "t0"],
+    ["executionId", "exec.1"],
+    ["reviewId", "review.1"],
+  ] as const) {
+    assert.throws(
+      () => validateCanonicalIdentityInputs(cell, { kind: "test", [field]: value }),
+      (error: unknown) => (error as { code?: string }).code === "invalid_field",
+    );
+  }
+  assert.doesNotThrow(() =>
+    validateCanonicalIdentityInputs(cell, {
+      kind: "task-start",
+      taskId: "task_valid",
+      executionId: "exec-valid",
+      reviewId: "review-valid",
+    }),
+  );
+});
 
 test("the catalog executor directly invokes Task execution metadata and derives ActionResult", async () => {
   const executor = makeEntityActionCatalogExecutor({
