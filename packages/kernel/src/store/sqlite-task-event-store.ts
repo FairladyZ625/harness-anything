@@ -9,7 +9,7 @@ import { sha256Text } from "../integrity/stable-hash.ts";
 import { resolveHarnessLayout, type HarnessLayoutInput } from "../layout/index.ts";
 import { consumeKnownError } from "../error-consumption.ts";
 import { canonicalDocumentClaims, contentClaims } from "./task-event-store-claims-layout.ts";
-import { canonicalEventCutFromHead, canonicalLedgerCut } from "./task-event-store-contract.ts";
+import { canonicalEventCut, canonicalEventCutFromHead, canonicalLedgerCut } from "./task-event-store-contract.ts";
 import { isTaskBootstrapEvent } from "../domain/task-bootstrap-event.ts";
 import { resolveLedgerGitLayout, ledgerGitPath } from "./ledger-git-layout.ts";
 import { localGitObjectRefStore, localGitWorktreeSettlement } from "./local-version-control-system.ts";
@@ -386,10 +386,8 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
     currentCut: cut,
     currentCommit: () =>
       ledgerCommitSha(options.repoId, localGitObjectRefStore.resolveCommit(ledger().rootDir, authoredRef())),
-    publication: (event) => ({
-      commitSha: null,
-      cut: canonicalEventCutFromHead(options.repoId, sqlite.eventIdentity(event.opId)!),
-    }),
+    // Migration import asks for the cut of a prepared event before it commits, so derive it from the event.
+    publication: (event) => ({ commitSha: null, cut: canonicalEventCut(options.repoId, event) }),
     revisionAt: () => null,
     readEvent: sqlite.event,
     readTaskEvent: (opId) => {
