@@ -83,8 +83,9 @@ export function population(f, n) {
         "relate",
         "--source-ref",
         `task/${taskId((index + 1) % n)}`,
+        // A random earlier Task: a shallow dependency forest, not one N/2-deep chain.
         "--target-ref",
-        `task/${taskId(index % n)}`,
+        `task/${taskId(hashIndex(`r${index}`, (index % n) + 1))}`,
         "--type",
         "depends-on",
         "--rationale",

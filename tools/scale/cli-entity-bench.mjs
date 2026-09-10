@@ -26,7 +26,7 @@ import * as report from "./cli-entity-bench.report.mjs";
 import { benchContext, brief, factOp, issueServer, population, taskId } from "./cli-entity-bench.workload.mjs";
 
 function parseArgs(argv) {
-  const options = { tasks: 1000, samples: 5, clients: 8, seed: 20260911, out: null };
+  const options = { tasks: 1000, samples: 5, clients: 8, seed: 20260911, out: null, populateBudgetS: Infinity };
   for (let index = 0; index < argv.length; index++) {
     const key = argv[index];
     if (["--matrix", "--docker"].includes(key)) options[key.slice(2)] = true;
@@ -34,6 +34,7 @@ function parseArgs(argv) {
     else if (["--tasks", "--samples", "--clients", "--seed"].includes(key))
       options[key.slice(2)] = Number(argv[++index]);
     else if (key === "--out") options.out = path.resolve(argv[++index]);
+    else if (key === "--populate-budget-s") options.populateBudgetS = Number(argv[++index]);
     else throw new Error(`unknown option ${key}`);
   }
   return options;
@@ -156,13 +157,14 @@ async function main() {
     rpcRows.push(row);
     return row;
   };
-  const pool = async (items, clients, work) => {
+  const pool = async (items, clients, work, deadline = Infinity) => {
     let next = 0;
     await Promise.all(
       Array.from({ length: clients }, async () => {
-        while (next < items.length) await work(items[next++]);
+        while (next < items.length && performance.now() < deadline) await work(items[next++]);
       }),
     );
+    return next;
   };
   const issues = await issueServer();
   let initRevision = 0,
@@ -178,18 +180,26 @@ async function main() {
     );
     initRevision = readHead(openSqliteEventStore, f.root);
     // Population: Tasks first (the other kinds point at them), then every other kind interleaved.
-    const ops = population(f, n);
+    const ops = population(f, n),
+      deadline = performance.now() + args.populateBudgetS * 1000;
     for (const [label, group] of [
       ["tasks", ops.filter((op) => op.kind === "task")],
       ["others", ops.filter((op) => op.kind !== "task")],
     ]) {
       const at = performance.now();
-      await pool(group, args.clients, async (op) => {
-        const row = await rpc(`populate:${op.kind}`, op.argv, { clients: args.clients });
-        writes.push({ ...op, ...row, argv: undefined });
-        if (writes.length % 1000 === 0) log(`populated ${writes.length}/${ops.length}`);
-      });
-      phases[`populate-${label}`] = { ops: group.length, wallMs: performance.now() - at };
+      const issued = await pool(
+        group,
+        args.clients,
+        async (op) => {
+          const row = await rpc(`populate:${op.kind}`, op.argv, { clients: args.clients });
+          writes.push({ ...op, ...row, argv: undefined });
+          if (writes.length % 1000 === 0) log(`populated ${writes.length}/${ops.length}`);
+        },
+        deadline,
+      );
+      // A budget stop is a result: the reached counts are what every later number was measured at.
+      phases[`populate-${label}`] = { ops: issued, planned: group.length, wallMs: performance.now() - at };
+      if (issued < group.length) log(`population budget exhausted at ${issued}/${group.length} ${label}`);
     }
     snap("populated");
     log(`population done: ${writes.filter((w) => w.status === "accepted_durable").length}/${ops.length} accepted`);

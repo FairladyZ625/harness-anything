@@ -76,7 +76,9 @@ node tools/scale/cli-entity-bench.mjs --compare a.json,b.json   # p50 ratio per 
 `--docker` copies the working tree into the container, runs `npm ci` and the hermetic preflight,
 runs the bench against a fixture daemon under a per-run user root, and copies
 `bench-results-<sha>-<tasks>.{json,md}` plus `host-load.json` back to `--out`. Other options:
-`--samples` (CLI samples per command, default 5), `--clients` (concurrent clients, default 8).
+`--samples` (CLI samples per command, default 5), `--clients` (concurrent clients, default 8),
+`--populate-budget-s` (stop issuing population writes after this many seconds and measure at the
+reached counts, which the results record).
 
 * Population: `tasks` Tasks, then 0.45 Facts, 0.48 Decisions, 0.5 Relations and 0.1 imports of
   each vertical artifact kind per Task, written through the CLI's own parser and daemon client with
