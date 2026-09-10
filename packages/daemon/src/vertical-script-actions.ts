@@ -87,7 +87,7 @@ export function publishExecutedVerticalScript(
       visibility: "center",
       proof: {
         committedRevision: revision,
-        appliedCut: input.projection.list().watermark,
+        appliedCut: input.projection.readCut().watermark,
         durable: false,
         canonicalVisible: false,
         worktreeVisible: false,

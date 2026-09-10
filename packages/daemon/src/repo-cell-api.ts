@@ -985,7 +985,9 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
         return receipt;
       const read = () => attachReceiptAcceptance(receipt, context.store, context.projection);
       return action.kind === "receipt-show" && action.waitFor !== undefined
-        ? waitForReceiptAcceptance(read, action.waitFor, action.timeoutMs, signal)
+        ? waitForReceiptAcceptance(read, action.waitFor, action.timeoutMs, signal, async () => {
+            await context.store.settlePendingMaterialization?.("receipt wait");
+          })
         : read();
     },
     presetRun,

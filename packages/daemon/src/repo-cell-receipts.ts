@@ -3,8 +3,6 @@ import {
   isTaskEvent,
   isTaskProgressEvent,
   contractForDeclarationEvent,
-  consumeKnownError,
-  type CanonicalEventV1,
   type TaskProgressEventV1,
   type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
@@ -20,16 +18,6 @@ export interface ProjectedTaskIdsContext {
       readonly watermark: number;
       readonly sourceRevision: number;
       readonly rows: readonly { readonly taskId: string }[];
-    };
-  };
-  readonly store: {
-    readonly readBatch: (
-      cursor: string | null,
-      maxItems: number,
-    ) => {
-      readonly events: readonly CanonicalEventV1[];
-      readonly cursor: string | null;
-      readonly done: boolean;
     };
   };
   readonly cellCodedError: typeof cellCodedError;
@@ -194,32 +182,17 @@ export function canonicalSettlement(
 export function projectedTaskIds(cell: ProjectedTaskIdsContext): Set<string> {
   if (cell.knownTaskIds) return cell.knownTaskIds;
   const read = cell.projection.list();
-  if (read.watermark === read.sourceRevision) {
-    cell.knownTaskIds = new Set(read.rows.map(({ taskId }: { readonly taskId: string }) => taskId));
-    return cell.knownTaskIds;
-  }
-  const taskIds = new Set<string>();
-  let cursor: string | null = null;
-  try {
-    for (;;) {
-      const batch = cell.store.readBatch(cursor, 4096) as {
-        readonly events: readonly CanonicalEventV1[];
-        readonly cursor: string | null;
-        readonly done: boolean;
-      };
-      for (const event of batch.events) if (isTaskEvent(event)) taskIds.add(event.taskId);
-      if (batch.done) break;
-      if (batch.cursor === cursor) throw new Error("canonical task event scan did not advance");
-      cursor = batch.cursor;
-    }
-  } catch (error) {
-    // A failed canonical scan must settle this cell's lookup rather than trigger
-    // an unbounded internal retry loop. An empty set is fail-closed for writes.
-    consumeKnownError(error);
-    taskIds.clear();
-  }
+  // Writers apply their own projection synchronously while the queue is held, so a lagging cut cannot
+  // catch up by waiting or by scanning the store: task_exists must fail closed instead.
+  if (read.watermark !== read.sourceRevision)
+    throw cell.cellCodedError(
+      "content_not_ready",
+      `Task identity projection is behind the canonical event stream: watermark ${String(read.watermark)}, ` +
+        `source revision ${String(read.sourceRevision)}. Run ha daemon projection rebuild, then retry.`,
+    );
+  const taskIds = new Set(read.rows.map(({ taskId }: { readonly taskId: string }) => taskId));
   cell.knownTaskIds = taskIds;
-  return cell.knownTaskIds;
+  return taskIds;
 }
 
 export function progressReceipt(

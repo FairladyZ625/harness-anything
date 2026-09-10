@@ -27,62 +27,46 @@ import { recoveryCommandPolicy } from "../src/recovery-state.ts";
 
 const actor = { principal: { personId: "person-latch" }, executor: null } as const;
 
-test("task identity lookup remains available while the projection catches up", () => {
-  const cell = {
-    knownTaskIds: null,
-    projection: { list: () => ({ watermark: 2, sourceRevision: 4, rows: [] }) },
-    store: {
-      readBatch: (cursor: string | null, _maxItems: number) => ({
-        sourceRevision: 4,
-        events:
-          cursor === null ? [{ schema: "task-event/v1", type: "task_created", taskId: "task-existing" } as never] : [],
-        cursor: "done",
-        done: true,
-        accessedItems: 1,
-      }),
-    },
-    cellCodedError,
-  };
-  assert.deepEqual([...projectedTaskIds(cell)], ["task-existing"]);
-});
-
-test("task identity lookup settles a canonical scan failure and caches fail-closed", () => {
-  const scanFailure = Object.assign(new Error("canonical event object is unavailable"), { code: "invalid_store" }),
-    reads = { count: 0 },
+test("task identity lookup serves the projection's rows when it is caught up", () => {
+  const reads = { count: 0 },
     cell = {
       knownTaskIds: null,
-      projection: { list: () => ({ watermark: 2, sourceRevision: 4, rows: [] }) },
-      store: {
-        readBatch: () => {
+      projection: {
+        list: () => {
           reads.count += 1;
-          throw scanFailure;
+          return { watermark: 4, sourceRevision: 4, rows: [{ taskId: "task-projected" }] };
         },
       },
       cellCodedError,
     };
-
-  assert.deepEqual([...projectedTaskIds(cell)], []);
-  assert.deepEqual([...projectedTaskIds(cell)], []);
+  assert.deepEqual([...projectedTaskIds(cell)], ["task-projected"]);
+  assert.deepEqual([...projectedTaskIds(cell)], ["task-projected"]);
   assert.equal(reads.count, 1);
-  assert.notEqual(cell.knownTaskIds, null);
 });
 
-test("task identity lookup settles a non-advancing canonical scan", () => {
-  let reads = 0;
-  const cell = {
-    knownTaskIds: null,
-    projection: { list: () => ({ watermark: 0, sourceRevision: 1, rows: [] }) },
-    store: {
-      readBatch: () => {
-        reads += 1;
-        return { events: [], cursor: null, done: false };
+test("task identity lookup fails closed while the projection lags", () => {
+  const reads = { count: 0 },
+    cell = {
+      knownTaskIds: null,
+      projection: {
+        list: () => {
+          reads.count += 1;
+          return { watermark: 2, sourceRevision: 4, rows: [{ taskId: "task-projected" }] };
+        },
       },
-    },
-    cellCodedError,
-  };
-  assert.deepEqual([...projectedTaskIds(cell)], []);
-  assert.deepEqual([...projectedTaskIds(cell)], []);
-  assert.equal(reads, 1);
+      cellCodedError,
+    };
+  // A lagging projection must not hand task_exists an under-populated (or empty) identity set.
+  for (const attempt of [1, 2]) {
+    assert.throws(
+      () => projectedTaskIds(cell),
+      (error: Error & { code?: string }) =>
+        error.code === "content_not_ready" && /watermark 2, source revision 4/u.test(error.message),
+      `attempt ${String(attempt)}`,
+    );
+  }
+  assert.equal(cell.knownTaskIds, null);
+  assert.equal(reads.count, 2);
 });
 
 test("projection recovery names and carries the reachable rebuild command", () => {

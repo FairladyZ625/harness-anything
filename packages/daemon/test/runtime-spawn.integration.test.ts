@@ -234,11 +234,16 @@ test("runtime spawn resolves command model, Agent model, then instance default w
     readonly definition: AgentDefinitionSnapshot;
     readonly prompt: string;
   } | null = null;
+  // One spawn consults the machine runtime instance list exactly once.
+  const instanceReads = { count: 0 };
   const cell = await openRepoCell({
     repoId: workspaceId(repoId),
     rootDir: canonicalRoot(root),
     ownerId: "agent-model-test",
-    runtimeInstances: instances.listPublic,
+    runtimeInstances: () => {
+      instanceReads.count += 1;
+      return instances.listPublic();
+    },
     prepareRuntimeLaunch: instances.prepareLaunch,
     runtimeLaunch: (prepared) => {
       launched = { definition: prepared.definition, prompt: prepared.prompt };
@@ -320,6 +325,7 @@ test("runtime spawn resolves command model, Agent model, then instance default w
         .map((instance) => instance.authReadiness.code),
       ["runtime_auth_not_checked", "runtime_auth_not_checked"],
     );
+    const readsBeforeFirstSpawn = instanceReads.count;
     await cell.spawnRuntime(
       {
         agentId: "declared-model",
@@ -332,6 +338,7 @@ test("runtime spawn resolves command model, Agent model, then instance default w
     );
     assert.equal(launched?.definition.instanceId, "codex-agent-model");
     assert.deepEqual(probed, ["codex-agent-model"]);
+    assert.equal(instanceReads.count - readsBeforeFirstSpawn, 1);
     await cell.spawnRuntime(
       {
         agentId: "declared-model",

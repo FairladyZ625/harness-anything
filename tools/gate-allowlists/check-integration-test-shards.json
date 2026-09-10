@@ -452,6 +452,11 @@
         "value": "packages/kernel/test/store/wal-shadow-event-store.test.ts",
         "ref": "dec_B1F5FF7648436C985F38F14226",
         "reason": "Stage 3 retires the old WAL/Git accepting path and in-place historical migration; SQLite acceptance, immutable pre-activation import, and follower tests cover the replacement contract in this same PR."
+      },
+      {
+        "value": "packages/daemon/test/cli-fault-stress.integration.test.ts",
+        "ref": "dec_EF5F3820E81FB8A5266F1F3342",
+        "reason": "B5 deletes the projectedTaskIds canonical scan and its empty-set cache that this fault stress injected into; a lagging projection now fails closed with content_not_ready, covered by repo-cell-latch-recovery.test.ts in the same PR."
       }
     ]
   }

@@ -68,7 +68,7 @@ function readSettings(
   const row = cell.projection.getEntity("settings", SETTINGS_ID),
     settings = settingsState.read(),
     revision = row?.workspaceRevision ?? 0,
-    cut = cell.projection.list(),
+    cut = cell.projection.readCut(),
     visible = row !== undefined && cut.status === "ready",
     base = {
       opId: cell.operationId(action, binding, cell.input.repoId, revision),

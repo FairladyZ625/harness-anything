@@ -1,14 +1,41 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { makeTaskEventStore, sha256Text } from "../../kernel/src/index.ts";
 import { compileTaskBootstrap } from "../src/index.ts";
-import { createRuntime } from "../src/preset-resolver.ts";
+import { createRuntime, presetDocumentBody } from "../src/preset-resolver.ts";
+import { effectiveCatalog } from "../src/preset-catalog.ts";
+import { defaultBundled, key } from "../src/preset-resolver-common.ts";
 
 import { git } from "./preset-resolver.fixtures.ts";
+test("bundled candidates are decoded once per process while user packages stay live", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-preset-catalog-cache-")),
+    userRoot = path.join(root, "user");
+  try {
+    const first = effectiveCatalog(defaultBundled, userRoot),
+      second = effectiveCatalog(defaultBundled, path.resolve(userRoot));
+    assert.equal(
+      second.get(key("software/coding", "standard-task")),
+      first.get(key("software/coding", "standard-task")),
+    );
+    mkdirSync(path.join(userRoot, "active"), { recursive: true });
+    writeFileSync(path.join(userRoot, "active", "live-probe.json"), "{}");
+    const probed = effectiveCatalog(defaultBundled, userRoot).get(key("*", "live-probe"));
+    assert.ok(probed?.error);
+    const body = presetDocumentBody({ userRoot, verticalId: "software/coding", presetId: "standard-task" });
+    assert.equal(typeof body, "string");
+    assert.ok(body.length > 0);
+    assert.throws(
+      () => presetDocumentBody({ userRoot, verticalId: "software/coding", presetId: "missing-preset" }),
+      (error: unknown) => (error as { code?: string }).code === "preset_not_found",
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 test("all thirteen bundled packages resolve through one valid catalog", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-preset-builtins-"));
   try {

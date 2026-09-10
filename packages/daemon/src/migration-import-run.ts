@@ -764,7 +764,7 @@ export async function runSingleMigrationImport(
     visibility: "center",
     proof: {
       committedRevision: writesAllowed ? revision : initialRevision,
-      appliedCut: writesAllowed ? input.projection.list().watermark : initialRevision,
+      appliedCut: writesAllowed ? input.projection.readCut().watermark : initialRevision,
       durable: canonicalVisible,
       canonicalVisible,
       worktreeVisible: writesAllowed,

@@ -156,10 +156,6 @@ export async function proofFor(
         (settings.reviewIndependence === "execution"
           ? isIndependentFrom(execution.actor, command.actor)
           : !isSamePerson(execution.actor, command.actor)),
-      dispatchlessExecution =
-        execution?.actor.executor === null &&
-        command.actor.executor === null &&
-        readTaskLineageDispatches({ projection, rootDir, taskId: command.taskId }).length === 0,
       principalIndependenceRequired =
         settings.reviewIndependence === "principal" &&
         execution !== undefined &&
@@ -169,6 +165,11 @@ export async function proofFor(
         : validExternalCompletionEvidence(command, projection, rootDir),
       explicitlyUnreviewed = independentActor ? false : validNoIndependentReview(command, projection, rootDir);
     if (!independentActor && !externalCompletionEvidence && !explicitlyUnreviewed) {
+      // The dispatch lineage read exists only to explain this rejection, so it runs inside the branch.
+      const dispatchlessExecution =
+        execution?.actor.executor === null &&
+        command.actor.executor === null &&
+        readTaskLineageDispatches({ projection, rootDir, taskId: command.taskId }).length === 0;
       const principalSettingGuidance = principalIndependenceRequired
         ? [
             "Repository setting reviewIndependence currently equals principal, so the reviewer and execution " +

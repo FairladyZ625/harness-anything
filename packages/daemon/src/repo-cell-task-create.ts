@@ -18,7 +18,7 @@ export function readResult(
   worktreeVisible: boolean | null,
   projectedCut?: { readonly status: "ready" | "pending"; readonly watermark: number; readonly sourceRevision: number },
 ): WriteReceipt {
-  const cut = projectedCut ?? cell.projection.list(),
+  const cut = projectedCut ?? cell.projection.readCut(),
     ready = cut.status === "ready",
     base = {
       opId,
@@ -53,7 +53,7 @@ export function previewResult(
   revision: number,
   command: string,
 ): WriteReceipt {
-  const cut = cell.projection.list();
+  const cut = cell.projection.readCut();
   return {
     outcome: "pending",
     opId,
@@ -146,7 +146,6 @@ export function prepareTaskCreateAt(
     opId = dryRun ? `preview:${createHash("sha256").update(canonicalOpId).digest("hex")}` : canonicalOpId,
     existing = dryRun ? null : cell.store.readEvent(opId);
   if (existing) {
-    cell.projection.list();
     return cell.receiptForOperation(opId, binding);
   }
   const idempotent =

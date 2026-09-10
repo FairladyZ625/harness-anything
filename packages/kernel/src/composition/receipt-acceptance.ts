@@ -129,6 +129,7 @@ export async function waitForReceiptAcceptance<R extends WriteReceiptDraft>(
   predicates: unknown,
   timeoutMs: unknown,
   signal?: AbortSignal,
+  settlePendingMaterialization?: () => Promise<void>,
 ): Promise<R & ReceiptAcceptanceFields> {
   if (
     !Array.isArray(predicates) ||
@@ -143,16 +144,26 @@ export async function waitForReceiptAcceptance<R extends WriteReceiptDraft>(
   if (typeof timeout !== "number" || !Number.isSafeInteger(timeout) || timeout < 0 || timeout > 60_000)
     throw Object.assign(new Error("Receipt wait timeout must be 0–60000 ms."), { code: "invalid_command" });
   const requested = predicates as ReceiptWaitPredicate[],
+    evaluate = (receipt: R & ReceiptAcceptanceFields) => {
+      if (requested.includes("replica_verified") && receipt.replica.state === "not_configured")
+        throw Object.assign(new Error("Replica verification is not configured for this receipt."), {
+          code: "unsupported_wait_condition",
+        });
+      return unsatisfiedReceiptPredicates(receipt, requested);
+    },
     deadline = performance.now() + timeout;
-  for (;;) {
-    const receipt = read();
-    if (requested.includes("replica_verified") && receipt.replica.state === "not_configured")
-      throw Object.assign(new Error("Replica verification is not configured for this receipt."), {
-        code: "unsupported_wait_condition",
-      });
-    const unsatisfied = unsatisfiedReceiptPredicates(receipt, requested);
-    if (unsatisfied.length === 0 || performance.now() >= deadline || receipt.status === "rejected")
-      return { ...receipt, wait: { state: unsatisfied.length ? "timed_out" : "satisfied", unsatisfied } };
-    await delay(Math.min(25, Math.max(1, deadline - performance.now())), undefined, { signal });
+  let receipt = read(),
+    unsatisfied = evaluate(receipt);
+  if (unsatisfied.length > 0 && receipt.status !== "rejected" && performance.now() < deadline) {
+    // The writer's pending follower settlement is the only in-process signal that advances these
+    // facets; await it once, raced against the caller's deadline, instead of rebuilding the
+    // receipt on a fixed poll tick.
+    await Promise.race([
+      settlePendingMaterialization?.() ?? Promise.resolve(),
+      delay(Math.max(1, deadline - performance.now()), undefined, { signal }),
+    ]);
+    receipt = read();
+    unsatisfied = evaluate(receipt);
   }
+  return { ...receipt, wait: { state: unsatisfied.length ? "timed_out" : "satisfied", unsatisfied } };
 }

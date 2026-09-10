@@ -220,6 +220,7 @@ export async function completeTask(
       cell.input.repoId,
       initial.snapshot.revision,
     );
+  let presetSnapshotDigest: string | null = null;
   for (let dispatch = 0; dispatch < 5; dispatch += 1) {
     const current = await cell.service.read(taskId),
       completed = cell.projection.readTaskCompletion(taskId, executionId);
@@ -232,12 +233,22 @@ export async function completeTask(
         steps,
       );
     }
+    // The current package digest is stable for the whole request; compiling it per retry would
+    // re-hash the preset catalog once per loop turn for the same answer.
+    if (presetSnapshotDigest === null)
+      presetSnapshotDigest = currentPresetSnapshotDigest(
+        cell,
+        taskId,
+        current.snapshot,
+        current.packagePath,
+        cell.completeRetryCommand(taskId, executionId, action),
+      );
     const completion = cell.completionContext(
         taskId,
         current.snapshot,
         current.packagePath,
         binding,
-        cell.completeRetryCommand(taskId, executionId, action),
+        presetSnapshotDigest,
       ),
       blocker = completionBlockers(current.snapshot, executionId, completion)[0];
     if (!blocker) {
@@ -533,12 +544,9 @@ export function completionContext(
   snapshot: Snapshot,
   packagePath: string | null,
   binding: RepoCellBinding,
-  retryCommand: string,
+  presetSnapshotDigest: string,
 ): CompletionReadinessContext {
-  if (
-    currentPresetSnapshotDigest(cell, taskId, snapshot, packagePath, retryCommand) !==
-    snapshot.task?.presetSnapshotDigest
-  )
+  if (presetSnapshotDigest !== snapshot.task?.presetSnapshotDigest)
     throw cell.cellCodedError("preset_snapshot_mismatch", `Run ha preset upgrade ${taskId} before completion.`);
   const closeoutDocument = readTaskTransitionDocument({
       projection: cell.projection,
