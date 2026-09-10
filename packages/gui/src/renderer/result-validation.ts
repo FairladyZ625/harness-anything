@@ -2,6 +2,18 @@ export function isRendererRecord(value: unknown): value is Record<string, unknow
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+/** 只有明确 `ok:false` 的失败结果才带可用的 hint;成功结果上的 error 不作提示来源。 */
+export function localErrorHint(value: unknown, fallback: string): string {
+  if (
+    isRendererRecord(value) &&
+    value.ok === false &&
+    isRendererRecord(value.error) &&
+    typeof value.error.hint === "string"
+  )
+    return value.error.hint;
+  return fallback;
+}
+
 export function rendererErrorHint(value: unknown, fallback: string): string {
   return isRendererRecord(value) && isRendererRecord(value.error) && typeof value.error.hint === "string"
     ? value.error.hint

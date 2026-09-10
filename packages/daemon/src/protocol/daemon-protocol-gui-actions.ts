@@ -173,11 +173,15 @@ export const daemonGuiActionMethods = Object.freeze([
     "arbiter",
   ),
   ...entityImportGuiActions,
+  // `waitFor`/`timeoutMs` are the receipt-acceptance predicates the cell already runs
+  // (repo-cell-api → waitForReceiptAcceptance); `ha` settles every write through them.
+  // Admitting only `opId` here gave the GUI a single follower snapshot taken before the
+  // acceptance had been published, so an accepted write could never be observed as visible.
   guiAction(
     "receipt.show",
     "repo.receipt.show",
     "receipt-show",
-    shape({ opId: "string" }),
+    shape({ opId: "string", waitFor: "array?", timeoutMs: "number?" }),
     "showReceipt",
     "/api/receipts/:opId",
     "repo-read",
