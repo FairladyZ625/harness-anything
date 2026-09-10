@@ -65,8 +65,11 @@ export function matrixMarkdown(rows) {
   return lines.join("\n");
 }
 
-export const countBy = (rows, key) =>
-  rows.reduce((counts, row) => ({ ...counts, [key(row)]: (counts[key(row)] ?? 0) + 1 }), {});
+export const countBy = (rows, key) => {
+  const counts = {};
+  for (const row of rows) counts[key(row)] = (counts[key(row)] ?? 0) + 1;
+  return counts;
+};
 
 // Rows keep the receipt identity and CLI phases; full stdout stays out of the results file.
 export function compactRow(row) {
@@ -88,8 +91,11 @@ export function compactRow(row) {
 export function summarize(rows) {
   const groups = new Map();
   for (const row of rows)
-    if (row.wallMs !== null)
-      groups.set(`${row.arm}|${row.metric}`, [...(groups.get(`${row.arm}|${row.metric}`) ?? []), row]);
+    if (row.wallMs !== null) {
+      const key = `${row.arm}|${row.metric}`;
+      if (groups.has(key)) groups.get(key).push(row);
+      else groups.set(key, [row]);
+    }
   return [...groups].map(([key, group]) => {
     const [arm, metric] = key.split("|"),
       wall = group.map((row) => row.wallMs),

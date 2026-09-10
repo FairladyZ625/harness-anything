@@ -285,12 +285,13 @@ export function brief(receipt) {
   };
 }
 
-// First value per key, breadth-first over the receipt and its JSON-string evidence.
+// First value per key, breadth-first over the receipt and its JSON-string evidence. A read cursor,
+// not queue.shift(): list receipts at 10k Tasks hold ~10^5 nodes and shift() makes the walk quadratic.
 export function deepFind(root, keys) {
   const found = {},
     queue = [root];
-  while (queue.length && Object.keys(found).length < keys.length) {
-    let value = queue.shift();
+  for (let next = 0; next < queue.length && Object.keys(found).length < keys.length; next++) {
+    let value = queue[next];
     if (typeof value === "string" && /^[[{]/u.test(value))
       try {
         value = JSON.parse(value);

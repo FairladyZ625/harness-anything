@@ -126,7 +126,12 @@ async function main() {
     phases = {},
     snapshots = [],
     errors = [],
-    log = (message) => console.log(`[scale-bench ${((Date.now() - started) / 1000).toFixed(0)}s] ${message}`);
+    log = (message) => console.log(`[scale-bench ${((Date.now() - started) / 1000).toFixed(0)}s] ${message}`),
+    // Phase boundaries after the CLI arm, in seconds since start, so a slow phase is attributable.
+    mark = (label) => {
+      (phases.marks ??= {})[label] = Math.round((Date.now() - started) / 1000);
+      log(label);
+    };
   // runtime instance create probes the provider CLI; a version-only stub stands in for it.
   const bin = path.join(f.parent, "bin");
   mkdirSync(bin, { recursive: true });
@@ -246,6 +251,7 @@ async function main() {
       ([metric, build]) => typeof build === "function" && reads.has(registryId(metric)),
     ))
       for (let s = 0; s < args.samples; s++) await rpc(`read:${metric}`, build(context, s));
+    mark("rpc-reads");
     // 8 concurrent CLI processes, write then read, three rounds.
     for (let round = 0; round < 3; round++) {
       await concurrentCli(
@@ -261,6 +267,7 @@ async function main() {
       );
     }
     snap("measured");
+    mark("cli-concurrent");
     // Cold reads: stop -> start -> first read, per read shape.
     for (const [metric, argv] of coldReads()) {
       await stopDaemon(f);
@@ -268,6 +275,7 @@ async function main() {
       f.invoke(`cold:${metric}`, argv, { requireSuccess: false, timeoutMs: 600_000 });
       f.invoke(`warm:${metric}`, argv, { requireSuccess: false, timeoutMs: 600_000 });
     }
+    mark("cold-reads");
     // Rebuild oracle input: the same reads before and after a full projection rebuild.
     const listed = async () =>
       Object.fromEntries(
@@ -287,6 +295,7 @@ async function main() {
     for (const [metric, argv] of listReads())
       lists[metric] = await rpcFull(parseThinCommand, runCommandThroughDaemon, f, argv);
     snap("end");
+    mark("rebuild-and-lists");
     phases.done = true;
   } catch (error) {
     errors.push({ phase: "measure", message: error.stack ?? String(error) });
@@ -313,6 +322,7 @@ async function main() {
     oracles = runOracles(oracleInput);
     negativeControls = runNegativeControls(oracleInput);
     store.close();
+    mark("oracles");
   } catch (error) {
     errors.push({ phase: "oracles", message: error.stack ?? String(error) });
   }
