@@ -585,19 +585,8 @@ export function completionContext(
           ? "placeholder"
           : "ready";
   const producesFactCount = cell.projection
-    .readFactGraph()
-    .edges.filter(
-      (row: {
-        readonly sourceRef: string;
-        readonly targetRef: string;
-        readonly relationType: string;
-        readonly state: string;
-      }) =>
-        row.sourceRef === `task/${taskId}` &&
-        row.relationType === "produces" &&
-        row.state === "active" &&
-        row.targetRef.startsWith("fact/"),
-    ).length;
+    .readRelationQuery({ source: `task/${taskId}`, relationType: "produces", state: "active" })
+    .rows.filter((row) => row.targetRef.startsWith("fact/")).length;
   return {
     closeout,
     closeoutPath,

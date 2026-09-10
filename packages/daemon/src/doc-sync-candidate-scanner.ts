@@ -109,7 +109,10 @@ export function scanDocCandidates(input: {
     candidates = selected?.length
       ? [...new Set(selected)]
       : [
-          ...new Set(input.inventory?.rows.map((row) => row.path) ?? dirtyPaths(ledger.rootDir, ledger.authoredPrefix)),
+          ...new Set(
+            input.inventory?.rows.map((row) => row.path) ??
+              dirtyPaths(ledger.rootDir, ledger.authoredPrefix, taskPrefix ?? ""),
+          ),
         ].filter((value) => value.startsWith(enumerationScope)),
     paths = candidates.sort(),
     baseLedgerSha = input.inventory?.baseLedgerSha ?? input.store.currentCut(),
@@ -579,8 +582,9 @@ export function resolveDocExecutionBinding(
   return { id: lease?.executionId ?? null, candidates: [], lease, runtimeDelegatedTaskId: null };
 }
 
-function dirtyPaths(repoRoot: string, authoredPrefix: string): string[] {
-  const scope = authoredPrefix || ".",
+function dirtyPaths(repoRoot: string, authoredPrefix: string, logicalScope = ""): string[] {
+  const scopePath = [authoredPrefix, logicalScope.replace(/\/$/u, "")].filter(Boolean).join("/"),
+    scope = scopePath || ".",
     changed = gitNames(repoRoot, ["diff", "--name-only", "-z", "HEAD", "--", scope]),
     untracked = gitNames(repoRoot, ["ls-files", "--others", "--exclude-standard", "-z", "--", scope]),
     prefix = authoredPrefix ? `${authoredPrefix}/` : "";
@@ -594,7 +598,9 @@ function dirtyPaths(repoRoot: string, authoredPrefix: string): string[] {
             !/\/\.ha-(?:visible|settle)-/u.test(`/${value}`),
         )
         .map((value) => value.slice(prefix.length))
-        .concat(conflictLogicalPaths(path.join(repoRoot, authoredPrefix))),
+        .concat(
+          conflictLogicalPaths(path.join(repoRoot, scopePath || authoredPrefix), logicalScope.replace(/\/$/u, "")),
+        ),
     ),
   ];
 }
@@ -614,15 +620,17 @@ function candidateConflicts(rootDir: string, authoredRoot: string, logical: stri
     .map((name) => relative(rootDir, path.join(directory, name)))
     .sort();
 }
-function conflictLogicalPaths(authoredRoot: string): string[] {
+function conflictLogicalPaths(authoredRoot: string, logicalScope = ""): string[] {
   const found: string[] = [];
   const visit = (directory: string) => {
     if (!existsSync(directory)) return;
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
       const target = path.join(directory, entry.name);
       if (entry.isDirectory()) visit(target);
-      else if (entry.isFile() && /\.conflict-[0-9a-f]{8}\.(?:md|txt)$/u.test(entry.name))
-        found.push(relative(authoredRoot, target).replace(/\.conflict-[0-9a-f]{8}(?=\.(?:md|txt)$)/u, ""));
+      else if (entry.isFile() && /\.conflict-[0-9a-f]{8}\.(?:md|txt)$/u.test(entry.name)) {
+        const logical = relative(authoredRoot, target).replace(/\.conflict-[0-9a-f]{8}(?=\.(?:md|txt)$)/u, "");
+        found.push(logicalScope ? `${logicalScope}/${logical}` : logical);
+      }
     }
   };
   visit(authoredRoot);
