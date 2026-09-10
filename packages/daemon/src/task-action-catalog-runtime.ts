@@ -393,7 +393,8 @@ function taskActionRejection(
 
     evidence: `criterion:${first.ref}`,
     unmetCriteria,
-    rejectionExplanation: first.explain,
+    // The guard's own reason says what is wrong; the criterion text only states what must hold.
+    rejectionExplanation: rejected?.rejectionExplanation || first.explain,
     nextActions,
   };
 }
