@@ -464,9 +464,10 @@ export function deriveActionResult(
       receipt.outcome === "op_rejected"
         ? criterionRefs.map((criterionRef) => resolveActionCriterion(contract, criterionRef))
         : [],
+    // The guard's own reason names what is wrong; a criterion's explain only states what must hold.
     explanation = rejected
-      ? (unmetCriteria[0]?.explain ??
-        receipt.rejectionExplanation ??
+      ? (receipt.rejectionExplanation ??
+        unmetCriteria[0]?.explain ??
         `Action ${contract.target.kind}.${contract.id} was rejected.`)
       : null;
   return {

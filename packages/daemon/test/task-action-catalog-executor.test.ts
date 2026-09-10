@@ -131,6 +131,26 @@ test("criterion-bearing failures resolve descriptors by action plus ref even whe
   }
 });
 
+test("a criterion-bearing rejection shows the blocker's reason, not the criterion's requirement sentence", () => {
+  const contract = getExecutableEntityAction("task-complete");
+  assert.ok(contract);
+  const criterionRef = "closeout-readiness/closeoutReadiness",
+    reason = "Publish a passing canonical ci checker witness for this execution cut.",
+    action = { kind: "task-complete", taskId: "task_contract" } as const,
+    receipt = deriveActionResult(
+      contract,
+      action,
+      failed(
+        "op-ci-missing",
+        cellCriterionError("ci_missing", reason, "complete", criterionRef, [reason]),
+        contract,
+        action,
+      ),
+    );
+  assert.equal(receipt.unmetCriteria?.[0]?.ref, criterionRef);
+  assert.equal(receipt.rejectionExplanation, reason);
+});
+
 test("a plain coded-error rejection forwards the guard's own message instead of the generic sentence", () => {
   const contract = getExecutableEntityAction("task-complete");
   assert.ok(contract);
