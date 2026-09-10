@@ -222,6 +222,27 @@ test("rotation holds the log to a bounded number of files", async () => {
   assert.equal(live.at(-1)?.opId, "op_399");
 });
 
+test("each repository's requests land in that repository's own log, and a record after settle is still written", async () => {
+  const first = tempRoot(),
+    second = tempRoot(),
+    roots: Record<string, string> = { first, second };
+  const log = openDaemonRequestLog({ resolveRootDir: (repoId) => roots[repoId] });
+  log.record(entry({ repoId: "first", opId: "op_first" }));
+  log.record(entry({ repoId: "second", opId: "op_second" }));
+  await log.settle();
+  log.record(entry({ repoId: "second", opId: "op_late" }));
+  await log.settle();
+
+  assert.deepEqual(
+    readRecords(first).map(({ opId }) => opId),
+    ["op_first"],
+  );
+  assert.deepEqual(
+    readRecords(second).map(({ opId }) => opId),
+    ["op_second", "op_late"],
+  );
+});
+
 test("a sink that cannot write neither throws nor keeps reporting", async () => {
   const rootDir = tempRoot();
   // A file where the log directory must be: mkdir fails for every record.
