@@ -393,7 +393,8 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
         });
     };
     if (action.kind === "script-run")
-      return Promise.resolve()
+      // The script reads the published commit, so it waits for every accepted write to be published first.
+      return Promise.resolve(context.store.settlePendingMaterialization?.("vertical script"))
         .then(() =>
           executeVerticalScriptAction({
             action,
