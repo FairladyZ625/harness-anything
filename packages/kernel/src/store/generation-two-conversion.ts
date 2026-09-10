@@ -1,6 +1,6 @@
 import path from "node:path";
 import { consumeKnownError } from "../error-consumption.ts";
-import { publishConvertedGeneration, readCertifiedGitFollower } from "./sqlite-task-event-store.ts";
+import { publishConvertedGeneration, readCertifiedGitFollower } from "./sqlite-task-event-publication.ts";
 import { makeTaskProjection } from "../projection/rebuildable-task-projection-factory.ts";
 import { ciWorkflowVerificationMigration } from "./event-shape-migration.ts";
 import {

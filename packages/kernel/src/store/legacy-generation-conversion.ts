@@ -14,7 +14,7 @@ import {
 } from "./legacy-generation-source.ts";
 import { assertNoPendingHistoricalRewrites, planLegacyGenerationConversion } from "./event-shape-migration.ts";
 import { openSqliteEventStore, sqliteLedgerPath, type SqliteWriterFence } from "./sqlite-event-store.ts";
-import { publishConvertedGeneration, readCertifiedGitFollower } from "./sqlite-task-event-store.ts";
+import { publishConvertedGeneration, readCertifiedGitFollower } from "./sqlite-task-event-publication.ts";
 import { TaskEventStoreError, type CanonicalContentBlob, type CanonicalEventStore } from "./task-event-store-types.ts";
 
 export interface ImmutableLegacySnapshotV2 {
