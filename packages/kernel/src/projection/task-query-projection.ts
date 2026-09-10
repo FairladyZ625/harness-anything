@@ -88,6 +88,26 @@ export interface NarrowTaskRow {
 /** One projection scan for the CLI task index. The row is intentionally limited
  * to list/tree fields, so callers do not hydrate executions, reviews, leases, or
  * relation graphs only to discard them after a metadata filter. */
+/** Direct children with an active package, counted across the whole ledger for the given parents. */
+export function readTaskChildCounts(
+  db: DatabaseSync,
+  parentTaskIds: readonly string[],
+): Readonly<Record<string, number>> {
+  if (parentTaskIds.length === 0) return {};
+  const parent = "json_extract(snapshot_json, '$.task.metadata.parentTaskId')";
+  return Object.fromEntries(
+    queryRows<{ readonly parent_task_id: string; readonly child_count: number }>(
+      db,
+      [
+        `SELECT ${parent} AS parent_task_id, COUNT(*) AS child_count FROM task_snapshot`,
+        "WHERE COALESCE(json_extract(snapshot_json, '$.task.packageDisposition'), 'active') = 'active'",
+        `AND ${parent} IN (SELECT value FROM json_each(?)) GROUP BY parent_task_id`,
+      ].join(" "),
+      JSON.stringify(parentTaskIds),
+    ).map((row) => [row.parent_task_id, Number(row.child_count)]),
+  );
+}
+
 export function readTaskIndexRows(
   db: DatabaseSync,
   query: TaskProjectionListQuery = {},

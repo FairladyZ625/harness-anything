@@ -246,6 +246,20 @@ test("task read surfaces, dry-runs, idempotency, structured input, and supersede
       (listed.rows as { taskId: string }[]).map((row) => row.taskId),
       ["task_source"],
     );
+    assert.equal(
+      (listed.rows as { rootAssessment: { directChildCount: number } }[])[0]?.rootAssessment.directChildCount,
+      2,
+      "a filtered list still counts each row's children across the whole ledger",
+    );
+    const everything = evidence(await cell.run({ kind: "task-list" }, binding));
+    assert.deepEqual(
+      (everything.rows as { taskId: string }[])
+        .map((row) => row.taskId)
+        .filter((taskId) => taskId.startsWith("task_child") || taskId === "task_grandchild")
+        .sort(),
+      ["task_child_alpha", "task_child_beta", "task_grandchild"],
+      "a list without --parent includes child tasks",
+    );
     assert.equal(tree.schema, "task-list/v2");
     assert.equal((treeReceipt as Record<string, unknown>).schema, "task-list/v2");
     assert.deepEqual((treeReceipt as Record<string, unknown>).rows, tree.rows);

@@ -9,6 +9,7 @@ import { readFactGraphRows } from "./fact-event-projection.ts";
 import {
   readTaskDependencyClosureRows,
   readTaskRelationNeighborhoodRows,
+  readTaskChildCounts,
   readTaskIndexRows,
   readTaskRelationPage,
   readTaskRelationRows,
@@ -100,6 +101,7 @@ export function taskQueryApi(
   | "readTaskRelations"
   | "readTaskRelationNeighborhood"
   | "readTaskIndex"
+  | "readTaskChildCounts"
   | "readWorkspaceSummary"
   | "readTaskDependencyClosure"
   | "readTaskRelationsByTargets"
@@ -139,6 +141,8 @@ export function taskQueryApi(
         };
       });
     },
+    readTaskChildCounts: (parentTaskIds) =>
+      withDatabase(projectionPath, readHead, (db) => readTaskChildCounts(db, parentTaskIds)),
     readWorkspaceSummary: () =>
       withDatabase(projectionPath, readHead, (db) => {
         const cut = readProjectionCut(db, readHead);

@@ -77,7 +77,7 @@ export function listTasks(cell: TaskQueryCell, action: RepoTaskAction, binding: 
       flat
         ? {
             ...filters,
-            parentTaskId: typeof action.parentTaskId === "string" ? action.parentTaskId : null,
+            ...(typeof action.parentTaskId === "string" ? { parentTaskId: action.parentTaskId } : {}),
             ...(query.limit === undefined ? {} : { limit: query.limit }),
             ...(query.cursor === undefined ? {} : { cursor: query.cursor }),
             activePackagesOnly: true,
@@ -105,7 +105,10 @@ export function listTasks(cell: TaskQueryCell, action: RepoTaskAction, binding: 
       throw cell.cellCodedError("invalid_command", "Task list cursor is invalid; restart the filtered query.");
     throw error;
   }
-  const rootSetting = resolveTaskRootThreshold(cell.rootDir),
+  // Filters and pages narrow the rows; a row's children are still counted across the whole ledger.
+  const childCounts =
+      selected.mode === "flat" ? cell.projection.readTaskChildCounts(selected.rows.map((row) => row.taskId)) : {},
+    rootSetting = resolveTaskRootThreshold(cell.rootDir),
     value =
       selected.mode === "tree"
         ? {
@@ -122,7 +125,7 @@ export function listTasks(cell: TaskQueryCell, action: RepoTaskAction, binding: 
             schema: "task-list/v2" as const,
             mode: "flat" as const,
             rows: selected.rows.map((row) => {
-              const directChildCount = selected.childCounts.get(row.taskId) ?? 0;
+              const directChildCount = childCounts[row.taskId] ?? 0;
               return {
                 taskId: row.taskId,
                 status: row.status,
