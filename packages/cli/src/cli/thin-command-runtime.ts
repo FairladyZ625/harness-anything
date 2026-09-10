@@ -1,13 +1,5 @@
 import type { SafePath } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
-import {
-  accepted,
-  nonEmpty,
-  projectionWaitMs,
-  promptInput,
-  readFlags,
-  rejectInput,
-  rejected,
-} from "./thin-command-flags.ts";
+import { accepted, nonEmpty, promptInput, readFlags, rejectInput, rejected } from "./thin-command-flags.ts";
 import { parseRuntimeStatus } from "./thin-command-runtime-status.ts";
 import type { ProtocolCommand, ThinCliInputDirectory, ThinParseResult } from "./thin-command-types.ts";
 
@@ -32,13 +24,10 @@ export function parseRuntime(
   const prompt = promptInput(f.one),
     taskId = f.one.get("--task"),
     missionName = f.one.get("--mission"),
-    waitProjectionMs = projectionWaitMs(f.one.get("--wait-projection")),
     promptFlagPresent = f.one.has("--prompt"),
     detach = f.booleans.has("--detach"),
     onExitCommand = f.one.get("--on-exit");
   if (!prompt && (promptFlagPresent || !taskId)) return rejectInput(inputs, kind, "--prompt", json);
-  if (waitProjectionMs === null)
-    return rejected("invalid_field", "Use a non-negative safe integer projection wait limit in milliseconds.", json);
   if (onExitCommand && !detach) return rejectInput(inputs, kind, "--on-exit", json);
   const cwd = f.one.get("--cwd"),
     agentId = f.one.get("--agent"),
@@ -66,7 +55,6 @@ export function parseRuntime(
       ...(f.one.get("--permission-mode") ? { permissionMode: f.one.get("--permission-mode") } : {}),
       ...(prompt ?? {}),
       ...(missionName ? { missionName } : {}),
-      ...(waitProjectionMs === undefined ? {} : { waitProjectionMs }),
       cwd: cwd && cwd !== "." ? { scope: "repo-relative", path: cwd } : { scope: "repo-root" },
       taskId: taskId ?? null,
       ...(f.one.get("--resume") ? { providerSessionId: f.one.get("--resume") } : {}),
@@ -97,12 +85,9 @@ export function parseResumeDispatch(
     return rejected("invalid_field", "A resumed dispatch keeps its original task mission.", json);
   const prompt = promptInput(f.one),
     detach = f.booleans.has("--detach"),
-    onExitCommand = f.one.get("--on-exit"),
-    waitProjectionMs = projectionWaitMs(f.one.get("--wait-projection"));
+    onExitCommand = f.one.get("--on-exit");
   if (!prompt) return rejectInput(inputs, "runtime-run", "--prompt", json);
   if (onExitCommand && !detach) return rejectInput(inputs, "runtime-run", "--on-exit", json);
-  if (waitProjectionMs === null)
-    return rejected("invalid_field", "Use a non-negative safe integer projection wait limit in milliseconds.", json);
   const cwd = f.one.get("--cwd"),
     agentId = f.one.get("--agent"),
     targetAgentId = f.one.get("--to"),
@@ -124,7 +109,6 @@ export function parseResumeDispatch(
       ...prompt,
       cwd: cwd && cwd !== "." ? { scope: "repo-relative", path: cwd } : { scope: "repo-root" },
       taskId: f.one.get("--task") ?? null,
-      ...(waitProjectionMs === undefined ? {} : { waitProjectionMs }),
       ...(agentId ? { agentId } : {}),
       ...(targetAgentId ? { targetAgentId } : {}),
       ...(squadId ? { squadId } : {}),

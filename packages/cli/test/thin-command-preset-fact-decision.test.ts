@@ -222,8 +222,6 @@ test("Fact CLI exposes record, controlled types, search, and show while keeping 
     "semantic",
     "--memory-tag",
     "pattern",
-    "--wait-projection",
-    "2500",
   ]);
   const search = parseThinCommand(["fact", "search", "Observed", "--task", "task-1"]),
     facetedSearch = parseThinCommand(["fact", "search", "--type", "architecture"]),
@@ -258,7 +256,6 @@ test("Fact CLI exposes record, controlled types, search, and show while keeping 
       domainTypes: ["architecture"],
       memoryClass: "semantic",
       memoryTags: ["pattern"],
-      waitProjectionMs: 2500,
     });
   if (facetedSearch.ok)
     assert.deepEqual(facetedSearch.command.action, { kind: "fact-search", domainType: "architecture" });
@@ -406,10 +403,6 @@ test("Fact CLI exposes record, controlled types, search, and show while keeping 
     false,
   );
   assert.equal(parseThinCommand(["fact", "record", "--statement", "x", "--text", "y", "--source", "s"]).ok, false);
-  assert.equal(
-    parseThinCommand(["fact", "record", "--statement", "x", "--source", "s", "--wait-projection", "-1"]).ok,
-    false,
-  );
 });
 
 test("Fact search CLI forwards observed-time windows and keyset pagination", () => {

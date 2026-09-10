@@ -10,7 +10,6 @@ export type RuntimeBatchEntry = {
   readonly permissionMode?: string;
   readonly prompt?: string;
   readonly mission?: string;
-  readonly waitProjectionMs?: number;
   readonly cwd?: string | RuntimeCwd;
   readonly task?: string;
 };

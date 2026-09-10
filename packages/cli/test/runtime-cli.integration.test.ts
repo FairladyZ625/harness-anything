@@ -327,8 +327,6 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
             `Concurrent projection observation ${String(index + 1)}`,
             "--source",
             `test:runtime-cli-concurrency:${String(index + 1)}`,
-            "--wait-projection",
-            "30000",
           ]),
         ),
         runAsync(root, env, [
@@ -339,8 +337,6 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
           `progress-middle:${taskId}`,
           "--task",
           taskId,
-          "--wait-projection",
-          "30000",
           "--no-stream",
         ]),
       ]),
@@ -353,7 +349,7 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
     );
     assert.equal(progressResult.status, 0, `${progressResult.stderr}\n${JSON.stringify(progressResult.receipt)}`);
     context.diagnostic(
-      `projection wait concurrency: ${JSON.stringify({ factWrites: factWrites.length, runtime: progressResult.receipt.outcome })}`,
+      `projection readiness concurrency: ${JSON.stringify({ factWrites: factWrites.length, runtime: progressResult.receipt.outcome })}`,
     );
     const progressRun = progressResult.receipt,
       progressDispatchId = String((progressRun.spawn as Record<string, unknown>).dispatchId),

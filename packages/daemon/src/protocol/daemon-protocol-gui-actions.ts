@@ -239,7 +239,6 @@ export const daemonGuiActionMethods = Object.freeze([
       prompt: "string?",
       promptSource: "string?",
       missionName: "string?",
-      waitProjectionMs: "number?",
       onExitCommand: "string?",
       taskId: "string-null?",
       idempotencyKey: "string",
