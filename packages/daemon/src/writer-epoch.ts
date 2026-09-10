@@ -168,24 +168,36 @@ export function openPersistentWriterEpoch(options: {
   };
 }
 
-export function withWriterEpochFenceDescriptor<T>(descriptor: WriterEpochFenceDescriptor, operation: () => T): T {
+// Descriptor checks reuse one handle per state root for the life of this thread. A repo writer
+// is one worker thread, so its epoch database opens once per writer, not once per check.
+const descriptorAuthorities = new Map<string, PersistentWriterEpoch>();
+
+function descriptorAuthority(descriptor: WriterEpochFenceDescriptor): PersistentWriterEpoch {
   validateWriterEpochFenceDescriptor(descriptor);
-  const authority = openPersistentWriterEpoch({ stateRoot: descriptor.stateRoot, holderId: descriptor.holderId });
-  try {
-    return authority.withAppendFence(descriptor.repoId, descriptor.epoch, descriptor.holderId, operation);
-  } finally {
-    authority.close();
+  let authority = descriptorAuthorities.get(descriptor.stateRoot);
+  if (!authority) {
+    authority = openPersistentWriterEpoch({ stateRoot: descriptor.stateRoot, holderId: descriptor.holderId });
+    descriptorAuthorities.set(descriptor.stateRoot, authority);
   }
+  return authority;
+}
+
+export function withWriterEpochFenceDescriptor<T>(descriptor: WriterEpochFenceDescriptor, operation: () => T): T {
+  return descriptorAuthority(descriptor).withAppendFence(
+    descriptor.repoId,
+    descriptor.epoch,
+    descriptor.holderId,
+    operation,
+  );
 }
 
 export function assertWriterEpochFenceDescriptor(descriptor: WriterEpochFenceDescriptor): void {
-  validateWriterEpochFenceDescriptor(descriptor);
-  const authority = openPersistentWriterEpoch({ stateRoot: descriptor.stateRoot, holderId: descriptor.holderId });
-  try {
-    authority.assert(descriptor.repoId, descriptor.epoch, descriptor.holderId);
-  } finally {
-    authority.close();
-  }
+  descriptorAuthority(descriptor).assert(descriptor.repoId, descriptor.epoch, descriptor.holderId);
+}
+
+export function closeWriterEpochFenceDescriptors(): void {
+  for (const authority of descriptorAuthorities.values()) authority.close();
+  descriptorAuthorities.clear();
 }
 
 function leaseFromRow(row: EpochRow): WriterEpochLease {

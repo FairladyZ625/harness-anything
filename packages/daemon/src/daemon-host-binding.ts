@@ -6,11 +6,7 @@ import { makeTransportDerivedIdentityProvider } from "./identity/transport-deriv
 import { type RepoCellBinding } from "./repo-cell.ts";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
 import { declaredRoleBindingsForActor } from "./identity/declared-role-binding-projection.ts";
-import {
-  assertWriterEpochFenceDescriptor,
-  withWriterEpochFenceDescriptor,
-  type WriterEpochFenceDescriptor,
-} from "./writer-epoch.ts";
+import { withWriterEpochFenceDescriptor, type WriterEpochFenceDescriptor } from "./writer-epoch.ts";
 
 export function localSystemBinding(
   rootDir: string,
@@ -47,7 +43,6 @@ export function withDaemonWriterEpochFence(
   return {
     ...binding,
     writerEpoch: descriptor.epoch,
-    assertWriterEpoch: () => assertWriterEpochFenceDescriptor(descriptor),
     withWriterEpochFence: <T>(operation: () => T) => withWriterEpochFenceDescriptor(descriptor, operation),
     writerEpochFence: descriptor,
   };
@@ -116,7 +111,6 @@ export async function binding(
           scope,
         },
         ...(auth.writerEpoch === undefined ? {} : { writerEpoch: auth.writerEpoch }),
-        ...(auth.assertWriterEpoch ? { assertWriterEpoch: auth.assertWriterEpoch } : {}),
         ...(auth.withWriterEpochFence ? { withWriterEpochFence: auth.withWriterEpochFence } : {}),
         ...(auth.writerEpochFence ? { writerEpochFence: auth.writerEpochFence } : {}),
       },

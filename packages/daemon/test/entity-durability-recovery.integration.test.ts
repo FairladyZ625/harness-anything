@@ -300,7 +300,6 @@ test("An entity import under a superseded writer epoch writes nothing while the 
       lease: { readonly epoch: number; readonly holderId: string },
     ) => ({
       ...binding,
-      assertWriterEpoch: () => authority.assert(repoId, lease.epoch, lease.holderId),
       writerEpochFence: fenceOf(lease),
     });
   let stale: Awaited<ReturnType<typeof openRepoCell>> | undefined,

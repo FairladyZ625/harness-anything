@@ -44,7 +44,6 @@ export interface RepoCellBinding {
   readonly authorizationDecision?: AuthorizationDecision;
   readonly assignmentScope?: FleetAssignmentScope;
   readonly writerEpoch?: number;
-  readonly assertWriterEpoch?: () => void;
   readonly withWriterEpochFence?: <T>(operation: () => T) => T;
   readonly writerEpochFence?: WriterEpochFenceDescriptor;
 }

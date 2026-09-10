@@ -20,7 +20,11 @@ import {
 } from "../../kernel/src/index.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
-import { openPersistentWriterEpoch, withWriterEpochFenceDescriptor } from "../src/writer-epoch.ts";
+import {
+  closeWriterEpochFenceDescriptors,
+  openPersistentWriterEpoch,
+  withWriterEpochFenceDescriptor,
+} from "../src/writer-epoch.ts";
 
 function probeGit(repo: string, ...args: string[]): string {
   return execFileSync("git", ["-C", repo, ...args], { encoding: "utf8" }).trim();
@@ -40,21 +44,17 @@ function probeRepo(root: string): string {
   probeGit(repo, "commit", "-qm", "harness");
   return repo;
 }
-const probeBinding = (
-  assertWriterEpoch: () => void,
-  writerEpochFence: {
-    readonly schema: "harness-writer-epoch-fence/v1";
-    readonly stateRoot: string;
-    readonly repoId: string;
-    readonly epoch: number;
-    readonly holderId: string;
-  },
-) =>
+const probeBinding = (writerEpochFence: {
+  readonly schema: "harness-writer-epoch-fence/v1";
+  readonly stateRoot: string;
+  readonly repoId: string;
+  readonly epoch: number;
+  readonly holderId: string;
+}) =>
   withRoleBinding(
     {
       actor: { principal: { personId: "writer" }, executor: { kind: "agent" as const, id: "probe" } },
       source: { kind: "assignment" as const, nodeId: "node", assignmentId: "assignment" },
-      assertWriterEpoch,
       writerEpochFence,
     },
     "repo-write",
@@ -150,6 +150,7 @@ test("persistent writer epochs allocate monotonically and fence a stale holder",
       (error: unknown) => error instanceof Error && "code" in error && error.code === "writer_epoch_invalid",
     );
   } finally {
+    closeWriterEpochFenceDescriptors();
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -222,6 +223,7 @@ test("SQLite acceptance verifies the writer epoch before committing events and o
     await store.drain();
     second.close();
     first.close();
+    closeWriterEpochFenceDescriptors();
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -351,7 +353,7 @@ test("append transaction serializes takeover before rejecting the next stale wri
     const before = makeTaskEventReader({ rootDir: repo, repoId: "probe-repo" }).read().revision;
     const receipt = await cell.run(
       { kind: "task-create", taskId: "task_probe_epoch", title: "stale append window" },
-      probeBinding(() => oldAuthority.assert("probe-repo", oldLease.epoch, oldLease.holderId), {
+      probeBinding({
         schema: "harness-writer-epoch-fence/v1",
         stateRoot,
         repoId: "probe-repo",
@@ -368,7 +370,7 @@ test("append transaction serializes takeover before rejecting the next stale wri
     await assert.rejects(
       cell.run(
         { kind: "task-progress-append", taskId: "task_probe_epoch", text: "stale writer must not append" },
-        probeBinding(() => oldAuthority.assert("probe-repo", oldLease.epoch, oldLease.holderId), {
+        probeBinding({
           schema: "harness-writer-epoch-fence/v1",
           stateRoot,
           repoId: "probe-repo",
@@ -421,7 +423,7 @@ test("remote-center takeover preserves the committed SQLite outcome without prep
     });
     const failed = await oldCell.run(
       { kind: "task-create", taskId: "task_probe_prepared", title: "prepared stale recovery" },
-      probeBinding(() => oldAuthority.assert("probe-repo", oldLease.epoch, oldLease.holderId), {
+      probeBinding({
         schema: "harness-writer-epoch-fence/v1",
         stateRoot,
         repoId: "probe-repo",
@@ -455,7 +457,7 @@ test("remote-center takeover preserves the committed SQLite outcome without prep
     assert.equal(probeGit(repo, "for-each-ref", "--format=%(refname)", "refs/ha-event-prepared/").trim(), "");
     const settled = await recoveryCell.run(
       { kind: "receipt-show", opId: failed.opId },
-      probeBinding(() => newAuthority.assert("probe-repo", next.epoch, next.holderId), {
+      probeBinding({
         schema: "harness-writer-epoch-fence/v1",
         stateRoot,
         repoId: "probe-repo",

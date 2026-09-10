@@ -21,7 +21,11 @@ import {
   type SerializableRepoCellBindingV1,
 } from "./repo-writer-protocol.ts";
 import type { RuntimeProcess } from "./runtime-spawn.ts";
-import { assertWriterEpochFenceDescriptor, withWriterEpochFenceDescriptor } from "./writer-epoch.ts";
+import {
+  assertWriterEpochFenceDescriptor,
+  closeWriterEpochFenceDescriptors,
+  withWriterEpochFenceDescriptor,
+} from "./writer-epoch.ts";
 
 const bootstrap = workerData as RepoWriterBootstrapV1;
 
@@ -166,7 +170,8 @@ async function startRepoWriterWorker(): Promise<void> {
     }
     try {
       const binding = reviveBinding(request.binding, request.writerEpoch);
-      // Fence one: reject a stale descriptor when the request leaves the IPC queue.
+      // Reject a stale descriptor before any effect: runtime cancel terminates a process and a
+      // resumed spawn launches one before their first ledger append reaches the append fence.
       assertWriterEpoch(request.writerEpoch);
       let value: unknown;
       switch (request.method) {
@@ -223,6 +228,7 @@ async function startRepoWriterWorker(): Promise<void> {
         for (const request of activeRequests.values()) request.abort();
         await cell?.close();
         cell = null;
+        closeWriterEpochFenceDescriptors();
       }
       postReceipt(control.requestId, null);
       if (control.command === "drain") postStatus({ kind: "closed" });
@@ -321,10 +327,7 @@ function reviveBinding(
   return {
     ...binding,
     ...(descriptor
-      ? {
-          assertWriterEpoch: () => assertWriterEpoch(descriptor),
-          withWriterEpochFence: <T>(operation: () => T) => withWriterEpochFenceDescriptor(descriptor, operation),
-        }
+      ? { withWriterEpochFence: <T>(operation: () => T) => withWriterEpochFenceDescriptor(descriptor, operation) }
       : {}),
   };
 }

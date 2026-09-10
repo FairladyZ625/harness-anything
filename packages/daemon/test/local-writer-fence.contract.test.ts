@@ -26,12 +26,10 @@ test("every production local binding is covered by a request or cell-default wri
   const cell = source("repo-cell.ts");
   assert.match(cell, /writerFence: \(\) =>/u);
   assert.match(cell, /if \(!fence\) throw new Error/u);
-  assert.match(cell, /beforeAppend: \(\) => context\.activeWriterEpochGuard\?\.\(\)/u);
   assert.match(cell, /context\.activeWriterEpochFence\(operation\)/u);
   assert.match(cell, /const fence = context\.activeWriterEpochFenceDescriptor/u);
 
   const open = source("repo-cell-open.ts");
-  assert.match(open, /return activeWriterEpochGuard \?\? defaultWriterEpochGuard/u);
   assert.match(open, /return activeWriterEpochFence \?\? defaultWriterEpochFence/u);
   assert.match(open, /return activeWriterEpochFenceDescriptor \?\? cellWriterEpochFence \?\? null/u);
   assert.match(open, /defaultWriterEpochFence\?: NonNullable<RepoCellBinding\["writerEpochFence"\]>/u);

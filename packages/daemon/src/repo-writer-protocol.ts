@@ -24,6 +24,7 @@ export interface RepoWriterBootstrapV1 {
     readonly defaultWriterEpochFence?: NonNullable<RepoCellBinding["writerEpochFence"]>;
   };
   readonly capabilities: {
+    /** Only an injected (test) clock crosses threads; a production writer reads its own clock. */
     readonly now: boolean;
     readonly killpoint: boolean;
     readonly shouldStop: boolean;
@@ -92,10 +93,10 @@ export type RepoWriterMessageV1 =
   | RepoWriterStatusV1
   | RepoWriterControlV1;
 
-export type SerializableRepoCellBindingV1 = Omit<RepoCellBinding, "assertWriterEpoch" | "withWriterEpochFence">;
+export type SerializableRepoCellBindingV1 = Omit<RepoCellBinding, "withWriterEpochFence">;
 
 export function serializableRepoCellBinding(binding: RepoCellBinding): SerializableRepoCellBindingV1 {
-  const { assertWriterEpoch: _assert, withWriterEpochFence: _fence, ...serializable } = binding;
+  const { withWriterEpochFence: _fence, ...serializable } = binding;
   return serializable;
 }
 
