@@ -204,6 +204,7 @@ export function makeTaskProjectionReader(options: {
       list: (query) => listProjection(projectionPath, readHead, unavailableSource, 4096, now, query),
       ...entityQueryApi(context),
       readTaskIndex: taskQueries.readTaskIndex,
+      readTaskChildCounts: taskQueries.readTaskChildCounts,
       readWorkspaceSummary: taskQueries.readWorkspaceSummary,
       readTaskRelations: taskQueries.readTaskRelations,
       readTaskRelationNeighborhood: taskQueries.readTaskRelationNeighborhood,
