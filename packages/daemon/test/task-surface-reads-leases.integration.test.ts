@@ -304,12 +304,15 @@ test("a lapsed lease stays readable through task show and releasable through tas
   let clock = "2026-08-15T02:00:00.000Z";
   try {
     initRepo(rootDir);
-    cell = await openRepoCell({
-      repoId: workspaceId("task-lease-exit"),
-      rootDir: canonicalRoot(rootDir),
-      ownerId: "task-lease-exit",
-      now: () => clock,
-    });
+    // A worker-hosted writer reads its injected clock at open, so moving the clock reopens the cell.
+    const open = () =>
+      openRepoCell({
+        repoId: workspaceId("task-lease-exit"),
+        rootDir: canonicalRoot(rootDir),
+        ownerId: "task-lease-exit",
+        now: () => clock,
+      });
+    cell = await open();
     const holder = {
       actor: {
         principal: { personId: "person-surface" },
@@ -370,6 +373,8 @@ test("a lapsed lease stays readable through task show and releasable through tas
     assert.equal(earlyReclaim.outcome, "op_rejected", JSON.stringify(earlyReclaim));
     assert.equal((earlyReclaim as Record<string, unknown>).code, "lease_conflict", JSON.stringify(earlyReclaim));
     clock = "2026-08-15T03:00:00.000Z";
+    await cell.close();
+    cell = await open();
     const summary = String(
       ((await cell.run({ kind: "task-show", taskId: "task_lease" }, reclaimer)) as Record<string, unknown>).summary,
     );

@@ -332,12 +332,15 @@ test("People delegated tokens issue and revoke through the canonical people even
   try {
     initRepo(root);
     let now = "2026-08-27T02:00:00.000Z";
-    cell = await openRepoCell({
-      repoId: workspaceId("people-delegation"),
-      rootDir: canonicalRoot(root),
-      ownerId: "people-daemon",
-      now: () => now,
-    });
+    // A worker-hosted writer reads its injected clock at open, so moving the clock reopens the cell.
+    const open = () =>
+      openRepoCell({
+        repoId: workspaceId("people-delegation"),
+        rootDir: canonicalRoot(root),
+        ownerId: "people-daemon",
+        now: () => now,
+      });
+    cell = await open();
     const delegatingActor = { ...actor, principal: { personId: "person_zeyu" } },
       binding = { actor: delegatingActor, source: "local" as const },
       issued = await cell.run(
@@ -368,6 +371,8 @@ test("People delegated tokens issue and revoke through the canonical people even
     assert.match(issued.evidence ?? "", /det_owner_runtime_1/u);
 
     now = "2026-08-27T02:30:00.000Z";
+    await cell.close();
+    cell = await open();
     const revoked = await cell.run({ kind: "people-revoke-delegation", tokenId: "det_owner_runtime_1" }, binding);
     assert.equal(revoked.outcome, "applied", JSON.stringify(revoked));
     await waitForFixturePublication(cell, revoked.opId, { actor, source: "local" });

@@ -22,9 +22,10 @@ export interface RepoWriterBootstrapV1 {
     readonly runtimeDaemonRoute?: RuntimeDaemonRoute;
     readonly bootstrap?: RepoBootstrapInput;
     readonly defaultWriterEpochFence?: NonNullable<RepoCellBinding["writerEpochFence"]>;
+    /** An injected clock, read once when the worker is built; otherwise the writer reads its own clock. */
+    readonly now?: string;
   };
   readonly capabilities: {
-    readonly now: boolean;
     readonly killpoint: boolean;
     readonly shouldStop: boolean;
     readonly runtimeInstances: boolean;
@@ -109,7 +110,6 @@ export interface SerializedWriterErrorV1 {
 }
 
 export type RepoWriterCapabilityName =
-  | "now"
   | "killpoint"
   | "shouldStop"
   | "runtimeInstances"

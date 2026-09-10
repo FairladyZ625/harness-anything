@@ -319,6 +319,7 @@ test("doc submit returns holder and scope detail for wrong role, another holder,
       body = "# Expired\n";
     writeAuthored(expired.rootDir, relativePath, body);
     now = "2026-08-12T01:00:00.000Z";
+    await expired.reopen();
     const result = await expired.cell.run(
       { kind: "doc-submit", executionId: "execution-doc", paths: [relativePath] },
       localBinding,
@@ -441,15 +442,24 @@ test("claim-check keeps large bodies out of commands and recycles missing, hash,
 async function docCell(repoId: string, now?: () => string) {
   const rootDir = mkdtempSync(path.join(tmpdir(), `ha-doc-b-${repoId}-`));
   initRepo(rootDir);
-  const cell = await openRepoCell({
-    repoId: workspaceId(repoId),
-    rootDir: canonicalRoot(rootDir),
-    ownerId: `daemon-${repoId}`,
-    ...(now ? { now } : {}),
-  });
+  const open = () =>
+    openRepoCell({
+      repoId: workspaceId(repoId),
+      rootDir: canonicalRoot(rootDir),
+      ownerId: `daemon-${repoId}`,
+      ...(now ? { now } : {}),
+    });
+  let cell = await open();
   return {
     rootDir,
-    cell,
+    get cell() {
+      return cell;
+    },
+    // A worker-hosted writer reads its injected clock at open, so moving the clock reopens the cell.
+    reopen: async () => {
+      await cell.close();
+      cell = await open();
+    },
     close: async () => {
       await cell.close();
       rmSync(rootDir, { recursive: true, force: true });

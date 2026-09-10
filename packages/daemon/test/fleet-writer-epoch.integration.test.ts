@@ -20,7 +20,11 @@ import {
 } from "../../kernel/src/index.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
-import { openPersistentWriterEpoch, withWriterEpochFenceDescriptor } from "../src/writer-epoch.ts";
+import {
+  closeWriterEpochFenceDescriptors,
+  openPersistentWriterEpoch,
+  withWriterEpochFenceDescriptor,
+} from "../src/writer-epoch.ts";
 
 function probeGit(repo: string, ...args: string[]): string {
   return execFileSync("git", ["-C", repo, ...args], { encoding: "utf8" }).trim();
@@ -150,6 +154,7 @@ test("persistent writer epochs allocate monotonically and fence a stale holder",
       (error: unknown) => error instanceof Error && "code" in error && error.code === "writer_epoch_invalid",
     );
   } finally {
+    closeWriterEpochFenceDescriptors();
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -222,6 +227,7 @@ test("SQLite acceptance verifies the writer epoch before committing events and o
     await store.drain();
     second.close();
     first.close();
+    closeWriterEpochFenceDescriptors();
     rmSync(root, { recursive: true, force: true });
   }
 });

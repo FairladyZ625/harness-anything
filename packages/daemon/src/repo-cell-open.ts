@@ -89,7 +89,7 @@ import { openTerminalHost } from "./terminal-host.ts";
 import { makeSquadCoordinator } from "./squad-coordinator.ts";
 import { makeSquadActionRuntime } from "./squad-action-runtime.ts";
 import type { DaemonLifecycleRecorder } from "./lifecycle-log.ts";
-import { assertWriterEpochFenceDescriptor, withWriterEpochFenceDescriptor } from "./writer-epoch.ts";
+import { withWriterEpochFenceDescriptor } from "./writer-epoch.ts";
 
 export function publicPublication(value: Pick<CanonicalEventAppendReceipt, "commitSha" | "cut">): PublicPublication {
   return { commitSha: value.commitSha?.sha ?? null, cut: value.cut };
@@ -174,6 +174,7 @@ export interface RepoCellOpenInput {
   readonly onAttemptTerminal?: (terminal: RuntimeAttemptTerminal) => void;
   /** Internal writer status bridge for asynchronous materialization health changes. */
   readonly onMaterializationHealthChange?: Parameters<typeof makeTaskEventStore>[0]["onMaterializationHealthChange"];
+  /** Injected clock. A worker-hosted writer reads it once when its worker starts; reopen to move it. */
   readonly now?: () => string;
   readonly killpoint?: (point: EventPublicationKillpoint) => void;
   readonly shouldStop?: () => boolean;
@@ -242,14 +243,10 @@ export async function openRepoWriterCell(
   // The ledger core is rebuildable in place: the variables below are rebound wholesale by
   // attemptRecovery, so a latched cell re-attaches to repaired data without reopening.
   const cellWriterEpochFence = input.defaultWriterEpochFence,
-    defaultWriterEpochGuard = cellWriterEpochFence
-      ? () => assertWriterEpochFenceDescriptor(cellWriterEpochFence)
-      : null,
     defaultWriterEpochFence = cellWriterEpochFence
       ? <T>(operation: () => T) => withWriterEpochFenceDescriptor(cellWriterEpochFence, operation)
       : null;
-  let activeWriterEpochGuard: (() => void) | null = null,
-    activeWriterEpochFence: (<T>(operation: () => T) => T) | null = null,
+  let activeWriterEpochFence: (<T>(operation: () => T) => T) | null = null,
     activeWriterEpochFenceDescriptor: NonNullable<RepoCellBinding["writerEpochFence"]> | null = null,
     queueDepth = 0,
     tail = Promise.resolve();
@@ -258,9 +255,6 @@ export async function openRepoWriterCell(
       input,
       rootDir,
       authoredBranch,
-      get activeWriterEpochGuard() {
-        return activeWriterEpochGuard ?? defaultWriterEpochGuard;
-      },
       get activeWriterEpochFence() {
         return activeWriterEpochFence ?? defaultWriterEpochFence;
       },
@@ -407,12 +401,9 @@ export async function openRepoWriterCell(
   };
   const withWriterEpochBinding = async <T>(binding: RuntimeAttemptTerminal["binding"], work: () => T | Promise<T>) => {
     const fenced = binding as RuntimeAttemptTerminal["binding"] & RepoCellBinding,
-      previousGuard = activeWriterEpochGuard,
       previousFence = activeWriterEpochFence,
       previousDescriptor = activeWriterEpochFenceDescriptor,
       descriptor = fenced.writerEpochFence;
-    activeWriterEpochGuard =
-      fenced.assertWriterEpoch ?? (descriptor ? () => assertWriterEpochFenceDescriptor(descriptor) : null);
     activeWriterEpochFence =
       fenced.withWriterEpochFence ??
       (descriptor ? <Value>(operation: () => Value) => withWriterEpochFenceDescriptor(descriptor, operation) : null);
@@ -420,7 +411,6 @@ export async function openRepoWriterCell(
     try {
       return await work();
     } finally {
-      activeWriterEpochGuard = previousGuard;
       activeWriterEpochFence = previousFence;
       activeWriterEpochFenceDescriptor = previousDescriptor;
     }
@@ -1015,12 +1005,8 @@ export async function openRepoWriterCell(
     },
     activeWriter,
     writerToken,
-    get activeWriterEpochGuard() {
-      return activeWriterEpochGuard ?? defaultWriterEpochGuard;
-    },
-    set activeWriterEpochGuard(value) {
-      activeWriterEpochGuard = value;
-    },
+    // repo-cell-api still assigns the retired pre-append guard; nothing reads it.
+    activeWriterEpochGuard: null as (() => void) | null,
     get activeWriterEpochFence() {
       return activeWriterEpochFence ?? defaultWriterEpochFence;
     },

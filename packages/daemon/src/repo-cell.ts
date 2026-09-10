@@ -55,7 +55,6 @@ export interface RepoCellCoreInput {
   };
   readonly rootDir: string;
   readonly authoredBranch?: string;
-  readonly activeWriterEpochGuard: (() => void) | null;
   readonly activeWriterEpochFence: (<T>(operation: () => T) => T) | null;
   readonly activeWriterEpochFenceDescriptor: WriterEpochFenceDescriptor | null;
   readonly mode: DaemonRepoMode;
@@ -93,7 +92,6 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
       if (!fence) throw new Error("writer epoch fence is unavailable for SQLite acceptance");
       return fence;
     },
-    beforeAppend: () => context.activeWriterEpochGuard?.(),
     withAppendFence: (operation) =>
       context.activeWriterEpochFence ? context.activeWriterEpochFence(operation) : operation(),
   });

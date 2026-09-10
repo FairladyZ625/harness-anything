@@ -45,7 +45,6 @@ export function enqueueRuntimePublication(
         code: "authorization_denied",
         authorizationDecision,
       });
-    context.activeWriterEpochGuard = binding.assertWriterEpoch ?? null;
     context.activeWriterEpochFence = binding.withWriterEpochFence ?? null;
     context.activeWriterEpochFenceDescriptor = binding.writerEpochFence ?? null;
     try {
@@ -59,7 +58,6 @@ export function enqueueRuntimePublication(
         authorizationDecision: authorizationDecision as unknown as JsonObject,
       } as unknown as JsonObject;
     } finally {
-      context.activeWriterEpochGuard = null;
       context.activeWriterEpochFence = null;
       context.activeWriterEpochFenceDescriptor = null;
     }
