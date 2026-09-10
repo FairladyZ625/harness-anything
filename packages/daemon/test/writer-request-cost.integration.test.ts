@@ -14,11 +14,10 @@ import { actor, initRepo } from "./task-surface.fixtures.ts";
 
 const openProbe = new URL("./fixtures/writer-epoch-open-probe.mjs", import.meta.url).href;
 
-test("writer requests open the epoch database once and never block on the host clock", async () => {
+test("production writer requests open the epoch database once and never block on the host clock", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-writer-request-cost-")),
     repoId = workspaceId("writer-request-cost"),
     stateRoot = path.join(parent, "writer-epochs"),
-    injectedNow = "2026-09-10T00:00:00.000Z",
     epochOpens: unknown[] = [],
     blockingCalls: string[] = [];
   let supervisor: Awaited<ReturnType<typeof openWriterSupervisor>> | undefined;
@@ -45,7 +44,8 @@ test("writer requests open the epoch database once and never block on the host c
       })
     ).close();
     supervisor = await openWriterSupervisor(
-      { repoId, rootDir, ownerId: "writer-request-cost", defaultWriterEpochFence: fence, now: () => injectedNow },
+      // Production configuration: no injected clock, so the writer must read its own.
+      { repoId, rootDir, ownerId: "writer-request-cost", defaultWriterEpochFence: fence },
       {
         createWorker: (url, options) => {
           const worker = new Worker(url, { ...options, execArgv: [...options.execArgv, "--import", openProbe] });
@@ -62,7 +62,8 @@ test("writer requests open the epoch database once and never block on the host c
       },
     );
     const binding = { actor, source: "local" as const, writerEpoch: fence.epoch, writerEpochFence: fence },
-      opIds: string[] = [];
+      opIds: string[] = [],
+      startedAt = Date.now();
     for (const taskId of ["task_request_cost_a", "task_request_cost_b"]) {
       const receipt = await supervisor.request<{ readonly outcome: string; readonly opId: string }>(
         "run",
@@ -76,7 +77,13 @@ test("writer requests open the epoch database once and never block on the host c
     assert.deepEqual(blockingCalls, [], "a write must not block the writer thread on a host round trip");
     const ledger = makeTaskEventReader({ repoId, rootDir });
     try {
-      for (const opId of opIds) assert.equal(ledger.readEvent(opId)?.occurredAt, injectedNow);
+      for (const opId of opIds) {
+        const occurredAt = Date.parse(String(ledger.readEvent(opId)?.occurredAt));
+        assert.ok(
+          occurredAt >= startedAt - 1_000 && occurredAt <= Date.now(),
+          "the writer stamps events with its own clock",
+        );
+      }
     } finally {
       await ledger.drain();
     }

@@ -79,14 +79,14 @@ async function startRepoWriterWorker(): Promise<void> {
   });
 
   try {
-    const { now: injectedNow, ...config } = bootstrap.config,
+    const config = bootstrap.config,
       input: RepoCellOpenInput & {
         readonly onOpenProgress: (progress: RepoCellAttachProgress) => void;
       } = {
         ...config,
         repoId: config.repoId as RepoCellOpenInput["repoId"],
         rootDir: config.rootDir as RepoCellOpenInput["rootDir"],
-        ...(injectedNow === undefined ? {} : { now: () => injectedNow }),
+        ...(bootstrap.capabilities.now ? { now: () => syncCapability<string>("now", null) } : {}),
         ...(bootstrap.capabilities.killpoint ? { killpoint: (point) => void syncCapability("killpoint", point) } : {}),
         ...(bootstrap.capabilities.shouldStop ? { shouldStop: () => syncCapability<boolean>("shouldStop", null) } : {}),
         ...(bootstrap.capabilities.runtimeInstances

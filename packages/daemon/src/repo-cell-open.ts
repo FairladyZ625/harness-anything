@@ -174,7 +174,6 @@ export interface RepoCellOpenInput {
   readonly onAttemptTerminal?: (terminal: RuntimeAttemptTerminal) => void;
   /** Internal writer status bridge for asynchronous materialization health changes. */
   readonly onMaterializationHealthChange?: Parameters<typeof makeTaskEventStore>[0]["onMaterializationHealthChange"];
-  /** Injected clock. A worker-hosted writer reads it once when its worker starts; reopen to move it. */
   readonly now?: () => string;
   readonly killpoint?: (point: EventPublicationKillpoint) => void;
   readonly shouldStop?: () => boolean;
