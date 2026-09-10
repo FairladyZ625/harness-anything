@@ -594,7 +594,7 @@ test("fact search pages concatenate to the full result, honor windows, and keep 
   }
 });
 
-test("fact search liveness reads stay bounded by supersedes edges", () => {
+test("fact search liveness reads only supersedes edges, however many facts and edges exist", () => {
   const db = new DatabaseSync(":memory:");
   try {
     createRelationGraphProjectionTables(db);
@@ -656,6 +656,20 @@ test("fact search liveness reads stay bounded by supersedes edges", () => {
         state: "active",
       }),
     );
+    // Unrelated active edges: a liveness read that scans the edge table pays for every one of them.
+    const insertEdge = db.prepare("INSERT INTO relation_edge VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    for (let index = 0; index < 3000; index += 1)
+      insertEdge.run(
+        `rel-unrelated-${index}`,
+        "task/task-scale",
+        `fact/F-${String(index % 2000).padStart(8, "0")}`,
+        "produces",
+        "active",
+        null,
+        `fact/F-${String(index % 2000).padStart(8, "0")}`,
+        3000 + index,
+        JSON.stringify({ relationId: `rel-unrelated-${index}`, relationType: "produces", state: "active" }),
+      );
     db.exec("COMMIT");
     const original = db.prepare;
     let rowsRead = 0;
@@ -675,10 +689,14 @@ test("fact search liveness reads stay bounded by supersedes edges", () => {
       };
       return statement;
     }) as typeof db.prepare;
-    const result = searchFactRowsPage(db, { query: "scale", limit: 500 });
-    assert.equal(result.rows?.length, 500);
-    console.log(JSON.stringify({ factCount: 2000, sqlRowsRead: rowsRead }));
-    assert.ok(rowsRead < 5000, `narrow liveness read ${rowsRead} rows`);
+    // Unpaged: every fact is decoded, which is past the old 900-target cut-off.
+    const rows = searchFactRows(db, {});
+    assert.equal(rows.length, 2000);
+    assert.equal(rows.find((row) => row.factId === "F-00000000")?.invalidated, true);
+    assert.equal(rows.find((row) => row.factId === "F-00000001")?.invalidated, false);
+    console.log(JSON.stringify({ factCount: 2000, unrelatedEdges: 3000, sqlRowsRead: rowsRead }));
+    // 2,000 fact rows plus the one supersedes edge; reading the 3,000 unrelated edges would exceed this.
+    assert.ok(rowsRead <= 2000 + 50, `liveness read ${rowsRead} rows`);
   } finally {
     db.close();
   }
