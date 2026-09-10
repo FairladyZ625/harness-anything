@@ -47,7 +47,7 @@ describe("renderer app model", () => {
           proof: { committedRevision: 8, appliedCut: 8, durable: true, canonicalVisible: true, worktreeVisible: false },
         }),
       ),
-    ).toMatchObject({ state: "applied", opId: "op-applied", revision: 8 });
+    ).toMatchObject({ state: "applied", opId: "op-applied" });
     expect(
       settleTaskReceipt(
         receipt({

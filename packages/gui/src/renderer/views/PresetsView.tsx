@@ -25,7 +25,7 @@ export function PresetsView({
 }) {
   const snapshot = useCatalogSnapshot(repoId),
     data = snapshot.data,
-    reread = useCatalogReread(repoId, data?.catalogDigest);
+    reread = useCatalogReread(repoId);
   const [tab, setTab] = useState<Tab>("presets");
   if (snapshot.isPending) return <State text={t("views.presetsView.readingCatalogSnapshot")} />;
   if (snapshot.isError || !data)
@@ -58,7 +58,7 @@ export function PresetsView({
           <Stack className="text-text-faint" />
           <h1 className="ui-title font-semibold">{t("views.presetsView.catalogPreset")}</h1>
           <span className="font-mono ui-micro text-text-faint">
-            {repoId} · {data.status} · {data.catalogDigest.slice(0, 18)}…
+            {repoId} · {data.status}
           </span>
           <button
             disabled={reread.isPending}
@@ -85,8 +85,7 @@ export function PresetsView({
         {reread.data && (
           <p className={`mt-1 font-mono ui-micro ${reread.data.ok ? "text-status-done" : "text-status-blocked"}`}>
             {t("views.presetsView.operationId")} {reread.data.operationId} · {reread.data.outcome} ·{" "}
-            {formatTime(reread.data.observedAt, { style: "date-time-seconds" }) ?? reread.data.observedAt} ·{" "}
-            {reread.data.beforeDigest.slice(0, 14)} → {reread.data.afterDigest.slice(0, 14)}
+            {formatTime(reread.data.observedAt, { style: "date-time-seconds" }) ?? reread.data.observedAt}
             {reread.data.error ? ` · ${reread.data.error.code}: ${reread.data.error.hint}` : ""}
           </p>
         )}

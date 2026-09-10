@@ -291,7 +291,6 @@ export interface CatalogSnapshotSuccess {
   readonly status: "ready" | "pending";
   readonly repoId: string;
   readonly observedAt: string;
-  readonly catalogDigest: string;
   readonly defaults: {
     readonly verticalId: string;
     readonly presetId: string;
@@ -338,8 +337,6 @@ export interface CatalogRereadReceipt {
   readonly outcome: "applied" | "op_rejected";
   readonly operationId: string;
   readonly repoId: string;
-  readonly beforeDigest: string;
-  readonly afterDigest: string;
   readonly observedAt: string;
   readonly error: BridgeError | null;
 }
@@ -507,7 +504,7 @@ export const harnessClient = {
   ): Promise<CatalogPresetSuccess> {
     return readCatalogPreset(await invoke("repo.gui.catalog.preset.read", payload, "getCatalogPreset"));
   },
-  async rereadCatalog(payload: RepoScope & { readonly expectedDigest?: string }): Promise<CatalogRereadReceipt> {
+  async rereadCatalog(payload: RepoScope): Promise<CatalogRereadReceipt> {
     return readCatalogRereadReceipt(await invoke("repo.gui.catalog.reread", payload, "rereadCatalog"));
   },
 };

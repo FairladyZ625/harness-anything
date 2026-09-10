@@ -2,7 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import type { GuiActionResult } from "../api/renderer-dto.ts";
 import { consumeKnownError } from "../api/error-consumption.ts";
-import { harnessClient, type DecisionListSuccess, type DecisionProposalInput } from "./api-client.ts";
+import { harnessClient, type DecisionProposalInput } from "./api-client.ts";
 import type { DecisionRow, RelationEdge } from "./model/types.ts";
 import { triadicQueryKeys } from "./triadic-data.ts";
 import { workspaceSummaryQueryKeys } from "./workspace-summary-data.ts";
@@ -103,12 +103,6 @@ export interface DecisionMutationFeedback {
   readonly receipt?: Pick<ReceiptRecord, "consentId" | "path" | "commitSha" | "documentSha256" | "worktreeVisible">;
 }
 
-const terminalState: Record<DecisionAction, DecisionRow["state"]> = {
-  accept: "in_effect",
-  reject: "rejected",
-  defer: "deferred",
-};
-
 export function useDecisionActions(repoId: string) {
   const queryClient = useQueryClient();
   const locks = useRef(new Map<string, Promise<DecisionMutationFeedback>>());
@@ -137,19 +131,13 @@ export function useDecisionActions(repoId: string) {
     documentSha256: receipt.documentSha256,
     worktreeVisible: receipt.worktreeVisible,
   });
-  const refresh = async (): Promise<{ decisions: DecisionListSuccess }> => {
+  const refresh = async (): Promise<void> => {
+    // 一次失效覆盖全部三元切面(derives/摘要/事实/完整投影):挂载中的查询按
+    // react-query 默认 refetchType:"active" 重取,没挂载的只标记 stale。
     await Promise.all([
-      // 一次失效覆盖全部三元切面(derives/摘要/事实/完整投影):挂载中的查询按
-      // react-query 默认 refetchType:"active" 重取,没挂载的只标记 stale。
       queryClient.invalidateQueries({ queryKey: triadicQueryKeys.all(repoId) }),
       queryClient.invalidateQueries({ queryKey: workspaceSummaryQueryKeys.read(repoId) }),
     ]);
-    const decisions = await queryClient.fetchQuery({
-      queryKey: triadicQueryKeys.decisions(repoId),
-      queryFn: () => harnessClient.getDecisions({ repoId }),
-      staleTime: 0,
-    });
-    return { decisions };
   };
   const failure = (key: string, kind: DecisionMutationFeedback["kind"], settlement: DecisionSettlement) =>
     publish(key, {
@@ -206,31 +194,16 @@ export function useDecisionActions(repoId: string) {
             code: "projection_key_missing",
             hint: "receipt 已 applied 但未返回 decisionId；用 opId 查询，勿重放 mutation。",
           });
-        const reread = await refresh(),
-          // 可见 = 新提案出现在 canonical 投影且仍待裁:裁决能力的 lifecycle 前置
-          // (kernel decisionCapabilities)由投影逐行给出,renderer 不再比较状态词。
-          visible = reread.decisions.decisions.some(
-            (decision) =>
-              decision.decisionId === decisionId &&
-              decision.capabilities.some((capability) => capability.id === "accept" && capability.available),
-          );
-        if (visible) {
-          pendingResolvers.current.delete(operationKey("proposal"));
-          return publish("proposal", {
-            state: "success",
-            kind: "propose",
-            opId: settlement.opId,
-            hint: `${decisionId} 已从 canonical projection 重读。`,
-            receipt: visibleReceipt(settlement.receipt),
-          });
-        }
-        pendingResolvers.current.set(operationKey("proposal"), (receipt) => finish(settleDecisionReceipt(receipt)));
+        // 回执已证 durable + canonicalVisible + committedRevision===appliedCut:失效后交给
+        // 正常 refetch,不再强制整表重读并逐条扫描确认。
+        await refresh();
+        pendingResolvers.current.delete(operationKey("proposal"));
         return publish("proposal", {
-          state: "pending",
+          state: "success",
           kind: "propose",
           opId: settlement.opId,
-          code: "projection_not_visible",
-          hint: `${decisionId} 尚未出现在 canonical projection；勿重放 mutation。`,
+          hint: `${decisionId} 已由 durable 回执确认落定。`,
+          receipt: visibleReceipt(settlement.receipt),
         });
       };
       return finish(settleDecisionReceipt(await harnessClient.proposeDecision({ repoId, ...input })));
@@ -266,32 +239,15 @@ export function useDecisionActions(repoId: string) {
             );
           return failure(decision.decisionId, action, settlement);
         }
-        const consentId = settlement.receipt.consentId,
-          reread = await refresh(),
-          canonical = reread.decisions.decisions.find((row) => row.decisionId === decision.decisionId);
-        const visible =
-          canonical?.state === terminalState[action] &&
-          typeof consentId === "string" &&
-          canonical.judgmentConsents.some((consent) => consent.consentId === consentId && consent.action === action);
-        if (visible) {
-          pendingResolvers.current.delete(operationKey(decision.decisionId));
-          return publish(decision.decisionId, {
-            state: "success",
-            kind: action,
-            opId: settlement.opId,
-            hint: "canonical decision + judgment consent 已重读确认。",
-            receipt: visibleReceipt(settlement.receipt),
-          });
-        }
-        pendingResolvers.current.set(operationKey(decision.decisionId), (receipt) =>
-          finish(settleDecisionReceipt(receipt)),
-        );
+        // 与 propose 同一条落定判据:回执三件套已证 canonical 落定,失效后交给正常 refetch。
+        await refresh();
+        pendingResolvers.current.delete(operationKey(decision.decisionId));
         return publish(decision.decisionId, {
-          state: "pending",
+          state: "success",
           kind: action,
           opId: settlement.opId,
-          code: "projection_not_visible",
-          hint: "receipt 已 applied，但 canonical decision/consent 尚不可见；勿重放 mutation。",
+          hint: "canonical decision + judgment consent 已由回执确认。",
+          receipt: visibleReceipt(settlement.receipt),
         });
       };
       return finish(settleDecisionReceipt(initial));

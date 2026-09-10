@@ -368,12 +368,11 @@ export function useAgentSquadWorkspace(
         );
         return null;
       }
-      await client.fetchQuery({
-        queryKey: ["agents", repoId],
-        queryFn: () => agentEntityClient.listAgents(repoId),
-        staleTime: 0,
-      });
-      await client.invalidateQueries({ queryKey: ["agent-detail", repoId], refetchType: "active" });
+      // 回执已证 applied + canonicalVisible;只失效,由挂载面的正常 refetch 带新列表。
+      await Promise.all([
+        client.invalidateQueries({ queryKey: ["agents", repoId], refetchType: "active" }),
+        client.invalidateQueries({ queryKey: ["agent-detail", repoId], refetchType: "active" }),
+      ]);
       return settled;
     },
     saveSquad: async (declaration: SquadDeclarationV1): Promise<EntitySaveResult | null> => {
@@ -399,12 +398,10 @@ export function useAgentSquadWorkspace(
         );
         return null;
       }
-      await client.fetchQuery({
-        queryKey: ["squads", repoId],
-        queryFn: () => agentEntityClient.listSquads(repoId),
-        staleTime: 0,
-      });
-      await client.invalidateQueries({ queryKey: ["squad-detail", repoId], refetchType: "active" });
+      await Promise.all([
+        client.invalidateQueries({ queryKey: ["squads", repoId], refetchType: "active" }),
+        client.invalidateQueries({ queryKey: ["squad-detail", repoId], refetchType: "active" }),
+      ]);
       return settled;
     },
     dispatch: async (request: DispatchRequest) => {
@@ -415,19 +412,9 @@ export function useAgentSquadWorkspace(
       if (settled?.runtimeSessionId && request.taskId !== null) {
         for (let attempt = 0; attempt < 40; attempt += 1) {
           try {
-            const [session, groups] = await Promise.all([
-              agentRuntimeClient.session(repoId, settled.runtimeSessionId),
-              agentRuntimeClient.sessionGroups(repoId, {
-                groupBy: "task",
-                since: "1970-01-01T00:00:00.000Z",
-                limit: SESSION_GROUPS_PAGE_LIMIT,
-              }),
-            ]);
-            if (
-              session.session.associations.some((association) => association.taskId === request.taskId) &&
-              groups.groups.some((group) => group.taskId === request.taskId)
-            )
-              break;
+            // 绑定等待只读这一个 session 的 associations,不随全仓 session-group 历史增长。
+            const session = await agentRuntimeClient.session(repoId, settled.runtimeSessionId);
+            if (session.session.associations.some((association) => association.taskId === request.taskId)) break;
           } catch (error) {
             consumeKnownError(error);
           }
