@@ -80,7 +80,8 @@ export function completionStopped(
     opId,
     cellCriterionError(
       blocker.code,
-      blocker.gate === "fact-retirement" ? blocker.next.reason : blocker.next.command,
+      // What is wrong, then what to run; every completion blocker carries both.
+      `${blocker.next.reason} Next: ${blocker.next.command}`,
       "complete",
       "closeout-readiness/closeoutReadiness",
       [blocker.next.command],
