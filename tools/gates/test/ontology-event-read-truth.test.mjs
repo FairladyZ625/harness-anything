@@ -16,9 +16,9 @@ test("G0-3 reports the base advisory and points to an L1 read injected into a na
     rootDir,
     "packages/daemon/src/task-query-read.ts",
     [
-      'import { readRelationGraphProjection } from "../../kernel/src/index.ts";',
+      'import { readMarkdown } from "../../kernel/src/index.ts";',
       "function relationGraphPage() {",
-      "  return readRelationGraphProjection({ rootDir: process.cwd() });",
+      '  return readMarkdown("harness/tasks/task_x/INDEX.md");',
       "}",
       "",
     ].join("\n"),
@@ -42,7 +42,7 @@ test("G0-3 reports the base advisory and points to an L1 read injected into a na
   const result = auditEventReadTruth(rootDir);
   assert.match(
     result.findings.map((finding) => `${finding.file}:${finding.line} ${finding.reason}`).join("\n"),
-    /task-query-read\.ts:3.*readRelationGraphProjection/u,
+    /task-query-read\.ts:3.*readMarkdown/u,
   );
   assert.match(
     result.findings.map((finding) => `${finding.file}:${finding.line} ${finding.reason}`).join("\n"),

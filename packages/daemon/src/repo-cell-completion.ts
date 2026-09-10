@@ -117,15 +117,14 @@ export function completionKillpoint(cell: RepoCellActionContext, point: EventPub
 
 export async function showTask(cell: RepoCellActionContext, taskId: string): Promise<WriteReceipt> {
   await cell.service.read(cell.requiredCellText(taskId, "taskId"));
-  return taskShowFromProjection(cell.rootDir, cell.projection, taskId, cell.directChildCounts().get(taskId) ?? 0);
+  return taskShowFromProjection(cell.rootDir, cell.projection, taskId);
 }
 
 export function taskShowFromProjection(
   rootDir: string,
   projection: TaskProjectionQueries,
   taskId: string,
-  directChildCount = projection.list().rows.filter((row) => row.snapshot.task?.metadata?.parentTaskId === taskId)
-    .length,
+  directChildCount = projection.readTaskChildCounts([taskId])[taskId] ?? 0,
 ): WriteReceipt {
   const read = projection.read(taskId),
     progress = projection.readProgress(taskId),

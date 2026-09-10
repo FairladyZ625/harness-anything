@@ -5,7 +5,6 @@ import path from "node:path";
 import test from "node:test";
 import { readLegacyMigrationSource } from "../../src/index.ts";
 import { readColdRebuildSource } from "../../src/projection/cold-rebuild-source.ts";
-import { readRelationGraphProjection } from "../../src/projection/relation-graph-projection.ts";
 import { withTempStore } from "./helpers.ts";
 
 import {
@@ -13,60 +12,11 @@ import {
   migrationFactEvent,
   migrationRelationEvent,
   relation,
-  seedRelationProjection,
   writeColdHistory,
   writeFactEvent,
   writeLegacyFactEvent,
   writeMigrationEvent,
 } from "./relation-graph-projection.fixtures.ts";
-
-test("GUI graph reads task and relation truth from one read-only L2 database", () => {
-  withTempStore((rootDir) => {
-    const projectionPath = path.join(rootDir, ".harness/cache/projections.sqlite");
-    seedRelationProjection(projectionPath);
-    const before = readFileSync(projectionPath),
-      graph = readRelationGraphProjection({ rootDir });
-    assert.deepEqual(
-      graph.edges.map(({ relationId }) => relationId),
-      ["rel_positive"],
-    );
-    assert.deepEqual(
-      graph.taskRows.map(({ taskId }) => taskId),
-      ["task-positive"],
-    );
-    assert.equal(graph.facts[0]?.schema, "task-fact-row/v1");
-    assert.equal(graph.facts[0]?.invalidated, false, "invalidated is derived from the projected liveness verdict");
-    assert.deepEqual(readFileSync(projectionPath), before, "read path must not rebuild or mutate canonical L2");
-  });
-});
-
-test("GUI graph distinguishes unavailable truth from an empty relation set without creating a cache", () => {
-  withTempStore((rootDir) => {
-    const projectionPath = path.join(rootDir, ".harness/cache/projections.sqlite"),
-      graph = readRelationGraphProjection({ rootDir });
-    assert.deepEqual(graph.edges, []);
-    assert.equal(
-      graph.warnings.some(({ code, severity }) => code === "relation_truth_unavailable" && severity === "hard-fail"),
-      true,
-    );
-    assert.equal(existsSync(projectionPath), false);
-  });
-});
-
-test("GUI graph rejects structurally complete relation tables without a truth-source marker", () => {
-  withTempStore((rootDir) => {
-    const projectionPath = path.join(rootDir, ".harness/cache/projections.sqlite");
-    seedRelationProjection(projectionPath, false);
-    const graph = readRelationGraphProjection({ rootDir });
-    assert.deepEqual(graph.edges, []);
-    assert.equal(
-      graph.warnings.some(
-        ({ code, message }) => code === "relation_truth_unavailable" && message.includes("truth source"),
-      ),
-      true,
-    );
-  });
-});
 
 test("cold source derives Decision, relation, and Fact truth from authored L1", () => {
   withTempStore((rootDir) => {

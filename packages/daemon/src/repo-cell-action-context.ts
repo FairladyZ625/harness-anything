@@ -78,7 +78,6 @@ import {
 } from "./repo-cell-task-progress.ts";
 import {
   assertTaskWipCapacity as assertTaskWipCapacityImpl,
-  directChildCounts as directChildCountsImpl,
   listRelations as listRelationsImpl,
   listTasks as listTasksImpl,
   reviewTask as reviewTaskImpl,
@@ -177,7 +176,6 @@ export interface RepoCellActionContext extends TaskQueryCell {
   readonly withoutDryRun: typeof withoutDryRun;
   readonly previewResult: Bound<typeof previewResultImpl>;
   readonly projectedTaskIds: Bound<typeof projectedTaskIdsImpl>;
-  readonly directChildCounts: Bound<typeof directChildCountsImpl>;
   readonly wipSnapshotEntries: Bound<typeof wipSnapshotEntriesImpl>;
   readonly legacyReviewLint: typeof legacyReviewLint;
   readonly cellStringList: typeof cellStringList;
@@ -328,7 +326,6 @@ export function createRepoCellActionContext(bindings: {
     withoutDryRun,
     previewResult: bind(previewResultImpl),
     projectedTaskIds: bind(projectedTaskIdsImpl),
-    directChildCounts: bind(directChildCountsImpl),
     wipSnapshotEntries: bind(wipSnapshotEntriesImpl),
     legacyReviewLint,
     cellStringList,

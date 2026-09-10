@@ -51,7 +51,6 @@ export const offlineMaintenanceModules = new Set([
   "packages/kernel/src/projection/fact-event-projection.ts",
   "packages/kernel/src/projection/fts-query.ts",
   "packages/kernel/src/projection/projection-schema.ts",
-  "packages/kernel/src/projection/rebuildable-relation-read.ts",
   "packages/kernel/src/projection/rebuildable-task-projection-catch-up.ts",
   "packages/kernel/src/projection/rebuildable-task-projection-database.ts",
   "packages/kernel/src/projection/rebuildable-task-projection-entities.ts",
