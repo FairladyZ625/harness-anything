@@ -123,7 +123,7 @@ export function readSnapshot(db: DatabaseSync, taskId: string, now?: string): Ta
       db,
       [
         "SELECT value_json FROM entity_projection WHERE entity_kind = 'execution' AND task_id = ?",
-        "ORDER BY json_extract(value_json, '$.iteration'), json_extract(value_json, '$.claimedAt')",
+        "ORDER BY json_extract(value_json, '$.iteration'), json_extract(value_json, '$.claimedAt'), entity_id",
       ].join(" "),
       taskId,
     ).map((value) => JSON.parse(String(value.value_json)) as TaskLifecycleSnapshot["executions"][number]),
