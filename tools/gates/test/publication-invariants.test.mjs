@@ -21,7 +21,7 @@ import { lifecycleHarness } from "../../../packages/application/test/task-lifecy
 import { assertWriteTargetDeclared } from "../../../packages/application/src/task-lifecycle-service.ts";
 import { removeTemporaryDirectory } from "../../temporary-directory-cleanup.mjs";
 
-test("G29 compares the complete published byte delta with the frozen plan declaration", async () => {
+test("G29 compares every published byte change outside the canonical store files with the frozen plan declaration", async () => {
   const harness = lifecycleHarness();
   try {
     await harness.create();
