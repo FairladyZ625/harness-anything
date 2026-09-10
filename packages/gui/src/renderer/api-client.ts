@@ -27,10 +27,12 @@ import {
   isFactDomainTypeSummaryRow,
   isRendererRecord,
   isTaskDocumentRead,
+  localErrorHint,
   type FactDomainTypeSummaryRow,
 } from "./result-validation.ts";
 import { isSettingsSuccess } from "./settings-payload.ts";
 import { invoke } from "./api-client-invoke.ts";
+import { readGuiActionResult, settleWriteReceipt, type ReceiptRead } from "./command-receipt.ts";
 import { daemonBridgeError } from "./daemon-startup.ts";
 
 export interface TaskListSuccess {
@@ -361,6 +363,10 @@ export interface DecisionProposalInput {
   }>;
 }
 
+/** 写回执经 daemon 的落定谓词收口后才交给调用方(见 command-receipt.ts)。 */
+const settled = (repoId: string, receipt: GuiActionResult): Promise<GuiActionResult> =>
+  settleWriteReceipt(repoId, receipt, harnessClient.showReceipt);
+
 export const harnessClient = {
   async getSystemStatus(): Promise<SystemStatusSuccess> {
     return readSystemStatus(await invoke("daemon.gui.system.read", {}, "getSystemStatus"));
@@ -440,7 +446,10 @@ export const harnessClient = {
     return readDecisionShowResult(await invoke("repo.decision.show", payload, "showDecision"));
   },
   async proposeDecision(payload: RepoScope & DecisionProposalInput): Promise<GuiActionResult> {
-    return readGuiActionResult(await invoke("repo.decision.propose", payload, "proposeDecision"));
+    return settled(
+      payload.repoId,
+      readGuiActionResult(await invoke("repo.decision.propose", payload, "proposeDecision")),
+    );
   },
   async acceptDecision(
     payload: RepoScope & {
@@ -449,22 +458,28 @@ export const harnessClient = {
       readonly judgmentOnlyRationale?: string;
     },
   ): Promise<GuiActionResult> {
-    return readGuiActionResult(await invoke("repo.decision.accept", payload, "acceptDecision"));
+    return settled(
+      payload.repoId,
+      readGuiActionResult(await invoke("repo.decision.accept", payload, "acceptDecision")),
+    );
   },
   async rejectDecision(
     payload: RepoScope & { readonly decisionId: string; readonly reason: string },
   ): Promise<GuiActionResult> {
-    return readGuiActionResult(await invoke("repo.decision.reject", payload, "rejectDecision"));
+    return settled(
+      payload.repoId,
+      readGuiActionResult(await invoke("repo.decision.reject", payload, "rejectDecision")),
+    );
   },
   async deferDecision(
     payload: RepoScope & { readonly decisionId: string; readonly reason: string },
   ): Promise<GuiActionResult> {
-    return readGuiActionResult(await invoke("repo.decision.defer", payload, "deferDecision"));
+    return settled(payload.repoId, readGuiActionResult(await invoke("repo.decision.defer", payload, "deferDecision")));
   },
   async startTask(
     payload: RepoScope & { readonly taskId: string; readonly executionId: string },
   ): Promise<GuiActionResult> {
-    return readGuiActionResult(await invoke("repo.task.start", payload, "startTask"));
+    return settled(payload.repoId, readGuiActionResult(await invoke("repo.task.start", payload, "startTask")));
   },
   async appendTaskProgress(
     payload: RepoScope & {
@@ -475,7 +490,10 @@ export const harnessClient = {
       readonly baseDocumentSha256?: string | null;
     },
   ): Promise<GuiActionResult> {
-    return readGuiActionResult(await invoke("repo.task.progress.append", payload, "appendTaskProgress"));
+    return settled(
+      payload.repoId,
+      readGuiActionResult(await invoke("repo.task.progress.append", payload, "appendTaskProgress")),
+    );
   },
   async submitTask(
     payload: RepoScope & {
@@ -484,16 +502,17 @@ export const harnessClient = {
       readonly submission: GuiSubmissionV1;
     },
   ): Promise<GuiActionResult> {
-    return readGuiActionResult(await invoke("repo.task.submit", payload, "submitTask"));
+    return settled(payload.repoId, readGuiActionResult(await invoke("repo.task.submit", payload, "submitTask")));
   },
   /** 台账 pin 的唯一 GUI 写通道:daemon 侧就是 `ha task pin` 的 pinned-only amend。 */
   async pinTask(payload: RepoScope & { readonly taskId: string }): Promise<GuiActionResult> {
-    return readGuiActionResult(await invoke("repo.task.pin", payload, "pinTask"));
+    return settled(payload.repoId, readGuiActionResult(await invoke("repo.task.pin", payload, "pinTask")));
   },
   async unpinTask(payload: RepoScope & { readonly taskId: string }): Promise<GuiActionResult> {
-    return readGuiActionResult(await invoke("repo.task.unpin", payload, "unpinTask"));
+    return settled(payload.repoId, readGuiActionResult(await invoke("repo.task.unpin", payload, "unpinTask")));
   },
-  async showReceipt(payload: RepoScope & { readonly opId: string }): Promise<GuiActionResult> {
+  /** 只读的 canonical receipt 查询;`waitFor`/`timeoutMs` 是 daemon 的落定谓词,不是重放。 */
+  async showReceipt(payload: Parameters<ReceiptRead>[0]): Promise<GuiActionResult> {
     return readGuiActionResult(await invoke("repo.receipt.show", payload, "showReceipt"));
   },
   async getCatalogSnapshot(payload: RepoScope): Promise<CatalogSnapshotSuccess> {
@@ -831,21 +850,6 @@ function isRelationFactSummaryRow(value: unknown): value is RelationFactSummaryR
   );
 }
 
-function readGuiActionResult(value: unknown): GuiActionResult {
-  const result = value as Partial<GuiActionResult>;
-  if (
-    !result ||
-    result.schema !== "command-receipt/v2" ||
-    typeof result.ok !== "boolean" ||
-    typeof result.command !== "string" ||
-    !["applied", "pending", "no_changes", "indeterminate", "op_rejected"].includes(String(result.outcome)) ||
-    typeof result.opId !== "string"
-  ) {
-    throw new Error(localErrorHint(value, "GUI action bridge returned an invalid receipt."));
-  }
-  return result as GuiActionResult;
-}
-
 function readDecisionControlList(value: unknown): DecisionControlListSuccess {
   const receipt = readGuiActionResult(value) as GuiActionResult & {
     readonly evidence?: string;
@@ -1077,15 +1081,4 @@ function isFactAnchorRow(value: unknown): value is FactAnchorRow {
     typeof value.taskId === "string" &&
     typeof value.factId === "string"
   );
-}
-
-function localErrorHint(value: unknown, fallback: string): string {
-  if (
-    isRendererRecord(value) &&
-    value.ok === false &&
-    isRendererRecord(value.error) &&
-    typeof value.error.hint === "string"
-  )
-    return value.error.hint;
-  return fallback;
 }
