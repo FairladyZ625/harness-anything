@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, truncateSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, truncateSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -10,6 +10,7 @@ import {
   documentPath,
   makeTaskEventReader,
   makeTaskEventStore,
+  DOC_SYNC_INLINE_MAX_BYTES,
   parseDocWriteIntent,
   RAW_ARTIFACT_MAX_BYTES,
   RAW_ARTIFACT_POLICY_ID,
@@ -269,6 +270,107 @@ test("a raw publication that fails leaves no accepted artifact and no raw claim 
     assert.equal(decision.detail.unresolvedTouches[0]?.requiredRoute, "task-artifact-add");
   } finally {
     rmSync(confinementRoot, { recursive: true, force: true });
+  }
+});
+
+test("doc status routes a new JSON task artifact to artifact add and accepts same-path takeover", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-artifact-json-route-"));
+  initRepo(rootDir);
+  const repoId = workspaceId("artifact-json-route"),
+    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "artifact-json-route" }),
+    binding = { actor, source: "local" as const };
+  try {
+    const created = (await cell.run({ kind: "task-create", taskId: "task-json", title: "JSON Artifact" }, binding)) as {
+      readonly outcome: string;
+      readonly packagePath: string;
+    };
+    assert.equal(created.outcome, "applied", JSON.stringify(created));
+    const logical = `${created.packagePath}/artifacts/report.json`,
+      target = path.join(rootDir, "harness", ...logical.split("/")),
+      bytes = Buffer.from('{"schema":"report/v1","ok":true}\n');
+    mkdirSync(path.dirname(target), { recursive: true });
+    writeFileSync(target, bytes);
+    const status = (await cell.run({ kind: "doc-status", paths: [logical] }, binding)) as Record<string, unknown>,
+      rows = JSON.parse(String(status.evidence).slice("doc-scan:".length)) as {
+        readonly rows: readonly { readonly state: string; readonly reason: string | null }[];
+      };
+    assert.deepEqual(
+      [rows.rows[0]?.state, rows.rows[0]?.reason],
+      [
+        "inapplicable",
+        `task artifact is outside doc sync; publish it with ha task artifact add task-json ` +
+          `--source harness/${logical} --destination artifacts/report.json`,
+      ],
+    );
+    assert.match(
+      String((status.detail as { readonly nextAction?: string }).nextAction),
+      /^ha task artifact add task-json/u,
+    );
+    const added = (await cell.run(
+      {
+        kind: "task-artifact-add",
+        taskId: "task-json",
+        source: `harness/${logical}`,
+        destination: "artifacts/report.json",
+      },
+      binding,
+    )) as Record<string, unknown>;
+    assert.equal(added.outcome, "applied", JSON.stringify(added));
+    assert.deepEqual(readFileSync(target), bytes, "same-path takeover preserves the original bytes");
+  } finally {
+    await cell.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("doc status uses the configured authored root and quotes artifact source paths", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-artifact-configured-root-"));
+  initRepo(rootDir);
+  mkdirSync(path.join(rootDir, "harness"), { recursive: true });
+  writeFileSync(
+    path.join(rootDir, "harness", "harness.yaml"),
+    "schema: harness-anything/v1\nlayout:\n  authoredRoot: ledger\n  localRoot: .harness\n",
+  );
+  const repoId = workspaceId("artifact-configured-root"),
+    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "artifact-configured-root" }),
+    binding = { actor, source: "local" as const };
+  try {
+    const created = (await cell.run(
+      { kind: "task-create", taskId: "task-configured", title: "Configured Root" },
+      binding,
+    )) as { readonly outcome: string; readonly packagePath: string };
+    assert.equal(created.outcome, "applied", JSON.stringify(created));
+    const logical = `${created.packagePath}/artifacts/report (final).pdf`,
+      target = path.join(rootDir, "ledger", ...logical.split("/")),
+      bytes = Buffer.concat([Buffer.from("%PDF-1.7\n"), Buffer.alloc(DOC_SYNC_INLINE_MAX_BYTES + 1, 0xff)]);
+    mkdirSync(path.dirname(target), { recursive: true });
+    writeFileSync(target, bytes);
+    const status = (await cell.run({ kind: "doc-status", paths: [logical] }, binding)) as Record<string, unknown>;
+    const rows = JSON.parse(String(status.evidence).slice("doc-scan:".length)) as {
+      readonly rows: readonly {
+        readonly state: string;
+        readonly reason: string | null;
+        readonly size: number | null;
+        readonly candidateBlobSha256: string | null;
+      }[];
+    };
+    assert.deepEqual(
+      [rows.rows[0]?.state, rows.rows[0]?.size, rows.rows[0]?.candidateBlobSha256],
+      ["inapplicable", bytes.byteLength, null],
+      JSON.stringify(rows),
+    );
+    assert.match(
+      rows.rows[0]?.reason ?? "",
+      /'ledger\/tasks\/task-configured-configured-root\/artifacts\/report \(final\)\.pdf'/u,
+    );
+    assert.equal(
+      (status.detail as { readonly nextAction?: string }).nextAction,
+      "ha task artifact add task-configured --source 'ledger/tasks/task-configured-configured-root/artifacts/report (final).pdf' " +
+        "--destination 'artifacts/report (final).pdf'",
+    );
+  } finally {
+    await cell.close();
+    rmSync(rootDir, { recursive: true, force: true });
   }
 });
 

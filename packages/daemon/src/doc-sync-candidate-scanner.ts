@@ -6,6 +6,7 @@ import { existsSync, lstatSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import {
   classifyDocSyncCandidatePath,
+  classifyRawArtifactPath,
   classifyTextualArtifactPath,
   decideDocWriteCriteria,
   DOC_SYNC_INLINE_MAX_BYTES,
@@ -30,7 +31,7 @@ import {
   type TaskProjection,
   type WriteSource,
 } from "../../kernel/src/index.ts";
-import { blockedCandidateNextAction } from "./doc-sync-details.ts";
+import { blockedCandidateNextAction, formatShellCommand } from "./doc-sync-details.ts";
 import { docSyncError } from "./doc-sync-files.ts";
 
 export type DocCandidateState = "clean" | "eligible" | "inapplicable" | "blocked" | "deletion" | "conflict";
@@ -150,12 +151,21 @@ export function scanDocCandidates(input: {
       projected = input.projection.readDocument(document),
       conflicts = inventoried?.conflicts ?? candidateConflicts(input.rootDir, layout.authoredRoot, logical),
       safe = inventoried?.safe ?? directFile(layout.authoredRoot, logical),
-      classification = classifyDocSyncCandidatePath(logical),
-      existingMediaType = classifyTextualArtifactPath(logical)?.mediaType ?? null,
       fileSize = inventoried ? inventoried.size : safe && existsSync(target) ? lstatSync(target).size : null,
+      classification = classifyDocSyncCandidatePath(logical),
+      rawClassification = classifyRawArtifactPath(document),
+      rawTaskArtifactCandidate = rawClassification !== null && !/\.(?:jsonl|log)$/u.test(document),
+      taskArtifactCandidate =
+        claimingTaskId !== null &&
+        (classification === null
+          ? !/\.(?:jsonl|log)$/u.test(document)
+          : rawTaskArtifactCandidate && fileSize !== null && fileSize > DOC_SYNC_INLINE_MAX_BYTES) &&
+        /^tasks\/[^/]+\/artifacts\//u.test(document) &&
+        baseDocumentIsNew(projected),
+      existingMediaType = classifyTextualArtifactPath(logical)?.mediaType ?? null,
       rawBytes = inventoried
         ? inventoried.bytes
-        : (classification !== null || !route.allowed || projected.document !== null) &&
+        : (classification !== null || taskArtifactCandidate || !route.allowed || projected.document !== null) &&
             fileSize !== null &&
             fileSize <= DOC_SYNC_INLINE_MAX_BYTES &&
             safe &&
@@ -202,6 +212,32 @@ export function scanDocCandidates(input: {
         "task_package_unregistered",
         "ha task artifact add",
       );
+    if (taskArtifactCandidate) {
+      const nextAction = formatShellCommand("ha", [
+        "task",
+        "artifact",
+        "add",
+        claimingTaskId,
+        "--source",
+        `${ledger.authoredPrefix ? `${ledger.authoredPrefix}/` : ""}${logical}`,
+        "--destination",
+        logical.slice(`tasks/${taskDirectory}/`.length),
+      ]);
+      return scannedCandidateRow(
+        "inapplicable",
+        rawClassification === null || (candidate === null && fileSize !== null && fileSize > DOC_SYNC_INLINE_MAX_BYTES)
+          ? `task artifact is outside doc sync; publish it with ${nextAction}`
+          : "non-textual artifact is outside doc sync; publish it with ha task artifact add",
+        bytes,
+        base,
+        candidate,
+        classification?.mediaType ?? null,
+        null,
+        null,
+        null,
+        fileSize,
+      );
+    }
     if (classification === null && candidate !== null && candidate === base)
       return scannedCandidateRow("clean", null, bytes, base, candidate, existingMediaType);
     if (classification === null)
@@ -359,6 +395,10 @@ export function scanDocCandidates(input: {
   }
 }
 
+function baseDocumentIsNew(projected: ReturnType<TaskProjection["readDocument"]>): boolean {
+  return projected.document === null;
+}
+
 export function scanAuthoredCandidateInventory(input: {
   readonly rootDir: string;
   readonly store: CanonicalEventStore;
@@ -378,7 +418,9 @@ export function scanAuthoredCandidateInventory(input: {
         target = path.join(layout.authoredRoot, ...logical.split("/")),
         size = safe && existsSync(target) ? lstatSync(target).size : null,
         rawBytes =
-          (classification !== null || !route.allowed) && size !== null && size <= DOC_SYNC_INLINE_MAX_BYTES
+          (classification !== null || !route.allowed || /^tasks\/[^/]+\/artifacts\//u.test(logical)) &&
+          size !== null &&
+          size <= DOC_SYNC_INLINE_MAX_BYTES
             ? readCandidate(target)
             : null,
         bytes = rawBytes === null ? null : canonicalProseBytes(rawBytes, classification?.policyId);
