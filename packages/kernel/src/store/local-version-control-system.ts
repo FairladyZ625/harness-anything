@@ -284,7 +284,6 @@ export const localGitObjectRefStore = Object.freeze({
     const timestamp = new Date(Number(seconds) * 1_000);
     return Number.isNaN(timestamp.valueOf()) ? null : timestamp.toISOString();
   },
-  blobOid: (body: string | Uint8Array) => gitBlobOidBytes(typeof body === "string" ? Buffer.from(body) : body),
   resolveCommit: (repoRoot: string, revision: string) => runGit(repoRoot, "rev-parse", revision).trim(),
   currentBranch: (repoRoot: string): string | null => {
     try {

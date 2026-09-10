@@ -255,7 +255,12 @@ test("reopen recovers bootstrap machine views while preserving bootstrap prose a
     assert.equal(readFileSync(draftPath, "utf8"), "A real unsubmitted draft\n");
     assert.equal(reopened.currentCut().revision, 3);
     assert.equal(reopened.followerStatus().worktree.status, "pending");
-    assert.equal(readFileSync(manifestPath, "utf8"), physicalManifest);
+    assert.deepEqual(reopened.followerStatus().worktree.conflicts, [
+      `harness/${born.packagePath}/closeout.md`,
+      `harness/${plan.path}`,
+    ]);
+    // The draft is reported, not a reason to hold the worktree back: its manifest records the settled cut.
+    assert.equal(JSON.parse(readFileSync(manifestPath, "utf8")).cut.revision, 3);
   } finally {
     await reopened.drain();
     rmSync(rootDir, { recursive: true, force: true });
