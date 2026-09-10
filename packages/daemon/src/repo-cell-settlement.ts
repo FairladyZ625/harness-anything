@@ -159,7 +159,7 @@ export function failed(
     ...explained,
     evidence: `criterion:${criterion.ref}`,
     unmetCriteria: [criterion],
-    rejectionExplanation: criterion.explain,
+    rejectionExplanation: message || criterion.explain,
     nextActions: Object.freeze([...new Set(criterionFailure.nextActions)]),
   };
 }
