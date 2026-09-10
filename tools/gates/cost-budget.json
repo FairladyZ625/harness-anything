@@ -203,13 +203,6 @@
     },
     "knownScaling": [
       {
-        "operation": "task-start",
-        "metric": "sqlRowsRead",
-        "reason": "task-start admits WIP through assertTaskWipCapacity -> wipSnapshotEntries (daemon repo-cell-task-query.ts), and projection.list() (kernel projection/rebuildable-task-projection-reads.ts listProjection) reads the whole task index (SELECT task_snapshot.task_id AS task_id, task_package.package_path ... FROM task_snapshot LEFT JOIN task_package LEFT JOIN task_generation ORDER BY task_snapshot.task_id) and then one readSnapshot per task (SELECT snapshot_json FROM task_snapshot WHERE task_id = ?, plus relation_edge/entity-freshness reads that list sqlite_master for every task carrying a relation); about 3 rows per task.",
-        "deletionTaskId": "task_2b8f79fa4412cb726a26f9bfc7",
-        "expiresAt": "2026-09-24T00:00:00.000Z"
-      },
-      {
         "operation": "decision-propose",
         "metric": "sqlRowsRead",
         "reason": "entity-action-catalog-executor.ts compileDraft calls projection.readDecisionGraph() only to keep the edges owned by this one decision; readDecisionGraphRows builds the whole graph including decisionCoverage (kernel projection/decision-projection-coverage.ts), which reads every task (SELECT task_id,json_extract(snapshot_json,'$.task.status') AS status FROM task_snapshot ORDER BY task_id), every fact (SELECT ref FROM fact ORDER BY ref), and every decision, claim, option and relation edge. The replacement-authorization backward scan named in the task plan is now a per-process cache (#2410) and shows only in the first call.",
