@@ -33,9 +33,11 @@ const documentHeadCaches = new WeakMap<
 function documentHeadCache(store: SqliteEventStore): Map<string, DocumentHead | "retired"> {
   const cache = documentHeadCaches.get(store) ?? { revision: 0, heads: new Map<string, DocumentHead | "retired">() };
   documentHeadCaches.set(store, cache);
-  const revision = store.revision();
-  if (cache.revision < revision) {
-    for (const event of store.eventsAfter(cache.revision, revision - cache.revision)) {
+  // Page the first build: the live ledger holds over 100 MB of event JSON.
+  for (const revision = store.revision(); cache.revision < revision; ) {
+    const events = store.eventsAfter(cache.revision, Math.min(1024, revision - cache.revision));
+    if (events.length === 0) throw new TaskEventStoreError("invalid_store", `Missing events after ${cache.revision}`);
+    for (const event of events) {
       for (const claim of canonicalDocumentClaims(event))
         cache.heads.set(claim.path, {
           sha256: claim.sha256,
@@ -44,7 +46,7 @@ function documentHeadCache(store: SqliteEventStore): Map<string, DocumentHead | 
         });
       for (const retirement of canonicalDocumentRetirements(event)) cache.heads.set(retirement.path, "retired");
     }
-    cache.revision = revision;
+    cache.revision += events.length;
   }
   return cache.heads;
 }
