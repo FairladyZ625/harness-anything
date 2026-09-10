@@ -5,7 +5,9 @@ import {
   unregisterDaemonRepo,
   type DaemonRepoMode,
 } from "../../kernel/src/index.ts";
+import { revokedAttachError } from "./daemon-host-errors.ts";
 import { canonicalRoot, workspaceId } from "./protocol/daemon-protocol.contract.ts";
+import type { RepoCell } from "./repo-cell-types.ts";
 import type { RuntimeAttemptTerminal } from "./runtime-spawn.ts";
 import type { DaemonHostRegistryContext } from "./daemon-host-context.ts";
 
@@ -112,6 +114,23 @@ export function raceAttachBudget(
   });
 }
 
+// A cold attach can outlive the registry decision that asked for it: `daemon repo update
+// --state disabled` returns as soon as the on-disk row flips, while an open started earlier is
+// still inside openCell. The registry row is therefore re-read at publication time and is the
+// only authority on whether that Cell may be published. This is a publication check, not a
+// synchronous write barrier: a Cell that was already published, or one still opening, can be
+// writing right up until it is closed, so a migration must still see the repo fully attached
+// before it disables it.
+function stillRegistered(
+  context: DaemonHostRegistryContext,
+  repoId: string,
+): { readonly mode: DaemonRepoMode; readonly canonicalRoot: string } | null {
+  const row = readDaemonRegistry({ userRoot: context.input.userRoot }).repos.find((repo) => repo.repoId === repoId);
+  return row?.state === "enabled" && row.mode !== "remote-proxy" && row.canonicalRoot !== null
+    ? { mode: row.mode, canonicalRoot: row.canonicalRoot }
+    : null;
+}
+
 export async function performOpenRegistered(
   context: DaemonHostRegistryContext,
   repo: {
@@ -132,8 +151,9 @@ export async function performOpenRegistered(
       ...(progress ?? {}),
     };
   context.input.recordLifecycle?.({ event: "repo_attach_started", ...lifecycle });
+  let opened: RepoCell | undefined;
   try {
-    const cell = await context.openCell({
+    opened = await context.openCell({
       repoId: workspaceId(repo.repoId),
       rootDir: canonicalRoot(repo.canonicalRoot),
       mode: repo.mode,
@@ -154,11 +174,25 @@ export async function performOpenRegistered(
       ...context.runtimePorts,
       ...(context.input.runtimeLaunch ? { runtimeLaunch: context.input.runtimeLaunch } : {}),
     });
-    if (context.closing) {
-      await cell.close();
-      context.settleWarming(repo.repoId);
+    const wanted = context.closing ? null : stillRegistered(context, repo.repoId);
+    if (wanted?.mode !== repo.mode || wanted.canonicalRoot !== repo.canonicalRoot) {
+      await opened.close();
+      opened = undefined;
+      context.input.recordLifecycle?.({
+        event: "repo_attach_discarded",
+        ...lifecycle,
+        durationMs: performance.now() - started,
+      });
+      if (wanted === null) context.settleWarming(repo.repoId);
+      else
+        context.latchUnavailable(
+          repo.repoId,
+          context.unavailableStatus(repo.repoId, repo.canonicalRoot, repo.mode, revokedAttachError(repo.repoId)),
+        );
       return;
     }
+    const cell = opened;
+    opened = undefined;
     context.cells.set(repo.repoId, cell);
     await context.scheduleScheduler.refresh();
     context.settleWarming(repo.repoId);
@@ -169,6 +203,10 @@ export async function performOpenRegistered(
       durationMs: performance.now() - started,
     });
   } catch (error) {
+    // The publication re-read and the discard close are new throw sites downstream of a live
+    // Cell, so an open that never reaches `cells` still gets torn down instead of leaking its
+    // writer worker and workspace lock.
+    if (opened) await opened.close();
     context.input.recordLifecycle?.({
       event: "repo_attach_failed",
       ...lifecycle,

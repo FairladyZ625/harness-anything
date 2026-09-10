@@ -13,7 +13,7 @@ const projectionFailurePatterns = [
  * Git/lock failures (publication CAS, writer lock) point it at the workspace infrastructure. */
 export function causeClassOf(error: unknown): "data-shape" | "infrastructure" | "projection" {
   return error instanceof VcsCommandError ||
-    ["writer_rejected", "publication_indeterminate"].includes(cellErrorCode(error))
+    ["writer_rejected", "publication_indeterminate", "repo_attach_revoked"].includes(cellErrorCode(error))
     ? "infrastructure"
     : error instanceof Error && projectionFailurePatterns.some((pattern) => pattern.test(error.message))
       ? "projection"
