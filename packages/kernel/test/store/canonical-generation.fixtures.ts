@@ -12,6 +12,7 @@ export {
 export { migrateEventsToSqlite, sqliteContentObjectPath } from "../../src/store/sqlite-event-store.ts";
 export { eventObjectRelativePath } from "../../src/layout/ledger-object-layout.ts";
 export { validateWriteReceipt } from "../../src/domain/receipt-domain-registry.ts";
+export { contentClaims } from "../../src/store/task-event-store-claims-layout.ts";
 export { daemonRegistryPaths } from "../../src/daemon/registry.ts";
 
 export { createLedgerBackup, drillLedgerBackup } from "../../src/store/ledger-backup.ts";

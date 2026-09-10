@@ -9,9 +9,11 @@ import test from "node:test";
 import {
   createLedgerBackup,
   drillLedgerBackup,
+  contentClaims,
   openSqliteEventStore,
   sha256Bytes,
 } from "../../kernel/test/store/canonical-generation.fixtures.ts";
+import { makeTaskEventReader, serializePersistedCanonicalEvent, sha256Text } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { openBootstrappedRepoCell } from "./repo-settings.fixture.ts";
@@ -62,7 +64,27 @@ test("real Entity import survives gen2 CLI conversion, Git recovery and a fresh 
     assert.equal(JSON.parse(String(upgraded.evidence)).kindVersion, 2);
     await cell.close();
     cell = undefined;
-    createLedgerBackup({ rootInput: root, backupDir });
+    const active = makeTaskEventReader({ repoId, rootDir: root, generation: 2 });
+    const historical = openSqliteEventStore({ repoId, rootInput: root, generation: 1 });
+    for (const event of active.read().events) {
+      historical.appendCommand({
+        fence: { repoId, holder: "generation-one-fixture", epoch: 1 },
+        intent: {
+          opId: event.opId,
+          intentDigest: `sha256:${sha256Text(serializePersistedCanonicalEvent(event))}`,
+          summary: event.type,
+        },
+        events: [event],
+        blobs: contentClaims(event).map((claim) => ({
+          ...claim,
+          body: active.readContentBlob(claim.sha256)!,
+        })),
+      });
+    }
+    await active.drain();
+    rmSync(path.join(root, ".harness/store/generations/2"), { recursive: true, force: true });
+    historical.close();
+    createLedgerBackup({ rootInput: root, backupDir, generation: 1 });
     const run = spawnSync(
       process.execPath,
       [

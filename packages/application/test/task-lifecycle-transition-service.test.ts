@@ -815,7 +815,7 @@ function seedOldEvents(rootDir: string, count: number): void {
 }
 
 function seedAcceptedEvents(rootDir: string, repoId: string, events: readonly TaskEventV1[]): void {
-  const store = openSqliteEventStore({ repoId, rootInput: rootDir });
+  const store = openSqliteEventStore({ repoId, rootInput: rootDir, generation: 1 });
   try {
     for (const event of events)
       store.appendCommand({

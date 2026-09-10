@@ -1,6 +1,5 @@
 import { makeSqliteTaskEventStore, type SqliteTaskEventStoreOptions } from "./sqlite-task-event-store.ts";
-import { resolveActiveGeneration } from "./sqlite-event-store.ts";
-import { activateEmptyCanonicalGeneration } from "./legacy-generation-conversion.ts";
+import { activateEmptyCanonicalGeneration, resolveActiveGeneration } from "./sqlite-event-store.ts";
 
 // Writers and readers must land on the same generation, or a restart would read a ledger nobody
 // is writing. An explicit generation always wins so an operator can still audit the retained one.

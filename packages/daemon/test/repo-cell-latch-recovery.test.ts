@@ -6,8 +6,18 @@ import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
 import test from "node:test";
-import { legacyGenerationSnapshotPath, makeTaskEventReader } from "../../kernel/src/index.ts";
-import { preflightConvertedGenerationActivation } from "../../kernel/test/store/canonical-generation.fixtures.ts";
+import {
+  createImmutableLegacyGenerationSnapshot,
+  legacyGenerationSnapshotPath,
+  makeTaskEventReader,
+  openSqliteEventStore,
+  serializePersistedCanonicalEvent,
+  sha256Text,
+} from "../../kernel/src/index.ts";
+import {
+  contentClaims,
+  preflightConvertedGenerationActivation,
+} from "../../kernel/test/store/canonical-generation.fixtures.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { causeClassOf, type RepoCell } from "../src/repo-cell.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
@@ -148,8 +158,42 @@ test("SQLite malformed canonical rows fail closed during operator activation val
     );
     await cell.close();
     cell = undefined;
-    const databasePath = path.join(rootDir, ".harness/store/generations/1/ledger.sqlite"),
-      db = new DatabaseSync(databasePath);
+    const source = makeTaskEventReader({ repoId, rootDir, generation: 2 });
+    const legacy = openSqliteEventStore({ repoId, rootInput: rootDir, generation: 1 });
+    for (const event of source.read().events) {
+      const blobs = contentClaims(event).map((claim) => ({
+        ...claim,
+        body: source.readContentBlob(claim.sha256)!,
+      }));
+      legacy.appendCommand({
+        fence: { repoId, holder: "malformed-fixture", epoch: 1 },
+        intent: {
+          opId: event.opId,
+          intentDigest: `sha256:${sha256Text(serializePersistedCanonicalEvent(event))}`,
+          summary: event.type,
+        },
+        events: [event],
+        blobs,
+      });
+    }
+    await source.drain();
+    const snapshotPath = legacyGenerationSnapshotPath(rootDir);
+    const snapshotSource = {
+      read: () => ({
+        schema: "canonical-event-stream/v1" as const,
+        revision: legacy.revision(),
+        events: legacy.events(),
+      }),
+      readContentBlob: (sha256: string) => legacy.readContentObject(sha256),
+    } as unknown as Parameters<typeof createImmutableLegacyGenerationSnapshot>[0]["source"];
+    const snapshot = createImmutableLegacyGenerationSnapshot({ repoId, source: snapshotSource, snapshotPath });
+    const databasePath = path.join(rootDir, ".harness/store/generations/1/ledger.sqlite");
+    writeFileSync(
+      `${databasePath}.import-source.json`,
+      `${JSON.stringify({ schema: "generation-import-source/v1", sourceDigest: snapshot.sourceDigest })}\n`,
+    );
+    legacy.close();
+    const db = new DatabaseSync(databasePath);
     db.prepare("UPDATE event SET event_json = ? WHERE revision = 1").run("{}");
     db.close();
     assert.throws(

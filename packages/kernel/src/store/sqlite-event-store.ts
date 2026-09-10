@@ -6,7 +6,7 @@ import {
   serializePersistedCanonicalEvent,
   type CanonicalEventV1,
 } from "../domain/doc-sync.contract.ts";
-import { sha256Bytes, sha256Text } from "../integrity/stable-hash.ts";
+import { sha256Bytes, sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 import { resolveHarnessLayout, type HarnessLayoutInput } from "../layout/index.ts";
 import { localRuntimeStateFileSystem } from "../local/local-layout-file-system.ts";
 import { localContentObjectFileSystem } from "../local/local-layout-file-system.ts";
@@ -138,6 +138,95 @@ export interface GenerationTwoActivationV2 {
 
 export function generationTwoActivationPath(input: HarnessLayoutInput): string {
   return `${sqliteLedgerPath(input, 2)}.activation.json`;
+}
+
+export function generationActivationCertificatePath(input: HarnessLayoutInput): string {
+  return `${sqliteLedgerPath(input, 1)}.activation.json`;
+}
+
+export function preflightCanonicalGeneration(input: {
+  readonly rootInput: HarnessLayoutInput;
+  readonly repoId: string;
+}): void {
+  const layout = resolveHarnessLayout(input.rootInput),
+    databasePath = sqliteLedgerPath(input.rootInput, 1),
+    certificatePath = generationActivationCertificatePath(layout.rootDir),
+    markerPath = `${databasePath}.import-source.json`;
+  if (
+    !localRuntimeStateFileSystem.exists(databasePath) ||
+    !localRuntimeStateFileSystem.exists(markerPath) ||
+    !localRuntimeStateFileSystem.exists(certificatePath)
+  )
+    throw new TaskEventStoreError(
+      "invalid_store",
+      "canonical generation is not activated; run operator conversion before attaching this repository",
+    );
+  const marker = JSON.parse(localRuntimeStateFileSystem.readText(markerPath)),
+    certificate = JSON.parse(localRuntimeStateFileSystem.readText(certificatePath));
+  if (
+    certificate.schema !== "generation-activation/v1" ||
+    certificate.repoId !== input.repoId ||
+    certificate.sourceDigest !== marker.sourceDigest ||
+    !Number.isSafeInteger(certificate.importedPrefixRevision) ||
+    certificate.importedPrefixRevision < 0
+  )
+    throw new TaskEventStoreError("invalid_store", "generation activation certificate differs");
+  const store = openSqliteEventStore({ repoId: input.repoId, databasePath, generation: 1, readOnly: true });
+  try {
+    if (store.revision() < certificate.importedPrefixRevision)
+      throw new TaskEventStoreError("invalid_store", "generation revision precedes its activation certificate");
+  } finally {
+    store.close();
+  }
+}
+
+export function activateEmptyCanonicalGeneration(input: {
+  readonly rootInput: HarnessLayoutInput;
+  readonly repoId: string;
+}): void {
+  const layout = resolveHarnessLayout(input.rootInput);
+  if (preflightGenerationTwoActivation(input) !== null) return;
+  const databasePath = sqliteLedgerPath(input.rootInput, 1),
+    snapshotPath = path.join(layout.localRoot, "store", "imports", "generation-0.snapshot.json");
+  if (localRuntimeStateFileSystem.exists(generationActivationCertificatePath(layout.rootDir))) {
+    preflightCanonicalGeneration(input);
+    return;
+  }
+  if (
+    localRuntimeStateFileSystem.exists(path.join(layout.authoredRoot, "events")) ||
+    localRuntimeStateFileSystem.exists(path.join(layout.authoredRoot, "objects"))
+  )
+    throw new TaskEventStoreError(
+      "invalid_store",
+      "canonical generation is not activated; run operator conversion before attaching this repository",
+    );
+  if (localRuntimeStateFileSystem.exists(databasePath) || localRuntimeStateFileSystem.exists(snapshotPath))
+    throw new TaskEventStoreError(
+      "invalid_store",
+      "legacy generation exists without activation; run operator conversion before attaching this repository",
+    );
+  const generationTwoPath = sqliteLedgerPath(input.rootInput, 2),
+    generationTwoCertificatePath = `${generationTwoPath}.activation.json`,
+    generationTwo = openSqliteEventStore({
+      repoId: input.repoId,
+      databasePath: generationTwoPath,
+      generation: 2,
+    });
+  generationTwo.close();
+  const activation = {
+    schema: "generation-activation/v2" as const,
+    repoId: input.repoId,
+    sourceDigest: sha256Text(stableStringify({ repoId: input.repoId, generation: 2, importedPrefixRevision: 0 })),
+    importedPrefixRevision: 0,
+    generation: 2 as const,
+  };
+  if (
+    !localRuntimeStateFileSystem.createExclusiveText(generationTwoCertificatePath, `${JSON.stringify(activation)}\n`)
+  ) {
+    const existing = JSON.parse(localRuntimeStateFileSystem.readText(generationTwoCertificatePath));
+    if (stableStringify(existing) !== stableStringify(activation))
+      throw new TaskEventStoreError("invalid_store", "generation 2 activation certificate differs");
+  }
 }
 
 /**

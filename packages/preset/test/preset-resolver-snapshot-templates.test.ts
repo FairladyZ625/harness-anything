@@ -73,7 +73,7 @@ test("snapshot upgrade atomically replaces the complete snapshot and typed task 
           documentClaims: [],
         },
       },
-      ledger = openSqliteEventStore({ repoId: "preset-upgrade", rootInput: rootDir });
+      ledger = openSqliteEventStore({ repoId: "preset-upgrade", rootInput: rootDir, generation: 1 });
     try {
       assert.deepEqual(
         migrateEventsToSqlite({
