@@ -10,6 +10,30 @@ import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } f
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 import { actor, git, initRepo } from "./task-surface.fixtures.ts";
+
+test("task create rejects ids that cannot form task entity references", async (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-id-ref-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  initRepo(rootDir);
+  const cell = await openRepoCell({
+    repoId: workspaceId("task-id-ref"),
+    rootDir: canonicalRoot(rootDir),
+    ownerId: "task-id-ref-create",
+  });
+  t.after(() => cell.close());
+  const rejected = await cell.run(
+    { kind: "task-create", taskId: "t0", title: "Invalid id" },
+    { actor, source: "local" },
+  );
+  assert.equal(rejected.outcome, "op_rejected");
+  assert.equal(rejected.code, "invalid_task_id");
+  const accepted = await cell.run(
+    { kind: "task-create", taskId: "task-t0", title: "Valid id" },
+    { actor, source: "local" },
+  );
+  assert.equal(accepted.outcome, "applied");
+});
+
 test("task create publishes complete metadata and first-class relations survive cold rebuild", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-surface-"));
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
