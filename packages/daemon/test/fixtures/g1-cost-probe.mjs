@@ -8,7 +8,7 @@ import { syncBuiltinESMExports } from "node:module";
 import { StatementSync } from "node:sqlite";
 import crypto from "node:crypto";
 import fs from "node:fs";
-import { localGitObjectRefStore } from "../../../kernel/src/store/local-version-control-system.ts";
+import { localGitObjectRefStore } from "../../../kernel/src/index.ts";
 
 const counters = { sqlRowsRead: 0, sha256Calls: 0, sha256Bytes: 0, fileReadBytes: 0 };
 let gitBaseline = 0;

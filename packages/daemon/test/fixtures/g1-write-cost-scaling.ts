@@ -8,24 +8,34 @@
 //   - task-list/task-show/agenda/workspace-summary are intercepted host-side by the RepoCell
 //     proxy (packages/daemon/src/repo-cell-proxy.ts) and are instrumented in this process directly.
 // No production hook is added anywhere; every patch lives in g1-cost-probe.mjs.
-import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { Worker } from "node:worker_threads";
-import { makeTaskEventStore, taskLifecycleWritePlan } from "../../../kernel/src/index.ts";
 import {
+  compileDecisionWrite,
+  compileFactWrite,
   docSyncWritePlan,
-  DOC_CODEC_ID,
   DOC_POLICY_ID,
+  makeTaskEventStore,
+  REPLAY_TASK_GRAPH,
+  sha256Text,
+  taskLifecycleWritePlan,
   type DocEventV1,
-} from "../../../kernel/src/domain/doc-sync.contract.ts";
-import { compileDecisionWrite, type DecisionEventDraftV1 } from "../../../kernel/src/domain/decision-event.ts";
-import { compileFactWrite, type FactEventDraftV1 } from "../../../kernel/src/domain/fact-event.ts";
-import { sha256Text } from "../../../kernel/src/integrity/stable-hash.ts";
-import { REPLAY_TASK_GRAPH } from "../../../kernel/src/domain/task-graph.ts";
+} from "../../../kernel/src/index.ts";
+// These four are internal-only shapes with no public-barrel re-export (kernel/src/index.ts); the
+// fixture still needs their exact structural types to hand-build canonically-valid events, so it
+// reaches past the barrel the same way packages/daemon/test/decision-surface.test.ts already does
+// for readColdRebuildSource.
+// eslint-disable-next-line no-restricted-imports
+import { DOC_CODEC_ID } from "../../../kernel/src/domain/doc-sync.contract.ts";
+// eslint-disable-next-line no-restricted-imports
+import type { DecisionEventDraftV1 } from "../../../kernel/src/domain/decision-event.ts";
+// eslint-disable-next-line no-restricted-imports
+import type { FactEventDraftV1 } from "../../../kernel/src/domain/fact-event.ts";
+// eslint-disable-next-line no-restricted-imports
 import type { TaskCreatedEvent } from "../../../kernel/src/domain/task-lifecycle.contract.ts";
 import { canonicalRoot, workspaceId } from "../../src/protocol/daemon-protocol.contract.ts";
 import { openPersistentWriterEpoch, type WriterEpochFenceDescriptor } from "../../src/writer-epoch.ts";
@@ -73,10 +83,6 @@ function factIdFor(index: number): string {
     value = Math.floor(value / CROCKFORD.length);
   }
   return `F-${code}`;
-}
-
-function git(rootDir: string, ...args: readonly string[]): string {
-  return execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 }
 
 function taskCreatedEvent(revision: number, taskId: string, title: string): TaskCreatedEvent {
@@ -290,11 +296,6 @@ function seedLedger(
   } finally {
     void store.drain();
   }
-}
-
-function probedCreateWorker(execArgvExtra: readonly string[]) {
-  return (url: URL, options: { readonly execArgv: readonly string[]; readonly workerData: unknown }) =>
-    new Worker(url, { ...options, execArgv: [...options.execArgv, ...execArgvExtra] });
 }
 
 interface RequestHandle {

@@ -59,7 +59,7 @@
         "fileReadBytes": 2831
       },
       "decision-reject": {
-        "sqlRowsRead": 672,
+        "sqlRowsRead": 466,
         "sha256Calls": 69,
         "sha256Bytes": 70797,
         "gitProcesses": 6,
@@ -152,7 +152,7 @@
         "fileReadBytes": 2831
       },
       "decision-reject": {
-        "sqlRowsRead": 672,
+        "sqlRowsRead": 466,
         "sha256Calls": 69,
         "sha256Bytes": 70797,
         "gitProcesses": 6,
