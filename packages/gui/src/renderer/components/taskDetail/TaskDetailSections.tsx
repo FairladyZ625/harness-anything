@@ -547,8 +547,7 @@ export function TaskRelationsTab({
   for (const edge of [...outEdges, ...inEdges]) {
     for (const ref of [edge.from, edge.to]) if (ref.startsWith("decision/")) decisionIds.add(ref.split("/")[1] ?? "");
   }
-  for (const id of task.spawningDecisionIds ?? (task.spawningDecision ? [task.spawningDecision] : []))
-    decisionIds.add(id);
+  for (const id of task.spawningDecisionIds ?? []) decisionIds.add(id);
   const relatedDecisions = decisions.filter((decision) => decisionIds.has(decision.decisionId));
 
   return (

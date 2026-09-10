@@ -33,23 +33,26 @@ export function taskListQuery(repoId: string) {
  * 一次刷新最多发一个 `repo.tasks.list` 请求,三种形态由缓存里的上一份切面决定:
  *   - 上一份还带着 `page.nextCursor` → 沿游标续读下一页(cursor 就是续读状态,
  *     存在 react-query 缓存里,不需要模块级可变变量);
- *   - 没有上一份、或上一份不是 ready → 读第一页,重新开始水化;
- *   - 上一份完整且 ready → 读一页 `changedAfterRevision` 增量。
+ *   - 没有上一份 → 读第一页,重新开始水化;
+ *   - 上一份存在(ready 或 pending)→ 读一页 `changedAfterRevision` 增量。
  *
- * 未读完的切面 `status` 一律是 `pending`:侧栏据此显示「正在追赶 r{sourceRevision}」,
- * 每行 freshness 落成 `stale-but-usable`(task-adapter),所以"还没读完"在界面上是显形的。
+ * 投影追赶中(cut pending)与 ready 同样走增量:daemon 报的 watermark 就是它已
+ * 应用到的位置,rows 相对该水位完整,增量读从上一水位起即可;pending 期间不再
+ * 每 2s 重读整页 500 行。`status` 原样透传,侧栏继续显示「正在追赶」。
+ * 未读完的切面 `status` 一律是 `pending`,每行 freshness 落成 `stale-but-usable`
+ * (task-adapter),所以"还没读完"在界面上是显形的。
  */
 export async function readTaskList(repoId: string, previous?: TaskListSuccess): Promise<TaskListSuccess> {
   const resumeCursor = previous?.page?.nextCursor ?? null;
   if (previous && resumeCursor !== null) {
     return joinLedgerCut(previous, await readTaskPage(repoId, { cursor: resumeCursor }), "resume");
   }
-  if (!previous || previous.status !== "ready") {
+  if (!previous) {
     return joinLedgerCut(undefined, await readTaskPage(repoId, {}), "restart");
   }
   const delta = await readTaskPage(repoId, { changedAfterRevision: previous.watermark });
   const regressed = delta.watermark < previous.watermark || delta.sourceRevision < previous.sourceRevision;
-  if (delta.status !== "ready" || regressed) {
+  if (regressed) {
     return joinLedgerCut(undefined, await readTaskPage(repoId, {}), "restart");
   }
   return joinLedgerCut(previous, delta, "delta");

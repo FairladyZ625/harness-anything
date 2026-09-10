@@ -15,7 +15,7 @@ import {
 } from "../board-column-preferences.ts";
 import type { TaskFilters } from "../model/taskFilters";
 import { sortByRecentThenPinAndFavoritesFirst } from "../model/taskFilters";
-import type { SpawningDecisionIndex } from "../model/triadic";
+import { spawningDecisionBadge } from "../model/triadic";
 import { t } from "../i18n/index.tsx";
 import { formatTime } from "../model/time.ts";
 
@@ -70,24 +70,23 @@ function ListHeaderCell({
 
 const dateLabel = (iso: string) => formatTime(iso, { style: "month-day-time" }) ?? "—";
 
-/** 审计行 memo(W9):比较键同看板卡片——行对象引用 + 稳定回调;徽章收标量(W9 修正)。 */
+/** 审计行 memo(W9):比较键同看板卡片——行对象引用 + 稳定回调;徽章按行自取。 */
 const AuditRow = memo(function AuditRow({
   task,
   onSelect,
-  spawningDecision,
   isFavorite,
   onToggleFavorite,
   onSetPin,
 }: {
   task: TaskRow;
   onSelect: (id: string) => void;
-  spawningDecision: string | undefined;
   isFavorite: boolean;
   onToggleFavorite: (id: string) => void;
   onSetPin?: (task: TaskRow, pinned: boolean) => void;
 }) {
   const archived = task.visibility.archived;
   const pinned = task.pinned === true;
+  const spawningDecision = spawningDecisionBadge(task);
   return (
     <tr
       role="button"
@@ -236,7 +235,6 @@ export function ListView({
   filters,
   onFiltersChange,
   onSelect,
-  spawningDecisions,
   favorites,
   onToggleFavorite,
   onSetPin,
@@ -247,7 +245,6 @@ export function ListView({
   filters: TaskFilters;
   onFiltersChange: (filters: TaskFilters) => void;
   onSelect: (id: string) => void;
-  spawningDecisions: SpawningDecisionIndex;
   favorites?: ReadonlySet<string>;
   onToggleFavorite?: (id: string) => void;
   /** 台账 pin 写通道;缺省时行内只显示 📌 状态,不给写按钮。 */
@@ -434,7 +431,6 @@ export function ListView({
                   key={task.taskId}
                   task={task}
                   onSelect={onSelect}
-                  spawningDecision={spawningDecisions.get(task.taskId)}
                   isFavorite={favSet.has(task.taskId)}
                   onToggleFavorite={onToggleFavorite ?? (() => undefined)}
                   onSetPin={onSetPin}

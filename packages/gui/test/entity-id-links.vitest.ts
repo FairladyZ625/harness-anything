@@ -583,7 +583,6 @@ const VIEW_RENDERERS = {
       filters: DEFAULT_TASK_FILTERS,
       onFiltersChange: noop,
       onSelect: noop,
-      relations: FIXTURE_RELATIONS,
       favorites: new Set<string>(),
       onToggleFavorite: noop,
       onStartTask: noop,

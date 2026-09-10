@@ -12,7 +12,7 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { Lock, Archive, PushPin, Star } from "@phosphor-icons/react";
-import type { TaskRow, SnapshotStatus, RelationEdge } from "../model/types";
+import type { TaskRow, SnapshotStatus } from "../model/types";
 import { BOARD_COLUMNS, isExternal, taskCan } from "../model/types";
 import {
   STATUS_META,
@@ -34,7 +34,7 @@ import { SwimlaneBoard, type LaneGroupBy } from "./SwimlaneBoard";
 import { TaskFilterBar } from "../components/TaskFilterBar";
 import type { TaskFilters } from "../model/taskFilters";
 import { partitionColdTerminalTasks, sortByRecentThenPinAndFavoritesFirst } from "../model/taskFilters";
-import { buildSpawningDecisionIndex, type SpawningDecisionIndex } from "../model/triadic";
+import { spawningDecisionBadge } from "../model/triadic";
 import { ListView } from "./ListView";
 import type { TaskMutationFeedback } from "../task-actions.ts";
 
@@ -61,15 +61,13 @@ function taskControlHint(task: TaskRow): string {
 /**
  * 卡片 memo(W9):比较键是行对象引用 + 标量 props,不写自定义比较器;
  * 行级引用保持(task-adapter)保证未变行的 task 引用稳定,回调引用由上层
- * useCallback 稳定,所以「台账改一行」只有该行卡片重渲染。决策来源徽章也是
- * 标量(W9 修正):从 BoardView 单点构建的派生索引按行取值,全局 relations
- * 数组不进卡片 props,关系刷新只换「徽章值变化」那几张卡的 props。
+ * useCallback 稳定,所以「台账改一行」只有该行卡片重渲染。决策来源徽章从
+ * 行内 placement 派生(唯一 derives 来源才有值),不依赖任何全局 relations。
  */
 const Card = memo(function Card({
   task,
   onSelect,
   dragging,
-  spawningDecision,
   isFavorite,
   onToggleFavorite,
   onSetPin,
@@ -77,13 +75,13 @@ const Card = memo(function Card({
   task: TaskRow;
   onSelect?: (id: string) => void;
   dragging?: boolean;
-  spawningDecision: string | undefined;
   isFavorite: boolean;
   onToggleFavorite: (id: string) => void;
   onSetPin?: (task: TaskRow, pinned: boolean) => void;
 }) {
   const external = isExternal(task);
   const archived = task.visibility.archived;
+  const spawningDecision = spawningDecisionBadge(task);
   return (
     <div
       data-testid="board-task-card"
@@ -179,14 +177,12 @@ const Card = memo(function Card({
 const DraggableCard = memo(function DraggableCard({
   task,
   onSelect,
-  spawningDecision,
   isFavorite,
   onToggleFavorite,
   onSetPin,
 }: {
   task: TaskRow;
   onSelect: (id: string) => void;
-  spawningDecision: string | undefined;
   isFavorite: boolean;
   onToggleFavorite: (id: string) => void;
   onSetPin?: (task: TaskRow, pinned: boolean) => void;
@@ -207,7 +203,6 @@ const DraggableCard = memo(function DraggableCard({
         <Card
           task={task}
           onSelect={onSelect}
-          spawningDecision={spawningDecision}
           isFavorite={isFavorite}
           onToggleFavorite={onToggleFavorite}
           onSetPin={onSetPin}
@@ -219,7 +214,6 @@ const DraggableCard = memo(function DraggableCard({
     <DndCard
       task={task}
       onSelect={onSelect}
-      spawningDecision={spawningDecision}
       isFavorite={isFavorite}
       onToggleFavorite={onToggleFavorite}
       onSetPin={onSetPin}
@@ -230,14 +224,12 @@ const DraggableCard = memo(function DraggableCard({
 function DndCard({
   task,
   onSelect,
-  spawningDecision,
   isFavorite,
   onToggleFavorite,
   onSetPin,
 }: {
   task: TaskRow;
   onSelect: (id: string) => void;
-  spawningDecision: string | undefined;
   isFavorite: boolean;
   onToggleFavorite: (id: string) => void;
   onSetPin?: (task: TaskRow, pinned: boolean) => void;
@@ -248,7 +240,6 @@ function DndCard({
       <Card
         task={task}
         onSelect={onSelect}
-        spawningDecision={spawningDecision}
         isFavorite={isFavorite}
         onToggleFavorite={onToggleFavorite}
         onSetPin={onSetPin}
@@ -268,7 +259,6 @@ function Column({
   tasks,
   onSelect,
   rejecting,
-  spawningDecisions,
   favorites,
   onToggleFavorite,
   onSetPin,
@@ -280,7 +270,6 @@ function Column({
   tasks: readonly TaskRow[];
   onSelect: (id: string) => void;
   rejecting: boolean;
-  spawningDecisions: SpawningDecisionIndex;
   favorites: ReadonlySet<string>;
   onToggleFavorite: (id: string) => void;
   onSetPin?: (task: TaskRow, pinned: boolean) => void;
@@ -360,7 +349,6 @@ function Column({
                 <DraggableCard
                   task={ordered[item.index]}
                   onSelect={onSelect}
-                  spawningDecision={spawningDecisions.get(ordered[item.index].taskId)}
                   isFavorite={favorites.has(ordered[item.index].taskId)}
                   onToggleFavorite={onToggleFavorite}
                   onSetPin={onSetPin}
@@ -387,7 +375,6 @@ export const BoardView = memo(function BoardView({
   onFiltersChange,
   onSelect,
   drill,
-  relations,
   favorites,
   onToggleFavorite,
   initialLayout,
@@ -402,7 +389,6 @@ export const BoardView = memo(function BoardView({
   onFiltersChange: (filters: TaskFilters) => void;
   onSelect: (id: string) => void;
   drill?: { lane: string; status: SnapshotStatus; groupBy: LaneGroupBy } | null;
-  relations: RelationEdge[];
   favorites: ReadonlySet<string>;
   onToggleFavorite: (id: string) => void;
   initialLayout?: BoardLayout;
@@ -462,9 +448,8 @@ export const BoardView = memo(function BoardView({
     return grouped;
   }, [boardTasks]);
 
-  // 徽章派生索引(W9 修正):全局 relations 数组止步于此,卡片只收自己的标量,
-  // 关系刷新(增量页换 relations 数组)不再打穿全板卡片 memo。
-  const spawningDecisions = useMemo(() => buildSpawningDecisionIndex(allTasks, relations), [allTasks, relations]);
+  // 徽章是行内 placement 的派生标量(spawningDecisionBadge),卡片/行组件按行自取,
+  // 这里不再有跨行的派生索引,也不读任何关系切面。
 
   // pin 也是一次台账写入:回执落定与投影追平之间有真实延迟(实测约 2s),那段时间
   // 按钮看起来「点了没反应」。写入报告面与拖拽 start 共用同一条,pin 也挂进去。
@@ -588,7 +573,6 @@ export const BoardView = memo(function BoardView({
           filters={filters}
           onFiltersChange={onFiltersChange}
           onSelect={onSelect}
-          spawningDecisions={spawningDecisions}
           favorites={favorites}
           onToggleFavorite={onToggleFavorite}
           onSetPin={setPin}
@@ -601,7 +585,6 @@ export const BoardView = memo(function BoardView({
           groupBy={groupBy}
           onSelect={onSelect}
           drill={drill ?? null}
-          spawningDecisions={spawningDecisions}
           favorites={favorites}
           onToggleFavorite={onToggleFavorite}
           onSetPin={setPin}
@@ -616,7 +599,6 @@ export const BoardView = memo(function BoardView({
                 tasks={columnsByStatus.get(status)!}
                 onSelect={onSelect}
                 rejecting={activeTask ? isExternal(activeTask) : false}
-                spawningDecisions={spawningDecisions}
                 favorites={favorites}
                 onToggleFavorite={onToggleFavorite}
                 onSetPin={setPin}
@@ -632,7 +614,6 @@ export const BoardView = memo(function BoardView({
                 <Card
                   task={activeTask}
                   dragging
-                  spawningDecision={spawningDecisions.get(activeTask.taskId)}
                   isFavorite={favorites.has(activeTask.taskId)}
                   onToggleFavorite={onToggleFavorite}
                 />

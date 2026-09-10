@@ -30,7 +30,6 @@ import { invalidateLedgerDependents, useTasksQuery } from "./task-data.ts";
 import { useAgendaQuery } from "./agenda-data.ts";
 import {
   useActiveEdgesQuery,
-  useDecisionDerivesQuery,
   useDecisionSummaryQuery,
   usePaletteFactsQuery,
   useRuntimePlaneQuery,
@@ -186,16 +185,14 @@ function AppShell() {
   );
 
   // ----------------------------------------------------------------三元读取分层
-  // 窄面也按真实消费者挂载:看板需要 derives 徽章,任务详情/⌘K 需要决策标题,
-  // 其余页面不背景读它们。⌘K 的事实切面与完整投影同样由当前界面决定
-  // (裁决 2026-08-29;fact F-9E166C6B:根级全量重取曾占 GUI 收到字节的 99.13%)。
+  // 窄面也按真实消费者挂载:任务详情/⌘K 需要决策标题,其余页面不背景读它们。
+  // ⌘K 的事实切面与完整投影同样由当前界面决定(裁决 2026-08-29;fact
+  // F-9E166C6B:根级全量重取曾占 GUI 收到字节的 99.13%)。看板徽章不再读任何
+  // 三元切面:行内 placement.spawningDecisionIds 已是同一批 derives 边的结果。
   const fullProjectionMounted = FULL_TRIADIC_PROJECTION_VIEWS.has(view);
   const fullGraphProjectionMounted = fullProjectionMounted && view !== "overview";
-  // 完整投影视图已经包含 decisions + derives 边,不再并发读两条窄面。总览新增
-  // repo.agenda.read 后仍比旧冷加载少一个请求,并且没有缓存/第二投影。
-  const decisionDerives = useDecisionDerivesQuery(activeRepoId, {
-    enabled: !fullProjectionMounted && view === "board",
-  });
+  // 完整投影视图已经包含 decisions,不再并发读窄面。总览新增 repo.agenda.read 后
+  // 仍比旧冷加载少一个请求,并且没有缓存/第二投影。
   const decisionSummary = useDecisionSummaryQuery(activeRepoId, {
     enabled: !fullProjectionMounted && (selectedId !== null || paletteOpen),
   });
@@ -222,8 +219,6 @@ function AppShell() {
   const relations = triadicQuery.relations;
   /** 边级界面用的关系集合:完整图可用时是全量边,否则是 active 边切面。 */
   const edgeRelations = triadicQuery.graphAvailable ? triadicQuery.relations : activeEdges.relations;
-  /** 看板/列表徽章用的关系集合:根级 derives 切面,任何视图下都在。 */
-  const boardRelations = fullProjectionMounted ? relations : decisionDerives.relations;
   /** chrome 的决策标题/命令面板:完整投影在场就复用,否则用常驻窄面。 */
   const chromeDecisions = fullProjectionMounted ? decisions : decisionSummary.decisions;
 
@@ -487,7 +482,6 @@ function AppShell() {
                   onFiltersChange={setTaskFilters}
                   onSelect={openTaskPreview}
                   drill={drill}
-                  relations={boardRelations}
                   favorites={favorites}
                   onToggleFavorite={toggleFavorite}
                   onStartTask={taskActions.startTask}

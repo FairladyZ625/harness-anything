@@ -145,13 +145,10 @@ interface TaskRowFields {
   // 三元语继承字段（E47/E49）：默认从 spawningDecision 继承，可覆盖
   riskTier?: RiskTier;
   urgency?: Urgency;
-  /** 该 task 由哪条 decision 派生（生成式派生时必填；顶层独立 task 可空） */
-  spawningDecision?: string;
   /**
    * 派生该 task 的全部 decision id(daemon `repo.tasks.list` 的
    * `placement.spawningDecisionIds`,由 active directed `derives` 边推导)。
-   * 与上面的单数字段并存:徽章/链接用 `spawningDecisionOf`(先看这里),
-   * 关系页签要完整列表。
+   * 徽章/链接用 `spawningDecisionBadge`(唯一来源才取值),关系页签要完整列表。
    */
   spawningDecisionIds?: readonly string[];
   /**
@@ -163,7 +160,7 @@ interface TaskRowFields {
   provenance?: ReadonlyArray<ProvenanceEntry>;
   /**
    * 直接父任务（task 树层级，来自 projection frontmatter `parent` 字段）。
-   * 与 spawningDecision 不同:这是 task→task 的层级关系,不是 decision 派生。
+   * 与 spawningDecisionIds 不同:这是 task→task 的层级关系,不是 decision 派生。
    */
   parentTaskId?: string;
   /**

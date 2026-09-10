@@ -2,9 +2,9 @@
 // harness-test-tier: fast
 //
 // 三元读取的挂载域(task_9d53606292a719b973b7bb9e7c):
-//   看板挂载 derives 边切面;决策摘要/事实切面归 ⌘K(或任务详情);完整投影归渲染
-//   它的视图。台账 cut 变化只重取挂载中的查询。这里直接挂真实的 App,断言桥上真正
-//   发出的读面,而不是断言某个内部函数被调用过。
+//   看板不读任何三元切面(徽章由行内 placement 派生);决策摘要/事实切面归 ⌘K
+//   (或任务详情);完整投影归渲染它的视图。台账 cut 变化只重取挂载中的查询。
+//   这里直接挂真实的 App,断言桥上真正发出的读面,而不是断言某个内部函数被调用过。
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -320,24 +320,21 @@ describe("三元读取按挂载域分层", () => {
     expect(calls().filter(({ method }) => method === "getAgenda")).toHaveLength(1);
   });
 
-  it("任务看板只读自己消费的 derives 边切面,不为关闭的 ⌘K 读决策摘要", async () => {
+  it("任务看板不读任何关系切面,也不为关闭的 ⌘K 读决策摘要", async () => {
     const { calls } = await mountApp({ view: "board" });
-    // 首批 tasks 水合只建立 cut 基准,不能把刚完成的常驻读面再次失效。
-    expect(relationGraphCalls(calls()).map(({ payload }) => payload?.facet)).toEqual(["edges"]);
+    // 徽章改为行内 placement.spawningDecisionIds 派生后,看板不再有 derives
+    // 边切面读(此前每次 cut 变化约 258 KB,fix #21/B6)。
+    expect(relationGraphCalls(calls())).toEqual([]);
     expect(decisionCalls(calls())).toEqual([]);
   });
 
-  it("台账 cut 前进时,看板上只重取挂载中的窄面,完整投影不被重取", async () => {
+  it("台账 cut 前进时,看板不重取任何三元切面,完整投影不被重取", async () => {
     const { calls, mark, advanceLedger } = await mountApp({ view: "board" });
     const atBoard = mark();
     await advanceLedger();
     const since = calls().slice(atBoard);
-    // 失效确实发生了:看板挂载的 derives 切面被重取。
-    expect(relationGraphCalls(since).some(({ payload }) => payload?.facet === "edges")).toBe(true);
+    expect(relationGraphCalls(since)).toEqual([]);
     expect(decisionCalls(since)).toEqual([]);
-    // 但完整投影没有:没有视图挂载它,就没有它的请求。
-    expect(relationGraphCalls(since).some(({ payload }) => payload?.facet === undefined)).toBe(false);
-    expect(decisionCalls(since).some(({ payload }) => payload?.projection === undefined)).toBe(false);
   });
 
   it("关系图视图挂载时恰好读一次完整投影,离开后不再读", async () => {

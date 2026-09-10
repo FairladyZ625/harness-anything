@@ -303,7 +303,6 @@ describe("adaptProjectionRows", () => {
       rootTaskId: "task-parent",
       rootTitle: "X",
       spawningDecisionIds: ["dec-scope"],
-      spawningDecision: "dec-scope",
     });
     expect(tasks.find((task) => task.taskId === "task-parent")).toMatchObject({
       module: "kernel",
@@ -317,8 +316,7 @@ describe("adaptProjectionRows", () => {
       "repo-test",
     );
     expect(task?.spawningDecisionIds).toEqual(["dec-a", "dec-b"]);
-    // 来源不唯一时不冒充单一 spawning decision,只给显式的合并提示。
-    expect(task?.spawningDecision).toBeUndefined();
+    // 来源不唯一时仍显式给出合并提示,徽章交给 spawningDecisionBadge 判定(无徽章)。
     expect(task?.placementWarning).toContain("多个 spawning decision");
   });
 });

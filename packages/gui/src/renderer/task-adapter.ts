@@ -72,7 +72,6 @@ function adaptProjectionRow(
     createdBy: task.createdBy.principal.personId,
     parentTaskId: row.placement.parentTaskId ?? undefined,
     spawningDecisionIds,
-    ...(spawningDecisionIds.length === 1 ? { spawningDecision: spawningDecisionIds[0] } : {}),
     ...(task.pinned === true ? { pinned: true } : {}),
     currentNode: task.currentNode,
     iteration: task.iteration,

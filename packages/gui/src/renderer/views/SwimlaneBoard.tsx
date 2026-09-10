@@ -13,7 +13,7 @@ import {
   writeBoardColumnWidths,
   type BoardColumnWidths,
 } from "../board-column-preferences.ts";
-import type { SpawningDecisionIndex } from "../model/triadic";
+import { spawningDecisionBadge } from "../model/triadic";
 import { sortByRecentThenPinAndFavoritesFirst } from "../model/taskFilters";
 
 export type LaneGroupBy = "module" | "engine" | "root" | "productLine";
@@ -102,24 +102,23 @@ function buildSwimlaneModel(tasks: ReadonlyArray<TaskRow>, groupBy: LaneGroupBy)
 }
 
 /** 泳道下钻卡 memo(W9):比较键同列模式 Card——行引用 + 稳定回调,不写自定义比较器;
- * 决策来源徽章收标量(W9 修正),不接全局 relations 数组。 */
+ * 决策来源徽章按行自取(行内 placement 派生),不接任何全局关系数组。 */
 const LaneCard = memo(function LaneCard({
   task,
   onSelect,
-  spawningDecision,
   isFavorite,
   onToggleFavorite,
   onSetPin,
 }: {
   task: TaskRow;
   onSelect: (id: string) => void;
-  spawningDecision: string | undefined;
   isFavorite: boolean;
   onToggleFavorite: (id: string) => void;
   onSetPin?: (task: TaskRow, pinned: boolean) => void;
 }) {
   const external = isExternal(task);
   const archived = task.visibility.archived;
+  const spawningDecision = spawningDecisionBadge(task);
   return (
     <div
       onClick={() => onSelect(task.taskId)}
@@ -301,7 +300,6 @@ function DrilldownPanel({
   groupBy,
   laneLabel,
   onSelect,
-  spawningDecisions,
   favorites,
   onToggleFavorite,
   onSetPin,
@@ -311,7 +309,6 @@ function DrilldownPanel({
   groupBy: LaneGroupBy;
   laneLabel: string;
   onSelect: (id: string) => void;
-  spawningDecisions: SpawningDecisionIndex;
   favorites: ReadonlySet<string>;
   onToggleFavorite: (id: string) => void;
   onSetPin?: (task: TaskRow, pinned: boolean) => void;
@@ -353,7 +350,6 @@ function DrilldownPanel({
               key={t.taskId}
               task={t}
               onSelect={onSelect}
-              spawningDecision={spawningDecisions.get(t.taskId)}
               isFavorite={favorites.has(t.taskId)}
               onToggleFavorite={onToggleFavorite}
               onSetPin={onSetPin}
@@ -376,7 +372,6 @@ export function SwimlaneBoard({
   groupBy,
   onSelect,
   drill,
-  spawningDecisions,
   favorites,
   onToggleFavorite,
   onSetPin,
@@ -385,7 +380,6 @@ export function SwimlaneBoard({
   groupBy: LaneGroupBy;
   onSelect: (id: string) => void;
   drill: { lane: string; status: SnapshotStatus; groupBy: LaneGroupBy } | null;
-  spawningDecisions: SpawningDecisionIndex;
   favorites: ReadonlySet<string>;
   onToggleFavorite: (id: string) => void;
   onSetPin?: (task: TaskRow, pinned: boolean) => void;
@@ -548,7 +542,6 @@ export function SwimlaneBoard({
         groupBy={groupBy}
         laneLabel={activeCell ? (model.labels.get(activeCell.lane) ?? activeCell.lane) : ""}
         onSelect={onSelect}
-        spawningDecisions={spawningDecisions}
         favorites={favorites}
         onToggleFavorite={onToggleFavorite}
         onSetPin={onSetPin}
