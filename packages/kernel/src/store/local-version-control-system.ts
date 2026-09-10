@@ -601,127 +601,6 @@ export const localGitWorktreeSettlement = Object.freeze({
     );
     return 1;
   },
-  settle: (
-    repoRoot: string,
-    files: readonly (
-      | {
-          readonly target: string;
-          readonly body: string | Uint8Array;
-          readonly mode?: "100644" | "120000";
-        }
-      | { readonly from: string; readonly to: string }
-      | { readonly delete: string }
-    )[],
-    hooks: {
-      readonly whileFilesSync?: () => void;
-      readonly beforeRename?: () => void;
-      readonly afterRename?: () => void;
-    } = {},
-  ): number => {
-    const directories = new Set<string>(),
-      writes = files.filter(
-        (
-          file,
-        ): file is {
-          readonly target: string;
-          readonly body: string | Uint8Array;
-          readonly mode?: "100644" | "120000";
-        } => "target" in file,
-      ),
-      renames = files.filter((file): file is { readonly from: string; readonly to: string } => "from" in file),
-      deletions = files
-        .filter((file): file is { readonly delete: string } => "delete" in file)
-        .map((file) => {
-          const target = path.join(repoRoot, ...file.delete.split("/"));
-          directories.add(path.dirname(target));
-          return { target, logical: file.delete };
-        }),
-      pending = writes.map((file, index) => {
-        const target = path.join(repoRoot, ...file.target.split("/")),
-          directory = path.dirname(target),
-          temporary = path.join(directory, `.ha-settle-${process.pid}-${index}`),
-          mode = file.mode ?? "100644";
-        directories.add(directory);
-        removeNode(temporary);
-        return {
-          target,
-          temporary,
-          body: file.body,
-          mode,
-          logical: file.target,
-        };
-      }),
-      pendingRenames = renames.map((file) => {
-        const from = path.join(repoRoot, ...file.from.split("/")),
-          to = path.join(repoRoot, ...file.to.split("/")),
-          source = readNode(from),
-          destination = readNode(to);
-        if (source === null && destination === null)
-          throw new Error(`settlement rename is missing both ${file.from} and ${file.to}`);
-        if (source !== null && destination !== null)
-          throw new Error(`settlement rename target already exists at ${file.to}`);
-        directories.add(path.dirname(from));
-        directories.add(path.dirname(to));
-        return {
-          from,
-          to,
-          fromLogical: file.from,
-          toLogical: file.to,
-          node: source ?? destination!,
-          pending: source !== null,
-        };
-      });
-    for (const directory of directories) {
-      /* @gate-identity check-bypass-write-boundary/bypass-write-083 */
-      mkdirSync(directory, { recursive: true });
-      sweepStaleSettlementMarkers(directory);
-    }
-    const regular = pending.filter(({ mode }) => mode === "100644"),
-      links = pending.filter(({ mode }) => mode === "120000"),
-      fileSync = beginDurableSettlement({ files: regular });
-    try {
-      hooks.whileFilesSync?.();
-      awaitDurableSettlement(fileSync);
-    } catch (error) {
-      try {
-        awaitDurableSettlement(fileSync);
-      } catch (syncError) {
-        consumeKnownError(syncError);
-      }
-      for (const item of regular) removeNode(item.temporary);
-      throw error;
-    }
-    for (const item of [
-      ...regular.map(({ temporary: from, target: to }) => ({ from, to })),
-      ...pendingRenames.filter(({ pending }) => pending).map(({ from, to }) => ({ from, to })),
-    ]) {
-      hooks.beforeRename?.();
-      /* @gate-identity check-bypass-write-boundary/bypass-write-093 */
-      renameSync(item.from, item.to);
-      hooks.afterRename?.();
-    }
-    for (const item of deletions) removeNode(item.target);
-    const zero = "0".repeat(40);
-    const indexInput = `${pending
-      .map((file) => `${file.mode} ${gitBlobOidBytes(asBytes(file.body))}\t${file.logical}\0`)
-      .join("")}${pendingRenames
-      .map((file) => `0 ${zero}\t${file.fromLogical}\0${file.node.mode} ${file.node.gitOid}\t${file.toLogical}\0`)
-      .join("")}${deletions.map((file) => `0 ${zero}\t${file.logical}\0`).join("")}`;
-    if (files.length) localGitProcesses += 1;
-    awaitDurableSettlement(
-      beginDurableSettlement({
-        index: files.length ? { repoRoot, input: indexInput } : undefined,
-        directories: links.length === 0 ? [...directories] : undefined,
-      }),
-    );
-    for (const item of links) {
-      hooks.beforeRename?.();
-      runGit(repoRoot, "checkout-index", "--force", "--", item.logical);
-      hooks.afterRename?.();
-    }
-    if (links.length > 0) awaitDurableSettlement(beginDurableSettlement({ directories: [...directories] }));
-    return files.length + directories.size;
-  },
   preserveConflict: (repoRoot: string, target: string, logical: string, commit: string): string =>
     preserveConflict(repoRoot, target, logical, commit, true),
   preserveVisibleConflict: (repoRoot: string, target: string, logical: string, cutIdentity: string): string =>
@@ -758,7 +637,6 @@ function readNode(target: string): {
   readonly body: string;
   readonly bytes: Buffer;
   readonly sha256: string;
-  readonly gitOid: string;
   readonly size: number;
 } | null {
   try {
@@ -771,7 +649,6 @@ function readNode(target: string): {
       body: bytes.toString("utf8"),
       bytes,
       sha256: hashVcsBytes("sha256", bytes),
-      gitOid: gitBlobOidBytes(bytes),
       size: bytes.byteLength,
     };
   } catch (error) {

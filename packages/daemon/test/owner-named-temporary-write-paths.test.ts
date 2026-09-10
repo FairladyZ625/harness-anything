@@ -46,7 +46,6 @@ test("a temporary named after its writer exists only where it was judged", () =>
     "kernel/src/daemon/registry.ts: `${registryPath}.${process.pid}.${Date.now()}.tmp`",
     "kernel/src/local/local-layout-file-system.ts: `${inputPath}.${process.pid}.tmp`",
     "kernel/src/store/local-version-control-system.ts: `${target}.tmp-${process.pid}`",
-    "kernel/src/store/local-version-control-system.ts: `.ha-settle-${process.pid}-${index}`",
     "kernel/src/store/local-version-control-system.ts: `.ha-visible-${process.pid}-${index}`",
   ]);
 });

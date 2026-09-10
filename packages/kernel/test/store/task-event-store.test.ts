@@ -357,6 +357,29 @@ test("successive Git cuts settle managed files while leaving the caller index un
   }
 });
 
+test("materializing the whole closure again leaves an already-settled file untouched", async () => {
+  const rootDir = fixture("materialize-no-rewrite");
+  initRepo(rootDir);
+  const store = makeTaskEventStore({ repoId, rootDir, writerFence }),
+    target = path.join(rootDir, "harness/context/steady.md");
+  try {
+    store.append(docBundle(store, "steady content\n", 1, "materialize-steady", "context/steady.md"));
+    await store.settlePendingMaterialization!("initial publication");
+    const before = statSync(target);
+
+    // materialize() forces restoreMissing, so it re-settles the whole closure, not just the delta:
+    // a file that already holds its accepted bytes must not be rewritten a second time.
+    store.materialize();
+
+    const after = statSync(target);
+    assert.equal(after.ino, before.ino);
+    assert.equal(after.mtimeMs, before.mtimeMs);
+    assert.equal(readFileSync(target, "utf8"), "steady content\n");
+  } finally {
+    await store.drain();
+  }
+});
+
 test("new cuts cannot certify worktree visibility over an older unresolved document conflict", async () => {
   const rootDir = fixture("older-conflict");
   initRepo(rootDir);
