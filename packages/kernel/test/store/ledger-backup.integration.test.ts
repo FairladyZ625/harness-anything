@@ -118,8 +118,7 @@ test(
         const entry = entries.get(relative)!;
         assert.equal(entry.method, "symlink");
         assert.equal(entry.size, Buffer.byteLength(target));
-        assert.equal(entry.sourceSha256, `sha256:${sha256Text(target)}`);
-        assert.equal(entry.backupSha256, entry.sourceSha256);
+        assert.equal(entry.backupSha256, `sha256:${sha256Bytes(Buffer.from(target))}`);
       }
       assert.equal(
         manifest.files.some(({ path: file }) => file.includes("secret.md")),

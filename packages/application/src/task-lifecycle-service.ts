@@ -187,27 +187,13 @@ export function makeTaskLifecycleService(options: {
         if (json(active) !== json(claim.active))
           throw new TaskLifecycleOperationConflict("lease activation did not match the L1 event");
       } catch (error) {
-        return pendingReceipt(
-          current,
-          plan,
-          command.opId,
-          message(error),
-          event,
-          options.eventStore.readTaskEvent(event.opId),
-        );
+        return pendingReceipt(current, plan, command.opId, message(error), event, event);
       }
     let applied;
     try {
       applied = planned(plan, projectionTarget(command.taskId), () => options.projection.apply(event, plan));
     } catch (error) {
-      return pendingReceipt(
-        await read(command.taskId),
-        plan,
-        command.opId,
-        message(error),
-        event,
-        options.eventStore.readTaskEvent(event.opId),
-      );
+      return pendingReceipt(await read(command.taskId), plan, command.opId, message(error), event, event);
     }
     if (applied.metrics.reducedItems === 0)
       return pendingReceipt(
@@ -216,27 +202,15 @@ export function makeTaskLifecycleService(options: {
         command.opId,
         "projection catch-up is pending",
         event,
-        options.eventStore.readTaskEvent(event.opId),
+        event,
       );
     // A write admitted while L2 was already warming may advance only one bounded
     // replay round. Do not perform a second catch-up read to turn that receipt into
     // applied; the next retry owns the following round.
     if (projectionWasPending)
-      return pendingReceipt(
-        current,
-        plan,
-        command.opId,
-        "projection catch-up is pending",
-        event,
-        options.eventStore.readTaskEvent(event.opId),
-      );
+      return pendingReceipt(current, plan, command.opId, "projection catch-up is pending", event, event);
     options.killpoint?.("before_response_write");
-    const receipt = receiptFromRead(
-      await read(command.taskId),
-      event,
-      plan,
-      options.eventStore.readTaskEvent(event.opId),
-    );
+    const receipt = receiptFromRead(await read(command.taskId), event, plan, event);
     options.killpoint?.("after_response_write");
     return receipt;
     // `append` receives the augmented event/plan/blobs as one canonical

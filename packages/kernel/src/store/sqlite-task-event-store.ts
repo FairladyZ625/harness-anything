@@ -386,8 +386,14 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
     currentCut: cut,
     currentCommit: () =>
       ledgerCommitSha(options.repoId, localGitObjectRefStore.resolveCommit(ledger().rootDir, authoredRef())),
-    // Migration import asks for the cut of a prepared event before it commits, so derive it from the event.
-    publication: (event) => ({ commitSha: null, cut: canonicalEventCut(options.repoId, event) }),
+    // Migration import asks for the cut of a prepared event before it commits, so retain event derivation as fallback.
+    publication: (event) => {
+      const identity = sqlite.eventIdentity(event.opId);
+      return {
+        commitSha: null,
+        cut: identity ? canonicalEventCutFromHead(options.repoId, identity) : canonicalEventCut(options.repoId, event),
+      };
+    },
     revisionAt: () => null,
     readEvent: sqlite.event,
     readTaskEvent: (opId) => {
