@@ -24,6 +24,7 @@ import {
 import { launchExitNotification } from "../src/runtime-spawn.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+import { TASK_WIP_LIMIT_ENV } from "../src/task-wip-settings.ts";
 
 const definition: AgentDefinitionSnapshot = {
   schema: "agent-definition-snapshot/v1",
@@ -1707,6 +1708,123 @@ test("runtime exit notification records a bounded timeout", async () => {
     );
     assert.equal(finished.occurredAt, "2026-08-23T00:00:00.000Z");
   } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("runtime dispatch of a planned task is rejected at a full worktable", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-wip-full-"));
+  const previousLimit = process.env[TASK_WIP_LIMIT_ENV];
+  process.env[TASK_WIP_LIMIT_ENV] = "1";
+  let launchCount = 0;
+  try {
+    initIngressRepo(root, 4312);
+    const cell = await openRepoCell({
+      repoId: workspaceId("runtime-wip-full"),
+      rootDir: canonicalRoot(root),
+      ownerId: "runtime-wip-full-test",
+      runtimeDaemonRoute: {
+        userRoot: path.join(root, ".daemon-user"),
+        daemonId: "runtime-wip-full-test",
+        endpoint: path.join(root, ".daemon-user", "daemon.sock"),
+      },
+      runtimeInstances: () => [
+        {
+          schemaVersion: 2,
+          instanceId: definition.instanceId,
+          name: "Codex WIP Full",
+          kindId: definition.kindId,
+          installationId: definition.installationId,
+          providerId: definition.providerId,
+          models: [definition.model],
+          defaultModel: definition.model,
+          enabled: true,
+          permissionMode: "workspace-write",
+          codex: {},
+          authMode: definition.authMode,
+          authState: "configured",
+          authReadiness: { status: "ready", code: null, hint: null },
+          isolationState: "enforced",
+        },
+      ],
+      prepareRuntimeLaunch: async (_instanceId, request) => ({
+        definition,
+        installation,
+        executablePath: installation.executablePath,
+        args: ["exec", "--json", "-"],
+        env: process.env,
+        cwd: request.cwd,
+        prompt: request.prompt,
+      }),
+      runtimeLaunch: () => {
+        launchCount += 1;
+        return {
+          pid: process.pid,
+          onOutput: () => undefined,
+          onErrorOutput: () => undefined,
+          onExit: () => undefined,
+          terminate: () => undefined,
+        };
+      },
+    });
+    try {
+      const binding = {
+        actor: { principal: { personId: "person-wip-full" }, executor: null },
+        source: "local" as const,
+      };
+      const occupant = await cell.run(
+        { kind: "task-create", taskId: "task-wip-full-occupant", title: "Occupant" },
+        binding,
+      );
+      assert.equal(occupant.outcome, "applied");
+      await waitForFixturePublication(cell, occupant.opId, binding);
+      await realizeTaskPlanFixture(
+        root,
+        String((occupant as Record<string, unknown>).packagePath),
+        (planPath) => cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
+        "Occupant",
+      );
+      assert.equal(
+        (
+          await cell.run(
+            { kind: "task-start", taskId: "task-wip-full-occupant", executionId: "execution-wip-full-occupant" },
+            binding,
+          )
+        ).outcome,
+        "applied",
+      );
+      const planned = await cell.run(
+        { kind: "task-create", taskId: "task-wip-full-planned", title: "Planned dispatch target" },
+        binding,
+      );
+      assert.equal(planned.outcome, "applied");
+      await waitForFixturePublication(cell, planned.opId, binding);
+      await realizeTaskPlanFixture(
+        root,
+        String((planned as Record<string, unknown>).packagePath),
+        (planPath) => cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
+        "Planned dispatch target",
+      );
+      await assert.rejects(
+        cell.spawnRuntime(
+          {
+            runtimeInstanceId: definition.instanceId,
+            cwd: { scope: "repo-root" },
+            prompt: "Dispatch a planned task while the worktable is full",
+            taskId: "task-wip-full-planned",
+            idempotencyKey: "wip-full-dispatch",
+          },
+          binding,
+        ),
+        (error: unknown) => error instanceof Error && "code" in error && error.code === "task_wip_limit_reached",
+      );
+      assert.equal(launchCount, 0, "the rejected dispatch must not launch a provider");
+    } finally {
+      await cell.close();
+    }
+  } finally {
+    if (previousLimit === undefined) delete process.env[TASK_WIP_LIMIT_ENV];
+    else process.env[TASK_WIP_LIMIT_ENV] = previousLimit;
     rmSync(root, { recursive: true, force: true });
   }
 });

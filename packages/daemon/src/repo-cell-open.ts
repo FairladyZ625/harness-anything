@@ -566,6 +566,7 @@ export async function openRepoWriterCell(
         binding,
         snapshot: projection.read(taskId).snapshot as Snapshot,
         start: (executionId) => {
+          extracted.assertTaskWipCapacity(taskId, "active");
           const action = { kind: "task-start", taskId, ...(executionId ? { executionId } : {}) },
             revision = store.readHead()?.revision ?? 0,
             authorizationDecision = authorizeRepoCellAction({
@@ -830,6 +831,7 @@ export async function openRepoWriterCell(
       if (lease?.phase === "held" || lease?.phase === "reserving")
         throw cellCodedError("lease_conflict", `Task ${taskId} lease remained active after dispatch handoff release.`);
     }
+    operationalContext.assertTaskWipCapacity(taskId, "active");
     const startAction = { kind: "task-start", taskId, ...(executionId ? { executionId } : {}) },
       startBinding = authorizeRuntimeAction(
         startAction,
