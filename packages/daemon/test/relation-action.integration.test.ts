@@ -258,6 +258,52 @@ test("Relation actions serialize aggregate revisions and reject cycles and stale
   }
 });
 
+test("a depends-on cycle through several hops is rejected and converging paths are not a cycle", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-relation-cycle-"));
+  initRepo(rootDir);
+  const cell = await openRepoCell({
+    repoId: workspaceId("relation-cycle"),
+    rootDir: canonicalRoot(rootDir),
+    ownerId: "relation-cycle-test",
+  });
+  const dependsOn = (source: string, target: string) =>
+    cell.run(
+      {
+        kind: "relation-relate",
+        sourceRef: `task/task_cycle_${source}`,
+        targetRef: `task/task_cycle_${target}`,
+        relationType: "depends-on",
+        rationale: `${source} waits for ${target}.`,
+        expectedVersion: 0,
+      },
+      binding,
+    );
+  try {
+    for (const name of ["a", "b", "c", "d"])
+      assert.equal(
+        (await cell.run({ kind: "task-create", taskId: `task_cycle_${name}`, title: name }, binding)).outcome,
+        "applied",
+      );
+    // a -> b -> c, and a -> d -> c: two paths converge on c.
+    for (const [source, target] of [
+      ["a", "b"],
+      ["b", "c"],
+      ["a", "d"],
+      ["d", "c"],
+    ])
+      assert.equal((await dependsOn(source, target)).outcome, "applied", `${source} -> ${target}`);
+    // d -> b closes no loop: b cannot reach d.
+    assert.equal((await dependsOn("d", "b")).outcome, "applied");
+    // c -> a closes a loop through either path.
+    const cycle = await dependsOn("c", "a");
+    assert.equal(cycle.outcome, "op_rejected", JSON.stringify(cycle));
+    assert.equal(cycle.code, "relation_cycle");
+  } finally {
+    await cell.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 function relationRows(receipt: { readonly evidence?: unknown }): readonly {
   readonly relationId: string;
   readonly strength: string;
