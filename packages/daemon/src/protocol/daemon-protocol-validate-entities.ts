@@ -480,9 +480,6 @@ export function gate(value: unknown): boolean {
         iteration(value.basis.iteration) &&
         digest(value.basis.submissionDigest) &&
         (value.basis.codeCommit === undefined || sha(value.basis.codeCommit)) &&
-        (value.basis.testedCommit === undefined || sha(value.basis.testedCommit)) &&
-        (value.basis.testedCommitIsMainDescendant === undefined ||
-          typeof value.basis.testedCommitIsMainDescendant === "boolean") &&
         (value.basis.ledgerCut === undefined || (integer(value.basis.ledgerCut) && value.basis.ledgerCut >= 0)))) &&
     (value.provenance === undefined ||
       (recordWith(value.provenance, ["source", "runId", "rawResult"]) &&

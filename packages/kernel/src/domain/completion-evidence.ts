@@ -8,8 +8,6 @@ export interface CompletionEvidenceBasis {
   readonly iteration: 0 | 1;
   readonly submissionDigest: `sha256:${string}`;
   readonly codeCommit?: string;
-  readonly testedCommit?: string;
-  readonly testedCommitIsMainDescendant?: boolean;
   readonly ledgerCut?: number;
 }
 
@@ -73,11 +71,7 @@ export function judgeCompletionEvidence(
       result: evidence.result,
       reason: "evidence submissionDigest is not the current submission",
     };
-  if (
-    evidence.basis.codeCommit !== undefined &&
-    evidence.basis.codeCommit !== expected.execution.submission.commitSha &&
-    !(evidence.basis.testedCommitIsMainDescendant === true && evidence.basis.testedCommit !== undefined)
-  )
+  if (evidence.basis.codeCommit !== undefined && evidence.basis.codeCommit !== expected.execution.submission.commitSha)
     return { accepted: false, result: evidence.result, reason: "evidence codeCommit is not the submitted commit" };
   if (expected.ledgerCut !== undefined && evidence.basis.ledgerCut !== expected.ledgerCut)
     return { accepted: false, result: evidence.result, reason: "evidence ledgerCut is not the canonical cut" };
