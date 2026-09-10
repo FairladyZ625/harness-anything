@@ -40,6 +40,25 @@ const squad = {
   roster: "# Core Squad",
 };
 
+function entitySource(events: EntityEventV1[], blobs: Map<string, Uint8Array>, accessed?: number[]) {
+  return {
+    readBatch: (cursor: string | null, maxItems: number) => {
+      const start = cursor === null ? 0 : Number(cursor),
+        selected = events.slice(start, start + maxItems),
+        next = start + selected.length;
+      accessed?.push(selected.length);
+      return {
+        sourceRevision: events.length,
+        events: selected,
+        cursor: selected.length ? String(next) : cursor,
+        done: next >= events.length,
+        accessedItems: selected.length,
+      };
+    },
+    readContentBlob: (sha256: string) => blobs.get(sha256) ?? null,
+  };
+}
+
 test("registered declaration Entity kinds explain the same contract shape from their JSON schemas", () => {
   const explanations = [explainEntityKind("agent"), explainEntityKind("squad")];
   assert.deepEqual(Object.keys(explanations[0]!).sort(), Object.keys(explanations[1]!).sort());
@@ -160,10 +179,7 @@ test("RuntimeSession explains its identity, task handoff, status vocabulary, and
 test("one EntityStore implementation upserts, gets, and lists every registered declaration kind", () => {
   const events: EntityEventV1[] = [],
     blobs = new Map<string, Uint8Array>(),
-    store = createEntityStore({
-      read: () => ({ schema: "canonical-event-stream/v1", revision: events.length, events }),
-      readContentBlob: (sha256) => blobs.get(sha256) ?? null,
-    }),
+    store = createEntityStore(entitySource(events, blobs)),
     append = (bundle: EntityUpsertBundle) => {
       events.push(bundle.event);
       for (const blob of bundle.blobs) blobs.set(blob.sha256, Buffer.from(blob.body));
@@ -202,10 +218,7 @@ test("EntityStore get isolates current-schema rejection to the requested declara
       [events[0]!.payload.declarationDocumentClaim.sha256, Buffer.from(staleBody)],
       [events[1]!.payload.declarationDocumentClaim.sha256, Buffer.from(currentBody)],
     ]),
-    store = createEntityStore({
-      read: () => ({ schema: "canonical-event-stream/v1", revision: events.length, events }),
-      readContentBlob: (sha256) => blobs.get(sha256) ?? null,
-    });
+    store = createEntityStore(entitySource(events, blobs));
 
   assert.equal(store.get<{ readonly name: string }>("agent", "terra")?.value.name, "Terra");
   assert.throws(
@@ -246,19 +259,13 @@ test("EntityStore rejects pre-budget squad declarations at the schema boundary",
         },
       },
     } as EntityEventV1,
-    store = createEntityStore({
-      read: () => ({ schema: "canonical-event-stream/v1", revision: 1, events: [event] }),
-      readContentBlob: (candidate) => (candidate === sha256 ? Buffer.from(body) : null),
-    });
+    store = createEntityStore(entitySource([event], new Map([[sha256, Buffer.from(body)]])));
 
   assert.throws(() => store.get("squad", stale.id), /missing required field "leaderTurnBudget"/u);
 });
 
 test("Entity upsert rejects schema-invalid declarations and tampered declaration bundles", () => {
-  const store = createEntityStore({
-    read: () => ({ schema: "canonical-event-stream/v1", revision: 0, events: [] }),
-    readContentBlob: () => null,
-  });
+  const store = createEntityStore(entitySource([], new Map()));
   assert.throws(
     () => upsert(store, "agent", { ...agent, runtime_type: undefined }, 1),
     /missing required field "runtime_type"/u,
@@ -271,6 +278,25 @@ test("Entity upsert rejects schema-invalid declarations and tampered declaration
     () => assertContentInputs([bundle.event.payload.declarationDocumentClaim], tampered, "entity upsert"),
     /content inputs must exactly match/u,
   );
+});
+
+test("EntityStore hot reads consume only events appended since the cached cursor", () => {
+  for (const historySize of [200, 2_000]) {
+    const body = `${JSON.stringify(agent, null, 2)}\n`,
+      events = Array.from({ length: historySize }, (_, offset) => storedAgentEvent(agent, body, offset + 1)),
+      sha256 = events[0]!.payload.declarationDocumentClaim.sha256,
+      blobs = new Map([[sha256, Buffer.from(body)]]),
+      accessed: number[] = [],
+      store = createEntityStore(entitySource(events, blobs, accessed));
+    assert.equal(store.get("agent", "terra")?.workspaceRevision, historySize);
+    accessed.length = 0;
+    events.push(storedAgentEvent({ ...agent, name: `Terra ${historySize}` }, body, historySize + 1));
+    assert.equal(store.get("agent", "terra")?.workspaceRevision, historySize + 1);
+    assert.equal(
+      accessed.reduce((sum, count) => sum + count, 0),
+      1,
+    );
+  }
 });
 
 test("entity_upsert receipt detail is closed and registered", () => {

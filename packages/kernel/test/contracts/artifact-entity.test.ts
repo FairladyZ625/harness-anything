@@ -17,6 +17,7 @@ import {
   ARTIFACT_ENTITY_ID_BYTES,
   pinnedArtifactKindContract,
   type ArtifactDescriptor,
+  type EntityEventV1,
   type EntityStoreKindContract,
 } from "../../src/index.ts";
 import {
@@ -38,6 +39,24 @@ const vertical = JSON.parse(
   readFileSync(new URL("../../fixtures/schemas/vertical-definition/valid.json", import.meta.url), "utf8"),
 ) as Record<string, unknown> & { entityKinds: unknown[]; projectionSchemas: unknown[] };
 const actor = { principal: { personId: "person-artifact" }, executor: null } as const;
+
+function entitySource(events: readonly EntityEventV1[], blobs: Map<string, Uint8Array>) {
+  return {
+    readBatch: (cursor: string | null, maxItems: number) => {
+      const start = cursor === null ? 0 : Number(cursor),
+        selected = events.slice(start, start + maxItems),
+        next = start + selected.length;
+      return {
+        sourceRevision: events.length,
+        events: selected,
+        cursor: selected.length ? String(next) : cursor,
+        done: next >= events.length,
+        accessedItems: selected.length,
+      };
+    },
+    readContentBlob: (sha256: string) => blobs.get(sha256) ?? null,
+  };
+}
 
 test("artifact snapshots require explicit positive integral schema pins on live decode and replay", () => {
   const artifact = compiledArtifact(),
@@ -82,10 +101,9 @@ test("canonical artifact event admission and content replay reject a missing sna
   assert.deepEqual(validateEntityEvent(compiled.event), []);
   assert.notDeepEqual(validateCurrentEntityEvent(event), []);
   assert.notDeepEqual(validateEntityEvent(event), []);
-  const store = createEntityStore({
-    read: () => ({ schema: "canonical-event-stream/v1", revision: 1, events: [event] }),
-    readContentBlob: () => Buffer.from(compiled.blobs[0].body),
-  });
+  const store = createEntityStore(
+    entitySource([event as EntityEventV1], new Map([[compiled.blobs[0].sha256, Buffer.from(compiled.blobs[0].body)]])),
+  );
   assert.throws(() => store.get(artifact.typeIdentity, descriptor.entityId), /entityId/u);
 });
 
@@ -184,11 +202,12 @@ test("observed and missing artifact events are self-validating generic entity ev
   assert.doesNotThrow(() =>
     assertEntityEventInputs(compiledObserved.event, compiledObserved.plan, compiledObserved.blobs),
   );
-  const rebuiltStore = createEntityStore({
-    read: () => ({ schema: "canonical-event-stream/v1", revision: 1, events: [compiledObserved.event] }),
-    readContentBlob: (sha256) =>
-      sha256 === compiledObserved.blobs[0].sha256 ? Buffer.from(compiledObserved.blobs[0].body) : null,
-  });
+  const rebuiltStore = createEntityStore(
+    entitySource(
+      [compiledObserved.event],
+      new Map([[compiledObserved.blobs[0].sha256, Buffer.from(compiledObserved.blobs[0].body)]]),
+    ),
+  );
   assert.equal(
     rebuiltStore.get<ArtifactDescriptor>(artifact.typeIdentity, descriptor.entityId)?.value.contentVersion,
     descriptor.contentVersion,

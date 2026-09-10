@@ -96,6 +96,8 @@ test("task create publishes complete metadata and first-class relations survive 
       binding,
     );
     assert.equal(related.outcome, "applied", JSON.stringify(related));
+    // Writes return at acceptance; the worktree follower settles afterwards, so wait before reading the package.
+    await waitForFixturePublication(cell, related.opId, binding);
     const index = readFileSync(path.join(rootDir, "harness/tasks/task_surface-surface/INDEX.md"), "utf8"),
       contract = JSON.parse(
         readFileSync(path.join(rootDir, "harness/tasks/task_surface-surface/task-contract.json"), "utf8"),

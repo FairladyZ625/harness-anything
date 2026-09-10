@@ -504,7 +504,9 @@ export function openSqliteEventStore(options: {
       }
       const firstRevision = input.events.length ? head + 1 : null,
         lastRevision = input.events.length ? head + input.events.length : null,
-        status = input.rejectionCode ? "rejected" : "accepted_durable";
+        status = input.rejectionCode ? "rejected" : "accepted_durable",
+        recordedAt = input.historicalRecord?.recordedAt ?? new Date().toISOString(),
+        memberOpIds = input.events.map((event) => event.opId);
       if (lastRevision !== null)
         /* @gate-identity check-bypass-write-boundary/bypass-write-119 */ db.prepare(
           "UPDATE ledger_meta SET revision=? WHERE singleton=1",
@@ -514,7 +516,7 @@ export function openSqliteEventStore(options: {
         "INSERT INTO command_outcome(" +
           "op_id, status, first_revision, last_revision, intent_digest, " +
           "intent_summary, rejection_code, recorded_at" +
-          ") VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, strftime('%Y-%m-%dT%H:%M:%fZ','now')))",
+          ") VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
       ).run(
         input.intent.opId,
         status,
@@ -523,9 +525,19 @@ export function openSqliteEventStore(options: {
         input.intent.intentDigest,
         input.intent.summary,
         input.rejectionCode ?? null,
-        input.historicalRecord?.recordedAt ?? null,
+        recordedAt,
       );
-      return readOutcome(db, query, input.intent.opId)!;
+      return {
+        opId: input.intent.opId,
+        status,
+        firstRevision,
+        lastRevision,
+        intentDigest: input.intent.intentDigest,
+        summary: input.intent.summary,
+        rejectionCode: input.rejectionCode ?? null,
+        recordedAt,
+        memberOpIds,
+      };
     });
   };
   return {

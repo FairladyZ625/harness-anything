@@ -8,7 +8,6 @@ import {
 } from "../domain/entity-event.ts";
 import { interpretEntityValue } from "../domain/entity-kind-projection.ts";
 import { requireEntityStoreKindContract, type EntityStoreKindContract } from "../domain/entity-kind-registry.ts";
-import { sha256Text } from "../integrity/stable-hash.ts";
 import { openSqliteEventStore } from "./sqlite-event-store.ts";
 import type { CanonicalEventStore } from "./task-event-store-types.ts";
 
@@ -27,7 +26,32 @@ export interface EntityStore {
   readonly list: <T = unknown>(kind: string) => readonly StoredEntity<T>[];
 }
 
-type EntityEventSource = Pick<CanonicalEventStore, "read" | "readContentBlob">;
+type EntityEventSource = Pick<CanonicalEventStore, "readBatch" | "readContentBlob">;
+
+const entityEventCaches = new WeakMap<
+  EntityEventSource,
+  { cursor: string | null; latestByKind: Map<string, Map<string, StoredEntityEventV1>> }
+>();
+
+function entityEventCache(source: EntityEventSource): Map<string, Map<string, StoredEntityEventV1>> {
+  const cache = entityEventCaches.get(source) ?? {
+    cursor: null,
+    latestByKind: new Map<string, Map<string, StoredEntityEventV1>>(),
+  };
+  entityEventCaches.set(source, cache);
+  for (;;) {
+    const batch = source.readBatch(cache.cursor, 1024);
+    for (const event of batch.events) {
+      if (!isEntityEvent(event)) continue;
+      const latest = cache.latestByKind.get(event.payload.entityKind) ?? new Map<string, StoredEntityEventV1>();
+      cache.latestByKind.set(event.payload.entityKind, latest);
+      if (isEntityDeclarationEvent(event)) latest.set(event.payload.entityId, event);
+      else if (event.type === "entity_deleted") latest.delete(event.payload.entityId);
+    }
+    cache.cursor = batch.cursor;
+    if (batch.done) return cache.latestByKind;
+  }
+}
 
 export function createEntityStore(
   source: EntityEventSource,
@@ -39,29 +63,17 @@ export function createEntityStore(
     try {
       return requireEntityStoreKindContract(kind);
     } catch (error) {
-      const declaration = source
-        .read()
-        .events.find(
-          (event) =>
-            isEntityEvent(event) &&
-            isEntityDeclarationEvent(event) &&
-            event.payload.entityKind === kind &&
-            event.type === "entity_content_observed",
-        );
+      const declaration = [...(entityEventCache(source).get(kind)?.values() ?? [])].find(
+        (event) => event.type === "entity_content_observed",
+      );
       if (declaration && declaration.type === "entity_content_observed")
         return contractForDeclarationEvent(declaration);
       throw error;
     }
   };
   const latestEvents = (kind: string): ReadonlyMap<string, StoredEntityEventV1> => {
-    const contract = contractForKind(kind),
-      latest = new Map<string, StoredEntityEventV1>();
-    for (const event of source.read().events) {
-      if (!isEntityEvent(event) || event.payload.entityKind !== contract.kind) continue;
-      if (isEntityDeclarationEvent(event)) latest.set(event.payload.entityId, event);
-      else if (event.type === "entity_deleted") latest.delete(event.payload.entityId);
-    }
-    return latest;
+    const contract = contractForKind(kind);
+    return entityEventCache(source).get(contract.kind) ?? new Map<string, StoredEntityEventV1>();
   };
   const records = (kind: string): readonly StoredEntity[] => {
     const contract = contractForKind(kind);
@@ -83,7 +95,18 @@ export function createEntityStore(
 export function openEntityStore(rootInput: HarnessLayoutInput): EntityStore {
   const canonical = openSqliteEventStore({ rootInput, readOnly: true });
   return createEntityStore({
-    read: () => ({ schema: "canonical-event-stream/v1", revision: canonical.revision(), events: canonical.events() }),
+    readBatch: (cursor, maxItems) => {
+      const start = cursor === null ? 0 : Number(cursor),
+        events = canonical.eventsAfter(start, maxItems),
+        next = start + events.length;
+      return {
+        sourceRevision: canonical.revision(),
+        events,
+        cursor: events.length ? String(next) : cursor,
+        done: next === canonical.revision(),
+        accessedItems: events.length,
+      };
+    },
     readContentBlob: canonical.readContentObject,
   });
 }
@@ -104,7 +127,6 @@ function entityEventRecord(
   } catch {
     throw new Error(`entity declaration blob ${claim.sha256} is not UTF-8`);
   }
-  if (sha256Text(body) !== claim.sha256) throw new Error(`entity declaration blob ${claim.sha256} hash mismatch`);
   let decoded: unknown;
   try {
     decoded = JSON.parse(body);

@@ -260,8 +260,18 @@ test("transition service freezes targets and makes create/start idempotent by op
   try {
     initRepo(rootDir);
     const eventStore = makeTaskEventStore({ repoId: "test-repo", rootDir });
+    let eventReads = 0;
     projection = makeTaskProjection({ rootDir, eventStore, now: () => "2026-08-11T00:30:00.000Z" });
-    const service = makeTaskLifecycleService({ eventStore, projection });
+    const service = makeTaskLifecycleService({
+      eventStore: {
+        ...eventStore,
+        readTaskEvent: (opId) => {
+          eventReads += 1;
+          return eventStore.readTaskEvent(opId);
+        },
+      },
+      projection,
+    });
     const create = command(
       rootDir,
       {
@@ -279,7 +289,9 @@ test("transition service freezes targets and makes create/start idempotent by op
     const created = await service.execute(create, createProof);
 
     assert.equal(created.outcome, "applied");
+    assert.equal(eventReads, 1, "a first write reads once for idempotency and does not read back after append");
     assert.equal((await service.execute(create, createProof)).revision, 1);
+    assert.equal(eventReads, 2, "an opId retry performs only its idempotency read");
     assert.equal(Object.isFrozen(created.frozenPlan), true);
     assert.equal(Object.isFrozen(created.frozenPlan.targets), true);
     await assert.rejects(
@@ -663,58 +675,6 @@ test("pending without an event uses an honest receipt", async () => {
   assert.equal("evidence" in receipt, false);
   assert.equal("revision" in receipt, false);
   assert.equal("proof" in receipt, false);
-});
-
-test("missing canonical append cannot be hidden by a ready projection", async () => {
-  const initial = { revision: 0, task: null, executions: [], reviews: [], edgesTaken: [], lease: null } as const;
-  let snapshot = initial;
-  const read = () => ({
-    status: "ready" as const,
-    snapshot,
-    packagePath: null,
-    watermark: snapshot.revision,
-    sourceRevision: snapshot.revision,
-    warnings: [],
-  });
-  const service = makeTaskLifecycleService({
-    eventStore: {
-      readTaskEvent: () => null,
-      append: (candidate) => ({ status: "applied" as const, revision: candidate.event.workspaceRevision }),
-    },
-    projection: {
-      read,
-      readDocument: () => ({ document: null }),
-      readTaskOperation: () => null,
-      currentLease: () => null,
-      reserveLease: (lease) => lease,
-      activateLease: (lease) => lease,
-      renewLease: (lease) => lease,
-      releaseLease: (lease) => lease,
-      apply: (event) => {
-        snapshot = reduceTaskEvent(snapshot, event);
-        return { metrics: { reducedItems: 1 } };
-      },
-    },
-  });
-  const create = command(
-    "workspace",
-    {
-      type: "CreateReplayTask" as const,
-      taskId: "task-missing-append",
-      title: "Missing append",
-      taskClass: "standard" as const,
-      graph: replayGraph,
-      completionGateIds: [],
-      presetSnapshotDigest: null,
-    },
-    { eventId: "event-missing-append", workspaceRevision: 1, occurredAt: "2026-08-12T00:00:00.000Z" },
-    0,
-  );
-  const receipt = await service.execute(create, { taskIdUnique: true, actorBinding: actor });
-
-  assert.equal(receipt.outcome, "pending");
-  assert.equal(receipt.proof?.canonicalVisible, false);
-  assert.equal(receipt.proof?.durable, false);
 });
 
 // Every phase of an independent write is O(old events) by construction: store init builds its

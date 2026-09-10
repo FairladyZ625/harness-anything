@@ -22,7 +22,6 @@ export interface LedgerBackupManifestV1 {
 export interface LedgerBackupFileV1 {
   readonly path: string;
   readonly size: number;
-  readonly sourceSha256: string;
   readonly backupSha256: string;
   readonly method: "copy" | "vacuum-into" | "symlink";
 }
@@ -54,12 +53,10 @@ export function createLedgerBackup(input: {
     files = inventory(payloadRoot).map((backupFile) => {
       const relative = portable(path.relative(payloadRoot, backupFile)),
         vacuumed = /^\.harness\/store\/generations\/[12]\/ledger\.sqlite$/u.test(relative),
-        backup = entryDigest(backupFile),
-        source = entryDigest(path.join(layout.rootDir, relative));
+        backup = entryDigest(backupFile);
       return {
         path: relative,
         size: backup.size,
-        sourceSha256: source.sha256,
         backupSha256: backup.sha256,
         method: vacuumed ? "vacuum-into" : backup.symlink ? "symlink" : "copy",
       } satisfies LedgerBackupFileV1;
