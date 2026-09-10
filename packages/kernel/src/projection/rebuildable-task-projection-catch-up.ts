@@ -5,11 +5,10 @@ import {
   serializePersistedCanonicalEvent,
   type CanonicalEventV1,
 } from "../domain/doc-sync.contract.ts";
-import { sha256Text } from "../integrity/stable-hash.ts";
 import type { EventContentPrefetch, EventStreamPort } from "./rebuildable-task-projection-types.ts";
 import type { ProjectionApplyReceipt } from "./projection-reads.ts";
 import { applyEvent } from "./rebuildable-task-projection-event-application.ts";
-import { parseEventJson, queryRows, runSql, transaction, watermark } from "./rebuildable-task-projection-sql.ts";
+import { queryRows, runSql, transaction, watermark } from "./rebuildable-task-projection-sql.ts";
 export type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
 export type { TaskProjection } from "./task-projection-port.ts";
 
@@ -20,6 +19,7 @@ export function reduceBatch(
   events: readonly CanonicalEventV1[],
   limit: number,
   readBlob: EventStreamPort["readContentBlob"],
+  head: ReturnType<EventStreamPort["readHead"]>,
 ): ProjectionApplyReceipt {
   return transaction(db, () => {
     for (const event of events) stageEvent(db, event);
@@ -41,7 +41,7 @@ export function reduceBatch(
         db,
         "UPDATE projection_meta SET scanned_revision = ?, head_digest = ? WHERE singleton = 1",
         last.workspaceRevision,
-        `sha256:${sha256Text(serializePersistedCanonicalEvent(last))}`,
+        head?.eventDigest ?? null,
       );
     }
     return { metrics: { sqliteTransactions: 1, reducedItems } };
@@ -135,7 +135,7 @@ function readyDeferredEvents(
     current,
     current + limit,
   ))
-    candidates.set(Number(row.workspace_revision), parseEventJson(String(row.event_json)));
+    candidates.set(Number(row.workspace_revision), JSON.parse(String(row.event_json)) as CanonicalEventV1);
   for (const event of batch)
     if (event.workspaceRevision <= current + limit) candidates.set(event.workspaceRevision, event);
   const ready: CanonicalEventV1[] = [];
@@ -200,7 +200,7 @@ function drainDeferred(
         )
         .get(next + 1, allowRevisionGaps ? 1 : 0, next) as { readonly event_json: string } | undefined;
     if (row === undefined) break;
-    const event = parseEventJson(row.event_json);
+    const event = JSON.parse(row.event_json) as CanonicalEventV1;
     applyEvent(db, normalizePersistedCanonicalEvent(event), row.event_json, readBlob);
     runSql(db, "DELETE FROM event_source WHERE workspace_revision = ?", event.workspaceRevision);
     next = event.workspaceRevision;

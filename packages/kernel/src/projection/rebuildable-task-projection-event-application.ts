@@ -9,7 +9,6 @@ import {
   isFactEvent,
   isMigrationImportEvent,
   isRelationEvent,
-  verifyDocEventChange,
   type CanonicalEventV1,
   type DocumentState,
 } from "../domain/doc-sync.contract.ts";
@@ -33,7 +32,6 @@ import { isPeopleEvent } from "../domain/people-event.ts";
 import { isCiRunObservationEvent } from "../domain/ci-run-observation-event.ts";
 import { parsePeopleRosterDocument } from "../domain/people-roster.ts";
 import { scheduleDefinition, validateScheduleDefinitionV1 } from "../domain/schedule.ts";
-import { sha256Text } from "../integrity/stable-hash.ts";
 import { refreshDecisionDocumentSearch } from "./decision-event-projection.ts";
 import { refreshTaskRelationProjection } from "./task-query-projection.ts";
 import type { EventStreamPort } from "./rebuildable-task-projection-types.ts";
@@ -157,7 +155,6 @@ export function applyEvent(
     } catch {
       throw new Error(`entity declaration blob ${claim.sha256} is not UTF-8`);
     }
-    if (sha256Text(body) !== claim.sha256) throw new Error(`entity declaration blob ${claim.sha256} hash mismatch`);
     let value: unknown;
     try {
       value = JSON.parse(body);
@@ -219,7 +216,6 @@ export function applyEvent(
       } catch {
         throw new Error(`schedule definition blob ${claim.sha256} is not UTF-8`);
       }
-      if (sha256Text(body) !== claim.sha256) throw new Error(`schedule definition blob ${claim.sha256} hash mismatch`);
       let value: unknown;
       try {
         value = JSON.parse(body);
@@ -261,7 +257,6 @@ export function applyEvent(
     } catch {
       throw new Error(`settings harness.yaml blob ${claim.sha256} is not UTF-8`);
     }
-    if (sha256Text(body) !== claim.sha256) throw new Error(`settings harness.yaml blob ${claim.sha256} hash mismatch`);
     const document: DocumentState = {
       path: claim.path as DocumentState["path"],
       blobSha256: claim.sha256,
@@ -288,7 +283,6 @@ export function applyEvent(
     if (!bytes || bytes.byteLength !== claim.size)
       throw new Error(`vertical declaration blob ${claim.sha256} is unavailable`);
     const body = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-    if (sha256Text(body) !== claim.sha256) throw new Error(`vertical declaration blob ${claim.sha256} hash mismatch`);
     const document: DocumentState = {
       path: claim.path as DocumentState["path"],
       blobSha256: claim.sha256,
@@ -318,7 +312,6 @@ export function applyEvent(
     } catch {
       throw new Error(`people.yaml blob ${claim.sha256} is not UTF-8`);
     }
-    if (sha256Text(body) !== claim.sha256) throw new Error(`people.yaml blob ${claim.sha256} hash mismatch`);
     if (canonicalJson(parsePeopleRosterDocument(body)) !== canonicalJson(event.payload.roster))
       throw new Error(`people.yaml blob ${claim.sha256} does not match the event roster snapshot`);
     const document: DocumentState = {
@@ -438,8 +431,6 @@ export function applyEvent(
         } catch {
           throw new Error(`document blob ${change.candidate.sha256} is not UTF-8`);
         }
-      if (!verifyDocEventChange(change, base?.body ?? "", body))
-        throw new Error(`document proof mismatch for ${change.path}`);
       const document: DocumentState = {
         path: change.path,
         blobSha256: change.candidate.sha256,

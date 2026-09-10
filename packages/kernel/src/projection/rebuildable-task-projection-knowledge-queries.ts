@@ -151,7 +151,7 @@ export function knowledgeQueryApi(
           decisions: page.rows,
           watermark: cut.watermark,
           sourceRevision: cut.sourceRevision,
-          ...(page.page ? { page: page.page } : {}),
+          page: page.page,
         };
       }),
     listDecisionAgendaPage: (query) =>

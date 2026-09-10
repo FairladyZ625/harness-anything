@@ -30,7 +30,6 @@ import {
 import { assertDecisionWritePlan } from "../domain/decision-event.ts";
 import { assertFactWritePlan } from "../domain/fact-event.ts";
 import { assertTaskLifecycleWritePlan } from "../domain/task-lifecycle-publication.ts";
-import { sha256Text } from "../integrity/stable-hash.ts";
 import type { TaskProjection, TaskProjectionQueries, TaskProjectionReader } from "./task-projection-port.ts";
 import type { EventStreamPort, ProjectionContext } from "./rebuildable-task-projection-types.ts";
 import {
@@ -127,7 +126,7 @@ export function makeTaskProjection(options: {
       if (isMigrationImportEvent(event)) assertMigrationImportWritePlan(event, plan);
       if (isLedgerLayoutMigrationEvent(event)) assertLedgerLayoutMigrationWritePlan(event, plan);
       return withDatabase(projectionPath, readHead, (db) =>
-        reduceBatch(db, [event], limit, options.eventStore.readContentBlob),
+        reduceBatch(db, [event], limit, options.eventStore.readContentBlob, options.eventStore.readHead()),
       );
     },
     rebuild: () => {
@@ -215,6 +214,7 @@ export function makeTaskProjectionReader(options: {
       readRelationQuery: taskQueries.readRelationQuery,
       readOperation: taskQueries.readOperation,
       readRelationTruth: taskQueries.readRelationTruth,
+      readRelationEdge: taskQueries.readRelationEdge,
       readEntityVersionWitness: taskQueries.readEntityVersionWitness,
       readTaskOperation: taskQueries.readTaskOperation,
       readTaskCompletion: taskQueries.readTaskCompletion,
@@ -258,14 +258,14 @@ export function makeTaskProjectionReader(options: {
         const row = db
           .prepare(
             [
-              "SELECT meta.schema_version, meta.watermark, event.event_json",
+              "SELECT meta.schema_version, meta.watermark, event.workspace_revision AS head_event_revision",
               "FROM projection_meta AS meta",
               "LEFT JOIN event_index AS event ON event.workspace_revision = meta.watermark",
               "WHERE meta.singleton = 1",
             ].join(" "),
           )
           .get() as
-          | { readonly schema_version: number; readonly watermark: number; readonly event_json: string | null }
+          | { readonly schema_version: number; readonly watermark: number; readonly head_event_revision: number | null }
           | undefined;
         const observedSchema = row?.schema_version ?? null;
         if (observedSchema !== taskProjectionSchemaVersion)
@@ -280,19 +280,10 @@ export function makeTaskProjectionReader(options: {
             { code: "kernel_schema_mismatch" },
           );
         if (row === undefined) throw new Error("projection metadata is unavailable");
-        const watermark = Number(row.watermark),
-          eventJson = row.event_json ?? undefined;
-        if (watermark > 0 && eventJson === undefined)
+        const watermark = Number(row.watermark);
+        if (watermark > 0 && row.head_event_revision === null)
           throw new Error(`projection completed cut ${watermark} has no canonical event`);
-        publishedHead =
-          eventJson === undefined
-            ? null
-            : {
-                revision: watermark,
-                // event_index stores serializePersistedCanonicalEvent(event).trimEnd();
-                // restore its one canonical newline without reparsing/canonicalizing on every read.
-                eventDigest: `sha256:${sha256Text(`${eventJson}\n`)}`,
-              };
+        publishedHead = watermark > 0 ? { revision: watermark } : null;
         try {
           return read(queries);
         } finally {

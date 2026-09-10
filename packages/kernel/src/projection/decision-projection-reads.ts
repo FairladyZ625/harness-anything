@@ -208,19 +208,15 @@ function decisionCollectionRow(row: DecisionCollectionRecord): DecisionProjectio
   };
 }
 
-export function listDecisionRows(db: DatabaseSync, filters: DecisionListFilters): readonly DecisionProjectionRow[] {
-  return listDecisionRowsPage(db, { ...filters, limit: undefined, cursor: undefined }).rows;
-}
-
 /**
- * Paged variant of the Decision list: the unparameterized filters keep returning every match;
- * an explicit limit/cursor pages over the same compareDecisionIds order. The cursor carries the
- * last returned decisionId, so a row deleted between pages cannot drop or duplicate its neighbours.
+ * Paged Decision list: one batched row read per page over the same compareDecisionIds order. The
+ * cursor carries the last returned decisionId, so a row deleted between pages cannot drop or
+ * duplicate its neighbours. An omitted limit defaults to one page instead of an unbounded read.
  */
 export function listDecisionRowsPage(
   db: DatabaseSync,
   filters: DecisionListFilters,
-): { readonly rows: readonly DecisionProjectionRow[]; readonly page?: ProjectionPage } {
+): { readonly rows: readonly DecisionProjectionRow[]; readonly page: ProjectionPage } {
   const where: string[] = [],
     values: string[] = [];
   if (filters.search?.trim()) {
@@ -256,21 +252,15 @@ export function listDecisionRowsPage(
       );
     })
     .sort(compareDecisionIds);
-  const paged = filters.limit !== undefined || filters.cursor !== undefined;
   if (filters.cursor !== undefined) {
     const [cursorId] = decodePageCursor(filters.cursor, 1);
     ids = ids.filter((decisionId) => compareDecisionIds(decisionId, cursorId!) > 0);
   }
-  const pageLimit = filters.limit === undefined ? (paged ? 100 : null) : checkedPageLimit(filters.limit);
-  const rowOf = (decisionId: string) => ({
-    ...readDecisionRow(db, decisionId, false)!,
-    body: null,
-  });
-  if (pageLimit === null) return { rows: ids.map(rowOf) };
-  const rows = ids.slice(0, pageLimit).map(rowOf),
-    last = ids[pageLimit - 1];
+  const pageLimit = filters.limit === undefined ? 100 : checkedPageLimit(filters.limit),
+    pageIds = ids.slice(0, pageLimit),
+    last = pageIds.at(-1);
   return {
-    rows,
+    rows: readDecisionRows(db, pageIds, false),
     page: {
       limit: pageLimit,
       cursor: filters.cursor ?? null,

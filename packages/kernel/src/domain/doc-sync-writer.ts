@@ -417,14 +417,6 @@ export function resolveDocRoute(path: PortableDocumentPath): {
     : { allowed: true, requiredRoute: "doc-sync" };
 }
 
-export function verifyDocEventChange(change: DocEventChange, baseBody: string, candidateBody: string): boolean {
-  const compiled =
-    change.policyId === OPAQUE_TEXTUAL_POLICY_ID || change.policyId === RAW_ARTIFACT_POLICY_ID
-      ? opaqueProof()
-      : additiveProof(change.path, baseBody, candidateBody, change.candidate.mediaType, change.baseBlobSha256 === null);
-  return compiled.unresolved.length === 0 && stableStringify(compiled.proofs) === stableStringify(change.regionProofs);
-}
-
 export function isValidDocEventChange(value: unknown, allowUnknownFields = false): value is DocEventChange {
   return validDocEventChange(value, allowUnknownFields) && isRecord(value) && value.candidate !== null;
 }

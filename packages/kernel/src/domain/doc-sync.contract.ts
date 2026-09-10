@@ -27,7 +27,6 @@ export {
   docSyncWritePlan,
   isValidDocEventChange,
   resolveDocRoute,
-  verifyDocEventChange,
 } from "./doc-sync-writer.ts";
 export { validateCurrentDocEvent, validateDocEvent } from "./doc-sync-validation.ts";
 export { isEntityEvent } from "./entity-event.ts";

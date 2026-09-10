@@ -24,13 +24,12 @@ import { readDocument, readPresetSnapshot } from "./rebuildable-task-projection-
 import {
   readProjectionCut,
   watermark,
-  parseEventJson,
   queryTransaction,
   queryRow,
   queryRows,
 } from "./rebuildable-task-projection-sql.ts";
 import { readWorkspaceSummaryRows } from "./workspace-summary-projection.ts";
-import { readRelationProjectionRows } from "./relation-entity-projection.ts";
+import { readRelationProjectionRow, readRelationProjectionRows } from "./relation-entity-projection.ts";
 import { readEntityVersionWitness } from "./entity-freshness-projection.ts";
 export type {
   ProjectionPage,
@@ -109,6 +108,7 @@ export function taskQueryApi(
   | "readRelationQuery"
   | "readOperation"
   | "readRelationTruth"
+  | "readRelationEdge"
   | "readEntityVersionWitness"
   | "readTaskOperation"
   | "readTaskCompletion"
@@ -229,7 +229,7 @@ export function taskQueryApi(
           db.prepare("SELECT event_json FROM event_index WHERE op_id = ?").get(opId) as
             | { readonly event_json: string }
             | undefined;
-        return row === undefined ? null : { event: parseEventJson(row.event_json), watermark: watermark(db) };
+        return row === undefined ? null : { event: JSON.parse(row.event_json), watermark: watermark(db) };
       }),
     readRelationTruth: () =>
       withDatabase(projectionPath, readHead, (db) => {
@@ -246,6 +246,8 @@ export function taskQueryApi(
           })),
         };
       }),
+    readRelationEdge: (relationId) =>
+      withDatabase(projectionPath, readHead, (db) => readRelationProjectionRow(db, relationId)),
     readEntityVersionWitness: (entityRef) =>
       withDatabase(projectionPath, readHead, (db) => readEntityVersionWitness(db, entityRef)),
     readTaskOperation: (opId) =>
@@ -256,7 +258,7 @@ export function taskQueryApi(
             | { readonly event_json: string }
             | undefined;
         if (!row) return null;
-        const event = parseEventJson(row.event_json);
+        const event = JSON.parse(row.event_json);
         return isTaskEvent(event) ? { event, watermark: watermark(db) } : null;
       }),
     readTaskCompletion: (taskId, executionId) =>
@@ -266,20 +268,20 @@ export function taskQueryApi(
         catchUpRound(db, eventStore, limit);
         const row = queryRows(db, TASK_COMPLETION_SQL, taskId, executionId)[0];
         if (!row) return null;
-        const event = parseEventJson(String(row.event_json));
+        const event = JSON.parse(String(row.event_json));
         return isTaskEvent(event) ? event : null;
       }),
     readRuntimeDispatch: (runtimeSessionIdValue, definitionSnapshotRef) =>
       withDatabase(projectionPath, readHead, (db) => {
         const row = queryRow(db, RUNTIME_DISPATCH_SQL, runtimeSessionIdValue, definitionSnapshotRef);
         if (!row) return null;
-        const event = parseEventJson(String(row.event_json));
+        const event = JSON.parse(String(row.event_json));
         return isAgentRuntimeEvent(event) && event.type === "runtime_dispatch_requested" ? event : null;
       }),
     readRuntimeDispatches: () =>
       withDatabase(projectionPath, readHead, (db) =>
         queryRows(db, RUNTIME_DISPATCHES_SQL)
-          .map((row) => parseEventJson(String(row.event_json)))
+          .map((row) => JSON.parse(String(row.event_json)))
           .filter(
             (event): event is Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }> =>
               isAgentRuntimeEvent(event) && event.type === "runtime_dispatch_requested",
@@ -290,7 +292,7 @@ export function taskQueryApi(
         if (!Number.isSafeInteger(afterRevision) || afterRevision < 0 || !Number.isSafeInteger(limit) || limit < 1)
           throw new Error("runtime session event page requires a non-negative revision and a positive limit");
         return queryRows(db, RUNTIME_SESSION_EVENTS_SQL, afterRevision, runtimeSessionIdValue, limit)
-          .map((row) => parseEventJson(String(row.event_json)))
+          .map((row) => JSON.parse(String(row.event_json)))
           .filter((event): event is AgentRuntimeEventV1 => isAgentRuntimeEvent(event));
       }),
     readCanonicalEvents: (afterRevision, pageLimit) =>
@@ -307,7 +309,7 @@ export function taskQueryApi(
         return {
           status: cut.status,
           events: queryRows(db, CANONICAL_EVENTS_SQL, afterRevision, pageLimit).map((row) =>
-            parseEventJson(String(row.event_json)),
+            JSON.parse(String(row.event_json)),
           ),
           watermark: cut.watermark,
           sourceRevision: cut.sourceRevision,
@@ -321,7 +323,7 @@ export function taskQueryApi(
         return {
           status: cut.status,
           events: queryRows(db, CI_RUN_OBSERVATIONS_SQL, pageLimit)
-            .map((row) => parseEventJson(String(row.event_json)))
+            .map((row) => JSON.parse(String(row.event_json)))
             .filter((event) => event.schema === "ci-run-observation/v2"),
           watermark: cut.watermark,
           sourceRevision: cut.sourceRevision,
@@ -344,8 +346,8 @@ export function taskQueryApi(
           return {
             watermark: current,
             sourceRevision,
-            headEvent: head ? parseEventJson(String(head.event_json)) : null,
-            events: rows.map((row) => parseEventJson(String(row.event_json))),
+            headEvent: head ? JSON.parse(String(head.event_json)) : null,
+            events: rows.map((row) => JSON.parse(String(row.event_json))),
             documents: documents.map((row) => ({
               path: String(row.path),
               blobSha256: String(row.blob_sha256),
@@ -379,7 +381,7 @@ export function taskQueryApi(
           );
         return {
           status: cut.status,
-          rows: rows.map((row) => parseEventJson(String(row.event_json)) as TaskProgressEventV1),
+          rows: rows.map((row) => JSON.parse(String(row.event_json)) as TaskProgressEventV1),
           watermark: cut.watermark,
           sourceRevision: cut.sourceRevision,
         };

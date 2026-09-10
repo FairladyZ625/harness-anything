@@ -79,7 +79,7 @@ export function makeBaselineReadModel({ rootDir, projection, kernel, relationGra
     const lifecycle = projection.list(),
       { taskRows } = relationGraphProjection.readRelationGraphProjection({ rootDir }),
       l2 = new Map(taskRows.map((row) => [row.taskId, row])),
-      decisions = new Map(projection.listDecisions({}).decisions.map((row) => [row.decisionId, row])),
+      decisions = new Map(projection.listDecisions({ limit: 500 }).decisions.map((row) => [row.decisionId, row])),
       edges = projection.readDecisionGraph().edges,
       graph = relationGraph(),
       hardWarnings = graph.warnings.filter(({ severity }) => severity === "hard-fail").map(({ message }) => message);

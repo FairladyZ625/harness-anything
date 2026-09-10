@@ -8,7 +8,6 @@ import {
   documentPath,
   serializeDocEvent,
   validateDocEvent,
-  verifyDocEventChange,
   type DocumentState,
 } from "../../src/domain/doc-sync.contract.ts";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
@@ -30,18 +29,10 @@ test("prose policy accepts body replacement while freezing region proofs and con
   assert.equal(result.accepted, true);
   if (!result.accepted) return;
   assert.equal(
-    result.plan.targets.some(
-      (target) =>
-        target.kind === "content_blob" &&
-        target.sha256 === sha256Text(candidate),
-    ),
+    result.plan.targets.some((target) => target.kind === "content_blob" && target.sha256 === sha256Text(candidate)),
     true,
   );
-  assert.equal(
-    result.plan.targets.filter((target) => target.kind === "content_blob")
-      .length,
-    1,
-  );
+  assert.equal(result.plan.targets.filter((target) => target.kind === "content_blob").length, 1);
 });
 
 test("body-replaceable policy accepts shorter prose and emits a valid canonical event", () => {
@@ -81,12 +72,9 @@ test("new prose may establish frontmatter while existing machine frontmatter sta
   if (!created.accepted) return;
   const change = created.event.payload.changes[0]!;
   assert.equal(
-    change.regionProofs.some(
-      (proof) => proof.regionId === "machine/frontmatter",
-    ),
+    change.regionProofs.some((proof) => proof.regionId === "machine/frontmatter"),
     true,
   );
-  assert.equal(verifyDocEventChange(change, "", candidate), true);
 
   const existingEmpty = { ...state(""), path };
   const introduced = decide(
@@ -127,8 +115,7 @@ test("new prose may establish frontmatter while existing machine frontmatter sta
 });
 
 test("opaque textual policy is a whole-file CAS with no markdown parsing or region proofs", () => {
-  const base =
-      "---\nnot: frontmatter\n# Same\n# Same\nThis entire legacy payload is deliberately removed.\n",
+  const base = "---\nnot: frontmatter\n# Same\n# Same\nThis entire legacy payload is deliberately removed.\n",
     candidate = "<script/>\n",
     document: DocumentState = {
       ...state(base),
@@ -150,11 +137,7 @@ test("opaque textual policy is a whole-file CAS with no markdown parsing or regi
   if (!result.accepted) return;
   const change = result.event.payload.changes[0]!;
   assert.deepEqual(change.regionProofs, []);
-  assert.deepEqual(
-    validateDocEvent(JSON.parse(JSON.stringify(result.event))),
-    [],
-  );
-  assert.equal(verifyDocEventChange(change, base, candidate), true);
+  assert.deepEqual(validateDocEvent(JSON.parse(JSON.stringify(result.event))), []);
   assert.deepEqual(
     validateDocEvent({
       ...result.event,

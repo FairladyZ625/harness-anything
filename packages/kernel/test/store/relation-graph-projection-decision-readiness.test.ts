@@ -145,7 +145,7 @@ test("Replay accepts a document today's renderer no longer reproduces, as long a
   });
 });
 
-test("Decision projection requires exact plan, content hash, consent pin, and document base", () => {
+test("Decision projection requires an exact plan, consent pin, and document base", () => {
   withTempStore((rootDir) => {
     const fixture = projectionFixture(rootDir),
       draft = proposal(1, "dec_EXACT"),
@@ -154,21 +154,8 @@ test("Decision projection requires exact plan, content hash, consent pin, and do
         currentDecision: null,
         currentRelations: [],
         currentDocument: null,
-      }),
-      forgedSha = "0".repeat(64),
-      forged = {
-        ...compiled.event,
-        payload: {
-          ...compiled.event.payload,
-          decisionDocumentClaim: {
-            ...compiled.event.payload.decisionDocumentClaim,
-            sha256: forgedSha,
-          },
-        },
-      };
-    fixture.blobs.set(forgedSha, Buffer.from(compiled.body));
+      });
     assert.throws(() => fixture.projection.apply(compiled.event), /write plan/u);
-    assert.throws(() => fixture.projection.apply(forged, decisionWritePlan(forged)), /projection mismatch/u);
     assert.equal(fixture.projection.readDecision("dec_EXACT").decision, null);
     applyDecision(fixture, draft);
     const next = compileCurrent(fixture, accepted(2, "dec_EXACT")),

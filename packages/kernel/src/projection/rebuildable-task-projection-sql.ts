@@ -4,11 +4,6 @@ import { DatabaseSync } from "node:sqlite";
 import type { SQLOutputValue, StatementSync } from "node:sqlite";
 import { consumeKnownError } from "../error-consumption.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
-import {
-  normalizePersistedCanonicalEvent,
-  parseCanonicalEvent,
-  type CanonicalEventV1,
-} from "../domain/doc-sync.contract.ts";
 import { canonicalizeContractValue } from "../domain/task.ts";
 import type { EventStreamPort } from "./rebuildable-task-projection-types.ts";
 
@@ -163,7 +158,4 @@ export function queryPreparedRows<Row extends ProjectionSqlRow = ProjectionSqlRo
 }
 export function canonicalJson(value: unknown): string {
   return JSON.stringify(canonicalizeContractValue(value));
-}
-export function parseEventJson(value: string): CanonicalEventV1 {
-  return normalizePersistedCanonicalEvent(parseCanonicalEvent(`${value}\n`));
 }
