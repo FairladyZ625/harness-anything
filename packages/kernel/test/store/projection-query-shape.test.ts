@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
+import { REPLAY_TASK_GRAPH } from "../../src/domain/task-graph.ts";
 import {
   createDecisionProjectionTables,
   listDecisionAgendaRowsPage,
@@ -39,9 +40,15 @@ test("filtered task index parses only the returned page", () => {
             schema: "task/v2",
             taskId,
             title: `Match ${taskId}`,
-            status: "active",
-            pinned: false,
             taskClass: "standard",
+            status: "active",
+            graph: REPLAY_TASK_GRAPH,
+            currentNode: "implementation",
+            iteration: 0,
+            pinned: false,
+            createdBy: { principal: { personId: "person-fixture" }, executor: null },
+            completionGateIds: [],
+            presetSnapshotDigest: null,
             packageDisposition: "active",
           },
         });
