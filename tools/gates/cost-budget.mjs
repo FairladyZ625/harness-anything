@@ -163,6 +163,182 @@ export async function evaluateCostBudget({
   };
 }
 
+// --- G1 write-path scale invariant -----------------------------------------------------------
+// Extends the cost-budget gate (dec_EF5F3820E81FB8A5266F1F3342 CH1, refining dec_D507BBA7174F4BF61521CAEB61):
+// every durable write kind and hot read runs through the production daemon request path on a
+// 200-event and a 2000-event ledger, and its steady-state call (the one after a warm-up call) is
+// judged; a 10x history growth must not cost meaningfully more per call.
+export const G1_SCALES = Object.freeze({ small: 200, large: 2000 });
+
+// Fixed, per-metric absolute margins (not per operation): the measured 200-scale and 2000-scale
+// counts for an unexempted (operation, metric) pair must differ by no more than this. Values come
+// from the noise observed on flat operations at head (task_78327209a449760a74d1992de3 report):
+export const G1_MARGINS = Object.freeze({
+  // Flat operations show 0 row difference between scales. The scarcest seeded kinds (decisions and
+  // their relations) still grow by 36 rows between scales, so a scan of any one kind exceeds 20.
+  sqlRowsRead: 20,
+  // Every operation hashes a fixed number of times regardless of scale; 2 covers incidental
+  // additions (e.g. one more content-addressed blob) without hiding a growing hash count.
+  sha256Calls: 2,
+  // Observed drift is only digits added to longer generated ids (single- to double-digit bytes);
+  // 512 comfortably covers that without masking a hashed-content-scales-with-history regression.
+  sha256Bytes: 512,
+  // This is the exact metric #2407/#2409 fixed (Git follower re-rendering history per write); keep
+  // it tight. 1 tolerates a single incidental extra spawn (e.g. a lazily-created ref) at most.
+  gitProcesses: 1,
+  // Observed drift is a few bytes from longer generated ids in read file content; 128 covers that
+  // without masking a file read that starts scanning history.
+  fileReadBytes: 128,
+});
+
+function isNonEmptyString(value) {
+  return typeof value === "string" && value.length > 0;
+}
+
+function validateG1OperationMap(value, label, metrics) {
+  if (value === null || typeof value !== "object" || Array.isArray(value))
+    throw new Error(`${label} must be an object`);
+  const result = {};
+  for (const [operation, metricMap] of Object.entries(value)) {
+    if (metricMap === null || typeof metricMap !== "object" || Array.isArray(metricMap))
+      throw new Error(`${label}.${operation} must be an object`);
+    const keys = Object.keys(metricMap).sort();
+    if (keys.join("\0") !== [...metrics].sort().join("\0"))
+      throw new Error(`${label}.${operation} keys must be ${metrics.join(", ")}`);
+    result[operation] = {};
+    for (const metric of metrics) {
+      if (!Number.isSafeInteger(metricMap[metric]) || metricMap[metric] < 0)
+        throw new Error(`${label}.${operation}.${metric} must be a non-negative safe integer`);
+      result[operation][metric] = metricMap[metric];
+    }
+  }
+  return result;
+}
+
+function readG1BudgetFile(filePath, operations, metrics) {
+  const budget = parseJsonFile(filePath);
+  const section = budget?.writeCostScaling;
+  if (section?.schema !== "write-cost-scaling-budget/v1")
+    throw new Error(`${filePath}.writeCostScaling must use write-cost-scaling-budget/v1`);
+  const scales = section.scales;
+  if (!Number.isSafeInteger(scales?.small) || !Number.isSafeInteger(scales?.large) || scales.small >= scales.large)
+    throw new Error(`${filePath}.writeCostScaling.scales must declare small < large`);
+  const baseline = validateG1OperationMap(section.baseline, `${filePath}.writeCostScaling.baseline`, metrics),
+    budgets = validateG1OperationMap(section.budgets, `${filePath}.writeCostScaling.budgets`, metrics);
+  for (const operation of operations) {
+    if (!baseline[operation])
+      throw new Error(`${filePath}.writeCostScaling.baseline is missing operation ${operation}`);
+    if (!budgets[operation]) throw new Error(`${filePath}.writeCostScaling.budgets is missing operation ${operation}`);
+  }
+  const knownScaling = Array.isArray(section.knownScaling) ? section.knownScaling : null;
+  if (!knownScaling) throw new Error(`${filePath}.writeCostScaling.knownScaling must be an array`);
+  for (const [index, entry] of knownScaling.entries()) {
+    const label = `${filePath}.writeCostScaling.knownScaling[${index}]`;
+    if (!operations.includes(entry?.operation)) throw new Error(`${label}.operation must be a known G1 operation`);
+    if (!metrics.includes(entry?.metric)) throw new Error(`${label}.metric must be a known G1 metric`);
+    if (!isNonEmptyString(entry?.reason)) throw new Error(`${label}.reason is required`);
+    if (!isNonEmptyString(entry?.deletionTaskId)) throw new Error(`${label}.deletionTaskId is required`);
+    if (!isNonEmptyString(entry?.expiresAt) || Number.isNaN(Date.parse(entry.expiresAt)))
+      throw new Error(`${label}.expiresAt must be an RFC 3339 timestamp`);
+  }
+  return { scales, baseline, budgets, knownScaling };
+}
+
+function g1HasReceipt(receipts, operation, metric, limit, now) {
+  return receipts.some(
+    ({ receipt }) =>
+      verifyReceipt(receipt, {
+        scope: `cost:g1:${operation}:${metric}`,
+        kind: "g1-cost-budget",
+        minimumLimit: limit,
+        now,
+      }).ok,
+  );
+}
+
+export async function measureG1WriteCostScaling(rootDir, scales) {
+  const moduleUrl = pathToFileURL(path.join(rootDir, "packages/daemon/test/fixtures/g1-write-cost-scaling.ts")).href;
+  const { measureWriteCostScaling, G1_OPERATIONS, G1_METRICS } = await import(moduleUrl);
+  // One scale after the other: host-side reads are counted by process-wide probe counters, which a
+  // concurrently seeding or measuring scale would add its own work to.
+  const small = await measureWriteCostScaling(scales.small),
+    large = await measureWriteCostScaling(scales.large);
+  return { small, large, operations: G1_OPERATIONS, metrics: G1_METRICS };
+}
+
+export async function evaluateG1WriteCostScaling({
+  rootDir,
+  budgetPath = path.join(rootDir, "tools/gates/cost-budget.json"),
+  receiptsDir = path.join(rootDir, "tools/gates/receipts"),
+  now = new Date(),
+  measured = null,
+} = {}) {
+  const probe = measured ?? (await measureG1WriteCostScaling(rootDir, G1_SCALES));
+  const { operations, metrics } = probe;
+  const budget = readG1BudgetFile(budgetPath, operations, metrics);
+  const receipts = loadReceipts(receiptsDir);
+  const errors = [];
+  const actualSmall = {};
+  for (const operation of operations) {
+    actualSmall[operation] = probe.small.counts[operation];
+    for (const metric of metrics) {
+      const measuredSmall = probe.small.counts[operation]?.[metric],
+        measuredLarge = probe.large.counts[operation]?.[metric];
+      if (!Number.isSafeInteger(measuredSmall) || !Number.isSafeInteger(measuredLarge))
+        throw new Error(`G1 measurement is missing ${operation}.${metric}`);
+
+      // 200-scale absolute ratchet: reused from the existing G37 baseline/budget/receipt pattern.
+      if (
+        budget.budgets[operation][metric] > budget.baseline[operation][metric] &&
+        !g1HasReceipt(receipts, operation, metric, budget.budgets[operation][metric], now)
+      )
+        errors.push(
+          `${operation}.${metric}: budget rose from ${budget.baseline[operation][metric]} to ` +
+            `${budget.budgets[operation][metric]} without a valid g1-cost-budget receipt`,
+        );
+      if (measuredSmall > budget.budgets[operation][metric])
+        errors.push(
+          `${operation}.${metric}: measured ${measuredSmall} at ${G1_SCALES.small} events exceeds budget ` +
+            `${budget.budgets[operation][metric]}`,
+        );
+
+      // Scale-invariance: 2000-scale must not exceed 200-scale plus the fixed per-metric margin,
+      // unless a live (non-expired) knownScaling exemption names this exact pair.
+      const exemption = budget.knownScaling.find((entry) => entry.operation === operation && entry.metric === metric),
+        withinMargin = measuredLarge <= measuredSmall + G1_MARGINS[metric];
+      if (exemption) {
+        if (Date.parse(exemption.expiresAt) <= now.getTime())
+          errors.push(
+            `${operation}.${metric}: knownScaling exemption expired at ${exemption.expiresAt} ` +
+              `(deletion task ${exemption.deletionTaskId}); renew or fix and remove it`,
+          );
+        else if (withinMargin)
+          errors.push(
+            `${operation}.${metric}: knownScaling exemption is stale (measured ${measuredSmall}->${measuredLarge} ` +
+              `is already within the margin); remove the exemption`,
+          );
+      } else if (!withinMargin)
+        errors.push(
+          `${operation}.${metric}: measured ${measuredSmall} at ${G1_SCALES.small} events grew to ` +
+            `${measuredLarge} at ${G1_SCALES.large} events, ` +
+            `exceeding the +${G1_MARGINS[metric]} margin with no knownScaling exemption`,
+        );
+    }
+  }
+  return {
+    ok: errors.length === 0,
+    errors,
+    actualSmall,
+    actualLarge: probe.large.counts,
+    baseline: budget.baseline,
+    budgets: budget.budgets,
+    knownScaling: budget.knownScaling,
+    scales: G1_SCALES,
+    operations,
+    metrics,
+  };
+}
+
 function parseArgs(argv) {
   const options = {};
   for (let index = 0; index < argv.length; index += 1) {
@@ -179,10 +355,23 @@ function parseArgs(argv) {
 export async function main(argv = process.argv.slice(2), defaultRoot = repoRoot()) {
   try {
     const options = parseArgs(argv);
-    const result = await evaluateCostBudget({ rootDir: options.rootDir ?? defaultRoot, ...options });
+    const rootDir = options.rootDir ?? defaultRoot;
+    const result = await evaluateCostBudget({ rootDir, ...options });
     for (const metric of METRICS) console.log(`${metric}: ${result.actual[metric]}/${result.budgets[metric]}`);
-    if (!result.ok) {
-      for (const error of result.errors) console.error(`G38 cost-budget: ${error}`);
+    const g1 = await evaluateG1WriteCostScaling({
+      rootDir,
+      budgetPath: options.budgetPath,
+      receiptsDir: options.receiptsDir,
+    });
+    for (const operation of g1.operations)
+      for (const metric of g1.metrics)
+        console.log(
+          `G1 ${operation}.${metric}: ${g1.actualSmall[operation][metric]}/${g1.budgets[operation][metric]} ` +
+            `at ${g1.scales.small}, ${g1.actualLarge[operation][metric]} at ${g1.scales.large}`,
+        );
+    const errors = [...result.errors, ...g1.errors];
+    if (errors.length > 0) {
+      for (const error of errors) console.error(`G38 cost-budget: ${error}`);
       return 1;
     }
     console.log("G38 cost-budget: pass");

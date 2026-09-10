@@ -8,5 +8,242 @@
   "budgets": {
     "projectionRebuildGitProcesses": 4,
     "firstScreenReadRpcs": 7
+  },
+  "writeCostScaling": {
+    "schema": "write-cost-scaling-budget/v1",
+    "scales": {
+      "small": 200,
+      "large": 2000
+    },
+    "baseline": {
+      "task-create": {
+        "sqlRowsRead": 79,
+        "sha256Calls": 67,
+        "sha256Bytes": 138799,
+        "gitProcesses": 6,
+        "fileReadBytes": 173463
+      },
+      "doc-submit": {
+        "sqlRowsRead": 194,
+        "sha256Calls": 101,
+        "sha256Bytes": 63915,
+        "gitProcesses": 6,
+        "fileReadBytes": 10056
+      },
+      "task-start": {
+        "sqlRowsRead": 937,
+        "sha256Calls": 47,
+        "sha256Bytes": 27132,
+        "gitProcesses": 6,
+        "fileReadBytes": 5883
+      },
+      "task-progress-append": {
+        "sqlRowsRead": 220,
+        "sha256Calls": 26,
+        "sha256Bytes": 5749,
+        "gitProcesses": 6,
+        "fileReadBytes": 659
+      },
+      "fact-record": {
+        "sqlRowsRead": 246,
+        "sha256Calls": 31,
+        "sha256Bytes": 7741,
+        "gitProcesses": 6,
+        "fileReadBytes": 997
+      },
+      "decision-propose": {
+        "sqlRowsRead": 469,
+        "sha256Calls": 29,
+        "sha256Bytes": 17018,
+        "gitProcesses": 6,
+        "fileReadBytes": 2911
+      },
+      "decision-reject": {
+        "sqlRowsRead": 501,
+        "sha256Calls": 42,
+        "sha256Bytes": 29393,
+        "gitProcesses": 6,
+        "fileReadBytes": 8386
+      },
+      "relation-relate": {
+        "sqlRowsRead": 301,
+        "sha256Calls": 27,
+        "sha256Bytes": 5905,
+        "gitProcesses": 6,
+        "fileReadBytes": 495
+      },
+      "receipt-show": {
+        "sqlRowsRead": 38,
+        "sha256Calls": 6,
+        "sha256Bytes": 10380,
+        "gitProcesses": 0,
+        "fileReadBytes": 0
+      },
+      "task-list": {
+        "sqlRowsRead": 144,
+        "sha256Calls": 1,
+        "sha256Bytes": 213,
+        "gitProcesses": 0,
+        "fileReadBytes": 164
+      },
+      "task-show": {
+        "sqlRowsRead": 601,
+        "sha256Calls": 0,
+        "sha256Bytes": 0,
+        "gitProcesses": 0,
+        "fileReadBytes": 164
+      },
+      "agenda": {
+        "sqlRowsRead": 181,
+        "sha256Calls": 0,
+        "sha256Bytes": 0,
+        "gitProcesses": 0,
+        "fileReadBytes": 0
+      },
+      "runtime-overview": {
+        "sqlRowsRead": 150,
+        "sha256Calls": 0,
+        "sha256Bytes": 0,
+        "gitProcesses": 0,
+        "fileReadBytes": 0
+      }
+    },
+    "budgets": {
+      "task-create": {
+        "sqlRowsRead": 79,
+        "sha256Calls": 67,
+        "sha256Bytes": 138799,
+        "gitProcesses": 6,
+        "fileReadBytes": 173463
+      },
+      "doc-submit": {
+        "sqlRowsRead": 194,
+        "sha256Calls": 101,
+        "sha256Bytes": 63915,
+        "gitProcesses": 6,
+        "fileReadBytes": 10056
+      },
+      "task-start": {
+        "sqlRowsRead": 937,
+        "sha256Calls": 47,
+        "sha256Bytes": 27132,
+        "gitProcesses": 6,
+        "fileReadBytes": 5883
+      },
+      "task-progress-append": {
+        "sqlRowsRead": 220,
+        "sha256Calls": 26,
+        "sha256Bytes": 5749,
+        "gitProcesses": 6,
+        "fileReadBytes": 659
+      },
+      "fact-record": {
+        "sqlRowsRead": 246,
+        "sha256Calls": 31,
+        "sha256Bytes": 7741,
+        "gitProcesses": 6,
+        "fileReadBytes": 997
+      },
+      "decision-propose": {
+        "sqlRowsRead": 469,
+        "sha256Calls": 29,
+        "sha256Bytes": 17018,
+        "gitProcesses": 6,
+        "fileReadBytes": 2911
+      },
+      "decision-reject": {
+        "sqlRowsRead": 501,
+        "sha256Calls": 42,
+        "sha256Bytes": 29393,
+        "gitProcesses": 6,
+        "fileReadBytes": 8386
+      },
+      "relation-relate": {
+        "sqlRowsRead": 301,
+        "sha256Calls": 27,
+        "sha256Bytes": 5905,
+        "gitProcesses": 6,
+        "fileReadBytes": 495
+      },
+      "receipt-show": {
+        "sqlRowsRead": 38,
+        "sha256Calls": 6,
+        "sha256Bytes": 10380,
+        "gitProcesses": 0,
+        "fileReadBytes": 0
+      },
+      "task-list": {
+        "sqlRowsRead": 144,
+        "sha256Calls": 1,
+        "sha256Bytes": 213,
+        "gitProcesses": 0,
+        "fileReadBytes": 164
+      },
+      "task-show": {
+        "sqlRowsRead": 601,
+        "sha256Calls": 0,
+        "sha256Bytes": 0,
+        "gitProcesses": 0,
+        "fileReadBytes": 164
+      },
+      "agenda": {
+        "sqlRowsRead": 181,
+        "sha256Calls": 0,
+        "sha256Bytes": 0,
+        "gitProcesses": 0,
+        "fileReadBytes": 0
+      },
+      "runtime-overview": {
+        "sqlRowsRead": 150,
+        "sha256Calls": 0,
+        "sha256Bytes": 0,
+        "gitProcesses": 0,
+        "fileReadBytes": 0
+      }
+    },
+    "knownScaling": [
+      {
+        "operation": "task-start",
+        "metric": "sqlRowsRead",
+        "reason": "task-start admits WIP through assertTaskWipCapacity -> wipSnapshotEntries (daemon repo-cell-task-query.ts), and projection.list() (kernel projection/rebuildable-task-projection-reads.ts listProjection) reads the whole task index (SELECT task_snapshot.task_id AS task_id, task_package.package_path ... FROM task_snapshot LEFT JOIN task_package LEFT JOIN task_generation ORDER BY task_snapshot.task_id) and then one readSnapshot per task (SELECT snapshot_json FROM task_snapshot WHERE task_id = ?, plus relation_edge/entity-freshness reads that list sqlite_master for every task carrying a relation); about 3 rows per task.",
+        "deletionTaskId": "task_2b8f79fa4412cb726a26f9bfc7",
+        "expiresAt": "2026-09-24T00:00:00.000Z"
+      },
+      {
+        "operation": "decision-propose",
+        "metric": "sqlRowsRead",
+        "reason": "entity-action-catalog-executor.ts compileDraft calls projection.readDecisionGraph() only to keep the edges owned by this one decision; readDecisionGraphRows builds the whole graph including decisionCoverage (kernel projection/decision-projection-coverage.ts), which reads every task (SELECT task_id,json_extract(snapshot_json,'$.task.status') AS status FROM task_snapshot ORDER BY task_id), every fact (SELECT ref FROM fact ORDER BY ref), and every decision, claim, option and relation edge. The replacement-authorization backward scan named in the task plan is now a per-process cache (#2410) and shows only in the first call.",
+        "deletionTaskId": "task_2b8f79fa4412cb726a26f9bfc7",
+        "expiresAt": "2026-09-24T00:00:00.000Z"
+      },
+      {
+        "operation": "decision-reject",
+        "metric": "sqlRowsRead",
+        "reason": "Same path as decision-propose: entity-action-catalog-executor.ts compileDraft calls projection.readDecisionGraph() only to keep the edges owned by this one decision; readDecisionGraphRows builds the whole graph including decisionCoverage (kernel projection/decision-projection-coverage.ts), which reads every task (SELECT task_id,json_extract(snapshot_json,'$.task.status') AS status FROM task_snapshot ORDER BY task_id), every fact (SELECT ref FROM fact ORDER BY ref), and every decision, claim, option and relation edge.",
+        "deletionTaskId": "task_2b8f79fa4412cb726a26f9bfc7",
+        "expiresAt": "2026-09-24T00:00:00.000Z"
+      },
+      {
+        "operation": "task-list",
+        "metric": "sqlRowsRead",
+        "reason": "task-list --limit 3 still reads the whole task index: listTasks (daemon repo-cell-task-query.ts) calls projection.readTaskIndex() -> readTaskIndexRows (kernel projection/task-query-projection.ts: SELECT task_snapshot.task_id, task_package.package_path, task_snapshot.updated_at, task_snapshot.snapshot_json FROM task_snapshot LEFT JOIN task_package USING(task_id) ORDER BY task_snapshot.task_id) and selectTaskIndex applies the limit in memory; one row per task.",
+        "deletionTaskId": "task_2b8f79fa4412cb726a26f9bfc7",
+        "expiresAt": "2026-09-24T00:00:00.000Z"
+      },
+      {
+        "operation": "task-show",
+        "metric": "sqlRowsRead",
+        "reason": "taskShowFromProjection (daemon repo-cell-completion.ts) defaults directChildCount to projection.list().rows.filter(parentTaskId === taskId) just to count one task's children, and projection.list() (kernel projection/rebuildable-task-projection-reads.ts listProjection) reads the whole task index (SELECT task_snapshot.task_id AS task_id, task_package.package_path ... FROM task_snapshot LEFT JOIN task_package LEFT JOIN task_generation ORDER BY task_snapshot.task_id) and then one readSnapshot per task (SELECT snapshot_json FROM task_snapshot WHERE task_id = ?, plus relation_edge/entity-freshness reads that list sqlite_master for every task carrying a relation); about 3 rows per task.",
+        "deletionTaskId": "task_2b8f79fa4412cb726a26f9bfc7",
+        "expiresAt": "2026-09-24T00:00:00.000Z"
+      },
+      {
+        "operation": "runtime-overview",
+        "metric": "sqlRowsRead",
+        "reason": "workspaceSummaryFromProjection -> projection.readWorkspaceSummary() -> readWorkspaceSummaryRows (kernel projection/workspace-summary-projection.ts) reads every task (SELECT task_id, status, COALESCE(json_extract(snapshot_json, '$.task.packageDisposition'), 'active') AS package_disposition FROM task_snapshot ORDER BY task_id) and every decision (SELECT decision_id, state FROM decision ORDER BY decision_id) to count them in memory.",
+        "deletionTaskId": "task_2b8f79fa4412cb726a26f9bfc7",
+        "expiresAt": "2026-09-24T00:00:00.000Z"
+      }
+    ]
   }
 }
