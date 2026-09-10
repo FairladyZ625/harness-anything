@@ -9,16 +9,7 @@ import { sha256Text } from "../integrity/stable-hash.ts";
 import type { EventContentPrefetch, EventStreamPort } from "./rebuildable-task-projection-types.ts";
 import type { ProjectionApplyReceipt } from "./projection-reads.ts";
 import { applyEvent } from "./rebuildable-task-projection-event-application.ts";
-import {
-  isAtSourceCut,
-  parseEventJson,
-  queryRows,
-  readStateDigest,
-  refreshStateDigestAtSourceCut,
-  runSql,
-  transaction,
-  watermark,
-} from "./rebuildable-task-projection-sql.ts";
+import { parseEventJson, queryRows, runSql, transaction, watermark } from "./rebuildable-task-projection-sql.ts";
 export type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
 export type { TaskProjection } from "./task-projection-port.ts";
 
@@ -29,7 +20,6 @@ export function reduceBatch(
   events: readonly CanonicalEventV1[],
   limit: number,
   readBlob: EventStreamPort["readContentBlob"],
-  sourceRevision: number,
 ): ProjectionApplyReceipt {
   return transaction(db, () => {
     for (const event of events) stageEvent(db, event);
@@ -54,10 +44,6 @@ export function reduceBatch(
         `sha256:${sha256Text(serializePersistedCanonicalEvent(last))}`,
       );
     }
-    runSql(db, "UPDATE projection_meta SET state_digest = NULL WHERE singleton = 1");
-    // A successful writer apply owns this complete cut. Persist its digest in the same SQLite
-    // transaction so a subsequent serving read never has to perform a catch-up write.
-    if (isAtSourceCut(db, sourceRevision)) refreshStateDigestAtSourceCut(db, sourceRevision);
     return { metrics: { sqliteTransactions: 1, reducedItems } };
   });
 }
@@ -88,26 +74,14 @@ export function catchUpRound(
     /* @gate-identity check-bypass-write-boundary/bypass-write-003 */
     db.prepare("SELECT 1 AS present FROM event_source WHERE workspace_revision > ? LIMIT 1").get(watermark(db)) !==
     undefined;
-  if (batch === null && !hasDeferred) {
-    const current = watermark(db);
-    if (readStateDigest(db) !== null || !isAtSourceCut(db, sourceRevision))
-      return {
-        sourceRevision,
-        watermark: current,
-        reducedItems: 0,
-        accessedItems: 0,
-        sqliteTransactions: 0,
-      };
-    const digest = transaction(db, () => refreshStateDigestAtSourceCut(db, sourceRevision));
-    if (digest === null) throw new Error("projection digest refresh lost its source-complete cut");
+  if (batch === null && !hasDeferred)
     return {
       sourceRevision,
-      watermark: current,
+      watermark: watermark(db),
       reducedItems: 0,
       accessedItems: 0,
-      sqliteTransactions: 1,
+      sqliteTransactions: 0,
     };
-  }
   // A complete source scan proves that an absent revision is a permanent hole in this
   // ledger. Before that point, keep strict continuity so a later batch can still supply it.
   const allowRevisionGaps = batch === null || batch.done;
@@ -132,9 +106,7 @@ export function catchUpRound(
         );
       else runSql(db, "UPDATE projection_meta SET scan_cursor = ? WHERE singleton = 1", batch.cursor);
     }
-    const reduced = drainDeferred(db, limit, (sha256) => prefetchedContent.get(sha256) ?? null, allowRevisionGaps);
-    runSql(db, "UPDATE projection_meta SET state_digest = NULL WHERE singleton = 1");
-    return reduced;
+    return drainDeferred(db, limit, (sha256) => prefetchedContent.get(sha256) ?? null, allowRevisionGaps);
   });
   return {
     sourceRevision,
