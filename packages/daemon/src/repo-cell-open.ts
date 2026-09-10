@@ -791,7 +791,10 @@ export async function openRepoWriterCell(
           execution.iteration === snapshot.task?.iteration &&
           execution.state === "active",
       )?.executionId;
-    if (lease?.phase === "held" && !isSameExecution(lease.actor, runtimeBinding.actor)) {
+    if (
+      (lease?.phase === "held" || lease?.phase === "orphaned") &&
+      !isSameExecution(lease.actor, runtimeBinding.actor)
+    ) {
       const heldRuntimeSessionId =
           lease.actor.executor?.kind === "agent" && lease.actor.executor.id.startsWith("runtime-session:")
             ? lease.actor.executor.id.slice("runtime-session:".length)
@@ -801,7 +804,10 @@ export async function openRepoWriterCell(
           heldRuntimeSessionId !== null &&
           heldRuntimeSessionId === fromRuntimeSessionId &&
           isSamePerson(lease.actor, binding.actor);
-      if (!dispatcherOwnsLease && !trustedRuntimeHandoff)
+      // An orphaned lease's holder session has already ended (it is definitionally past
+      // expiresAt), so any dispatcher may reclaim it; the ownership check below only
+      // guards a still-live held lease against being stolen from its active holder.
+      if (lease.phase === "held" && !dispatcherOwnsLease && !trustedRuntimeHandoff)
         throw cellCodedError(
           "lease_conflict",
           `Task ${taskId} is held by another RuntimeSession; wait for it to settle before dispatching again.`,

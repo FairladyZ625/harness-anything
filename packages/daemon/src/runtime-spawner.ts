@@ -258,7 +258,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         dispatchLeaseExecutor = `runtime-session:${runtimeSessionId}`,
         trustedSourceExecutor = trustedHandoffSource ? `runtime-session:${trustedHandoffSource}` : null;
       const leaseQualifies =
-        leaseAtAdmission === null || leaseAtAdmission.phase === "released"
+        leaseAtAdmission === null || leaseAtAdmission.phase === "released" || leaseAtAdmission.phase === "orphaned"
           ? input.handoffTaskLease !== undefined
           : leaseAtAdmission.phase === "held" &&
             isSamePerson(leaseAtAdmission.actor, binding.actor) &&
