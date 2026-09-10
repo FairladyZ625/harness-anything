@@ -1,0 +1,16 @@
+{
+  "enabled": false,
+  "note": "Bounded V2 scale measurement. Left disabled so the integration tier stays cheap; an operator enables it for one dispatched measurement run.",
+  "seed": 1103,
+  "repoId": "v2-scale",
+  "targetEntities": 1000,
+  "clients": 8,
+  "cliProbeSamples": 30,
+  "contentSamples": 5,
+  "binaryBytes": 4096,
+  "largeBytes": 1048576,
+  "populateBudgetMs": 300000,
+  "stageBudgetMs": 1140000,
+  "stage": "disabled",
+  "concurrentRounds": 5
+}
