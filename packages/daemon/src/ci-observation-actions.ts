@@ -90,7 +90,14 @@ export async function pullAndIngestCiObservations(
       };
       const { status: runLifecycleState } = summary;
       // Publish immutable observations only for main runs that have a final conclusion.
-      if (summary.headBranch !== "main" || runLifecycleState !== "completed") continue;
+      if (summary.headBranch !== "main" || runLifecycleState !== "completed") {
+        if (namedRuns)
+          throw cell.cellCodedError(
+            "invalid_command",
+            `CI run ${run.databaseId} is ${runLifecycleState} on ${summary.headBranch}; only completed main runs can be imported.`,
+          );
+        continue;
+      }
       const runRoot = path.join(temporaryRoot, String(run.databaseId));
       try {
         await runGh(

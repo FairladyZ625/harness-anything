@@ -385,14 +385,24 @@ test("CI observation pull imports named main runs without listing recent runs", 
   try {
     const receipt = await pullAndIngestCiObservations(
       cell as never,
-      { kind: "ci-observe-pull", runs: ["700", "701"] },
+      { kind: "ci-observe-pull", runs: ["700"] },
       { actor, source: "local" },
       runGh,
     );
-    assert.deepEqual(calls, ["view:700", "download:700", "view:701"]);
+    assert.deepEqual(calls, ["view:700", "download:700"]);
     assert.equal(events.length, 1);
     assert.equal(events[0]?.payload.verification?.headSha, "sha-700");
-    assert.equal(JSON.parse(receipt.evidence).requestedRuns, 2);
+    assert.equal(JSON.parse(receipt.evidence).requestedRuns, 1);
+    await assert.rejects(
+      pullAndIngestCiObservations(
+        cell as never,
+        { kind: "ci-observe-pull", runs: ["701"] },
+        { actor, source: "local" },
+        runGh,
+      ),
+      /CI run 701 is completed on codex\/feature; only completed main runs can be imported\./u,
+    );
+    assert.equal(events.length, 1);
     await assert.rejects(
       pullAndIngestCiObservations(
         cell as never,
