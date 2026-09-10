@@ -41,6 +41,8 @@ import { readAgentEntityGuiProjection } from "./agent-entities.ts";
 import {
   canonicalVertical,
   compiledArtifactKinds,
+  prepareArtifactEntityImportSource,
+  artifactImportSourceResolution,
   readCurrentArtifact,
   resolveEntityReadKind,
 } from "./artifact-entity-action.ts";
@@ -418,6 +420,25 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
             ),
           (error) => failAction(error, durable ? authorizeAtCurrentCut()! : undefined),
         );
+    if (action.kind === "entity-import")
+      return Promise.resolve()
+        .then(() =>
+          prepareArtifactEntityImportSource({
+            rootDir: context.rootDir,
+            repositoryId: context.input.repoId,
+            action,
+            projection: context.projection,
+          }),
+        )
+        .then((sourceResolution) =>
+          enqueuePublication((authorizationDecision) =>
+            context.executeAction(
+              { ...action, [artifactImportSourceResolution]: sourceResolution },
+              authorizationDecision ? { ...binding, authorizationDecision } : binding,
+            ),
+          ),
+        )
+        .catch((error) => failAction(error, durable ? authorizeAtCurrentCut()! : undefined));
     return enqueuePublication((authorizationDecision) =>
       context.executeAction(action, authorizationDecision ? { ...binding, authorizationDecision } : binding),
     );

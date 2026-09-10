@@ -46,7 +46,12 @@ import {
   matchingRuntimeSessionReplayBundle,
   type RuntimeSessionBundle,
 } from "./entity-action-runtime-session.ts";
-import { executeArtifactEntityImport, executeArtifactEntityMutation } from "./artifact-entity-action.ts";
+import {
+  executeArtifactEntityImport,
+  executeArtifactEntityMutation,
+  artifactImportSourceResolution,
+  type ArtifactSourceResolution,
+} from "./artifact-entity-action.ts";
 import { executeRelationAction, publicationKillpoints, reject } from "./entity-action-relation.ts";
 
 type ExecutableAction = EntityActionContract & { readonly execution: EntityActionExecutionContract };
@@ -70,6 +75,7 @@ export interface EntityActionCatalogRuntimes {
   readonly entity?: Readonly<Record<string, EntityActionCatalogRunner>>;
   readonly task?: EntityActionCatalogRunner;
   readonly prepare?: Readonly<Record<string, EntityActionCatalogPreparer>>;
+  readonly artifactImportSourceResolution?: ArtifactSourceResolution;
 }
 
 export function makeEntityActionCatalogExecutor(input: {
@@ -129,6 +135,11 @@ export function makeEntityActionCatalogExecutor(input: {
         projection: input.projection,
         now: input.now,
         authorizationDecision,
+        sourceResolution:
+          runtimes.artifactImportSourceResolution ??
+          (action as RepoTaskAction & { readonly [artifactImportSourceResolution]?: ArtifactSourceResolution })[
+            artifactImportSourceResolution
+          ],
       }).then((result) => deriveActionResult(result.contract, result.action, result.receipt));
     }
     if (action.kind === "entity-update" || action.kind === "entity-archive" || action.kind === "entity-delete") {

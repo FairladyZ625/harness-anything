@@ -4,6 +4,7 @@ import path from "node:path";
 import {
   ArtifactEntityServiceError,
   makeArtifactEntityService,
+  resolveArtifactLocator,
   readArtifactDescriptor,
   type ArtifactEntityCurrent,
   type ArtifactSourceResolution,
@@ -52,6 +53,8 @@ import { requireCanonicalVerticalDeclaration, type VerticalDeclarationReader } f
 
 const compiledVerticals = new Map<string, CompiledVerticalContract>(),
   compiledDirections = new Map<string, readonly CanonicalRelationDirection[]>();
+export const artifactImportSourceResolution = Symbol("artifactImportSourceResolution");
+const ARTIFACT_SOURCE_FETCH_TIMEOUT_MS = 10_000;
 /** `entityId` is null only for a dry run of material the center has never accepted; nothing is minted then. */
 type ArtifactImportReceipt = WriteReceipt & { readonly entityId: string | null };
 
@@ -131,6 +134,25 @@ export function resolveArtifactImportAction(
   return contract?.entityKindContract.actionCatalog?.actions.find(({ id }) => id === "import") ?? null;
 }
 
+export async function prepareArtifactEntityImportSource(input: {
+  readonly rootDir: string;
+  readonly repositoryId: string;
+  readonly action: RepoTaskAction;
+  readonly projection: VerticalDeclarationReader;
+}): Promise<ArtifactSourceResolution> {
+  const contract = findArtifactKindContract(
+    requiredArtifactText(input.action.entityKind, "entityKind"),
+    compiledArtifactKinds(input.projection, input.repositoryId),
+  );
+  if (!contract)
+    throw new ArtifactEntityServiceError(
+      "entity_kind_not_found",
+      `Artifact kind ${String(input.action.entityKind)} is not declared.`,
+    );
+  const locator = resolveArtifactLocator(requiredArtifactText(input.action.locator, "locator"), contract);
+  return resolveArtifactSource({ rootDir: input.rootDir, repositoryId: input.repositoryId, locator, contract });
+}
+
 export async function executeArtifactEntityImport(input: {
   readonly rootDir: string;
   readonly repositoryId: string;
@@ -140,6 +162,7 @@ export async function executeArtifactEntityImport(input: {
   readonly projection: TaskProjection;
   readonly now: () => string;
   readonly authorizationDecision: AuthorizationDecision;
+  readonly sourceResolution?: ArtifactSourceResolution;
 }): Promise<{
   readonly action: RepoTaskAction;
   readonly contract: EntityActionContract;
@@ -351,10 +374,12 @@ export async function runArtifactEntityImport(input: {
   readonly projection: TaskProjection;
   readonly now: () => string;
   readonly authorizationDecision: AuthorizationDecision;
+  readonly sourceResolution?: ArtifactSourceResolution;
 }): Promise<ArtifactImportReceipt> {
   const service = makeArtifactEntityService({
       contracts: input.contracts,
       resolveSource: (locator, contract) =>
+        input.sourceResolution ??
         resolveArtifactSource({
           rootDir: input.rootDir,
           repositoryId: input.repositoryId,
@@ -477,8 +502,22 @@ async function resolveArtifactSource(input: {
     };
   }
   if (locator.kind === "url") {
-    const response = await fetch(locator.value, { redirect: "follow" }),
-      source = { kind: "url" as const, url: locator.value };
+    const controller = new AbortController(),
+      timeout = setTimeout(() => controller.abort(), ARTIFACT_SOURCE_FETCH_TIMEOUT_MS);
+    let response: Response;
+    try {
+      response = await fetch(locator.value, { redirect: "follow", signal: controller.signal });
+    } catch (error) {
+      if (controller.signal.aborted)
+        throw new ArtifactEntityServiceError(
+          "source_resolution_timeout",
+          `URL resolver timed out after ${ARTIFACT_SOURCE_FETCH_TIMEOUT_MS} ms.`,
+        );
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
+    const source = { kind: "url" as const, url: locator.value };
     const code = response.status;
     if (code === 404 || code === 410) return { status: "missing", source, reason: `HTTP ${code}`, resolver: "http" };
     if (!response.ok) throw new Error(`URL resolver returned HTTP ${response.status}.`);

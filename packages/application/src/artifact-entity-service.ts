@@ -102,7 +102,12 @@ export interface PreparedArtifactEntityImport {
 }
 
 export class ArtifactEntityServiceError extends Error {
-  readonly code: "entity_kind_not_found" | "invalid_command" | "revision_conflict" | "source_resolution_failed";
+  readonly code:
+    | "entity_kind_not_found"
+    | "invalid_command"
+    | "revision_conflict"
+    | "source_resolution_failed"
+    | "source_resolution_timeout";
 
   constructor(code: ArtifactEntityServiceError["code"], message: string) {
     super(message);
@@ -145,7 +150,7 @@ export function makeArtifactEntityService(options: {
       throw new ArtifactEntityServiceError("entity_kind_not_found", `Artifact kind ${request.kind} is not compiled.`);
     if (!Number.isSafeInteger(request.expectedVersion) || request.expectedVersion < 0)
       throw new ArtifactEntityServiceError("invalid_command", "expectedVersion must be a non-negative integer.");
-    const locator = resolveLocator(request.locator, contract),
+    const locator = resolveArtifactLocator(request.locator, contract),
       resolution = await resolveAuthoritatively(options.resolveSource, locator, contract),
       resolvedSourceIdentity = canonicalSourceIdentity(resolution.source),
       sourceIdentity = request.sourceIdentity ?? resolvedSourceIdentity;
@@ -302,7 +307,7 @@ function mintedBytes(bytes: Uint8Array): Uint8Array {
   return bytes;
 }
 
-function resolveLocator(value: string, contract: CompiledArtifactKindContract): ArtifactLocator {
+export function resolveArtifactLocator(value: string, contract: CompiledArtifactKindContract): ArtifactLocator {
   const allowed = contract.declaration.locatorKinds,
     inferred = /^https?:\/\//iu.test(value)
       ? "url"
