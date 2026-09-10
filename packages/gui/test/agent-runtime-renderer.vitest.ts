@@ -611,6 +611,7 @@ describe("agent runtime renderer", () => {
       "Lead the squad. Decide before dispatch.",
       "commander",
       "claude",
+      "zcode",
       "review",
       "triage",
       "daily-plan",

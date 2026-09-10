@@ -118,7 +118,7 @@
   "agentRuntime.dispatchWithPrompt": "用这条派活",
   "agentRuntime.runtimeConstraint": "Runtime 约束",
   "agentRuntime.runtimeConstraintDesc": "只声明类型,不绑定实例 —— 派活时再分配",
-  "agentRuntime.runtimeConstraintNote": "Agent 定义不绑定具体 Runtime 实例。同一个角色可以跑在 claude、codex 或 agy 上。",
+  "agentRuntime.runtimeConstraintNote": "Agent 定义不绑定具体 Runtime 实例。同一个角色可以跑在 claude、codex、agy 或 zcode 上。",
   "agentRuntime.anyRuntime": "任意兼容",
   "agentRuntime.expand": "展开",
   "agentRuntime.collapse": "收起",
