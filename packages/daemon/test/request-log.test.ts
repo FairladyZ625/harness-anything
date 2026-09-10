@@ -65,7 +65,7 @@ function openServerWithLog(rootDir: string, host: DaemonHost = stubHost(rootDir)
   const log = openDaemonRequestLog({
     resolveRootDir: (repoId) => host.status().repos.find((repo) => repo.repoId === repoId)?.rootDir,
   });
-  return createJsonRpcProtocolServer({
+  const server = createJsonRpcProtocolServer({
     host,
     build: { commit: null },
     authContext: {
@@ -75,6 +75,7 @@ function openServerWithLog(rootDir: string, host: DaemonHost = stubHost(rootDir)
     emit: async () => undefined,
     recordRequest: log.record,
   });
+  return Object.assign(server, { requestLog: log });
 }
 
 test("a repo-scoped read request is recorded in the repository local root", async () => {
@@ -91,7 +92,8 @@ test("a repo-scoped read request is recorded in the repository local root", asyn
     },
   });
   server.close();
-
+  await server.requestLog.settle();
+  await server.requestLog.settle();
   const records = readRecords(rootDir);
   assert.equal(records.length, 1);
   const [record] = records;
@@ -135,6 +137,7 @@ test("the declared agent executor is recorded so a request can be attributed to 
     },
   });
   server.close();
+  await server.requestLog.settle();
 
   assert.deepEqual(readRecords(rootDir)[0].executor, { kind: "agent", id: "codex-worker" });
 });
@@ -150,6 +153,7 @@ test("requests from one connection share a connection id", async () => {
   await server.handle({ jsonrpc: "2.0", id: 2, method: "repo.task.read", params: payload });
   await server.handle({ jsonrpc: "2.0", id: 3, method: "repo.task.read", params: payload });
   server.close();
+  await server.requestLog.settle();
 
   const records = readRecords(rootDir);
   assert.equal(records.length, 2);
@@ -181,6 +185,7 @@ test("a rejected request is recorded with its error code", async () => {
     },
   });
   server.close();
+  await server.requestLog.settle();
 
   const records = readRecords(rootDir);
   assert.equal(records.length, 1);
@@ -195,15 +200,17 @@ test("a request that binds no repository is not recorded", async () => {
   await handshake(server);
   await server.handle({ jsonrpc: "2.0", id: 2, method: "daemon.status", params: {} });
   server.close();
+  await new Promise((resolve) => setImmediate(resolve));
 
   // protocol.hello and daemon.status have no repository whose local root could hold the record.
   assert.equal(readdirSync(rootDir).length, 0);
 });
 
-test("rotation holds the log to a bounded number of files", () => {
+test("rotation holds the log to a bounded number of files", async () => {
   const rootDir = tempRoot();
   const log = openDaemonRequestLog({ resolveRootDir: () => rootDir, maxBytes: 512, keptFiles: 2 });
   for (let index = 0; index < 400; index += 1) log.record(entry({ opId: `op_${index}` }));
+  await log.settle();
 
   const logDir = path.dirname(daemonRequestLogPath(rootDir)),
     files = readdirSync(logDir).sort();
@@ -215,7 +222,7 @@ test("rotation holds the log to a bounded number of files", () => {
   assert.equal(live.at(-1)?.opId, "op_399");
 });
 
-test("a sink that cannot write neither throws nor keeps reporting", () => {
+test("a sink that cannot write neither throws nor keeps reporting", async () => {
   const rootDir = tempRoot();
   // A file where the log directory must be: mkdir fails for every record.
   mkdirSync(path.join(rootDir, ".harness"), { recursive: true });
@@ -228,6 +235,7 @@ test("a sink that cannot write neither throws nor keeps reporting", () => {
     log.record(entry({}));
     log.record(entry({}));
   });
+  await log.settle();
   // Reported once, then silent: an observability sink must not become a log spammer either.
   assert.equal(failures.length, 1);
 });

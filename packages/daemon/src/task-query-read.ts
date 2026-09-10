@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { statSync } from "node:fs";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import {
@@ -13,6 +14,7 @@ import {
   taskRisk,
   taskVisibility,
   workspaceTaskStatus,
+  resolveHarnessLayout,
   type FreshnessReason,
   type FreshnessReasonInput,
   type ProjectedExecution,
@@ -66,6 +68,17 @@ export function makeTaskQueryReadModel(input: {
   const { rootDir, projection, judgments } = input,
     closeout = judgments.closeout,
     blocking = judgments.blocking;
+  let runtimeEdgesMtime = -1;
+  let runtimeEdgesHeaders: readonly DispatchStreamHeader[] = [];
+  function cachedRuntimeEdges() {
+    const dispatchRoot = path.join(resolveHarnessLayout(rootDir).localRoot, "runtime", "dispatches"),
+      mtime = statSync(dispatchRoot, { throwIfNoEntry: false })?.mtimeMs ?? 0;
+    if (mtime !== runtimeEdgesMtime) {
+      runtimeEdgesMtime = mtime;
+      runtimeEdgesHeaders = readDispatchStreamHeaders(rootDir);
+    }
+    return runtimeDispatchEdges(runtimeEdgesHeaders);
+  }
   function relationGraphNeighborhood(query: TaskRelationNeighborhoodQuery): DaemonRelationGraphFullResult {
     return relationGraphFromRead(projection.readTaskRelationNeighborhood(query), "relation graph neighborhood");
   }
@@ -76,7 +89,7 @@ export function makeTaskQueryReadModel(input: {
         ok: true,
         facet: "runtimeEdges",
         ...emptyRows,
-        edges: runtimeDispatchEdges(readDispatchStreamHeaders(rootDir)),
+        edges: cachedRuntimeEdges(),
         warnings: [],
       };
     }

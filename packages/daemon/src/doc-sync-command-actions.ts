@@ -6,7 +6,6 @@ import {
   classifyTextualArtifactPath,
   DOC_SYNC_INLINE_MAX_BYTES,
   documentPath,
-  isDocEvent,
   ledgerGitPath,
   parseDocWriteIntent,
   RAW_ARTIFACT_MAX_BYTES,
@@ -38,7 +37,7 @@ import {
   requiredDocSyncText,
 } from "./doc-sync-files.ts";
 import { publishDocIntent } from "./doc-sync-publication.ts";
-import { readAction, readDocReceipt } from "./doc-sync-reads.ts";
+import { readAction } from "./doc-sync-reads.ts";
 import { noOp, scanDetail, scannerSettlement } from "./doc-sync-settlement.ts";
 import type { FleetAssignmentScope } from "./fleet/contract.ts";
 
@@ -444,22 +443,6 @@ function publishTaskArtifactBytes(
       `destination is a tracked edit; use ha doc sync --submit --path ${destination}`,
     );
   if (tracked || (existsSync(authoredTarget) && !sameUntrackedSource) || projected.document !== null) {
-    const sha = sha256Bytes(bytes),
-      replay =
-        existsSync(authoredTarget) &&
-        projected.document?.blobSha256 === sha &&
-        sha256Bytes(readFileSync(authoredTarget)) === sha
-          ? input.store
-              .read()
-              .events.findLast(
-                (event) =>
-                  isDocEvent(event) &&
-                  event.payload.changes.some(
-                    (change) => change.path === destination && change.candidate?.sha256 === sha,
-                  ),
-              )
-          : undefined;
-    if (replay && isDocEvent(replay)) return { ...readDocReceipt(input, replay), destination };
     throw docSyncError("artifact_collision", `artifact destination already exists: ${destination}`);
   }
   if (projected.watermark !== projected.sourceRevision)

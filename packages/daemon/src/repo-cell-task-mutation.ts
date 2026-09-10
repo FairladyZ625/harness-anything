@@ -13,7 +13,7 @@ import {
   type TaskEventV1,
   type TaskV2,
 } from "../../kernel/src/index.ts";
-import { readDispatchStreamHeaders, readDispatchStreamSummary } from "./dispatch-stream.ts";
+import { readDispatchLiveIndex, readDispatchStreamSummary } from "./dispatch-stream.ts";
 import { runtimePidIsAlive } from "./runtime-spawn-process.ts";
 import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 import type { RepoCellActionContext } from "./repo-cell-action-context.ts";
@@ -324,9 +324,9 @@ function terminalExecutionRuntimeBinding(
   const inferredTerminalSessionIds =
     runtimeSessionId === null
       ? new Set(
-          readDispatchStreamHeaders(cell.rootDir)
-            .filter((header) => header.taskId === lease.taskId && header.executionId === lease.executionId)
-            .map((header) => readDispatchStreamSummary(cell.rootDir, header.dispatchId))
+          readDispatchLiveIndex(cell.rootDir, [lease.taskId])
+            .entries.map((entry) => readDispatchStreamSummary(cell.rootDir, entry.dispatchId))
+            .filter((stream) => stream?.header.executionId === lease.executionId)
             .filter(
               (stream) =>
                 stream !== null && (dispatchReachedTerminalAttempt(stream) || dispatchProcessIsOrphaned(stream)),

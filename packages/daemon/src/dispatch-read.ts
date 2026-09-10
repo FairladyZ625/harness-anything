@@ -228,7 +228,9 @@ export function readRuntimeAttemptChain(
   const groupId = attemptGroupId(target),
     attempts = headers
       .filter(
-        (header) => header.dispatchId === targetHeader.dispatchId || header.fallbackAttempt?.attemptGroupId === groupId,
+        (header) =>
+          header.taskId === targetHeader.taskId &&
+          (header.dispatchId === targetHeader.dispatchId || header.fallbackAttempt?.attemptGroupId === groupId),
       )
       .map((header) => readDispatchStreamSummary(rootDir, header.dispatchId))
       .filter((stream): stream is NonNullable<ReturnType<typeof readDispatchStream>> => stream !== null)

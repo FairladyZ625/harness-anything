@@ -61,6 +61,7 @@ export async function startDaemon(input: {
   // Connection- and request-level traffic sink; async by design so the socket hot path never waits on disk.
   const connLog = openDaemonConnLog({ userRoot: input.userRoot, daemonId: input.daemonId });
   let host: Awaited<ReturnType<typeof openDaemonHost>> | undefined,
+    requestLog: ReturnType<typeof openDaemonRequestLog> | null = null,
     transport: ReturnType<typeof createUnixSocketTransportServer> | undefined,
     stopPromise: Promise<void> | null = null,
     activeRequests = 0,
@@ -101,6 +102,7 @@ export async function startDaemon(input: {
         lifecycle.record({ event: "process_exit", outcome });
         await settleTeardownStep(() => transport!.stop());
         await settleTeardownStep(() => connLog.settle());
+        await settleTeardownStep(() => requestLog?.settle() ?? Promise.resolve());
         // Same shape for the pid file: an unremovable pid file must not strand the lock behind it.
         await settleTeardownStep(async () => rmSync(pidPath, { force: true }));
         singleton.release();
@@ -132,7 +134,7 @@ export async function startDaemon(input: {
   try {
     host = await openDaemonHost({ ...input, endpoint, recordLifecycle });
     // One sink for the daemon; the protocol server is created per connection and reports into it.
-    const requestLog = openDaemonRequestLog({
+    requestLog = openDaemonRequestLog({
       resolveRootDir: (repoId) => host!.status().repos.find((repo) => repo.repoId === repoId)?.rootDir,
     });
     transport = createUnixSocketTransportServer({
@@ -146,7 +148,7 @@ export async function startDaemon(input: {
           authContext: { ...authContext, connectionSignal: signal },
           emit,
           connectionId: connLog.connectionOpened(connectionId, authContext.transportKind),
-          recordRequest: requestLog.record,
+          recordRequest: requestLog!.record,
           recordTraffic: connLog.request,
           buildDrainStatus,
           stopping: () => stopping,
