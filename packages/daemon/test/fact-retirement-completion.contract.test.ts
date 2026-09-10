@@ -34,74 +34,7 @@ test("task complete rejects an undeclared upstream Fact and persists a still-hol
     initRepo(rootDir);
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "fact-retirement" });
     await reachGreenInReview(cell, rootDir, taskId, executionId);
-    const upstream = (await cell.run(
-        {
-          kind: "fact-record",
-          statement: "The completion loop leaves motivating Facts standing without a disposition.",
-          evidenceSource: "test:fact-retirement",
-          confidence: "high",
-          memoryClass: "semantic",
-          memoryTags: [],
-        },
-        binding,
-      )) as unknown as Record<string, unknown>,
-      factRef = `fact/${String(upstream.factId)}`,
-      proposed = await cell.run(
-        {
-          kind: "decision-propose",
-          jsonInput: JSON.stringify({
-            title: "Require Fact retirement disposition",
-            question: "How should completion close the motivating Fact loop?",
-            riskTier: "high",
-            urgency: "high",
-            vertical: "software/coding",
-            preset: "standard-task",
-            decisionClass: "ordinary",
-            appliesTo: { modules: ["daemon"], productLines: ["harness-anything"] },
-            chosen: [{ id: "CH1", text: "Gate completion on explicit disposition" }],
-            rejected: [{ id: "RJ1", text: "Leave it manual", whyNot: "That leaves the loop open" }],
-            claims: [{ id: "C1", text: "The loop is currently open", loadBearing: true }],
-            fulfillments: [{ claimId: "C1", mode: "evidenced" }],
-          }),
-        },
-        binding,
-      ),
-      decisionId = (JSON.parse(String(proposed.evidence)) as { readonly decisionId: string }).decisionId;
-    assert.equal(
-      (
-        await cell.run(
-          {
-            kind: "relation-relate",
-            sourceRef: `decision/${decisionId}/CH1`,
-            relationType: "derives",
-            targetRef: `task/${taskId}`,
-            rationale: "The chosen gate is implemented by this task.",
-            expectedVersion: 0,
-          },
-          binding,
-        )
-      ).outcome,
-      "applied",
-    );
-    assert.equal(
-      (
-        await cell.run(
-          {
-            kind: "relation-relate",
-            sourceRef: `decision/${decisionId}/C1`,
-            relationType: "evidenced-by",
-            targetRef: factRef,
-            rationale: "The observed open loop motivates the gate.",
-            expectedVersion: 0,
-          },
-          binding,
-        )
-      ).outcome,
-      "applied",
-    );
-    const relationReceipt = await cell.run({ kind: "relation-list" }, binding);
-    assert.match(String(relationReceipt.evidence), new RegExp(`decision/${decisionId}/CH1.*task/${taskId}`, "u"));
-    assert.match(String(relationReceipt.evidence), new RegExp(`decision/${decisionId}/C1.*${factRef}`, "u"));
+    const { factRef, decisionId } = await linkUpstreamFact(cell, taskId);
 
     const blocked = (await cell.run({ kind: "task-complete", taskId, executionId }, binding)) as unknown as Record<
       string,
@@ -149,6 +82,113 @@ test("task complete rejects an undeclared upstream Fact and persists a still-hol
     await removeTemporaryDirectory(rootDir);
   }
 });
+
+test("task complete needs no disposition for an upstream Fact that another Fact already superseded", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-fact-retirement-superseded-")),
+    repoId = workspaceId("fact-retirement-superseded"),
+    taskId = "task_fact_retirement",
+    executionId = "exe_fact_retirement";
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    initRepo(rootDir);
+    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "fact-retirement-superseded" });
+    await reachGreenInReview(cell, rootDir, taskId, executionId);
+    const { factRef } = await linkUpstreamFact(cell, taskId),
+      superseding = await cell.run(
+        {
+          kind: "fact-record",
+          statement: "A later observation replaces the motivating Fact.",
+          evidenceSource: "test:fact-retirement",
+          confidence: "high",
+          memoryClass: "semantic",
+          memoryTags: [],
+          supersedes: { factRef, rationale: "The later observation replaces it." },
+        },
+        binding,
+      );
+    assert.equal(superseding.outcome, "applied", JSON.stringify(superseding));
+    const completed = await cell.run({ kind: "task-complete", taskId, executionId }, binding);
+    assert.equal(completed.outcome, "applied", JSON.stringify(completed));
+  } finally {
+    await cell?.close();
+    await removeTemporaryDirectory(rootDir);
+  }
+});
+
+async function linkUpstreamFact(
+  cell: Awaited<ReturnType<typeof openRepoCell>>,
+  taskId: string,
+): Promise<{ readonly factRef: string; readonly decisionId: string }> {
+  const upstream = (await cell.run(
+      {
+        kind: "fact-record",
+        statement: "The completion loop leaves motivating Facts standing without a disposition.",
+        evidenceSource: "test:fact-retirement",
+        confidence: "high",
+        memoryClass: "semantic",
+        memoryTags: [],
+      },
+      binding,
+    )) as unknown as Record<string, unknown>,
+    factRef = `fact/${String(upstream.factId)}`,
+    proposed = await cell.run(
+      {
+        kind: "decision-propose",
+        jsonInput: JSON.stringify({
+          title: "Require Fact retirement disposition",
+          question: "How should completion close the motivating Fact loop?",
+          riskTier: "high",
+          urgency: "high",
+          vertical: "software/coding",
+          preset: "standard-task",
+          decisionClass: "ordinary",
+          appliesTo: { modules: ["daemon"], productLines: ["harness-anything"] },
+          chosen: [{ id: "CH1", text: "Gate completion on explicit disposition" }],
+          rejected: [{ id: "RJ1", text: "Leave it manual", whyNot: "That leaves the loop open" }],
+          claims: [{ id: "C1", text: "The loop is currently open", loadBearing: true }],
+          fulfillments: [{ claimId: "C1", mode: "evidenced" }],
+        }),
+      },
+      binding,
+    ),
+    decisionId = (JSON.parse(String(proposed.evidence)) as { readonly decisionId: string }).decisionId;
+  assert.equal(
+    (
+      await cell.run(
+        {
+          kind: "relation-relate",
+          sourceRef: `decision/${decisionId}/CH1`,
+          relationType: "derives",
+          targetRef: `task/${taskId}`,
+          rationale: "The chosen gate is implemented by this task.",
+          expectedVersion: 0,
+        },
+        binding,
+      )
+    ).outcome,
+    "applied",
+  );
+  assert.equal(
+    (
+      await cell.run(
+        {
+          kind: "relation-relate",
+          sourceRef: `decision/${decisionId}/C1`,
+          relationType: "evidenced-by",
+          targetRef: factRef,
+          rationale: "The observed open loop motivates the gate.",
+          expectedVersion: 0,
+        },
+        binding,
+      )
+    ).outcome,
+    "applied",
+  );
+  const relationReceipt = await cell.run({ kind: "relation-list" }, binding);
+  assert.match(String(relationReceipt.evidence), new RegExp(`decision/${decisionId}/CH1.*task/${taskId}`, "u"));
+  assert.match(String(relationReceipt.evidence), new RegExp(`decision/${decisionId}/C1.*${factRef}`, "u"));
+  return { factRef, decisionId };
+}
 
 async function reachGreenInReview(
   cell: Awaited<ReturnType<typeof openRepoCell>>,
