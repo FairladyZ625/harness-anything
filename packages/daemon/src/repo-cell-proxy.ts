@@ -344,7 +344,9 @@ export async function openRepoCellProxy(
       } finally {
         replica.close();
         reader.close();
+        // A replaced center can still answer receipts after close; its next read reopens.
         void ledgerReader?.drain();
+        ledgerReader = null;
         await lock.close();
       }
     },
