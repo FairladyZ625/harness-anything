@@ -237,16 +237,17 @@ function livenessRelations(
   targetRefs?: readonly string[],
 ): readonly { readonly targetRef: string; readonly relationType: string; readonly state: string }[] {
   if (targetRefs !== undefined && targetRefs.length === 0) return [];
-  const scoped = targetRefs !== undefined && targetRefs.length <= 900;
-  const where = scoped ? ` WHERE target_ref IN (${targetRefs.map(() => "?").join(",")})` : "";
   return queryRows<{
     readonly targetRef: string;
     readonly relationType: string;
     readonly state: string;
   }>(
     db,
-    `SELECT target_ref AS targetRef, relation_type AS relationType, state FROM relation_edge${where} ORDER BY relation_id`,
-    ...(scoped ? targetRefs : []),
+    "SELECT target_ref AS targetRef, relation_type AS relationType, state FROM relation_edge " +
+      "WHERE state = 'active' AND relation_type = 'supersedes-fact' " +
+      "AND (? IS NULL OR target_ref IN (SELECT value FROM json_each(?))) ORDER BY relation_id",
+    targetRefs === undefined ? null : JSON.stringify(targetRefs),
+    targetRefs === undefined ? null : JSON.stringify(targetRefs),
   );
 }
 function decodeFactRows(db: DatabaseSync, records: readonly FactRecord[]): readonly FactProjectionRow[] {

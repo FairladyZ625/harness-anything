@@ -593,3 +593,111 @@ test("fact search pages concatenate to the full result, honor windows, and keep 
     db.close();
   }
 });
+
+test("fact search liveness reads only supersedes edges, however many facts and edges exist", () => {
+  const db = new DatabaseSync(":memory:");
+  try {
+    createRelationGraphProjectionTables(db);
+    createFactProjectionTables(db);
+    const insertFact = db.prepare(
+        "INSERT INTO fact(task_id, fact_id, ref, statement, evidence_source, observed_at, confidence, memory_class, op_id, workspace_revision, row_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      ),
+      insertFts = db.prepare("INSERT INTO fact_fts(fact_id, statement, evidence_source) VALUES (?, ?, ?)");
+    db.exec("BEGIN");
+    for (let index = 0; index < 2000; index += 1) {
+      const factId = `F-${String(index).padStart(8, "0")}`,
+        ref = `fact/${factId}`,
+        row = {
+          schema: "fact-row/v1",
+          ref,
+          taskId: "task-scale",
+          factId,
+          statement: `scale observation ${index}`,
+          evidenceSource: "scale",
+          observedAt: "2026-08-18T00:00:00.000Z",
+          confidence: "high",
+          memoryClass: "semantic",
+          memoryTags: [],
+          provenance: [],
+          actor: { principal: { personId: "scale" }, executor: null },
+          source: "local",
+          occurredAt: "2026-08-18T00:00:00.000Z",
+          workspaceRevision: index + 1,
+        };
+      insertFact.run(
+        "task-scale",
+        factId,
+        ref,
+        row.statement,
+        row.evidenceSource,
+        row.observedAt,
+        row.confidence,
+        row.memoryClass,
+        `op-${index}`,
+        index + 1,
+        JSON.stringify(row),
+      );
+      insertFts.run(factId, row.statement, row.evidenceSource);
+    }
+    db.prepare("INSERT INTO relation_edge VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)").run(
+      "rel-scale",
+      "fact/F-00000001",
+      "fact/F-00000000",
+      "supersedes-fact",
+      "active",
+      null,
+      "fact/F-00000001",
+      2001,
+      JSON.stringify({
+        relationId: "rel-scale",
+        sourceRef: "fact/F-00000001",
+        targetRef: "fact/F-00000000",
+        relationType: "supersedes-fact",
+        state: "active",
+      }),
+    );
+    // Unrelated active edges: a liveness read that scans the edge table pays for every one of them.
+    const insertEdge = db.prepare("INSERT INTO relation_edge VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    for (let index = 0; index < 3000; index += 1)
+      insertEdge.run(
+        `rel-unrelated-${index}`,
+        "task/task-scale",
+        `fact/F-${String(index % 2000).padStart(8, "0")}`,
+        "produces",
+        "active",
+        null,
+        `fact/F-${String(index % 2000).padStart(8, "0")}`,
+        3000 + index,
+        JSON.stringify({ relationId: `rel-unrelated-${index}`, relationType: "produces", state: "active" }),
+      );
+    db.exec("COMMIT");
+    const original = db.prepare;
+    let rowsRead = 0;
+    db.prepare = ((...args: Parameters<typeof original>) => {
+      const statement = original.apply(db, args);
+      const all = statement.all.bind(statement),
+        get = statement.get.bind(statement);
+      statement.all = (...values: unknown[]) => {
+        const result = all(...values);
+        rowsRead += Array.isArray(result) ? result.length : 0;
+        return result;
+      };
+      statement.get = (...values: unknown[]) => {
+        const result = get(...values);
+        rowsRead += result === undefined ? 0 : 1;
+        return result;
+      };
+      return statement;
+    }) as typeof db.prepare;
+    // Unpaged: every fact is decoded, which is past the old 900-target cut-off.
+    const rows = searchFactRows(db, {});
+    assert.equal(rows.length, 2000);
+    assert.equal(rows.find((row) => row.factId === "F-00000000")?.invalidated, true);
+    assert.equal(rows.find((row) => row.factId === "F-00000001")?.invalidated, false);
+    console.log(JSON.stringify({ factCount: 2000, unrelatedEdges: 3000, sqlRowsRead: rowsRead }));
+    // 2,000 fact rows plus the one supersedes edge; reading the 3,000 unrelated edges would exceed this.
+    assert.ok(rowsRead <= 2000 + 50, `liveness read ${rowsRead} rows`);
+  } finally {
+    db.close();
+  }
+});
