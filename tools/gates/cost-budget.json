@@ -224,13 +224,6 @@
         "expiresAt": "2026-09-24T00:00:00.000Z"
       },
       {
-        "operation": "task-list",
-        "metric": "sqlRowsRead",
-        "reason": "task-list --limit 3 still reads the whole task index: listTasks (daemon repo-cell-task-query.ts) calls projection.readTaskIndex() -> readTaskIndexRows (kernel projection/task-query-projection.ts: SELECT task_snapshot.task_id, task_package.package_path, task_snapshot.updated_at, task_snapshot.snapshot_json FROM task_snapshot LEFT JOIN task_package USING(task_id) ORDER BY task_snapshot.task_id) and selectTaskIndex applies the limit in memory; one row per task.",
-        "deletionTaskId": "task_2b8f79fa4412cb726a26f9bfc7",
-        "expiresAt": "2026-09-24T00:00:00.000Z"
-      },
-      {
         "operation": "task-show",
         "metric": "sqlRowsRead",
         "reason": "taskShowFromProjection (daemon repo-cell-completion.ts) defaults directChildCount to projection.list().rows.filter(parentTaskId === taskId) just to count one task's children, and projection.list() (kernel projection/rebuildable-task-projection-reads.ts listProjection) reads the whole task index (SELECT task_snapshot.task_id AS task_id, task_package.package_path ... FROM task_snapshot LEFT JOIN task_package LEFT JOIN task_generation ORDER BY task_snapshot.task_id) and then one readSnapshot per task (SELECT snapshot_json FROM task_snapshot WHERE task_id = ?, plus relation_edge/entity-freshness reads that list sqlite_master for every task carrying a relation); about 3 rows per task.",
