@@ -59,3 +59,35 @@ conditions, both rounds, a human table, and numeric repair priorities.
 The harness records load average and free memory before/after each round. The
 machine currently runs other workers, so values are suitable for same-host
 comparisons and trend/extrapolation, not cross-host SLO claims.
+
+## CLI and entity scale bench
+
+`cli-entity-bench.mjs` measures data correctness and latency for every `ha` CLI command and every
+entity read/write path on a real daemon at a declared Task count. It runs in the local Docker test
+image (`plt-center-testbed/source:latest`) in a fresh `harness-test-isolation-*` container:
+
+```sh
+node tools/scale/cli-entity-bench.mjs --docker --tasks 1000 --out <dir>
+node tools/scale/cli-entity-bench.mjs --docker --tasks 10000 --out <dir>
+node tools/scale/cli-entity-bench.mjs --matrix                  # coverage matrix, no daemon
+node tools/scale/cli-entity-bench.mjs --compare a.json,b.json   # p50 ratio per metric
+```
+
+`--docker` copies the working tree into the container, runs `npm ci` and the hermetic preflight,
+runs the bench against a fixture daemon under a per-run user root, and copies
+`bench-results-<sha>-<tasks>.{json,md}` plus `host-load.json` back to `--out`. Other options:
+`--samples` (CLI samples per command, default 5), `--clients` (concurrent clients, default 8).
+
+* Population: `tasks` Tasks, then 0.45 Facts, 0.48 Decisions, 0.5 Relations and 0.1 imports of
+  each vertical artifact kind per Task, written through the CLI's own parser and daemon client with
+  `--clients` concurrent requests (the `rpc` arm). No SQL is written.
+* Every mapped registry command runs `--samples` times as a real `ha` process (the `cli` arm, with
+  `HA_CLI_TIMING` phases); reads are also sampled on the `rpc` arm. `cli-entity-bench.commands.mjs`
+  maps each registry id to a sample builder or to the reason it is not measured; unmapped ids are
+  reported, never dropped.
+* Throughput: 100 Fact writes on 1 and on `--clients` clients; three rounds of `--clients`
+  concurrent CLI processes. Cold reads: `daemon stop` -> `daemon start --service` -> first read.
+* Oracles (`cli-entity-bench.oracles.mjs`): receipt vs. durable outcome both ways (B1), written
+  values and file bytes found by opId (B2), list visibility including deletes (B3), reads equal
+  before and after `daemon projection rebuild` (B4), ledger revision/outcome structure (B5, the
+  stress O2 oracle). Each run also feeds every oracle a corrupted input and records that it fails.
