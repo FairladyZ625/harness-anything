@@ -278,6 +278,9 @@ function pathspecChunks(targets: readonly string[]): readonly (readonly string[]
 }
 export const localGitObjectRefStore = Object.freeze({
   processCount: () => localGitProcesses,
+  addWorktree: (repoRoot: string, cwd: string, branch: string, baseRef: string): void => {
+    runGit(repoRoot, "worktree", "add", cwd, "-b", branch, baseRef);
+  },
   commitTimestamp: (repoRoot: string, commit: string): string | null => {
     const output = localGitBytes(repoRoot, ["cat-file", "commit", commit]).toString("utf8"),
       seconds = /^committer .+ ([0-9]+) [+-][0-9]{4}$/mu.exec(output)?.[1];
@@ -286,6 +289,15 @@ export const localGitObjectRefStore = Object.freeze({
     return Number.isNaN(timestamp.valueOf()) ? null : timestamp.toISOString();
   },
   resolveCommit: (repoRoot: string, revision: string) => runGit(repoRoot, "rev-parse", revision).trim(),
+  // A directory that is not a Git work tree, or one without any commit yet, has no baseline to branch from.
+  headCommit: (repoRoot: string): string | null => {
+    try {
+      return runGit(repoRoot, "rev-parse", "--verify", "--quiet", "HEAD^{commit}").trim() || null;
+    } catch (error) {
+      consumeKnownError(error);
+      return null;
+    }
+  },
   // `rev-parse` echoes a well-formed sha whether or not the object exists; this asks the object store.
   hasCommit: (repoRoot: string, sha: string): boolean => {
     try {

@@ -3,6 +3,7 @@ import path from "node:path";
 import {
   consumeKnownError,
   createEntityStore,
+  localGitObjectRefStore,
   latestRuntimeActivityAt,
   parseAgentDeclarationV1,
   parseSquadDeclarationV1,
@@ -58,6 +59,7 @@ type SquadState = {
   readonly taskId: string;
   readonly runtimeInstanceId: string;
   readonly cwd: string;
+  readonly baseSha: string | null;
   readonly mission: string;
   readonly model: string | null;
   readonly effort: string | null;
@@ -115,7 +117,8 @@ export function makeSquadCoordinator(input: {
     const squadId = requiredSquadText(action.squadId, "squadId"),
       runtimeInstanceId = requiredSquadText(action.runtimeInstanceId, "runtimeInstanceId"),
       cwd = resolveCwd(input.rootDir, action.cwd),
-      squad = squadForRun(squadId);
+      squad = squadForRun(squadId),
+      baseSha = localGitObjectRefStore.headCommit(cwd);
     let mission: string;
     await input.reacquireTaskLease(taskId, binding);
     try {
@@ -139,6 +142,7 @@ export function makeSquadCoordinator(input: {
         taskId,
         runtimeInstanceId,
         cwd,
+        baseSha,
         mission,
         model: optionalText(action.model),
         effort: optionalText(action.effort),
@@ -526,24 +530,33 @@ export function makeSquadCoordinator(input: {
 
   async function spawnWorker(state: SquadState, plan: WorkerPlan, leaderTurnId: string): Promise<SquadState> {
     const attemptId = `worker-${state.workerAttempts.length + 1}`;
+    let worktree: WorkerAttempt["worktree"] = null;
     try {
-      await input.reacquireTaskLease(state.taskId, state.binding);
+      const dispatchState =
+        state.permissionMode === "read-only" || state.baseSha !== null
+          ? state
+          : revise(state, {
+              baseSha: localGitObjectRefStore.headCommit(state.cwd),
+            });
+      worktree =
+        dispatchState.permissionMode === "read-only" ? null : prepareWorkerWorktree(dispatchState, plan.workerId);
+      await input.reacquireTaskLease(dispatchState.taskId, dispatchState.binding);
       const receipt = await input.runtimeSpawner().spawn(
           {
-            agentId: state.leaderAgentId,
+            agentId: dispatchState.leaderAgentId,
             targetAgentId: plan.workerId,
-            prompt: plan.prompt,
-            cwd: cwdPayload(input.rootDir, state.cwd),
-            taskId: state.taskId,
-            ...(state.effort ? { effort: state.effort } : {}),
-            ...(state.permissionMode ? { permissionMode: state.permissionMode } : {}),
-            idempotencyKey: `${state.squadRunId}:${leaderTurnId}:${attemptId}`,
+            prompt: workerPrompt(plan.prompt, worktree),
+            cwd: cwdPayload(input.rootDir, worktree?.cwd ?? dispatchState.cwd),
+            taskId: dispatchState.taskId,
+            ...(dispatchState.effort ? { effort: dispatchState.effort } : {}),
+            ...(dispatchState.permissionMode ? { permissionMode: dispatchState.permissionMode } : {}),
+            idempotencyKey: `${dispatchState.squadRunId}:${leaderTurnId}:${attemptId}`,
           },
           state.binding,
         ),
         dispatchId = requiredReceiptText(receipt, "dispatchId"),
         runtimeSessionId = requiredReceiptText(receipt, "runtimeSessionId"),
-        updated = revise(state, {
+        updated = revise(dispatchState, {
           workerAttempts: [
             ...state.workerAttempts,
             {
@@ -552,6 +565,7 @@ export function makeSquadCoordinator(input: {
               leaderTurnId,
               dispatchId,
               runtimeSessionId,
+              worktree,
               rejection: null,
             },
           ],
@@ -569,6 +583,7 @@ export function makeSquadCoordinator(input: {
             leaderTurnId,
             dispatchId: null,
             runtimeSessionId: null,
+            worktree,
             rejection: errorText(error),
           },
         ],
@@ -923,6 +938,7 @@ export function makeSquadCoordinator(input: {
             leaderTurnId: attempt.leaderTurnId,
             dispatchId: attempt.dispatchId,
             runtimeSessionId: attempt.runtimeSessionId,
+            worktree: attempt.worktree ?? null,
             rejection: attempt.rejection,
             status: row?.status ?? null,
             startedAt: row?.startedAt ?? null,
@@ -978,6 +994,7 @@ function squadState(value: unknown): SquadState | null {
   const row = value as Partial<SquadState>;
   return row.schema === "squad-run/v1" &&
     typeof row.squadRunId === "string" &&
+    (row.baseSha === undefined || row.baseSha === null || typeof row.baseSha === "string") &&
     validSquadRunId(row.squadRunId) &&
     typeof row.stateDispatchId === "string" &&
     Array.isArray(row.leaderTurns) &&
@@ -988,7 +1005,7 @@ function squadState(value: unknown): SquadState | null {
     Number.isSafeInteger(row.leaderTurnBudget) &&
     Number(row.leaderTurnBudget) >= 1 &&
     typeof row.revision === "number"
-    ? (value as SquadState)
+    ? ({ ...value, baseSha: row.baseSha ?? null } as SquadState)
     : null;
 }
 
@@ -1033,6 +1050,31 @@ function resolveCwd(rootDir: string, value: unknown): string {
 function cwdPayload(rootDir: string, cwd: string): JsonObject {
   const relative = path.relative(rootDir, cwd);
   return relative ? { scope: "repo-relative", path: relative } : { scope: "repo-root" };
+}
+
+/** Writing workers get their own worktree when the run cwd is a Git work tree with a commit; a cwd without
+ * a Git baseline (a Git-less edge, or a repo before its first commit) keeps the shared cwd. */
+function prepareWorkerWorktree(state: SquadState, workerId: string) {
+  if (state.baseSha === null) return null;
+  const slug = `squad-${state.squadRunId.slice("squad_".length)}-${workerId}`,
+    branch = `codex/${slug}`,
+    cwd = path.join(state.cwd, ".worktrees", slug);
+  localGitObjectRefStore.addWorktree(state.cwd, cwd, branch, state.baseSha);
+  return { cwd, branch, baseSha: state.baseSha };
+}
+
+function workerPrompt(
+  prompt: string,
+  worktree: { readonly cwd: string; readonly branch: string; readonly baseSha: string } | null,
+): string {
+  if (worktree === null) return prompt;
+  return [
+    prompt,
+    "# Squad worker checkout",
+    `Worker repository root: ${worktree.cwd}`,
+    `Worker branch: ${worktree.branch}`,
+    `Worker baseline: ${worktree.baseSha}`,
+  ].join("\n\n");
 }
 
 /** 派工台账行的已落盘时间事实:startedAt 恒有,endedAt 仅归档结算行有;无台账行的派工不贡献时间。 */

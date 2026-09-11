@@ -65,6 +65,11 @@ export interface SquadRunWorkerAttemptDto {
   readonly leaderTurnId: string;
   readonly dispatchId: string | null;
   readonly runtimeSessionId: string | null;
+  readonly worktree: {
+    readonly cwd: string;
+    readonly branch: string;
+    readonly baseSha: string;
+  } | null;
   readonly rejection: string | null;
   readonly status: SquadRunTurnStatus | null;
   readonly startedAt: string | null;
@@ -202,25 +207,45 @@ function validSquadRunLeaderTurn(value: unknown): value is SquadRunLeaderTurnDto
 function validSquadRunWorkerAttempt(value: unknown): value is SquadRunWorkerAttemptDto {
   return (
     squadRunRecord(value) &&
-    exactSquadRunFields(value, [
-      "attemptId",
-      "workerId",
-      "leaderTurnId",
-      "dispatchId",
-      "runtimeSessionId",
-      "rejection",
-      "status",
-      "startedAt",
-      "endedAt",
-    ]) &&
+    exactSquadRunFieldsOptional(
+      value,
+      [
+        "attemptId",
+        "workerId",
+        "leaderTurnId",
+        "dispatchId",
+        "runtimeSessionId",
+        "rejection",
+        "status",
+        "startedAt",
+        "endedAt",
+      ],
+      ["worktree"],
+    ) &&
     [value.attemptId, value.workerId].every(squadRunText) &&
     squadRunText(value.leaderTurnId) &&
     (value.dispatchId === null || squadRunText(value.dispatchId)) &&
     (value.runtimeSessionId === null || squadRunText(value.runtimeSessionId)) &&
+    (value.worktree === undefined ||
+      value.worktree === null ||
+      (squadRunRecord(value.worktree) &&
+        exactSquadRunFields(value.worktree, ["cwd", "branch", "baseSha"]) &&
+        [value.worktree.cwd, value.worktree.branch, value.worktree.baseSha].every(squadRunText))) &&
     (value.rejection === null || squadRunText(value.rejection)) &&
     (value.status === null || turnStatuses.includes(value.status as SquadRunTurnStatus)) &&
     (value.startedAt === null || squadRunIso(value.startedAt)) &&
     (value.endedAt === null || squadRunIso(value.endedAt))
+  );
+}
+
+function exactSquadRunFieldsOptional(
+  value: Readonly<Record<string, unknown>>,
+  fields: readonly string[],
+  optionalFields: readonly string[],
+): boolean {
+  const allowed = [...fields, ...optionalFields];
+  return (
+    fields.every((field) => Object.hasOwn(value, field)) && Object.keys(value).every((field) => allowed.includes(field))
   );
 }
 
