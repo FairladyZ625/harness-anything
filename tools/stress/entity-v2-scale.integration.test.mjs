@@ -14,6 +14,7 @@ import {
   directoryBytes,
   fixture,
   frame,
+  profiling,
   readWorkloadConfig,
   resourceSnapshot,
   summarize,
@@ -76,7 +77,8 @@ test(`V2 scale tier: ${config.targetEvents} generated events`, { skip, timeout: 
     if (remainingMs() < neededMs)
       throw new Error(`stage budget: ${Math.round(remainingMs())} ms left before ${phase}, needs ${neededMs} ms`);
   };
-  const f = fixture(config.seed);
+  const profile = profiling(config.profileDir);
+  const f = fixture(config.seed, undefined, profile);
   const failures = [],
     tier = { targetEvents: config.targetEvents };
   let reader = null,
@@ -121,6 +123,7 @@ test(`V2 scale tier: ${config.targetEvents} generated events`, { skip, timeout: 
       };
     process.stdout.write = capture(chunks, write);
     process.stderr.write = capture(errorChunks, writeError);
+    profile?.mark("start", `in-process.${metric}`);
     const commandStarted = performance.now();
     let status = null,
       thrown = null;
@@ -129,6 +132,7 @@ test(`V2 scale tier: ${config.targetEvents} generated events`, { skip, timeout: 
     } catch (error) {
       thrown = error;
     } finally {
+      profile?.mark("end", `in-process.${metric}`);
       process.stdout.write = write;
       process.stderr.write = writeError;
       for (const key of Object.keys(process.env)) if (!(key in previous)) delete process.env[key];
@@ -208,6 +212,8 @@ test(`V2 scale tier: ${config.targetEvents} generated events`, { skip, timeout: 
     await f.stopDaemon("generation.daemon-stop");
     hotFollower = follower("hot", f.root, config.repoId);
     coldFollower = follower("cold", f.root, config.repoId, path.join(f.parent, "cold-follower.sqlite"));
+    await profile?.startProcess();
+    profile?.mark("start", "generation");
     const generated = await generateEventStream({
       rootDir: f.root,
       repoId: config.repoId,
@@ -217,6 +223,7 @@ test(`V2 scale tier: ${config.targetEvents} generated events`, { skip, timeout: 
       drainEvery: config.drainEvery,
       onProgress: (progress) => frame("generation-progress", progress),
     });
+    profile?.mark("end", "generation");
     frame("generation", generated);
     const hotCatchUp = await hotFollower.finish(generated.headRevision, false, remainingMs());
     tier.generation = { ...generated, samples: undefined, hotCatchUp };
@@ -234,7 +241,10 @@ test(`V2 scale tier: ${config.targetEvents} generated events`, { skip, timeout: 
     const { samples } = generated;
     generatedSamples = samples;
     requireBudget("daemon attach and measurement", config.measureBudgetMs);
-    f.invoke("attach.daemon-start", ["daemon", "start", "--service"], { timeoutMs: 600_000 });
+    f.invoke("attach.daemon-start", ["daemon", "start", "--service"], {
+      timeoutMs: 600_000,
+      extraEnv: profile?.daemonEnv,
+    });
     f.invoke("attach.first-read", ["task", "list", "--limit", "1"], { timeoutMs: 600_000 });
     const firstWrite = guard("write.first-after-restart", () => importProbe("write.entity-import.first", 0));
     guard("write.first-publication", () => f.publish(firstWrite.receipt, "write.entity-import.first"));
@@ -276,6 +286,7 @@ test(`V2 scale tier: ${config.targetEvents} generated events`, { skip, timeout: 
         await inProcess(`${metric}.warm-up`, argv(0));
         for (let sample = 0; sample < config.readSamples; sample++) await inProcess(metric, argv(sample));
       });
+    await profile?.stopProcess();
 
     // Content exactness and a concurrency negative control, at scale.
     guard("content.exact-bytes", () =>

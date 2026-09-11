@@ -9,5 +9,6 @@
   "writeSamples": 20,
   "binaryBytes": 4096,
   "measureBudgetMs": 300000,
-  "stageBudgetMs": 870000
+  "stageBudgetMs": 870000,
+  "profileDir": null
 }
