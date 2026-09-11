@@ -134,7 +134,8 @@ export function admitTaskExecutionWip(input: TaskWipAdmissionInput): TaskWipAdmi
       `${formatWipComposition(input.tasks, rootThreshold)} ` +
       `Before starting ${input.activatingTaskId}, close one existing task. Suggested: ${suggestions}. ` +
       `Next: complete, cancel (\`ha task transition <task-id> cancelled --force --reason <reason>\`), or archive one of those tasks, then retry \`ha task start ${input.activatingTaskId}\`. ` +
-      "Derived root exemption applies only to pure containers. Planned tasks stay in the idea backlog and are never counted or removed.",
+      "Derived root exemption applies only to pure containers. " +
+      "Planned tasks stay in the idea backlog and are never counted or removed.",
   };
 }
 
