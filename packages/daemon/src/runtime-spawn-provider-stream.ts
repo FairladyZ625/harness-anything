@@ -115,9 +115,14 @@ export async function consumeProviderLine(
 function observeRuntimeMetrics(active: ActiveRuntime, value: unknown): void {
   if (!value || typeof value !== "object" || Array.isArray(value)) return;
   const frame = value as Record<string, unknown>,
+    nestedMessage =
+      frame.message && typeof frame.message === "object" && !Array.isArray(frame.message)
+        ? (frame.message as Record<string, unknown>)
+        : null,
+    usageValue = frame.usage ?? nestedMessage?.usage,
     usage =
-      frame.usage && typeof frame.usage === "object" && !Array.isArray(frame.usage)
-        ? (frame.usage as Record<string, unknown>)
+      usageValue && typeof usageValue === "object" && !Array.isArray(usageValue)
+        ? (usageValue as Record<string, unknown>)
         : null;
   if (usage) {
     active.rawUsage = { ...active.rawUsage, ...usage };

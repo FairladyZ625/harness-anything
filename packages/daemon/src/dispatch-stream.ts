@@ -517,10 +517,35 @@ function appendJsonl(target: string, value: unknown): void {
       );
       return;
     }
-    writeFileSync(descriptor, `${JSON.stringify(scrubProviderValue(value))}\n`, "utf8");
+    writeFileSync(descriptor, `${JSON.stringify(scrubDispatchRecord(value))}\n`, "utf8");
   } finally {
     closeSync(descriptor);
   }
+}
+
+function scrubDispatchRecord(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return scrubProviderValue(value);
+  const record = value as Record<string, unknown>;
+  if (record.kind !== "runtime_metrics") return scrubProviderValue(value);
+  const scrubbed = scrubProviderValue(value) as Record<string, unknown>;
+  for (const key of ["inputTokens", "cacheReadTokens", "outputTokens", "totalTokens", "toolCallCount"])
+    if (Number.isInteger(record[key])) scrubbed[key] = record[key];
+  if (record.raw && typeof record.raw === "object" && !Array.isArray(record.raw)) {
+    const originalRaw = record.raw as Record<string, unknown>,
+      raw = scrubProviderValue(originalRaw) as Record<string, unknown>;
+    for (const key of [
+      "input_tokens",
+      "cached_input_tokens",
+      "cache_read_input_tokens",
+      "cache_creation_input_tokens",
+      "output_tokens",
+      "inputTokens",
+      "outputTokens",
+    ])
+      if (Number.isFinite(originalRaw[key])) raw[key] = originalRaw[key];
+    scrubbed.raw = raw;
+  }
+  return scrubbed;
 }
 
 function unboundedDispatchRecord(value: unknown): boolean {

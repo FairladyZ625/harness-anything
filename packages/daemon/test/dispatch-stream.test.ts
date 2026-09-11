@@ -552,6 +552,76 @@ test("delegation provenance fields survive a header roundtrip and stay optional 
   }
 });
 
+test("runtime metrics persist in the dispatch stream and read back without changing legacy streams", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-dispatch-runtime-metrics-"));
+  try {
+    const dispatchId = "dispatch_aaaaaaaaaaaaaaaaaaaaaaaa";
+    const writer = openDispatchStream(rootDir, {
+      dispatchId,
+      taskId: "task-metrics",
+      executionId: "execution-metrics",
+      runtimeSessionId: "runtime_aaaaaaaaaaaaaaaaaaaaaaaa",
+      instanceId: "instance-1",
+      startedAt: "2026-09-11T00:00:00.000Z",
+    });
+    const raw = { input_tokens: 12, cached_input_tokens: 4, output_tokens: 7 };
+    writer.appendRuntimeMetrics?.(
+      {
+        inputTokens: 12,
+        cacheReadTokens: 4,
+        outputTokens: 7,
+        totalTokens: 19,
+        toolCallCount: 10,
+        compacted: true,
+        raw,
+      },
+      "2026-09-11T00:01:00.000Z",
+    );
+    const stream = readDispatchStream(rootDir, dispatchId);
+    assert.deepEqual(
+      stream?.records.map((record) => record.kind),
+      ["runtime_metrics"],
+    );
+    assert.deepEqual(stream?.records[0], {
+      schema: "runtime-dispatch-stream/v1",
+      kind: "runtime_metrics",
+      occurredAt: "2026-09-11T00:01:00.000Z",
+      inputTokens: 12,
+      cacheReadTokens: 4,
+      outputTokens: 7,
+      totalTokens: 19,
+      toolCallCount: 10,
+      compacted: true,
+      raw,
+    });
+    assert.deepEqual(stream?.runtimeMetrics, {
+      kind: "runtime_metrics",
+      schema: "runtime-dispatch-stream/v1",
+      occurredAt: "2026-09-11T00:01:00.000Z",
+      inputTokens: 12,
+      cacheReadTokens: 4,
+      outputTokens: 7,
+      totalTokens: 19,
+      toolCallCount: 10,
+      compacted: true,
+      raw,
+    });
+
+    const legacyId = "dispatch_bbbbbbbbbbbbbbbbbbbbbbbb";
+    openDispatchStream(rootDir, {
+      dispatchId: legacyId,
+      taskId: "task-metrics",
+      executionId: "execution-metrics",
+      runtimeSessionId: "runtime_bbbbbbbbbbbbbbbbbbbbbbbb",
+      instanceId: "instance-1",
+      startedAt: "2026-09-11T00:00:00.000Z",
+    });
+    assert.equal(readDispatchStream(rootDir, legacyId)?.runtimeMetrics, null);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("portable runtime binding retains the assignment scope required by the existing action preparer", () => {
   const source = { kind: "assignment" as const, nodeId: "edge-1", assignmentId: "assignment-1" },
     binding = {

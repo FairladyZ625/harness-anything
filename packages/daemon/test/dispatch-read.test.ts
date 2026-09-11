@@ -106,6 +106,64 @@ test("a dispatch whose session is live still reports running", () => {
   assert.equal(statusFor(session("live", null)), "running");
 });
 
+test("runtime metrics project to task dispatch rows and remain optional for legacy streams", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-dispatch-read-metrics-"));
+  try {
+    const writer = openDispatchStream(rootDir, {
+      dispatchId,
+      taskId,
+      executionId: "execution-1",
+      runtimeSessionId,
+      instanceId: "instance-1",
+      startedAt: "2026-08-23T00:00:00.000Z",
+    });
+    writer.appendRuntimeMetrics?.(
+      {
+        inputTokens: 110,
+        cacheReadTokens: 20,
+        outputTokens: 25,
+        totalTokens: 135,
+        toolCallCount: 10,
+        compacted: true,
+        raw: { input_tokens: 80, cache_read_input_tokens: 20, output_tokens: 25 },
+      },
+      "2026-08-23T00:01:00.000Z",
+    );
+    const row = readTaskDispatches({ rootDir, projection: projectionFor(session("exited", "succeeded")), taskId })
+      .dispatches[0];
+    assert.deepEqual(row?.metrics, {
+      inputTokens: 110,
+      cacheReadTokens: 20,
+      outputTokens: 25,
+      totalTokens: 135,
+      toolCallCount: 10,
+      compacted: true,
+    });
+
+    const legacyRoot = mkdtempSync(path.join(tmpdir(), "ha-dispatch-read-legacy-"));
+    try {
+      openDispatchStream(legacyRoot, {
+        dispatchId,
+        taskId,
+        executionId: "execution-1",
+        runtimeSessionId,
+        instanceId: "instance-1",
+        startedAt: "2026-08-23T00:00:00.000Z",
+      });
+      const legacyRow = readTaskDispatches({
+        rootDir: legacyRoot,
+        projection: projectionFor(session("exited", "succeeded")),
+        taskId,
+      }).dispatches[0];
+      assert.equal(legacyRow && Object.hasOwn(legacyRow, "metrics"), false);
+    } finally {
+      rmSync(legacyRoot, { recursive: true, force: true });
+    }
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("an observed outcome outranks liveness", () => {
   assert.equal(statusFor(session("exited", "succeeded")), "succeeded");
   assert.equal(statusFor(session("live", "cancelled")), "cancelled");
