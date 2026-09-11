@@ -128,6 +128,7 @@ test("CI observatory aggregates filtered runs, retries, percentiles, shards, gat
       window: 10,
     });
     assert.equal(result.runs.length, 2);
+    assert.equal(result.runs[0]?.receiptRef, "event:op-observatory-3");
     assert.equal(result.flakes[0]?.test, "flaky test");
     assert.equal(result.flakes[0]?.flakes, 1);
     assert.equal(result.flakes[0]?.attempts, 2);

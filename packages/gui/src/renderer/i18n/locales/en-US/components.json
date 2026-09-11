@@ -28,6 +28,7 @@
   "components.badges.done": "Done",
   "components.badges.failed": "Failed",
   "components.badges.finalizing": "Finalizing",
+  "components.badges.inReview": "In Review",
   "components.badges.highRisk": "high risk",
   "components.badges.lastKnown": "Last known @",
   "components.badges.lowRisk": "low risk",

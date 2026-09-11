@@ -302,6 +302,8 @@ describe("Task detail expression", () => {
     expect(byTestId("task-relations-tab").textContent).toContain("runtime-w3");
 
     await clickTab("收口");
+    expect(byTestId("task-review-panel").textContent).toContain("独立评审 / 同意完成");
+    expect(byTestId("task-review-submission").textContent).toContain("artifacts/report.md");
     expect(byTestId("task-closeout-tab").textContent).toContain("review-w3");
     expect(byTestId("task-closeout-tab").textContent).toContain("consent-w3");
     expect(byTestId("task-closeout-tab").textContent).toContain("local-check");
@@ -316,6 +318,28 @@ describe("Task detail expression", () => {
     expect(byTestId("task-document-tree").textContent).toContain("INDEX.md");
     expect(byTestId("task-document-tree").textContent).toContain("artifacts");
     expect(byTestId("task-files-tab").textContent).toContain("Canonical plan body");
+  });
+
+  it("shows the review panel only for an in-review task", async () => {
+    installBridge();
+    await mount();
+    await clickTab("收口");
+    expect(document.querySelector('[data-testid="task-review-panel"]')).toBeInstanceOf(HTMLElement);
+
+    const active = { ...task, coordinationStatus: "active" as const, canonicalStatus: "active" as const };
+    await mount(active);
+    await clickTab("收口");
+    const panels = document.querySelectorAll('[data-testid="task-review-panel"]');
+    expect(panels).toHaveLength(1);
+  });
+
+  it("shows actor-scoped self-review rejection before enabling review", async () => {
+    installBridge();
+    await mount({ ...task, reviews: [], consents: [], closeoutReadiness: "incomplete" });
+    await clickTab("收口");
+    expect(byTestId("task-review-self-blocked").textContent).toContain("当前身份不能独立评审");
+    expect(byTestId("task-review-self-blocked").textContent).toContain("independent reviewer");
+    expect(document.querySelector<HTMLButtonElement>("[data-testid='task-review-panel'] button")?.disabled).toBe(true);
   });
 
   it("renders live worktree content and marks an unsynced task document", async () => {
@@ -450,6 +474,39 @@ describe("Task detail expression", () => {
 
 function installBridge({ uncommittedPlan = false }: { readonly uncommittedPlan?: boolean } = {}) {
   const bridge = {
+    explainEntityActions: vi.fn(async () => ({
+      schema: "entity-action-explanation/v1",
+      mode: "object",
+      evaluatedAtCut: "canonical:7",
+      subjects: [
+        {
+          kind: "task",
+          ref: "task/task-w3",
+          revision: 7,
+          failure: null,
+          actions: [
+            {
+              action: { id: "review" },
+              available: false,
+              nextActions: ["Have an independent reviewer inspect this execution."],
+            },
+          ],
+        },
+      ],
+    })),
+    getCiObservatory: vi.fn(async () => ({
+      schema: "daemon.ci-observatory/v1",
+      ok: true,
+      status: "ready",
+      window: 25,
+      flakes: [],
+      shardDurations: [],
+      gateTrends: [],
+      l0MedianMs: null,
+      runs: [],
+      watermark: 1,
+      sourceRevision: 1,
+    })),
     getTaskDocument: vi.fn(async ({ taskId, path }: { taskId: string; path: string }) => {
       // 二进制产物的读侧回答:没有正文,带媒体类型/字节数/内容地址/仓库路径与 canonical 字节。
       const binary = path.endsWith(".pdf");
@@ -641,7 +698,7 @@ function installBridge({ uncommittedPlan = false }: { readonly uncommittedPlan?:
 
 let onOpenTerminal: ((task: TaskRow) => void) | undefined;
 
-async function mount() {
+async function mount(row: TaskRow = task) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const container = document.createElement("div"),
     root = createRoot(container);
@@ -653,8 +710,8 @@ async function mount() {
         QueryClientProvider,
         { client },
         createElement(TaskDetailView, {
-          task,
-          tasks: [parent, task, child],
+          task: row,
+          tasks: [parent, row, child],
           relations,
           decisions: [decision],
           onBack: () => undefined,

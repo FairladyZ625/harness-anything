@@ -6,6 +6,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { SnapshotStatus, TaskRow } from "../src/renderer/model/types.ts";
 import { BOARD_COLUMNS } from "../src/renderer/model/types.ts";
 import { TaskPreviewDrawer } from "../src/renderer/components/TaskPreviewDrawer.tsx";
+import { STATUS_META } from "../src/renderer/components/badges.tsx";
 import { BoardView } from "../src/renderer/views/BoardView.tsx";
 import { SwimlaneBoard } from "../src/renderer/views/SwimlaneBoard.tsx";
 import {
@@ -354,6 +355,10 @@ beforeAll(() => {
 });
 
 describe("board column default order (W8)", () => {
+  it("names the canonical in_review column In Review", () => {
+    expect(STATUS_META.in_review.label).toContain("In Review");
+    expect(BOARD_COLUMNS).toContain("in_review");
+  });
   it("renders lastKnownAt desc with pinned and favorited tasks lifted to the top", async () => {
     const tasks = [
       makeTask({ taskId: "t_old", title: "card-old", lastKnownAt: daysAgo(30) }),

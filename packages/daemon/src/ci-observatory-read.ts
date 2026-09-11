@@ -38,6 +38,7 @@ export interface CiObservatoryRead {
   }[];
   readonly l0MedianMs: number | null;
   readonly runs: readonly {
+    readonly receiptRef: string;
     readonly runId: string;
     readonly sha: string;
     readonly branch: string;
@@ -87,6 +88,7 @@ export function readCiObservatory(input: {
     gateTrends: gateRows(events),
     l0MedianMs: percentile(l0Wallclocks(events), 0.5),
     runs: events.map((event) => ({
+      receiptRef: `event:${event.opId}`,
       ...event.payload.run,
       occurredAt: event.occurredAt,
       pass:
@@ -328,6 +330,8 @@ function validTrend(value: unknown): boolean {
 function validRun(value: unknown): boolean {
   return (
     isJsonObject(value) &&
+    typeof value.receiptRef === "string" &&
+    value.receiptRef.startsWith("event:") &&
     nonEmpty(value.runId) &&
     nonEmpty(value.sha) &&
     nonEmpty(value.branch) &&

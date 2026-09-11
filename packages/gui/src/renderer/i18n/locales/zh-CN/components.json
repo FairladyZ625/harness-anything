@@ -28,6 +28,7 @@
   "components.badges.done": "已完成",
   "components.badges.failed": "未通过",
   "components.badges.finalizing": "封存中(Finalizing)",
+  "components.badges.inReview": "待评审(In Review)",
   "components.badges.highRisk": "高风险",
   "components.badges.lastKnown": "最后已知 @",
   "components.badges.lowRisk": "低风险",

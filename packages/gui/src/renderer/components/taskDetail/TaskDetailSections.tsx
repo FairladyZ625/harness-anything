@@ -63,6 +63,7 @@ import { DocReader } from "../DocReader.tsx";
 import { TaskControlPanel } from "../TaskControlPanel.tsx";
 import { IN_LABEL, OUT_LABEL } from "./constants.ts";
 import { RelationRow } from "./RelationRow.tsx";
+import { TaskReviewPanel } from "./TaskReviewPanel.tsx";
 
 interface TaskActionProps {
   readonly mutationFeedback?: TaskMutationFeedback;
@@ -700,6 +701,9 @@ export function TaskCloseoutTab({
         title="收口与门"
         description="后端 closeoutAssessment、snapshot witness 与 execution 输出回执的原样展示"
       />
+      <div className="mt-7">
+        <TaskReviewPanel task={task} />
+      </div>
       <div className="mt-7 grid gap-8 xl:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="grid content-start gap-8">
           <div className="flex flex-wrap items-center gap-3 border-y border-border py-4">

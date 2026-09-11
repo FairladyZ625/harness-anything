@@ -34,6 +34,7 @@ import { isSettingsSuccess } from "./settings-payload.ts";
 import { invoke } from "./api-client-invoke.ts";
 import { readGuiActionResult } from "./command-receipt.ts";
 import { daemonBridgeError } from "./daemon-startup.ts";
+import { taskReviewClient } from "./task-review-client.ts";
 
 export interface TaskListSuccess {
   readonly ok: true;
@@ -361,6 +362,7 @@ export interface DecisionProposalInput {
 }
 
 export const harnessClient = {
+  ...taskReviewClient,
   async getSystemStatus(): Promise<SystemStatusSuccess> {
     return readSystemStatus(await invoke("daemon.gui.system.read", {}, "getSystemStatus"));
   },
