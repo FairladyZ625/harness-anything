@@ -96,6 +96,8 @@ test("repo prose channel blocks artifacts under an unregistered tasks/ package d
     };
     assert.equal(rejected.outcome, "op_rejected", JSON.stringify(rejected));
     assert.equal(rejected.code, "task_package_unregistered");
+    assert.match(rejected.rejectionExplanation ?? "", new RegExp(`${ghost}.*ha task artifact add`, "u"));
+    assert.match(rejected.rejectionExplanation ?? "", /next: use the required route/u);
     assert.deepEqual(
       rejected.detail.unresolvedTouches.map((touch) => [touch.path, touch.requiredRoute]),
       [

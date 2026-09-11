@@ -39,7 +39,7 @@ import {
 } from "./doc-sync-files.ts";
 import { publishDocIntent } from "./doc-sync-publication.ts";
 import { readAction, readDocReceipt } from "./doc-sync-reads.ts";
-import { noOp, scanDetail, scannerSettlement } from "./doc-sync-settlement.ts";
+import { noOp, scanDetail, scanRejectionSummary, scannerSettlement } from "./doc-sync-settlement.ts";
 import type { FleetAssignmentScope } from "./fleet/contract.ts";
 
 export const DOC_COMMAND_FRAME_MAX_BYTES = DOC_SYNC_INLINE_MAX_BYTES;
@@ -125,7 +125,10 @@ export async function runDocAction(input: Input): Promise<DocSettlementReceipt> 
   ) {
     const code = scanRejectionCode(scan);
     if (code !== null)
-      return rejectDocSyncAction(`scan:${scan.baseLedgerSha.headDigest}`, code, scanDetail(input, scan, code));
+      return Object.assign(
+        rejectDocSyncAction(`scan:${scan.baseLedgerSha.headDigest}`, code, scanDetail(input, scan, code)),
+        { summary: scanRejectionSummary(code, scan) },
+      );
     if (!scan.rows.some((row) => row.state === "eligible")) return noOp(input, scan);
     const candidates = scan.rows.filter((row) => row.state === "eligible"),
       rejection = rejectDocSyncAction(
@@ -172,7 +175,10 @@ export async function runDocAction(input: Input): Promise<DocSettlementReceipt> 
     const code = scanRejectionCode(scan),
       blocked = scanDetail(input, scan, code ?? "preview_blocked");
     return scan.rows.some((row) => row.state === "blocked" || row.state === "deletion")
-      ? rejectDocSyncAction(`scan:${scan.baseLedgerSha.headDigest}`, code ?? "preview_blocked", blocked)
+      ? Object.assign(
+          rejectDocSyncAction(`scan:${scan.baseLedgerSha.headDigest}`, code ?? "preview_blocked", blocked),
+          { summary: scanRejectionSummary(code ?? "preview_blocked", scan) },
+        )
       : noOp(input, scan);
   }
   const prepared = scan ? intentFromScan(scan, input.workspaceId) : null,
