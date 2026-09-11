@@ -110,8 +110,14 @@ const defaultFileTimeoutMs = positiveIntegerOrDefault(
   process.env.HARNESS_TEST_FILE_TIMEOUT_MS,
   DEFAULT_TEST_FILE_TIMEOUT_MS,
 );
+// An unbounded marker only counts in a dispatched stress run; every GitHub CI job keeps the default
+// watchdog for it (repository owner ruling of 2026-09-11: the exemption never enters per-PR CI).
+const unboundedAllowed = !process.env.CI;
 const selectedFileTimeouts = new Map(
-  selection.files.map((file) => [file, testFileTimeouts[file] ?? defaultFileTimeoutMs]),
+  selection.files.map((file) => {
+    const marked = testFileTimeouts[file];
+    return [file, marked === undefined || (marked === "none" && !unboundedAllowed) ? defaultFileTimeoutMs : marked];
+  }),
 );
 const finiteTimeouts = [...selectedFileTimeouts.values()].filter((timeout) => timeout !== "none");
 const fileTimeoutMs = finiteTimeouts.length > 0 ? Math.min(...finiteTimeouts) : defaultFileTimeoutMs;

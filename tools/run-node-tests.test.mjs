@@ -131,6 +131,35 @@ test("runner watchdog fails and names a file whose process keeps an open handle"
   );
 });
 
+function runUnboundedFixture(extraEnv) {
+  const childEnv = {
+    ...process.env,
+    HARNESS_RUNNER_UNBOUNDED_FIXTURE: "1",
+    HARNESS_TEST_FILE_TIMEOUT_MS: "250",
+  };
+  delete childEnv.NODE_TEST_CONTEXT;
+  delete childEnv.CI;
+  Object.assign(childEnv, extraEnv);
+  const result = spawnSync(
+    process.execPath,
+    ["tools/run-node-tests.mjs", "--tier", "fast", "--file", "tools/stress/runner-unbounded-fixture.test.mjs"],
+    { cwd: repoRoot, encoding: "utf8", env: childEnv, timeout: 20_000 },
+  );
+  return { result, output: `${result.stdout}\n${result.stderr}` };
+}
+
+test("an unbounded stress marker is honoured outside CI and ignored under CI", () => {
+  const local = runUnboundedFixture({});
+  assert.equal(local.result.status, 0, local.output);
+  assert.doesNotMatch(local.output, /test file exceeded timeout/u);
+  const ci = runUnboundedFixture({ CI: "true" });
+  assert.equal(ci.result.status, 1, ci.output);
+  assert.match(
+    ci.output,
+    /\[node-test-watchdog\] test file exceeded timeout: tools\/stress\/runner-unbounded-fixture\.test\.mjs/u,
+  );
+});
+
 test("test file timeout markers allow stress opt-in and numeric values", () => {
   assert.equal(
     parseTestFileTimeoutMarker(
