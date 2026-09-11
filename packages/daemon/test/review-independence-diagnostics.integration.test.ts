@@ -4,12 +4,28 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test, { after, before } from "node:test";
 import { makeTaskEventReader, makeTaskProjection } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+
+const ciBin = mkdtempSync(path.join(tmpdir(), "ha-review-ci-bin-"));
+const originalPath = process.env.PATH;
+before(() => {
+  writeProviderExecutable(
+    path.join(ciBin, "gh"),
+    'if (process.argv[2] !== "run" || process.argv[3] !== "list") process.exit(1); console.log("[]");\n',
+  );
+  process.env.PATH = `${ciBin}${path.delimiter}${originalPath ?? ""}`;
+});
+after(() => {
+  if (originalPath === undefined) delete process.env.PATH;
+  else process.env.PATH = originalPath;
+  rmSync(ciBin, { recursive: true, force: true });
+});
 
 const git = (rootDir: string, ...args: readonly string[]): string =>
   execFileSync("git", args, { cwd: rootDir, encoding: "utf8", windowsHide: true }).trim();
@@ -21,6 +37,23 @@ function initRepo(rootDir: string): void {
   git(rootDir, "config", "gc.auto", "0");
   git(rootDir, "config", "maintenance.auto", "false");
   git(rootDir, "commit", "--allow-empty", "--quiet", "-m", "fixture base");
+  writeFileSync(path.join(rootDir, "README.md"), "# Review fixture delivery\n");
+  git(rootDir, "add", "README.md");
+  git(rootDir, "commit", "--quiet", "-m", "fixture delivery");
+}
+
+function submissionOutcome<T extends { outcome: string }>(receipt: T): string {
+  assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+  return receipt.outcome;
+}
+
+function writeCloseout(rootDir: string, packagePath: unknown): void {
+  writeFileSync(
+    path.join(rootDir, "harness", String(packagePath), "closeout.md"),
+    `# Closeout\n\n## Summary\n\nReview fixture delivered at ${git(rootDir, "rev-parse", "HEAD")}.\n\n` +
+      "## Verification\n\nReview independence integration assertions.\n\n" +
+      "## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nShared review authorization.\n",
+  );
 }
 
 // #1541 was filed as "execution review is structurally unreachable on Windows" because one sentence
@@ -69,23 +102,8 @@ test("#1541: each Execution Review refusal names its own cause and its own repai
     );
 
     assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, agent)).outcome, "applied");
-    const commitSha = git(rootDir, "rev-parse", "HEAD");
-    writeFileSync(
-      path.join(rootDir, "submission.json"),
-      JSON.stringify({
-        completionClaim: "Ready.",
-        deliverables: ["d"],
-        outputs: ["o"],
-        verificationNotes: ["v"],
-        knownGaps: [],
-        residualRisks: [],
-        commitSha,
-      }),
-    );
-    assert.equal(
-      (await cell.run({ kind: "task-submit", taskId, executionId, fromFile: "submission.json" }, agent)).outcome,
-      "applied",
-    );
+    writeCloseout(rootDir, (created as Record<string, unknown>).packagePath);
+    assert.equal(submissionOutcome(await cell.run({ kind: "task-submit", taskId, executionId }, agent)), "applied");
     writeFileSync(
       path.join(rootDir, "review.json"),
       JSON.stringify({ verdict: "approved", reason: "Reviewed independently.", evidenceChecked: ["tests"] }),
@@ -157,23 +175,8 @@ test("principal review independence rejects a different executor owned by the su
       cell!.run({ kind: "doc-submit", paths: [planPath] }, agent),
     );
     assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, agent)).outcome, "applied");
-    const commitSha = git(rootDir, "rev-parse", "HEAD");
-    writeFileSync(
-      path.join(rootDir, "submission.json"),
-      JSON.stringify({
-        completionClaim: "Ready.",
-        deliverables: ["d"],
-        outputs: ["o"],
-        verificationNotes: ["v"],
-        knownGaps: [],
-        residualRisks: [],
-        commitSha,
-      }),
-    );
-    assert.equal(
-      (await cell.run({ kind: "task-submit", taskId, executionId, fromFile: "submission.json" }, agent)).outcome,
-      "applied",
-    );
+    writeCloseout(rootDir, (created as Record<string, unknown>).packagePath);
+    assert.equal(submissionOutcome(await cell.run({ kind: "task-submit", taskId, executionId }, agent)), "applied");
     writeFileSync(
       path.join(rootDir, "review.json"),
       JSON.stringify({ verdict: "approved", reason: "Reviewed independently.", evidenceChecked: ["tests"] }),
@@ -302,7 +305,7 @@ test("a child bare-invocation execution can recover from its parent Task dispatc
     assert.equal(started.outcome, "applied");
     assert.deepEqual(started.next, [
       {
-        command: `ha task submit ${taskId} --json-input '<submission-json>'`,
+        command: `ha task submit ${taskId}`,
         reason: "Run the canonical next command for this lifecycle state.",
       },
     ]);
@@ -323,7 +326,6 @@ test("a child bare-invocation execution can recover from its parent Task dispatc
       (event) =>
         event.type === "runtime_session_task_bound" && event.payload.runtimeSessionId === worker.runtimeSessionId,
     );
-    const commitSha = git(rootDir, "rev-parse", "HEAD");
     const agent = withRoleBinding(
       {
         actor: {
@@ -334,24 +336,9 @@ test("a child bare-invocation execution can recover from its parent Task dispatc
       },
       "arbiter",
     );
-    writeFileSync(
-      path.join(rootDir, "submission.json"),
-      JSON.stringify({
-        completionClaim: "Ready.",
-        deliverables: ["d"],
-        outputs: ["o"],
-        verificationNotes: ["v"],
-        knownGaps: [],
-        residualRisks: [],
-        commitSha,
-      }),
-    );
-    const submitted = await cell.run(
-      { kind: "task-submit", taskId, executionId: priorExecutionId, fromFile: "submission.json" },
-      bare,
-    );
-    assert.equal(submitted.outcome, "applied");
-    assert.match(String(submitted.summary), /Worker must draft closeout\.md.*Summary.*Verification.*Residual Risk/su);
+    writeCloseout(rootDir, (created as Record<string, unknown>).packagePath);
+    const submitted = await cell.run({ kind: "task-submit", taskId, executionId: priorExecutionId }, bare);
+    assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
     assert.match(JSON.stringify(submitted.next), /ha task declare-executor/u);
     writeFileSync(
       path.join(rootDir, "changes-requested.json"),
@@ -387,10 +374,7 @@ test("a child bare-invocation execution can recover from its parent Task dispatc
       "applied",
     );
     assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, bare)).outcome, "applied");
-    assert.equal(
-      (await cell.run({ kind: "task-submit", taskId, executionId, fromFile: "submission.json" }, bare)).outcome,
-      "applied",
-    );
+    assert.equal(submissionOutcome(await cell.run({ kind: "task-submit", taskId, executionId }, bare)), "applied");
     writeFileSync(
       path.join(rootDir, "review.json"),
       JSON.stringify({ verdict: "approved", reason: "Reviewed.", evidenceChecked: ["tests"] }),
@@ -586,28 +570,12 @@ test("a reviewed child execution cannot declare an executor when neither it nor 
       "applied",
     );
     const packagePath = "tasks/task-bare-reviewed-bare-reviewed",
-      closeoutPath = path.join(rootDir, "harness", packagePath, "closeout.md"),
-      commitSha = git(rootDir, "rev-parse", "HEAD"),
-      submission = {
-        completionClaim: "The reviewed executor repair fixture is complete.",
-        deliverables: ["README.md"],
-        outputs: ["README.md"],
-        verificationNotes: ["daemon integration"],
-        knownGaps: [],
-        residualRisks: [],
-        commitSha,
-      };
+      commitSha = git(rootDir, "rev-parse", "HEAD");
+
     git(rootDir, "update-ref", "refs/remotes/origin/main", commitSha);
-    writeFileSync(
-      closeoutPath,
-      "# Closeout\n\n## Summary\n\nReviewed executor repair.\n\n## Verification\n\nDaemon integration.\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nCovered by the declaration audit.\n",
-    );
     assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, bare)).outcome, "applied");
-    writeFileSync(path.join(rootDir, "submission.json"), JSON.stringify(submission));
-    assert.equal(
-      (await cell.run({ kind: "task-submit", taskId, executionId, fromFile: "submission.json" }, bare)).outcome,
-      "applied",
-    );
+    writeCloseout(rootDir, packagePath);
+    assert.equal(submissionOutcome(await cell.run({ kind: "task-submit", taskId, executionId }, bare)), "applied");
     writeFileSync(
       path.join(rootDir, "review.json"),
       JSON.stringify({
@@ -862,19 +830,6 @@ test("review binding permits independent runtimes but still rejects the executio
     writeFileSync(path.join(rootDir, "README.md"), "# Runtime closeout chain\n");
     git(rootDir, "add", "README.md");
     git(rootDir, "commit", "--quiet", "-m", "runtime implementation");
-    const commitSha = git(rootDir, "rev-parse", "HEAD");
-    writeFileSync(
-      path.join(rootDir, "submission.json"),
-      JSON.stringify({
-        completionClaim: "Ready.",
-        deliverables: ["README.md"],
-        outputs: ["README.md"],
-        verificationNotes: ["v"],
-        knownGaps: [],
-        residualRisks: [],
-        commitSha,
-      }),
-    );
     const resumedImplementer = {
       actor: {
         principal,
@@ -912,8 +867,7 @@ test("review binding permits independent runtimes but still rejects the executio
     );
     const operator = withRoleBinding(implementer, "repo-write");
     assert.equal(
-      (await cell.run({ kind: "task-submit", taskId, executionId, fromFile: "submission.json" }, resumedImplementer))
-        .outcome,
+      submissionOutcome(await cell.run({ kind: "task-submit", taskId, executionId }, resumedImplementer)),
       "applied",
     );
     const reconciled = await cell.run({ kind: "task-code-doc-reconcile", taskId, paths: ["README.md"] }, operator);
@@ -988,26 +942,11 @@ test("review binding permits independent runtimes but still rejects the executio
         .outcome,
       "applied",
     );
-    const directCommitSha = git(rootDir, "rev-parse", "HEAD");
-    writeFileSync(
-      path.join(rootDir, "submission.json"),
-      JSON.stringify({
-        completionClaim: "Ready.",
-        deliverables: ["d"],
-        outputs: ["o"],
-        verificationNotes: ["v"],
-        knownGaps: [],
-        residualRisks: [],
-        commitSha: directCommitSha,
-      }),
-    );
+    writeCloseout(rootDir, (directCreated as Record<string, unknown>).packagePath);
     assert.equal(
-      (
-        await cell.run(
-          { kind: "task-submit", taskId: directTaskId, executionId: directExecutionId, fromFile: "submission.json" },
-          implementer,
-        )
-      ).outcome,
+      submissionOutcome(
+        await cell.run({ kind: "task-submit", taskId: directTaskId, executionId: directExecutionId }, implementer),
+      ),
       "applied",
     );
     writeFileSync(

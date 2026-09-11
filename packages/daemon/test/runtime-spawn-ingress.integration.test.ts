@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -32,6 +33,21 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
     repoId = "runtime-spawn-ingress",
     uid = process.getuid?.() ?? 0;
   initIngressRepo(root, uid);
+  execFileSync("git", ["update-ref", "refs/remotes/origin/main", "HEAD"], { cwd: root });
+  writeFileSync(path.join(root, "delivery.ts"), "export const delivered = true;\n");
+  execFileSync("git", ["add", "delivery.ts"], { cwd: root });
+  execFileSync("git", ["commit", "-qm", "test: runtime delivery"], { cwd: root });
+  const deliveryCommit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
+  const originalPath = process.env.PATH;
+  writeProviderExecutable(
+    path.join(parent, "gh"),
+    'if (process.argv[2] !== "run" || process.argv[3] !== "list") process.exit(1); console.log("[]");\n',
+  );
+  process.env.PATH = `${parent}${path.delimiter}${originalPath ?? ""}`;
+  t.after(() => {
+    if (originalPath === undefined) delete process.env.PATH;
+    else process.env.PATH = originalPath;
+  });
   registerDaemonRepo({
     canonicalRoot: root,
     repoId,
@@ -104,6 +120,23 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
       title,
       appendix,
     );
+  };
+  const writeCloseout = (taskId: string, summary: string): void => {
+    const projection = makeTaskProjection({
+      rootDir: root,
+      eventStore: makeTaskEventReader({ repoId, rootDir: root }),
+    });
+    try {
+      writeFileSync(
+        path.join(root, "harness", projection.read(taskId).packagePath!, "closeout.md"),
+        `## Summary\n${summary} Commit ${deliveryCommit}.\n` +
+          "## Verification\nRuntime dispatch and holder assertions exercised by this integration fixture.\n" +
+          "## Residual Risk\nNo remaining runtime fixture gaps.\n" +
+          "## Same Mechanism Elsewhere\nRuntime review and continuation paths are covered in this file.\n",
+      );
+    } finally {
+      projection.close();
+    }
   };
   let transportConnections = 0;
   const endpoint = localUserDaemonEndpoint(userRoot, "runtime-spawn-ingress"),
@@ -603,6 +636,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
         (await host.run(repoId, { kind: "task-start", taskId, executionId: firstExecutionId }, auth)).outcome,
         "applied",
       );
+      writeCloseout(taskId, "The runtime execution is ready for review.");
       assert.equal(
         (
           await host.run(
@@ -611,15 +645,6 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
               kind: "task-submit",
               taskId,
               executionId: firstExecutionId,
-              submission: {
-                completionClaim: "First round is ready for review.",
-                deliverables: ["redispatch fixture"],
-                outputs: ["runtime receipt"],
-                verificationNotes: ["integration"],
-                knownGaps: [],
-                residualRisks: [],
-                commitSha: "a".repeat(40),
-              },
             },
             auth,
           )
@@ -701,6 +726,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
       );
       assert.equal(implementationBinding?.type, "runtime_session_task_bound");
       if (implementationBinding?.type !== "runtime_session_task_bound") throw new Error("missing task binding");
+      writeCloseout(taskId, "The second runtime execution is ready for review.");
       const secondExecutionId = implementationBinding.payload.executionId,
         secondSubmission = await host.run(
           repoId,
@@ -708,15 +734,6 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
             kind: "task-submit",
             taskId,
             executionId: secondExecutionId,
-            submission: {
-              completionClaim: "Second round is ready for review.",
-              deliverables: ["redispatch fixture"],
-              outputs: ["runtime receipt"],
-              verificationNotes: ["integration"],
-              knownGaps: [],
-              residualRisks: [],
-              commitSha: "b".repeat(40),
-            },
             executor: {
               kind: "agent",
               id: `runtime-session:${String(implementation.runtimeSessionId)}`,
@@ -769,6 +786,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
         executionId = "exec-runtime-review-continuation";
       await createReadyTask(taskId, "Runtime review continuation");
       assert.equal((await host.run(repoId, { kind: "task-start", taskId, executionId }, auth)).outcome, "applied");
+      writeCloseout(taskId, "The runtime execution is ready for review.");
       assert.equal(
         (
           await host.run(
@@ -777,15 +795,6 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
               kind: "task-submit",
               taskId,
               executionId,
-              submission: {
-                completionClaim: "Continue the closeout round.",
-                deliverables: ["review continuation"],
-                outputs: ["runtime dispatch"],
-                verificationNotes: ["integration"],
-                knownGaps: [],
-                residualRisks: [],
-                commitSha: "a".repeat(40),
-              },
             },
             auth,
           )
@@ -1245,28 +1254,16 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
         const crossTaskDoc = await host.run(repoId, { kind: "doc-submit", paths: [otherPath], executor: worker }, auth);
         assert.equal(crossTaskDoc.outcome, "op_rejected");
         assert.equal(crossTaskDoc.code, "lease_conflict");
-        const closeoutPath = "tasks/task-runtime-artifact-runtime-artifact/closeout.md",
-          closeoutTarget = path.join(root, "harness", closeoutPath),
-          closeoutBody = readFileSync(closeoutTarget, "utf8");
-        writeFileSync(closeoutTarget, `${closeoutBody}\nRuntime worker closeout.\n`);
+        writeCloseout(taskId, "Runtime worker submits its own dispatched execution.");
+        const closeoutPath = "tasks/task-runtime-artifact-runtime-artifact/closeout.md";
         const taskProse = await host.run(repoId, { kind: "doc-submit", paths: [closeoutPath], executor: worker }, auth);
         assert.equal(taskProse.outcome, "applied", JSON.stringify(taskProse));
-        const submission = {
-          completionClaim: "Runtime worker submits its own dispatched execution.",
-          deliverables: ["artifact"],
-          outputs: [String(published.destination)],
-          verificationNotes: ["integration"],
-          knownGaps: [],
-          residualRisks: [],
-          commitSha: "a".repeat(40),
-        };
         const nonHolder = await host.run(
           repoId,
           {
             kind: "task-submit",
             taskId,
             executionId,
-            submission,
             executor: { kind: "agent", id: "runtime-session:unrelated-runtime" },
           },
           auth,
@@ -1283,18 +1280,14 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
           actual: "agent:runtime-session:unrelated-runtime",
           expectation:
             `Expected agent:${worker.id} from the held execution lease; run from that executor, then retry ` +
-            `ha task submit ${taskId} --execution-id ${executionId} --from-file <submission.json>`,
+            `ha task submit ${taskId} --execution-id ${executionId}`,
         });
         t.diagnostic(`executor_binding_invalid receipt=${JSON.stringify(nonHolder)}`);
         const reused = await host.run(repoId, { kind: "task-start", taskId, executionId, executor: worker }, auth);
         assert.equal(reused.outcome, "no_changes", JSON.stringify(reused));
         assert.equal(reused.acceptance, null);
         assert.equal(reused.executionId, executionId, "the dispatched worker reuses its own active lease");
-        const lifecycle = await host.run(
-          repoId,
-          { kind: "task-submit", taskId, executionId, submission, executor: worker },
-          auth,
-        );
+        const lifecycle = await host.run(repoId, { kind: "task-submit", taskId, executionId, executor: worker }, auth);
         assert.equal(lifecycle.outcome, "applied", JSON.stringify(lifecycle));
         const submitted = makeTaskProjection({
           rootDir: root,

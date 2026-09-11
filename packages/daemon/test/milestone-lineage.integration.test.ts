@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -41,7 +41,7 @@ async function reachGreenInReview(
   executionId: string,
   title: string,
   taskClass: "milestone" | "standard" = "standard",
-): Promise<string> {
+): Promise<void> {
   const binding = { actor, source: "local" as const };
   await createRealizedTaskPlanFixture(
     rootDir,
@@ -80,25 +80,19 @@ async function reachGreenInReview(
       .replace(/[^a-z0-9]+/gu, "-")
       .replace(/^-|-$/gu, "")}`,
     closeoutPath = `${packagePath}/closeout.md`;
+  const artifactPath = `${packagePath}/artifacts/verification.md`;
+  mkdirSync(path.dirname(path.join(rootDir, "harness", artifactPath)), { recursive: true });
+  writeFileSync(path.join(rootDir, "harness", artifactPath), "Verified fixture delivery.\n");
+  const artifactSync = await cell.run({ kind: "doc-submit", paths: [artifactPath] }, binding);
+  assert.equal(artifactSync.outcome, "applied", JSON.stringify(artifactSync));
+  await waitForFixturePublication(cell, artifactSync.opId, binding);
   writeFileSync(
     path.join(rootDir, "harness", closeoutPath),
     "# Closeout\n\n## Summary\n\nDone.\n\n## Verification\n\nVerified.\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nNot applicable to this fixture.\n",
   );
   assert.equal((await cell.run({ kind: "doc-submit", paths: [closeoutPath] }, binding)).outcome, "applied");
-  const commitSha = git(rootDir, "rev-parse", "HEAD");
-  writeFileSync(
-    path.join(rootDir, "submission.json"),
-    JSON.stringify({
-      completionClaim: "Implemented.",
-      deliverables: ["README.md"],
-      outputs: [closeoutPath],
-      verificationNotes: ["verified"],
-      knownGaps: [],
-      residualRisks: [],
-      commitSha,
-    }),
-  );
-  await cell.run({ kind: "task-submit", taskId, executionId, fromFile: "submission.json" }, binding);
+  const submitted = await cell.run({ kind: "task-submit", taskId, executionId }, binding);
+  assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
   writeFileSync(
     path.join(rootDir, "review.json"),
     JSON.stringify({ verdict: "approved", reason: "Approved.", evidenceChecked: ["verified"] }),
@@ -122,7 +116,6 @@ async function reachGreenInReview(
     },
     binding,
   );
-  return commitSha;
 }
 
 test("an orphan milestone task stops at completion until the prescribed decision relate edge exists, then completes", async () => {

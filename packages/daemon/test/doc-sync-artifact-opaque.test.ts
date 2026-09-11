@@ -577,6 +577,12 @@ async function reachGreenInReview(
     cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
   );
   assert.equal((await cell.run({ kind: "task-start", taskId }, binding)).outcome, "applied");
+  const artifactPath = `${packagePath}/artifacts/verification.md`;
+  mkdirSync(path.dirname(path.join(rootDir, "harness", artifactPath)), { recursive: true });
+  writeFileSync(path.join(rootDir, "harness", artifactPath), "Verified fixture delivery.\n");
+  const artifactSync = await cell.run({ kind: "doc-submit", paths: [artifactPath] }, binding);
+  assert.equal(artifactSync.outcome, "applied", JSON.stringify(artifactSync));
+  await waitForFixturePublication(cell, artifactSync.opId, binding);
   writeFileSync(
     path.join(rootDir, "harness", `${packagePath}/closeout.md`),
     "# Closeout\n\n## Summary\n\nDone.\n\n## Verification\n\nVerified.\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nNot applicable to this fixture.\n",
@@ -585,23 +591,8 @@ async function reachGreenInReview(
     (await cell.run({ kind: "doc-submit", paths: [`${packagePath}/closeout.md`] }, binding)).outcome,
     "applied",
   );
-  const commitSha = git(rootDir, "rev-parse", "HEAD");
-  writeFileSync(
-    path.join(rootDir, "submission.json"),
-    JSON.stringify({
-      completionClaim: "Implemented.",
-      deliverables: ["README.md"],
-      outputs: [`${packagePath}/closeout.md`],
-      verificationNotes: ["verified"],
-      knownGaps: [],
-      residualRisks: [],
-      commitSha,
-    }),
-  );
-  assert.equal(
-    (await cell.run({ kind: "task-submit", taskId, fromFile: "submission.json" }, binding)).outcome,
-    "applied",
-  );
+  const submitted = await cell.run({ kind: "task-submit", taskId }, binding);
+  assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
   writeFileSync(
     path.join(rootDir, "review.json"),
     JSON.stringify({ verdict: "approved", reason: "Approved.", evidenceChecked: ["verified"] }),

@@ -3,13 +3,30 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test, { before, after } from "node:test";
 import { makeTaskEventReader } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
-import { initRepo } from "./task-surface.fixtures.ts";
+import { git, initRepo } from "./task-surface.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+
+import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
+
+const ciBin = mkdtempSync(path.join(tmpdir(), "ha-submit-ci-bin-"));
+const originalPath = process.env.PATH;
+before(() => {
+  writeProviderExecutable(
+    path.join(ciBin, "gh"),
+    'if (process.argv[2] !== "run" || process.argv[3] !== "list") process.exit(1); console.log("[]");\n',
+  );
+  process.env.PATH = `${ciBin}${path.delimiter}${originalPath ?? ""}`;
+});
+after(() => {
+  if (originalPath === undefined) delete process.env.PATH;
+  else process.env.PATH = originalPath;
+  rmSync(ciBin, { recursive: true, force: true });
+});
 
 const owner = {
     actor: {
@@ -63,8 +80,7 @@ test("Task execution rejects with the exact Action criterion and performs no rej
       actual: "held by personId=person-failure-owner, executor=agent:failure-owner",
       expectation:
         "The authenticated actor owns the active lease or the submitted execution being amended. Then retry " +
-        `ha task submit ${taskId} [--execution-id <execution-id>] [--amend] ` +
-        "[--from-file <from-file>] [--json-input <json|@->].",
+        `ha task submit ${taskId} [--execution-id <execution-id>] [--amend].`,
     });
     context.diagnostic(`submit proof rejection=${JSON.stringify(leaseRejected)}`);
     await assertRejectedWithoutMutation(
@@ -83,34 +99,24 @@ test("Task execution rejects with the exact Action criterion and performs no rej
     );
     assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, owner)).outcome, "applied");
 
-    await assertRejectedWithoutMutation(
+    const missingCloseout = await assertRejectedWithoutMutation(
       rootDir,
       repoId,
       () => cell!.run({ kind: "task-submit", taskId, executionId }, owner),
-      ["task-lifecycle-command-transitions/submit.validate"],
+      [],
     );
-    assert.equal(
-      (
-        await cell.run(
-          {
-            kind: "task-submit",
-            taskId,
-            executionId,
-            submission: {
-              completionClaim: "Ready for exact failure attribution.",
-              deliverables: ["receipt"],
-              outputs: ["ActionResult"],
-              verificationNotes: ["integration"],
-              knownGaps: [],
-              residualRisks: [],
-              commitSha: "a".repeat(40),
-            },
-          },
-          owner,
-        )
-      ).outcome,
-      "applied",
+    assert.equal(missingCloseout.code, "closeout_placeholder");
+    writeFileSync(path.join(rootDir, "README.md"), "# Action failure delivery\n");
+    git(rootDir, "add", "README.md");
+    git(rootDir, "commit", "-qm", "test: action failure delivery");
+    writeFileSync(
+      path.join(rootDir, "harness", String((created as Record<string, unknown>).packagePath), "closeout.md"),
+      `## Summary\nReady for exact failure attribution at ${git(rootDir, "rev-parse", "HEAD")}.\n` +
+        "## Verification\nAction criterion integration assertions.\n## Residual Risk\nNone.\n" +
+        "## Same Mechanism Elsewhere\nShared action refusal contracts.\n",
     );
+    const submitted = await cell.run({ kind: "task-submit", taskId, executionId }, owner);
+    assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
 
     await assertRejectedWithoutMutation(
       rootDir,
