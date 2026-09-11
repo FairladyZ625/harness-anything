@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawn, spawnSync, execFileSync } from "node:child_process";
+import { spawnSync, execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir, loadavg, availableParallelism, cpus, totalmem, freemem } from "node:os";
 import path from "node:path";
@@ -67,7 +67,7 @@ export function fixture(seed, daemonId = "entity-v2-scale") {
       env: { ...env, ...(actor ? { HARNESS_ACTOR: actor } : {}) },
       encoding: "utf8",
       timeout: timeoutMs,
-      maxBuffer: 32 * 1024 * 1024,
+      maxBuffer: 256 * 1024 * 1024,
       ...(input === undefined ? {} : { input: JSON.stringify(input) }),
     });
     let receipt = null;
@@ -97,58 +97,6 @@ export function fixture(seed, daemonId = "entity-v2-scale") {
     }
     return receipt;
   };
-  /** Arm A, concurrent: N independent CLI processes issued at once against one daemon. */
-  const concurrentCli = async (metric, argvList, { actor, timeoutMs = 180_000 } = {}) => {
-    const batchStarted = performance.now();
-    const results = await Promise.all(
-      argvList.map(
-        (args, client) =>
-          new Promise((resolve) => {
-            const started = performance.now();
-            const child = spawn(process.execPath, [cli, "--root", root, "--json", ...args], {
-              env: { ...env, ...(actor ? { HARNESS_ACTOR: actor } : {}) },
-            });
-            let stdout = "",
-              stderr = "";
-            const timer = setTimeout(() => child.kill("SIGKILL"), timeoutMs);
-            child.stdout.on("data", (chunk) => (stdout += chunk));
-            child.stderr.on("data", (chunk) => (stderr += chunk.toString().slice(0, 2048)));
-            child.on("close", (code, signal) => {
-              clearTimeout(timer);
-              let receipt = null;
-              try {
-                receipt = JSON.parse(stdout);
-              } catch {
-                /* Parse failures are evidence too. */
-              }
-              resolve({
-                seed,
-                metric,
-                arm: "cli-process-concurrent",
-                client,
-                args,
-                wallMs: performance.now() - started,
-                exit: code,
-                signal,
-                receipt,
-                stdout,
-                stderr: stderr.slice(0, 2048),
-              });
-            });
-          }),
-      ),
-    );
-    for (const row of results) record(row);
-    const batchMs = performance.now() - batchStarted;
-    frame("concurrent-batch", {
-      seed,
-      metric,
-      clients: argvList.length,
-      batchMs,
-      succeeded: results.filter(({ exit, receipt }) => exit === 0 && receipt?.ok).length,
-    });
-    return { results, batchMs };
-  };
   const check = (name, operation) => {
     try {
       operation();
@@ -174,30 +122,33 @@ export function fixture(seed, daemonId = "entity-v2-scale") {
     });
     return published;
   };
+  /** Stop this fixture's daemon and wait until its process is gone, so the ledger has no live writer. */
+  const stopDaemon = async (metric) => {
+    const stopped = invoke(metric, ["daemon", "stop"], { requireSuccess: false });
+    if (!Number.isSafeInteger(stopped?.pid)) return stopped;
+    const commandLine = `/proc/${stopped.pid}/cmdline`,
+      deadline = Date.now() + 10_000;
+    while (existsSync(commandLine) && Date.now() < deadline) {
+      let command;
+      try {
+        command = readFileSync(commandLine, "utf8");
+      } catch (error) {
+        if (error.code === "ENOENT") break;
+        throw error;
+      }
+      if (!command.includes(userRoot)) break;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    return stopped;
+  };
   const close = async () => {
     try {
-      const stopped = invoke("cleanup.daemon-stop", ["daemon", "stop"], { requireSuccess: false });
-      if (Number.isSafeInteger(stopped?.pid)) {
-        const commandLine = `/proc/${stopped.pid}/cmdline`,
-          deadline = Date.now() + 10_000;
-        while (existsSync(commandLine)) {
-          let command;
-          try {
-            command = readFileSync(commandLine, "utf8");
-          } catch (error) {
-            if (error.code === "ENOENT") break;
-            throw error;
-          }
-          if (!command.includes(userRoot)) break;
-          if (Date.now() >= deadline) break;
-          await new Promise((resolve) => setTimeout(resolve, 25));
-        }
-      }
+      await stopDaemon("cleanup.daemon-stop");
     } finally {
       rmSync(parent, { recursive: true, force: true, maxRetries: 5 });
     }
   };
-  return { seed, parent, root, userRoot, env, rows, checks, invoke, concurrentCli, check, publish, close };
+  return { seed, parent, root, userRoot, env, rows, checks, invoke, check, publish, stopDaemon, close };
 }
 
 export function resourceSnapshot(root, label) {
@@ -224,9 +175,14 @@ export function resourceSnapshot(root, label) {
       "-lc",
       "ps -eo pid,pcpu,rss,etime,args | grep -F 'daemon' | grep -v grep | head -20",
     ]),
-    diskKb: command(["du", "-sk", root]),
+    diskBytes: directoryBytes(root),
     filesystem: command(["df", "-T", root]),
   };
+}
+
+export function directoryBytes(target) {
+  const output = spawnSync("du", ["-sb", target], { encoding: "utf8" }).stdout?.trim();
+  return output ? Number(output.split(/\s+/u)[0]) : null;
 }
 
 /** Exact-byte oracle across the canonical blob, the materialized worktree and authored Git. */

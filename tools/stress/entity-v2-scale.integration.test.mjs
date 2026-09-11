@@ -3,12 +3,14 @@ import assert from "node:assert/strict";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventReader } from "../../packages/kernel/src/index.ts";
+import { Worker } from "node:worker_threads";
+import { makeTaskEventReader, makeTaskProjection } from "../../packages/kernel/src/index.ts";
 import { main as cliMain } from "../../packages/cli/src/index.ts";
 import { git } from "../../packages/cli/test/daemon-multi-repo-lifecycle-cli.fixtures.ts";
 import { realizedTaskPlan } from "../fixtures/task-plan.mjs";
 import {
   assertBytes,
+  directoryBytes,
   fixture,
   frame,
   readWorkloadConfig,
@@ -16,6 +18,7 @@ import {
   summarize,
   syntheticBinary,
 } from "./entity-v2-scale.fixture.mjs";
+import { generateEventStream } from "./entity-v2-scale.generator.mjs";
 
 const kind = "entity-kind/KND-3b7e2c9a1d5f6e8c0a4b2d3f5e7c9a16";
 const config = readWorkloadConfig();
@@ -27,13 +30,57 @@ const skip =
       ? false
       : "workload disabled: tools/stress/entity-v2-scale.workload.json enabled=false";
 
-test("bounded V2 scale: real CLI Task lifecycle and Entity content at a declared workset", { skip }, async () => {
+/**
+ * A projection follower on its own thread. `finish` names the final revision and whether to digest, and gives
+ * up at `withinMs`: the follower is stopped and the error names how far replay got.
+ */
+function follower(label, rootDir, repoId, projectionPath) {
+  const worker = new Worker(new URL("./entity-v2-scale.projection-worker.mjs", import.meta.url), {
+    workerData: { rootDir, repoId, projectionPath },
+  });
+  let reached = null;
+  const settled = new Promise((resolve) => {
+    worker.on("message", ({ progress, ...message }) => {
+      if (!progress) return resolve(message);
+      reached = message;
+      frame("follower-progress", { label, ...message });
+    });
+    worker.once("error", (error) => resolve({ ok: false, error: error.message }));
+    worker.once("exit", (code) => resolve({ ok: false, error: `${label} follower exited ${code} before reporting` }));
+  });
+  return {
+    finish: async (revision, digest, withinMs) => {
+      worker.postMessage({ revision, digest });
+      let timer;
+      const expired = new Promise((resolve) => {
+        const error = () => `stage budget: ${label} follower reached ${JSON.stringify(reached)} of ${revision}`;
+        timer = setTimeout(() => resolve({ ok: false, error: error() }), Math.max(0, withinMs));
+      });
+      const result = await Promise.race([settled, expired]);
+      clearTimeout(timer);
+      if (result.ok) return result;
+      await worker.terminate();
+      throw new Error(result.error);
+    },
+    stop: () => worker.terminate(),
+  };
+}
+
+test(`V2 scale tier: ${config.targetEvents} generated events`, { skip, timeout: config.stageBudgetMs }, async () => {
   const started = performance.now();
   const elapsed = () => performance.now() - started;
+  // Phases stop cleanly before the dispatcher's per-file watchdog, keeping room to report and clean up.
+  const remainingMs = () => config.stageBudgetMs - 45_000 - elapsed();
+  const requireBudget = (phase, neededMs) => {
+    if (remainingMs() < neededMs)
+      throw new Error(`stage budget: ${Math.round(remainingMs())} ms left before ${phase}, needs ${neededMs} ms`);
+  };
   const f = fixture(config.seed);
   const failures = [],
-    capacity = {};
-  let reader = null;
+    tier = { targetEvents: config.targetEvents };
+  let reader = null,
+    hotFollower = null,
+    coldFollower = null;
   const guard = (name, operation) => {
     try {
       return operation();
@@ -61,11 +108,11 @@ test("bounded V2 scale: real CLI Task lifecycle and Entity content at a declared
       errorChunks = [],
       write = process.stdout.write.bind(process.stdout),
       writeError = process.stderr.write.bind(process.stderr),
-      // The node:test reporter writes its own binary protocol to these streams; only the CLI's
-      // console.log receipt arrives as a string, so string chunks are the receipt channel and
-      // everything else is passed straight through to the real stream.
+      // The node:test reporter writes its own binary protocol to these streams and follower frames can
+      // land mid-command; only the CLI's console.log receipt is captured, everything else passes through.
       capture = (sink, passthrough) => (chunk, encoding, callback) => {
-        if (typeof chunk !== "string") return passthrough(chunk, encoding, callback);
+        if (typeof chunk !== "string" || chunk.startsWith("ENTITY_V2_SCALE\t"))
+          return passthrough(chunk, encoding, callback);
         sink.push(chunk);
         if (typeof encoding === "function") encoding();
         else if (typeof callback === "function") callback();
@@ -106,337 +153,210 @@ test("bounded V2 scale: real CLI Task lifecycle and Entity content at a declared
       ...(status === 0 && receipt?.ok === true ? {} : { stdout: stdout.slice(0, 2000), stderr: stderr.slice(0, 2000) }),
     };
     f.rows.push(row);
+    if (!row.ok) {
+      const { receipt: rejected, ...rest } = row;
+      failures.push({ phase: metric, error: JSON.stringify({ ...rest, code: rejected?.code ?? null }).slice(0, 2000) });
+      frame("failure", failures.at(-1));
+    }
     return row;
   };
-
+  const probeInput = (sample) => {
+    const locator = `inputs/probe/${sample}`,
+      directory = path.join(f.root, locator),
+      text = Buffer.from(`# Probe ${sample}\n`),
+      binary = syntheticBinary(90_000 + sample, config.binaryBytes);
+    mkdirSync(directory, { recursive: true });
+    writeFileSync(path.join(directory, "README.md"), text);
+    writeFileSync(path.join(directory, "sample.bin"), binary);
+    return {
+      argv: ["entity", "import", "--kind", kind, "--locator", locator, "--expected-version", "0"],
+      text,
+      binary,
+    };
+  };
+  const importProbe = (metric, sample) => {
+    const { argv, text, binary } = probeInput(sample),
+      receipt = f.invoke(metric, argv, { frameRow: false });
+    return { receipt, id: evidence(receipt).preview.entityId, text, binary };
+  };
+  let generatedSamples = null;
+  const reckonArgs = (sample) => {
+    const { decisionId, taskId } = generatedSamples.decisions[sample % generatedSamples.decisions.length];
+    return ["decision", "reckon", decisionId, "--task", taskId];
+  };
   try {
     frame("protocol", {
       config,
-      cache: "source CLI; no OS page cache eviction; cold reads are daemon-restart cold, not disk cold",
+      cache: "no OS page cache eviction; the daemon starts onto a projection its follower kept current",
       interpretation:
-        "arm cli-process includes Node startup and module load per operation; arm in-process-reused-modules does not. The two arms are never compared as a speedup.",
+        "arm cli-process includes Node startup and module load per operation; arm in-process-reused-modules " +
+        "does not. The two arms are never compared as a speedup.",
       resources: resourceSnapshot(f.parent, "before"),
     });
 
     f.invoke("setup.init", ["init", "--repo-id", config.repoId, "--person-id", "owner", "--display-name", "Owner"]);
     reader = makeTaskEventReader({ rootDir: f.root, repoId: config.repoId });
-
-    // V2 entry: the production reader, the production writer receipts and a real backup must agree.
-    const backupDir = path.join(f.parent, "entry-backup");
-    const backup = f.invoke("v2.backup", ["backup", backupDir], { offline: true });
+    const entryBackup = f.invoke("v2.backup", ["backup", path.join(f.parent, "entry-backup")], { offline: true });
     f.check("v2.generation-two-before-workload", () => {
       assert.equal(reader.ledgerMetadata().generation, 2, "reader generation");
-      assert.equal(backup.manifest?.sqlite?.generation, 2, JSON.stringify(backup.manifest));
-    });
-    frame("v2-entry", {
-      readerGeneration: reader.ledgerMetadata().generation,
-      backupManifest: backup.manifest,
-      initialRevision: reader.readHead().revision,
+      assert.equal(entryBackup.manifest?.sqlite?.generation, 2, JSON.stringify(entryBackup.manifest));
     });
 
-    // One full real Task document lifecycle on the empty repository.
-    guard("task-lifecycle.empty", () => taskLifecycle(f, reader, "empty"));
+    // Generation writes the ledger directly, so the daemon is stopped. One follower keeps the daemon's own
+    // projection current while events land; a second builds an independent projection from empty.
+    await f.stopDaemon("generation.daemon-stop");
+    hotFollower = follower("hot", f.root, config.repoId);
+    coldFollower = follower("cold", f.root, config.repoId, path.join(f.parent, "cold-follower.sqlite"));
+    const generated = await generateEventStream({
+      rootDir: f.root,
+      repoId: config.repoId,
+      seed: config.seed,
+      targetEvents: config.targetEvents,
+      userRoot: f.userRoot,
+      drainEvery: config.drainEvery,
+      onProgress: (progress) => frame("generation-progress", progress),
+    });
+    frame("generation", generated);
+    const hotCatchUp = await hotFollower.finish(generated.headRevision, false, remainingMs());
+    tier.generation = { ...generated, samples: undefined, hotCatchUp };
+    frame("hot-catch-up", hotCatchUp);
+    f.check("generation.exact-count-and-follower-verified", () => {
+      assert.equal(generated.generatedEvents, config.targetEvents);
+      assert.equal(generated.follower.git, "verified");
+      assert.equal(generated.follower.worktree, "verified");
+      assert.equal(generated.follower.cut, generated.headRevision);
+      assert.equal(hotCatchUp.watermark, generated.headRevision);
+    });
+    frame("resources-after-generation", resourceSnapshot(f.parent, "after-generation"));
 
-    // Population to the declared workset, plus periodic exact-byte verification.
-    const inputRoot = path.join(f.root, "inputs", "scale");
-    mkdirSync(inputRoot, { recursive: true });
-    const verified = [];
-    const populateStarted = performance.now();
-    let imported = 0,
-      populationStop = "target-reached";
-    for (let index = 0; index < config.targetEntities; index++) {
-      if (performance.now() - populateStarted > config.populateBudgetMs) {
-        populationStop = "populate-budget-exhausted";
-        break;
-      }
-      const locator = `inputs/scale/${index}`,
-        directory = path.join(f.root, locator);
-      mkdirSync(directory, { recursive: true });
-      const text = Buffer.from(`# Scale ${config.seed}/${index}\n${"canonical content\n".repeat(8)}`),
-        binary = syntheticBinary(config.seed + index, config.binaryBytes);
-      writeFileSync(path.join(directory, "README.md"), text);
-      writeFileSync(path.join(directory, "sample.bin"), binary);
-      const row = await inProcess("entity.import.populate", [
-        "entity",
-        "import",
-        "--kind",
-        kind,
-        "--locator",
-        locator,
-        "--expected-version",
-        "0",
-        "--no-wait",
-      ]);
-      if (!row.ok) {
-        failures.push({
-          phase: `populate-${index}`,
-          error: JSON.stringify({ exit: row.exit, thrown: row.error, stdout: row.stdout, stderr: row.stderr }).slice(
-            0,
-            2000,
-          ),
-        });
-        frame("failure", failures.at(-1));
-        populationStop = "import-rejected";
-        break;
-      }
-      imported += 1;
-      if (
-        verified.length < config.contentSamples &&
-        index % Math.max(1, Math.floor(config.targetEntities / config.contentSamples)) === 0
-      ) {
-        verified.push({ index, id: evidence(row.receipt).preview.entityId, receipt: row.receipt, text, binary });
-      }
-      if (index % 100 === 0)
-        frame("populate-progress", {
-          index,
-          imported,
-          elapsedMs: elapsed(),
-          populateMs: performance.now() - populateStarted,
-        });
-    }
-    const populateMs = performance.now() - populateStarted;
-    capacity.population = {
-      requested: config.targetEntities,
-      imported,
-      stop: populationStop,
-      populateMs,
-      opsPerSecond: imported / (populateMs / 1000),
-      arm: "in-process-reused-modules",
-    };
-    frame("capacity", capacity.population);
-
-    const afterPopulation = reader.readHead().revision;
-    frame("cut-after-population", { revision: afterPopulation, entities: imported });
-
-    // Exact-byte oracle on the sampled entities, plus the negative control that proves the oracle bites.
-    for (const sample of verified) {
-      const contentRoot = `entities/research/${sample.id}`;
-      guard(`content.bytes-${sample.index}`, () =>
-        f.check(`content.exact-bytes-${sample.index}`, () => {
-          assertBytes(f.root, `${contentRoot}/README.md`, sample.text, sample.receipt, reader);
-          assertBytes(f.root, `${contentRoot}/sample.bin`, sample.binary, sample.receipt, reader);
-        }),
-      );
-    }
-    if (verified.length > 0)
-      guard("content.negative-control", () =>
-        f.check("content.oracle-rejects-wrong-bytes", () =>
-          assert.throws(() =>
-            assertBytes(
-              f.root,
-              `entities/research/${verified[0].id}/sample.bin`,
-              Buffer.from("dropped bytes"),
-              verified[0].receipt,
-              reader,
-            ),
-          ),
-        ),
-      );
-
-    // Latency probes at the populated scale, full CLI chain.
-    guard("probe.cli-import", () => {
-      for (let sample = 0; sample < config.cliProbeSamples; sample++) {
-        const locator = `inputs/probe/${sample}`,
-          directory = path.join(f.root, locator);
-        mkdirSync(directory, { recursive: true });
-        writeFileSync(path.join(directory, "README.md"), Buffer.from(`# Probe ${sample}\n`));
-        writeFileSync(path.join(directory, "sample.bin"), syntheticBinary(90_000 + sample, config.binaryBytes));
-        f.invoke(
-          "probe.entity.import",
-          ["entity", "import", "--kind", kind, "--locator", locator, "--expected-version", "0", "--no-wait"],
-          { frameRow: false },
-        );
+    // The daemon attaches to the current projection; its first write pays any whole-ledger follower work.
+    const { samples } = generated;
+    generatedSamples = samples;
+    requireBudget("daemon attach and measurement", config.measureBudgetMs);
+    f.invoke("attach.daemon-start", ["daemon", "start", "--service"], { timeoutMs: 600_000 });
+    f.invoke("attach.first-read", ["task", "list", "--limit", "1"], { timeoutMs: 600_000 });
+    const firstWrite = guard("write.first-after-restart", () => importProbe("write.entity-import.first", 0));
+    guard("write.first-publication", () => f.publish(firstWrite.receipt, "write.entity-import.first"));
+    guard("write.entity-import", () => {
+      for (let sample = 1; sample <= config.writeSamples; sample++) importProbe("write.entity-import", sample);
+    });
+    guard("write.decision-reckon", () => {
+      for (let sample = 0; sample < config.writeSamples; sample++)
+        f.invoke("write.decision-reckon", reckonArgs(sample), { frameRow: false });
+    });
+    // The resident arm writes other entities and reckons other decisions, so no write repeats one above.
+    await guardAsync("write.in-process", async () => {
+      for (let sample = 0; sample < config.writeSamples; sample++) {
+        await inProcess("write.entity-import", probeInput(1_000 + sample).argv);
+        await inProcess("write.decision-reckon", reckonArgs(config.writeSamples + sample));
       }
     });
-    const probeReceipt = f.rows.findLast((row) => row.metric === "probe.entity.import")?.receipt;
-    const probeId = probeReceipt ? evidence(probeReceipt).preview.entityId : null;
-    guard("probe.publication", () => f.publish(probeReceipt, "probe.entity.import"));
 
-    guard("probe.cli-get-warm", () => {
-      for (let sample = 0; sample < config.cliProbeSamples; sample++)
-        f.invoke("probe.entity.get.warm", ["entity", "get", kind, "--id", probeId], { frameRow: false });
-    });
-    guard("probe.cli-list-warm", () =>
-      f.invoke("probe.entity.list.warm", ["entity", "list", kind], { frameRow: false }),
-    );
-
-    // Update and its concurrency negative control at scale.
-    guard("probe.update", () => {
-      const current = f.invoke("probe.entity.get.before-update", ["entity", "get", kind, "--id", probeId], {
-        frameRow: false,
+    // Hot reads, both arms, one untimed warm-up each.
+    const hub = `task/${samples.anchorTaskId}`,
+      leaf = `task/${samples.taskIds.at(-1)}`,
+      reads = [
+        ["read.task-show", (sample) => ["task", "show", samples.taskIds[sample % samples.taskIds.length]]],
+        ["read.task-list", () => ["task", "list"]],
+        ["read.task-list.page", () => ["task", "list", "--limit", "50"]],
+        ["read.relation-list.page", () => ["relation", "list", "--limit", "50"]],
+        ["read.relation-list.hub", () => ["relation", "list", "--entity", hub, "--limit", "50"]],
+        ["read.relation-list.leaf", () => ["relation", "list", "--entity", leaf, "--limit", "50"]],
+        ["read.fact-search.selective", () => ["fact", "search", samples.factToken, "--limit", "20"]],
+        ["read.fact-search.broad", () => ["fact", "search", "observation", "--limit", "20"]],
+      ];
+    for (const [metric, argv] of reads)
+      guard(metric, () => {
+        f.invoke(`${metric}.warm-up`, argv(0), { frameRow: false });
+        for (let sample = 0; sample < config.readSamples; sample++) f.invoke(metric, argv(sample), { frameRow: false });
       });
-      const updated = f.invoke("probe.entity.update", [
-        "entity",
-        "update",
-        kind,
-        "--id",
-        probeId,
-        "--title",
-        "Updated at scale",
-        "--expected-version",
-        String(current.revision),
-        "--no-wait",
-      ]);
-      f.publish(updated, "probe.entity.update");
-      const warm = f.invoke("probe.entity.get.after-update", ["entity", "get", kind, "--id", probeId]);
-      f.check("probe.updated-title-visible", () => assert.equal(evidence(warm).entity.value.title, "Updated at scale"));
-      const stale = f.invoke(
-        "probe.entity.update.stale-negative",
-        [
-          "entity",
-          "update",
-          kind,
-          "--id",
-          probeId,
-          "--title",
-          "Stale must fail",
-          "--expected-version",
-          String(current.revision),
-        ],
-        { requireSuccess: false },
-      );
-      f.check("probe.stale-update-rejected", () => {
+    for (const [metric, argv] of reads)
+      await guardAsync(`${metric}.in-process`, async () => {
+        await inProcess(`${metric}.warm-up`, argv(0));
+        for (let sample = 0; sample < config.readSamples; sample++) await inProcess(metric, argv(sample));
+      });
+
+    // Content exactness and a concurrency negative control, at scale.
+    guard("content.exact-bytes", () =>
+      f.check("content.exact-bytes", () => {
+        const root = `entities/research/${firstWrite.id}`;
+        assertBytes(f.root, `${root}/README.md`, firstWrite.text, firstWrite.receipt, reader);
+        assertBytes(f.root, `${root}/sample.bin`, firstWrite.binary, firstWrite.receipt, reader);
+        assert.throws(() =>
+          assertBytes(f.root, `${root}/sample.bin`, Buffer.from("dropped"), firstWrite.receipt, reader),
+        );
+      }),
+    );
+    guard("content.stale-update", () => {
+      const current = f.invoke("probe.entity.get", ["entity", "get", kind, "--id", firstWrite.id]);
+      const update = (title) => [
+        ...["entity", "update", kind, "--id", firstWrite.id, "--title", title],
+        ...["--expected-version", String(evidence(current).entity.workspaceRevision)],
+      ];
+      f.invoke("write.entity-update", update("Updated at scale"));
+      const stale = f.invoke("write.entity-update.stale", update("Stale must fail"), { requireSuccess: false });
+      f.check("content.stale-update-rejected", () => {
         assert.equal(stale.ok, false);
         assert.equal(stale.code, "revision_conflict");
       });
     });
 
-    // Concurrent clients, each an independent CLI process against the one daemon.
-    await guardAsync("probe.concurrent-reads", async () => {
-      const rounds = config.concurrentRounds ?? 1,
-        batches = [];
-      let succeeded = 0;
-      for (let round = 0; round < rounds; round++) {
-        const { batchMs, results } = await f.concurrentCli(
-          "probe.entity.get.concurrent",
-          Array.from({ length: config.clients }, () => ["entity", "get", kind, "--id", probeId]),
-        );
-        batches.push(batchMs);
-        succeeded += results.filter((row) => row.exit === 0 && row.receipt?.ok).length;
-      }
-      capacity.concurrentReads = {
-        clients: config.clients,
-        rounds,
-        batchMs: batches,
-        succeeded,
-        readsPerSecond: succeeded / (batches.reduce((sum, value) => sum + value, 0) / 1000),
-      };
-      frame("capacity", { concurrentReads: capacity.concurrentReads });
-    });
-    await guardAsync("probe.concurrent-writes", async () => {
-      const rounds = config.concurrentRounds ?? 1,
-        batches = [],
-        opIds = new Set(),
-        rejections = [];
-      let accepted = 0;
-      for (let round = 0; round < rounds; round++) {
-        for (let client = 0; client < config.clients; client++) {
-          const directory = path.join(f.root, "inputs", "concurrent", `${round}-${client}`);
-          mkdirSync(directory, { recursive: true });
-          writeFileSync(path.join(directory, "README.md"), Buffer.from(`# Concurrent ${round}/${client}\n`));
-          writeFileSync(
-            path.join(directory, "sample.bin"),
-            syntheticBinary(70_000 + round * 100 + client, config.binaryBytes),
-          );
-        }
-        const { batchMs, results } = await f.concurrentCli(
-          "probe.entity.import.concurrent",
-          Array.from({ length: config.clients }, (_unused, client) => [
-            "entity",
-            "import",
-            "--kind",
-            kind,
-            "--locator",
-            `inputs/concurrent/${round}-${client}`,
-            "--expected-version",
-            "0",
-            "--no-wait",
-          ]),
-        );
-        batches.push(batchMs);
-        for (const row of results) {
-          if (row.exit === 0 && row.receipt?.ok) {
-            accepted += 1;
-            opIds.add(row.receipt.opId);
-          } else if (row.receipt?.ok === false) rejections.push(row.receipt.code);
-        }
-      }
-      capacity.concurrentWrites = {
-        clients: config.clients,
-        rounds,
-        batchMs: batches,
-        accepted,
-        distinctOpIds: opIds.size,
-        rejections,
-        writesPerSecond: accepted / (batches.reduce((sum, value) => sum + value, 0) / 1000),
-      };
-      frame("capacity", { concurrentWrites: capacity.concurrentWrites });
-    });
-
-    // Cold read: stop the daemon, then time the first read that has to reopen the ledger.
-    guard("probe.cold-read", () => {
-      f.invoke("cold.daemon-stop", ["daemon", "stop"], { requireSuccess: false });
-      f.invoke("cold.daemon-start", ["daemon", "start", "--service"], { timeoutMs: 120_000 });
-      f.invoke("cold.entity.list", ["entity", "list", kind], { timeoutMs: 300_000 });
-      f.invoke("cold.entity.get", ["entity", "get", kind, "--id", probeId]);
-      for (let sample = 0; sample < config.cliProbeSamples; sample++)
-        f.invoke("hot.entity.list", ["entity", "list", kind], { frameRow: false });
-    });
-
-    // Large content, bounded by the remaining budget.
-    guard("probe.large-content", () => {
-      const locator = "inputs/large/0",
-        directory = path.join(f.root, locator),
-        large = syntheticBinary(4242, config.largeBytes);
-      mkdirSync(directory, { recursive: true });
-      writeFileSync(path.join(directory, "large.bin"), large);
-      const receipt = f.invoke("probe.entity.import.large", [
-        "entity",
-        "import",
-        "--kind",
-        kind,
-        "--locator",
-        locator,
-        "--expected-version",
-        "0",
-        "--no-wait",
-      ]);
-      const id = evidence(receipt).preview.entityId;
-      f.publish(receipt, "probe.entity.import.large");
-      f.check("large.exact-bytes", () =>
-        assertBytes(f.root, `entities/research/${id}/large.bin`, large, receipt, reader),
-      );
-      capacity.largeContent = { bytes: config.largeBytes, id };
-    });
-
-    // Recovery: delete materialized content and rebuild it from the canonical ledger.
-    guard("probe.recovery", () => {
-      const sample = verified[0];
-      assert.ok(sample, "recovery needs at least one byte-verified sample");
-      const contentRoot = `entities/research/${sample.id}`,
-        before = reader.readHead().revision;
-      rmSync(path.join(f.root, "harness", contentRoot), { recursive: true });
-      f.invoke("recovery.materialize", ["doc", "materialize"], { timeoutMs: 600_000 });
-      f.check("recovery.no-new-events-and-exact-bytes", () => {
-        assert.equal(reader.readHead().revision, before);
-        assert.deepEqual(readFileSync(path.join(f.root, "harness", contentRoot, "README.md")), sample.text);
-        assert.deepEqual(readFileSync(path.join(f.root, "harness", contentRoot, "sample.bin")), sample.binary);
-      });
-      capacity.recovery = { revision: before, restored: contentRoot };
-    });
-
-    // A second full Task lifecycle, now against the populated ledger.
+    // One full Task document lifecycle through the real CLI against the scaled ledger.
     guard("task-lifecycle.at-scale", () => taskLifecycle(f, reader, "at-scale"));
 
-    const finalBackupDir = path.join(f.parent, "final-backup");
-    const finalBackup = guard("v2.final-backup", () =>
-      f.invoke("v2.backup.final", ["backup", finalBackupDir], { offline: true }),
+    // Backup size and restore drill on the scaled ledger.
+    const backupDir = path.join(f.parent, "scale-backup");
+    const backup = guard("backup", () =>
+      f.invoke("backup", ["backup", backupDir], { offline: true, timeoutMs: 600_000 }),
     );
-    frame("v2-exit", {
-      readerGeneration: reader.ledgerMetadata().generation,
-      backupManifest: finalBackup?.manifest ?? null,
-      finalRevision: reader.readHead().revision,
+    tier.backup = { bytes: directoryBytes(backupDir), files: backup?.manifest?.files?.length ?? null };
+    guard("restore-drill", () => {
+      const drill = f.invoke(
+        "restore-drill",
+        ["restore", "--drill", backupDir, "--shadow-parent", path.join(f.parent, "drills")],
+        { offline: true, timeoutMs: 600_000 },
+      );
+      tier.restoreDrill = { shadowBytes: directoryBytes(drill.shadowRoot) };
+      rmSync(path.join(f.parent, "drills"), { recursive: true, force: true });
     });
+    rmSync(backupDir, { recursive: true, force: true });
+    frame("backup", tier);
+
+    // Strict rebuild: the daemon's hot projection must equal one built from empty, at the same cut.
+    await f.stopDaemon("strict.daemon-stop");
+    const finalRevision = reader.readHead().revision,
+      cold = await coldFollower.finish(finalRevision, true, remainingMs()),
+      hotStarted = performance.now(),
+      hot = makeTaskProjection({ rootDir: f.root, eventStore: reader }),
+      hotDigest = hot.readStateDigest(),
+      hotCut = hot.readCut();
+    hot.close();
+    tier.strict = {
+      finalRevision,
+      cold,
+      hot: { stateDigest: hotDigest, cut: hotCut, digestMs: performance.now() - hotStarted },
+    };
+    f.check("strict.hot-projection-equals-cold", () => {
+      assert.equal(cold.watermark, finalRevision);
+      assert.ok(hotDigest, "hot projection is at the source cut");
+      assert.equal(hotDigest, cold.stateDigest);
+    });
+    // A sequential rebuild from empty with nothing else running, when the stage budget still allows it.
+    const rebuildBudgetMs = remainingMs();
+    if (rebuildBudgetMs > cold.busyMs * 1.5) {
+      const rebuildStarted = performance.now(),
+        rebuilt = makeTaskProjection({
+          rootDir: f.root,
+          eventStore: reader,
+          projectionPath: path.join(f.parent, "cold-rebuild.sqlite"),
+        }),
+        receipt = rebuilt.rebuild();
+      rebuilt.close();
+      tier.rebuild = { ...receipt, elapsedMs: performance.now() - rebuildStarted };
+      f.check("strict.sequential-rebuild-equals-hot", () => assert.equal(receipt.stateDigest, hotDigest));
+    } else tier.rebuild = { skipped: "stage budget", remainingMs: rebuildBudgetMs, followerBusyMs: cold.busyMs };
+    frame("strict", tier.strict);
+    frame("rebuild", tier.rebuild);
     frame("resources-after", resourceSnapshot(f.parent, "after"));
   } catch (error) {
     failures.push({ phase: "run", error: error.message });
@@ -445,13 +365,20 @@ test("bounded V2 scale: real CLI Task lifecycle and Entity content at a declared
     frame("summary", {
       config,
       elapsedMs: elapsed(),
-      capacity,
+      tier,
       cliMetrics: summarize(f.rows, (row) => row.arm !== "in-process-reused-modules"),
       inProcessMetrics: summarize(f.rows, (row) => row.arm === "in-process-reused-modules"),
+      samples: Object.fromEntries(
+        [...new Set(f.rows.map(({ arm, metric }) => `${arm}|${metric}`))].map((key) => [
+          key,
+          f.rows.filter(({ arm, metric }) => `${arm}|${metric}` === key).map(({ wallMs }) => Math.round(wallMs)),
+        ]),
+      ),
       checks: f.checks,
       failures,
       verdict: failures.length ? "FAILURES_PRESENT" : "MEASURED",
     });
+    await Promise.all([hotFollower?.stop(), coldFollower?.stop()]);
     await reader?.drain();
     await f.close();
   }
@@ -471,7 +398,6 @@ function taskLifecycle(f, reader, label) {
     `V2 scale ${label}`,
     "--preset",
     "docs-task",
-    "--no-wait",
   ]);
   f.publish(created, `task.create.${label}`);
   const packagePath = created.packagePath,
@@ -480,7 +406,7 @@ function taskLifecycle(f, reader, label) {
     assertBytes(f.root, planPath, readFileSync(path.join(f.root, "harness", planPath)), created, reader),
   );
   writeFileSync(path.join(f.root, "harness", planPath), realizedTaskPlan(`V2 scale ${label}`));
-  const prose = f.invoke(`task.prose.${label}`, ["doc", "sync", "--submit", "--path", planPath, "--no-wait"]);
+  const prose = f.invoke(`task.prose.${label}`, ["doc", "sync", "--submit", "--path", planPath]);
   f.publish(prose, `task.prose.${label}`);
   f.invoke(`task.fact.${label}`, [
     "fact",
@@ -502,8 +428,7 @@ function taskLifecycle(f, reader, label) {
     "# Closeout\n\n## Summary\n\nReport delivered.\n\n## Verification\n\nExact bytes checked.\n\n" +
       "## Residual Risk\n\nBounded measurement.\n\n## Same Mechanism Elsewhere\n\nTask report ownership.\n",
   );
-  f.invoke(`doc.status.${label}`, ["doc", "status", "--task", taskId], { actor });
-  const report = f.invoke(`task.report.${label}`, ["doc", "sync", "--submit", "--task", taskId, "--no-wait"], {
+  const report = f.invoke(`task.report.${label}`, ["doc", "sync", "--submit", "--task", taskId], {
     actor,
   });
   f.publish(report, `task.report.${label}`, actor);
