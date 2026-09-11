@@ -201,16 +201,20 @@ export async function completeTask(
     initial = await cell.service.read(taskId),
     executionId = cell.completeExecutionId(action, initial.snapshot, taskId),
     allowed = ["kind", "taskId", "executionId", "verb", "commandType", "ci", "paths", "factHolds"],
-    paths = cell.cellStringList(action.paths),
+    requestedPaths = cell.cellStringList(action.paths),
     factRetirementAttestations = stillHoldsAttestations(cell, action.factHolds),
     submittedExecution = initial.snapshot.executions.find(
       (value) => value.executionId === executionId && value.iteration === initial.snapshot.task?.iteration,
     ),
+    paths =
+      action.paths === undefined && submittedExecution?.submission
+        ? submittedExecution.submission.deliverables
+        : requestedPaths,
     ciEvidence = readCiEvidence(cell, action.ci, submittedExecution);
   if (
     Object.keys(action).some((field) => !allowed.includes(field)) ||
     (action.ci !== undefined && ciEvidence === null) ||
-    (action.paths !== undefined && (!Array.isArray(action.paths) || paths.length !== action.paths.length))
+    (action.paths !== undefined && (!Array.isArray(action.paths) || requestedPaths.length !== action.paths.length))
   )
     throw cell.cellCodedError(
       "invalid_command",
@@ -319,7 +323,7 @@ export async function completeTask(
       steps.push(step);
       continue;
     }
-    if (blocker.code === "code_doc_missing" && action.paths !== undefined) {
+    if (blocker.code === "code_doc_missing" && paths.length > 0) {
       const submitted = current.snapshot.executions.find(
         (candidate) =>
           candidate.executionId === executionId && candidate.iteration === current.snapshot.task?.iteration,
