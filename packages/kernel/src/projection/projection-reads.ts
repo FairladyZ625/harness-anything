@@ -215,3 +215,9 @@ export interface DecisionGraphProjectionRead {
   readonly watermark: number;
   readonly sourceRevision: number;
 }
+export interface DecisionCoverageProjectionRead {
+  readonly status: "ready" | "pending";
+  readonly coverageRows: ReturnType<typeof readDecisionGraphRows>["coverageRows"];
+  readonly watermark: number;
+  readonly sourceRevision: number;
+}

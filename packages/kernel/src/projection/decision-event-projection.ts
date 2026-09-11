@@ -21,3 +21,4 @@ export {
   readDecisionRows,
 } from "./decision-projection-reads.ts";
 export { readDecisionDocumentState } from "./decision-projection-documents.ts";
+export { decisionCoverage } from "./decision-projection-coverage.ts";

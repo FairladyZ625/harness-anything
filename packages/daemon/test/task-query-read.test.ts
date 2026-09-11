@@ -320,6 +320,7 @@ function projectionStub(
       return { ...cut, rows: query.limit === undefined ? rows : rows.slice(0, query.limit), ...page };
     },
     readDecisionGraph: () => ({ ...decisionCut, decisions: [], edges: [], coverageRows: [] }),
+    readDecisionCoverage: () => ({ ...decisionCut, coverageRows: [] }),
     readFactGraph: () => ({ ...cut, facts: [], edges: [], factAnchors: [] }),
     searchFacts: () => ({ ...cut, facts: [] }),
     readFactAnchors: () => ({ ...cut, rows: [] }),

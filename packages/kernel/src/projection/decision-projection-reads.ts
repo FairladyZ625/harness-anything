@@ -360,7 +360,14 @@ export function readDecisionGraphRows(db: DatabaseSync): {
       anchorRefs: anchors.get(r.decision_id) ?? [`decision/${r.decision_id}`],
       sourcePath: `event:decision/${r.decision_id}`,
     }));
-  return { edges, decisionAnchors, coverageRows: decisionCoverage(db, edges) };
+  return {
+    edges,
+    decisionAnchors,
+    coverageRows: decisionCoverage(
+      db,
+      decisionAnchors.map(({ decisionId }) => decisionId),
+    ),
+  };
 }
 
 export function decisionAnchorIndex(db: DatabaseSync): ReadonlyMap<string, readonly string[]> {

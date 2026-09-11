@@ -19,7 +19,7 @@ export function makeDecisionService(options: {
   readonly eventStore: Pick<CanonicalEventStore, "append" | "readEvent">;
   readonly projection: Pick<
     TaskProjection,
-    "admitDecision" | "apply" | "readDecision" | "listDecisions" | "readDecisionGraph"
+    "admitDecision" | "apply" | "readDecision" | "listDecisions" | "readDecisionCoverage"
   >;
 }) {
   const record = (
@@ -77,8 +77,8 @@ export function makeDecisionService(options: {
       if (!read.decision) throw new FactServiceError("entity_not_found", `Decision ${selector} does not exist.`);
       return { ...read, decision: read.decision };
     },
-    graph = () => {
-      const read = options.projection.readDecisionGraph();
+    coverage = (decisionId: string) => {
+      const read = options.projection.readDecisionCoverage([decisionId]);
       if (read.status !== "ready")
         throw new FactServiceError(
           "content_not_ready",
@@ -86,5 +86,5 @@ export function makeDecisionService(options: {
         );
       return read;
     };
-  return Object.freeze({ record, show, list, graph });
+  return Object.freeze({ record, show, list, coverage });
 }

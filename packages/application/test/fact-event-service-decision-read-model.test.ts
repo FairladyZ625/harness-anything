@@ -208,10 +208,15 @@ test("Decision coverage replays all fulfillment modes, refutation, and exact tas
     claim("dec_EVIDENCED", "evidenced");
     relate("dec_EVIDENCED", "decision/dec_EVIDENCED/C1", "fact/F-ABCDEFGH", "evidenced-by");
     relate("dec_EVIDENCED", "decision/dec_EVIDENCED/C1", "fact/F-BCDEFGHJ", "refuted-by");
-    const graph = decisionService.graph();
-    assert.equal(graph.status, "ready");
-    assert.equal(graph.watermark, revision - 1);
-    const byDecision = new Map(graph.coverageRows.map((row) => [row.decisionRef, row]));
+    const reads = ["dec_STANDING", "dec_DELIVERED", "dec_EVIDENCED"].map((decisionId) =>
+      decisionService.coverage(decisionId),
+    );
+    for (const read of reads) {
+      assert.equal(read.status, "ready");
+      assert.equal(read.watermark, revision - 1);
+      assert.equal(read.coverageRows.length, 1, "each read returns only the requested decision's claim");
+    }
+    const byDecision = new Map(reads.flatMap((read) => read.coverageRows).map((row) => [row.decisionRef, row]));
     assert.equal(byDecision.get("decision/dec_STANDING")?.status, "covered");
     assert.equal(byDecision.get("decision/dec_STANDING")?.fulfillment, "standing_policy");
     assert.equal(
@@ -223,7 +228,7 @@ test("Decision coverage replays all fulfillment modes, refutation, and exact tas
     assert.equal(byDecision.get("decision/dec_EVIDENCED")?.status, "uncovered");
     assert.deepEqual(byDecision.get("decision/dec_EVIDENCED")?.refutingFactRefs, ["fact/F-BCDEFGHJ"]);
     assert.equal(
-      graph.coverageRows.every((row) => row.basisRevision === graph.watermark),
+      reads.every((read) => read.coverageRows.every((row) => row.basisRevision === read.watermark)),
       true,
     );
   } finally {

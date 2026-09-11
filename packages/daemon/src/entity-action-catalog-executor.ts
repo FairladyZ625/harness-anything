@@ -665,13 +665,8 @@ function decisionCoverage(action: Readonly<Record<string, unknown>>, service: Re
   const decisionId = requiredCommandText(action.decisionId, "decisionId"),
     taskId = requiredCommandText(action.taskId, "taskId");
   service.show(decisionId);
-  const graph = service.graph();
-  return {
-    decisionId,
-    taskId,
-    basisRevision: graph.watermark,
-    rows: graph.coverageRows.filter((row) => row.decisionRef === `decision/${decisionId}`),
-  };
+  const coverage = service.coverage(decisionId);
+  return { decisionId, taskId, basisRevision: coverage.watermark, rows: coverage.coverageRows };
 }
 
 function decisionAuthorization(
