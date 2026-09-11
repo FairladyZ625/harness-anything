@@ -32,7 +32,8 @@ import { terminalEnvironment } from "./terminal-environment.ts";
 const scrollbackLimit = 1024 * 1024,
   replayLimit = 256 * 1024,
   subscriberLimit = 256 * 1024,
-  ptyExitDrainMs = 5_000;
+  ptyExitDrainMs = 5_000,
+  activityPersistIntervalMs = 10_000;
 type Frame = JsonObject & {
   readonly schema: "terminal-attach-event/v1";
   readonly sessionId: string;
@@ -140,6 +141,7 @@ export function openTerminalHost(input: OpenTerminalHostInput): TerminalHost {
     input.registryFilePath ?? path.join(input.rootDir, ".harness", "generated", "terminal-sessions.json");
   const restored = loadTmuxSessionRegistry(registryFilePath);
   let registryTouched = restored.length > 0;
+  let lastPersistedAt: number | undefined;
   for (const stored of restored) {
     const session = restoreSession(stored);
     sessions.set(session.sessionId, session);
@@ -292,7 +294,7 @@ export function openTerminalHost(input: OpenTerminalHostInput): TerminalHost {
         ensureChannel(session).write(utf8);
         session.acceptedThrough = clientSeq;
         session.lastActivityAt = now();
-        persistSessions();
+        persistSessions({ activityOnly: true });
       }
       return writeTerminalInputAck({
         schema: "terminal-input-ack/v1",
@@ -314,7 +316,7 @@ export function openTerminalHost(input: OpenTerminalHostInput): TerminalHost {
         );
       ensureChannel(session).resize(dimension(payload.cols, "cols"), dimension(payload.rows, "rows"));
       session.lastActivityAt = now();
-      persistSessions();
+      persistSessions({ activityOnly: true });
       const resizeSeed = `${session.sessionId}:resize:${payload.cols}x${payload.rows}`;
       return control("applied", session.sessionId, "running", resizeSeed);
     },
@@ -543,7 +545,12 @@ export function openTerminalHost(input: OpenTerminalHostInput): TerminalHost {
       subscribers: new Map(),
     };
   }
-  function persistSessions(): void {
+  function persistSessions(options: { readonly activityOnly?: boolean } = {}): void {
+    const activityOnly = options.activityOnly === true;
+    if (activityOnly) {
+      const current = Date.parse(now());
+      if (lastPersistedAt !== undefined && current - lastPersistedAt < activityPersistIntervalMs) return;
+    }
     const durable = [...sessions.values()]
       .filter((session) => session.backend === "tmux" && session.status !== "exited")
       .map(
@@ -561,6 +568,7 @@ export function openTerminalHost(input: OpenTerminalHostInput): TerminalHost {
     if (!registryTouched && durable.length === 0) return;
     registryTouched = true;
     saveTmuxSessionRegistry(registryFilePath, durable);
+    lastPersistedAt = Date.parse(now());
   }
   function frame(session: Session, kind: Frame["kind"], utf8: string, droppedThrough: number | null): Frame {
     session.outputSeq += 1;
