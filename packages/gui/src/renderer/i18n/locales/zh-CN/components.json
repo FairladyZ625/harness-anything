@@ -17,7 +17,7 @@
   "components.appSidebar.quicklySwitchProjects": "快速切换项目",
   "components.appSidebar.readLocalLedger": "读取本地台账…",
   "components.appSidebar.v2PreviewAfterLoggingYourAccountYou": "V2 预览：账号登录后可多设备同步、远程访问项目",
-  "components.badges.active": "进行中",
+  "components.badges.active": "活跃",
   "components.badges.agnosticNoCaching": "不可知 · 无缓存",
   "components.badges.blocked": "已阻塞",
   "components.badges.cancelled": "已取消",

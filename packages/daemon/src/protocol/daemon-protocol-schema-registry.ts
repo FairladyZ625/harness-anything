@@ -34,6 +34,7 @@ import {
   DAEMON_TASK_DISPATCHES_SCHEMA,
   DAEMON_TASK_DOCUMENT_LIST_SCHEMA,
   DAEMON_TASK_SNAPSHOT_LIST_SCHEMA,
+  DAEMON_TASK_WIP_SCHEMA,
   DAEMON_USE_CASE_PROJECTION_SCHEMA,
   DAEMON_WORKSPACE_SUMMARY_SCHEMA,
   GUI_CATALOG_PRESET_SCHEMA,
@@ -161,6 +162,13 @@ export const daemonGuiReadSchemas = Object.freeze([
     writer: "packages/daemon/src/protocol/daemon-protocol.contract.ts#serializeDaemonTaskSnapshotList",
     error: "packages/daemon/src/protocol/daemon-protocol.contract.ts#DaemonProtocolContractError",
     negativeFixtures: Object.freeze(["packages/daemon/fixtures/contracts/daemon-task-snapshot-list-invalid.json"]),
+  },
+  {
+    id: DAEMON_TASK_WIP_SCHEMA.id,
+    schema: "packages/daemon/src/protocol/daemon-protocol-schema-ids.ts#DAEMON_TASK_WIP_SCHEMA",
+    parser: "packages/daemon/src/protocol/gui-result-validation.ts#validateDaemonTaskWip",
+    writer: "packages/daemon/src/repo-cell-task-query.ts#readTaskWipSnapshot",
+    error: "packages/daemon/src/protocol/daemon-protocol.contract.ts#DaemonProtocolContractError",
   },
   {
     id: DAEMON_USE_CASE_PROJECTION_SCHEMA.id,

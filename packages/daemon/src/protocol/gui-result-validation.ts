@@ -96,6 +96,7 @@ const resultValidators = {
   "daemon.gui.control.receipt": validateDaemonControlReceipt,
   "observe.tail": validateObserveTailResult,
   "repo.tasks.list": validateDaemonTaskSnapshotList,
+  "repo.tasks.wip": validateDaemonTaskWip,
   "repo.projection.read": validateDaemonUseCaseProjection,
   "repo.entity.actions.explain": validateEntityActionExplanationSet,
   "repo.entity.kinds.read": validateEntityKindCatalog,
@@ -127,6 +128,46 @@ const resultValidators = {
   "repo.gui.catalog.preset.read": validateCatalogPreset,
   "repo.terminal.sessions.list": validateTerminalSessionList,
 } satisfies Record<DaemonGuiRpcReadMethod, ResultValidator>;
+
+export function validateDaemonTaskWip(value: unknown): readonly string[] {
+  if (!isJsonObject(value)) return [validationError("task-wip", "result", value, "must be an object")];
+  const fields = ["limit", "limitLabel", "counted", "roots", "threshold"];
+  if (Object.keys(value).length !== fields.length || fields.some((field) => !Object.hasOwn(value, field)))
+    return [validationError("task-wip", "result", value, "must have the exact task WIP fields")];
+  const positive = (item: unknown) => Number.isSafeInteger(item) && Number(item) > 0,
+    nonNegative = (item: unknown) => Number.isSafeInteger(item) && Number(item) >= 0,
+    counted =
+      Array.isArray(value.counted) &&
+      value.counted.every(
+        (row) =>
+          isJsonObject(row) &&
+          Object.keys(row).length === 3 &&
+          typeof row.taskId === "string" &&
+          row.taskId.length > 0 &&
+          typeof row.title === "string" &&
+          ["active", "blocked", "in_review"].includes(String(row.status)),
+      ),
+    roots =
+      Array.isArray(value.roots) &&
+      value.roots.every(
+        (row) =>
+          isJsonObject(row) &&
+          Object.keys(row).length === 5 &&
+          typeof row.taskId === "string" &&
+          row.taskId.length > 0 &&
+          ["declared", "derived"].includes(String(row.reason)) &&
+          nonNegative(row.directChildCount) &&
+          positive(row.threshold),
+      );
+  return positive(value.limit) &&
+    typeof value.limitLabel === "string" &&
+    value.limitLabel.length > 0 &&
+    positive(value.threshold) &&
+    counted &&
+    roots
+    ? []
+    : [validationError("task-wip", "result", value, "must be a valid task WIP snapshot")];
+}
 export function parseDaemonGuiReadResult<M extends DaemonGuiRpcReadMethod>(
   method: M,
   value: unknown,

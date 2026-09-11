@@ -5,6 +5,7 @@ import {
   explainStatusTransition,
   hasCloseoutEvidence,
   isDomainStatus,
+  isExecutionWipTask,
   taskWipOccupyingStatuses,
   type DomainStatus,
   type ReceiptDiagnostic,
@@ -230,13 +231,59 @@ export function assertTaskWipCapacity(cell: TaskQueryCell, taskId: string, nextS
 // count stays bounded by the worktable rather than the whole task ledger. Direct child
 // counts for those rows come from one grouped count query.
 export function wipSnapshotEntries(cell: TaskQueryCell, activatingTaskId: string): readonly TaskWipSnapshotEntryV1[] {
-  const occupying = taskWipOccupyingStatuses.flatMap((status) => cell.projection.list({ status }).rows),
-    activating = occupying.some((row) => row.taskId === activatingTaskId)
+  const occupying = occupyingWipSnapshotEntries(cell),
+    activatingRead = occupying.some((row) => row.taskId === activatingTaskId)
       ? null
-      : cell.projection.read(activatingTaskId),
-    rows = activating?.snapshot.task
-      ? [...occupying, { taskId: activatingTaskId, snapshot: activating.snapshot }]
-      : occupying,
+      : cell.projection.read(activatingTaskId);
+  if (!activatingRead?.snapshot.task) return occupying;
+  const directChildCount = cell.projection.readTaskChildCounts([activatingTaskId])[activatingTaskId] ?? 0;
+  return [
+    ...occupying,
+    {
+      taskId: activatingTaskId,
+      title: activatingRead.snapshot.task.title,
+      status: activatingRead.snapshot.task.status,
+      taskClass: activatingRead.snapshot.task.taskClass,
+      packageDisposition: requiredPackageDisposition(activatingTaskId, activatingRead.snapshot.task.packageDisposition),
+      hasCloseoutEvidence: hasCloseoutEvidence(activatingRead.snapshot.executions),
+      directChildCount,
+    },
+  ];
+}
+
+export function readTaskWipSnapshot(cell: TaskQueryCell) {
+  const entries = occupyingWipSnapshotEntries(cell),
+    limitSetting = resolveTaskWipLimit(cell.rootDir),
+    rootSetting = resolveTaskRootThreshold(cell.rootDir);
+  return {
+    limit: limitSetting.limit,
+    limitLabel: limitSetting.label,
+    counted: entries
+      .filter((entry) => isExecutionWipTask(entry, rootSetting.threshold))
+      .map(({ taskId, status, title }) => ({
+        taskId,
+        status: status as "active" | "blocked" | "in_review",
+        title,
+      })),
+    roots: entries.flatMap((entry) => {
+      const assessment = deriveTaskRoot(entry, rootSetting.threshold);
+      return assessment.isRoot
+        ? [
+            {
+              taskId: entry.taskId,
+              reason: assessment.reason,
+              directChildCount: assessment.directChildCount,
+              threshold: assessment.threshold,
+            },
+          ]
+        : [];
+    }),
+    threshold: rootSetting.threshold,
+  } as const;
+}
+
+function occupyingWipSnapshotEntries(cell: TaskQueryCell): readonly TaskWipSnapshotEntryV1[] {
+  const rows = taskWipOccupyingStatuses.flatMap((status) => cell.projection.list({ status }).rows),
     childCounts = cell.projection.readTaskChildCounts(rows.map((row) => row.taskId));
   return rows.map((row) => ({
     taskId: row.taskId,

@@ -20,6 +20,7 @@ import type {
   TaskDispatchesRead,
   TaskSnapshotProjectionRow,
   TaskSnapshotInvalidRow,
+  TaskWipRead,
   WorkspaceSummaryRead,
   SettingsRead,
 } from "../api/renderer-dto.ts";
@@ -380,6 +381,9 @@ export const harnessClient = {
   async getTasks(payload: RepoScope & TaskQueryFacets): Promise<TaskListSuccess> {
     return readTaskListResult(await invoke("repo.tasks.list", payload, "getTasks"));
   },
+  async getTaskWip(payload: RepoScope): Promise<TaskWipRead> {
+    return readTaskWipResult(await invoke("repo.tasks.wip", payload, "getTaskWip"));
+  },
   async getAgenda(payload: RepoScope & { readonly limit?: number; readonly cursor?: string }): Promise<AgendaSuccess> {
     return readAgendaResult(await invoke("repo.agenda.read", payload, "getAgenda"));
   },
@@ -607,6 +611,22 @@ function readTaskListResult(value: unknown): TaskListSuccess {
       : [],
     ...(result.page ? { page: result.page } : {}),
   };
+}
+
+function readTaskWipResult(value: unknown): TaskWipRead {
+  const result = value as Partial<TaskWipRead>;
+  if (
+    !result ||
+    !Number.isSafeInteger(result.limit) ||
+    Number(result.limit) < 1 ||
+    typeof result.limitLabel !== "string" ||
+    !Array.isArray(result.counted) ||
+    !Array.isArray(result.roots) ||
+    !Number.isSafeInteger(result.threshold) ||
+    Number(result.threshold) < 1
+  )
+    throw new Error(localErrorHint(value, "Task WIP bridge returned an invalid result."));
+  return result as TaskWipRead;
 }
 
 function readAgendaResult(value: unknown): AgendaSuccess {

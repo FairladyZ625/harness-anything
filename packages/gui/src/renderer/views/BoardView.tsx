@@ -35,6 +35,8 @@ import { TaskFilterBar } from "../components/TaskFilterBar";
 import type { TaskFilters } from "../model/taskFilters";
 import { partitionColdTerminalTasks, sortByRecentThenPinAndFavoritesFirst } from "../model/taskFilters";
 import { spawningDecisionBadge } from "../model/triadic";
+import { TaskRootBadge, TaskWipSummary } from "../components/TaskWipSummary.tsx";
+import type { TaskWipRead } from "../../api/renderer-dto.ts";
 import { ListView } from "./ListView";
 import type { TaskMutationFeedback } from "../task-actions.ts";
 
@@ -93,6 +95,7 @@ const Card = memo(function Card({
     >
       <div className="flex items-center gap-2">
         <EngineBadge engine={task.engine} locked={external} />
+        <TaskRootBadge task={task} />
         {onSetPin ? (
           <button
             type="button"
@@ -371,6 +374,7 @@ export type BoardLayout = "column" | "swimlane" | "list";
 export const BoardView = memo(function BoardView({
   tasks,
   allTasks,
+  wipSnapshot,
   filters,
   onFiltersChange,
   onSelect,
@@ -385,6 +389,7 @@ export const BoardView = memo(function BoardView({
 }: {
   tasks: readonly TaskRow[];
   allTasks: TaskRow[];
+  wipSnapshot?: TaskWipRead;
   filters: TaskFilters;
   onFiltersChange: (filters: TaskFilters) => void;
   onSelect: (id: string) => void;
@@ -490,6 +495,7 @@ export const BoardView = memo(function BoardView({
         <span className="font-mono ui-body text-text-faint">
           {boardTasks.length}/{allTasks.length}
         </span>
+        <TaskWipSummary snapshot={wipSnapshot} />
         <div className="flex items-center gap-0.5 rounded-md border border-border p-0.5">
           <button
             onClick={() => setLayout("column")}

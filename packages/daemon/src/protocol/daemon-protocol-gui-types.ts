@@ -329,6 +329,7 @@ export type DaemonGuiReadResultMap = {
   readonly "daemon.gui.control.receipt": JsonObject;
   readonly "observe.tail": ObserveTailResult;
   readonly "repo.tasks.list": DaemonTaskSnapshotListResult;
+  readonly "repo.tasks.wip": DaemonTaskWipResult;
   readonly "repo.projection.read": DaemonUseCaseProjectionResult;
   readonly "repo.entity.actions.explain": EntityActionExplanationSetV1;
   readonly "repo.entity.kinds.read": EntityKindCatalogV1;
@@ -405,6 +406,7 @@ export type DaemonGuiReadPayloadMap = {
   readonly "daemon.gui.control.receipt": { readonly operationId: string };
   readonly "observe.tail": ObserveTailPayload;
   readonly "repo.tasks.list": DaemonTaskQueryPayload;
+  readonly "repo.tasks.wip": Readonly<Record<string, never>>;
   readonly "repo.projection.read": DaemonUseCaseProjectionPayload;
   readonly "repo.entity.actions.explain": {
     readonly schema: "entity-action-explain-request/v1";
@@ -761,6 +763,23 @@ export type DaemonTaskSnapshotListResult = {
   readonly sourceRevision: number;
   readonly warnings: readonly TaskProjectionWarning[];
   readonly page?: ProjectionPage;
+};
+
+export type DaemonTaskWipResult = {
+  readonly limit: number;
+  readonly limitLabel: string;
+  readonly counted: readonly {
+    readonly taskId: string;
+    readonly status: "active" | "blocked" | "in_review";
+    readonly title: string;
+  }[];
+  readonly roots: readonly {
+    readonly taskId: string;
+    readonly reason: "declared" | "derived";
+    readonly directChildCount: number;
+    readonly threshold: number;
+  }[];
+  readonly threshold: number;
 };
 
 export interface DaemonTaskSnapshotInvalidRow {

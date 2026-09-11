@@ -14,6 +14,7 @@ import {
   type BoardColumnWidths,
 } from "../board-column-preferences.ts";
 import { spawningDecisionBadge } from "../model/triadic";
+import { TaskRootBadge } from "../components/TaskWipSummary.tsx";
 import { sortByRecentThenPinAndFavoritesFirst } from "../model/taskFilters";
 
 export type LaneGroupBy = "module" | "engine" | "root" | "productLine";
@@ -133,6 +134,7 @@ const LaneCard = memo(function LaneCard({
     >
       <div className="flex min-w-0 items-center gap-1.5">
         {external && <Lock weight="bold" className="shrink-0 ui-body text-text-faint" />}
+        <TaskRootBadge task={task} />
         {onSetPin ? (
           <button
             type="button"

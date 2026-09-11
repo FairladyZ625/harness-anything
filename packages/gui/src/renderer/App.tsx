@@ -26,7 +26,7 @@ import { useEntityNavigation } from "./navigation/useEntityNavigation.ts";
 import { useAppShortcuts } from "./navigation/useAppShortcuts.ts";
 import { applyTaskFilters, type TaskFilters } from "./model/taskFilters.ts";
 import { adaptProjectionRows } from "./task-adapter.ts";
-import { invalidateLedgerDependents, useTasksQuery } from "./task-data.ts";
+import { invalidateLedgerDependents, useTasksQuery, useTaskWipQuery } from "./task-data.ts";
 import { useAgendaQuery } from "./agenda-data.ts";
 import {
   useActiveEdgesQuery,
@@ -134,6 +134,7 @@ function AppShell() {
   // 回退保真(G10):导航栈恢复应用位置;这里在它旁边恢复 DOM 层的滚动与焦点。
   useLocationRestore(location, document.body);
   const { view, selectedId, previewId, focusedEntityRef, taskFilters, drill } = location;
+  const taskWipQuery = useTaskWipQuery(activeRepoId, view === "overview" || view === "board");
   // 总览的「PIN 在做」直接消费 `ha agenda` 同一条 repo.agenda.read 投影。
   // 其他视图不挂载这条读,避免把已删除的独立议程页变成后台读取。
   const agendaQuery = useAgendaQuery(activeRepoId !== null && view === "overview" ? activeRepoId : null);
@@ -158,10 +159,13 @@ function AppShell() {
   // placement 不再由 renderer 二次推导:repo.tasks.list 的 row.placement 已带
   // daemon 侧由同一批 active derives 边算出的 moduleKeys/productLines/
   // spawningDecisionIds(F-84CF0391),所以任务行适配不再依赖任何三元读取。
-  const tasks = useMemo(
-    () => adaptProjectionRows(tasksQuery.data?.rows ?? [], projectId, tasksQuery.data?.status),
-    [projectId, tasksQuery.data],
-  );
+  const tasks = useMemo(() => {
+    const roots = new Map(taskWipQuery.data?.roots.map((root) => [root.taskId, root]));
+    return adaptProjectionRows(tasksQuery.data?.rows ?? [], projectId, tasksQuery.data?.status).map((task) => {
+      const rootAssessment = roots.get(task.taskId);
+      return rootAssessment ? { ...task, rootAssessment } : task;
+    });
+  }, [projectId, taskWipQuery.data, tasksQuery.data]);
   const activeRepo = systemQuery.data?.repos.find((repo) => repo.repoId === activeRepoId);
   const project = adaptRepoProject(
     projectId,
@@ -452,6 +456,7 @@ function AppShell() {
                   <OverviewView
                     project={project}
                     tasks={projectTasks}
+                    wipSnapshot={taskWipQuery.data}
                     agenda={agendaQuery.data}
                     decisions={decisions}
                     workspaceSummary={workspaceSummaryQuery.data}
@@ -478,6 +483,7 @@ function AppShell() {
                 <BoardView
                   tasks={filteredProjectTasks}
                   allTasks={projectTasks}
+                  wipSnapshot={taskWipQuery.data}
                   filters={taskFilters}
                   onFiltersChange={setTaskFilters}
                   onSelect={openTaskPreview}

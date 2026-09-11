@@ -170,6 +170,12 @@ interface TaskRowFields {
   rootTaskId?: string;
   /** root task 的标题(查表填入,便于分组标签展示) */
   rootTitle?: string;
+  /** daemon WIP snapshot 的 root 判定；renderer 只展示，不重算门规则。 */
+  rootAssessment?: {
+    readonly reason: "declared" | "derived";
+    readonly directChildCount: number;
+    readonly threshold: number;
+  };
 }
 
 /** Renderer task state is an immutable view over one projection cut. */

@@ -12,6 +12,8 @@ import { t } from "../i18n/index.tsx";
 import { formatTime } from "../model/time.ts";
 import type { WorkspaceSummaryRead } from "../../api/renderer-dto.ts";
 import type { AgendaSuccess } from "../api-client.ts";
+import type { TaskWipRead } from "../../api/renderer-dto.ts";
+import { TaskWipSummary } from "../components/TaskWipSummary.tsx";
 
 const timeOf = (iso: string) => formatTime(iso, { style: "time" }) ?? "—";
 
@@ -25,6 +27,7 @@ const timeOf = (iso: string) => formatTime(iso, { style: "time" }) ?? "—";
 export function OverviewView({
   project,
   tasks,
+  wipSnapshot,
   agenda,
   decisions,
   workspaceSummary,
@@ -42,6 +45,7 @@ export function OverviewView({
 }: {
   project: Project;
   tasks: readonly TaskRow[];
+  wipSnapshot?: TaskWipRead;
   /** `ha agenda` 同一条 repo.agenda.read 投影;PIN 区不从 task list 二次猜。 */
   agenda?: AgendaSuccess;
   decisions: DecisionRow[];
@@ -94,6 +98,7 @@ export function OverviewView({
           </span>
         </div>
         <p className="mt-1 ui-meta text-text-muted">{t("views.overviewView.tagline")}</p>
+        <TaskWipSummary snapshot={wipSnapshot} />
       </header>
 
       <div
