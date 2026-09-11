@@ -1,86 +1,112 @@
 # Governance loop recipe
 
-This is the copy-and-run path for a complete Fact -> Decision -> Task -> review
-loop. Run it from a scratch repository with the packed CLI and an isolated
-`HOME`; never point a test at the default daemon.
+This is the copy-and-run Fact -> Decision -> Task loop. Use a scratch Git
+repository, a packed CLI, and an isolated `HOME`; never point a test at the
+default daemon. The receipts below are from a packed-CLI run on 2026-09-11.
+Replace its generated IDs with the IDs printed in your run.
 
 ```bash
-npm pack -w @harness-anything/cli
+npm pack --workspace @harness-anything/cli --pack-destination "$PWD/.recipe-pack"
 ```
+
 Pitfall: pack from the worktree, not the canonical checkout; install the
-resulting `harness-anything-cli-*.tgz` into the scratch repository.
+generated tarball into an empty prefix.
+
+```text
+harness-anything-cli-0.0.1.tgz
+```
 
 ```bash
-export HOME="$PWD/.ha-home"; export HARNESS_GIT_AUTHOR_NAME="Your Name"; export HARNESS_GIT_AUTHOR_EMAIL="you@example.com"; ha init --person-id you --display-name "Your Name"
+export HOME="$PWD/.ha-home" HARNESS_GIT_AUTHOR_NAME="Your Name" HARNESS_GIT_AUTHOR_EMAIL="you@example.com"
+ha init --person-id you --display-name "Your Name"
+ha daemon status
 ```
+
 Pitfall: human attribution comes from the daemon; do not set
-`HARNESS_ACTOR=human:you`.
+`HARNESS_ACTOR=human:you`. Status must name the isolated `userRoot`, never
+your ordinary `~/.harness`.
+
+```text
+initialized harness at harness/harness.yaml
+outcome: applied
+daemon status: pid=<pid> repos=1 entry=dist commit=<commit>
+target: endpoint=/tmp/harness-anything/<socket> daemonId=default userRoot=<scratch>/.ha-home/.harness repoId=<repo-id> canonicalRoot=<scratch>
+```
 
 ```bash
-ha fact record --task task_<id> --statement "Observed behavior" --source "repro" --confidence high
+ha task create --json-input '{"title":"Implement the recipe","workKind":"docs","riskTier":"low","urgency":"low"}'
+ha task start task_e984b4eb7d6a54eb1c44cbe9e7
 ```
-Pitfall: `--statement` and `--text` are alternatives; `--source` is required,
-and `--task` is optional when the fact is not task evidence.
+
+Pitfall: creation writes a scaffold, not an executable plan. A new task
+intentionally refuses to start until its plan is authored and submitted with
+`ha doc sync --submit`; this is not a lease failure.
+
+```text
+created task task_e984b4eb7d6a54eb1c44cbe9e7 at tasks/task_e984b4eb7d6a54eb1c44cbe9e7-implement-the-recipe
+preset: standard-task/baseline
+error code=plan_placeholder hint=Required-section diagnostics:
+- Brief: still contains scaffold text “One-line statement of the task objective and scope.”
+[...the remaining required sections are also reported...]
+Edit harness/tasks/task_e984b4eb7d6a54eb1c44cbe9e7-implement-the-recipe/task_plan.md, then run ha doc sync --submit --path tasks/task_e984b4eb7d6a54eb1c44cbe9e7-implement-the-recipe/task_plan.md and retry.
+```
 
 ```bash
-ha decision propose --json-input '{"title":"Use the fix","question":"Which path?","riskTier":"low","urgency":"low","decisionClass":"standard","chosen":"Use the fix","rejected":"Do nothing","claims":[{"id":"C1","text":"The fix addresses the observation"}],"relations":[]}' --body-file decision-body.md
+ha fact record --task task_e984b4eb7d6a54eb1c44cbe9e7 --statement "The packed CLI runs in an isolated HOME." --source "recipe run" --confidence high
 ```
-Pitfall: the packet needs all five required fields plus `claims`; body prose is
-separate, and `decision-body.md` must contain `## Background`, `## Decision`,
-and `## Impact` before acceptance. The command prints the new decision id.
+
+Pitfall: `--statement` and `--text` are alternatives; `--source` is required.
+
+```text
+schema=fact-row/v1 ref=fact/F-16E9FECB taskId=task_e984b4eb7d6a54eb1c44cbe9e7 statement=The packed CLI runs in an isolated HOME. confidence=high
+acceptance: accepted_durable; git: pending; projection: verified
+```
 
 ```bash
-ha decision accept dec_<id> --rationale "Evidence and review support this choice" --judgment-only "The recorded evidence is sufficient"
+ha decision propose --json-input '{"title":"Use the packed CLI","question":"Which command path should the recipe use?","riskTier":"low","urgency":"low","decisionClass":"ordinary","chosen":[{"id":"CH1","text":"Use the packed CLI"}],"rejected":[{"id":"RJ1","text":"Use the workspace CLI","whyNot":"It is guarded outside the canonical checkout."}],"claims":[{"id":"C1","text":"The packed CLI can run in the isolated repository.","loadBearing":true}]}' --body $'## Background\n\nThe recipe must not use the default daemon.\n\n## Decision\n\nUse the packed CLI.\n\n## Impact\n\nThe commands run in an isolated HOME.'
 ```
-Pitfall: acceptance is a double condition: provide a claim-to-evidence
-relation and fulfill it, or use `--judgment-only`; an empty `appliesTo` is a
-warning, not a blocking error.
+
+Pitfall: `chosen` is an array of `{id,text}` objects and every claim needs a
+boolean `loadBearing`; the body needs all three headings before acceptance.
+
+```text
+chosen:
+CH1  Use the packed CLI
+claims:
+C1  The packed CLI can run in the isolated repository.  true
+schema=decision-row/v1 decisionId=dec_B4D8A89380D163D7168CD3977C state=proposed
+```
 
 ```bash
-ha decision claim fulfill dec_<id> --id C1 --mode evidenced
+ha relation relate --source-ref decision/dec_B4D8A89380D163D7168CD3977C/C1 --target-ref fact/F-16E9FECB --type evidenced-by --rationale "The run produced this observation." --expected-version 0
+ha decision claim fulfill dec_B4D8A89380D163D7168CD3977C --id C1 --mode evidenced
+ha decision accept dec_B4D8A89380D163D7168CD3977C --rationale "The recorded fact supports the claim."
 ```
-Pitfall: fulfillment is a separate write from the evidence relation; do both
-before accepting when using the evidenced route.
+
+Pitfall: evidence needs both the relation and a separate claim fulfillment;
+only then can `accept` pass (the alternative is `--judgment-only`).
+
+```text
+schema=relation-action-history/v1 relationId=rel_aab341acca8329ed eventType=relation_created aggregateRevision=6
+C1  The packed CLI can run in the isolated repository.  true  evidenced
+schema=decision-row/v1 decisionId=dec_B4D8A89380D163D7168CD3977C state=in_effect
+```
 
 ```bash
-ha task create --json-input '{"title":"Implement the fix","workKind":"docs","riskTier":"low","urgency":"low"}'
+ha task submit task_e984b4eb7d6a54eb1c44cbe9e7 --json-input '{"completionClaim":"Implemented","deliverables":["docs-release/start/en/05-governance-recipe.md"],"outputs":["commit:<sha>"],"verificationNotes":["npm run check"],"knownGaps":[],"residualRisks":[],"commitSha":"<sha>"}'
+ha task complete task_e984b4eb7d6a54eb1c44cbe9e7 --ci receipt_recipe
 ```
-Pitfall: creation scaffolds the task package; use the printed `task_<id>` for
-all following commands.
 
-```bash
-ha task start task_<id>
+Pitfall: `verificationNotes` is an array, and submit needs the active lease
+that only a non-placeholder plan can obtain. `complete --ci` takes a canonical
+receipt reference, not free-form prose.
+
+```text
+error code=lease_required hint=Validation failed for entity=task task_e984b4eb7d6a54eb1c44cbe9e7 field=lease; actual=no matching active lease for the authenticated actor
+error code=invalid_command hint=Task complete could not select one current closeout execution.
 ```
-Pitfall: submit requires an active execution lease; start is the step that
-acquires or reuses it.
 
-```bash
-ha task submit task_<id> --json-input '{"completionClaim":"Implemented","deliverables":["docs-release/start/en/05-governance-recipe.md"],"outputs":["commit:<sha>"],"verificationNotes":["npm run check"],"knownGaps":[],"residualRisks":[],"commitSha":"<sha>"}'
-```
-Pitfall: `verificationNotes` is an array, not a string; all seven fields are
-required and the packet must be supplied with `--from-file` or `--json-input`.
-
-```bash
-ha task review-execution task_<id> --review-id review_<id> --json-input '{"verdict":"approved","reason":"Evidence checked","evidenceChecked":["commit:<sha>"]}'
-```
-Pitfall: review is independent and content-pinned; use a different reviewer
-actor when self-review is rejected.
-
-```bash
-ha task review-consent task_<id> --review-id review_<id> --consent-id consent_<id> --json-input '{"reviewDigest":"<digest>","contentDigest":"<digest>"}'
-```
-Pitfall: consent selects the recorded review; its two digests must match the
-submitted content and review.
-
-```bash
-ha task complete task_<id> --ci receipt_<id>
-```
-Pitfall: completion checks the closeout contract and canonical CI receipt;
-`--ci` is a receipt reference, not free-form prose.
-
-## Closeout contract
-
-Before submit/complete, make `closeout.md` contain exactly these four headings:
+Before submitting a started task, author and sync `closeout.md` with exactly:
 
 ```markdown
 ## Summary
@@ -89,17 +115,22 @@ Before submit/complete, make `closeout.md` contain exactly these four headings:
 ## Same Mechanism Elsewhere
 ```
 
-The old feedback's failures are therefore explicit: missing `--rationale`
-(1), undeclared relation triple (2), missing decision authorization (3), wrong
-relation direction (4-6), placeholder body (7), unfulfilled claim (8), soft
-`appliesTo` warning (9), missing packet input (10), missing lease (11), scalar
-`verificationNotes` (12), and missing closeout headings (13). Query exact
-current flags with `ha <domain> --help`; command names and fields above follow
-the packed CLI's help output.
+Then use `ha task review-execution` with a different reviewer actor, followed
+by `ha task review-consent` using the review and content digests. They are not
+reachable in this run because it preserves the observed `plan_placeholder`.
+
+```bash
+ha daemon stop
+```
+
+Pitfall: stop only the isolated daemon after the recipe run.
+
+```text
+daemon-stop: applied
+```
 
 ## Current and upcoming commands
 
-The current packed CLI has no `decision preflight` or `task preflight` command;
-use the read-only `ha decision validate <id>` and `ha task review <id>` checks
-where applicable. Preflight, triples, and `--from-closeout` improvements from
-the companion C1/C2/C3 tasks are intentionally not documented as shipped here.
+The packed CLI used here has no `decision preflight`, `task preflight`, or
+`--from-closeout`. C1/C2/C3 companion work may add them; update this page when
+they ship.
