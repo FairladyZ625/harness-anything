@@ -14,6 +14,7 @@ import {
   runtimeSessionIdFromActor,
   stableStringify,
   localGitObjectRefStore,
+  resolveHarnessLayout,
   taskProgressWritePlan,
   validFactStillHoldsAttestation,
   type CompletionReadinessContext,
@@ -53,10 +54,13 @@ function readCiEvidence(
   const run = event.payload.run,
     submitted = execution.submission.commitSha;
   // A main run on a commit that contains the submission proves the merged delivery is green.
-  if (
-    run.sha !== submitted &&
-    !(run.branch === "main" && localGitObjectRefStore.isAncestor(cell.rootDir, submitted, run.sha))
-  )
+  const publicReachable = run.branch === "main" && localGitObjectRefStore.isAncestor(cell.rootDir, submitted, run.sha),
+    authoredRoot = resolveHarnessLayout(cell.rootDir).authoredRoot,
+    authoredBranch = localGitObjectRefStore.currentBranch(authoredRoot),
+    authoredHead = localGitObjectRefStore.resolveCommit(authoredRoot, `refs/heads/${authoredBranch}`),
+    authoredReachable =
+      authoredHead !== null && localGitObjectRefStore.isAncestor(authoredRoot, submitted, authoredHead);
+  if (run.sha !== submitted && !publicReachable && !authoredReachable)
     throw cell.cellCodedError(
       "invalid_proof",
       `CI run ${run.runId} tested ${run.sha}; this execution submitted ${submitted}. ` +
