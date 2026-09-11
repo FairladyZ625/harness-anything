@@ -45,6 +45,10 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
   mkdirSync(root, { recursive: true });
   mkdirSync(binRoot, { recursive: true });
   writeProgressProvider(path.join(binRoot, "codex"), version);
+  writeProviderExecutable(
+    path.join(binRoot, "gh"),
+    'if (process.argv[2] !== "run" || process.argv[3] !== "list") process.exit(1); console.log("[]");\n',
+  );
   const nonzeroNotifier = writeProviderExecutable(
       path.join(parent, "notify-nonzero"),
       `const fs = require("node:fs"), payload = JSON.parse(fs.readFileSync(0, "utf8")); fs.writeFileSync(".notify-nonzero.json", JSON.stringify({ cwd: process.cwd(), environment: process.env, payload })); process.exit(23);\n`,

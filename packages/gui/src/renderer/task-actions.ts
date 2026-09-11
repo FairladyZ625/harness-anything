@@ -1,7 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useRef, useState } from "react";
 import type { GuiActionResult } from "../api/renderer-dto.ts";
-import type { GuiSubmissionV1 } from "../api/renderer-dto.ts";
 import { harnessClient } from "./api-client.ts";
 import type { TaskRow } from "./model/types.ts";
 import { taskQueryKeys } from "./task-data.ts";
@@ -206,20 +205,19 @@ export function useTaskActions(repoId: string) {
     [once, reread],
   );
   const submitTask = useCallback(
-    (task: TaskRow, submission: GuiSubmissionV1): Promise<TaskMutationFeedback> =>
+    (task: TaskRow): Promise<TaskMutationFeedback> =>
       once(`submit:${task.taskId}`, task.taskId, async () => {
         publish(task.taskId, {
           state: "pending",
           kind: "submit",
           opId: "awaiting-receipt",
-          hint: "正在原子提交 SubmissionV1…",
+          hint: "正在从 closeout.md 提交评审…",
         });
         const settlement = settleTaskReceipt(
           await harnessClient.submitTask({
             repoId,
             taskId: task.taskId,
-            executionId: task.activeExecutionId ?? "",
-            submission,
+            executionId: task.activeExecutionId,
           }),
         );
         return reread(task.taskId, "submit", settlement);

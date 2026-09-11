@@ -770,7 +770,10 @@ export default Object.freeze({
       parser: "packages/daemon/src/protocol/daemon-protocol.contract.ts#validateDaemonRpcCall",
       writer: "packages/daemon/src/protocol/daemon-protocol.contract.ts#serializeDaemonRpcCall",
       error: "packages/daemon/src/protocol/daemon-protocol.contract.ts#DaemonProtocolContractError",
-      negativeFixtures: Object.freeze(["packages/daemon/fixtures/contracts/w3-daemon-rpc-invalid.json"]),
+      negativeFixtures: Object.freeze([
+        "packages/daemon/fixtures/contracts/w3-daemon-rpc-invalid.json",
+        "packages/daemon/fixtures/contracts/gui-task-submit-packet-invalid.json",
+      ]),
     },
     ...daemonGuiReadSchemas,
     ...daemonGuiActionSchemas,

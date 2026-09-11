@@ -1,0 +1,18 @@
+{
+  "method": "repo.task.submit",
+  "params": {
+    "repo": { "repoId": "alpha" },
+    "payload": {
+      "taskId": "task_alpha",
+      "submission": {
+        "completionClaim": "Retired packet",
+        "deliverables": ["README.md"],
+        "outputs": [],
+        "verificationNotes": ["passed"],
+        "knownGaps": [],
+        "residualRisks": [],
+        "commitSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    }
+  }
+}

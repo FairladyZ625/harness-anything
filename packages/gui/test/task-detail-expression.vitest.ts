@@ -4,6 +4,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { TaskControlPanel } from "../src/renderer/components/TaskControlPanel.tsx";
 import { TaskDetailView } from "../src/renderer/views/TaskDetailView.tsx";
 import type { DecisionRow, RelationEdge, TaskRow } from "../src/renderer/model/types.ts";
 import { decisionProjectionFields } from "./decision-projection-fields.ts";
@@ -226,6 +227,28 @@ afterEach(async () => {
 });
 
 describe("Task detail expression", () => {
+  it("submits the authored closeout without a packet form", async () => {
+    const container = document.createElement("div"),
+      root = createRoot(container),
+      client = new QueryClient(),
+      onSubmit = vi.fn(async () => undefined);
+    document.body.append(container);
+    mounted.push({ root, client });
+    await act(async () => {
+      root.render(
+        createElement(TaskControlPanel, {
+          task: { ...task, ...projectedTaskFields("active", { can: ["progress", "submit"] }) },
+          onSubmit,
+        }),
+      );
+    });
+    const form = container.querySelectorAll("form")[1]!;
+    expect(form.querySelectorAll("input, textarea")).toHaveLength(0);
+    await act(async () => {
+      form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    });
+    expect(onSubmit).toHaveBeenCalledExactlyOnceWith();
+  });
   it("offers an open-terminal action in the header only when the app wires one", async () => {
     await mount();
     expect(document.querySelector('[data-testid="task-detail-open-terminal"]')).toBeNull();

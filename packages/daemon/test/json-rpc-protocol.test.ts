@@ -38,6 +38,7 @@ import {
   daemonGuiActionMethods,
   daemonProtocolCommands,
   parseDaemonRpcParams,
+  serializeDaemonRpcCall,
   validateDaemonDecisionList,
   validateDaemonGuiCommandReceipt,
   validateDaemonRelationGraph,
@@ -277,8 +278,17 @@ test("GUI action facets are exact, typed, and exclude the generic runner", () =>
   assert.equal(parseDaemonRpcParams("repo.decision.list", { repo: { repoId: "alpha" }, payload: { cursor: "" } }).ok, false);
   assert.equal(parseDaemonRpcParams("repo.agentRuntime.spawn", { repo: { repoId: "alpha" }, payload: { runtimeInstanceId: "instance-codex", cwd: { scope: "repo-root" }, taskId: "task-a", idempotencyKey: "task-derived" } }).ok, true);
   assert.equal(parseDaemonRpcParams("repo.agentRuntime.spawn", { repo: { repoId: "alpha" }, payload: { runtimeInstanceId: "instance-codex", cwd: { scope: "repo-root" }, taskId: null, idempotencyKey: "missing-mission" } }).ok, false);
-  assert.equal(parseDaemonRpcParams("repo.task.submit", { repo: { repoId: "alpha" }, payload: { taskId: "task-a", executionId: "execution-a", submission: { ...submission, outputs: "wrong" } } }).ok, false);
+  assert.equal(parseDaemonRpcParams("repo.task.submit", { repo: { repoId: "alpha" }, payload: { taskId: "task-a", executionId: "execution-a", submission } }).ok, false);
   assert.equal(parseDaemonRpcParams("repo.decision.propose", { repo: { repoId: "alpha" }, payload: { ...proposal, appliesTo: { ...proposal.appliesTo, extra: [] } } }).ok, false);
+  for (const payload of [{ taskId: "task-a" }, { taskId: "task-a", executionId: "execution-a", amend: true }]) {
+    const call = { method: "repo.task.submit", params: { repo: { repoId: "alpha" }, payload } };
+    assert.deepEqual(JSON.parse(serializeDaemonRpcCall(call)), call);
+    assert.equal(parseDaemonRpcParams(call.method, call.params).ok, true);
+  }
+  const retiredPacket = JSON.parse(readFileSync("packages/daemon/fixtures/contracts/gui-task-submit-packet-invalid.json", "utf8"));
+  assert.equal(parseDaemonRpcParams(retiredPacket.method, retiredPacket.params).ok, false);
+  assert.throws(() => serializeDaemonRpcCall(retiredPacket), /submission/u);
+  assert.equal(parseDaemonRpcParams("repo.task.submit", { repo: { repoId: "alpha" }, payload: { taskId: "task-a", amend: "true" } }).ok, false);
   assert.deepEqual(actionForDaemonMethod("repo.task.submit", cases.get("repo.task.submit")!), { kind: "task-submit", ...cases.get("repo.task.submit")! });
 });
 

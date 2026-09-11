@@ -15,7 +15,6 @@ import {
   nonEmpty,
   statusWord,
   stringArray,
-  validateGuiSubmission,
 } from "./daemon-protocol-validate-entities.ts";
 import { validateCatalogActionPayload, validateSessionEnvironment } from "./daemon-protocol-validate-task.ts";
 import { validateRelationNeighborhoodPayload } from "./daemon-protocol-validate-relation-query.ts";
@@ -281,7 +280,6 @@ export function validateGuiActionPayload(method: DaemonGuiActionMethod, value: u
       isJsonObject(item) &&
       required.every((field) => nonEmpty(item[field])) &&
       Object.keys(item).every((field) => required.includes(field) || optional.includes(field));
-  if (method === "repo.task.submit") errors.push(...validateGuiSubmission(value.submission));
   if (method === "repo.settings.update") {
     const settingFields = (
         "defaultVertical defaultPreset defaultProfile reviewIndependence reviewReturnBudget locale taskScaffold " +

@@ -8,7 +8,6 @@ import type {
   FactAnchorRow,
   RelationFactRow,
   GuiActionResult,
-  GuiSubmissionV1,
   ObserveTailPayload,
   ObserveTailRead,
   ProjectionWarning,
@@ -492,8 +491,8 @@ export const harnessClient = {
   async submitTask(
     payload: RepoScope & {
       readonly taskId: string;
-      readonly executionId: string;
-      readonly submission: GuiSubmissionV1;
+      readonly executionId?: string;
+      readonly amend?: boolean;
     },
   ): Promise<GuiActionResult> {
     return readGuiActionResult(await invoke("repo.task.submit", payload, "submitTask"));
