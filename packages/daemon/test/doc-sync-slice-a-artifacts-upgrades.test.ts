@@ -295,6 +295,8 @@ test("an authored edit of a migrated governance standard upgrades its policy in 
     const native = makeTaskEventReader({ repoId, rootDir }).readEvent(second.opId);
     if (native?.schema === "doc-event/v1") assert.equal("policyUpgrade" in native.payload.changes[0]!, false);
 
+    // The receipt reports git pending; the hand commit must land on top of the second submit's publication.
+    await waitForFixturePublication(cell, String(second.opId), binding);
     write(rootDir, standard, `${secondBody}hand edit outside doc sync\n`);
     git(rootDir, "add", "harness");
     git(rootDir, "commit", "-qm", "manual ledger advance");
