@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { parseCanonicalEvent } from "../domain/doc-sync-canonical-events.ts";
+import { DEFAULT_RESTORE_DRILL_RETENTION, readSettingsFacet } from "../domain/settings.ts";
+import { consumeKnownError } from "../error-consumption.ts";
 import { sha256Bytes } from "../integrity/stable-hash.ts";
 import { resolveHarnessLayout, type HarnessLayoutInput } from "../layout/index.ts";
 import { localLedgerBackupFileSystem as fileSystem } from "../local/local-layout-file-system.ts";
@@ -106,7 +108,7 @@ export function drillLedgerBackup(input: {
     inspectSqlite(path.join(shadowRoot, database.path));
   const removedShadowRoots: string[] = [],
     warnings: string[] = [],
-    retention = input.retention ?? 3,
+    retention = input.retention ?? DEFAULT_RESTORE_DRILL_RETENTION,
     candidates = fileSystem
       .readDirectory(path.resolve(input.shadowParent))
       .filter((name) => name.startsWith("restore-drill-"))
@@ -118,10 +120,18 @@ export function drillLedgerBackup(input: {
       fileSystem.remove(candidate);
       removedShadowRoots.push(candidate);
     } catch (error) {
+      consumeKnownError(error);
       warnings.push(`could not remove ${candidate}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
   return { shadowRoot, manifest, removedShadowRoots, warnings };
+}
+
+/** The drill runs offline, so the retention setting is read from the authored harness.yaml facet. */
+export function restoreDrillRetentionFor(rootInput: HarnessLayoutInput): number {
+  const settingsPath = path.join(resolveHarnessLayout(rootInput).authoredRoot, "harness.yaml");
+  if (!fileSystem.exists(settingsPath)) return DEFAULT_RESTORE_DRILL_RETENTION;
+  return readSettingsFacet(fileSystem.read(settingsPath, "utf8")).restoreDrillRetention;
 }
 
 export function readOfflineLedgerEvents(input: {

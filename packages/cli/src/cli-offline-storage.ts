@@ -1,5 +1,4 @@
 import path from "node:path";
-import { existsSync, readFileSync } from "node:fs";
 // dec_4944EEC7EE3618CEFDD210DC6B/CH1 requires this named offline-maintenance edge
 // instead of the kernel public barrel; G30 pins its exact transitive runtime closure.
 // eslint-disable-next-line no-restricted-imports
@@ -7,11 +6,10 @@ import {
   createLedgerBackup,
   drillLedgerBackup,
   readOfflineLedgerEvents,
+  restoreDrillRetentionFor,
   resolveActiveGeneration,
   runGenerationTwoConversion,
 } from "../../kernel/src/store/ledger-backup.ts";
-import { INITIAL_SETTINGS_V1, readSettingsFacet } from "../../kernel/src/domain/settings.ts";
-import { resolveHarnessLayout } from "../../kernel/src/layout/index.ts";
 
 import { generationMigrationCommand, firstCliCommandIndex } from "./cli/thin-command-help.ts";
 import { readFlags } from "./cli/thin-command-flags.ts";
@@ -69,12 +67,7 @@ export function runOfflineStorageCommand(argv: readonly string[], emit: Emit): n
     if (argv[0] === "restore" && argv[1] === "--drill") {
       const backupDir = positional(argv, 2, "restore --drill requires a backup directory"),
         shadowParent = option(argv, "--shadow-parent") ?? path.join(rootInput, ".harness", "restore-drills"),
-        authoredRoot = resolveHarnessLayout(rootInput).authoredRoot,
-        settingsPath = path.join(authoredRoot, "harness.yaml"),
-        settings = existsSync(settingsPath)
-          ? readSettingsFacet(readFileSync(settingsPath, "utf8"))
-          : INITIAL_SETTINGS_V1,
-        result = drillLedgerBackup({ backupDir, shadowParent, retention: settings.restoreDrillRetention });
+        result = drillLedgerBackup({ backupDir, shadowParent, retention: restoreDrillRetentionFor(rootInput) });
       emit({ ok: true, schema: "ledger-restore-drill-receipt/v1", exitCode: 0, ...result }, json);
       return 0;
     }
