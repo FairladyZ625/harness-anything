@@ -69,6 +69,7 @@ export {
 } from "./domain/task-lifecycle-publication.ts";
 export {
   completionBlockers,
+  completionPreparationBlockers,
   taskCompletionNext,
   completionGuidance,
   type CompletionReadinessContext,

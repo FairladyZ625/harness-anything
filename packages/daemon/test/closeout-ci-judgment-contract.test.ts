@@ -38,8 +38,6 @@ const submission = {
 function packet(ci: string) {
   return {
     submission,
-    review: { verdict: "approved", reason: "Reviewed.", evidenceChecked: ["report"] },
-    consent: { approved: true },
     completion: { ci, codeDocPaths: [] },
   };
 }

@@ -445,19 +445,16 @@ function taskLifecycle(f, reader, label) {
   f.publish(report, `task.report.${label}`, actor);
   f.check(`task.${label}.report-same-cut-bytes`, () => assertBytes(f.root, reportPath, reportBody, report, reader));
   f.invoke(`task.submit.${label}`, ["task", "submit", taskId], { actor });
-  const closeout = f.invoke(`task.closeout.${label}`, ["task", "closeout", taskId, "--json-input", "@-"], {
-    input: {
-      review: { verdict: "approved", reason: "Fixture bytes checked.", evidenceChecked: [reportPath] },
-      consent: { approved: true },
-      completion: { ci: "not_applicable", codeDocPaths: [] },
+  const reviewed = f.invoke(
+    `task.review.${label}`,
+    ["task", "review-execution", taskId, "--review-id", `review-${label}`, "--json-input", "@-"],
+    {
+      actor: "agent:v2-scale-reviewer",
+      input: { verdict: "approved", reason: "Canonical artifact bytes checked.", evidenceChecked: [reportPath] },
     },
-  });
-  f.check(`task.${label}.real-stages`, () =>
-    assert.deepEqual(
-      closeout.steps.map(({ stage }) => stage),
-      ["review-execution", "review-consent", "complete"],
-    ),
   );
+  f.check(`task.${label}.review-independent`, () => assert.equal(reviewed.outcome, "applied"));
+  f.invoke(`task.complete.${label}`, ["task", "complete", taskId, "--consent"], { actor });
   const shown = f.invoke(`task.show.${label}`, ["task", "show", taskId]);
   f.check(`task.${label}.done`, () => assert.equal(evidence(shown).task.status, "done"));
 }

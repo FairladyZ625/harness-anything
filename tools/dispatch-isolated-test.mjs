@@ -29,6 +29,7 @@ export const sourceRootAllowlist = Object.freeze([
   "README.md",
   "docs-release",
   "eslint.config.mjs",
+  "prettier.config.mjs",
   "package-lock.json",
   "package.json",
   "packages",

@@ -5,6 +5,9 @@ import {
   assessTransitionDocument,
   compileTaskProgress,
   completionBlockers,
+  completionPreparationBlockers,
+  approvedReviewsForExecution,
+  reviewDigest,
   taskCompletionNext,
   completionGuidance,
   completionEvidenceBasis,
@@ -39,6 +42,8 @@ import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-type
 import { verifyCodeDocCommitPaths } from "./code-doc-path-verification.ts";
 import { readCompletionContext } from "./task-completion-read.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
+
+import { dispatchCompletionReview } from "./task-completion-review.ts";
 
 function relatedCiObservation(root: string, event: CiRunObservationEventV3, submitted: string): boolean {
   return (
@@ -263,12 +268,17 @@ export async function completeTask(
       typeof action.executionId === "string" ? action.executionId : undefined,
     ),
     executionId = decision.executionId ?? "",
-    allowed = ["kind", "taskId", "executionId", "verb", "commandType", "factHolds"],
+    allowed = ["kind", "taskId", "executionId", "verb", "commandType", "factHolds", "consent"],
     factRetirementAttestations = stillHoldsAttestations(cell, action.factHolds),
     submittedExecution = initial.snapshot.executions.find(
       (value) => value.executionId === executionId && value.iteration === initial.snapshot.task?.iteration,
     ),
-    paths = submittedExecution?.submission?.deliverables ?? [];
+    paths = submittedExecution?.submission?.deliverables ?? [],
+    initialReviews =
+      action.consent === true && submittedExecution?.submission
+        ? approvedReviewsForExecution(initial.snapshot.reviews, submittedExecution)
+        : [],
+    consentReview = action.consent === true && initialReviews.length === 1 ? initialReviews[0] : undefined;
   if (Object.keys(action).some((field) => !allowed.includes(field)))
     throw cell.cellCodedError("invalid_command", "Complete derives CI evidence and paths from the submitted cut.");
   const initialOpId = cell.operationId(action, binding, cell.input.repoId, initial.snapshot.revision);
@@ -331,7 +341,7 @@ export async function completeTask(
     initial.snapshot.task?.completionGateIds.includes("code-doc-reconciliation") && submittedExecution?.submission
       ? verifyCodeDocCommitPaths({ rootDir: cell.rootDir, commitSha: submittedExecution.submission.commitSha, paths })
       : null;
-  const remaining = completionBlockers(initial.snapshot, executionId, {
+  const remaining = completionPreparationBlockers(initial.snapshot, executionId, {
     ...preparedContext,
     preparedGateIds: [
       ...(ciEvidence?.result === "pass" ? ["ci"] : []),
@@ -431,6 +441,38 @@ export async function completeTask(
       return completed.outcome === "applied"
         ? cell.completionApplied(completed, cell.projection.read(taskId).snapshot, executionId, [...steps, completed])
         : cell.completionSettlement(completed, current.snapshot, executionId, steps, "complete-settlement");
+    }
+    if (blocker.code === "review_missing") {
+      const execution = current.snapshot.executions.find(
+        (value) => value.executionId === executionId && value.submission,
+      );
+      if (!execution?.submission || !current.packagePath)
+        return cell.completionStopped(facadeOpId, current.snapshot, executionId, blocker, steps);
+      return dispatchCompletionReview(
+        cell,
+        current.snapshot,
+        execution,
+        current.packagePath,
+        binding,
+        facadeOpId,
+        steps,
+      );
+    }
+    if (blocker.code === "consent_missing" && consentReview) {
+      const execution = current.snapshot.executions.find(
+          (value) => value.executionId === executionId && value.submission,
+        ),
+        reviews = execution?.submission ? approvedReviewsForExecution(current.snapshot.reviews, execution) : [];
+      if (reviews.length !== 1 || reviewDigest(reviews[0]!) !== reviewDigest(consentReview))
+        return cell.completionStopped(facadeOpId, current.snapshot, executionId, blocker, steps);
+      const step = await cell.lifecycleAction(
+        { kind: "task-review-consent", taskId, executionId, reviewId: consentReview.reviewId },
+        binding,
+      );
+      steps.push(step);
+      if (step.outcome !== "applied")
+        return cell.completionSettlement(step, current.snapshot, executionId, steps, "consent-settlement");
+      continue;
     }
     if (blocker.code === "ci_missing" && ciEvidence !== null) {
       const step = cell.publishCiWitness(

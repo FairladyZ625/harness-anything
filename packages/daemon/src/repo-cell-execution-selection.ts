@@ -159,7 +159,6 @@ export function reviewConsentSelection(
   action: RepoTaskAction,
   snapshot: Snapshot,
   taskId: string,
-  consentId: string,
 ): { readonly executionId: string; readonly reviewId: string } {
   const executionId = explicitExecutionId(action),
     reviewId = action.reviewId === undefined ? undefined : requiredCellText(action.reviewId, "reviewId");
@@ -179,34 +178,10 @@ export function reviewConsentSelection(
     );
   if (candidates.length === 1) return candidates[0]!;
   const names = candidates.map((value) => `${value.executionId}/${value.reviewId}`),
-    packet = typeof action.fromFile === "string" ? ` --from-file ${action.fromFile}` : "",
-    commands = candidates.map((value) =>
-      [
-        "ha task review-consent ",
-        `${taskId}`,
-        " --execution-id ",
-        `${value.executionId}`,
-        " --review-id ",
-        `${value.reviewId}`,
-        " --consent-id ",
-        `${consentId}`,
-        "",
-        `${packet}`,
-        "",
-      ].join(""),
+    commands = candidates.map(
+      (value) => `ha task review-consent ${taskId} --execution-id ${value.executionId} --review-id ${value.reviewId}`,
     ),
-    next = currentSubmittedExecutions(snapshot).length
-      ? [
-          "Run ha task review-execution ",
-          `${taskId}`,
-          " --review-id <review-id> --from-file <review.json>, then retry ha task ",
-          "review-consent ",
-          `${taskId}`,
-          " --consent-id ",
-          `${consentId}`,
-          ".",
-        ].join("")
-      : `Run ha task show ${taskId}; submit the current execution before recording Review consent.`;
+    next = `Run ha task complete ${taskId}; consent requires a current recorded approved Review.`;
   throw cellCodedError(
     "invalid_command",
     [

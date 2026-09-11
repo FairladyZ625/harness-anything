@@ -505,10 +505,7 @@ test("a child bare-invocation execution can recover from its parent Task dispatc
       actor: { principal: { personId: "person-outsider" }, executor: { kind: "agent" as const, id: "outsider" } },
       source: "local" as const,
     };
-    const consent = await cell.run(
-      { kind: "task-review-consent", taskId, executionId, reviewId: "r3", consentId: "consent-wrong-owner" },
-      wrongOwner,
-    );
+    const consent = await cell.run({ kind: "task-review-consent", taskId, executionId, reviewId: "r3" }, wrongOwner);
     assert.equal(consent.code, "actor_unauthorized");
   } finally {
     await cell?.close();
@@ -918,10 +915,7 @@ test("review binding permits independent runtimes but still rejects the executio
       arbiter(`runtime-session:${reviewer.runtimeSessionId}`),
     );
     assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
-    const consented = await cell.run(
-      { kind: "task-review-consent", taskId, executionId, consentId: "consent-runtime-chain" },
-      operator,
-    );
+    const consented = await cell.run({ kind: "task-review-consent", taskId, executionId }, operator);
     assert.equal(consented.outcome, "applied", JSON.stringify(consented));
     const completed = await cell.run({ kind: "task-complete", taskId, executionId }, operator);
     assert.equal(completed.outcome, "applied", JSON.stringify(completed));

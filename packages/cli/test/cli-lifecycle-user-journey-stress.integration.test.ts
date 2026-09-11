@@ -193,7 +193,7 @@ test("CLI changes-requested recovery releases and re-enters a new execution", as
         "## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nRecovery lifecycle.\n",
     );
     await expectApplied(fixture, ["task", "submit", taskId, "--execution-id", secondExecutionId], workerEnvironment);
-    const review = await expectApplied(
+    await expectApplied(
       fixture,
       [
         "task",
@@ -212,8 +212,6 @@ test("CLI changes-requested recovery releases and re-enters a new execution", as
       ],
       reviewerEnvironment,
     );
-    const reviewDigest = String(review.reviewDigest ?? ""),
-      contentDigest = String(review.contentDigest ?? "");
     await expectApplied(
       fixture,
       [
@@ -224,10 +222,6 @@ test("CLI changes-requested recovery releases and re-enters a new execution", as
         secondExecutionId,
         "--review-id",
         "review-cli-recovery-approved",
-        "--consent-id",
-        "consent-cli-recovery-approved",
-        "--json-input",
-        JSON.stringify({ reviewDigest, contentDigest }),
       ],
       workerEnvironment,
     );
@@ -635,20 +629,30 @@ async function runChain(
       "## Same Mechanism Elsewhere\n\nNo production behavior changed.\n",
   );
   await expectApplied(fixture, ["doc", "sync", "--submit", "--task", taskId], workerEnvironment);
-  if (facade) {
-    const closeoutPacketPath = path.join(fixture.root, `closeout-${taskId}.json`);
-    writeFileSync(
-      closeoutPacketPath,
+  await expectApplied(fixture, ["task", "submit", taskId], workerEnvironment);
+  await expectApplied(
+    fixture,
+    [
+      "task",
+      "review-execution",
+      taskId,
+      "--execution-id",
+      executionId,
+      "--review-id",
+      `review-${taskId}`,
+      "--json-input",
       JSON.stringify({
-        review: {
-          verdict: "approved",
-          reason: "Independent synthetic reviewer checked the closeout packet.",
-          evidenceChecked: [packagePathFor(packagePath, "artifacts/chain.txt")],
-        },
-        consent: { approved: true },
-        completion: { ci: standard ? "passed" : "not_applicable", codeDocPaths: standard ? ["README.md"] : [] },
+        verdict: "approved",
+        reason: "Independent synthetic reviewer checked the submitted execution.",
+        evidenceChecked: [packagePathFor(packagePath, "artifacts/chain.txt")],
       }),
-    );
+    ],
+    reviewerEnvironment,
+  );
+  if (facade) {
+    await expectApplied(fixture, ["task", "review-consent", taskId], workerEnvironment);
+    const closeoutPacketPath = path.join(fixture.root, `closeout-${taskId}.json`);
+    writeFileSync(closeoutPacketPath, JSON.stringify({ completion: { ci: "not_applicable", codeDocPaths: [] } }));
     const closeout = await expectApplied(
       fixture,
       ["task", "closeout", taskId, "--execution-id", executionId, "--from-file", path.basename(closeoutPacketPath)],
@@ -656,59 +660,14 @@ async function runChain(
     );
     assert.deepEqual(
       (closeout.steps as Array<Record<string, unknown>>).map(({ stage }) => stage),
-      ["submit", "review-execution", "review-consent", "complete"],
+      ["complete"],
     );
   } else {
-    await expectApplied(fixture, ["task", "submit", taskId], workerEnvironment);
-  }
-  const review = facade
-    ? null
-    : await expectApplied(
-        fixture,
-        [
-          "task",
-          "review-execution",
-          taskId,
-          "--execution-id",
-          executionId,
-          "--review-id",
-          `review-${taskId}`,
-          "--json-input",
-          JSON.stringify({
-            verdict: "approved",
-            reason: "Independent synthetic reviewer checked the submitted execution.",
-            evidenceChecked: [packagePathFor(packagePath, "artifacts/chain.txt")],
-          }),
-        ],
-        reviewerEnvironment,
-      );
-  if (!facade && review) {
-    const reviewDigest = String(review.reviewDigest ?? ""),
-      contentDigest = String(review.contentDigest ?? "");
-    assert.match(reviewDigest, /^sha256:/u, JSON.stringify(review));
-    assert.match(contentDigest, /^sha256:/u, JSON.stringify(review));
-    assert.equal(review.outcome, "applied");
     await expectApplied(
       fixture,
-      [
-        "task",
-        "review-consent",
-        taskId,
-        "--execution-id",
-        executionId,
-        "--review-id",
-        `review-${taskId}`,
-        "--consent-id",
-        `consent-${taskId}`,
-        "--json-input",
-        JSON.stringify({
-          reviewDigest,
-          contentDigest,
-        }),
-      ],
+      ["task", "complete", taskId, "--execution-id", executionId, "--consent"],
       workerEnvironment,
     );
-    await expectApplied(fixture, ["task", "complete", taskId, "--execution-id", executionId], workerEnvironment);
   }
   const final = await expectApplied(fixture, ["task", "show", taskId], workerEnvironment),
     finalEvidence = JSON.parse(String(final.evidence)) as { readonly task?: { readonly status?: string } };

@@ -63,7 +63,7 @@ function git(rootDir: string, ...args: readonly string[]): string {
   return execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 }
 
-test("review-consent derives the recorded Review digests without a packet and still rejects mismatched ones", async () => {
+test("review-consent derives the recorded Review digests without a packet and rejects retired packet inputs", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-consent-derived-"));
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   const repoId = workspaceId("consent-derived"),
@@ -105,7 +105,7 @@ test("review-consent derives the recorded Review digests without a packet and st
 
     const beforeTypo = store().readHead()?.revision,
       typo = (await cell.run(
-        { kind: "task-review-consent", taskId, executionId, reviewId: "review-typo", consentId: "consent-typo" },
+        { kind: "task-review-consent", taskId, executionId, reviewId: "review-typo" },
         binding,
       )) as unknown as Record<string, unknown>;
     assert.deepEqual({ outcome: typo.outcome, code: typo.code }, { outcome: "op_rejected", code: "invalid_command" });
@@ -113,7 +113,7 @@ test("review-consent derives the recorded Review digests without a packet and st
 
     const beforeOutsiderConsent = store().readHead()?.revision,
       outsiderConsent = (await cell.run(
-        { kind: "task-review-consent", taskId, consentId: "consent-outsider" },
+        { kind: "task-review-consent", taskId },
         { actor: outsider, source: "local" },
       )) as unknown as Record<string, unknown>;
     assert.deepEqual(
@@ -123,7 +123,7 @@ test("review-consent derives the recorded Review digests without a packet and st
     assert.equal(store().readHead()?.revision, beforeOutsiderConsent);
 
     const consented = (await cell.run(
-      { kind: "task-review-consent", taskId, consentId: "consent-derived" },
+      { kind: "task-review-consent", taskId },
       withRoleBinding({ actor: ownerFromAnotherAgent, source: "local" }, "repo-write"),
     )) as unknown as Record<string, unknown>;
     assert.equal(consented.outcome, "applied", JSON.stringify(consented));
@@ -160,7 +160,7 @@ test("review-consent derives the recorded Review digests without a packet and st
       ],
     );
 
-    // Negative control: an operator-supplied packet with a well-formed but wrong digest must still be rejected.
+    // Negative control: the retired operator-supplied packet is rejected at the input boundary.
     const mismatchTaskId = "task-mismatch",
       mismatchExecutionId = "execution-mismatch";
     const mismatchCreated = await cell.run(
@@ -192,23 +192,31 @@ test("review-consent derives the recorded Review digests without a packet and st
     )) as unknown as Record<string, unknown>;
     const real = String(mismatchReviewed.reviewDigest),
       flipped = `sha256:${real[7] === "0" ? "1" : "0"}${real.slice(8)}`;
-    const beforeMismatch = store().readHead()?.revision,
-      mismatch = (await cell.run(
-        {
-          kind: "task-review-consent",
-          taskId: mismatchTaskId,
-          executionId: mismatchExecutionId,
-          reviewId: "review-mismatch",
-          consentId: "consent-mismatch",
-          jsonInput: JSON.stringify({ reviewDigest: flipped, contentDigest: mismatchReviewed.contentDigest }),
-        },
-        binding,
-      )) as unknown as Record<string, unknown>;
-    assert.deepEqual(
-      { outcome: mismatch.outcome, code: mismatch.code },
-      { outcome: "op_rejected", code: "invalid_proof" },
-    );
-    assert.equal(store().readHead()?.revision, beforeMismatch);
+    for (const retiredInput of [
+      { consentId: "consent-mismatch" },
+      { fromFile: "consent.json" },
+      { jsonInput: JSON.stringify({ reviewDigest: flipped, contentDigest: mismatchReviewed.contentDigest }) },
+      { reviewDigest: flipped },
+      { contentDigest: mismatchReviewed.contentDigest },
+    ]) {
+      const beforeMismatch = store().readHead()?.revision,
+        mismatch = (await cell.run(
+          {
+            kind: "task-review-consent",
+            taskId: mismatchTaskId,
+            executionId: mismatchExecutionId,
+            reviewId: "review-mismatch",
+            ...retiredInput,
+          },
+          binding,
+        )) as unknown as Record<string, unknown>;
+      assert.deepEqual(
+        { outcome: mismatch.outcome, code: mismatch.code },
+        { outcome: "op_rejected", code: "invalid_command" },
+        JSON.stringify(retiredInput),
+      );
+      assert.equal(store().readHead()?.revision, beforeMismatch);
+    }
 
     const reviewlessTaskId = "task-reviewless",
       reviewlessExecutionId = "execution-reviewless";
@@ -230,7 +238,7 @@ test("review-consent derives the recorded Review digests without a packet and st
       "applied",
     );
     const reviewless = (await cell.run(
-      { kind: "task-review-consent", taskId: reviewlessTaskId, consentId: "consent-none" },
+      { kind: "task-review-consent", taskId: reviewlessTaskId },
       binding,
     )) as unknown as Record<string, unknown>;
     assert.deepEqual(
@@ -274,7 +282,7 @@ test("review-consent derives the recorded Review digests without a packet and st
         "applied",
       );
     const ambiguous = (await cell.run(
-      { kind: "task-review-consent", taskId: ambiguousTaskId, consentId: "consent-ambiguous" },
+      { kind: "task-review-consent", taskId: ambiguousTaskId },
       binding,
     )) as unknown as Record<string, unknown>;
     assert.deepEqual(

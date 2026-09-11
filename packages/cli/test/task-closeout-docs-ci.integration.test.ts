@@ -39,7 +39,7 @@ const createFields = [
   "createMode",
 ] as const;
 
-test("a real docs task with no declared ci gate closes out on not_applicable and refuses an invented passed", (context) => {
+test("a real docs task accepts only not_applicable and leaves review and consent to completion", (context) => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-closeout-docs-ci-")),
     root = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
@@ -147,12 +147,6 @@ test("a real docs task with no declared ci gate closes out on not_applicable and
     );
     submitPublished(root, userRoot, taskId);
     const judgment = (ci: string) => ({
-      review: {
-        verdict: "approved",
-        reason: "Independent fixture review passed.",
-        evidenceChecked: ["submitted execution"],
-      },
-      consent: { approved: true },
       completion: { ci, codeDocPaths: [] },
     });
 
@@ -182,23 +176,24 @@ test("a real docs task with no declared ci gate closes out on not_applicable and
     writeFileSync(path.join(root, "honest.json"), JSON.stringify(judgment("not_applicable")));
     const honest = runMaybe(root, userRoot, ["task", "closeout", taskId, "--from-file", "honest.json"]);
     context.diagnostic(`honest-not-applicable=${honest.stdout}`);
-    assert.equal(honest.status, 0, honest.stderr || honest.stdout);
+    assert.notEqual(honest.status, 0, honest.stdout);
     const receipt = JSON.parse(honest.stdout) as Record<string, unknown>;
-    assert.equal(receipt.outcome, "applied", honest.stdout);
+    assert.equal(receipt.stoppedAt, "complete", honest.stdout);
     assert.deepEqual(
       (receipt.steps as Array<Record<string, unknown>>).map(({ stage }) => stage),
-      ["review-execution", "review-consent", "complete"],
+      ["complete"],
     );
     const shown = runMaybe(root, userRoot, ["task", "show", taskId]);
     context.diagnostic(`docs-ci-final=${shown.stdout}`);
-    assert.equal(
-      (
-        JSON.parse(String((JSON.parse(shown.stdout) as Record<string, unknown>).evidence)) as {
-          task: { status: string };
-        }
-      ).task.status,
-      "done",
-    );
+    const final = JSON.parse(String((JSON.parse(shown.stdout) as Record<string, unknown>).evidence)) as {
+      task: { status: string };
+      reviews: readonly unknown[];
+      consents: readonly unknown[];
+    };
+    assert.equal(final.task.status, "in_review");
+    assert.deepEqual(final.reviews, []);
+    assert.deepEqual(final.consents, []);
+    assert.ok(Array.isArray(receipt.next) && receipt.next.length > 0);
   } finally {
     if (existsSync(userRoot)) runMaybe(root, userRoot, ["daemon", "stop"]);
     rmSync(parent, { recursive: true, force: true });

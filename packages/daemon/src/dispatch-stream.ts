@@ -54,6 +54,7 @@ export interface DispatchStreamHeader {
   readonly instanceId: string;
   readonly startedAt: string;
   readonly eventStreamRef: string;
+  readonly role?: string;
   readonly agentId?: string;
   readonly agentName?: string;
   readonly delegatedByAgentId?: string;

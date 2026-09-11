@@ -37,8 +37,8 @@ test("completion next is one pure judgment across lifecycle and unavailable-inpu
       "not_in_review",
       "submit execution execution-1",
     ],
-    ["submitted unreviewed", submitted, context, "review_missing", "ha task review-execution"],
-    ["approved awaits consent", at(4), context, "consent_missing", "ha task review-consent"],
+    ["submitted unreviewed", submitted, context, "review_missing", "ha task complete"],
+    ["approved awaits consent", at(4), context, "consent_missing", "ha task complete task-1 --consent"],
     ["done", at(6), context, null, null],
     [
       "projection unknown",
@@ -116,9 +116,9 @@ test("missing delivery paths identify the Summary instead of a JSON closeout rec
   assert.doesNotMatch(result.next!.action, /packet.json|task closeout/);
 });
 
-test("missing CI witness resumes completion without a manual receipt flag", () => {
-  const snapshot = at(5),
+test("missing CI witness precedes independent review and requests canonical observation", () => {
+  const snapshot = at(3),
     result = taskCompletionNext({ ...snapshot, task: { ...snapshot.task!, completionGateIds: ["ci"] } }, context);
   assert.equal(result.blocker?.code, "ci_missing");
-  assert.equal(result.next?.action, "ha task complete task-1 --execution-id execution-1");
+  assert.equal(result.next?.action, "ha ci observe pull");
 });

@@ -17,7 +17,7 @@ import { seedSettingsEvent } from "../../daemon/test/repo-settings.fixture.ts";
 import { realizedTaskPlan as realizedPlan } from "../../../tools/fixtures/task-plan.mjs";
 
 const cli = path.resolve("packages/cli/src/index.ts");
-test("a submitted fixture reaches done through one ha task closeout command", (context) => {
+test("closeout rejects legacy review input and requests completion without recording consent", (context) => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-task-closeout-e2e-")),
     root = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
@@ -86,40 +86,44 @@ test("a submitted fixture reaches done through one ha task closeout command", (c
     ) as Record<string, unknown>;
     assert.equal(Object.hasOwn(resumeTemplate, "submission"), false);
     const judgment = JSON.stringify({
-      review: {
-        verdict: "approved",
-        reason: "Independent fixture review passed.",
-        evidenceChecked: ["submitted execution"],
-      },
-      consent: { approved: true },
       completion: { ci: "not_applicable", codeDocPaths: [] },
     });
+    const legacy = runMaybe(
+      root,
+      userRoot,
+      ["task", "closeout", taskId, "--json-input", "@-"],
+      undefined,
+      JSON.stringify({ ...JSON.parse(judgment), review: { verdict: "approved" }, consent: { approved: true } }),
+    );
+    assert.notEqual(legacy.status, 0);
+    assert.match(legacy.stdout, /review|consent/u);
     const closeout = runMaybe(root, userRoot, ["task", "closeout", taskId, "--json-input", "@-"], undefined, judgment);
     context.diagnostic(`closeout-e2e-output=${closeout.stdout}`);
-    assert.equal(closeout.status, 0, closeout.stderr);
+    assert.notEqual(closeout.status, 0, closeout.stdout);
     const receipt = JSON.parse(closeout.stdout) as Record<string, unknown>;
-    assert.equal(receipt.outcome, "applied", closeout.stdout);
+    assert.equal(receipt.stoppedAt, "complete", closeout.stdout);
     assert.deepEqual(
       (receipt.steps as Array<Record<string, unknown>>).map(({ stage }) => stage),
-      ["review-execution", "review-consent", "complete"],
+      ["complete"],
     );
     const shown = runMaybe(root, userRoot, ["task", "show", taskId]);
     context.diagnostic(`closeout-e2e-final=${shown.stdout}`);
-    assert.equal(
-      (
-        JSON.parse(String((JSON.parse(shown.stdout) as Record<string, unknown>).evidence)) as {
-          task: { status: string };
-        }
-      ).task.status,
-      "done",
-    );
+    const final = JSON.parse(String((JSON.parse(shown.stdout) as Record<string, unknown>).evidence)) as {
+      task: { status: string };
+      reviews: readonly unknown[];
+      consents: readonly unknown[];
+    };
+    assert.equal(final.task.status, "in_review");
+    assert.deepEqual(final.reviews, []);
+    assert.deepEqual(final.consents, []);
+    assert.ok(Array.isArray(receipt.next) && receipt.next.length > 0);
   } finally {
     if (existsSync(userRoot)) runMaybe(root, userRoot, ["daemon", "stop"]);
     rmSync(parent, { recursive: true, force: true });
   }
 });
 
-test("a standard task with only task-package deliverables completes without a fabricated code-doc path", async (context) => {
+test("task-package deliverables request completion without a fabricated code-doc path", async (context) => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-task-closeout-report-")),
     root = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
@@ -215,26 +219,24 @@ test("a standard task with only task-package deliverables completes without a fa
     writeFileSync(
       path.join(root, "judgment.json"),
       JSON.stringify({
-        review: {
-          verdict: "approved",
-          reason: "The task-package report is complete and no public code path exists.",
-          evidenceChecked: [reportPath],
-        },
-        consent: { approved: true },
         completion: { ci: "not_applicable", codeDocPaths: [] },
       }),
     );
     const closeout = runMaybe(root, userRoot, ["task", "closeout", taskId, "--from-file", "judgment.json"]);
     context.diagnostic(`closeout-report-output=${closeout.stdout}`);
-    assert.equal(closeout.status, 0, closeout.stderr || closeout.stdout);
+    assert.notEqual(closeout.status, 0, closeout.stdout);
     const receipt = JSON.parse(closeout.stdout) as Record<string, unknown>;
-    assert.equal(receipt.outcome, "applied", closeout.stdout);
+    assert.equal(receipt.stoppedAt, "complete", closeout.stdout);
     const shown = JSON.parse(runMaybe(root, userRoot, ["task", "show", taskId]).stdout) as Record<string, unknown>,
       evidence = JSON.parse(String(shown.evidence)) as {
         task: { status: string };
         codeDocWitnesses: readonly unknown[];
+        reviews: readonly unknown[];
+        consents: readonly unknown[];
       };
-    assert.equal(evidence.task.status, "done");
+    assert.equal(evidence.task.status, "in_review");
+    assert.deepEqual(evidence.reviews, []);
+    assert.deepEqual(evidence.consents, []);
     assert.equal(
       evidence.codeDocWitnesses.length,
       0,

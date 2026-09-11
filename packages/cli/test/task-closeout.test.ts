@@ -15,7 +15,7 @@ test("task closeout accepts one execution, template, or schema mode and disclose
       "--from-file",
       "judgment.json",
     ]),
-    inlinePacket = '{"review":{},"consent":{},"completion":{}}',
+    inlinePacket = '{"completion":{}}',
     inline = parseThinCommand(["task", "closeout", "task-closeout", "--json-input", inlinePacket]),
     stdin = parseThinCommand(["task", "closeout", "task-closeout", "--json-input", "@-"]),
     template = parseThinCommand(["task", "closeout", "task-closeout", "--print-template"]),

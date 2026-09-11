@@ -28,6 +28,7 @@ import {
 } from "../../kernel/src/index.ts";
 import { cellCodedError, cellCriterionError } from "./repo-cell-errors.ts";
 import { verifyCodeDocCommitPaths } from "./code-doc-path-verification.ts";
+import { completionReviewKey } from "./task-completion-review.ts";
 import { readTaskLineageDispatches } from "./dispatch-read.ts";
 import type { PublicPublication, RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 import { leaseTtlMs } from "./repo-cell-types.ts";
@@ -151,6 +152,18 @@ export async function proofFor(
         REVIEW_PROOF_CRITERION,
         reviewCriterion.nextActions,
       );
+    const dispatch = runtimeSession
+        ? projection.readRuntimeDispatch(runtimeSession.runtimeSessionId, runtimeSession.definitionSnapshotRef)
+        : null,
+      key = dispatch?.payload.idempotencyKey;
+    if (key?.startsWith("complete-review:") && execution?.submission) {
+      const currentKey = completionReviewKey(command.taskId, execution);
+      if (key !== currentKey && !key.startsWith(`${currentKey}:fallback:`))
+        throw cellCodedError(
+          "invalid_proof",
+          "This reviewer dispatch belongs to an earlier submission cut; run task complete for the current cut.",
+        );
+    }
     const independentActor =
         execution !== undefined &&
         (settings.reviewIndependence === "execution"

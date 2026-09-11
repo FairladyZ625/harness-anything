@@ -267,12 +267,12 @@ test("executor declaration and completion context refusals name projection rebui
     ]);
     assert.equal((await cell.run({ kind: "projection-rebuild" }, owner)).outcome, "applied");
     const retry = await cell.run({ kind: "task-complete", taskId, executionId }, owner);
-    assert.equal(retry.code, "review_missing", JSON.stringify(retry));
+    assert.equal(retry.code, "ci_missing", JSON.stringify(retry));
     assert.deepEqual((retry as Record<string, unknown>).next, [
       {
-        action: `ha task review-execution ${taskId} --execution-id ${executionId} --review-id <id> --from-file <review.json>`,
-        reason: "Record one independent approved Execution Review.",
-        authority: "independent reviewer",
+        action: "ha ci observe pull",
+        reason: "Publish a passing canonical ci checker witness for this execution cut.",
+        authority: "person-owner",
         readCut: { revision: submittedRevision, iteration: 0, executionId },
       },
     ]);
@@ -282,9 +282,9 @@ test("executor declaration and completion context refusals name projection rebui
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "projection-exits-four" });
     mutate(cache, "DELETE FROM preset_snapshot");
     const closeout = await cell.run({ kind: "task-complete", taskId, executionId }, owner);
-    assert.equal(closeout.code, "review_missing", JSON.stringify(closeout));
+    assert.equal(closeout.code, "ci_missing", JSON.stringify(closeout));
     assert.equal((await cell.run({ kind: "projection-rebuild" }, owner)).outcome, "applied");
-    assert.equal((await cell.run({ kind: "task-complete", taskId, executionId }, owner)).code, "review_missing");
+    assert.equal((await cell.run({ kind: "task-complete", taskId, executionId }, owner)).code, "ci_missing");
   } finally {
     await cell?.close();
     rmSync(rootDir, { recursive: true, force: true });

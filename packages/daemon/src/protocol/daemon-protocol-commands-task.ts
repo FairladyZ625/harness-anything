@@ -130,8 +130,8 @@ export const taskExecutionProtocolCommands = Object.freeze([
     phase: "W3",
     path: ["task", "closeout", "<task-id>"],
     summary: [
-      "Run submission, independent review, owner consent, and completion in ",
-      "canonical order, resuming from the current closeout stage.",
+      "Prepare and submit the current execution, then request completion. ",
+      "Review and explicit consent use the canonical completion flow.",
     ].join(""),
     method: "repo.task.run",
     inputs: [
@@ -146,8 +146,8 @@ export const taskExecutionProtocolCommands = Object.freeze([
           code: "missing_field",
         },
         {
-          jsonFields: ["review", "consent", "completion"],
-          jsonAllowedFields: ["submission", "review", "consent", "completion"],
+          jsonFields: ["completion"],
+          jsonAllowedFields: ["submission", "completion"],
           format: "task-closeout-packet/v1 JSON; run --print-schema for the field contract",
           conflictsWith: ["--json-input", "--print-template", "--print-schema"],
         },
@@ -158,8 +158,8 @@ export const taskExecutionProtocolCommands = Object.freeze([
         false,
         { code: "missing_field" },
         {
-          jsonFields: ["review", "consent", "completion"],
-          jsonAllowedFields: ["submission", "review", "consent", "completion"],
+          jsonFields: ["completion"],
+          jsonAllowedFields: ["submission", "completion"],
           format: "<json|@->",
           conflictsWith: ["--from-file", "--print-template", "--print-schema"],
         },

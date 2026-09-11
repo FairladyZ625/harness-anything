@@ -1,11 +1,8 @@
-import { createHash } from "node:crypto";
 import {
   createTaskCloseoutPacketTemplate,
-  closeoutReadiness,
   currentExecutionCuts,
   isSamePerson,
   isSameExecution,
-  submissionDigest,
   taskCloseoutPacketSchema,
   validateTaskCloseoutPacket,
   type ActorIdentity,
@@ -32,13 +29,7 @@ type Snapshot = CloseoutSnapshot & {
     | null;
   readonly lease: LeaseV1 | null;
 };
-export type CloseoutStep =
-  | "preset-upgrade"
-  | "submit"
-  | "review-execution"
-  | "review-consent"
-  | "complete"
-  | "task-show";
+export type CloseoutStep = "preset-upgrade" | "submit" | "complete" | "task-show";
 export interface TaskCloseoutActionDependencies {
   readonly action: Readonly<Record<string, unknown>>;
   readonly caller: ActorIdentity;
@@ -136,8 +127,7 @@ export async function runTaskCloseoutAction(dependencies: TaskCloseoutActionDepe
     });
   if (task.status === "active" && declareExecutor)
     return reject(opId, "executor_missing", { commands: [declareExecutor, invocation] });
-  let stage = 0,
-    submitActor: ActorIdentity | null = null,
+  let submitActor: ActorIdentity | null = null,
     submission: SubmissionV1 | undefined;
   if (task.status === "active") {
     if (!snapshot.lease)
@@ -168,36 +158,9 @@ export async function runTaskCloseoutAction(dependencies: TaskCloseoutActionDepe
     const selected = candidates[0]!;
     if (!selected.submission) return reject(opId, "invalid_transition", { commands: [`ha task show ${taskId}`] });
     submission = selected.submission;
-    const reviewId = deterministicReviewId(taskId, task.iteration, submission.commitSha, judgment.review);
-    const assessed = closeoutReadiness(
-      executionId
-        ? {
-            ...snapshot,
-            executions: snapshot.executions.filter(
-              (candidate) => candidate.iteration !== task.iteration || candidate.executionId === executionId,
-            ),
-          }
-        : snapshot,
-    );
-    if (assessed.blocker === "projection_unknown")
-      return reject(opId, "projection_unknown", { commands: [`ha task show ${taskId}`, invocation] });
-    stage = assessed.blocker === "review" ? 1 : assessed.blocker === "consent" ? 2 : 3;
-    if (
-      stage > 1 &&
-      !snapshot.reviews.some((review) => review.executionId === selected.executionId && review.reviewId === reviewId)
-    )
-      stage = 1;
-    if (
-      stage > 2 &&
-      !snapshot.consents.some(
-        (consent) => consent.executionId === selected.executionId && consent.reviewId === reviewId,
-      )
-    )
-      stage = 2;
   }
 
   const selector = executionId ? { executionId } : {},
-    humanReviewer: ActorIdentity = { principal: caller.principal, executor: null },
     steps: Array<WriteReceipt & { readonly stage: string }> = [];
   const closeoutAuthorization = dependencies.authorizationDecision;
   if (!task.createdBy || !isSamePerson(task.createdBy, caller))
@@ -205,7 +168,7 @@ export async function runTaskCloseoutAction(dependencies: TaskCloseoutActionDepe
       ...reject(opId, "actor_unauthorized", { commands: [invocation] }),
       authorizationDecision: closeoutAuthorization,
     };
-  if (stage <= 0 && (!snapshot.lease || !isSameExecution(snapshot.lease.actor, caller)))
+  if (task.status === "active" && (!snapshot.lease || !isSameExecution(snapshot.lease.actor, caller)))
     return {
       ...reject(opId, "actor_unauthorized", { commands: [invocation] }),
       authorizationDecision: closeoutAuthorization,
@@ -214,7 +177,7 @@ export async function runTaskCloseoutAction(dependencies: TaskCloseoutActionDepe
     const stopped = await invoke("preset-upgrade", { kind: "preset-upgrade", taskId }, caller);
     if (stopped) return stopped;
   }
-  if (stage <= 0) {
+  if (task.status === "active") {
     const stopped = await invoke("submit", { kind: "task-submit", taskId, ...selector }, submitActor ?? caller);
     if (stopped) return stopped;
     const submitted = currentExecutionCuts(await dependencies.read()).find(
@@ -224,43 +187,6 @@ export async function runTaskCloseoutAction(dependencies: TaskCloseoutActionDepe
   }
   if (!submission) return reject(opId, "invalid_transition", { commands: [`ha task show ${taskId}`] });
 
-  const reviewId = deterministicReviewId(taskId, task.iteration, submission.commitSha, judgment.review),
-    consentId = deterministicId(
-      "consent-closeout",
-      taskId,
-      String(task.iteration),
-      submissionDigest(submission),
-      reviewId,
-    );
-
-  if (stage <= 1) {
-    const reviewBody = `${JSON.stringify(judgment.review, null, 2)}\n`,
-      stopped = await invoke(
-        "review-execution",
-        { kind: "task-review-execution", taskId, ...selector, reviewId, jsonInput: reviewBody },
-        humanReviewer,
-      );
-    if (stopped) return stopped;
-    if (judgment.review.verdict !== "approved")
-      return {
-        ...reject(opId, judgment.review.verdict === "changes_requested" ? "changes_requested" : "review_not_approved", {
-          commands:
-            judgment.review.verdict === "changes_requested"
-              ? [`ha task start ${taskId} --execution-id <execution-id>`, invocation]
-              : [invocation],
-        }),
-        stoppedAt: "review-execution",
-        steps,
-      } as WriteReceipt;
-  }
-  if (stage <= 2) {
-    const stopped = await invoke(
-      "review-consent",
-      { kind: "task-review-consent", taskId, ...selector, reviewId, consentId },
-      caller,
-    );
-    if (stopped) return stopped;
-  }
   const completion = { kind: "task-complete", taskId, ...selector };
   const stopped = await invoke("complete", completion, caller);
   if (stopped) return stopped;
@@ -269,10 +195,7 @@ export async function runTaskCloseoutAction(dependencies: TaskCloseoutActionDepe
     ...final,
     authorizationDecision: closeoutAuthorization,
     taskId,
-    reviewId,
-    consentId,
     submittedCommitSha: submission.commitSha,
-    summary: `closed out task ${taskId}`,
     steps,
   } as WriteReceipt;
 
@@ -332,20 +255,6 @@ function ciJudgmentIssue(completionGateIds: readonly string[], ci: CloseoutCiJud
 function requiredText(value: unknown, name: string): string {
   if (typeof value !== "string" || !value.trim()) throw new Error(`${name} must be a non-empty string.`);
   return value;
-}
-function deterministicId(prefix: string, ...parts: readonly unknown[]): string {
-  return `${prefix}-${createHash("sha256")
-    .update(parts.map((part) => (typeof part === "string" ? part : JSON.stringify(part))).join("\0"))
-    .digest("hex")
-    .slice(0, 16)}`;
-}
-function deterministicReviewId(
-  taskId: string,
-  iteration: number,
-  commitSha: string,
-  review: TaskCloseoutPacket["review"],
-): string {
-  return deterministicId("review-closeout", taskId, String(iteration), commitSha, review);
 }
 function closeoutInvocation(taskId: string, packetArgument: string, executionId?: string): string {
   return `ha task closeout ${taskId} ${packetArgument}${executionId ? ` --execution-id ${executionId}` : ""}`;

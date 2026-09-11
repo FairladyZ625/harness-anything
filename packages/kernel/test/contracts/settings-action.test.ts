@@ -59,6 +59,15 @@ test("Settings update persists principal review independence through the existin
   assertSettingsEventInputs(draft.result.bundle.event, draft.result.bundle.plan, draft.result.bundle.blobs);
 });
 
+test("Settings pins a configured reviewer through its canonical event and authored facet", () => {
+  const draft = compile({ defaultReviewer: "audit-reviewer" });
+  assert.equal(draft.kind, "settings");
+  if (draft.kind !== "settings" || draft.result.kind !== "event") throw new Error("missing settings event");
+  assert.equal(draft.result.bundle.event.payload.settings.defaultReviewer, "audit-reviewer");
+  assert.equal(readSettingsFacet(draft.result.bundle.blobs[0].body).defaultReviewer, "audit-reviewer");
+  assertSettingsEventInputs(draft.result.bundle.event, draft.result.bundle.plan, draft.result.bundle.blobs);
+});
+
 test("Settings update hydrates the default when the projected event predates review independence", () => {
   const { reviewIndependence: _legacyMissing, ...legacyCurrent } = current;
   const draft = compile({ reviewIndependence: "principal" }, legacyCurrent);

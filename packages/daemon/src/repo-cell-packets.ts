@@ -191,8 +191,6 @@ export function lifecycleReceipt(
     receiptReview = eventReview ?? selected?.review ?? (reviews.length === 1 ? reviews[0] : undefined),
     reviewId = receiptReview?.reviewId ?? null,
     declarationNeeded = snapshot.task?.status === "in_review" && undeclared && reviews.length === 0,
-    consentCandidates = approved.length ? approved : approvedHistory,
-    consentReviewId = consentCandidates.length === 1 ? consentCandidates[0]!.reviewId : "<review-id>",
     from =
       event.type === "execution_started"
         ? "planned/implementation"
@@ -228,15 +226,7 @@ export function lifecycleReceipt(
                       " --review-id <id> --from-file <review.json>",
                     ].join("")
                 : !selected
-                  ? [
-                      "ha task review-consent ",
-                      `${event.taskId}`,
-                      " --execution-id ",
-                      `${executionId}`,
-                      " --review-id ",
-                      `${consentReviewId}`,
-                      " --consent-id <id>",
-                    ].join("")
+                  ? `ha task complete ${event.taskId} --consent`
                   : missingGate === "ci"
                     ? `ha task complete ${event.taskId} --execution-id ${executionId}`
                     : missingGate === "code-doc-reconciliation"

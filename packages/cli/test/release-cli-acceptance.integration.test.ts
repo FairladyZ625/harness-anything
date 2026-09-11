@@ -223,19 +223,7 @@ test("release acceptance: attributed lifecycle chain create→start→fact→sub
     run(
       root,
       userRoot,
-      [
-        "task",
-        "review-consent",
-        taskId,
-        "--execution-id",
-        executionId,
-        "--review-id",
-        "review-release-acc-approved",
-        "--consent-id",
-        "consent-release-acc",
-        "--json-input",
-        JSON.stringify({ reviewDigest, contentDigest }),
-      ],
+      ["task", "review-consent", taskId, "--execution-id", executionId, "--review-id", "review-release-acc-approved"],
       worker,
     );
     const completed = run(root, userRoot, ["task", "complete", taskId, "--execution-id", executionId], worker);
@@ -423,6 +411,7 @@ test("release acceptance: changes_requested rework keeps both same-named reports
       ],
       reviewer,
     );
+    assert.equal(approved.outcome, "applied", JSON.stringify(approved));
     run(
       root,
       userRoot,
@@ -434,13 +423,6 @@ test("release acceptance: changes_requested rework keeps both same-named reports
         secondExecutionId,
         "--review-id",
         "review-release-acc-rework-2",
-        "--consent-id",
-        "consent-release-acc-rework",
-        "--json-input",
-        JSON.stringify({
-          reviewDigest: String(approved.reviewDigest),
-          contentDigest: String(approved.contentDigest),
-        }),
       ],
       worker,
     );

@@ -96,7 +96,6 @@ test("all public commands expose the canonical structured input facet", () => {
   for (const id of [
     "task-closeout",
     "task-review-execution",
-    "task-review-consent",
     "people-add",
     "people-set-role",
     "people-bind",
@@ -124,6 +123,14 @@ test("all public commands expose the canonical structured input facet", () => {
     assert.equal(fromFile.conflictsWith?.includes("--json-input"), true, `${id}: file conflict`);
     assert.equal(jsonInput.conflictsWith?.includes("--from-file"), true, `${id}: inline conflict`);
   }
+  const reviewConsent = daemonProtocolCommands.find((command) => command.id === "task-review-consent");
+  assert.ok(reviewConsent);
+  for (const name of ["--consent-id", "--from-file", "--json-input"])
+    assert.equal(
+      reviewConsent.inputs.some((input) => input.name === name),
+      false,
+      name,
+    );
   const taskSubmit = daemonProtocolCommands.find((command) => command.id === "task-submit");
   assert.ok(taskSubmit);
   for (const name of ["--from-file", "--json-input"])

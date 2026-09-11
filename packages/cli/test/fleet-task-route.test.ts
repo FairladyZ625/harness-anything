@@ -119,8 +119,13 @@ test("fleet task routing requires both edge config and remote-edge registry mode
     text: "nested cwd",
     evidence: [],
   });
+  const complete = await fleetTaskRoute(
+    command("repo.task.run", { kind: "task-complete", taskId: "task_one", consent: true }),
+    env,
+  );
+  assert.deepEqual(complete?.action, { kind: "task-complete", taskId: "task_one", consent: true });
   assert.equal(
-    await fleetTaskRoute(command("repo.task.run", { kind: "task-complete", taskId: "task_one" }), env),
+    await fleetTaskRoute(command("repo.task.run", { kind: "task-closeout", taskId: "task_one" }), env),
     null,
     "unsupported commands keep the explicit local repo-mode rejection path",
   );

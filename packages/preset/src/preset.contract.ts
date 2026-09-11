@@ -1,6 +1,5 @@
 import { presetCommands, presetMethods } from "./preset-command-contract.ts";
 export {
-  consentJsonFields,
   decisionProposalDefaultJsonFields,
   decisionProposalJsonFields,
   decisionProposalRequiredJsonFields,
