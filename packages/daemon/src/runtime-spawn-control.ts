@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { unknownFieldViolation, type JsonObject } from "./protocol/json-rpc-types.ts";
 import { requiredRuntimeSpawnText, runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import { consumeDurableOutput } from "./runtime-spawn-provider-stream.ts";
+import { adoptRuntimes } from "./runtime-spawn-adoption.ts";
 import type { RuntimeBinding } from "./runtime-spawn-types.ts";
 import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 
@@ -18,8 +19,9 @@ export async function cancelRuntime(
     throw runtimeSpawnError("invalid_runtime_cancel", `Runtime cancel payload contains an ${unknownField}`);
   const runtimeSessionId = requiredRuntimeSpawnText(payload.runtimeSessionId, "runtimeSessionId"),
     hash = createHash("sha256").update(`${context.input.repoId}\0${runtimeSessionId}`).digest("hex"),
-    opId = `runtime-cancel-${hash.slice(0, 32)}`,
-    active = context.processes.get(runtimeSessionId);
+    opId = `runtime-cancel-${hash.slice(0, 32)}`;
+  if (!context.processes.has(runtimeSessionId)) await adoptRuntimes(context);
+  const active = context.processes.get(runtimeSessionId);
   if (active) {
     active.cancelBinding = binding;
     active.cancelOpId = opId;
