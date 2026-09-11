@@ -16,7 +16,7 @@ import { canonicalRoot, validateDaemonRelationGraph } from "../src/protocol/daem
 import { readTaskWipSnapshot, wipSnapshotEntries, type TaskQueryCell } from "../src/repo-cell-task-query.ts";
 import { readTaskCompletion } from "../src/task-completion-read.ts";
 import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
-import { emptyTaskLifecycleSnapshot, reduceTaskEvent, taskCompletionNext } from "../../kernel/src/index.ts";
+import { reduceTaskEvent, taskCompletionNext } from "../../kernel/src/index.ts";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 import { makeTaskQueryReadModel } from "../src/task-query-read.ts";
 
@@ -448,7 +448,20 @@ function taskRowWithoutDisposition() {
 }
 
 test("single-task completion read carries the canonical next and validates its read cut", () => {
-  const snapshot = lifecycleFixture().events.slice(0, 1).reduce(reduceTaskEvent, emptyTaskLifecycleSnapshot()),
+  const snapshot = reduceTaskEvent(
+      {
+        revision: 0,
+        task: null,
+        executions: [],
+        reviews: [],
+        consents: [],
+        codeDocWitnesses: [],
+        gateWitnesses: [],
+        edgesTaken: [],
+        lease: null,
+      },
+      lifecycleFixture().events[0]!,
+    ),
     taskId = snapshot.task!.taskId,
     reads: string[] = [],
     projection = {
