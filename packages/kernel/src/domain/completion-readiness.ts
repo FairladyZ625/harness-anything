@@ -74,8 +74,8 @@ export function completionBlockers(
     return one(
       "projection_unknown",
       "projection",
-      `ha task show ${task?.taskId ?? "<task-id>"}`,
-      "Wait for the canonical task projection before retrying completion.",
+      "ha projection rebuild",
+      "Rebuild the unavailable canonical task projection before retrying completion.",
     );
   if (context.authorization === "denied")
     return one(

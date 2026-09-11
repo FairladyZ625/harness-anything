@@ -245,9 +245,26 @@ test("executor declaration and completion context refusals name projection rebui
     mutate(cache, "DELETE FROM task_package WHERE task_id = ?", taskId);
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "projection-exits-three" });
     const metadata = await cell.run({ kind: "task-complete", taskId, executionId }, owner);
-    assert.equal(metadata.code, "content_not_ready", JSON.stringify(metadata));
+    assert.equal(metadata.code, "projection_unknown", JSON.stringify(metadata));
+    assert.deepEqual((metadata as Record<string, unknown>).next, [
+      {
+        action: "ha projection rebuild",
+        reason: "Rebuild the unavailable canonical task projection before retrying completion.",
+        authority: "person-owner",
+        readCut: { revision: 6, iteration: 0, executionId },
+      },
+    ]);
     assert.equal((await cell.run({ kind: "projection-rebuild" }, owner)).outcome, "applied");
-    assert.equal((await cell.run({ kind: "task-complete", taskId, executionId }, owner)).code, "review_missing");
+    const retry = await cell.run({ kind: "task-complete", taskId, executionId }, owner);
+    assert.equal(retry.code, "review_missing", JSON.stringify(retry));
+    assert.deepEqual((retry as Record<string, unknown>).next, [
+      {
+        action: `ha task review-execution ${taskId} --execution-id ${executionId} --review-id <id> --from-file <review.json>`,
+        reason: "Record one independent approved Execution Review.",
+        authority: "independent reviewer",
+        readCut: { revision: 6, iteration: 0, executionId },
+      },
+    ]);
     await cell.close();
     cell = undefined;
 

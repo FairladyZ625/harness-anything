@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventReader } from "../../kernel/src/index.ts";
+import { makeTaskEventReader, type CompletionNext } from "../../kernel/src/index.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
@@ -149,15 +149,15 @@ test("an orphan milestone task stops at completion until the prescribed decision
       { outcome: "op_rejected", code: "decision_lineage_missing", stoppedAt: "decision_lineage_missing" },
       JSON.stringify(reconciled),
     );
-    const nextAction = String((reconciled.next as { readonly command: string }[])[0]?.command);
-    assert.match(
-      nextAction,
-      new RegExp(
-        `^ha decision relate <decision-id> --anchor <claim-id> --type derives --target task/${taskId} --rationale `,
-        "u",
-      ),
-      nextAction,
-    );
+    const next = reconciled.next as readonly CompletionNext[];
+    assert.equal(next.length, 1);
+    assert.deepEqual(next[0], {
+      action: `Identify the authorizing Decision claim in harness/tasks/${taskId}-milestone-lineage/closeout.md Summary.`,
+      reason: "A milestone task completes only with an active decision derives edge; no active edge names this task.",
+      authority: "person-owner",
+      readCut: { revision: next[0]!.readCut.revision, iteration: 0, executionId },
+    });
+    assert.ok(Number.isInteger(next[0]!.readCut.revision) && next[0]!.readCut.revision > 0);
     assert.equal(
       makeTaskEventReader({ repoId: "milestone-lineage", rootDir })
         .read()
@@ -165,7 +165,7 @@ test("an orphan milestone task stops at completion until the prescribed decision
       false,
       "no completion event may exist while the task is an orphan",
     );
-    // Walk the prescription: propose the authorising decision with a CH1 claim, then run the exact related command shape.
+    // Resolve the named authorizing claim, then establish its canonical derives edge.
     const proposed = await cell.run(
       {
         kind: "decision-propose",
