@@ -485,6 +485,7 @@ export const agentProtocolCommands = Object.freeze([
       cliInput("--prompt", "single", false, {
         code: "invalid_field",
       }),
+      cliInput("--detach", "boolean", false, { code: "invalid_field" }, { field: "detach" }),
     ],
   }),
   defineRepoReadCommand({

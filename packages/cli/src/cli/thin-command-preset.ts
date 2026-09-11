@@ -36,6 +36,7 @@ export function parsePreset(
             ? { scope: "repo-relative", path: f.one.get("--cwd") }
             : { scope: "repo-root" },
         taskId: f.one.get("--task"),
+        ...(f.booleans.has("--detach") ? { detach: true } : {}),
       },
       route.method,
     );

@@ -1,4 +1,6 @@
 import type { TaskDispatchRow } from "./protocol/daemon-protocol.contract.ts";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 export type LeaderDecision =
   | { readonly kind: "converged"; readonly report: string | null }
@@ -85,6 +87,8 @@ type LeaderPromptState = {
   readonly roster: string;
   readonly mission: string;
   readonly workerAttempts: readonly WorkerAttempt[];
+  readonly authoredRoot?: string;
+  readonly cwd?: string;
 };
 
 export function initialLeaderPrompt(state: LeaderPromptState): string {
@@ -152,9 +156,24 @@ function statusRowsForPrompt(state: LeaderPromptState, rows: readonly TaskDispat
       `exitCode=${String(row?.exitCode ?? "none")}`,
       `resultRef=${row?.resultRef ?? "none"}`,
       `reportPath=${row?.reportPath ?? "none"}`,
+      reportExcerpt(state, row?.reportPath),
       `rejection=${attempt.rejection ?? "none"}`,
     ].join(" ");
   });
+}
+
+function reportExcerpt(state: LeaderPromptState, reportPath: string | null | undefined): string {
+  if (!reportPath) return "reportBody=none";
+  try {
+    const body = readFileSync(resolve(state.authoredRoot ?? state.cwd ?? process.cwd(), reportPath), "utf8");
+    const excerpt = body.length > 8192 ? `${body.slice(0, 8192)}\n[truncated]` : body;
+    return `reportBody=${excerpt}`;
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error),
+      failure = new Error(`Worker report is unreadable: reportPath=${reportPath} reason=${reason}`);
+    Object.assign(failure, { code: "worker_report_unreadable", reportPath });
+    throw failure;
+  }
 }
 
 export function parseLeaderDecision(text: string, workers: readonly string[]): LeaderDecision {

@@ -44,6 +44,7 @@ export type SquadRunAction = {
   readonly permissionMode?: string;
   readonly cwd: Readonly<Record<string, string>>;
   readonly taskId: string;
+  readonly detach?: boolean;
 };
 
 export type AgentCreateAction = {
