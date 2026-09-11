@@ -234,6 +234,15 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     note: "Relation-projection availability feeding blockingOf; degraded states make every task's blocking unknown.",
   },
   {
+    id: "completion.projection-status",
+    entity: "Task",
+    field: "completion projection status",
+    module: "packages/kernel/src/domain/completion-readiness.ts",
+    anchor: "#projectionStatus",
+    words: ["ready", "pending"],
+    note: "Availability of the canonical projection cut the completion next step is judged at; pending yields projection_unknown.",
+  },
+  {
     id: "task-read-set.projection-cut",
     entity: "Task",
     field: "read set projection cut",
