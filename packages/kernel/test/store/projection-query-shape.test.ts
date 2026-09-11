@@ -22,6 +22,7 @@ import {
   listTaskRowsNarrow,
   readTaskDependencyClosureRows,
   readTaskIndexRows,
+  readTaskRelationPage,
   readTaskRelationsByTargets,
   readTaskStatusRows,
 } from "../../src/projection/task-query-projection.ts";
@@ -552,6 +553,57 @@ test("task context collection reads stay indexed, bounded, and constant in state
     assert.match(targetPlan, /SEARCH task_relation USING INDEX task_relation_target/u);
     assert.match(targetPlan, /SEARCH relation_edge USING INDEX relation_edge_target/u);
     assert.doesNotMatch(`${closurePlan}\n${targetPlan}`, /SCAN (?:task_relation|relation_edge)(?:\s|$)/u);
+  } finally {
+    db.close();
+  }
+});
+
+test("relation pages fetch limit plus one rows from each keyed source before merging", (context) => {
+  const counted = countingDatabase(),
+    { db } = counted;
+  try {
+    createRelationGraphProjectionTables(db);
+    createTaskRelationProjectionTable(db);
+    db.exec("CREATE TABLE event_index (workspace_revision INTEGER PRIMARY KEY, event_json TEXT NOT NULL)");
+    const insertTask = db.prepare(
+        "INSERT INTO task_relation VALUES (?, ?, ?, ?, 'depends-on', 'directed', 'strong', 'declared', 'active', 'fixture', ?, 'fixture', 0, ?, '2026-08-21T00:00:00.000Z')",
+      ),
+      insertEdge = db.prepare("INSERT INTO relation_edge VALUES (?, ?, ?, 'derives', 'active', NULL, ?, ?, ?)"),
+      insertEvent = db.prepare("INSERT INTO event_index VALUES (?, ?)");
+    for (let index = 0; index < 100; index += 1) {
+      const relationId = `rel_${String(index * 2).padStart(3, "0")}`;
+      insertTask.run(relationId, `task_${index}`, `task/${index}`, `fact/F-${index}`, `task/${index}`, index + 1);
+      insertEvent.run(index + 1, JSON.stringify({ occurredAt: "2026-08-21T00:00:00.000Z" }));
+      const edgeId = `rel_${String(index * 2 + 1).padStart(3, "0")}`;
+      insertEdge.run(
+        edgeId,
+        `decision/dec_${index}/C1`,
+        `fact/F-${index}`,
+        `decision/dec_${index}`,
+        index + 1,
+        JSON.stringify({
+          direction: "directed",
+          strength: "strong",
+          origin: "declared",
+          rationale: "fixture",
+          sourcePath: "fixture",
+          recordIndex: 0,
+        }),
+      );
+    }
+    const page = readTaskRelationPage(db, { limit: 5 }),
+      read = counted.reads().find(({ sql }) => sql.includes("SELECT * FROM ( SELECT * FROM"))!;
+    assert.deepEqual(
+      page.rows.map(({ relationId }) => relationId),
+      ["rel_000", "rel_001", "rel_002", "rel_003", "rel_004"],
+    );
+    assert.equal(page.page?.nextCursor !== null, true);
+    assert.deepEqual(read.args, ["", 6, "", 6, 6]);
+    const plan = queryPlan(db, read);
+    context.diagnostic(`relation page plan: ${plan}`);
+    assert.match(plan, /SEARCH task_relation USING INDEX sqlite_autoindex_task_relation_1/u);
+    assert.match(plan, /SEARCH relation_edge USING INDEX sqlite_autoindex_relation_edge_1/u);
+    assert.doesNotMatch(plan, /SCAN (?:task_relation|relation_edge)(?:\s|$)/u);
   } finally {
     db.close();
   }
