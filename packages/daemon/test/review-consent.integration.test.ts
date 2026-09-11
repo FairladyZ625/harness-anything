@@ -4,12 +4,37 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test, { after, before } from "node:test";
 import { makeTaskEventReader, reviewDigest } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
+import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+
+const ciBin = mkdtempSync(path.join(tmpdir(), "ha-submit-ci-bin-"));
+const originalPath = process.env.PATH;
+before(() => {
+  writeProviderExecutable(
+    path.join(ciBin, "gh"),
+    'if (process.argv[2] !== "run" || process.argv[3] !== "list") process.exit(1); console.log("[]");\n',
+  );
+  process.env.PATH = `${ciBin}${path.delimiter}${originalPath ?? ""}`;
+});
+after(() => {
+  if (originalPath === undefined) delete process.env.PATH;
+  else process.env.PATH = originalPath;
+  rmSync(ciBin, { recursive: true, force: true });
+});
+
+function writeCloseout(rootDir: string, packagePath: unknown): void {
+  writeFileSync(
+    path.join(rootDir, "harness", String(packagePath), "closeout.md"),
+    `# Closeout\n\n## Summary\n\nDelivery ${git(rootDir, "rev-parse", "fixture-delivery")} is ready.\n\n` +
+      "## Verification\n\nIntegration assertions exercise the lifecycle refusals.\n\n" +
+      "## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nShared lifecycle authorization.\n",
+  );
+}
 
 const actor = { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "codex" } } as const;
 const ownerFromAnotherAgent = {
@@ -28,6 +53,10 @@ function initRepo(rootDir: string): void {
   git(rootDir, "config", "gc.auto", "0");
   git(rootDir, "config", "maintenance.auto", "false");
   git(rootDir, "commit", "--allow-empty", "--quiet", "-m", "fixture base");
+  writeFileSync(path.join(rootDir, "README.md"), "# Lifecycle fixture delivery\n");
+  git(rootDir, "add", "README.md");
+  git(rootDir, "commit", "--quiet", "-m", "fixture delivery");
+  git(rootDir, "tag", "fixture-delivery");
 }
 
 function git(rootDir: string, ...args: readonly string[]): string {
@@ -61,20 +90,8 @@ test("review-consent derives the recorded Review digests without a packet and st
       cell!.run({ kind: "doc-submit", paths: [planPath] }, binding),
     );
     await cell.run({ kind: "task-start", taskId, executionId }, binding);
-    const commitSha = git(rootDir, "rev-parse", "HEAD");
-    writeFileSync(
-      path.join(rootDir, "submission.json"),
-      JSON.stringify({
-        completionClaim: "Derived consent output is ready.",
-        deliverables: ["derived consent"],
-        outputs: ["machine files"],
-        verificationNotes: ["tests"],
-        knownGaps: [],
-        residualRisks: [],
-        commitSha,
-      }),
-    );
-    await cell.run({ kind: "task-submit", taskId, executionId, fromFile: "submission.json" }, binding);
+    writeCloseout(rootDir, (created as Record<string, unknown>).packagePath);
+    assert.equal((await cell.run({ kind: "task-submit", taskId, executionId }, binding)).outcome, "applied");
     writeFileSync(
       path.join(rootDir, "review.json"),
       JSON.stringify({ verdict: "approved", reason: "Independent review passed.", evidenceChecked: ["tests"] }),
@@ -157,21 +174,11 @@ test("review-consent derives the recorded Review digests without a packet and st
       (planPath) => cell!.run({ kind: "doc-submit", paths: [planPath] }, binding),
     );
     await cell.run({ kind: "task-start", taskId: mismatchTaskId, executionId: mismatchExecutionId }, binding);
-    writeFileSync(
-      path.join(rootDir, "submission.json"),
-      JSON.stringify({
-        completionClaim: "Mismatch consent output is ready.",
-        deliverables: ["mismatch consent"],
-        outputs: ["machine files"],
-        verificationNotes: ["tests"],
-        knownGaps: [],
-        residualRisks: [],
-        commitSha,
-      }),
-    );
-    await cell.run(
-      { kind: "task-submit", taskId: mismatchTaskId, executionId: mismatchExecutionId, fromFile: "submission.json" },
-      binding,
+    writeCloseout(rootDir, (mismatchCreated as Record<string, unknown>).packagePath);
+    assert.equal(
+      (await cell.run({ kind: "task-submit", taskId: mismatchTaskId, executionId: mismatchExecutionId }, binding))
+        .outcome,
+      "applied",
     );
     const mismatchReviewed = (await cell.run(
       {
@@ -216,14 +223,11 @@ test("review-consent derives the recorded Review digests without a packet and st
       (planPath) => cell!.run({ kind: "doc-submit", paths: [planPath] }, binding),
     );
     await cell.run({ kind: "task-start", taskId: reviewlessTaskId, executionId: reviewlessExecutionId }, binding);
-    await cell.run(
-      {
-        kind: "task-submit",
-        taskId: reviewlessTaskId,
-        executionId: reviewlessExecutionId,
-        fromFile: "submission.json",
-      },
-      binding,
+    writeCloseout(rootDir, (reviewlessCreated as Record<string, unknown>).packagePath);
+    assert.equal(
+      (await cell.run({ kind: "task-submit", taskId: reviewlessTaskId, executionId: reviewlessExecutionId }, binding))
+        .outcome,
+      "applied",
     );
     const reviewless = (await cell.run(
       { kind: "task-review-consent", taskId: reviewlessTaskId, consentId: "consent-none" },
@@ -247,9 +251,11 @@ test("review-consent derives the recorded Review digests without a packet and st
       (planPath) => cell!.run({ kind: "doc-submit", paths: [planPath] }, binding),
     );
     await cell.run({ kind: "task-start", taskId: ambiguousTaskId, executionId: ambiguousExecutionId }, binding);
-    await cell.run(
-      { kind: "task-submit", taskId: ambiguousTaskId, executionId: ambiguousExecutionId, fromFile: "submission.json" },
-      binding,
+    writeCloseout(rootDir, (ambiguousCreated as Record<string, unknown>).packagePath);
+    assert.equal(
+      (await cell.run({ kind: "task-submit", taskId: ambiguousTaskId, executionId: ambiguousExecutionId }, binding))
+        .outcome,
+      "applied",
     );
     for (const reviewId of ["review-a", "review-b"])
       assert.equal(

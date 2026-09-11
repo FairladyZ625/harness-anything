@@ -147,7 +147,20 @@ export function runCliPackageSmoke(root = process.cwd()) {
     const created = expectOk(
       runJson(
         binPath,
-        ["--root", projectDir, "--json", "task", "create", "--id", "task-smoke", "--admin", "--title", "Smoke Task"],
+        [
+          "--root",
+          projectDir,
+          "--json",
+          "task",
+          "create",
+          "--id",
+          "task-smoke",
+          "--admin",
+          "--title",
+          "Smoke Task",
+          "--preset",
+          "docs-task",
+        ],
         projectDir,
         env(userRoot, home),
       ),
@@ -198,33 +211,23 @@ export function runCliPackageSmoke(root = process.cwd()) {
       ),
       "task start",
     );
+    const taskDir = path.join(projectDir, "harness", String(created.packagePath));
+    mkdirSync(path.join(taskDir, "artifacts"), { recursive: true });
     writeFileSync(
-      path.join(projectDir, "submission.json"),
-      JSON.stringify({
-        completionClaim: "packaged smoke",
-        deliverables: ["packaged CLI"],
-        outputs: ["lifecycle receipt"],
-        verificationNotes: ["package smoke"],
-        knownGaps: [],
-        residualRisks: [],
-        commitSha: "a".repeat(40),
-      }),
+      path.join(taskDir, "artifacts", "smoke.md"),
+      "# Packaged CLI smoke\n\nBootstrap, task creation and execution start returned successful receipts.\n",
+    );
+    writeFileSync(
+      path.join(taskDir, "closeout.md"),
+      "# Closeout\n\n## Summary\n\nThe packaged CLI bootstrapped a workspace and started its smoke task.\n\n" +
+        "## Verification\n\nBoth installed CLI aliases expose help; init, task create and task start returned successful receipts.\n\n" +
+        "## Residual Risk\n\nDaemon restart behavior is checked after submission.\n\n" +
+        "## Same Mechanism Elsewhere\n\nThe installed ha alias uses the same lifecycle entry point.\n",
     );
     expectOk(
       runJson(
         binPath,
-        [
-          "--root",
-          projectDir,
-          "--json",
-          "task",
-          "submit",
-          "task-smoke",
-          "--execution-id",
-          "execution-smoke",
-          "--from-file",
-          "submission.json",
-        ],
+        ["--root", projectDir, "--json", "task", "submit", "task-smoke"],
         projectDir,
         env(userRoot, home),
       ),

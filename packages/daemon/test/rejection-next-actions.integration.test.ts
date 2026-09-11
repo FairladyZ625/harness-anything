@@ -5,21 +5,37 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
-import test from "node:test";
+import test, { after, before } from "node:test";
+import { makeTaskEventReader, makeTaskProjection } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
+import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
-const submission = {
-  completionClaim: "Ready.",
-  deliverables: ["actionable rejection"],
-  outputs: ["receipt"],
-  verificationNotes: ["integration"],
-  knownGaps: [],
-  residualRisks: [],
-  commitSha: "a".repeat(40),
-} as const;
+const ciBin = mkdtempSync(path.join(tmpdir(), "ha-submit-ci-bin-"));
+const originalPath = process.env.PATH;
+before(() => {
+  writeProviderExecutable(
+    path.join(ciBin, "gh"),
+    'if (process.argv[2] !== "run" || process.argv[3] !== "list") process.exit(1); console.log("[]");\n',
+  );
+  process.env.PATH = `${ciBin}${path.delimiter}${originalPath ?? ""}`;
+});
+after(() => {
+  if (originalPath === undefined) delete process.env.PATH;
+  else process.env.PATH = originalPath;
+  rmSync(ciBin, { recursive: true, force: true });
+});
+
+function writeCloseout(rootDir: string, packagePath: unknown): void {
+  writeFileSync(
+    path.join(rootDir, "harness", String(packagePath), "closeout.md"),
+    `# Closeout\n\n## Summary\n\nDelivery ${git(rootDir, "rev-parse", "fixture-delivery")} is ready.\n\n` +
+      "## Verification\n\nIntegration assertions exercise the lifecycle refusals.\n\n" +
+      "## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nShared lifecycle authorization.\n",
+  );
+}
 
 test("submit lease refusals name the state-specific command that advances the execution", async () => {
   const rootDir = workspace("submit-exit"),
@@ -34,38 +50,28 @@ test("submit lease refusals name the state-specific command that advances the ex
       rootDir: canonicalRoot(rootDir),
       ownerId: "submit-exit",
     });
-    writeFileSync(path.join(rootDir, "submission.json"), JSON.stringify(submission));
     const created = await cell.run({ kind: "task-create", taskId, title: "Submit exit" }, holder);
     assert.equal(created.outcome, "applied");
     await waitForFixturePublication(cell, created.opId, holder);
     await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
       cell!.run({ kind: "doc-submit", paths: [planPath] }, holder),
     );
-    const withoutLease = await cell.run(
-      { kind: "task-submit", taskId, executionId, fromFile: "submission.json" },
-      holder,
-    );
+    writeCloseout(rootDir, (created as Record<string, unknown>).packagePath);
+    const withoutLease = await cell.run({ kind: "task-submit", taskId, executionId }, holder);
     assert.equal(withoutLease.code, "lease_required", JSON.stringify(withoutLease));
     assert.deepEqual(
       withoutLease.unmetCriteria?.map(({ ref }) => ref),
       ["repo-cell-proof/proofFor.SubmitExecution"],
     );
     assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, holder)).outcome, "applied");
-    assert.equal(
-      (await cell.run({ kind: "task-submit", taskId, executionId, fromFile: "submission.json" }, holder)).outcome,
-      "applied",
-    );
+    const submitted = await cell.run({ kind: "task-submit", taskId, executionId }, holder);
+    assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
 
-    const alreadySubmitted = await cell.run(
-      { kind: "task-submit", taskId, executionId, fromFile: "submission.json" },
-      holder,
-    );
-    assert.equal(alreadySubmitted.code, "invalid_transition", JSON.stringify(alreadySubmitted));
-    assert.deepEqual(
-      alreadySubmitted.unmetCriteria?.map(({ ref }) => ref),
-      ["task-lifecycle-command-transitions/submit.validate"],
-    );
-    assert.match(alreadySubmitted.nextActions?.join("\n") ?? "", /--amend --json-input/u);
+    const alreadySubmitted = await cell.run({ kind: "task-submit", taskId, executionId }, holder);
+    assert.equal(alreadySubmitted.outcome, "applied", JSON.stringify(alreadySubmitted));
+    assert.equal(alreadySubmitted.opId, submitted.opId, "the original holder resumes the same cut");
+    const otherHolder = await cell.run({ kind: "task-submit", taskId, executionId }, binding("other-holder"));
+    assert.equal(otherHolder.code, "lease_required", JSON.stringify(otherHolder));
     writeFileSync(
       path.join(rootDir, "review.json"),
       JSON.stringify({ verdict: "approved", reason: "Independent review.", evidenceChecked: ["integration"] }),
@@ -181,7 +187,8 @@ test("executor declaration rejection names its eligibility rule and review comma
       cell!.run({ kind: "doc-submit", paths: [planPath] }, worker),
     );
     assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, worker)).outcome, "applied");
-    assert.equal((await cell.run({ kind: "task-submit", taskId, executionId, submission }, worker)).outcome, "applied");
+    writeCloseout(rootDir, (created as Record<string, unknown>).packagePath);
+    assert.equal((await cell.run({ kind: "task-submit", taskId, executionId }, worker)).outcome, "applied");
     const rejected = await cell.run(
       { kind: "task-declare-executor", taskId, executionId, agent: "assigned-worker", reason: "Already assigned" },
       worker,
@@ -222,7 +229,11 @@ test("executor declaration and completion context refusals name projection rebui
       cell!.run({ kind: "doc-submit", paths: [planPath] }, owner),
     );
     assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, owner)).outcome, "applied");
-    assert.equal((await cell.run({ kind: "task-submit", taskId, executionId, submission }, owner)).outcome, "applied");
+    writeCloseout(rootDir, (created as Record<string, unknown>).packagePath);
+    assert.equal((await cell.run({ kind: "task-submit", taskId, executionId }, owner)).outcome, "applied");
+    const projection = makeTaskProjection({ rootDir, eventStore: makeTaskEventReader({ repoId, rootDir }) });
+    const submittedRevision = projection.read(taskId).snapshot.revision;
+    projection.close();
     await cell.close();
     cell = undefined;
 
@@ -251,7 +262,7 @@ test("executor declaration and completion context refusals name projection rebui
         action: "ha projection rebuild",
         reason: "Rebuild the unavailable canonical task projection before retrying completion.",
         authority: "person-owner",
-        readCut: { revision: 6, iteration: 0, executionId },
+        readCut: { revision: submittedRevision, iteration: 0, executionId },
       },
     ]);
     assert.equal((await cell.run({ kind: "projection-rebuild" }, owner)).outcome, "applied");
@@ -262,7 +273,7 @@ test("executor declaration and completion context refusals name projection rebui
         action: `ha task review-execution ${taskId} --execution-id ${executionId} --review-id <id> --from-file <review.json>`,
         reason: "Record one independent approved Execution Review.",
         authority: "independent reviewer",
-        readCut: { revision: 6, iteration: 0, executionId },
+        readCut: { revision: submittedRevision, iteration: 0, executionId },
       },
     ]);
     await cell.close();
@@ -424,6 +435,10 @@ function workspace(name: string): string {
   git(rootDir, "config", "user.name", "Rejection Test");
   git(rootDir, "config", "user.email", "rejection@example.invalid");
   git(rootDir, "commit", "--allow-empty", "--quiet", "-m", "base");
+  writeFileSync(path.join(rootDir, "README.md"), "# Lifecycle fixture delivery\n");
+  git(rootDir, "add", "README.md");
+  git(rootDir, "commit", "--quiet", "-m", "fixture delivery");
+  git(rootDir, "tag", "fixture-delivery");
   return rootDir;
 }
 function git(rootDir: string, ...args: readonly string[]): string {
