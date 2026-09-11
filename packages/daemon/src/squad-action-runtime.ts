@@ -4,7 +4,7 @@ import {
   type SquadDeclarationV1,
   type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
-import { runAgentEntityAction } from "./agent-entities.ts";
+import { validateAgentEntityAction } from "./agent-entities.ts";
 import type { RepoCellRuntimeContext } from "./repo-cell-action-context.ts";
 import { cellCriterionError } from "./repo-cell-errors.ts";
 import type { EntityActionCatalogRunner } from "./entity-action-catalog-executor.ts";
@@ -17,7 +17,7 @@ export function makeSquadActionRuntime(cell: RepoCellRuntimeContext): EntityActi
     if (contract.id === "inspect")
       return cell.readResult(opId, inspectSquad(cell, squadRequiredText(action.squadId, "squadId")), revision, null);
     if (contract.id === "validate") {
-      const report = runAgentEntityAction({
+      const report = validateAgentEntityAction({
         rootDir: cell.rootDir,
         action,
         runtimeInstances: cell.input.runtimeInstances?.(),
@@ -30,6 +30,65 @@ export function makeSquadActionRuntime(cell: RepoCellRuntimeContext): EntityActi
     }
     throw cell.cellCodedError("invalid_store", `Squad Action ${contract.id} has no catalog runtime implementation.`);
   };
+}
+
+export function makeAgentActionRuntime(cell: RepoCellRuntimeContext): EntityActionCatalogRunner {
+  return async (contract, action, _binding, opId): Promise<WriteReceipt> => {
+    const revision = cell.store.readHead()?.revision ?? 0;
+    if (contract.id === "list") return cell.readResult(opId, listAgents(cell), revision, null) as WriteReceipt;
+    if (contract.id === "inspect")
+      return cell.readResult(opId, inspectAgent(cell, squadRequiredText(action.agentId, "agentId")), revision, null);
+    if (contract.id === "validate") {
+      const report = validateAgentEntityAction({
+        rootDir: cell.rootDir,
+        action,
+        runtimeInstances: cell.input.runtimeInstances?.(),
+      });
+      return cell.readResult(opId, report, revision, null);
+    }
+    throw cell.cellCodedError("invalid_store", `Agent Action ${contract.id} has no catalog runtime implementation.`);
+  };
+}
+
+function listAgents(cell: RepoCellRuntimeContext): object {
+  const agents = cell.projection.listEntities("agent").map(({ value, id }) => {
+    try {
+      const declaration = parseAgentDeclarationV1(value),
+        { instructions: _instructions, ...row } = declaration;
+      return {
+        ...row,
+        layer: "user" as const,
+        source: `agents/${id}.json`,
+        validity: "valid" as const,
+        issues: [] as const,
+      };
+    } catch (error) {
+      if ((error as { readonly code?: unknown })?.code !== "invalid_entity_contract") throw error;
+      return {
+        id,
+        layer: "user" as const,
+        state: "invalid" as const,
+        error: {
+          code: "invalid_entity_contract" as const,
+          hint: error instanceof Error ? error.message : String(error),
+        },
+      };
+    }
+  });
+  return { schema: "agent-list/v1", agents };
+}
+
+function inspectAgent(cell: RepoCellRuntimeContext, agentId: string): object {
+  const row = cell.projection.getEntity("agent", agentId);
+  if (!row)
+    throw cellCriterionError(
+      "agent_not_found",
+      `${agentId} is not an installed agent.`,
+      "inspect",
+      "agent/entity-present",
+      ["Run ha agent list and choose an existing Agent id."],
+    );
+  return { schema: "agent-inspection/v1", agent: parseAgentDeclarationV1(row.value) };
 }
 
 type SquadListRow =

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { AgentDeclarationV1 } from "../../../../../daemon/src/agent-entities.contract.ts";
+import type { AgentDeclarationV1 } from "../../../../../daemon/src/protocol/daemon-protocol-gui-types.ts";
 import type { RuntimeInstanceSummary } from "../../../../../daemon/src/agent-runtime-instances.ts";
 import { runtimeTypeMatchesKind } from "../../../../../daemon/src/agent-runtime-contract.ts";
 import type {

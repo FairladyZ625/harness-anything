@@ -182,6 +182,34 @@ test("Agent install uses the executable catalog with CAS, replay, readiness, and
     assert.equal(updated.outcome, "applied", JSON.stringify(updated));
     assert.equal(updated.revision > created.revision, true);
 
+    const listedAgent = await cell.run({ kind: "agent-list" }, binding),
+      inspectedAgent = await cell.run({ kind: "agent-inspect", agentId: declaration.id }, binding);
+    assert.deepEqual(JSON.parse(String(listedAgent.evidence)), {
+      schema: "agent-list/v1",
+      agents: [
+        {
+          schema: declaration.schema,
+          id: declaration.id,
+          name: "Unified Agent Updated",
+          runtime_type: declaration.runtime_type,
+          layer: "user",
+          source: "agents/unified-agent.json",
+          validity: "valid",
+          issues: [],
+        },
+      ],
+      status: "ready",
+      watermark: updated.revision,
+      sourceRevision: updated.revision,
+    });
+    assert.deepEqual(JSON.parse(String(inspectedAgent.evidence)), {
+      schema: "agent-inspection/v1",
+      agent: { ...declaration, name: "Unified Agent Updated" },
+      status: "ready",
+      watermark: updated.revision,
+      sourceRevision: updated.revision,
+    });
+
     const squad = await cell.run(
       {
         kind: "squad-install",

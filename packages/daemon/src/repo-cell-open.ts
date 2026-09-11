@@ -87,7 +87,7 @@ import {
 } from "./runtime-spawn.ts";
 import { openTerminalHost } from "./terminal-host.ts";
 import { makeSquadCoordinator } from "./squad-coordinator.ts";
-import { makeSquadActionRuntime } from "./squad-action-runtime.ts";
+import { makeAgentActionRuntime, makeSquadActionRuntime } from "./squad-action-runtime.ts";
 import type { DaemonLifecycleRecorder } from "./lifecycle-log.ts";
 import { withWriterEpochFenceDescriptor } from "./writer-epoch.ts";
 
@@ -717,6 +717,7 @@ export async function openRepoWriterCell(
   const settings = makeRepoCellSettingsState(extracted),
     scheduleActionRuntime = makeScheduleActionRuntime(runtimeContext),
     settingsActionRuntime = makeSettingsActionRuntime(runtimeContext, settings),
+    agentActionRuntime = makeAgentActionRuntime(runtimeContext),
     squadActionRuntime = makeSquadActionRuntime(runtimeContext),
     prepareAgentAction: EntityActionCatalogPreparer = (contract, action, _binding, opId) => {
       if (contract.id === "delete") {
@@ -754,6 +755,7 @@ export async function openRepoWriterCell(
   const personActionRuntime = makePersonActionRuntime(runtimeContext);
   entityActionRuntimes = Object.freeze({
     entity: Object.freeze({
+      agent: agentActionRuntime,
       schedule: scheduleActionRuntime,
       settings: settingsActionRuntime,
       person: personActionRuntime,
