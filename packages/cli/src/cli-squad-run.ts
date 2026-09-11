@@ -13,7 +13,7 @@ export async function runSquadRun(command: ThinCommand, _writeActivity: (text: s
   });
   if (spawned.ok !== true || typeof spawned.squadRunId !== "string" || action.detach === true) {
     return action.detach === true && spawned.ok === true
-      ? { ...spawned, outcome: "running", nextAction: `ha squad status ${spawned.squadRunId} --wait` }
+      ? { ...spawned, nextAction: `ha squad status ${spawned.squadRunId}` }
       : spawned;
   }
   return waitForSquadRun(command, spawned.squadRunId);
