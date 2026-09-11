@@ -238,6 +238,21 @@ export const canonicalRelationDirections: readonly CanonicalRelationDirection[] 
 ];
 
 /**
+ * The writable triples exposed to clients. This projects the canonical registry
+ * directly, so discovery and admission cannot acquire separate allowlists.
+ */
+export function declaredRelationTriples(
+  filters: Partial<Pick<CanonicalRelationDirection, "sourceKind" | "targetKind">> = {},
+): readonly CanonicalRelationDirection[] {
+  return canonicalRelationDirections.filter(
+    (row) =>
+      row.registration !== "derived" &&
+      (filters.sourceKind === undefined || row.sourceKind === filters.sourceKind) &&
+      (filters.targetKind === undefined || row.targetKind === filters.targetKind),
+  );
+}
+
+/**
  * Build the one runtime registry consumed by relation admission. Kernel rows stay
  * authoritative and governed rows can only add new, already-compiled cells.
  */
