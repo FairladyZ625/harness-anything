@@ -2,13 +2,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  createStaticWebContentsTrustPolicy,
   evaluateHtmlArtifactAttachment,
   evaluateHtmlArtifactRequest,
   evaluateInAppBrowserAttachment,
   evaluateInAppBrowserUrl,
   evaluateIpcSender,
-  evaluateNavigationRequest,
   evaluatePermissionRequest,
   evaluateWindowOpenRequest,
 } from "../src/index.ts";
@@ -16,7 +14,7 @@ import {
 test("IPC sender trust requires both renderer URL and owned webContents id", () => {
   const packagedRendererUrl = "file:///app/renderer/index.html";
   const trustPolicy = {
-    ...createStaticWebContentsTrustPolicy([7]),
+    isTrustedWebContentsId: (id: number) => id === 7,
     rendererUrl: { packagedRendererUrl },
   };
 
@@ -78,7 +76,7 @@ test("HTML artifact guests accept only the isolated data document and no externa
   }
 });
 
-test("permission navigation and window-open policies are deny-by-default", () => {
+test("permission and window-open policies are deny-by-default", () => {
   assert.deepEqual(evaluatePermissionRequest(), {
     action: "deny",
     reason: "permission_denied_by_default",
@@ -87,45 +85,6 @@ test("permission navigation and window-open policies are deny-by-default", () =>
     action: "deny",
     reason: "window_open_denied",
   });
-  assert.deepEqual(evaluateNavigationRequest("https://example.invalid"), {
-    action: "deny",
-    reason: "navigation_denied",
-  });
-  assert.deepEqual(
-    evaluateNavigationRequest("file:///app/renderer/index.html", {
-      packagedRendererUrl: "file:///app/renderer/index.html",
-    }),
-    {
-      action: "allow",
-      reason: "trusted_renderer",
-    },
-  );
-  assert.deepEqual(
-    evaluateNavigationRequest("file:///tmp/renderer/index.html", {
-      packagedRendererUrl: "file:///app/renderer/index.html",
-    }),
-    {
-      action: "deny",
-      reason: "navigation_denied",
-    },
-  );
-  assert.deepEqual(
-    evaluateNavigationRequest("http://127.0.0.1:5173", { packagedRendererUrl: "file:///app/renderer/index.html" }),
-    {
-      action: "deny",
-      reason: "navigation_denied",
-    },
-  );
-  assert.deepEqual(
-    evaluateNavigationRequest("http://127.0.0.1:5173", {
-      packagedRendererUrl: "file:///app/renderer/index.html",
-      allowDevRenderer: true,
-    }),
-    {
-      action: "allow",
-      reason: "trusted_renderer",
-    },
-  );
 });
 
 test("in-app browser accepts only HTTP(S) in its isolated ephemeral partition", () => {

@@ -82,12 +82,8 @@ export const preloadApiCapabilities = Object.freeze(
   ),
 ) as Record<PreloadApiMethod, PreloadApiCapability>;
 export const preloadAllowlist = Object.freeze(Object.values(allowedPreloadApi)) as ReadonlyArray<PreloadApiMethod>;
-export const shippedPreloadMethods = preloadAllowlist;
 export function isAllowedPreloadApiMethod(method: string): method is PreloadApiMethod {
   return preloadAllowlist.includes(method as PreloadApiMethod);
-}
-export function getPreloadApiCapability(method: PreloadApiMethod): PreloadApiCapability {
-  return preloadApiCapabilities[method];
 }
 export function assertPreloadPayload(method: string, payload: unknown): true {
   if (!isAllowedPreloadApiMethod(method)) throw new Error(`Preload method is not allowed: ${method}`);

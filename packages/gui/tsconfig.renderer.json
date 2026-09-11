@@ -33,10 +33,6 @@
     "src/api/local-doc-contract.ts",
     "src/api/renderer-dto.ts"
   ],
-  "exclude": [
-    "src/renderer/app-model.ts",
-    "src/renderer/workspace-shell.ts"
-  ],
   "references": [
     {
       "path": "../kernel"
