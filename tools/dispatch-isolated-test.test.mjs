@@ -107,6 +107,7 @@ test("source root allowlist contains only current test inputs", () => {
     "README.md",
     "docs-release",
     "eslint.config.mjs",
+    "prettier.config.mjs",
     "package-lock.json",
     "package.json",
     "packages",
@@ -141,10 +142,16 @@ test("source file discovery keeps worktree changes but drops ignored output and 
     writeFileSync(path.join(source, ".gitignore"), "dist/\n");
     write(source, "packages/tracked.ts");
     write(source, "packages/untracked.ts");
+    write(source, "prettier.config.mjs");
     write(source, "packages/gui/dist/ignored.js");
     write(source, "future-private/untracked.txt");
     execFileSync("git", ["-C", source, "add", ".gitignore", "packages/tracked.ts"]);
-    assert.deepEqual(sourceFileList(source), [".gitignore", "packages/tracked.ts", "packages/untracked.ts"]);
+    assert.deepEqual(sourceFileList(source), [
+      ".gitignore",
+      "packages/tracked.ts",
+      "packages/untracked.ts",
+      "prettier.config.mjs",
+    ]);
   });
 });
 
