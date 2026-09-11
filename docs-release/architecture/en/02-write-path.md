@@ -40,7 +40,7 @@ funnels through the same two-step _enqueue then flush_.
 Local CLI writes also have to enter with explicit actor attribution. The CLI
 resolves it before it creates the coordinator. `HARNESS_ACTOR=agent:<id>` and
 `HARNESS_ACTOR=system:<id>` remain valid environment channels, but a human
-identity must use `--actor human:<id>` because child processes inherit
+identity is authenticated by the daemon; do not pass human identity through inherited
 environment variables. The explicit flag wins over the environment value.
 Local writes also need a git author name and email; examples set
 `HARNESS_GIT_AUTHOR_NAME` and `HARNESS_GIT_AUTHOR_EMAIL` (the corresponding Git
