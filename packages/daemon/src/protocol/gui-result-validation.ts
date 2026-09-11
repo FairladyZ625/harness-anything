@@ -21,7 +21,7 @@ import {
   validateSquadEntityCatalog,
   validateSquadEntityDetail,
 } from "../agent-entities.contract.ts";
-import { validateObserveTailResult } from "./daemon-protocol-gui-types.ts";
+import { validateDaemonTaskCompletion, validateObserveTailResult } from "./daemon-protocol-gui-types.ts";
 import { validationError } from "./daemon-protocol-validate-entities.ts";
 import { validateArtifactsList } from "./artifacts-gui-contract.ts";
 import { validateDaemonUseCaseProjection } from "./daemon-protocol-use-case-projection.ts";
@@ -129,39 +129,6 @@ const resultValidators = {
   "repo.gui.catalog.preset.read": validateCatalogPreset,
   "repo.terminal.sessions.list": validateTerminalSessionList,
 } satisfies Record<DaemonGuiRpcReadMethod, ResultValidator>;
-
-export function validateDaemonTaskCompletion(value: unknown): readonly string[] {
-  if (
-    !isJsonObject(value) ||
-    Object.keys(value).length !== 3 ||
-    value.ok !== true ||
-    typeof value.taskId !== "string" ||
-    !value.taskId
-  )
-    return ["Invalid task completion read"];
-  const next = value.completionNext;
-  if (next === null) return [];
-  if (
-    !isJsonObject(next) ||
-    Object.keys(next).length !== 4 ||
-    typeof next.reason !== "string" ||
-    !next.reason ||
-    typeof next.action !== "string" ||
-    !next.action ||
-    typeof next.authority !== "string" ||
-    !next.authority ||
-    !isJsonObject(next.readCut)
-  )
-    return ["Invalid completionNext"];
-  const cut = next.readCut;
-  return Object.keys(cut).length === 3 &&
-    Number.isSafeInteger(cut.revision) &&
-    Number(cut.revision) >= 0 &&
-    (cut.iteration === null || (Number.isSafeInteger(cut.iteration) && Number(cut.iteration) >= 0)) &&
-    (cut.executionId === null || (typeof cut.executionId === "string" && cut.executionId.length > 0))
-    ? []
-    : ["Invalid completionNext.readCut"];
-}
 
 export function validateDaemonTaskWip(value: unknown): readonly string[] {
   if (!isJsonObject(value)) return [validationError("task-wip", "result", value, "must be an object")];

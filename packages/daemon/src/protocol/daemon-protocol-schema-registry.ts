@@ -53,7 +53,7 @@ export const daemonGuiReadSchemas = Object.freeze([
   {
     id: DAEMON_TASK_COMPLETION_SCHEMA.id,
     schema: "packages/daemon/src/protocol/daemon-protocol-schema-ids.ts#DAEMON_TASK_COMPLETION_SCHEMA",
-    parser: "packages/daemon/src/protocol/gui-result-validation.ts#validateDaemonTaskCompletion",
+    parser: "packages/daemon/src/protocol/daemon-protocol-gui-types.ts#validateDaemonTaskCompletion",
     writer: "packages/daemon/src/task-completion-read.ts#readTaskCompletion",
     error: "packages/daemon/src/protocol/daemon-protocol.contract.ts#DaemonProtocolContractError",
     negativeFixtures: Object.freeze(["packages/daemon/fixtures/contracts/task-completion-invalid.json"]),

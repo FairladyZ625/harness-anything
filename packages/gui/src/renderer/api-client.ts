@@ -1,4 +1,4 @@
-import { validateDaemonTaskCompletion } from "../../../daemon/src/protocol/gui-result-validation.ts";
+import { validateDaemonTaskCompletion } from "../../../daemon/src/protocol/daemon-protocol-gui-types.ts";
 import type {
   AgendaRead,
   AgendaTaskRow,

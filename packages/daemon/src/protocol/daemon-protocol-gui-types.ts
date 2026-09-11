@@ -1002,3 +1002,35 @@ export interface DaemonUseCaseProjectionPayload {
   readonly status?: readonly string[];
   readonly limit?: number;
 }
+export function validateDaemonTaskCompletion(value: unknown): readonly string[] {
+  if (
+    !isJsonObject(value) ||
+    Object.keys(value).length !== 3 ||
+    value.ok !== true ||
+    typeof value.taskId !== "string" ||
+    !value.taskId
+  )
+    return ["Invalid task completion read"];
+  const next = value.completionNext;
+  if (next === null) return [];
+  if (
+    !isJsonObject(next) ||
+    Object.keys(next).length !== 4 ||
+    typeof next.reason !== "string" ||
+    !next.reason ||
+    typeof next.action !== "string" ||
+    !next.action ||
+    typeof next.authority !== "string" ||
+    !next.authority ||
+    !isJsonObject(next.readCut)
+  )
+    return ["Invalid completionNext"];
+  const cut = next.readCut;
+  return Object.keys(cut).length === 3 &&
+    Number.isSafeInteger(cut.revision) &&
+    Number(cut.revision) >= 0 &&
+    (cut.iteration === null || (Number.isSafeInteger(cut.iteration) && Number(cut.iteration) >= 0)) &&
+    (cut.executionId === null || (typeof cut.executionId === "string" && cut.executionId.length > 0))
+    ? []
+    : ["Invalid completionNext.readCut"];
+}
