@@ -9,6 +9,8 @@ import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
 import { createUnixSocketTransportServer } from "../src/transport/unix-socket.ts";
+import { cellCodedError } from "../src/repo-cell-errors.ts";
+import { projectedTaskIds } from "../src/repo-cell-receipts.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { createRealizedTaskPlanFixture, realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
@@ -407,20 +409,41 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
         kind: "agent",
         id: `runtime-session:${receipt.runtimeSessionId}`,
       });
+      assert.equal(
+        makeTaskEventReader({ repoId, rootDir: root })
+          .read()
+          .events.some(
+            (event) =>
+              event.type === "runtime_dispatch_requested" &&
+              event.payload.runtimeSessionId === receipt.runtimeSessionId &&
+              event.payload.dispatchId === receipt.dispatchId,
+          ),
+        true,
+        "the first dispatch must be durably recorded before the redispatch attempt",
+      );
       const launchesAfterFirst = launchCount,
-        concurrent = await rpc(host, auth, "repo.agentRuntime.spawn", {
-          repo: { repoId },
-          payload: {
-            runtimeInstanceId: ingressDefinition.instanceId,
-            cwd: { scope: "repo-root" },
-            prompt: "A second dispatcher must not share the execution lease.",
-            taskId,
-            idempotencyKey: "dispatcher-handoff-concurrent",
-          },
-        });
+        [concurrent, unrelated] = await Promise.all([
+          rpc(host, auth, "repo.agentRuntime.spawn", {
+            repo: { repoId },
+            payload: {
+              runtimeInstanceId: ingressDefinition.instanceId,
+              cwd: { scope: "repo-root" },
+              prompt: "A second dispatcher must not share the execution lease.",
+              taskId,
+              idempotencyKey: "dispatcher-handoff-concurrent",
+            },
+          }),
+          Promise.race([
+            createReadyTask("task-runtime-dispatcher-unrelated", "Dispatcher unrelated write"),
+            new Promise<never>((_resolve, reject) => {
+              setTimeout(() => reject(new Error("unrelated write was not accepted within 5000ms")), 5_000);
+            }),
+          ]),
+        ]);
       assert.equal(concurrent.outcome, "op_rejected", JSON.stringify(concurrent));
       assert.equal(concurrent.code, "runtime_task_lease_required", JSON.stringify(concurrent));
       assert.equal(launchCount, launchesAfterFirst, "the rejected dispatch must not launch a provider");
+      assert.equal(unrelated, undefined);
       const projection = makeTaskProjection({
         rootDir: root,
         eventStore: makeTaskEventReader({ repoId, rootDir: root }),
@@ -441,6 +464,21 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
       } finally {
         projection.close();
       }
+    });
+    await t.test("a lagging task identity projection rejects without scanning canonical batches", () => {
+      const cell = {
+        knownTaskIds: null,
+        projection: {
+          list: () => ({ watermark: 2, sourceRevision: 3, rows: [{ taskId: "task-projected" }] }),
+        },
+        cellCodedError,
+      };
+      assert.throws(
+        () => projectedTaskIds(cell),
+        (error: Error & { readonly code?: string }) =>
+          error.code === "content_not_ready" && /watermark 2, source revision 3/u.test(error.message),
+      );
+      assert.equal(cell.knownTaskIds, null);
     });
     await t.test("a worker cannot replace its relay with the private daemon endpoint", async () => {
       const scratchUserRoot = path.join(parent, "isolated-user");
