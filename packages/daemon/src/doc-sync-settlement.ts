@@ -166,6 +166,25 @@ export function submitSummary(
   ].join("\n");
 }
 
+export function scanRejectionSummary(code: string, scan: DocCandidateScan): string {
+  const blocked = scan.rows.filter(
+    (row) => row.state === "blocked" || row.state === "deletion" || row.state === "conflict",
+  );
+  const next =
+    code === "lease_conflict"
+      ? scan.lease
+        ? `next: lease held by ${scan.lease.actor.principal.personId} (${scan.lease.executionId}); ` +
+          "submit through the lease holder or use the repository prose channel"
+        : "next: submit through the repository prose channel or acquire the task lease"
+      : "next: use the required route shown for each blocked path, then rerun ha doc sync --submit";
+  return [
+    `doc-submit: op_rejected (${code})`,
+    "blocked:",
+    ...blocked.map((row) => `${row.path}\t${row.state}\t${row.reason ?? "candidate is blocked"}`),
+    next,
+  ].join("\n");
+}
+
 export function admissionRejection(
   input: Pick<Input, "binding" | "workspaceId" | "store" | "projection" | "runtimeArchive"> & {
     readonly taskDocumentChannel?: DocIntentChannel;

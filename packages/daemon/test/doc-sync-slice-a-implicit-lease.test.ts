@@ -466,9 +466,12 @@ test("a runtime actor with a lapsed lease is told the release and re-enter recov
     const rejected = (await cell.run({ kind: "doc-submit", paths: [report] }, worker)) as {
       outcome?: string;
       code?: string;
+      rejectionExplanation?: string;
     };
     assert.equal(rejected.outcome, "op_rejected");
     assert.equal(rejected.code, "lease_conflict");
+    assert.match(rejected.rejectionExplanation ?? "", new RegExp(`${report}.*lease_conflict`, "u"));
+    assert.match(rejected.rejectionExplanation ?? "", /next: submit through.*acquire the task lease/u);
     // The named recovery is real: same-execution re-entry restores a held lease this principal holds.
     const released = (await cell.run({ kind: "task-release", taskId }, worker)) as { outcome?: string },
       reentered = (await cell.run({ kind: "task-start", taskId, executionId: "exec-lapsed" }, worker)) as {

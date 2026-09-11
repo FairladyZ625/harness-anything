@@ -342,6 +342,11 @@ test("scanner refuses multi-megabyte JSONL without reading it and names oversize
     const rejected = await cell.run({ kind: "doc-submit", paths: [oversized] }, binding);
     assert.equal(rejected.outcome, "op_rejected", JSON.stringify(rejected));
     assert.equal(rejected.code, "doc_candidate_too_large");
+    assert.match(
+      rejected.rejectionExplanation ?? "",
+      new RegExp(`${oversized}.*${DOC_SYNC_INLINE_MAX_BYTES}.*blob`, "u"),
+    );
+    assert.match(rejected.rejectionExplanation ?? "", /next: use the required route/u);
     const oversizedRow = rows((await cell.run({ kind: "doc-status", paths: [oversized] }, binding)).evidence)[0];
     assert.equal(oversizedRow?.size, Buffer.byteLength(`# Oversized\n${"x".repeat(DOC_SYNC_INLINE_MAX_BYTES)}`));
     assert.match(oversizedRow?.reason ?? "", new RegExp(`${oversized}.*${DOC_SYNC_INLINE_MAX_BYTES}.*blob`, "u"));
