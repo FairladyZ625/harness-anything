@@ -339,6 +339,18 @@ function archiveRow(
     reason,
     fallbackState: stream?.fallbackState ?? null,
     nextDispatchId: stream?.nextDispatchId ?? null,
+    ...(stream?.runtimeMetrics
+      ? {
+          metrics: {
+            inputTokens: stream.runtimeMetrics.inputTokens,
+            cacheReadTokens: stream.runtimeMetrics.cacheReadTokens,
+            outputTokens: stream.runtimeMetrics.outputTokens,
+            totalTokens: stream.runtimeMetrics.totalTokens,
+            toolCallCount: stream.runtimeMetrics.toolCallCount,
+            compacted: stream.runtimeMetrics.compacted,
+          },
+        }
+      : {}),
     ...(typeof value.agentId === "string"
       ? { agentId: value.agentId, agentName: typeof value.agentName === "string" ? value.agentName : value.agentId }
       : {}),
@@ -394,6 +406,18 @@ function liveRow(
     reason: stream?.attemptOutcome?.reason ?? null,
     fallbackState: stream?.fallbackState ?? null,
     nextDispatchId: stream?.nextDispatchId ?? null,
+    ...(stream?.runtimeMetrics
+      ? {
+          metrics: {
+            inputTokens: stream.runtimeMetrics.inputTokens,
+            cacheReadTokens: stream.runtimeMetrics.cacheReadTokens,
+            outputTokens: stream.runtimeMetrics.outputTokens,
+            totalTokens: stream.runtimeMetrics.totalTokens,
+            toolCallCount: stream.runtimeMetrics.toolCallCount,
+            compacted: stream.runtimeMetrics.compacted,
+          },
+        }
+      : {}),
     ...(header.agentId ? { agentId: header.agentId, agentName: header.agentName ?? header.agentId } : {}),
     ...(header.delegatedByAgentId
       ? {

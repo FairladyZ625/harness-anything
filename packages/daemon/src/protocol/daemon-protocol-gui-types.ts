@@ -679,6 +679,14 @@ export type DaemonTaskDocumentListResult = {
 };
 
 export interface TaskDispatchRow {
+  readonly metrics?: {
+    readonly inputTokens: number;
+    readonly cacheReadTokens: number;
+    readonly outputTokens: number;
+    readonly totalTokens: number;
+    readonly toolCallCount: number;
+    readonly compacted: boolean;
+  };
   readonly dispatchId: string;
   readonly taskId: string;
   readonly executionId: string;

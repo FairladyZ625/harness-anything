@@ -89,6 +89,7 @@ export async function consumeProviderLine(
     context.markProtocolError(active);
     return;
   }
+  observeRuntimeMetrics(active, value);
   let parsed: ProviderFrame;
   try {
     parsed = context.parseProviderFrame(active.kindId, scrubProviderValue(value) as Record<string, unknown>);
@@ -109,6 +110,53 @@ export async function consumeProviderLine(
     (parsed.finalText !== undefined && context.isStructuredSuccessResult(parsed.finalText));
   if (parsed.planIncomplete !== undefined) active.planIncomplete = parsed.planIncomplete;
   observeProviderFault(active, parsed);
+}
+
+function observeRuntimeMetrics(active: ActiveRuntime, value: unknown): void {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return;
+  const frame = value as Record<string, unknown>,
+    usage =
+      frame.usage && typeof frame.usage === "object" && !Array.isArray(frame.usage)
+        ? (frame.usage as Record<string, unknown>)
+        : null;
+  if (usage) {
+    active.rawUsage = { ...active.rawUsage, ...usage };
+    const input = numberValue(usage.input_tokens) ?? numberValue(usage.inputTokens) ?? 0;
+    const cacheRead = numberValue(usage.cached_input_tokens) ?? numberValue(usage.cache_read_input_tokens) ?? 0;
+    const cacheCreation = numberValue(usage.cache_creation_input_tokens) ?? 0;
+    active.inputTokens += input + (numberValue(usage.cache_read_input_tokens) !== null ? cacheRead + cacheCreation : 0);
+    active.cacheReadTokens += cacheRead;
+    active.outputTokens += numberValue(usage.output_tokens) ?? numberValue(usage.outputTokens) ?? 0;
+  }
+  const type = String(frame.type ?? frame.event ?? "").toLowerCase();
+  if (type.includes("compaction") || type.includes("context_truncated") || frame.compacted === true)
+    active.compacted = true;
+  if (type === "assistant" && frame.message && typeof frame.message === "object" && !Array.isArray(frame.message)) {
+    const content = (frame.message as Record<string, unknown>).content;
+    if (Array.isArray(content))
+      active.toolCallCount += content.filter(
+        (item) =>
+          item &&
+          typeof item === "object" &&
+          ["tool_use", "server_tool_use"].includes(String((item as Record<string, unknown>).type)),
+      ).length;
+  }
+  if (type === "item.completed" || type === "item.updated") {
+    const item = frame.item;
+    if (
+      item &&
+      typeof item === "object" &&
+      !Array.isArray(item) &&
+      ["command_execution", "file_change", "mcp_tool_call", "web_search"].includes(
+        String((item as Record<string, unknown>).type),
+      )
+    )
+      active.toolCallCount += 1;
+  }
+}
+
+function numberValue(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 export async function consumeDurableOutput(

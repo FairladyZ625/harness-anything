@@ -182,6 +182,12 @@ export type ActiveRuntime = {
   nonEmptyAgentOutputObserved: boolean;
   providerUsageEmpty: boolean;
   providerFault: RuntimeProviderFault | null;
+  inputTokens: number;
+  cacheReadTokens: number;
+  outputTokens: number;
+  toolCallCount: number;
+  compacted: boolean;
+  rawUsage: Record<string, unknown>;
 };
 
 export type ProviderFrame = {

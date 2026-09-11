@@ -77,6 +77,15 @@ export interface DispatchStreamHeader {
 }
 
 export type DispatchStreamRecord = Record<string, unknown>;
+export type RuntimeMetrics = {
+  readonly inputTokens: number;
+  readonly cacheReadTokens: number;
+  readonly outputTokens: number;
+  readonly totalTokens: number;
+  readonly toolCallCount: number;
+  readonly compacted: boolean;
+  readonly raw: Record<string, unknown>;
+};
 export type DispatchProcessState = {
   readonly pid: number;
   readonly exitCode: number | null;
@@ -111,6 +120,7 @@ export interface DispatchStreamWriter {
       | { readonly state: "exhausted"; readonly reason: string },
     occurredAt: string,
   ) => void;
+  readonly appendRuntimeMetrics?: (value: RuntimeMetrics, occurredAt: string) => void;
 }
 
 export interface DispatchLiveIndexEntry {
@@ -152,6 +162,7 @@ const summaryKinds = new Set([
   "fallback_state",
   "squad_run_state",
   "squad_run_cancelled",
+  "runtime_metrics",
 ]);
 
 export function openDispatchStream(
@@ -194,6 +205,8 @@ export function openDispatchStream(
       appendJsonl(target, { schema: streamSchema, kind: "attempt_outcome", occurredAt, ...value }),
     appendFallbackState: (value, occurredAt) =>
       appendJsonl(target, { schema: streamSchema, kind: "fallback_state", occurredAt, ...value }),
+    appendRuntimeMetrics: (value, occurredAt) =>
+      appendJsonl(target, { schema: streamSchema, kind: "runtime_metrics", occurredAt, ...value }),
   };
 }
 
@@ -352,6 +365,7 @@ export function readDispatchStream(
     readonly nextProvider: { readonly instance: string; readonly model?: string };
   } | null;
   readonly nextDispatchId: string | null;
+  readonly runtimeMetrics: RuntimeMetrics | null;
   readonly records: readonly DispatchStreamRecord[];
 } | null {
   const target = dispatchStreamPath(rootDir, dispatchId);
@@ -535,7 +549,8 @@ function summarizeDispatch(
     attemptOutcome: RuntimeAttemptOutcome | null = null,
     fallbackState: "scheduled" | "dispatched" | "exhausted" | null = null,
     fallbackSchedule: DispatchStreamSummary["fallbackSchedule"] = null,
-    nextDispatchId: string | null = null;
+    nextDispatchId: string | null = null,
+    runtimeMetrics: RuntimeMetrics | null = null;
   for (const record of records) {
     if (record.kind === "provider_binding" && typeof record.providerSessionId === "string")
       providerSessionId = record.providerSessionId;
@@ -559,6 +574,7 @@ function summarizeDispatch(
           : null;
       nextDispatchId = typeof record.nextDispatchId === "string" ? record.nextDispatchId : nextDispatchId;
     }
+    if (record.kind === "runtime_metrics" && isRuntimeMetrics(record)) runtimeMetrics = record;
   }
   return {
     header,
@@ -569,8 +585,23 @@ function summarizeDispatch(
     fallbackState,
     fallbackSchedule,
     nextDispatchId,
+    runtimeMetrics,
     records,
   };
+}
+
+function isRuntimeMetrics(value: Record<string, unknown>): value is RuntimeMetrics {
+  return (
+    Number.isInteger(value.inputTokens) &&
+    Number.isInteger(value.cacheReadTokens) &&
+    Number.isInteger(value.outputTokens) &&
+    Number.isInteger(value.totalTokens) &&
+    Number.isInteger(value.toolCallCount) &&
+    typeof value.compacted === "boolean" &&
+    typeof value.raw === "object" &&
+    value.raw !== null &&
+    !Array.isArray(value.raw)
+  );
 }
 
 function dispatchLastObservedAt(
