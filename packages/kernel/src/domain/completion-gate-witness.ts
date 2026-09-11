@@ -16,7 +16,7 @@ export interface CompletionGateWitnessV1 {
   readonly taskId: string;
   readonly executionId: string;
   readonly commitSha: string;
-  readonly iteration: 0 | 1;
+  readonly iteration: number;
   readonly actor: ActorAxes;
   readonly source: WriteSource;
   readonly verifiedAt: string;
@@ -62,13 +62,15 @@ export function validateCompletionGateWitnessV1(
     ].every(isNonEmptyString) ||
     !["pass", "fail", "advisory", "not_run"].includes(record.result as string) ||
     !isNativeCommitSha(record.commitSha) ||
-    (record.iteration !== 0 && record.iteration !== 1) ||
+    !Number.isSafeInteger(record.iteration) ||
+    Number(record.iteration) < 0 ||
     validateActorAxes(record.actor, allowUnknownFields).length ||
     validateWriteSource(record.source, allowUnknownFields).length ||
     (record.observed !== undefined && typeof record.observed !== "boolean") ||
     (record.basis !== undefined &&
       (!isNonEmptyString(record.basis.executionId) ||
-        (record.basis.iteration !== 0 && record.basis.iteration !== 1) ||
+        !Number.isSafeInteger(record.basis.iteration) ||
+        Number(record.basis.iteration) < 0 ||
         !/^sha256:[0-9a-f]{64}$/u.test(record.basis.submissionDigest) ||
         (record.basis.codeCommit !== undefined && !isNativeCommitSha(record.basis.codeCommit)) ||
         (record.basis.ledgerCut !== undefined &&

@@ -10,6 +10,7 @@ import {
 } from "../../src/index.ts";
 import { lifecycleFixture, implementer } from "../store/task-lifecycle-fixture.ts";
 import { closeoutReadiness } from "../../src/domain/closeout-readiness.ts";
+import { validateTaskGraph } from "../../src/domain/task-graph.ts";
 import {
   applyTransition,
   normalizeTaskLifecycleCommand,
@@ -178,4 +179,9 @@ test("accepted history still rejects missing approval and mismatched gate bindin
     { ...snapshot, gateWitnesses: snapshot.gateWitnesses.map((w) => ({ ...w, executionId: "other-execution" })) },
   ])
     assert.throws(() => reduceTaskEvent(invalid, completed), /accepted task and execution state/);
+});
+
+test("a graph stored with the retired maxIterations field still validates strictly", () => {
+  assert.deepEqual(validateTaskGraph({ ...REPLAY_TASK_GRAPH, maxIterations: 1 }), []);
+  assert.equal(validateTaskGraph({ ...REPLAY_TASK_GRAPH, maxIterationz: 1 }).length, 1);
 });

@@ -21,7 +21,6 @@ export interface TaskGraphV1 {
     { readonly id: "review"; readonly kind: "review" },
   ];
   readonly edges: readonly GraphEdgeDefinition[];
-  readonly maxIterations: 1;
 }
 export interface TaskEdgeTaken {
   readonly edgeId: string;
@@ -67,25 +66,25 @@ export const REPLAY_TASK_GRAPH: TaskGraphV1 = Object.freeze({
       kind: "return",
     }),
   ]),
-  maxIterations: 1,
 });
 export const TASK_GRAPH_V1_SCHEMA = Object.freeze({
   id: "TaskGraph/v1",
   template: "replay/v1",
   nodes: taskNodeIds,
-  maxIterations: 1,
 });
 export const TASK_EDGE_TAKEN_SCHEMA = Object.freeze({
   id: "TaskEdgeTaken/v1",
   required: Object.freeze(["edgeId", "from", "to", "on", "actorRole", "reason", "commitSha", "iteration"]),
 });
-export function validateTaskGraph(value: unknown, allowUnknownFields = false): readonly GraphValidationIssue[] {
+export function validateTaskGraph(input: unknown, allowUnknownFields = false): readonly GraphValidationIssue[] {
   const hasFields = allowUnknownFields ? hasRequiredFields : hasOnlyFields;
+  // Graphs written before the return budget moved to Settings carry `maxIterations: 1`. The field is
+  // read-only history: replay ignores it and no new graph writes it.
+  const value = isRecord(input) && "maxIterations" in input ? withoutLegacyMaxIterations(input) : input;
   if (
     !isRecord(value) ||
-    !hasFields(value, ["template", "nodes", "edges", "maxIterations"]) ||
+    !hasFields(value, ["template", "nodes", "edges"]) ||
     value.template !== "replay/v1" ||
-    value.maxIterations !== 1 ||
     !Array.isArray(value.nodes) ||
     !Array.isArray(value.edges)
   )
@@ -137,4 +136,9 @@ function sameEdge(value: unknown, expected: GraphEdgeDefinition): boolean {
 }
 function graphIssue(code: GraphValidationIssue["code"], message: string): GraphValidationIssue {
   return { code, message };
+}
+
+function withoutLegacyMaxIterations(graph: Record<string, unknown>): Record<string, unknown> {
+  const { maxIterations: _legacy, ...rest } = graph;
+  return rest;
 }

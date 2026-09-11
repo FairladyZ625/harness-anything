@@ -32,6 +32,7 @@ export const SETTINGS_FIELD_OWNERSHIP = Object.freeze({
   defaultPreset: "repository",
   defaultProfile: "repository",
   reviewIndependence: "repository",
+  reviewReturnBudget: "repository",
   locale: "local",
   scaffolds: "repository",
   walFlush: "repository",
@@ -53,6 +54,7 @@ export interface RepositorySettingsV1 {
   readonly defaultPreset: string;
   readonly defaultProfile: string;
   readonly reviewIndependence: ReviewIndependence;
+  readonly reviewReturnBudget: number;
   readonly scaffolds: {
     readonly task: string;
     readonly repository: string;
@@ -72,6 +74,7 @@ export interface SettingsV1 {
   readonly defaultPreset: string;
   readonly defaultProfile: string;
   readonly reviewIndependence: ReviewIndependence;
+  readonly reviewReturnBudget: number;
   readonly locale: SettingsLocale;
   readonly scaffolds: {
     readonly task: string;
@@ -99,6 +102,7 @@ export const INITIAL_SETTINGS_V1: SettingsV1 = Object.freeze({
   defaultPreset: "standard-task",
   defaultProfile: "baseline",
   reviewIndependence: "execution",
+  reviewReturnBudget: 3,
   locale: "en-US",
   scaffolds: Object.freeze({
     task: "governance/task-scaffold.json",
@@ -138,6 +142,7 @@ export const SETTINGS_V1_SCHEMA: EntityDocumentJsonSchema<SettingsV1> = {
       type: "string",
       enum: reviewIndependenceLevels,
     }),
+    reviewReturnBudget: ownedSchema("reviewReturnBudget", { type: "integer", minimum: 1 }),
     locale: ownedSchema("locale", { type: "string", enum: settingsLocales }),
     scaffolds: {
       ...ownedSchema("scaffolds", {}),
@@ -199,6 +204,7 @@ export const SETTINGS_REPOSITORY_V1_SCHEMA: EntityDocumentJsonSchema<RepositoryS
       type: "string",
       enum: reviewIndependenceLevels,
     }),
+    reviewReturnBudget: ownedSchema("reviewReturnBudget", { type: "integer", minimum: 1 }),
     scaffolds: {
       ...ownedSchema("scaffolds", {}),
       type: "object",
@@ -232,6 +238,7 @@ export function repositorySettings(settings: SettingsV1 | RepositorySettingsV1):
     defaultPreset: settings.defaultPreset,
     defaultProfile: settings.defaultProfile,
     reviewIndependence: settings.reviewIndependence ?? INITIAL_SETTINGS_V1.reviewIndependence,
+    reviewReturnBudget: settings.reviewReturnBudget ?? INITIAL_SETTINGS_V1.reviewReturnBudget,
     scaffolds: { task: settings.scaffolds.task, repository: settings.scaffolds.repository },
     walFlush: settings.walFlush ?? DEFAULT_WAL_FLUSH_SETTINGS,
   };
@@ -261,6 +268,7 @@ export function readSettingsFacet(body: string): SettingsV1 {
     defaultProfile: setting(body, "defaultProfile") ?? INITIAL_SETTINGS_V1.defaultProfile,
     reviewIndependence: (setting(body, "reviewIndependence") ??
       INITIAL_SETTINGS_V1.reviewIndependence) as ReviewIndependence,
+    reviewReturnBudget: Number(setting(body, "reviewReturnBudget") ?? INITIAL_SETTINGS_V1.reviewReturnBudget),
     locale: (setting(body, "locale") ?? INITIAL_SETTINGS_V1.locale) as SettingsLocale,
     scaffolds: {
       task: settingBlockValue(body, "scaffolds", "task") ?? INITIAL_SETTINGS_V1.scaffolds.task,
@@ -306,6 +314,13 @@ export function writeRepositorySettingsFacet(body: string, settings: RepositoryS
     "reviewIndependence",
     repository.reviewIndependence,
     INITIAL_SETTINGS_V1.reviewIndependence,
+  );
+  next = replaceOptionalDefaultedScalar(
+    next,
+    "  ",
+    "reviewReturnBudget",
+    String(repository.reviewReturnBudget),
+    String(INITIAL_SETTINGS_V1.reviewReturnBudget),
   );
   next = replaceDefaultedBlockScalar(
     next,

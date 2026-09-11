@@ -53,7 +53,7 @@ export interface ExecutionV1 {
   readonly executionId: string;
   readonly taskId: string;
   readonly nodeId: TaskNodeId;
-  readonly iteration: 0 | 1;
+  readonly iteration: number;
   readonly state: ExecutionV1State;
   readonly actor: ActorAxes;
   readonly claimedAt: string;
@@ -75,7 +75,7 @@ export interface ArchivedExecutionV0 {
   readonly executionId: string;
   readonly taskId: string;
   readonly nodeId: "implementation";
-  readonly iteration: 0 | 1;
+  readonly iteration: number;
   readonly state: ExecutionState;
   readonly actor: ActorAxes;
   readonly claimedAt: string;
@@ -174,8 +174,8 @@ export function validateExecutionV1(value: unknown, allowUnknownFields = false):
     issues.push({ code: "invalid_schema", message: "Execution must use execution/v1" });
   if (!isNonEmptyString(value.executionId) || !isNonEmptyString(value.taskId) || value.nodeId !== "implementation")
     issues.push({ code: "invalid_execution", message: "execution identity is invalid" });
-  if (value.iteration !== 0 && value.iteration !== 1)
-    issues.push({ code: "invalid_iteration", message: "execution iteration must be 0 or 1" });
+  if (!Number.isSafeInteger(value.iteration) || Number(value.iteration) < 0)
+    issues.push({ code: "invalid_iteration", message: "execution iteration must be a non-negative integer" });
   if (!(executionV1States as readonly unknown[]).includes(value.state))
     issues.push({ code: "invalid_execution", message: "invalid execution state" });
   if (
@@ -219,7 +219,8 @@ export function validateArchivedExecutionV0(
     !isNonEmptyString(value.executionId) ||
     !isNonEmptyString(value.taskId) ||
     value.nodeId !== "implementation" ||
-    (value.iteration !== 0 && value.iteration !== 1) ||
+    !Number.isSafeInteger(value.iteration) ||
+    Number(value.iteration) < 0 ||
     !(executionStates as readonly unknown[]).includes(value.state) ||
     validateActorAxes(value.actor, allowUnknownFields).length ||
     !timestamp(value.claimedAt) ||

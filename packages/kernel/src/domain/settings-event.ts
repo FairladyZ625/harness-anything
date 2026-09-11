@@ -2,6 +2,7 @@ import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 import { eventObjectTarget } from "../layout/ledger-object-layout.ts";
 import {
   DEFAULT_WAL_FLUSH_SETTINGS,
+  INITIAL_SETTINGS_V1,
   SETTINGS_ID,
   readSettingsFacet,
   repositorySettings,
@@ -138,6 +139,7 @@ function validSettingsSnapshot(value: unknown, allowUnknownFields: boolean): boo
       defaultPreset: value.defaultPreset,
       defaultProfile: value.defaultProfile,
       reviewIndependence: value.reviewIndependence ?? "execution",
+      reviewReturnBudget: value.reviewReturnBudget ?? INITIAL_SETTINGS_V1.reviewReturnBudget,
       scaffolds: {
         task: value.scaffolds.task,
         repository: value.scaffolds.repository,
@@ -165,6 +167,7 @@ function validSettingsSnapshot(value: unknown, allowUnknownFields: boolean): boo
           "defaultPreset",
           "defaultProfile",
           "reviewIndependence",
+          "reviewReturnBudget",
           "scaffolds",
           "walFlush",
         ].includes(field),

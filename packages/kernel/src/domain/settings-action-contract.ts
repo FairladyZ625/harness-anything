@@ -40,6 +40,7 @@ const repositoryFieldNames = Object.freeze([
   "defaultPreset",
   "defaultProfile",
   "reviewIndependence",
+  "reviewReturnBudget",
   "taskScaffold",
   "repositoryScaffold",
   "walFlushAdaptive",
@@ -123,6 +124,7 @@ export function createSettingsActionCatalog(
           field("defaultPreset"),
           field("defaultProfile"),
           field("reviewIndependence", "string", false, reviewIndependenceLevels),
+          field("reviewReturnBudget", "number"),
           field("locale", "string", false, settingsLocales),
           field("taskScaffold"),
           field("repositoryScaffold"),
@@ -198,6 +200,7 @@ export function compileSettingsUpdate(input: EntityActionCompileInput): Settings
       defaultPreset: updatedText(input.action, "defaultPreset", current.defaultPreset),
       defaultProfile: updatedText(input.action, "defaultProfile", current.defaultProfile),
       reviewIndependence: updatedReviewIndependence(input.action.reviewIndependence, current.reviewIndependence),
+      reviewReturnBudget: updatedPositiveInteger(input.action, "reviewReturnBudget", current.reviewReturnBudget),
       scaffolds: {
         task: updatedText(input.action, "taskScaffold", current.scaffolds.task),
         repository: updatedText(input.action, "repositoryScaffold", current.scaffolds.repository),

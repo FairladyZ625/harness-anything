@@ -284,7 +284,8 @@ export function validateGuiActionPayload(method: DaemonGuiActionMethod, value: u
   if (method === "repo.task.submit") errors.push(...validateGuiSubmission(value.submission));
   if (method === "repo.settings.update") {
     const settingFields = (
-        "defaultVertical defaultPreset defaultProfile reviewIndependence locale taskScaffold repositoryScaffold " +
+        "defaultVertical defaultPreset defaultProfile reviewIndependence reviewReturnBudget locale taskScaffold " +
+        "repositoryScaffold " +
         "walFlushAdaptive walFlushEvents walFlushBytes walFlushMilliseconds"
       ).split(" "),
       changed = settingFields.filter((field) => value[field] !== undefined),
@@ -298,6 +299,8 @@ export function validateGuiActionPayload(method: DaemonGuiActionMethod, value: u
       [value.walFlushEvents, value.walFlushBytes, value.walFlushMilliseconds].some(
         (item) => item !== undefined && (!Number.isSafeInteger(item) || Number(item) < 1),
       ) ||
+      (value.reviewReturnBudget !== undefined &&
+        (!Number.isSafeInteger(value.reviewReturnBudget) || Number(value.reviewReturnBudget) < 1)) ||
       (value.locale !== undefined && !["en-US", "zh-CN"].includes(String(value.locale))) ||
       (value.reviewIndependence !== undefined && !["execution", "principal"].includes(String(value.reviewIndependence)))
     )

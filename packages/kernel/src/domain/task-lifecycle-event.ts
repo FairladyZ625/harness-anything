@@ -566,9 +566,8 @@ function validateEdge(value: unknown, allowUnknownFields: boolean): readonly Con
     !["submitted", "changes_requested"].includes(String(value.on)) ||
     !["executor", "reviewer"].includes(String(value.actorRole)) ||
     !isNativeCommitSha(value.commitSha) ||
-    !Number.isInteger(value.iteration) ||
-    (value.iteration as number) < 0 ||
-    (value.iteration as number) > 1
+    !Number.isSafeInteger(value.iteration) ||
+    (value.iteration as number) < 0
     ? [
         {
           code: "invalid_edge_evidence",

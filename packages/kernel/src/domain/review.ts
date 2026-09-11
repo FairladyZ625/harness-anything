@@ -20,7 +20,7 @@ export interface ReviewV1 {
   readonly reason: string;
   readonly evidenceChecked: readonly string[];
   readonly commitSha: string;
-  readonly iteration: 0 | 1;
+  readonly iteration: number;
   readonly contentDigest: `sha256:${string}`;
   readonly submissionDigest: SubmissionDigest;
   readonly reviewedAt: string;
@@ -102,7 +102,8 @@ export function validateReviewV1(value: unknown, allowUnknownFields = false): re
     !Array.isArray(value.evidenceChecked) ||
     value.evidenceChecked.some((item) => !isNonEmptyString(item)) ||
     !isNativeCommitSha(value.commitSha) ||
-    (value.iteration !== 0 && value.iteration !== 1) ||
+    !Number.isSafeInteger(value.iteration) ||
+    Number(value.iteration) < 0 ||
     !digest(value.contentDigest) ||
     (value.submissionDigest !== undefined && !digest(value.submissionDigest))
   )

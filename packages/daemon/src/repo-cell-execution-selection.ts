@@ -58,7 +58,7 @@ export function reviewExecutionSelection(
 ): {
   readonly executionId: string;
   readonly commitSha: string;
-  readonly iteration: 0 | 1;
+  readonly iteration: number;
   readonly submissionDigest: `sha256:${string}`;
 } {
   const requestedExecutionId = explicitExecutionId(action),

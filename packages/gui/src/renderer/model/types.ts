@@ -95,7 +95,7 @@ interface TaskRowFields {
   profile?: string;
   createdBy?: string;
   currentNode?: "implementation" | "review";
-  iteration?: 0 | 1;
+  iteration?: number;
   activeExecutionId?: string;
   leaseExpiresAt?: string;
   /**
