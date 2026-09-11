@@ -332,8 +332,13 @@ export function readDispatchStreamSummary(rootDir: string, dispatchId: string): 
     }
   }
   const value = summarizeDispatch(header, records, stat.mtimeMs);
-  summaryCache.set(target, { mtimeMs: stat.mtimeMs, size: stat.size, value });
-  return value;
+  if (value.runtimeMetrics === null) {
+    const runtimeMetrics = readLatestRecordOfKind(target, "runtime_metrics");
+    if (runtimeMetrics && isRuntimeMetrics(runtimeMetrics)) records.push(runtimeMetrics);
+  }
+  const valueWithRecoveredMetrics = summarizeDispatch(header, records, stat.mtimeMs);
+  summaryCache.set(target, { mtimeMs: stat.mtimeMs, size: stat.size, value: valueWithRecoveredMetrics });
+  return valueWithRecoveredMetrics;
 }
 
 export function readDispatchStreamHeaders(rootDir: string): readonly DispatchStreamHeader[] {
@@ -704,6 +709,31 @@ function completeLines(text: string, offset: number, size: number): readonly { o
 function lineKind(value: string): string | null {
   const match = /"kind"\s*:\s*"([^"\\]+)"/u.exec(value);
   return match?.[1] ?? null;
+}
+function readLatestRecordOfKind(target: string, kind: string): Record<string, unknown> | null {
+  const descriptor = openSync(target, fsConstants.O_RDONLY),
+    size = fstatSync(descriptor).size,
+    marker = Buffer.from(`"kind":"${kind}"`),
+    chunkSize = 64 * 1024;
+  try {
+    for (let end = size; end > 0; ) {
+      const start = Math.max(0, end - chunkSize),
+        length = end - start,
+        bytes = Buffer.alloc(length),
+        read = readSync(descriptor, bytes, 0, length, start),
+        markerOffset = bytes.subarray(0, read).lastIndexOf(marker);
+      if (markerOffset !== -1) {
+        const lineStart = bytes.lastIndexOf(10, markerOffset) + 1,
+          lineEnd = bytes.indexOf(10, markerOffset);
+        if (lineEnd !== -1) return parseRecord(bytes.subarray(lineStart, lineEnd).toString("utf8"));
+      }
+      if (start === 0) break;
+      end = start + marker.length - 1;
+    }
+  } finally {
+    closeSync(descriptor);
+  }
+  return null;
 }
 function parseRecord(value: string | undefined): Record<string, unknown> | null {
   if (!value) return null;

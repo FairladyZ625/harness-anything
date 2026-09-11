@@ -117,6 +117,10 @@ test("runtime metrics project to task dispatch rows and remain optional for lega
       instanceId: "instance-1",
       startedAt: "2026-08-23T00:00:00.000Z",
     });
+    writer.appendProviderEvent(
+      { type: "item.completed", item: { text: "x".repeat(32 * 1024) } },
+      "2026-08-23T00:00:30.000Z",
+    );
     writer.appendRuntimeMetrics?.(
       {
         inputTokens: 110,
@@ -139,6 +143,18 @@ test("runtime metrics project to task dispatch rows and remain optional for lega
       toolCallCount: 10,
       compacted: true,
     });
+
+    for (let index = 0; index < 40; index += 1)
+      appendRuntimeWorkerRecord(rootDir, dispatchId, {
+        kind: "squad_run_state",
+        state: { phase: "workers_running", report: "x".repeat(4096), index },
+      });
+    const restartedRow = readTaskDispatches({
+      rootDir,
+      projection: projectionFor(session("exited", "succeeded")),
+      taskId,
+    }).dispatches[0];
+    assert.deepEqual(restartedRow?.metrics, row?.metrics);
 
     const legacyRoot = mkdtempSync(path.join(tmpdir(), "ha-dispatch-read-legacy-"));
     try {

@@ -1,4 +1,6 @@
 import { setTimeout as delay } from "node:timers/promises";
+import { globSync, readFileSync } from "node:fs";
+import path from "node:path";
 import type { SessionIdentity } from "../../kernel/src/index.ts";
 import { consumeKnownError } from "../../kernel/src/index.ts";
 import { readDispatchStream, scrubProviderValue } from "./dispatch-stream.ts";
@@ -69,6 +71,7 @@ export async function consumeProviderChunk(
   active.buffer = flush ? "" : trailing;
   for (const line of lines) if (line.trim()) await context.consumeLine(active, line, persisted);
   if (flush && trailing.trim()) await context.consumeLine(active, trailing, persisted);
+  if (flush) observeCodexSessionMetrics(context, active);
 }
 
 export async function consumeProviderLine(
@@ -162,6 +165,55 @@ function observeRuntimeMetrics(active: ActiveRuntime, value: unknown): void {
 
 function numberValue(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function observeCodexSessionMetrics(context: RuntimeSpawnerContext, active: ActiveRuntime): void {
+  if (
+    active.kindId !== "codex" ||
+    !active.providerUsageEmpty ||
+    active.providerSessionId === null ||
+    !/^[a-z0-9-]+$/iu.test(active.providerSessionId)
+  )
+    return;
+  const userRoot = context.input.runtimeDaemonRoute?.userRoot;
+  if (!userRoot) return;
+  const sessionsRoot = path.join(userRoot, "runtime-instances", active.instanceId, "home", ".codex", "sessions"),
+    matches = globSync(`**/rollout-*-${active.providerSessionId}.jsonl`, { cwd: sessionsRoot });
+  if (matches.length !== 1) return;
+  let lines: string[];
+  try {
+    lines = readFileSync(path.join(sessionsRoot, matches[0]!), "utf8").split(/\r?\n/u);
+  } catch (error) {
+    consumeKnownError(error);
+    return;
+  }
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    try {
+      const record: unknown = JSON.parse(lines[index]!);
+      if (!record || typeof record !== "object" || Array.isArray(record)) continue;
+      const payload = (record as Record<string, unknown>).payload;
+      if (!payload || typeof payload !== "object" || Array.isArray(payload)) continue;
+      const info = (payload as Record<string, unknown>).info;
+      if ((payload as Record<string, unknown>).type !== "token_count" || !providerRecord(info)) continue;
+      const usage = providerRecord(info.last_token_usage) ? info.last_token_usage : null;
+      if (!usage) continue;
+      const input = numberValue(usage.input_tokens),
+        cached = numberValue(usage.cached_input_tokens),
+        output = numberValue(usage.output_tokens);
+      if (input === null || cached === null || output === null) return;
+      active.inputTokens = input;
+      active.cacheReadTokens = cached;
+      active.outputTokens = output;
+      active.rawUsage = { ...usage };
+      return;
+    } catch (error) {
+      consumeKnownError(error);
+    }
+  }
+}
+
+function providerRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 export async function consumeDurableOutput(
