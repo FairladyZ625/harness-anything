@@ -118,7 +118,7 @@ export function makeSquadCoordinator(input: {
       runtimeInstanceId = requiredSquadText(action.runtimeInstanceId, "runtimeInstanceId"),
       cwd = resolveCwd(input.rootDir, action.cwd),
       squad = squadForRun(squadId),
-      baseSha = localGitObjectRefStore.resolveCommit(cwd, cwd === input.rootDir ? "origin/main" : "HEAD");
+      baseSha = localGitObjectRefStore.headCommit(cwd);
     let mission: string;
     await input.reacquireTaskLease(taskId, binding);
     try {
@@ -536,10 +536,7 @@ export function makeSquadCoordinator(input: {
         state.permissionMode === "read-only" || state.baseSha !== null
           ? state
           : revise(state, {
-              baseSha: localGitObjectRefStore.resolveCommit(
-                state.cwd,
-                state.cwd === input.rootDir ? "origin/main" : "HEAD",
-              ),
+              baseSha: localGitObjectRefStore.headCommit(state.cwd),
             });
       worktree =
         dispatchState.permissionMode === "read-only" ? null : prepareWorkerWorktree(dispatchState, plan.workerId);
@@ -1055,8 +1052,10 @@ function cwdPayload(rootDir: string, cwd: string): JsonObject {
   return relative ? { scope: "repo-relative", path: relative } : { scope: "repo-root" };
 }
 
+/** Writing workers get their own worktree when the run cwd is a Git work tree with a commit; a cwd without
+ * a Git baseline (a Git-less edge, or a repo before its first commit) keeps the shared cwd. */
 function prepareWorkerWorktree(state: SquadState, workerId: string) {
-  if (state.baseSha === null) throw new Error("Squad run baseline is unavailable.");
+  if (state.baseSha === null) return null;
   const slug = `squad-${state.squadRunId.slice("squad_".length)}-${workerId}`,
     branch = `codex/${slug}`,
     cwd = path.join(state.cwd, ".worktrees", slug);
