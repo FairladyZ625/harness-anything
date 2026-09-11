@@ -437,25 +437,22 @@ test("run-now launches only after an applied claim, stays single-flight, and set
         true,
       );
       assert.equal(retainedEvents.at(-1)?.type, "schedule_deleted");
-      assert.equal(
-        (
-          await cell.run(
-            {
-              kind: "schedule-create",
-              scheduleId: "e2e-probe",
-              name: "Recreated E2E probe",
-              mode: "detect",
-              everyMs: 900_000,
-              agentId: "probe-agent",
-              runtimeInstanceId: definition.instanceId,
-              mission: "Run the recreated probe.",
-              idempotencyKey: "recreate-e2e-probe",
-            },
-            actor,
-          )
-        ).outcome,
-        "applied",
+      const recreatedReceipt = await cell.run(
+        {
+          kind: "schedule-create",
+          scheduleId: "e2e-probe",
+          name: "Recreated E2E probe",
+          mode: "detect",
+          everyMs: 900_000,
+          agentId: "probe-agent",
+          runtimeInstanceId: definition.instanceId,
+          mission: "Run the recreated probe.",
+          idempotencyKey: "recreate-e2e-probe",
+        },
+        actor,
       );
+      assert.equal(recreatedReceipt.outcome, "applied", JSON.stringify(recreatedReceipt));
+      await waitForFixturePublication(cell, recreatedReceipt.opId, actor);
       const recreated = (await cell.run({ kind: "schedule-show", scheduleId: "e2e-probe" }, actor)) as unknown as {
         readonly schedule: { readonly name: string; readonly status: { readonly lastRun: unknown } };
       };
