@@ -145,9 +145,10 @@ export function enteringExecutionWip(
   nextStatus: DomainStatus,
   rootThreshold = DEFAULT_TASK_ROOT_THRESHOLD,
 ): boolean {
-  return (
-    !isExecutionWipTask(current, rootThreshold) && isExecutionWipTask({ ...current, status: nextStatus }, rootThreshold)
-  );
+  // Entering active takes the worktable: task-start creates the execution and reserve
+  // takes the lease, so a container stops being a pure container at that moment.
+  const next = { ...current, status: nextStatus, hasOwnExecution: current.hasOwnExecution || nextStatus === "active" };
+  return !isExecutionWipTask(current, rootThreshold) && isExecutionWipTask(next, rootThreshold);
 }
 
 function formatWipComposition(tasks: readonly TaskWipSnapshotEntryV1[], rootThreshold: number): string {
