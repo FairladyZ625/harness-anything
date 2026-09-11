@@ -525,6 +525,45 @@ test("a TMUX registry restores a live session and attach uses the existing names
   }
 });
 
+test("TMUX activity persistence is throttled while termination persists immediately", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-terminal-activity-throttle-")),
+    live = new Set<string>(),
+    launches: RecordedLaunch[] = [],
+    registry = path.join(root, ".harness", "generated", "terminal-sessions.json");
+  let clock = Date.parse("2026-09-11T00:00:00.000Z");
+  try {
+    const host = openTerminalHost({
+      repoId: "repo-activity",
+      rootDir: root,
+      daemonGeneration: 16,
+      now: () => new Date(clock).toISOString(),
+      tmux: fakeTmuxController(live, []),
+      spawnPty: recordingPtySpawner(launches, live),
+    });
+    const spawned = host.spawn({
+      idempotencyKey: "activity-throttle",
+      backend: "tmux",
+      cwd: { scope: "repo-root" },
+      shellProfileId: "zsh",
+      name: "Activity",
+    });
+    const first = readFileSync(registry, "utf8");
+    const attachment = host.attach(spawned.sessionId!, 0);
+    for (let clientSeq = 1; clientSeq <= 100; clientSeq += 1)
+      host.input({ sessionId: spawned.sessionId!, clientSeq, utf8: "x" });
+    assert.equal(readFileSync(registry, "utf8"), first, "activity writes within 10 seconds must be coalesced");
+    clock += 10_000;
+    host.input({ sessionId: spawned.sessionId!, clientSeq: 101, utf8: "x" });
+    assert.notEqual(readFileSync(registry, "utf8"), first, "activity must persist at the 10 second boundary");
+    host.detach({ sessionId: spawned.sessionId!, attachmentId: attachment.initial.attachmentId as string });
+    host.terminate({ sessionId: spawned.sessionId!, confirmed: true });
+    assert.deepEqual(JSON.parse(readFileSync(registry, "utf8")).sessions, [], "termination must persist immediately");
+    await host.close();
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 interface RecordedLaunch {
   readonly file: string;
   readonly args: readonly string[] | string;
