@@ -32,7 +32,7 @@ export const stringArray = (value: unknown): value is readonly string[] =>
 
 export const sha = (value: unknown): boolean => typeof value === "string" && /^[0-9a-f]{40}$/u.test(value),
   digest = (value: unknown): boolean => typeof value === "string" && /^sha256:[0-9a-f]{64}$/u.test(value),
-  iteration = (value: unknown): boolean => value === 0 || value === 1;
+  iteration = (value: unknown): boolean => Number.isSafeInteger(value) && Number(value) >= 0;
 
 export const statusWord = (vocabulary: readonly string[], value: unknown): boolean =>
   vocabulary.includes(String(value));

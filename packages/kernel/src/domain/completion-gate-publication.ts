@@ -55,7 +55,7 @@ export function compileCompletionGateWitness(input: {
       taskId: input.taskId,
       executionId: input.executionId,
       commitSha: input.commitSha,
-      iteration: input.iteration as 0 | 1,
+      iteration: input.iteration,
       actor: input.actor,
       source: input.source,
       verifiedAt: input.occurredAt,

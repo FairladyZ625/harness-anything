@@ -164,6 +164,7 @@ export interface ReviewProof {
   readonly actorBinding: ActorAxes;
   readonly capability: "execution-review@v1";
   readonly capabilityRef: string;
+  readonly returnBudget: number;
 }
 export interface ReviewConsentProof {
   readonly actorBinding: ActorAxes;

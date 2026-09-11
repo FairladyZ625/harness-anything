@@ -76,14 +76,11 @@ function reviewIssues(
     issues.push(
       lifecycleContractIssue("invalid_proof", "transport-bound execution review proof and content digest are required"),
     );
-  if (
-    command.verdict === "changes_requested" &&
-    (snapshot.task?.iteration ?? 0) >= (snapshot.task?.graph.maxIterations ?? 0)
-  )
+  if (command.verdict === "changes_requested" && (snapshot.task?.iteration ?? 0) >= (proof.returnBudget ?? 0))
     issues.push(
       lifecycleContractIssue(
         "manual_intervention_required",
-        "return budget exhausted; escalate for manual intervention",
+        "return budget exhausted; use `ha task submit --amend` to update the current submitted execution before requesting review again",
       ),
     );
   return issues;
@@ -109,7 +106,7 @@ function reviewFrom(command: RecordReviewCommand, proof: ReviewProof): ReviewV1 
     reason: command.reason,
     evidenceChecked: [...command.evidenceChecked, ...qualificationEvidence],
     commitSha: command.commitSha,
-    iteration: command.iteration as 0 | 1,
+    iteration: command.iteration,
     contentDigest: command.contentDigest,
     submissionDigest: command.submissionDigest,
     reviewedAt: command.occurredAt,
@@ -145,7 +142,7 @@ export const review: Transition = {
         ...(snapshot.task as TaskV2),
         status: "active",
         currentNode: "implementation",
-        iteration: 1,
+        iteration: (snapshot.task?.iteration ?? 0) + 1,
       },
       edge = takeEdge(
         snapshot.task as TaskV2,
@@ -293,7 +290,7 @@ export const reconcile: Transition = {
         taskId: command.taskId,
         executionId: command.executionId,
         commitSha: command.commitSha,
-        iteration: command.iteration as 0 | 1,
+        iteration: command.iteration,
         paths: [...new Set(command.paths)].sort(),
         actor: command.actor,
         source: command.source,

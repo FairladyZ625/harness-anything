@@ -64,7 +64,7 @@ export interface TaskV2 extends BaseEntityPinState {
   readonly status: ReplayTaskStatus;
   readonly graph: TaskGraphV1;
   readonly currentNode: TaskNodeId;
-  readonly iteration: 0 | 1;
+  readonly iteration: number;
   readonly createdBy: ActorAxes;
   readonly completionGateIds: readonly string[];
   readonly presetSnapshotDigest: `sha256:${string}` | null;
@@ -119,8 +119,8 @@ export function validateTaskV2(value: unknown, allowUnknownFields = false): read
     issues.push({ code: "invalid_task", message: "invalid Task status" });
   if (!(taskNodeIdsForValidation as readonly unknown[]).includes(value.currentNode))
     issues.push({ code: "invalid_task", message: "invalid current node" });
-  if (value.iteration !== 0 && value.iteration !== 1)
-    issues.push({ code: "invalid_iteration", message: "iteration must be 0 or 1" });
+  if (!Number.isSafeInteger(value.iteration) || Number(value.iteration) < 0)
+    issues.push({ code: "invalid_iteration", message: "iteration must be a non-negative integer" });
   if (!Array.isArray(value.completionGateIds) || value.completionGateIds.some((id) => !isNonEmptyString(id)))
     issues.push({ code: "invalid_task", message: "completion gate ids must be strings" });
   if (

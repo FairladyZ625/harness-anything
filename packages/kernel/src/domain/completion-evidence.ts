@@ -5,7 +5,7 @@ export type CompletionEvidenceResult = (typeof completionEvidenceResults)[number
 
 export interface CompletionEvidenceBasis {
   readonly executionId: string;
-  readonly iteration: 0 | 1;
+  readonly iteration: number;
   readonly submissionDigest: `sha256:${string}`;
   readonly codeCommit?: string;
   readonly ledgerCut?: number;

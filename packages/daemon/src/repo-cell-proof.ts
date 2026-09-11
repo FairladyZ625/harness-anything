@@ -222,6 +222,7 @@ export async function proofFor(
       actorBinding: command.actor,
       capability: "execution-review@v1",
       capabilityRef: authorizationDecision.policyRef,
+      returnBudget: settings.reviewReturnBudget,
       authorizationDecision,
     };
   }

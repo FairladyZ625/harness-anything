@@ -21,7 +21,6 @@ export interface TaskGraphV1 {
     { readonly id: "review"; readonly kind: "review" },
   ];
   readonly edges: readonly GraphEdgeDefinition[];
-  readonly maxIterations: 1;
 }
 export interface TaskEdgeTaken {
   readonly edgeId: string;
@@ -67,13 +66,11 @@ export const REPLAY_TASK_GRAPH: TaskGraphV1 = Object.freeze({
       kind: "return",
     }),
   ]),
-  maxIterations: 1,
 });
 export const TASK_GRAPH_V1_SCHEMA = Object.freeze({
   id: "TaskGraph/v1",
   template: "replay/v1",
   nodes: taskNodeIds,
-  maxIterations: 1,
 });
 export const TASK_EDGE_TAKEN_SCHEMA = Object.freeze({
   id: "TaskEdgeTaken/v1",
@@ -83,9 +80,8 @@ export function validateTaskGraph(value: unknown, allowUnknownFields = false): r
   const hasFields = allowUnknownFields ? hasRequiredFields : hasOnlyFields;
   if (
     !isRecord(value) ||
-    !hasFields(value, ["template", "nodes", "edges", "maxIterations"]) ||
+    !hasFields(value, ["template", "nodes", "edges"]) ||
     value.template !== "replay/v1" ||
-    value.maxIterations !== 1 ||
     !Array.isArray(value.nodes) ||
     !Array.isArray(value.edges)
   )

@@ -10,7 +10,7 @@ export interface CodeDocWitnessV1 {
   readonly taskId: string;
   readonly executionId: string;
   readonly commitSha: string;
-  readonly iteration: 0 | 1;
+  readonly iteration: number;
   readonly paths: readonly string[];
   readonly actor: ActorAxes;
   readonly source: WriteSource;
@@ -23,7 +23,7 @@ export interface CodeDocRepointV1 {
   readonly taskId: string;
   readonly executionId: string;
   readonly commitSha: string;
-  readonly iteration: 0 | 1;
+  readonly iteration: number;
   readonly paths: readonly string[];
   readonly disposition: "repointed" | "known-invalid";
   readonly reason: string;
@@ -56,7 +56,8 @@ export function validateCodeDocWitnessV1(
   return value.schema === "code-doc-witness/v1" &&
     [value.witnessId, value.taskId, value.executionId, value.reconciledAt].every(isNonEmptyString) &&
     isNativeCommitSha(value.commitSha) &&
-    (value.iteration === 0 || value.iteration === 1) &&
+    Number.isSafeInteger(value.iteration) &&
+    Number(value.iteration) >= 0 &&
     canonical &&
     validateActorAxes(value.actor, allowUnknownFields).length === 0 &&
     validateWriteSource(value.source, allowUnknownFields).length === 0
@@ -95,7 +96,8 @@ export function validateCodeDocRepointV1(
       isNonEmptyString,
     ) &&
     isNativeCommitSha(value.commitSha) &&
-    (value.iteration === 0 || value.iteration === 1) &&
+    Number.isSafeInteger(value.iteration) &&
+    Number(value.iteration) >= 0 &&
     (value.disposition === "repointed" || value.disposition === "known-invalid") &&
     paths &&
     validateActorAxes(value.actor, allowUnknownFields).length === 0 &&

@@ -70,6 +70,7 @@ const settingsWriteTopology = {
             enum: ["execution", "principal"],
           },
         ),
+        positiveSettingInput("--review-return-budget"),
         cliInput(
           "--locale",
           "single",
