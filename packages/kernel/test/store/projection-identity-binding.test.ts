@@ -70,28 +70,23 @@ test("projection cache identity mismatch is explicit and rebuild remains availab
   });
 });
 
-test("event relation truth cannot cross a same-revision ledger identity", async () => {
+test("the fact graph cannot cross a same-revision ledger identity", async () => {
   await withTempStoreAsync(async (rootA) => {
     await withTempStoreAsync(async (rootB) => {
       const storeA = seedFactLedger(rootA),
         storeB = seedLedger(rootB, "relation-empty", "# Notes\n\nEmpty ledger.\n"),
         projectionA = makeTaskProjection({ rootDir: rootA, eventStore: storeA });
       projectionA.rebuild();
-      projectionA.readFactGraph();
       assert.deepEqual(
-        projectionA.readRelationTruth().factAnchors.map(({ factRef }) => factRef),
+        projectionA.readFactGraph().factAnchors.map(({ factRef }) => factRef),
         ["fact/F-12345678"],
       );
       projectionA.close();
       const projectionB = makeTaskProjection({ rootDir: rootB, eventStore: storeB, projectionPath: projectionA.path });
-      assert.throws(() => projectionB.readRelationTruth(), /projection cache ledger identity mismatch/iu);
+      assert.throws(() => projectionB.readFactGraph(), /projection cache ledger identity mismatch/iu);
       projectionB.rebuild();
-      assert.deepEqual(projectionB.readRelationTruth(), {
-        factAnchors: [],
-        decisionAnchors: [],
-        edges: [],
-        coverageRows: [],
-      });
+      const rebuilt = projectionB.readFactGraph();
+      assert.deepEqual([rebuilt.factAnchors, rebuilt.edges, rebuilt.facts], [[], [], []]);
     });
   });
 });

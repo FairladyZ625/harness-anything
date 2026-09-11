@@ -116,7 +116,7 @@ test("A vertical artifact entity is a relation endpoint for its declared triple 
       rebuilt = makeTaskProjection({ rootDir, eventStore: rebuildStore, now: () => "2026-09-04T00:01:00.000Z" });
     try {
       rebuilt.rebuild();
-      const edge = rebuilt.readRelationTruth().edges.find((row) => row.relationId === relationId);
+      const edge = rebuilt.readRelationEdge(relationId);
       assert.equal(edge?.sourceRef, entityRef, "the artifact edge must survive a cold rebuild");
       assert.equal(edge?.state, "active");
     } finally {

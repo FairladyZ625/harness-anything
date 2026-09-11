@@ -4,8 +4,6 @@ import { isTaskEvent } from "../domain/doc-sync.contract.ts";
 import { isAgentRuntimeEvent, type AgentRuntimeEventV1 } from "../domain/agent-runtime.ts";
 import { type TaskProgressEventV1 } from "../domain/task-progress-event.ts";
 import { localRuntimeStateFileSystem } from "../local/local-layout-file-system.ts";
-import { readDecisionGraphRows } from "./decision-event-projection.ts";
-import { readFactGraphRows } from "./fact-event-projection.ts";
 import {
   readTaskDependencyClosureRows,
   readTaskRelationNeighborhoodRows,
@@ -30,7 +28,7 @@ import {
   queryRows,
 } from "./rebuildable-task-projection-sql.ts";
 import { readWorkspaceSummaryRows } from "./workspace-summary-projection.ts";
-import { readRelationProjectionRow, readRelationProjectionRows } from "./relation-entity-projection.ts";
+import { readRelationProjectionRow } from "./relation-entity-projection.ts";
 import { readEntityVersionWitness } from "./entity-freshness-projection.ts";
 export type {
   ProjectionPage,
@@ -109,7 +107,6 @@ export function taskQueryApi(
   | "readTaskRuntimeBatch"
   | "readRelationQuery"
   | "readOperation"
-  | "readRelationTruth"
   | "readRelationEdge"
   | "readEntityVersionWitness"
   | "readTaskOperation"
@@ -234,21 +231,6 @@ export function taskQueryApi(
             | { readonly event_json: string }
             | undefined;
         return row === undefined ? null : { event: JSON.parse(row.event_json), watermark: watermark(db) };
-      }),
-    readRelationTruth: () =>
-      withDatabase(projectionPath, readHead, (db) => {
-        const facts = readFactGraphRows(db),
-          decisions = readDecisionGraphRows(db),
-          edges = readRelationProjectionRows(db);
-        return {
-          factAnchors: facts.factAnchors,
-          decisionAnchors: decisions.decisionAnchors,
-          edges,
-          coverageRows: decisions.coverageRows.map((row) => ({
-            ...row,
-            fulfillment: row.fulfillment === "standing_policy" ? ("standing-policy" as const) : row.fulfillment,
-          })),
-        };
       }),
     readRelationEdge: (relationId) =>
       withDatabase(projectionPath, readHead, (db) => readRelationProjectionRow(db, relationId)),
