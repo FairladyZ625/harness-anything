@@ -3,6 +3,7 @@ import { unknownFieldViolation, type JsonObject } from "./protocol/json-rpc-type
 import { requiredRuntimeSpawnText, runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import { consumeDurableOutput } from "./runtime-spawn-provider-stream.ts";
 import { adoptRuntimes } from "./runtime-spawn-adoption.ts";
+import { readDispatchStreamHeaders } from "./dispatch-stream.ts";
 import type { RuntimeBinding } from "./runtime-spawn-types.ts";
 import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 
@@ -35,9 +36,17 @@ export async function cancelRuntime(
     await context.publishExit(active, null);
     return context.controlReceipt(opId, runtimeSessionId);
   }
-  const session = context.input.remote
-    ? (await context.input.remote.readRuntimeSessions()).find((value) => value.runtimeSessionId === runtimeSessionId)
-    : context.requiredRuntimeProjection(context.input).readRuntimeSession(runtimeSessionId);
+  // A session with a dispatch record belongs to adoption above; only a session the projection
+  // knows without any dispatch record is settled from the projection alone.
+  const recorded = readDispatchStreamHeaders(context.input.rootDir).some(
+      (header) => header.runtimeSessionId === runtimeSessionId,
+    ),
+    session = recorded
+      ? undefined
+      : (context.input.remote
+          ? await context.input.remote.readRuntimeSessions()
+          : context.requiredRuntimeProjection(context.input).readRuntimeSessions()
+        ).find((value) => value.runtimeSessionId === runtimeSessionId);
   if (session && session.liveness !== "exited" && session.outcome === null) {
     const terminalBinding = {
       ...binding,
