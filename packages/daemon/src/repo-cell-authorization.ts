@@ -515,7 +515,7 @@ function executorRetryCommand(action: RepoTaskAction, taskId: string | null, exe
     execution = executionId ?? "<execution-id>";
   switch (action.kind) {
     case "task-submit":
-      return `ha task submit ${task} --execution-id ${execution} --from-file <submission.json>`;
+      return `ha task submit ${task} --execution-id ${execution}`;
     case "task-progress-append":
       return `ha task progress append ${task} --text <progress-text>`;
     case "fact-record":

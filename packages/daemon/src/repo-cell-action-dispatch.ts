@@ -1,6 +1,9 @@
+import { prepareSubmissionEvidence } from "./repo-cell-task-progress.ts";
+import { submitTask } from "./repo-cell-submit.ts";
 import { createHash } from "node:crypto";
 import {
   compileExecutionExecutorDeclaration,
+  currentExecutionCuts,
   compileTaskLifecycleWrite,
   declaredRelationTriples,
   executionExecutorDeclarationCandidates,
@@ -180,8 +183,38 @@ export async function executeAction(
       {
         ...cell.entityActionRuntimes,
         task: async (contract, catalogAction, catalogBinding) => {
-          if (Array.isArray(catalogAction.docChanges))
-            return cell.runTaskCommandWithDocs(catalogAction as TaskCommandWithDocsAction, catalogBinding);
+          if (
+            catalogAction.kind === "task-submit" &&
+            (!Array.isArray(catalogAction.docChanges) ||
+              (catalogAction.amend !== true &&
+                currentExecutionCuts(cell.projection.read(String(catalogAction.taskId)).snapshot).length === 1))
+          )
+            return submitTask(cell, catalogAction, catalogBinding);
+          if (Array.isArray(catalogAction.docChanges)) {
+            const receipt = await cell.runTaskCommandWithDocs(
+              catalogAction as TaskCommandWithDocsAction,
+              catalogBinding,
+            );
+            if (catalogAction.kind === "task-submit" && receipt.outcome === "applied") {
+              const current = cell.projection.read(String(catalogAction.taskId)).snapshot;
+              const execution = current.executions.find(
+                (candidate) => candidate.iteration === current.task?.iteration && candidate.submission,
+              );
+              if (execution) {
+                const steps = await prepareSubmissionEvidence(
+                  cell,
+                  String(catalogAction.taskId),
+                  execution.executionId,
+                  catalogBinding,
+                );
+                return {
+                  ...(steps.find((step) => !["applied", "no_changes"].includes(step.outcome)) ?? receipt),
+                  steps,
+                };
+              }
+            }
+            return receipt;
+          }
           if (contract.execution?.implementation === "catalog-runtime") {
             if (catalogAction.kind === "task-contract-migrate")
               return cell.migrateTaskContracts(catalogAction, catalogBinding);
@@ -330,6 +363,7 @@ export async function executeAction(
     )
   )
     return cell.runTaskCommandWithDocs(action as TaskCommandWithDocsAction, binding);
+  if (action.kind === "task-submit") return submitTask(cell, action, binding);
   if (action.kind === "task-progress-append") return cell.appendProgress(action, binding);
   if (action.kind === "task-declare-executor") return cell.declareExecutionExecutor(action, binding);
   if (action.kind === "task-closeout") return cell.closeoutTask(action, binding);

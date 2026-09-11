@@ -297,7 +297,15 @@ test("Agent-readable input and CLI facets share the same field declarations", ()
       action.id,
     );
   }
-  assert.deepEqual(actions.find(({ id }) => id === "submit")?.input.exactlyOneOf, [["fromFile", "jsonInput"]]);
+  const submit = actions.find(({ id }) => id === "submit")!,
+    complete = actions.find(({ id }) => id === "complete")!;
+  assert.deepEqual(submit.input.exactlyOneOf, []);
+  assert.deepEqual(
+    submit.input.fields.flatMap(({ cli }) => (cli ? [cli.name] : [])),
+    ["--execution-id", "--amend"],
+  );
+  assert.ok(submit.input.fields.some(({ field, cli }) => field === "completionClaim" && cli === undefined));
+  assert.ok(!complete.input.fields.some(({ cli }) => cli?.name === "--ci" || cli?.name === "--path"));
 });
 
 test("entity explain reports all runtime-local bounded-context Action exceptions", () => {

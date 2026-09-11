@@ -1,14 +1,14 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { makeTaskEventReader } from "../../kernel/src/index.ts";
 import { createRealizedTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
+import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { removeTemporaryDirectory } from "../../../tools/temporary-directory-cleanup.mjs";
 
@@ -230,24 +230,18 @@ async function reachGreenInReview(
   assert.equal(started.outcome, "applied", JSON.stringify(started));
   const packagePath = "tasks/task_fact_retirement-fact-retirement-contract",
     closeoutPath = `${packagePath}/closeout.md`;
+  const artifactPath = `${packagePath}/artifacts/verification.md`;
+  mkdirSync(path.dirname(path.join(rootDir, "harness", artifactPath)), { recursive: true });
+  writeFileSync(path.join(rootDir, "harness", artifactPath), "Verified fixture delivery.\n");
+  const artifactSync = await cell.run({ kind: "doc-submit", paths: [artifactPath] }, binding);
+  assert.equal(artifactSync.outcome, "applied", JSON.stringify(artifactSync));
+  await waitForFixturePublication(cell, artifactSync.opId, binding);
   writeFileSync(
     path.join(rootDir, "harness", closeoutPath),
     "# Closeout\n\n## Summary\n\nDone.\n\n## Verification\n\nVerified.\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nNo sibling mechanism in this fixture.\n",
   );
   assert.equal((await cell.run({ kind: "doc-submit", paths: [closeoutPath] }, binding)).outcome, "applied");
-  writeFileSync(
-    path.join(rootDir, "submission.json"),
-    JSON.stringify({
-      completionClaim: "Implemented.",
-      deliverables: ["README.md"],
-      outputs: [closeoutPath],
-      verificationNotes: ["verified"],
-      knownGaps: [],
-      residualRisks: [],
-      commitSha: git(rootDir, "rev-parse", "HEAD"),
-    }),
-  );
-  const submitted = await cell.run({ kind: "task-submit", taskId, executionId, fromFile: "submission.json" }, binding);
+  const submitted = await cell.run({ kind: "task-submit", taskId, executionId }, binding);
   assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
   writeFileSync(
     path.join(rootDir, "review.json"),

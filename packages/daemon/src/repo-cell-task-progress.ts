@@ -9,6 +9,9 @@ import {
   completionGuidance,
   completionEvidenceBasis,
   completionEvidenceResults,
+  currentCodeDocWitness,
+  judgeCompletionEvidence,
+  type CiRunObservationEventV3,
   consumeKnownError,
   isTaskProgressEvent,
   requireTransitionDocumentKind,
@@ -37,51 +40,43 @@ import { verifyCodeDocCommitPaths } from "./code-doc-path-verification.ts";
 import { readCompletionContext } from "./task-completion-read.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 
-function readCiEvidence(
+function relatedCiObservation(root: string, event: CiRunObservationEventV3, submitted: string): boolean {
+  return (
+    event.payload.run.sha === submitted || localGitObjectRefStore.isAncestor(root, submitted, event.payload.run.sha)
+  );
+}
+
+export function readLatestCiEvidence(
   cell: RepoCellOperationalContext,
-  value: unknown,
   execution: Snapshot["executions"][number] | undefined,
 ): CompletionEvidenceV1 | null {
+  if (!execution?.submission) return null;
+  const observations = cell.projection.readCiRunObservations(2000);
+  if (!cell.projectionReady(observations))
+    throw cell.cellCodedError("content_not_ready", "CI observation projection is not ready.");
+  // Projection order is newest canonical observation first. Never skip a related red or
+  // unverified observation to find an older green observation.
+  const submitted = execution.submission.commitSha,
+    publicCut = localGitObjectRefStore.hasCommit(cell.rootDir, submitted),
+    root = publicCut ? cell.rootDir : resolveHarnessLayout(cell.rootDir).authoredRoot,
+    event = observations.events.find((candidate) => relatedCiObservation(root, candidate, submitted));
+  if (!event) return null;
+  const verification = event.payload.verification;
   if (
-    value === undefined ||
-    value === "passed" ||
-    !execution ||
-    execution.schema !== "execution/v1" ||
-    !execution.submission
+    !localGitObjectRefStore.hasCommit(root, submitted) ||
+    !verification ||
+    (publicCut
+      ? verification.source !== "github-actions" ||
+        verification.workflow !== "rewrite-ci" ||
+        event.payload.run.branch !== "main"
+      : verification.source !== "write-coordinator" || verification.workflow !== "ledger-publication")
   )
-    return null;
-  if (typeof value !== "string" || !value.trim()) return null;
-  const reference = value.startsWith("event:") ? value.slice("event:".length) : value,
-    event = cell.store.readEvent(reference);
-  if (!event || event.type !== "ci_run_observed") return null;
-  const run = event.payload.run,
-    submitted = execution.submission.commitSha;
-  // A main run on a commit that contains the submission proves the merged delivery is green. A
-  // ledger-publication observation names the authored ledger HEAD instead; a private-ledger
-  // delivery is proven when that HEAD contains the submission. The authored repository is only
-  // consulted for that observation kind, so a public delivery never depends on it being a Git repo.
-  const publicReachable = run.branch === "main" && localGitObjectRefStore.isAncestor(cell.rootDir, submitted, run.sha),
-    ledgerReachable =
-      event.payload.verification?.workflow === "ledger-publication" &&
-      localGitObjectRefStore.isAncestor(resolveHarnessLayout(cell.rootDir).authoredRoot, submitted, run.sha);
-  if (run.sha !== submitted && !publicReachable && !ledgerReachable)
     throw cell.cellCodedError(
       "invalid_proof",
-      `CI run ${run.runId} tested ${run.sha}; this execution submitted ${submitted}. ` +
-        "Use an observation for the submitted commit, for a main commit that contains it, " +
-        "or a ledger publication whose HEAD contains it.",
+      publicCut
+        ? "Public delivery requires a verified rewrite-ci GitHub main run."
+        : "Private delivery requires a verified ledger-publication observation for its authored cut.",
     );
-  const verification = event.payload.verification;
-  if (!verification)
-    throw Object.assign(cell.cellCodedError("invalid_proof", "CI observation has no verified workflow conclusion."), {
-      diagnostic: {
-        kind: "validation" as const,
-        entity: `CI observation event:${event.opId}`,
-        field: "ci",
-        actual: "no verified workflow conclusion",
-        expectation: "Pull a completed rewrite-ci main run and use its event reference.",
-      },
-    });
   const result: CompletionEvidenceResult = verification.conclusion === "success" ? "pass" : "fail";
   if (!completionEvidenceResults.includes(result)) return null;
   const basis: CompletionEvidenceBasis = { ...completionEvidenceBasis(execution), ledgerCut: event.workspaceRevision },
@@ -100,6 +95,65 @@ function readCiEvidence(
     basis,
     provenance,
   };
+}
+
+/** Attach only existing evidence to the submitted cut; document sync belongs to its original holder. */
+export async function prepareSubmissionEvidence(
+  cell: RepoCellOperationalContext,
+  taskId: string,
+  executionId: string,
+  binding: RepoCellBinding,
+): Promise<readonly WriteReceipt[]> {
+  const current = await cell.service.read(taskId),
+    snapshot = current.snapshot,
+    execution = snapshot.executions.find(
+      (candidate) => candidate.executionId === executionId && candidate.iteration === snapshot.task?.iteration,
+    );
+  if (!execution?.submission)
+    throw cell.cellCodedError("invalid_transition", "Evidence preparation requires a submitted execution.");
+  const steps: WriteReceipt[] = [],
+    gates = snapshot.task?.completionGateIds ?? [],
+    ci = gates.includes("ci") ? readLatestCiEvidence(cell, execution) : null,
+    witness = currentCodeDocWitness(snapshot.codeDocWitnesses, executionId);
+  if (ci?.result === "fail")
+    throw cell.cellCodedError("invalid_proof", `CI receipt ${ci.provenance.rawResult} reported fail.`);
+  if (
+    gates.includes("code-doc-reconciliation") &&
+    !(
+      witness?.iteration === execution.iteration &&
+      (witness.schema === "code-doc-witness-repoint/v1" || witness.commitSha === execution.submission.commitSha)
+    )
+  ) {
+    const step = await cell.lifecycleAction(
+      {
+        kind: "task-code-doc-reconcile",
+        taskId,
+        paths: execution.submission.deliverables,
+      },
+      binding,
+    );
+    steps.push(step);
+    if (step.outcome !== "applied") return steps;
+  }
+  const refreshed = cell.projection.read(taskId),
+    recorded = refreshed.snapshot.gateWitnesses.find(
+      (candidate) =>
+        candidate.executionId === executionId &&
+        candidate.gateId === "ci" &&
+        candidate.commitSha === execution.submission!.commitSha &&
+        candidate.iteration === execution.iteration,
+    ),
+    alreadyVerified =
+      recorded?.basis &&
+      recorded.provenance &&
+      recorded.observed !== undefined &&
+      judgeCompletionEvidence(
+        { ...recorded, basis: recorded.basis, provenance: recorded.provenance, observed: recorded.observed },
+        { execution, gateId: "ci" },
+      ).accepted;
+  if (ci && !alreadyVerified)
+    steps.push(cell.publishCiWitness(taskId, executionId, refreshed.snapshot, refreshed.packagePath, binding, ci));
+  return steps;
 }
 
 export function appendProgress(
@@ -209,25 +263,14 @@ export async function completeTask(
       typeof action.executionId === "string" ? action.executionId : undefined,
     ),
     executionId = decision.executionId ?? "",
-    allowed = ["kind", "taskId", "executionId", "verb", "commandType", "ci", "paths", "factHolds"],
-    paths = cell.cellStringList(action.paths),
+    allowed = ["kind", "taskId", "executionId", "verb", "commandType", "factHolds"],
     factRetirementAttestations = stillHoldsAttestations(cell, action.factHolds),
     submittedExecution = initial.snapshot.executions.find(
       (value) => value.executionId === executionId && value.iteration === initial.snapshot.task?.iteration,
     ),
-    ciEvidence = readCiEvidence(cell, action.ci, submittedExecution);
-  if (
-    Object.keys(action).some((field) => !allowed.includes(field)) ||
-    (action.ci !== undefined && ciEvidence === null) ||
-    (action.paths !== undefined && (!Array.isArray(action.paths) || paths.length !== action.paths.length))
-  )
-    throw cell.cellCodedError(
-      "invalid_command",
-      [
-        "Complete accepts a canonical CI receipt reference and optional canonical --path values; ",
-        "a self-reported --ci passed value is not evidence.",
-      ].join(""),
-    );
+    paths = submittedExecution?.submission?.deliverables ?? [];
+  if (Object.keys(action).some((field) => !allowed.includes(field)))
+    throw cell.cellCodedError("invalid_command", "Complete derives CI evidence and paths from the submitted cut.");
   const initialOpId = cell.operationId(action, binding, cell.input.repoId, initial.snapshot.revision);
   if (
     !decision.executionId ||
@@ -235,20 +278,6 @@ export async function completeTask(
     decision.blocker?.code === "execution_ambiguous"
   )
     return cell.completionStopped(initialOpId, initial.snapshot, executionId, decision.blocker!, []);
-  const steps: WriteReceipt[] = [],
-    facadeOpId = cell.operationId(
-      {
-        kind: "task-complete",
-        taskId,
-        executionId,
-        ...(ciEvidence ? { ci: ciEvidence.provenance.rawResult } : {}),
-        ...(paths.length ? { paths } : {}),
-        ...(factRetirementAttestations.length ? { factHolds: factRetirementAttestations } : {}),
-      },
-      binding,
-      cell.input.repoId,
-      initial.snapshot.revision,
-    );
   const completedEvent = cell.projection.readTaskCompletion(taskId, executionId);
   if (completedEvent) {
     const publication = cell.publicPublication(cell.store.publication(completedEvent));
@@ -264,6 +293,25 @@ export async function completeTask(
       [],
     );
   }
+  const ciEvidence = initial.snapshot.task?.completionGateIds.includes("ci")
+    ? readLatestCiEvidence(cell, submittedExecution)
+    : null;
+  if (ciEvidence?.result === "fail")
+    throw cell.cellCodedError("invalid_proof", `CI receipt ${ciEvidence.provenance.rawResult} reported fail.`);
+  const steps: WriteReceipt[] = [],
+    facadeOpId = cell.operationId(
+      {
+        kind: "task-complete",
+        taskId,
+        executionId,
+        ...(ciEvidence ? { ci: ciEvidence.provenance.rawResult } : {}),
+        ...(paths.length ? { paths } : {}),
+        ...(factRetirementAttestations.length ? { factHolds: factRetirementAttestations } : {}),
+      },
+      binding,
+      cell.input.repoId,
+      initial.snapshot.revision,
+    );
   // Read through every remaining preparation before publishing any witness or document.
   // This does not change the authoritative snapshot or the final completion proof.
   const preparedContext = cell.completionContext(
@@ -280,7 +328,7 @@ export async function completeTask(
     ),
   );
   const codeDoc =
-    action.paths !== undefined && submittedExecution?.submission
+    initial.snapshot.task?.completionGateIds.includes("code-doc-reconciliation") && submittedExecution?.submission
       ? verifyCodeDocCommitPaths({ rootDir: cell.rootDir, commitSha: submittedExecution.submission.commitSha, paths })
       : null;
   const remaining = completionBlockers(initial.snapshot, executionId, {
@@ -396,7 +444,7 @@ export async function completeTask(
       steps.push(step);
       continue;
     }
-    if (blocker.code === "code_doc_missing" && action.paths !== undefined) {
+    if (blocker.code === "code_doc_missing" && submittedExecution?.submission) {
       const submitted = current.snapshot.executions.find(
         (candidate) =>
           candidate.executionId === executionId && candidate.iteration === current.snapshot.task?.iteration,

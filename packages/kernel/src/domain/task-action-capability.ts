@@ -160,7 +160,7 @@ function submitValidation(input: TaskActionCapabilityInput): PredicateEvaluation
   if (!submitted) return "invocation-required";
   const taskId = invocationTaskId(input),
     executionId = submitted.executionId,
-    amend = `ha task submit ${taskId} --execution-id ${executionId} ` + "--amend --json-input '<submission-json>'";
+    amend = `ha task submit ${taskId} --execution-id ${executionId} --amend`;
   return {
     status: input.invocation?.amend === false ? "unmet" : "invocation-required",
     nextActions: [
@@ -216,7 +216,7 @@ function reviewValidation(input: TaskActionCapabilityInput): PredicateEvaluation
         `${taskId}`,
         " --execution-id ",
         `${executionId}`,
-        " --json-input '<submission-json>', then retry ",
+        ", then retry ",
         `${reviewCommand(taskId, executionId, reviewId)}`,
         ".",
       ].join(""),

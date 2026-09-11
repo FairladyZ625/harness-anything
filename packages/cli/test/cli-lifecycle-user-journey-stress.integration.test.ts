@@ -150,22 +150,15 @@ test("CLI changes-requested recovery releases and re-enters a new execution", as
     );
     await expectApplied(fixture, ["task", "start", taskId, "--execution-id", firstExecutionId], workerEnvironment);
     await expectApplied(fixture, ["doc", "sync", "--submit", "--task", taskId], workerEnvironment);
-    const firstSubmission = {
-      completionClaim: "First execution needs another iteration.",
-      deliverables: [packagePathFor(packagePath, "closeout.md")],
-      outputs: ["synthetic recovery receipt"],
-      verificationNotes: ["changes_requested recovery"],
-      knownGaps: ["review requested another iteration"],
-      residualRisks: [],
-      commitSha: git(fixture.root, "rev-parse", "HEAD"),
-    };
-    const firstSubmissionPath = path.join(fixture.root, "recovery-first-submission.json");
-    writeFileSync(firstSubmissionPath, JSON.stringify(firstSubmission));
-    await expectApplied(
-      fixture,
-      ["task", "submit", taskId, "--execution-id", firstExecutionId, "--from-file", path.basename(firstSubmissionPath)],
-      workerEnvironment,
+    writeFileSync(path.join(packageRoot, "artifacts", "recovery.txt"), "Changes-requested recovery execution.\n");
+    writeFileSync(
+      closeoutPath,
+      "# Closeout\n\n## Summary\n\nFirst execution needs another iteration.\n\n" +
+        "## Verification\n\nChanges-requested recovery exercised.\n\n" +
+        "## Residual Risk\n\n已知缺口：review requested another iteration\n\n" +
+        "## Same Mechanism Elsewhere\n\nRecovery lifecycle.\n",
     );
+    await expectApplied(fixture, ["task", "submit", taskId, "--execution-id", firstExecutionId], workerEnvironment);
     const requested = await expectApplied(
       fixture,
       [
@@ -193,27 +186,13 @@ test("CLI changes-requested recovery releases and re-enters a new execution", as
     assert.equal(afterRequestEvidence.task?.status, "active");
     assert.equal(afterRequestEvidence.task?.iteration, 1);
     await expectApplied(fixture, ["task", "start", taskId, "--execution-id", secondExecutionId], workerEnvironment);
-    const secondSubmission = {
-      ...firstSubmission,
-      completionClaim: "Second execution addresses the requested verification note.",
-      knownGaps: [],
-      commitSha: git(fixture.root, "rev-parse", "HEAD"),
-    };
-    const secondSubmissionPath = path.join(fixture.root, "recovery-second-submission.json");
-    writeFileSync(secondSubmissionPath, JSON.stringify(secondSubmission));
-    await expectApplied(
-      fixture,
-      [
-        "task",
-        "submit",
-        taskId,
-        "--execution-id",
-        secondExecutionId,
-        "--from-file",
-        path.basename(secondSubmissionPath),
-      ],
-      workerEnvironment,
+    writeFileSync(
+      closeoutPath,
+      "# Closeout\n\n## Summary\n\nSecond execution addresses the requested verification note.\n\n" +
+        "## Verification\n\nRequested verification note addressed.\n\n" +
+        "## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nRecovery lifecycle.\n",
     );
+    await expectApplied(fixture, ["task", "submit", taskId, "--execution-id", secondExecutionId], workerEnvironment);
     const review = await expectApplied(
       fixture,
       [
@@ -656,24 +635,11 @@ async function runChain(
       "## Same Mechanism Elsewhere\n\nNo production behavior changed.\n",
   );
   await expectApplied(fixture, ["doc", "sync", "--submit", "--task", taskId], workerEnvironment);
-  const commitSha = git(fixture.root, "rev-parse", "HEAD"),
-    submissionPath = path.join(fixture.root, `submission-${taskId}.json`),
-    submission = {
-      completionClaim: "Synthetic CLI lifecycle chain is complete.",
-      deliverables: [packagePathFor(packagePath, "artifacts/chain.txt")],
-      outputs: ["synthetic lifecycle receipt"],
-      verificationNotes: ["task show reached done"],
-      knownGaps: [],
-      residualRisks: [],
-      commitSha,
-    };
-  writeFileSync(submissionPath, JSON.stringify(submission));
   if (facade) {
     const closeoutPacketPath = path.join(fixture.root, `closeout-${taskId}.json`);
     writeFileSync(
       closeoutPacketPath,
       JSON.stringify({
-        submission,
         review: {
           verdict: "approved",
           reason: "Independent synthetic reviewer checked the closeout packet.",
@@ -693,11 +659,7 @@ async function runChain(
       ["submit", "review-execution", "review-consent", "complete"],
     );
   } else {
-    await expectApplied(
-      fixture,
-      ["task", "submit", taskId, "--from-file", path.basename(submissionPath)],
-      workerEnvironment,
-    );
+    await expectApplied(fixture, ["task", "submit", taskId], workerEnvironment);
   }
   const review = facade
     ? null
@@ -746,14 +708,7 @@ async function runChain(
       ],
       workerEnvironment,
     );
-    if (standard) {
-      await expectApplied(fixture, ["task", "code-doc", "reconcile", taskId, "--path", "README.md"], workerEnvironment);
-      await expectApplied(
-        fixture,
-        ["task", "complete", taskId, "--execution-id", executionId, "--ci", "passed"],
-        workerEnvironment,
-      );
-    } else await expectApplied(fixture, ["task", "complete", taskId, "--execution-id", executionId], workerEnvironment);
+    await expectApplied(fixture, ["task", "complete", taskId, "--execution-id", executionId], workerEnvironment);
   }
   const final = await expectApplied(fixture, ["task", "show", taskId], workerEnvironment),
     finalEvidence = JSON.parse(String(final.evidence)) as { readonly task?: { readonly status?: string } };

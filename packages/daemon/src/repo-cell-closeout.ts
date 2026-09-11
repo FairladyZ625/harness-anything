@@ -1,3 +1,4 @@
+import { submitTask } from "./repo-cell-submit.ts";
 import { runTaskCloseoutAction } from "../../application/src/task-closeout-action.ts";
 import { closeoutReadiness, type WriteReceiptDraft } from "../../kernel/src/index.ts";
 import { authorizeRepoCellAction } from "./repo-cell-authorization.ts";
@@ -88,6 +89,7 @@ export async function closeoutTask(
         };
       if (stage === "task-show") return cell.showTask(taskId);
       if (stage === "preset-upgrade") return cell.upgradePresetSnapshot(leafAction, leafBinding);
+      if (stage === "submit") return submitTask(cell, leafAction, leafBinding);
       if (stage === "complete") return cell.completeTask(leafAction, leafBinding);
       return cell.lifecycleAction(leafAction, leafBinding);
     },

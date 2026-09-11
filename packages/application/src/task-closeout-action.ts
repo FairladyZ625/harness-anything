@@ -5,7 +5,6 @@ import {
   currentExecutionCuts,
   isSamePerson,
   isSameExecution,
-  stableStringify,
   submissionDigest,
   taskCloseoutPacketSchema,
   validateTaskCloseoutPacket,
@@ -65,14 +64,10 @@ export async function runTaskCloseoutAction(dependencies: TaskCloseoutActionDepe
   if (!task || task.taskId !== taskId) return reject(opId, "task_not_found", { commands: ["ha task list"] });
   if (action.printSchema === true) return discoveryReceipt(opId, snapshot, taskCloseoutPacketSchema);
   if (action.printTemplate === true) {
-    const submitted = currentExecutionCuts(snapshot).some(
-        (candidate) =>
-          candidate.submission !== null && (executionId === undefined || candidate.executionId === executionId),
-      ),
-      template = createTaskCloseoutPacketTemplate({
-        includeSubmission: !submitted,
-        ci: task.completionGateIds.includes(ciGateId) ? "passed" : "not_applicable",
-      });
+    const template = createTaskCloseoutPacketTemplate({
+      includeSubmission: false,
+      ci: task.completionGateIds.includes(ciGateId) ? "passed" : "not_applicable",
+    });
     return discoveryReceipt(opId, snapshot, template);
   }
   const packetArgument =
@@ -143,13 +138,8 @@ export async function runTaskCloseoutAction(dependencies: TaskCloseoutActionDepe
     return reject(opId, "executor_missing", { commands: [declareExecutor, invocation] });
   let stage = 0,
     submitActor: ActorIdentity | null = null,
-    submission: SubmissionV1;
+    submission: SubmissionV1 | undefined;
   if (task.status === "active") {
-    if (!judgment.submission)
-      return reject(opId, "submission_required", {
-        commands: [`ha task closeout ${taskId} --print-template`, invocation],
-      });
-    submission = judgment.submission;
     if (!snapshot.lease)
       return reject(opId, "lease_required", {
         commands: [`ha task start ${taskId} --execution-id <execution-id>`, invocation],
@@ -178,20 +168,6 @@ export async function runTaskCloseoutAction(dependencies: TaskCloseoutActionDepe
     const selected = candidates[0]!;
     if (!selected.submission) return reject(opId, "invalid_transition", { commands: [`ha task show ${taskId}`] });
     submission = selected.submission;
-    if (judgment.submission && !sameSubmission(selected.submission, judgment.submission))
-      return reject(opId, "submission_mismatch", {
-        commands: [
-          `ha task submit ${taskId} --execution-id ${selected.executionId} --amend --json-input '<submission-json>'`,
-          invocation,
-        ],
-        diagnostic: {
-          kind: "validation",
-          entity: `execution/${selected.executionId}`,
-          field: "submission",
-          actual: JSON.stringify(judgment.submission),
-          expectation: JSON.stringify(selected.submission),
-        },
-      });
     const reviewId = deterministicReviewId(taskId, task.iteration, submission.commitSha, judgment.review);
     const assessed = closeoutReadiness(
       executionId
@@ -220,15 +196,6 @@ export async function runTaskCloseoutAction(dependencies: TaskCloseoutActionDepe
       stage = 2;
   }
 
-  const reviewId = deterministicReviewId(taskId, task.iteration, submission.commitSha, judgment.review),
-    consentId = deterministicId(
-      "consent-closeout",
-      taskId,
-      String(task.iteration),
-      submissionDigest(submission),
-      reviewId,
-    );
-
   const selector = executionId ? { executionId } : {},
     humanReviewer: ActorIdentity = { principal: caller.principal, executor: null },
     steps: Array<WriteReceipt & { readonly stage: string }> = [];
@@ -248,13 +215,24 @@ export async function runTaskCloseoutAction(dependencies: TaskCloseoutActionDepe
     if (stopped) return stopped;
   }
   if (stage <= 0) {
-    const stopped = await invoke(
-      "submit",
-      { kind: "task-submit", taskId, ...selector, submission },
-      submitActor ?? caller,
-    );
+    const stopped = await invoke("submit", { kind: "task-submit", taskId, ...selector }, submitActor ?? caller);
     if (stopped) return stopped;
+    const submitted = currentExecutionCuts(await dependencies.read()).find(
+      (candidate) => candidate.executionId === snapshot.lease?.executionId,
+    );
+    submission = submitted?.submission ?? undefined;
   }
+  if (!submission) return reject(opId, "invalid_transition", { commands: [`ha task show ${taskId}`] });
+
+  const reviewId = deterministicReviewId(taskId, task.iteration, submission.commitSha, judgment.review),
+    consentId = deterministicId(
+      "consent-closeout",
+      taskId,
+      String(task.iteration),
+      submissionDigest(submission),
+      reviewId,
+    );
+
   if (stage <= 1) {
     const reviewBody = `${JSON.stringify(judgment.review, null, 2)}\n`,
       stopped = await invoke(
@@ -283,9 +261,7 @@ export async function runTaskCloseoutAction(dependencies: TaskCloseoutActionDepe
     );
     if (stopped) return stopped;
   }
-  const ciFlag = judgment.completion.ci === "passed" ? { ci: "passed" as const } : {};
-  const pathFlag = { paths: judgment.completion.codeDocPaths };
-  const completion = { kind: "task-complete", taskId, ...selector, ...ciFlag, ...pathFlag };
+  const completion = { kind: "task-complete", taskId, ...selector };
   const stopped = await invoke("complete", completion, caller);
   if (stopped) return stopped;
   const { stage: _stage, ...final } = steps.at(-1)!;
@@ -382,10 +358,7 @@ function candidateRejection(
 ): WriteReceipt {
   const commands = candidates.map((candidate) => closeoutInvocation(taskId, packetArgument, candidate));
   return reject(opId, "ambiguous_execution", {
-    commands:
-      commands.length > 0
-        ? commands
-        : [`ha task submit ${taskId} --json-input '<submission-json>'`, closeoutInvocation(taskId, packetArgument)],
+    commands: commands.length > 0 ? commands : [`ha task submit ${taskId}`, closeoutInvocation(taskId, packetArgument)],
   });
 }
 function reject(
@@ -405,9 +378,6 @@ function reject(
 }
 function commandGuidance(commands: readonly string[]) {
   return commands.map((command) => ({ kind: "run-command" as const, args: { command } }));
-}
-function sameSubmission(left: SubmissionV1, right: SubmissionV1): boolean {
-  return stableStringify(left) === stableStringify(right);
 }
 function discoveryReceipt(opId: string, snapshot: Snapshot, value: unknown): WriteReceipt {
   return {

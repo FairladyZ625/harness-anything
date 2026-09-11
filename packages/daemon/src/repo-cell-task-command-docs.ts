@@ -1,3 +1,4 @@
+import { readCloseoutSubmission, submissionStopped } from "./repo-cell-submit.ts";
 import { createHash } from "node:crypto";
 import {
   compileTaskLifecycleWrite,
@@ -52,6 +53,11 @@ export async function runTaskCommandWithDocs(
 ): Promise<WriteReceipt> {
   const { docChanges, mirrorBaseCut, ...taskAction } = action,
     taskId = cell.requiredCellText(taskAction.taskId, "taskId");
+  if (
+    taskAction.kind === "task-submit" &&
+    ["submission", "fromFile", "jsonInput"].some((key) => taskAction[key] !== undefined)
+  )
+    throw cell.cellCodedError("invalid_command", "Submit derives its packet from closeout.md.");
   const head = cell.store.readHead(),
     headRevision = head?.revision ?? 0,
     opId = cell.operationId(action, binding, cell.input.repoId, headRevision);
@@ -206,8 +212,34 @@ export async function runTaskCommandWithDocs(
     }
     completionExecutionId = decision.executionId;
   }
+  const submittedExecutionId =
+    taskAction.kind === "task-submit"
+      ? typeof taskAction.executionId === "string"
+        ? taskAction.executionId
+        : current.snapshot.lease?.executionId
+      : undefined;
+  let submittedAction = taskAction;
+  if (submittedExecutionId) {
+    const derived = readCloseoutSubmission(cell, taskId, submittedExecutionId, current.snapshot, bodyOverrides);
+    if (!derived.ok) {
+      recycleClaims(cell.rootDir, intent);
+      return submissionStopped(
+        cell,
+        taskAction,
+        binding,
+        current.snapshot,
+        submittedExecutionId,
+        current.packagePath,
+        derived.error,
+      );
+    }
+    submittedAction = { ...taskAction, executionId: submittedExecutionId, submission: derived.submission };
+  }
   const normalized = cell.buildCommand(
-      { ...taskAction, ...(completionExecutionId ? { executionId: completionExecutionId } : {}) } as RepoTaskAction,
+      {
+        ...submittedAction,
+        ...(completionExecutionId ? { executionId: completionExecutionId } : {}),
+      } as RepoTaskAction,
       taskId,
       binding,
       cell.input.repoId,

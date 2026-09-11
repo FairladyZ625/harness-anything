@@ -887,6 +887,10 @@ test("semantic sources and agent execution cross the daemon before transport-bou
       "# Closeout\n\n## Summary\n\nExecutor attribution restored.\n\n## Verification\n\nEnd-to-end daemon flow.\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nNot applicable to this fixture.\n",
       "utf8",
     );
+    writeFileSync(
+      path.join(fixture.root, "harness", packagePath, "artifacts", "executor-axis.txt"),
+      "Executor and review actor axes remain distinct.\n",
+    );
     const closeoutSync = run(
       fixture.root,
       fixture.userRoot,
@@ -895,25 +899,11 @@ test("semantic sources and agent execution cross the daemon before transport-bou
     );
     assert.equal(closeoutSync.outcome, "applied");
     published(fixture.root, fixture.userRoot, closeoutSync);
-    const commitSha = git(fixture.root, "rev-parse", "HEAD");
-
-    writeFileSync(
-      path.join(fixture.root, "submission.json"),
-      JSON.stringify({
-        completionClaim: "Executor axis is covered.",
-        deliverables: ["README.md"],
-        outputs: [closeoutPath],
-        verificationNotes: ["end-to-end daemon flow"],
-        knownGaps: [],
-        residualRisks: [],
-        commitSha,
-      }),
-    );
     assert.equal(
       run(
         fixture.root,
         fixture.userRoot,
-        ["task", "submit", taskId, "--execution-id", executionId, "--from-file", "submission.json"],
+        ["task", "submit", taskId, "--execution-id", executionId],
         "agent:claude-code",
       ).outcome,
       "applied",
@@ -922,7 +912,7 @@ test("semantic sources and agent execution cross the daemon before transport-bou
       run(
         fixture.root,
         fixture.userRoot,
-        ["task", "code-doc", "reconcile", taskId, "--path", "README.md"],
+        ["task", "code-doc", "reconcile", taskId, "--path", `${packagePath}/artifacts/executor-axis.txt`],
         "agent:claude-code",
       ).outcome,
       "applied",

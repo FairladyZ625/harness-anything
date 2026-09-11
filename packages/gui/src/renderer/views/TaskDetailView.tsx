@@ -11,7 +11,6 @@ import {
   ShareNetwork,
   TerminalWindow,
 } from "@phosphor-icons/react";
-import type { GuiSubmissionV1 } from "../../api/renderer-dto.ts";
 import { EngineBadge, FreshnessTag, StatusBadge } from "../components/badges.tsx";
 import { EntityRefLink } from "../components/EntityRefLink.tsx";
 import { ViewInGraphButton } from "../components/ViewInGraphButton.tsx";
@@ -80,7 +79,7 @@ export function TaskDetailView({
     text: string;
     evidence: ReadonlyArray<{ type: string; path: string; summary: string }>;
   }) => Promise<unknown>;
-  onSubmit?: (submission: GuiSubmissionV1) => Promise<unknown>;
+  onSubmit?: () => Promise<unknown>;
   /** 台账 pin 写通道(`ha task pin` 同一动作);缺省时只显示 📌 状态。 */
   onSetPin?: (task: TaskRow, pinned: boolean) => void;
   /** 统一「在关系图中查看」入口(task_89d324b5);缺省不渲染。 */

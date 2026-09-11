@@ -4,7 +4,6 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import path from "node:path";
 import test from "node:test";
 import { makeTaskEventReader } from "../../packages/kernel/src/index.ts";
-import { git } from "../../packages/cli/test/daemon-multi-repo-lifecycle-cli.fixtures.ts";
 import { realizedTaskPlan } from "../fixtures/task-plan.mjs";
 import {
   assertBytes,
@@ -152,17 +151,7 @@ function taskChain(f, reader, index) {
   });
   f.publish(report, "task.report", actor);
   f.check("task.report.same-cut-bytes", () => assertBytes(f.root, reportPath, reportBody, report, reader));
-  const submission = {
-    completionClaim: "Fixed-seed report is complete.",
-    deliverables: [reportPath],
-    outputs: ["calibration report"],
-    verificationNotes: ["canonical blob, Git and worktree bytes checked"],
-    knownGaps: [],
-    residualRisks: [],
-    commitSha: git(f.root, "rev-parse", "HEAD"),
-  };
-  writeFileSync(path.join(f.root, "submission.json"), JSON.stringify(submission));
-  f.invoke("task.submit", ["task", "submit", taskId, "--from-file", "submission.json"], { actor });
+  f.invoke("task.submit", ["task", "submit", taskId], { actor });
   const closeout = f.invoke("task.review-consent-complete", ["task", "closeout", taskId, "--json-input", "@-"], {
     input: {
       review: { verdict: "approved", reason: "Fixture bytes checked.", evidenceChecked: [reportPath] },

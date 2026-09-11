@@ -8,7 +8,7 @@ import {
   type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
 import { validateGuiSubmission, type GuiSubmissionV1 } from "./protocol/daemon-protocol.contract.ts";
-import { reviewJsonFields, taskSubmissionJsonFields } from "./protocol/daemon-protocol-commands-task.ts";
+import { reviewJsonFields } from "./protocol/daemon-protocol-commands-task.ts";
 import { validationDiagnostic } from "./protocol/daemon-protocol-validate-entities.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
 import { gateChecks } from "./repo-cell-proof.ts";
@@ -160,31 +160,13 @@ export function reviewQualificationFields(value: Record<string, unknown>): {
   };
 }
 
-export function submissionPacket(action: RepoTaskAction, rootDir: string): GuiSubmissionV1 {
-  const hasPacketSource = action.fromFile !== undefined || action.jsonInput !== undefined;
-  if (action.submission !== undefined && hasPacketSource)
-    throw cellCodedError(
-      "invalid_command",
-      "Submit accepts either its RPC submission or one CLI JSON source, not both.",
-    );
-  const value = action.submission ?? packetRecord(rootDir, action, taskSubmissionJsonFields, "task submission").value,
+export function submissionPacket(action: RepoTaskAction): GuiSubmissionV1 {
+  if (action.fromFile !== undefined || action.jsonInput !== undefined)
+    throw cellCodedError("invalid_command", "Write closeout.md, then run ha task submit without JSON input.");
+  const value = action.submission,
     issues = validateGuiSubmission(value);
-  if (issues.length) {
-    const first = validationDiagnostic(issues[0]!);
-    throw cellCodedError(
-      "invalid_submission",
-      issues.join("; "),
-      first
-        ? {
-            ...first,
-            entity: "task submission",
-            expectation:
-              `${first.expectation}; fix the packet, then retry ha task submit ${String(action.taskId)} ` +
-              `--execution-id ${String(action.executionId)} --from-file <submission.json>`,
-          }
-        : undefined,
-    );
-  }
+  if (issues.length)
+    throw cellCodedError("invalid_submission", issues.join("; "), validationDiagnostic(issues[0]!) ?? undefined);
   return value as unknown as GuiSubmissionV1;
 }
 
@@ -224,7 +206,7 @@ export function lifecycleReceipt(
       event.type === "lease_released" && snapshot.task?.status === "active"
         ? `ha task transition ${event.taskId} planned --reason <why-work-is-returning-to-planning>`
         : snapshot.task?.status === "active" && executionId
-          ? `ha task submit ${event.taskId} --json-input '<submission-json>'`
+          ? `ha task submit ${event.taskId}`
           : snapshot.task?.status === "active"
             ? `ha task start ${event.taskId} --execution-id <id>`
             : snapshot.task?.status !== "in_review"
@@ -256,7 +238,7 @@ export function lifecycleReceipt(
                       " --consent-id <id>",
                     ].join("")
                   : missingGate === "ci"
-                    ? `ha task complete ${event.taskId} --execution-id ${executionId} --ci <receipt-ref>`
+                    ? `ha task complete ${event.taskId} --execution-id ${executionId}`
                     : missingGate === "code-doc-reconciliation"
                       ? `ha task closeout ${event.taskId} --from-file <packet.json>`
                       : `ha task complete ${event.taskId} --execution-id ${executionId}`,
@@ -288,7 +270,7 @@ export function lifecycleReceipt(
     evidence: `event-object:${event.opId};files:${changedPaths.join(",")}`,
     visibility: "center",
     proof,
-    authorizationDecision,
+    ...(authorizationDecision === undefined ? {} : { authorizationDecision }),
     taskId: event.taskId,
     executionId,
     reviewId,

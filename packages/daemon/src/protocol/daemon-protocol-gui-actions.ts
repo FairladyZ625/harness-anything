@@ -65,7 +65,7 @@ export const daemonGuiActionMethods = Object.freeze([
     "task.submit",
     "repo.task.submit",
     "task-submit",
-    shape({ taskId: "string", executionId: "string", submission: "json" }),
+    shape({ taskId: "string", executionId: "string?", amend: "boolean?" }),
     "submitTask",
     "/api/tasks/:taskId/submit",
     "repo-write",

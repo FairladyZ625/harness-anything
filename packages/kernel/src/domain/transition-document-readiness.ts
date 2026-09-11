@@ -1,3 +1,4 @@
+import type { SubmissionV1 } from "./execution.ts";
 import { getTaskActionForTransition } from "./entity-kind-registry.ts";
 
 type TransitionDocumentKind = "task.plan" | "task.closeout" | "decision.body" | "agent.instructions" | "squad.roster";
@@ -176,6 +177,25 @@ export function assertTransitionDocumentReady(kind: TransitionDocumentKind, body
   throw error;
 }
 
+/** Preserve authored evidence verbatim; the execution cut supplies every repository-derived field. */
+export function submissionFromCloseout(
+  body: string,
+  cut: Pick<SubmissionV1, "commitSha" | "deliverables" | "outputs">,
+): SubmissionV1 {
+  assertTransitionDocumentReady("task.closeout", body);
+  const sections = markdownSections(body),
+    risks = [sections.get("residual risk")!, sections.get("same mechanism elsewhere")!];
+  return {
+    completionClaim: sections.get("summary")!,
+    verificationNotes: [sections.get("verification")!],
+    knownGaps: risks,
+    residualRisks: risks,
+    commitSha: cut.commitSha,
+    deliverables: cut.deliverables,
+    outputs: cut.outputs,
+  };
+}
+
 function missingMarkdownSections(body: string, contract: MarkdownDocumentContract): TransitionDocumentMissingSection[] {
   const sections = markdownSections(body),
     untouchedScaffold = contract.requiredSections.every((heading) => {
@@ -205,15 +225,40 @@ function missingMarkdownSections(body: string, contract: MarkdownDocumentContrac
   });
 }
 
-function markdownSections(body: string): ReadonlyMap<string, string> {
-  const sections = new Map<string, string>(),
-    headings = [...body.matchAll(/^##[ \t]+(.+?)[ \t]*#*[ \t]*$/gmu)];
-  for (let index = 0; index < headings.length; index += 1) {
-    const current = headings[index]!,
-      start = (current.index ?? 0) + current[0].length,
-      end = headings[index + 1]?.index ?? body.length;
-    sections.set(normalizeHeading(current[1]!), body.slice(start, end).trim());
+/** Shared section reader: fenced examples are content, and repeated sections retain every occurrence. */
+export function markdownSections(body: string): ReadonlyMap<string, string> {
+  const sections = new Map<string, string>();
+  let heading: string | null = null;
+  let content: string[] = [];
+  let fence: { marker: string; length: number } | null = null;
+  const retain = () => {
+    if (heading === null) return;
+    const previous = sections.get(heading);
+    sections.set(heading, [previous, content.join("\n").trim()].filter((value) => value !== undefined).join("\n\n"));
+  };
+  for (const line of body.split(/\r?\n/u)) {
+    const delimiter = /^ {0,3}(`{3,}|~{3,})(.*)$/u.exec(line);
+    if (fence === null && delimiter) {
+      fence = { marker: delimiter[1]![0]!, length: delimiter[1]!.length };
+    } else if (fence !== null) {
+      if (
+        delimiter &&
+        delimiter[1]![0] === fence.marker &&
+        delimiter[1]!.length >= fence.length &&
+        !delimiter[2]!.trim()
+      )
+        fence = null;
+      content.push(line);
+      continue;
+    }
+    const match = fence === null ? /^##[ \t]+(.+?)[ \t]*#*[ \t]*$/u.exec(line) : null;
+    if (match) {
+      retain();
+      heading = normalizeHeading(match[1]!);
+      content = [];
+    } else content.push(line);
   }
+  retain();
   return sections;
 }
 

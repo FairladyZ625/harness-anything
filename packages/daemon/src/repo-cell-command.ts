@@ -117,7 +117,7 @@ export function buildCommand(
   if (lifecycleAction?.commandType === "SubmitExecution") {
     const amendment = action.amend === true,
       held = heldLeaseForExecutionActor(snapshot, undefined, binding.actor),
-      flags = `${amendment ? " --amend" : ""} --json-input '<submission-json>'`,
+      flags = `${amendment ? " --amend" : ""}`,
       requestedExecutionId = explicitExecutionId(action),
       executionId =
         requestedExecutionId ??
@@ -128,8 +128,8 @@ export function buildCommand(
             ? `Run ha task show ${taskId}; only a current submitted execution can be amended.`
             : snapshot.lease
               ? `The authenticated holder (${actorHint(snapshot.lease.actor)}) must run ` +
-                `ha task submit ${taskId} --json-input '<submission-json>', or ha task release ${taskId}.`
-              : `Run ha task start ${taskId}, then retry ha task submit ${taskId} --json-input '<submission-json>'.`,
+                `ha task submit ${taskId}, or ha task release ${taskId}.`
+              : `Run ha task start ${taskId}, then retry ha task submit ${taskId}.`,
           (candidate) => `ha task submit ${taskId} --execution-id ${candidate}${flags}`,
         );
     if (amendment && requestedExecutionId) assertCurrentSubmittedExecution(snapshot, taskId, requestedExecutionId);
@@ -137,7 +137,7 @@ export function buildCommand(
       type: "SubmitExecution",
       taskId,
       executionId,
-      submission: submissionPacket(action, rootDir),
+      submission: submissionPacket(action),
       ...(amendment ? { amend: true as const } : {}),
     });
   }

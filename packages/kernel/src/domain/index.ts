@@ -86,6 +86,7 @@ export type { BlockingLabel } from "./task-blocking.ts";
 
 export {
   assessTransitionDocument,
+  submissionFromCloseout,
   assertTransitionDocumentReady,
   requireTransitionDocumentKind,
 } from "./transition-document-readiness.ts";

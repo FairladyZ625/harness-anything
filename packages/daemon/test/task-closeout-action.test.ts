@@ -154,6 +154,8 @@ function setup(
         presetSnapshotCurrent: () => presetSnapshotCurrent,
         invoke: async (stage, action, stepActor) => {
           calls.push({ stage, action, actor: stepActor });
+          if (stage === "submit" && stage !== rejectStage)
+            initial = snapshot("in_review", [execution(executionId, "submitted")]);
           return stage === rejectStage
             ? {
                 outcome: "op_rejected",
@@ -191,7 +193,9 @@ test("closeout runs four canonical leaf commands without impersonating the creat
       value.calls.map(({ actor }) => actor.executor?.id ?? null),
       ["worker-agent", null, "worker-agent", "worker-agent"],
     );
-    assert.deepEqual(value.calls.at(-1)?.action.paths, ["packages/application/src/task-closeout-action.ts"]);
+    assert.equal(Object.hasOwn(value.calls[0]!.action, "submission"), false);
+    assert.equal(Object.hasOwn(value.calls.at(-1)!.action, "paths"), false);
+    assert.equal(Object.hasOwn(value.calls.at(-1)!.action, "ci"), false);
   } finally {
     rmSync(value.rootDir, { recursive: true, force: true });
   }
@@ -259,6 +263,19 @@ test("a submitted execution resumes at review instead of rejecting P2-06", async
     rmSync(value.rootDir, { recursive: true, force: true });
   }
 });
+test("active closeout submits prose even when the packet omits submission", async () => {
+  const value = setup(),
+    { submission: _locked, ...packet } = judgment();
+  writeFileSync(path.join(value.rootDir, "judgment.json"), JSON.stringify(packet));
+  try {
+    const receipt = await value.run();
+    assert.equal(receipt.outcome, "applied");
+    assert.equal(Object.hasOwn(value.calls[0]!.action, "submission"), false);
+    assert.equal((receipt as WriteReceipt & { submittedCommitSha: string }).submittedCommitSha, commitSha);
+  } finally {
+    rmSync(value.rootDir, { recursive: true, force: true });
+  }
+});
 test("a submitted execution resumes when the packet omits its locked submission", async () => {
   const value = setup(snapshot("in_review", [execution(executionId, "submitted")])),
     { submission: _locked, ...resumePacket } = judgment();
@@ -273,7 +290,7 @@ test("a submitted execution resumes when the packet omits its locked submission"
     rmSync(value.rootDir, { recursive: true, force: true });
   }
 });
-test("a mismatched resubmission reports the locked content and the amendment repair", async () => {
+test("packet submission cannot replace the canonical submitted cut", async () => {
   const value = setup(snapshot("in_review", [execution(executionId, "submitted")]));
   writeFileSync(
     path.join(value.rootDir, "judgment.json"),
@@ -284,11 +301,11 @@ test("a mismatched resubmission reports the locked content and the amendment rep
   );
   try {
     const receipt = await value.run();
-    assert.equal(receipt.code, "submission_mismatch");
-    assert.match(JSON.stringify(receipt.diagnostic), /\\"completionClaim\\":\\"Complete\.\\"/u);
-    assert.match(guidanceCommands(receipt), /ha task submit .* --amend --json-input/u);
-    assert.match(guidanceCommands(receipt), /ha task closeout/u);
-    assert.equal(value.calls.length, 0);
+    assert.equal(receipt.outcome, "applied");
+    assert.equal(
+      value.calls.some(({ stage }) => stage === "submit"),
+      false,
+    );
   } finally {
     rmSync(value.rootDir, { recursive: true, force: true });
   }

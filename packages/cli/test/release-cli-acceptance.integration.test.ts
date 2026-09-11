@@ -111,15 +111,11 @@ function settle(root: string, userRoot: string, opId: string, actor?: string): R
     actor,
   );
 }
-function submissionPacket(root: string, name: string, body: Record<string, unknown>): string {
-  writeFileSync(path.join(root, name), JSON.stringify(body));
-  return name;
-}
-function writeCloseout(root: string, packagePath: string, summary: string): void {
+function writeCloseout(root: string, packagePath: string, summary: string, risk = "None for the fixture."): void {
   writeFileSync(
     path.join(root, "harness", packagePath, "closeout.md"),
     `# Closeout\n\n## Summary\n\n${summary}\n\n## Verification\n\nVerified through the real CLI.\n\n` +
-      `## Residual Risk\n\nNone for the fixture.\n\n## Same Mechanism Elsewhere\n\nNot applicable to the release acceptance fixture.\n`,
+      `## Residual Risk\n\n${risk}\n\n## Same Mechanism Elsewhere\n\nNot applicable to the release acceptance fixture.\n`,
   );
 }
 function docStatusRows(receipt: Record<string, unknown>): ReadonlyArray<Record<string, unknown>> {
@@ -178,6 +174,9 @@ test("release acceptance: attributed lifecycle chain create→start→fact→sub
     ]);
     run(root, userRoot, ["task", "start", taskId, "--execution-id", executionId], worker);
     writeCloseout(root, packagePath, "The chain fixture executed once.");
+    const reportFile = path.join(root, "harness", packagePath, "artifacts", "implementation.md");
+    mkdirSync(path.dirname(reportFile), { recursive: true });
+    writeFileSync(reportFile, "# Release acceptance\n\nThe public probe is the code-doc verification target.\n");
     run(root, userRoot, ["doc", "sync", "--submit", "--task", taskId], worker);
 
     // A real repository deliverable, committed by the fixture, so code-doc reconcile has a true path.
@@ -186,28 +185,8 @@ test("release acceptance: attributed lifecycle chain create→start→fact→sub
     git(root, "add", "scripts/release-acc-probe.mjs");
     git(root, "commit", "--quiet", "-m", "release acceptance probe script");
     const commitSha = git(root, "rev-parse", "HEAD");
-    run(
-      root,
-      userRoot,
-      [
-        "task",
-        "submit",
-        taskId,
-        "--execution-id",
-        executionId,
-        "--from-file",
-        submissionPacket(root, "release-acc-submission.json", {
-          completionClaim: "The chain fixture is complete.",
-          deliverables: ["scripts/release-acc-probe.mjs"],
-          outputs: ["done task through the full chain"],
-          verificationNotes: ["each stage returned an applied receipt"],
-          knownGaps: [],
-          residualRisks: [],
-          commitSha,
-        }),
-      ],
-      worker,
-    );
+    writeCloseout(root, packagePath, `The chain fixture is complete at ${commitSha}.`);
+    run(root, userRoot, ["task", "submit", taskId, "--execution-id", executionId], worker);
     const reconciled = run(
       root,
       userRoot,
@@ -344,7 +323,7 @@ test("release acceptance: changes_requested rework keeps both same-named reports
       "--source",
       `test:${taskId}`,
     ]);
-    writeCloseout(root, packagePath, "First round.");
+    writeCloseout(root, packagePath, "First round.", "已知缺口：The report needs a second execution.");
     mkdirSync(path.dirname(reportFile), { recursive: true });
     run(root, userRoot, ["task", "start", taskId, "--execution-id", firstExecutionId], worker);
     writeFileSync(reportFile, firstBody);
@@ -354,27 +333,17 @@ test("release acceptance: changes_requested rework keeps both same-named reports
       "verified",
     );
     const firstCommit = git(root, "rev-parse", "HEAD");
-    run(
-      root,
-      userRoot,
-      [
-        "task",
-        "submit",
-        taskId,
-        "--execution-id",
-        firstExecutionId,
-        "--from-file",
-        submissionPacket(root, "release-acc-rework-1.json", {
-          completionClaim: "The first execution reported its finding.",
-          deliverables: [reportLogical],
-          outputs: ["first execution report"],
-          verificationNotes: ["report published"],
-          knownGaps: ["returned by review"],
-          residualRisks: [],
-          commitSha: firstCommit,
-        }),
-      ],
-      worker,
+    run(root, userRoot, ["task", "submit", taskId, "--execution-id", firstExecutionId], worker);
+    const firstSubmission = reader
+      .read()
+      .events.find(
+        (event) => event.type === "execution_submitted" && event.payload.execution.executionId === firstExecutionId,
+      );
+    assert.ok(firstSubmission?.type === "execution_submitted");
+    assert.ok(
+      firstSubmission.payload.execution.submission?.knownGaps.includes(
+        "已知缺口：The report needs a second execution.",
+      ),
     );
     const returned = run(
       root,
@@ -405,10 +374,10 @@ test("release acceptance: changes_requested rework keeps both same-named reports
 
     run(root, userRoot, ["task", "start", taskId, "--execution-id", secondExecutionId], worker);
     writeFileSync(reportFile, secondBody);
+    writeCloseout(root, packagePath, "The second execution addressed the returned review.");
     const secondPublication = run(root, userRoot, ["doc", "sync", "--submit", "--task", taskId], worker);
     assert.equal(secondPublication.status, "accepted_durable", JSON.stringify(secondPublication));
     settle(root, userRoot, String(secondPublication.opId), worker);
-    const headCommit = git(root, "rev-parse", "HEAD");
     assert.deepEqual(gitBytes(root, `HEAD:harness/${reportLogical}`), Buffer.from(secondBody));
     assert.deepEqual(gitBytes(root, `${firstCommit}:harness/${reportLogical}`), Buffer.from(firstBody));
 
@@ -426,28 +395,14 @@ test("release acceptance: changes_requested rework keeps both same-named reports
       assert.equal(firstEvent.payload.executionId, firstExecutionId);
       assert.equal(secondEvent.payload.executionId, secondExecutionId);
     }
-    run(
-      root,
-      userRoot,
-      [
-        "task",
-        "submit",
-        taskId,
-        "--execution-id",
-        secondExecutionId,
-        "--from-file",
-        submissionPacket(root, "release-acc-rework-2.json", {
-          completionClaim: "The second execution addressed the returned review.",
-          deliverables: [reportLogical],
-          outputs: ["second execution report"],
-          verificationNotes: ["report republished under the same basename"],
-          knownGaps: [],
-          residualRisks: [],
-          commitSha: headCommit,
-        }),
-      ],
-      worker,
-    );
+    run(root, userRoot, ["task", "submit", taskId, "--execution-id", secondExecutionId], worker);
+    const secondSubmission = reader
+      .read()
+      .events.find(
+        (event) => event.type === "execution_submitted" && event.payload.execution.executionId === secondExecutionId,
+      );
+    assert.ok(secondSubmission?.type === "execution_submitted");
+    assert.ok(!secondSubmission.payload.execution.submission?.knownGaps.some((gap) => gap.includes("已知缺口")));
     const approved = run(
       root,
       userRoot,

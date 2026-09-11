@@ -4,13 +4,30 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test, { after, before } from "node:test";
 import { makeTaskEventReader } from "../../kernel/src/index.ts";
 import { parseThinCommand } from "../../cli/src/cli/thin-command.ts";
 import { canonicalRoot, workspaceId, type DaemonAgendaResult } from "../src/protocol/daemon-protocol.contract.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+
+import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
+
+const ciBin = mkdtempSync(path.join(tmpdir(), "ha-submit-ci-bin-"));
+const originalPath = process.env.PATH;
+before(() => {
+  writeProviderExecutable(
+    path.join(ciBin, "gh"),
+    'if (process.argv[2] !== "run" || process.argv[3] !== "list") process.exit(1); console.log("[]");\n',
+  );
+  process.env.PATH = `${ciBin}${path.delimiter}${originalPath ?? ""}`;
+});
+after(() => {
+  if (originalPath === undefined) delete process.env.PATH;
+  else process.env.PATH = originalPath;
+  rmSync(ciBin, { recursive: true, force: true });
+});
 
 const actor = { principal: { personId: "person-agenda" }, executor: { kind: "agent", id: "codex-sol" } } as const;
 const binding = { actor, source: "local" as const };
@@ -99,7 +116,10 @@ test("agenda derives all four groups, pins first, and rejects a missing task pin
       (await cell.run({ kind: "task-start", taskId: "task_review", executionId: "exe_review" }, binding)).outcome,
       "applied",
     );
-    const reviewCommitSha = git(rootDir, "rev-parse", "HEAD");
+    writeFileSync(
+      path.join(rootDir, "harness", createdTasks.get("task_review")!, "closeout.md"),
+      `# Closeout\n\n## Summary\n\nAgenda fixture delivery ${git(rootDir, "rev-parse", "fixture-delivery")} is ready.\n\n## Verification\n\nIntegration assertions exercise agenda grouping and review visibility.\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nTask lifecycle projections share the review cut.\n`,
+    );
     assert.equal(
       (
         await cell.run(
@@ -107,15 +127,6 @@ test("agenda derives all four groups, pins first, and rejects a missing task pin
             kind: "task-submit",
             taskId: "task_review",
             executionId: "exe_review",
-            submission: {
-              completionClaim: "Agenda fixture is ready.",
-              deliverables: ["agenda projection"],
-              outputs: ["daemon agenda"],
-              verificationNotes: ["integration test"],
-              knownGaps: [],
-              residualRisks: [],
-              commitSha: reviewCommitSha,
-            },
           },
           binding,
         )
@@ -424,6 +435,10 @@ function initRepo(rootDir: string): void {
   git(rootDir, "config", "user.name", "Agenda Test");
   git(rootDir, "config", "user.email", "agenda@example.invalid");
   git(rootDir, "commit", "--allow-empty", "-qm", "base");
+  writeFileSync(path.join(rootDir, "README.md"), "# Agenda fixture delivery\n");
+  git(rootDir, "add", "README.md");
+  git(rootDir, "commit", "-qm", "fixture delivery");
+  git(rootDir, "tag", "fixture-delivery");
 }
 function git(rootDir: string, ...args: readonly string[]): string {
   return execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8" }).trim();

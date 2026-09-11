@@ -4,11 +4,28 @@ import { execFileSync, spawn, spawnSync, type ChildProcess } from "node:child_pr
 import { accessSync, constants, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test, { before, after } from "node:test";
 import { localUserDaemonEndpoint } from "../../daemon/src/client/local-daemon-target.ts";
 import { readDaemonPid } from "../../daemon/src/runtime.ts";
 import { seedSettingsEvent } from "../../daemon/test/repo-settings.fixture.ts";
 import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
+
+import { writeProviderExecutable } from "../../daemon/test/fixtures/runtime-stub.ts";
+
+const ciBin = mkdtempSync(path.join(tmpdir(), "ha-submit-ci-bin-"));
+const originalPath = process.env.PATH;
+before(() => {
+  writeProviderExecutable(
+    path.join(ciBin, "gh"),
+    'if (process.argv[2] !== "run" || process.argv[3] !== "list") process.exit(1); console.log("[]");\n',
+  );
+  process.env.PATH = `${ciBin}${path.delimiter}${originalPath ?? ""}`;
+});
+after(() => {
+  if (originalPath === undefined) delete process.env.PATH;
+  else process.env.PATH = originalPath;
+  rmSync(ciBin, { recursive: true, force: true });
+});
 
 const cli = path.resolve("packages/cli/src/index.ts");
 type TaskSnapshot = {
@@ -85,34 +102,13 @@ test("a live source daemon refuses to declare an executor for a reviewed executi
     );
     writeFileSync(
       path.join(root, "harness", closeoutPath),
-      "# Closeout\n\n## Summary\n\nExecutor attribution recovered.\n\n## Verification\n\nLive daemon route.\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nCovered by the executor declaration contract.\n",
+      `# Closeout\n\n## Summary\n\nExecutor attribution recovered at ${git(root, "rev-parse", "HEAD")}.\n\n## Verification\n\nLive daemon route.\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nCovered by the executor declaration contract.\n`,
     );
     const closeoutSync = run(root, userRoot, daemonId, ["doc", "sync", "--submit", "--task", taskId]);
     assert.equal(closeoutSync.outcome, "applied");
     published(root, userRoot, daemonId, closeoutSync);
-    const commitSha = git(root, "rev-parse", "HEAD");
-    writeFileSync(
-      path.join(root, "submission.json"),
-      JSON.stringify({
-        completionClaim: "The live daemon executor recovery is complete.",
-        deliverables: ["README.md"],
-        outputs: ["README.md"],
-        verificationNotes: ["live source daemon route"],
-        knownGaps: [],
-        residualRisks: [],
-        commitSha,
-      }),
-    );
     assert.equal(
-      run(root, userRoot, daemonId, [
-        "task",
-        "submit",
-        taskId,
-        "--execution-id",
-        executionId,
-        "--from-file",
-        "submission.json",
-      ]).outcome,
+      run(root, userRoot, daemonId, ["task", "submit", taskId, "--execution-id", executionId]).outcome,
       "applied",
     );
     assert.equal(

@@ -45,6 +45,10 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
   mkdirSync(root, { recursive: true });
   mkdirSync(binRoot, { recursive: true });
   writeProgressProvider(path.join(binRoot, "codex"), version);
+  writeProviderExecutable(
+    path.join(binRoot, "gh"),
+    'if (process.argv[2] !== "run" || process.argv[3] !== "list") process.exit(1); console.log("[]");\n',
+  );
   const nonzeroNotifier = writeProviderExecutable(
       path.join(parent, "notify-nonzero"),
       `const fs = require("node:fs"), payload = JSON.parse(fs.readFileSync(0, "utf8")); fs.writeFileSync(".notify-nonzero.json", JSON.stringify({ cwd: process.cwd(), environment: process.env, payload })); process.exit(23);\n`,
@@ -954,12 +958,29 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
     writeFileSync(path.join(root, "harness", submittedPlanPath), realizedPlan("Submitted runtime archive"));
     run(root, env, ["doc", "sync", "--submit", "--path", submittedPlanPath]);
     run(root, env, ["task", "start", submittedTaskId, "--execution-id", submittedExecutionId]);
+    // This standard task submits a public code cut bound to the runtime cwd.
+    const deliveryGit = (args: string[]) => {
+      const result = spawnSync("git", args, { cwd: root, env, encoding: "utf8" });
+      assert.equal(result.status, 0, result.stderr);
+      return result.stdout.trim();
+    };
+    deliveryGit(["init", "-b", "main"]);
+    deliveryGit(["config", "user.name", "Harness Test"]);
+    deliveryGit(["config", "user.email", "harness@example.test"]);
+    writeFileSync(path.join(root, "README.md"), "Runtime archive baseline.\n");
+    deliveryGit(["add", "README.md"]);
+    deliveryGit(["commit", "-m", "test: seed runtime delivery baseline"]);
+    deliveryGit(["update-ref", "refs/remotes/origin/main", "HEAD"]);
+    writeFileSync(path.join(root, "README.md"), "Runtime archive delivery.\n");
+    deliveryGit(["add", "README.md"]);
+    deliveryGit(["commit", "-m", "test: record runtime delivery"]);
+    const submittedCut = { commitSha: deliveryGit(["rev-parse", "HEAD"]) };
     const submittedRuntime = run(root, env, [
         "runtime",
         "run",
         "cli-worker",
         "--prompt",
-        `submit-before-exit:${submittedTaskId}`,
+        `submit-before-exit:${submittedTaskId}:${submittedCut.commitSha}`,
         "--task",
         submittedTaskId,
         "--no-stream",
@@ -1717,10 +1738,10 @@ function writeProgressProvider(target: string, version: string): void {
       'else if (mission === "failure:429") process.stdout.write([JSON.stringify({ type: "thread.started", thread_id: "provider-cli-session" }), JSON.stringify({ type: "turn.failed", error: { http_status: 429, code: "insufficient_quota", message: "credit balance exhausted", reset_at: "2026-09-06T05:06:07Z" } })].join("\\n") + "\\n", () => process.exit(1));\nelse { const resumed',
     progressSetup =
       `${batchMarker}const progressTask = mission.startsWith("progress-middle:") ? mission.slice("progress-middle:".length) : null;\n` +
-      'const submitTask = mission.startsWith("submit-before-exit:") ? mission.slice("submit-before-exit:".length) : null;\n',
+      'const submitTask = mission.startsWith("submit-before-exit:") ? mission.slice("submit-before-exit:".length).split(":")[0] : null;\n',
     progressWrite =
       `console.log(JSON.stringify({ type: "thread.started", thread_id: session })); if (progressTask) { for (const text of ["Provider checkpoint one.", "Provider checkpoint two."]) { let result; for (let attempt = 0; attempt < 20; attempt += 1) { result = require("node:child_process").spawnSync(process.execPath, [${JSON.stringify(cli)}, "--root", process.cwd(), "--json", "task", "progress", "append", progressTask, "--text", text, "--evidence", "test:reports/runtime-progress.txt:provider checkpoint"], { encoding: "utf8", env: process.env }); if (result.status === 0) break; Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50); } if (result.status !== 0) { process.stderr.write("progress append failed: " + result.stdout + result.stderr); process.exit(8); } } } ` +
-      `if (submitTask) { const submission = JSON.stringify({ completionClaim: "Runtime worker submitted before exit.", deliverables: ["runtime archive"], outputs: ["runtime archive"], verificationNotes: ["integration"], knownGaps: [], residualRisks: [], commitSha: "a".repeat(40) }); const result = require("node:child_process").spawnSync(process.execPath, [${JSON.stringify(cli)}, "--root", process.cwd(), "--json", "task", "submit", submitTask, "--json-input", submission], { encoding: "utf8", env: process.env }); if (result.status !== 0) { process.stderr.write("task submit failed: " + result.stdout + result.stderr); process.exit(8); } } if (readOnly)`,
+      `if (submitTask) { const packageRoot = prompt.split("Task package root: ")[1].split("\\n")[0]; fs.writeFileSync(require("node:path").join(packageRoot, "closeout.md"), "# Closeout\\n\\n## Summary\\n\\nRuntime worker submitted before exit at " + mission.split(":").at(-1) + ".\\n\\n## Verification\\n\\nIntegration runtime submission.\\n\\n## Residual Risk\\n\\nNone.\\n\\n## Same Mechanism Elsewhere\\n\\nRuntime archive lifecycle.\\n"); const result = require("node:child_process").spawnSync(process.execPath, [${JSON.stringify(cli)}, "--root", process.cwd(), "--json", "task", "submit", submitTask], { encoding: "utf8", env: process.env }); if (result.status !== 0) { process.stderr.write("task submit failed: " + result.stdout + result.stderr); process.exit(8); } } if (readOnly)`,
     next = source
       .replace(batchMarker, progressSetup)
       .replace(threadMarker, progressWrite)

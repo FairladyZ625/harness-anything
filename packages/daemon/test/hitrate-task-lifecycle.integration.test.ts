@@ -11,7 +11,7 @@ import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { git, initRepo } from "./task-surface.fixtures.ts";
 import { realizedTaskPlan, realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
-test("task start, inline submit, and code-doc reconcile reuse daemon-known lifecycle state", async () => {
+test("task start, closeout submit, and code-doc reconcile reuse daemon-known lifecycle state", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-hitrate-lifecycle-")),
     rootDir = path.join(parent, "repo"),
     taskId = "task-hitrate-lifecycle",
@@ -84,11 +84,15 @@ test("task start, inline submit, and code-doc reconcile reuse daemon-known lifec
       (pathToSubmit) => cell.run({ kind: "doc-submit", paths: [pathToSubmit] }, holder),
       "Lifecycle hit rate",
     );
-    writeFileSync(
-      path.join(rootDir, "harness", closeoutPath),
-      "# Closeout\n\n## Summary\n\nDone.\n\n## Verification\n\nVerified.\n\n" +
-        "## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nNo other path in this fixture.\n",
-    );
+    const commitSha = git(rootDir, "rev-parse", "HEAD"),
+      writeCloseout = (claim: string) =>
+        writeFileSync(
+          path.join(rootDir, "harness", closeoutPath),
+          `# Closeout\n\n## Summary\n\n${claim} Commit ${commitSha}.\n\n` +
+            "## Verification\n\nVerified by integration test.\n\n## Residual Risk\n\nNone.\n\n" +
+            "## Same Mechanism Elsewhere\n\nNo other path in this fixture.\n",
+        );
+    writeCloseout("Lifecycle behavior is implemented.");
     const synced = await cell.run({ kind: "doc-submit", paths: [closeoutPath] }, holder);
     assert.equal(synced.outcome, "applied", JSON.stringify(synced));
     const started = await cell.run({ kind: "task-start", taskId, executionId }, holder);
@@ -111,42 +115,13 @@ test("task start, inline submit, and code-doc reconcile reuse daemon-known lifec
     assert.equal(rejected.code, "lease_conflict");
     assert.equal(events().length, startedEvents, "foreign retry must not append an event");
 
-    const commitSha = git(rootDir, "rev-parse", "HEAD"),
-      incorrectCommitSha = "b".repeat(40),
-      submission = {
-        completionClaim: "Lifecycle behavior is implemented.",
-        deliverables: ["README.md"],
-        outputs: ["README.md"],
-        verificationNotes: ["integration test"],
-        knownGaps: [],
-        residualRisks: [],
-        commitSha: incorrectCommitSha,
-      },
-      externalPacket = path.join(parent, "submission.json");
-    writeFileSync(externalPacket, JSON.stringify(submission));
-    const external = (await cell.run({ kind: "task-submit", taskId, fromFile: externalPacket }, holder)) as Record<
-      string,
-      unknown
-    >;
-    assert.equal(external.outcome, "op_rejected", JSON.stringify(external));
-    assert.equal(external.code, "invalid_command");
-
-    const submitted = await cell.run({ kind: "task-submit", taskId, jsonInput: JSON.stringify(submission) }, holder);
+    const submitted = await cell.run({ kind: "task-submit", taskId }, holder);
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
 
-    const repeatedSubmit = (await cell.run(
-      { kind: "task-submit", taskId, executionId, jsonInput: JSON.stringify({ ...submission, commitSha }) },
-      holder,
-    )) as Record<string, unknown>;
-    assert.equal(repeatedSubmit.outcome, "op_rejected", JSON.stringify(repeatedSubmit));
-    assert.equal(repeatedSubmit.code, "invalid_transition");
-
-    const reconcileBeforeAmend = (await cell.run(
-      { kind: "task-code-doc-reconcile", taskId, paths: ["README.md"] },
-      holder,
-    )) as Record<string, unknown>;
-    assert.equal(reconcileBeforeAmend.outcome, "op_rejected", JSON.stringify(reconcileBeforeAmend));
-    assert.equal(reconcileBeforeAmend.code, "invalid_proof");
+    const repeatedSubmit = await cell.run({ kind: "task-submit", taskId, executionId }, holder);
+    assert.equal(repeatedSubmit.outcome, "applied", JSON.stringify(repeatedSubmit));
+    assert.equal(repeatedSubmit.opId, submitted.opId);
+    assert.equal(events().filter((event) => event.type === "execution_submitted").length, 1);
 
     const wrongExecutionAmend = (await cell.run(
       {
@@ -154,7 +129,6 @@ test("task start, inline submit, and code-doc reconcile reuse daemon-known lifec
         taskId,
         executionId: "execution-not-current",
         amend: true,
-        jsonInput: JSON.stringify({ ...submission, completionClaim: "Wrong execution.", commitSha }),
       },
       holder,
     )) as Record<string, unknown>;
@@ -167,7 +141,7 @@ test("task start, inline submit, and code-doc reconcile reuse daemon-known lifec
       actual: "execution-not-current",
       expectation:
         `Current submitted execution is ${executionId}; retry ha task submit ${taskId} ` +
-        `--execution-id ${executionId} --amend --json-input '<submission-json>'`,
+        `--execution-id ${executionId} --amend`,
     });
 
     const noOpAmend = (await cell.run(
@@ -176,12 +150,11 @@ test("task start, inline submit, and code-doc reconcile reuse daemon-known lifec
         taskId,
         executionId,
         amend: true,
-        jsonInput: JSON.stringify(submission),
       },
       holder,
     )) as Record<string, unknown>;
-    assert.equal(noOpAmend.outcome, "op_rejected", JSON.stringify(noOpAmend));
-    assert.equal(noOpAmend.code, "invalid_transition");
+    assert.equal(noOpAmend.outcome, "applied", JSON.stringify(noOpAmend));
+    assert.equal(noOpAmend.opId, submitted.opId);
 
     const crossActorAmend = (await cell.run(
       {
@@ -189,44 +162,26 @@ test("task start, inline submit, and code-doc reconcile reuse daemon-known lifec
         taskId,
         executionId,
         amend: true,
-        jsonInput: JSON.stringify({ ...submission, completionClaim: "Foreign correction.", commitSha }),
       },
       foreign,
     )) as Record<string, unknown>;
     assert.equal(crossActorAmend.outcome, "op_rejected", JSON.stringify(crossActorAmend));
     assert.equal(crossActorAmend.code, "lease_required");
 
-    const amendRevision = Number(submitted.revision),
-      amendmentPackets = [
-        { ...submission, completionClaim: "Corrected lifecycle cut A.", commitSha },
-        { ...submission, completionClaim: "Corrected lifecycle cut B.", commitSha },
-      ],
-      amendmentResults = (await Promise.all(
-        amendmentPackets.map((packet) =>
-          cell.run(
-            {
-              kind: "task-submit",
-              taskId,
-              executionId,
-              amend: true,
-              expectedVersion: amendRevision,
-              jsonInput: JSON.stringify(packet),
-            },
-            holder,
-          ),
-        ),
-      )) as readonly Record<string, unknown>[],
-      appliedAmendments = amendmentResults.filter(({ outcome }) => outcome === "applied"),
-      rejectedAmendments = amendmentResults.filter(({ outcome }) => outcome === "op_rejected"),
-      amended = appliedAmendments[0]!,
-      amendedPacket = amendmentPackets[amendmentResults.indexOf(amended)]!;
-    assert.equal(appliedAmendments.length, 1, JSON.stringify(amendmentResults));
-    assert.equal(rejectedAmendments.length, 1, JSON.stringify(amendmentResults));
-    assert.equal(rejectedAmendments[0]?.code, "invalid_transition", JSON.stringify(amendmentResults));
-    assert.equal(amended.outcome, "applied", JSON.stringify(amended));
-    assert.match(String(amended.summary), /prior Review and consent pins are stale/u);
+    writeCloseout("Corrected lifecycle cut.");
+    const amendmentResults = await Promise.all(
+      [0, 1].map(() => cell.run({ kind: "task-submit", taskId, executionId, amend: true }, holder)),
+    );
+    for (const amended of amendmentResults) {
+      assert.equal(amended.outcome, "applied", JSON.stringify(amended));
+      assert.match(String(amended.summary), /prior Review and consent pins are stale/u);
+    }
+    assert.equal(amendmentResults[0]?.opId, amendmentResults[1]?.opId);
     const submissionEvents = events().filter((candidate) => candidate.type === "execution_submitted");
     assert.equal(submissionEvents.length, 2);
+    const amendedPacket = submissionEvents[1]?.payload.execution.submission;
+    assert.ok(amendedPacket);
+    assert.equal(amendedPacket.completionClaim, `Corrected lifecycle cut. Commit ${commitSha}.`);
     const initialSubmission = submissionEvents[0];
     if (initialSubmission?.type !== "execution_submitted" || !initialSubmission.payload.execution.submission)
       throw new Error("initial submission event missing");
@@ -313,18 +268,21 @@ test("task start, inline submit, and code-doc reconcile reuse daemon-known lifec
     const completed = await cell.run({ kind: "task-complete", taskId }, holder);
     assert.equal(completed.outcome, "applied", JSON.stringify(completed));
 
+    await waitForFixturePublication(cell, completed.opId, holder);
+    writeCloseout("Too late.");
+    const beforeTerminalAmend = events().length;
     const amendCompleted = (await cell.run(
       {
         kind: "task-submit",
         taskId,
         executionId,
         amend: true,
-        jsonInput: JSON.stringify({ ...submission, completionClaim: "Too late.", commitSha }),
       },
       holder,
     )) as Record<string, unknown>;
     assert.equal(amendCompleted.outcome, "op_rejected", JSON.stringify(amendCompleted));
     assert.equal(amendCompleted.code, "invalid_transition");
+    assert.equal(events().length, beforeTerminalAmend, "terminal amend must not publish dirty closeout");
 
     const beforeDrift = events().length,
       drifted = await cell.run(

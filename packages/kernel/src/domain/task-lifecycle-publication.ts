@@ -287,7 +287,7 @@ function renderIndex(event: TaskEventV1, snapshot: TaskLifecycleSnapshot, path: 
     missingGate = task.completionGateIds.find((gateId) => !gateStatus(gateId)),
     next =
       task.status === "active"
-        ? `Run \`ha task submit ${task.taskId} --json-input '<submission-json>'\`.`
+        ? `Run \`ha task submit ${task.taskId}\`.`
         : task.status === "in_review" && !approved.length
           ? [
               `Run \`ha task review-execution ${task.taskId}`,
@@ -299,7 +299,7 @@ function renderIndex(event: TaskEventV1, snapshot: TaskLifecycleSnapshot, path: 
                 ` --review-id ${consentReviewId} --consent-id <id>\`.`,
               ].join("")
             : missingGate === "ci"
-              ? `Run \`ha task complete ${task.taskId} --execution-id <id> --ci <receipt-ref>\`.`
+              ? `Run \`ha task complete ${task.taskId} --execution-id <id>\`.`
               : missingGate === "code-doc-reconciliation"
                 ? `Run \`ha task closeout ${task.taskId} --from-file <packet.json>\`.`
                 : task.status === "done"

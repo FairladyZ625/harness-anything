@@ -367,6 +367,13 @@ function createTables(db: DatabaseSync): void {
       event_json TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS event_index_task_id ON event_index (task_id);
+    CREATE INDEX IF NOT EXISTS event_index_submission_lookup ON event_index (
+      task_id,
+      json_extract(event_json, '$.payload.execution.executionId'),
+      workspace_revision DESC
+    ) WHERE
+      json_extract(event_json, '$.schema') = 'task-event/v1'
+      AND json_extract(event_json, '$.type') = 'execution_submitted';
     CREATE INDEX IF NOT EXISTS event_index_runtime_dispatch_lookup ON event_index (
       json_extract(event_json, '$.payload.runtimeSessionId'),
       json_extract(event_json, '$.payload.definitionSnapshotRef'),

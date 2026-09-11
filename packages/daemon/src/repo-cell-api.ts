@@ -422,10 +422,14 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
             ),
           (error) => failAction(error, durable ? authorizeAtCurrentCut()! : undefined),
         );
-    const externalRead = readBeforeWriteQueue(context, action, binding);
+    const externalRead = readBeforeWriteQueue(context, action);
     if (externalRead)
       return externalRead
-        .then((publish) => enqueuePublication(publish))
+        .then((publish) =>
+          enqueuePublication((authorizationDecision) =>
+            publish(action, authorizationDecision ? { ...binding, authorizationDecision } : binding),
+          ),
+        )
         .catch((error) => failAction(error, durable ? authorizeAtCurrentCut()! : undefined));
     return enqueuePublication((authorizationDecision) =>
       context.executeAction(action, authorizationDecision ? { ...binding, authorizationDecision } : binding),

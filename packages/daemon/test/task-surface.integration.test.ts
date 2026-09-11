@@ -1,15 +1,32 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test, { after, before } from "node:test";
 import { makeTaskEventReader, makeTaskProjection } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 import { actor, git, initRepo } from "./task-surface.fixtures.ts";
+
+import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
+
+const ciBin = mkdtempSync(path.join(tmpdir(), "ha-submit-ci-bin-"));
+const originalPath = process.env.PATH;
+before(() => {
+  writeProviderExecutable(
+    path.join(ciBin, "gh"),
+    'if (process.argv[2] !== "run" || process.argv[3] !== "list") process.exit(1); console.log("[]");\n',
+  );
+  process.env.PATH = `${ciBin}${path.delimiter}${originalPath ?? ""}`;
+});
+after(() => {
+  if (originalPath === undefined) delete process.env.PATH;
+  else process.env.PATH = originalPath;
+  rmSync(ciBin, { recursive: true, force: true });
+});
 
 test("task create rejects ids that cannot form task entity references", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-id-ref-"));
@@ -181,6 +198,10 @@ test("task lifecycle mutations publish L1 events, exact documents, and replayabl
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     initRepo(rootDir);
+    writeFileSync(path.join(rootDir, "README.md"), "# Task lifecycle fixture delivery\n");
+    git(rootDir, "add", "README.md");
+    git(rootDir, "commit", "-qm", "fixture delivery");
+    const deliveryCommit = git(rootDir, "rev-parse", "HEAD");
     cell = await openRepoCell({
       repoId: workspaceId("task-lifecycle-surface"),
       rootDir: canonicalRoot(rootDir),
@@ -267,6 +288,10 @@ test("task lifecycle mutations publish L1 events, exact documents, and replayabl
       ).outcome,
       "applied",
     );
+    writeFileSync(
+      path.join(rootDir, "harness/tasks/task_reviewing-reviewing/closeout.md"),
+      `# Closeout\n\n## Summary\n\nStatus routing delivery ${deliveryCommit} is ready for review.\n\n## Verification\n\nDaemon integration assertions exercise lifecycle events and dispositions.\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nAll task status routes consume the canonical projection.\n`,
+    );
     assert.equal(
       (
         await cell.run(
@@ -274,15 +299,6 @@ test("task lifecycle mutations publish L1 events, exact documents, and replayabl
             kind: "task-submit",
             taskId: "task_reviewing",
             executionId: "exe_reviewing",
-            submission: {
-              completionClaim: "Status routing is ready for review.",
-              deliverables: ["aggregate status route"],
-              outputs: ["task lifecycle event"],
-              verificationNotes: ["daemon integration"],
-              knownGaps: [],
-              residualRisks: [],
-              commitSha: git(rootDir, "rev-parse", "HEAD"),
-            },
           },
           binding,
         )

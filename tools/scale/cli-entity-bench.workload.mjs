@@ -6,7 +6,6 @@ import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { git } from "../../packages/cli/test/daemon-multi-repo-lifecycle-cli.fixtures.ts";
 import { realizedDecisionBody, realizedTaskPlan } from "../fixtures/task-plan.mjs";
 import { benchKinds, decisionPacket } from "./cli-entity-bench.commands.mjs";
 
@@ -198,19 +197,12 @@ export function benchContext(f, n, writes, samples) {
       writeFileSync(path.join(root, "artifacts", "report.md"), `# Report ${s}\n`);
       writeFileSync(
         path.join(root, "closeout.md"),
-        "# Closeout\n\n## Summary\n\nBench.\n\n## Verification\n\nBench.\n\n" +
-          "## Residual Risk\n\nBench.\n\n## Same Mechanism Elsewhere\n\nBench.\n",
+        `# Closeout\n\n## Summary\n\nBenchmark chain ${chain || "primary"}/${s} produced its report.\n\n` +
+          "## Verification\n\nThe command table recorded creation, execution and document receipts.\n\n" +
+          "## Residual Risk\n\nSynthetic workload; this sample measures command latency.\n\n" +
+          "## Same Mechanism Elsewhere\n\nBoth benchmark completion chains use task-owned report artifacts.\n",
       );
     },
-    submission: (s, chain = "") => ({
-      completionClaim: "Bench chain complete.",
-      deliverables: [`${receiptOf(`task-create${chain}`, s)?.packagePath}/artifacts/report.md`],
-      outputs: ["bench"],
-      verificationNotes: ["bench"],
-      knownGaps: [],
-      residualRisks: [],
-      commitSha: git(f.root, "rev-parse", "HEAD"),
-    }),
     review: (s, chain = "") => ({
       verdict: "approved",
       reason: "Bench review.",

@@ -5,7 +5,8 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test, { after, before } from "node:test";
+import { writeProviderExecutable } from "../../daemon/test/fixtures/runtime-stub.ts";
 import { requestDaemonJsonRpcAt } from "../../daemon/src/client/local-json-rpc-client.ts";
 import { appendRuntimeWorkerRecord, openDispatchStream } from "../../daemon/src/dispatch-stream.ts";
 import {
@@ -36,6 +37,19 @@ import type { Failure } from "./service-bridge.fixtures.ts";
 import { restoreEnv } from "./service-bridge.fixtures.ts";
 
 import { seedEntityDeclarations, seedRuntime } from "./service-bridge.fixtures.ts";
+const ciBin = mkdtempSync(path.join(tmpdir(), "ha-gui-submit-ci-"));
+const originalPath = process.env.PATH;
+before(() => {
+  writeProviderExecutable(
+    path.join(ciBin, "gh"),
+    'if (process.argv[2] !== "run" || process.argv[3] !== "list") process.exit(1); console.log("[]");\n',
+  );
+  process.env.PATH = `${ciBin}${path.delimiter}${originalPath ?? ""}`;
+});
+after(() => {
+  restoreEnv("PATH", originalPath);
+  rmSync(ciBin, { recursive: true, force: true });
+});
 const SEEDED_SQUAD_RUN_ID = "squad_aabbccddeeff001122334455";
 
 test("GUI main reports every isolated task snapshot row with field-level context", () => {
@@ -637,21 +651,42 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
     }
     const commitSha = String(settledProgress.commitSha);
     assert.match(commitSha, /^[0-9a-f]{40}$/u);
+    const artifactPath = `${fixture.packagePath}/artifacts/bridge.md`;
+    mkdirSync(path.dirname(path.join(fixture.rootDir, "harness", artifactPath)), { recursive: true });
+    writeFileSync(
+      path.join(fixture.rootDir, "harness", artifactPath),
+      "# GUI bridge evidence\n\nResident daemon reads and typed progress were exercised.\n",
+    );
+    const artifactReceipt = await requestDaemonJsonRpcAt(
+      fixture.endpoint,
+      "repo.task.run",
+      {
+        repo: { repoId: fixture.repoId },
+        payload: { action: { kind: "doc-submit", executionId, paths: [artifactPath] } },
+      },
+      1_000,
+    );
+    assert.equal(artifactReceipt.ok, true, JSON.stringify(artifactReceipt));
+    const artifactCut = parseDaemonGuiActionResponse(
+      "repo.receipt.show",
+      await bridge.invoke("showReceipt", {
+        ...scope,
+        opId: artifactReceipt.opId,
+        waitFor: ["git_verified", "worktree_visible"],
+        timeoutMs: 5000,
+      }),
+    );
+    assert.match(String(artifactCut.commitSha), /^[0-9a-f]{40}$/u);
+    writeFileSync(
+      path.join(fixture.rootDir, "harness", String(fixture.packagePath), "closeout.md"),
+      `# Closeout\n\n## Summary\n\nGUI bridge evidence delivered in ${artifactCut.commitSha}.\n\n## Verification\n\nResident daemon reads and typed progress passed.\n\n## Residual Risk\n\n已知缺口: Electron E2E unverified.\nManual desktop verification pending.\n\n## Same Mechanism Elsewhere\n\nCLI and GUI share canonical task submission.\n`,
+    );
     const submitted = parseDaemonGuiActionResponse(
       "repo.task.submit",
       await bridge.invoke("submitTask", {
         ...scope,
         taskId: "task-gui-smoke",
         executionId,
-        submission: {
-          completionClaim: "GUI task mutation bridge is exercised.",
-          deliverables: ["Task action bridge"],
-          outputs: ["packages/gui/test/service-bridge.test.ts"],
-          verificationNotes: ["resident daemon"],
-          knownGaps: ["Electron E2E unverified"],
-          residualRisks: ["manual desktop verification pending"],
-          commitSha,
-        },
       }),
     );
     assert.equal(submitted.ok, true, JSON.stringify(submitted));
@@ -659,23 +694,19 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
     const afterSubmit = parseDaemonGuiReadResult("repo.tasks.list", await bridge.invoke("getTasks", scope));
     assert.equal(afterSubmit.rows[0]?.snapshot.task?.status, "in_review");
     assert.equal(afterSubmit.rows[0]?.snapshot.lease, null);
-    const evidence = afterSubmit.rows[0]?.executionEvidence.find((item) => item.executionId === executionId),
-      output = evidence?.outputs[0];
+    const evidence = afterSubmit.rows[0]?.executionEvidence.find((item) => item.executionId === executionId);
     assert.equal(evidence?.origin, "native");
-    assert.match(output?.evidenceId ?? "", /^evidence_[0-9a-f]{24}$/u);
-    assert.deepEqual(
-      output && {
-        locator: output.locator,
-        substrate: output.substrate,
-        checkerReceiptRef: output.checkerReceiptRef,
-        checkerResult: output.checkerResult,
-      },
-      {
-        locator: "packages/gui/test/service-bridge.test.ts",
-        substrate: "repository-path",
-        checkerReceiptRef: null,
-        checkerResult: "unknown",
-      },
+    assert.deepEqual(evidence?.outputs, [], "submission must not invent output locators from the retired packet");
+    const submission = afterSubmit.rows[0]?.snapshot.executions.find(
+      (item) => item.executionId === executionId,
+    )?.submission;
+    assert.ok(
+      submission?.deliverables.some((item) => item.endsWith(artifactPath)),
+      JSON.stringify(submission),
+    );
+    assert.ok(
+      submission?.knownGaps.some((item) => item.includes("Electron E2E unverified")),
+      JSON.stringify(submission),
     );
   } finally {
     await fixture.stop();

@@ -13,7 +13,7 @@ import type {
   AgentRuntimeEventsResult,
   AgentRuntimeSessionResult,
 } from "../../../../../daemon/src/agent-runtime-contract.ts";
-import type { GuiSubmissionV1, RelationFactRow, TaskDispatchProjectionRow } from "../../../api/renderer-dto.ts";
+import type { RelationFactRow, TaskDispatchProjectionRow } from "../../../api/renderer-dto.ts";
 import { agentRuntimeClient, runtimeQueryKeys } from "../../agent-runtime-client.ts";
 import { harnessClient } from "../../api-client.ts";
 import type { TaskMutationFeedback } from "../../task-actions.ts";
@@ -70,7 +70,7 @@ interface TaskActionProps {
     text: string;
     evidence: ReadonlyArray<{ type: string; path: string; summary: string }>;
   }) => Promise<unknown>;
-  readonly onSubmit?: (submission: GuiSubmissionV1) => Promise<unknown>;
+  readonly onSubmit?: () => Promise<unknown>;
 }
 
 export function TaskOverviewTab({ task }: { readonly task: TaskRow }) {

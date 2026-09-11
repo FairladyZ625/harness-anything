@@ -41,6 +41,13 @@ export type {
 } from "./task-query-projection.ts";
 export type { TaskProjection } from "./task-projection-port.ts";
 
+const TASK_SUBMISSION_OPERATION_SQL = [
+  "SELECT op_id FROM event_index WHERE task_id = ?",
+  "AND json_extract(event_json, '$.schema') = 'task-event/v1'",
+  "AND json_extract(event_json, '$.type') = 'execution_submitted'",
+  "AND json_extract(event_json, '$.payload.execution.executionId') = ?",
+  "ORDER BY workspace_revision DESC LIMIT 1",
+].join(" ");
 const TASK_COMPLETION_SQL = [
   "SELECT event_json FROM event_index WHERE task_id = ?",
   "AND json_extract(event_json, '$.schema') = 'task-event/v1'",
@@ -116,6 +123,7 @@ export function taskQueryApi(
   | "readRelationEdge"
   | "readEntityVersionWitness"
   | "readTaskOperation"
+  | "readTaskSubmissionOperation"
   | "readTaskCompletion"
   | "readRuntimeDispatch"
   | "readRuntimeDispatches"
@@ -251,6 +259,11 @@ export function taskQueryApi(
         if (!row) return null;
         const event = JSON.parse(row.event_json);
         return isTaskEvent(event) ? { event, watermark: watermark(db) } : null;
+      }),
+    readTaskSubmissionOperation: (taskId, executionId) =>
+      withDatabase(projectionPath, readHead, (db) => {
+        const row = queryRows(db, TASK_SUBMISSION_OPERATION_SQL, taskId, executionId)[0];
+        return row ? String(row.op_id) : null;
       }),
     readTaskCompletion: (taskId, executionId) =>
       withDatabase(projectionPath, readHead, (db) => {

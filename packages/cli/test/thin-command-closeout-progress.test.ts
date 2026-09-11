@@ -4,15 +4,7 @@ import test from "node:test";
 import { firstCliCommand, firstCliCommandIndex, parseThinCommand } from "../src/cli/thin-command.ts";
 
 test("lifecycle CLI maps explicit selectors and accepts every derivable execution or Review selector", () => {
-  const submit = parseThinCommand([
-      "task",
-      "submit",
-      "task-1",
-      "--execution-id",
-      "execution-1",
-      "--from-file",
-      "submission.json",
-    ]),
+  const submit = parseThinCommand(["task", "submit", "task-1", "--execution-id", "execution-1"]),
     declare = parseThinCommand([
       "task",
       "declare-executor",
@@ -55,10 +47,6 @@ test("lifecycle CLI maps explicit selectors and accepts every derivable executio
       "task-1",
       "--execution-id",
       "execution-1",
-      "--ci",
-      "event:ci-observation-test",
-      "--path",
-      "packages/kernel/src/domain/task.ts",
       "--fact-holds",
       "F-ABCDEFGH:The upstream observation remains true after this task.",
     ]);
@@ -71,7 +59,6 @@ test("lifecycle CLI maps explicit selectors and accepts every derivable executio
       commandType: "SubmitExecution",
       taskId: "task-1",
       executionId: "execution-1",
-      fromFile: "submission.json",
     });
   if (declare.ok)
     assert.deepEqual(declare.command.action, {
@@ -134,8 +121,6 @@ test("lifecycle CLI maps explicit selectors and accepts every derivable executio
       commandType: "CompleteTask",
       taskId: "task-1",
       executionId: "execution-1",
-      ci: "event:ci-observation-test",
-      paths: ["packages/kernel/src/domain/task.ts"],
       factHolds: [
         {
           factRef: "fact/F-ABCDEFGH",
@@ -150,7 +135,7 @@ test("lifecycle CLI maps explicit selectors and accepts every derivable executio
       "--reason",
       "Recover omitted executor attribution",
     ]),
-    derivedSubmit = parseThinCommand(["task", "submit", "task-1", "--from-file", "submission.json"]),
+    derivedSubmit = parseThinCommand(["task", "submit", "task-1"]),
     derivedReview = parseThinCommand([
       "task",
       "review-execution",
@@ -179,15 +164,7 @@ test("lifecycle CLI maps explicit selectors and accepts every derivable executio
       "--json-input",
       '{"reviewDigest":"sha256:a","contentDigest":"sha256:b"}',
     ]),
-    derivedComplete = parseThinCommand([
-      "task",
-      "complete",
-      "task-1",
-      "--ci",
-      "event:ci-observation-test",
-      "--path",
-      "packages/kernel/src/domain/task.ts",
-    ]);
+    derivedComplete = parseThinCommand(["task", "complete", "task-1"]);
   for (const parsed of [
     derivedDeclare,
     derivedSubmit,
@@ -210,7 +187,6 @@ test("lifecycle CLI maps explicit selectors and accepts every derivable executio
       verb: "submit",
       commandType: "SubmitExecution",
       taskId: "task-1",
-      fromFile: "submission.json",
     });
   if (derivedReview.ok)
     assert.deepEqual(derivedReview.command.action, {
@@ -249,10 +225,8 @@ test("lifecycle CLI maps explicit selectors and accepts every derivable executio
       verb: "complete",
       commandType: "CompleteTask",
       taskId: "task-1",
-      ci: "event:ci-observation-test",
-      paths: ["packages/kernel/src/domain/task.ts"],
     });
-  assert.equal(parseThinCommand(["task", "submit", "task-1", "--execution-id", "execution-1"]).ok, false);
+  assert.equal(parseThinCommand(["task", "submit", "task-1", "--execution-id", "execution-1"]).ok, true);
   assert.equal(
     parseThinCommand([
       "task",
@@ -296,25 +270,7 @@ test("lifecycle CLI maps explicit selectors and accepts every derivable executio
     false,
   );
   assert.equal(parseThinCommand(["task", "complete", "task-1", "--execution-id", "execution-1", "--ci"]).ok, false);
-  const pathOnlyComplete = parseThinCommand([
-    "task",
-    "complete",
-    "task-1",
-    "--execution-id",
-    "execution-1",
-    "--path",
-    "packages/kernel/src/domain/task.ts",
-  ]);
-  assert.equal(pathOnlyComplete.ok, true);
-  if (pathOnlyComplete.ok)
-    assert.deepEqual(pathOnlyComplete.command.action, {
-      kind: "task-complete",
-      verb: "complete",
-      commandType: "CompleteTask",
-      taskId: "task-1",
-      executionId: "execution-1",
-      paths: ["packages/kernel/src/domain/task.ts"],
-    });
+  assert.equal(parseThinCommand(["task", "complete", "task-1", "--path", "README.md"]).ok, false);
   assert.equal(
     parseThinCommand(["task", "complete", "task-1", "--execution-id", "execution-1", "--commit-sha", "a".repeat(40)])
       .ok,
@@ -383,31 +339,13 @@ test("progress append preserves ordered duplicate evidence in its closed daemon 
   assert.equal(parseThinCommand(["task", "progress", "append", "task-1"]).ok, false);
 });
 
-test("task submit accepts one inline packet source and code-doc rejects retired witness flags", () => {
-  const packet = JSON.stringify({
-      completionClaim: "Ready.",
-      deliverables: ["README.md"],
-      outputs: ["README.md"],
-      verificationNotes: ["tests"],
-      knownGaps: [],
-      residualRisks: [],
-      commitSha: "a".repeat(40),
-    }),
-    inline = parseThinCommand(["task", "submit", "task-1", "--json-input", packet]);
-  assert.equal(inline.ok, true, JSON.stringify(inline));
-  if (inline.ok)
-    assert.deepEqual(inline.command.action, {
-      kind: "task-submit",
-      verb: "submit",
-      commandType: "SubmitExecution",
-      taskId: "task-1",
-      jsonInput: packet,
-    });
-  assert.equal(parseThinCommand(["task", "submit", "task-1"]).ok, false);
-  assert.equal(
-    parseThinCommand(["task", "submit", "task-1", "--from-file", "submission.json", "--json-input", packet]).ok,
-    false,
-  );
+test("task submit uses closeout and rejects packet inputs while code-doc rejects retired witness flags", () => {
+  assert.equal(parseThinCommand(["task", "submit", "task-1"]).ok, true);
+  for (const args of [
+    ["--from-file", "submission.json"],
+    ["--json-input", "{}"],
+  ])
+    assert.equal(parseThinCommand(["task", "submit", "task-1", ...args]).ok, false);
   const obsolete = parseThinCommand([
     "task",
     "code-doc",

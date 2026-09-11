@@ -7,7 +7,6 @@ import test from "node:test";
 import { Worker } from "node:worker_threads";
 import { makeTaskEventReader, makeTaskProjection } from "../../packages/kernel/src/index.ts";
 import { main as cliMain } from "../../packages/cli/src/index.ts";
-import { git } from "../../packages/cli/test/daemon-multi-repo-lifecycle-cli.fixtures.ts";
 import { realizedTaskPlan } from "../fixtures/task-plan.mjs";
 import {
   assertBytes,
@@ -445,17 +444,7 @@ function taskLifecycle(f, reader, label) {
   });
   f.publish(report, `task.report.${label}`, actor);
   f.check(`task.${label}.report-same-cut-bytes`, () => assertBytes(f.root, reportPath, reportBody, report, reader));
-  const submission = {
-    completionClaim: "Bounded scale report is complete.",
-    deliverables: [reportPath],
-    outputs: ["scale report"],
-    verificationNotes: ["canonical blob, Git and worktree bytes checked"],
-    knownGaps: [],
-    residualRisks: [],
-    commitSha: git(f.root, "rev-parse", "HEAD"),
-  };
-  writeFileSync(path.join(f.root, `submission-${label}.json`), JSON.stringify(submission));
-  f.invoke(`task.submit.${label}`, ["task", "submit", taskId, "--from-file", `submission-${label}.json`], { actor });
+  f.invoke(`task.submit.${label}`, ["task", "submit", taskId], { actor });
   const closeout = f.invoke(`task.closeout.${label}`, ["task", "closeout", taskId, "--json-input", "@-"], {
     input: {
       review: { verdict: "approved", reason: "Fixture bytes checked.", evidenceChecked: [reportPath] },

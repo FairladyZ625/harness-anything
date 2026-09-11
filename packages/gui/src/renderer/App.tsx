@@ -433,7 +433,7 @@ function AppShell() {
                   onNavigateEntity={navigateToEntity}
                   mutationFeedback={taskActions.feedback.get(selected.taskId)}
                   onProgress={(input) => taskActions.appendProgress(selected, input)}
-                  onSubmit={(submission) => taskActions.submitTask(selected, submission)}
+                  onSubmit={() => taskActions.submitTask(selected)}
                   onSetPin={handleSetPin}
                   onOpenTerminal={(task) => {
                     setTerminalLaunch({ requestId: crypto.randomUUID(), taskId: task.taskId, title: task.title });

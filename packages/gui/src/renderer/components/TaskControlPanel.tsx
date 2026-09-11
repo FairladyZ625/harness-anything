@@ -1,5 +1,4 @@
 import { useState } from "react";
-import type { GuiSubmissionV1 } from "../../api/renderer-dto.ts";
 import type { TaskMutationFeedback } from "../task-actions.ts";
 import type { TaskCapability, TaskCapabilityReasonKey, TaskBlockingLabel, TaskRow } from "../model/types.ts";
 import { taskCapabilityOf } from "../model/types.ts";
@@ -78,7 +77,7 @@ export function TaskControlPanel({
     text: string;
     evidence: ReadonlyArray<{ type: string; path: string; summary: string }>;
   }) => Promise<unknown>;
-  onSubmit?: (submission: GuiSubmissionV1) => Promise<unknown>;
+  onSubmit?: () => Promise<unknown>;
 }) {
   const [localError, setLocalError] = useState<string | null>(null),
     pending = feedback?.state === "pending";
@@ -170,41 +169,10 @@ export function TaskControlPanel({
               className="mt-2 space-y-2"
               onSubmit={(event) => {
                 event.preventDefault();
-                const form = new FormData(event.currentTarget);
                 setLocalError(null);
-                void onSubmit?.({
-                  completionClaim: String(form.get("completionClaim") ?? ""),
-                  deliverables: lines(form.get("deliverables")),
-                  outputs: lines(form.get("outputs")),
-                  verificationNotes: lines(form.get("verificationNotes")),
-                  knownGaps: lines(form.get("knownGaps")),
-                  residualRisks: lines(form.get("residualRisks")),
-                  commitSha: String(form.get("commitSha") ?? ""),
-                });
+                void onSubmit?.();
               }}
             >
-              <input
-                name="completionClaim"
-                required
-                placeholder={t("components.taskControlPanel.completionClaim")}
-                className="w-full rounded border border-border bg-bg px-2 py-1.5 ui-meta text-text"
-              />
-              {(["deliverables", "outputs", "verificationNotes", "knownGaps", "residualRisks"] as const).map((name) => (
-                <textarea
-                  key={name}
-                  name={name}
-                  required
-                  placeholder={t("components.taskControlPanel.eachLineOneItem", { name })}
-                  className="min-h-14 w-full rounded border border-border bg-bg px-2 py-1.5 ui-micro text-text"
-                />
-              ))}
-              <input
-                name="commitSha"
-                required
-                pattern="[0-9a-f]{40}"
-                placeholder={t("components.taskControlPanel.commitSha")}
-                className="w-full rounded border border-border bg-bg px-2 py-1.5 font-mono ui-micro text-text"
-              />
               <button
                 disabled={pending}
                 className="rounded-md bg-accent px-2.5 py-1.5 ui-meta font-semibold text-accent-fg transition-colors duration-100 hover:bg-accent/85 disabled:opacity-50"

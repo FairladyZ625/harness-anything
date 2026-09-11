@@ -10,7 +10,7 @@
  */
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -105,8 +105,7 @@ test("a real docs task with no declared ci gate closes out on not_applicable and
     published(root, userRoot, created);
     const packagePath = String(created.packagePath),
       planPath = `${packagePath}/task_plan.md`,
-      closeoutPath = `${packagePath}/closeout.md`,
-      commitSha = git(root, "rev-parse", "HEAD");
+      closeoutPath = `${packagePath}/closeout.md`;
     context.diagnostic(`docs-task-completion-gates=${JSON.stringify(created.completionGates)}`);
     assert.deepEqual(
       created.completionGates,
@@ -137,20 +136,17 @@ test("a real docs task with no declared ci gate closes out on not_applicable and
       path.join(root, "harness", closeoutPath),
       "# Closeout\n\n## Summary\n\nDocs only.\n\n## Verification\n\nRead the artifact.\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nNot applicable to this fixture.\n",
     );
+    writeFileSync(path.join(root, "harness", packagePath, "artifacts/report.md"), "# Report\n\nFixture verified.\n");
     run(root, userRoot, ["doc", "sync", "--submit", "--task", taskId], "agent:worker");
-    const submission = {
-      completionClaim: "The docs task is complete.",
-      deliverables: ["report"],
-      outputs: ["artifact"],
-      verificationNotes: ["one closeout invocation"],
-      knownGaps: [],
-      residualRisks: [],
-      commitSha,
-    };
-    writeFileSync(path.join(root, "submission.json"), JSON.stringify(submission));
-    run(root, userRoot, ["task", "submit", taskId, "--from-file", "submission.json"], "agent:worker");
+    writeFileSync(
+      path.join(root, "harness", closeoutPath),
+      readFileSync(path.join(root, "harness", closeoutPath), "utf8").replace(
+        "## Summary\n",
+        `## Summary\n\nDelivery commit: ${git(root, "rev-parse", "HEAD")}\n`,
+      ),
+    );
+    submitPublished(root, userRoot, taskId);
     const judgment = (ci: string) => ({
-      submission,
       review: {
         verdict: "approved",
         reason: "Independent fixture review passed.",
@@ -255,6 +251,26 @@ function startDaemon(root: string, userRoot: string): void {
     if (runMaybe(root, userRoot, ["daemon", "status"]).status === 0) return;
   }
   throw new Error(JSON.stringify(receipt));
+}
+function submitPublished(root: string, userRoot: string, taskId: string, executionId?: string): void {
+  const args = ["task", "submit", taskId, ...(executionId ? ["--execution-id", executionId] : [])];
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const receipt = run(root, userRoot, args, "agent:worker");
+    if (receipt.outcome === "applied") {
+      const replay = run(root, userRoot, args, "agent:worker");
+      assert.equal(replay.outcome, "applied", JSON.stringify(replay));
+      assert.equal(replay.opId, receipt.opId, "repeated submit must return the same execution submission");
+      return;
+    }
+    assert.equal(receipt.outcome, "pending", JSON.stringify(receipt));
+    run(
+      root,
+      userRoot,
+      ["receipt", "show", String(receipt.opId), "--wait", "git_verified,worktree_visible", "--timeout-ms", "5000"],
+      "agent:worker",
+    );
+  }
+  assert.fail("submit did not settle after its publication receipts became visible");
 }
 function run(root: string, userRoot: string, args: readonly string[], actor?: string): Record<string, unknown> {
   const result = runMaybe(root, userRoot, args, actor);
