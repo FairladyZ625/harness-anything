@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import { describe, expect, it } from "vitest";
 import type { RelationGraphSuccess } from "../src/renderer/api-client.ts";
-import { readWholeRelationGraph } from "../src/renderer/triadic-data.ts";
+import { readRelationGraphPage } from "../src/renderer/triadic-data.ts";
 
 type Edge = RelationGraphSuccess["edges"][number];
 type Fact = RelationGraphSuccess["facts"][number];
@@ -39,17 +39,18 @@ describe("关系图按界限读取", () => {
       },
       "cursor-2",
     );
-    const graph = await readWholeRelationGraph(async (payload) => {
+    const graph = await readRelationGraphPage(async (payload) => {
       calls.push(payload);
       return first;
     });
     expect(calls).toEqual([{ limit: 500 }]);
     expect(graph).toEqual(first);
+    expect(graph.page?.nextCursor).toBe("cursor-2");
   });
 
   it("没有分页信息的回答只读一次", async () => {
     let reads = 0;
-    const graph = await readWholeRelationGraph(async () => {
+    const graph = await readRelationGraphPage(async () => {
       reads += 1;
       const { page: _page, ...single } = page({ edges: [edge("r1")] }, null);
       return single;

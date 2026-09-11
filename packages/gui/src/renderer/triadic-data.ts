@@ -171,7 +171,7 @@ export function useRuntimePlaneQuery(repoId: string | null, options: { readonly 
  * Read one bounded relation-graph page. The daemon page contract carries a cursor for
  * explicit follow-up reads, but the GUI must not drain a 10k+ ledger on every refresh.
  */
-export async function readWholeRelationGraph(
+export async function readRelationGraphPage(
   read: (payload: { readonly limit: number; readonly cursor?: string }) => Promise<RelationGraphSuccess>,
 ): Promise<RelationGraphSuccess> {
   return read({ limit: 500 });
@@ -191,7 +191,7 @@ export function useTriadicProjectionQuery(
   const decisionsEnabled = enabled && options.decisionsEnabled !== false;
   const graph = useQuery({
     queryKey: triadicQueryKeys.graph(repoId ?? "unselected"),
-    queryFn: () => readWholeRelationGraph((payload) => harnessClient.getRelationGraph({ repoId: repoId!, ...payload })),
+    queryFn: () => readRelationGraphPage((payload) => harnessClient.getRelationGraph({ repoId: repoId!, ...payload })),
     enabled: graphEnabled,
     staleTime: 10_000,
   });
@@ -222,6 +222,7 @@ export function useTriadicProjectionQuery(
       isPending,
       isError,
       graphAvailable,
+      relationPageNextCursor: graph.data?.page?.nextCursor ?? null,
       relationState: graph.isError
         ? ("error" as const)
         : graphEnabled && graph.isPending

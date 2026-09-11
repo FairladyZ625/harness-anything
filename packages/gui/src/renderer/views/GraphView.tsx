@@ -78,6 +78,7 @@ export interface GraphViewProps {
   focusRef: string | null;
   viewMode: ViewMode;
   onViewModeChange: (mode: ViewMode) => void;
+  relationPageNextCursor?: string | null;
 }
 
 /**
@@ -118,6 +119,7 @@ function GraphViewInner({
   focusRef,
   viewMode,
   onViewModeChange,
+  relationPageNextCursor = null,
   recentRefs = [],
   entries = [],
   onOpenPalette = () => {},
@@ -456,6 +458,11 @@ function GraphViewInner({
           >
             重点外 {territory.deferredCount}
             {focusSelection ? ` · 重点 ${focusSelection.seedCount} task` : ""}
+          </span>
+        )}
+        {relationPageNextCursor !== null && (
+          <span data-testid="triadic-graph-truncated" className="ui-micro text-stale">
+            仅显示前 500 条边，台账更大；使用重点模式或筛选查看其余
           </span>
         )}
         {territory && territory.unprojectedCount > 0 && (
