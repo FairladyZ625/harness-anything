@@ -276,8 +276,9 @@ describe("Task detail expression", () => {
   });
 
   it("renders structured dispatch, facts, relations, closeout and projected files", async () => {
-    installBridge();
+    const bridge = installBridge();
     await mount();
+    expect(bridge.getTaskCompletion).not.toHaveBeenCalled();
 
     await clickTab("派工");
     expect(byTestId("task-dispatch-tab").textContent).toContain("Codex Worker");
@@ -302,6 +303,9 @@ describe("Task detail expression", () => {
     expect(byTestId("task-relations-tab").textContent).toContain("runtime-w3");
 
     await clickTab("收口");
+    expect(bridge.getTaskCompletion).toHaveBeenCalledTimes(1);
+    expect(bridge.getTaskCompletion).toHaveBeenCalledWith({ repoId: "repo-a", taskId: "task-w3" });
+    expect(byTestId("task-completion-next").textContent).toContain("Center completion action");
     expect(byTestId("task-closeout-tab").textContent).toContain("review-w3");
     expect(byTestId("task-closeout-tab").textContent).toContain("consent-w3");
     expect(byTestId("task-closeout-tab").textContent).toContain("local-check");
@@ -450,6 +454,16 @@ describe("Task detail expression", () => {
 
 function installBridge({ uncommittedPlan = false }: { readonly uncommittedPlan?: boolean } = {}) {
   const bridge = {
+    getTaskCompletion: vi.fn(async ({ taskId }: { taskId: string }) => ({
+      ok: true,
+      taskId,
+      completionNext: {
+        reason: "Center completion reason",
+        action: "Center completion action",
+        authority: "task owner",
+        readCut: { revision: 7, iteration: 0, executionId: "execution-w3" },
+      },
+    })),
     getTaskDocument: vi.fn(async ({ taskId, path }: { taskId: string; path: string }) => {
       // 二进制产物的读侧回答:没有正文,带媒体类型/字节数/内容地址/仓库路径与 canonical 字节。
       const binary = path.endsWith(".pdf");

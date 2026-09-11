@@ -81,10 +81,10 @@ export function completionStopped(
     cellCriterionError(
       blocker.code,
       // What is wrong, then what to run; every completion blocker carries both.
-      `${blocker.next.reason} Next: ${blocker.next.command}`,
+      `${blocker.next.reason} Next: ${blocker.next.action}`,
       "complete",
       "closeout-readiness/closeoutReadiness",
-      [blocker.next.command],
+      [blocker.next.action],
     ),
     contract,
     action,

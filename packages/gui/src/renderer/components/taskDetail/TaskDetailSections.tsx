@@ -17,7 +17,7 @@ import type { GuiSubmissionV1, RelationFactRow, TaskDispatchProjectionRow } from
 import { agentRuntimeClient, runtimeQueryKeys } from "../../agent-runtime-client.ts";
 import { harnessClient } from "../../api-client.ts";
 import type { TaskMutationFeedback } from "../../task-actions.ts";
-import { useTaskDocumentQuery } from "../../task-data.ts";
+import { useTaskCompletionQuery, useTaskDocumentQuery } from "../../task-data.ts";
 import { buildTriadicRendererData, triadicQueryKeys } from "../../triadic-data.ts";
 import { formatTime } from "../../model/time.ts";
 import type { RelationEdge, TaskRow } from "../../model/types.ts";
@@ -668,7 +668,9 @@ export function TaskCloseoutTab({
   onProgress,
   onSubmit,
 }: { readonly task: TaskRow } & TaskActionProps) {
-  const reviews = task.reviews ?? [],
+  const completion = useTaskCompletionQuery(task.projectId, task.taskId),
+    completionNext = completion.data?.completionNext,
+    reviews = task.reviews ?? [],
     consents = task.consents ?? [],
     codeDocs = task.codeDocWitnesses ?? [],
     gateWitnesses = task.gateWitnesses ?? [];
@@ -704,8 +706,13 @@ export function TaskCloseoutTab({
         <div className="grid content-start gap-8">
           <div className="flex flex-wrap items-center gap-3 border-y border-border py-4">
             <CloseoutBadge value={task.closeoutReadiness} />
-            {task.closeoutBlocker ? (
-              <span className="font-mono ui-micro text-stale">blocker: {task.closeoutBlocker}</span>
+            {completion.isError ? <ReadError text={String(completion.error)} /> : null}
+            {completionNext ? (
+              <div data-testid="task-completion-next">
+                <p>{completionNext.reason}</p>
+                <p>{completionNext.action}</p>
+                <p>{completionNext.authority}</p>
+              </div>
             ) : null}
             {task.snapshotAvailability ? (
               <span className="ml-auto font-mono ui-micro text-text-faint">

@@ -411,3 +411,8 @@ describe("adaptProjectionRows reference stability (W9)", () => {
     expect(second).toEqual(first);
   });
 });
+
+it("keeps completion guidance out of list adapters", () => {
+  const [task] = adaptProjectionRows([row()], "repo-test");
+  expect(task).not.toHaveProperty("completionNext");
+});

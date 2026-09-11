@@ -1,3 +1,4 @@
+import type { taskCompletionNext } from "../../../kernel/src/index.ts";
 import type {
   CanonicalEventV1,
   DaemonRepoMode,
@@ -376,6 +377,7 @@ export type DaemonGuiReadResultMap = {
     readonly watermark: number;
     readonly sourceRevision: number;
   };
+  readonly "repo.tasks.completion.read": DaemonTaskCompletionResult;
   readonly "repo.tasks.documents.list": DaemonTaskDocumentListResult;
   readonly "repo.artifacts.list": ArtifactsListResult;
   readonly "repo.agentRuntime.overview": AgentRuntimeOverviewResult;
@@ -433,6 +435,7 @@ export type DaemonGuiReadPayloadMap = {
     readonly taskId: string;
     readonly path: string;
   };
+  readonly "repo.tasks.completion.read": { readonly taskId: string };
   readonly "repo.tasks.documents.list": { readonly taskId: string };
   /** absent kind = html(时间线默认面);md 是显式 opt-in。 */
   readonly "repo.artifacts.list": { readonly kind?: "html" | "md" | "raw" };
@@ -767,6 +770,13 @@ export type DaemonTaskSnapshotListResult = {
   readonly page?: ProjectionPage;
 };
 
+/** One read-only completion next step for a single task, as `ha task complete` would judge it. */
+export type DaemonTaskCompletionResult = {
+  readonly ok: true;
+  readonly taskId: string;
+  readonly completionNext: ReturnType<typeof taskCompletionNext>["next"];
+};
+
 export type DaemonTaskWipResult = {
   readonly ok: true;
   readonly limit: number;
@@ -991,4 +1001,36 @@ export interface DaemonUseCaseProjectionPayload {
   /** Session status words the group read narrows to; the daemon owns the vocabulary. */
   readonly status?: readonly string[];
   readonly limit?: number;
+}
+export function validateDaemonTaskCompletion(value: unknown): readonly string[] {
+  if (
+    !isJsonObject(value) ||
+    Object.keys(value).length !== 3 ||
+    value.ok !== true ||
+    typeof value.taskId !== "string" ||
+    !value.taskId
+  )
+    return ["Invalid task completion read"];
+  const next = value.completionNext;
+  if (next === null) return [];
+  if (
+    !isJsonObject(next) ||
+    Object.keys(next).length !== 4 ||
+    typeof next.reason !== "string" ||
+    !next.reason ||
+    typeof next.action !== "string" ||
+    !next.action ||
+    typeof next.authority !== "string" ||
+    !next.authority ||
+    !isJsonObject(next.readCut)
+  )
+    return ["Invalid completionNext"];
+  const cut = next.readCut;
+  return Object.keys(cut).length === 3 &&
+    Number.isSafeInteger(cut.revision) &&
+    Number(cut.revision) >= 0 &&
+    (cut.iteration === null || (Number.isSafeInteger(cut.iteration) && Number(cut.iteration) >= 0)) &&
+    (cut.executionId === null || (typeof cut.executionId === "string" && cut.executionId.length > 0))
+    ? []
+    : ["Invalid completionNext.readCut"];
 }

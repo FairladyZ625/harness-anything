@@ -173,6 +173,21 @@ export const domainStatusWords: readonly StatusWordRegistration[] = [
     divergence: "entity-scoped",
   },
   {
+    word: "ready",
+    entity: "Task",
+    field: "completion projection status",
+    meaning: "Completion next step judged at a caught-up canonical projection cut.",
+    divergence: "entity-scoped",
+  },
+  {
+    word: "pending",
+    entity: "Task",
+    field: "completion projection status",
+    meaning:
+      "Projection still trails the canonical revision; completion answers projection_unknown instead of judging.",
+    divergence: "entity-scoped",
+  },
+  {
     word: "covered",
     entity: "Decision",
     field: "claim coverage status",

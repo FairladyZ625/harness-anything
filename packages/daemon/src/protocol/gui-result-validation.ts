@@ -21,7 +21,7 @@ import {
   validateSquadEntityCatalog,
   validateSquadEntityDetail,
 } from "../agent-entities.contract.ts";
-import { validateObserveTailResult } from "./daemon-protocol-gui-types.ts";
+import { validateDaemonTaskCompletion, validateObserveTailResult } from "./daemon-protocol-gui-types.ts";
 import { validationError } from "./daemon-protocol-validate-entities.ts";
 import { validateArtifactsList } from "./artifacts-gui-contract.ts";
 import { validateDaemonUseCaseProjection } from "./daemon-protocol-use-case-projection.ts";
@@ -96,6 +96,7 @@ const resultValidators = {
   "daemon.gui.control.receipt": validateDaemonControlReceipt,
   "observe.tail": validateObserveTailResult,
   "repo.tasks.list": validateDaemonTaskSnapshotList,
+  "repo.tasks.completion.read": validateDaemonTaskCompletion,
   "repo.tasks.wip": validateDaemonTaskWip,
   "repo.projection.read": validateDaemonUseCaseProjection,
   "repo.entity.actions.explain": validateEntityActionExplanationSet,

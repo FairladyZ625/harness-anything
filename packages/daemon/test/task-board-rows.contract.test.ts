@@ -154,6 +154,12 @@ test("phase and risk equal the renderer predicates on every row", () => {
 
 test("the projected rows are admissible on the wire and carry no free-text reason", () => {
   const result = read().guiTasks();
+  const projection = projectionStub();
+  assert.equal(projection.read, undefined, "list fixture has no single-task read");
+  assert.equal(projection.readDocument, undefined, "list fixture has no document read");
+  assert.equal(projection.readRelationQuery, undefined, "list fixture has no per-task relation read");
+  assert.equal(result.rows.length, 7, "all rows survive without document or per-task relation reads");
+  assert.ok(result.rows.every((row) => !Object.hasOwn(row, "completionNext")));
   assert.deepEqual(result.invalidRows, []);
   assert.deepEqual(validateDaemonTaskSnapshotList(result), []);
   const tampered = {

@@ -6,6 +6,11 @@ export const DAEMON_TASK_SNAPSHOT_LIST_SCHEMA = Object.freeze({
   required: Object.freeze(["ok", "status", "rows", "invalidRows", "watermark", "sourceRevision", "warnings"]),
 });
 
+export const DAEMON_TASK_COMPLETION_SCHEMA = Object.freeze({
+  id: "daemon.task-completion/v1",
+  required: Object.freeze(["ok", "taskId", "completionNext"]),
+});
+
 export const DAEMON_TASK_WIP_SCHEMA = Object.freeze({
   id: "daemon.task-wip/v1",
   required: Object.freeze(["ok", "limit", "limitLabel", "counted", "roots", "threshold"]),

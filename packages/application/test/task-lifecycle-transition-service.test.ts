@@ -84,7 +84,7 @@ test("completion blocker matrix returns one canonical next for every substantive
         [code],
         code,
       );
-      assert.equal((blockers[0]?.next.command.length ?? 0) > 0, true, code);
+      assert.equal((blockers[0]?.next.action.length ?? 0) > 0, true, code);
       assert.equal((blockers[0]?.next.reason.length ?? 0) > 0, true, code);
     }
     const missingSections = completionBlockers(consented.snapshot, "execution-1", {
@@ -95,18 +95,18 @@ test("completion blocker matrix returns one canonical next for every substantive
         { section: "Verification", reason: "empty" },
       ],
     })[0]!;
-    assert.match(missingSections.next.reason, /missing sections: Summary, Verification/);
+    assert.match(missingSections.next.reason, /section Summary is empty/);
     const templateSection = completionBlockers(consented.snapshot, "execution-1", {
       ...ready,
       closeout: "placeholder",
       closeoutMissingSections: [{ section: "Residual Risk", reason: "scaffold" }],
     })[0]!;
-    assert.match(templateSection.next.reason, /still template: Residual Risk/);
+    assert.match(templateSection.next.reason, /section Residual Risk is scaffold/);
     // The lineage blocker names the missing edge with the exact command that writes it.
     const lineage = completionBlockers(orphanMilestone, "execution-1", ready)[0]!;
     assert.equal(
-      lineage.next.command,
-      "ha decision relate <decision-id> --anchor <claim-id> --type derives --target task/task-1 --rationale <why this decision authorises the task>",
+      lineage.next.action,
+      "Identify the authorizing Decision claim in harness/tasks/task-1/closeout.md Summary.",
     );
     const reportOnly = withGates(["code-doc-reconciliation"]);
     assert.deepEqual(

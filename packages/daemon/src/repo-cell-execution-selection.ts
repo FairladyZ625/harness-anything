@@ -1,12 +1,9 @@
 import {
   approvedReviewHistoryForExecution,
-  closeoutReadiness,
   currentSubmittedExecutions,
-  getExecutableEntityAction,
   submissionDigest,
-  taskActionUsage,
 } from "../../kernel/src/index.ts";
-import { cellCodedError, cellCriterionError } from "./repo-cell-errors.ts";
+import { cellCodedError } from "./repo-cell-errors.ts";
 import { cellStringList, requiredCellText } from "./repo-cell-settlement.ts";
 import type { RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 
@@ -220,22 +217,6 @@ export function reviewConsentSelection(
       `${commands.length ? `Choose one explicitly: ${commands.join(" or ")}.` : next}`,
       "",
     ].join(""),
-  );
-}
-
-export function completeExecutionId(action: RepoTaskAction, snapshot: Snapshot, taskId: string): string {
-  const supplied = explicitExecutionId(action);
-  if (supplied !== undefined) return supplied;
-  const assessed = closeoutReadiness(snapshot);
-  if (assessed.executionId !== undefined) return assessed.executionId;
-  const contract = getExecutableEntityAction("task-complete");
-  if (!contract) throw cellCodedError("invalid_store", "Task complete is missing from the Action catalog.");
-  throw cellCriterionError(
-    "invalid_command",
-    "Task complete could not select one current closeout execution.",
-    "complete",
-    "closeout-readiness/closeoutReadiness",
-    [taskActionUsage(contract, taskId)],
   );
 }
 

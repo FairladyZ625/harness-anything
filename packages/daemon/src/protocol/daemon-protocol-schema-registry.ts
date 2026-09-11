@@ -34,6 +34,7 @@ import {
   DAEMON_TASK_DISPATCHES_SCHEMA,
   DAEMON_TASK_DOCUMENT_LIST_SCHEMA,
   DAEMON_TASK_SNAPSHOT_LIST_SCHEMA,
+  DAEMON_TASK_COMPLETION_SCHEMA,
   DAEMON_TASK_WIP_SCHEMA,
   DAEMON_USE_CASE_PROJECTION_SCHEMA,
   DAEMON_WORKSPACE_SUMMARY_SCHEMA,
@@ -49,6 +50,14 @@ import {
 } from "./daemon-protocol-schema-ids.ts";
 
 export const daemonGuiReadSchemas = Object.freeze([
+  {
+    id: DAEMON_TASK_COMPLETION_SCHEMA.id,
+    schema: "packages/daemon/src/protocol/daemon-protocol-schema-ids.ts#DAEMON_TASK_COMPLETION_SCHEMA",
+    parser: "packages/daemon/src/protocol/daemon-protocol-gui-types.ts#validateDaemonTaskCompletion",
+    writer: "packages/daemon/src/task-completion-read.ts#readTaskCompletion",
+    error: "packages/daemon/src/protocol/daemon-protocol.contract.ts#DaemonProtocolContractError",
+    negativeFixtures: Object.freeze(["packages/daemon/fixtures/contracts/task-completion-invalid.json"]),
+  },
   {
     id: DAEMON_VERTICAL_DECLARATION_READ_SCHEMA.id,
     schema: "packages/kernel/src/domain/vertical-declaration.ts#VERTICAL_DECLARATION_READ_SCHEMA",

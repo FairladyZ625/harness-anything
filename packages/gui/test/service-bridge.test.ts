@@ -150,7 +150,9 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
               ? { ...scope, kind: "events", direction: "history" }
               : contract.id === "tasks.document.read"
                 ? { ...scope, taskId: "task-gui-smoke", path: "notes.md" }
-                : contract.id === "tasks.documents.list" || contract.id === "task.dispatches"
+                : contract.id === "tasks.documents.list" ||
+                    contract.id === "tasks.completion.read" ||
+                    contract.id === "task.dispatches"
                   ? { ...scope, taskId: "task-gui-smoke" }
                   : contract.id === "agentRuntime.sessions.read"
                     ? { ...scope, runtimeSessionId: "runtime-gui" }

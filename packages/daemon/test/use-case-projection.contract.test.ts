@@ -72,9 +72,9 @@ test("the folded per-store reads are gone and the net read count fell", () => {
   // GUI renders the gate's numbers instead of re-deriving a different count from the task list.
   assert.equal(
     daemonGuiReadMethods.length,
-    35,
+    36,
     "31 array entries minus 3 folded plus 1 unified plus 3 entity reads plus 1 vertical " +
-      "declaration read plus 1 artifact read plus 1 task WIP read",
+      "declaration read plus 1 artifact read plus 1 task WIP read plus 1 single-task completion read",
   );
 });
 
