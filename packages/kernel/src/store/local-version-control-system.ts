@@ -32,11 +32,7 @@ import { makeLocalVersionControlCommands } from "./local-version-control-command
 
 const gitMaxBuffer = 256 * 1024 * 1024,
   gitBatchChunkBytes = 64 * 1024 * 1024,
-  gitBatchChunkEntries = 4_096,
-  // Windows CreateProcess limits the quoted command line to 32,767 UTF-16 characters, but
-  // cmd.exe /d /s /c limits the command line to 8,191 characters.
-  // Leave room for quoting, repo path, and Git's fixed arguments; 4 KiB safely fits.
-  gitPathspecChunkBytes = (process.platform === "win32" ? 4 : 128) * 1024;
+  gitBatchChunkEntries = 4_096;
 
 export function makeLocalVersionControlSystem(): VersionControlSystem {
   return makeLocalVersionControlCommands({
@@ -257,29 +253,6 @@ function withStdinFile<T>(
     localRuntimeStateFileSystem.remove(temporaryPath);
   }
 }
-/**
- * Pathspec batches that stay inside the platform argument limit. One batch is the common case;
- * a caller naming more paths than one command line holds pays one extra process per batch
- * instead of one full-tree listing.
- */
-function pathspecChunks(targets: readonly string[]): readonly (readonly string[])[] {
-  if (targets.length === 0) return [];
-  const chunks: string[][] = [];
-  let chunk: string[] = [],
-    chunkBytes = 0;
-  for (const target of targets) {
-    const size = Buffer.byteLength(target, "utf8") + 1;
-    if (chunk.length > 0 && (chunkBytes + size > gitPathspecChunkBytes || chunk.length >= gitBatchChunkEntries)) {
-      chunks.push(chunk);
-      chunk = [];
-      chunkBytes = 0;
-    }
-    chunk.push(target);
-    chunkBytes += size;
-  }
-  chunks.push(chunk);
-  return chunks;
-}
 export const localGitObjectRefStore = Object.freeze({
   processCount: () => localGitProcesses,
   addWorktree: (repoRoot: string, cwd: string, branch: string, baseRef: string): void => {
@@ -408,64 +381,21 @@ export const localGitObjectRefStore = Object.freeze({
     readonly size: number;
     readonly target: string;
   }[] => {
-    const scoped = [...new Set(targets)],
-      entries: { mode: "100644" | "120000"; oid: string; size: number; target: string }[] = [];
-    for (const chunk of pathspecChunks(scoped)) {
-      const output = localGitBytes(repoRoot, [
-        "--literal-pathspecs",
-        "ls-tree",
-        "-r",
-        "-l",
-        "-z",
-        commit,
-        "--",
-        ...chunk,
-      ]);
-      for (const record of output.toString("utf8").split("\0")) {
-        if (!record) continue;
-        const tab = record.indexOf("\t"),
-          header = tab < 0 ? "" : record.slice(0, tab),
-          logical = tab < 0 ? "" : record.slice(tab + 1);
-        const [mode, type, oid, size] = header.trim().split(/\s+/u);
-        if (
-          (mode === "100644" || mode === "120000") &&
-          type === "blob" &&
-          /^[0-9a-f]{40}$/u.test(oid ?? "") &&
-          /^[0-9]+$/u.test(size ?? "") &&
-          logical
-        )
-          entries.push({ mode, oid: oid!, size: Number(size), target: logical });
-      }
-    }
-    return entries;
-  },
-  listTreeAll: (
-    repoRoot: string,
-    commit: string,
-  ): readonly {
-    readonly mode: "100644" | "120000";
-    readonly oid: string;
-    readonly size: number;
-    readonly target: string;
-  }[] => {
-    const output = localGitBytes(repoRoot, ["ls-tree", "-r", "-l", "-z", commit]),
-      entries: { mode: "100644" | "120000"; oid: string; size: number; target: string }[] = [];
-    for (const record of output.toString("utf8").split("\0")) {
-      if (!record) continue;
-      const tab = record.indexOf("\t"),
-        header = tab < 0 ? "" : record.slice(0, tab),
-        logical = tab < 0 ? "" : record.slice(tab + 1),
-        [mode, type, oid, size] = header.trim().split(/\s+/u);
-      if (
-        (mode === "100644" || mode === "120000") &&
-        type === "blob" &&
-        /^[0-9a-f]{40}$/u.test(oid ?? "") &&
-        /^[0-9]+$/u.test(size ?? "") &&
-        logical
-      )
-        entries.push({ mode, oid: oid!, size: Number(size), target: logical });
-    }
-    return entries;
+    const scoped = [...new Set(targets)];
+    if (scoped.length === 0) return [];
+    const input = scoped.map((target) => `${commit}:${target}\n`).join("");
+    const output = withStdinFile(repoRoot, ".ha-cat-file-check-", [input], (inputFd) =>
+      localGitBytes(repoRoot, ["cat-file", "--batch-check"], inputFd),
+    );
+    return output
+      .toString("utf8")
+      .trimEnd()
+      .split("\n")
+      .flatMap((line, index) => {
+        const [oid, type, size] = line.split(" ");
+        if (type !== "blob" || !/^\\d+$/u.test(size ?? "") || !/^[0-9a-f]{40}$/u.test(oid ?? "")) return [];
+        return [{ mode: "100644" as const, oid: oid!, size: Number(size), target: scoped[index]! }];
+      });
   },
   importCommit: (repoRoot: string, input: Iterable<string | Uint8Array>) =>
     withStdinFile(repoRoot, ".ha-fast-import-", input, (inputFd) =>

@@ -532,10 +532,7 @@ export function captureGitBaseline(
       return target === null ? [] : [target];
     }),
     tree = new Map(
-      localGitObjectRefStore
-        .listTreeAll(repoRoot, commit)
-        .filter((entry) => targets.includes(entry.target))
-        .map((entry) => [entry.target, entry] as const),
+      localGitObjectRefStore.listTree(repoRoot, commit, targets).map((entry) => [entry.target, entry] as const),
     ),
     bodies = localGitObjectRefStore.readPaths(
       repoRoot,
