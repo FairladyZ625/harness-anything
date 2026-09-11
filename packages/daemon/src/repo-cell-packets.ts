@@ -270,7 +270,7 @@ export function lifecycleReceipt(
     evidence: `event-object:${event.opId};files:${changedPaths.join(",")}`,
     visibility: "center",
     proof,
-    authorizationDecision,
+    ...(authorizationDecision === undefined ? {} : { authorizationDecision }),
     taskId: event.taskId,
     executionId,
     reviewId,

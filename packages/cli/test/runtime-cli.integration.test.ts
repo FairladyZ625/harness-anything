@@ -958,12 +958,17 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
     writeFileSync(path.join(root, "harness", submittedPlanPath), realizedPlan("Submitted runtime archive"));
     run(root, env, ["doc", "sync", "--submit", "--path", submittedPlanPath]);
     run(root, env, ["task", "start", submittedTaskId, "--execution-id", submittedExecutionId]);
+    const submittedArtifact = `${submittedPackagePath}/artifacts/runtime-delivery.md`;
+    mkdirSync(path.dirname(path.join(root, "harness", submittedArtifact)), { recursive: true });
+    writeFileSync(path.join(root, "harness", submittedArtifact), "Runtime archive delivery fixture.\n");
+    const submittedCut = published(root, env, run(root, env, ["doc", "sync", "--submit", "--path", submittedArtifact]));
+    assert.match(String(submittedCut.commitSha), /^[0-9a-f]{40}$/u);
     const submittedRuntime = run(root, env, [
         "runtime",
         "run",
         "cli-worker",
         "--prompt",
-        `submit-before-exit:${submittedTaskId}`,
+        `submit-before-exit:${submittedTaskId}:${submittedCut.commitSha}`,
         "--task",
         submittedTaskId,
         "--no-stream",
@@ -1721,10 +1726,10 @@ function writeProgressProvider(target: string, version: string): void {
       'else if (mission === "failure:429") process.stdout.write([JSON.stringify({ type: "thread.started", thread_id: "provider-cli-session" }), JSON.stringify({ type: "turn.failed", error: { http_status: 429, code: "insufficient_quota", message: "credit balance exhausted", reset_at: "2026-09-06T05:06:07Z" } })].join("\\n") + "\\n", () => process.exit(1));\nelse { const resumed',
     progressSetup =
       `${batchMarker}const progressTask = mission.startsWith("progress-middle:") ? mission.slice("progress-middle:".length) : null;\n` +
-      'const submitTask = mission.startsWith("submit-before-exit:") ? mission.slice("submit-before-exit:".length) : null;\n',
+      'const submitTask = mission.startsWith("submit-before-exit:") ? mission.slice("submit-before-exit:".length).split(":")[0] : null;\n',
     progressWrite =
       `console.log(JSON.stringify({ type: "thread.started", thread_id: session })); if (progressTask) { for (const text of ["Provider checkpoint one.", "Provider checkpoint two."]) { let result; for (let attempt = 0; attempt < 20; attempt += 1) { result = require("node:child_process").spawnSync(process.execPath, [${JSON.stringify(cli)}, "--root", process.cwd(), "--json", "task", "progress", "append", progressTask, "--text", text, "--evidence", "test:reports/runtime-progress.txt:provider checkpoint"], { encoding: "utf8", env: process.env }); if (result.status === 0) break; Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50); } if (result.status !== 0) { process.stderr.write("progress append failed: " + result.stdout + result.stderr); process.exit(8); } } } ` +
-      `if (submitTask) { const packageRoot = prompt.split("Task package root: ")[1].split("\\n")[0]; fs.writeFileSync(require("node:path").join(packageRoot, "closeout.md"), "# Closeout\\n\\n## Summary\\n\\nRuntime worker submitted before exit.\\n\\n## Verification\\n\\nIntegration runtime submission.\\n\\n## Residual Risk\\n\\nNone.\\n\\n## Same Mechanism Elsewhere\\n\\nRuntime archive lifecycle.\\n"); const result = require("node:child_process").spawnSync(process.execPath, [${JSON.stringify(cli)}, "--root", process.cwd(), "--json", "task", "submit", submitTask], { encoding: "utf8", env: process.env }); if (result.status !== 0) { process.stderr.write("task submit failed: " + result.stdout + result.stderr); process.exit(8); } } if (readOnly)`,
+      `if (submitTask) { const packageRoot = prompt.split("Task package root: ")[1].split("\\n")[0]; fs.writeFileSync(require("node:path").join(packageRoot, "closeout.md"), "# Closeout\\n\\n## Summary\\n\\nRuntime worker submitted before exit at " + mission.split(":").at(-1) + ".\\n\\n## Verification\\n\\nIntegration runtime submission.\\n\\n## Residual Risk\\n\\nNone.\\n\\n## Same Mechanism Elsewhere\\n\\nRuntime archive lifecycle.\\n"); const result = require("node:child_process").spawnSync(process.execPath, [${JSON.stringify(cli)}, "--root", process.cwd(), "--json", "task", "submit", submitTask], { encoding: "utf8", env: process.env }); if (result.status !== 0) { process.stderr.write("task submit failed: " + result.stdout + result.stderr); process.exit(8); } } if (readOnly)`,
     next = source
       .replace(batchMarker, progressSetup)
       .replace(threadMarker, progressWrite)

@@ -5,7 +5,8 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test, { after, before } from "node:test";
+import { writeProviderExecutable } from "../../daemon/test/fixtures/runtime-stub.ts";
 import { requestDaemonJsonRpcAt } from "../../daemon/src/client/local-json-rpc-client.ts";
 import { appendRuntimeWorkerRecord, openDispatchStream } from "../../daemon/src/dispatch-stream.ts";
 import {
@@ -36,6 +37,19 @@ import type { Failure } from "./service-bridge.fixtures.ts";
 import { restoreEnv } from "./service-bridge.fixtures.ts";
 
 import { seedEntityDeclarations, seedRuntime } from "./service-bridge.fixtures.ts";
+const ciBin = mkdtempSync(path.join(tmpdir(), "ha-gui-submit-ci-"));
+const originalPath = process.env.PATH;
+before(() => {
+  writeProviderExecutable(
+    path.join(ciBin, "gh"),
+    'if (process.argv[2] !== "run" || process.argv[3] !== "list") process.exit(1); console.log("[]");\n',
+  );
+  process.env.PATH = `${ciBin}${path.delimiter}${originalPath ?? ""}`;
+});
+after(() => {
+  restoreEnv("PATH", originalPath);
+  rmSync(ciBin, { recursive: true, force: true });
+});
 const SEEDED_SQUAD_RUN_ID = "squad_aabbccddeeff001122334455";
 
 test("GUI main reports every isolated task snapshot row with field-level context", () => {
