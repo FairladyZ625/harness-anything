@@ -97,7 +97,7 @@ export const commandTable = [
     "fact-record~chain",
     (c, s) => ["fact", "record", chain(s), "--statement", c.text(`chain fact ${s}`), "--source", "bench"],
   ],
-  ["task-submit", (c, s) => ["task", "submit", chain(s), "--json-input", J(c.submission(s))], worker],
+  ["task-submit", (c, s) => ["task", "submit", chain(s)], worker],
   ["task-code-doc-reconcile", (c, s) => ["task", "code-doc", "reconcile", chain(s), "--path", "README.md"]],
   ["task-show~witness", (c, s) => ["task", "show", chain(s)]],
   ["task-review", (c, s) => ["task", "review", chain(s)]],
@@ -140,11 +140,7 @@ export const commandTable = [
     "fact-record~chain2",
     (c, s) => ["fact", "record", chain2(s), "--statement", c.text(`chain2 fact ${s}`), "--source", "bench"],
   ],
-  [
-    "task-submit~chain2",
-    (c, s) => ["task", "submit", chain2(s), "--json-input", J(c.submission(s, "~chain2"))],
-    worker,
-  ],
+  ["task-submit~chain2", (c, s) => ["task", "submit", chain2(s)], worker],
   [
     "task-closeout",
     (c, s) => [

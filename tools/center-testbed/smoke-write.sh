@@ -79,7 +79,7 @@ wait_healthy() {
 }
 
 log "== scenario 1: automatic-lease closed loop on edge-1, projected to both edges =="
-ha edge-1 task create --title "W3-B automatic lease write loop $RUN_TAG" --preset standard-task > "$SMOKE_TMP/s1-create.json"
+ha edge-1 task create --title "W3-B automatic lease write loop $RUN_TAG" --preset docs-task > "$SMOKE_TMP/s1-create.json"
 expect "$SMOKE_TMP/s1-create.json" ok true
 T1=$(jsonget "$SMOKE_TMP/s1-create.json" taskId)
 PACKAGE1=$(jsonget "$SMOKE_TMP/s1-create.json" packagePath)
@@ -91,11 +91,30 @@ ha edge-1 task progress append "$T1" --text "edge-1 wrote through the automatic 
 expect "$SMOKE_TMP/s1-progress.json" ok true
 [ "$(jsonget "$SMOKE_TMP/s1-progress.json" mirror.outcome)" = "applied" ] || fail_smoke "edge-1 mirror auto-pull did not apply: $(head -c 300 "$SMOKE_TMP/s1-progress.json")"
 
-cat > "$SMOKE_TMP/submission-t1.json" <<SUB
-{"completionClaim":"complete","deliverables":[],"outputs":[],"verificationNotes":["testbed write smoke submission"],"knownGaps":[],"residualRisks":[],"commitSha":"$(printf 'a%.0s' $(seq 1 40))"}
-SUB
-docker compose exec -T edge-1 sh -c "cat > $WORKSPACE/submission-t1.json" < "$SMOKE_TMP/submission-t1.json"
-ha edge-1 task submit "$T1" --execution-id "$EXE1" --from-file submission-t1.json > "$SMOKE_TMP/s1-submit.json"
+cat > "$SMOKE_TMP/closeout-t1.md" <<'CLOSEOUT'
+# Closeout
+
+## Summary
+
+Edge-1 wrote through its automatic lease and submitted the execution.
+
+## Verification
+
+The progress receipt applied at the center and projected to edge-1.
+
+## Residual Risk
+
+Completion review remains outside this submission smoke.
+
+## Same Mechanism Elsewhere
+
+The following scenarios exercise the other shared lease transitions.
+CLOSEOUT
+docker compose exec -T edge-1 sh -c "cat > $WORKSPACE/harness/$PACKAGE1/closeout.md" < "$SMOKE_TMP/closeout-t1.md"
+docker compose exec -T edge-1 sh -c "cat > $WORKSPACE/harness/$PACKAGE1/artifacts/write-receipt.json" < "$SMOKE_TMP/s1-progress.json"
+ha edge-1 doc sync --submit --task "$T1" > "$SMOKE_TMP/s1-doc-sync.json"
+expect "$SMOKE_TMP/s1-doc-sync.json" ok true
+ha edge-1 task submit "$T1" --execution-id "$EXE1" > "$SMOKE_TMP/s1-submit.json"
 expect "$SMOKE_TMP/s1-submit.json" ok true
 [ "$(jsonget "$SMOKE_TMP/s1-submit.json" fleet.waitOutcome)" = "applied" ] || fail_smoke "submit was not applied at the center"
 
