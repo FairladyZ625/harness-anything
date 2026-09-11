@@ -76,8 +76,11 @@ export const TASK_EDGE_TAKEN_SCHEMA = Object.freeze({
   id: "TaskEdgeTaken/v1",
   required: Object.freeze(["edgeId", "from", "to", "on", "actorRole", "reason", "commitSha", "iteration"]),
 });
-export function validateTaskGraph(value: unknown, allowUnknownFields = false): readonly GraphValidationIssue[] {
+export function validateTaskGraph(input: unknown, allowUnknownFields = false): readonly GraphValidationIssue[] {
   const hasFields = allowUnknownFields ? hasRequiredFields : hasOnlyFields;
+  // Graphs written before the return budget moved to Settings carry `maxIterations: 1`. The field is
+  // read-only history: replay ignores it and no new graph writes it.
+  const value = isRecord(input) && "maxIterations" in input ? withoutLegacyMaxIterations(input) : input;
   if (
     !isRecord(value) ||
     !hasFields(value, ["template", "nodes", "edges"]) ||
@@ -133,4 +136,9 @@ function sameEdge(value: unknown, expected: GraphEdgeDefinition): boolean {
 }
 function graphIssue(code: GraphValidationIssue["code"], message: string): GraphValidationIssue {
   return { code, message };
+}
+
+function withoutLegacyMaxIterations(graph: Record<string, unknown>): Record<string, unknown> {
+  const { maxIterations: _legacy, ...rest } = graph;
+  return rest;
 }

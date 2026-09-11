@@ -37,6 +37,7 @@ test("approval retry reuses Review identity and ignores transport-only metadata"
       actorBinding: reviewer,
       capability: "execution-review@v1" as const,
       capabilityRef: "cap-ae",
+      returnBudget: 3,
     };
     const first = await harness.service.execute(command, proof);
     const second = await harness.service.execute({ ...command, transport: { attempt: 2 } }, proof);
@@ -78,7 +79,12 @@ test("idempotent retry rejects source, workspace, expectedRevision, digest drift
       workspaceRevision: 4,
       occurredAt: "2026-08-11T00:04:00.000Z",
     };
-    const proof = { actorBinding: reviewer, capability: "execution-review@v1" as const, capabilityRef: "cap-drift" };
+    const proof = {
+      actorBinding: reviewer,
+      capability: "execution-review@v1" as const,
+      capabilityRef: "cap-drift",
+      returnBudget: 3,
+    };
     await harness.service.execute(command, proof);
     const drifts = [
       { source: "remote_direct" as const },

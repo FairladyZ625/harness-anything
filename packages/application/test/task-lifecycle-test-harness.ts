@@ -42,7 +42,6 @@ export const replayGraph = {
       kind: "return",
     },
   ] as const,
-  maxIterations: 1 as const,
 };
 
 export function lifecycleHarness() {
@@ -263,6 +262,7 @@ export function lifecycleHarness() {
           actorBinding: reviewer,
           capability: "execution-review@v1",
           capabilityRef: `cap-${opId}`,
+          returnBudget: 3,
         },
       );
     },

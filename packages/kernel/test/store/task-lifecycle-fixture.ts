@@ -118,6 +118,7 @@ export function lifecycleFixture(
     actorBinding: reviewer,
     capability: "execution-review@v1",
     capabilityRef: "cap-review",
+    returnBudget: 3,
   });
   const review = snapshot.reviews[0]!;
   run(
@@ -217,6 +218,7 @@ export function twoRoundLifecycleEvents(
     actorBinding: reviewer,
     capability: "execution-review@v1",
     capabilityRef: "cap-review",
+    returnBudget: 3,
   });
   run(
     command(implementer, 5, {
