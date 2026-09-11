@@ -20,6 +20,7 @@ import { createRelationGraphProjectionTables } from "../../src/projection/relati
 import {
   createTaskRelationProjectionTable,
   listTaskRowsNarrow,
+  readTaskChildCounts,
   readTaskDependencyClosureRows,
   readTaskIndexRows,
   readTaskRelationPage,
@@ -651,6 +652,36 @@ test("task relation refresh deletes through the task index instead of scanning t
     const plan = queryPlan(db, { sql: "DELETE FROM task_relation WHERE task_id = ?", args: ["task_a"] });
     assert.match(plan, /SEARCH task_relation USING (?:COVERING )?INDEX task_relation_task/u);
     assert.doesNotMatch(plan, /SCAN task_relation(?:\s|$)/u);
+  } finally {
+    db.close();
+  }
+});
+
+test("task child counts search the parent expression index instead of scanning task_snapshot", () => {
+  const db = new DatabaseSync(":memory:");
+  try {
+    db.exec(`
+      CREATE TABLE task_snapshot (task_id TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, snapshot_json TEXT NOT NULL,
+        status TEXT, updated_at TEXT NOT NULL DEFAULT '');
+      CREATE INDEX task_snapshot_parent ON task_snapshot(json_extract(snapshot_json, '$.task.metadata.parentTaskId'));
+    `);
+    const insert = db.prepare("INSERT INTO task_snapshot(task_id, workspace_revision, snapshot_json) VALUES (?, ?, ?)");
+    for (let index = 0; index < 200; index += 1)
+      insert.run(
+        `task_${String(index).padStart(5, "0")}`,
+        index + 1,
+        JSON.stringify({ task: { metadata: { parentTaskId: index % 3 === 0 ? "task_00000" : "task_00001" } } }),
+      );
+    // Mirrors the statement readTaskChildCounts issues; the expression must match the index expression verbatim.
+    const parent = "json_extract(snapshot_json, '$.task.metadata.parentTaskId')",
+      sql =
+        `SELECT ${parent} AS parent_task_id, COUNT(*) AS child_count FROM task_snapshot ` +
+        "WHERE COALESCE(json_extract(snapshot_json, '$.task.packageDisposition'), 'active') = 'active' " +
+        `AND ${parent} IN (SELECT value FROM json_each(?)) GROUP BY parent_task_id`,
+      plan = queryPlan(db, { sql, args: [JSON.stringify(["task_00000"])] });
+    assert.match(plan, /SEARCH task_snapshot USING INDEX task_snapshot_parent/u);
+    assert.doesNotMatch(plan, /SCAN task_snapshot(?:\s|$)/u);
+    assert.deepEqual(readTaskChildCounts(db, ["task_00000", "task_00001"]), { task_00000: 67, task_00001: 133 });
   } finally {
     db.close();
   }
