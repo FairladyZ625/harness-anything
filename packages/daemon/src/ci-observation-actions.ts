@@ -130,7 +130,9 @@ export async function fetchCiObservations(
       if (existsSync(authoredRoot)) {
         const branch = localGitObjectRefStore.currentBranch(authoredRoot),
           sha = branch ? localGitObjectRefStore.resolveCommit(authoredRoot, `refs/heads/${branch}`) : null;
-        if (branch && sha)
+        // A ledger commit that is also in the public repository belongs to the
+        // GitHub observation path; synthesize only for private-ledger commits.
+        if (branch && sha && !localGitObjectRefStore.resolveCommit(cell.rootDir, sha))
           fetched.push({
             databaseId: 0,
             summary: {
