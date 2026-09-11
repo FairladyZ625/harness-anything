@@ -660,7 +660,11 @@ export function readTaskRelationPage(
     "WHERE event_index.workspace_revision = relation_edge.workspace_revision) AS updated_at",
     "FROM relation_edge",
   ].join(" ");
-  const where: string[] = [],
+  // With an endpoint fixed, its source or target index finds that endpoint's few edges. Unary +
+  // keeps the type and state filters from steering SQLite to their own indexes instead, which
+  // visit every edge of that type or state in the repository.
+  const residual = query.entity !== undefined || query.source !== undefined || query.target !== undefined ? "+" : "",
+    where: string[] = [],
     values: (string | number)[] = [];
   if (query.entity !== undefined) {
     where.push("(source_ref = ? OR target_ref = ?)");
@@ -675,11 +679,11 @@ export function readTaskRelationPage(
     values.push(query.target);
   }
   if (query.relationType !== undefined) {
-    where.push("relation_type = ?");
+    where.push(`${residual}relation_type = ?`);
     values.push(query.relationType);
   }
   if (query.state !== undefined) {
-    where.push("state = ?");
+    where.push(`${residual}state = ?`);
     values.push(query.state);
   }
   if (query.ownerRef !== undefined) {

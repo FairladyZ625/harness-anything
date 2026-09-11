@@ -33,7 +33,6 @@ import type {
   TaskRuntimeBatchRead,
   WorkspaceSummaryProjectionRead,
 } from "./projection-reads.ts";
-import type { EventBackedRelationTruth } from "./relation-graph-projection.ts";
 import type { VersionedRelationProjectionRow } from "./relation-entity-projection.ts";
 import type { EntityFreshness, EntityVersion, EntityVersionWitness } from "../domain/entity-freshness.ts";
 import type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
@@ -103,7 +102,6 @@ export interface TaskProjection {
   readonly readTaskRuntimeBatch: (query: TaskRuntimeBatchQuery) => TaskRuntimeBatchRead;
   readonly readRelationQuery: (query?: TaskRelationQuery) => TaskRelationProjectionRead;
   readonly readOperation: (opId: string) => { readonly event: CanonicalEventV1; readonly watermark: number } | null;
-  readonly readRelationTruth: () => EventBackedRelationTruth;
   readonly readRelationEdge: (relationId: string) => VersionedRelationProjectionRow | null;
   readonly readEntityVersionWitness: (entityRef: string) => EntityVersionWitness;
   readonly readDecisionDocumentState?: (decisionId: string) => DecisionDocumentState | null;

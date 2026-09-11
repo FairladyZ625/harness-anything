@@ -140,11 +140,7 @@ test("runtime events use the canonical envelope, head, store, and the shared pro
       semanticState: "succeeded",
     });
     const executionRelation = runtimeTaskExecutionRelation("runtime-session-claude", "task-runtime");
-    assert.equal(
-      projection.readRelationTruth().edges.filter(({ relationId }) => relationId === executionRelation.relation_id)
-        .length,
-      1,
-    );
+    assert.equal(projection.readRelationEdge(executionRelation.relation_id)?.relationId, executionRelation.relation_id);
     assert.deepEqual(
       projection.readRuntimeSessionsForTask("task-runtime").map((value) => value.runtimeSessionId),
       ["runtime-session-claude"],
