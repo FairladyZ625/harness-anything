@@ -66,10 +66,14 @@ export function configureLedgerMaintenance(repoRoot: string): LedgerMaintenanceR
   pin("maintenance.autoDetach", "true");
   pin("gc.autoDetach", "true");
   pin("core.autocrlf", "false");
-  // WAL commits use fast-import and touch-path update-index. A split index keeps
-  // the latter proportional to that cut, while the untracked cache prevents the
-  // authored settlement probe from re-statting the full active tree.
-  pin("core.splitIndex", "true");
+  // WAL commits use fast-import and touch-path update-index. A split index is
+  // pinned off: every index read re-inserts the not-yet-shared entries into the
+  // sorted array (O(k x N), up to 20% of the index before Git rewrites it), which
+  // made a 1M-event ledger's update-index cost 0.42 s per write instead of 3 ms.
+  // Git converts an existing split index back on its next index write. The
+  // untracked cache still keeps the authored settlement probe from re-statting
+  // the full active tree.
+  pin("core.splitIndex", "false");
   pin("core.untrackedCache", "true");
   const geometric = version !== null && atLeastGitVersion(version.parts, geometricMaintenanceFloor);
   if (geometric) pin("maintenance.strategy", "geometric");
