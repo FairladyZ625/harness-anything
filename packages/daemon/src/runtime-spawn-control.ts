@@ -35,6 +35,40 @@ export async function cancelRuntime(
     await context.publishExit(active, null);
     return context.controlReceipt(opId, runtimeSessionId);
   }
+  const session = context.input.remote
+    ? (await context.input.remote.readRuntimeSessions()).find((value) => value.runtimeSessionId === runtimeSessionId)
+    : context.requiredRuntimeProjection(context.input).readRuntimeSession(runtimeSessionId);
+  if (session && session.liveness !== "exited" && session.outcome === null) {
+    const terminalBinding = {
+      ...binding,
+      actor: {
+        principal: binding.actor.principal,
+        executor: { kind: "agent" as const, id: `runtime-session:${runtimeSessionId}` },
+      },
+    };
+    await context.publishRuntimeEvent("runtime_session_cancelled", { runtimeSessionId }, `${opId}-cancelled`, binding);
+    await context.publishRuntimeEvent(
+      "runtime_session_exited",
+      { runtimeSessionId },
+      `${opId}-exited`,
+      terminalBinding,
+    );
+    await context.publishRuntimeEvent(
+      "runtime_session_outcome_observed",
+      {
+        runtimeSessionId,
+        outcome: "cancelled",
+        exitCode: null,
+        resultRef: `artifact:runtime-result/sha256/${createHash("sha256").update(runtimeSessionId).digest("hex")}`,
+        result: null,
+        reasonCode: "runtime_process_missing",
+      },
+      `${opId}-outcome`,
+      terminalBinding,
+      "Runtime session cancelled after its worker process was no longer available.",
+    );
+    return context.controlReceipt(opId, runtimeSessionId, "cancelled");
+  }
   return context.controlReceipt(opId, runtimeSessionId, "already-exited");
 }
 
