@@ -1,6 +1,16 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -8,12 +18,40 @@ import { attachReceiptAcceptance } from "../../src/composition/receipt-acceptanc
 import { taskLifecycleWritePlan } from "../../src/domain/task-lifecycle-publication.ts";
 import { localContentObjectFileSystem } from "../../src/local/local-layout-file-system.ts";
 import { localGitObjectRefStore } from "../../src/store/local-version-control-system.ts";
+import { captureGitBaseline } from "../../src/store/sqlite-task-event-publication.ts";
 import { openSqliteEventStore, sqliteContentObjectPath } from "../../src/store/sqlite-event-store.ts";
 import { makeTaskEventStore, readCertifiedGitFollower } from "../../src/store/task-event-store.ts";
 import { docBundle, eventAt, git, initRepo } from "./task-event-store.fixtures.ts";
 
 const repoId = "sqlite-canonical-contract";
 const writerFence = () => ({ repoId, holderId: "contract-writer", epoch: 1 });
+
+test(
+  "Git baseline preserves symlink mode and reports an absent target as missing",
+  { skip: process.platform === "win32" ? "requires POSIX file-symbolic-link semantics" : false },
+  () => {
+    const rootDir = fixture("baseline-symlink");
+    initRepo(rootDir);
+    symlinkSync("destination.md", path.join(rootDir, "linked.md"));
+    git(rootDir, "add", "linked.md");
+    git(rootDir, "commit", "-qm", "seed symbolic link");
+    const baseline = captureGitBaseline(rootDir, "HEAD", [
+      { target: "linked.md", mode: "120000", body: "destination.md" },
+      { delete: "absent.md" },
+    ]);
+    assert.match(baseline.get("linked.md")!, /^120000:/u);
+    assert.equal(baseline.get("absent.md"), "missing");
+  },
+);
+
+test("ten thousand tree targets use one Git process", () => {
+  const rootDir = fixture("baseline-process-count");
+  initRepo(rootDir);
+  const targets = Array.from({ length: 10_000 }, (_, index) => `missing/${index}.json`),
+    before = localGitObjectRefStore.processCount();
+  assert.deepEqual(localGitObjectRefStore.listTree(rootDir, "HEAD", targets), []);
+  assert.equal(localGitObjectRefStore.processCount() - before, 1);
+});
 
 test("before_event_write and after_event_write bound one atomic SQLite acceptance", async () => {
   const rootDir = fixture("atomic");

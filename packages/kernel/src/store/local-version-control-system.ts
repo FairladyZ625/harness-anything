@@ -253,6 +253,15 @@ function withStdinFile<T>(
     localRuntimeStateFileSystem.remove(temporaryPath);
   }
 }
+function treeTargetIsScoped(target: string, scopes: ReadonlySet<string>): boolean {
+  if (scopes.has(target)) return true;
+  let separator = target.lastIndexOf("/");
+  while (separator >= 0) {
+    if (scopes.has(target.slice(0, separator))) return true;
+    separator = target.lastIndexOf("/", separator - 1);
+  }
+  return false;
+}
 export const localGitObjectRefStore = Object.freeze({
   processCount: () => localGitProcesses,
   addWorktree: (repoRoot: string, cwd: string, branch: string, baseRef: string): void => {
@@ -366,10 +375,9 @@ export const localGitObjectRefStore = Object.freeze({
     return bytesByTarget;
   },
   /**
-   * The blobs a commit holds under the named pathspecs. `targets` is required because an
-   * unscoped `ls-tree -r` costs one full tree listing per call: a publication that names three
-   * paths in a repository holding 10^4 of them paid for all 10^4 on every accepted write.
-   * An empty target list asks for nothing and spawns no process.
+   * The blobs a commit holds at or below the named scopes. One recursive tree read preserves
+   * exact modes for both files and directory prefixes without a process per target.
+   * An empty scope list asks for nothing and spawns no process.
    */
   listTree: (
     repoRoot: string,
@@ -381,21 +389,30 @@ export const localGitObjectRefStore = Object.freeze({
     readonly size: number;
     readonly target: string;
   }[] => {
-    const scoped = [...new Set(targets)];
-    if (scoped.length === 0) return [];
-    const input = scoped.map((target) => `${commit}:${target}\n`).join("");
-    const output = withStdinFile(repoRoot, ".ha-cat-file-check-", [input], (inputFd) =>
-      localGitBytes(repoRoot, ["cat-file", "--batch-check"], inputFd),
-    );
-    return output
-      .toString("utf8")
-      .trimEnd()
-      .split("\n")
-      .flatMap((line, index) => {
-        const [oid, type, size] = line.split(" ");
-        if (type !== "blob" || !/^\\d+$/u.test(size ?? "") || !/^[0-9a-f]{40}$/u.test(oid ?? "")) return [];
-        return [{ mode: "100644" as const, oid: oid!, size: Number(size), target: scoped[index]! }];
-      });
+    const scopes = new Set(targets);
+    if (scopes.size === 0) return [];
+    const output = localGitBytes(repoRoot, ["ls-tree", "-r", "-l", "-z", commit]),
+      entries: { mode: "100644" | "120000"; oid: string; size: number; target: string }[] = [];
+    let offset = 0;
+    while (offset < output.length) {
+      const end = output.indexOf(0, offset);
+      if (end < 0) throw new Error("Git ls-tree output is not NUL terminated");
+      const record = output.subarray(offset, end).toString("utf8"),
+        tab = record.indexOf("\t"),
+        header = tab < 0 ? "" : record.slice(0, tab),
+        target = tab < 0 ? "" : record.slice(tab + 1),
+        [mode, type, oid, size] = header.trim().split(/\s+/u);
+      if (
+        treeTargetIsScoped(target, scopes) &&
+        (mode === "100644" || mode === "120000") &&
+        type === "blob" &&
+        /^[0-9a-f]{40}$/u.test(oid ?? "") &&
+        /^\d+$/u.test(size ?? "")
+      )
+        entries.push({ mode, oid: oid!, size: Number(size), target });
+      offset = end + 1;
+    }
+    return entries;
   },
   importCommit: (repoRoot: string, input: Iterable<string | Uint8Array>) =>
     withStdinFile(repoRoot, ".ha-fast-import-", input, (inputFd) =>
