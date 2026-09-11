@@ -258,7 +258,7 @@ test("Relation actions serialize aggregate revisions and reject cycles and stale
   }
 });
 
-test("a depends-on cycle through several hops is rejected and converging paths are not a cycle", async () => {
+test("a depends-on cycle at the end of a long chain is rejected, and converging paths or a deep acyclic walk are not cycles", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-relation-cycle-"));
   initRepo(rootDir);
   const cell = await openRepoCell({
@@ -279,23 +279,27 @@ test("a depends-on cycle through several hops is rejected and converging paths a
       binding,
     );
   try {
-    for (const name of ["a", "b", "c", "d"])
+    const chain = Array.from({ length: 12 }, (_, index) => `c${index + 1}`);
+    for (const name of ["a", "b", "c", "d", ...chain, "x"])
       assert.equal(
         (await cell.run({ kind: "task-create", taskId: `task_cycle_${name}`, title: name }, binding)).outcome,
         "applied",
       );
-    // a -> b -> c, and a -> d -> c: two paths converge on c.
+    // a -> b -> c, and a -> d -> c: two paths converge on c, which then runs c -> c1 -> ... -> c12.
     for (const [source, target] of [
       ["a", "b"],
       ["b", "c"],
       ["a", "d"],
       ["d", "c"],
+      ...["c", ...chain.slice(0, -1)].map((name, index) => [name, chain[index]!]),
     ])
-      assert.equal((await dependsOn(source, target)).outcome, "applied", `${source} -> ${target}`);
+      assert.equal((await dependsOn(source!, target!)).outcome, "applied", `${source} -> ${target}`);
     // d -> b closes no loop: b cannot reach d.
     assert.equal((await dependsOn("d", "b")).outcome, "applied");
-    // c -> a closes a loop through either path.
-    const cycle = await dependsOn("c", "a");
+    // x -> a closes no loop: the walk from a covers the whole 16-task graph and never meets x.
+    assert.equal((await dependsOn("x", "a")).outcome, "applied");
+    // c12 -> a closes a 15-hop loop through either path.
+    const cycle = await dependsOn("c12", "a");
     assert.equal(cycle.outcome, "op_rejected", JSON.stringify(cycle));
     assert.equal(cycle.code, "relation_cycle");
   } finally {

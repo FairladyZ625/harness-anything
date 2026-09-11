@@ -12,7 +12,12 @@ import {
 } from "../../src/projection/fact-event-projection.ts";
 import { deriveRelationId, type EntityRelationRecord } from "../../src/domain/entity-relation.ts";
 import { createRelationGraphProjectionTables } from "../../src/projection/relation-graph-projection.ts";
-import { readTaskRelationNeighborhoodRows } from "../../src/projection/task-query-projection.ts";
+import {
+  createTaskRelationProjectionTable,
+  readTaskRelationNeighborhoodRows,
+  readTaskRelationPage,
+  type TaskRelationQuery,
+} from "../../src/projection/task-query-projection.ts";
 import { REPLAY_TASK_GRAPH } from "../../src/domain/task-graph.ts";
 import type { CanonicalEventV1 } from "../../src/domain/doc-sync.contract.ts";
 import type { TaskEventV1 } from "../../src/domain/task-lifecycle.contract.ts";
@@ -700,4 +705,98 @@ test("fact search liveness reads only supersedes edges, however many facts and e
   } finally {
     db.close();
   }
+});
+
+test("a relation read with a fixed endpoint searches only that endpoint's edges, however many other edges exist", () => {
+  // Both tables hold a 60-hop depends-on chain plus unrelated depends-on and relates edges. A read that
+  // lets the type or state index drive visits every edge of that type or state on each call; the cycle
+  // check on relation relate makes one such call per hop, and entity import makes one per write.
+  const queries: readonly TaskRelationQuery[] = [
+    { source: "task/chain-30", relationType: "depends-on", state: "active" },
+    { target: "task/chain-30", state: "active" },
+    { entity: "task/chain-30", state: "active" },
+  ];
+  const shapes = [200, 5000].map((unrelated) => {
+    const db = new DatabaseSync(":memory:");
+    try {
+      createRelationGraphProjectionTables(db);
+      createTaskRelationProjectionTable(db);
+      db.exec(
+        "CREATE TABLE IF NOT EXISTS event_index (op_id TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL UNIQUE, task_id TEXT, event_json TEXT NOT NULL)",
+      );
+      const edge = db.prepare("INSERT INTO relation_edge VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"),
+        mirror = db.prepare("INSERT INTO task_relation VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+      let revision = 0;
+      const add = (source: string, target: string, type: string) => {
+        revision += 1;
+        const id = `rel-${String(revision).padStart(8, "0")}`;
+        edge.run(id, source, target, type, "active", null, source, revision, JSON.stringify({ relationId: id }));
+        mirror.run(
+          id,
+          source.slice(5),
+          source,
+          target,
+          type,
+          "directed",
+          "hard",
+          "authored",
+          "active",
+          "",
+          source,
+          "",
+          0,
+          revision,
+          "",
+        );
+      };
+      db.exec("BEGIN");
+      for (let hop = 0; hop < 60; hop += 1) add(`task/chain-${hop}`, `task/chain-${hop + 1}`, "depends-on");
+      for (let index = 0; index < unrelated; index += 1) {
+        add(`task/other-${index}`, `task/other-${index + 1}`, "depends-on");
+        add(`task/other-${index}`, "task/hub", "relates");
+      }
+      db.exec("COMMIT");
+      const original = db.prepare,
+        statements: string[] = [];
+      db.prepare = ((sql: string) => {
+        statements.push(sql);
+        return original.call(db, sql);
+      }) as typeof db.prepare;
+      return queries.map((query) => {
+        statements.length = 0;
+        const rows = readTaskRelationPage(db, query).rows.map((row) => `${row.sourceRef}>${row.targetRef}`),
+          sql = statements.find((statement) => statement.includes("UNION ALL"))!,
+          values = [query.entity, query.entity, query.source, query.target, query.relationType, query.state].filter(
+            (value) => value !== undefined,
+          ),
+          plan = (original.call(db, `EXPLAIN QUERY PLAN ${sql}`).all(...values) as { detail: string }[])
+            .map(({ detail }) => detail)
+            .filter(
+              (detail) => /\b(task_relation|relation_edge)\b/u.test(detail) && !/\(relation_id=\?\)/u.test(detail),
+            );
+        return { rows, plan };
+      });
+    } finally {
+      db.close();
+    }
+  });
+  for (const [index, query] of queries.entries()) {
+    const [small, large] = [shapes[0]![index]!, shapes[1]![index]!];
+    assert.deepEqual(large.rows, small.rows, JSON.stringify(query));
+    assert.ok(small.plan.length >= 2, `${JSON.stringify(query)} plan: ${small.plan.join("; ")}`);
+    for (const detail of [...small.plan, ...large.plan])
+      assert.match(
+        detail,
+        /^SEARCH \w+ USING (?:COVERING )?INDEX \w+ \((?:source_ref|target_ref)=\?\)$/u,
+        JSON.stringify(query),
+      );
+  }
+  assert.deepEqual(
+    shapes[1]!.map(({ rows }) => rows),
+    [
+      ["task/chain-30>task/chain-31"],
+      ["task/chain-29>task/chain-30"],
+      ["task/chain-29>task/chain-30", "task/chain-30>task/chain-31"],
+    ],
+  );
 });
