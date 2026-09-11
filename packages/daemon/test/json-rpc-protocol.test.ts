@@ -638,7 +638,7 @@ test("milestone-closeout uses the normal completion facade, review, and gates ex
     assert.equal(consented.reviewId, "review-complete");
     const consentVisible = await waitForAcceptedReceipt(cell, consented as { opId: string; acceptance?: { revisionTo?: number } | null }, binding); assert.equal(consentVisible.wait?.state, "satisfied", JSON.stringify(consentVisible));
     assert.match(readFileSync(executionPath, "utf8"), /Selected review: review-complete[\s\S]*Consent: consent-complete/u); assert.match(readFileSync(path.join(rootDir, "harness", `${packagePath}/reviews/review-unselected.md`), "utf8"), /Consent: pending/u); assert.match(readFileSync(path.join(rootDir, "harness", `${packagePath}/reviews/review-complete.md`), "utf8"), /Consent: consent-complete/u);
-    const missingCi = await cell.run({ kind: "task-complete", taskId, executionId }, binding) as unknown as Record<string, unknown>; assert.deepEqual({ outcome: missingCi.outcome, code: missingCi.code, steps: missingCi.steps }, { outcome: "op_rejected", code: "ci_missing", steps: [] }); const ciReceipt = await publishCiObservation("completion-facade", rootDir, executionId, commitSha, "run-completion-facade"), beforeCi = store().read().revision, partial = await cell.run({ kind: "task-complete", taskId, executionId, ci: ciReceipt }, binding) as unknown as Record<string, unknown>; assert.deepEqual({ outcome: partial.outcome, code: partial.code, stoppedAt: partial.stoppedAt, stepTypes: (partial.steps as { eventId?: string }[]).map((step) => store().readEvent(String(step.opId))?.type) }, { outcome: "op_rejected", code: "code_doc_missing", stoppedAt: "code_doc_missing", stepTypes: ["completion_gate_verified"] }); assert.equal(store().read().revision, beforeCi + 1); assert.equal((await cell.run({ kind: "task-show", taskId }, binding)).evidence.includes('"gateWitnesses"'), true);
+    const missingCi = await cell.run({ kind: "task-complete", taskId, executionId }, binding) as unknown as Record<string, unknown>; assert.deepEqual({ outcome: missingCi.outcome, code: missingCi.code, steps: missingCi.steps }, { outcome: "op_rejected", code: "ci_missing", steps: [] }); const ciReceipt = await publishCiObservation("completion-facade", rootDir, executionId, commitSha, "run-completion-facade"), beforeCi = store().read().revision, partial = await cell.run({ kind: "task-complete", taskId, executionId, ci: ciReceipt }, binding) as unknown as Record<string, unknown>; assert.equal(partial.outcome, "applied", JSON.stringify(partial)); assert.equal(store().read().revision, beforeCi + 3); assert.equal((await cell.run({ kind: "task-show", taskId }, binding)).evidence.includes('"gateWitnesses"'), true);
     assert.equal(
       (await cell.run({ kind: "task-code-doc-reconcile", taskId, paths: ["README.md"] }, binding)).outcome,
       "applied",
@@ -1357,7 +1357,7 @@ test("task mutation rejections name the missing field and current execution stat
   }
 });
 
-test("task complete identifies a code-doc path outside the submitted commit root", async () => {
+test("task complete defaults to submitted deliverables", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-complete-path-diagnostic-")),
     taskId = "task-complete-path-diagnostic",
     executionId = "execution-complete-path-diagnostic",
@@ -1371,23 +1371,8 @@ test("task complete identifies a code-doc path outside the submitted commit root
       ownerId: "complete-path-diagnostic",
     });
     await prepareReadyCompletion(cell, rootDir, repoId, taskId, executionId, "Complete Path Diagnostic", false);
-    const rejected = await cell.run(
-      {
-        kind: "task-complete",
-        taskId,
-        executionId,
-        paths: ["harness/agents/sol-implementer.json"],
-      },
-      repoWriteBinding,
-    );
-    assert.equal(rejected.code, "invalid_proof", JSON.stringify(rejected));
-    assert.deepEqual(rejected.diagnostic, {
-      kind: "validation",
-      entity: "code-doc reconciliation",
-      field: "paths[0]",
-      actual: "harness/agents/sol-implementer.json",
-      expectation: "Path must be relative to the Git repository that owns the submitted commit",
-    });
+    const completed = await cell.run({ kind: "task-complete", taskId, executionId }, repoWriteBinding);
+    assert.equal(completed.outcome, "applied", JSON.stringify(completed));
   } finally {
     await cell?.close();
     rmSync(rootDir, { recursive: true, force: true });
@@ -1492,7 +1477,7 @@ test("task complete accepts a verified main run on a commit that contains the su
       laterMain = git(rootDir, "commit-tree", `${submittedSha}^{tree}`, "-p", submittedSha, "-m", "later main"),
       observation = await publishCiObservation(repoId, rootDir, executionId, laterMain, "run-later-main"),
       attempt = await cell.run({ kind: "task-complete", taskId, executionId, ci: observation }, repoWriteBinding);
-    assert.equal(attempt.code, "code_doc_missing", JSON.stringify(attempt));
+    assert.equal(attempt.outcome, "applied", JSON.stringify(attempt));
   } finally {
     await cell?.close();
     rmSync(rootDir, { recursive: true, force: true });
