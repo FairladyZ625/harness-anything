@@ -1,6 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { open as openFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -220,6 +221,35 @@ test("rotation holds the log to a bounded number of files", async () => {
   // The newest record survives rotation; the oldest is the one that was dropped.
   const live = readRecords(rootDir);
   assert.equal(live.at(-1)?.opId, "op_399");
+});
+
+test("a repository sink keeps one descriptor for many records and closes it on settle", async () => {
+  const rootDir = tempRoot();
+  const counts = { open: 0, write: 0, close: 0 };
+  const log = openDaemonRequestLog({
+    resolveRootDir: () => rootDir,
+    openFile: async (...args) => {
+      counts.open += 1;
+      const handle = await openFile(...args);
+      const write = handle.write.bind(handle),
+        close = handle.close.bind(handle);
+      handle.write = async (...writeArgs) => {
+        counts.write += 1;
+        return write(...writeArgs);
+      };
+      handle.close = async (...closeArgs) => {
+        counts.close += 1;
+        return close(...closeArgs);
+      };
+      return handle;
+    },
+  });
+  for (let index = 0; index < 100; index += 1) log.record(entry({ opId: `op_${index}` }));
+  await log.settle();
+
+  assert.equal(counts.open, 1);
+  assert.equal(counts.write, 100);
+  assert.equal(counts.close, 1);
 });
 
 test("each repository's requests land in that repository's own log, and a record after settle is still written", async () => {
