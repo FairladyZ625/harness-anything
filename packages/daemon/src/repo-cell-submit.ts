@@ -13,6 +13,7 @@ import {
 } from "../../kernel/src/index.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
+import { assertCurrentSubmittedExecution } from "./repo-cell-execution-selection.ts";
 import { readDispatchStreamHeaders } from "./dispatch-stream.ts";
 import { runDocAction } from "./doc-sync-actions.ts";
 import { makeGitReadinessSource, runProcessText } from "./process-port.ts";
@@ -173,6 +174,7 @@ export async function submitTask(
             : undefined;
   if (!selected || !isSameExecution(selected.actor, binding.actor)) return cell.lifecycleAction(action, binding);
   const executionId = selected.executionId;
+  if (action.amend === true) assertCurrentSubmittedExecution(current.snapshot, taskId, executionId);
   // A lost response resumes the stored cut. Never re-read HEAD or amend a completed submission implicitly.
   if (selected.submission && action.amend !== true) {
     const opId = cell.projection.readTaskSubmissionOperation(taskId, executionId),

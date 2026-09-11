@@ -38,6 +38,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
   execFileSync("git", ["add", "delivery.ts"], { cwd: root });
   execFileSync("git", ["commit", "-qm", "test: runtime delivery"], { cwd: root });
   const deliveryCommit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
+  execFileSync("git", ["worktree", "add", "--detach", workerRoot, deliveryCommit], { cwd: root });
   const originalPath = process.env.PATH;
   writeProviderExecutable(
     path.join(parent, "gh"),
@@ -706,7 +707,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
         repo: { repoId },
         payload: {
           runtimeInstanceId: ingressDefinition.instanceId,
-          cwd: { scope: "repo-root" },
+          cwd: { scope: "repo-relative", path: ".worktrees/worker" },
           prompt: "Continue implementation.",
           taskId,
           idempotencyKey: "runtime-changes-requested-implementation",
@@ -727,7 +728,28 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
       assert.equal(implementationBinding?.type, "runtime_session_task_bound");
       if (implementationBinding?.type !== "runtime_session_task_bound") throw new Error("missing task binding");
       writeCloseout(taskId, "The second runtime execution is ready for review.");
-      const secondExecutionId = implementationBinding.payload.executionId,
+      // Import an unrelated failed run: this exercises actor attribution without supplying a green witness.
+      writeProviderExecutable(
+        path.join(parent, "gh"),
+        `
+        import { mkdirSync, writeFileSync } from "node:fs";
+        import path from "node:path";
+        const command = process.argv[3], sha = "f".repeat(40);
+        if (command === "list") console.log(JSON.stringify([{ databaseId: 901, headBranch: "main", createdAt: "2026-01-01T00:00:00Z" }]));
+        else if (command === "view") console.log(JSON.stringify({ workflowName: "rewrite-ci", headSha: sha, headBranch: "main", status: "completed", conclusion: "failure", attempt: 1 }));
+        else if (command === "download") {
+          const dir = process.argv[process.argv.indexOf("--dir") + 1];
+          mkdirSync(dir, { recursive: true });
+          writeFileSync(path.join(dir, "observation.json"), JSON.stringify({
+            schema: "ci-run-artifact/v1",
+            run: { runId: "901.1", sha, branch: "main", prNumber: null, job: "test", wallclockMs: 1, runner: "fixture" },
+            tests: [], gates: []
+          }));
+        } else process.exit(1);
+      `,
+      );
+      const beforeSubmission = makeTaskEventReader({ repoId, rootDir: root }).read().revision,
+        secondExecutionId = implementationBinding.payload.executionId,
         secondSubmission = await host.run(
           repoId,
           {
@@ -742,6 +764,13 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
           auth,
         );
       assert.equal(secondSubmission.outcome, "applied", JSON.stringify(secondSubmission));
+      const observations = makeTaskEventReader({ repoId, rootDir: root })
+        .read()
+        .events.filter((event) => event.type === "ci_run_observed" && event.workspaceRevision > beforeSubmission);
+      assert.ok(observations.length > 0, "automatic pull must ingest an observation on the runtime submission");
+      for (const observation of observations)
+        assert.deepEqual(observation.actor.executor, implementationBinding.actor.executor);
+
       writeFileSync(
         path.join(root, "redispatch-review.json"),
         JSON.stringify({ verdict: "approved", reason: "Second round reviewed.", evidenceChecked: ["second round"] }),
@@ -1172,7 +1201,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
           repo: { repoId },
           payload: {
             runtimeInstanceId: ingressDefinition.instanceId,
-            cwd: { scope: "repo-root" },
+            cwd: { scope: "repo-relative", path: ".worktrees/worker" },
             prompt: "Publish the report",
             taskId,
             idempotencyKey: "runtime-artifact",

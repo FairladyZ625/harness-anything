@@ -270,6 +270,7 @@ test("task start, closeout submit, and code-doc reconcile reuse daemon-known lif
 
     await waitForFixturePublication(cell, completed.opId, holder);
     writeCloseout("Too late.");
+    const beforeTerminalAmend = events().length;
     const amendCompleted = (await cell.run(
       {
         kind: "task-submit",
@@ -281,6 +282,7 @@ test("task start, closeout submit, and code-doc reconcile reuse daemon-known lif
     )) as Record<string, unknown>;
     assert.equal(amendCompleted.outcome, "op_rejected", JSON.stringify(amendCompleted));
     assert.equal(amendCompleted.code, "invalid_transition");
+    assert.equal(events().length, beforeTerminalAmend, "terminal amend must not publish dirty closeout");
 
     const beforeDrift = events().length,
       drifted = await cell.run(
