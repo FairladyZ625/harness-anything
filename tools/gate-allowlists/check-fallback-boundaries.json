@@ -145,6 +145,7 @@
       "packages/daemon/src/repo-writer-worker.ts#handleControl",
       "packages/daemon/src/repo-writer-worker.ts#handleRequest",
       "packages/daemon/src/repo-writer-worker.ts#startRepoWriterWorker",
+      "packages/daemon/src/request-log.ts#closeSink",
       "packages/daemon/src/request-log.ts#commandClassOrNull",
       "packages/daemon/src/request-log.ts#rotate",
       "packages/daemon/src/request-log.ts#writeRequestLogLine",
