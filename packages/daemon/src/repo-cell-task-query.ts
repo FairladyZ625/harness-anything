@@ -246,6 +246,11 @@ export function wipSnapshotEntries(cell: TaskQueryCell, activatingTaskId: string
       taskClass: activatingRead.snapshot.task.taskClass,
       packageDisposition: requiredPackageDisposition(activatingTaskId, activatingRead.snapshot.task.packageDisposition),
       hasCloseoutEvidence: hasCloseoutEvidence(activatingRead.snapshot.executions),
+      hasOwnExecution:
+        activatingRead.snapshot.lease !== null ||
+        activatingRead.snapshot.executions.some(
+          (execution) => execution.state === "active" || execution.state === "submitted",
+        ),
       directChildCount,
     },
   ];
