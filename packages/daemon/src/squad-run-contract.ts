@@ -65,6 +65,11 @@ export interface SquadRunWorkerAttemptDto {
   readonly leaderTurnId: string;
   readonly dispatchId: string | null;
   readonly runtimeSessionId: string | null;
+  readonly worktree: {
+    readonly cwd: string;
+    readonly branch: string;
+    readonly baseSha: string;
+  } | null;
   readonly rejection: string | null;
   readonly status: SquadRunTurnStatus | null;
   readonly startedAt: string | null;
@@ -183,6 +188,7 @@ function validSquadRunLeaderTurn(value: unknown): value is SquadRunLeaderTurnDto
       "trigger",
       "dispatchId",
       "runtimeSessionId",
+      "worktree",
       "decision",
       "resultText",
       "status",
@@ -217,6 +223,10 @@ function validSquadRunWorkerAttempt(value: unknown): value is SquadRunWorkerAtte
     squadRunText(value.leaderTurnId) &&
     (value.dispatchId === null || squadRunText(value.dispatchId)) &&
     (value.runtimeSessionId === null || squadRunText(value.runtimeSessionId)) &&
+    (value.worktree === null ||
+      (squadRunRecord(value.worktree) &&
+        exactSquadRunFields(value.worktree, ["cwd", "branch", "baseSha"]) &&
+        [value.worktree.cwd, value.worktree.branch, value.worktree.baseSha].every(squadRunText))) &&
     (value.rejection === null || squadRunText(value.rejection)) &&
     (value.status === null || turnStatuses.includes(value.status as SquadRunTurnStatus)) &&
     (value.startedAt === null || squadRunIso(value.startedAt)) &&

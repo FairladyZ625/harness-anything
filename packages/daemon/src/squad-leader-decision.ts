@@ -66,6 +66,11 @@ export type WorkerAttempt = {
   readonly leaderTurnId: string;
   readonly dispatchId: string | null;
   readonly runtimeSessionId: string | null;
+  readonly worktree: {
+    readonly cwd: string;
+    readonly branch: string;
+    readonly baseSha: string;
+  } | null;
   readonly rejection: string | null;
 };
 

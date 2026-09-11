@@ -63,6 +63,7 @@ function makeRecoveryFixture(
     readonly pendingLeaderTriggers?: readonly Readonly<Record<string, unknown>>[];
     readonly rejectWorkerOnce?: string;
     readonly observedWorkerRuntimeSessionIds?: readonly string[];
+    readonly permissionMode?: "bypass" | "workspace-write" | "read-only";
   },
 ): RecoveryFixture {
   const workers = options.workers ?? [],
@@ -113,6 +114,8 @@ function makeRecoveryFixture(
     mission: "Finish the milestone",
     model: null,
     effort: null,
+    permissionMode: options.permissionMode ?? "read-only",
+    baseSha: "1".repeat(40),
     leaderAgentId: "leader",
     roster: "leader -> sol, terra\nsynthesis -> artifacts/reports/{squadRunId}.md",
     workers: ["sol", "terra"],
@@ -135,6 +138,7 @@ function makeRecoveryFixture(
       workerId: worker.workerId,
       dispatchId: worker.dispatchId,
       runtimeSessionId: worker.runtimeSessionId,
+      worktree: null,
       rejection: null,
     })),
     observedWorkerRuntimeSessionIds: options.observedWorkerRuntimeSessionIds ?? [],

@@ -278,6 +278,9 @@ function pathspecChunks(targets: readonly string[]): readonly (readonly string[]
 }
 export const localGitObjectRefStore = Object.freeze({
   processCount: () => localGitProcesses,
+  addWorktree: (repoRoot: string, cwd: string, branch: string, baseRef: string): void => {
+    runGit(repoRoot, "worktree", "add", cwd, "-b", branch, baseRef);
+  },
   commitTimestamp: (repoRoot: string, commit: string): string | null => {
     const output = localGitBytes(repoRoot, ["cat-file", "commit", commit]).toString("utf8"),
       seconds = /^committer .+ ([0-9]+) [+-][0-9]{4}$/mu.exec(output)?.[1];
