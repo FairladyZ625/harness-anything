@@ -145,8 +145,23 @@ test("decision and declaration documents reject their canonical blank scaffolds"
     (error: unknown) => (error as { readonly code?: string }).code === "body_placeholder",
   );
   assert.equal(
-    assessTransitionDocument("decision.body", "# Choice\n\nAdopt the shared transition validator.").ready,
+    assessTransitionDocument(
+      "decision.body",
+      "# Choice\n\n## 背景\n\nKnown facts.\n\n## 权衡\n\nCompared options.\n\n## 结论\n\nAdopt it.",
+    ).ready,
     true,
+  );
+  assert.deepEqual(
+    assessTransitionDocument(
+      "decision.body",
+      "## 背景\n\n说明需要裁定的问题与已知事实。\n\n## 权衡\n\n说明所选方案、被拒方案与取舍理由。\n\n" +
+        "## 结论\n\n说明最终裁定及其适用范围。",
+    ).missingSections.map(({ section, reason }) => ({ section, reason })),
+    [
+      { section: "背景", reason: "scaffold" },
+      { section: "权衡", reason: "scaffold" },
+      { section: "结论", reason: "scaffold" },
+    ],
   );
   assert.equal(
     assessTransitionDocument(

@@ -165,6 +165,7 @@ export function submissionPacket(action: RepoTaskAction): GuiSubmissionV1 {
     throw cellCodedError("invalid_command", "Write closeout.md, then run ha task submit without JSON input.");
   const value = action.submission,
     issues = validateGuiSubmission(value);
+    issues = validateGuiSubmission(value);
   if (issues.length)
     throw cellCodedError("invalid_submission", issues.join("; "), validationDiagnostic(issues[0]!) ?? undefined);
   return value as unknown as GuiSubmissionV1;

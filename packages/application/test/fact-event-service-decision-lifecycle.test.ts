@@ -189,7 +189,10 @@ test("Decision proposal publishes initial prose, claim fulfillment, and relation
       },
     ]);
     assert.equal(projection.readDecisionGraph().edges[0]?.relationId, relation.relation_id);
-    assert.equal(result.decision.body?.body, "# Canonical Decision\n\n初始正文。\n");
+    assert.match(
+      result.decision.body?.body ?? "",
+      /<!-- 由 daemon 管理[^\n]+-->\n# Canonical Decision\n\n初始正文。\n$/u,
+    );
     const before = {
       decision: result.decision,
       graph: projection.readDecisionGraph(),
@@ -222,7 +225,14 @@ test("Decision accept requires explicit evidence or judgment-only, while human C
             judgmentOnlyRationale: null,
           },
         }),
-      (error: unknown) => code(error) === "invalid_transition",
+      (error: unknown) => {
+        assert.equal(code(error), "invalid_transition");
+        assert.match(
+          String((error as Error).message),
+          /claim fulfill[\s\S]*claim-to-evidence relation[\s\S]*--judgment-only/u,
+        );
+        return true;
+      },
     );
     assert.equal(store.readHead()?.revision, before, "evidence-floor rejection is zero-write");
     recordDecision(service, projection, decisionEvent(2, "decision_claim_declared"));

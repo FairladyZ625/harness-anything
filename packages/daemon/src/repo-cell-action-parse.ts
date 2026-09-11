@@ -215,11 +215,11 @@ export function decisionProposalAction(
         ? action.body
         : typeof action.bodyFile === "string"
           ? workspaceText(rootDir, action.bodyFile, "bodyFile")
-          : `\n# ${requiredCellText(packet.value.title, "title")}\n`;
+          : undefined;
   return {
     kind: "decision-propose",
     ...packet.value,
-    body,
+    ...(body === undefined ? {} : { body }),
     defaultedDecisionPacketFields: [...packet.defaultedFields, "relations"],
   };
 }

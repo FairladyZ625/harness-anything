@@ -162,7 +162,10 @@ export function renderDecisionDocument(
   replacementBody?: string,
   judgmentOnlyRationale: string | null = null,
 ): string {
-  const baseProse = replacementBody ?? (current === null ? `\n# ${value.title}\n` : decisionDocumentProse(current)),
+  const suppliedProse = replacementBody ?? (current === null ? `\n# ${value.title}\n` : decisionDocumentProse(current)),
+    baseProse = suppliedProse.includes("由 daemon 管理")
+      ? suppliedProse
+      : `\n<!-- 由 daemon 管理，请用 \`ha decision amend --body-file\`，勿直接编辑。 -->\n${suppliedProse.replace(/^\n/u, "")}`,
     prose = judgmentOnlyRationale
       ? `${baseProse.replace(/\s*$/u, "")}\n\n## Judgment-only acceptance\n\n${judgmentOnlyRationale}\n`
       : baseProse,
@@ -444,7 +447,11 @@ function assertDecisionEvidenceFloor(
       (edge) => edge.state === "active" && claims.has(edge.source) && isDecisionEvidenceTarget(edge.target),
     );
   if (!evidence)
-    invalidDecision("decision accept requires a claim-to-evidence relation or --judgment-only <rationale>.");
+    invalidDecision(
+      "decision accept has two valid routes: (1) run ha decision claim fulfill <id> --id <claim-id> " +
+        "--mode evidenced and add an active claim-to-evidence relation; or (2) retry with " +
+        "--judgment-only <rationale>.",
+    );
 }
 function isDecisionEvidenceTarget(value: string): boolean {
   return (

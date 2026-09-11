@@ -140,9 +140,7 @@ export function assessTransitionDocument(kind: TransitionDocumentKind, body: str
       : kind === "task.closeout"
         ? missingMarkdownSections(body, taskCloseout)
         : kind === "decision.body"
-          ? meaningfulMarkdown(body)
-            ? []
-            : [{ section: "body", reason: "empty" } as const]
+          ? decisionBodyMissingSections(body)
           : declarationMissingSection(kind, body);
   return Object.freeze({
     ready: missingSections.length === 0,
@@ -225,6 +223,30 @@ function missingMarkdownSections(body: string, contract: MarkdownDocumentContrac
   });
 }
 
+function decisionBodyMissingSections(body: string): readonly TransitionDocumentMissingSection[] {
+  const scaffolds = [
+      ["背景", "说明需要裁定的问题与已知事实。"],
+      ["权衡", "说明所选方案、被拒方案与取舍理由。"],
+      ["结论", "说明最终裁定及其适用范围。"],
+    ] as const,
+    normalized = normalizeText(stripFrontmatter(body));
+  if (scaffolds.every(([heading, prompt]) => normalized.includes(normalizeText(`## ${heading} ${prompt}`))))
+    return scaffolds.map(([section, retainedScaffold]) => ({
+      section,
+      reason: "scaffold" as const,
+      retainedScaffold,
+    }));
+  return meaningfulMarkdown(body) ? [] : [{ section: "body", reason: "empty" }];
+}
+
+function meaningfulMarkdown(body: string): boolean {
+  const prose = stripFrontmatter(body)
+    .replace(/^#{1,6}[ \t]+.*$/gmu, "")
+    .replace(/<!--[\s\S]*?-->/gu, "")
+    .trim();
+  return prose.length > 0;
+}
+
 /** Shared section reader: fenced examples are content, and repeated sections retain every occurrence. */
 export function markdownSections(body: string): ReadonlyMap<string, string> {
   const sections = new Map<string, string>();
@@ -260,14 +282,6 @@ export function markdownSections(body: string): ReadonlyMap<string, string> {
   }
   retain();
   return sections;
-}
-
-function meaningfulMarkdown(body: string): boolean {
-  const prose = stripFrontmatter(body)
-    .replace(/^#{1,6}[ \t]+.*$/gmu, "")
-    .replace(/<!--[\s\S]*?-->/gu, "")
-    .trim();
-  return prose.length > 0;
 }
 
 function declarationTextReady(kind: "agent.instructions" | "squad.roster", body: string): boolean {

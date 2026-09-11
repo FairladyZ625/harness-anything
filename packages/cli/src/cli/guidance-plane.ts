@@ -44,7 +44,7 @@ const guidanceTemplates = new Map<string, GuidanceTemplate>([
     "failure:workspace-boundary",
     (args) =>
       `${textArg(args, "field")} must name a readable UTF-8 file inside workspace root ` +
-      `${textArg(args, "workspaceRoot")}.`,
+      `${textArg(args, "workspaceRoot")}; for example harness/tasks/<task-id>/artifacts/input.md.`,
   ],
   ["failure:missing-sections", renderMissingSections],
   [
