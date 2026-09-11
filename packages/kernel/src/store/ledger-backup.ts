@@ -83,9 +83,12 @@ export function drillLedgerBackup(input: {
   readonly backupDir: string;
   readonly shadowParent: string;
   readonly destinationRoot?: string;
+  readonly retention?: number;
 }): {
   readonly shadowRoot: string;
   readonly manifest: LedgerBackupManifestV1;
+  readonly removedShadowRoots: readonly string[];
+  readonly warnings: readonly string[];
 } {
   const backupDir = path.resolve(input.backupDir),
     manifest = readManifest(backupDir),
@@ -101,7 +104,24 @@ export function drillLedgerBackup(input: {
   verifyManifest(shadowRoot, manifest);
   for (const database of manifest.files.filter(({ method }) => method === "vacuum-into"))
     inspectSqlite(path.join(shadowRoot, database.path));
-  return { shadowRoot, manifest };
+  const removedShadowRoots: string[] = [],
+    warnings: string[] = [],
+    retention = input.retention ?? 3,
+    candidates = fileSystem
+      .readDirectory(path.resolve(input.shadowParent))
+      .filter((name) => name.startsWith("restore-drill-"))
+      .map((name) => path.join(path.resolve(input.shadowParent), name))
+      .filter((candidate) => fileSystem.lstat(candidate).isDirectory())
+      .sort((left, right) => fileSystem.stat(left).mtimeMs - fileSystem.stat(right).mtimeMs);
+  for (const candidate of candidates.slice(0, Math.max(0, candidates.length - retention))) {
+    try {
+      fileSystem.remove(candidate);
+      removedShadowRoots.push(candidate);
+    } catch (error) {
+      warnings.push(`could not remove ${candidate}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  return { shadowRoot, manifest, removedShadowRoots, warnings };
 }
 
 export function readOfflineLedgerEvents(input: {

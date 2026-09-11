@@ -43,6 +43,7 @@ export const localLedgerBackupFileSystem = {
   readLink: readlinkSync,
   stat: statSync,
   write: writeFileSync,
+  remove: (inputPath: string) => rmSync(inputPath, { recursive: true, force: true }),
 } as const;
 
 export const localEventFileSystem = {

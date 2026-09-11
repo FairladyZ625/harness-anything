@@ -8,6 +8,7 @@ export const settingsLocales = ["en-US", "zh-CN"] as const;
 export type SettingsLocale = (typeof settingsLocales)[number];
 export const reviewIndependenceLevels = ["execution", "principal"] as const;
 export type ReviewIndependence = (typeof reviewIndependenceLevels)[number];
+export const DEFAULT_RESTORE_DRILL_RETENTION = 3;
 
 export interface WalFlushSettingsV1 {
   readonly adaptive: boolean;
@@ -36,6 +37,7 @@ export const SETTINGS_FIELD_OWNERSHIP = Object.freeze({
   locale: "local",
   scaffolds: "repository",
   walFlush: "repository",
+  restoreDrillRetention: "repository",
 } as const);
 
 type SettingsOwnedField = keyof typeof SETTINGS_FIELD_OWNERSHIP;
@@ -60,6 +62,7 @@ export interface RepositorySettingsV1 {
     readonly repository: string;
   };
   readonly walFlush: WalFlushSettingsV1;
+  readonly restoreDrillRetention: number;
 }
 
 export interface LocalSettingsV1 {
@@ -81,6 +84,7 @@ export interface SettingsV1 {
     readonly repository: string;
   };
   readonly walFlush: WalFlushSettingsV1;
+  readonly restoreDrillRetention: number;
 }
 
 export const SETTINGS_LOCAL_V1_SCHEMA: EntityDocumentJsonSchema<LocalSettingsV1> = {
@@ -109,6 +113,7 @@ export const INITIAL_SETTINGS_V1: SettingsV1 = Object.freeze({
     repository: "governance/repository-scaffold.json",
   }),
   walFlush: DEFAULT_WAL_FLUSH_SETTINGS,
+  restoreDrillRetention: DEFAULT_RESTORE_DRILL_RETENTION,
 });
 
 const settingValuePattern = "^[A-Za-z0-9][A-Za-z0-9/_.@-]*$";
@@ -165,6 +170,7 @@ export const SETTINGS_V1_SCHEMA: EntityDocumentJsonSchema<SettingsV1> = {
       additionalProperties: false,
     },
     walFlush: walFlushSchema(),
+    restoreDrillRetention: ownedSchema("restoreDrillRetention", { type: "integer", minimum: 1 }),
   },
   required: [
     "schema",
@@ -221,6 +227,7 @@ export const SETTINGS_REPOSITORY_V1_SCHEMA: EntityDocumentJsonSchema<RepositoryS
       additionalProperties: false,
     },
     walFlush: walFlushSchema(),
+    restoreDrillRetention: ownedSchema("restoreDrillRetention", { type: "integer", minimum: 1 }),
   },
   required: ["schema", "settingsId", "defaultVertical", "defaultPreset", "defaultProfile", "scaffolds", "walFlush"],
   additionalProperties: false,
@@ -241,6 +248,7 @@ export function repositorySettings(settings: SettingsV1 | RepositorySettingsV1):
     reviewReturnBudget: settings.reviewReturnBudget ?? INITIAL_SETTINGS_V1.reviewReturnBudget,
     scaffolds: { task: settings.scaffolds.task, repository: settings.scaffolds.repository },
     walFlush: settings.walFlush ?? DEFAULT_WAL_FLUSH_SETTINGS,
+    restoreDrillRetention: settings.restoreDrillRetention ?? DEFAULT_RESTORE_DRILL_RETENTION,
   };
 }
 
@@ -275,6 +283,7 @@ export function readSettingsFacet(body: string): SettingsV1 {
       repository: settingBlockValue(body, "scaffolds", "repository") ?? INITIAL_SETTINGS_V1.scaffolds.repository,
     },
     walFlush: readWalFlushSettings(body),
+    restoreDrillRetention: readRestoreDrillRetention(body),
   };
   const errors = validateSettingsV1(settings);
   if (errors.length) throw new Error(errors.join("; "));
@@ -330,6 +339,13 @@ export function writeRepositorySettingsFacet(body: string, settings: RepositoryS
     INITIAL_SETTINGS_V1.scaffolds.task,
   );
   next = writeWalFlushFacet(next, repository.walFlush);
+  next = replaceOptionalDefaultedScalar(
+    next,
+    "  ",
+    "restoreDrillRetention",
+    String(repository.restoreDrillRetention),
+    String(DEFAULT_RESTORE_DRILL_RETENTION),
+  );
   next = replaceDefaultedBlockScalar(
     next,
     "scaffolds",
@@ -375,6 +391,15 @@ function readWalFlushSettings(body: string): WalFlushSettingsV1 {
     bytes: readPositive("bytes"),
     milliseconds: readPositive("milliseconds"),
   };
+}
+
+function readRestoreDrillRetention(body: string): number {
+  const raw = setting(body, "restoreDrillRetention");
+  if (raw === undefined) return DEFAULT_RESTORE_DRILL_RETENTION;
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value < 1)
+    throw new Error("settings.restoreDrillRetention must be a positive integer");
+  return value;
 }
 
 function writeWalFlushFacet(body: string, settings: WalFlushSettingsV1): string {
