@@ -1,3 +1,4 @@
-// Version 19 scopes task-owned Entity rows by owner so equal local Execution/Review ids
-// replay independently. A mismatch discards and replays the rebuildable cache.
-export const taskProjectionSchemaVersion = 19;
+// Version 20 indexes task_relation by task_id and keys decision_fts rows by the decision rowid,
+// so a Task or Decision event no longer scans those tables. A mismatch discards and replays the
+// rebuildable cache.
+export const taskProjectionSchemaVersion = 20;

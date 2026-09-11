@@ -568,6 +568,18 @@ test("decision collection read uses one statement and indexed owner lookups", (c
   }
 });
 
+test("task relation refresh deletes through the task index instead of scanning the table", () => {
+  const db = new DatabaseSync(":memory:");
+  try {
+    createTaskRelationProjectionTable(db);
+    const plan = queryPlan(db, { sql: "DELETE FROM task_relation WHERE task_id = ?", args: ["task_a"] });
+    assert.match(plan, /SEARCH task_relation USING (?:COVERING )?INDEX task_relation_task/u);
+    assert.doesNotMatch(plan, /SCAN task_relation(?:\s|$)/u);
+  } finally {
+    db.close();
+  }
+});
+
 function queryPlan(db: DatabaseSync, read: { readonly sql: string; readonly args: readonly unknown[] }): string {
   return (
     db.prepare(`EXPLAIN QUERY PLAN ${read.sql}`).all(...read.args) as unknown as readonly { readonly detail: string }[]
