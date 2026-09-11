@@ -205,9 +205,12 @@ test("restore drill rolls shadows by retention, preserves unrelated directories 
     }
     const retained = drilled.slice(-2).map(({ shadowRoot }) => shadowRoot);
     assert.equal(lstatSync(unrelated).isDirectory(), true);
+    // readdir order is not creation order for mkdtemp names, so compare the sets.
     assert.deepEqual(
-      readdirDirectories(shadowParent).filter((entry) => entry.startsWith("restore-drill-")),
-      retained.map((entry) => path.basename(entry)),
+      readdirDirectories(shadowParent)
+        .filter((entry) => entry.startsWith("restore-drill-"))
+        .sort(),
+      retained.map((entry) => path.basename(entry)).sort(),
     );
     assert.equal(drilled.at(-1)?.manifest.tag, manifest.tag);
     assert.deepEqual(drilled[2]?.removedShadowRoots, [drilled[0]?.shadowRoot]);
