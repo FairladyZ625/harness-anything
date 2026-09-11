@@ -37,8 +37,8 @@ test("a key absent from the block reads as absent", () => {
   assert.equal(settingBlockValue(body, "absentBlock", "wipLimit"), undefined);
 });
 
-test("CI workflows default to the established pair and accept configured workflow basenames", () => {
-  assert.deepEqual(readSettingsFacet(body).ci.workflows, ["rewrite-ci", "rebuild-gates"]);
+test("CI workflows default to rewrite-ci and accept configured workflow basenames", () => {
+  assert.deepEqual(readSettingsFacet(body).ci.workflows, ["rewrite-ci"]);
   assert.deepEqual(readSettingsFacet(`${body}\n  ci:\n    workflows: [ci]\n`).ci.workflows, ["ci"]);
 });
 

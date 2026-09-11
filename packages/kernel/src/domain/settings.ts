@@ -9,7 +9,7 @@ export type SettingsLocale = (typeof settingsLocales)[number];
 export const reviewIndependenceLevels = ["execution", "principal"] as const;
 export type ReviewIndependence = (typeof reviewIndependenceLevels)[number];
 export const DEFAULT_RESTORE_DRILL_RETENTION = 3;
-export const DEFAULT_CI_WORKFLOWS = Object.freeze(["rewrite-ci", "rebuild-gates"] as const);
+export const DEFAULT_CI_WORKFLOWS = Object.freeze(["rewrite-ci"] as const);
 
 export interface WalFlushSettingsV1 {
   readonly adaptive: boolean;
