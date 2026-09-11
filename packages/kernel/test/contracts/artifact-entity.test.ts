@@ -25,7 +25,6 @@ import {
   artifactMutationOperationId,
   canonicalArtifactUrl,
   decodeArtifactEntityContractSnapshot,
-  encodeArtifactDescriptor,
 } from "../../src/domain/artifact-entity.ts";
 import {
   assertEntityEventInputs,
@@ -126,10 +125,6 @@ test("Artifact descriptor codec is nine-field exact and repository paths use the
     "attributes",
     "source",
   ]);
-  assert.equal(
-    JSON.parse(encodeArtifactDescriptor(artifact.entityKindContract, descriptor)).entityId,
-    descriptor.entityId,
-  );
   assert.throws(
     () => decodeArtifactDescriptor(artifact.entityKindContract, { ...descriptor, attributes: { undeclared: "x" } }),
     /unknown; remove it/u,

@@ -2,11 +2,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import {
-  createWriteReceipt,
-  validateWriteReceipt,
-  WriteChainContractError,
-} from "../../../packages/kernel/src/domain/write-chain.contract.ts";
+import { validateWriteReceipt } from "../../../packages/kernel/src/domain/receipt-domain-registry.ts";
 
 const fixture = (name) => JSON.parse(readFileSync(new URL(`./fixtures/${name}`, import.meta.url), "utf8"));
 const authorizationDecision = Object.freeze({
@@ -161,5 +157,5 @@ test("G06 evidence-free results can only be N/A indeterminate", () => {
     validateReceipt({ outcome: "applied", opId: "op_4", revision: 1 }).join("\n"),
     /requires revision and evidence/u,
   );
-  assert.throws(() => createWriteReceipt({ ...honest, origin: "" }), WriteChainContractError);
+  assert.notDeepEqual(validateReceipt({ ...honest, origin: "" }), []);
 });

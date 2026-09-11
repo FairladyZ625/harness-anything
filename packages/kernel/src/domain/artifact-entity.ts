@@ -6,11 +6,7 @@ import type {
   EntityKindSchemaVersion,
 } from "../schemas/vertical-definition.ts";
 import { artifactEntityIdPattern } from "./entity-ref.ts";
-import {
-  parseEntityJsonSchema,
-  serializeEntityJsonSchema,
-  type EntityDocumentJsonSchema,
-} from "./entity-json-schema.ts";
+import { parseEntityJsonSchema, type EntityDocumentJsonSchema } from "./entity-json-schema.ts";
 import {
   genericAuthoring,
   genericEntityStore,
@@ -243,17 +239,6 @@ export function decodeArtifactDescriptor(
   // `source` is a binding the center records, not a seed the identity is recomputed from: reading an entity
   // never re-derives its id, which is what lets a move keep the id while restating where the material came from.
   return deepFreeze({ ...descriptor, locator });
-}
-
-export function encodeArtifactDescriptor(
-  contract: Pick<EntityKindContract, "kind" | "schema">,
-  value: unknown,
-): string {
-  return serializeEntityJsonSchema(
-    contract.schema,
-    decodeArtifactDescriptor(contract, value),
-    `${contract.kind} descriptor`,
-  );
 }
 
 export function canonicalArtifactLocator(locator: ArtifactLocator): ArtifactLocator {

@@ -10,7 +10,7 @@ import {
 import {
   createFactProjectionTables,
   readFactGraphRows,
-  searchFactRows,
+  searchFactRowsPage,
   type FactProjectionRow,
 } from "../../src/projection/fact-event-projection.ts";
 import { createRelationGraphProjectionTables } from "../../src/projection/relation-graph-projection.ts";
@@ -72,12 +72,12 @@ test("100k Fact FTS exact searches stay indexed with p95 below 10ms", (context) 
       true,
       JSON.stringify(plan),
     );
-    searchFactRows(db, { query: "token99999", taskId: "task-99" });
+    searchFactRowsPage(db, { query: "token99999", taskId: "task-99" });
     const samples: number[] = [];
     for (let index = 0; index < 200; index += 1) {
       const target = 99_800 + index,
         startedAt = performance.now();
-      const rows = searchFactRows(db, { query: `token${target}`, taskId: `task-${target % 100}` });
+      const rows = searchFactRowsPage(db, { query: `token${target}`, taskId: `task-${target % 100}` }).rows;
       samples.push(performance.now() - startedAt);
       assert.equal(rows[0]?.factId, `F-${String(target).padStart(8, "0")}`);
     }
@@ -91,7 +91,7 @@ test("100k Fact FTS exact searches stay indexed with p95 below 10ms", (context) 
       "triadic Fact rows must not inherit the 100-result search limit",
     );
     assert.equal(
-      searchFactRows(db, { taskId: "task-0" }).length,
+      searchFactRowsPage(db, { taskId: "task-0" }).rows.length,
       1_000,
       "fact search must return every match instead of silently truncating",
     );
@@ -211,11 +211,11 @@ test("fact liveness lookup stays stable as unrelated active edges grow", (contex
           "{}",
         );
       db.exec("COMMIT");
-      searchFactRows(db, { refs: ["fact/F-00000000"] });
+      searchFactRowsPage(db, { refs: ["fact/F-00000000"] });
       const samples: number[] = [];
       for (let index = 0; index < 20; index += 1) {
         const startedAt = performance.now();
-        searchFactRows(db, { refs: ["fact/F-00000000"] });
+        searchFactRowsPage(db, { refs: ["fact/F-00000000"] });
         samples.push(performance.now() - startedAt);
       }
       samples.sort((left, right) => left - right);

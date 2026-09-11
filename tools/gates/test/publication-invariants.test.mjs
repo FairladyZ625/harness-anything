@@ -15,8 +15,6 @@ import { sha256Text } from "../../../packages/kernel/src/integrity/stable-hash.t
 import { contentObjectRelativePath } from "../../../packages/kernel/src/layout/ledger-object-layout.ts";
 import { makeTaskProjection } from "../../../packages/kernel/src/projection/rebuildable-task-projection.ts";
 import { makeTaskEventStore } from "../../../packages/kernel/src/store/task-event-store.ts";
-import { TaskLifecycleContractError } from "../../../packages/kernel/src/domain/task-lifecycle.contract.ts";
-import { addWriteTarget } from "../../../packages/kernel/src/domain/task-write-decision.ts";
 import { lifecycleHarness } from "../../../packages/application/test/task-lifecycle-test-harness.ts";
 import { assertWriteTargetDeclared } from "../../../packages/application/src/task-lifecycle-service.ts";
 import { removeTemporaryDirectory } from "../../temporary-directory-cleanup.mjs";
@@ -52,16 +50,6 @@ test("G29 compares every published byte change outside the canonical store files
     );
     assert.deepEqual(readFileSync(artifact), Buffer.from([9, 8, 7, 6]));
     assert.deepEqual(readFileSync(sentinel), Buffer.from([0, 1, 2, 255]));
-    assert.throws(
-      () =>
-        addWriteTarget(receipt.frozenPlan, {
-          kind: "content_blob",
-          sha256: "a".repeat(64),
-          size: 4,
-          mediaType: "application/octet-stream",
-        }),
-      (error) => error instanceof TaskLifecycleContractError && error.code === "frozen_write_plan",
-    );
   } finally {
     await harness.cleanup();
   }

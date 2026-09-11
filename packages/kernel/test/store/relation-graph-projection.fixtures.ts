@@ -18,7 +18,7 @@ import {
   type MigrationImportEventV1,
   type TaskEventV1,
 } from "../../src/index.ts";
-import { formatRelationFlowRecord, type EntityRelationRecord } from "../../src/domain/entity-relation.ts";
+import type { EntityRelationRecord } from "../../src/domain/entity-relation.ts";
 import { createDecisionProjectionTables } from "../../src/projection/decision-event-projection.ts";
 import { createFactProjectionTables } from "../../src/projection/fact-event-projection.ts";
 import { createRelationGraphProjectionTables } from "../../src/projection/relation-graph-projection.ts";
@@ -28,6 +28,11 @@ export const actor = {
   principal: { personId: "proposer" },
   executor: null,
 } as const;
+
+function relationFlowRecord(record: EntityRelationRecord): string {
+  const rationale = JSON.stringify(record.rationale.replace(/\s+/gu, " ").trim());
+  return `- {relation_id: ${record.relation_id}, source: ${record.source}, target: ${record.target}, type: ${record.type}, strength: ${record.strength}, direction: ${record.direction}, origin: ${record.origin}, rationale: ${rationale}, state: ${record.state}}`;
+}
 
 export function proposal(revision: number, decisionId: string): DecisionEventDraftV1 {
   return {
@@ -361,7 +366,7 @@ export function writeTask(rootDir: string, taskId: string, record: EntityRelatio
       "vertical: default",
       "preset: default",
       "relations:",
-      formatRelationFlowRecord(record),
+      relationFlowRecord(record),
       "---",
       "",
       `# ${taskId}`,
@@ -429,7 +434,7 @@ export function writeColdHistory(
       '- {fact_id: F-DEADBEEF, statement: "Cold rebuild evidence", source: "fixture", observedAt: "2026-07-01T00:00:00.000Z", confidence: high, memoryClass: semantic, memoryTags: [episode], provenance: [{runtime: "human", sessionId: "cold", boundAt: "2026-07-01T00:00:00.000Z"}]}',
       '- {fact_id: F-ABCDEFGH, statement: "Migrated historical endpoint", source: "fixture", observedAt: "2026-07-01T00:00:00.000Z", confidence: high, memoryClass: semantic, memoryTags: [], provenance: [{runtime: "human", sessionId: "cold", boundAt: "2026-07-01T00:00:00.000Z"}], migration: {schema: "fact-migration/v1", state: migrated, plan_id: "plan", execution_ref: "execution/exe", evidence_id: "evidence", migrated_at: "2026-07-02T00:00:00.000Z"}}',
       "relations:",
-      formatRelationFlowRecord(superseded),
+      relationFlowRecord(superseded),
       "",
     ].join("\n"),
   );
@@ -461,8 +466,8 @@ export function writeColdHistory(
       "claims:",
       '  - { id: "C1", text: "Authored truth rebuilds", fulfillment: "evidenced" }',
       "relations:",
-      formatRelationFlowRecord(evidenced),
-      formatRelationFlowRecord(derived),
+      relationFlowRecord(evidenced),
+      relationFlowRecord(derived),
       "---",
       "",
       "# Cold truth",

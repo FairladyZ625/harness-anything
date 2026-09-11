@@ -5,7 +5,6 @@ import test from "node:test";
 import { makeTaskProjection } from "../../src/projection/rebuildable-task-projection.ts";
 import {
   createFactProjectionTables,
-  searchFactRows,
   searchFactRowsPage,
   readFactAnchorRows,
   type FactProjectionRow,
@@ -568,7 +567,7 @@ test("fact search pages concatenate to the full result, honor windows, and keep 
       }),
     );
     db.exec("COMMIT");
-    const full = searchFactRows(db, {});
+    const full = searchFactRowsPage(db, {}).rows;
     assert.equal(full.length, 40);
     assert.equal(full.find((row) => row.ref === "fact/F-00000000")?.state, "superseded_fact");
     let page = searchFactRowsPage(db, { limit: 7 }),
@@ -593,7 +592,7 @@ test("fact search pages concatenate to the full result, honor windows, and keep 
       ["fact/F-00000000"],
     );
     assert.deepEqual(readFactAnchorRows(db, []).length, 0);
-    assert.equal(searchFactRows(db, { query: "observation 39" }).length, 1);
+    assert.equal(searchFactRowsPage(db, { query: "observation 39" }).rows.length, 1);
   } finally {
     db.close();
   }
@@ -695,7 +694,7 @@ test("fact search liveness reads only supersedes edges, however many facts and e
       return statement;
     }) as typeof db.prepare;
     // Unpaged: every fact is decoded, which is past the old 900-target cut-off.
-    const rows = searchFactRows(db, {});
+    const rows = searchFactRowsPage(db, {}).rows;
     assert.equal(rows.length, 2000);
     assert.equal(rows.find((row) => row.factId === "F-00000000")?.invalidated, true);
     assert.equal(rows.find((row) => row.factId === "F-00000001")?.invalidated, false);

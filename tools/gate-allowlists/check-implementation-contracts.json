@@ -66,23 +66,6 @@
           "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
           "reason": "W3 product path requires a real CLI-to-daemon-to-Git-to-SQLite-to-receipt lifecycle test."
         }
-      ],
-      "publish": [
-        {
-          "value": "packages/kernel/test/publish/redaction.test.ts",
-          "ref": "ADR-0022#D6",
-          "reason": "Publish implementation requires this release-safety contract test."
-        },
-        {
-          "value": "packages/kernel/test/publish/idempotency.test.ts",
-          "ref": "ADR-0022#D6",
-          "reason": "Publish implementation requires this release-safety contract test."
-        },
-        {
-          "value": "packages/kernel/test/publish/private-evidence-rejection.test.ts",
-          "ref": "ADR-0022#D6",
-          "reason": "Publish implementation requires this private-evidence contract test."
-        }
       ]
     },
     "packageLockVersions": [

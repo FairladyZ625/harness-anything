@@ -87,12 +87,6 @@ export function parseEntityRef(value: string): ParsedEntityRef | null {
   };
 }
 
-export function findEntityRefs(body: string): ReadonlyArray<ParsedEntityRef> {
-  return [...body.matchAll(entityRefSearchPattern())]
-    .map((match) => parseEntityRef(match[0]))
-    .filter((ref): ref is ParsedEntityRef => ref !== null);
-}
-
 export function requireEntityKindRefAuthority(kind: string): EntityKindRefAuthority {
   const authority = refAuthorities().find((candidate) => candidate.kind === kind);
   if (!authority) throw new Error(`Entity kind ${kind} has no ref authority.`);
@@ -123,14 +117,6 @@ function compileRefBodyPattern(contract: EntityKindRefAuthority, capture: boolea
 
 function refAuthorities(): readonly EntityKindRefAuthority[] {
   return entityTypeContracts.map(({ kind, id }) => Object.freeze({ kind, ...id }));
-}
-
-function entityRefSearchPattern(): RegExp {
-  const bodies = [
-    ...refAuthorities().map((contract) => compileRefBodyPattern(contract, false)),
-    artifactRefBodyPattern(false),
-  ];
-  return new RegExp(String.raw`(?<![A-Za-z0-9_/-])(?:[A-Za-z][A-Za-z0-9_-]*:)?(?:${bodies.join("|")})\b(?!\/)`, "gu");
 }
 
 function unanchored(pattern: string): string {

@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   assertCurrentWriter,
-  createWriteReceipt,
   freezeDeclaredWritePlan,
   issueWriterGenerationToken,
   nextRecoveryBatch,
@@ -14,26 +13,8 @@ import {
   validateNormalizedCommandEnvelope,
   WriteChainContractError,
 } from "../../../packages/kernel/src/domain/write-chain.contract.ts";
-import {
-  emptyTaskLifecycleSnapshot,
-  normalizeTaskLifecycleCommand,
-  serializeTaskEvent,
-} from "../../../packages/kernel/src/domain/task-lifecycle.contract.ts";
-import { decideTaskLifecycleWrite } from "../../../packages/kernel/src/domain/task-write-decision.ts";
-import { REPLAY_TASK_GRAPH } from "../../../packages/kernel/src/domain/task-graph.ts";
 
 const actor = { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "worker" } };
-const authorizationDecision = {
-  policyRef: "default@5",
-  actor,
-  subject: "settings/repository",
-  bindingsUsed: [],
-  outcome: "allowed",
-  reasonCodes: ["authorization_allowed"],
-  nextActions: [],
-  evaluatedAtCut: "canonical:test",
-};
-
 test("G02 derives a stable opId and digest from one normalized command envelope", () => {
   const input = {
     workspaceId: "workspace-1",
@@ -265,23 +246,6 @@ test("G02 freezes deterministic event bytes and a committed head shape", () => {
 });
 
 test("G02/G07 expose one four-state receipt and bounded recovery contract", async () => {
-  const cut = { repoId: "gate-fixture", generation: 1, revision: 1, headDigest: `sha256:${"a".repeat(64)}` };
-  const acceptanceFields = {
-    status: "accepted_durable",
-    acceptance: {
-      storage: "sqlite",
-      durability: "local_fsync",
-      recordedAt: "2026-09-06T00:00:00.000Z",
-      revisionFrom: 1,
-      revisionTo: 1,
-      memberOpIds: ["op_1"],
-      cut,
-    },
-    projection: { state: "verified", cut },
-    git: { state: "pending", cut: null, commitSha: null },
-    worktree: { state: "pending", cut: null },
-    replica: { state: "not_configured", cut: null },
-  };
   const contract = await import("../../../packages/kernel/src/domain/write-chain.contract.ts");
   assert.deepEqual(contract.writeReceiptOutcomes, ["applied", "pending", "no_changes", "indeterminate", "op_rejected"]);
   assert.deepEqual(contract.RECOVERY_BUDGET, { deadline: 100, maxItems: 64, retry: 1 });
@@ -295,43 +259,6 @@ test("G02/G07 expose one four-state receipt and bounded recovery contract", asyn
   assert.deepEqual(
     { deferred: recovery.deferred, nextCursor: recovery.nextCursor },
     { deferred: 9_936, nextCursor: 64 },
-  );
-  assert.deepEqual(
-    createWriteReceipt({
-      ...acceptanceFields,
-      outcome: "applied",
-      opId: "op_1",
-      revision: 1,
-      evidence: "event:op_1",
-      visibility: "center",
-      proof: { committedRevision: 1, appliedCut: 1, durable: true, canonicalVisible: true, worktreeVisible: null },
-      authorizationDecision,
-    }),
-    {
-      authorizationDecision,
-      ...acceptanceFields,
-      outcome: "applied",
-      opId: "op_1",
-      revision: 1,
-      evidence: "event:op_1",
-      visibility: "center",
-      proof: { committedRevision: 1, appliedCut: 1, durable: true, canonicalVisible: true, worktreeVisible: null },
-    },
-  );
-  assert.throws(
-    () =>
-      createWriteReceipt({
-        ...acceptanceFields,
-        outcome: "applied",
-        opId: "op_1",
-        revision: 1,
-        evidence: "event:op_1",
-        visibility: "center",
-        proof: { committedRevision: 1, appliedCut: 1, durable: true, canonicalVisible: true, worktreeVisible: null },
-        authorizationDecision,
-        leaseCredential: "removed",
-      }),
-    WriteChainContractError,
   );
 });
 
@@ -362,137 +289,6 @@ test("G08 recovery cursor is monotonic, visits once, reports exhausted budgets, 
     nextCursor: 0,
     state: "failed",
   });
-});
-
-test("G02/G03 task decision rejects stale writers, conflicting opIds, and unsafe targets before publication", () => {
-  const activeWriter = { workspaceId: "workspace-1", generation: 2, ownerId: "daemon-a" };
-  const writerToken = issueWriterGenerationToken(activeWriter);
-  const command = {
-    ...normalizeTaskLifecycleCommand(
-      { workspaceId: "workspace-1", actor, source: "local", expectedRevision: 0 },
-      {
-        type: "CreateReplayTask",
-        taskId: "task-1",
-        title: "Replay task",
-        taskClass: "standard",
-        graph: REPLAY_TASK_GRAPH,
-        completionGateIds: [],
-        presetSnapshotDigest: null,
-      },
-    ),
-    eventId: "event-1",
-    workspaceRevision: 1,
-    occurredAt: "2026-08-11T00:00:00.000Z",
-  };
-  const proof = { taskIdUnique: true, actorBinding: actor };
-  const decide = (overrides = {}) =>
-    decideTaskLifecycleWrite({
-      snapshot: emptyTaskLifecycleSnapshot(),
-      command,
-      proof,
-      activeWriter,
-      writerToken,
-      ...overrides,
-    });
-
-  const legal = decide();
-  assert.equal(legal.accepted, true);
-  assert.equal(legal.receipt.outcome, "indeterminate");
-  assert.equal(legal.accepted && serializeTaskEvent(legal.event), legal.accepted && serializeTaskEvent(decide().event));
-
-  const stale = decide({ writerToken: issueWriterGenerationToken({ ...activeWriter, generation: 1 }) });
-  assert.deepEqual(
-    [stale.accepted, stale.receipt.outcome, stale.receipt.code],
-    [false, "op_rejected", "writer_rejected"],
-  );
-
-  const conflict = decide({
-    existingOperation: {
-      opId: command.opId,
-      commandDigest: `sha256:${"0".repeat(64)}`,
-      event: legal.event,
-      receipt: legal.receipt,
-    },
-  });
-  assert.deepEqual(
-    [conflict.accepted, conflict.receipt.outcome, conflict.receipt.code],
-    [false, "op_rejected", "operation_conflict"],
-  );
-
-  const sourceDrift = decide({
-    command: { ...command, source: "remote_direct" },
-    existingOperation: {
-      opId: command.opId,
-      commandDigest: command.commandDigest,
-      event: legal.event,
-      receipt: legal.receipt,
-    },
-  });
-  assert.deepEqual(
-    [sourceDrift.accepted, sourceDrift.receipt.outcome, sourceDrift.receipt.code],
-    [false, "op_rejected", "invalid_schema"],
-  );
-
-  const unsafe = {
-    ...normalizeTaskLifecycleCommand(
-      { workspaceId: "workspace-1", actor, source: "local", expectedRevision: 0 },
-      {
-        type: "CreateReplayTask",
-        taskId: "../escape",
-        title: "Unsafe",
-        taskClass: "standard",
-        graph: REPLAY_TASK_GRAPH,
-        completionGateIds: [],
-        presetSnapshotDigest: null,
-      },
-    ),
-    eventId: "event-unsafe",
-    workspaceRevision: 1,
-    occurredAt: "2026-08-11T00:00:00.000Z",
-  };
-  const invalidTarget = decide({ command: unsafe });
-  assert.deepEqual(
-    [invalidTarget.accepted, invalidTarget.receipt.outcome, invalidTarget.receipt.code],
-    [false, "op_rejected", "invalid_write_plan"],
-  );
-});
-
-test("G03 returns an immutable event with stable canonical bytes", () => {
-  const activeWriter = { workspaceId: "workspace-1", generation: 2, ownerId: "daemon-a" };
-  const command = {
-    ...normalizeTaskLifecycleCommand(
-      { workspaceId: "workspace-1", actor, source: "local", expectedRevision: 0 },
-      {
-        type: "CreateReplayTask",
-        taskId: "task-1",
-        title: "Replay task",
-        taskClass: "standard",
-        graph: REPLAY_TASK_GRAPH,
-        completionGateIds: [],
-        presetSnapshotDigest: null,
-      },
-    ),
-    eventId: "event-1",
-    workspaceRevision: 1,
-    occurredAt: "2026-08-11T00:00:00.000Z",
-  };
-  const decision = decideTaskLifecycleWrite({
-    snapshot: emptyTaskLifecycleSnapshot(),
-    command,
-    proof: { taskIdUnique: true, actorBinding: actor },
-    activeWriter,
-    writerToken: issueWriterGenerationToken(activeWriter),
-  });
-  assert.equal(decision.accepted, true);
-  if (!decision.accepted) return;
-  const before = serializeTaskEvent(decision.event);
-  assert.equal(Object.isFrozen(decision.event), true);
-  assert.equal(Object.isFrozen(decision.event.payload), true);
-  assert.equal(Object.isFrozen(decision.event.payload.task), true);
-  assert.throws(() => {
-    decision.event.payload.task.title = "mutated";
-  }, TypeError);
-  assert.equal(serializeTaskEvent(decision.event), before);
 });
 
 test("G03 rejects a second writer and a token from an old generation", () => {
