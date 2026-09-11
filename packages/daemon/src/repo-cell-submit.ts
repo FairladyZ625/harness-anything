@@ -62,24 +62,27 @@ export function deriveCloseoutSubmission(
       "invalid_submission",
       "Write the delivery commit in Summary; no execution-bound worktree cut is available.",
     );
-  if (!git.run(root, ["cat-file", "-e", `${commitSha}^{commit}`]).ok) {
-    if (!git.run(ledgerRoot, ["cat-file", "-e", `${commitSha}^{commit}`]).ok)
-      throw cell.cellCodedError(
-        "invalid_submission",
-        `Delivery commit ${commitSha} is not published in either repository.`,
-      );
-    root = ledgerRoot;
-  }
+  const publishedRoot = [...new Set([root, cell.rootDir, ledgerRoot])].find(
+    (candidate) => git.run(candidate, ["cat-file", "-e", `${commitSha}^{commit}`]).ok,
+  );
+  if (!publishedRoot)
+    throw cell.cellCodedError(
+      "invalid_submission",
+      `Delivery commit ${commitSha} is not published in either repository.`,
+    );
+  root = publishedRoot;
   commitSha = git.run(root, ["rev-parse", `${commitSha}^{commit}`]).stdout;
   if (directories.length && named.length) {
     const dispatchHead = git.run(directories[0]!, ["rev-parse", "HEAD"]).stdout;
     if (
-      commitSha !== dispatchHead &&
-      !(
-        git.run(root, ["merge-base", "--is-ancestor", dispatchHead, commitSha]).ok &&
-        git.run(root, ["merge-base", "--is-ancestor", commitSha, "origin/main"]).ok &&
-        git.run(root, ["rev-list", "--parents", "-n", "1", commitSha]).stdout.split(" ").length > 2
-      )
+      dispatchHead
+        ? commitSha !== dispatchHead &&
+          !(
+            git.run(root, ["merge-base", "--is-ancestor", dispatchHead, commitSha]).ok &&
+            git.run(root, ["merge-base", "--is-ancestor", commitSha, "origin/main"]).ok &&
+            git.run(root, ["rev-list", "--parents", "-n", "1", commitSha]).stdout.split(" ").length > 2
+          )
+        : !git.run(cell.rootDir, ["merge-base", "--is-ancestor", commitSha, "origin/main"]).ok
     )
       throw cell.cellCodedError(
         "invalid_submission",

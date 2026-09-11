@@ -221,21 +221,13 @@ function evaluateCompletion(
       `ha task complete ${task.taskId}`,
       "Dispatch an independent reviewer for the current submitted cut.",
     );
-  if (assessment.blocker === "consent") {
-    if (approved.length !== 1)
-      return one(
-        "consent_missing",
-        "consent",
-        `ha task show ${task.taskId}`,
-        `Owner must select one approved Review: ${approved.map((review) => review.reviewId).join(", ")}.`,
-      );
+  if (assessment.blocker === "consent")
     return one(
       "consent_missing",
       "consent",
       `ha task complete ${task.taskId} --consent`,
-      "Select one approved Review with content-pinned owner consent.",
+      "Consent to the latest approved Review by canonical revision, pinned to its reviewed content.",
     );
-  }
   return [];
 }
 
