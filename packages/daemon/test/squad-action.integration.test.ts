@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
-import { getEntityKindContract, makeTaskEventStore } from "../../kernel/src/index.ts";
+import { getEntityKindContract, makeTaskEventStore, openSqliteEventStore } from "../../kernel/src/index.ts";
 import {
   makeDaemonCommandReceipt,
   validateDaemonGuiCommandReceipt,
@@ -71,16 +71,46 @@ test("Squad Action catalog owns install, read surfaces, and exact rejected crite
     );
 
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "squad-action-catalog" });
-    await installFixture(cell);
+    const installed = await installFixture(cell),
+      squadInstall = installed.find(({ declaration }) => declaration.schema === "squad-declaration/v1");
+    assert.ok(squadInstall);
+    assertDurableSquadDeclaration(rootDir, repoId, squadInstall.receipt.opId);
 
     const listed = await cell.run({ kind: "squad-list" }, owner),
-      inspected = await cell.run({ kind: "squad-inspect", squadId: squad.id }, owner);
-    assert.equal(listed.outcome, "applied", JSON.stringify(listed));
-    assert.deepEqual(
-      (evidence(listed).squads as Array<{ id: string }>).map(({ id }) => id),
-      [squad.id],
-    );
-    assert.equal((evidence(inspected).squad as { id: string }).id, squad.id);
+      inspected = await cell.run({ kind: "squad-inspect", squadId: squad.id }, owner),
+      listEvidence = {
+        schema: "squad-list/v1",
+        squads: [
+          {
+            schema: squad.schema,
+            id: squad.id,
+            name: squad.name,
+            leader: squad.leader,
+            workers: squad.workers,
+            leaderTurnBudget: squad.leaderTurnBudget,
+            layer: "user",
+            source: "squads/catalog-squad.json",
+            validity: "valid",
+            issues: [],
+          },
+        ],
+        status: "ready",
+        watermark: listed.revision,
+        sourceRevision: listed.revision,
+      },
+      inspectEvidence = {
+        schema: "squad-inspection/v1",
+        squad,
+        status: "ready",
+        watermark: inspected.revision,
+        sourceRevision: inspected.revision,
+      };
+    assertExactReadReceipt(listed, listEvidence, null);
+    assertExactReadReceipt(inspected, inspectEvidence, {
+      kind: "squad",
+      ref: "squad/catalog-squad",
+      revision: inspected.revision,
+    });
 
     const explainedCatalog = await cell.read(
         "repo.entity.actions.explain",
@@ -305,13 +335,98 @@ test("Squad control failure after a committed child never borrows that child's a
   }
 });
 
-async function installFixture(cell: Awaited<ReturnType<typeof openRepoCell>>): Promise<void> {
+async function installFixture(cell: Awaited<ReturnType<typeof openRepoCell>>) {
+  const installed: Array<{
+    readonly declaration: typeof leader | typeof worker | typeof squad;
+    readonly receipt: Awaited<ReturnType<typeof cell.run>>;
+  }> = [];
   for (const declaration of [leader, worker, squad]) {
     const receipt = await cell.run(
       { kind: declaration.schema.startsWith("agent-") ? "agent-install" : "squad-install", declaration },
       owner,
     );
     assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+    installed.push({ declaration, receipt });
+  }
+  return installed;
+}
+
+function assertExactReadReceipt(
+  receipt: Awaited<ReturnType<Awaited<ReturnType<typeof openRepoCell>>["run"]>>,
+  evidence: object,
+  updatedProjection: object | null,
+) {
+  assert.deepEqual(evidenceOf(receipt), evidence);
+  assert.deepEqual(
+    {
+      outcome: receipt.outcome,
+      opId: receipt.opId,
+      revision: receipt.revision,
+      visibility: receipt.visibility,
+      proof: receipt.proof,
+      unmetCriteria: receipt.unmetCriteria,
+      effects: receipt.effects,
+      updatedProjection: receipt.updatedProjection,
+      rejectionExplanation: receipt.rejectionExplanation,
+      nextActions: receipt.nextActions,
+    },
+    {
+      outcome: "applied",
+      opId: receipt.opId,
+      revision: receipt.revision,
+      visibility: "center",
+      proof: {
+        committedRevision: receipt.revision,
+        appliedCut: receipt.revision,
+        durable: true,
+        canonicalVisible: true,
+        worktreeVisible: null,
+      },
+      unmetCriteria: [],
+      effects: [],
+      updatedProjection,
+      rejectionExplanation: null,
+      nextActions: [],
+    },
+  );
+}
+
+function evidenceOf(receipt: Awaited<ReturnType<Awaited<ReturnType<typeof openRepoCell>>["run"]>>): object {
+  return JSON.parse(String(receipt.evidence)) as object;
+}
+
+function assertDurableSquadDeclaration(rootDir: string, repoId: ReturnType<typeof workspaceId>, opId: string): void {
+  const store = openSqliteEventStore({ repoId, rootInput: rootDir, readOnly: true });
+  try {
+    const event = store.event(opId);
+    assert.equal(event?.type, "entity_upserted");
+    if (event?.type !== "entity_upserted") throw new Error("accepted Squad event is not an upsert");
+    assert.deepEqual(JSON.parse(String(store.readContentObject(event.payload.declarationDocumentClaim.sha256))), squad);
+    assert.deepEqual(event.payload.ownedContent, {
+      schema: "entity-owned-content/v1",
+      ownerRef: "squad/catalog-squad",
+      schemaId: "squad-declaration/v1",
+      schemaVersion: 1,
+      content: [
+        {
+          sha256: event.payload.declarationDocumentClaim.sha256,
+          byteLength: event.payload.declarationDocumentClaim.size,
+          mediaType: "application/json",
+        },
+      ],
+      bindings: [
+        {
+          path: "squads/catalog-squad.json",
+          contentSha256: event.payload.declarationDocumentClaim.sha256,
+          policyId: "typed-entity/v1",
+        },
+      ],
+      directories: [],
+      retirements: [],
+      directoryRetirements: [],
+    });
+  } finally {
+    store.close();
   }
 }
 

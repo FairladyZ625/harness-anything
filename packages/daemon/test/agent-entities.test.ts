@@ -19,20 +19,23 @@ import {
   getEntityKindContract,
   makeTaskEventStore,
   makeTaskProjection,
+  openEntityStore,
   openSqliteEventStore,
 } from "../../kernel/src/index.ts";
 import {
   prepareAgentEntityInstall,
+  readAgentDeclaration,
   readAgentEntityGuiProjection,
+  readSquadDeclaration,
   resolveSquadDispatch,
-  runAgentEntityAction,
+  validateAgentEntityAction,
 } from "../src/agent-entities.ts";
 import {
   serializeAgentEntityCatalog,
   serializeSquadEntityCatalog,
   validateAgentEntityCatalog,
   validateSquadEntityCatalog,
-} from "../src/agent-entities.contract.ts";
+} from "../src/protocol/agent-entity-gui-contract.ts";
 import { discoverAgentSkills, resolveAgentSkills } from "../src/agent-skills.ts";
 import { validateAgentDeclarationV1, validateSquadDeclarationV1 } from "../../kernel/src/index.ts";
 
@@ -804,11 +807,41 @@ interface TestEntityAction {
 
 function run(input: TestEntityAction): unknown {
   if (!input.kind.endsWith("-validate")) initRepo(input.rootDir);
-  return runAgentEntityAction({
-    rootDir: input.rootDir,
-    runtimeInstances: input.runtimeInstances,
-    action: entityAction(input),
-  });
+  const action = entityAction(input);
+  if (input.kind.endsWith("-validate"))
+    return validateAgentEntityAction({ rootDir: input.rootDir, runtimeInstances: input.runtimeInstances, action });
+  const entityStore = openEntityStore(input.rootDir);
+  if (input.kind === "agent-list")
+    return {
+      schema: "agent-list/v1",
+      agents: entityStore.list("agent").map(({ value }) => catalogRow(value, "instructions")),
+    };
+  if (input.kind === "squad-list")
+    return {
+      schema: "squad-list/v1",
+      squads: entityStore.list("squad").map(({ value }) => catalogRow(value, "roster")),
+    };
+  if (input.kind === "agent-inspect")
+    return {
+      schema: "agent-inspection/v1",
+      agent: readAgentDeclaration({ rootDir: input.rootDir, agentId: input.agentId! }),
+    };
+  return {
+    schema: "squad-inspection/v1",
+    squad: readSquadDeclaration({ rootDir: input.rootDir, squadId: input.squadId! }),
+  };
+}
+
+function catalogRow(value: unknown, omitted: "instructions" | "roster"): object {
+  const declaration = value as Record<string, unknown>,
+    { [omitted]: _omitted, ...row } = declaration;
+  return {
+    ...row,
+    layer: "user",
+    source: omitted === "instructions" ? `agents/${String(row.id)}.json` : `squads/${String(row.id)}.json`,
+    validity: "valid",
+    issues: [],
+  };
 }
 
 async function install(input: TestEntityAction): Promise<unknown> {

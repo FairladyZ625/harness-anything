@@ -17,6 +17,7 @@ import type {
   VerticalDefinition,
 } from "../../../kernel/src/index.ts";
 import type { AgentEntityGuiRead, AgentSkillGuiRead } from "../agent-entities.ts";
+export type { AgentDeclarationV1, SquadDeclarationV1 } from "../../../kernel/src/index.ts";
 import type {
   AgentRuntimeEventsResult,
   AgentRuntimeOverviewResult,

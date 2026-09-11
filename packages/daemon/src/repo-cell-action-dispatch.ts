@@ -2,7 +2,6 @@ import { createHash } from "node:crypto";
 import {
   compileExecutionExecutorDeclaration,
   compileTaskLifecycleWrite,
-  createEntityStore,
   declaredRelationTriples,
   executionExecutorDeclarationCandidates,
   getExecutableEntityAction,
@@ -11,7 +10,6 @@ import {
   type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
 import { runPresetAction } from "../../preset/src/index.ts";
-import { runAgentEntityAction } from "./agent-entities.ts";
 import { compiledArtifactKinds, resolveEntityReadKind } from "./artifact-entity-action.ts";
 import { distillPromotionAction, prepareDistillCandidate, readDistillEntity } from "./distill-actions.ts";
 import { isDocAction, runArtifactAdd, runDocAction } from "./doc-sync-actions.ts";
@@ -224,7 +222,7 @@ export async function executeAction(
     );
   }
   const actionVersion = Number(action.expectedVersion ?? cell.store.readHead()?.revision ?? 0);
-  if (actionContract?.execution && (!actionContract.execution.read || actionContract.target.kind !== "agent"))
+  if (actionContract?.execution)
     return cell.entityActionExecutor.run(
       action,
       binding,
@@ -248,25 +246,6 @@ export async function executeAction(
     if (entity === null) throw cell.cellCodedError("entity_not_found", `Entity ${kind}/${entityId} is not installed.`);
     const result = { schema: "entity-get/v1", kind, entity };
     return cell.readResult(cell.operationId(action, binding, cell.input.repoId, revision), result, revision, null);
-  }
-  if (
-    actionContract?.execution?.read &&
-    (actionContract.target.kind === "agent" || actionContract.target.kind === "squad") &&
-    ["list", "inspect", "validate"].includes(actionContract.id)
-  ) {
-    const revision = cell.store.readHead()?.revision ?? 0,
-      result = runAgentEntityAction({
-        rootDir: cell.rootDir,
-        entityStore: createEntityStore(cell.store),
-        action,
-        runtimeInstances: cell.input.runtimeInstances?.(),
-      });
-    return cell.readResult(
-      cell.operationId(action, binding, cell.input.repoId, revision),
-      result as object,
-      revision,
-      null,
-    );
   }
   if (
     action.kind.startsWith("preset-") ||
