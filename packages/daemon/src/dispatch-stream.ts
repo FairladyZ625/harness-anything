@@ -77,6 +77,15 @@ export interface DispatchStreamHeader {
 }
 
 export type DispatchStreamRecord = Record<string, unknown>;
+export type RuntimeMetrics = {
+  readonly inputTokens: number;
+  readonly cacheReadTokens: number;
+  readonly outputTokens: number;
+  readonly totalTokens: number;
+  readonly toolCallCount: number;
+  readonly compacted: boolean;
+  readonly raw: Record<string, unknown>;
+};
 export type DispatchProcessState = {
   readonly pid: number;
   readonly exitCode: number | null;
@@ -111,6 +120,7 @@ export interface DispatchStreamWriter {
       | { readonly state: "exhausted"; readonly reason: string },
     occurredAt: string,
   ) => void;
+  readonly appendRuntimeMetrics?: (value: RuntimeMetrics, occurredAt: string) => void;
 }
 
 export interface DispatchLiveIndexEntry {
@@ -152,6 +162,7 @@ const summaryKinds = new Set([
   "fallback_state",
   "squad_run_state",
   "squad_run_cancelled",
+  "runtime_metrics",
 ]);
 
 export function openDispatchStream(
@@ -194,6 +205,8 @@ export function openDispatchStream(
       appendJsonl(target, { schema: streamSchema, kind: "attempt_outcome", occurredAt, ...value }),
     appendFallbackState: (value, occurredAt) =>
       appendJsonl(target, { schema: streamSchema, kind: "fallback_state", occurredAt, ...value }),
+    appendRuntimeMetrics: (value, occurredAt) =>
+      appendJsonl(target, { schema: streamSchema, kind: "runtime_metrics", occurredAt, ...value }),
   };
 }
 
@@ -352,6 +365,7 @@ export function readDispatchStream(
     readonly nextProvider: { readonly instance: string; readonly model?: string };
   } | null;
   readonly nextDispatchId: string | null;
+  readonly runtimeMetrics: RuntimeMetrics | null;
   readonly records: readonly DispatchStreamRecord[];
 } | null {
   const target = dispatchStreamPath(rootDir, dispatchId);
@@ -503,10 +517,35 @@ function appendJsonl(target: string, value: unknown): void {
       );
       return;
     }
-    writeFileSync(descriptor, `${JSON.stringify(scrubProviderValue(value))}\n`, "utf8");
+    writeFileSync(descriptor, `${JSON.stringify(scrubDispatchRecord(value))}\n`, "utf8");
   } finally {
     closeSync(descriptor);
   }
+}
+
+function scrubDispatchRecord(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return scrubProviderValue(value);
+  const record = value as Record<string, unknown>;
+  if (record.kind !== "runtime_metrics") return scrubProviderValue(value);
+  const scrubbed = scrubProviderValue(value) as Record<string, unknown>;
+  for (const key of ["inputTokens", "cacheReadTokens", "outputTokens", "totalTokens", "toolCallCount"])
+    if (Number.isInteger(record[key])) scrubbed[key] = record[key];
+  if (record.raw && typeof record.raw === "object" && !Array.isArray(record.raw)) {
+    const originalRaw = record.raw as Record<string, unknown>,
+      raw = scrubProviderValue(originalRaw) as Record<string, unknown>;
+    for (const key of [
+      "input_tokens",
+      "cached_input_tokens",
+      "cache_read_input_tokens",
+      "cache_creation_input_tokens",
+      "output_tokens",
+      "inputTokens",
+      "outputTokens",
+    ])
+      if (Number.isFinite(originalRaw[key])) raw[key] = originalRaw[key];
+    scrubbed.raw = raw;
+  }
+  return scrubbed;
 }
 
 function unboundedDispatchRecord(value: unknown): boolean {
@@ -535,7 +574,8 @@ function summarizeDispatch(
     attemptOutcome: RuntimeAttemptOutcome | null = null,
     fallbackState: "scheduled" | "dispatched" | "exhausted" | null = null,
     fallbackSchedule: DispatchStreamSummary["fallbackSchedule"] = null,
-    nextDispatchId: string | null = null;
+    nextDispatchId: string | null = null,
+    runtimeMetrics: RuntimeMetrics | null = null;
   for (const record of records) {
     if (record.kind === "provider_binding" && typeof record.providerSessionId === "string")
       providerSessionId = record.providerSessionId;
@@ -559,6 +599,7 @@ function summarizeDispatch(
           : null;
       nextDispatchId = typeof record.nextDispatchId === "string" ? record.nextDispatchId : nextDispatchId;
     }
+    if (record.kind === "runtime_metrics" && isRuntimeMetrics(record)) runtimeMetrics = record;
   }
   return {
     header,
@@ -569,8 +610,23 @@ function summarizeDispatch(
     fallbackState,
     fallbackSchedule,
     nextDispatchId,
+    runtimeMetrics,
     records,
   };
+}
+
+function isRuntimeMetrics(value: Record<string, unknown>): value is RuntimeMetrics {
+  return (
+    Number.isInteger(value.inputTokens) &&
+    Number.isInteger(value.cacheReadTokens) &&
+    Number.isInteger(value.outputTokens) &&
+    Number.isInteger(value.totalTokens) &&
+    Number.isInteger(value.toolCallCount) &&
+    typeof value.compacted === "boolean" &&
+    typeof value.raw === "object" &&
+    value.raw !== null &&
+    !Array.isArray(value.raw)
+  );
 }
 
 function dispatchLastObservedAt(

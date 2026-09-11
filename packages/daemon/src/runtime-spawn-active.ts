@@ -28,6 +28,12 @@ type ActiveRuntimeBase = Omit<
   | "nonEmptyAgentOutputObserved"
   | "providerUsageEmpty"
   | "providerFault"
+  | "inputTokens"
+  | "cacheReadTokens"
+  | "outputTokens"
+  | "toolCallCount"
+  | "compacted"
+  | "rawUsage"
   | "fallbackAttempt"
 > & { readonly providerSessionId?: string | null; readonly fallbackAttempt?: ActiveRuntime["fallbackAttempt"] };
 
@@ -60,6 +66,12 @@ export function createActiveRuntime(base: ActiveRuntimeBase): ActiveRuntime {
     nonEmptyAgentOutputObserved: false,
     providerUsageEmpty: false,
     providerFault: null,
+    inputTokens: 0,
+    cacheReadTokens: 0,
+    outputTokens: 0,
+    toolCallCount: 0,
+    compacted: false,
+    rawUsage: {},
   };
 }
 

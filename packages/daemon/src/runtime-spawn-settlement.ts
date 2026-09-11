@@ -54,6 +54,18 @@ export async function publishExit(
       };
     let outcome = initialOutcome;
     active.stream.appendAttemptOutcome(attemptOutcome, context.input.now());
+    active.stream.appendRuntimeMetrics?.(
+      {
+        inputTokens: active.inputTokens,
+        cacheReadTokens: active.cacheReadTokens,
+        outputTokens: active.outputTokens,
+        totalTokens: active.inputTokens + active.outputTokens,
+        toolCallCount: active.toolCallCount,
+        compacted: active.compacted,
+        raw: active.rawUsage,
+      },
+      context.input.now(),
+    );
     let body = context.runtimeResultText(active, code, outcome);
     if (active.task && outcome === "succeeded") {
       try {
