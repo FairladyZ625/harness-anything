@@ -3,6 +3,7 @@ import { unknownFieldViolation, type JsonObject } from "./protocol/json-rpc-type
 import { requiredRuntimeSpawnText, runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import { consumeDurableOutput } from "./runtime-spawn-provider-stream.ts";
 import { adoptRuntimes } from "./runtime-spawn-adoption.ts";
+import { readDispatchStreamHeaders } from "./dispatch-stream.ts";
 import type { RuntimeBinding } from "./runtime-spawn-types.ts";
 import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 
@@ -34,6 +35,48 @@ export async function cancelRuntime(
     await consumeDurableOutput(context, active);
     await context.publishExit(active, null);
     return context.controlReceipt(opId, runtimeSessionId);
+  }
+  // A session with a dispatch record belongs to adoption above; only a session the projection
+  // knows without any dispatch record is settled from the projection alone.
+  const recorded = readDispatchStreamHeaders(context.input.rootDir).some(
+      (header) => header.runtimeSessionId === runtimeSessionId,
+    ),
+    session = recorded
+      ? undefined
+      : (context.input.remote
+          ? await context.input.remote.readRuntimeSessions()
+          : context.requiredRuntimeProjection(context.input).readRuntimeSessions()
+        ).find((value) => value.runtimeSessionId === runtimeSessionId);
+  if (session && session.liveness !== "exited" && session.outcome === null) {
+    const terminalBinding = {
+      ...binding,
+      actor: {
+        principal: binding.actor.principal,
+        executor: { kind: "agent" as const, id: `runtime-session:${runtimeSessionId}` },
+      },
+    };
+    await context.publishRuntimeEvent("runtime_session_cancelled", { runtimeSessionId }, `${opId}-cancelled`, binding);
+    await context.publishRuntimeEvent(
+      "runtime_session_exited",
+      { runtimeSessionId },
+      `${opId}-exited`,
+      terminalBinding,
+    );
+    await context.publishRuntimeEvent(
+      "runtime_session_outcome_observed",
+      {
+        runtimeSessionId,
+        outcome: "cancelled",
+        exitCode: null,
+        resultRef: `artifact:runtime-result/sha256/${createHash("sha256").update(runtimeSessionId).digest("hex")}`,
+        result: null,
+        reasonCode: "runtime_process_missing",
+      },
+      `${opId}-outcome`,
+      terminalBinding,
+      "Runtime session cancelled after its worker process was no longer available.",
+    );
+    return context.controlReceipt(opId, runtimeSessionId, "cancelled");
   }
   return context.controlReceipt(opId, runtimeSessionId, "already-exited");
 }
