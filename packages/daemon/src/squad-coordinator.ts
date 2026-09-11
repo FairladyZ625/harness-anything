@@ -7,6 +7,7 @@ import {
   latestRuntimeActivityAt,
   parseAgentDeclarationV1,
   parseSquadDeclarationV1,
+  resolveHarnessLayout,
   runtimeSessionSemanticState,
   type AgentRuntimeEventV1,
   type CanonicalEventStore,
@@ -639,7 +640,11 @@ export function makeSquadCoordinator(input: {
       prompt =
         trigger.kind === "initial"
           ? initialLeaderPrompt(state)
-          : callbackLeaderPrompt(state, drainedTriggers, dispatchRows(state)),
+          : callbackLeaderPrompt(
+              { ...state, authoredRoot: resolveHarnessLayout(input.rootDir).authoredRoot },
+              drainedTriggers,
+              dispatchRows(state),
+            ),
       receipt = await input.runtimeSpawner().spawn(
         {
           runtimeInstanceId: state.runtimeInstanceId,

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { ActorIdentity, LeaseV1, TaskLifecycleSnapshot, TaskV2 } from "../../kernel/src/index.ts";
 import { reacquireSquadTaskLease } from "../src/repo-cell-open.ts";
-import { initialLeaderPrompt, parseLeaderDecision } from "../src/squad-leader-decision.ts";
+import { callbackLeaderPrompt, initialLeaderPrompt, parseLeaderDecision } from "../src/squad-leader-decision.ts";
 
 const squadActor: ActorIdentity = {
     principal: { personId: "person-squad" },
@@ -124,5 +124,49 @@ test("converged decisions carry the synthesis report while missing content remai
   assert.deepEqual(
     parseLeaderDecision(JSON.stringify({ schema: "squad-decision/v1", action: "converged" }), ["terra"]),
     { kind: "converged", report: null },
+  );
+});
+
+test("a missing worker report explicitly fails callback synthesis", () => {
+  assert.throws(
+    () =>
+      callbackLeaderPrompt(
+        {
+          taskId: "task-squad",
+          squadRunId: "squad_0123456789abcdef01234567",
+          roster: "worker -> terra\nsynthesis -> artifacts/reports/{squadRunId}.md",
+          mission: "Synthesize worker evidence.",
+          authoredRoot: "/definitely/missing/harness",
+          workerAttempts: [
+            {
+              attemptId: "attempt-1",
+              workerId: "terra",
+              leaderTurnId: "turn-1",
+              dispatchId: "dispatch-1",
+              runtimeSessionId: "runtime-1",
+              worktree: null,
+              rejection: null,
+            },
+          ],
+        },
+        [{ kind: "worker_outcome", runtimeSessionId: "runtime-1" }],
+        [
+          {
+            taskId: "task-squad",
+            dispatchId: "dispatch-1",
+            runtimeSessionId: "runtime-1",
+            status: "succeeded",
+            exitCode: 0,
+            resultRef: "sha256:result",
+            reportPath: "artifacts/report.md",
+          },
+        ],
+      ),
+    (error: unknown) =>
+      error instanceof Error &&
+      "code" in error &&
+      error.code === "worker_report_unreadable" &&
+      error.message.includes("reportPath=artifacts/report.md") &&
+      error.message.includes("reason="),
   );
 });

@@ -87,6 +87,7 @@ type LeaderPromptState = {
   readonly roster: string;
   readonly mission: string;
   readonly workerAttempts: readonly WorkerAttempt[];
+  readonly authoredRoot?: string;
   readonly cwd?: string;
 };
 
@@ -164,11 +165,14 @@ function statusRowsForPrompt(state: LeaderPromptState, rows: readonly TaskDispat
 function reportExcerpt(state: LeaderPromptState, reportPath: string | null | undefined): string {
   if (!reportPath) return "reportBody=none";
   try {
-    const body = readFileSync(resolve(state.cwd ?? process.cwd(), reportPath), "utf8");
+    const body = readFileSync(resolve(state.authoredRoot ?? state.cwd ?? process.cwd(), reportPath), "utf8");
     const excerpt = body.length > 8192 ? `${body.slice(0, 8192)}\n[truncated]` : body;
     return `reportBody=${excerpt}`;
-  } catch {
-    return "reportBody=unavailable";
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error),
+      failure = new Error(`Worker report is unreadable: reportPath=${reportPath} reason=${reason}`);
+    Object.assign(failure, { code: "worker_report_unreadable", reportPath });
+    throw failure;
   }
 }
 

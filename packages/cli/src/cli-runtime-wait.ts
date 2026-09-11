@@ -280,12 +280,16 @@ export async function waitForSquadRun(command: ThinCommand, squadRunId: string):
     action: { kind: "squad-status", squadRunId },
   };
   for (;;) {
-    const status = await runCommandThroughDaemon(readCommand, () => undefined, { autostart: false });
+    const status = await readDaemonSubscription(() =>
+      runCommandThroughDaemon(readCommand, () => undefined, { autostart: false }),
+    );
+    if (isDaemonGone(status))
+      return daemonGoneReceipt("squad-run", status.cause, "running", { squadRunId }, `squad-run ${squadRunId}`);
     if (status.ok !== true) return status;
     const phase = (status.run as Record<string, unknown> | undefined)?.phase;
     if (phase === "converged" || phase === "failed" || phase === "cancelled")
       return { ...status, command: "squad-run", outcome: phase, exitCode: phase === "converged" ? 0 : 1 };
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    await new Promise((resolve) => setTimeout(resolve, 250));
   }
 }
 
