@@ -251,6 +251,7 @@
       "packages/kernel/src/schemas/task-closeout-packet.ts#validatePortablePath",
       "packages/kernel/src/store/generation-two-conversion.ts#historicalContentClaims",
       "packages/kernel/src/store/generation-two-conversion.ts#planConversion",
+      "packages/kernel/src/store/ledger-backup.ts#drillLedgerBackup",
       "packages/kernel/src/store/local-version-control-commands.ts#currentBranch",
       "packages/kernel/src/store/local-version-control-commands.ts#originHeadBranch",
       "packages/kernel/src/store/local-version-control-system.ts#<module>",
