@@ -6,27 +6,25 @@ task, a fact, and an adjudicated decision — all as Markdown inside the private
 
 ## 0. Set write attribution
 
-Local `ha` write commands require explicit attribution. For this human-run
-loop, pass the human identity as a global flag and set the commit author
-variables:
+Local `ha` write commands are attributed by the authenticated daemon. Initialize
+the workspace with the human identity and set the commit author variables:
 
 ```bash
 export HARNESS_GIT_AUTHOR_NAME="Your Name"
 export HARNESS_GIT_AUTHOR_EMAIL="you@example.com"
-ha --actor human:you init
+ha init --person-id you --display-name "Your Name"
 ```
 
-Continue this loop by prefixing each write command with `ha --actor human:you`.
-Do not export `HARNESS_ACTOR=human:you`: a child process inherits environment
-variables, so it cannot prove a human was present for its write. Agent and
-system automation may use `HARNESS_ACTOR=agent:<id>` or `system:<id>` per
-command. See [Actor Attribution](../../actor-attribution.md) for the safe
-interactive wrapper and complete source matrix.
+Continue this loop with plain `ha` commands. The daemon authenticates the
+local socket owner and records the configured person; do not export
+`HARNESS_ACTOR=human:you`. Agent automation may use `HARNESS_ACTOR=agent:<id>`
+per command. See [Actor Attribution](../../actor-attribution.md) for the source
+matrix.
 
 ## 1. Initialize
 
 ```bash
-$ ha --actor human:you init
+$ ha init --person-id you --display-name "Your Name"
 ok command=init path=harness/harness.yaml summary="initialized harness at harness/harness.yaml"
 ```
 
@@ -63,7 +61,7 @@ harness/
 ## 2. Create a task
 
 ```bash
-$ ha --actor human:you task create --title "Fix login redirect bug"
+$ ha task create --title "Fix login redirect bug"
 ok command="task create" task=task_01KWPP52D062Q7BWTD8BCNDRWF status=planned
    path=harness/tasks/task_01KWPP52D...-fix-login-redirect-bug
 ```
@@ -73,7 +71,7 @@ You get a stable `task_<id>` and a task package on disk. IDs are identity; title
 ## 3. Move it through the lifecycle
 
 ```bash
-$ ha --actor human:you task transition task_01KWPP52D062Q7BWTD8BCNDRWF active
+$ ha task transition task_01KWPP52D062Q7BWTD8BCNDRWF active
 ok command="task transition" task=task_01KWPP52D062Q7BWTD8BCNDRWF status=active
    summary="set task task_01KWPP52D062Q7BWTD8BCNDRWF to active"
 ```
@@ -86,7 +84,7 @@ Facts are append-only observations. Add `--task` when the observation belongs to
 the task and should receive a `produces` edge:
 
 ```bash
-$ ha --actor human:you fact record --task task_01KWPP52D062Q7BWTD8BCNDRWF \
+$ ha fact record --task task_01KWPP52D062Q7BWTD8BCNDRWF \
     --statement "Redirect loops when the session cookie is missing" \
     --source "manual repro" --confidence high
 ok command="fact record" fact=F-7K3M2Q9R path=facts/F-7K3M2Q9R.md
@@ -95,14 +93,14 @@ ok command="fact record" fact=F-7K3M2Q9R path=facts/F-7K3M2Q9R.md
 Now propose a decision — the WHY — and adjudicate it:
 
 ```bash
-$ ha --actor human:you decision propose --title "Use a server-side redirect guard" \
+$ ha decision propose --title "Use a server-side redirect guard" \
     --question "How do we stop the login redirect loop?" \
     --chosen "Add a server-side guard" \
     --rejected "Client-only fix" \
     --why-not "Client fix races with cookie set"
 ok command="decision propose" path=harness/decisions/decision-dec_mr6f3b4z/decision.md
 
-$ ha --actor human:you decision accept dec_mr6f3b4z --arbiter human:you
+$ ha decision accept dec_mr6f3b4z --arbiter you
 ok command="decision accept" path=harness/decisions/decision-dec_mr6f3b4z/decision.md
 ```
 

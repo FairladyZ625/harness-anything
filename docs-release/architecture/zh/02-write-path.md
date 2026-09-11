@@ -19,7 +19,7 @@ WriteCoordinator
 
 本地 CLI 写入还必须带着显式的 actor 归因进门。CLI 会在创建协调器之前解析它：
 `HARNESS_ACTOR=agent:<id>` 与 `HARNESS_ACTOR=system:<id>` 仍是有效环境通道；human 身份则
-必须使用 `--actor human:<id>`，因为子进程会继承环境变量。显式 flag 优先于环境变量。
+由 daemon 认证人类身份；不要通过会被子进程继承的环境变量传递 human 身份。
 本地写入也需要 git author 的姓名与邮箱；示例使用 `HARNESS_GIT_AUTHOR_NAME`、
 `HARNESS_GIT_AUTHOR_EMAIL`（对应的 Git author 环境变量可以 fallback）。归属或 author 数据
 缺失、格式不正确时，本地写入不能继续。journal 会记录 actor 来自 `env` 还是 `flag`。daemon

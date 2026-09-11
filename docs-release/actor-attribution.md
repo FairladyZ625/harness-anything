@@ -11,23 +11,23 @@ question from a kind: it says how the process obtained the identity.
 
 | Actor kind    | `HARNESS_ACTOR` environment | Global `--actor` flag | Authenticated daemon                                                                                       |
 | ------------- | --------------------------- | --------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `human:<id>`  | Rejected                    | Allowed               | Allowed when daemon authentication resolves a person                                                       |
+| `human:<id>`  | Rejected                    | Not supported         | Allowed when daemon authentication resolves a person                                                       |
 | `agent:<id>`  | Allowed                     | Allowed               | Not a daemon journal actor; an agent may instead be recorded as an executor where that command supports it |
 | `system:<id>` | Allowed                     | Allowed               | Not a daemon journal actor                                                                                 |
 
-The local CLI resolves an explicit flag before it considers `HARNESS_ACTOR`.
-That makes a deliberate flag authoritative even if a parent process supplied an
-environment value. In addition to actor attribution, local writes need a git
-author name and email. Set `HARNESS_GIT_AUTHOR_NAME` and
+The local CLI uses `HARNESS_ACTOR` only for agent/system execution context. Human
+writes are authenticated by the daemon. Local writes also need a git author name
+and email. Set `HARNESS_GIT_AUTHOR_NAME` and
 `HARNESS_GIT_AUTHOR_EMAIL` in examples and automation; the CLI also accepts
 the corresponding Git author variables as a fallback.
 
 ### Human invocation
 
-Use the global flag for a human write:
+Initialize the workspace with a person identity, then use plain `ha` commands:
 
 ```bash
-ha --actor human:alice task create --title "Review the release notes"
+ha init --person-id alice --display-name "Alice"
+ha task create --title "Review the release notes"
 ```
 
 Do **not** export `HARNESS_ACTOR=human:alice`. Environment variables are
@@ -53,14 +53,11 @@ agent invocation of bare `ha` silently inherits the human identity.
 Use an interactive gate in the wrapper instead (shown for zsh):
 
 ```zsh
-ha() { if [[ -o interactive ]]; then command ha --actor human:<your-id> "$@"; else command ha "$@"; fi }
+ha() { command ha "$@"; }
 ```
 
-Replace `<your-id>` with the stable person id. This function adds the flag only
-to a human's interactive shell. In a non-interactive process it calls the real
-binary unchanged, so an agent must supply its own `HARNESS_ACTOR=agent:<id>` or
-an explicit `--actor` value. Never turn the human identity into an exported
-environment variable.
+Agents must supply their own `HARNESS_ACTOR=agent:<id>` value. Never turn the
+human identity into an exported environment variable.
 
 ### Daemon attribution
 
@@ -79,5 +76,5 @@ For remote SSH access, see [Server Daemon Operations](operations-server-daemon.m
 the journal contains a historical record whose actor is `kind: human` and whose
 source is `env`. Preserve that record as audit evidence; do not rewrite history
 to make the check quiet. Correct future human invocations by using
-`--actor human:<id>` (or the interactive wrapper above), then run `ha check`
+daemon-authenticated plain `ha` commands, then run `ha check`
 again after subsequent writes use the compliant source.
