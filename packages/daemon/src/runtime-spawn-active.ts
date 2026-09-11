@@ -25,6 +25,8 @@ type ActiveRuntimeBase = Omit<
   | "descendantsAlive"
   | "worktreeDirty"
   | "toolCallObserved"
+  | "nonEmptyAgentOutputObserved"
+  | "providerUsageEmpty"
   | "providerFault"
   | "fallbackAttempt"
 > & { readonly providerSessionId?: string | null; readonly fallbackAttempt?: ActiveRuntime["fallbackAttempt"] };
@@ -55,6 +57,8 @@ export function createActiveRuntime(base: ActiveRuntimeBase): ActiveRuntime {
     descendantsAlive: false,
     worktreeDirty: false,
     toolCallObserved: false,
+    nonEmptyAgentOutputObserved: false,
+    providerUsageEmpty: false,
     providerFault: null,
   };
 }
