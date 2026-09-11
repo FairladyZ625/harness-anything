@@ -1,9 +1,13 @@
 import type { TaskLifecycleSnapshot } from "./task-lifecycle.contract.ts";
-import { closeoutReadiness } from "./closeout-readiness.ts";
+import { closeoutReadiness, currentExecutionCuts } from "./closeout-readiness.ts";
 import { approvedReviewHistoryForExecution } from "./review.ts";
 import type { TransitionDocumentMissingSection } from "./transition-document-readiness.ts";
 
 export type CompletionBlockerCode =
+  | "projection_unknown"
+  | "execution_ambiguous"
+  | "actor_unauthorized"
+  | "document_invalid"
   | "not_in_review"
   | "task_blocked"
   | "executor_missing"
@@ -19,8 +23,14 @@ export type CompletionBlockerCode =
   | "fact_missing"
   | "fact_retirement_undeclared";
 export interface CompletionNext {
-  readonly command: string;
   readonly reason: string;
+  readonly action: string;
+  readonly authority: string;
+  readonly readCut: {
+    readonly revision: number;
+    readonly iteration: number | null;
+    readonly executionId: string | null;
+  };
 }
 export interface CompletionBlocker {
   readonly code: CompletionBlockerCode;
@@ -33,6 +43,10 @@ export interface CompletionReadinessContext {
   readonly closeoutMissingSections?: readonly TransitionDocumentMissingSection[];
   readonly eligibleDirtyPaths: readonly string[];
   readonly producesFactCount: number;
+  readonly projectionStatus?: "ready" | "pending";
+  readonly preparedGateIds?: readonly string[];
+  readonly authorization?: "allowed" | "denied";
+  readonly invalidDocument?: { readonly path: string; readonly reason: string };
 }
 
 export function completionBlockers(
@@ -44,23 +58,68 @@ export function completionBlockers(
     execution = snapshot.executions.find(
       (value) => value.executionId === executionId && value.iteration === task?.iteration,
     ),
-    one = (code: CompletionBlockerCode, gate: string, command: string, reason: string) =>
-      [{ code, gate, next: { command, reason } }] as const;
+    one = (code: CompletionBlockerCode, gate: string, action: string, reason: string) =>
+      [
+        {
+          code,
+          gate,
+          next: {
+            ...completionGuidance(snapshot, executionId, action, reason),
+            ...(gate === "review" ? { authority: "independent reviewer" } : {}),
+            ...(gate === "consent" ? { authority: task?.createdBy.principal.personId ?? "task owner" } : {}),
+          },
+        },
+      ] as const;
+  if (context.projectionStatus === "pending" || !task)
+    return one(
+      "projection_unknown",
+      "projection",
+      `ha task show ${task?.taskId ?? "<task-id>"}`,
+      "Wait for the canonical task projection before retrying completion.",
+    );
+  if (context.authorization === "denied")
+    return one(
+      "actor_unauthorized",
+      "authority",
+      `ha task complete ${task.taskId}`,
+      `Ask task owner ${task.createdBy.principal.personId} to run completion with the required authority.`,
+    );
+  if (context.invalidDocument)
+    return one(
+      "document_invalid",
+      "documents",
+      `Repair harness/${context.invalidDocument.path}.`,
+      context.invalidDocument.reason,
+    );
+  const cuts = currentExecutionCuts(snapshot),
+    candidates = cuts.length
+      ? cuts
+      : snapshot.executions.filter((value) => value.iteration === task.iteration && value.state === "active");
+  if (candidates.length > 1)
+    return one(
+      "execution_ambiguous",
+      "execution",
+      `ha task show ${task.taskId}`,
+      `Owner must resolve current execution candidates: ${candidates.map((cut) => cut.executionId).join(", ")}.`,
+    );
+  if (task.status === "done") return [];
+  if (task.status === "blocked" || task.status === "cancelled")
+    return one(
+      "task_blocked",
+      "lifecycle",
+      `ha task show ${task.taskId}`,
+      `Owner must resolve the ${task.status} task before completion.`,
+    );
   if (!task || task.currentNode !== "review" || execution?.state !== "submitted" || !execution.submission)
     return one(
       "not_in_review",
       "lifecycle",
-      task?.status === "active"
-        ? `ha task submit ${task.taskId} --json-input '<submission-json>'`
-        : `ha task start ${task?.taskId ?? "<task-id>"} --execution-id ${executionId}`,
-      "Complete never submits or starts an execution; reach in_review first.",
-    );
-  if (task.status === "blocked")
-    return one(
-      "task_blocked",
-      "lifecycle",
-      `ha task transition ${task.taskId} active`,
-      "The submitted execution is at the review node, but the Task is explicitly blocked; clear that block.",
+      task.status === "active"
+        ? `Fill harness/${context.closeoutPath} with the verified delivery, then submit execution ${executionId}.`
+        : `ha task start ${task.taskId}`,
+      snapshot.lease
+        ? `Execution is held by ${snapshot.lease.actor.executor?.id ?? snapshot.lease.actor.principal.personId}.`
+        : "The current execution has not been submitted.",
     );
   if (task.status === "active" && execution.actor.executor === null)
     return one(
@@ -84,7 +143,7 @@ export function completionBlockers(
     return one(
       "lease_held",
       "lease",
-      `ha task submit ${task.taskId} --json-input '<submission-json>'`,
+      `ha task release ${task.taskId}`,
       "Release the held execution lease through canonical submit.",
     );
   const assessment = closeoutReadiness(snapshot);
@@ -97,22 +156,31 @@ export function completionBlockers(
       "Record one independent approved Execution Review.",
     );
   if (assessment.blocker === "consent") {
-    const reviewId = approved.length === 1 ? approved[0]!.reviewId : "<review-id>";
+    if (approved.length !== 1)
+      return one(
+        "consent_missing",
+        "consent",
+        `ha task show ${task.taskId}`,
+        `Owner must select one approved Review: ${approved.map((review) => review.reviewId).join(", ")}.`,
+      );
+    const reviewId = approved[0]!.reviewId;
     return one(
       "consent_missing",
       "consent",
-      `ha task review-consent ${task.taskId} --execution-id ${executionId} --review-id ${reviewId} --consent-id <id>`,
+      `ha task review-consent ${task.taskId} --execution-id ${executionId} --review-id ${reviewId} --consent-id consent-${reviewId}`,
       "Select one approved Review with content-pinned owner consent.",
     );
   }
-  const gate = assessment.gates.find(({ status }) => status !== "passed");
+  const gate = assessment.gates.find(
+    ({ gateId, status }) => status !== "passed" && !context.preparedGateIds?.includes(gateId),
+  );
   if (gate)
     return gate.gateId === "code-doc-reconciliation"
       ? one(
           "code_doc_missing",
           gate.gateId,
-          `ha task closeout ${task.taskId} --from-file <packet.json>`,
-          "Resume closeout with explicit completion.codeDocPaths for this execution cut.",
+          `Correct the delivery paths in harness/${context.closeoutPath} Summary for execution ${executionId}.`,
+          "The submitted execution cut has no canonical code/doc witness.",
         )
       : one(
           gate.gateId === "ci" ? "ci_missing" : "gate_witness_missing",
@@ -126,7 +194,7 @@ export function completionBlockers(
     return one(
       "decision_lineage_missing",
       "lineage",
-      `ha decision relate <decision-id> --anchor <claim-id> --type derives --target task/${task.taskId} --rationale <why this decision authorises the task>`,
+      `Identify the authorizing Decision claim in harness/${context.closeoutPath} Summary.`,
       `A ${task.taskClass} task completes only with an active decision derives edge; no active edge names this task.`,
     );
   if (context.producesFactCount < 1)
@@ -136,27 +204,67 @@ export function completionBlockers(
       `ha fact record --task ${task.taskId} --statement <observation> --source <source>`,
       "A task requires at least one active task→fact produces edge before completion.",
     );
+  if (context.closeout !== "ready" && context.closeout !== "dirty_eligible")
+    return one(
+      "closeout_placeholder",
+      "closeout",
+      `Fill harness/${context.closeoutPath} section ${context.closeoutMissingSections?.[0]?.section ?? "Summary"}.`,
+      closeoutReason(context),
+    );
   if (context.eligibleDirtyPaths.length)
     return one(
       "doc_sync_required",
       "documents",
-      `ha doc sync --submit${context.eligibleDirtyPaths.map((value) => ` --path ${value}`).join("")}`,
+      `ha doc sync --submit --task ${task.taskId}`,
       "Publish eligible closeout and artifact edits through doc-sync.",
     );
-  if (context.closeout !== "ready")
-    return one("closeout_placeholder", "closeout", `edit harness/${context.closeoutPath}`, closeoutReason(context));
   return [];
 }
 
 function closeoutReason(context: CompletionReadinessContext): string {
-  const sections = context.closeoutMissingSections ?? [],
-    missing = sections.filter(({ reason }) => reason === "empty").map(({ section }) => section),
-    scaffold = sections.filter(({ reason }) => reason === "scaffold").map(({ section }) => section),
-    details = [
-      missing.length ? `missing sections: ${missing.join(", ")}` : "",
-      scaffold.length ? `still template: ${scaffold.join(", ")}` : "",
-    ].filter(Boolean);
-  return details.length
-    ? `closeout.md ${details.join("; ")}.`
+  const first = context.closeoutMissingSections?.[0];
+  return first
+    ? `closeout.md section ${first.section} is ${first.reason}.`
     : "Replace the canonical closeout placeholder before completion.";
+}
+
+/** One read-only next decision for complete and task detail consumers. */
+export function taskCompletionNext(
+  snapshot: TaskLifecycleSnapshot,
+  context: CompletionReadinessContext,
+  requestedExecutionId?: string,
+): {
+  readonly executionId: string | null;
+  readonly next: CompletionNext | null;
+  readonly blocker: CompletionBlocker | null;
+} {
+  const cuts = currentExecutionCuts(snapshot),
+    active = snapshot.executions.filter((value) => value.iteration === snapshot.task?.iteration),
+    executionId =
+      requestedExecutionId ??
+      (cuts.length === 1 ? cuts[0]!.executionId : active.length === 1 ? active[0]!.executionId : null),
+    blocker = completionBlockers(snapshot, executionId ?? "", context)[0] ?? null;
+  return { executionId, next: blocker?.next ?? null, blocker };
+}
+
+export function completionGuidance(
+  snapshot: TaskLifecycleSnapshot,
+  executionId: string,
+  action: string,
+  reason: string,
+): CompletionNext {
+  return {
+    reason,
+    action,
+    authority:
+      snapshot.lease?.actor.executor?.id ??
+      snapshot.lease?.actor.principal.personId ??
+      snapshot.task?.createdBy.principal.personId ??
+      "task owner",
+    readCut: {
+      revision: snapshot.revision,
+      iteration: snapshot.task?.iteration ?? null,
+      executionId: executionId || null,
+    },
+  };
 }

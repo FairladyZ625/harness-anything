@@ -750,6 +750,7 @@ export type DaemonTaskSnapshotListResult = {
       readonly codeDocWitnesses: "known" | "unknown";
       readonly gateWitnesses: "known" | "unknown";
     };
+    readonly completionNext?: import("../../../kernel/src/domain/completion-readiness.ts").CompletionNext | null;
     readonly closeoutAssessment: import("../../../kernel/src/domain/closeout-readiness.ts").CloseoutAssessment;
     readonly blockingAssessment: import("../../../kernel/src/domain/task-blocking.ts").BlockingAssessment;
     readonly placement: TaskPlacementSupplement;

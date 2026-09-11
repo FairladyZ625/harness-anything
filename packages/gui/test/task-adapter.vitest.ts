@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { REPLAY_TASK_GRAPH } from "../../kernel/src/index.ts";
+import { REPLAY_TASK_GRAPH, taskCompletionNext } from "../../kernel/src/index.ts";
 import type { TaskSnapshotProjectionRow } from "../src/api/renderer-dto.ts";
 import { adaptProjectionRows, computeRootTaskId } from "../src/renderer/task-adapter.ts";
 
@@ -410,4 +410,16 @@ describe("adaptProjectionRows reference stability (W9)", () => {
     const second = adaptProjectionRows(build(), "repo-fresh");
     expect(second).toEqual(first);
   });
+});
+
+it("preserves the center completion next without renderer interpretation", () => {
+  const input = row(),
+    next = taskCompletionNext(input.snapshot, {
+      closeout: "ready",
+      closeoutPath: "tasks/task-x/closeout.md",
+      eligibleDirtyPaths: [],
+      producesFactCount: 1,
+    }).next;
+  const [task] = adaptProjectionRows([{ ...input, completionNext: next }], "repo-test");
+  expect(task?.completionNext).toBe(next);
 });

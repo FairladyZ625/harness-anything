@@ -5,6 +5,7 @@ import { isDeepStrictEqual } from "node:util";
 import {
   blockingOf,
   closeoutReadiness,
+  taskCompletionNext,
   deriveRelationId,
   freshnessReasonOf,
   relationIsCurrent,
@@ -25,6 +26,7 @@ import {
   type TaskRelationNeighborhoodQuery,
   type TaskRelationQuery,
 } from "../../kernel/src/index.ts";
+import { readCompletionContext } from "./task-completion-read.ts";
 import { readDispatchStreamHeaders, type DispatchStreamHeader } from "./dispatch-stream.ts";
 import {
   isolateDaemonTaskSnapshotRows,
@@ -271,6 +273,10 @@ export function makeTaskQueryReadModel(input: {
           coordinationStatus,
           snapshotAvailability,
           closeoutAssessment,
+          completionNext: taskCompletionNext(
+            row.snapshot,
+            readCompletionContext(projection, row.taskId, row.snapshot, cut.status),
+          ).next,
           blockingAssessment,
           placement,
           executionEvidence: row.snapshot.executions.map((execution) =>

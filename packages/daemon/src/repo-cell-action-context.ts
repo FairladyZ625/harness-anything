@@ -26,7 +26,6 @@ import {
 import { cellCodedError, errorOperationId, publishGeneratedArtifact } from "./repo-cell-errors.ts";
 import { decodeEvidencePayload, renderEvidencePayload } from "./repo-cell-evidence.ts";
 import {
-  completeExecutionId,
   completeRetryCommand,
   explicitExecutionId,
   uniqueDerivedExecutionId,
@@ -184,7 +183,6 @@ export interface RepoCellActionContext extends TaskQueryCell {
   readonly createTaskId: typeof createTaskId;
   readonly progressReceipt: Bound<typeof progressReceiptImpl>;
   readonly progressEvidence: typeof progressEvidence;
-  readonly completeExecutionId: typeof completeExecutionId;
   readonly completionApplied: typeof completionApplied;
   readonly completionContext: Bound<typeof completionContextImpl>;
   readonly completeRetryCommand: typeof completeRetryCommand;
@@ -334,7 +332,6 @@ export function createRepoCellActionContext(bindings: {
     createTaskId,
     progressReceipt: bind(progressReceiptImpl),
     progressEvidence,
-    completeExecutionId,
     completionApplied,
     completionContext: bind(completionContextImpl),
     completeRetryCommand,

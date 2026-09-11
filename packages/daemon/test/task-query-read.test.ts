@@ -307,6 +307,7 @@ function projectionStub(
         ? {}
         : { page: { limit: query.limit, cursor: query.cursor ?? null, nextCursor: null } }),
     }),
+    read: () => ({ ...cut, packagePath: null }),
     readTaskChildCounts: () => options.childCounts ?? {},
     readTaskRelations: () => ({ ...cut, rows: edges }),
     readTaskRelationNeighborhood: () => ({ ...cut, rows: edges }),

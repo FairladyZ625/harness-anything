@@ -67,7 +67,12 @@ export {
   lifecycleDocumentPaths,
   taskLifecycleWritePlan,
 } from "./domain/task-lifecycle-publication.ts";
-export { completionBlockers, type CompletionReadinessContext } from "./domain/completion-readiness.ts";
+export {
+  completionBlockers,
+  taskCompletionNext,
+  completionGuidance,
+  type CompletionReadinessContext,
+} from "./domain/completion-readiness.ts";
 export { compileCompletionGateWitness } from "./domain/completion-gate-publication.ts";
 export { reduceTaskEvent } from "./domain/task-lifecycle.contract.ts";
 export type {

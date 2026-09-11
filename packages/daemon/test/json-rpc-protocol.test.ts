@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { readDispatchStreamHeaders } from "../src/dispatch-stream.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -610,7 +611,16 @@ test("milestone-closeout uses the normal completion facade, review, and gates ex
   try {
     initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("completion-facade"), rootDir: canonicalRoot(rootDir), ownerId: "completion-daemon" }); const store = () => makeTaskEventReader({ repoId: "completion-facade", rootDir });
     const created = await cell.run({ kind: "task-create", taskId, title: "Completion facade", presetId: "milestone-closeout" }, binding); const createdVisible = await waitForAcceptedReceipt(cell, created, binding); assert.equal(createdVisible.wait?.state, "satisfied", JSON.stringify(createdVisible)); await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) => cell!.run({ kind: "doc-submit", paths: [planPath] }, binding)); await cell.run({ kind: "task-start", taskId, executionId }, binding);
-    const activeRevision = store().read().revision, active = await cell.run({ kind: "task-complete", taskId, executionId }, binding) as unknown as Record<string, unknown>; assert.deepEqual({ outcome: active.outcome, code: active.code, stoppedAt: active.stoppedAt, next: active.next }, { outcome: "op_rejected", code: "not_in_review", stoppedAt: "not_in_review", next: [{ command: `ha task submit ${taskId} --json-input '<submission-json>'`, reason: "Complete never submits or starts an execution; reach in_review first." }] }); assert.equal(store().read().revision, activeRevision);
+    const activeRow = (await cell.read("repo.tasks.list")).rows.find((row) => row.taskId === taskId)!,
+      guiActive = activeRow.completionNext, eventsBefore = store().read().events,
+      dispatchesBefore = readDispatchStreamHeaders(rootDir).length;
+    const activeRevision = store().read().revision, active = await cell.run({ kind: "task-complete", taskId, executionId }, binding) as unknown as Record<string, unknown>; assert.deepEqual({ outcome: active.outcome, code: active.code, stoppedAt: active.stoppedAt, next: active.next }, { outcome: "op_rejected", code: "not_in_review", stoppedAt: "not_in_review", next: [{ action: `Fill harness/${packagePath}/closeout.md with the verified delivery, then submit execution ${executionId}.`, reason: `Execution is held by ${actor.executor!.id}.`, authority: actor.executor!.id, readCut: { revision: (active.next as { readCut: { revision: number } }[])[0]!.readCut.revision, iteration: 0, executionId } }] }); assert.equal(store().read().revision, activeRevision); assert.deepEqual((active.next as unknown[])[0], guiActive);
+    const carriedActive = await cell.run({ kind: "task-complete", taskId, docChanges: [] }, binding) as unknown as Record<string, unknown>;
+    assert.deepEqual(carriedActive.next, active.next);
+    assert.deepEqual(store().read().events, eventsBefore);
+    assert.deepEqual((await cell.read("repo.tasks.list")).rows.find((row) => row.taskId === taskId)!.snapshot.lease, activeRow.snapshot.lease);
+    assert.equal(readDispatchStreamHeaders(rootDir).length, dispatchesBefore);
+
     await cell.run({ kind: "task-progress-append", taskId, text: "implementation complete", evidence: [] }, binding); await cell.run({ kind: "fact-record", taskId, statement: "Completion uses canonical witnesses.", evidenceSource: "test:completion", confidence: "high", memoryClass: "semantic", memoryTags: [] }, binding);
     const closeoutPath = `${packagePath}/closeout.md`, artifactPath = `${packagePath}/artifacts/evidence.md`; writeFileSync(path.join(rootDir, "harness", closeoutPath), "# Closeout\n\n## Summary\n\nComplete.\n\n## Verification\n\nAll checks passed.\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nNot applicable to this fixture.\n"); writeFileSync(path.join(rootDir, "harness", artifactPath), "# Evidence\n\nCanonical flow.\n");
     const commitSha = git(rootDir, "rev-parse", "HEAD"); writeFileSync(path.join(rootDir, "submission.json"), JSON.stringify({ completionClaim: "All required outputs are complete.", deliverables: ["README.md"], outputs: [artifactPath], verificationNotes: ["tests"], knownGaps: [], residualRisks: [], commitSha })); await cell.run({ kind: "task-submit", taskId, executionId, fromFile: "submission.json" }, binding);
@@ -639,13 +649,13 @@ test("milestone-closeout uses the normal completion facade, review, and gates ex
     assert.equal(consented.reviewId, "review-complete");
     const consentVisible = await waitForAcceptedReceipt(cell, consented as { opId: string; acceptance?: { revisionTo?: number } | null }, binding); assert.equal(consentVisible.wait?.state, "satisfied", JSON.stringify(consentVisible));
     assert.match(readFileSync(executionPath, "utf8"), /Selected review: review-complete[\s\S]*Consent: consent-complete/u); assert.match(readFileSync(path.join(rootDir, "harness", `${packagePath}/reviews/review-unselected.md`), "utf8"), /Consent: pending/u); assert.match(readFileSync(path.join(rootDir, "harness", `${packagePath}/reviews/review-complete.md`), "utf8"), /Consent: consent-complete/u);
-    const missingCi = await cell.run({ kind: "task-complete", taskId, executionId }, binding) as unknown as Record<string, unknown>; assert.deepEqual({ outcome: missingCi.outcome, code: missingCi.code, steps: missingCi.steps }, { outcome: "op_rejected", code: "ci_missing", steps: [] }); const ciReceipt = await publishCiObservation("completion-facade", rootDir, executionId, commitSha, "run-completion-facade"), beforeCi = store().read().revision, partial = await cell.run({ kind: "task-complete", taskId, executionId, ci: ciReceipt }, binding) as unknown as Record<string, unknown>; assert.deepEqual({ outcome: partial.outcome, code: partial.code, stoppedAt: partial.stoppedAt, stepTypes: (partial.steps as { eventId?: string }[]).map((step) => store().readEvent(String(step.opId))?.type) }, { outcome: "op_rejected", code: "code_doc_missing", stoppedAt: "code_doc_missing", stepTypes: ["completion_gate_verified"] }); assert.equal(store().read().revision, beforeCi + 1); assert.equal((await cell.run({ kind: "task-show", taskId }, binding)).evidence.includes('"gateWitnesses"'), true);
+    const missingCi = await cell.run({ kind: "task-complete", taskId, executionId }, binding) as unknown as Record<string, unknown>; assert.deepEqual({ outcome: missingCi.outcome, code: missingCi.code, steps: missingCi.steps }, { outcome: "op_rejected", code: "ci_missing", steps: [] }); const ciReceipt = await publishCiObservation("completion-facade", rootDir, executionId, commitSha, "run-completion-facade"), beforeCi = store().read().revision, partial = await cell.run({ kind: "task-complete", taskId, executionId, ci: ciReceipt }, binding) as unknown as Record<string, unknown>; assert.deepEqual({ outcome: partial.outcome, code: partial.code, stoppedAt: partial.stoppedAt, stepTypes: (partial.steps as { eventId?: string }[]).map((step) => store().readEvent(String(step.opId))?.type) }, { outcome: "op_rejected", code: "code_doc_missing", stoppedAt: "code_doc_missing", stepTypes: [] }); assert.equal(store().read().revision, beforeCi); assert.equal((await cell.run({ kind: "task-show", taskId }, binding)).evidence.includes('"gateWitnesses"'), true);
     assert.equal(
       (await cell.run({ kind: "task-code-doc-reconcile", taskId, paths: ["README.md"] }, binding)).outcome,
       "applied",
     );
     const completed = await cell.run(
-      { kind: "task-complete", taskId, executionId },
+      { kind: "task-complete", taskId, executionId, ci: ciReceipt },
       ownerFromAnotherAgent,
     ) as unknown as Record<string, unknown>;
     assert.equal(completed.outcome, "applied", JSON.stringify(completed));
@@ -653,7 +663,7 @@ test("milestone-closeout uses the normal completion facade, review, and gates ex
     assert.equal(completed.stoppedAt, undefined);
     assert.deepEqual(
       (completed.steps as { opId: string }[]).map((step) => store().readEvent(step.opId)?.type),
-      ["documents_written", "task_completed"],
+      ["completion_gate_verified", "documents_written", "task_completed"],
     );
     assert.deepEqual(completed.gateChecks, [
       {
@@ -700,9 +710,9 @@ test("milestone-closeout uses the normal completion facade, review, and gates ex
 test("CompleteTask response loss settles by stable receipt and never publishes a second completion", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-complete-unknown-")), taskId = "task-unknown-complete", executionId = "execution-unknown-complete", repoId = workspaceId("complete-unknown"); let armed = false, cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
-    initRepo(rootDir); cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "complete-unknown-one", killpoint: (point) => { if (armed && point === "before_response_write") { armed = false; throw new Error("response lost"); } } }); await prepareReadyCompletion(cell, rootDir, repoId, taskId, executionId, "Unknown complete"); const store = () => makeTaskEventReader({ repoId, rootDir }), before = store().read().revision; armed = true;
-    const unknown = await cell.run({ kind: "task-complete", taskId, executionId }, repoWriteBinding) as unknown as Record<string, unknown>; assert.deepEqual({ outcome: unknown.outcome, status: unknown.status, code: unknown.code, stoppedAt: unknown.stoppedAt }, { outcome: "applied", status: "accepted_durable", code: "publication_indeterminate", stoppedAt: "complete-settlement" }); assert.match(String((unknown.next as { command: string }[])[0]?.command), new RegExp(`receipt show ${unknown.opId}`, "u")); assert.equal(store().read().revision, before + 1); assert.equal(store().read().events.filter((event) => event.type === "task_completed").length, 1); assert.equal(cell.status().state, "attached"); await cell.close(); cell = undefined;
-    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "complete-unknown-two" }); const settled = await cell.run({ kind: "receipt-show", opId: String(unknown.opId) }, repoWriteBinding), retried = await cell.run({ kind: "task-complete", taskId, executionId }, repoWriteBinding); assert.equal(settled.outcome, "applied", JSON.stringify(settled)); assert.equal(retried.outcome, "applied", JSON.stringify(retried)); assert.equal(retried.opId, unknown.opId); assert.equal(store().read().revision, before + 1); assert.equal(store().read().events.filter((event) => event.type === "task_completed").length, 1);
+    initRepo(rootDir); cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "complete-unknown-one", killpoint: (point) => { if (armed && point === "before_response_write" && makeTaskEventReader({ repoId, rootDir }).read().events.some((event) => event.type === "task_completed")) { armed = false; throw new Error("response lost"); } } }); const ciReceipt = await prepareReadyCompletion(cell, rootDir, repoId, taskId, executionId, "Unknown complete"); const store = () => makeTaskEventReader({ repoId, rootDir }), before = store().read().revision; armed = true;
+    const unknown = await cell.run({ kind: "task-complete", taskId, executionId, ci: ciReceipt }, repoWriteBinding) as unknown as Record<string, unknown>; assert.deepEqual({ outcome: unknown.outcome, status: unknown.status, code: unknown.code, stoppedAt: unknown.stoppedAt }, { outcome: "applied", status: "accepted_durable", code: "publication_indeterminate", stoppedAt: "complete-settlement" }); assert.match(String((unknown.next as { command: string }[])[0]?.command), new RegExp(`receipt show ${unknown.opId}`, "u")); assert.equal(store().read().revision, before + 2); assert.equal(store().read().events.filter((event) => event.type === "task_completed").length, 1); assert.equal(cell.status().state, "attached"); await cell.close(); cell = undefined;
+    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "complete-unknown-two" }); const settled = await cell.run({ kind: "receipt-show", opId: String(unknown.opId) }, repoWriteBinding), retried = await cell.run({ kind: "task-complete", taskId, executionId }, repoWriteBinding); assert.equal(settled.outcome, "applied", JSON.stringify(settled)); assert.equal(retried.outcome, "applied", JSON.stringify(retried)); assert.equal(retried.opId, unknown.opId); assert.equal(store().read().revision, before + 2); assert.equal(store().read().events.filter((event) => event.type === "task_completed").length, 1);
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
@@ -1381,14 +1391,10 @@ test("task complete identifies a code-doc path outside the submitted commit root
       },
       repoWriteBinding,
     );
-    assert.equal(rejected.code, "invalid_proof", JSON.stringify(rejected));
-    assert.deepEqual(rejected.diagnostic, {
-      kind: "validation",
-      entity: "code-doc reconciliation",
-      field: "paths[0]",
-      actual: "harness/agents/sol-implementer.json",
-      expectation: "Path must be relative to the Git repository that owns the submitted commit",
-    });
+    assert.equal(rejected.code, "document_invalid", JSON.stringify(rejected));
+    const next = (rejected as unknown as { next: { action: string; reason: string }[] }).next;
+    assert.match(next[0]!.reason, /harness\/agents\/sol-implementer.json/);
+    assert.match(next[0]!.action, /closeout.md/);
   } finally {
     await cell?.close();
     rmSync(rootDir, { recursive: true, force: true });

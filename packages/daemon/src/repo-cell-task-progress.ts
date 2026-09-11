@@ -5,6 +5,8 @@ import {
   assessTransitionDocument,
   compileTaskProgress,
   completionBlockers,
+  taskCompletionNext,
+  completionGuidance,
   completionEvidenceBasis,
   completionEvidenceResults,
   consumeKnownError,
@@ -31,7 +33,8 @@ import { compileRepoTaskPackage } from "../../preset/src/index.ts";
 import { runDocAction } from "./doc-sync-actions.ts";
 import { scanDocCandidates } from "./doc-sync-candidate-scanner.ts";
 import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
-import { readTaskTransitionDocument } from "./transition-document-access.ts";
+import { verifyCodeDocCommitPaths } from "./code-doc-path-verification.ts";
+import { readCompletionContext } from "./task-completion-read.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 
 function readCiEvidence(
@@ -199,7 +202,13 @@ export async function completeTask(
 ): Promise<WriteReceipt> {
   const taskId = cell.requiredCellText(action.taskId, "taskId"),
     initial = await cell.service.read(taskId),
-    executionId = cell.completeExecutionId(action, initial.snapshot, taskId),
+    initialContext = readCompletionContext(cell.projection, taskId, initial.snapshot, initial.status),
+    decision = taskCompletionNext(
+      initial.snapshot,
+      { ...initialContext, authorization: binding.authorizationDecision?.outcome === "allowed" ? "allowed" : "denied" },
+      typeof action.executionId === "string" ? action.executionId : undefined,
+    ),
+    executionId = decision.executionId ?? "",
     allowed = ["kind", "taskId", "executionId", "verb", "commandType", "ci", "paths", "factHolds"],
     paths = cell.cellStringList(action.paths),
     factRetirementAttestations = stillHoldsAttestations(cell, action.factHolds),
@@ -219,6 +228,13 @@ export async function completeTask(
         "a self-reported --ci passed value is not evidence.",
       ].join(""),
     );
+  const initialOpId = cell.operationId(action, binding, cell.input.repoId, initial.snapshot.revision);
+  if (
+    !decision.executionId ||
+    decision.blocker?.code === "projection_unknown" ||
+    decision.blocker?.code === "execution_ambiguous"
+  )
+    return cell.completionStopped(initialOpId, initial.snapshot, executionId, decision.blocker!, []);
   const steps: WriteReceipt[] = [],
     facadeOpId = cell.operationId(
       {
@@ -232,6 +248,66 @@ export async function completeTask(
       binding,
       cell.input.repoId,
       initial.snapshot.revision,
+    );
+  const completedEvent = cell.projection.readTaskCompletion(taskId, executionId);
+  if (completedEvent) {
+    const publication = cell.publicPublication(cell.store.publication(completedEvent));
+    return cell.completionApplied(
+      cell.lifecycleReceipt(
+        completedEvent,
+        initial.snapshot,
+        publication,
+        cell.receiptProof(completedEvent, publication),
+      ),
+      initial.snapshot,
+      executionId,
+      [],
+    );
+  }
+  // Read through every remaining preparation before publishing any witness or document.
+  // This does not change the authoritative snapshot or the final completion proof.
+  const preparedContext = cell.completionContext(
+    taskId,
+    initial.snapshot,
+    initial.packagePath,
+    binding,
+    currentPresetSnapshotDigest(
+      cell,
+      taskId,
+      initial.snapshot,
+      initial.packagePath,
+      cell.completeRetryCommand(taskId, executionId, action),
+    ),
+  );
+  const codeDoc =
+    action.paths !== undefined && submittedExecution?.submission
+      ? verifyCodeDocCommitPaths({ rootDir: cell.rootDir, commitSha: submittedExecution.submission.commitSha, paths })
+      : null;
+  const remaining = completionBlockers(initial.snapshot, executionId, {
+    ...preparedContext,
+    preparedGateIds: [
+      ...(ciEvidence?.result === "pass" ? ["ci"] : []),
+      ...(codeDoc?.ok ? ["code-doc-reconciliation"] : []),
+    ],
+    ...(codeDoc && !codeDoc.ok
+      ? {
+          invalidDocument: {
+            path: preparedContext.closeoutPath,
+            reason: `Submitted commit ${codeDoc.commitSha}: ${codeDoc.code}; paths: ${codeDoc.missingPaths.join(", ")}.`,
+          },
+        }
+      : {}),
+  })[0];
+  if (remaining && remaining.code !== "doc_sync_required")
+    return cell.completionStopped(facadeOpId, initial.snapshot, executionId, remaining, []);
+  const retirement = factRetirementAssessment(cell, taskId, factRetirementAttestations);
+  if (!retirement.ready)
+    return cell.completionStopped(
+      facadeOpId,
+      initial.snapshot,
+      executionId,
+      factRetirementBlocker(initial.snapshot, executionId, retirement),
+      [],
     );
   let presetSnapshotDigest: string | null = null;
   for (let dispatch = 0; dispatch < 5; dispatch += 1) {
@@ -271,7 +347,7 @@ export async function completeTask(
           facadeOpId,
           current.snapshot,
           executionId,
-          factRetirementBlocker(taskId, executionId, retirement),
+          factRetirementBlocker(current.snapshot, executionId, retirement),
           steps,
         );
       let completed: WriteReceipt;
@@ -481,24 +557,20 @@ function factRetirementAssessment(
   });
 }
 
-function factRetirementBlocker(taskId: string, executionId: string, assessment: FactRetirementAssessment) {
+function factRetirementBlocker(snapshot: Snapshot, executionId: string, assessment: FactRetirementAssessment) {
   const details = assessment.undischarged
       .map(({ factRef, viaClaim, viaDecision }) => `- ${factRef} via ${viaClaim} (${viaDecision})`)
       .join("\n"),
-    first = assessment.undischarged[0]!.factRef,
-    factId = first.slice("fact/".length);
+    first = assessment.undischarged[0]!.factRef;
   return {
     code: assessment.code,
     gate: "fact-retirement",
-    next: {
-      command:
-        `ha fact record --task ${taskId} --statement <new-observation> --source <source> ` +
-        `--supersedes ${first} --rationale <why-it-replaces-the-upstream-fact>, or ` +
-        `ha task complete ${taskId} --execution-id ${executionId} --fact-holds ${factId}:<why-it-still-holds>`,
-      reason:
-        "Standing upstream evidencing Facts lack an explicit retirement disposition:\n" +
-        `${details}\nRecord a task-produced superseding Fact or attest that each Fact still holds with rationale.`,
-    },
+    next: completionGuidance(
+      snapshot,
+      executionId,
+      `Record the disposition of ${first} in the task closeout: superseding observation or why it still holds.`,
+      "Standing upstream evidencing Facts lack an explicit retirement disposition:\n" + details,
+    ),
   } as const;
 }
 
@@ -561,17 +633,7 @@ export function completionContext(
 ): CompletionReadinessContext {
   if (presetSnapshotDigest !== snapshot.task?.presetSnapshotDigest)
     throw cell.cellCodedError("preset_snapshot_mismatch", `Run ha preset upgrade ${taskId} before completion.`);
-  const closeoutDocument = readTaskTransitionDocument({
-      projection: cell.projection,
-      taskId,
-      slot: "task.closeout",
-    }),
-    closeoutPath = closeoutDocument.path,
-    projected = cell.projection.readDocument(closeoutPath),
-    closeoutAssessment = assessTransitionDocument(
-      requireTransitionDocumentKind("task.complete"),
-      projected.document?.body ?? "",
-    ),
+  const canonical = readCompletionContext(cell.projection, taskId, snapshot, "ready"),
     scan = scanDocCandidates({
       rootDir: cell.rootDir,
       workspaceId: cell.input.repoId,
@@ -582,22 +644,24 @@ export function completionContext(
       now: cell.now(),
       taskId,
     }),
-    eligibleDirtyPaths = scan.rows.filter((row) => row.state === "eligible").map((row) => row.path),
-    closeout = eligibleDirtyPaths.includes(closeoutPath)
-      ? "dirty_eligible"
-      : projected.document === null
-        ? "missing"
-        : !closeoutAssessment.ready
-          ? "placeholder"
-          : "ready";
-  const producesFactCount = cell.projection
-    .readRelationQuery({ source: `task/${taskId}`, relationType: "produces", state: "active" })
-    .rows.filter((row) => row.targetRef.startsWith("fact/")).length;
+    eligible = scan.rows.filter((row) => row.state === "eligible"),
+    closeoutCandidate = eligible.find((row) => row.path === canonical.closeoutPath),
+    assessment = closeoutCandidate?.bytes
+      ? assessTransitionDocument(
+          requireTransitionDocumentKind("task.complete"),
+          Buffer.from(closeoutCandidate.bytes).toString("utf8"),
+        )
+      : null,
+    invalid = scan.rows.find((row) => row.state === "blocked" || row.state === "conflict" || row.state === "deletion");
   return {
-    closeout,
-    closeoutPath,
-    closeoutMissingSections: closeoutAssessment.missingSections,
-    eligibleDirtyPaths,
-    producesFactCount,
+    ...canonical,
+    ...(assessment
+      ? {
+          closeout: assessment.ready ? ("ready" as const) : ("placeholder" as const),
+          closeoutMissingSections: assessment.missingSections,
+        }
+      : {}),
+    eligibleDirtyPaths: eligible.map((row) => row.path),
+    ...(invalid ? { invalidDocument: { path: invalid.path, reason: invalid.reason ?? invalid.state } } : {}),
   };
 }

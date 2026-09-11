@@ -1,6 +1,9 @@
 import { createHash } from "node:crypto";
 import {
   compileTaskLifecycleWrite,
+  assessTransitionDocument,
+  requireTransitionDocumentKind,
+  taskCompletionNext,
   getExecutableEntityAction,
   isTaskEvent,
   lifecycleDocumentFetchPaths,
@@ -15,6 +18,7 @@ import {
 } from "../../kernel/src/index.ts";
 import { adjudicateDocIntent, claimBytes, recycleClaims, rejectDocSyncAction } from "./doc-sync-actions.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
+import { readCompletionContext } from "./task-completion-read.ts";
 import { assertTaskTransitionDocumentReady } from "./transition-document-access.ts";
 import type { RepoCellActionContext } from "./repo-cell-action-context.ts";
 
@@ -51,6 +55,16 @@ export async function runTaskCommandWithDocs(
   const head = cell.store.readHead(),
     headRevision = head?.revision ?? 0,
     opId = cell.operationId(action, binding, cell.input.repoId, headRevision);
+  if (taskAction.kind === "task-complete") {
+    const current = await cell.service.read(taskId),
+      decision = taskCompletionNext(
+        current.snapshot,
+        readCompletionContext(cell.projection, taskId, current.snapshot, current.status),
+        typeof taskAction.executionId === "string" ? taskAction.executionId : undefined,
+      );
+    if (decision.blocker && decision.blocker.code !== "closeout_placeholder")
+      return cell.completionStopped(opId, current.snapshot, decision.executionId ?? "", decision.blocker, []);
+  }
   // The mirror gate names the exact cut identity: revision AND head digest.
   // A rolled-back or same-revision-rewritten center can never pass on
   // numbers alone.
@@ -145,7 +159,7 @@ export async function runTaskCommandWithDocs(
   // claims and machine lifecycle claims share the same canonical commit.
   // Projection replay therefore restores both sides after any crash.
   const resolvedLifecycle = getExecutableEntityAction(taskAction.kind)?.execution?.lifecycle,
-    bodyOverrides = new Map(
+    bodyOverrides = new Map<string, string>(
       carriedChanges.map((change) => {
         const blob = carriedBlobs.find((candidate) => candidate.sha256 === change.candidate!.sha256);
         if (!blob) throw cell.cellCodedError("content_not_ready", `Candidate body for ${change.path} is unavailable.`);
@@ -166,9 +180,34 @@ export async function runTaskCommandWithDocs(
       recycleClaims(cell.rootDir, intent);
       throw error;
     }
-  const current = await cell.service.read(taskId),
-    normalized = cell.buildCommand(
-      taskAction as RepoTaskAction,
+  const current = await cell.service.read(taskId);
+  let completionExecutionId: string | null = null;
+  if (taskAction.kind === "task-complete") {
+    const context = readCompletionContext(cell.projection, taskId, current.snapshot, current.status),
+      body = bodyOverrides.get(context.closeoutPath),
+      assessment =
+        body === undefined ? null : assessTransitionDocument(requireTransitionDocumentKind("task.complete"), body),
+      decision = taskCompletionNext(
+        current.snapshot,
+        {
+          ...context,
+          ...(assessment
+            ? {
+                closeout: assessment.ready ? ("ready" as const) : ("placeholder" as const),
+                closeoutMissingSections: assessment.missingSections,
+              }
+            : {}),
+        },
+        typeof taskAction.executionId === "string" ? taskAction.executionId : undefined,
+      );
+    if (decision.blocker) {
+      recycleClaims(cell.rootDir, intent);
+      return cell.completionStopped(opId, current.snapshot, decision.executionId ?? "", decision.blocker, []);
+    }
+    completionExecutionId = decision.executionId;
+  }
+  const normalized = cell.buildCommand(
+      { ...taskAction, ...(completionExecutionId ? { executionId: completionExecutionId } : {}) } as RepoTaskAction,
       taskId,
       binding,
       cell.input.repoId,

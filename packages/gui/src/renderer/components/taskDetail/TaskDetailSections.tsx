@@ -704,8 +704,12 @@ export function TaskCloseoutTab({
         <div className="grid content-start gap-8">
           <div className="flex flex-wrap items-center gap-3 border-y border-border py-4">
             <CloseoutBadge value={task.closeoutReadiness} />
-            {task.closeoutBlocker ? (
-              <span className="font-mono ui-micro text-stale">blocker: {task.closeoutBlocker}</span>
+            {task.completionNext ? (
+              <div data-testid="task-completion-next">
+                <p>{task.completionNext.reason}</p>
+                <p>{task.completionNext.action}</p>
+                <p>{task.completionNext.authority}</p>
+              </div>
             ) : null}
             {task.snapshotAvailability ? (
               <span className="ml-auto font-mono ui-micro text-text-faint">
