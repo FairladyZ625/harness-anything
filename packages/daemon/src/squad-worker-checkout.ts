@@ -23,9 +23,10 @@ export function cwdPayload(rootDir: string, cwd: string): JsonObject {
 export function prepareWorkerWorktree(
   state: { readonly squadRunId: string; readonly cwd: string; readonly baseSha: string | null },
   workerId: string,
+  attemptId: string,
 ): WorkerCheckout | null {
   if (state.baseSha === null) return null;
-  const slug = `squad-${state.squadRunId.slice("squad_".length)}-${workerId}`,
+  const slug = `squad-${state.squadRunId.slice("squad_".length)}-${workerId}-${attemptId}`,
     branch = `codex/${slug}`,
     cwd = path.join(state.cwd, ".worktrees", slug);
   localGitObjectRefStore.addWorktree(state.cwd, cwd, branch, state.baseSha);

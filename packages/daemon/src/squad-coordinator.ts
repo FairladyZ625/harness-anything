@@ -540,7 +540,9 @@ export function makeSquadCoordinator(input: {
               baseSha: localGitObjectRefStore.headCommit(state.cwd),
             });
       worktree =
-        dispatchState.permissionMode === "read-only" ? null : prepareWorkerWorktree(dispatchState, plan.workerId);
+        dispatchState.permissionMode === "read-only"
+          ? null
+          : prepareWorkerWorktree(dispatchState, plan.workerId, attemptId);
       await input.reacquireTaskLease(dispatchState.taskId, dispatchState.binding);
       const receipt = await input.runtimeSpawner().spawn(
           {

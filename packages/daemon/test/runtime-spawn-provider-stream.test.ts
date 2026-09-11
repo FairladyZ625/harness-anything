@@ -1,8 +1,11 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
 import { createActiveRuntime } from "../src/runtime-spawn-active.ts";
-import { consumeProviderLine } from "../src/runtime-spawn-provider-stream.ts";
+import { consumeProviderChunk, consumeProviderLine } from "../src/runtime-spawn-provider-stream.ts";
 
 function active() {
   return createActiveRuntime({
@@ -96,4 +99,57 @@ test("Claude stream normalizes message usage including cache creation and preser
     cache_creation_input_tokens: 10,
     output_tokens: 25,
   });
+});
+
+test("Codex empty turn usage is replaced by the matching session turn token count", async () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-codex-session-metrics-")),
+    runtime = active(),
+    providerSessionId = "01a091cd-17a9-71d1-9f46-b924018345e4",
+    sessions = path.join(
+      userRoot,
+      "runtime-instances",
+      runtime.instanceId,
+      "home",
+      ".codex",
+      "sessions",
+      "2026",
+      "09",
+      "12",
+    );
+  try {
+    mkdirSync(sessions, { recursive: true });
+    writeFileSync(
+      path.join(sessions, `rollout-2026-09-12T02-48-52-${providerSessionId}.jsonl`),
+      `${JSON.stringify({
+        type: "event_msg",
+        payload: {
+          type: "token_count",
+          info: {
+            total_token_usage: { input_tokens: 181354, cached_input_tokens: 170624, output_tokens: 2449 },
+            last_token_usage: { input_tokens: 62284, cached_input_tokens: 60672, output_tokens: 2046 },
+          },
+        },
+      })}\n`,
+    );
+    runtime.providerSessionId = providerSessionId;
+    runtime.providerUsageEmpty = true;
+    await consumeProviderLine(context(), runtime, JSON.stringify({ type: "turn.completed", usage: {} }));
+    await consumeProviderChunk(
+      { ...context(), input: { ...context().input, runtimeDaemonRoute: { userRoot } } } as never,
+      runtime,
+      "",
+      true,
+    );
+    assert.deepEqual(
+      {
+        inputTokens: runtime.inputTokens,
+        cacheReadTokens: runtime.cacheReadTokens,
+        outputTokens: runtime.outputTokens,
+      },
+      { inputTokens: 62284, cacheReadTokens: 60672, outputTokens: 2046 },
+    );
+    assert.deepEqual(runtime.rawUsage, { input_tokens: 62284, cached_input_tokens: 60672, output_tokens: 2046 });
+  } finally {
+    rmSync(userRoot, { recursive: true, force: true });
+  }
 });
