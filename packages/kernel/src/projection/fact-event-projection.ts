@@ -12,7 +12,7 @@ import type { FactAnchorRow } from "./relation-graph-projection.ts";
 import { factInvalidated, factLiveness } from "../domain/fact-liveness.ts";
 import { ftsQuery } from "./fts-query.ts";
 import { applyEmbeddedRelationProjectionEvents } from "./relation-entity-projection.ts";
-import { queryRows, type ProjectionSqlRow } from "./rebuildable-task-projection-sql.ts";
+import { prepareQuery, queryRows, type ProjectionSqlRow } from "./rebuildable-task-projection-sql.ts";
 
 export interface FactProjectionRow {
   readonly schema: "fact-row/v1";
@@ -110,13 +110,13 @@ export function createFactProjectionTables(db: DatabaseSync): void {
 
 export function assertFactAdmission(db: DatabaseSync, event: FactEventV1): void {
   const ownRef = factRef(event.factId);
-  const existing = db.prepare("SELECT 1 FROM fact WHERE fact_id = ?").get(event.factId);
+  const existing = prepareQuery(db, "SELECT 1 FROM fact WHERE fact_id = ?").get(event.factId);
   if (event.type === "fact_reclassified" && !existing)
     throw new FactProjectionError("entity_not_found", `Fact ${ownRef} does not exist.`);
   if (event.type === "fact_recorded" && existing)
     throw new FactProjectionError("invalid_transition", `Fact ${ownRef} already exists.`);
   if (event.type === "fact_reclassified") {
-    const record = db.prepare("SELECT row_json FROM fact WHERE fact_id = ?").get(event.factId) as
+    const record = prepareQuery(db, "SELECT row_json FROM fact WHERE fact_id = ?").get(event.factId) as
       | { readonly row_json: string }
       | undefined;
     const row = record ? (JSON.parse(record.row_json) as FactProjectionRow) : null;
@@ -133,18 +133,18 @@ export function assertFactAdmission(db: DatabaseSync, event: FactEventV1): void 
       throw new FactProjectionError("invalid_transition", `Fact ${ownRef} reclassification changed observation data.`);
   }
   if (event.payload.registersDomainType) {
-    if (db.prepare("SELECT 1 FROM fact_domain_type WHERE domain_type = ?").get(event.payload.registersDomainType))
+    if (prepareQuery(db, "SELECT 1 FROM fact_domain_type WHERE domain_type = ?").get(event.payload.registersDomainType))
       throw new FactProjectionError(
         "invalid_transition",
         `Fact domain type ${event.payload.registersDomainType} is already registered.`,
       );
   }
   for (const domainType of event.payload.domainTypes ?? [])
-    if (!db.prepare("SELECT 1 FROM fact_domain_type WHERE domain_type = ?").get(domainType))
+    if (!prepareQuery(db, "SELECT 1 FROM fact_domain_type WHERE domain_type = ?").get(domainType))
       throw new FactProjectionError("fact_type_unregistered", `Fact domain type ${domainType} is not registered.`);
   const supersedes = event.payload.supersedes;
   if (!supersedes) return;
-  const target = db.prepare("SELECT ref FROM fact WHERE ref = ?").get(supersedes.factRef) as
+  const target = prepareQuery(db, "SELECT ref FROM fact WHERE ref = ?").get(supersedes.factRef) as
     | { readonly ref: string }
     | undefined;
   if (target && factLiveness(target, livenessRelations(db, [target.ref])) === "superseded_fact")
@@ -157,17 +157,18 @@ export function assertFactAdmission(db: DatabaseSync, event: FactEventV1): void 
 export function reduceFactEvent(db: DatabaseSync, event: FactEventV1): void {
   assertFactAdmission(db, event);
   if (event.type === "fact_reclassified") {
-    const record = db.prepare("SELECT row_json FROM fact WHERE fact_id = ?").get(event.factId) as
+    const record = prepareQuery(db, "SELECT row_json FROM fact WHERE fact_id = ?").get(event.factId) as
       | { readonly row_json: string }
       | undefined;
     if (!record) throw new FactProjectionError("entity_not_found", `Fact fact/${event.factId} does not exist.`);
     const row = JSON.parse(record.row_json) as FactProjectionRow;
-    db.prepare("UPDATE fact SET workspace_revision = ?, row_json = ? WHERE fact_id = ?").run(
+    prepareQuery(db, "UPDATE fact SET workspace_revision = ?, row_json = ? WHERE fact_id = ?").run(
       event.workspaceRevision,
       JSON.stringify({ ...row, domainTypes: event.payload.domainTypes, workspaceRevision: event.workspaceRevision }),
       event.factId,
     );
-    db.prepare(
+    prepareQuery(
+      db,
       "INSERT INTO fact_reclassification" +
         "(op_id, fact_id, domain_types_json, rationale, workspace_revision) VALUES (?, ?, ?, ?, ?)",
     ).run(
@@ -198,7 +199,8 @@ export function reduceFactEvent(db: DatabaseSync, event: FactEventV1): void {
     occurredAt: event.occurredAt,
     workspaceRevision: event.workspaceRevision,
   };
-  db.prepare(
+  prepareQuery(
+    db,
     "INSERT INTO fact(task_id, fact_id, ref, statement, evidence_source, observed_at, confidence, memory_class, op_id, workspace_revision, row_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
   ).run(
     event.taskId ?? null,
@@ -214,10 +216,11 @@ export function reduceFactEvent(db: DatabaseSync, event: FactEventV1): void {
     JSON.stringify(row),
   );
   if (event.payload.registersDomainType)
-    db.prepare(
+    prepareQuery(
+      db,
       "INSERT INTO fact_domain_type(domain_type, registered_by_fact_id, workspace_revision) VALUES (?, ?, ?)",
     ).run(event.payload.registersDomainType, event.factId, event.workspaceRevision);
-  db.prepare("INSERT INTO fact_fts(fact_id, statement, evidence_source) VALUES (?, ?, ?)").run(
+  prepareQuery(db, "INSERT INTO fact_fts(fact_id, statement, evidence_source) VALUES (?, ?, ?)").run(
     event.factId,
     row.statement,
     row.evidenceSource,
@@ -280,7 +283,7 @@ function listFactRows(db: DatabaseSync, where: string, values: readonly string[]
   );
 }
 export function readFactRow(db: DatabaseSync, factId: string): FactProjectionRow | null {
-  const record = db.prepare(`${factRowSelect} WHERE fact_id = ?`).get(factId) as FactRecord | undefined;
+  const record = prepareQuery(db, `${factRowSelect} WHERE fact_id = ?`).get(factId) as FactRecord | undefined;
   return record ? (decodeFactRows(db, [record])[0] ?? null) : null;
 }
 

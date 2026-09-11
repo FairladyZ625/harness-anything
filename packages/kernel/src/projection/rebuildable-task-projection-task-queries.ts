@@ -21,6 +21,7 @@ import { withDatabase } from "./rebuildable-task-projection-database.ts";
 import { catchUpRound } from "./rebuildable-task-projection-catch-up.ts";
 import { readDocument, readPresetSnapshot } from "./rebuildable-task-projection-reads.ts";
 import {
+  prepareQuery,
   readProjectionCut,
   watermark,
   queryTransaction,
@@ -85,6 +86,7 @@ const REPLICA_DOCUMENTS_SQL = [
   "json_extract(value_json, '$.mediaType') AS media_type",
   "FROM document ORDER BY path",
 ].join(" ");
+const EVENT_BY_OP_SQL = "SELECT event_json FROM event_index WHERE op_id = ?";
 const TASK_FOR_DOCUMENT_SQL = [
   "SELECT task_id FROM task_package WHERE ? = package_path",
   "OR substr(?, 1, length(package_path) + 1) = package_path || '/'",
@@ -225,11 +227,9 @@ export function taskQueryApi(
       }),
     readOperation: (opId) =>
       withDatabase(projectionPath, readHead, (db) => {
-        const row =
-          /* @gate-identity check-bypass-write-boundary/bypass-write-037 */
-          db.prepare("SELECT event_json FROM event_index WHERE op_id = ?").get(opId) as
-            | { readonly event_json: string }
-            | undefined;
+        const row = prepareQuery(db, EVENT_BY_OP_SQL, (sql) =>
+          /* @gate-identity check-bypass-write-boundary/bypass-write-037 */ db.prepare(sql),
+        ).get(opId) as { readonly event_json: string } | undefined;
         return row === undefined ? null : { event: JSON.parse(row.event_json), watermark: watermark(db) };
       }),
     readRelationEdge: (relationId) =>
@@ -238,11 +238,9 @@ export function taskQueryApi(
       withDatabase(projectionPath, readHead, (db) => readEntityVersionWitness(db, entityRef)),
     readTaskOperation: (opId) =>
       withDatabase(projectionPath, readHead, (db) => {
-        const row =
-          /* @gate-identity check-bypass-write-boundary/bypass-write-038 */
-          db.prepare("SELECT event_json FROM event_index WHERE op_id = ?").get(opId) as
-            | { readonly event_json: string }
-            | undefined;
+        const row = prepareQuery(db, EVENT_BY_OP_SQL, (sql) =>
+          /* @gate-identity check-bypass-write-boundary/bypass-write-038 */ db.prepare(sql),
+        ).get(opId) as { readonly event_json: string } | undefined;
         if (!row) return null;
         const event = JSON.parse(row.event_json);
         return isTaskEvent(event) ? { event, watermark: watermark(db) } : null;
@@ -349,11 +347,10 @@ export function taskQueryApi(
         projectionPath,
         readHead,
         (db) =>
-          /* @gate-identity check-bypass-write-boundary/bypass-write-039 */
           (
-            db.prepare(TASK_FOR_DOCUMENT_SQL).get(documentPath, documentPath) as
-              | { readonly task_id: string }
-              | undefined
+            prepareQuery(db, TASK_FOR_DOCUMENT_SQL, (sql) =>
+              /* @gate-identity check-bypass-write-boundary/bypass-write-039 */ db.prepare(sql),
+            ).get(documentPath, documentPath) as { readonly task_id: string } | undefined
           )?.task_id ?? null,
       ),
     readPresetSnapshot: (digest) => readPresetSnapshot(projectionPath, readHead, eventStore, digest, limit),

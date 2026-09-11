@@ -7,7 +7,7 @@ import type { EntityRelationRecord, RelationType } from "../domain/entity-relati
 import type { EntityVersion, EntityVersionWitness, RelationFreshness } from "../domain/entity-freshness.ts";
 import { validateTaskV2, type ReplayTaskStatus, type TaskV2 } from "../domain/task.ts";
 import type { TaskIndexProjectionRow } from "./projection-reads.ts";
-import { queryRows, type ProjectionSqlRow } from "./rebuildable-task-projection-sql.ts";
+import { prepareQuery, queryRows, type ProjectionSqlRow } from "./rebuildable-task-projection-sql.ts";
 import { readEntityVersionWitnesses } from "./entity-freshness-projection.ts";
 import { relationFreshnessAtCut } from "../domain/entity-freshness.ts";
 
@@ -322,8 +322,9 @@ export function refreshTaskRelationProjection(
   updatedAt: string,
   _packagePath?: string | null,
 ): void {
-  db.prepare("DELETE FROM task_relation WHERE task_id = ?").run(taskId);
-  db.prepare(
+  prepareQuery(db, "DELETE FROM task_relation WHERE task_id = ?").run(taskId);
+  prepareQuery(
+    db,
     [
       "INSERT INTO task_relation(relation_id, task_id, source_ref, target_ref, relation_type, direction, strength, origin, state, rationale, owner_ref, source_path, record_index, workspace_revision, updated_at)",
       "SELECT relation_id, ?, source_ref, target_ref, relation_type,",

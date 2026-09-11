@@ -1,6 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import { parseEntityRef } from "../domain/entity-ref.ts";
 import type { EntityFreshness, EntityVersionWitness } from "../domain/entity-freshness.ts";
+import { prepareQuery, projectionTables } from "./rebuildable-task-projection-sql.ts";
 
 export function readEntityVersionWitness(db: DatabaseSync, entityRef: string): EntityVersionWitness {
   return readEntityVersionWitnesses(db, [entityRef]).get(entityRef)!;
@@ -13,12 +14,7 @@ export function readEntityVersionWitnesses(
   const uniqueRefs = [...new Set(entityRefs)],
     witnesses = new Map<string, EntityVersionWitness>();
   if (uniqueRefs.length === 0) return witnesses;
-  const tables = new Set(
-    db
-      .prepare("SELECT name FROM sqlite_master WHERE type='table'")
-      .all()
-      .map((row) => String((row as { readonly name: unknown }).name)),
-  );
+  const tables = projectionTables(db);
   const requests = uniqueRefs.map((entityRef) => {
       const parsed = parseEntityRef(entityRef);
       return {
@@ -51,9 +47,9 @@ export function readEntityVersionWitnesses(
       .filter(({ table }) => tables.has(table))
       .map(({ kind }) => `${kind}_version.workspace_revision`),
     coreVersion = coreVersions.length > 1 ? `COALESCE(${coreVersions.join(", ")})` : (coreVersions[0] ?? "NULL"),
-    rows = db
-      .prepare(
-        `WITH requested AS (
+    rows = prepareQuery(
+      db,
+      `WITH requested AS (
           SELECT CAST(key AS INTEGER) AS position,
             json_extract(value, '$.ref') AS ref,
             json_extract(value, '$.kind') AS kind,
@@ -65,8 +61,7 @@ export function readEntityVersionWitnesses(
                WHEN ${coreVersion} IS NOT NULL THEN 'current' ELSE 'unknown' END AS freshness,
           CASE WHEN ${projectedPresent} THEN ${projectedVersion} ELSE ${coreVersion} END AS current_version
         FROM requested ${joins.join(" ")} ORDER BY requested.position`,
-      )
-      .all(JSON.stringify(requests)) as unknown as readonly {
+    ).all(JSON.stringify(requests)) as unknown as readonly {
       readonly ref: string;
       readonly freshness: EntityFreshness;
       readonly current_version: string | number | null;

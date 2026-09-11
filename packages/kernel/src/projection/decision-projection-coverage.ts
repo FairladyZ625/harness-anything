@@ -2,7 +2,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { coverageOf } from "../domain/decision-coverage.ts";
 import type { DecisionFulfillmentMode } from "../domain/decision-event.ts";
 import type { DecisionCoverageRow } from "./decision-projection-model.ts";
-import { queryRow, queryRows } from "./rebuildable-task-projection-sql.ts";
+import { projectionTables, queryRow, queryRows } from "./rebuildable-task-projection-sql.ts";
 import { relationProjectionRowsAtCut } from "./relation-entity-projection.ts";
 
 // The active edges coverageOf can consult for the requested decisions: those leaving each decision
@@ -71,8 +71,7 @@ export function decisionCoverage(db: DatabaseSync, decisionIds: readonly string[
         factRefs,
       ),
     ),
-    hasTasks = Boolean(queryRow(db, "SELECT 1 FROM sqlite_master WHERE type='table' AND name='task_snapshot'")),
-    tasks = hasTasks
+    tasks = projectionTables(db).has("task_snapshot")
       ? queryRows<{
           readonly task_id: string;
           readonly status: string;

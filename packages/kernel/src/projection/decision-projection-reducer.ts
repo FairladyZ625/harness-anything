@@ -4,14 +4,14 @@ import type { DocumentState } from "../domain/doc-sync.contract.ts";
 import { assertDecisionAdmission, decisionState, fail } from "./decision-projection-admission.ts";
 import { readDecisionBody } from "./decision-projection-documents.ts";
 import { applyEmbeddedRelationProjectionEvents } from "./relation-entity-projection.ts";
-import { queryRows } from "./rebuildable-task-projection-sql.ts";
+import { prepareQuery, queryRows } from "./rebuildable-task-projection-sql.ts";
 
 export function reduceDecisionEvent(db: DatabaseSync, event: DecisionEventV1): void {
   assertDecisionAdmission(db, event);
   const revision = event.workspaceRevision;
   if (event.type === "decision_proposed") {
     const p = event.payload;
-    db.prepare("INSERT INTO decision VALUES (?, 'proposed', ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, ?, ?)").run(
+    prepareQuery(db, "INSERT INTO decision VALUES (?, 'proposed', ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, ?, ?)").run(
       event.decisionId,
       p.title,
       p.question,
@@ -26,12 +26,12 @@ export function reduceDecisionEvent(db: DatabaseSync, event: DecisionEventV1): v
       JSON.stringify(p.provenance ?? []),
       revision,
     );
-    const insert = db.prepare("INSERT INTO decision_option VALUES (?, ?, ?, ?, ?, ?, ?)");
+    const insert = prepareQuery(db, "INSERT INTO decision_option VALUES (?, ?, ?, ?, ?, ?, ?)");
     for (const [position, option] of p.chosen.entries())
       insert.run(event.decisionId, "chosen", option.id, position, option.text, option.rationale ?? null, revision);
     for (const [position, option] of p.rejected.entries())
       insert.run(event.decisionId, "rejected", option.id, position, option.text, option.whyNot, revision);
-    const claim = db.prepare("INSERT INTO decision_claim VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+    const claim = prepareQuery(db, "INSERT INTO decision_claim VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
     for (const [position, entry] of p.claims.entries()) {
       const fulfillment = p.fulfillments.find((candidate) => candidate.claimId === entry.id)?.mode ?? null;
       claim.run(
@@ -49,13 +49,14 @@ export function reduceDecisionEvent(db: DatabaseSync, event: DecisionEventV1): v
     refreshDecisionFts(db, event.decisionId);
     return;
   }
-  db.prepare("UPDATE decision SET workspace_revision=? WHERE decision_id=?").run(revision, event.decisionId);
+  prepareQuery(db, "UPDATE decision SET workspace_revision=? WHERE decision_id=?").run(revision, event.decisionId);
   if (event.type === "decision_accepted" || event.type === "decision_rejected" || event.type === "decision_deferred") {
     const state = event.type === "decision_accepted" ? "in_effect" : event.type.slice("decision_".length);
-    db.prepare(
+    prepareQuery(
+      db,
       "UPDATE decision SET state=?, arbiter_json=?, decided_at=?, workspace_revision=? WHERE decision_id=?",
     ).run(state, JSON.stringify(event.actor), event.occurredAt, revision, event.decisionId);
-    db.prepare("INSERT INTO decision_judgment_consent VALUES (?, ?, ?, ?)").run(
+    prepareQuery(db, "INSERT INTO decision_judgment_consent VALUES (?, ?, ?, ?)").run(
       event.payload.judgmentConsent.consentId,
       event.decisionId,
       revision,
@@ -63,9 +64,12 @@ export function reduceDecisionEvent(db: DatabaseSync, event: DecisionEventV1): v
     );
     if (event.type === "decision_accepted") {
       if (event.payload.standingPolicy)
-        db.prepare("UPDATE decision SET decision_class='standing_policy' WHERE decision_id=?").run(event.decisionId);
+        prepareQuery(db, "UPDATE decision SET decision_class='standing_policy' WHERE decision_id=?").run(
+          event.decisionId,
+        );
       for (const fulfillment of event.payload.fulfillments ?? [])
-        db.prepare(
+        prepareQuery(
+          db,
           "UPDATE decision_claim SET fulfillment=?, fulfilled_revision=? WHERE decision_id=? AND claim_id=?",
         ).run(fulfillment.mode, revision, event.decisionId, fulfillment.claimId);
     }
@@ -75,7 +79,7 @@ export function reduceDecisionEvent(db: DatabaseSync, event: DecisionEventV1): v
   }
   if (event.type === "decision_superseded" || event.type === "decision_retired") {
     const state = event.type === "decision_superseded" ? "superseded" : "outcome_retired";
-    db.prepare("UPDATE decision SET state=?, decided_at=?, workspace_revision=? WHERE decision_id=?").run(
+    prepareQuery(db, "UPDATE decision SET state=?, decided_at=?, workspace_revision=? WHERE decision_id=?").run(
       state,
       event.occurredAt,
       revision,
@@ -87,19 +91,19 @@ export function reduceDecisionEvent(db: DatabaseSync, event: DecisionEventV1): v
   }
   if (event.type === "decision_amended") {
     const next = event.payload.next;
-    db.prepare("UPDATE decision SET title=?, decision_class=? WHERE decision_id=?").run(
+    prepareQuery(db, "UPDATE decision SET title=?, decision_class=? WHERE decision_id=?").run(
       next.title,
       next.decisionClass,
       event.decisionId,
     );
-    db.prepare("DELETE FROM decision_option WHERE decision_id=?").run(event.decisionId);
-    const option = db.prepare("INSERT INTO decision_option VALUES (?, ?, ?, ?, ?, ?, ?)");
+    prepareQuery(db, "DELETE FROM decision_option WHERE decision_id=?").run(event.decisionId);
+    const option = prepareQuery(db, "INSERT INTO decision_option VALUES (?, ?, ?, ?, ?, ?, ?)");
     for (const [position, value] of next.chosen.entries())
       option.run(event.decisionId, "chosen", value.id, position, value.text, value.rationale ?? null, revision);
     for (const [position, value] of next.rejected.entries())
       option.run(event.decisionId, "rejected", value.id, position, value.text, value.whyNot, revision);
-    db.prepare("DELETE FROM decision_claim WHERE decision_id=?").run(event.decisionId);
-    const claim = db.prepare("INSERT INTO decision_claim VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+    prepareQuery(db, "DELETE FROM decision_claim WHERE decision_id=?").run(event.decisionId);
+    const claim = prepareQuery(db, "INSERT INTO decision_claim VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
     for (const [position, value] of next.claims.entries())
       claim.run(
         event.decisionId,
@@ -111,7 +115,7 @@ export function reduceDecisionEvent(db: DatabaseSync, event: DecisionEventV1): v
         revision,
         value.fulfillment ? revision : null,
       );
-    db.prepare("INSERT INTO decision_amendment VALUES (?, ?, ?, ?)").run(
+    prepareQuery(db, "INSERT INTO decision_amendment VALUES (?, ?, ?, ?)").run(
       event.payload.amendment.amendmentId,
       event.decisionId,
       revision,
@@ -126,7 +130,8 @@ export function reduceDecisionEvent(db: DatabaseSync, event: DecisionEventV1): v
     return;
   }
   if (event.type === "decision_claim_declared") {
-    db.prepare(
+    prepareQuery(
+      db,
       [
         "INSERT INTO decision_claim VALUES (?, ?,",
         "(SELECT COALESCE(MAX(position), -1) + 1 FROM decision_claim WHERE decision_id=?),",
@@ -144,12 +149,10 @@ export function reduceDecisionEvent(db: DatabaseSync, event: DecisionEventV1): v
     return;
   }
   if (event.type === "decision_claim_fulfillment_declared") {
-    db.prepare("UPDATE decision_claim SET fulfillment=?, fulfilled_revision=? WHERE decision_id=? AND claim_id=?").run(
-      event.payload.mode,
-      revision,
-      event.decisionId,
-      event.payload.claimId,
-    );
+    prepareQuery(
+      db,
+      "UPDATE decision_claim SET fulfillment=?, fulfilled_revision=? WHERE decision_id=? AND claim_id=?",
+    ).run(event.payload.mode, revision, event.decisionId, event.payload.claimId);
     return;
   }
   if (
@@ -166,7 +169,7 @@ export function reduceDecisionEvent(db: DatabaseSync, event: DecisionEventV1): v
 function insertDecisionPin(db: DatabaseSync, event: DecisionEventV1): void {
   if (!("contentPin" in event.payload) || event.payload.contentPin === undefined) return;
   const pin = event.payload.contentPin;
-  db.prepare("INSERT INTO decision_content_pin VALUES (?, ?, ?, ?)").run(
+  prepareQuery(db, "INSERT INTO decision_content_pin VALUES (?, ?, ?, ?)").run(
     pin.pinId,
     event.decisionId,
     event.workspaceRevision,
@@ -182,7 +185,7 @@ export function refreshDecisionDocumentSearch(db: DatabaseSync, document: Docume
 function refreshDecisionFts(db: DatabaseSync, decisionId: string): void {
   // decision_id is UNINDEXED in the fts5 table, so the search row is keyed by the decision rowid
   // (stable: decision rows are inserted once and only updated) instead of deleted by a column scan.
-  const row = db.prepare("SELECT rowid, title, question FROM decision WHERE decision_id=?").get(decisionId) as
+  const row = prepareQuery(db, "SELECT rowid, title, question FROM decision WHERE decision_id=?").get(decisionId) as
     | { readonly rowid: number; readonly title: string; readonly question: string }
     | undefined;
   if (!row) return;
@@ -197,8 +200,9 @@ function refreshDecisionFts(db: DatabaseSync, decisionId: string): void {
       .map((c) => c.text)
       .join(" "),
     body = readDecisionBody(db, decisionId)?.body ?? "";
-  db.prepare("DELETE FROM decision_fts WHERE rowid=?").run(row.rowid);
-  db.prepare(
+  prepareQuery(db, "DELETE FROM decision_fts WHERE rowid=?").run(row.rowid);
+  prepareQuery(
+    db,
     "INSERT INTO decision_fts(rowid, decision_id, title, question, option_text, claim_text, body) " +
       "VALUES (?, ?, ?, ?, ?, ?, ?)",
   ).run(row.rowid, decisionId, row.title, row.question, options, claims, body);

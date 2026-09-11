@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { StatementSync, type SQLInputValue } from "node:sqlite";
 import test from "node:test";
 import { makeTaskProjection } from "../../src/projection/rebuildable-task-projection.ts";
 import { makeTaskEventStore, type CanonicalEventStore } from "../../src/store/task-event-store.ts";
@@ -11,6 +12,7 @@ import { sha256Text } from "../../src/integrity/stable-hash.ts";
 import { compileFactWrite, type FactEventDraftV1 } from "../../src/domain/fact-event.ts";
 import { lifecycleFixture } from "./task-lifecycle-fixture.ts";
 import { withTempStoreAsync } from "./helpers.ts";
+import { memoryEventStore } from "./task-owned-entity-projection.fixtures.ts";
 
 // Two ledgers at the same revision with different content is exactly the shape a genesis replay
 // produces: the whole ledger is rewritten while the head revision stays put. A projection cache
@@ -118,6 +120,37 @@ test("a cache ahead of a replacement source history is retained and rejected", a
       );
       assert.deepEqual(readFileSync(projectionA.path), retained);
     });
+  });
+});
+
+// A file identity carries one schema version, so the owner verifies it when a connection opens.
+// The ledger identity follows the live source head and is still verified on every operation.
+test("the owner verifies the schema per connection and the ledger identity per operation", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    const projection = makeTaskProjection({
+      rootDir,
+      eventStore: memoryEventStore(lifecycleFixture().events.slice(0, 2)),
+    });
+    projection.catchUp();
+    const executed: string[] = [],
+      { get, all } = StatementSync.prototype;
+    StatementSync.prototype.get = function (this: StatementSync, ...values: SQLInputValue[]) {
+      executed.push(this.sourceSQL);
+      return get.apply(this, values);
+    };
+    StatementSync.prototype.all = function (this: StatementSync, ...values: SQLInputValue[]) {
+      executed.push(this.sourceSQL);
+      return all.apply(this, values);
+    };
+    try {
+      for (let read = 0; read < 3; read += 1) assert.equal(projection.readDocument("missing.md").document, null);
+    } finally {
+      StatementSync.prototype.get = get;
+      StatementSync.prototype.all = all;
+      projection.close();
+    }
+    assert.equal(executed.filter((sql) => sql.includes("table_info(projection_meta)")).length, 0);
+    assert.equal(executed.filter((sql) => sql.includes("head_digest FROM projection_meta")).length, 3);
   });
 });
 

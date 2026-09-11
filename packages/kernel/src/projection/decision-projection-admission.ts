@@ -11,6 +11,7 @@ import { consumeKnownError } from "../error-consumption.ts";
 import { stableStringify } from "../integrity/stable-hash.ts";
 import { readDecisionDocumentState } from "./decision-projection-documents.ts";
 import { FactProjectionError } from "./fact-event-projection.ts";
+import { prepareQuery } from "./rebuildable-task-projection-sql.ts";
 
 export function assertDecisionAdmission(db: DatabaseSync, event: DecisionEventV1): void {
   const row = decisionState(db, event.decisionId);
@@ -93,17 +94,19 @@ export function assertDecisionAdmission(db: DatabaseSync, event: DecisionEventV1
   if (event.type === "decision_claim_declared") {
     if (!decisionClaimsOpen(row.state)) fail("invalid_transition", "Claims require proposed or in_effect state.");
     if (
-      db
-        .prepare("SELECT 1 FROM decision_claim WHERE decision_id=? AND claim_id=?")
-        .get(event.decisionId, event.payload.claimId)
+      prepareQuery(db, "SELECT 1 FROM decision_claim WHERE decision_id=? AND claim_id=?").get(
+        event.decisionId,
+        event.payload.claimId,
+      )
     )
       fail("invalid_transition", `Claim ${event.payload.claimId} already exists.`);
     return;
   }
   if (event.type === "decision_claim_fulfillment_declared") {
-    const claim = db
-      .prepare("SELECT fulfillment FROM decision_claim WHERE decision_id=? AND claim_id=?")
-      .get(event.decisionId, event.payload.claimId) as { readonly fulfillment: string | null } | undefined;
+    const claim = prepareQuery(db, "SELECT fulfillment FROM decision_claim WHERE decision_id=? AND claim_id=?").get(
+      event.decisionId,
+      event.payload.claimId,
+    ) as { readonly fulfillment: string | null } | undefined;
     if (!claim) fail("anchor_not_found", `Claim ${event.payload.claimId} does not exist.`);
     if (claim.fulfillment) fail("invalid_transition", `Claim ${event.payload.claimId} already has a fulfillment.`);
     return;
@@ -165,7 +168,7 @@ export function decisionState(
   db: DatabaseSync,
   id: string,
 ): { readonly state: DecisionState; readonly proposer_json: string } | undefined {
-  return db.prepare("SELECT state,proposer_json FROM decision WHERE decision_id=?").get(id) as
+  return prepareQuery(db, "SELECT state,proposer_json FROM decision WHERE decision_id=?").get(id) as
     | { readonly state: DecisionState; readonly proposer_json: string }
     | undefined;
 }

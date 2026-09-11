@@ -3,11 +3,11 @@ import { decisionDocumentProse, type DecisionDocumentState } from "../domain/dec
 import type { DocumentState } from "../domain/doc-sync.contract.ts";
 import type { DecisionBodyRow, DecisionRelationEdgeRow } from "./decision-projection-model.ts";
 import { readDecisionRow } from "./decision-projection-reads.ts";
-import { queryRows } from "./rebuildable-task-projection-sql.ts";
+import { prepareQuery, queryRows } from "./rebuildable-task-projection-sql.ts";
 
 export function readDecisionBody(db: DatabaseSync, decisionId: string): DecisionBodyRow | null {
   const path = `decisions/decision-${decisionId}/decision.md`,
-    row = db.prepare("SELECT value_json FROM document WHERE path=?").get(path) as
+    row = prepareQuery(db, "SELECT value_json FROM document WHERE path=?").get(path) as
       | { readonly value_json: string }
       | undefined;
   return row ? decisionBodyFromDocument(decisionId, row.value_json) : null;

@@ -15,6 +15,7 @@ import { discardDatabase, withDatabase } from "./rebuildable-task-projection-dat
 import { catchUpRound } from "./rebuildable-task-projection-catch-up.ts";
 import { markRuntimeSessionsUnknown, readSnapshot } from "./rebuildable-task-projection-runtime.ts";
 import {
+  prepareQuery,
   queryPreparedRows,
   readProjectionCut,
   readStateDigest,
@@ -23,6 +24,17 @@ import {
 } from "./rebuildable-task-projection-sql.ts";
 export type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
 export type { TaskProjection } from "./task-projection-port.ts";
+
+const UNPARAMETERIZED_LIST_SQL = [
+  "SELECT task_snapshot.task_id AS task_id, task_package.package_path AS package_path,",
+  "COALESCE(task_generation.generation, 'v1') AS generation,",
+  "task_snapshot.workspace_revision AS workspace_revision,",
+  `${taskCreatedAtSql("task_snapshot.task_id")} AS created_at,`,
+  "event_index.event_json AS event_json FROM task_snapshot",
+  "LEFT JOIN task_package USING(task_id) LEFT JOIN task_generation USING(task_id)",
+  "JOIN event_index ON event_index.workspace_revision = task_snapshot.workspace_revision",
+  "ORDER BY task_snapshot.task_id",
+].join(" ");
 
 // Cache-backed task, document, preset, and rebuild reads.
 export function listProjection(
@@ -56,18 +68,8 @@ export function listProjection(
         readonly created_at: string | null;
         readonly event_json: string;
       }>(
-        /* @gate-identity check-bypass-write-boundary/bypass-write-012 */
-        db.prepare(
-          [
-            "SELECT task_snapshot.task_id AS task_id, task_package.package_path AS package_path,",
-            "COALESCE(task_generation.generation, 'v1') AS generation,",
-            "task_snapshot.workspace_revision AS workspace_revision,",
-            `${taskCreatedAtSql("task_snapshot.task_id")} AS created_at,`,
-            "event_index.event_json AS event_json FROM task_snapshot",
-            "LEFT JOIN task_package USING(task_id) LEFT JOIN task_generation USING(task_id)",
-            "JOIN event_index ON event_index.workspace_revision = task_snapshot.workspace_revision",
-            "ORDER BY task_snapshot.task_id",
-          ].join(" "),
+        prepareQuery(db, UNPARAMETERIZED_LIST_SQL, (sql) =>
+          /* @gate-identity check-bypass-write-boundary/bypass-write-012 */ db.prepare(sql),
         ),
       );
       return {
@@ -115,11 +117,9 @@ export function readDocument(
 ): DocumentProjectionRead {
   return withDatabase(projectionPath, readHead, (db) => {
     const cut = readProjectionCut(db, readHead),
-      row =
-        /* @gate-identity check-bypass-write-boundary/bypass-write-013 */
-        db.prepare("SELECT value_json FROM document WHERE path = ?").get(documentPath) as
-          | { readonly value_json: string }
-          | undefined;
+      row = prepareQuery(db, "SELECT value_json FROM document WHERE path = ?", (sql) =>
+        /* @gate-identity check-bypass-write-boundary/bypass-write-013 */ db.prepare(sql),
+      ).get(documentPath) as { readonly value_json: string } | undefined;
     return {
       status: cut.status,
       document: row ? (JSON.parse(row.value_json) as DocumentState) : null,
@@ -137,11 +137,9 @@ export function readPresetSnapshot(
 ): PresetSnapshotProjectionRead {
   return withDatabase(projectionPath, readHead, (db) => {
     const cut = readProjectionCut(db, readHead),
-      row =
-        /* @gate-identity check-bypass-write-boundary/bypass-write-014 */
-        db.prepare("SELECT value_json FROM preset_snapshot WHERE digest = ?").get(digest) as
-          | { readonly value_json: string }
-          | undefined;
+      row = prepareQuery(db, "SELECT value_json FROM preset_snapshot WHERE digest = ?", (sql) =>
+        /* @gate-identity check-bypass-write-boundary/bypass-write-014 */ db.prepare(sql),
+      ).get(digest) as { readonly value_json: string } | undefined;
     return {
       status: cut.status,
       snapshot: row ? JSON.parse(row.value_json) : null,
@@ -166,11 +164,10 @@ export function readProjection(
       status: cut.status,
       snapshot: readSnapshot(db, taskId, now()),
       packagePath:
-        /* @gate-identity check-bypass-write-boundary/bypass-write-015 */
         (
-          db.prepare("SELECT package_path FROM task_package WHERE task_id = ?").get(taskId) as
-            | { readonly package_path: string }
-            | undefined
+          prepareQuery(db, "SELECT package_path FROM task_package WHERE task_id = ?", (sql) =>
+            /* @gate-identity check-bypass-write-boundary/bypass-write-015 */ db.prepare(sql),
+          ).get(taskId) as { readonly package_path: string } | undefined
         )?.package_path ?? null,
       watermark: cut.watermark,
       sourceRevision: cut.sourceRevision,
