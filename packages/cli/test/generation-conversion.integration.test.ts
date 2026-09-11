@@ -488,7 +488,7 @@ test("gen2 reuses the evidence conversion without promoting historical CI measur
       assert.equal(current.schema, "ci-run-observation/v3");
       assert.equal((current.payload as Record<string, unknown>).verification, null);
       assert.deepEqual((current.payload as { gates: unknown[] }).gates, [
-        { gate: "ci", result: "pass", metrics: { runAttempt: 1 } },
+        { gate: "G32", result: "pass", metrics: { files: 42 } },
       ]);
       assert.equal(target.outcome(event.opId)?.intentDigest, digest);
     } finally {

@@ -2,7 +2,7 @@ import path from "node:path";
 import { consumeKnownError } from "../error-consumption.ts";
 import { publishConvertedGeneration, readCertifiedGitFollower } from "./sqlite-task-event-publication.ts";
 import { makeTaskProjection } from "../projection/rebuildable-task-projection-factory.ts";
-import { ciWorkflowVerificationMigration } from "./event-shape-migration.ts";
+import { ciRunObservationV3Migration, ciWorkflowVerificationMigration } from "./event-shape-migration.ts";
 import {
   serializePersistedCanonicalEvent,
   validateCurrentCanonicalEvent,
@@ -153,7 +153,9 @@ function planConversion(source: SqliteEventStore) {
       );
     }
     try {
-      const event = ciWorkflowVerificationMigration.rewrite(original)?.event ?? original;
+      // Historical CI observations walk the same v1 → v2 → v3 chain replay applies.
+      const verified = ciWorkflowVerificationMigration.rewrite(original)?.event ?? original,
+        event = ciRunObservationV3Migration.rewrite(verified)?.event ?? verified;
       if (event.opId !== row.opId || event.workspaceRevision !== row.revision || event.occurredAt !== row.occurredAt)
         throw new Error("source event identity or occurredAt column differs");
       // Root's history ruling: these observations really happened, so generation 2 keeps them as
