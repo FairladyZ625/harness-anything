@@ -688,6 +688,21 @@ test("prepared statements belong to the connection that prepared them", () => {
   }
 });
 
+test("a Decision's own relation edges are read through the owner index", () => {
+  const db = new DatabaseSync(":memory:");
+  try {
+    createRelationGraphProjectionTables(db);
+    const plan = queryPlan(db, {
+      sql: "SELECT row_json FROM relation_edge WHERE owner_ref=? ORDER BY relation_id",
+      args: ["decision/dec_A"],
+    });
+    assert.match(plan, /SEARCH relation_edge USING INDEX relation_edge_owner \(owner_ref=\?\)/u);
+    assert.doesNotMatch(plan, /SCAN relation_edge|USE TEMP B-TREE/u);
+  } finally {
+    db.close();
+  }
+});
+
 test("task relation refresh deletes through the task index instead of scanning the table", () => {
   const db = new DatabaseSync(":memory:");
   try {

@@ -40,6 +40,35 @@ test("explicit projection rebuild replaces stale DDL even when its version claim
   });
 });
 
+// A pure index needs no replay: every owner runs CREATE INDEX IF NOT EXISTS when it opens, so a
+// current-version cache written before the index existed gains it in place.
+test("an owner adds the relation owner index to a current-version cache in place", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    const { projectionPath, eventStore } = tasklessFactLedger(rootDir, "owner-index", "F-0A1B2C3D");
+    const projection = makeTaskProjection({ rootDir, eventStore });
+    projection.catchUp();
+    projection.close();
+    const indexed = (db: DatabaseSync) =>
+      db.prepare("SELECT 1 FROM sqlite_master WHERE type='index' AND name='relation_edge_owner'").get() !== undefined;
+    const stale = new DatabaseSync(projectionPath);
+    try {
+      stale.exec("DROP INDEX relation_edge_owner");
+      assert.equal(indexed(stale), false);
+    } finally {
+      stale.close();
+    }
+    const reopened = makeTaskProjection({ rootDir, eventStore });
+    assert.equal(reopened.searchFacts({ query: "standalone" }).facts[0]?.factId, "F-0A1B2C3D");
+    reopened.close();
+    const current = new DatabaseSync(projectionPath, { readOnly: true });
+    try {
+      assert.equal(indexed(current), true);
+    } finally {
+      current.close();
+    }
+  });
+});
+
 function tasklessFactLedger(rootDir: string, repoId: string, factId: string) {
   initRepo(rootDir);
   const eventStore = makeTaskEventStore({ repoId, rootDir }),
