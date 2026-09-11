@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { markdownSections } from "../src/domain/transition-document-readiness.ts";
 import {
   assessTransitionDocument,
   assertTransitionDocumentReady,
@@ -167,3 +168,38 @@ test("decision and declaration documents reject their canonical blank scaffolds"
 function realizedPlan(): string {
   return `# Plan\n\n${planHeadings.map((heading) => `## ${heading}\n\nImplemented ${heading}.`).join("\n\n")}\n`;
 }
+
+test("section reader preserves repeated risk sections and fenced heading examples", () => {
+  const body = [
+    "## Summary",
+    "Delivered parser.",
+    "## Verification",
+    "Command:",
+    "```markdown",
+    "## Residual Risk",
+    "example",
+    "```",
+    "Exit 0.",
+    "## Residual Risk",
+    "已知缺口：first unresolved issue.",
+    "## Residual Risk",
+    "已知缺口：second unresolved issue.",
+    "## Same Mechanism Elsewhere",
+    "Inspected adjacent parser.",
+  ].join("\n");
+  const sections = markdownSections(body);
+  assert.equal(sections.get("verification"), "Command:\n```markdown\n## Residual Risk\nexample\n```\nExit 0.");
+  assert.equal(
+    sections.get("residual risk"),
+    "已知缺口：first unresolved issue.\n\n已知缺口：second unresolved issue.",
+  );
+  assert.equal(assessTransitionDocument("task.closeout", body).ready, true);
+});
+
+test("fenced required headings cannot make a missing closeout section ready", () => {
+  const body =
+    "## Summary\nDelivery\n## Verification\n~~~\n## Residual Risk\nExample only\n~~~\n## Same Mechanism Elsewhere\nInspected.";
+  assert.deepEqual(assessTransitionDocument("task.closeout", body).missingSections, [
+    { section: "Residual Risk", reason: "empty" },
+  ]);
+});

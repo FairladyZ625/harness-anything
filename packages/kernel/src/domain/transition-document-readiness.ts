@@ -205,15 +205,40 @@ function missingMarkdownSections(body: string, contract: MarkdownDocumentContrac
   });
 }
 
-function markdownSections(body: string): ReadonlyMap<string, string> {
-  const sections = new Map<string, string>(),
-    headings = [...body.matchAll(/^##[ \t]+(.+?)[ \t]*#*[ \t]*$/gmu)];
-  for (let index = 0; index < headings.length; index += 1) {
-    const current = headings[index]!,
-      start = (current.index ?? 0) + current[0].length,
-      end = headings[index + 1]?.index ?? body.length;
-    sections.set(normalizeHeading(current[1]!), body.slice(start, end).trim());
+/** Shared section reader: fenced examples are content, and repeated sections retain every occurrence. */
+export function markdownSections(body: string): ReadonlyMap<string, string> {
+  const sections = new Map<string, string>();
+  let heading: string | null = null;
+  let content: string[] = [];
+  let fence: { marker: string; length: number } | null = null;
+  const retain = () => {
+    if (heading === null) return;
+    const previous = sections.get(heading);
+    sections.set(heading, [previous, content.join("\n").trim()].filter((value) => value !== undefined).join("\n\n"));
+  };
+  for (const line of body.split(/\r?\n/u)) {
+    const delimiter = /^ {0,3}(`{3,}|~{3,})(.*)$/u.exec(line);
+    if (fence === null && delimiter) {
+      fence = { marker: delimiter[1]![0]!, length: delimiter[1]!.length };
+    } else if (fence !== null) {
+      if (
+        delimiter &&
+        delimiter[1]![0] === fence.marker &&
+        delimiter[1]!.length >= fence.length &&
+        !delimiter[2]!.trim()
+      )
+        fence = null;
+      content.push(line);
+      continue;
+    }
+    const match = fence === null ? /^##[ \t]+(.+?)[ \t]*#*[ \t]*$/u.exec(line) : null;
+    if (match) {
+      retain();
+      heading = normalizeHeading(match[1]!);
+      content = [];
+    } else content.push(line);
   }
+  retain();
   return sections;
 }
 
