@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import path from "node:path";
 import {
   consumeKnownError,
   createEntityStore,
@@ -20,6 +19,7 @@ import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import type { RuntimeBinding } from "./runtime-spawn-types.ts";
 import { cellCriterionError } from "./repo-cell-errors.ts";
 import { deriveTaskMission } from "./runtime-spawn-mission.ts";
+import { cwdPayload, prepareWorkerWorktree, resolveCwd, workerPrompt } from "./squad-worker-checkout.ts";
 import {
   callbackLeaderPrompt,
   initialLeaderPrompt,
@@ -1042,44 +1042,6 @@ function requiredReceiptText(receipt: JsonObject, field: string): string {
 function receiptHint(receipt: JsonObject): string {
   const error = receipt.error && typeof receipt.error === "object" ? (receipt.error as Record<string, unknown>) : null;
   return typeof error?.hint === "string" ? error.hint : "Runtime dispatch was rejected.";
-}
-
-function resolveCwd(rootDir: string, value: unknown): string {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return rootDir;
-  const row = value as Record<string, unknown>;
-  if (row.scope === "repo-root") return rootDir;
-  if (row.scope === "repo-relative" && typeof row.path === "string") return path.resolve(rootDir, row.path);
-  throw new Error("Squad cwd must be repository-relative.");
-}
-
-function cwdPayload(rootDir: string, cwd: string): JsonObject {
-  const relative = path.relative(rootDir, cwd);
-  return relative ? { scope: "repo-relative", path: relative } : { scope: "repo-root" };
-}
-
-/** Writing workers get their own worktree when the run cwd is a Git work tree with a commit; a cwd without
- * a Git baseline (a Git-less edge, or a repo before its first commit) keeps the shared cwd. */
-function prepareWorkerWorktree(state: SquadState, workerId: string) {
-  if (state.baseSha === null) return null;
-  const slug = `squad-${state.squadRunId.slice("squad_".length)}-${workerId}`,
-    branch = `codex/${slug}`,
-    cwd = path.join(state.cwd, ".worktrees", slug);
-  localGitObjectRefStore.addWorktree(state.cwd, cwd, branch, state.baseSha);
-  return { cwd, branch, baseSha: state.baseSha };
-}
-
-function workerPrompt(
-  prompt: string,
-  worktree: { readonly cwd: string; readonly branch: string; readonly baseSha: string } | null,
-): string {
-  if (worktree === null) return prompt;
-  return [
-    prompt,
-    "# Squad worker checkout",
-    `Worker repository root: ${worktree.cwd}`,
-    `Worker branch: ${worktree.branch}`,
-    `Worker baseline: ${worktree.baseSha}`,
-  ].join("\n\n");
 }
 
 /** 派工台账行的已落盘时间事实:startedAt 恒有,endedAt 仅归档结算行有;无台账行的派工不贡献时间。 */
