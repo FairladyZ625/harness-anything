@@ -610,11 +610,11 @@ function gitStatusNames(repoRoot: string, scope: string): string[] {
   for (let index = 0; index < entries.length; index++) {
     const entry = entries[index]!;
     if (entry.length < 4) continue;
-    const status = entry.slice(0, 2);
+    const xy = entry.slice(0, 2);
     paths.push(entry.slice(3));
     // In porcelain -z format, renamed and copied entries are followed by the
     // original pathname. The scanner needs the destination candidate only.
-    if (status[0] === "R" || status[0] === "C" || status[1] === "R" || status[1] === "C") index++;
+    if (xy[0] === "R" || xy[0] === "C" || xy[1] === "R" || xy[1] === "C") index++;
   }
   return paths;
 }
