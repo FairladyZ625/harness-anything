@@ -14,7 +14,6 @@ import {
   declareExecutionExecutor as declareExecutionExecutorImpl,
   executeAction as executeActionImpl,
 } from "./repo-cell-action-dispatch.ts";
-import { closeoutTask as closeoutTaskImpl } from "./repo-cell-closeout.ts";
 import { runTaskActionCatalogRuntime as lifecycleActionImpl } from "./task-action-catalog-runtime.ts";
 import { decisionProposalAction, taskCreateAction } from "./repo-cell-action-parse.ts";
 import { buildCommand, withServerMeta } from "./repo-cell-command.ts";
@@ -149,7 +148,6 @@ export interface RepoCellActionContext extends TaskQueryCell {
   readonly archiveTasks: Bound<typeof archiveTasksImpl>;
   readonly supersedeWithNewTask: Bound<typeof supersedeWithNewTaskImpl>;
   readonly declareExecutionExecutor: Bound<typeof declareExecutionExecutorImpl>;
-  readonly closeoutTask: Bound<typeof closeoutTaskImpl>;
   readonly completeTask: Bound<typeof completeTaskImpl>;
   readonly taskSurfaceWrite: Bound<typeof taskSurfaceWriteImpl>;
   readonly rejected: typeof rejected;
@@ -294,7 +292,6 @@ export function createRepoCellActionContext(bindings: {
     archiveTasks: bind(archiveTasksImpl),
     supersedeWithNewTask: bind(supersedeWithNewTaskImpl),
     declareExecutionExecutor: bind(declareExecutionExecutorImpl),
-    closeoutTask: bind(closeoutTaskImpl),
     completeTask: bind(completeTaskImpl),
     taskSurfaceWrite: bind(taskSurfaceWriteImpl),
     rejected,

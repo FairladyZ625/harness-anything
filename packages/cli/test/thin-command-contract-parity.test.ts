@@ -94,7 +94,6 @@ test("all public commands expose the canonical structured input facet", () => {
     "schedule-runs",
   );
   for (const id of [
-    "task-closeout",
     "task-review-execution",
     "people-add",
     "people-set-role",

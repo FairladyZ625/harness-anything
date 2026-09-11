@@ -7,7 +7,7 @@
 - 带值选项同时接受 `--opt value` 与 `--opt=value`；不支持的选项会以 `unknown_field` 拒绝。
 - `runtime run --mission` 接受已同步的 mission 名称而非文件路径；必须先用 `ha doc sync --submit` 提交，否则派工会以 `mission_not_found` 拒绝。
 - 收口链序为 start → submit → 独立 `review-execution` → `review-consent` → complete；乱序生命周期操作会是 `invalid_transition`，自己复核会是 `actor_unauthorized`。
-- `ha task complete --path` 以项目仓库根为基准解析路径；路径不在已提交 commit 内时以 `invalid_proof` 拒绝。
+- `ha task complete` 从已提交交付推导 code/doc 证据；`--execution-id` 只用于修复当前 execution 选择歧义。
 - complete 前须把 `closeout.md` 写实为固定四节：`## Summary`、`## Verification`、`## Residual Risk`、`## Same Mechanism Elsewhere`，否则以 `closeout_placeholder` 拒绝。
 
 ## Repository Scaffolds

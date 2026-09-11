@@ -124,12 +124,6 @@ test("fleet task routing requires both edge config and remote-edge registry mode
     env,
   );
   assert.deepEqual(complete?.action, { kind: "task-complete", taskId: "task_one", consent: true });
-  assert.equal(
-    await fleetTaskRoute(command("repo.task.run", { kind: "task-closeout", taskId: "task_one" }), env),
-    null,
-    "unsupported commands keep the explicit local repo-mode rejection path",
-  );
-
   writeFileSync(path.join(root, "task.json"), '{"title":"Structured edge task","riskTier":"high"}\n');
   const structured = await fleetTaskRoute(
     command("repo.task.create", { kind: "task-create", fromFile: "task.json", presetId: "standard-task" }),

@@ -25,6 +25,7 @@ test("Task lifecycle help is projected from the generated Action declarations", 
   assert.doesNotMatch(submit?.help ?? "", /--from-file|--json-input/u);
   const complete = rows.find(({ usage }) => usage.startsWith("ha task complete "));
   assert.doesNotMatch(complete?.usage ?? "", /--ci|--path/u);
+  assert.match(complete?.summary ?? "", /--execution-id only repairs ambiguous current executions/u);
   assert.equal(
     rows.some((row) => "available" in row),
     false,

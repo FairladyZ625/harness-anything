@@ -72,7 +72,7 @@ export {
   currentSubmittedExecutions,
   isCloseoutReadiness,
 } from "./closeout-readiness.ts";
-export type { CloseoutReadiness, CloseoutSnapshot } from "./closeout-readiness.ts";
+export type { CloseoutReadiness } from "./closeout-readiness.ts";
 export { completionEvidenceBasis, completionEvidenceResults, judgeCompletionEvidence } from "./completion-evidence.ts";
 export type {
   CompletionEvidenceBasis,

@@ -366,7 +366,6 @@ export async function executeAction(
   if (action.kind === "task-submit") return submitTask(cell, action, binding);
   if (action.kind === "task-progress-append") return cell.appendProgress(action, binding);
   if (action.kind === "task-declare-executor") return cell.declareExecutionExecutor(action, binding);
-  if (action.kind === "task-closeout") return cell.closeoutTask(action, binding);
   return cell.lifecycleAction(action, binding);
 }
 
