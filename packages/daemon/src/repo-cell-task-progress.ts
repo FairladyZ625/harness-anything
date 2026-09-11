@@ -254,6 +254,16 @@ export function appendProgress(
   return receipt;
 }
 
+function latestApprovedReview(cell: RepoCellOperationalContext, reviews: Snapshot["reviews"]) {
+  return reviews
+    .map((review) => {
+      const row = cell.projection.getEntity("review", review.reviewId);
+      if (!row) throw cell.cellCodedError("content_not_ready", `Review ${review.reviewId} is not projected.`);
+      return { review, revision: row.workspaceRevision };
+    })
+    .sort((a, b) => b.revision - a.revision)[0]?.review;
+}
+
 export async function completeTask(
   cell: RepoCellOperationalContext,
   action: RepoTaskAction,
@@ -278,7 +288,7 @@ export async function completeTask(
       action.consent === true && submittedExecution?.submission
         ? approvedReviewsForExecution(initial.snapshot.reviews, submittedExecution)
         : [],
-    consentReview = action.consent === true && initialReviews.length === 1 ? initialReviews[0] : undefined;
+    consentReview = latestApprovedReview(cell, initialReviews);
   if (Object.keys(action).some((field) => !allowed.includes(field)))
     throw cell.cellCodedError("invalid_command", "Complete derives CI evidence and paths from the submitted cut.");
   const initialOpId = cell.operationId(action, binding, cell.input.repoId, initial.snapshot.revision);
@@ -463,7 +473,8 @@ export async function completeTask(
           (value) => value.executionId === executionId && value.submission,
         ),
         reviews = execution?.submission ? approvedReviewsForExecution(current.snapshot.reviews, execution) : [];
-      if (reviews.length !== 1 || reviewDigest(reviews[0]!) !== reviewDigest(consentReview))
+      const latest = latestApprovedReview(cell, reviews);
+      if (!latest || reviewDigest(latest) !== reviewDigest(consentReview))
         return cell.completionStopped(facadeOpId, current.snapshot, executionId, blocker, steps);
       const step = await cell.lifecycleAction(
         { kind: "task-review-consent", taskId, executionId, reviewId: consentReview.reviewId },

@@ -61,11 +61,17 @@ export async function dispatchCompletionReview(
           "ha settings update --default-reviewer <agent-id>, then retry completion.",
       );
     const agent = readAgentDeclaration({
-        rootDir: cell.rootDir,
-        agentId: reviewerId,
-        entityStore: createEntityStore(cell.store),
-      }),
-      report = `${packagePath}/artifacts/reports/${dispatchId}.md`,
+      rootDir: cell.rootDir,
+      agentId: reviewerId,
+      entityStore: createEntityStore(cell.store),
+    });
+    if (!agent.model)
+      return stopped(
+        "ha agent install --source <closeout-reviewer-declaration-directory>",
+        `Declare an explicit model for reviewer ${reviewerId}, then retry completion. ` +
+          "Automatic review must not select an ambient instance's default model.",
+      );
+    const report = `${packagePath}/artifacts/reports/${dispatchId}.md`,
       packet = `${packagePath}/artifacts/reports/${dispatchId}.json`,
       payload = {
         agentId: agent.id,
@@ -98,7 +104,27 @@ export async function dispatchCompletionReview(
     if (authorizationDecision.outcome !== "allowed")
       throw cell.cellCodedError("authorization_denied", authorizationDecision.nextActions.join(" "));
     // Already inside the center queue. Only launch admission is awaited; provider completion is not.
-    await cell.runtimeSpawner.spawn(payload, { ...binding, authorizationDecision });
+    try {
+      await cell.runtimeSpawner.spawn(payload, { ...binding, authorizationDecision });
+    } catch (error) {
+      if (
+        !(error instanceof Error) ||
+        !("code" in error) ||
+        !["agent_runtime_unavailable", "agent_model_unavailable", "runtime_model_not_ready"].includes(
+          String(error.code),
+        )
+      )
+        throw error;
+      return {
+        ...stopped(
+          "ha runtime instance list",
+          `Reviewer ${reviewerId} requires model ${agent.model}; configure a ready compatible instance, ` +
+            "then retry completion. The declared model is not replaced by an ambient default.",
+        ),
+        diagnostic: { kind: "failure", code: String(error.code) },
+        rejectionExplanation: error.message,
+      };
+    }
   }
   const session = cell.projection.readRuntimeSession(runtimeSessionId);
   return {

@@ -65,7 +65,7 @@ function instance(instanceId: string): RuntimeInstanceSummary {
 function git(root: string, ...args: string[]): string {
   return execFileSync("git", ["-C", root, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 }
-async function fixture(failProvider = false) {
+async function fixture(failProvider = false, available = true) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-completion-review-")),
     repoId = workspaceId("completion-review");
   git(root, "init", "-q");
@@ -85,7 +85,10 @@ async function fixture(failProvider = false) {
         daemonId: "fixture",
         endpoint: path.join(root, "user.sock"),
       },
-      runtimeInstances: () => [instance("review-first"), instance("review-second")],
+      runtimeInstances: () => [
+        { ...instance("ambient-first"), models: ["flash-model"], defaultModel: "flash-model" },
+        ...(available ? [instance("review-first"), instance("review-second")] : []),
+      ],
       prepareRuntimeLaunch: (instanceId, request) => ({
         definition: {
           schema: "agent-definition-snapshot/v1",
@@ -258,6 +261,7 @@ test(
       const first = (await f.complete(true)) as Record<string, unknown>;
       assert.equal(first.code, "review_missing", JSON.stringify(first));
       assert.equal(f.launches.length, 1);
+      assert.equal(f.launches[0]!.instanceId, "review-first");
       assert.equal(f.events().filter((event) => event.type === "review_consent_recorded").length, 0);
       assert.match(f.launches[0]!.prompt, /RecordReview/u);
       assert.match(f.launches[0]!.prompt, new RegExp(`artifacts/reports/${String(first.dispatchId)}`));
@@ -283,18 +287,47 @@ test(
       assert.equal(f.events().filter((event) => event.type === "runtime_dispatch_requested").length, 1);
       const reviewed = await f.review(String(first.runtimeSessionId), "review-current");
       assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
+      const additional = await f.review(String(first.runtimeSessionId), "review-additional");
+      assert.equal(additional.outcome, "applied", JSON.stringify(additional));
       const noConsent = await f.complete();
       assert.equal(noConsent.code, "consent_missing", JSON.stringify(noConsent));
       assert.equal(f.events().filter((event) => event.type === "review_consent_recorded").length, 0);
       const completed = await f.complete(true);
       assert.equal(completed.outcome, "applied", JSON.stringify(completed));
       assert.equal(f.events().filter((event) => event.type === "review_consent_recorded").length, 1);
+      const consent = f.events().find((event) => event.type === "review_consent_recorded");
+      assert.ok(consent?.type === "review_consent_recorded");
+      assert.equal(consent.payload.consent.reviewId, "review-additional");
       assert.equal(f.events().filter((event) => event.type === "task_completed").length, 1);
     } finally {
       await f.close();
     }
   },
 );
+
+test("completion requires a declared reviewer model instead of selecting the ambient default", async () => {
+  const f = await fixture();
+  try {
+    // Omit model entirely, as in an unconstrained runtime_type=any declaration.
+    const installed = await f.run({
+      kind: "agent-install",
+      declaration: {
+        schema: "agent-declaration/v1",
+        id: "closeout-reviewer",
+        name: "Unconstrained reviewer",
+        instructions: "Review the submitted delivery.",
+        runtime_type: "any",
+      },
+    });
+    assert.equal(installed.outcome, "applied", JSON.stringify(installed));
+    const result = await f.complete();
+    assert.equal(result.code, "review_missing", JSON.stringify(result));
+    assert.match(JSON.stringify((result as Record<string, unknown>).next), /model/u);
+    assert.equal(f.launches.length, 0, "an unconfigured reviewer must not launch the ambient model");
+  } finally {
+    await f.close();
+  }
+});
 
 test(
   "completion provider fallback keeps reviewer role and exhausts once without launching another root dispatch",
@@ -464,3 +497,18 @@ test(
     }
   },
 );
+test("completion with an unavailable declared model returns guidance without launching an ambient instance", async () => {
+  const f = await fixture(false, false);
+  try {
+    await f.install();
+    const result = await f.complete();
+    assert.equal(result.code, "review_missing", JSON.stringify(result));
+    assert.match(JSON.stringify((result as Record<string, unknown>).next), /ready compatible instance/u);
+    assert.deepEqual(result.diagnostic, { kind: "failure", code: "agent_model_unavailable" });
+    assert.match(result.rejectionExplanation ?? "", /No enabled runtime instance declares model review-model/u);
+    assert.equal(f.launches.length, 0);
+    assert.equal(f.events().filter((event) => event.type === "runtime_dispatch_requested").length, 0);
+  } finally {
+    await f.close();
+  }
+});

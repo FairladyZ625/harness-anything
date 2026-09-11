@@ -204,3 +204,23 @@ test("already merged dispatch preserves earlier branch changes and rejects unrel
   assert.throws(() => derive(root, `Delivery ${base}`), /bound worktree HEAD/u);
   assert.equal(derive(root, "Worktree delivery.").commitSha, head);
 });
+
+test("removed dispatch worktree resolves an explicit published cut in the canonical repository", (t) => {
+  const { root } = fixture(t),
+    cwd = path.join(root, "worker");
+  git(root, "worktree", "add", "-qb", "worker", cwd);
+  put(cwd, "src/delivery.ts", "delivery\n");
+  commit(cwd);
+  dispatch(root, cwd);
+  git(root, "merge", "--no-ff", "-qm", "test: merge delivery", "worker");
+  const merged = git(root, "rev-parse", "HEAD");
+  git(root, "update-ref", "refs/remotes/origin/main", merged);
+  git(root, "worktree", "remove", cwd);
+  assert.equal(derive(root, `Delivery ${merged}`).commitSha, merged);
+  assert.deepEqual(derive(root, `Delivery ${merged}`).deliverables, ["src/delivery.ts"]);
+  assert.throws(() => derive(root, "Delivery complete."), /no execution-bound worktree cut/u);
+  assert.throws(() => derive(root, `Delivery ${"f".repeat(40)}`), /not published/u);
+  put(root, "src/unpublished.ts", "unpublished\n");
+  const unpublished = commit(root);
+  assert.throws(() => derive(root, `Delivery ${unpublished}`), /published merge commit/u);
+});
