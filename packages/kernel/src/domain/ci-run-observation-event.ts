@@ -49,8 +49,8 @@ export type CiRunObservationGateV2 = {
 };
 
 export type CiWorkflowVerification = {
-  readonly source: "github-actions";
-  readonly workflow: "rewrite-ci";
+  readonly source: "github-actions" | "write-coordinator";
+  readonly workflow: "rewrite-ci" | "ledger-publication";
   readonly runId: string;
   readonly attempt: number;
   readonly headSha: string;
@@ -148,6 +148,21 @@ function validateFields(
 
 function validVerification(value: unknown, run: unknown): boolean {
   if (value === null) return true;
+  if (
+    isRecord(value) &&
+    value.source === "write-coordinator" &&
+    value.workflow === "ledger-publication" &&
+    hasContractFields(value, ["source", "workflow", "runId", "attempt", "headSha", "conclusion"], false) &&
+    typeof value.runId === "string" &&
+    value.runId.startsWith("ledger-") &&
+    value.attempt === 1 &&
+    nonEmpty(value.headSha) &&
+    value.conclusion === "success" &&
+    isRecord(run) &&
+    run.runId === value.runId &&
+    run.sha === value.headSha
+  )
+    return true;
   return (
     isRecord(value) &&
     isRecord(run) &&

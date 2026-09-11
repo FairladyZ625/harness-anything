@@ -14,6 +14,7 @@ import {
   runtimeSessionIdFromActor,
   stableStringify,
   localGitObjectRefStore,
+  resolveHarnessLayout,
   taskProgressWritePlan,
   validFactStillHoldsAttestation,
   type CompletionReadinessContext,
@@ -52,15 +53,20 @@ function readCiEvidence(
   if (!event || event.type !== "ci_run_observed") return null;
   const run = event.payload.run,
     submitted = execution.submission.commitSha;
-  // A main run on a commit that contains the submission proves the merged delivery is green.
-  if (
-    run.sha !== submitted &&
-    !(run.branch === "main" && localGitObjectRefStore.isAncestor(cell.rootDir, submitted, run.sha))
-  )
+  // A main run on a commit that contains the submission proves the merged delivery is green. A
+  // ledger-publication observation names the authored ledger HEAD instead; a private-ledger
+  // delivery is proven when that HEAD contains the submission. The authored repository is only
+  // consulted for that observation kind, so a public delivery never depends on it being a Git repo.
+  const publicReachable = run.branch === "main" && localGitObjectRefStore.isAncestor(cell.rootDir, submitted, run.sha),
+    ledgerReachable =
+      event.payload.verification?.workflow === "ledger-publication" &&
+      localGitObjectRefStore.isAncestor(resolveHarnessLayout(cell.rootDir).authoredRoot, submitted, run.sha);
+  if (run.sha !== submitted && !publicReachable && !ledgerReachable)
     throw cell.cellCodedError(
       "invalid_proof",
       `CI run ${run.runId} tested ${run.sha}; this execution submitted ${submitted}. ` +
-        "Use an observation for the submitted commit or for a main commit that contains it.",
+        "Use an observation for the submitted commit, for a main commit that contains it, " +
+        "or a ledger publication whose HEAD contains it.",
     );
   const verification = event.payload.verification;
   if (!verification)
