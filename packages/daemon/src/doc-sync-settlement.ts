@@ -173,7 +173,8 @@ export function scanRejectionSummary(code: string, scan: DocCandidateScan): stri
   const next =
     code === "lease_conflict"
       ? scan.lease
-        ? `next: lease held by ${scan.lease.actor.principal.personId} (${scan.lease.executionId}); submit through the lease holder or use the repository prose channel`
+        ? `next: lease held by ${scan.lease.actor.principal.personId} (${scan.lease.executionId}); ` +
+          "submit through the lease holder or use the repository prose channel"
         : "next: submit through the repository prose channel or acquire the task lease"
       : "next: use the required route shown for each blocked path, then rerun ha doc sync --submit";
   return [
