@@ -107,7 +107,9 @@ export const axisRank = (value?: "high" | "medium" | "low") =>
  * 决策压到最新低风险之下);同档内最新在前——泽宇 2026-08-21 的「时间倒序」
  * 指的是这一层。总览决策流、决策批准、决策池三处共用本排序。
  */
-export function sortDecisionQueue(decisions: DecisionRow[]): DecisionRow[] {
+export function sortDecisionQueue<T extends Pick<DecisionRow, "riskTier" | "urgency" | "proposedAt">>(
+  decisions: readonly T[],
+): T[] {
   return [...decisions].sort((a, b) => {
     const risk = axisRank(a.riskTier) - axisRank(b.riskTier);
     if (risk !== 0) return risk;

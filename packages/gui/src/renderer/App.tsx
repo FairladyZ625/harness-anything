@@ -66,12 +66,11 @@ import { useLocalDocOpener } from "./local-doc/local-doc-context.ts";
 import { useEntityKindOptions, useGovernedEntityRows } from "./entity-kind-data.ts";
 
 /**
- * 渲染全量决策行的视图。总览不在决策抽屉关闭时预读完整图;
- * 其他集合内视图同时渲染图 + 决策。只有这些视图挂载时才读完整投影;
+ * 渲染全量决策行的视图。总览只读决策摘要;其他集合内视图同时渲染图 + 决策。
+ * 只有这些视图挂载时才读完整投影;
  * 看板/总览之外的普通页(presets/adapters/settings/system/…)与任务看板本身都不在其中。
  */
 const FULL_TRIADIC_PROJECTION_VIEWS: ReadonlySet<ViewId> = new Set([
-  "overview",
   "graph",
   "decisions",
   "decisionPool",
@@ -194,11 +193,11 @@ function AppShell() {
   // F-9E166C6B:根级全量重取曾占 GUI 收到字节的 99.13%)。看板徽章不再读任何
   // 三元切面:行内 placement.spawningDecisionIds 已是同一批 derives 边的结果。
   const fullProjectionMounted = FULL_TRIADIC_PROJECTION_VIEWS.has(view);
-  const fullGraphProjectionMounted = fullProjectionMounted && view !== "overview";
-  // 完整投影视图已经包含 decisions,不再并发读窄面。总览新增 repo.agenda.read 后
-  // 仍比旧冷加载少一个请求,并且没有缓存/第二投影。
+  const fullGraphProjectionMounted = fullProjectionMounted;
+  // 完整投影视图已经包含 decisions,不再并发读窄面。总览只读它的摘要，抽屉打开
+  // 才按 id 读取完整行，不建立第二份全量投影。
   const decisionSummary = useDecisionSummaryQuery(activeRepoId, {
-    enabled: !fullProjectionMounted && (selectedId !== null || paletteOpen),
+    enabled: !fullProjectionMounted && (view === "overview" || selectedId !== null || paletteOpen),
   });
   const paletteFacts = usePaletteFactsQuery(activeRepoId, paletteOpen);
   const triadicQuery = useTriadicProjectionQuery(activeRepoId, {
@@ -454,11 +453,12 @@ function AppShell() {
               ) : view === "overview" ? (
                 workspaceSummaryQuery.data ? (
                   <OverviewView
+                    repoId={projectId}
                     project={project}
                     tasks={projectTasks}
                     wipSnapshot={taskWipQuery.data}
                     agenda={agendaQuery.data}
-                    decisions={decisions}
+                    decisions={decisionSummary.decisions}
                     workspaceSummary={workspaceSummaryQuery.data}
                     relations={edgeRelations}
                     health={runtimeHealth}

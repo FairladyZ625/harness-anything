@@ -372,7 +372,14 @@ test("wide task reads keep byte-identical unparameterized results and serve narr
     const decisionSummary = await cell.read("repo.decisions.list", { projection: "summary" }),
       decisionFull = await cell.read("repo.decisions.list", { projection: "full" });
     assert.equal(decisionSummary.projection, "summary");
-    assert.deepEqual(Object.keys(decisionSummary.decisions[0]!).sort(), ["appliesTo", "decisionId", "state", "title"]);
+    assert.deepEqual(Object.keys(decisionSummary.decisions[0]!).sort(), [
+      "decisionId",
+      "proposedAt",
+      "riskTier",
+      "state",
+      "title",
+      "urgency",
+    ]);
     assert.equal(decisionFull.projection, "full");
     assert.equal(Object.hasOwn(decisionFull.decisions[0]!, "readiness"), true);
     await assert.rejects(cell.read("repo.tasks.list", { status: "not-a-status" }), /status is invalid/u);

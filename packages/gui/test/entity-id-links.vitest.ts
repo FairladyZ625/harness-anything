@@ -563,6 +563,7 @@ const VIEW_RENDERERS = {
   home: () => createElement(HomeView, { repos: [fixtureRepoRow()], currentRepoId: REPO_ID, onOpenProject: noop }),
   overview: () =>
     createElement(OverviewView, {
+      repoId: REPO_ID,
       project: FIXTURE_PROJECT,
       tasks: FIXTURE_TASKS,
       agenda: FIXTURE_AGENDA,

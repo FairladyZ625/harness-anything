@@ -313,11 +313,14 @@ const relationGraphCalls = (calls: readonly RecordedCall[]) =>
 const decisionCalls = (calls: readonly RecordedCall[]) => calls.filter(({ method }) => method === "getDecisions");
 
 describe("三元读取按挂载域分层", () => {
-  it("总览只读它渲染的完整决策与 ha agenda,决策抽屉关闭时不读图", async () => {
-    const { calls } = await mountApp({ view: "overview" });
+  it("总览只读决策摘要与 ha agenda,决策抽屉关闭时不读图或完整决策", async () => {
+    const { calls, mark, advanceLedger } = await mountApp({ view: "overview" });
     expect(relationGraphCalls(calls())).toEqual([]);
-    expect(decisionCalls(calls()).map(({ payload }) => payload?.projection)).toEqual([undefined]);
+    expect(decisionCalls(calls()).map(({ payload }) => payload?.projection)).toEqual(["summary"]);
     expect(calls().filter(({ method }) => method === "getAgenda")).toHaveLength(1);
+    const atOverview = mark();
+    await advanceLedger();
+    expect(decisionCalls(calls().slice(atOverview)).map(({ payload }) => payload?.projection)).toEqual(["summary"]);
   });
 
   it("任务看板不读任何关系切面,也不为关闭的 ⌘K 读决策摘要", async () => {

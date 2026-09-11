@@ -636,12 +636,16 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
       return {
         ok: true,
         projection: "summary",
-        decisions: read.decisions.map(({ decisionId, title, state, appliesTo }: DecisionProjectionRow) => ({
-          decisionId,
-          title,
-          state,
-          appliesTo,
-        })),
+        decisions: read.decisions.map(
+          ({ decisionId, title, state, riskTier, urgency, proposedAt }: DecisionProjectionRow) => ({
+            decisionId,
+            title,
+            state,
+            riskTier,
+            urgency,
+            proposedAt,
+          }),
+        ),
         warnings: [],
       };
     {

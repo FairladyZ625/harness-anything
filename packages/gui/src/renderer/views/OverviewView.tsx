@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
-import type { DecisionRow, Project, RelationEdge, SnapshotStatus, TaskRow } from "../model/types";
+import { useQuery } from "@tanstack/react-query";
+import type { Project, RelationEdge, SnapshotStatus, TaskRow } from "../model/types";
 import { Card } from "../components/overview/parts";
 import { DecisionStream } from "../components/overview/DecisionStream.tsx";
 import { TaskStream } from "../components/overview/TaskStream.tsx";
@@ -11,9 +12,10 @@ import type { RuntimeHealth } from "../model/runtime-health.ts";
 import { t } from "../i18n/index.tsx";
 import { formatTime } from "../model/time.ts";
 import type { WorkspaceSummaryRead } from "../../api/renderer-dto.ts";
-import type { AgendaSuccess } from "../api-client.ts";
+import { harnessClient, type AgendaSuccess, type DecisionSummaryRow } from "../api-client.ts";
 import type { TaskWipRead } from "../../api/renderer-dto.ts";
 import { TaskWipSummary } from "../components/TaskWipSummary.tsx";
+import { adaptDecisionRows } from "../triadic-data.ts";
 
 const timeOf = (iso: string) => formatTime(iso, { style: "time" }) ?? "—";
 
@@ -25,6 +27,7 @@ const timeOf = (iso: string) => formatTime(iso, { style: "time" }) ?? "—";
  * 「去批准 / 去看板」是仅有的显式路由出口。
  */
 export function OverviewView({
+  repoId,
   project,
   tasks,
   wipSnapshot,
@@ -43,12 +46,13 @@ export function OverviewView({
   onSetPin,
   onDecisionPreviewChange,
 }: {
+  repoId: string;
   project: Project;
   tasks: readonly TaskRow[];
   wipSnapshot?: TaskWipRead;
   /** `ha agenda` 同一条 repo.agenda.read 投影;PIN 区不从 task list 二次猜。 */
   agenda?: AgendaSuccess;
-  decisions: DecisionRow[];
+  decisions: ReadonlyArray<DecisionSummaryRow>;
   workspaceSummary: WorkspaceSummaryRead;
   relations: RelationEdge[];
   /** 侧栏系统运行区同一份派生(App 折算,见 model/runtime-health.ts);这里只喂底部统计条的异常口径。 */
@@ -71,10 +75,6 @@ export function OverviewView({
 }) {
   // 决策预览抽屉:本页局部状态,不开抽屉不进导航栈(不改导航契约)。
   const [previewDecisionId, setPreviewDecisionId] = useState<string | null>(null);
-  const previewDecision = useMemo(
-    () => decisions.find((decision) => decision.decisionId === previewDecisionId) ?? null,
-    [decisions, previewDecisionId],
-  );
   // 底部统计条的异常口径(task_b2fb4bc7):daemon 断连 / 投影落后 / 读失败。
   // 只消费本页已经拿到的读面,不为此新增任何查询。
   const statsAnomalies: OverviewStatsAnomaly[] = [];
@@ -146,21 +146,62 @@ export function OverviewView({
 
       <OverviewStatsBar summary={workspaceSummary} revision={ledgerRevision} anomalies={statsAnomalies} />
 
-      <DecisionPreviewDrawer
-        decision={previewDecision}
-        tasks={tasks}
-        relations={relations}
-        onClose={() => {
-          setPreviewDecisionId(null);
-          onDecisionPreviewChange?.(null);
-        }}
-        onOpenDetail={(decisionId) => {
-          setPreviewDecisionId(null);
-          onDecisionPreviewChange?.(null);
-          onOpenDecision(decisionId);
-        }}
-        onNavigateEntity={onNavigateEntity}
-      />
+      {previewDecisionId ? (
+        <OverviewDecisionPreview
+          repoId={repoId}
+          decisionId={previewDecisionId}
+          tasks={tasks}
+          relations={relations}
+          onClose={() => {
+            setPreviewDecisionId(null);
+            onDecisionPreviewChange?.(null);
+          }}
+          onOpenDetail={(decisionId) => {
+            setPreviewDecisionId(null);
+            onDecisionPreviewChange?.(null);
+            onOpenDecision(decisionId);
+          }}
+          onNavigateEntity={onNavigateEntity}
+        />
+      ) : null}
     </div>
+  );
+}
+
+function OverviewDecisionPreview({
+  repoId,
+  decisionId,
+  tasks,
+  relations,
+  onClose,
+  onOpenDetail,
+  onNavigateEntity,
+}: {
+  repoId: string;
+  decisionId: string;
+  tasks: readonly TaskRow[];
+  relations: RelationEdge[];
+  onClose: () => void;
+  onOpenDetail: (decisionId: string) => void;
+  onNavigateEntity: (ref: string) => void;
+}) {
+  const previewQuery = useQuery({
+    queryKey: ["overview-decision-preview", repoId, decisionId],
+    queryFn: () => harnessClient.showDecision({ repoId, decisionId }),
+    staleTime: 10_000,
+  });
+  const decision = useMemo(
+    () => (previewQuery.data ? (adaptDecisionRows([previewQuery.data.decision], relations, [])[0] ?? null) : null),
+    [previewQuery.data, relations],
+  );
+  return (
+    <DecisionPreviewDrawer
+      decision={decision}
+      tasks={tasks}
+      relations={relations}
+      onClose={onClose}
+      onOpenDetail={onOpenDetail}
+      onNavigateEntity={onNavigateEntity}
+    />
   );
 }

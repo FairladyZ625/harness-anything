@@ -323,6 +323,7 @@ describe("overview task stream", () => {
     ];
     const page = renderToStaticMarkup(
       createElement(OverviewView, {
+        repoId: "proj",
         project: {
           id: "proj",
           name: "Harness",
@@ -682,6 +683,7 @@ describe("overview task stream: freshly created tasks are visible with zero inte
   it("carries the zero-interaction visibility through the overview page", () => {
     const page = renderToStaticMarkup(
       createElement(OverviewView, {
+        repoId: "proj",
         project: {
           id: "proj",
           name: "Harness",
