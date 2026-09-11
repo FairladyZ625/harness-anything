@@ -51,6 +51,9 @@ test("observe.tail exposes the 3x3 mode matrix and advances only when the source
       opId: null,
       durationMs: 2,
     });
+    // The request log keeps its file handle open between writes since #2470; settle before the
+    // test ends so no handle is left for garbage collection to close.
+    await requestLog.settle();
     const connLog = openDaemonConnLog({
       userRoot,
       daemonId,
