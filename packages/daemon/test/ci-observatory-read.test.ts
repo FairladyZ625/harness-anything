@@ -1,4 +1,5 @@
 // harness-test-tier: contract
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
@@ -379,6 +380,42 @@ test("CI observation pull writes canonical events once per run and job", async (
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
+
+test("CI observation pull synthesizes a ledger-publication run only for private ledger commits", async () => {
+  const rootDir = mkdtempSync(path.join(process.cwd(), ".tmp-ci-observation-ledger-"));
+  const ledgerRoot = path.join(rootDir, "harness");
+  const cell = { rootDir, cellCodedError: (_code: string, message: string) => new Error(message) };
+  const noRuns = ((_command: string, args: readonly string[]) => (args[1] === "list" ? "[]" : "")) as never;
+  try {
+    git(rootDir, "init", "-q", "-b", "main");
+    writeFileSync(path.join(rootDir, "README.md"), "public\n");
+    git(rootDir, "add", "README.md");
+    git(rootDir, "commit", "-q", "-m", "public");
+    mkdirSync(ledgerRoot);
+    git(ledgerRoot, "init", "-q", "-b", "main");
+    writeFileSync(path.join(ledgerRoot, "harness.yaml"), "ledger: true\n");
+    git(ledgerRoot, "add", "harness.yaml");
+    git(ledgerRoot, "commit", "-q", "-m", "ledger");
+    const ledgerHead = git(ledgerRoot, "rev-parse", "HEAD");
+    const privateOnly = await fetchCiObservations(cell, { kind: "ci-observe-pull", limit: 20 }, noRuns);
+    assert.deepEqual(
+      privateOnly.runs.map((run) => [run.summary.workflowName, run.summary.headSha, run.artifacts[0]?.run.runId]),
+      [["ledger-publication", ledgerHead, `ledger-${ledgerHead}`]],
+    );
+    // Once the public repository holds the same commit, GitHub owns the observation.
+    git(rootDir, "fetch", "-q", ledgerRoot, "HEAD");
+    const published = await fetchCiObservations(cell, { kind: "ci-observe-pull", limit: 20 }, noRuns);
+    assert.deepEqual(published.runs, []);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+function git(rootDir: string, ...args: readonly string[]): string {
+  return execFileSync("git", ["-C", rootDir, "-c", "user.name=test", "-c", "user.email=test@example.com", ...args], {
+    encoding: "utf8",
+  }).trim();
+}
 
 test("CI observation pull imports named main runs without listing recent runs", async () => {
   const rootDir = mkdtempSync(path.join(process.cwd(), ".tmp-ci-observation-named-")),

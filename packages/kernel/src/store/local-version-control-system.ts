@@ -286,6 +286,16 @@ export const localGitObjectRefStore = Object.freeze({
     return Number.isNaN(timestamp.valueOf()) ? null : timestamp.toISOString();
   },
   resolveCommit: (repoRoot: string, revision: string) => runGit(repoRoot, "rev-parse", revision).trim(),
+  // `rev-parse` echoes a well-formed sha whether or not the object exists; this asks the object store.
+  hasCommit: (repoRoot: string, sha: string): boolean => {
+    try {
+      runGit(repoRoot, "cat-file", "-e", `${sha}^{commit}`);
+      return true;
+    } catch (error) {
+      consumeKnownError(error);
+      return false;
+    }
+  },
   currentBranch: (repoRoot: string): string | null => {
     try {
       const dotGit = path.join(repoRoot, ".git"),
