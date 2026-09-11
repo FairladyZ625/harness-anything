@@ -134,7 +134,12 @@ function review(
   );
 }
 function reviewProof(actor = reviewer) {
-  return { actorBinding: actor, capability: "execution-review@v1", capabilityRef: "capability:review" };
+  return {
+    actorBinding: actor,
+    capability: "execution-review@v1",
+    capabilityRef: "capability:review",
+    returnBudget: 3,
+  };
 }
 function consent(revision, recorded, actor = owner) {
   return command(
@@ -560,7 +565,7 @@ test("G34 replay preserves reject to new execution to approved consent to comple
           iteration: 1,
           reviewId: "review-second-reject",
         }),
-        reviewProof(),
+        { ...reviewProof(), returnBudget: 1 },
       ),
     (error) => error instanceof TaskLifecycleContractError && error.code === "manual_intervention_required",
   );

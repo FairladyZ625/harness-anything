@@ -76,11 +76,13 @@ function reviewIssues(
     issues.push(
       lifecycleContractIssue("invalid_proof", "transport-bound execution review proof and content digest are required"),
     );
-  if (command.verdict === "changes_requested" && (snapshot.task?.iteration ?? 0) >= (proof.returnBudget ?? 0))
+  const iteration = snapshot.task?.iteration ?? 0;
+  if (command.verdict === "changes_requested" && iteration >= (proof.returnBudget ?? 0))
     issues.push(
       lifecycleContractIssue(
         "manual_intervention_required",
-        "return budget exhausted; use `ha task submit --amend` to update the current submitted execution before requesting review again",
+        "return budget exhausted; use `ha task submit --amend` to update the current submitted execution " +
+          "before requesting review again",
       ),
     );
   return issues;
