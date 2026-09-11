@@ -254,15 +254,6 @@ test("a standard task becomes a visible structure-derived root without rewriting
       for (let index = 0; index < count; index++)
         await createReadyTask(cell, rootDir, `${parentTaskId}_CHILD_${index}`, `Child ${index}`, { parentTaskId });
     assert.deepEqual(resolveTaskRootThreshold(rootDir), { threshold: 3, label: TASK_ROOT_THRESHOLD_SETTING });
-    assert.equal(
-      (await cell.run({ kind: "task-start", taskId: "task_ROOT_2", executionId: "exe_root_2" }, binding)).outcome,
-      "applied",
-    );
-    assert.equal(
-      (await cell.run({ kind: "task-start", taskId: "task_ROOT_3", executionId: "exe_root_3" }, binding)).outcome,
-      "applied",
-      "3 children derives root and does not consume the existing slot",
-    );
     const shown = evidence(await cell.run({ kind: "task-show", taskId: "task_ROOT_3" }, binding));
     assert.equal(
       (shown.task as { readonly taskClass: string }).taskClass,
@@ -270,6 +261,22 @@ test("a standard task becomes a visible structure-derived root without rewriting
       "derived root never writes taskClass",
     );
     assert.deepEqual(shown.rootAssessment, { isRoot: true, reason: "derived", directChildCount: 3, threshold: 3 });
+    assert.equal(
+      (await cell.run({ kind: "task-start", taskId: "task_ROOT_2", executionId: "exe_root_2" }, binding)).outcome,
+      "applied",
+    );
+    const three = await cell.run({ kind: "task-start", taskId: "task_ROOT_3", executionId: "exe_root_3" }, binding);
+    assert.equal(
+      three.outcome,
+      "op_rejected",
+      "a container with three children occupies the worktable once it executes",
+    );
+    assert.equal(three.code, "task_wip_limit_reached");
+    assert.deepEqual(
+      evidence(await cell.run({ kind: "task-show", taskId: "task_ROOT_3" }, binding)).rootAssessment,
+      { isRoot: true, reason: "derived", directChildCount: 3, threshold: 3 },
+      "the rejected start leaves the pure container a derived root",
+    );
     process.env[TASK_ROOT_THRESHOLD_ENV] = "5";
     await cell.close();
     cell = await open();

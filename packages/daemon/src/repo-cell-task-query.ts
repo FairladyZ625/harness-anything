@@ -146,6 +146,7 @@ export function listTasks(cell: TaskQueryCell, action: RepoTaskAction, binding: 
                     taskClass: row.taskClass,
                     packageDisposition: row.packageDisposition,
                     hasCloseoutEvidence: false,
+                    hasOwnExecution: false,
                     directChildCount,
                   },
                   rootSetting.threshold,
@@ -244,6 +245,9 @@ export function wipSnapshotEntries(cell: TaskQueryCell, activatingTaskId: string
     taskClass: row.snapshot.task?.taskClass ?? "standard",
     packageDisposition: requiredPackageDisposition(row.taskId, row.snapshot.task?.packageDisposition),
     hasCloseoutEvidence: hasCloseoutEvidence(row.snapshot.executions),
+    hasOwnExecution:
+      row.snapshot.lease !== null ||
+      row.snapshot.executions.some((execution) => execution.state === "active" || execution.state === "submitted"),
     directChildCount: childCounts[row.taskId] ?? 0,
   }));
 }

@@ -4,7 +4,7 @@ import test from "node:test";
 import { DEFAULT_TASK_WIP_LIMIT, admitTaskExecutionWip, parseTaskWipLimit } from "../../src/index.ts";
 import { enteringExecutionWip, hasCloseoutEvidence, isExecutionWipTask, type TaskWipSnapshotEntryV1 } from "../../src/domain/task-wip-policy.ts";
 
-const entry = (overrides: Partial<TaskWipSnapshotEntryV1> = {}): TaskWipSnapshotEntryV1 => ({ taskId: "task_X", title: "X", status: "active", taskClass: "standard", packageDisposition: "active", hasCloseoutEvidence: false, directChildCount: 0, ...overrides });
+const entry = (overrides: Partial<TaskWipSnapshotEntryV1> = {}): TaskWipSnapshotEntryV1 => ({ taskId: "task_X", title: "X", status: "active", taskClass: "standard", packageDisposition: "active", hasCloseoutEvidence: false, hasOwnExecution: false, directChildCount: 0, ...overrides });
 
 test("the default limit is 30 and the count admits work below it", () => {
   assert.equal(DEFAULT_TASK_WIP_LIMIT, 30);
@@ -25,6 +25,7 @@ test("an exactly full worktable rejects a new activation with the counting crite
   assert.match(admission.message, /TASK_WIP_LIMIT_REACHED: Execution worktable is full \(30\/30; settings\.tasks\.wipLimit=30\)/u);
   assert.match(admission.message, /Suggested: task_BLOCKED "Blocked" \(blocked\)/u);
   assert.match(admission.message, /ha task start task_NEW/u);
+  assert.match(admission.message, /Derived root exemption applies only to pure containers/u);
 });
 
 test("only occupying statuses on active standard packages count; ideas, containers, and dispositions never do", () => {
@@ -55,6 +56,12 @@ test("structure-derived roots do not occupy WIP, preserve the declared taskClass
   assert.equal(isExecutionWipTask(entry({ directChildCount: 2 })), true, "2 direct children remains a leaf at the default threshold");
   assert.equal(isExecutionWipTask(entry({ directChildCount: 4 }), 5), true, "4 direct children remains a leaf when threshold is raised to 5");
   assert.equal(isExecutionWipTask(entry({ directChildCount: 5 }), 5), false, "5 direct children reaches the configured threshold");
+});
+
+test("derived root exemption applies only to pure containers", () => {
+  assert.equal(isExecutionWipTask(entry({ directChildCount: 4, hasOwnExecution: true })), true);
+  assert.equal(isExecutionWipTask(entry({ directChildCount: 4, hasOwnExecution: false })), false);
+  assert.equal(isExecutionWipTask(entry({ directChildCount: 4, taskClass: "milestone", hasOwnExecution: true })), false);
 });
 
 test("entering the worktable is the only gated move; re-entering an occupied slot adds nothing", () => {

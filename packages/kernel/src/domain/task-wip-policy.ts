@@ -31,6 +31,8 @@ export interface TaskWipSnapshotEntryV1 {
    * adding parallel work, so it never enters the WIP count.
    */
   readonly hasCloseoutEvidence: boolean;
+  /** Whether this task has an active/submitted execution or an active lease. */
+  readonly hasOwnExecution: boolean;
   /** Number of direct children in the existing task projection. */
   readonly directChildCount: number;
 }
@@ -54,7 +56,8 @@ export function deriveTaskRoot(
   if (entry.taskClass === "milestone" || entry.taskClass === "long_running") {
     return { isRoot: true, reason: "declared", directChildCount, threshold };
   }
-  if (directChildCount >= threshold) return { isRoot: true, reason: "derived", directChildCount, threshold };
+  if (directChildCount >= threshold && !entry.hasOwnExecution)
+    return { isRoot: true, reason: "derived", directChildCount, threshold };
   return { isRoot: false, reason: "none", directChildCount, threshold };
 }
 
@@ -131,6 +134,7 @@ export function admitTaskExecutionWip(input: TaskWipAdmissionInput): TaskWipAdmi
       `${formatWipComposition(input.tasks, rootThreshold)} ` +
       `Before starting ${input.activatingTaskId}, close one existing task. Suggested: ${suggestions}. ` +
       `Next: complete, cancel (\`ha task transition <task-id> cancelled --force --reason <reason>\`), or archive one of those tasks, then retry \`ha task start ${input.activatingTaskId}\`. ` +
+      "Derived root exemption applies only to pure containers. " +
       "Planned tasks stay in the idea backlog and are never counted or removed.",
   };
 }
@@ -141,9 +145,10 @@ export function enteringExecutionWip(
   nextStatus: DomainStatus,
   rootThreshold = DEFAULT_TASK_ROOT_THRESHOLD,
 ): boolean {
-  return (
-    !isExecutionWipTask(current, rootThreshold) && isExecutionWipTask({ ...current, status: nextStatus }, rootThreshold)
-  );
+  // Entering active takes the worktable: task-start creates the execution and reserve
+  // takes the lease, so a container stops being a pure container at that moment.
+  const next = { ...current, status: nextStatus, hasOwnExecution: current.hasOwnExecution || nextStatus === "active" };
+  return !isExecutionWipTask(current, rootThreshold) && isExecutionWipTask(next, rootThreshold);
 }
 
 function formatWipComposition(tasks: readonly TaskWipSnapshotEntryV1[], rootThreshold: number): string {

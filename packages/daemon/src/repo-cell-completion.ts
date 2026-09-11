@@ -138,6 +138,11 @@ export function taskShowFromProjection(
             status: task.status,
             taskClass: task.taskClass,
             packageDisposition: task.packageDisposition ?? "active",
+            hasOwnExecution:
+              read.snapshot.lease !== null ||
+              read.snapshot.executions.some(
+                (execution) => execution.state === "active" || execution.state === "submitted",
+              ),
             hasCloseoutEvidence: hasCloseoutEvidence(read.snapshot.executions),
             directChildCount,
           },
