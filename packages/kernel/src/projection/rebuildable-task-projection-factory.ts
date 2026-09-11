@@ -238,6 +238,7 @@ export function makeTaskProjectionReader(options: {
       listDecisions: knowledgeQueries.listDecisions,
       listDecisionAgendaPage: knowledgeQueries.listDecisionAgendaPage,
       readDecisionGraph: knowledgeQueries.readDecisionGraph,
+      readDecisionCoverage: knowledgeQueries.readDecisionCoverage,
       readLeaseIntervals: runtimeQueries.readLeaseIntervals,
       currentLease: runtimeQueries.currentLease,
       currentLeaseForExecution: runtimeQueries.currentLeaseForExecution,

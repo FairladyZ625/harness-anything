@@ -10,6 +10,7 @@ import type { DecisionListFilters, DecisionPageQuery } from "./decision-event-pr
 import type { FactSearchFilters } from "./fact-event-projection.ts";
 import type {
   DecisionAgendaProjectionPageRead,
+  DecisionCoverageProjectionRead,
   DecisionGraphProjectionRead,
   DecisionProjectionListRead,
   DecisionProjectionRead,
@@ -152,6 +153,7 @@ export interface TaskProjection {
   readonly listDecisions: (filters: DecisionListFilters) => DecisionProjectionListRead;
   readonly listDecisionAgendaPage: (query: DecisionPageQuery) => DecisionAgendaProjectionPageRead;
   readonly readDecisionGraph: () => DecisionGraphProjectionRead;
+  readonly readDecisionCoverage: (decisionIds: readonly string[]) => DecisionCoverageProjectionRead;
   readonly readLeaseIntervals: (taskId: string) => readonly LeaseInterval[];
   readonly currentLease: (taskId: string, now?: string) => LeaseV1 | null;
   readonly currentLeaseForExecution: (executionId: string, now?: string) => LeaseV1 | null;

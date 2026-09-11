@@ -142,12 +142,15 @@ export function validateDecisionPackages(
 ) {
   const selection = typeof action.decisionId === "string" ? service.show(action.decisionId) : service.list({}),
     decisions = "decision" in selection ? [selection.decision] : selection.decisions,
-    graph = projection.readDecisionGraph(),
-    rows = decisions.map((decision) => validateOne(decision, projection, graph.edges));
+    // Only a decision's own edges enter its digest: one decision reads its own, the full check reads all.
+    relations = projection.readRelationQuery(
+      "decision" in selection ? { ownerRef: `decision/${selection.decision.decisionId}` } : {},
+    ),
+    rows = decisions.map((decision) => validateOne(decision, projection, relations.rows));
   return {
     status: selection.status,
-    watermark: Math.min(selection.watermark, graph.watermark),
-    sourceRevision: Math.max(selection.sourceRevision, graph.sourceRevision),
+    watermark: Math.min(selection.watermark, relations.watermark),
+    sourceRevision: Math.max(selection.sourceRevision, relations.sourceRevision),
     rows,
     report: {
       schema: "decision-validation-report/v1",
@@ -163,7 +166,7 @@ export function validateDecisionPackages(
 function validateOne(
   decision: DecisionProjectionRow,
   projection: TaskProjection,
-  edges: ReturnType<TaskProjection["readDecisionGraph"]>["edges"],
+  edges: ReturnType<TaskProjection["readRelationQuery"]>["rows"],
 ) {
   const errors: string[] = [],
     warnings: string[] = [],

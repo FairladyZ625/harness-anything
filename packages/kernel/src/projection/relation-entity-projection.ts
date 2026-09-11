@@ -205,15 +205,24 @@ export function readRelationProjectionRows(
   db: DatabaseSync,
   targetRef?: string,
 ): readonly VersionedRelationProjectionRow[] {
-  const rows = (
+  return relationProjectionRowsAtCut(
+    db,
     targetRef === undefined
       ? queryRows<{ readonly row_json: string }>(db, "SELECT row_json FROM relation_edge ORDER BY relation_id")
       : queryRows<{ readonly row_json: string }>(
           db,
           "SELECT row_json FROM relation_edge WHERE target_ref = ? ORDER BY relation_id",
           targetRef,
-        )
-  )
+        ),
+  );
+}
+
+/** Projection rows for selected relation_edge `row_json` values, each judged fresh or stale at this cut. */
+export function relationProjectionRowsAtCut(
+  db: DatabaseSync,
+  selected: readonly { readonly row_json: string }[],
+): readonly VersionedRelationProjectionRow[] {
+  const rows = selected
     .map((row) => JSON.parse(row.row_json) as Partial<VersionedRelationProjectionRow>)
     .filter(
       (row): row is VersionedRelationProjectionRow =>

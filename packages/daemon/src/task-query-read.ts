@@ -410,7 +410,9 @@ export function makeTaskQueryReadModel(input: {
       facts = projection.searchFacts({ refs: factRefs }),
       factAnchors = projection.readFactAnchors(factRefs),
       decisionRefs = [...refs].filter((ref) => ref.startsWith("decision/")),
-      decisions = projection.readDecisionGraph(),
+      decisions = projection.readDecisionCoverage([
+        ...new Set(decisionRefs.flatMap((ref) => /^decision\/([^/]+)/u.exec(ref)?.[1] ?? [])),
+      ]),
       cut = requireSameProjectionCut(label, [page, facts, factAnchors, decisions]),
       coverageRows = decisions.coverageRows.filter((row) =>
         decisionRefs.some((ref) => row.decisionRef === ref || row.claimRef === ref),

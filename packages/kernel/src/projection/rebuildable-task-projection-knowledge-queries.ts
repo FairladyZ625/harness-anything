@@ -1,6 +1,7 @@
 // @write-boundary-exemption rebuildable-projection
 import {
   assertDecisionAdmission,
+  decisionCoverage,
   listDecisionAgendaRowsPage,
   listDecisionRowsPage,
   readDecisionGraphRows,
@@ -43,6 +44,7 @@ export function knowledgeQueryApi(
   | "listDecisions"
   | "listDecisionAgendaPage"
   | "readDecisionGraph"
+  | "readDecisionCoverage"
 > {
   const { eventStore, limit, projectionPath, readHead } = context;
   return {
@@ -172,6 +174,16 @@ export function knowledgeQueryApi(
         return {
           status: cut.status,
           ...readDecisionGraphRows(db),
+          watermark: cut.watermark,
+          sourceRevision: cut.sourceRevision,
+        };
+      }),
+    readDecisionCoverage: (decisionIds) =>
+      withDatabase(projectionPath, readHead, (db) => {
+        const cut = readProjectionCut(db, readHead);
+        return {
+          status: cut.status,
+          coverageRows: decisionCoverage(db, decisionIds),
           watermark: cut.watermark,
           sourceRevision: cut.sourceRevision,
         };

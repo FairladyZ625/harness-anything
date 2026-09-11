@@ -59,6 +59,7 @@ export const G1_WRITE_OPERATIONS = Object.freeze([
   "decision-propose",
   "decision-reject",
   "relation-relate",
+  "decision-reckon",
   "receipt-show",
 ]);
 export const G1_READ_OPERATIONS = Object.freeze(["task-list", "task-show", "agenda", "runtime-overview"]);
@@ -586,6 +587,9 @@ export async function measureWriteCostScaling(eventCount: number): Promise<G1Sca
           rationale: "G1 measured relation for the cost-scaling gate.",
           expectedVersion: 0,
         }),
+      );
+      await each("decision-reckon", measure, (subject) =>
+        run({ kind: "decision-reckon", decisionId: subject.decisionId, taskId: subject.taskId }),
       );
       await each("receipt-show", measure, (subject) => run({ kind: "receipt-show", opId: subject.createOpId }));
     } finally {
