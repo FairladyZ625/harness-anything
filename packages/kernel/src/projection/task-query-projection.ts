@@ -576,6 +576,34 @@ export function readTaskStatusRows(
   ).map((row) => ({ taskId: row.task_id, status: row.status }));
 }
 
+/** Indexed existence check used by task creation and parent validation.
+ * The task_snapshot primary key keeps this lookup bounded. */
+export function readTaskExists(db: DatabaseSync, taskId: string): boolean {
+  const query = "SELECT task_id FROM task_snapshot WHERE task_id = ? LIMIT 1";
+  return queryRows<{ readonly task_id: string }>(db, query, taskId).length > 0;
+}
+
+/** Find a task by its idempotency key without materializing the task index. */
+export function readTaskByIdempotencyKey(
+  db: DatabaseSync,
+  idempotencyKey: string,
+): { readonly taskId: string; readonly status: string; readonly packagePath: string | null } | null {
+  const row = queryRows<{
+    readonly task_id: string;
+    readonly status: string;
+    readonly package_path: string | null;
+  }>(
+    db,
+    [
+      "SELECT task_snapshot.task_id, task_snapshot.status, task_package.package_path FROM task_snapshot",
+      "LEFT JOIN task_package USING(task_id)",
+      "WHERE json_extract(task_snapshot.snapshot_json, '$.task.metadata.idempotencyKey') = ? LIMIT 1",
+    ].join(" "),
+    idempotencyKey,
+  )[0];
+  return row ? { taskId: row.task_id, status: row.status, packagePath: row.package_path } : null;
+}
+
 /** Indexed narrow page over the task snapshot table; order matches the unparameterized list (task id asc). */
 export function listTaskRowsNarrow(
   db: DatabaseSync,
