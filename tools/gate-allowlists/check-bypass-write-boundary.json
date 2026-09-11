@@ -640,6 +640,12 @@
         "api": "rmdirSync",
         "ref": "dec_78A329289D1AA69527529DA92C",
         "reason": "The canonical materializer retires only accepted owned directory paths with non-recursive removal; unowned and non-empty directories remain."
+      },
+      {
+        "value": "bypass-write-135",
+        "api": "rmSync",
+        "ref": "task_f16581aa37aadc9e00699729d7",
+        "reason": "Ledger backup drill rolls its own restore-drill shadow copies beyond the configured retention under the ledger's restore-drills parent."
       }
     ],
     "exemptHumanOrBootstrap": [],

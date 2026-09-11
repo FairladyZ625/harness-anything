@@ -43,7 +43,9 @@ export const localLedgerBackupFileSystem = {
   readLink: readlinkSync,
   stat: statSync,
   write: writeFileSync,
-  remove: (inputPath: string) => rmSync(inputPath, { recursive: true, force: true }),
+  remove: (inputPath: string) =>
+    /* @gate-identity check-bypass-write-boundary/bypass-write-135 */
+    rmSync(inputPath, { recursive: true, force: true }),
 } as const;
 
 export const localEventFileSystem = {
