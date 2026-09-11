@@ -59,7 +59,7 @@ type SquadState = {
   readonly taskId: string;
   readonly runtimeInstanceId: string;
   readonly cwd: string;
-  readonly baseSha: string;
+  readonly baseSha: string | null;
   readonly mission: string;
   readonly model: string | null;
   readonly effort: string | null;
@@ -532,24 +532,34 @@ export function makeSquadCoordinator(input: {
     const attemptId = `worker-${state.workerAttempts.length + 1}`;
     let worktree: WorkerAttempt["worktree"] = null;
     try {
-      worktree = state.permissionMode === "read-only" ? null : prepareWorkerWorktree(state, plan.workerId);
-      await input.reacquireTaskLease(state.taskId, state.binding);
+      const dispatchState =
+        state.permissionMode === "read-only" || state.baseSha !== null
+          ? state
+          : revise(state, {
+              baseSha: localGitObjectRefStore.resolveCommit(
+                state.cwd,
+                state.cwd === input.rootDir ? "origin/main" : "HEAD",
+              ),
+            });
+      worktree =
+        dispatchState.permissionMode === "read-only" ? null : prepareWorkerWorktree(dispatchState, plan.workerId);
+      await input.reacquireTaskLease(dispatchState.taskId, dispatchState.binding);
       const receipt = await input.runtimeSpawner().spawn(
           {
-            agentId: state.leaderAgentId,
+            agentId: dispatchState.leaderAgentId,
             targetAgentId: plan.workerId,
             prompt: workerPrompt(plan.prompt, worktree),
-            cwd: cwdPayload(input.rootDir, worktree?.cwd ?? state.cwd),
-            taskId: state.taskId,
-            ...(state.effort ? { effort: state.effort } : {}),
-            ...(state.permissionMode ? { permissionMode: state.permissionMode } : {}),
-            idempotencyKey: `${state.squadRunId}:${leaderTurnId}:${attemptId}`,
+            cwd: cwdPayload(input.rootDir, worktree?.cwd ?? dispatchState.cwd),
+            taskId: dispatchState.taskId,
+            ...(dispatchState.effort ? { effort: dispatchState.effort } : {}),
+            ...(dispatchState.permissionMode ? { permissionMode: dispatchState.permissionMode } : {}),
+            idempotencyKey: `${dispatchState.squadRunId}:${leaderTurnId}:${attemptId}`,
           },
           state.binding,
         ),
         dispatchId = requiredReceiptText(receipt, "dispatchId"),
         runtimeSessionId = requiredReceiptText(receipt, "runtimeSessionId"),
-        updated = revise(state, {
+        updated = revise(dispatchState, {
           workerAttempts: [
             ...state.workerAttempts,
             {
@@ -987,7 +997,7 @@ function squadState(value: unknown): SquadState | null {
   const row = value as Partial<SquadState>;
   return row.schema === "squad-run/v1" &&
     typeof row.squadRunId === "string" &&
-    typeof row.baseSha === "string" &&
+    (row.baseSha === undefined || row.baseSha === null || typeof row.baseSha === "string") &&
     validSquadRunId(row.squadRunId) &&
     typeof row.stateDispatchId === "string" &&
     Array.isArray(row.leaderTurns) &&
@@ -998,7 +1008,7 @@ function squadState(value: unknown): SquadState | null {
     Number.isSafeInteger(row.leaderTurnBudget) &&
     Number(row.leaderTurnBudget) >= 1 &&
     typeof row.revision === "number"
-    ? (value as SquadState)
+    ? ({ ...value, baseSha: row.baseSha ?? null } as SquadState)
     : null;
 }
 
@@ -1046,6 +1056,7 @@ function cwdPayload(rootDir: string, cwd: string): JsonObject {
 }
 
 function prepareWorkerWorktree(state: SquadState, workerId: string) {
+  if (state.baseSha === null) throw new Error("Squad run baseline is unavailable.");
   const slug = `squad-${state.squadRunId.slice("squad_".length)}-${workerId}`,
     branch = `codex/${slug}`,
     cwd = path.join(state.cwd, ".worktrees", slug);
