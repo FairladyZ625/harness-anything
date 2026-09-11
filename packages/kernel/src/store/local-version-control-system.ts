@@ -439,6 +439,34 @@ export const localGitObjectRefStore = Object.freeze({
     }
     return entries;
   },
+  listTreeAll: (
+    repoRoot: string,
+    commit: string,
+  ): readonly {
+    readonly mode: "100644" | "120000";
+    readonly oid: string;
+    readonly size: number;
+    readonly target: string;
+  }[] => {
+    const output = localGitBytes(repoRoot, ["ls-tree", "-r", "-l", "-z", commit]),
+      entries: { mode: "100644" | "120000"; oid: string; size: number; target: string }[] = [];
+    for (const record of output.toString("utf8").split("\0")) {
+      if (!record) continue;
+      const tab = record.indexOf("\t"),
+        header = tab < 0 ? "" : record.slice(0, tab),
+        logical = tab < 0 ? "" : record.slice(tab + 1),
+        [mode, type, oid, size] = header.trim().split(/\s+/u);
+      if (
+        (mode === "100644" || mode === "120000") &&
+        type === "blob" &&
+        /^[0-9a-f]{40}$/u.test(oid ?? "") &&
+        /^[0-9]+$/u.test(size ?? "") &&
+        logical
+      )
+        entries.push({ mode, oid: oid!, size: Number(size), target: logical });
+    }
+    return entries;
+  },
   importCommit: (repoRoot: string, input: Iterable<string | Uint8Array>) =>
     withStdinFile(repoRoot, ".ha-fast-import-", input, (inputFd) =>
       localGitBytes(
