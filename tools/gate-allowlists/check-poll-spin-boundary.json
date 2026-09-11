@@ -64,12 +64,6 @@
         "reason": "Existing polling or synchronous bridge at the CH3 baseline."
       },
       {
-        "key": "packages/daemon/src/runtime-spawn-adoption.ts#adoptRuntimes#short-timer",
-        "event": "baseline-2026-09-10: no awaitable completion event is exposed by the current API",
-        "ref": "dec_EF5F3820E81FB8A5266F1F3342",
-        "reason": "Existing polling or synchronous bridge at the CH3 baseline."
-      },
-      {
         "key": "packages/daemon/src/runtime-spawn-process.ts#awaitRuntimeProcessExit#await-in-loop",
         "event": "baseline-2026-09-10: no awaitable completion event is exposed by the current API",
         "ref": "dec_EF5F3820E81FB8A5266F1F3342",
