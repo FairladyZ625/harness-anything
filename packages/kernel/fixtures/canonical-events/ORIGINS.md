@@ -182,5 +182,6 @@ These registered schemas do not occur at the sampled canonical cut and retain th
 
 - `agent-entity-event/v1`: de-identified historical `agent_entity_written` event `op_ecb4101d…`.
 - `ci-run-observation/v1`: original CI artifact ingestion fixture, retained byte-for-byte for offline generation conversion; rejected by current admission.
-- `ci-run-observation/v2`: converted CI artifact ingestion contract fixture with no verified verdict inferred from the historical measurement.
+- `ci-run-observation/v2`: historical converted CI artifact ingestion contract fixture with no verified verdict inferred from the historical measurement.
+- `ci-run-observation/v3`: current CI artifact ingestion contract fixture with semantic gate results.
 - `ledger-layout-event/v1`: de-identified canonical layout migration event `op_73c908af…`.

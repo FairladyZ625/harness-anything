@@ -5,7 +5,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readCiObservatory } from "../src/ci-observatory-read.ts";
 import { fetchCiObservations, ingestCiObservations, selectCiObservationRuns } from "../src/ci-observation-actions.ts";
-import type { CiRunObservationEventV2 } from "../../kernel/src/index.ts";
+import type { CiRunObservationEventV3 } from "../../kernel/src/index.ts";
 
 const actor = { principal: { personId: "person-observatory" }, executor: null } as const;
 
@@ -21,12 +21,12 @@ async function pullAndIngestCiObservations(
 
 function event(
   revision: number,
-  run: Partial<CiRunObservationEventV2["payload"]["run"]>,
-  tests: CiRunObservationEventV2["payload"]["tests"],
-  gates: CiRunObservationEventV2["payload"]["gates"] = [],
-): CiRunObservationEventV2 {
+  run: Partial<CiRunObservationEventV3["payload"]["run"]>,
+  tests: CiRunObservationEventV3["payload"]["tests"],
+  gates: CiRunObservationEventV3["payload"]["gates"] = [],
+): CiRunObservationEventV3 {
   return {
-    schema: "ci-run-observation/v2",
+    schema: "ci-run-observation/v3",
     eventId: `event-observatory-${revision}`,
     workspaceRevision: revision,
     opId: `op-observatory-${revision}`,
@@ -77,7 +77,7 @@ test("CI observatory aggregates filtered runs, retries, percentiles, shards, gat
           retry: 0,
         },
       ],
-      [{ gate: "G32", pass: false, metrics: { durationMs: 20 } }],
+      [{ gate: "G32", result: "fail", metrics: { durationMs: 20 } }],
     ),
     event(
       2,
@@ -111,7 +111,7 @@ test("CI observatory aggregates filtered runs, retries, percentiles, shards, gat
           retry: 0,
         },
       ],
-      [{ gate: "G32", pass: true, metrics: { durationMs: 12, count: 3 } }],
+      [{ gate: "G32", result: "pass", metrics: { durationMs: 12, count: 3 } }],
     ),
     event(1, { branch: "feature/ignored" }, [
       { file: "ignored.ts", name: "ignored", tier: "fast", shard: 1, durationMs: 99, status: "failed", retry: 0 },
@@ -154,6 +154,35 @@ test("CI observatory aggregates filtered runs, retries, percentiles, shards, gat
 
 test("CI observatory rejects out-of-range windows before reading the projection", () => {
   assert.throws(() => readCiObservatory({ rootDir: process.cwd(), projection: {} as never, window: 0 }), /1\.\.100/u);
+});
+
+test("CI observatory does not count an advisory gate as a passing run", () => {
+  const rootDir = mkdtempSync(path.join(process.cwd(), ".tmp-ci-observatory-advisory-"));
+  mkdirSync(path.join(rootDir, "tools"), { recursive: true });
+  writeFileSync(
+    path.join(rootDir, "tools/test-quarantine.json"),
+    JSON.stringify({ schema: "harness-test-quarantine/v1", tests: [] }),
+  );
+  try {
+    const result = readCiObservatory({
+      rootDir,
+      projection: {
+        readCiRunObservations: () => ({
+          status: "ready",
+          events: [
+            event(1, { runId: "advisory-run" }, [], [{ gate: "G32", result: "advisory", metrics: { count: 1 } }]),
+          ],
+          watermark: 1,
+          sourceRevision: 1,
+        }),
+      } as never,
+      window: 1,
+    });
+    assert.equal(result.runs[0]?.pass, false);
+    assert.equal(result.gateTrends[0]?.points[0]?.pass, false);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
 });
 
 test("CI observatory fails closed on malformed quarantine ownership", () => {
@@ -235,7 +264,7 @@ test("CI observatory window retains every job from the selected workflow run", (
 
 test("CI observation pull writes canonical events once per run and job", async () => {
   const rootDir = mkdtempSync(path.join(process.cwd(), ".tmp-ci-observation-pull-"));
-  const events = new Map<string, CiRunObservationEventV2>();
+  const events = new Map<string, CiRunObservationEventV3>();
   let revision = 0;
   const cell = {
     rootDir,
@@ -244,7 +273,7 @@ test("CI observation pull writes canonical events once per run and job", async (
     store: {
       readHead: () => (revision === 0 ? null : { revision }),
       readEvent: (opId: string) => events.get(opId),
-      append: ({ event: observed }: { event: CiRunObservationEventV2 }) => {
+      append: ({ event: observed }: { event: CiRunObservationEventV3 }) => {
         revision += 1;
         events.set(observed.opId, observed);
         return { revision };
@@ -290,7 +319,10 @@ test("CI observation pull writes canonical events once per run and job", async (
           runner: "ubuntu",
         },
         tests: [],
-        gates: [],
+        gates:
+          runId === "101"
+            ? [{ gate: "G32", result: "pass", metrics: { files: 42 } }]
+            : [{ gate: "G32", pass: true, metrics: { files: 42 } }],
       }),
     );
     return "";
@@ -335,7 +367,14 @@ test("CI observation pull writes canonical events once per run and job", async (
       conclusion: "success",
     });
     assert.equal(observed.find((event) => event.payload.run.runId === "102.1")?.payload.verification, null);
-    assert.ok([...events.values()].every((observed) => observed.schema === "ci-run-observation/v2"));
+    assert.ok([...events.values()].every((observed) => observed.schema === "ci-run-observation/v3"));
+    assert.deepEqual(
+      [...events.values()].map((observed) => observed.payload.gates),
+      [
+        [{ gate: "G32", result: "pass", metrics: { files: 42 } }],
+        [{ gate: "G32", result: "pass", metrics: { files: 42 } }],
+      ],
+    );
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
@@ -343,7 +382,7 @@ test("CI observation pull writes canonical events once per run and job", async (
 
 test("CI observation pull imports named main runs without listing recent runs", async () => {
   const rootDir = mkdtempSync(path.join(process.cwd(), ".tmp-ci-observation-named-")),
-    events: CiRunObservationEventV2[] = [],
+    events: CiRunObservationEventV3[] = [],
     calls: string[] = [];
   const cell = {
     rootDir,
@@ -352,7 +391,7 @@ test("CI observation pull imports named main runs without listing recent runs", 
     store: {
       readHead: () => (events.length ? { revision: events.length } : null),
       readEvent: (opId: string) => events.find((event) => event.opId === opId),
-      append: ({ event }: { event: CiRunObservationEventV2 }) => {
+      append: ({ event }: { event: CiRunObservationEventV3 }) => {
         events.push(event);
         return { revision: events.length };
       },
@@ -486,7 +525,7 @@ test("CI completion verdict comes from the completed matching workflow run, not 
   ];
   for (const scenario of cases) {
     const rootDir = mkdtempSync(path.join(process.cwd(), ".tmp-ci-completion-verdict-")),
-      events: CiRunObservationEventV2[] = [];
+      events: CiRunObservationEventV3[] = [];
     let downloads = 0;
     const cell = {
       rootDir,
@@ -495,7 +534,7 @@ test("CI completion verdict comes from the completed matching workflow run, not 
       store: {
         readHead: () => (events.length ? { revision: events.length } : null),
         readEvent: (opId: string) => events.find((event) => event.opId === opId),
-        append: ({ event }: { event: CiRunObservationEventV2 }) => {
+        append: ({ event }: { event: CiRunObservationEventV3 }) => {
           events.push(event);
           return { revision: events.length };
         },
@@ -537,7 +576,7 @@ test("CI completion verdict comes from the completed matching workflow run, not 
                 runner: "fixture",
               },
               tests: [],
-              gates: [{ gate: "ci", pass: true, metrics: {} }],
+              gates: [{ gate: "ci", result: "pass", metrics: {} }],
             }),
           );
           return "";

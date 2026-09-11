@@ -104,6 +104,16 @@ export function applyEvent(
     );
     return;
   }
+  if (event.schema === "ci-run-observation/v2") {
+    runSql(
+      db,
+      "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, NULL, ?)",
+      event.opId,
+      event.workspaceRevision,
+      eventJson,
+    );
+    return;
+  }
   if (isLedgerLayoutMigrationEvent(event)) {
     runSql(
       db,

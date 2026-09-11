@@ -12,10 +12,10 @@ test("CI gate results replace one canonical gate row without textual output pars
     previous = process.env.HARNESS_CI_GATE_RESULTS;
   process.env.HARNESS_CI_GATE_RESULTS = destination;
   try {
-    writeCiGateResult("G32", true, { actualLines: 10 });
-    writeCiGateResult("G32", false, { actualLines: 11 });
+    writeCiGateResult("G32", "pass", { actualLines: 10 });
+    writeCiGateResult("G32", "advisory", { actualLines: 11 });
     assert.deepEqual(JSON.parse(readFileSync(destination, "utf8")), [
-      { gate: "G32", pass: false, metrics: { actualLines: 11 } },
+      { gate: "G32", result: "advisory", metrics: { actualLines: 11 } },
     ]);
   } finally {
     if (previous === undefined) delete process.env.HARNESS_CI_GATE_RESULTS;

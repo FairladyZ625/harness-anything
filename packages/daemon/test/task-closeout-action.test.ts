@@ -317,6 +317,31 @@ test("receipt gate checks reject a code-doc witness from the superseded submissi
     { gate: "code-doc-reconciliation", status: "blocked", witnessRef: null },
   ]);
 });
+test("receipt gate checks reject a legacy pass witness without bound evidence", () => {
+  const value = snapshot("in_review", [execution(executionId, "submitted")]);
+  const legacy = {
+    ...value,
+    task: { ...value.task!, completionGateIds: ["ci"] },
+    gateWitnesses: [
+      {
+        schema: "completion-gate-witness/v1",
+        witnessId: "legacy-witness",
+        receiptId: "legacy-receipt",
+        checkerId: "ci",
+        gateId: "ci",
+        result: "pass",
+        taskId,
+        executionId,
+        commitSha,
+        iteration: 0,
+        actor: worker,
+        source: "local",
+        verifiedAt: "2026-08-22T00:02:00.000Z",
+      },
+    ],
+  };
+  assert.deepEqual(gateChecks(legacy as never, executionId), [{ gate: "ci", status: "blocked", witnessRef: null }]);
+});
 test("one invalid closeout response names every bad field", async () => {
   const value = setup();
   writeFileSync(

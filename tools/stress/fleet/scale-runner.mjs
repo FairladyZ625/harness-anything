@@ -384,7 +384,7 @@ function specialRequests(primary, replayCount, conflictCount) {
 
 function scaleEvent(seed, revision) {
   return {
-    schema: "ci-run-observation/v2",
+    schema: "ci-run-observation/v3",
     eventId: `${seed}-event-${revision}`,
     workspaceRevision: revision,
     opId: `${seed}-event-op-${revision}`,

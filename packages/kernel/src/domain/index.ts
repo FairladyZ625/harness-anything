@@ -378,5 +378,5 @@ export type {
   ArtifactLocator,
   ArtifactSourceIdentityInput,
 } from "./artifact-entity.ts";
-export type { CiRunObservationEventV2 } from "./ci-run-observation-event.ts";
+export type { CiRunObservationEventV2, CiRunObservationEventV3 } from "./ci-run-observation-event.ts";
 export { ciRunObservationWritePlan, validateCurrentCiRunObservationEvent } from "./ci-run-observation-event.ts";

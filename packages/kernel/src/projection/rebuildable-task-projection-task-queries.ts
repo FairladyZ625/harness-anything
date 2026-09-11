@@ -71,7 +71,7 @@ const CANONICAL_EVENTS_SQL = [
 ].join(" ");
 const CI_RUN_OBSERVATIONS_SQL = [
   "SELECT event_json FROM event_index",
-  "WHERE json_extract(event_json, '$.schema') = 'ci-run-observation/v2'",
+  "WHERE json_extract(event_json, '$.schema') = 'ci-run-observation/v3'",
   "ORDER BY workspace_revision DESC LIMIT ?",
 ].join(" ");
 const REPLICA_EVENTS_SQL = [
@@ -310,7 +310,7 @@ export function taskQueryApi(
           status: cut.status,
           events: queryRows(db, CI_RUN_OBSERVATIONS_SQL, pageLimit)
             .map((row) => JSON.parse(String(row.event_json)))
-            .filter((event) => event.schema === "ci-run-observation/v2"),
+            .filter((event) => event.schema === "ci-run-observation/v3"),
           watermark: cut.watermark,
           sourceRevision: cut.sourceRevision,
         };

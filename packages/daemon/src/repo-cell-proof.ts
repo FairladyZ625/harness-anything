@@ -511,12 +511,13 @@ export function gateChecks(snapshot: Snapshot, executionId: string) {
                 value.commitSha === execution.submission?.commitSha &&
                 value.iteration === execution.iteration &&
                 value.result === "pass" &&
-                (value.basis === undefined || value.provenance === undefined || value.observed === undefined
-                  ? true
-                  : judgeCompletionEvidence(
-                      { ...value, basis: value.basis, provenance: value.provenance, observed: value.observed },
-                      { execution, gateId: gate },
-                    ).accepted),
+                value.basis !== undefined &&
+                value.provenance !== undefined &&
+                value.observed !== undefined &&
+                judgeCompletionEvidence(
+                  { ...value, basis: value.basis, provenance: value.provenance, observed: value.observed },
+                  { execution, gateId: gate },
+                ).accepted,
             )
           : undefined;
     return {

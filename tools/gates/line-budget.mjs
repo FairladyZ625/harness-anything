@@ -203,7 +203,7 @@ export function main(argv = process.argv.slice(2), rootDir = repoRoot()) {
     const { base } = parseArgs(argv);
     const result = evaluateLineBudget({ rootDir, base });
     const total = (values) => Object.values(values).reduce((sum, value) => sum + value, 0);
-    writeCiGateResult("G32", true, {
+    writeCiGateResult("G32", result.ok ? "pass" : "advisory", {
       actualLines: total(result.actual),
       baseLines: total(result.baseActual),
       ceilingLines: total(result.ceilings),
@@ -220,7 +220,7 @@ export function main(argv = process.argv.slice(2), rootDir = repoRoot()) {
     console.log("G32 line-budget-ratchet: pass");
     return 0;
   } catch (error) {
-    writeCiGateResult("G32", false, {});
+    writeCiGateResult("G32", "fail", {});
     console.error(`G32 line-budget-ratchet: ${error.message}`);
     return 1;
   }

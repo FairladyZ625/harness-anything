@@ -275,7 +275,10 @@ function main() {
   const rootDir = repoRoot();
   const result = scanRendererTree(rootDir);
   const pass = result.violations.length === 0 && result.problems.length === 0;
-  writeCiGateResult("G37", pass, { violations: result.violations.length, wiringProblems: result.problems.length });
+  writeCiGateResult("G37", pass ? "pass" : "fail", {
+    violations: result.violations.length,
+    wiringProblems: result.problems.length,
+  });
   if (!pass) {
     console.error(explain(result));
     return 1;
