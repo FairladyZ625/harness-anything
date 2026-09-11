@@ -180,35 +180,25 @@ function observeCodexSessionMetrics(context: RuntimeSpawnerContext, active: Acti
   const sessionsRoot = path.join(userRoot, "runtime-instances", active.instanceId, "home", ".codex", "sessions"),
     matches = globSync(`**/rollout-*-${active.providerSessionId}.jsonl`, { cwd: sessionsRoot });
   if (matches.length !== 1) return;
-  let lines: string[];
-  try {
-    lines = readFileSync(path.join(sessionsRoot, matches[0]!), "utf8").split(/\r?\n/u);
-  } catch (error) {
-    consumeKnownError(error);
-    return;
-  }
+  const lines = readFileSync(path.join(sessionsRoot, matches[0]!), "utf8").split(/\r?\n/u);
   for (let index = lines.length - 1; index >= 0; index -= 1) {
-    try {
-      const record: unknown = JSON.parse(lines[index]!);
-      if (!record || typeof record !== "object" || Array.isArray(record)) continue;
-      const payload = (record as Record<string, unknown>).payload;
-      if (!payload || typeof payload !== "object" || Array.isArray(payload)) continue;
-      const info = (payload as Record<string, unknown>).info;
-      if ((payload as Record<string, unknown>).type !== "token_count" || !providerRecord(info)) continue;
-      const usage = providerRecord(info.last_token_usage) ? info.last_token_usage : null;
-      if (!usage) continue;
-      const input = numberValue(usage.input_tokens),
-        cached = numberValue(usage.cached_input_tokens),
-        output = numberValue(usage.output_tokens);
-      if (input === null || cached === null || output === null) return;
-      active.inputTokens = input;
-      active.cacheReadTokens = cached;
-      active.outputTokens = output;
-      active.rawUsage = { ...usage };
-      return;
-    } catch (error) {
-      consumeKnownError(error);
-    }
+    const line = lines[index]!;
+    if (!line.includes('"token_count"')) continue;
+    const record: unknown = JSON.parse(line);
+    if (!providerRecord(record) || !providerRecord(record.payload)) continue;
+    const { payload } = record;
+    if (payload.type !== "token_count" || !providerRecord(payload.info)) continue;
+    const usage = providerRecord(payload.info.last_token_usage) ? payload.info.last_token_usage : null;
+    if (!usage) continue;
+    const input = numberValue(usage.input_tokens),
+      cached = numberValue(usage.cached_input_tokens),
+      output = numberValue(usage.output_tokens);
+    if (input === null || cached === null || output === null) return;
+    active.inputTokens = input;
+    active.cacheReadTokens = cached;
+    active.outputTokens = output;
+    active.rawUsage = { ...usage };
+    return;
   }
 }
 
