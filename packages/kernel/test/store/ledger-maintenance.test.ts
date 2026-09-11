@@ -56,7 +56,7 @@ test("ledger maintenance pins automatic housekeeping out of the write path", () 
 
     assert.equal(git(repoRoot, "config", "--get", "maintenance.autoDetach"), "true");
     assert.equal(git(repoRoot, "config", "--get", "gc.autoDetach"), "true");
-    assert.equal(git(repoRoot, "config", "--get", "core.splitIndex"), "true");
+    assert.equal(git(repoRoot, "config", "--get", "core.splitIndex"), "false");
     assert.equal(git(repoRoot, "config", "--get", "core.untrackedCache"), "true");
     assert.ok(receipt.applied.includes("maintenance.autoDetach=true"));
     assert.equal(receipt.gitVersion !== null, true);
