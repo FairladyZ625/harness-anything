@@ -1,4 +1,4 @@
-import type { TaskCompletionRead } from "./task-completion-contract.ts";
+import type { taskCompletionNext } from "../../../kernel/src/index.ts";
 import type {
   CanonicalEventV1,
   DaemonRepoMode,
@@ -377,7 +377,7 @@ export type DaemonGuiReadResultMap = {
     readonly watermark: number;
     readonly sourceRevision: number;
   };
-  readonly "repo.tasks.completion.read": TaskCompletionRead;
+  readonly "repo.tasks.completion.read": DaemonTaskCompletionResult;
   readonly "repo.tasks.documents.list": DaemonTaskDocumentListResult;
   readonly "repo.artifacts.list": ArtifactsListResult;
   readonly "repo.agentRuntime.overview": AgentRuntimeOverviewResult;
@@ -768,6 +768,13 @@ export type DaemonTaskSnapshotListResult = {
   readonly sourceRevision: number;
   readonly warnings: readonly TaskProjectionWarning[];
   readonly page?: ProjectionPage;
+};
+
+/** One read-only completion next step for a single task, as `ha task complete` would judge it. */
+export type DaemonTaskCompletionResult = {
+  readonly ok: true;
+  readonly taskId: string;
+  readonly completionNext: ReturnType<typeof taskCompletionNext>["next"];
 };
 
 export type DaemonTaskWipResult = {

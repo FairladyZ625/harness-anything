@@ -1,4 +1,3 @@
-import { TASK_COMPLETION_READ_SCHEMA } from "./task-completion-contract.ts";
 import type { EntityResidencyFacets } from "../../../kernel/src/index.ts";
 import { repoReadCommandTopology } from "../../../preset/src/preset-command-contract.ts";
 import { observeTailKinds, shape, type DaemonGuiRpcReadMethod } from "./daemon-protocol-gui-types.ts";
@@ -32,6 +31,7 @@ import {
   DAEMON_TASK_DISPATCHES_SCHEMA,
   DAEMON_TASK_DOCUMENT_LIST_SCHEMA,
   DAEMON_TASK_SNAPSHOT_LIST_SCHEMA,
+  DAEMON_TASK_COMPLETION_SCHEMA,
   DAEMON_TASK_WIP_SCHEMA,
   DAEMON_WORKSPACE_SUMMARY_SCHEMA,
   DAEMON_SETTINGS_READ_SCHEMA,
@@ -418,7 +418,7 @@ export const daemonGuiReadMethods = Object.freeze([
     httpMethod: "GET",
     path: "/api/tasks/:taskId/completion",
     inputSchemaId: "gui.task-completion/v1",
-    outputSchemaId: TASK_COMPLETION_READ_SCHEMA,
+    outputSchemaId: DAEMON_TASK_COMPLETION_SCHEMA.id,
     errorSchemaId: DAEMON_PROTOCOL_ERROR_SCHEMA.id,
     serviceMethod: "readTaskCompletion",
     auth: "local-session-token",

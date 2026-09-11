@@ -1,4 +1,3 @@
-import { TASK_COMPLETION_READ_SCHEMA } from "./task-completion-contract.ts";
 import {
   CATALOG_REREAD_RECEIPT_SCHEMA,
   DAEMON_AGENDA_SCHEMA,
@@ -35,6 +34,7 @@ import {
   DAEMON_TASK_DISPATCHES_SCHEMA,
   DAEMON_TASK_DOCUMENT_LIST_SCHEMA,
   DAEMON_TASK_SNAPSHOT_LIST_SCHEMA,
+  DAEMON_TASK_COMPLETION_SCHEMA,
   DAEMON_TASK_WIP_SCHEMA,
   DAEMON_USE_CASE_PROJECTION_SCHEMA,
   DAEMON_WORKSPACE_SUMMARY_SCHEMA,
@@ -51,10 +51,10 @@ import {
 
 export const daemonGuiReadSchemas = Object.freeze([
   {
-    id: TASK_COMPLETION_READ_SCHEMA,
-    schema: "packages/daemon/src/protocol/task-completion-contract.ts#TASK_COMPLETION_READ_SCHEMA",
-    parser: "packages/daemon/src/protocol/task-completion-contract.ts#validateTaskCompletionRead",
-    writer: "packages/daemon/src/protocol/task-completion-contract.ts#serializeTaskCompletionRead",
+    id: DAEMON_TASK_COMPLETION_SCHEMA.id,
+    schema: "packages/daemon/src/protocol/daemon-protocol-schema-ids.ts#DAEMON_TASK_COMPLETION_SCHEMA",
+    parser: "packages/daemon/src/protocol/gui-result-validation.ts#validateDaemonTaskCompletion",
+    writer: "packages/daemon/src/task-completion-read.ts#readTaskCompletion",
     error: "packages/daemon/src/protocol/daemon-protocol.contract.ts#DaemonProtocolContractError",
     negativeFixtures: Object.freeze(["packages/daemon/fixtures/contracts/task-completion-invalid.json"]),
   },

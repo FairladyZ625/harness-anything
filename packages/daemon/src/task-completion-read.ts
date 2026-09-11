@@ -1,4 +1,4 @@
-import type { TaskCompletionRead } from "./protocol/task-completion-contract.ts";
+import type { DaemonTaskCompletionResult } from "./protocol/daemon-protocol-gui-types.ts";
 import {
   assessTransitionDocument,
   requireTransitionDocumentKind,
@@ -51,7 +51,7 @@ export function readCompletionContext(
   };
 }
 
-export function readTaskCompletion(projection: TaskProjectionQueries, taskId: string): TaskCompletionRead {
+export function readTaskCompletion(projection: TaskProjectionQueries, taskId: string): DaemonTaskCompletionResult {
   const read = projection.read(taskId);
   return {
     ok: true,
