@@ -118,7 +118,7 @@
   "agentRuntime.dispatchWithPrompt": "Dispatch with this",
   "agentRuntime.runtimeConstraint": "Runtime constraint",
   "agentRuntime.runtimeConstraintDesc": "Declares a type, never an instance — the instance is chosen at dispatch",
-  "agentRuntime.runtimeConstraintNote": "An agent declaration binds no concrete runtime instance. The same role can run on claude, codex, or agy.",
+  "agentRuntime.runtimeConstraintNote": "An agent declaration binds no concrete runtime instance. The same role can run on claude, codex, agy, or zcode.",
   "agentRuntime.anyRuntime": "any",
   "agentRuntime.expand": "Expand",
   "agentRuntime.collapse": "Collapse",

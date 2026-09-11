@@ -9,6 +9,7 @@ import type {
   SquadEntityAvailableRow,
 } from "../../agent-entity-client.ts";
 import { t } from "../../i18n/index.tsx";
+import { RUNTIME_KIND_IDS } from "../../runtime-provider-planes.ts";
 import { EntityRefLink } from "../EntityRefLink.tsx";
 import { ViewInGraphButton } from "../ViewInGraphButton.tsx";
 import {
@@ -380,9 +381,7 @@ export function AgentCard({
               onChange={(runtimeType) => patch({ runtimeType })}
               options={[
                 { value: "any", label: t("agentRuntime.anyRuntime") },
-                { value: "claude", label: "claude" },
-                { value: "codex", label: "codex" },
-                { value: "agy", label: "agy" },
+                ...RUNTIME_KIND_IDS.map((kindId) => ({ value: kindId, label: kindId })),
               ]}
             />
             <Hint>{t("agentRuntime.compatibleCount", { count: compatible.length })}</Hint>
