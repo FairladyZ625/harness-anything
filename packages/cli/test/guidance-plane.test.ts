@@ -230,3 +230,20 @@ test("task show renders lifecycle status before the secondary graph cursor", () 
   assert.equal(rendered.stream, "stdout");
   assert.deepEqual(rendered.text.split("\n").slice(0, 2), ["status: done", "graph cursor: review"]);
 });
+
+test("preflight renders blocking and advisory sections with copyable fixes", () => {
+  const rendered = renderCliReceipt({
+    ok: true,
+    command: "decision-preflight",
+    evidence: JSON.stringify({
+      blockers: [{ code: "body_placeholder", summary: "Body is incomplete.", command: "ha decision amend dec_1" }],
+      advisories: [
+        { code: "applies_to_empty", summary: "Scope is empty.", command: "ha decision amend dec_1 --set x" },
+      ],
+    }),
+  });
+  assert.equal(rendered.stream, "stdout");
+  assert.match(rendered.text, /阻塞 1 项/u);
+  assert.match(rendered.text, /建议 1 项/u);
+  assert.match(rendered.text, /修法: ha decision amend dec_1/u);
+});

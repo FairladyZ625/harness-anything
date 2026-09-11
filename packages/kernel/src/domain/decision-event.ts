@@ -5,6 +5,7 @@ export {
   assertDecisionJudgmentConsent,
   assertDecisionWritePlan,
   compileDecisionWrite,
+  decisionAcceptanceReadiness,
   decisionDocumentProse,
   decisionMachineDigest,
   decisionWritePlan,

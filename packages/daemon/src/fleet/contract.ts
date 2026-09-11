@@ -31,6 +31,7 @@ export const FLEET_TASK_COMMAND_KINDS = Object.freeze([
   "task-release",
   "task-transition",
   "task-show",
+  "task-preflight",
 ] as const);
 export type FleetTaskCommandKind = (typeof FLEET_TASK_COMMAND_KINDS)[number];
 export type FleetTaskAction = Readonly<Record<string, unknown>> & { readonly kind: FleetTaskCommandKind };
@@ -401,6 +402,11 @@ const taskActionShapes: Readonly<Record<FleetTaskCommandKind, Check>> = {
     "reason",
   ]),
   "task-show": optionalShape({ kind: one("task-show"), taskId: id }, ["kind", "taskId"]),
+  "task-preflight": optionalShape({ kind: one("task-preflight"), taskId: id, executionId: id }, [
+    "kind",
+    "taskId",
+    "executionId",
+  ]),
 };
 const taskAction: Check = (value) =>
   record(value) &&

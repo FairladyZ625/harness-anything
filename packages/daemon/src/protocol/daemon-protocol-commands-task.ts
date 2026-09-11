@@ -194,6 +194,15 @@ export const taskExecutionProtocolCommands = Object.freeze([
     inputs: [],
   }),
   defineRepoReadCommand({
+    id: "task-preflight",
+    actionKind: "task-preflight",
+    phase: "W3",
+    path: ["task", "preflight", "<task-id>"],
+    summary: "List every blocking completion condition and non-blocking advisory without writing.",
+    method: "repo.task.read",
+    inputs: [cliInput("--execution-id", "single", false, { code: "invalid_field" })],
+  }),
+  defineRepoReadCommand({
     id: "receipt-show",
     phase: "W3",
     path: ["receipt", "show", "<op-id>"],

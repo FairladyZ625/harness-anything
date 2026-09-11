@@ -10,6 +10,15 @@ import {
 
 export const decisionLifecycleProtocolCommands = Object.freeze([
   defineRepoReadCommand({
+    id: "decision-preflight",
+    actionKind: "decision-preflight",
+    phase: "DecisionFact-B",
+    path: ["decision", "preflight", "<id>"],
+    summary: "List every blocking acceptance condition and non-blocking advisory without writing.",
+    method: "repo.task.read",
+    inputs: [],
+  }),
+  defineRepoReadCommand({
     id: "decision-validate",
     actionKind: "decision-validate",
     phase: "DecisionFact-B",

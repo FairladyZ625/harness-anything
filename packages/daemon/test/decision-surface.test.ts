@@ -340,6 +340,39 @@ test("decision accept rejects a heading-only proposal body", async () => {
   }
 });
 
+test("decision preflight reports all acceptance blockers and claim advice in one read", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-decision-preflight-"));
+  initRepo(rootDir);
+  const cell = await openRepoCell({
+    repoId: workspaceId("decision-preflight"),
+    rootDir: canonicalRoot(rootDir),
+    ownerId: "decision-preflight-test",
+    now: monotonicClock(),
+  });
+  try {
+    const proposed = await cell.run(proposal("Preflight decision"), proposer),
+      decisionId = String(receiptJson(proposed).decisionId),
+      receipt = await cell.run({ kind: "decision-preflight", decisionId }, proposer),
+      report = JSON.parse(String(receipt.evidence)) as {
+        readonly blockers: readonly { readonly code: string }[];
+        readonly advisories: readonly { readonly code: string }[];
+        readonly readOnly: boolean;
+      };
+    assert.deepEqual(
+      report.blockers.map(({ code }) => code),
+      ["body_placeholder", "evidence_floor_missing"],
+    );
+    assert.deepEqual(
+      report.advisories.map(({ code }) => code),
+      ["claim_coverage_incomplete"],
+    );
+    assert.equal(report.readOnly, true);
+  } finally {
+    await cell.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("decision transition accepts repeated matching proposal fulfillments and dry-run uses admission", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-decision-fulfillments-"));
   initRepo(rootDir);

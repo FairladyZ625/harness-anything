@@ -223,6 +223,14 @@ test("executor declaration and completion context refusals name projection rebui
     );
     assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, owner)).outcome, "applied");
     assert.equal((await cell.run({ kind: "task-submit", taskId, executionId, submission }, owner)).outcome, "applied");
+    const preflight = await cell.run({ kind: "task-preflight", taskId, executionId }, owner),
+      preflightReport = JSON.parse(String(preflight.evidence)) as {
+        readonly blockers: readonly { readonly code: string }[];
+      };
+    assert.deepEqual(
+      preflightReport.blockers.map(({ code }) => code),
+      ["review_missing", "ci_missing", "fact_missing", "closeout_placeholder"],
+    );
     await cell.close();
     cell = undefined;
 

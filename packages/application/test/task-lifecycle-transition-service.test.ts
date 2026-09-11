@@ -38,7 +38,7 @@ const command = <C extends Parameters<typeof normalizeTaskLifecycleCommand>[1]>(
   ...meta,
 });
 
-test("completion blocker matrix returns one canonical next for every substantive gate", async () => {
+test("completion blocker matrix returns every independently actionable substantive gate", async () => {
   const harness = lifecycleHarness();
   try {
     const created = await harness.create(),
@@ -71,22 +71,39 @@ test("completion blocker matrix returns one canonical next for every substantive
       ["decision_lineage_missing", orphanMilestone, ready],
       ["lease_held", { ...consented.snapshot, lease: started.snapshot.lease }, ready],
       [
-        "doc_sync_required",
+        ["doc_sync_required", "closeout_placeholder"],
         consented.snapshot,
         { ...ready, closeout: "dirty_eligible" as const, eligibleDirtyPaths: ["tasks/task-1/closeout.md"] },
       ],
     ] as const;
     assert.equal(created.snapshot.task?.status, "planned");
-    for (const [code, snapshot, context] of cases) {
+    for (const [expected, snapshot, context] of cases) {
       const blockers = completionBlockers(snapshot, "execution-1", context);
+      const codes = Array.isArray(expected) ? expected : [expected];
       assert.deepEqual(
         blockers.map((blocker) => blocker.code),
-        [code],
-        code,
+        codes,
+        String(expected),
       );
-      assert.equal((blockers[0]?.next.command.length ?? 0) > 0, true, code);
-      assert.equal((blockers[0]?.next.reason.length ?? 0) > 0, true, code);
+      assert.equal(
+        blockers.every((blocker) => blocker.next.command.length > 0),
+        true,
+        String(expected),
+      );
+      assert.equal(
+        blockers.every((blocker) => blocker.next.reason.length > 0),
+        true,
+        String(expected),
+      );
     }
+    assert.deepEqual(
+      completionBlockers({ ...consented.snapshot, lease: started.snapshot.lease }, "execution-1", {
+        ...ready,
+        closeout: "placeholder",
+        producesFactCount: 0,
+      }).map((blocker) => blocker.code),
+      ["lease_held", "fact_missing", "closeout_placeholder"],
+    );
     const missingSections = completionBlockers(consented.snapshot, "execution-1", {
       ...ready,
       closeout: "placeholder",

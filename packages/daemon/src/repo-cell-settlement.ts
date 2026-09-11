@@ -81,7 +81,8 @@ export function completionStopped(
     cellCriterionError(
       blocker.code,
       // What is wrong, then what to run; every completion blocker carries both.
-      `${blocker.next.reason} Next: ${blocker.next.command}`,
+      `${blocker.next.reason} Next: ${blocker.next.command}. ` +
+        `Run ha task preflight ${snapshot.task?.taskId ?? "<task-id>"} to see every unmet condition.`,
       "complete",
       "closeout-readiness/closeoutReadiness",
       [blocker.next.command],

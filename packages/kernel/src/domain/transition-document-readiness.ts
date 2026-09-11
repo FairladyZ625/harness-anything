@@ -27,7 +27,7 @@ export interface TransitionDocumentMissingSection {
   readonly retainedScaffold?: string;
 }
 
-interface TransitionDocumentReadiness {
+export interface TransitionDocumentReadiness {
   readonly ready: boolean;
   readonly code: TransitionDocumentPlaceholderCode;
   readonly missingSections: readonly TransitionDocumentMissingSection[];

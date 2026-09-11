@@ -553,6 +553,7 @@ const decisionActionCatalog = Object.freeze({
       decisionExposure,
     ),
     executableAction("decision", decisionIdentity, "validate", "decision-validate", null, decisionExposure, true),
+    executableAction("decision", decisionIdentity, "preflight", "decision-preflight", null, decisionExposure, true),
     executableAction("decision", decisionIdentity, "list", "decision-list", null, decisionExposure, true),
     executableAction("decision", decisionIdentity, "show", "decision-show", null, decisionExposure, true),
   ]),

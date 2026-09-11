@@ -24,6 +24,8 @@ const schemaRenderers = new Map<string, ReceiptRenderer>([
 const commandRenderers = new Map<string, ReceiptRenderer>([
   ["task-create", renderTaskCreate],
   ["task-show", renderTaskShow],
+  ["task-preflight", renderPreflight],
+  ["decision-preflight", renderPreflight],
   ["preset-list", renderPresetListReceipt],
   ["migrate-import", renderSuccessfulReceipt],
   ["task-contract-migrate", renderSuccessfulReceipt],
@@ -101,6 +103,20 @@ function renderTaskShow(receipt: Record<string, unknown>): string {
   const payload = parseEvidence(receipt);
   if (!payload || !isRecord(payload.task)) return renderSuccessfulReceipt(receipt);
   return [`status: ${String(payload.task.status)}`, `graph cursor: ${String(payload.task.currentNode)}`].join("\n");
+}
+
+function renderPreflight(receipt: Record<string, unknown>): string {
+  const payload = parseEvidence(receipt);
+  if (!payload) return renderSuccessfulReceipt(receipt);
+  const blockers = Array.isArray(payload.blockers) ? payload.blockers.filter(isRecord) : [],
+    advisories = Array.isArray(payload.advisories) ? payload.advisories.filter(isRecord) : [],
+    section = (title: string, rows: readonly Record<string, unknown>[]) => [
+      `${title} ${rows.length} 项`,
+      ...rows.map(
+        (row, index) => `${index + 1}. [${String(row.code)}] ${String(row.summary)}\n   修法: ${String(row.command)}`,
+      ),
+    ];
+  return [...section("阻塞", blockers), "", ...section("建议", advisories)].join("\n");
 }
 
 function renderPresetListReceipt(receipt: Record<string, unknown>): string {

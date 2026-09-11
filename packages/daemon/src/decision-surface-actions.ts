@@ -1,6 +1,7 @@
 import { consumeKnownError } from "../../kernel/src/index.ts";
 import {
   decisionDocumentProse,
+  decisionAcceptanceReadiness,
   decisionMachineDigest,
   deriveRelationId,
   readFrontmatter,
@@ -24,6 +25,80 @@ interface DecisionReadService {
     readonly watermark: number;
     readonly sourceRevision: number;
     readonly decisions: readonly DecisionProjectionRow[];
+  };
+}
+
+export function preflightDecisionAcceptance(
+  action: Readonly<Record<string, unknown>>,
+  service: DecisionReadService,
+  projection: TaskProjection,
+) {
+  const decisionId = requiredDecisionText(action.decisionId, "decisionId"),
+    selection = service.show(decisionId),
+    decision = selection.decision,
+    relations = projection.readRelationQuery({ ownerRef: `decision/${decisionId}` }),
+    readiness = decisionAcceptanceReadiness({
+      decisionId,
+      claims: decision.claims,
+      relations: relations.rows.map((edge) => ({
+        relation_id: edge.relationId,
+        source: edge.sourceRef,
+        target: edge.targetRef,
+        type: edge.relationType,
+        strength: edge.strength,
+        direction: edge.direction,
+        origin: edge.origin,
+        rationale: edge.rationale,
+        state: edge.state,
+      })),
+      body: decision.body?.body ?? "",
+      judgmentOnlyRationale: null,
+    }),
+    blockers = [
+      ...(readiness.document.ready
+        ? []
+        : [
+            {
+              code: readiness.document.code,
+              summary: "Decision body is empty or scaffold-equivalent.",
+              command: `ha decision amend ${decisionId} --body-file <body.md>`,
+            },
+          ]),
+      ...(readiness.evidenceFloorMet
+        ? []
+        : [
+            {
+              code: "evidence_floor_missing",
+              summary: "Acceptance needs a claim-to-evidence relation or judgment-only rationale.",
+              command: `ha decision transition in_effect ${decisionId} --judgment-only <rationale>`,
+            },
+          ]),
+    ],
+    advisories = [
+      ...readiness.uncoveredClaimIds.map((claimId) => ({
+        code: "claim_coverage_incomplete",
+        summary: `Load-bearing claim ${claimId} is not both evidenced and fulfilled.`,
+        command: `ha decision claim fulfill ${decisionId} --id ${claimId} --mode evidenced`,
+      })),
+      ...(!decision.appliesTo.modules.length && !decision.appliesTo.productLines.length
+        ? [
+            {
+              code: "applies_to_empty",
+              summary: "Decision applies_to has no declared scope.",
+              command: `ha decision amend ${decisionId} --set applies_to:<scope>`,
+            },
+          ]
+        : []),
+    ];
+  return {
+    schema: "decision-preflight/v1",
+    decisionId,
+    status: selection.status,
+    watermark: Math.min(selection.watermark, relations.watermark),
+    sourceRevision: Math.max(selection.sourceRevision, relations.sourceRevision),
+    blockers,
+    advisories,
+    readOnly: true,
   };
 }
 

@@ -80,72 +80,89 @@ export function completionBlockers(
       `ha task show ${task.taskId}`,
       "The Task status does not match its review node; inspect the lifecycle record before completion.",
     );
+  const blockers: CompletionBlocker[] = [];
   if (snapshot.lease !== null)
-    return one(
-      "lease_held",
-      "lease",
-      `ha task submit ${task.taskId} --json-input '<submission-json>'`,
-      "Release the held execution lease through canonical submit.",
+    blockers.push(
+      ...one(
+        "lease_held",
+        "lease",
+        `ha task submit ${task.taskId} --json-input '<submission-json>'`,
+        "Release the held execution lease through canonical submit.",
+      ),
     );
   const assessment = closeoutReadiness(snapshot);
   const approved = approvedReviewHistoryForExecution(snapshot.reviews, execution);
   if (assessment.blocker === "review")
-    return one(
-      "review_missing",
-      "review",
-      `ha task review-execution ${task.taskId} --execution-id ${executionId} --review-id <id> --from-file <review.json>`,
-      "Record one independent approved Execution Review.",
+    blockers.push(
+      ...one(
+        "review_missing",
+        "review",
+        `ha task review-execution ${task.taskId} --execution-id ${executionId} --review-id <id> --from-file <review.json>`,
+        "Record one independent approved Execution Review.",
+      ),
     );
   if (assessment.blocker === "consent") {
     const reviewId = approved.length === 1 ? approved[0]!.reviewId : "<review-id>";
-    return one(
-      "consent_missing",
-      "consent",
-      `ha task review-consent ${task.taskId} --execution-id ${executionId} --review-id ${reviewId} --consent-id <id>`,
-      "Select one approved Review with content-pinned owner consent.",
+    blockers.push(
+      ...one(
+        "consent_missing",
+        "consent",
+        `ha task review-consent ${task.taskId} --execution-id ${executionId} --review-id ${reviewId} --consent-id <id>`,
+        "Select one approved Review with content-pinned owner consent.",
+      ),
     );
   }
   const gate = assessment.gates.find(({ status }) => status !== "passed");
   if (gate)
-    return gate.gateId === "code-doc-reconciliation"
-      ? one(
-          "code_doc_missing",
-          gate.gateId,
-          `ha task closeout ${task.taskId} --from-file <packet.json>`,
-          "Resume closeout with explicit completion.codeDocPaths for this execution cut.",
-        )
-      : one(
-          gate.gateId === "ci" ? "ci_missing" : "gate_witness_missing",
-          gate.gateId,
-          gate.gateId === "ci"
-            ? `ha task complete ${task.taskId} --execution-id ${executionId} --ci <receipt-ref>`
-            : `ha task complete ${task.taskId} --execution-id ${executionId}`,
-          `Publish a passing canonical ${gate.gateId} checker witness for this execution cut.`,
-        );
+    blockers.push(
+      ...(gate.gateId === "code-doc-reconciliation"
+        ? one(
+            "code_doc_missing",
+            gate.gateId,
+            `ha task closeout ${task.taskId} --from-file <packet.json>`,
+            "Resume closeout with explicit completion.codeDocPaths for this execution cut.",
+          )
+        : one(
+            gate.gateId === "ci" ? "ci_missing" : "gate_witness_missing",
+            gate.gateId,
+            gate.gateId === "ci"
+              ? `ha task complete ${task.taskId} --execution-id ${executionId} --ci <receipt-ref>`
+              : `ha task complete ${task.taskId} --execution-id ${executionId}`,
+            `Publish a passing canonical ${gate.gateId} checker witness for this execution cut.`,
+          )),
+    );
   if (assessment.blocker === "lineage")
-    return one(
-      "decision_lineage_missing",
-      "lineage",
-      `ha decision relate <decision-id> --anchor <claim-id> --type derives --target task/${task.taskId} --rationale <why this decision authorises the task>`,
-      `A ${task.taskClass} task completes only with an active decision derives edge; no active edge names this task.`,
+    blockers.push(
+      ...one(
+        "decision_lineage_missing",
+        "lineage",
+        `ha decision relate <decision-id> --anchor <claim-id> --type derives --target task/${task.taskId} --rationale <why this decision authorises the task>`,
+        `A ${task.taskClass} task completes only with an active decision derives edge; no active edge names this task.`,
+      ),
     );
   if (context.producesFactCount < 1)
-    return one(
-      "fact_missing",
-      "facts",
-      `ha fact record --task ${task.taskId} --statement <observation> --source <source>`,
-      "A task requires at least one active task→fact produces edge before completion.",
+    blockers.push(
+      ...one(
+        "fact_missing",
+        "facts",
+        `ha fact record --task ${task.taskId} --statement <observation> --source <source>`,
+        "A task requires at least one active task→fact produces edge before completion.",
+      ),
     );
   if (context.eligibleDirtyPaths.length)
-    return one(
-      "doc_sync_required",
-      "documents",
-      `ha doc sync --submit${context.eligibleDirtyPaths.map((value) => ` --path ${value}`).join("")}`,
-      "Publish eligible closeout and artifact edits through doc-sync.",
+    blockers.push(
+      ...one(
+        "doc_sync_required",
+        "documents",
+        `ha doc sync --submit${context.eligibleDirtyPaths.map((value) => ` --path ${value}`).join("")}`,
+        "Publish eligible closeout and artifact edits through doc-sync.",
+      ),
     );
   if (context.closeout !== "ready")
-    return one("closeout_placeholder", "closeout", `edit harness/${context.closeoutPath}`, closeoutReason(context));
-  return [];
+    blockers.push(
+      ...one("closeout_placeholder", "closeout", `edit harness/${context.closeoutPath}`, closeoutReason(context)),
+    );
+  return blockers;
 }
 
 function closeoutReason(context: CompletionReadinessContext): string {

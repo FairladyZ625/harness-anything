@@ -145,6 +145,7 @@ export type { EntityId, ParsedWriteEntityId } from "./entity-id.ts";
 
 export {
   compileDecisionWrite,
+  decisionAcceptanceReadiness,
   decisionDocumentProse,
   decisionMachineDigest,
   decisionStates,

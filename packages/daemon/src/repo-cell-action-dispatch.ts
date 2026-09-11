@@ -23,6 +23,7 @@ import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import { runFactAction } from "./repo-cell-fact-action.ts";
 import type { TaskCommandWithDocsAction } from "./repo-cell-task-command-docs.ts";
 import { runVerticalDeclarationAction } from "./vertical-declaration-action.ts";
+import { preflightTaskCompletion } from "./task-preflight-read.ts";
 
 export async function executeAction(
   cell: RepoCellOperationalContext,
@@ -102,6 +103,7 @@ export async function executeAction(
     return cell.receiptForOperation(opId, binding);
   }
   if (action.kind === "task-show") return cell.showTask(String(action.taskId ?? ""));
+  if (action.kind === "task-preflight") return preflightTaskCompletion(cell, action, binding);
   if (action.kind === "task-list") return cell.listTasks(action, binding);
   if (action.kind === "relation-list") return cell.listRelations(action, binding);
   if (action.kind === "task-read-set") return cell.taskReadSet(action, binding);

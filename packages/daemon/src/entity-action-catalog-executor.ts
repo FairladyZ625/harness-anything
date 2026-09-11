@@ -36,7 +36,11 @@ import {
   type TaskProjection,
   type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
-import { prepareDecisionAmend, validateDecisionPackages } from "./decision-surface-actions.ts";
+import {
+  preflightDecisionAcceptance,
+  prepareDecisionAmend,
+  validateDecisionPackages,
+} from "./decision-surface-actions.ts";
 import { unknownFieldViolation } from "./protocol/json-rpc-types.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import {
@@ -108,6 +112,8 @@ export function makeEntityActionCatalogExecutor(input: {
       }
       if (action.kind === "decision-validate")
         return readReceipt("decision-validate", validateDecisionPackages(action, decisions, input.projection));
+      if (action.kind === "decision-preflight")
+        return readReceipt("decision-preflight", preflightDecisionAcceptance(action, decisions, input.projection));
       throw Object.assign(new Error(`Action ${action.kind} is declared as a read without a reader.`), {
         code: "invalid_store",
       });

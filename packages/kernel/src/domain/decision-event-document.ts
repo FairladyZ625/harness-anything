@@ -16,7 +16,11 @@ import {
   type DecisionTransitionType,
 } from "./decision-event-types.ts";
 import { type EntityRelationRecord } from "./entity-relation.ts";
-import { assertTransitionDocumentReady, requireTransitionDocumentKind } from "./transition-document-readiness.ts";
+import {
+  assessTransitionDocument,
+  requireTransitionDocumentKind,
+  type TransitionDocumentReadiness,
+} from "./transition-document-readiness.ts";
 import {
   freezeDeclaredWritePlan,
   isFrozenWritePlan,
@@ -40,10 +44,17 @@ export function compileDecisionWrite(input: {
       : input.currentDecision === null || input.currentDocument === null
   )
     throw new Error("decision projection and authored document base must agree");
-  if (input.event.type === "decision_accepted")
-    assertTransitionDocumentReady(requireTransitionDocumentKind("decision.accept"), input.currentDocument!.body);
+  if (input.event.type === "decision_accepted") {
+    const readiness = decisionAcceptanceReadiness({
+      decisionId: input.event.decisionId,
+      claims: input.currentDecision!.claims,
+      relations: input.currentRelations,
+      body: input.currentDocument!.body,
+      judgmentOnlyRationale: input.event.payload.judgmentOnlyRationale,
+    });
+    assertDecisionAcceptanceReady(readiness);
+  }
   const base = input.currentDecision === null ? null : { ...input.currentDecision, relations: input.currentRelations };
-  assertDecisionEvidenceFloor(base, input.event);
   const reduced = reduceDecisionDocument(base, input.event),
     consent = base && decisionOutcome(input.event) ? decisionConsent(base, input.event) : null,
     amendment = base && input.event.type === "decision_amended" ? decisionAmendment(input.event) : null,
@@ -333,7 +344,10 @@ export function assertDecisionJudgmentConsent(current: DecisionDocumentState, ev
   const expected = decisionConsent(current, event);
   if (stableStringify(event.payload.judgmentConsent) !== stableStringify(expected))
     invalidDecision("Decision judgment consent does not match the machine content cut or event authority.");
-  assertDecisionEvidenceFloor(current, event);
+  if (event.type === "decision_accepted")
+    assertDecisionEvidenceFloor(
+      evidenceFloorReadiness(event.decisionId, current.claims, current.relations, event.payload.judgmentOnlyRationale),
+    );
 }
 export function assertDecisionContentPin(current: DecisionDocumentState, event: DecisionEventV1): void {
   if (
@@ -434,17 +448,74 @@ function decisionTransition(
 export function outcomeState(type: DecisionOutcomeType): "in_effect" | "rejected" | "deferred" {
   return type === "decision_accepted" ? "in_effect" : (type.slice("decision_".length) as "rejected" | "deferred");
 }
-function assertDecisionEvidenceFloor(
-  current: DecisionDocumentState | null,
-  event: DecisionEventDraftV1 | DecisionEventV1,
-): void {
-  if (event.type !== "decision_accepted" || event.payload.judgmentOnlyRationale?.trim()) return;
-  const claims = new Set((current?.claims ?? []).map((claim) => `decision/${event.decisionId}/${claim.id}`)),
-    evidence = current?.relations.some(
-      (edge) => edge.state === "active" && claims.has(edge.source) && isDecisionEvidenceTarget(edge.target),
+export interface DecisionAcceptanceReadiness {
+  readonly document: TransitionDocumentReadiness;
+  readonly evidenceFloorMet: boolean;
+  readonly uncoveredClaimIds: readonly string[];
+}
+
+export function decisionAcceptanceReadiness(input: {
+  readonly decisionId: string;
+  readonly claims: DecisionDocumentState["claims"];
+  readonly relations: readonly EntityRelationRecord[];
+  readonly body: string;
+  readonly judgmentOnlyRationale: string | null;
+}): DecisionAcceptanceReadiness {
+  const evidence = evidenceFloorReadiness(input.decisionId, input.claims, input.relations, input.judgmentOnlyRationale),
+    claims = new Set(input.claims.map((claim) => `decision/${input.decisionId}/${claim.id}`)),
+    evidenced = new Set(
+      input.relations
+        .filter((edge) => edge.state === "active" && claims.has(edge.source) && isDecisionEvidenceTarget(edge.target))
+        .map((edge) => edge.source),
     );
-  if (!evidence)
-    invalidDecision("decision accept requires a claim-to-evidence relation or --judgment-only <rationale>.");
+  return {
+    document: assessTransitionDocument(requireTransitionDocumentKind("decision.accept"), input.body),
+    evidenceFloorMet: evidence.evidenceFloorMet,
+    uncoveredClaimIds: input.claims
+      .filter(
+        (claim) =>
+          claim.loadBearing && (!claim.fulfillment || !evidenced.has(`decision/${input.decisionId}/${claim.id}`)),
+      )
+      .map((claim) => claim.id),
+  };
+}
+
+function evidenceFloorReadiness(
+  decisionId: string,
+  claims: DecisionDocumentState["claims"],
+  relations: readonly EntityRelationRecord[],
+  judgmentOnlyRationale: string | null,
+): Pick<DecisionAcceptanceReadiness, "evidenceFloorMet"> {
+  const claimRefs = new Set(claims.map((claim) => `decision/${decisionId}/${claim.id}`));
+  return {
+    evidenceFloorMet:
+      Boolean(judgmentOnlyRationale?.trim()) ||
+      relations.some(
+        (edge) => edge.state === "active" && claimRefs.has(edge.source) && isDecisionEvidenceTarget(edge.target),
+      ),
+  };
+}
+
+function assertDecisionEvidenceFloor(readiness: Pick<DecisionAcceptanceReadiness, "evidenceFloorMet">): void {
+  if (readiness.evidenceFloorMet) return;
+  invalidDecision(
+    "decision accept requires a claim-to-evidence relation or --judgment-only <rationale>; " +
+      "run ha decision preflight <id> to see every unmet condition.",
+  );
+}
+
+function assertDecisionAcceptanceReady(readiness: DecisionAcceptanceReadiness): void {
+  if (!readiness.document.ready) {
+    const sections = readiness.document.missingSections.map(({ section }) => section).join(", "),
+      error = new Error(
+        `${readiness.document.code}: decision.body has empty or scaffold-equivalent required content: ${sections}; ` +
+          "run ha decision preflight <id> to see every unmet condition.",
+      ) as Error & { code: string; missingSections: TransitionDocumentReadiness["missingSections"] };
+    error.code = readiness.document.code;
+    error.missingSections = readiness.document.missingSections;
+    throw error;
+  }
+  assertDecisionEvidenceFloor(readiness);
 }
 function isDecisionEvidenceTarget(value: string): boolean {
   return (

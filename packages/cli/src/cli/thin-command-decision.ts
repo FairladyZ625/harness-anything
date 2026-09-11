@@ -19,6 +19,12 @@ export function parseDecision(
   inputs: ThinCliInputDirectory,
 ): ThinParseResult {
   const id = route.id;
+  if (id === "decision-preflight") {
+    const decisionId = args[2];
+    return nonEmpty(decisionId) && args.length === 3
+      ? accepted(rootDir, repoId, json, { kind: id, decisionId })
+      : rejected("missing_field", "Run ha decision preflight <id>.", json);
+  }
   if (id === "decision-validate" || id === "decision-verify")
     return parseDecisionValidation(id, args, rootDir, repoId, json, inputs);
   if (id === "decision-repin") return parseDecisionRepin(args, rootDir, repoId, json, inputs);
