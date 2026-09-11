@@ -240,6 +240,30 @@ for (const [label, read] of [
   });
 }
 
+test("fact liveness target reads use the target-leading relation index", () => {
+  const counted = countingDatabase(),
+    { db } = counted;
+  try {
+    seed(db, 1, 1);
+    db.prepare("INSERT INTO relation_edge VALUES (?, ?, ?, 'supersedes-fact', 'active', NULL, ?, ?, ?)").run(
+      "rel_supersedes",
+      "fact/F-00000001",
+      "fact/F-00000000",
+      "fact/F-00000000",
+      99,
+      JSON.stringify({}),
+    );
+    searchFactRows(db, { refs: ["fact/F-00000000"] });
+    const read = counted.reads().find(({ sql }) => sql.includes("requested_targets"));
+    assert.ok(read, "expected target-scoped liveness query");
+    const plan = queryPlan(db, read!);
+    assert.match(plan, /SEARCH relation_edge USING INDEX relation_edge_target/u);
+    assert.doesNotMatch(plan, /relation_edge_state_page \(state=\?\)/u);
+  } finally {
+    db.close();
+  }
+});
+
 test("decision list reads every match without paging parameters and a constant number of statements per page", (context) => {
   const counted = countingDatabase(),
     { db } = counted;

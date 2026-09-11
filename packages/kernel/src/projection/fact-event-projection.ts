@@ -237,17 +237,29 @@ function livenessRelations(
   targetRefs?: readonly string[],
 ): readonly { readonly targetRef: string; readonly relationType: string; readonly state: string }[] {
   if (targetRefs !== undefined && targetRefs.length === 0) return [];
+  const select =
+    "SELECT relation_edge.target_ref AS targetRef, relation_edge.relation_type AS relationType, relation_edge.state";
+  if (targetRefs === undefined)
+    return queryRows<{
+      readonly targetRef: string;
+      readonly relationType: string;
+      readonly state: string;
+    }>(
+      db,
+      select + " FROM relation_edge WHERE state = 'active' AND relation_type = 'supersedes-fact' ORDER BY relation_id",
+    );
   return queryRows<{
     readonly targetRef: string;
     readonly relationType: string;
     readonly state: string;
   }>(
     db,
-    "SELECT target_ref AS targetRef, relation_type AS relationType, state FROM relation_edge " +
-      "WHERE state = 'active' AND relation_type = 'supersedes-fact' " +
-      "AND (? IS NULL OR target_ref IN (SELECT value FROM json_each(?))) ORDER BY relation_id",
-    targetRefs === undefined ? null : JSON.stringify(targetRefs),
-    targetRefs === undefined ? null : JSON.stringify(targetRefs),
+    "WITH requested_targets AS (SELECT value AS target_ref FROM json_each(?)) " +
+      select +
+      " FROM requested_targets CROSS JOIN relation_edge INDEXED BY relation_edge_target " +
+      "WHERE relation_edge.target_ref = requested_targets.target_ref AND state = 'active' " +
+      "AND relation_type = 'supersedes-fact' ORDER BY relation_id",
+    JSON.stringify(targetRefs),
   );
 }
 function decodeFactRows(db: DatabaseSync, records: readonly FactRecord[]): readonly FactProjectionRow[] {

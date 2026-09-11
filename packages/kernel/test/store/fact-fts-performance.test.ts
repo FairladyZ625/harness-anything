@@ -160,3 +160,72 @@ test("10k Decision FTS searches stay indexed after refresh with p95 below 10ms",
     db.close();
   }
 });
+
+test("fact liveness lookup stays stable as unrelated active edges grow", (context) => {
+  const measure = (edgeCount: number): number => {
+    const db = new DatabaseSync(":memory:");
+    try {
+      createRelationGraphProjectionTables(db);
+      createFactProjectionTables(db);
+      db.prepare(
+        "INSERT INTO fact(task_id, fact_id, ref, statement, evidence_source, observed_at, confidence, memory_class, op_id, workspace_revision, row_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      ).run(
+        "task-0",
+        "F-00000000",
+        "fact/F-00000000",
+        "liveness target",
+        "performance fixture",
+        "2026-08-13T00:00:00.000Z",
+        "high",
+        "semantic",
+        "op-0",
+        1,
+        JSON.stringify({
+          schema: "fact-row/v1",
+          ref: "fact/F-00000000",
+          taskId: "task-0",
+          factId: "F-00000000",
+          statement: "liveness target",
+          evidenceSource: "performance fixture",
+          observedAt: "2026-08-13T00:00:00.000Z",
+          confidence: "high",
+          memoryClass: "semantic",
+          memoryTags: [],
+          provenance: [],
+          actor: { principal: { personId: "performance" }, executor: null },
+          source: "local",
+          occurredAt: "2026-08-13T00:00:00.000Z",
+          workspaceRevision: 1,
+        }),
+      );
+      const insert = db.prepare("INSERT INTO relation_edge VALUES (?, ?, ?, ?, 'active', NULL, ?, ?, ?)");
+      db.exec("BEGIN");
+      for (let index = 0; index < edgeCount; index += 1)
+        insert.run(
+          `rel-${index}`,
+          `fact/source-${index}`,
+          `fact/other-${index}`,
+          "evidenced-by",
+          "fact/source",
+          index + 1,
+          "{}",
+        );
+      db.exec("COMMIT");
+      searchFactRows(db, { refs: ["fact/F-00000000"] });
+      const samples: number[] = [];
+      for (let index = 0; index < 20; index += 1) {
+        const startedAt = performance.now();
+        searchFactRows(db, { refs: ["fact/F-00000000"] });
+        samples.push(performance.now() - startedAt);
+      }
+      samples.sort((left, right) => left - right);
+      return samples[Math.ceil(samples.length * 0.95) - 1]!;
+    } finally {
+      db.close();
+    }
+  };
+  const p95_10k = measure(10_000),
+    p95_100k = measure(100_000);
+  context.diagnostic(`fact liveness p95: 10k=${p95_10k.toFixed(3)}ms 100k=${p95_100k.toFixed(3)}ms`);
+  assert.ok(p95_100k <= p95_10k * 2 + 1, "liveness cost grew with unrelated active edges");
+});
