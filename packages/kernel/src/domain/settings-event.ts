@@ -2,6 +2,7 @@ import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 import { eventObjectTarget } from "../layout/ledger-object-layout.ts";
 import {
   DEFAULT_WAL_FLUSH_SETTINGS,
+  DEFAULT_RESTORE_DRILL_RETENTION,
   INITIAL_SETTINGS_V1,
   SETTINGS_ID,
   readSettingsFacet,
@@ -153,6 +154,7 @@ function validSettingsSnapshot(value: unknown, allowUnknownFields: boolean): boo
               milliseconds: value.walFlush.milliseconds,
             }
           : (value.walFlush ?? DEFAULT_WAL_FLUSH_SETTINGS),
+      restoreDrillRetention: value.restoreDrillRetention ?? DEFAULT_RESTORE_DRILL_RETENTION,
     },
     current = validateRepositorySettings(normalized).length === 0;
   if (!current) return false;
@@ -170,6 +172,7 @@ function validSettingsSnapshot(value: unknown, allowUnknownFields: boolean): boo
           "reviewReturnBudget",
           "scaffolds",
           "walFlush",
+          "restoreDrillRetention",
         ].includes(field),
       )
     );

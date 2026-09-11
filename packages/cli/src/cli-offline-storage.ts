@@ -6,6 +6,7 @@ import {
   createLedgerBackup,
   drillLedgerBackup,
   readOfflineLedgerEvents,
+  restoreDrillRetentionFor,
   resolveActiveGeneration,
   runGenerationTwoConversion,
 } from "../../kernel/src/store/ledger-backup.ts";
@@ -57,7 +58,7 @@ export function runOfflineStorageCommand(argv: readonly string[], emit: Emit): n
     if (argv[0] === "restore" && argv[1] === "--drill") {
       const backupDir = positional(argv, 2, "restore --drill requires a backup directory"),
         shadowParent = option(argv, "--shadow-parent") ?? path.join(rootInput, ".harness", "restore-drills"),
-        result = drillLedgerBackup({ backupDir, shadowParent });
+        result = drillLedgerBackup({ backupDir, shadowParent, retention: restoreDrillRetentionFor(rootInput) });
       emit({ ok: true, schema: "ledger-restore-drill-receipt/v1", exitCode: 0, ...result }, json);
       return 0;
     }

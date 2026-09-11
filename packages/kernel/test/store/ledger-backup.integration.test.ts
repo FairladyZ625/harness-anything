@@ -1,7 +1,18 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -177,6 +188,46 @@ test("VACUUM backup survives source deletion and rejects wrong generation metada
     rmSync(backupDir, { recursive: true, force: true });
   }
 });
+
+test("restore drill rolls shadows by retention, preserves unrelated directories and reports removals", () => {
+  const root = fixture("retention"),
+    backupDir = path.join(os.tmpdir(), `ha-backup-retention-${process.pid}-${Date.now()}`),
+    shadowParent = path.join(root, "shadow"),
+    unrelated = path.join(shadowParent, "keep-me");
+  try {
+    const manifest = createLedgerBackup({ rootInput: root, backupDir });
+    mkdirSync(unrelated, { recursive: true });
+    const drilled = [];
+    for (let index = 0; index < 4; index += 1) {
+      const result = drillLedgerBackup({ backupDir, shadowParent, retention: 2 });
+      utimesSync(result.shadowRoot, new Date(1_000 + index * 1_000), new Date(1_000 + index * 1_000));
+      drilled.push(result);
+    }
+    const retained = drilled.slice(-2).map(({ shadowRoot }) => shadowRoot);
+    assert.equal(lstatSync(unrelated).isDirectory(), true);
+    assert.deepEqual(
+      readdirDirectories(shadowParent).filter((entry) => entry.startsWith("restore-drill-")),
+      retained.map((entry) => path.basename(entry)),
+    );
+    assert.equal(drilled.at(-1)?.manifest.tag, manifest.tag);
+    assert.deepEqual(drilled[2]?.removedShadowRoots, [drilled[0]?.shadowRoot]);
+    assert.deepEqual(drilled[3]?.removedShadowRoots, [drilled[1]?.shadowRoot]);
+
+    const single = drillLedgerBackup({ backupDir, shadowParent, retention: 1 });
+    assert.deepEqual(
+      readdirDirectories(shadowParent).filter((entry) => entry.startsWith("restore-drill-")),
+      [path.basename(single.shadowRoot)],
+    );
+    assert.equal(single.removedShadowRoots.length, 2);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(backupDir, { recursive: true, force: true });
+  }
+});
+
+function readdirDirectories(parent: string): string[] {
+  return readdirSync(parent).filter((entry) => lstatSync(path.join(parent, entry)).isDirectory());
+}
 
 function fixture(name: string): string {
   const root = mkdtempSync(path.join(os.tmpdir(), `ha-ledger-backup-${name}-`)),

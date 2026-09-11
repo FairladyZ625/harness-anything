@@ -13,6 +13,7 @@ import { compileSettingsChangedEvent, type SettingsEventBundle } from "./setting
 import {
   SETTINGS_ID,
   repositorySettings,
+  DEFAULT_RESTORE_DRILL_RETENTION,
   reviewIndependenceLevels,
   settingsLocales,
   validateRepositorySettings,
@@ -47,6 +48,7 @@ const repositoryFieldNames = Object.freeze([
   "walFlushEvents",
   "walFlushBytes",
   "walFlushMilliseconds",
+  "restoreDrillRetention",
 ] as const);
 
 const input = (fields: readonly EntityActionInputField[]): EntityActionInputContract =>
@@ -132,6 +134,7 @@ export function createSettingsActionCatalog(
           field("walFlushEvents", "number"),
           field("walFlushBytes", "number"),
           field("walFlushMilliseconds", "number"),
+          field("restoreDrillRetention", "number"),
           field("expectedVersion", "number"),
           field("idempotencyKey"),
         ]),
@@ -211,6 +214,11 @@ export function compileSettingsUpdate(input: EntityActionCompileInput): Settings
         bytes: updatedPositiveInteger(input.action, "walFlushBytes", current.walFlush.bytes),
         milliseconds: updatedPositiveInteger(input.action, "walFlushMilliseconds", current.walFlush.milliseconds),
       },
+      restoreDrillRetention: updatedPositiveInteger(
+        input.action,
+        "restoreDrillRetention",
+        current.restoreDrillRetention ?? DEFAULT_RESTORE_DRILL_RETENTION,
+      ),
     },
     errors = validateRepositorySettings(candidate);
   if (errors.length) rejectSettings("invalid_command", errors.join("; "));

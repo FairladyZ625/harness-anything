@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { parseCanonicalEvent } from "../domain/doc-sync-canonical-events.ts";
+import { DEFAULT_RESTORE_DRILL_RETENTION, readSettingsFacet } from "../domain/settings.ts";
+import { consumeKnownError } from "../error-consumption.ts";
 import { sha256Bytes } from "../integrity/stable-hash.ts";
 import { resolveHarnessLayout, type HarnessLayoutInput } from "../layout/index.ts";
 import { localLedgerBackupFileSystem as fileSystem } from "../local/local-layout-file-system.ts";
@@ -83,9 +85,12 @@ export function drillLedgerBackup(input: {
   readonly backupDir: string;
   readonly shadowParent: string;
   readonly destinationRoot?: string;
+  readonly retention?: number;
 }): {
   readonly shadowRoot: string;
   readonly manifest: LedgerBackupManifestV1;
+  readonly removedShadowRoots: readonly string[];
+  readonly warnings: readonly string[];
 } {
   const backupDir = path.resolve(input.backupDir),
     manifest = readManifest(backupDir),
@@ -101,7 +106,32 @@ export function drillLedgerBackup(input: {
   verifyManifest(shadowRoot, manifest);
   for (const database of manifest.files.filter(({ method }) => method === "vacuum-into"))
     inspectSqlite(path.join(shadowRoot, database.path));
-  return { shadowRoot, manifest };
+  const removedShadowRoots: string[] = [],
+    warnings: string[] = [],
+    retention = input.retention ?? DEFAULT_RESTORE_DRILL_RETENTION,
+    candidates = fileSystem
+      .readDirectory(path.resolve(input.shadowParent))
+      .filter((name) => name.startsWith("restore-drill-"))
+      .map((name) => path.join(path.resolve(input.shadowParent), name))
+      .filter((candidate) => fileSystem.lstat(candidate).isDirectory())
+      .sort((left, right) => fileSystem.stat(left).mtimeMs - fileSystem.stat(right).mtimeMs);
+  for (const candidate of candidates.slice(0, Math.max(0, candidates.length - retention))) {
+    try {
+      fileSystem.remove(candidate);
+      removedShadowRoots.push(candidate);
+    } catch (error) {
+      consumeKnownError(error);
+      warnings.push(`could not remove ${candidate}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  return { shadowRoot, manifest, removedShadowRoots, warnings };
+}
+
+/** The drill runs offline, so the retention setting is read from the authored harness.yaml facet. */
+export function restoreDrillRetentionFor(rootInput: HarnessLayoutInput): number {
+  const settingsPath = path.join(resolveHarnessLayout(rootInput).authoredRoot, "harness.yaml");
+  if (!fileSystem.exists(settingsPath)) return DEFAULT_RESTORE_DRILL_RETENTION;
+  return readSettingsFacet(fileSystem.read(settingsPath, "utf8")).restoreDrillRetention;
 }
 
 export function readOfflineLedgerEvents(input: {
