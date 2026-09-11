@@ -1,11 +1,12 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import fs, { mkdtempSync, rmSync, statSync, utimesSync } from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventReader, makeTaskProjection, sha256Text } from "../../kernel/src/index.ts";
+import { makeTaskEventReader, makeTaskEventStore, makeTaskProjection, sha256Text } from "../../kernel/src/index.ts";
 import { runDocAction } from "../src/doc-sync-command-actions.ts";
 import { scanAuthoredCandidateInventory, scanDocCandidates } from "../src/doc-sync-candidate-scanner.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
@@ -124,6 +125,31 @@ test("doc status reuses unchanged file inputs and observes accepted updates, dra
     projection.close();
     await store.drain();
     await cell.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("candidate inventory obtains tracked, deleted, and untracked paths", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-inventory-git-"));
+  initRepo(rootDir);
+  const repoId = workspaceId("inventory-git"),
+    store = makeTaskEventStore({ repoId, rootDir });
+  try {
+    write(rootDir, "context/tracked.md", "# Tracked\n");
+    write(rootDir, "context/deleted.md", "# Deleted\n");
+    execFileSync("git", ["-C", rootDir, "add", "harness"]);
+    execFileSync("git", ["-C", rootDir, "commit", "-qm", "tracked documents"]);
+    write(rootDir, "context/tracked.md", "# Updated\n");
+    rmSync(path.join(rootDir, "harness", "context/deleted.md"));
+    write(rootDir, "context/untracked.md", "# Untracked\n");
+
+    const inventory = scanAuthoredCandidateInventory({ rootDir, store });
+    assert.deepEqual(
+      inventory.rows.map((row) => row.path),
+      ["context/deleted.md", "context/tracked.md", "context/untracked.md"],
+    );
+  } finally {
+    await store.drain();
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
