@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync, execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { Session } from "node:inspector/promises";
 import { tmpdir, loadavg, availableParallelism, cpus, totalmem, freemem } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -27,7 +28,49 @@ export function syntheticBinary(seed, size) {
   return buffer;
 }
 
-export function fixture(seed, daemonId = "entity-v2-scale") {
+/**
+ * Opt-in profile switch (`profileDir` in the workload): the measured daemon runs under `--cpu-prof`, so each of its
+ * threads writes a .cpuprofile on exit, and resolves `git` through a shim that logs every invocation. `timeline`
+ * interleaves those git lines with a start/end mark per operation on the monotonic clock the profiles use.
+ */
+export function profiling(profileDir) {
+  if (!profileDir) return null;
+  const bin = path.join(profileDir, "bin"),
+    cpu = path.join(profileDir, "cpu"),
+    timeline = path.join(profileDir, "timeline.log"),
+    realGit = execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim(),
+    session = new Session();
+  mkdirSync(bin, { recursive: true });
+  mkdirSync(cpu, { recursive: true });
+  writeFileSync(
+    path.join(bin, "git"),
+    `#!/bin/sh\nprintf 'git %s\\n' "$*" >> '${timeline}'\nexec '${realGit}' "$@"\n`,
+    {
+      mode: 0o755,
+    },
+  );
+  return {
+    daemonEnv: {
+      NODE_OPTIONS: `--cpu-prof --cpu-prof-dir=${cpu} --cpu-prof-interval=100`,
+      PATH: `${bin}:${process.env.PATH}`,
+    },
+    mark: (edge, metric) => appendFileSync(timeline, `mark ${edge} ${metric} ${process.hrtime.bigint() / 1000n}\n`),
+    /** The test process itself (generation and the resident arm's client side), sampled through the inspector. */
+    startProcess: async () => {
+      session.connect();
+      await session.post("Profiler.enable");
+      await session.post("Profiler.setSamplingInterval", { interval: 100 });
+      await session.post("Profiler.start");
+    },
+    stopProcess: async () => {
+      const { profile } = await session.post("Profiler.stop");
+      writeFileSync(path.join(cpu, "test-process.cpuprofile"), JSON.stringify(profile));
+      session.disconnect();
+    },
+  };
+}
+
+export function fixture(seed, daemonId = "entity-v2-scale", profile = null) {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-entity-v2-scale-"));
   const root = path.join(parent, "repo"),
     userRoot = path.join(parent, "user");
@@ -58,18 +101,20 @@ export function fixture(seed, daemonId = "entity-v2-scale") {
   const invoke = (
     metric,
     args,
-    { actor, input, requireSuccess = true, frameRow = true, timeoutMs = 120_000, offline = false } = {},
+    { actor, input, requireSuccess = true, frameRow = true, timeoutMs = 120_000, offline = false, extraEnv = {} } = {},
   ) => {
+    profile?.mark("start", metric);
     const started = performance.now();
     // Offline storage commands (backup, restore, events, migrate ledger) are recognised by argv[0].
     const argv = offline ? [...args, "--root", root, "--json"] : ["--root", root, "--json", ...args];
     const result = spawnSync(process.execPath, [cli, ...argv], {
-      env: { ...env, ...(actor ? { HARNESS_ACTOR: actor } : {}) },
+      env: { ...env, ...extraEnv, ...(actor ? { HARNESS_ACTOR: actor } : {}) },
       encoding: "utf8",
       timeout: timeoutMs,
       maxBuffer: 256 * 1024 * 1024,
       ...(input === undefined ? {} : { input: JSON.stringify(input) }),
     });
+    profile?.mark("end", metric);
     let receipt = null;
     try {
       receipt = JSON.parse(result.stdout);
