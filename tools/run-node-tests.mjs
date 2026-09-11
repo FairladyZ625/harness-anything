@@ -15,7 +15,7 @@ import {
   resolveTestConcurrency,
   selectTestFiles,
 } from "./node-test-runner-lib.mjs";
-import { discoverTestTierManifest } from "./test-tier-manifest.mjs";
+import { discoverTestFileTimeouts, discoverTestTierManifest } from "./test-tier-manifest.mjs";
 import { renderToolHelp, runNodeTestsCommand } from "./tool-command-contract.mjs";
 import { readTestQuarantine } from "./test-quarantine.mjs";
 
@@ -48,6 +48,7 @@ process.env.HARNESS_TEST_TIER = options.tier;
 if (options.shard !== undefined) process.env.HARNESS_TEST_SHARD = String(options.shard);
 
 const testTierManifest = discoverTestTierManifest(repoRoot);
+const testFileTimeouts = discoverTestFileTimeouts(repoRoot);
 process.env.HARNESS_TEST_TIER_MANIFEST = JSON.stringify(testTierManifest);
 const testFiles = Object.values(testTierManifest).flat().sort();
 const selection = selectTestFiles(testFiles, testTierManifest, options.tier);
@@ -105,7 +106,15 @@ const concurrency = resolveTestConcurrency({
 });
 const concurrencyArgs =
   concurrency && Number.isInteger(concurrency) && concurrency > 0 ? [`--test-concurrency=${concurrency}`] : [];
-const fileTimeoutMs = positiveIntegerOrDefault(process.env.HARNESS_TEST_FILE_TIMEOUT_MS, DEFAULT_TEST_FILE_TIMEOUT_MS);
+const defaultFileTimeoutMs = positiveIntegerOrDefault(
+  process.env.HARNESS_TEST_FILE_TIMEOUT_MS,
+  DEFAULT_TEST_FILE_TIMEOUT_MS,
+);
+const selectedFileTimeouts = new Map(
+  selection.files.map((file) => [file, testFileTimeouts[file] ?? defaultFileTimeoutMs]),
+);
+const finiteTimeouts = [...selectedFileTimeouts.values()].filter((timeout) => timeout !== "none");
+const fileTimeoutMs = finiteTimeouts.length > 0 ? Math.min(...finiteTimeouts) : defaultFileTimeoutMs;
 const activityRoot = mkdtempSync(join(tmpdir(), "ha-node-test-watchdog-"));
 const activityPath = join(activityRoot, "activity.jsonl");
 const reporterUrl = pathToFileURL(resolve(import.meta.dirname, "node-test-file-activity-reporter.mjs")).href;
@@ -118,7 +127,9 @@ const quarantinePattern =
 // watchdog can say which test never returned; only the child itself can say which handle it is
 // still holding, and a remote runner offers no second chance to ask.
 const stallReportUrl = pathToFileURL(resolve(import.meta.dirname, "node-test-stall-report.mjs")).href;
-const stallReportMs = Math.max(1_000, Math.floor(fileTimeoutMs * 0.9));
+const stallReportMs = [...selectedFileTimeouts.values()].includes("none")
+  ? undefined
+  : Math.max(1_000, Math.floor(fileTimeoutMs * 0.9));
 const child = spawn(
   process.execPath,
   [
@@ -137,7 +148,12 @@ const child = spawn(
   ],
   {
     cwd: repoRoot,
-    env: { ...process.env, HARNESS_TEST_STALL_REPORT_MS: String(stallReportMs) },
+    env: {
+      ...process.env,
+      ...(stallReportMs === undefined
+        ? { HARNESS_TEST_STALL_REPORT_MS: "0" }
+        : { HARNESS_TEST_STALL_REPORT_MS: String(stallReportMs) }),
+    },
     detached: process.platform !== "win32",
     stdio: ["inherit", "pipe", "pipe"],
     windowsHide: true,
@@ -153,21 +169,26 @@ let timedOutFiles = [];
 let termination = Promise.resolve();
 const activeFiles = new Map();
 const removeSignalForwarding = installSignalForwarding(child);
-const watchdog = setInterval(
-  () => {
-    refreshActivity();
-    if (timedOutFiles.length > 0) return;
-    const now = Date.now();
-    const overdue = [...activeFiles].filter(([, startedAt]) => now - startedAt >= fileTimeoutMs).map(([file]) => file);
-    if (overdue.length === 0) return;
-    timedOutFiles = overdue;
-    console.error(
-      `[node-test-watchdog] test file exceeded ${fileTimeoutMs}ms: ${overdue.map(stalledFileReport).join(", ")}`,
-    );
-    termination = terminateProcessTree(child);
-  },
-  Math.min(1_000, Math.max(25, Math.floor(fileTimeoutMs / 4))),
-);
+const watchdog =
+  finiteTimeouts.length === 0
+    ? null
+    : setInterval(
+        () => {
+          refreshActivity();
+          if (timedOutFiles.length > 0) return;
+          const now = Date.now();
+          const overdue = [...activeFiles]
+            .filter(([, activity]) => activity.timeoutMs !== "none" && now - activity.startedAt >= activity.timeoutMs)
+            .map(([file]) => file);
+          if (overdue.length === 0) return;
+          timedOutFiles = overdue;
+          console.error(
+            `[node-test-watchdog] test file exceeded timeout: ${overdue.map(stalledFileReport).join(", ")}`,
+          );
+          termination = terminateProcessTree(child);
+        },
+        Math.min(1_000, Math.max(25, Math.floor(fileTimeoutMs / 4))),
+      );
 
 child.stdout.on("data", (chunk) => {
   const text = chunk.toString();
@@ -185,7 +206,7 @@ const exitCode = await new Promise((resolveRun) => {
   const finish = (code) => {
     if (settled) return;
     settled = true;
-    clearInterval(watchdog);
+    if (watchdog !== null) clearInterval(watchdog);
     removeSignalForwarding();
     void termination.then(() => {
       rmSync(activityRoot, { recursive: true, force: true });
@@ -247,8 +268,10 @@ function refreshActivity() {
   for (const line of lines) {
     if (!line) continue;
     const event = JSON.parse(line);
-    if (event.state === "started" && typeof event.file === "string" && Number.isFinite(event.at))
-      activeFiles.set(event.file, event.at);
+    if (event.state === "started" && typeof event.file === "string" && Number.isFinite(event.at)) {
+      const file = repoRelativeTestFile(event.file);
+      activeFiles.set(file, { startedAt: event.at, timeoutMs: selectedFileTimeouts.get(file) ?? defaultFileTimeoutMs });
+    }
     if (event.state === "progress" && typeof event.file === "string" && typeof event.name === "string") {
       const owner = repoRelativeTestFile(event.file);
       lastTestByFile.set(owner, event.name);
@@ -259,9 +282,10 @@ function refreshActivity() {
       openTestsByFile.set(owner, (openTestsByFile.get(owner) ?? 0) - 1);
     }
     if (event.state === "finished" && typeof event.file === "string") {
-      activeFiles.delete(event.file);
-      lastTestByFile.delete(event.file);
-      openTestsByFile.delete(event.file);
+      const owner = repoRelativeTestFile(event.file);
+      activeFiles.delete(owner);
+      lastTestByFile.delete(owner);
+      openTestsByFile.delete(owner);
     }
   }
 }

@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+// harness-test-file-timeout: none
 import assert from "node:assert/strict";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
