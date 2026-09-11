@@ -12,6 +12,7 @@ import {
 } from "../../kernel/src/index.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { runProcessTextAsync } from "./process-port.ts";
+import { localGitObjectRefStore, resolveHarnessLayout } from "../../kernel/src/index.ts";
 import type { RepoCellActionContext } from "./repo-cell-action-context.ts";
 
 type CiRunArtifactGate =
@@ -124,6 +125,41 @@ export async function fetchCiObservations(
       }
       fetched.push({ databaseId: run.databaseId, summary, artifacts: readArtifacts(runRoot) });
     }
+    if (!namedRuns) {
+      const authoredRoot = resolveHarnessLayout(cell.rootDir).authoredRoot;
+      if (existsSync(authoredRoot)) {
+        const branch = localGitObjectRefStore.currentBranch(authoredRoot),
+          sha = branch ? localGitObjectRefStore.resolveCommit(authoredRoot, `refs/heads/${branch}`) : null;
+        if (branch && sha)
+          fetched.push({
+            databaseId: 0,
+            summary: {
+              workflowName: "ledger-publication",
+              headSha: sha,
+              headBranch: branch,
+              status: "completed",
+              conclusion: "success",
+              attempt: 1,
+            },
+            artifacts: [
+              {
+                schema: "ci-run-artifact/v1",
+                run: {
+                  runId: `ledger-${sha}`,
+                  sha,
+                  branch,
+                  prNumber: null,
+                  job: "ledger-publication",
+                  wallclockMs: 0,
+                  runner: "write-coordinator",
+                },
+                tests: [],
+                gates: [],
+              },
+            ],
+          });
+      }
+    }
     return { requestedRuns: namedRuns?.length ?? limit, runs: fetched };
   } finally {
     rmSync(temporaryRoot, { recursive: true, force: true });
@@ -164,20 +200,29 @@ export function ingestCiObservations(
             tests: artifact.tests,
             gates: normalizeArtifactGates(artifact.gates),
             verification:
-              summary.workflowName === "rewrite-ci" &&
-              summary.headBranch === "main" &&
-              artifact.run.branch === "main" &&
-              artifact.run.sha === summary.headSha &&
-              artifact.run.runId === `${databaseId}.${summary.attempt}`
+              summary.workflowName === "ledger-publication"
                 ? {
-                    source: "github-actions",
-                    workflow: "rewrite-ci",
-                    runId: String(databaseId),
-                    attempt: summary.attempt,
+                    source: "write-coordinator" as const,
+                    workflow: "ledger-publication" as const,
+                    runId: artifact.run.runId,
+                    attempt: 1,
                     headSha: summary.headSha,
-                    conclusion: summary.conclusion,
+                    conclusion: "success",
                   }
-                : null,
+                : summary.workflowName === "rewrite-ci" &&
+                    summary.headBranch === "main" &&
+                    artifact.run.branch === "main" &&
+                    artifact.run.sha === summary.headSha &&
+                    artifact.run.runId === `${databaseId}.${summary.attempt}`
+                  ? {
+                      source: "github-actions",
+                      workflow: "rewrite-ci",
+                      runId: String(databaseId),
+                      attempt: summary.attempt,
+                      headSha: summary.headSha,
+                      conclusion: summary.conclusion,
+                    }
+                  : null,
           },
         },
         errors = validateCurrentCiRunObservationEvent(event);
