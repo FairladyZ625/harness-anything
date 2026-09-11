@@ -31,6 +31,8 @@ export interface TaskWipSnapshotEntryV1 {
    * adding parallel work, so it never enters the WIP count.
    */
   readonly hasCloseoutEvidence: boolean;
+  /** Whether this task has an active/submitted execution or an active lease. */
+  readonly hasOwnExecution: boolean;
   /** Number of direct children in the existing task projection. */
   readonly directChildCount: number;
 }
@@ -54,7 +56,8 @@ export function deriveTaskRoot(
   if (entry.taskClass === "milestone" || entry.taskClass === "long_running") {
     return { isRoot: true, reason: "declared", directChildCount, threshold };
   }
-  if (directChildCount >= threshold) return { isRoot: true, reason: "derived", directChildCount, threshold };
+  if (directChildCount >= threshold && !entry.hasOwnExecution)
+    return { isRoot: true, reason: "derived", directChildCount, threshold };
   return { isRoot: false, reason: "none", directChildCount, threshold };
 }
 
@@ -131,7 +134,7 @@ export function admitTaskExecutionWip(input: TaskWipAdmissionInput): TaskWipAdmi
       `${formatWipComposition(input.tasks, rootThreshold)} ` +
       `Before starting ${input.activatingTaskId}, close one existing task. Suggested: ${suggestions}. ` +
       `Next: complete, cancel (\`ha task transition <task-id> cancelled --force --reason <reason>\`), or archive one of those tasks, then retry \`ha task start ${input.activatingTaskId}\`. ` +
-      "Planned tasks stay in the idea backlog and are never counted or removed.",
+      "Derived root exemption applies only to pure containers. Planned tasks stay in the idea backlog and are never counted or removed.",
   };
 }
 
