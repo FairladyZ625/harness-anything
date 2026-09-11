@@ -1,7 +1,7 @@
 import { stablePayloadHash, stableStringify } from "../integrity/stable-hash.ts";
 import { validateActorIdentity, type ActorIdentity } from "./actor-identity.ts";
 import { isNonEmptyString } from "./contract-validation.ts";
-import { validateWriteReceipt, type WriteReceipt, type WriteReceiptDraft } from "./receipt-domain-registry.ts";
+import { type WriteReceiptDraft } from "./receipt-domain-registry.ts";
 import { timestamp } from "./timestamp.ts";
 export { validateActorIdentity } from "./actor-identity.ts";
 export type { ActorIdentity } from "./actor-identity.ts";
@@ -10,7 +10,6 @@ export {
   isReceiptDiagnostic,
   isReceiptGuidance,
   receiptDetailRegistry,
-  validateWriteReceipt,
   WRITE_RECEIPT_SCHEMA,
 } from "./receipt-domain-registry.ts";
 export type {
@@ -260,16 +259,6 @@ function writeSourceShape(value: unknown): unknown {
 export function sameWriteSource(left: unknown, right: unknown): boolean {
   const shape = writeSourceShape(left);
   return shape !== null && stableStringify(shape) === stableStringify(writeSourceShape(right));
-}
-
-export function createWriteReceipt<R extends WriteReceipt>(receipt: R): Readonly<R> {
-  const errors = validateWriteReceipt(receipt);
-  if (errors.length > 0) throw new WriteChainContractError("invalid_contract", `invalid receipt: ${errors.join("; ")}`);
-  return Object.freeze(receipt);
-}
-
-export function serializeWriteReceipt(receipt: WriteReceipt): string {
-  return `${JSON.stringify(canonicalizeWriteValue(createWriteReceipt(receipt)))}\n`;
 }
 
 export function issueWriterGenerationToken(writer: WriterGeneration): WriterGenerationToken {
@@ -574,8 +563,6 @@ export default Object.freeze({
     Object.freeze({
       id: "write-receipt/v1",
       schema: "packages/kernel/src/domain/write-chain.contract.ts#WRITE_RECEIPT_SCHEMA",
-      parser: "packages/kernel/src/domain/write-chain.contract.ts#validateWriteReceipt",
-      writer: "packages/kernel/src/domain/write-chain.contract.ts#serializeWriteReceipt",
       error: "packages/kernel/src/domain/write-chain.contract.ts#WriteChainContractError",
       negativeFixtures: Object.freeze(["tools/gates/test/fixtures/receipt-missing-next-action.json"]),
     }),

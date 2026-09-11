@@ -104,21 +104,11 @@ export interface EntityRelationValidationIssue {
   readonly message: string;
 }
 
-export function canonicalRelationIdentityInput(
-  record: Pick<EntityRelationRecord, "source" | "target" | "type" | "direction">,
-): string {
-  return `${record.source}|${record.target}|${record.type}|${record.direction}`;
-}
-
 export function deriveRelationId(
   record: Pick<EntityRelationRecord, "source" | "target" | "type" | "direction">,
 ): string {
-  const suffix = sha256Text(canonicalRelationIdentityInput(record)).slice(0, 16);
+  const suffix = sha256Text(`${record.source}|${record.target}|${record.type}|${record.direction}`).slice(0, 16);
   return `rel_${suffix}`;
-}
-
-export function formatRelationFlowRecord(record: EntityRelationRecord): string {
-  return `- {relation_id: ${record.relation_id}, source: ${record.source}, target: ${record.target}, type: ${record.type}, strength: ${record.strength}, direction: ${record.direction}, origin: ${record.origin}, rationale: ${quoteFlowString(record.rationale)}, state: ${record.state}}`;
 }
 
 export function validateRelationRecordsForHost(
@@ -362,8 +352,4 @@ function requiresRationale(record: EntityRelationRecord): boolean {
 function hostOwnsSource(host: ParsedEntityRef, source: ParsedEntityRef): boolean {
   if (host.kind !== source.kind) return false;
   return host.id === source.id;
-}
-
-function quoteFlowString(value: string): string {
-  return JSON.stringify(value.replace(/\s+/gu, " ").trim());
 }

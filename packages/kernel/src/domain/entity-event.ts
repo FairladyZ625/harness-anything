@@ -365,20 +365,6 @@ export function assertEntityEventInputs(
     throw new Error("entity observation fields must match its declaration descriptor");
 }
 
-/** Retained for generic-store callers; all current entity variants use the shared assertion above. */
-export function assertEntityUpsertInputs(
-  event: EntityEventV1,
-  plan: FrozenWritePlan | undefined,
-  blobs: readonly {
-    readonly sha256: string;
-    readonly size: number;
-    readonly mediaType: string;
-    readonly body: string | Uint8Array;
-  }[],
-): void {
-  assertEntityEventInputs(event, plan, blobs);
-}
-
 export function assertEntityUpsertWritePlan(event: EntityEventV1, plan: FrozenWritePlan | undefined): void {
   const expected =
     event.type === "entity_target_missing"

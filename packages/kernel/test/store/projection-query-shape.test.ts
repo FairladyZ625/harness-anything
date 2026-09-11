@@ -13,7 +13,7 @@ import {
 import {
   createFactProjectionTables,
   readFactGraphRows,
-  searchFactRows,
+  searchFactRowsPage,
   type FactProjectionRow,
 } from "../../src/projection/fact-event-projection.ts";
 import { readEntityVersionWitnesses } from "../../src/projection/entity-freshness-projection.ts";
@@ -214,9 +214,9 @@ for (const [label, read] of [
     },
   ],
   [
-    "searchFactRows",
+    "searchFactRowsPage",
     (db: DatabaseSync) => {
-      searchFactRows(db, {});
+      searchFactRowsPage(db, {});
     },
   ],
 ] as const) {
@@ -260,7 +260,7 @@ test("fact liveness target reads use the target-leading relation index", () => {
       99,
       JSON.stringify({}),
     );
-    searchFactRows(db, { refs: ["fact/F-00000000"] });
+    searchFactRowsPage(db, { refs: ["fact/F-00000000"] });
     const read = counted.reads().find(({ sql }) => sql.includes("requested_targets"));
     assert.ok(read, "expected target-scoped liveness query");
     const plan = queryPlan(db, read!);

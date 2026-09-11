@@ -299,10 +299,6 @@ export function listFactDomainTypeRows(db: DatabaseSync): readonly FactDomainTyp
   );
 }
 
-export function searchFactRows(db: DatabaseSync, filters: FactSearchFilters): readonly FactProjectionRow[] {
-  return searchFactRowsPage(db, { ...filters, limit: undefined, cursor: undefined }).rows;
-}
-
 /** Paged variant of the Fact search: the unparameterized filters keep returning every match;
  * an explicit limit/cursor pages over the same (observed_at DESC, task_id, fact_id) order. */
 export function searchFactRowsPage(

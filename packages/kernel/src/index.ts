@@ -106,7 +106,6 @@ export type { TaskProgressEvidence, TaskProgressEventV1 } from "./domain/task-pr
 export {
   assertCurrentWriter,
   bindWriterGenerationToken,
-  createWriteReceipt,
   isReceiptDiagnostic,
   normalizeCommandEnvelope,
   serializeEventHead,
@@ -254,7 +253,6 @@ export { readMarkdownSource, taskEntryToRow } from "./projection/sqlite-task-sou
 export type { TaskSourceEntry } from "./projection/sqlite-task-source.ts";
 export { renderDecisionDocument } from "./domain/decision-event.ts";
 export { renderFactsDocument } from "./domain/fact-event.ts";
-export * from "./publish/index.ts";
 export type {
   CoordinationStatus,
   ProjectionCanonicalStatus,

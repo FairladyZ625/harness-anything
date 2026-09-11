@@ -1,10 +1,9 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { findEntityRefs, parseEntityRef } from "../../src/domain/entity-ref.ts";
+import { parseEntityRef } from "../../src/domain/entity-ref.ts";
 import {
   deriveRelationId,
-  formatRelationFlowRecord,
   isAllowedRelationKindTriple,
   validateRelationRecordsForHost,
 } from "../../src/domain/entity-relation.ts";
@@ -75,34 +74,6 @@ test("EntityRef parser derives the twelve canonical kind grammars from authority
   }
   assert.equal(parseEntityRef("execution/task-1/exe-1"), null);
   assert.equal(parseEntityRef("review/exe-1/rev-1"), null);
-});
-
-test("EntityRef scanner preserves external harness prefixes without resolving them", () => {
-  const refs = findEntityRefs("depends on task/local-task and other-harness:task/remote-task");
-
-  assert.deepEqual(
-    refs.map((ref) => [ref.raw, ref.externalHarness]),
-    [
-      ["task/local-task", false],
-      ["other-harness:task/remote-task", true],
-    ],
-  );
-});
-
-test("EntityRef scanner ignores task-like prose, package markers, and paths", () => {
-  const refs = findEntityRefs(
-    [
-      "Task Contract: harness-task/v2",
-      "workspace has task/doc/terminal panes",
-      "path scripts/domain/task/task-subjects.mts",
-      "real refs task/local-task, decision/decision-local/C1, and fact/F-a3f2 remain",
-    ].join("\n"),
-  );
-
-  assert.deepEqual(
-    refs.map((ref) => ref.raw),
-    ["task/local-task", "decision/decision-local/C1", "fact/F-a3f2"],
-  );
 });
 
 test("relation ids are deterministic and ignore mutable relation attributes", () => {
@@ -198,15 +169,6 @@ test("type-subset whitelist only governs active relations", () => {
     ),
     ["invalid_relation_type_subset"],
   );
-});
-
-test("relation flow formatter emits one flow-style line per record", () => {
-  const line = formatRelationFlowRecord(relationRecord());
-
-  assert.equal(line.includes("\n"), false);
-  assert.equal(line.startsWith("- {relation_id: rel_9801931d9d252ac8,"), true);
-  assert.equal(line.endsWith("state: active}"), true);
-  assert.match(line, /rationale: "C1 is supported by the measured finding F-a3f2\."/u);
 });
 
 function relationRecord(): EntityRelationRecord {

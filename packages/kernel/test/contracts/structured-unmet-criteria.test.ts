@@ -3,7 +3,7 @@ import { rejectedAcceptance } from "./receipt-acceptance.fixtures.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { authorizationPort, type ActionEnvelope, type AuthorizationContext } from "../../src/index.ts";
-import { createWriteReceipt, validateWriteReceipt, type WriteReceipt } from "../../src/domain/write-chain.contract.ts";
+import { validateWriteReceipt, type WriteReceipt } from "../../src/domain/receipt-domain-registry.ts";
 
 const actor = { principal: { personId: "person-criteria" }, executor: null } as const;
 const authorizationDecision = authorizationPort.authorize(
@@ -47,7 +47,7 @@ function receipt(unmetCriteria: unknown): WriteReceipt {
 test("WriteReceipt accepts the closed structured unmet-criterion value", () => {
   const value = receipt([criterion]);
   assert.deepEqual(validateWriteReceipt(value), []);
-  assert.deepEqual(createWriteReceipt(value).unmetCriteria, [criterion]);
+  assert.deepEqual(value.unmetCriteria, [criterion]);
 });
 
 test("WriteReceipt rejects the retired string form and unknown criterion fields", () => {

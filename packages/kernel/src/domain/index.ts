@@ -41,7 +41,6 @@ export type {
   StartExecutionCommand,
   SubmitExecutionCommand,
 } from "./task-lifecycle.contract.ts";
-export type { TaskLifecycleCommandType } from "./task-write-decision.ts";
 
 export {
   approvedReviewHistoryForExecution,
@@ -126,7 +125,7 @@ export {
 } from "./task-wip-policy.ts";
 export type { TaskWipSnapshotEntryV1 } from "./task-wip-policy.ts";
 
-export { findEntityRefs, parseEntityRef } from "./entity-ref.ts";
+export { parseEntityRef } from "./entity-ref.ts";
 export type { EntityRef, EntityRefKind, ParsedEntityRef } from "./entity-ref.ts";
 
 export { projectDeclaredRoleBindings, roleBindingActorMatches, roleBindingExpired } from "./role-binding.ts";
@@ -211,7 +210,6 @@ export type { RuntimeSessionActionDraft } from "./runtime-session-action-contrac
 export { squadActionUsage } from "./squad-action-contract.ts";
 
 export {
-  canonicalRelationIdentityInput,
   deriveRelationId,
   isAllowedRelationKindTriple,
   normalizeLegacyRelationState,

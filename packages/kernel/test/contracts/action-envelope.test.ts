@@ -5,7 +5,6 @@ import test from "node:test";
 import { validateActionEnvelope } from "../../src/domain/action-envelope.ts";
 import { explainEntityKind } from "../../src/domain/entity-kind-registry.ts";
 import { validateWriteReceipt } from "../../src/domain/receipt-domain-registry.ts";
-import { createWriteReceipt } from "../../src/index.ts";
 
 const actor = { principal: { personId: "person-action" }, executor: { kind: "agent" as const, id: "sol" } };
 const action = {
@@ -89,7 +88,7 @@ test("public receipts require the structured AuthorizationDecision", () => {
     nextActions: [],
     evaluatedAtCut: "canonical:1",
   };
-  const receipt = createWriteReceipt({
+  const receipt = {
     ...committedAcceptance("op-action", 1),
     outcome: "applied",
     opId: "op-action",
@@ -104,7 +103,7 @@ test("public receipts require the structured AuthorizationDecision", () => {
       worktreeVisible: null,
     },
     authorizationDecision,
-  });
+  };
   assert.equal(receipt.authorizationDecision, authorizationDecision);
   assert.deepEqual(validateWriteReceipt(receipt), []);
   const { authorizationDecision: _missing, ...missing } = receipt;
