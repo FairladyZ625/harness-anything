@@ -199,6 +199,7 @@ function refreshDecisionFts(db: DatabaseSync, decisionId: string): void {
     body = readDecisionBody(db, decisionId)?.body ?? "";
   db.prepare("DELETE FROM decision_fts WHERE rowid=?").run(row.rowid);
   db.prepare(
-    "INSERT INTO decision_fts(rowid, decision_id, title, question, option_text, claim_text, body) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    "INSERT INTO decision_fts(rowid, decision_id, title, question, option_text, claim_text, body) " +
+      "VALUES (?, ?, ?, ?, ?, ?, ?)",
   ).run(row.rowid, decisionId, row.title, row.question, options, claims, body);
 }
