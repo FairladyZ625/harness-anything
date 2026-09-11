@@ -51,6 +51,7 @@ import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { realizedDecisionBody, realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { openRepoCell as openProductRepoCell } from "../src/repo-cell.ts";
 import { openBootstrappedRepoCell as openRepoCell, seedSettingsEvent } from "./repo-settings.fixture.ts";
+import { decisionSummaryRead } from "./fixtures/decision-summary-read.ts";
 const DOC_POLICY_ID = "markdown-body-replaceable/v1";
 
 function assertValidationDiagnostic(errors: readonly string[], entity: RegExp, field: string): void {
@@ -1809,21 +1810,7 @@ test("decision readiness survives the wire when the canonical Git cut is unavail
   assert.equal(noCut[0]?.appliesToDrift.state, "unknown");
   assert.deepEqual(validateDaemonDecisionList(decisionList(noCut[0]!)), []);
   assert.deepEqual(validateDaemonDecisionList({ ...decisionList(noCut[0]!), projection: "full" }), []);
-  const summary = {
-    ok: true,
-    projection: "summary",
-    decisions: [
-      {
-        decisionId: "dec_1",
-        title: "Title",
-        state: "in_effect",
-        riskTier: "medium",
-        urgency: "medium",
-        proposedAt: "2026-09-11T00:00:00.000Z",
-      },
-    ],
-    warnings: [],
-  };
+  const summary = decisionSummaryRead();
   assert.deepEqual(validateDaemonDecisionList(summary), []);
   assertValidationDiagnostic(validateDaemonDecisionList({ ...summary, decisions: [{ ...summary.decisions[0]!, readiness: noCut[0] }] }), /dec_1/u, "decisions[0]");
   assertValidationDiagnostic(validateDaemonDecisionList({ ...summary, decisions: [{ ...summary.decisions[0]!, state: "unknown" }] }), /dec_1/u, "decisions[0]");
