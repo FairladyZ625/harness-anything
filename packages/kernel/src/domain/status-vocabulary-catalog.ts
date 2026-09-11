@@ -240,7 +240,9 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     module: "packages/kernel/src/domain/completion-readiness.ts",
     anchor: "#projectionStatus",
     words: ["ready", "pending"],
-    note: "Availability of the canonical projection cut the completion next step is judged at; pending yields projection_unknown.",
+    note:
+      "Availability of the canonical projection cut the completion next step is judged at; " +
+      "pending yields projection_unknown.",
   },
   {
     id: "task-read-set.projection-cut",
