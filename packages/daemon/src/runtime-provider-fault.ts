@@ -84,6 +84,14 @@ export function classifyRuntimeExit(
     return classified("worker_stop", `Worker process stopped before settlement: ${active.lossReason}`);
   if (exitCode === null)
     return classified("provider_fault", "Provider process disconnected before completing the attempt.");
+  if (
+    exitCode === 0 &&
+    active.providerOutcome === "succeeded" &&
+    !active.toolCallObserved &&
+    !active.nonEmptyAgentOutputObserved &&
+    active.providerUsageEmpty
+  )
+    return classified("provider_fault", "Provider completed a turn but produced no output.");
   if (attemptFailed && !active.toolCallObserved) {
     const reason = active.errorOverflowed
       ? `Provider exited with code ${String(exitCode)} before any tool call; stderr exceeded the diagnostic limit.`
@@ -124,6 +132,8 @@ export function observeProviderFault(active: ActiveRuntime, frame: ProviderFrame
     active.toolCallObserved = true;
     active.providerFault = null;
   }
+  if (frame.finalText?.trim()) active.nonEmptyAgentOutputObserved = true;
+  if (frame.providerUsageEmpty !== undefined) active.providerUsageEmpty = frame.providerUsageEmpty;
   if (frame.providerFault) active.providerFault = frame.providerFault;
 }
 

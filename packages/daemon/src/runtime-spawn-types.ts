@@ -179,6 +179,8 @@ export type ActiveRuntime = {
   descendantsAlive: boolean;
   worktreeDirty: boolean;
   toolCallObserved: boolean;
+  nonEmptyAgentOutputObserved: boolean;
+  providerUsageEmpty: boolean;
   providerFault: RuntimeProviderFault | null;
 };
 
@@ -192,6 +194,7 @@ export type ProviderFrame = {
   readonly planObserved?: boolean;
   readonly planIncomplete?: boolean;
   readonly toolCallObserved?: boolean;
+  readonly providerUsageEmpty?: boolean;
   readonly providerFault?: RuntimeProviderFault;
 };
 

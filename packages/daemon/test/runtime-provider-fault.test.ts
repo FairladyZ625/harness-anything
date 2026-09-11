@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { ActiveRuntime } from "../src/runtime-spawn-types.ts";
 import { classifyRuntimeExit, observeProviderFault, providerFaultFromFrame } from "../src/runtime-provider-fault.ts";
+import { parseCodexFrame } from "../src/runtime-spawn-provider-frames.ts";
 
 test("structured provider errors classify rate limits, server faults, quota, model, and auth failures", () => {
   const rateLimit = providerFaultFromFrame("codex", {
@@ -163,6 +164,39 @@ test("attempt-bound classification falls back only before tools or for recognize
   assert.equal(classifyRuntimeExit(recovered, 1).classification, "gate_red");
 });
 
+test("blank successful Codex turns classify as provider faults", () => {
+  const runtime = active({ providerOutcome: null });
+  for (const frame of [
+    { type: "thread.started", thread_id: "provider-session" },
+    { type: "turn.started" },
+    { type: "item.completed", item: { id: "item_0", type: "agent_message", text: " " } },
+    { type: "turn.completed", usage: {} },
+  ]) {
+    const parsed = parseCodexFrame(frame, "provider-session");
+    if (parsed.finalText !== undefined) runtime.finalText = parsed.finalText;
+    if (parsed.outcome) runtime.providerOutcome = parsed.outcome;
+    observeProviderFault(runtime, parsed);
+  }
+  const result = classifyRuntimeExit(runtime, 0);
+  assert.equal(result.outcome, "succeeded");
+  assert.equal(result.classification, "provider_fault");
+  assert.equal(result.reason, "Provider completed a turn but produced no output.");
+});
+
+test("non-blank successful Codex turns remain worker stops", () => {
+  const runtime = active({ providerOutcome: null });
+  for (const frame of [
+    { type: "item.completed", item: { id: "item_0", type: "agent_message", text: "done" } },
+    { type: "turn.completed", usage: {} },
+  ]) {
+    const parsed = parseCodexFrame(frame, "provider-session");
+    if (parsed.finalText !== undefined) runtime.finalText = parsed.finalText;
+    if (parsed.outcome) runtime.providerOutcome = parsed.outcome;
+    observeProviderFault(runtime, parsed);
+  }
+  assert.equal(classifyRuntimeExit(runtime, 0).classification, "worker_stop");
+});
+
 test("observed provider fault takes precedence over a later runtime loss", () => {
   const result = classifyRuntimeExit(
     active({
@@ -196,6 +230,8 @@ function active(overrides: Partial<ActiveRuntime>): ActiveRuntime {
     errorOverflowed: false,
     errorBuffer: "",
     toolCallObserved: false,
+    nonEmptyAgentOutputObserved: false,
+    providerUsageEmpty: false,
     providerOutcome: null,
     failureText: null,
     permissionMode: "read-only",

@@ -140,7 +140,11 @@ export function parseCodexFrame(value: Record<string, unknown>, providerSessionI
       };
     return {};
   }
-  if (value.type === "turn.completed") return { outcome: "succeeded" };
+  if (value.type === "turn.completed")
+    return {
+      outcome: "succeeded",
+      providerUsageEmpty: !isPlainRecord(value.usage) || Object.keys(value.usage).length === 0,
+    };
   if (value.type === "turn.failed") {
     const failureText = isPlainRecord(value.error) ? JSON.stringify(value.error) : undefined;
     return {
