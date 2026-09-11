@@ -127,9 +127,9 @@ const quarantinePattern =
 // watchdog can say which test never returned; only the child itself can say which handle it is
 // still holding, and a remote runner offers no second chance to ask.
 const stallReportUrl = pathToFileURL(resolve(import.meta.dirname, "node-test-stall-report.mjs")).href;
-const stallReportMs = [...selectedFileTimeouts.values()].includes("none")
-  ? undefined
-  : Math.max(1_000, Math.floor(fileTimeoutMs * 0.9));
+// Stall reports stay on for the bounded files of a run; only a run made solely of unbounded
+// stress files has nothing to report at 90% of a timeout.
+const stallReportMs = finiteTimeouts.length === 0 ? undefined : Math.max(1_000, Math.floor(fileTimeoutMs * 0.9));
 const child = spawn(
   process.execPath,
   [
