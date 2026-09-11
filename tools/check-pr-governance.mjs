@@ -183,7 +183,7 @@ function readLabeledValue(text, labels) {
   return "";
 }
 
-function readChangedFiles({ root, changedFilesPath, changedFilesText, base, head }) {
+export function readChangedFiles({ root, changedFilesPath, changedFilesText, base, head }) {
   if (changedFilesText !== null) {
     return splitChangedFiles(changedFilesText);
   }
@@ -191,7 +191,9 @@ function readChangedFiles({ root, changedFilesPath, changedFilesText, base, head
     return splitChangedFiles(readFileSync(changedFilesPath, "utf8"));
   }
   if (base && head) {
-    const result = spawnSync("git", ["diff", "--name-only", base, head, "--"], {
+    // Three-dot: only the branch's own changes count. The PR base sha is the target branch tip at event
+    // time, so a two-dot diff would charge the PR with everything merged to main since it branched.
+    const result = spawnSync("git", ["diff", "--name-only", `${base}...${head}`, "--"], {
       cwd: root,
       encoding: "utf8",
     });

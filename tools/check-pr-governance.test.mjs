@@ -1,10 +1,15 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
 import {
   checkPrGovernance,
   classifyProtectedChanges,
-  deriveProtectedSurfaceRules
+  deriveProtectedSurfaceRules,
+  readChangedFiles,
 } from "./check-pr-governance.mjs";
 
 function makeManifest() {
@@ -20,20 +25,18 @@ function makeManifest() {
             "tools/gate-manifest.json",
             "package.json:scripts.check",
             "tools/gate-allowlists/check-import-boundaries.json",
-            "packages/*/package.json"
-          ]
-        }
+            "packages/*/package.json",
+          ],
+        },
       },
       {
         id: "ordinary-gate",
         changeControl: {
           requiresGovernanceEvidence: false,
-          protectedSurfaces: [
-            "docs-release/ordinary.md"
-          ]
-        }
-      }
-    ]
+          protectedSurfaces: ["docs-release/ordinary.md"],
+        },
+      },
+    ],
   };
 }
 
@@ -50,11 +53,13 @@ function bodyWithGovernance({ breakGlass = false } = {}) {
     "- Protected surface touched: yes",
     "- Authority: ADR-0023 D5/D8 and task_01KWVTPX3AH5TG8VK4RJYXE7EZ",
     `- Break-glass: ${breakGlass ? "yes" : "no"}`,
-    ...(breakGlass ? [
-      "- Break-glass reason: restore main after an urgent CI outage",
-      "- Break-glass scope: pr-body-lint governance declaration only",
-      "- Follow-up governance task: task_01KWVTPX3AH5TG8VK4RJYXE7EZ"
-    ] : []),
+    ...(breakGlass
+      ? [
+          "- Break-glass reason: restore main after an urgent CI outage",
+          "- Break-glass scope: pr-body-lint governance declaration only",
+          "- Follow-up governance task: task_01KWVTPX3AH5TG8VK4RJYXE7EZ",
+        ]
+      : []),
     "",
     "---",
     "",
@@ -68,7 +73,7 @@ function bodyWithGovernance({ breakGlass = false } = {}) {
     "",
     "- 触碰 protected surface：是",
     "- 依据：ADR-0023 D5/D8 与 task_01KWVTPX3AH5TG8VK4RJYXE7EZ",
-    "- Break-glass：否"
+    "- Break-glass：否",
   ].join("\n");
 }
 
@@ -87,7 +92,7 @@ test("ordinary PR paths skip without requiring governance declaration", () => {
   const result = checkPrGovernance({
     body: "# English\n\nOrdinary body.\n\n# 中文\n\n普通正文。",
     changedFiles: ["docs-release/guide.md"],
-    manifest: makeManifest()
+    manifest: makeManifest(),
   });
 
   assert.equal(result.ok, true);
@@ -99,7 +104,7 @@ test("protected .github path fails without governance declaration", () => {
   const result = checkPrGovernance({
     body: "# English\n\nNo declaration.\n\n# 中文\n\n没有声明。",
     changedFiles: [".github/workflows/rewrite-ci.yml"],
-    manifest: makeManifest()
+    manifest: makeManifest(),
   });
 
   assert.equal(result.ok, false);
@@ -112,7 +117,7 @@ test("protected path passes with governance declaration and authority reference"
   const result = checkPrGovernance({
     body: bodyWithGovernance(),
     changedFiles: ["tools/check-pr-body-bilingual.mjs"],
-    manifest: makeManifest()
+    manifest: makeManifest(),
   });
 
   assert.equal(result.ok, true);
@@ -121,9 +126,11 @@ test("protected path passes with governance declaration and authority reference"
 
 test("governance declaration must cite ADR decision or task evidence", () => {
   const result = checkPrGovernance({
-    body: bodyWithGovernance().replaceAll("ADR-0023 D5/D8 and task_01KWVTPX3AH5TG8VK4RJYXE7EZ", "the plan").replaceAll("ADR-0023 D5/D8 与 task_01KWVTPX3AH5TG8VK4RJYXE7EZ", "计划"),
+    body: bodyWithGovernance()
+      .replaceAll("ADR-0023 D5/D8 and task_01KWVTPX3AH5TG8VK4RJYXE7EZ", "the plan")
+      .replaceAll("ADR-0023 D5/D8 与 task_01KWVTPX3AH5TG8VK4RJYXE7EZ", "计划"),
     changedFiles: ["package.json"],
-    manifest: makeManifest()
+    manifest: makeManifest(),
   });
 
   assert.equal(result.ok, false);
@@ -145,10 +152,10 @@ test("break-glass declaration requires reason scope and follow-up task", () => {
       "## 治理声明",
       "",
       "- 依据：ADR-0023 D8",
-      "- Break-glass：是"
+      "- Break-glass：是",
     ].join("\n"),
     changedFiles: ["tools/gate-allowlists/check-import-boundaries.json"],
-    manifest: makeManifest()
+    manifest: makeManifest(),
   });
 
   assert.equal(result.ok, false);
@@ -161,7 +168,7 @@ test("break-glass declaration passes with required exception fields", () => {
   const result = checkPrGovernance({
     body: bodyWithGovernance({ breakGlass: true }),
     changedFiles: ["tools/gate-allowlists/check-import-boundaries.json"],
-    manifest: makeManifest()
+    manifest: makeManifest(),
   });
 
   assert.equal(result.ok, true);
@@ -171,10 +178,10 @@ test("break-glass declaration rejects an empty reason before the scope line", ()
   const result = checkPrGovernance({
     body: bodyWithGovernance({ breakGlass: true }).replace(
       "- Break-glass reason: restore main after an urgent CI outage",
-      "- Break-glass reason:"
+      "- Break-glass reason:",
     ),
     changedFiles: ["tools/gate-allowlists/check-import-boundaries.json"],
-    manifest: makeManifest()
+    manifest: makeManifest(),
   });
 
   assert.equal(result.ok, false);
@@ -187,4 +194,33 @@ test("classifies wildcard package surfaces", () => {
 
   assert.equal(matches.length, 1);
   assert.ok(matches[0].surfaces.includes("packages/*/package.json"));
+});
+
+test("changed files are the branch's own commits, not what the base branch merged meanwhile", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "pr-governance-diff-"));
+  const git = (...args) =>
+    execFileSync("git", ["-C", root, "-c", "user.name=t", "-c", "user.email=t@example.com", ...args], {
+      encoding: "utf8",
+    }).trim();
+  try {
+    git("init", "-q", "-b", "main");
+    writeFileSync(path.join(root, "README.md"), "base\n");
+    git("add", "README.md");
+    git("commit", "-q", "-m", "base");
+    git("checkout", "-q", "-b", "feature");
+    writeFileSync(path.join(root, "feature.txt"), "feature\n");
+    git("add", "feature.txt");
+    git("commit", "-q", "-m", "feature");
+    git("checkout", "-q", "main");
+    writeFileSync(path.join(root, "protected.mjs"), "merged on main later\n");
+    git("add", "protected.mjs");
+    git("commit", "-q", "-m", "main moves");
+    const base = git("rev-parse", "main"),
+      head = git("rev-parse", "feature");
+    assert.deepEqual(readChangedFiles({ root, changedFilesPath: null, changedFilesText: null, base, head }), [
+      "feature.txt",
+    ]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
