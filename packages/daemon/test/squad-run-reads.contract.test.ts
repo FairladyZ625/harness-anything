@@ -52,6 +52,9 @@ const detail = {
         status: "succeeded" as const,
         startedAt: "2026-08-26T00:00:00.000Z",
         endedAt: "2026-08-26T00:05:00.000Z",
+        tokenUsage: { input: 120, output: 30 },
+        toolCallCount: 4,
+        compacted: true,
       },
       {
         turnId: "leader-2",
@@ -63,6 +66,9 @@ const detail = {
         status: null,
         startedAt: null,
         endedAt: null,
+        tokenUsage: { input: 0, output: 0 },
+        toolCallCount: 0,
+        compacted: false,
       },
       {
         turnId: "leader-3",
@@ -78,6 +84,9 @@ const detail = {
         status: "running" as const,
         startedAt: "2026-08-26T00:10:00.000Z",
         endedAt: null,
+        tokenUsage: { input: 0, output: 0 },
+        toolCallCount: 0,
+        compacted: false,
       },
       {
         turnId: "leader-4",
@@ -93,6 +102,9 @@ const detail = {
         status: "running" as const,
         startedAt: "2026-08-26T00:11:00.000Z",
         endedAt: null,
+        tokenUsage: { input: 0, output: 0 },
+        toolCallCount: 0,
+        compacted: false,
       },
     ],
     workerAttempts: [
@@ -106,6 +118,9 @@ const detail = {
         status: "succeeded" as const,
         startedAt: "2026-08-26T00:06:00.000Z",
         endedAt: "2026-08-26T00:09:00.000Z",
+        tokenUsage: { input: 80, output: 20 },
+        toolCallCount: 2,
+        compacted: false,
       },
       {
         attemptId: "worker-2",
@@ -117,6 +132,9 @@ const detail = {
         status: null,
         startedAt: null,
         endedAt: null,
+        tokenUsage: { input: 0, output: 0 },
+        toolCallCount: 0,
+        compacted: false,
       },
     ],
   },
@@ -255,6 +273,9 @@ test("squad run read accepts legacy worker attempts without a worktree", () => {
       status: null,
       startedAt: null,
       endedAt: null,
+      tokenUsage: { input: 0, output: 0 },
+      toolCallCount: 0,
+      compacted: false,
     },
   ];
   assert.deepEqual(validateSquadRunRead(legacy), []);

@@ -885,10 +885,14 @@ export function makeSquadCoordinator(input: {
       revision: state.revision,
       currentLeaderRuntimeSessionId: state.currentLeaderRuntimeSessionId,
       leaderRuntimeSessionIds: state.leaderTurns.map((turn) => turn.runtimeSessionId),
-      leaders: state.leaderTurns.map((turn) => ({ ...byDispatchId.get(turn.dispatchId), ...turn })),
+      leaders: state.leaderTurns.map((turn) => {
+        const row = byDispatchId.get(turn.dispatchId);
+        return { ...row, ...turn, ...attemptMetrics(row) };
+      }),
       workers: state.workerAttempts.map((attempt) => ({
         ...(attempt.dispatchId ? byDispatchId.get(attempt.dispatchId) : undefined),
         ...attempt,
+        ...attemptMetrics(attempt.dispatchId ? byDispatchId.get(attempt.dispatchId) : undefined),
       })),
       workerCallbackCount: state.observedWorkerRuntimeSessionIds.length,
       pendingLeaderCallbackCount: state.pendingLeaderTriggers.length + state.workerWaits.length,
@@ -933,6 +937,7 @@ export function makeSquadCoordinator(input: {
             status: row?.status ?? null,
             startedAt: row?.startedAt ?? null,
             endedAt: row?.endedAt ?? null,
+            ...attemptMetrics(row),
           };
         }),
         workerAttempts: state.workerAttempts.map((attempt) => {
@@ -948,6 +953,7 @@ export function makeSquadCoordinator(input: {
             status: row?.status ?? null,
             startedAt: row?.startedAt ?? null,
             endedAt: row?.endedAt ?? null,
+            ...attemptMetrics(row),
           };
         }),
       },
@@ -989,6 +995,17 @@ export function makeSquadCoordinator(input: {
     if (terminal(state) || state.currentLeaderRuntimeSessionId === null) return state.phase;
     const leader = input.projection().readRuntimeSession(state.currentLeaderRuntimeSessionId);
     return leader && runtimeSessionSemanticState(leader) === "cancelled" ? "cancelled" : state.phase;
+  }
+
+  function attemptMetrics(row: TaskDispatchRow | undefined) {
+    return {
+      tokenUsage: {
+        input: row?.metrics?.inputTokens ?? 0,
+        output: row?.metrics?.outputTokens ?? 0,
+      },
+      toolCallCount: row?.metrics?.toolCallCount ?? 0,
+      compacted: row?.metrics?.compacted ?? false,
+    };
   }
 
   return { start, status, cancel, list, read, observeOutcome, reconcile };
