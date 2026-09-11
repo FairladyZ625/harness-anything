@@ -8,6 +8,7 @@ const testFilePattern = /\.(test|spec)\.(?:mjs|js|ts)$/u;
 // with "test tier marker missing" for a file nobody in this repository wrote.
 const ignoredDirectoryNames = new Set(["node_modules", "app-node_modules", "dist", "out", "coverage", ".git"]);
 const markerPattern = /^\s*\/\/\s*harness-test-tier:\s*(\S+)\s*$/u;
+const timeoutMarkerPattern = /^\s*\/\/\s*harness-test-file-timeout:\s*(\S+)\s*$/u;
 
 export const testTierNames = Object.freeze(["fast", "contract", "integration"]);
 
@@ -37,6 +38,30 @@ export function parseTestTierMarker(source, file = "test file") {
   return tier;
 }
 
+export function parseTestFileTimeoutMarker(source, file = "test file") {
+  const lines = source.split(/\r?\n/u);
+  const markerLines = lines
+    .map((line, index) => ({ line, index }))
+    .filter(({ line }) => /^\s*\/\/\s*harness-test-file-timeout:/u.test(line));
+  if (markerLines.length === 0) return undefined;
+  if (markerLines.length > 1) throw new Error(`multiple test file timeout markers: ${file}`);
+  const marker = markerLines[0];
+  if (marker.index > 1) throw new Error(`test file timeout marker must be in the file header: ${file}`);
+  const value = marker.line.match(timeoutMarkerPattern)?.[1];
+  if (value === "none") {
+    const normalized = file.replaceAll("\\", "/");
+    if (!normalized.startsWith("tools/stress/")) {
+      throw new Error(`unbounded test file timeout is only allowed under tools/stress/: ${file}`);
+    }
+    return "none";
+  }
+  const timeoutMs = Number(value);
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
+    throw new Error(`invalid test file timeout marker: ${file}; expected none or a positive integer`);
+  }
+  return timeoutMs;
+}
+
 export function deriveTestTierManifest(testFiles, readSource) {
   if (typeof readSource !== "function") throw new Error("deriveTestTierManifest requires a source reader");
   const manifest = Object.fromEntries(testTierNames.map((tier) => [tier, []]));
@@ -59,6 +84,12 @@ export function discoverTestTierManifest(repoRoot, options = {}) {
     discoverTestFiles(repoRoot, options.roots),
     options.readSource ?? ((file) => readFileSync(path.join(repoRoot, file), "utf8")),
   );
+}
+
+export function discoverTestFileTimeouts(repoRoot, options = {}) {
+  const files = discoverTestFiles(repoRoot, options.roots);
+  const readSource = options.readSource ?? ((file) => readFileSync(path.join(repoRoot, file), "utf8"));
+  return Object.fromEntries(files.map((file) => [file, parseTestFileTimeoutMarker(readSource(file), file)]));
 }
 
 function main() {

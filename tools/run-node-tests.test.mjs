@@ -3,8 +3,25 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import test from "node:test";
-import { collectSlowTests, filterTestFilesByNames, filterTestFilesByPrefixes, formatSlowTestSummary, parseCompletedTestLine, parseRunnerArgs, resolveTestConcurrency, selectTestFiles, validateManifest } from "./node-test-runner-lib.mjs";
-import { deriveTestTierManifest, discoverTestTierManifest, parseTestTierMarker, testTierNames } from "./test-tier-manifest.mjs";
+import {
+  collectSlowTests,
+  filterTestFilesByNames,
+  filterTestFilesByPrefixes,
+  formatSlowTestSummary,
+  parseCompletedTestLine,
+  parseRunnerArgs,
+  resolveTestConcurrency,
+  selectTestFiles,
+  validateManifest,
+} from "./node-test-runner-lib.mjs";
+import {
+  deriveTestTierManifest,
+  discoverTestFileTimeouts,
+  discoverTestTierManifest,
+  parseTestFileTimeoutMarker,
+  parseTestTierMarker,
+  testTierNames,
+} from "./test-tier-manifest.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
 
@@ -17,7 +34,7 @@ test("parseRunnerArgs accepts tier and slow summary options", () => {
     concurrency: undefined,
     shard: undefined,
     prefixes: [],
-    files: []
+    files: [],
   });
 });
 
@@ -41,69 +58,123 @@ test("parseRunnerArgs rejects unknown tiers and options", () => {
 test("parseRunnerArgs accepts safe repository-relative test prefixes", () => {
   assert.deepEqual(parseRunnerArgs(["--prefix", "tools", "--prefix=packages/kernel/"], testTierNames).prefixes, [
     "tools/",
-    "packages/kernel/"
+    "packages/kernel/",
   ]);
   assert.throws(() => parseRunnerArgs(["--prefix", "../outside"], testTierNames), /repository-relative/u);
 });
 
 test("parseRunnerArgs accepts safe repository-relative test files", () => {
-  assert.deepEqual(parseRunnerArgs(["--file", "tools/run-node-tests.test.mjs", "--file=packages/kernel/test/domain/domain-status.test.ts"], testTierNames).files, [
-    "tools/run-node-tests.test.mjs",
-    "packages/kernel/test/domain/domain-status.test.ts"
-  ]);
-  assert.throws(() => parseRunnerArgs(["--file", "../outside.test.mjs"], testTierNames), /repository-relative test file/u);
-  assert.throws(() => parseRunnerArgs(["--file", "tools/not-a-test.mjs"], testTierNames), /repository-relative test file/u);
-  assert.throws(() => parseRunnerArgs(["--tier", "integration", "--shard", "1", "--file", "tools/a.test.mjs"], testTierNames), /cannot be combined/u);
+  assert.deepEqual(
+    parseRunnerArgs(
+      ["--file", "tools/run-node-tests.test.mjs", "--file=packages/kernel/test/domain/domain-status.test.ts"],
+      testTierNames,
+    ).files,
+    ["tools/run-node-tests.test.mjs", "packages/kernel/test/domain/domain-status.test.ts"],
+  );
+  assert.throws(
+    () => parseRunnerArgs(["--file", "../outside.test.mjs"], testTierNames),
+    /repository-relative test file/u,
+  );
+  assert.throws(
+    () => parseRunnerArgs(["--file", "tools/not-a-test.mjs"], testTierNames),
+    /repository-relative test file/u,
+  );
+  assert.throws(
+    () => parseRunnerArgs(["--tier", "integration", "--shard", "1", "--file", "tools/a.test.mjs"], testTierNames),
+    /cannot be combined/u,
+  );
 });
 
 test("filterTestFilesByPrefixes keeps only selected repository paths", () => {
-  assert.deepEqual(filterTestFilesByPrefixes([
-    "tools/a.test.mjs",
-    "packages/kernel/b.test.ts",
-    "packages/gui/c.test.ts"
-  ], ["tools/", "packages/kernel/"]), ["tools/a.test.mjs", "packages/kernel/b.test.ts"]);
+  assert.deepEqual(
+    filterTestFilesByPrefixes(
+      ["tools/a.test.mjs", "packages/kernel/b.test.ts", "packages/gui/c.test.ts"],
+      ["tools/", "packages/kernel/"],
+    ),
+    ["tools/a.test.mjs", "packages/kernel/b.test.ts"],
+  );
 });
 
 test("filterTestFilesByNames keeps only exact selected repository paths", () => {
-  assert.deepEqual(filterTestFilesByNames([
-    "tools/a.test.mjs",
-    "packages/kernel/b.test.ts",
-    "packages/gui/c.test.ts"
-  ], ["packages/kernel/b.test.ts", "tools/a.test.mjs"]), ["tools/a.test.mjs", "packages/kernel/b.test.ts"]);
+  assert.deepEqual(
+    filterTestFilesByNames(
+      ["tools/a.test.mjs", "packages/kernel/b.test.ts", "packages/gui/c.test.ts"],
+      ["packages/kernel/b.test.ts", "tools/a.test.mjs"],
+    ),
+    ["tools/a.test.mjs", "packages/kernel/b.test.ts"],
+  );
 });
 
 test("runner watchdog fails and names a file whose process keeps an open handle", () => {
   const childEnv = {
     ...process.env,
     HARNESS_RUNNER_OPEN_HANDLE_FIXTURE: "1",
-    HARNESS_TEST_FILE_TIMEOUT_MS: "250"
+    HARNESS_TEST_FILE_TIMEOUT_MS: "250",
   };
   delete childEnv.NODE_TEST_CONTEXT;
-  const result = spawnSync(process.execPath, [
-    "tools/run-node-tests.mjs",
-    "--tier", "fast",
-    "--prefix", "tools/test-fixtures/runner-watchdog"
-  ], {
-    cwd: repoRoot,
-    encoding: "utf8",
-    env: childEnv,
-    timeout: 10_000
-  });
+  const result = spawnSync(
+    process.execPath,
+    ["tools/run-node-tests.mjs", "--tier", "fast", "--prefix", "tools/test-fixtures/runner-watchdog"],
+    {
+      cwd: repoRoot,
+      encoding: "utf8",
+      env: childEnv,
+      timeout: 10_000,
+    },
+  );
   const output = `${result.stdout}\n${result.stderr}`;
   assert.equal(result.error, undefined, output);
   assert.equal(result.status, 1, output);
-  assert.match(output, /\[node-test-watchdog\] test file exceeded 250ms: tools\/test-fixtures\/runner-watchdog\/open-handle\.test\.mjs/u);
+  assert.match(
+    output,
+    /\[node-test-watchdog\] test file exceeded timeout: tools\/test-fixtures\/runner-watchdog\/open-handle\.test\.mjs/u,
+  );
+});
+
+test("test file timeout markers allow stress opt-in and numeric values", () => {
+  assert.equal(
+    parseTestFileTimeoutMarker(
+      "// harness-test-tier: integration\n// harness-test-file-timeout: none\n",
+      "tools/stress/example.test.mjs",
+    ),
+    "none",
+  );
+  assert.equal(
+    parseTestFileTimeoutMarker(
+      "// harness-test-tier: fast\n// harness-test-file-timeout: 1234\n",
+      "tools/example.test.mjs",
+    ),
+    1234,
+  );
+  assert.throws(
+    () =>
+      parseTestFileTimeoutMarker(
+        "// harness-test-tier: fast\n// harness-test-file-timeout: none\n",
+        "tools/example.test.mjs",
+      ),
+    /only allowed under tools\/stress/u,
+  );
+});
+
+test("discoverTestFileTimeouts returns only explicit file overrides", () => {
+  assert.deepEqual(
+    discoverTestFileTimeouts(repoRoot, {
+      roots: ["tools/test-fixtures/runner-watchdog"],
+    }),
+    { "tools/test-fixtures/runner-watchdog/open-handle.test.mjs": undefined },
+  );
 });
 
 test("a --prefix that selects nothing fails instead of reporting a clean run", () => {
   const childEnv = { ...process.env };
   delete childEnv.NODE_TEST_CONTEXT;
   for (const prefix of ["packages/does-not-exist", "tools/run-node-tests.test.mjs"]) {
-    const result = spawnSync(process.execPath, [
-      "tools/run-node-tests.mjs",
-      "--tier", "fast",
-      "--prefix", prefix
-    ], { cwd: repoRoot, encoding: "utf8", env: childEnv, timeout: 30_000 });
+    const result = spawnSync(process.execPath, ["tools/run-node-tests.mjs", "--tier", "fast", "--prefix", prefix], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      env: childEnv,
+      timeout: 30_000,
+    });
     const output = `${result.stdout}\n${result.stderr}`;
     assert.equal(result.status, 1, output);
     assert.match(output, /No test file in tier fast starts with any of/u);
@@ -113,42 +184,44 @@ test("a --prefix that selects nothing fails instead of reporting a clean run", (
 test("resolveTestConcurrency prefers the explicit flag over env and defaults", () => {
   assert.equal(
     resolveTestConcurrency({ flagConcurrency: 3, envConcurrency: "8", isCi: false, availableParallelism: 16 }),
-    3
+    3,
   );
   assert.equal(
     resolveTestConcurrency({ flagConcurrency: 12, envConcurrency: undefined, isCi: true, availableParallelism: 16 }),
-    12
+    12,
   );
 });
 
 test("resolveTestConcurrency honors HARNESS_TEST_CONCURRENCY when no flag is given", () => {
   assert.equal(
     resolveTestConcurrency({ flagConcurrency: undefined, envConcurrency: "8", isCi: false, availableParallelism: 16 }),
-    8
+    8,
   );
   // A blank or invalid env value falls through to the default path.
   assert.equal(
     resolveTestConcurrency({ flagConcurrency: undefined, envConcurrency: "", isCi: true, availableParallelism: 16 }),
-    undefined
+    undefined,
   );
   assert.equal(
     resolveTestConcurrency({ flagConcurrency: undefined, envConcurrency: "0", isCi: true, availableParallelism: 16 }),
-    undefined
+    undefined,
   );
 });
 
 test("resolveTestConcurrency keeps node's default in CI with no explicit signal", () => {
   assert.equal(
-    resolveTestConcurrency({ flagConcurrency: undefined, envConcurrency: undefined, isCi: true, availableParallelism: 16 }),
-    undefined
+    resolveTestConcurrency({
+      flagConcurrency: undefined,
+      envConcurrency: undefined,
+      isCi: true,
+      availableParallelism: 16,
+    }),
+    undefined,
   );
 });
 
 test("resolveTestConcurrency uses a fixed local per-session budget of two", () => {
-  assert.equal(
-    resolveTestConcurrency({ flagConcurrency: undefined, envConcurrency: undefined, isCi: false }),
-    2
-  );
+  assert.equal(resolveTestConcurrency({ flagConcurrency: undefined, envConcurrency: undefined, isCi: false }), 2);
 });
 
 test("selectTestFiles fails closed when a test file is unclassified", () => {
@@ -160,43 +233,50 @@ test("selectTestFiles fails closed when a test file is unclassified", () => {
 test("validateManifest rejects duplicates and missing manifest entries", () => {
   const validation = validateManifest(["a.test.ts"], {
     fast: ["a.test.ts"],
-    contract: ["a.test.ts", "gone.test.ts"]
+    contract: ["a.test.ts", "gone.test.ts"],
   });
   assert.deepEqual(validation.errors, [
     "test file appears in multiple tiers: a.test.ts (fast, contract)",
-    "test tier manifest references missing file: contract: gone.test.ts"
+    "test tier manifest references missing file: contract: gone.test.ts",
   ]);
 });
 
 test("inline test tier markers derive the manifest", () => {
   const manifest = deriveTestTierManifest(
     ["fast.test.ts", "contract.test.ts", "new.test.ts"],
-    (file) => `// harness-test-tier: ${file === "new.test.ts" ? "integration" : file.split(".")[0]}\n`
+    (file) => `// harness-test-tier: ${file === "new.test.ts" ? "integration" : file.split(".")[0]}\n`,
   );
   assert.deepEqual(manifest, {
     fast: ["fast.test.ts"],
     contract: ["contract.test.ts"],
-    integration: ["new.test.ts"]
+    integration: ["new.test.ts"],
   });
 });
 
 test("inline test tier markers fail closed when missing, repeated, or invalid", () => {
-  assert.throws(() => parseTestTierMarker("import test from \"node:test\";\n", "missing.test.ts"), /test tier marker missing: missing\.test\.ts/u);
+  assert.throws(
+    () => parseTestTierMarker('import test from "node:test";\n', "missing.test.ts"),
+    /test tier marker missing: missing\.test\.ts/u,
+  );
   assert.throws(
     () => parseTestTierMarker("// harness-test-tier: fast\n// harness-test-tier: contract\n", "duplicate.test.ts"),
-    /multiple test tier markers: duplicate\.test\.ts/u
+    /multiple test tier markers: duplicate\.test\.ts/u,
   );
   assert.throws(
     () => parseTestTierMarker("// harness-test-tier: slow\n", "invalid.test.ts"),
-    /invalid test tier marker: invalid\.test\.ts/u
+    /invalid test tier marker: invalid\.test\.ts/u,
   );
   assert.throws(
-    () => parseTestTierMarker("import test from \"node:test\";\n// harness-test-tier: fast\n", "late.test.ts"),
-    /test tier marker must be the first line: late\.test\.ts/u
+    () => parseTestTierMarker('import test from "node:test";\n// harness-test-tier: fast\n', "late.test.ts"),
+    /test tier marker must be the first line: late\.test\.ts/u,
   );
   assert.throws(
-    () => parseTestTierMarker(`// harness-test-tier: fast\n${"\n".repeat(20)}// harness-test-tier: contract\n`, "distant-duplicate.test.ts"),
-    /multiple test tier markers: distant-duplicate\.test\.ts/u
+    () =>
+      parseTestTierMarker(
+        `// harness-test-tier: fast\n${"\n".repeat(20)}// harness-test-tier: contract\n`,
+        "distant-duplicate.test.ts",
+      ),
+    /multiple test tier markers: distant-duplicate\.test\.ts/u,
   );
 });
 
@@ -204,7 +284,7 @@ test("integration discovery equals the files executed by the CI runner", () => {
   const manifest = discoverTestTierManifest(repoRoot);
   const result = spawnSync(process.execPath, ["tools/run-node-tests.mjs", "--tier", "integration", "--list"], {
     cwd: repoRoot,
-    encoding: "utf8"
+    encoding: "utf8",
   });
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(result.stdout.trim().split(/\r?\n/u), manifest.integration);
@@ -221,18 +301,20 @@ test("selectTestFiles returns sorted tier files from the derived repository mani
 test("slow test summary parses node test output and formats top entries", () => {
   assert.deepEqual(parseCompletedTestLine("✔ CLI task delete (4765.862208ms)"), {
     name: "CLI task delete",
-    durationMs: 4765.862208
+    durationMs: 4765.862208,
   });
 
-  const slow = collectSlowTests([
-    "✔ fast thing (3.2ms)",
-    "✔ slow thing (1200.5ms)",
-    "✔ slower thing (2200ms)"
-  ].join("\n"), 1000);
+  const slow = collectSlowTests(
+    ["✔ fast thing (3.2ms)", "✔ slow thing (1200.5ms)", "✔ slower thing (2200ms)"].join("\n"),
+    1000,
+  );
 
-  assert.deepEqual(slow.map((entry) => entry.name), ["slower thing", "slow thing"]);
-  assert.equal(formatSlowTestSummary(slow, 1000, 1), [
-    "Slow test summary: top 1 tests at or above 1000ms",
-    "1. 2200.000ms slower thing"
-  ].join("\n"));
+  assert.deepEqual(
+    slow.map((entry) => entry.name),
+    ["slower thing", "slow thing"],
+  );
+  assert.equal(
+    formatSlowTestSummary(slow, 1000, 1),
+    ["Slow test summary: top 1 tests at or above 1000ms", "1. 2200.000ms slower thing"].join("\n"),
+  );
 });
