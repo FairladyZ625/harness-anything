@@ -13,7 +13,7 @@ import {
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { runProcessTextAsync } from "./process-port.ts";
 import { localGitObjectRefStore, resolveHarnessLayout } from "../../kernel/src/index.ts";
-import type { RepoCellActionContext } from "./repo-cell-action-context.ts";
+import type { RepoCellActionContext, RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 
 type CiRunArtifactGate =
   | CiRunObservationEventV3["payload"]["gates"][number]
@@ -37,17 +37,22 @@ type FetchedCiRun = {
   readonly summary: CiRunSummary;
   readonly artifacts: readonly CiRunArtifact[];
 };
-type CiObservationFetch = { readonly requestedRuns: number; readonly runs: readonly FetchedCiRun[] };
+type CiObservationFetch = {
+  readonly requestedRuns: number;
+  readonly workflows: readonly string[];
+  readonly runs: readonly FetchedCiRun[];
+};
 
 // Every gh call finishes before the pull enters the repository write queue: GitHub can stall
 // without bound, and the queue waits only on the event appends in ingestCiObservations.
 export async function fetchCiObservations(
-  cell: Pick<RepoCellActionContext, "rootDir" | "cellCodedError">,
+  cell: Pick<RepoCellOperationalContext, "rootDir" | "cellCodedError" | "settings">,
   action: RepoTaskAction,
   runGh: RunGh = (command, args, options) => runProcessTextAsync(command, args, options.cwd),
 ): Promise<CiObservationFetch> {
   const limit = Number(action.limit ?? 20),
-    namedRuns = Array.isArray(action.runs) ? action.runs.map(Number) : null;
+    namedRuns = Array.isArray(action.runs) ? action.runs.map(Number) : null,
+    workflows = cell.settings.read().ci.workflows;
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100)
     throw cell.cellCodedError("invalid_command", "CI observation pull limit must be 1..100.");
   if (namedRuns && action.limit !== undefined)
@@ -61,7 +66,7 @@ export async function fetchCiObservations(
       selectCiObservationRuns(
         (
           await Promise.all(
-            ["rewrite-ci.yml", "rebuild-gates.yml"].map(
+            workflows.map(
               async (workflow) =>
                 JSON.parse(
                   await runGh(
@@ -70,7 +75,7 @@ export async function fetchCiObservations(
                       "run",
                       "list",
                       "--workflow",
-                      workflow,
+                      `${workflow}.yml`,
                       "--limit",
                       String(limit),
                       "--json",
@@ -163,7 +168,7 @@ export async function fetchCiObservations(
           });
       }
     }
-    return { requestedRuns: namedRuns?.length ?? limit, runs: fetched };
+    return { requestedRuns: namedRuns?.length ?? limit, workflows, runs: fetched };
   } finally {
     rmSync(temporaryRoot, { recursive: true, force: true });
   }
@@ -212,14 +217,14 @@ export function ingestCiObservations(
                     headSha: summary.headSha,
                     conclusion: "success",
                   }
-                : summary.workflowName === "rewrite-ci" &&
+                : fetched.workflows.includes(summary.workflowName) &&
                     summary.headBranch === "main" &&
                     artifact.run.branch === "main" &&
                     artifact.run.sha === summary.headSha &&
                     artifact.run.runId === `${databaseId}.${summary.attempt}`
                   ? {
                       source: "github-actions",
-                      workflow: "rewrite-ci",
+                      workflow: summary.workflowName,
                       runId: String(databaseId),
                       attempt: summary.attempt,
                       headSha: summary.headSha,

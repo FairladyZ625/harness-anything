@@ -1671,6 +1671,7 @@ async function publishCiObservation(
   try {
     const cell = {
       rootDir,
+      settings: { read: () => ({ ci: { workflows: ["rewrite-ci", "rebuild-gates"] } }) },
       store,
       projection,
       now: () => "2026-09-09T00:00:00.000Z",
@@ -1681,7 +1682,7 @@ async function publishCiObservation(
         return JSON.stringify([{ databaseId, headBranch: "main", createdAt: "2026-09-09T00:00:00.000Z" }]);
       if (args[1] === "view")
         return JSON.stringify({
-          workflowName: verified ? "rewrite-ci" : "rebuild-gates",
+          workflowName: verified ? "rewrite-ci" : "other-ci",
           headSha: commitSha,
           headBranch: "main",
           status: "completed",

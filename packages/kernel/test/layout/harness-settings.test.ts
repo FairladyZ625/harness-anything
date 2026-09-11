@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { setting, settingBlockValue } from "../../src/layout/index.ts";
+import { readSettingsFacet } from "../../src/index.ts";
 
 const body = [
   "schema: harness-anything/v1",
@@ -12,7 +13,7 @@ const body = [
   "    wipLimit: 50  # bigger team, raised deliberately",
   "  scaffolds:",
   "    task: governance/task-scaffold.json",
-  ""
+  "",
 ].join("\n");
 
 test("an annotated setting keeps its authored value instead of falling back", () => {
@@ -34,4 +35,16 @@ test("a key absent from the block reads as absent", () => {
   assert.equal(setting(body, "defaultProfile"), undefined);
   assert.equal(settingBlockValue(body, "tasks", "missing"), undefined);
   assert.equal(settingBlockValue(body, "absentBlock", "wipLimit"), undefined);
+});
+
+test("CI workflows default to the established pair and accept configured workflow basenames", () => {
+  assert.deepEqual(readSettingsFacet(body).ci.workflows, ["rewrite-ci", "rebuild-gates"]);
+  assert.deepEqual(readSettingsFacet(`${body}\n  ci:\n    workflows: [ci]\n`).ci.workflows, ["ci"]);
+});
+
+test("CI workflows fail closed on empty, duplicate, extension-bearing, or block arrays", () => {
+  for (const workflows of ["[]", "[ci, ci]", "[ci.yml]", "", "\n      - ci"]) {
+    const configured = `${body}\n  ci:\n    workflows: ${workflows}\n`;
+    assert.throws(() => readSettingsFacet(configured), /settings\.ci\.workflows/u);
+  }
 });

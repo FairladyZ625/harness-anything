@@ -214,6 +214,7 @@ export function compileSettingsUpdate(input: EntityActionCompileInput): Settings
         bytes: updatedPositiveInteger(input.action, "walFlushBytes", current.walFlush.bytes),
         milliseconds: updatedPositiveInteger(input.action, "walFlushMilliseconds", current.walFlush.milliseconds),
       },
+      ci: current.ci,
       restoreDrillRetention: updatedPositiveInteger(
         input.action,
         "restoreDrillRetention",
