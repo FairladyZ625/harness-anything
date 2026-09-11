@@ -204,7 +204,13 @@ export function buildCommand(
       reviewId,
       consentId: `consent-${createHash("sha256")
         .update(
-          `${taskId}\0${executionId}\0${current.iteration}\0${submissionDigest(current.submission)}\0${reviewDigest(recorded)}`,
+          [
+            taskId,
+            executionId,
+            String(current.iteration),
+            submissionDigest(current.submission),
+            reviewDigest(recorded),
+          ].join("\0"),
         )
         .digest("hex")
         .slice(0, 24)}`,

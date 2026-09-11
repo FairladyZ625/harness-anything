@@ -14,7 +14,8 @@ import type { RepoCellBinding, Snapshot } from "./repo-cell-types.ts";
 
 /** A cut, never a caller/node or current idle provider, owns the canonical root dispatch. */
 export function completionReviewKey(taskId: string, execution: ExecutionV1): string {
-  return `complete-review:${taskId}:${execution.executionId}:${execution.iteration}:${submissionDigest(execution.submission!)}`;
+  const digest = submissionDigest(execution.submission!);
+  return `complete-review:${taskId}:${execution.executionId}:${execution.iteration}:${digest}`;
 }
 
 export async function dispatchCompletionReview(
@@ -56,7 +57,8 @@ export async function dispatchCompletionReview(
     if (cell.projection.getEntity("agent", reviewerId) === null)
       return stopped(
         "ha agent install --source <closeout-reviewer-declaration-directory>",
-        `Install an independent Agent declaration with id ${reviewerId}, or select an installed reviewer with ha settings update --default-reviewer <agent-id>, then retry completion.`,
+        `Install an independent Agent declaration with id ${reviewerId}, or select an installed reviewer with ` +
+          "ha settings update --default-reviewer <agent-id>, then retry completion.",
       );
     const agent = readAgentDeclaration({
         rootDir: cell.rootDir,
@@ -73,11 +75,16 @@ export async function dispatchCompletionReview(
         idempotencyKey,
         prompt: [
           `Independently review task ${taskId}, execution ${execution.executionId}, iteration ${execution.iteration}.`,
-          `The exact submission digest is ${submissionDigest(execution.submission!)}; commit ${execution.submission!.commitSha}.`,
-          "Read the task plan, closeout, and submitted delivery yourself. Record approved or changes_requested through RecordReview; never infer approval from provider success.",
-          `Write this execution's review report to harness/${report} and review input to harness/${packet}. These dispatch-specific paths replace any shared report path in your declaration.`,
-          `Register with ha task review-execution ${taskId} --execution-id ${execution.executionId} --review-id review-${dispatchId} --from-file harness/${packet}.`,
-          "Do not submit, consent, or complete. If the submitted cut changes, stop and report it; do not review the replacement under this dispatch.",
+          `The exact submission digest is ${submissionDigest(execution.submission!)}; ` +
+            `commit ${execution.submission!.commitSha}.`,
+          "Read the task plan, closeout, and submitted delivery yourself. " +
+            "Record approved or changes_requested through RecordReview; never infer approval from provider success.",
+          `Write this execution's review report to harness/${report} and review input to harness/${packet}. ` +
+            "These dispatch-specific paths replace any shared report path in your declaration.",
+          `Register with ha task review-execution ${taskId} --execution-id ${execution.executionId} ` +
+            `--review-id review-${dispatchId} --from-file harness/${packet}.`,
+          "Do not submit, consent, or complete. If the submitted cut changes, stop and report it; " +
+            "do not review the replacement under this dispatch.",
         ].join("\n"),
       },
       revision = cell.store.readHead()?.revision ?? 0,
@@ -98,8 +105,10 @@ export async function dispatchCompletionReview(
     ...stopped(
       session ? `ha runtime status ${runtimeSessionId}` : `ha receipt show ${dispatchOpId}`,
       session?.outcome
-        ? `Reviewer dispatch ${dispatchId} ended ${session.outcome} without a current approved Review. Inspect its result; completion does not launch a new root dispatch.`
-        : `Reviewer dispatch ${dispatchId} owns this submitted cut. Wait for its independent RecordReview, then retry completion.`,
+        ? `Reviewer dispatch ${dispatchId} ended ${session.outcome} without a current approved Review. ` +
+            "Inspect its result; completion does not launch a new root dispatch."
+        : `Reviewer dispatch ${dispatchId} owns this submitted cut. ` +
+            "Wait for its independent RecordReview, then retry completion.",
     ),
     dispatchId,
     runtimeSessionId,
