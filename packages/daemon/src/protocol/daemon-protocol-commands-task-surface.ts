@@ -238,7 +238,9 @@ export const taskSurfaceProtocolCommands = Object.freeze([
     id: "task-list",
     phase: "W3",
     path: ["task", "list"],
-    summary: "List Task projection rows or a recursive parent subtree with canonical filters.",
+    summary:
+      "List Task projection rows (default 50; use --cursor for more) or a recursive parent subtree " +
+      "with canonical filters.",
     method: "repo.task.read",
     inputs: [
       cliInput(

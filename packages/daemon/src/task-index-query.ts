@@ -115,13 +115,15 @@ export function renderTaskIndexPayload(payload: unknown): string | null {
               ].join("\t"),
             )
             .join("\n"),
-    page = record.page && typeof record.page === "object" ? `  page=${JSON.stringify(record.page)}` : "";
+    pageRecord = record.page && typeof record.page === "object" ? (record.page as Record<string, unknown>) : null,
+    page = pageRecord ? `  page=${JSON.stringify(pageRecord)}` : "",
+    nextPage = typeof pageRecord?.nextCursor === "string" ? `\nmore: use --cursor ${pageRecord.nextCursor}` : "";
   return [
     `${record.mode === "tree" ? "tree" : "rows"}:`,
     body || "(none)",
     `count=${String(record.count ?? rows.length)}  status=${String(record.status ?? "unknown")}  ` +
       `watermark=${String(record.watermark ?? "unknown")}  ` +
-      `sourceRevision=${String(record.sourceRevision ?? "unknown")}${page}`,
+      `sourceRevision=${String(record.sourceRevision ?? "unknown")}${page}${nextPage}`,
   ].join("\n");
 }
 
