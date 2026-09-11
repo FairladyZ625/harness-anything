@@ -188,7 +188,6 @@ function validSquadRunLeaderTurn(value: unknown): value is SquadRunLeaderTurnDto
       "trigger",
       "dispatchId",
       "runtimeSessionId",
-      "worktree",
       "decision",
       "resultText",
       "status",
@@ -208,22 +207,27 @@ function validSquadRunLeaderTurn(value: unknown): value is SquadRunLeaderTurnDto
 function validSquadRunWorkerAttempt(value: unknown): value is SquadRunWorkerAttemptDto {
   return (
     squadRunRecord(value) &&
-    exactSquadRunFields(value, [
-      "attemptId",
-      "workerId",
-      "leaderTurnId",
-      "dispatchId",
-      "runtimeSessionId",
-      "rejection",
-      "status",
-      "startedAt",
-      "endedAt",
-    ]) &&
+    exactSquadRunFieldsOptional(
+      value,
+      [
+        "attemptId",
+        "workerId",
+        "leaderTurnId",
+        "dispatchId",
+        "runtimeSessionId",
+        "rejection",
+        "status",
+        "startedAt",
+        "endedAt",
+      ],
+      ["worktree"],
+    ) &&
     [value.attemptId, value.workerId].every(squadRunText) &&
     squadRunText(value.leaderTurnId) &&
     (value.dispatchId === null || squadRunText(value.dispatchId)) &&
     (value.runtimeSessionId === null || squadRunText(value.runtimeSessionId)) &&
-    (value.worktree === null ||
+    (value.worktree === undefined ||
+      value.worktree === null ||
       (squadRunRecord(value.worktree) &&
         exactSquadRunFields(value.worktree, ["cwd", "branch", "baseSha"]) &&
         [value.worktree.cwd, value.worktree.branch, value.worktree.baseSha].every(squadRunText))) &&
@@ -231,6 +235,17 @@ function validSquadRunWorkerAttempt(value: unknown): value is SquadRunWorkerAtte
     (value.status === null || turnStatuses.includes(value.status as SquadRunTurnStatus)) &&
     (value.startedAt === null || squadRunIso(value.startedAt)) &&
     (value.endedAt === null || squadRunIso(value.endedAt))
+  );
+}
+
+function exactSquadRunFieldsOptional(
+  value: Readonly<Record<string, unknown>>,
+  fields: readonly string[],
+  optionalFields: readonly string[],
+): boolean {
+  const allowed = [...fields, ...optionalFields];
+  return (
+    fields.every((field) => Object.hasOwn(value, field)) && Object.keys(value).every((field) => allowed.includes(field))
   );
 }
 

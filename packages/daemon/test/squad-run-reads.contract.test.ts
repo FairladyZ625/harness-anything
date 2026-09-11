@@ -240,3 +240,22 @@ test("squad run read validator locks the orchestration-flow wire shape", () => {
     [],
   );
 });
+
+test("squad run read accepts legacy worker attempts without a worktree", () => {
+  const legacy = structuredClone(detail) as Record<string, unknown>;
+  const run = legacy.run as Record<string, unknown>;
+  run.workerAttempts = [
+    {
+      attemptId: "worker-1",
+      workerId: "sol",
+      leaderTurnId: "leader-1",
+      dispatchId: null,
+      runtimeSessionId: null,
+      rejection: null,
+      status: null,
+      startedAt: null,
+      endedAt: null,
+    },
+  ];
+  assert.deepEqual(validateSquadRunRead(legacy), []);
+});
