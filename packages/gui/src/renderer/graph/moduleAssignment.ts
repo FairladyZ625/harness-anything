@@ -1,5 +1,4 @@
 import type { RelationEdge, TaskRow } from "../model/types";
-import { endpointToNodeId } from "./endpoint";
 
 /**
  * 诚实模块解析(REQ-GUI-03 验收硬项:缺字段显示「未投影」,不假分组)。
@@ -26,26 +25,6 @@ export function isModuleUnprojected(module: string | undefined | null): boolean 
 /** 把 task.module 解析成显示值:真实模块原样返回,占位返回 UNPROJECTED 哨兵。 */
 export function resolveTaskModule(module: string | undefined | null): string {
   return !module || module === UNASSIGNED_MODULE ? UNPROJECTED_MODULE : module;
-}
-
-/**
- * decision 的模块:沿 derives→task 边找 host task 的 module。
- * 多条 derives 取第一个非占位的;全占位/无边 → UNPROJECTED。
- */
-export function resolveDecisionModule(
-  decisionRef: string,
-  relations: ReadonlyArray<RelationEdge>,
-  tasks: ReadonlyArray<TaskRow>,
-): string {
-  const decisionId = endpointToNodeId(decisionRef);
-  for (const edge of relations) {
-    if (edge.kind !== "derives") continue;
-    if (endpointToNodeId(edge.from) !== decisionId) continue;
-    const taskId = endpointToNodeId(edge.to);
-    const task = tasks.find((t) => t.taskId === taskId);
-    if (task && !isModuleUnprojected(task.module)) return task.module;
-  }
-  return UNPROJECTED_MODULE;
 }
 
 /**

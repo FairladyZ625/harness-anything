@@ -8,7 +8,6 @@ import {
   preloadAllowlist,
   registerHarnessIpcHandlers,
   assertPreloadPayload,
-  shippedPreloadMethods,
   type GuiServiceBridge,
 } from "../src/index.ts";
 
@@ -39,7 +38,6 @@ test("preload and IPC channels derive from the API registry", () => {
       rendererUrl: { packagedRendererUrl: trustedRendererUrl },
     },
   );
-  assert.deepEqual(shippedPreloadMethods, registryMethods);
   assert.deepEqual(preloadAllowlist, registryMethods);
   const invokeChannels = invokeMethods.map((method) => `harness:${method}`),
     streamChannels = daemonGuiStreamFacets.flatMap(({ guiBridgeMethod }) => [

@@ -39,13 +39,6 @@ export interface IpcSenderIdentity {
   } | null;
 }
 
-export function createStaticWebContentsTrustPolicy(ids: Iterable<number>): IpcWebContentsTrustPolicy {
-  const trusted = new Set(ids);
-  return {
-    isTrustedWebContentsId: (id) => trusted.has(id),
-  };
-}
-
 export function evaluateIpcSender(event: IpcSenderIdentity, trustPolicy: IpcWebContentsTrustPolicy): SecurityDecision {
   const senderUrl = event.senderFrame?.url;
   if (!senderUrl || !isTrustedRendererUrl(senderUrl, trustPolicy.rendererUrl)) {
@@ -59,11 +52,6 @@ export function evaluateIpcSender(event: IpcSenderIdentity, trustPolicy: IpcWebC
 
 export function evaluatePermissionRequest(): SecurityDecision {
   return { action: "deny", reason: "permission_denied_by_default" };
-}
-
-export function evaluateNavigationRequest(url: string, options: TrustedRendererUrlOptions = {}): SecurityDecision {
-  if (isTrustedRendererUrl(url, options)) return { action: "allow", reason: "trusted_renderer" };
-  return { action: "deny", reason: "navigation_denied" };
 }
 
 export function evaluateWindowOpenRequest(): SecurityDecision {

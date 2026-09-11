@@ -1,7 +1,6 @@
 export * from "./api/local-api.ts";
 export * from "./api/api-contract-registry.ts";
 export * from "./api/service-bridge.ts";
-export * from "./daemon/remote-tunnel.ts";
 export * from "./distribution/runtime-release-readiness.ts";
 export * from "./distribution/supply-chain-release-readiness.ts";
 export * from "./doc-renderer/sanitize.ts";
@@ -13,7 +12,4 @@ export * from "./main/trust-policy.ts";
 export * from "./main/window-config.ts";
 export * from "./preload/allowlist.ts";
 export * from "./renderer/app-model.ts";
-export * from "./renderer/workspace-shell.ts";
-export * from "./terminal/backend-policy.ts";
 export * from "./terminal/boundary.ts";
-export * from "./terminal/env-profile.ts";

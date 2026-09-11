@@ -12,10 +12,3 @@ export const shellPanelPolicy: ShellPanelPolicy = {
   outputCreatesTaskState: false,
   outputCreatesEvidence: false,
 };
-
-export function classifyShellOutput(_chunk: string): { readonly displayOnly: true; readonly stateChange: false } {
-  return {
-    displayOnly: true,
-    stateChange: false,
-  };
-}

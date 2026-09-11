@@ -10,10 +10,8 @@ import {
 import {
   HARNESS_PRELOAD_API,
   assertPreloadPayload,
-  getPreloadApiCapability,
   isAllowedPreloadApiMethod,
   preloadAllowlist,
-  shippedPreloadMethods,
 } from "../src/index.ts";
 import { deriveEmptyRepoMethods, deriveRepoScopedMethods } from "../src/preload/allowlist.ts";
 import {
@@ -43,7 +41,6 @@ test("preload exposes only the approved API methods", () => {
   const approved = [...daemonGuiInvokeFacets, ...daemonGuiStreamFacets].map(({ guiBridgeMethod }) => guiBridgeMethod);
   assert.equal(HARNESS_PRELOAD_API, "harness");
   assert.deepEqual(preloadAllowlist, approved);
-  assert.deepEqual(shippedPreloadMethods, approved);
   assert.equal(isAllowedPreloadApiMethod("getTasks"), true);
   assert.equal(isAllowedPreloadApiMethod("getTaskDetail"), false);
   assert.throws(() => assertPreloadPayload("readFile", {}), /not allowed/u);
@@ -148,7 +145,6 @@ test("preload exposes only the approved API methods", () => {
   );
   assert.throws(() => assertPreloadPayload("getTasks", { repoId: "repo-a", staleRepoId: "repo-b" }), /not allowed/u);
   assert.throws(() => assertPreloadPayload("getSystemStatus", { repoId: "repo-a" }), /not allowed/u);
-  assert.equal(getPreloadApiCapability("getTasks").status, "shipped");
   // 37 explicit actions plus the complete declaration read are the 38 editing-facing facets.
   const editingFacets = [
     ...daemonGuiActionMethods.map(({ guiBridgeMethod }) => guiBridgeMethod),
