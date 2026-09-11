@@ -2,6 +2,7 @@ import {
   EntitySchemaContractError,
   ENTITY_ID_PATTERN,
   parseEntityJsonSchema,
+  serializeEntityJsonSchema,
   validateEntityJsonSchema,
   type EntityDocumentJsonSchema,
 } from "./entity-json-schema.ts";
@@ -171,6 +172,12 @@ export function parseAgentDeclarationV1(value: unknown): AgentDeclarationV1 {
 export function parseSquadDeclarationV1(value: unknown): SquadDeclarationV1 {
   return parse(SQUAD_DECLARATION_V1_SCHEMA, value, "squad declaration");
 }
+export function serializeAgentDeclarationV1(value: unknown): string {
+  return serialize(AGENT_DECLARATION_V1_SCHEMA, value, "agent declaration");
+}
+export function serializeSquadDeclarationV1(value: unknown): string {
+  return serialize(SQUAD_DECLARATION_V1_SCHEMA, value, "squad declaration");
+}
 export function isRuntimeTypeIdentifier(value: string): boolean {
   return new RegExp(ENTITY_ID_PATTERN, "u").test(value);
 }
@@ -192,6 +199,14 @@ function parse<T>(schema: EntityDocumentJsonSchema<T>, value: unknown, label: st
     throw new AgentEntityContractError(error instanceof Error ? error.message : String(error));
   }
 }
+function serialize<T>(schema: EntityDocumentJsonSchema<T>, value: unknown, label: string): string {
+  try {
+    return serializeEntityJsonSchema(schema, value, label);
+  } catch (error) {
+    throw new AgentEntityContractError(error instanceof Error ? error.message : String(error));
+  }
+}
+
 /** A compile hook only ever sees text a prepared Agent or Squad action already validated upstream. */
 export function requiredPreparedText(entity: "Agent" | "Squad", value: unknown, field: string): string {
   if (typeof value !== "string" || !value.trim()) throw new Error(`Prepared ${entity} ${field} is required.`);
