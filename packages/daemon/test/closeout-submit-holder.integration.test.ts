@@ -103,6 +103,23 @@ test("closeout submit preserves holder authority and resumes one cut after a dis
     assert.equal(repeated.outcome, "applied", JSON.stringify(repeated));
     assert.equal(repeated.opId, submitted.opId);
     assert.deepEqual(events(), before, "discarding the response must not create another submission event");
+    writeFileSync(
+      closeoutPath,
+      completeBody.replace("Delivered the private report.", "Delivered the amended private report."),
+    );
+    let amended = await cell.run({ kind: "task-submit", taskId, executionId, amend: true }, holder);
+    for (let attempt = 0; amended.outcome === "pending" && attempt < 4; attempt += 1) {
+      await waitForFixturePublication(cell, amended.opId, holder);
+      amended = await cell.run({ kind: "task-submit", taskId, executionId, amend: true }, holder);
+    }
+    assert.equal(amended.outcome, "applied", JSON.stringify(amended));
+    await waitForFixturePublication(cell, amended.opId, holder);
+    assert.notEqual(amended.opId, submitted.opId);
+    assert.equal(events().length, 2);
+    const amendedRetry = await submit();
+    assert.equal(amendedRetry.outcome, "applied", JSON.stringify(amendedRetry));
+    assert.equal(amendedRetry.opId, amended.opId, "retry must point-read the latest amendment");
+    assert.equal(events().length, 2);
   } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });

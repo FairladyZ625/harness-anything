@@ -40,18 +40,9 @@ import { verifyCodeDocCommitPaths } from "./code-doc-path-verification.ts";
 import { readCompletionContext } from "./task-completion-read.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 
-function relatedCiObservation(
-  cell: RepoCellOperationalContext,
-  event: CiRunObservationEventV3,
-  submitted: string,
-): boolean {
-  const run = event.payload.run;
-  // Keep the existing exact/public-main/ledger ancestry evidence boundary.
+function relatedCiObservation(root: string, event: CiRunObservationEventV3, submitted: string): boolean {
   return (
-    run.sha === submitted ||
-    (run.branch === "main" && localGitObjectRefStore.isAncestor(cell.rootDir, submitted, run.sha)) ||
-    (event.payload.verification?.workflow === "ledger-publication" &&
-      localGitObjectRefStore.isAncestor(resolveHarnessLayout(cell.rootDir).authoredRoot, submitted, run.sha))
+    event.payload.run.sha === submitted || localGitObjectRefStore.isAncestor(root, submitted, event.payload.run.sha)
   );
 }
 
@@ -65,21 +56,27 @@ export function readLatestCiEvidence(
     throw cell.cellCodedError("content_not_ready", "CI observation projection is not ready.");
   // Projection order is newest canonical observation first. Never skip a related red or
   // unverified observation to find an older green observation.
-  const event = observations.events.find((candidate) =>
-    relatedCiObservation(cell, candidate, execution.submission!.commitSha),
-  );
+  const submitted = execution.submission.commitSha,
+    publicCut = localGitObjectRefStore.hasCommit(cell.rootDir, submitted),
+    root = publicCut ? cell.rootDir : resolveHarnessLayout(cell.rootDir).authoredRoot,
+    event = observations.events.find((candidate) => relatedCiObservation(root, candidate, submitted));
   if (!event) return null;
   const verification = event.payload.verification;
-  if (!verification)
-    throw Object.assign(cell.cellCodedError("invalid_proof", "CI observation has no verified workflow conclusion."), {
-      diagnostic: {
-        kind: "validation" as const,
-        entity: `CI observation event:${event.opId}`,
-        field: "ci",
-        actual: "no verified workflow conclusion",
-        expectation: "Pull a completed rewrite-ci main run, then retry submission or completion.",
-      },
-    });
+  if (
+    !localGitObjectRefStore.hasCommit(root, submitted) ||
+    !verification ||
+    (publicCut
+      ? verification.source !== "github-actions" ||
+        verification.workflow !== "rewrite-ci" ||
+        event.payload.run.branch !== "main"
+      : verification.source !== "write-coordinator" || verification.workflow !== "ledger-publication")
+  )
+    throw cell.cellCodedError(
+      "invalid_proof",
+      publicCut
+        ? "Public delivery requires a verified rewrite-ci GitHub main run."
+        : "Private delivery requires a verified ledger-publication observation for its authored cut.",
+    );
   const result: CompletionEvidenceResult = verification.conclusion === "success" ? "pass" : "fail";
   if (!completionEvidenceResults.includes(result)) return null;
   const basis: CompletionEvidenceBasis = { ...completionEvidenceBasis(execution), ledgerCut: event.workspaceRevision },

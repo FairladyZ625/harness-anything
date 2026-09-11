@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test, { after } from "node:test";
 import type { CiRunObservationEventV3, CompletionEvidenceV1 } from "../../kernel/src/index.ts";
 import type { RepoCellOperationalContext } from "../src/repo-cell-action-context.ts";
 import type { RepoCellBinding, Snapshot } from "../src/repo-cell-types.ts";
@@ -24,9 +24,12 @@ function init(root: string): string {
   git(root, "init", "-q", "-b", "main");
   git(root, "config", "user.name", "Test");
   git(root, "config", "user.email", "test@example.com");
-  git(root, "commit", "--allow-empty", "-qm", "initial");
+  git(root, "commit", "--allow-empty", "-qm", `initial ${path.basename(root)}`);
   return git(root, "rev-parse", "HEAD");
 }
+const publicRoot = mkdtempSync(path.join(tmpdir(), "ha-public-evidence-"));
+const publicSha = init(publicRoot);
+after(() => rmSync(publicRoot, { recursive: true, force: true }));
 function execution(commitSha: string, deliverables: string[] = []): Snapshot["executions"][number] {
   return {
     schema: "execution/v1",
@@ -128,7 +131,7 @@ function fixture(
   return { cell, snapshot, calls };
 }
 
-test("automatic CI evidence selects exact and descendant main runs, excluding unrelated and non-main descendants", () => {
+test("automatic CI evidence selects exact and descendant main runs, excluding unrelated runs and rejecting non-main descendants", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-evidence-"));
   try {
     const submitted = init(root),
@@ -138,12 +141,13 @@ test("automatic CI evidence selects exact and descendant main runs, excluding un
     assert.equal(readLatestCiEvidence(fixture(root, current, [observation(submitted)]).cell, current)?.result, "pass");
     assert.equal(readLatestCiEvidence(fixture(root, current, [observation(descendant)]).cell, current)?.result, "pass");
     assert.equal(readLatestCiEvidence(fixture(root, current, [observation("f".repeat(40))]).cell, current), null);
-    assert.equal(
-      readLatestCiEvidence(
-        fixture(root, current, [observation(descendant, 1, "success", "rewrite-ci", "feature")]).cell,
-        current,
-      ),
-      null,
+    assert.throws(
+      () =>
+        readLatestCiEvidence(
+          fixture(root, current, [observation(descendant, 1, "success", "rewrite-ci", "feature")]).cell,
+          current,
+        ),
+      { code: "invalid_proof" },
     );
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -151,13 +155,13 @@ test("automatic CI evidence selects exact and descendant main runs, excluding un
 });
 
 test("unverified latest observation rejects and latest real red never falls back to older green", async () => {
-  const current = execution("a".repeat(40));
-  const unverified = fixture("/unused", current, [
+  const current = execution(publicSha);
+  const unverified = fixture(publicRoot, current, [
     observation(current.submission!.commitSha, 2, null),
     observation(current.submission!.commitSha),
   ]);
   assert.throws(() => readLatestCiEvidence(unverified.cell, current), { code: "invalid_proof" });
-  const red = fixture("/unused", current, [
+  const red = fixture(publicRoot, current, [
     observation(current.submission!.commitSha, 2, "failure"),
     observation(current.submission!.commitSha),
   ]);
@@ -165,7 +169,7 @@ test("unverified latest observation rejects and latest real red never falls back
     gateWitnesses: [
       {
         ...readLatestCiEvidence(
-          fixture("/unused", current, [observation(current.submission!.commitSha)]).cell,
+          fixture(publicRoot, current, [observation(current.submission!.commitSha)]).cell,
           current,
         ),
         executionId: "execution",
@@ -199,10 +203,58 @@ test("private ledger ancestor observation supports its cut and pending publicati
   }
 });
 
+test("public and private cuts reject cross-kind exact and descendant witnesses", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-cut-kind-"));
+  try {
+    const publicCommit = init(root),
+      ledger = path.join(root, "harness"),
+      privateCommit = init(ledger);
+    git(root, "commit", "--allow-empty", "-qm", "public descendant");
+    git(ledger, "commit", "--allow-empty", "-qm", "private descendant");
+    for (const [cut, sha, workflow, branch] of [
+      [publicCommit, publicCommit, "ledger-publication", "ledger"],
+      [publicCommit, git(root, "rev-parse", "HEAD"), "ledger-publication", "main"],
+      [privateCommit, privateCommit, "rewrite-ci", "main"],
+      [privateCommit, git(ledger, "rev-parse", "HEAD"), "rewrite-ci", "main"],
+      [publicCommit, publicCommit, "rewrite-ci", "feature"],
+    ]) {
+      const current = execution(cut!);
+      assert.throws(
+        () =>
+          readLatestCiEvidence(
+            fixture(root, current, [observation(sha!, 2, "success", workflow, branch)]).cell,
+            current,
+          ),
+        { code: "invalid_proof" },
+      );
+    }
+    const current = execution(privateCommit);
+    assert.equal(
+      readLatestCiEvidence(
+        fixture(root, current, [observation(privateCommit, 1, "success", "ledger-publication", "ledger")]).cell,
+        current,
+      )?.result,
+      "pass",
+    );
+    // If both object stores contain a commit, the public witness boundary wins.
+    git(root, "fetch", ledger, "HEAD");
+    assert.throws(
+      () =>
+        readLatestCiEvidence(
+          fixture(root, current, [observation(privateCommit, 1, "success", "ledger-publication", "ledger")]).cell,
+          current,
+        ),
+      { code: "invalid_proof" },
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("pure deletion reconciles empty paths and surviving deliverables reconcile without deletion output", async () => {
   for (const paths of [[], ["packages/daemon/src/live.ts"]]) {
-    const current = execution("a".repeat(40), paths),
-      prepared = fixture("/unused", current, [observation(current.submission!.commitSha)]);
+    const current = execution(publicSha, paths),
+      prepared = fixture(publicRoot, current, [observation(current.submission!.commitSha)]);
     const steps = await prepareSubmissionEvidence(prepared.cell, "task", "execution", binding);
     assert.deepEqual(prepared.calls[0], { kind: "task-code-doc-reconcile", taskId: "task", paths });
     assert.deepEqual(
@@ -213,8 +265,8 @@ test("pure deletion reconciles empty paths and surviving deliverables reconcile 
 });
 
 test("retry after a lost response reuses canonical cut witnesses without another append", async () => {
-  const current = execution("a".repeat(40)),
-    prepared = fixture("/unused", current, [observation(current.submission!.commitSha)]),
+  const current = execution(publicSha),
+    prepared = fixture(publicRoot, current, [observation(current.submission!.commitSha)]),
     evidence = readLatestCiEvidence(prepared.cell, current)!;
   Object.assign(prepared.snapshot, {
     codeDocWitnesses: [
@@ -234,13 +286,13 @@ test("retry after a lost response reuses canonical cut witnesses without another
 });
 
 test("pending projection cannot select stale green and failed reconciliation stops before CI publication", async () => {
-  const current = execution("a".repeat(40)),
-    pending = fixture("/unused", current, [observation(current.submission!.commitSha)]);
+  const current = execution(publicSha),
+    pending = fixture(publicRoot, current, [observation(current.submission!.commitSha)]);
   Object.assign(pending.cell.projection, {
     readCiRunObservations: () => ({ status: "pending", events: [], watermark: 1, sourceRevision: 2 }),
   });
   assert.throws(() => readLatestCiEvidence(pending.cell, current), { code: "content_not_ready" });
-  const rejected = fixture("/unused", current, [observation(current.submission!.commitSha)]);
+  const rejected = fixture(publicRoot, current, [observation(current.submission!.commitSha)]);
   Object.assign(rejected.cell, {
     lifecycleAction: async () => ({ outcome: "commit_unknown", code: "publication_indeterminate", opId: "reconcile" }),
   });
@@ -251,8 +303,8 @@ test("pending projection cannot select stale green and failed reconciliation sto
 });
 
 test("completed receipt replay does not inspect a newer red or unavailable CI observation", async () => {
-  const current = execution("a".repeat(40)),
-    prepared = fixture("/unused", current, [observation(current.submission!.commitSha, 2, "failure")]);
+  const current = execution(publicSha),
+    prepared = fixture(publicRoot, current, [observation(current.submission!.commitSha, 2, "failure")]);
   Object.assign(prepared.snapshot.task!, { taskId: "task", status: "done", createdBy: actor });
   const packagePath = "harness/tasks/task",
     completedEvent = { opId: "completed-original" },

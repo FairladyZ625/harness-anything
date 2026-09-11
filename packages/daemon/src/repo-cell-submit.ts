@@ -175,16 +175,18 @@ export async function submitTask(
   const executionId = selected.executionId;
   // A lost response resumes the stored cut. Never re-read HEAD or amend a completed submission implicitly.
   if (selected.submission && action.amend !== true) {
-    const event = [...cell.store.read().events]
-      .reverse()
-      .find(
-        (candidate) =>
-          isTaskEvent(candidate) &&
-          candidate.taskId === taskId &&
-          candidate.type === "execution_submitted" &&
-          candidate.payload.execution.executionId === executionId,
-      );
-    if (!event || event.source !== binding.source)
+    const opId = cell.projection.readTaskSubmissionOperation(taskId, executionId),
+      event = opId === null ? null : cell.store.readEvent(opId);
+    if (
+      !event ||
+      !isTaskEvent(event) ||
+      event.type !== "execution_submitted" ||
+      event.taskId !== taskId ||
+      event.payload.execution.executionId !== executionId ||
+      submissionDigest(event.payload.execution.submission!) !== submissionDigest(selected.submission) ||
+      !isSameExecution(event.actor, binding.actor) ||
+      event.source !== binding.source
+    )
       throw cell.cellCodedError("lease_required", "Only the original submission holder may resume this cut.");
     const receipt = cell.receiptForOperation(event.opId, binding);
     if (receipt.outcome !== "applied") return receipt;

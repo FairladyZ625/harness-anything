@@ -9,6 +9,8 @@ import { compileFactWrite, type FactEventDraftV1 } from "../../src/domain/fact-e
 import { taskProjectionSchemaVersion } from "../../src/projection/projection-schema.ts";
 import { makeTaskProjection } from "../../src/projection/rebuildable-task-projection.ts";
 import { makeTaskEventStore } from "../../src/store/task-event-store.ts";
+import { lifecycleFixture } from "./task-lifecycle-fixture.ts";
+import { taskLifecycleWritePlan } from "../../src/domain/task-lifecycle-publication.ts";
 import { withTempStoreAsync } from "./helpers.ts";
 
 const previousProjectionSchemaVersion = 13;
@@ -65,6 +67,50 @@ test("an owner adds the relation owner index to a current-version cache in place
       assert.equal(indexed(current), true);
     } finally {
       current.close();
+    }
+  });
+});
+
+test("submission lookup survives later lifecycle events and adds its point-read index to an existing cache", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const eventStore = makeTaskEventStore({ repoId: "submission-index", rootDir }),
+      projection = makeTaskProjection({ rootDir, eventStore }),
+      events = lifecycleFixture().events;
+    for (const event of events) {
+      const plan = taskLifecycleWritePlan(event);
+      eventStore.append({ event, plan, blobs: [] });
+      projection.apply(event, plan);
+    }
+    const submitted = events.find((event) => event.type === "execution_submitted")!;
+    assert.equal(projection.readTaskSubmissionOperation("task-1", "execution-1"), submitted.opId);
+    assert.equal(projection.readTaskSubmissionOperation("task-1", "missing"), null);
+    assert.equal(projection.readTaskSubmissionOperation("missing", "execution-1"), null);
+    projection.close();
+    const stale = new DatabaseSync(projection.path);
+    stale.exec("DROP INDEX event_index_submission_lookup");
+    stale.close();
+    const reopened = makeTaskProjection({ rootDir, eventStore });
+    let lookupSql = "";
+    const prepare = DatabaseSync.prototype.prepare;
+    DatabaseSync.prototype.prepare = function (sql: string) {
+      if (sql.startsWith("SELECT op_id FROM event_index")) lookupSql = sql;
+      return prepare.call(this, sql);
+    };
+    try {
+      assert.equal(reopened.readTaskSubmissionOperation("task-1", "execution-1"), submitted.opId);
+    } finally {
+      DatabaseSync.prototype.prepare = prepare;
+      reopened.close();
+    }
+    assert.ok(lookupSql, "capture the actual production lookup");
+    const db = new DatabaseSync(projection.path, { readOnly: true });
+    try {
+      const plan = db.prepare(`EXPLAIN QUERY PLAN ${lookupSql}`).all("task-1", "execution-1");
+      assert.match(JSON.stringify(plan), /SEARCH event_index USING INDEX event_index_submission_lookup/u);
+      assert.doesNotMatch(JSON.stringify(plan), /SCAN |TEMP B-TREE/u);
+    } finally {
+      db.close();
     }
   });
 });
