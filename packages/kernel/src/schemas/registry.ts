@@ -84,6 +84,11 @@ export const HarnessConfigSchema = Schema.Struct({
           wipLimit: Schema.optional(TaskWipLimitSchema),
         }),
       ),
+      ci: Schema.optional(
+        Schema.Struct({
+          workflows: Schema.Array(ConfigIdentifierSchema).pipe(Schema.minItems(1)),
+        }),
+      ),
       identity: Schema.optional(
         Schema.Struct({
           personId: ConfigIdentifierSchema,

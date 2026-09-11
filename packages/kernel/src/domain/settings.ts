@@ -9,6 +9,7 @@ export type SettingsLocale = (typeof settingsLocales)[number];
 export const reviewIndependenceLevels = ["execution", "principal"] as const;
 export type ReviewIndependence = (typeof reviewIndependenceLevels)[number];
 export const DEFAULT_RESTORE_DRILL_RETENTION = 3;
+export const DEFAULT_CI_WORKFLOWS = Object.freeze(["rewrite-ci"] as const);
 
 export interface WalFlushSettingsV1 {
   readonly adaptive: boolean;
@@ -37,6 +38,7 @@ export const SETTINGS_FIELD_OWNERSHIP = Object.freeze({
   locale: "local",
   scaffolds: "repository",
   walFlush: "repository",
+  ci: "repository",
   restoreDrillRetention: "repository",
 } as const);
 
@@ -62,6 +64,7 @@ export interface RepositorySettingsV1 {
     readonly repository: string;
   };
   readonly walFlush: WalFlushSettingsV1;
+  readonly ci: { readonly workflows: readonly string[] };
   readonly restoreDrillRetention: number;
 }
 
@@ -84,6 +87,7 @@ export interface SettingsV1 {
     readonly repository: string;
   };
   readonly walFlush: WalFlushSettingsV1;
+  readonly ci: { readonly workflows: readonly string[] };
   readonly restoreDrillRetention: number;
 }
 
@@ -113,6 +117,7 @@ export const INITIAL_SETTINGS_V1: SettingsV1 = Object.freeze({
     repository: "governance/repository-scaffold.json",
   }),
   walFlush: DEFAULT_WAL_FLUSH_SETTINGS,
+  ci: Object.freeze({ workflows: DEFAULT_CI_WORKFLOWS }),
   restoreDrillRetention: DEFAULT_RESTORE_DRILL_RETENTION,
 });
 
@@ -170,6 +175,7 @@ export const SETTINGS_V1_SCHEMA: EntityDocumentJsonSchema<SettingsV1> = {
       additionalProperties: false,
     },
     walFlush: walFlushSchema(),
+    ci: ciSettingsSchema(),
     restoreDrillRetention: ownedSchema("restoreDrillRetention", { type: "integer", minimum: 1 }),
   },
   required: [
@@ -227,6 +233,7 @@ export const SETTINGS_REPOSITORY_V1_SCHEMA: EntityDocumentJsonSchema<RepositoryS
       additionalProperties: false,
     },
     walFlush: walFlushSchema(),
+    ci: ciSettingsSchema(),
     restoreDrillRetention: ownedSchema("restoreDrillRetention", { type: "integer", minimum: 1 }),
   },
   required: ["schema", "settingsId", "defaultVertical", "defaultPreset", "defaultProfile", "scaffolds", "walFlush"],
@@ -248,6 +255,7 @@ export function repositorySettings(settings: SettingsV1 | RepositorySettingsV1):
     reviewReturnBudget: settings.reviewReturnBudget ?? INITIAL_SETTINGS_V1.reviewReturnBudget,
     scaffolds: { task: settings.scaffolds.task, repository: settings.scaffolds.repository },
     walFlush: settings.walFlush ?? DEFAULT_WAL_FLUSH_SETTINGS,
+    ci: settings.ci ?? INITIAL_SETTINGS_V1.ci,
     restoreDrillRetention: settings.restoreDrillRetention ?? DEFAULT_RESTORE_DRILL_RETENTION,
   };
 }
@@ -283,6 +291,7 @@ export function readSettingsFacet(body: string): SettingsV1 {
       repository: settingBlockValue(body, "scaffolds", "repository") ?? INITIAL_SETTINGS_V1.scaffolds.repository,
     },
     walFlush: readWalFlushSettings(body),
+    ci: readCiSettings(body),
     restoreDrillRetention: readRestoreDrillRetention(body),
   };
   const errors = validateSettingsV1(settings);
@@ -372,6 +381,43 @@ function walFlushSchema() {
     required: ["adaptive", "events", "bytes", "milliseconds"],
     additionalProperties: false,
   };
+}
+
+function ciSettingsSchema() {
+  return {
+    ...ownedSchema("ci", {}),
+    type: "object" as const,
+    properties: {
+      workflows: ownedSchema("ci", {
+        type: "array" as const,
+        items: { type: "string" as const, pattern: settingValuePattern, minLength: 1 },
+        minItems: 1,
+        uniqueItems: true,
+      }),
+    },
+    required: ["workflows"],
+    additionalProperties: false,
+  };
+}
+
+function readCiSettings(body: string): SettingsV1["ci"] {
+  const section = /^  ci:[^\S\r\n]*(?:\r?\n)((?:    [^\r\n]*(?:\r?\n|$))*)/mu.exec(body)?.[1];
+  if (section === undefined) return INITIAL_SETTINGS_V1.ci;
+  const raw = settingBlockValue(body, "ci", "workflows");
+  if (raw === undefined) throw new Error("settings.ci.workflows must be a non-empty inline array of workflow names");
+  if (!raw.startsWith("[") || !raw.endsWith("]"))
+    throw new Error("settings.ci.workflows must be a non-empty inline array of workflow names");
+  const workflows = raw
+    .slice(1, -1)
+    .split(",")
+    .map((workflow) => workflow.trim());
+  if (
+    workflows.length === 0 ||
+    workflows.some((workflow) => !new RegExp(settingValuePattern, "u").test(workflow) || /\.ya?ml$/u.test(workflow)) ||
+    new Set(workflows).size !== workflows.length
+  )
+    throw new Error("settings.ci.workflows must contain unique workflow names without .yml");
+  return { workflows };
 }
 
 function readWalFlushSettings(body: string): WalFlushSettingsV1 {

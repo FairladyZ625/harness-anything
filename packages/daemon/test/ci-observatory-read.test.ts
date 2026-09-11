@@ -9,6 +9,9 @@ import { fetchCiObservations, ingestCiObservations, selectCiObservationRuns } fr
 import type { CiRunObservationEventV3 } from "../../kernel/src/index.ts";
 
 const actor = { principal: { personId: "person-observatory" }, executor: null } as const;
+const ciSettings = (workflows: readonly string[] = ["rewrite-ci", "rebuild-gates"]) => ({
+  read: () => ({ ci: { workflows } }),
+});
 
 // The daemon runs the gh reads before the write queue and the appends inside it; these cases run both halves back to back.
 async function pullAndIngestCiObservations(
@@ -269,6 +272,7 @@ test("CI observation pull writes canonical events once per run and job", async (
   let revision = 0;
   const cell = {
     rootDir,
+    settings: ciSettings(),
     now: () => "2026-08-27T04:00:00.000Z",
     cellCodedError: (_code: string, message: string) => new Error(message),
     store: {
@@ -367,7 +371,10 @@ test("CI observation pull writes canonical events once per run and job", async (
       headSha: "sha-101",
       conclusion: "success",
     });
-    assert.equal(observed.find((event) => event.payload.run.runId === "102.1")?.payload.verification, null);
+    assert.equal(
+      observed.find((event) => event.payload.run.runId === "102.1")?.payload.verification?.workflow,
+      "rebuild-gates",
+    );
     assert.ok([...events.values()].every((observed) => observed.schema === "ci-run-observation/v3"));
     assert.deepEqual(
       [...events.values()].map((observed) => observed.payload.gates),
@@ -384,7 +391,11 @@ test("CI observation pull writes canonical events once per run and job", async (
 test("CI observation pull synthesizes a ledger-publication run only for private ledger commits", async () => {
   const rootDir = mkdtempSync(path.join(process.cwd(), ".tmp-ci-observation-ledger-"));
   const ledgerRoot = path.join(rootDir, "harness");
-  const cell = { rootDir, cellCodedError: (_code: string, message: string) => new Error(message) };
+  const cell = {
+    rootDir,
+    settings: ciSettings(),
+    cellCodedError: (_code: string, message: string) => new Error(message),
+  };
   const noRuns = ((_command: string, args: readonly string[]) => (args[1] === "list" ? "[]" : "")) as never;
   try {
     git(rootDir, "init", "-q", "-b", "main");
@@ -423,6 +434,7 @@ test("CI observation pull imports named main runs without listing recent runs", 
     calls: string[] = [];
   const cell = {
     rootDir,
+    settings: ciSettings(["ci"]),
     now: () => "2026-09-10T00:00:00.000Z",
     cellCodedError: (_code: string, message: string) => new Error(message),
     store: {
@@ -439,9 +451,9 @@ test("CI observation pull imports named main runs without listing recent runs", 
     calls.push(`${args[1]}:${args[2]}`);
     if (args[1] === "view")
       return JSON.stringify({
-        workflowName: "rewrite-ci",
+        workflowName: args[2] === "700" ? "ci" : "rewrite-ci",
         headSha: `sha-${args[2]}`,
-        headBranch: args[2] === "700" ? "main" : "codex/feature",
+        headBranch: args[2] === "701" ? "codex/feature" : "main",
         status: "completed",
         conclusion: "success",
         attempt: 1,
@@ -478,6 +490,7 @@ test("CI observation pull imports named main runs without listing recent runs", 
     assert.deepEqual(calls, ["view:700", "download:700"]);
     assert.equal(events.length, 1);
     assert.equal(events[0]?.payload.verification?.headSha, "sha-700");
+    assert.equal(events[0]?.payload.verification?.workflow, "ci");
     assert.equal(JSON.parse(receipt.evidence).requestedRuns, 1);
     await assert.rejects(
       pullAndIngestCiObservations(
@@ -489,6 +502,14 @@ test("CI observation pull imports named main runs without listing recent runs", 
       /CI run 701 is completed on codex\/feature; only completed main runs can be imported\./u,
     );
     assert.equal(events.length, 1);
+    const unconfigured = await pullAndIngestCiObservations(
+      cell as never,
+      { kind: "ci-observe-pull", runs: ["702"] },
+      { actor, source: "local" },
+      runGh,
+    );
+    assert.equal(JSON.parse(unconfigured.evidence).imported, 1);
+    assert.equal(events[1]?.payload.verification, null);
     await assert.rejects(
       pullAndIngestCiObservations(
         cell as never,
@@ -525,7 +546,7 @@ test("CI completion verdict comes from the completed matching workflow run, not 
     },
     {
       name: "other workflow",
-      workflow: "rebuild-gates",
+      workflow: "other-ci",
       status: "completed",
       conclusion: "success",
       attempt: 1,
@@ -566,6 +587,7 @@ test("CI completion verdict comes from the completed matching workflow run, not 
     let downloads = 0;
     const cell = {
       rootDir,
+      settings: ciSettings(),
       now: () => "2026-09-09T00:00:00.000Z",
       cellCodedError: (_code: string, message: string) => new Error(message),
       store: {

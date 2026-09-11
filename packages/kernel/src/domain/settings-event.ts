@@ -154,6 +154,7 @@ function validSettingsSnapshot(value: unknown, allowUnknownFields: boolean): boo
               milliseconds: value.walFlush.milliseconds,
             }
           : (value.walFlush ?? DEFAULT_WAL_FLUSH_SETTINGS),
+      ci: value.ci ?? INITIAL_SETTINGS_V1.ci,
       restoreDrillRetention: value.restoreDrillRetention ?? DEFAULT_RESTORE_DRILL_RETENTION,
     },
     current = validateRepositorySettings(normalized).length === 0;
@@ -172,6 +173,7 @@ function validSettingsSnapshot(value: unknown, allowUnknownFields: boolean): boo
           "reviewReturnBudget",
           "scaffolds",
           "walFlush",
+          "ci",
           "restoreDrillRetention",
         ].includes(field),
       )

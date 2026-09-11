@@ -27,9 +27,14 @@ test("settings writes reject catalog-inconsistent vertical, preset, and profile 
       before = readFileSync(configPath, "utf8");
     const read = await cell.run({ kind: "settings-read" }, binding);
     assert.equal(read.outcome, "applied", JSON.stringify(read));
-    const catalogSettings = (read as typeof read & { readonly settings?: { readonly locale?: string } }).settings,
+    const catalogSettings = (
+        read as typeof read & {
+          readonly settings?: { readonly locale?: string; readonly ci?: { readonly workflows: readonly string[] } };
+        }
+      ).settings,
       initialRevision = read.revision!;
     assert.equal(catalogSettings?.locale, "en-US");
+    assert.deepEqual(catalogSettings?.ci?.workflows, ["ci"]);
     for (const selection of [
       { defaultVertical: "software/coding", defaultPreset: "standard-task", defaultProfile: "prose" },
       { defaultVertical: "other/vertical", defaultPreset: "standard-task", defaultProfile: "baseline" },
@@ -180,6 +185,8 @@ function initRepo(root: string): void {
       "    bytes: 8388608",
       "    milliseconds: 2000",
       "  locale: en-US",
+      "  ci:",
+      "    workflows: [ci]",
       "  scaffolds:",
       "    task: governance/task-scaffold.json",
       "    repository: governance/repository-scaffold.json",
