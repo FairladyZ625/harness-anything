@@ -1,16 +1,17 @@
+import type { TaskCompletionRead } from "./protocol/task-completion-contract.ts";
 import {
   assessTransitionDocument,
   requireTransitionDocumentKind,
   taskCompletionNext,
   type CompletionReadinessContext,
   type TaskLifecycleSnapshot,
-  type TaskProjection,
+  type TaskProjectionQueries,
 } from "../../kernel/src/index.ts";
 import { readTaskTransitionDocument } from "./transition-document-access.ts";
 
 /** Canonical completion inputs shared by command and GUI projection consumers. */
 export function readCompletionContext(
-  projection: TaskProjection,
+  projection: TaskProjectionQueries,
   taskId: string,
   snapshot: TaskLifecycleSnapshot,
   status: "ready" | "pending",
@@ -47,5 +48,17 @@ export function readCompletionContext(
     eligibleDirtyPaths: [],
     producesFactCount: facts.rows.filter((row) => row.targetRef.startsWith("fact/")).length,
     projectionStatus: facts.status,
+  };
+}
+
+export function readTaskCompletion(projection: TaskProjectionQueries, taskId: string): TaskCompletionRead {
+  const read = projection.read(taskId);
+  return {
+    ok: true,
+    taskId,
+    completionNext: taskCompletionNext(
+      read.snapshot,
+      readCompletionContext(projection, taskId, read.snapshot, read.status),
+    ).next,
   };
 }

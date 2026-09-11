@@ -1,3 +1,4 @@
+import { validateTaskCompletionRead } from "../../../daemon/src/protocol/task-completion-contract.ts";
 import type {
   AgendaRead,
   AgendaTaskRow,
@@ -401,6 +402,12 @@ export const harnessClient = {
     payload: RepoScope & { readonly taskId: string; readonly path: string },
   ): Promise<TaskDocumentProjectionRead> {
     return readTaskDocumentResult(await invoke("repo.tasks.document.read", payload, "getTaskDocument"));
+  },
+  async getTaskCompletion(payload: RepoScope & { readonly taskId: string }) {
+    const result = await invoke("repo.tasks.completion.read", payload, "getTaskCompletion");
+    if (result.ok !== true || validateTaskCompletionRead(result).length)
+      throw new Error(localErrorHint(result, "Task completion bridge returned an invalid result."));
+    return result;
   },
   async getTaskDocuments(payload: RepoScope & { readonly taskId: string }): Promise<TaskDocumentListProjectionRead> {
     return readTaskDocumentListResult(await invoke("repo.tasks.documents.list", payload, "getTaskDocuments"));

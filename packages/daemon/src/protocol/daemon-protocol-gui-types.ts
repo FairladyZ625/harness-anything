@@ -1,3 +1,4 @@
+import type { TaskCompletionRead } from "./task-completion-contract.ts";
 import type {
   CanonicalEventV1,
   DaemonRepoMode,
@@ -376,6 +377,7 @@ export type DaemonGuiReadResultMap = {
     readonly watermark: number;
     readonly sourceRevision: number;
   };
+  readonly "repo.tasks.completion.read": TaskCompletionRead;
   readonly "repo.tasks.documents.list": DaemonTaskDocumentListResult;
   readonly "repo.artifacts.list": ArtifactsListResult;
   readonly "repo.agentRuntime.overview": AgentRuntimeOverviewResult;
@@ -433,6 +435,7 @@ export type DaemonGuiReadPayloadMap = {
     readonly taskId: string;
     readonly path: string;
   };
+  readonly "repo.tasks.completion.read": { readonly taskId: string };
   readonly "repo.tasks.documents.list": { readonly taskId: string };
   /** absent kind = html(时间线默认面);md 是显式 opt-in。 */
   readonly "repo.artifacts.list": { readonly kind?: "html" | "md" | "raw" };
@@ -750,7 +753,6 @@ export type DaemonTaskSnapshotListResult = {
       readonly codeDocWitnesses: "known" | "unknown";
       readonly gateWitnesses: "known" | "unknown";
     };
-    readonly completionNext?: import("../../../kernel/src/domain/completion-readiness.ts").CompletionNext | null;
     readonly closeoutAssessment: import("../../../kernel/src/domain/closeout-readiness.ts").CloseoutAssessment;
     readonly blockingAssessment: import("../../../kernel/src/domain/task-blocking.ts").BlockingAssessment;
     readonly placement: TaskPlacementSupplement;

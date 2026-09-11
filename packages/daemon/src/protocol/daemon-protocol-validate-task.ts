@@ -380,7 +380,6 @@ const taskSnapshotListRowFields = [
   "coordinationStatus",
   "snapshotAvailability",
   "closeoutAssessment",
-  "completionNext",
   "blockingAssessment",
   "placement",
   "executionEvidence",
@@ -402,7 +401,7 @@ function taskSnapshotRowErrors(value: unknown, index: number): readonly DaemonTa
         "Task snapshot field is invalid.",
     });
   if (!isJsonObject(value)) return [error("")];
-  const missing = taskSnapshotListRowFields.find((field) => field !== "completionNext" && !Object.hasOwn(value, field));
+  const missing = taskSnapshotListRowFields.find((field) => !Object.hasOwn(value, field));
   if (missing) return [error(missing)];
   const unknown = Object.keys(value).find((field) => !taskSnapshotListRowFields.includes(field as never));
   if (unknown) return [error(unknown)];
@@ -416,20 +415,6 @@ function taskSnapshotRowErrors(value: unknown, index: number): readonly DaemonTa
   if (!statusWord([...taskStatusWords, "unknown"], value.coordinationStatus)) errors.push(error("coordinationStatus"));
   if (!snapshot(value.snapshot, value.snapshotAvailability))
     errors.push(...snapshotFailurePaths(value.snapshot, value.snapshotAvailability).map(error));
-  if (value.completionNext !== undefined && value.completionNext !== null) {
-    const next = value.completionNext;
-    if (
-      !exactRecord(next, ["reason", "action", "authority", "readCut"]) ||
-      !nonEmpty(next.reason) ||
-      !nonEmpty(next.action) ||
-      !nonEmpty(next.authority) ||
-      !exactRecord(next.readCut, ["revision", "iteration", "executionId"]) ||
-      !integer(next.readCut.revision) ||
-      (next.readCut.iteration !== null && !integer(next.readCut.iteration)) ||
-      (next.readCut.executionId !== null && !nonEmpty(next.readCut.executionId))
-    )
-      errors.push(error("completionNext"));
-  }
   if (!closeoutAssessment(value.closeoutAssessment)) errors.push(error("closeoutAssessment"));
   if (!blockingAssessment(value.blockingAssessment)) errors.push(error("blockingAssessment"));
   if (!placement(value.placement)) errors.push(error("placement"));

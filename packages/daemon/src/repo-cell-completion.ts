@@ -1,3 +1,4 @@
+import { readTaskCompletion } from "./task-completion-read.ts";
 import { createHash } from "node:crypto";
 import {
   compileCompletionGateWitness,
@@ -153,6 +154,7 @@ export function taskShowFromProjection(
       ...read.snapshot,
       packagePath: read.packagePath,
       rootAssessment,
+      completionNext: readTaskCompletion(projection, taskId).completionNext,
       progress: progress.rows,
     },
     receipt = {

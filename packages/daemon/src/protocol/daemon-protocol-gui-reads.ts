@@ -1,3 +1,4 @@
+import { TASK_COMPLETION_READ_SCHEMA } from "./task-completion-contract.ts";
 import type { EntityResidencyFacets } from "../../../kernel/src/index.ts";
 import { repoReadCommandTopology } from "../../../preset/src/preset-command-contract.ts";
 import { observeTailKinds, shape, type DaemonGuiRpcReadMethod } from "./daemon-protocol-gui-types.ts";
@@ -401,6 +402,25 @@ export const daemonGuiReadMethods = Object.freeze([
     outputSchemaId: DAEMON_DOCUMENT_READ_SCHEMA.id,
     errorSchemaId: DAEMON_PROTOCOL_ERROR_SCHEMA.id,
     serviceMethod: "readDocument",
+    auth: "local-session-token",
+    commandClass: "repo-read",
+  },
+  {
+    id: "tasks.completion.read",
+    phase: "W3",
+    method: "repo.tasks.completion.read",
+    requiresRepo: true,
+    params: shape({
+      repo: shape({ repoId: "string" }),
+      payload: shape({ taskId: "string" }),
+    }),
+    guiBridgeMethod: "getTaskCompletion",
+    httpMethod: "GET",
+    path: "/api/tasks/:taskId/completion",
+    inputSchemaId: "gui.task-completion/v1",
+    outputSchemaId: TASK_COMPLETION_READ_SCHEMA,
+    errorSchemaId: DAEMON_PROTOCOL_ERROR_SCHEMA.id,
+    serviceMethod: "readTaskCompletion",
     auth: "local-session-token",
     commandClass: "repo-read",
   },

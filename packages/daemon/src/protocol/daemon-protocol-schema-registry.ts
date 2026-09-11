@@ -1,3 +1,4 @@
+import { TASK_COMPLETION_READ_SCHEMA } from "./task-completion-contract.ts";
 import {
   CATALOG_REREAD_RECEIPT_SCHEMA,
   DAEMON_AGENDA_SCHEMA,
@@ -49,6 +50,14 @@ import {
 } from "./daemon-protocol-schema-ids.ts";
 
 export const daemonGuiReadSchemas = Object.freeze([
+  {
+    id: TASK_COMPLETION_READ_SCHEMA,
+    schema: "packages/daemon/src/protocol/task-completion-contract.ts#TASK_COMPLETION_READ_SCHEMA",
+    parser: "packages/daemon/src/protocol/task-completion-contract.ts#validateTaskCompletionRead",
+    writer: "packages/daemon/src/protocol/task-completion-contract.ts#serializeTaskCompletionRead",
+    error: "packages/daemon/src/protocol/daemon-protocol.contract.ts#DaemonProtocolContractError",
+    negativeFixtures: Object.freeze(["packages/daemon/fixtures/contracts/task-completion-invalid.json"]),
+  },
   {
     id: DAEMON_VERTICAL_DECLARATION_READ_SCHEMA.id,
     schema: "packages/kernel/src/domain/vertical-declaration.ts#VERTICAL_DECLARATION_READ_SCHEMA",

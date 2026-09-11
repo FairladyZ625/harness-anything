@@ -112,7 +112,6 @@ interface TaskRowFields {
   /** closeoutReadiness=ready 的起始时间，用于等待时长统计 */
   waitingSince?: string;
   gates: readonly GateResult[];
-  completionNext?: TaskSnapshotProjectionRow["completionNext"];
   closeoutBlocker?: TaskSnapshotProjectionRow["closeoutAssessment"]["blocker"];
   snapshotAvailability?: TaskSnapshotProjectionRow["snapshotAvailability"];
   reviews?: TaskSnapshotProjectionRow["snapshot"]["reviews"];

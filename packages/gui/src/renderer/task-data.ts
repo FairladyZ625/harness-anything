@@ -172,3 +172,11 @@ export function taskDocumentListQuery(repoId: string, taskId: string) {
 export function useTaskDocumentListQuery(repoId: string, taskId: string | null) {
   return useQuery({ ...taskDocumentListQuery(repoId, taskId ?? ""), enabled: taskId !== null });
 }
+
+export function useTaskCompletionQuery(repoId: string, taskId: string) {
+  return useQuery({
+    queryKey: ["tasks", repoId, taskId, "completion"],
+    queryFn: () => harnessClient.getTaskCompletion({ repoId, taskId }),
+    staleTime: 10_000,
+  });
+}

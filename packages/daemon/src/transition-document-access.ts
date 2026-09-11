@@ -8,6 +8,7 @@ import {
   resolveHarnessLayout,
   sha256Text,
   type TaskProjection,
+  type TaskProjectionQueries,
   type TransitionDocumentMissingSection,
 } from "../../kernel/src/index.ts";
 
@@ -23,7 +24,7 @@ export interface TaskTransitionDocument {
 }
 
 export function readTaskTransitionDocument(input: {
-  readonly projection: TaskProjection;
+  readonly projection: TaskProjectionQueries;
   readonly taskId: string;
   readonly slot: TaskTransitionDocumentSlot;
   readonly bodyOverrides?: ReadonlyMap<string, string>;

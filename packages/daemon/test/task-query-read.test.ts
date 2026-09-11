@@ -14,6 +14,10 @@ import {
 import { seedRelationProjection } from "../../kernel/test/store/relation-graph-projection.fixtures.ts";
 import { canonicalRoot, validateDaemonRelationGraph } from "../src/protocol/daemon-protocol.contract.ts";
 import { readTaskWipSnapshot, wipSnapshotEntries, type TaskQueryCell } from "../src/repo-cell-task-query.ts";
+import { readTaskCompletion } from "../src/task-completion-read.ts";
+import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
+import { emptyTaskLifecycleSnapshot, reduceTaskEvent, taskCompletionNext } from "../../kernel/src/index.ts";
+import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 import { makeTaskQueryReadModel } from "../src/task-query-read.ts";
 
 type ProjectionCut = {
@@ -442,3 +446,59 @@ function taskRowWithoutDisposition() {
     },
   };
 }
+
+test("single-task completion read carries the canonical next and validates its read cut", () => {
+  const snapshot = lifecycleFixture().events.slice(0, 1).reduce(reduceTaskEvent, emptyTaskLifecycleSnapshot()),
+    taskId = snapshot.task!.taskId,
+    reads: string[] = [],
+    projection = {
+      read: (id: string) => {
+        reads.push(id);
+        return { ...readyCut, snapshot, packagePath: "tasks/task-1" };
+      },
+      readDocument: (documentPath: string) => ({
+        ...readyCut,
+        document: {
+          body: documentPath.endsWith("task-contract.json")
+            ? JSON.stringify({ documents: [{ slot: "task.closeout", path: "closeout.md" }] })
+            : "",
+        },
+      }),
+      readRelationQuery: () => ({ ...readyCut, rows: [] }),
+    } as unknown as TaskProjection,
+    result = readTaskCompletion(projection, taskId);
+  assert.ok(reads.length > 0);
+  assert.ok(
+    reads.every((id) => id === taskId),
+    "only the selected task is read",
+  );
+  assert.deepEqual(
+    result.completionNext,
+    taskCompletionNext(snapshot, {
+      closeout: "placeholder",
+      closeoutPath: "tasks/task-1/closeout.md",
+      eligibleDirtyPaths: [],
+      producesFactCount: 0,
+      projectionStatus: "ready",
+    }).next,
+  );
+  assert.equal(result.completionNext?.action, `ha task start ${taskId}`);
+  assert.deepEqual(parseDaemonGuiReadResult("repo.tasks.completion.read", result), result);
+  assert.throws(
+    () =>
+      parseDaemonGuiReadResult("repo.tasks.completion.read", {
+        ...result,
+        completionNext: { ...result.completionNext, readCut: { revision: "wrong" } },
+      }),
+    /completionNext/,
+  );
+  assert.throws(() => parseDaemonGuiReadResult("repo.tasks.completion.read", { ok: true, taskId }));
+  assert.deepEqual(
+    parseDaemonGuiReadResult("repo.tasks.completion.read", {
+      ok: true,
+      taskId,
+      completionNext: null,
+    }),
+    { ok: true, taskId, completionNext: null },
+  );
+});

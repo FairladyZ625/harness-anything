@@ -43,7 +43,6 @@ function adaptProjectionRow(
     freshness: projectionStatus === "ready" ? "fresh" : "stale-but-usable",
     packageDisposition: row.placement.packageDisposition,
     closeoutReadiness: row.closeoutAssessment.readiness,
-    completionNext: row.completionNext,
     engine: row.placement.engine,
     origin: row.placement.origin,
     source:

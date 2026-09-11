@@ -1,3 +1,4 @@
+import { validateTaskCompletionRead } from "./task-completion-contract.ts";
 import {
   validateAgentRuntimeAttach,
   validateAgentRuntimeAttachEvent,
@@ -96,6 +97,7 @@ const resultValidators = {
   "daemon.gui.control.receipt": validateDaemonControlReceipt,
   "observe.tail": validateObserveTailResult,
   "repo.tasks.list": validateDaemonTaskSnapshotList,
+  "repo.tasks.completion.read": validateTaskCompletionRead,
   "repo.tasks.wip": validateDaemonTaskWip,
   "repo.projection.read": validateDaemonUseCaseProjection,
   "repo.entity.actions.explain": validateEntityActionExplanationSet,
