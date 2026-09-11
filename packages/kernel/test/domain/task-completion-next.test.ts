@@ -115,3 +115,10 @@ test("missing delivery paths identify the Summary instead of a JSON closeout rec
   assert.match(result.next!.action, /Identify the delivery paths.*Summary/);
   assert.doesNotMatch(result.next!.action, /packet.json|task closeout/);
 });
+
+test("missing CI witness resumes completion without a manual receipt flag", () => {
+  const snapshot = at(5),
+    result = taskCompletionNext({ ...snapshot, task: { ...snapshot.task!, completionGateIds: ["ci"] } }, context);
+  assert.equal(result.blocker?.code, "ci_missing");
+  assert.equal(result.next?.action, "ha task complete task-1 --execution-id execution-1");
+});

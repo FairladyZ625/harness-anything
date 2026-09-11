@@ -40,8 +40,7 @@ test("a submitted fixture reaches done through one ha task closeout command", (c
         "docs-task",
       ]),
       packagePath = String(created.packagePath),
-      closeoutPath = `${packagePath}/closeout.md`,
-      commitSha = git(root, "rev-parse", "HEAD");
+      closeoutPath = `${packagePath}/closeout.md`;
     assert.equal(created.status, "accepted_durable");
     const createdVisible = published(root, userRoot, created);
     assert.equal((createdVisible.worktree as { state: string }).state, "verified");
@@ -54,7 +53,7 @@ test("a submitted fixture reaches done through one ha task closeout command", (c
         String(run(root, userRoot, ["task", "closeout", taskId, "--print-template"]).summary),
       ) as Record<string, unknown>;
     assert.equal(schema.$id, "harness://schema/task-closeout-packet/v1");
-    assert.ok(Object.hasOwn(initialTemplate, "submission"));
+    assert.equal(Object.hasOwn(initialTemplate, "submission"), false);
     writeFileSync(path.join(root, "harness", packagePath, "task_plan.md"), realizedPlan("Closeout E2E"));
     run(root, userRoot, ["doc", "sync", "--submit", "--path", `${packagePath}/task_plan.md`]);
     run(root, userRoot, [
@@ -72,18 +71,16 @@ test("a submitted fixture reaches done through one ha task closeout command", (c
       path.join(root, "harness", closeoutPath),
       "# Closeout\n\n## Summary\n\nDone.\n\n## Verification\n\nVerified.\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nNot applicable to this fixture.\n",
     );
+    writeFileSync(path.join(root, "harness", packagePath, "artifacts/report.md"), "# Report\n\nFixture verified.\n");
     run(root, userRoot, ["doc", "sync", "--submit", "--task", taskId], "agent:worker");
-    const submission = {
-      completionClaim: "The fixture is complete.",
-      deliverables: ["README.md (documented fixture outcome)"],
-      outputs: ["done task"],
-      verificationNotes: ["one closeout invocation"],
-      knownGaps: [],
-      residualRisks: [],
-      commitSha,
-    };
-    writeFileSync(path.join(root, "submission.json"), JSON.stringify(submission));
-    run(root, userRoot, ["task", "submit", taskId, "--from-file", "submission.json"], "agent:worker");
+    writeFileSync(
+      path.join(root, "harness", closeoutPath),
+      readFileSync(path.join(root, "harness", closeoutPath), "utf8").replace(
+        "## Summary\n",
+        `## Summary\n\nDelivery commit: ${git(root, "rev-parse", "HEAD")}\n`,
+      ),
+    );
+    submitPublished(root, userRoot, taskId);
     const resumeTemplate = JSON.parse(
       String(run(root, userRoot, ["task", "closeout", taskId, "--print-template"]).summary),
     ) as Record<string, unknown>;
@@ -207,21 +204,17 @@ test("a standard task with only task-package deliverables completes without a fa
     assert.equal(materialized.outcome, "applied", JSON.stringify(materialized));
     assert.equal((materialized.proof as { worktreeVisible: boolean }).worktreeVisible, true);
     assert.equal(readFileSync(path.join(root, "harness", reportPath), "utf8"), reportBody);
-    const submission = {
-      completionClaim: "The report-only fixture is complete.",
-      deliverables: [reportPath],
-      outputs: ["reviewed audit report"],
-      verificationNotes: ["report reviewed"],
-      knownGaps: [],
-      residualRisks: [],
-      commitSha: git(root, "rev-parse", "HEAD"),
-    };
-    writeFileSync(path.join(root, "submission.json"), JSON.stringify(submission));
-    run(root, userRoot, ["task", "submit", taskId, "--from-file", "submission.json"], "agent:worker");
+    writeFileSync(
+      path.join(root, "harness", closeoutPath),
+      readFileSync(path.join(root, "harness", closeoutPath), "utf8").replace(
+        "## Summary\n",
+        `## Summary\n\nDelivery commit: ${git(root, "rev-parse", "HEAD")}\n`,
+      ),
+    );
+    submitPublished(root, userRoot, taskId);
     writeFileSync(
       path.join(root, "judgment.json"),
       JSON.stringify({
-        submission,
         review: {
           verdict: "approved",
           reason: "The task-package report is complete and no public code path exists.",
@@ -268,7 +261,17 @@ test("two executions publishing one report basename keep both durable contents a
   try {
     startDaemon(root, userRoot);
     run(root, userRoot, ["daemon", "repo", "register", "--repo-id", repoId, "--root", root, "--no-link"]);
-    const created = run(root, userRoot, ["task", "create", "--id", taskId, "--admin", "--title", "Report Ownership"]),
+    const created = run(root, userRoot, [
+        "task",
+        "create",
+        "--id",
+        taskId,
+        "--admin",
+        "--title",
+        "Report Ownership",
+        "--preset",
+        "docs-task",
+      ]),
       packagePath = String(created.packagePath),
       reportPath = `${packagePath}/artifacts/reports/implementation.md`,
       reportFile = path.join(root, "harness", reportPath);
@@ -308,22 +311,12 @@ test("two executions publishing one report basename keep both durable contents a
     assert.ok(firstClaim, "the first report needs its own durable content claim");
     const firstCommit = git(root, "rev-parse", "HEAD");
     assert.equal(git(root, "show", `${firstCommit}:harness/${reportPath}`), firstBody.trim());
-    const submission = {
-      completionClaim: "The first execution reported its finding.",
-      deliverables: [reportPath],
-      outputs: ["first execution report"],
-      verificationNotes: ["report published in the first round"],
-      knownGaps: [],
-      residualRisks: [],
-      commitSha: firstCommit,
-    };
-    writeFileSync(path.join(root, "submission.json"), JSON.stringify(submission));
-    run(
-      root,
-      userRoot,
-      ["task", "submit", taskId, "--execution-id", firstExecutionId, "--from-file", "submission.json"],
-      "agent:worker",
+    const closeoutFile = path.join(root, "harness", packagePath, "closeout.md");
+    writeFileSync(
+      closeoutFile,
+      readFileSync(closeoutFile, "utf8").replace("## Summary\n", `## Summary\n\nDelivery commit: ${firstCommit}\n`),
     );
+    submitPublished(root, userRoot, taskId, firstExecutionId);
     // A returned review is the only supported route from one execution to the next on one task.
     run(root, userRoot, [
       "task",
@@ -475,6 +468,26 @@ function startDaemon(root: string, userRoot: string): void {
     if (runMaybe(root, userRoot, ["daemon", "status"]).status === 0) return;
   }
   throw new Error(String(receipt.nextAction));
+}
+function submitPublished(root: string, userRoot: string, taskId: string, executionId?: string): void {
+  const args = ["task", "submit", taskId, ...(executionId ? ["--execution-id", executionId] : [])];
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const receipt = run(root, userRoot, args, "agent:worker");
+    if (receipt.outcome === "applied") {
+      const replay = run(root, userRoot, args, "agent:worker");
+      assert.equal(replay.outcome, "applied", JSON.stringify(replay));
+      assert.equal(replay.opId, receipt.opId, "repeated submit must return the same execution submission");
+      return;
+    }
+    assert.equal(receipt.outcome, "pending", JSON.stringify(receipt));
+    run(
+      root,
+      userRoot,
+      ["receipt", "show", String(receipt.opId), "--wait", "git_verified,worktree_visible", "--timeout-ms", "5000"],
+      "agent:worker",
+    );
+  }
+  assert.fail("submit did not settle after its publication receipts became visible");
 }
 function run(root: string, userRoot: string, args: readonly string[], actor?: string): Record<string, unknown> {
   const result = runMaybe(root, userRoot, args, actor);

@@ -3,6 +3,7 @@ import { artifactImportSourceResolution, prepareArtifactEntityImportSource } fro
 import { fetchCiObservations, ingestCiObservations } from "./ci-observation-actions.ts";
 import type { RepoCellApiContext } from "./repo-cell-api.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
+import { readLatestCiEvidence } from "./repo-cell-task-progress.ts";
 
 type QueuedPublication = (
   authorizationDecision?: AuthorizationDecision,
@@ -33,5 +34,25 @@ export function readBeforeWriteQueue(
     return fetchCiObservations(context.extracted, action).then(
       (fetched) => () => ingestCiObservations(context.extracted, binding, fetched),
     );
+  if ((action.kind === "task-submit" || action.kind === "task-complete") && typeof action.taskId === "string") {
+    const snapshot = context.projection.read(action.taskId).snapshot,
+      execution = snapshot.executions.find(
+        (candidate) =>
+          candidate.iteration === snapshot.task?.iteration &&
+          candidate.submission &&
+          (action.executionId === undefined || action.executionId === candidate.executionId),
+      );
+    if (execution && context.projection.readTaskCompletion(action.taskId, execution.executionId)) return null;
+    if (
+      snapshot.task?.completionGateIds.includes("ci") &&
+      (!execution || readLatestCiEvidence(context.extracted, execution) === null)
+    )
+      return fetchCiObservations(context.extracted, { kind: "ci-observe-pull" }).then(
+        (fetched) => async (authorizationDecision) => {
+          ingestCiObservations(context.extracted, binding, fetched);
+          return context.executeAction(action, authorizationDecision ? { ...binding, authorizationDecision } : binding);
+        },
+      );
+  }
   return null;
 }

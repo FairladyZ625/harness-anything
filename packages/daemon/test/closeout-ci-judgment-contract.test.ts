@@ -101,14 +101,23 @@ async function closeout(completionGateIds: readonly string[], ci: string, status
     completeCalls: Array<Readonly<Record<string, unknown>>> = [];
   writeFileSync(path.join(rootDir, fromFile), JSON.stringify(packet(ci)));
   try {
+    let submitted = false;
     const receipt = await runTaskCloseoutAction({
       action: { kind: "task-closeout", taskId, fromFile },
       caller: person,
       opId: "op-ci-judgment",
       readPacket: () => readWorkspaceText(rootDir, fromFile, "fromFile"),
-      read: async () => fixture(completionGateIds, status) as never,
+      read: async () => {
+        const value = fixture(completionGateIds, status);
+        return (
+          submitted
+            ? { ...value, executions: value.executions.map((item) => ({ ...item, state: "submitted", submission })) }
+            : value
+        ) as never;
+      },
       presetSnapshotCurrent: () => true,
       invoke: async (stage, action) => {
+        if (stage === "submit") submitted = true;
         if (stage === "complete") completeCalls.push(action);
         return {
           outcome: "applied",
@@ -160,7 +169,7 @@ test("the ci value domain stays closed, so no third token slips through either c
     }
 });
 
-test("not_applicable reaches the leaf as an omitted --ci flag rather than a value it would reject", async () => {
+test("completion always derives CI evidence instead of passing a manual ci flag", async () => {
   const absent = await closeout([], "not_applicable");
   assert.deepEqual(
     absent.completeCalls.map((action) => Object.hasOwn(action, "ci")),
@@ -169,7 +178,7 @@ test("not_applicable reaches the leaf as an omitted --ci flag rather than a valu
   const present = await closeout(["ci"], "passed");
   assert.deepEqual(
     present.completeCalls.map((action) => action.ci),
-    ["passed"],
+    [undefined],
   );
 });
 

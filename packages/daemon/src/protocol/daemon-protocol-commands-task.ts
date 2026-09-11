@@ -13,7 +13,7 @@ import {
 export { generatedTaskActionProtocolDeclarations, generatedTaskCreateResultFields, generatedWriteReceiptFields };
 export type { GeneratedTaskActionProtocolDeclaration };
 
-function taskActionPacketFields(id: "submit" | "review") {
+function taskActionPacketFields(id: "review") {
   const fields = generatedTaskActionProtocolDeclarations
     .find((action) => action.id === id)
     ?.input.fields.find((field) => field.field === "fromFile")?.cli?.jsonFields;
@@ -21,8 +21,7 @@ function taskActionPacketFields(id: "submit" | "review") {
   return Object.freeze([...fields]);
 }
 
-export const taskSubmissionJsonFields = taskActionPacketFields("submit"),
-  reviewJsonFields = taskActionPacketFields("review");
+export const reviewJsonFields = taskActionPacketFields("review");
 
 function taskActionCliInputs(action: GeneratedTaskActionProtocolDeclaration) {
   return Object.freeze(

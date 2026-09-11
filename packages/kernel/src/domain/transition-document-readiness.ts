@@ -1,3 +1,4 @@
+import type { SubmissionV1 } from "./execution.ts";
 import { getTaskActionForTransition } from "./entity-kind-registry.ts";
 
 type TransitionDocumentKind = "task.plan" | "task.closeout" | "decision.body" | "agent.instructions" | "squad.roster";
@@ -174,6 +175,25 @@ export function assertTransitionDocumentReady(kind: TransitionDocumentKind, body
   error.code = assessment.code;
   error.missingSections = assessment.missingSections;
   throw error;
+}
+
+/** Preserve authored evidence verbatim; the execution cut supplies every repository-derived field. */
+export function submissionFromCloseout(
+  body: string,
+  cut: Pick<SubmissionV1, "commitSha" | "deliverables" | "outputs">,
+): SubmissionV1 {
+  assertTransitionDocumentReady("task.closeout", body);
+  const sections = markdownSections(body),
+    risks = [sections.get("residual risk")!, sections.get("same mechanism elsewhere")!];
+  return {
+    completionClaim: sections.get("summary")!,
+    verificationNotes: [sections.get("verification")!],
+    knownGaps: risks,
+    residualRisks: risks,
+    commitSha: cut.commitSha,
+    deliverables: cut.deliverables,
+    outputs: cut.outputs,
+  };
 }
 
 function missingMarkdownSections(body: string, contract: MarkdownDocumentContract): TransitionDocumentMissingSection[] {

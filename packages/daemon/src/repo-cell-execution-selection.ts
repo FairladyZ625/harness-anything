@@ -4,7 +4,7 @@ import {
   submissionDigest,
 } from "../../kernel/src/index.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
-import { cellStringList, requiredCellText } from "./repo-cell-settlement.ts";
+import { requiredCellText } from "./repo-cell-settlement.ts";
 import type { RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 
 export function explicitExecutionId(action: RepoTaskAction): string | undefined {
@@ -22,7 +22,7 @@ export function assertCurrentSubmittedExecution(
     expectation =
       currentIds.length === 1
         ? `Current submitted execution is ${current}; retry ha task submit ${taskId} --execution-id ${current} ` +
-          "--amend --json-input '<submission-json>'"
+          "--amend"
         : `Choose a current submitted execution (${current}) after running ha task show ${taskId}`;
   throw cellCodedError(
     "invalid_transition",
@@ -65,8 +65,7 @@ export function reviewExecutionSelection(
       uniqueDerivedExecutionId(
         submittedExecutions,
         "Current submitted execution",
-        `Run ha task show ${taskId}; if the task is active, run ha task submit ${taskId} ` +
-          "--json-input '<submission-json>'.",
+        `Run ha task show ${taskId}; if the task is active, run ha task submit ${taskId}.`,
         (candidate) =>
           `ha task review-execution ${taskId} --execution-id ${candidate} ` +
           "--review-id <review-id> --from-file <review.json>",
@@ -227,11 +226,6 @@ export function completeRetryCommand(taskId: string, executionId: string, action
     " --execution-id ",
     `${executionId}`,
     "",
-    `${typeof action.ci === "string" ? ` --ci ${action.ci}` : ""}`,
-    "",
-    `${cellStringList(action.paths)
-      .map((value) => ` --path ${value}`)
-      .join("")}`,
     `${factHoldsFlags(action.factHolds)}`,
     "",
   ].join("");

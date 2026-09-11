@@ -454,17 +454,13 @@ const declarations: readonly Declaration[] = Object.freeze([
     explain: "Move the canonical Task status while preserving its independent graph cursor.",
   }),
   lifecycle("submit", {
-    input: input(
-      [
-        taskId,
-        expectedVersion,
-        cli("executionId", "string", false, "--execution-id"),
-        cli("amend", "boolean", false, "--amend", "boolean"),
-        ...optionalPacketFields(submissionFields),
-        ...packetSources(SUBMISSION_V1_SCHEMA.id, submissionFields),
-      ],
-      [["fromFile", "jsonInput"]],
-    ),
+    input: input([
+      taskId,
+      expectedVersion,
+      cli("executionId", "string", false, "--execution-id"),
+      cli("amend", "boolean", false, "--amend", "boolean"),
+      ...optionalPacketFields(submissionFields),
+    ]),
     criteria: Object.freeze([
       criterion(
         "task-lifecycle-command-transitions/submit.validate",
@@ -593,8 +589,8 @@ const declarations: readonly Declaration[] = Object.freeze([
       taskId,
       expectedVersion,
       cli("executionId", "string", false, "--execution-id"),
-      cli("ci", "string", false, "--ci", "single", { format: "canonical receipt reference" }),
-      cli("paths", "string-array", false, "--path", "repeated"),
+      field("ci"),
+      field("paths", "string-array"),
       cli("factHolds", "fact-hold-array", false, "--fact-holds", "repeated", {
         format: "<fact-id>:<rationale>",
         regex: "^(?:fact/)?F-[0-9A-HJKMNP-TV-Z]{8}:.+$",

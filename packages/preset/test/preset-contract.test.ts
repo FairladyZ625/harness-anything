@@ -1,6 +1,8 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
+import type { GeneratedTaskActionProtocolProjection } from "../src/preset-command-contract-support.ts";
+import { taskActionDescriptorProjection } from "../src/task-action-projection.generated.ts";
 import presetContract, {
   parsePresetManifestV3,
   validatePresetManifestV3,
@@ -251,4 +253,16 @@ test("preset run receipt requires an exact current phase and bounded terminal vo
   assert.match(validatePresetRunReceiptV1({ ...receipt, phase: "running" }).join("\n"), /invalid/u);
   assert.match(validatePresetRunReceiptV1({ ...receipt, outcome: "queued" }).join("\n"), /invalid/u);
   assert.match(validatePresetRunReceiptV1({ ...receipt, retry: true }).join("\n"), /invalid/u);
+});
+
+test("generated task CLI projection accepts closeout submission without packet or evidence flags", () => {
+  const projection: GeneratedTaskActionProtocolProjection = taskActionDescriptorProjection,
+    submit = projection.actions.find(({ id }) => id === "submit")!,
+    complete = projection.actions.find(({ id }) => id === "complete")!;
+  assert.deepEqual(submit.input.exactlyOneOf, []);
+  assert.deepEqual(
+    submit.input.fields.flatMap(({ cli }) => (cli ? [cli.name] : [])),
+    ["--execution-id", "--amend"],
+  );
+  assert.ok(!complete.input.fields.some(({ cli }) => cli?.name === "--ci" || cli?.name === "--path"));
 });

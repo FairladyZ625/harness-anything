@@ -5,6 +5,7 @@ import test from "node:test";
 import { markdownSections } from "../src/domain/transition-document-readiness.ts";
 import {
   assessTransitionDocument,
+  submissionFromCloseout,
   assertTransitionDocumentReady,
   getTaskActionForTransition,
   requireTransitionDocumentKind,
@@ -202,4 +203,36 @@ test("fenced required headings cannot make a missing closeout section ready", ()
   assert.deepEqual(assessTransitionDocument("task.closeout", body).missingSections, [
     { section: "Residual Risk", reason: "empty" },
   ]);
+});
+
+test("closeout submission preserves all prose, repeated sections, gaps and fenced headings", () => {
+  const summary = "Implemented deletion evidence.\nSecond summary paragraph.",
+    verification = "- Unit tests pass.\n\n```md\n## Residual Risk\nexample only\n```",
+    risk = "- 已知缺口：pending publication.\n- Accepted risk: reviewer must check deletions.",
+    mechanism = "- Known gap elsewhere: sibling path unverified.\n- No filtering of prose.",
+    body =
+      `## Summary\n${summary}\n## Verification\n${verification}\n` +
+      `## Residual Risk\n${risk}\n## Same Mechanism Elsewhere\n${mechanism}\n` +
+      "## Residual Risk\nAnother known gap.",
+    cut = { commitSha: "a".repeat(40), deliverables: [], outputs: ["Deleted-Production-Paths: src/old.ts"] },
+    packet = submissionFromCloseout(body, cut),
+    allRisks = [risk + "\n\nAnother known gap.", mechanism];
+  assert.deepEqual(packet, {
+    ...cut,
+    completionClaim: summary,
+    verificationNotes: [verification],
+    knownGaps: allRisks,
+    residualRisks: allRisks,
+  });
+});
+
+test("closeout submission fails closed on missing or scaffold sections", () => {
+  const cut = { commitSha: "a".repeat(40), deliverables: [], outputs: [] };
+  for (const body of [
+    "## Summary\nCompleted.\n## Verification\nTests pass.\n## Residual Risk\nKnown gap.",
+    "## Summary\nSummarize the completed behavior change.\n## Verification\nTests pass.\n" +
+      "## Residual Risk\nNo residual risks.\n## Same Mechanism Elsewhere\nSibling checked.",
+  ]) {
+    assert.throws(() => submissionFromCloseout(body, cut), { code: "closeout_placeholder" });
+  }
 });
