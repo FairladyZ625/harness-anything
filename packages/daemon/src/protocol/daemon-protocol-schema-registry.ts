@@ -169,6 +169,7 @@ export const daemonGuiReadSchemas = Object.freeze([
     parser: "packages/daemon/src/protocol/gui-result-validation.ts#validateDaemonTaskWip",
     writer: "packages/daemon/src/repo-cell-task-query.ts#readTaskWipSnapshot",
     error: "packages/daemon/src/protocol/daemon-protocol.contract.ts#DaemonProtocolContractError",
+    negativeFixtures: Object.freeze(["packages/daemon/fixtures/contracts/task-wip-invalid.json"]),
   },
   {
     id: DAEMON_USE_CASE_PROJECTION_SCHEMA.id,
