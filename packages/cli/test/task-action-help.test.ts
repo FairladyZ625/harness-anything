@@ -2,13 +2,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { makeTaskActionExplanationService } from "../../application/src/task-action-explanation-service.ts";
-import { generatedTaskActionProtocolDeclarations } from "../../daemon/src/protocol/daemon-protocol-commands-task.ts";
+import {
+  generatedTaskActionProtocolDeclarations,
+  taskActionHelpRows,
+} from "../../daemon/src/protocol/daemon-protocol-commands-task.ts";
 import { renderEntityActionExplanation } from "../src/cli/entity-action-explain-render.ts";
-import { projectedTaskActionHelpRows } from "../src/cli/task-action-help.ts";
 import { renderThinHelp } from "../src/cli/thin-command.ts";
 
 test("Task lifecycle help is projected from the generated Action declarations", () => {
-  const rows = projectedTaskActionHelpRows();
+  const rows = taskActionHelpRows;
   assert.deepEqual(
     rows.map(({ summary }) => summary),
     generatedTaskActionProtocolDeclarations.map(({ explain }) => explain),
@@ -29,7 +31,7 @@ test("Task lifecycle help is projected from the generated Action declarations", 
 
 test("Task help replaces every descriptor-backed lifecycle row", () => {
   const help = renderThinHelp([], "task");
-  for (const row of projectedTaskActionHelpRows()) {
+  for (const row of taskActionHelpRows) {
     assert.match(help, new RegExp(row.summary.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
     assert.match(help, new RegExp(row.usage.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
   }

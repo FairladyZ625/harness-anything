@@ -10,7 +10,7 @@ import {
   requireEntityTypeContract,
   type BaseEntity,
 } from "../../kernel/src/index.ts";
-import { projectedTaskActionHelpRows } from "../src/cli/task-action-help.ts";
+import { taskActionHelpRows } from "../../daemon/src/protocol/daemon-protocol-commands-task.ts";
 
 test("help, object explain, and rejected ActionResult preserve one Task Action row", async () => {
   const harness = lifecycleHarness();
@@ -47,7 +47,7 @@ test("help, object explain, and rejected ActionResult preserve one Task Action r
       }).object({ entity, snapshot, evaluatedAtCut: cut }),
       row = explanation.subjects[0]?.actions.find(({ action }) => action.id === "start"),
       contract = getExecutableEntityAction("task-start"),
-      help = projectedTaskActionHelpRows().find(({ usage }) => usage.startsWith("ha task start "));
+      help = taskActionHelpRows.find(({ usage }) => usage.startsWith("ha task start "));
     assert.ok(row);
     assert.ok(contract);
     assert.ok(help);

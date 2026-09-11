@@ -24,7 +24,6 @@ import type { ThinCommand } from "../cli/thin-command.ts";
 import { fleetEdgeRegistration, fleetScheduleRoute } from "./fleet-command-route.ts";
 import { withAutostart } from "./with-autostart.ts";
 import { assertCanonicalCliEntry, cliEntryNotCanonicalCode } from "./cli-entry-guard.ts";
-export { fleetScheduleRoute } from "./fleet-command-route.ts";
 export {
   daemonIdFromEnv,
   daemonUserRoot,

@@ -5,15 +5,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { isOfflineStorageCommand, runOfflineStorageCommand } from "../src/cli-offline-storage.ts";
+import { runOfflineStorageCommand } from "../src/cli-offline-storage.ts";
 import { flatLedgerFixture } from "../../kernel/test/store/task-event-store.fixtures.ts";
-
-test("offline storage routing is limited to backup, restore and events", () => {
-  assert.equal(isOfflineStorageCommand(["backup"]), true);
-  assert.equal(isOfflineStorageCommand(["restore"]), true);
-  assert.equal(isOfflineStorageCommand(["events"]), true);
-  assert.equal(isOfflineStorageCommand(["task", "show"]), false);
-});
 
 test("offline storage reports malformed invocations without daemon dispatch", () => {
   const receipts: Record<string, unknown>[] = [],
