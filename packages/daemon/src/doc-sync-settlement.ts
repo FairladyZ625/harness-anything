@@ -176,11 +176,16 @@ export function scanRejectionSummary(code: string, scan: DocCandidateScan): stri
         ? `next: lease held by ${scan.lease.actor.principal.personId} (${scan.lease.executionId}); ` +
           "submit through the lease holder or use the repository prose channel"
         : "next: submit through the repository prose channel or acquire the task lease"
-      : "next: use the required route shown for each blocked path, then rerun ha doc sync --submit";
+      : "next: use the required route shown for each blocked path; these documents are daemon-managed. Then rerun " +
+        "ha doc sync --submit";
   return [
     `doc-submit: op_rejected (${code})`,
     "blocked:",
-    ...blocked.map((row) => `${row.path}\t${row.state}\t${row.reason ?? "candidate is blocked"}`),
+    ...blocked.map(
+      (row) =>
+        `${row.path}\t${row.state}\t${row.reason ?? "candidate is blocked"}\t` +
+        `requiredRoute=${row.requiredRoute ?? "ha doc sync"}`,
+    ),
     next,
   ].join("\n");
 }

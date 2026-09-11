@@ -31,7 +31,10 @@ export function blockedCandidateNextAction(
   nextStep = "rerun ha doc sync --submit",
 ): string {
   const route = candidate.requiredRoute ?? resolveDocRoute(documentPath(candidate.path)).requiredRoute;
-  return `resolve ${candidate.path} through ${route}: ${candidate.reason ?? "candidate is blocked"}; then ${nextStep}`;
+  return (
+    `${candidate.path} is daemon-managed; use ${route}: ${candidate.reason ?? "candidate is blocked"}; ` +
+    `then ${nextStep}`
+  );
 }
 
 export function formatShellCommand(command: string, args: readonly string[]): string {

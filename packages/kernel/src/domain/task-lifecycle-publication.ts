@@ -306,7 +306,13 @@ function renderIndex(event: TaskEventV1, snapshot: TaskLifecycleSnapshot, path: 
     metadata = task.metadata;
   let initial =
     base ??
-    `---\n# 由 daemon 管理，请用 \`ha doc sync\`，勿直接编辑。\ntaskId: ${task.taskId}\nstatus: ${task.status}\nowner: machine\n---\n# ${task.title}\n\n## Next\n\n${next}\n`;
+    [
+      "---\n",
+      `taskId: ${task.taskId}\n`,
+      `status: ${task.status}\n`,
+      "owner: machine\n---\n",
+      `# ${task.title}\n\n## Next\n\n${next}\n`,
+    ].join("");
   if (metadata) {
     const body = (base?.replace(/^---\n[\s\S]*?\n---\n/u, "") ?? `# ${task.title}\n\n## Next\n\n${next}\n`).replace(
         /^# .*$/mu,
@@ -315,7 +321,6 @@ function renderIndex(event: TaskEventV1, snapshot: TaskLifecycleSnapshot, path: 
       packagePath = path.slice(0, -"/INDEX.md".length);
     initial = [
       "---\n",
-      "# 由 daemon 管理，请用 `ha doc sync`，勿直接编辑。\n",
       "schema: task-package/v2\n",
       `task_id: ${task.taskId}\n`,
       `title: ${JSON.stringify(task.title)}\n`,

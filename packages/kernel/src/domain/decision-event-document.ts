@@ -162,10 +162,7 @@ export function renderDecisionDocument(
   replacementBody?: string,
   judgmentOnlyRationale: string | null = null,
 ): string {
-  const suppliedProse = replacementBody ?? (current === null ? `\n# ${value.title}\n` : decisionDocumentProse(current)),
-    baseProse = suppliedProse.includes("由 daemon 管理")
-      ? suppliedProse
-      : `\n<!-- 由 daemon 管理，请用 \`ha decision amend --body-file\`，勿直接编辑。 -->\n${suppliedProse.replace(/^\n/u, "")}`,
+  const baseProse = replacementBody ?? (current === null ? `\n# ${value.title}\n` : decisionDocumentProse(current)),
     prose = judgmentOnlyRationale
       ? `${baseProse.replace(/\s*$/u, "")}\n\n## Judgment-only acceptance\n\n${judgmentOnlyRationale}\n`
       : baseProse,

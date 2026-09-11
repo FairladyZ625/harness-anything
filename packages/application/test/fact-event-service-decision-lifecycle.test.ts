@@ -189,10 +189,7 @@ test("Decision proposal publishes initial prose, claim fulfillment, and relation
       },
     ]);
     assert.equal(projection.readDecisionGraph().edges[0]?.relationId, relation.relation_id);
-    assert.match(
-      result.decision.body?.body ?? "",
-      /<!-- 由 daemon 管理[^\n]+-->\n# Canonical Decision\n\n初始正文。\n$/u,
-    );
+    assert.match(result.decision.body?.body ?? "", /# Canonical Decision\n\n初始正文。\n$/u);
     const before = {
       decision: result.decision,
       graph: projection.readDecisionGraph(),

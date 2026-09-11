@@ -438,8 +438,7 @@ function decisionEvent(id: DecisionActionCompilerId, input: EntityActionCompileI
 
 function decisionBodyTemplate(title: string): string {
   return [
-    "\n<!-- 由 daemon 管理，请用 `ha decision amend --body-file`，勿直接编辑。 -->",
-    `# ${title}`,
+    `\n# ${title}`,
     "",
     "## 背景",
     "",

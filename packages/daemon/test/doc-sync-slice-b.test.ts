@@ -127,12 +127,13 @@ test("Decision prose is an explicit idempotent doc-sync region in the canonical 
     const relativePath = `decisions/decision-${decisionId}/decision.md`,
       initial = JSON.parse(
         (await fixture.cell.run({ kind: "decision-show", decisionId, includeBody: true }, binding)).evidence,
-      ) as { decision: { body: { body: string } } };
-    assert.equal(initial.decision.body.body, "\n# Body join\n");
-    const machine = readFileSync(path.join(fixture.rootDir, "harness", relativePath), "utf8").replace(
-        /\n# Body join\n$/u,
-        "",
-      ),
+      ) as { decision: { body: { body: string } } },
+      initialBody =
+        "\n# Body join\n\n## 背景\n\n说明需要裁定的问题与已知事实。\n\n## 权衡\n\n" +
+        "说明所选方案、被拒方案与取舍理由。\n\n## 结论\n\n说明最终裁定及其适用范围。\n";
+    assert.equal(initial.decision.body.body, initialBody);
+    const canonical = readFileSync(path.join(fixture.rootDir, "harness", relativePath), "utf8"),
+      machine = canonical.slice(0, -initialBody.length),
       firstProse = "\n# Body join\n\nFirst paragraph.\n",
       firstBody = `${machine}${firstProse}`,
       firstHash = sha(firstBody);

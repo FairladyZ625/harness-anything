@@ -383,6 +383,8 @@ test("blocked-only submit names the scanner-first machine-region recovery", asyn
       detail.unresolvedTouches.map(({ path, requiredRoute }) => [path, requiredRoute]),
       [[laterBlocked, "typed-machine-writer"]],
     );
+    assert.match(String(rejected.summary), /daemon-managed/u);
+    assert.match(String(rejected.summary), /requiredRoute=typed-machine-writer/u);
   } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });
