@@ -40,6 +40,7 @@ const repositoryFieldNames = Object.freeze([
   "defaultVertical",
   "defaultPreset",
   "defaultProfile",
+  "defaultReviewer",
   "reviewIndependence",
   "reviewReturnBudget",
   "taskScaffold",
@@ -125,6 +126,7 @@ export function createSettingsActionCatalog(
           field("defaultVertical"),
           field("defaultPreset"),
           field("defaultProfile"),
+          field("defaultReviewer"),
           field("reviewIndependence", "string", false, reviewIndependenceLevels),
           field("reviewReturnBudget", "number"),
           field("locale", "string", false, settingsLocales),
@@ -202,6 +204,9 @@ export function compileSettingsUpdate(input: EntityActionCompileInput): Settings
       defaultVertical: updatedText(input.action, "defaultVertical", current.defaultVertical),
       defaultPreset: updatedText(input.action, "defaultPreset", current.defaultPreset),
       defaultProfile: updatedText(input.action, "defaultProfile", current.defaultProfile),
+      ...(input.action.defaultReviewer !== undefined || current.defaultReviewer !== undefined
+        ? { defaultReviewer: updatedText(input.action, "defaultReviewer", current.defaultReviewer ?? "") }
+        : {}),
       reviewIndependence: updatedReviewIndependence(input.action.reviewIndependence, current.reviewIndependence),
       reviewReturnBudget: updatedPositiveInteger(input.action, "reviewReturnBudget", current.reviewReturnBudget),
       scaffolds: {

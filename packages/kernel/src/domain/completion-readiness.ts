@@ -1,6 +1,6 @@
 import type { TaskLifecycleSnapshot } from "./task-lifecycle.contract.ts";
-import { closeoutReadiness, currentExecutionCuts } from "./closeout-readiness.ts";
-import { approvedReviewHistoryForExecution } from "./review.ts";
+import { closeoutReadiness, currentExecutionCuts, lineageOrphan } from "./closeout-readiness.ts";
+import { approvedReviewsForExecution } from "./review.ts";
 import type { TransitionDocumentMissingSection } from "./transition-document-readiness.ts";
 
 export type CompletionBlockerCode =
@@ -54,6 +54,24 @@ export function completionBlockers(
   executionId: string,
   context: CompletionReadinessContext,
 ): readonly CompletionBlocker[] {
+  return evaluateCompletion(snapshot, executionId, context, true);
+}
+
+/** Mechanical preparation uses the same checks; final completion always also checks Review and consent. */
+export function completionPreparationBlockers(
+  snapshot: TaskLifecycleSnapshot,
+  executionId: string,
+  context: CompletionReadinessContext,
+): readonly CompletionBlocker[] {
+  return evaluateCompletion(snapshot, executionId, context, false);
+}
+
+function evaluateCompletion(
+  snapshot: TaskLifecycleSnapshot,
+  executionId: string,
+  context: CompletionReadinessContext,
+  includeReview: boolean,
+): readonly CompletionBlocker[] {
   const task = snapshot.task,
     execution = snapshot.executions.find(
       (value) => value.executionId === executionId && value.iteration === task?.iteration,
@@ -65,7 +83,6 @@ export function completionBlockers(
           gate,
           next: {
             ...completionGuidance(snapshot, executionId, action, reason),
-            ...(gate === "review" ? { authority: "independent reviewer" } : {}),
             ...(gate === "consent" ? { authority: task?.createdBy.principal.personId ?? "task owner" } : {}),
           },
         },
@@ -147,31 +164,6 @@ export function completionBlockers(
       "The held execution lease must be released by its current holder.",
     );
   const assessment = closeoutReadiness(snapshot);
-  const approved = approvedReviewHistoryForExecution(snapshot.reviews, execution);
-  if (assessment.blocker === "review")
-    return one(
-      "review_missing",
-      "review",
-      `ha task review-execution ${task.taskId} --execution-id ${executionId} --review-id <id> --from-file <review.json>`,
-      "Record one independent approved Execution Review.",
-    );
-  if (assessment.blocker === "consent") {
-    if (approved.length !== 1)
-      return one(
-        "consent_missing",
-        "consent",
-        `ha task show ${task.taskId}`,
-        `Owner must select one approved Review: ${approved.map((review) => review.reviewId).join(", ")}.`,
-      );
-    const reviewId = approved[0]!.reviewId;
-    return one(
-      "consent_missing",
-      "consent",
-      `ha task review-consent ${task.taskId} --execution-id ${executionId} ` +
-        `--review-id ${reviewId} --consent-id consent-${reviewId}`,
-      "Select one approved Review with content-pinned owner consent.",
-    );
-  }
   const gate = assessment.gates.find(
     ({ gateId, status }) => status !== "passed" && !context.preparedGateIds?.includes(gateId),
   );
@@ -192,7 +184,7 @@ export function completionBlockers(
           `ha task complete ${task.taskId} --execution-id ${executionId}`,
           `Publish a passing canonical ${gate.gateId} checker witness for this execution cut.`,
         );
-  if (assessment.blocker === "lineage")
+  if (lineageOrphan(task, snapshot.decisionRelations ?? []))
     return one(
       "decision_lineage_missing",
       "lineage",
@@ -220,6 +212,30 @@ export function completionBlockers(
       `ha doc sync --submit --task ${task.taskId}`,
       "Publish eligible closeout and artifact edits through doc-sync.",
     );
+  if (!includeReview) return [];
+  const approved = approvedReviewsForExecution(snapshot.reviews, execution);
+  if (approved.length === 0)
+    return one(
+      "review_missing",
+      "review",
+      `ha task complete ${task.taskId}`,
+      "Dispatch an independent reviewer for the current submitted cut.",
+    );
+  if (assessment.blocker === "consent") {
+    if (approved.length !== 1)
+      return one(
+        "consent_missing",
+        "consent",
+        `ha task show ${task.taskId}`,
+        `Owner must select one approved Review: ${approved.map((review) => review.reviewId).join(", ")}.`,
+      );
+    return one(
+      "consent_missing",
+      "consent",
+      `ha task complete ${task.taskId} --consent`,
+      "Select one approved Review with content-pinned owner consent.",
+    );
+  }
   return [];
 }
 

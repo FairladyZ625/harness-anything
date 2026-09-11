@@ -223,11 +223,6 @@ const taskCreateCliInputs = Object.freeze(
     ];
   }),
 );
-const consentJsonFieldProjection = generatedTaskActionProtocolDeclarations
-  .find(({ id }) => id === "consent")
-  ?.input.fields.find(({ field }) => field === "fromFile")?.cli?.jsonAllowedFields;
-if (!consentJsonFieldProjection) throw new Error("task.consent packet projection is missing.");
-export const consentJsonFields = Object.freeze([...consentJsonFieldProjection]);
 export const presetCommands = Object.freeze([
   defineCenterForwardWriteCommand({
     id: "task-create",

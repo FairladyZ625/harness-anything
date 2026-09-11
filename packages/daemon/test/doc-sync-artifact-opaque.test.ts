@@ -602,14 +602,7 @@ async function reachGreenInReview(
     reviewerBinding,
   )) as unknown as Record<string, unknown>;
   assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
-  writeFileSync(
-    path.join(rootDir, "consent.json"),
-    JSON.stringify({ reviewDigest: reviewed.reviewDigest, contentDigest: reviewed.contentDigest }),
-  );
-  const consented = await cell.run(
-    { kind: "task-review-consent", taskId, consentId: "consent-opaque", fromFile: "consent.json" },
-    binding,
-  );
+  const consented = await cell.run({ kind: "task-review-consent", taskId }, binding);
   assert.equal(consented.outcome, "applied", JSON.stringify(consented));
 }
 

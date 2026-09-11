@@ -37,8 +37,8 @@ test("completion next is one pure judgment across lifecycle and unavailable-inpu
       "not_in_review",
       "submit execution execution-1",
     ],
-    ["submitted unreviewed", submitted, context, "review_missing", "ha task review-execution"],
-    ["approved awaits consent", at(4), context, "consent_missing", "ha task review-consent"],
+    ["submitted unreviewed", submitted, context, "review_missing", "ha task complete"],
+    ["approved awaits consent", at(4), context, "consent_missing", "ha task complete task-1 --consent"],
     ["done", at(6), context, null, null],
     [
       "projection unknown",

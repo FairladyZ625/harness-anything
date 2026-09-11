@@ -4,6 +4,7 @@
 // through c.got(id, s). Registry ids missing from this table are reported as unmapped.
 
 const worker = { actor: "agent:scale-bench-worker" },
+  reviewer = { actor: "agent:scale-bench-reviewer" },
   offline = { offline: true };
 const J = JSON.stringify;
 const runtime = "spawns a real agent runtime process";
@@ -104,12 +105,10 @@ export const commandTable = [
   [
     "task-review-execution",
     (c, s) => ["task", "review-execution", chain(s), "--review-id", `rev-${s}`, "--json-input", J(c.review(s))],
+    reviewer,
   ],
-  [
-    "task-review-consent",
-    (c, s) => ["task", "review-consent", chain(s), "--consent-id", `con-${s}`, "--json-input", J(c.consent(s))],
-  ],
-  ["task-complete", (c, s) => ["task", "complete", chain(s)]],
+  ["task-review-consent", (c, s) => ["task", "review-consent", chain(s), "--review-id", `rev-${s}`], worker],
+  ["task-complete", (c, s) => ["task", "complete", chain(s), "--consent"], worker],
   [
     "task-code-doc-repoint",
     (c, s) => [
@@ -123,7 +122,7 @@ export const commandTable = [
       "b",
     ],
   ],
-  // Chain 2 closes out through the composite command; chain 3 walks the non-happy transitions.
+  // Chain 2 uses an independent artifact reviewer; chain 3 walks the non-happy transitions.
   [
     "task-create~chain2",
     (c, s) => ["task", "create", "--id", chain2(s), "--admin", "--title", `Chain2 ${s}`, "--preset", "docs-task"],
@@ -141,17 +140,21 @@ export const commandTable = [
     (c, s) => ["fact", "record", chain2(s), "--statement", c.text(`chain2 fact ${s}`), "--source", "bench"],
   ],
   ["task-submit~chain2", (c, s) => ["task", "submit", chain2(s)], worker],
+  ["task-closeout", (c, s) => ["task", "closeout", chain2(s), "--print-template"]],
   [
-    "task-closeout",
+    "task-review-execution~chain2",
     (c, s) => [
-      ...["task", "closeout", chain2(s), "--json-input"],
-      J({
-        review: c.review(s, "~chain2"),
-        consent: { approved: true },
-        completion: { ci: "not_applicable", codeDocPaths: [] },
-      }),
+      "task",
+      "review-execution",
+      chain2(s),
+      "--review-id",
+      `rev-chain2-${s}`,
+      "--json-input",
+      J(c.review(s, "~chain2")),
     ],
+    reviewer,
   ],
+  ["task-complete~chain2", (c, s) => ["task", "complete", chain2(s), "--consent"], worker],
   ["task-create~chain3", (c, s) => ["task", "create", "--id", chain3(s), "--admin", "--title", `Chain3 ${s}`]],
   ["receipt-show~visible3", visible("task-create~chain3")],
   ["doc-sync-submit~plan3", (c, s) => ["doc", "sync", "--submit", "--path", c.realizePlan(s, "~chain3")]],

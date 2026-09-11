@@ -938,10 +938,6 @@ test("semantic sources and agent execution cross the daemon before transport-bou
       "review.json",
     ]);
     assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
-    writeFileSync(
-      path.join(fixture.root, "consent.json"),
-      JSON.stringify({ reviewDigest: reviewed.reviewDigest, contentDigest: reviewed.contentDigest }),
-    );
     assert.equal(
       run(fixture.root, fixture.userRoot, [
         "task",
@@ -951,10 +947,6 @@ test("semantic sources and agent execution cross the daemon before transport-bou
         executionId,
         "--review-id",
         reviewId,
-        "--consent-id",
-        "consent-executor-axis",
-        "--from-file",
-        "consent.json",
       ]).outcome,
       "applied",
     );

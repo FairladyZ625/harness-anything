@@ -9,9 +9,9 @@ import {
   makeTaskEventStore,
   normalizeTaskLifecycleCommand,
   reviewDigest,
+  submissionDigest,
   type TaskLifecycleCommand,
 } from "../../kernel/src/index.ts";
-import { consentJsonFields } from "../../preset/src/index.ts";
 import { type DaemonGuiReadResultMap } from "./protocol/daemon-protocol.contract.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
 import {
@@ -21,9 +21,9 @@ import {
   reviewConsentSelection,
   uniqueDerivedExecutionId,
 } from "./repo-cell-execution-selection.ts";
-import { packetRecord, reviewPacket, reviewQualificationFields, submissionPacket } from "./repo-cell-packets.ts";
+import { reviewPacket, reviewQualificationFields, submissionPacket } from "./repo-cell-packets.ts";
 import { actorHint, operationId } from "./repo-cell-proof.ts";
-import { digest, reviewVerdict } from "./repo-cell-review-lint.ts";
+import { reviewVerdict } from "./repo-cell-review-lint.ts";
 import { cellStringList, requiredCellText } from "./repo-cell-settlement.ts";
 import type {
   DaemonGuiReadHandlers,
@@ -160,22 +160,12 @@ export function buildCommand(
     });
   }
   if (action.kind === "task-review-consent") {
-    const consentId = requiredCellText(action.consentId, "consentId"),
-      selected = reviewConsentSelection(action, snapshot, taskId, consentId),
+    const allowed = ["kind", "taskId", "executionId", "reviewId", "expectedVersion", "commandType"];
+    if (Object.keys(action).some((name) => !allowed.includes(name)))
+      throw cellCodedError("invalid_command", "Consent derives its identity and digests from the recorded Review.");
+    const selected = reviewConsentSelection(action, snapshot, taskId),
       executionId = selected.executionId,
       reviewId = selected.reviewId;
-    if (action.fromFile !== undefined || action.jsonInput !== undefined) {
-      const packet = packetRecord(rootDir, action, consentJsonFields);
-      return normalizeTaskLifecycleCommand(bound, {
-        type: "RecordReviewConsent",
-        taskId,
-        executionId,
-        reviewId,
-        consentId,
-        reviewDigest: digest(packet.value.reviewDigest, "reviewDigest"),
-        contentDigest: digest(packet.value.contentDigest, "contentDigest"),
-      });
-    }
     // Derive both digests from the revision-pinned Review; kernel binding validation still runs.
     const executionReviews = snapshot.reviews.filter((value) => value.executionId === executionId),
       recorded = executionReviews.find((value) => value.reviewId === reviewId);
@@ -205,12 +195,19 @@ export function buildCommand(
           ".",
         ].join(""),
       );
+    const current = snapshot.executions.find((value) => value.executionId === executionId);
+    if (!current?.submission) throw cellCodedError("invalid_transition", "Consent requires a submitted execution cut.");
     return normalizeTaskLifecycleCommand(bound, {
       type: "RecordReviewConsent",
       taskId,
       executionId,
       reviewId,
-      consentId,
+      consentId: `consent-${createHash("sha256")
+        .update(
+          `${taskId}\0${executionId}\0${current.iteration}\0${submissionDigest(current.submission)}\0${reviewDigest(recorded)}`,
+        )
+        .digest("hex")
+        .slice(0, 24)}`,
       reviewDigest: reviewDigest(recorded),
       contentDigest: recorded.contentDigest,
     });

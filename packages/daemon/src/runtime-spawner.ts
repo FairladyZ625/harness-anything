@@ -565,6 +565,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         fast: definition.fast ?? false,
         resumeProviderSessionId: providerSessionId ?? null,
         ...(onExitCommand ? { onExitCommand } : {}),
+        ...(role ? { role } : {}),
         ...(agent ? { agentId: agent.id, agentName: agent.name } : {}),
         ...(squad ? { squadId: squad.squadId } : {}),
         ...(parentRuntimeSessionId ? { parentRuntimeSessionId } : {}),
@@ -936,6 +937,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                 : header.agentId
                   ? { agentId: header.agentId }
                   : {}),
+              ...(header.role ? { role: header.role } : {}),
               ...(header.squadId ? { squadId: header.squadId } : {}),
               ...(header.parentRuntimeSessionId ? { parentRuntimeSessionId: header.parentRuntimeSessionId } : {}),
               ...(next.model ? { model: next.model } : {}),

@@ -101,18 +101,13 @@ async function reachGreenInReview(
     { kind: "task-review-execution", taskId, executionId, reviewId: "review-lineage", fromFile: "review.json" },
     reviewerBinding,
   )) as unknown as Record<string, unknown>;
-  writeFileSync(
-    path.join(rootDir, "consent.json"),
-    JSON.stringify({ reviewDigest: reviewed.reviewDigest, contentDigest: reviewed.contentDigest }),
-  );
+  assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
   await cell.run(
     {
       kind: "task-review-consent",
       taskId,
       executionId,
       reviewId: "review-lineage",
-      consentId: "consent-lineage",
-      fromFile: "consent.json",
     },
     binding,
   );

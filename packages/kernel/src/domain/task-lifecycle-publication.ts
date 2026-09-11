@@ -266,7 +266,6 @@ function renderIndex(event: TaskEventV1, snapshot: TaskLifecycleSnapshot, path: 
     selected = current?.submission
       ? consentedApprovedReviewForExecution(snapshot.reviews, snapshot.consents, current)
       : undefined,
-    consentReviewId = approved.length === 1 ? approved[0]!.reviewId : "<review-id>",
     gateStatus = (gateId: string) => {
       if (!current?.submission) return false;
       if (gateId === "code-doc-reconciliation") {
@@ -289,15 +288,9 @@ function renderIndex(event: TaskEventV1, snapshot: TaskLifecycleSnapshot, path: 
       task.status === "active"
         ? `Run \`ha task submit ${task.taskId}\`.`
         : task.status === "in_review" && !approved.length
-          ? [
-              `Run \`ha task review-execution ${task.taskId}`,
-              " --execution-id <id> --review-id <id> --from-file <review.json>`.",
-            ].join("")
+          ? `Run \`ha task complete ${task.taskId}\`.`
           : task.status === "in_review" && !selected
-            ? [
-                `Run \`ha task review-consent ${task.taskId} --execution-id <id>`,
-                ` --review-id ${consentReviewId} --consent-id <id>\`.`,
-              ].join("")
+            ? [`Run \`ha task complete ${task.taskId} --consent\`.`].join("")
             : missingGate === "ci"
               ? `Run \`ha task complete ${task.taskId} --execution-id <id>\`.`
               : missingGate === "code-doc-reconciliation"

@@ -33,6 +33,7 @@ export const SETTINGS_FIELD_OWNERSHIP = Object.freeze({
   defaultVertical: "repository",
   defaultPreset: "repository",
   defaultProfile: "repository",
+  defaultReviewer: "repository",
   reviewIndependence: "repository",
   reviewReturnBudget: "repository",
   locale: "local",
@@ -57,6 +58,7 @@ export interface RepositorySettingsV1 {
   readonly defaultVertical: string;
   readonly defaultPreset: string;
   readonly defaultProfile: string;
+  readonly defaultReviewer?: string;
   readonly reviewIndependence: ReviewIndependence;
   readonly reviewReturnBudget: number;
   readonly scaffolds: {
@@ -79,6 +81,7 @@ export interface SettingsV1 {
   readonly defaultVertical: string;
   readonly defaultPreset: string;
   readonly defaultProfile: string;
+  readonly defaultReviewer?: string;
   readonly reviewIndependence: ReviewIndependence;
   readonly reviewReturnBudget: number;
   readonly locale: SettingsLocale;
@@ -148,6 +151,7 @@ export const SETTINGS_V1_SCHEMA: EntityDocumentJsonSchema<SettingsV1> = {
       minLength: 1,
       ...ownedSchema("defaultProfile", {}),
     },
+    defaultReviewer: ownedSchema("defaultReviewer", { type: "string", pattern: settingValuePattern, minLength: 1 }),
     reviewIndependence: ownedSchema("reviewIndependence", {
       type: "string",
       enum: reviewIndependenceLevels,
@@ -212,6 +216,7 @@ export const SETTINGS_REPOSITORY_V1_SCHEMA: EntityDocumentJsonSchema<RepositoryS
       minLength: 1,
       ...ownedSchema("defaultProfile", {}),
     },
+    defaultReviewer: ownedSchema("defaultReviewer", { type: "string", pattern: settingValuePattern, minLength: 1 }),
     reviewIndependence: ownedSchema("reviewIndependence", {
       type: "string",
       enum: reviewIndependenceLevels,
@@ -251,6 +256,7 @@ export function repositorySettings(settings: SettingsV1 | RepositorySettingsV1):
     defaultVertical: settings.defaultVertical,
     defaultPreset: settings.defaultPreset,
     defaultProfile: settings.defaultProfile,
+    ...(settings.defaultReviewer ? { defaultReviewer: settings.defaultReviewer } : {}),
     reviewIndependence: settings.reviewIndependence ?? INITIAL_SETTINGS_V1.reviewIndependence,
     reviewReturnBudget: settings.reviewReturnBudget ?? INITIAL_SETTINGS_V1.reviewReturnBudget,
     scaffolds: { task: settings.scaffolds.task, repository: settings.scaffolds.repository },
@@ -282,6 +288,7 @@ export function readSettingsFacet(body: string): SettingsV1 {
     defaultVertical: setting(body, "defaultVertical") ?? INITIAL_SETTINGS_V1.defaultVertical,
     defaultPreset: setting(body, "defaultPreset") ?? INITIAL_SETTINGS_V1.defaultPreset,
     defaultProfile: setting(body, "defaultProfile") ?? INITIAL_SETTINGS_V1.defaultProfile,
+    ...(setting(body, "defaultReviewer") ? { defaultReviewer: setting(body, "defaultReviewer")! } : {}),
     reviewIndependence: (setting(body, "reviewIndependence") ??
       INITIAL_SETTINGS_V1.reviewIndependence) as ReviewIndependence,
     reviewReturnBudget: Number(setting(body, "reviewReturnBudget") ?? INITIAL_SETTINGS_V1.reviewReturnBudget),
@@ -326,6 +333,7 @@ export function writeRepositorySettingsFacet(body: string, settings: RepositoryS
     repository.defaultProfile,
     INITIAL_SETTINGS_V1.defaultProfile,
   );
+  next = replaceOptionalDefaultedScalar(next, "  ", "defaultReviewer", repository.defaultReviewer ?? "", "");
   next = replaceOptionalDefaultedScalar(
     next,
     "  ",

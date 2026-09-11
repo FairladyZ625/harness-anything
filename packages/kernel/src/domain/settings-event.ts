@@ -139,6 +139,7 @@ function validSettingsSnapshot(value: unknown, allowUnknownFields: boolean): boo
       defaultVertical: value.defaultVertical,
       defaultPreset: value.defaultPreset,
       defaultProfile: value.defaultProfile,
+      ...(value.defaultReviewer !== undefined ? { defaultReviewer: value.defaultReviewer } : {}),
       reviewIndependence: value.reviewIndependence ?? "execution",
       reviewReturnBudget: value.reviewReturnBudget ?? INITIAL_SETTINGS_V1.reviewReturnBudget,
       scaffolds: {
@@ -169,6 +170,7 @@ function validSettingsSnapshot(value: unknown, allowUnknownFields: boolean): boo
           "defaultVertical",
           "defaultPreset",
           "defaultProfile",
+          "defaultReviewer",
           "reviewIndependence",
           "reviewReturnBudget",
           "scaffolds",

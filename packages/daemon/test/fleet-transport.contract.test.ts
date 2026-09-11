@@ -260,6 +260,9 @@ test("Fleet transport union round-trips every closed wire variant", () => {
       taskId: "task_abc",
       executionId: "exe_abc",
     },
+    { kind: "task-complete", taskId: "task_abc", consent: true },
+    { kind: "task-review-execution", taskId: "task_abc", reviewId: "review_abc", jsonInput: "{}" },
+    { kind: "task-review-consent", taskId: "task_abc", reviewId: "review_abc" },
     { kind: "task-release", taskId: "task_abc", reason: "handoff" },
     { kind: "task-transition", taskId: "task_abc", status: "blocked", reason: "manual review required" },
   ])
@@ -350,6 +353,9 @@ test("Fleet codec rejects unknown provenance, nested fields, malformed values, a
     { ...snapshotPage, entries: [{ path: "../escape", blob }] },
     { ...snapshotCurrent, cut: { ...cut, commitSha: "a".repeat(40) } },
     { ...taskCommand, action: { kind: "task-start", taskId: "task_abc", actor: { principal: { personId: "spoof" } } } },
+    { ...taskCommand, action: { kind: "task-complete", taskId: "task_abc", consentId: "old" } },
+    { ...taskCommand, action: { kind: "task-review-consent", taskId: "task_abc", jsonInput: "{}" } },
+    { ...taskCommand, action: { kind: "task-review-consent", taskId: "task_abc", fromFile: "packet.json" } },
     { ...taskCommand, action: { kind: "host-run", command: "anything" } },
     {
       ...taskCommand,

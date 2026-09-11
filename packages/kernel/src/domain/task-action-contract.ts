@@ -1,5 +1,5 @@
 import { SUBMISSION_V1_SCHEMA } from "./execution.ts";
-import { REVIEW_CONSENT_V1_SCHEMA, REVIEW_V1_SCHEMA } from "./review.ts";
+import { REVIEW_V1_SCHEMA } from "./review.ts";
 import { WRITE_RECEIPT_SCHEMA } from "./receipt-domain-registry.ts";
 import { settingsLocales } from "./settings.ts";
 import { taskClasses } from "./task.ts";
@@ -113,11 +113,6 @@ const reviewFields = Object.freeze(
       ...(name === "verdict" ? { enum: REVIEW_V1_SCHEMA.verdicts } : {}),
     }),
   ),
-);
-const consentFields = Object.freeze(
-  REVIEW_CONSENT_V1_SCHEMA.required
-    .filter((name) => name === "reviewDigest" || name === "contentDigest")
-    .map((name) => field(name, "string", true)),
 );
 const registerModuleFields = Object.freeze(
   ["key", "title", "prefix", "scope"].map((name) => field(name, "string", true)),
@@ -521,9 +516,6 @@ const declarations: readonly Declaration[] = Object.freeze([
       expectedVersion,
       cli("executionId", "string", false, "--execution-id"),
       cli("reviewId", "string", false, "--review-id"),
-      cli("consentId", "string", true, "--consent-id", "single", {}, "invalid_field"),
-      ...optionalPacketFields(consentFields),
-      ...packetSources(REVIEW_CONSENT_V1_SCHEMA.id, consentFields),
     ]),
     criteria: Object.freeze([
       criterion(
@@ -534,7 +526,7 @@ const declarations: readonly Declaration[] = Object.freeze([
     ]),
     concurrency: taskConcurrency(
       { authority: "task-lease/v1", mode: "must-be-released" },
-      { authority: "operation-id", semanticKey: "consentId" },
+      { authority: "operation-id", semanticKey: "reviewId" },
     ),
     explain: "Select a recorded Review with content-pinned owner consent.",
   }),
@@ -589,6 +581,7 @@ const declarations: readonly Declaration[] = Object.freeze([
       taskId,
       expectedVersion,
       cli("executionId", "string", false, "--execution-id"),
+      cli("consent", "boolean", false, "--consent", "boolean"),
       field("ci"),
       field("paths", "string-array"),
       cli("factHolds", "fact-hold-array", false, "--fact-holds", "repeated", {

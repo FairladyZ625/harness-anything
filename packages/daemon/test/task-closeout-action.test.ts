@@ -40,12 +40,6 @@ function judgment() {
       residualRisks: [],
       commitSha,
     },
-    review: {
-      verdict: "approved",
-      reason: "Approved.",
-      evidenceChecked: ["tests"],
-    },
-    consent: { approved: true },
     completion: {
       ci: "not_applicable",
       codeDocPaths: ["packages/application/src/task-closeout-action.ts"],
@@ -171,7 +165,7 @@ function setup(
   return { rootDir, calls, run };
 }
 
-test("closeout runs four canonical leaf commands without impersonating the creator's executor", async () => {
+test("closeout submits then requests completion without authoring review or consent", async () => {
   const value = setup();
   try {
     const receipt = await value.run();
@@ -186,16 +180,17 @@ test("closeout runs four canonical leaf commands without impersonating the creat
     );
     assert.deepEqual(
       value.calls.map(({ stage }) => stage),
-      ["submit", "review-execution", "review-consent", "complete"],
+      ["submit", "complete"],
     );
     assert.ok(value.calls.every(({ action }) => action.executionId === undefined));
     assert.deepEqual(
       value.calls.map(({ actor }) => actor.executor?.id ?? null),
-      ["worker-agent", null, "worker-agent", "worker-agent"],
+      ["worker-agent", "worker-agent"],
     );
     assert.equal(Object.hasOwn(value.calls[0]!.action, "submission"), false);
     assert.equal(Object.hasOwn(value.calls.at(-1)!.action, "paths"), false);
     assert.equal(Object.hasOwn(value.calls.at(-1)!.action, "ci"), false);
+    assert.equal(Object.hasOwn(value.calls.at(-1)!.action, "consent"), false);
   } finally {
     rmSync(value.rootDir, { recursive: true, force: true });
   }
@@ -244,20 +239,20 @@ test("closeout upgrades a stale preset snapshot before the first lifecycle mutat
     assert.equal(receipt.outcome, "applied");
     assert.deepEqual(
       value.calls.map(({ stage }) => stage),
-      ["preset-upgrade", "submit", "review-execution", "review-consent", "complete"],
+      ["preset-upgrade", "submit", "complete"],
     );
     assert.deepEqual(value.calls[0]?.action, { kind: "preset-upgrade", taskId });
   } finally {
     rmSync(value.rootDir, { recursive: true, force: true });
   }
 });
-test("a submitted execution resumes at review instead of rejecting P2-06", async () => {
+test("a submitted execution requests completion without authoring review or consent", async () => {
   const value = setup(snapshot("in_review", [execution(executionId, "submitted")]));
   try {
     assert.equal((await value.run()).outcome, "applied");
     assert.deepEqual(
       value.calls.map(({ stage }) => stage),
-      ["review-execution", "review-consent", "complete"],
+      ["complete"],
     );
   } finally {
     rmSync(value.rootDir, { recursive: true, force: true });
@@ -284,7 +279,7 @@ test("a submitted execution resumes when the packet omits its locked submission"
     assert.equal((await value.run()).outcome, "applied");
     assert.deepEqual(
       value.calls.map(({ stage }) => stage),
-      ["review-execution", "review-consent", "complete"],
+      ["complete"],
     );
   } finally {
     rmSync(value.rootDir, { recursive: true, force: true });
@@ -386,15 +381,13 @@ test("one invalid closeout response names every bad field", async () => {
       "packet.submission.completionClaim",
       "packet.submission.deliverables",
       "packet.submission.commitSha",
-      "packet.review.verdict",
-      "packet.review.reason",
-      "packet.review.evidenceChecked",
-      "packet.consent.approved",
+      "packet.review",
+      "packet.consent",
       "packet.completion.ci",
       "packet.completion.codeDocPaths[0]",
     ])
       assert.equal(report.includes(field), true, report);
-    assert.match(report, /Closeout packet has 9 error\(s\)/u);
+    assert.match(report, /Closeout packet has 7 error\(s\)/u);
     assert.equal(value.calls.length, 0);
   } finally {
     rmSync(value.rootDir, { recursive: true, force: true });
@@ -453,7 +446,7 @@ test("an unblocked reviewed execution with no executor points closeout at audite
     rmSync(value.rootDir, { recursive: true, force: true });
   }
 });
-for (const stage of ["submit", "review-execution", "review-consent", "complete"] as const)
+for (const stage of ["submit", "complete"] as const)
   test(`${stage} refusal names the next ha command`, async () => {
     const value = setup(snapshot(), stage);
     try {

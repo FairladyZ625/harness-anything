@@ -282,7 +282,7 @@ export function validateGuiActionPayload(method: DaemonGuiActionMethod, value: u
       Object.keys(item).every((field) => required.includes(field) || optional.includes(field));
   if (method === "repo.settings.update") {
     const settingFields = (
-        "defaultVertical defaultPreset defaultProfile reviewIndependence reviewReturnBudget locale taskScaffold " +
+        "defaultVertical defaultPreset defaultProfile defaultReviewer reviewIndependence reviewReturnBudget locale taskScaffold " +
         "repositoryScaffold " +
         "walFlushAdaptive walFlushEvents walFlushBytes walFlushMilliseconds"
       ).split(" "),

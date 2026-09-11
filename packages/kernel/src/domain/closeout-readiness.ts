@@ -117,7 +117,10 @@ export function currentSubmittedExecutions(snapshot: CloseoutSnapshot): readonly
 }
 
 /** dec_01KXBDV2R6DA0AA0MXTCH0E4AP CH1: a milestone or long_running task completes only with an active decision derives edge naming it. */
-function lineageOrphan(task: NonNullable<CloseoutSnapshot["task"]>, relations: readonly CoverageRelation[]): boolean {
+export function lineageOrphan(
+  task: NonNullable<CloseoutSnapshot["task"]>,
+  relations: readonly CoverageRelation[],
+): boolean {
   if (task.taskId === undefined || (task.taskClass !== "milestone" && task.taskClass !== "long_running")) return false;
   return !relations.some(
     ({ sourceRef, targetRef, relationType, state }) =>

@@ -2,9 +2,10 @@
  * Workload for tools/scale/cli-entity-bench.mjs: the population it writes and the context the
  * coverage table reads (ids from earlier receipts, fixture files, lifecycle packets).
  */
+import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { realizedDecisionBody, realizedTaskPlan } from "../fixtures/task-plan.mjs";
 import { benchKinds, decisionPacket } from "./cli-entity-bench.commands.mjs";
@@ -203,14 +204,14 @@ export function benchContext(f, n, writes, samples) {
           "## Same Mechanism Elsewhere\n\nBoth benchmark completion chains use task-owned report artifacts.\n",
       );
     },
-    review: (s, chain = "") => ({
-      verdict: "approved",
-      reason: "Bench review.",
-      evidenceChecked: [`${receiptOf(`task-create${chain}`, s)?.packagePath}/artifacts/report.md`],
-    }),
-    consent: (s) => {
-      const found = deepFind(receiptOf("task-review-execution", s), ["reviewDigest", "contentDigest"]);
-      return { reviewDigest: found.reviewDigest, contentDigest: found.contentDigest };
+    review: (s, chain = "") => {
+      const reportPath = `${receiptOf(`task-create${chain}`, s)?.packagePath}/artifacts/report.md`;
+      assert.equal(readFileSync(path.join(f.root, "harness", reportPath), "utf8"), `# Report ${s}\n`);
+      return {
+        verdict: "approved",
+        reason: "The artifact reviewer verified the report bytes against the benchmark sample.",
+        evidenceChecked: [reportPath],
+      };
     },
     importArgs: (kind, tag) => {
       const op = importOp(f, kind, `${tag}-${randomUUID().slice(0, 8)}`);

@@ -255,7 +255,6 @@ test("task start, closeout submit, and code-doc reconcile reuse daemon-known lif
         kind: "task-review-consent",
         taskId,
         reviewId: "review-hitrate-lifecycle",
-        consentId: "consent-hitrate-lifecycle",
       },
       holder,
     );
