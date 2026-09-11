@@ -104,6 +104,34 @@ test("Relation admission distinguishes reversed direction from an invalid target
   );
 });
 
+test("undeclared relation triples name the available triples for their source kind", () => {
+  assert.throws(
+    () =>
+      compileRelationCreatedEvent({
+        record: {
+          ...eventRecord(record("fact/F-RELATION_SOURCE", "decision/dec_RELATION_TARGET"), 1),
+          relation_id: deriveRelationId({
+            source: "fact/F-RELATION_SOURCE",
+            target: "decision/dec_RELATION_TARGET",
+            type: "derives",
+            direction: "directed",
+          }),
+          type: "derives",
+        },
+        actor,
+        source,
+        opId: "relation-undeclared-hint",
+        occurredAt: "2026-09-04T00:00:00.000Z",
+        workspaceRevision: 1,
+      }),
+    (error: unknown) =>
+      (error as { readonly code?: string }).code === "relation_triple_undeclared" &&
+      /Declared triples for source kind fact: supersedes-fact -> fact, relates -> relation/u.test(
+        String((error as { readonly diagnostic?: { readonly expectation?: unknown } }).diagnostic?.expectation),
+      ),
+  );
+});
+
 test("native Relation history reduces and projects one versioned aggregate row", () => {
   const relation = record(),
     created = compileRelationCreatedEvent({

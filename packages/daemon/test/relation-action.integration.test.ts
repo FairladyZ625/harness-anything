@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { deriveRelationId, makeTaskEventReader } from "../../kernel/src/index.ts";
+import { declaredRelationTriples, deriveRelationId, makeTaskEventReader } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
@@ -30,6 +30,30 @@ const binding = withRoleBinding(
     },
     "repo-write",
   );
+
+test("Relation triples read projects the canonical registry with endpoint filters", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-relation-triples-"));
+  initRepo(rootDir);
+  const repoId = workspaceId("relation-triples"),
+    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "relation-triples-test" });
+  try {
+    for (const sourceKind of ["fact", "decision", "task", "relation"]) {
+      const receipt = await cell.run({ kind: "relation-triples", sourceKind }, binding),
+        payload = JSON.parse(String(receipt.evidence)) as { readonly rows: unknown; readonly count: number };
+      assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+      assert.deepEqual(payload.rows, declaredRelationTriples({ sourceKind }));
+      assert.equal(payload.count, declaredRelationTriples({ sourceKind }).length);
+    }
+    const filtered = await cell.run({ kind: "relation-triples", sourceKind: "decision", targetKind: "fact" }, binding);
+    assert.deepEqual(
+      (JSON.parse(String(filtered.evidence)) as { readonly rows: unknown }).rows,
+      declaredRelationTriples({ sourceKind: "decision", targetKind: "fact" }),
+    );
+  } finally {
+    await cell.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
 
 test("Relation actions serialize aggregate revisions and reject cycles and stale writers", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-relation-action-"));

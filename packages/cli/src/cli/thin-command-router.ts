@@ -269,7 +269,8 @@ function parseRelationRouted(
   json: boolean,
   inputs: ThinCliInputDirectory,
 ): ThinParseResult | undefined {
-  if (route.id === "relation-list") return parseProjected(route.id, args.slice(2), rootDir, repoId, json, inputs);
+  if (route.id === "relation-list" || route.id === "relation-triples")
+    return parseProjected(route.id, args.slice(2), rootDir, repoId, json, inputs);
   if (route.id === "relation-relate")
     return normalizeRelationRelateFailure(
       parseProjected(

@@ -14,7 +14,11 @@ import {
 } from "./entity-relation.ts";
 import type { EntityVersion } from "./entity-freshness.ts";
 import { parseEntityRef } from "./entity-ref.ts";
-import { canonicalRelationDirections, type CanonicalRelationDirection } from "./relation-direction.ts";
+import {
+  canonicalRelationDirections,
+  declaredRelationTriples,
+  type CanonicalRelationDirection,
+} from "./relation-direction.ts";
 import type { DecisionEventV1 } from "./decision-event.ts";
 import { factRef, type FactEventV1 } from "./fact-event.ts";
 import type { MigrationImportEventV1 } from "./migration-import-event.ts";
@@ -518,7 +522,13 @@ export function assertRelationAdmission(
     "relation_triple_undeclared",
     record,
     kinds,
-    "Choose a declared source --type--> target triple from ha relation relate --help",
+    `Declared triples for source kind ${kinds.source}: ` +
+      declaredRelationTriples({ sourceKind: kinds.source })
+        .map(({ type, targetKind }) => `${type} -> ${targetKind}`)
+        .join(", ") +
+      ". Run ha relation triples --source-kind " +
+      `${kinds.source} to inspect the canonical registry. ` +
+      "evidenced-by is directed decision/claim -> fact.",
   );
 }
 

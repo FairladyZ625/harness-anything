@@ -122,11 +122,13 @@ test("Relation commands replace hosted Task and Decision relation ingress", () =
       "--rationale",
       "Reviewed the new target version.",
     ]),
-    suspect = parseThinCommand(["relation", "list", "--freshness", "suspect"]);
+    suspect = parseThinCommand(["relation", "list", "--freshness", "suspect"]),
+    triples = parseThinCommand(["relation", "triples", "--source-kind", "decision", "--target-kind", "fact"]);
   assert.equal(relate.ok, true);
   assert.equal(unrelate.ok, true);
   assert.equal(reconfirm.ok, true);
   assert.equal(suspect.ok, true);
+  assert.equal(triples.ok, true);
   if (relate.ok)
     assert.deepEqual(relate.command.action, {
       kind: "relation-relate",
@@ -153,6 +155,12 @@ test("Relation commands replace hosted Task and Decision relation ingress", () =
       rationale: "Reviewed the new target version.",
     });
   if (suspect.ok) assert.deepEqual(suspect.command.action, { kind: "relation-list", freshness: "suspect" });
+  if (triples.ok)
+    assert.deepEqual(triples.command.action, {
+      kind: "relation-triples",
+      sourceKind: "decision",
+      targetKind: "fact",
+    });
   assert.equal(parseThinCommand(["relation", "list", "--freshness", "unknown"]).ok, false);
   assert.equal(
     parseThinCommand([

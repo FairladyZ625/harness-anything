@@ -320,6 +320,17 @@ export const taskSurfaceProtocolCommands = Object.freeze([
     ],
   }),
   defineRepoReadCommand({
+    id: "relation-triples",
+    phase: "Governed-Entity-W1-D",
+    path: ["relation", "triples"],
+    summary: "List writable canonical relation triples, optionally filtered by endpoint kind.",
+    method: "repo.task.read",
+    inputs: [
+      cliInput("--source-kind", "single", false, { code: "invalid_field" }),
+      cliInput("--target-kind", "single", false, { code: "invalid_field" }),
+    ],
+  }),
+  defineRepoReadCommand({
     id: "relation-list",
     phase: "Governed-Entity-W1-D",
     path: ["relation", "list"],

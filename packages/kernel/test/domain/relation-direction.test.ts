@@ -4,6 +4,7 @@ import test from "node:test";
 import { isAllowedRelationKindTriple, relationTypes } from "../../src/domain/entity-relation.ts";
 import {
   canonicalRelationDirections,
+  declaredRelationTriples,
   incomingRelations,
   type CanonicalRelationDirection,
 } from "../../src/domain/relation-direction.ts";
@@ -35,6 +36,20 @@ test("the canonical direction registry is the allowlist: every triple agrees, ce
       }
     }
   }
+});
+
+test("declared relation triples project the canonical registry without derived rows", () => {
+  for (const sourceKind of ["fact", "decision", "task", "relation"]) {
+    assert.deepEqual(
+      declaredRelationTriples({ sourceKind }),
+      canonicalRelationDirections.filter((row) => row.registration !== "derived" && row.sourceKind === sourceKind),
+      `${sourceKind} discovery must be a direct projection of the registry`,
+    );
+  }
+  assert.equal(
+    declaredRelationTriples().some(({ registration }) => registration === "derived"),
+    false,
+  );
 });
 
 test("every reversed-direction pair keeps exactly one canonical writable side", () => {
