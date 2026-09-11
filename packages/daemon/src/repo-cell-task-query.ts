@@ -20,6 +20,8 @@ import { requiredPackageDisposition, type TaskQueryReadModel } from "./task-quer
 import { resolveTaskRootThreshold, resolveTaskWipLimit } from "./task-wip-settings.ts";
 import { selectTaskIndex } from "./task-index-query.ts";
 
+export const DEFAULT_TASK_LIST_LIMIT = 50;
+
 export interface TaskQueryCell {
   readonly input: { readonly repoId: string };
   readonly rootDir: string;
@@ -72,12 +74,13 @@ export function listTasks(cell: TaskQueryCell, action: RepoTaskAction, binding: 
       ...(query.updatedBefore ? { updatedBefore: query.updatedBefore } : {}),
     },
     flat = depth === undefined,
+    effectiveLimit = flat && query.limit === undefined ? DEFAULT_TASK_LIST_LIMIT : query.limit,
     read = cell.projection.readTaskIndex(
       flat
         ? {
             ...filters,
             ...(typeof action.parentTaskId === "string" ? { parentTaskId: action.parentTaskId } : {}),
-            ...(query.limit === undefined ? {} : { limit: query.limit }),
+            ...(effectiveLimit === undefined ? {} : { limit: effectiveLimit }),
             ...(query.cursor === undefined ? {} : { cursor: query.cursor }),
             activePackagesOnly: true,
           }

@@ -83,6 +83,20 @@ test("filtered task index pagination is keyset-equivalent", () => {
   assert.equal(second.page?.nextCursor, null);
 });
 
+test("task index text output explains how to continue a paged result", () => {
+  const rendered = renderTaskIndexPayload({
+    schema: "task-list/v2",
+    mode: "flat",
+    rows: [],
+    count: 50,
+    page: { limit: 50, cursor: null, nextCursor: "next-page" },
+    status: "ready",
+    watermark: 1,
+    sourceRevision: 1,
+  });
+  assert.match(rendered ?? "", /more: use --cursor next-page/u);
+});
+
 test("a 200-node projection iterable is consumed once and all-depth expansion stays iterative", () => {
   const rows = Array.from({ length: 200 }, (_, index) =>
     row(
