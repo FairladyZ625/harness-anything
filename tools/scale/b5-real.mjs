@@ -175,6 +175,7 @@ async function measureB5RealSingle(options) {
       taskId,
       title,
       taskClass: "standard",
+      packageDisposition: "active",
       status: "planned",
       graph: kernel.REPLAY_TASK_GRAPH,
       currentNode: "implementation",
@@ -423,12 +424,7 @@ async function measureB5RealSingle(options) {
     if (!(error instanceof Error) || !/catch-up limit/u.test(error.message)) throw error;
     projection = makeTaskProjection({ rootDir, eventStore, catchUpLimit: 64 });
   }
-  // Drive the catch-up with the cheap progress probe: each round drains a bounded
-  // batch, and a full list() per round would itself be an O(rounds x rows) scan.
-  let reads = 0;
-  while (projection.readProgress(taskIds[0]).status !== "ready" && reads < events.length / 64 + 16) reads += 1;
-  if (projection.readProgress(taskIds[0]).status !== "ready")
-    throw new Error(`cold catch-up did not reach ready after ${events.length} events`);
+  const catchUp = projection.catchUp();
   const catchUpMs = performance.now() - projectionStarted,
     buildMs = performance.now() - buildStarted;
 
@@ -448,7 +444,7 @@ async function measureB5RealSingle(options) {
   const windowStart = new Date(Date.UTC(2026, 0, 10)).toISOString();
 
   const unparamTask = () => readModel.guiTasks();
-  const unparamGraph = () => readModel.relationGraph();
+  const unparamGraph = () => readModel.relationGraphFacet({ facet: "edges" });
   const factRead = (action) => {
     if (!catalogActions) return projection.searchFacts(action);
     const receipt = catalogActions.run(
@@ -546,7 +542,7 @@ async function measureB5RealSingle(options) {
       buildMs: Number(buildMs.toFixed(1)),
       ledgerBuildMs: Number(ledgerBuiltMs.toFixed(1)),
       catchUpMs: Number(catchUpMs.toFixed(1)),
-      catchUpReads: reads,
+      catchUpReads: catchUp.metrics.sqliteTransactions,
       narrowSupported,
     },
     sentinel,
