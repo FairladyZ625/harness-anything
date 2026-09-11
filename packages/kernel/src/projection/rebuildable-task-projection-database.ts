@@ -425,6 +425,8 @@ function createTables(db: DatabaseSync): void {
     CREATE INDEX IF NOT EXISTS task_snapshot_updated_task ON task_snapshot(updated_at DESC, task_id ASC);
     CREATE INDEX IF NOT EXISTS task_snapshot_revision_task ON task_snapshot(workspace_revision, task_id ASC);
     CREATE INDEX IF NOT EXISTS task_snapshot_agenda_status_pin ON task_snapshot(status, pinned DESC, task_id ASC);
+    CREATE INDEX IF NOT EXISTS task_snapshot_parent
+      ON task_snapshot(json_extract(snapshot_json, '$.task.metadata.parentTaskId'));
     CREATE TABLE IF NOT EXISTS task_package (task_id TEXT PRIMARY KEY, package_path TEXT NOT NULL UNIQUE);
     CREATE TABLE IF NOT EXISTS task_generation (
       task_id TEXT PRIMARY KEY,
