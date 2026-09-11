@@ -912,7 +912,7 @@ test("semantic sources and agent execution cross the daemon before transport-bou
       run(
         fixture.root,
         fixture.userRoot,
-        ["task", "code-doc", "reconcile", taskId, "--path", "README.md"],
+        ["task", "code-doc", "reconcile", taskId, "--path", `${packagePath}/artifacts/executor-axis.txt`],
         "agent:claude-code",
       ).outcome,
       "applied",
