@@ -168,34 +168,13 @@ export function useRuntimePlaneQuery(repoId: string | null, options: { readonly 
 }
 
 /**
- * 完整图。daemon 的无参 `repo.triadic.relationGraph` 只给一页(上限 500 条边),而且
- * facts / factAnchors / coverageRows 只随该页边的端点返回;领地与聚光灯渲染的是整张图,
- * 500 条之外的 decision/fact 节点会整个消失。所以按 `nextCursor` 翻到底再合并,
- * 各类行按各自主键去重;各页可能落在不同 cut 上,cut 字段以末页为准。
+ * Read one bounded relation-graph page. The daemon page contract carries a cursor for
+ * explicit follow-up reads, but the GUI must not drain a 10k+ ledger on every refresh.
  */
-export async function readWholeRelationGraph(
+export async function readRelationGraphPage(
   read: (payload: { readonly limit: number; readonly cursor?: string }) => Promise<RelationGraphSuccess>,
 ): Promise<RelationGraphSuccess> {
-  const edges = new Map<string, ServedRelationEdgeRow>(),
-    coverageRows = new Map<string, RelationCoverageRow>(),
-    factAnchors = new Map<string, RelationGraphSuccess["factAnchors"][number]>(),
-    facts = new Map<string, RelationGraphSuccess["facts"][number]>();
-  let cursor: string | undefined, page: RelationGraphSuccess;
-  do {
-    page = await read(cursor === undefined ? { limit: 500 } : { limit: 500, cursor });
-    for (const row of page.edges) edges.set(row.relationId, row);
-    for (const row of page.coverageRows) coverageRows.set(`${row.decisionRef}\u0000${row.claimRef}`, row);
-    for (const row of page.factAnchors) factAnchors.set(row.factRef, row);
-    for (const row of page.facts) facts.set(row.ref, row);
-    cursor = page.page?.nextCursor ?? undefined;
-  } while (cursor !== undefined);
-  return {
-    ...page,
-    edges: [...edges.values()],
-    coverageRows: [...coverageRows.values()],
-    factAnchors: [...factAnchors.values()],
-    facts: [...facts.values()],
-  };
+  return read({ limit: 500 });
 }
 
 /**
@@ -212,7 +191,7 @@ export function useTriadicProjectionQuery(
   const decisionsEnabled = enabled && options.decisionsEnabled !== false;
   const graph = useQuery({
     queryKey: triadicQueryKeys.graph(repoId ?? "unselected"),
-    queryFn: () => readWholeRelationGraph((payload) => harnessClient.getRelationGraph({ repoId: repoId!, ...payload })),
+    queryFn: () => readRelationGraphPage((payload) => harnessClient.getRelationGraph({ repoId: repoId!, ...payload })),
     enabled: graphEnabled,
     staleTime: 10_000,
   });
@@ -243,6 +222,7 @@ export function useTriadicProjectionQuery(
       isPending,
       isError,
       graphAvailable,
+      relationPageNextCursor: graph.data?.page?.nextCursor ?? null,
       relationState: graph.isError
         ? ("error" as const)
         : graphEnabled && graph.isPending

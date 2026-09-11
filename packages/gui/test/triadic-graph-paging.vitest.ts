@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import { describe, expect, it } from "vitest";
 import type { RelationGraphSuccess } from "../src/renderer/api-client.ts";
-import { readWholeRelationGraph } from "../src/renderer/triadic-data.ts";
+import { readRelationGraphPage } from "../src/renderer/triadic-data.ts";
 
 type Edge = RelationGraphSuccess["edges"][number];
 type Fact = RelationGraphSuccess["facts"][number];
@@ -27,45 +27,30 @@ const page = (
   page: { limit: 500, cursor, nextCursor },
 });
 
-describe("完整关系图按 nextCursor 翻页合并", () => {
-  it("翻到 nextCursor 为空为止,四类行按主键去重", async () => {
+describe("关系图按界限读取", () => {
+  it("只读取首个有界页,保留 nextCursor 供显式后续读取", async () => {
     const calls: unknown[] = [];
-    const pages = [
-      page(
-        {
-          edges: [edge("r1"), edge("r2")],
-          facts: [fact("fact/F-1")],
-          factAnchors: [anchor("fact/F-1")],
-          coverageRows: [coverage("decision/d1", "decision/d1/C1")],
-        },
-        "cursor-2",
-      ),
-      page(
-        {
-          edges: [edge("r2"), edge("r3")],
-          facts: [fact("fact/F-1"), fact("fact/F-2")],
-          factAnchors: [anchor("fact/F-2")],
-          coverageRows: [coverage("decision/d1", "decision/d1/C1"), coverage("decision/d1", "decision/d1/C2")],
-        },
-        null,
-        "cursor-2",
-      ),
-    ];
-    const graph = await readWholeRelationGraph(async (payload) => {
+    const first = page(
+      {
+        edges: [edge("r1"), edge("r2")],
+        facts: [fact("fact/F-1")],
+        factAnchors: [anchor("fact/F-1")],
+        coverageRows: [coverage("decision/d1", "decision/d1/C1")],
+      },
+      "cursor-2",
+    );
+    const graph = await readRelationGraphPage(async (payload) => {
       calls.push(payload);
-      return pages[calls.length - 1]!;
+      return first;
     });
-    expect(calls).toEqual([{ limit: 500 }, { limit: 500, cursor: "cursor-2" }]);
-    expect(graph.edges.map((row) => row.relationId)).toEqual(["r1", "r2", "r3"]);
-    expect(graph.facts.map((row) => row.ref)).toEqual(["fact/F-1", "fact/F-2"]);
-    expect(graph.factAnchors.map((row) => row.factRef)).toEqual(["fact/F-1", "fact/F-2"]);
-    expect(graph.coverageRows.map((row) => row.claimRef)).toEqual(["decision/d1/C1", "decision/d1/C2"]);
-    expect(graph.page).toEqual({ limit: 500, cursor: "cursor-2", nextCursor: null });
+    expect(calls).toEqual([{ limit: 500 }]);
+    expect(graph).toEqual(first);
+    expect(graph.page?.nextCursor).toBe("cursor-2");
   });
 
   it("没有分页信息的回答只读一次", async () => {
     let reads = 0;
-    const graph = await readWholeRelationGraph(async () => {
+    const graph = await readRelationGraphPage(async () => {
       reads += 1;
       const { page: _page, ...single } = page({ edges: [edge("r1")] }, null);
       return single;
