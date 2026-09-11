@@ -1,8 +1,6 @@
-import { entityNonEmpty, entitySlug } from "../../kernel/src/index.ts";
-import { EntitySchemaContractError } from "../../kernel/src/index.ts";
-import type { AgentSkillDeclarationV1 } from "../../kernel/src/index.ts";
-
-export type { AgentDeclarationV1, SquadDeclarationV1 } from "../../kernel/src/index.ts";
+import { entityNonEmpty, entitySlug } from "../../../kernel/src/index.ts";
+import { EntitySchemaContractError } from "../../../kernel/src/index.ts";
+import type { AgentSkillDeclarationV1 } from "../../../kernel/src/index.ts";
 
 function isEntityRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -61,9 +59,8 @@ function agentFallbackErrors(value: unknown): readonly string[] {
     errors.push('agent declaration field "fallback.backoff.maxMs" must be an integer greater than or equal to baseMs.');
   return errors;
 }
-// GUI read envelopes for the identity layers. These validators live in this pure contract
-// module (no runtime imports) because the schema-closure gate imports them from a checkout
-// with no installed dependencies; packages/daemon/src/agent-entities.ts keeps the reads.
+// GUI read envelopes for the identity layers. This module has no runtime imports so the
+// schema-closure gate can import it from a checkout with no installed dependencies.
 const entityWireSecretKeys = /(?:^|[-_])(?:api[-_]?key|credential|passphrase|password|secret|token)(?:$|[-_])/iu;
 const entityIssueRow = (value: unknown): readonly string[] =>
   isEntityRecord(value) && entityNonEmpty(value.code) && entityNonEmpty(value.message)
@@ -248,34 +245,3 @@ export const serializeAgentEntityCatalog = (value: unknown): string =>
   serializeSquadEntityCatalog = (value: unknown): string => serializeEntity(value, validateSquadEntityCatalog),
   serializeAgentEntityDetail = (value: unknown): string => serializeEntity(value, validateAgentEntityDetail),
   serializeSquadEntityDetail = (value: unknown): string => serializeEntity(value, validateSquadEntityDetail);
-const schemaDeclaration = (id: string, name: string, fixtures: readonly string[]) => ({
-  id,
-  schema: `packages/kernel/src/domain/agent-squad-schema.ts#${name}_SCHEMA`,
-  parser: `packages/kernel/src/domain/agent-squad-schema.ts#validate${name
-    .split("_")
-    .map((part) => part[0]! + part.slice(1).toLowerCase())
-    .join("")}`,
-  writer: `packages/kernel/src/domain/agent-squad-schema.ts#serialize${name
-    .split("_")
-    .map((part) => part[0]! + part.slice(1).toLowerCase())
-    .join("")}`,
-  error: "packages/kernel/src/domain/agent-squad-schema.ts#AgentEntityContractError",
-  negativeFixtures: Object.freeze(fixtures.map((fixture) => `packages/daemon/fixtures/contracts/${fixture}`)),
-});
-export const agentEntitySchemas = Object.freeze([
-  schemaDeclaration("agent-declaration/v1", "AGENT_DECLARATION_V1", [
-    "agent-declaration-v1-invalid.json",
-    "agent-declaration-v1-invalid-skill-shape.json",
-    "agent-declaration-v1-invalid-skill-duplicate.json",
-  ]),
-  schemaDeclaration("squad-declaration/v1", "SQUAD_DECLARATION_V1", ["squad-declaration-v1-invalid.json"]),
-]);
-export default Object.freeze({
-  id: "agent-entities-v1",
-  phases: Object.freeze(["Agent-Entities-A"]),
-  commands: Object.freeze([]),
-  methods: Object.freeze([]),
-  gates: Object.freeze([]),
-  guards: Object.freeze([]),
-  schemas: agentEntitySchemas,
-});

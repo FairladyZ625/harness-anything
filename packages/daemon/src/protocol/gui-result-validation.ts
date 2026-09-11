@@ -20,7 +20,7 @@ import {
   validateAgentSkillCatalog,
   validateSquadEntityCatalog,
   validateSquadEntityDetail,
-} from "../agent-entities.contract.ts";
+} from "./agent-entity-gui-contract.ts";
 import { validateDaemonTaskCompletion, validateObserveTailResult } from "./daemon-protocol-gui-types.ts";
 import { validationError } from "./daemon-protocol-validate-entities.ts";
 import { validateArtifactsList } from "./artifacts-gui-contract.ts";

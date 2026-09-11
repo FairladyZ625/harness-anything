@@ -124,7 +124,7 @@ export interface PreparedAgentEntityDelete {
 }
 
 const manifestName = { agent: "agent.json", squad: "squad.json" } as const;
-export function runAgentEntityAction(input: {
+export function validateAgentEntityAction(input: {
   readonly rootDir: string;
   readonly entityStore?: EntityStore;
   readonly action: Readonly<Record<string, unknown>> & { readonly kind: string };
@@ -133,38 +133,12 @@ export function runAgentEntityAction(input: {
     readonly models: readonly string[];
     readonly enabled: boolean;
   }[];
-}): unknown {
+}): EntityValidationReport {
   const action = input.action,
     kind = entityKind(action.kind);
-  if (action.kind.endsWith("-validate"))
-    return validateEntityDeclarationSource({ source: declarationSource(action), kind });
-  if (action.kind.endsWith("-install"))
-    throw entityError(
-      "coordinated_write_required",
-      "Agent and squad declarations must be installed through the repository write coordinator.",
-    );
-  const entityStore = input.entityStore ?? openEntityStore(input.rootDir);
-  if (action.kind === "agent-list")
-    return { schema: "agent-list/v1", agents: listStoredEntities(input.rootDir, "agent", entityStore) };
-  if (action.kind === "squad-list")
-    return { schema: "squad-list/v1", squads: listStoredEntities(input.rootDir, "squad", entityStore) };
-  return kind === "agent"
-    ? {
-        schema: "agent-inspection/v1",
-        agent: readAgentDeclaration({
-          rootDir: input.rootDir,
-          agentId: requiredEntityText(action.agentId, "agentId"),
-          entityStore,
-        }),
-      }
-    : {
-        schema: "squad-inspection/v1",
-        squad: readSquadDeclaration({
-          rootDir: input.rootDir,
-          squadId: requiredEntityText(action.squadId, "squadId"),
-          entityStore,
-        }),
-      };
+  if (!action.kind.endsWith("-validate"))
+    throw entityError("invalid_command", "Only an Agent or Squad validate action can use this reader.");
+  return validateEntityDeclarationSource({ source: declarationSource(action), kind });
 }
 export function readAgentEntityGuiProjection<
   const K extends "agent-list" | "squad-list" | "agent-inspect" | "squad-inspect",
@@ -203,13 +177,13 @@ export function readAgentEntityGuiProjection<
       schema: "agent-entity-detail/v1",
       ok: true,
       agent: {
-        id: entityText(agent.id),
-        name: entityText(agent.name),
+        id: agent.id,
+        name: agent.name,
         runtimeType: agent.runtime_type,
         role: agent.role ?? "worker",
         instructions: agent.instructions,
         model: agent.model ?? null,
-        skills: entitySkills(agent.skills),
+        skills: agent.skills ?? [],
         prompts: agent.prompts ?? [],
         preset: agent.preset ?? null,
         fallback: agent.fallback ?? null,
@@ -236,12 +210,12 @@ export function readAgentEntityGuiProjection<
     schema: "squad-entity-detail/v1",
     ok: true,
     squad: {
-      id: entityText(squad.id),
-      name: entityText(squad.name),
-      leader: entityText(squad.leader),
-      workers: entityStrings(squad.workers),
+      id: squad.id,
+      name: squad.name,
+      leader: squad.leader,
+      workers: squad.workers,
       leaderTurnBudget: squad.leaderTurnBudget,
-      roster: entityText(squad.roster),
+      roster: squad.roster,
     },
   } as never;
 }
@@ -283,7 +257,16 @@ function agentEntityCatalogRow(row: AgentEntityProjectionRow): AgentEntityGuiRow
   const degraded = projectionEntityState(row);
   if (degraded) return degraded;
   try {
-    return agentEntityRow({ ...parseAgentDeclarationV1(row.value), layer: "user", validity: "valid", issues: [] });
+    const agent = parseAgentDeclarationV1(row.value);
+    return {
+      id: agent.id,
+      name: agent.name,
+      runtimeType: agent.runtime_type,
+      role: agent.role ?? "worker",
+      layer: "user",
+      validity: "valid",
+      issues: [],
+    };
   } catch (error) {
     return invalidEntityCatalogRow(row, error);
   }
@@ -311,7 +294,15 @@ function squadEntityCatalogRow(
           hint: `Squad ${squad.id} references unavailable agents: ${missing.join(", ")}.`,
         },
       };
-    return squadEntityRow({ ...squad, layer: "user", validity: "valid", issues: [] });
+    return {
+      id: squad.id,
+      name: squad.name,
+      leader: squad.leader,
+      workers: squad.workers,
+      layer: "user",
+      validity: "valid",
+      issues: [],
+    };
   } catch (error) {
     return invalidEntityCatalogRow(row, error);
   }
@@ -567,72 +558,6 @@ function declarationSource(
   const source = path.resolve(requiredEntityText(action.packageSource, "packageSource")),
     decoded = decodeSourcePackage(source, entityKind(String(action.kind)));
   return "issues" in decoded ? { ...decoded, source } : { ...decoded, source };
-}
-function listStoredEntities(
-  rootDir: string,
-  kind: AgentEntityKind,
-  entityStore = openEntityStore(rootDir),
-): readonly (AgentCatalogRow | SquadCatalogRow)[] {
-  return entityStore
-    .list<AgentDeclarationV1 & SquadDeclarationV1>(kind)
-    .map(({ value, documentPath: source }) => {
-      const declaration = (
-        kind === "squad" ? parseSquadDeclarationV1(value) : parseAgentDeclarationV1(value)
-      ) as AgentDeclarationV1 & SquadDeclarationV1;
-      const { instructions: _instructions, roster: _roster, ...row } = declaration;
-      return { ...row, layer: "user" as const, source, validity: "valid" as const, issues: [] as const };
-    })
-    .sort((left, right) => left.id.localeCompare(right.id));
-}
-function agentEntityRow(value: Record<string, unknown>): AgentEntityGuiAvailableRow {
-  return {
-    id: entityText(value.id),
-    name: entityText(value.name),
-    runtimeType: entityText(value.runtime_type),
-    role: entityAgentRole(value.role),
-    layer: entityText(value.layer),
-    validity: value.validity === "blocked" ? "blocked" : "valid",
-    issues: entityIssues(value.issues),
-  };
-}
-function squadEntityRow(value: Record<string, unknown>): SquadEntityGuiAvailableRow {
-  return {
-    id: entityText(value.id),
-    name: entityText(value.name),
-    leader: entityText(value.leader),
-    workers: entityStrings(value.workers),
-    layer: entityText(value.layer),
-    validity: value.validity === "blocked" ? "blocked" : "valid",
-    issues: entityIssues(value.issues),
-  };
-}
-function entityIssues(value: unknown): readonly { readonly code: string; readonly message: string }[] {
-  return Array.isArray(value)
-    ? value
-        .map(agentEntityRecord)
-        .filter((issue) => issue.code || issue.message)
-        .map((issue) => ({ code: entityText(issue.code), message: entityText(issue.message) }))
-    : [];
-}
-function entityStrings(value: unknown): readonly string[] {
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
-}
-function entitySkills(value: unknown): readonly { readonly id: string; readonly path: string }[] {
-  return Array.isArray(value)
-    ? value
-        .map(agentEntityRecord)
-        .map((skill) => ({ id: entityText(skill.id), path: entityText(skill.path) }))
-        .filter((skill) => skill.id && skill.path)
-    : [];
-}
-function entityAgentRole(value: unknown): "worker" | "commander" {
-  return value === "commander" ? "commander" : "worker";
-}
-function entityText(value: unknown): string {
-  return typeof value === "string" ? value : "";
-}
-function agentEntityRecord(value: unknown): Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
 function decodeSourcePackage(
   source: string,
