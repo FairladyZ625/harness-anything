@@ -23,7 +23,7 @@ import {
   squadRunProjectionReady,
   upsertSquadRun,
 } from "./rebuildable-task-projection-squad-runs.ts";
-import { transaction } from "./rebuildable-task-projection-sql.ts";
+import { prepareQuery, transaction } from "./rebuildable-task-projection-sql.ts";
 export type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
 export type { TaskProjection } from "./task-projection-port.ts";
 
@@ -78,11 +78,11 @@ export function runtimeLeaseApi(
       withDatabase(projectionPath, readHead, (db) => effectiveLease(db, taskId, at ?? now())),
     currentLeaseForExecution: (executionId, at) =>
       withDatabase(projectionPath, readHead, (db: DatabaseSync) => {
-        const row =
-          /* @gate-identity check-bypass-write-boundary/bypass-write-016 */
-          db
-            .prepare("SELECT task_id FROM lease_cas WHERE json_extract(lease_json, '$.executionId') = ?")
-            .get(executionId) as { readonly task_id: string } | undefined;
+        const row = prepareQuery(
+          db,
+          "SELECT task_id FROM lease_cas WHERE json_extract(lease_json, '$.executionId') = ?",
+          (sql) => /* @gate-identity check-bypass-write-boundary/bypass-write-016 */ db.prepare(sql),
+        ).get(executionId) as { readonly task_id: string } | undefined;
         return row ? effectiveLease(db, row.task_id, at ?? now()) : null;
       }),
     reserveLease: (lease, now) =>

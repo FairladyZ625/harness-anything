@@ -51,7 +51,7 @@ import {
   readSnapshot,
   refreshRuntimeSessionAssociations,
 } from "./rebuildable-task-projection-runtime.ts";
-import { canonicalJson, runSql } from "./rebuildable-task-projection-sql.ts";
+import { canonicalJson, prepareQuery, runSql } from "./rebuildable-task-projection-sql.ts";
 import { applyEmbeddedRelationProjectionEvents, applyRelationProjectionEvent } from "./relation-entity-projection.ts";
 export type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
 export type { TaskProjection } from "./task-projection-port.ts";
@@ -400,11 +400,9 @@ export function applyEvent(
       eventJson,
     );
     for (const change of event.payload.changes) {
-      const previous =
-          /* @gate-identity check-bypass-write-boundary/bypass-write-011 */
-          db.prepare("SELECT value_json FROM document WHERE path = ?").get(change.path) as
-            | { readonly value_json: string }
-            | undefined,
+      const previous = prepareQuery(db, "SELECT value_json FROM document WHERE path = ?", (sql) =>
+          /* @gate-identity check-bypass-write-boundary/bypass-write-011 */ db.prepare(sql),
+        ).get(change.path) as { readonly value_json: string } | undefined,
         base = previous ? (JSON.parse(previous.value_json) as DocumentState) : null;
       if (change.candidate === null) {
         if (

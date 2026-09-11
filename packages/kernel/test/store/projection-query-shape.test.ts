@@ -16,6 +16,8 @@ import {
   searchFactRows,
   type FactProjectionRow,
 } from "../../src/projection/fact-event-projection.ts";
+import { readEntityVersionWitnesses } from "../../src/projection/entity-freshness-projection.ts";
+import { prepareQuery, queryRow, runSql } from "../../src/projection/rebuildable-task-projection-sql.ts";
 import { createRelationGraphProjectionTables } from "../../src/projection/relation-graph-projection.ts";
 import {
   createTaskRelationProjectionTable,
@@ -77,12 +79,15 @@ function countingDatabase(): {
   readonly db: DatabaseSync;
   readonly executions: () => number;
   readonly reads: () => readonly { readonly sql: string; readonly args: readonly unknown[] }[];
+  readonly prepared: () => readonly string[];
 } {
   const db = new DatabaseSync(":memory:"),
     prepare = db.prepare.bind(db);
   let executions = 0;
-  const reads: { sql: string; args: readonly unknown[] }[] = [];
+  const reads: { sql: string; args: readonly unknown[] }[] = [],
+    prepared: string[] = [];
   db.prepare = ((sql: string) => {
+    prepared.push(sql);
     const statement = prepare(sql);
     for (const method of ["all", "get"] as const) {
       const original = statement[method].bind(statement);
@@ -94,7 +99,7 @@ function countingDatabase(): {
     }
     return statement;
   }) as typeof db.prepare;
-  return { db, executions: () => executions, reads: () => reads };
+  return { db, executions: () => executions, reads: () => reads, prepared: () => prepared };
 }
 
 function seed(db: DatabaseSync, decisions: number, facts: number): void {
@@ -540,8 +545,9 @@ test("task context collection reads stay indexed, bounded, and constant in state
       derives.map(({ relationId }) => relationId),
       ["rel_decision_a"],
     );
+    // The first read on this connection also resolves its table set; the second reuses it.
     assert.equal(afterClosure - before, 3);
-    assert.equal(afterTargets - afterClosure, 3);
+    assert.equal(afterTargets - afterClosure, 2);
     assert.throws(() => readTaskDependencyClosureRows(db, ["task/a"], 1), /depth limit/u);
     const closureRead = counted.reads().find(({ sql }) => sql.includes("WITH RECURSIVE dependency_walk"))!,
       targetRead = counted.reads().find(({ sql }) => sql.includes("requested_targets"))!;
@@ -640,6 +646,58 @@ test("decision collection read uses one statement and indexed owner lookups", (c
       plan,
       /SCAN (?:decision|decision_option|decision_claim|decision_judgment_consent|decision_amendment|decision_content_pin|document)(?:\s|$)/u,
     );
+  } finally {
+    db.close();
+  }
+});
+
+test("a projection connection prepares each statement once and reads its table set once", () => {
+  const counted = countingDatabase(),
+    { db } = counted;
+  try {
+    seed(db, 2, 2);
+    const before = counted.prepared().length,
+      refs = ["fact/F-00000000", "decision/dec_SHAPE_00000", "task/task-missing"];
+    for (let round = 1; round <= 3; round += 1) {
+      assert.equal(readEntityVersionWitnesses(db, refs).get("fact/F-00000000")?.currentVersion, 1);
+      runSql(db, "UPDATE projection_meta SET watermark = ? WHERE singleton = 1", round);
+      assert.equal(queryRow(db, "SELECT watermark FROM projection_meta WHERE singleton = 1")?.watermark, round);
+    }
+    const prepared = counted.prepared().slice(before);
+    assert.equal(prepared.length, 4, prepared.join("\n"));
+    assert.equal(new Set(prepared).size, prepared.length);
+    assert.equal(counted.reads().filter(({ sql }) => sql.includes("sqlite_master")).length, 1);
+  } finally {
+    db.close();
+  }
+});
+
+test("prepared statements belong to the connection that prepared them", () => {
+  const first = new DatabaseSync(":memory:"),
+    statement = prepareQuery(first, "SELECT 1 AS one");
+  assert.equal(prepareQuery(first, "SELECT 1 AS one"), statement);
+  first.close();
+  const second = new DatabaseSync(":memory:");
+  try {
+    const reopened = prepareQuery(second, "SELECT 1 AS one");
+    assert.notEqual(reopened, statement);
+    assert.deepEqual({ ...reopened.get() }, { one: 1 });
+    assert.throws(() => statement.get(), /finalized/u);
+  } finally {
+    second.close();
+  }
+});
+
+test("a Decision's own relation edges are read through the owner index", () => {
+  const db = new DatabaseSync(":memory:");
+  try {
+    createRelationGraphProjectionTables(db);
+    const plan = queryPlan(db, {
+      sql: "SELECT row_json FROM relation_edge WHERE owner_ref=? ORDER BY relation_id",
+      args: ["decision/dec_A"],
+    });
+    assert.match(plan, /SEARCH relation_edge USING INDEX relation_edge_owner \(owner_ref=\?\)/u);
+    assert.doesNotMatch(plan, /SCAN relation_edge|USE TEMP B-TREE/u);
   } finally {
     db.close();
   }

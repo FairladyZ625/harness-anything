@@ -9,7 +9,7 @@ import { createRelationGraphProjectionTables } from "./relation-graph-projection
 import { taskProjectionSchemaVersion } from "./projection-schema.ts";
 import { createTaskRelationProjectionTable } from "./task-query-projection.ts";
 import type { EventStreamPort } from "./rebuildable-task-projection-types.ts";
-import { queryRows, runSql } from "./rebuildable-task-projection-sql.ts";
+import { prepareQuery, queryRows, runSql } from "./rebuildable-task-projection-sql.ts";
 export type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
 export type { TaskProjection } from "./task-projection-port.ts";
 
@@ -224,12 +224,11 @@ function projectionDatabaseOwner(
       if (db !== null && fingerprint !== projectionFileFingerprint(projectionPath)) close();
       if (db === null) initialize();
     }
+    // initialize() verified the schema version of this file identity; only a replaced file
+    // (a changed fingerprint) can carry another one, and that reopens and verifies again.
     useDepth += 1;
     let succeeded = false;
     try {
-      const observed = projectionSchemaVersion(db!);
-      if (observed !== null && observed > taskProjectionSchemaVersion)
-        throw new ProjectionSchemaMismatchError(observed, projectionPath);
       assertLedgerIdentity(db!, readHead());
       const value = operation(db!);
       succeeded = true;
@@ -267,13 +266,11 @@ function projectionFileFingerprint(projectionPath: string): string | null {
 // which has scanned or applied beyond the current source cut may be the only readable copy of those
 // revisions, so opening must retain it and fail closed.
 function assertLedgerIdentity(db: DatabaseSync, head: ReturnType<EventStreamPort["readHead"]>): void {
-  const row =
-    /* @gate-identity check-bypass-write-boundary/bypass-write-010 */
-    db.prepare("SELECT watermark, scanned_revision, head_digest FROM projection_meta WHERE singleton = 1").get() as {
-      readonly watermark: number;
-      readonly scanned_revision: number;
-      readonly head_digest: string | null;
-    };
+  const row = prepareQuery(
+    db,
+    "SELECT watermark, scanned_revision, head_digest FROM projection_meta WHERE singleton = 1",
+    (sql) => /* @gate-identity check-bypass-write-boundary/bypass-write-010 */ db.prepare(sql),
+  ).get() as { readonly watermark: number; readonly scanned_revision: number; readonly head_digest: string | null };
   const sourceRevision = head?.revision ?? 0;
   if (Number(row.watermark) > sourceRevision || Number(row.scanned_revision) > sourceRevision)
     throw new ProjectionEventStreamIncompleteError(

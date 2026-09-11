@@ -35,11 +35,9 @@ const stateDigestTables = [
 ] as const;
 
 export function watermark(db: DatabaseSync): number {
-  const row =
-    /* @gate-identity check-bypass-write-boundary/bypass-write-031 */
-    db.prepare("SELECT watermark FROM projection_meta WHERE singleton = 1").get() as {
-      readonly watermark: number;
-    };
+  const row = prepareQuery(db, "SELECT watermark FROM projection_meta WHERE singleton = 1", (sql) =>
+    /* @gate-identity check-bypass-write-boundary/bypass-write-031 */ db.prepare(sql),
+  ).get() as { readonly watermark: number };
   return Number(row.watermark);
 }
 
@@ -130,10 +128,38 @@ export function queryTransaction<A>(db: DatabaseSync, run: () => A): A {
 }
 type SqlValue = string | number | bigint | Uint8Array | null;
 export function runSql(db: DatabaseSync, sql: string, ...values: readonly SqlValue[]): number | bigint {
-  return /* @gate-identity check-bypass-write-boundary/bypass-write-035 */ db.prepare(sql).run(...values).changes;
+  return prepareQuery(db, sql, (text) =>
+    /* @gate-identity check-bypass-write-boundary/bypass-write-035 */ db.prepare(text),
+  ).run(...values).changes;
 }
-export function prepareQuery(db: DatabaseSync, sql: string) {
-  return /* @gate-identity check-bypass-write-boundary/bypass-write-036 */ db.prepare(sql);
+// Statements are keyed by connection object and SQL text. Closing a connection finalizes its
+// statements and a reopen constructs a new object, so a finalized statement is never reused.
+const connectionStatements = new WeakMap<DatabaseSync, Map<string, StatementSync>>();
+/** The connection's statement for `sql`, prepared on first use. Call sites that carry their own
+ * write-boundary identity pass the `prepare` that performs it. */
+export function prepareQuery(
+  db: DatabaseSync,
+  sql: string,
+  prepare = (text: string) => /* @gate-identity check-bypass-write-boundary/bypass-write-036 */ db.prepare(text),
+): StatementSync {
+  let statements = connectionStatements.get(db);
+  if (statements === undefined) connectionStatements.set(db, (statements = new Map()));
+  let statement = statements.get(sql);
+  if (statement === undefined) statements.set(sql, (statement = prepare(sql)));
+  return statement;
+}
+/** Table names read once per connection: every table is created while a connection initializes. */
+const connectionTables = new WeakMap<DatabaseSync, ReadonlySet<string>>();
+export function projectionTables(db: DatabaseSync): ReadonlySet<string> {
+  let tables = connectionTables.get(db);
+  if (tables === undefined)
+    connectionTables.set(
+      db,
+      (tables = new Set(
+        queryRows(db, "SELECT name FROM sqlite_master WHERE type='table'").map(({ name }) => String(name)),
+      )),
+    );
+  return tables;
 }
 export type ProjectionSqlRow = Readonly<Record<string, SQLOutputValue>>;
 export function queryRow<Row extends ProjectionSqlRow = ProjectionSqlRow>(

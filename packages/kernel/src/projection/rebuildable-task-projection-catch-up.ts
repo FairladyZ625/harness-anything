@@ -8,12 +8,17 @@ import {
 import type { EventContentPrefetch, EventStreamPort } from "./rebuildable-task-projection-types.ts";
 import type { ProjectionApplyReceipt } from "./projection-reads.ts";
 import { applyEvent } from "./rebuildable-task-projection-event-application.ts";
-import { queryRows, runSql, transaction, watermark } from "./rebuildable-task-projection-sql.ts";
+import { prepareQuery, queryRows, runSql, transaction, watermark } from "./rebuildable-task-projection-sql.ts";
 export type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
 export type { TaskProjection } from "./task-projection-port.ts";
 
 // Incremental source scanning, deferred-event staging, and batch replay.
 const batchContentPrefetchers = new WeakMap<EventStreamPort, EventContentPrefetch>();
+const SCAN_STATE_SQL = "SELECT scan_cursor, scanned_revision FROM projection_meta WHERE singleton = 1",
+  NEXT_DEFERRED_EVENT_SQL = [
+    "SELECT event_json FROM event_source WHERE workspace_revision = ?",
+    "OR (? = 1 AND workspace_revision > ?) ORDER BY workspace_revision LIMIT 1",
+  ].join(" ");
 export function reduceBatch(
   db: DatabaseSync,
   events: readonly CanonicalEventV1[],
@@ -24,12 +29,9 @@ export function reduceBatch(
   return transaction(db, () => {
     for (const event of events) stageEvent(db, event);
     const reducedItems = drainDeferred(db, limit, readBlob, true);
-    const state =
-      /* @gate-identity check-bypass-write-boundary/bypass-write-001 */
-      db.prepare("SELECT scan_cursor, scanned_revision FROM projection_meta WHERE singleton = 1").get() as {
-        readonly scan_cursor: string | null;
-        readonly scanned_revision: number;
-      };
+    const state = prepareQuery(db, SCAN_STATE_SQL, (sql) =>
+      /* @gate-identity check-bypass-write-boundary/bypass-write-001 */ db.prepare(sql),
+    ).get() as { readonly scan_cursor: string | null; readonly scanned_revision: number };
     const last = events.at(-1);
     if (
       last !== undefined &&
@@ -61,19 +63,16 @@ export function catchUpRound(
 } {
   const head = eventStore.readHead();
   const sourceRevision = head?.revision ?? 0;
-  const state =
-    /* @gate-identity check-bypass-write-boundary/bypass-write-002 */
-    db.prepare("SELECT scan_cursor, scanned_revision FROM projection_meta WHERE singleton = 1").get() as {
-      readonly scan_cursor: string | null;
-      readonly scanned_revision: number;
-    };
+  const state = prepareQuery(db, SCAN_STATE_SQL, (sql) =>
+    /* @gate-identity check-bypass-write-boundary/bypass-write-002 */ db.prepare(sql),
+  ).get() as { readonly scan_cursor: string | null; readonly scanned_revision: number };
   const shouldScan = state.scan_cursor !== null || state.scanned_revision < sourceRevision;
   const batch = shouldScan ? eventStore.readBatch(state.scan_cursor, limit) : null;
   if (batch?.prefetchContent !== undefined) batchContentPrefetchers.set(eventStore, batch.prefetchContent);
   const hasDeferred =
-    /* @gate-identity check-bypass-write-boundary/bypass-write-003 */
-    db.prepare("SELECT 1 AS present FROM event_source WHERE workspace_revision > ? LIMIT 1").get(watermark(db)) !==
-    undefined;
+    prepareQuery(db, "SELECT 1 AS present FROM event_source WHERE workspace_revision > ? LIMIT 1", (sql) =>
+      /* @gate-identity check-bypass-write-boundary/bypass-write-003 */ db.prepare(sql),
+    ).get(watermark(db)) !== undefined;
   if (batch === null && !hasDeferred)
     return {
       sourceRevision,
@@ -152,20 +151,18 @@ function readyDeferredEvents(
 
 function stageEvent(db: DatabaseSync, event: CanonicalEventV1): void {
   const eventJson = serializePersistedCanonicalEvent(event).trimEnd();
-  const applied =
-    /* @gate-identity check-bypass-write-boundary/bypass-write-004 */
-    db.prepare("SELECT event_json FROM event_index WHERE op_id = ?").get(event.opId) as
-      | { readonly event_json: string }
-      | undefined;
+  const applied = prepareQuery(db, "SELECT event_json FROM event_index WHERE op_id = ?", (sql) =>
+    /* @gate-identity check-bypass-write-boundary/bypass-write-004 */ db.prepare(sql),
+  ).get(event.opId) as { readonly event_json: string } | undefined;
   if (applied !== undefined) {
     if (applied.event_json !== eventJson) throw new Error(`projection opId ${event.opId} names different bytes`);
     return;
   }
-  const staged =
-    /* @gate-identity check-bypass-write-boundary/bypass-write-005 */
-    db
-      .prepare("SELECT event_json FROM event_source WHERE op_id = ? OR workspace_revision = ?")
-      .get(event.opId, event.workspaceRevision) as { readonly event_json: string } | undefined;
+  const staged = prepareQuery(
+    db,
+    "SELECT event_json FROM event_source WHERE op_id = ? OR workspace_revision = ?",
+    (sql) => /* @gate-identity check-bypass-write-boundary/bypass-write-005 */ db.prepare(sql),
+  ).get(event.opId, event.workspaceRevision) as { readonly event_json: string } | undefined;
   if (staged !== undefined) {
     if (staged.event_json !== eventJson)
       throw new Error(`projection revision or opId ${event.opId} names different bytes`);
@@ -189,16 +186,9 @@ function drainDeferred(
   let next = watermark(db),
     reduced = 0;
   while (reduced < limit) {
-    const row =
-      /* @gate-identity check-bypass-write-boundary/bypass-write-006 */
-      db
-        .prepare(
-          [
-            "SELECT event_json FROM event_source WHERE workspace_revision = ?",
-            "OR (? = 1 AND workspace_revision > ?) ORDER BY workspace_revision LIMIT 1",
-          ].join(" "),
-        )
-        .get(next + 1, allowRevisionGaps ? 1 : 0, next) as { readonly event_json: string } | undefined;
+    const row = prepareQuery(db, NEXT_DEFERRED_EVENT_SQL, (sql) =>
+      /* @gate-identity check-bypass-write-boundary/bypass-write-006 */ db.prepare(sql),
+    ).get(next + 1, allowRevisionGaps ? 1 : 0, next) as { readonly event_json: string } | undefined;
     if (row === undefined) break;
     const event = JSON.parse(row.event_json) as CanonicalEventV1;
     applyEvent(db, normalizePersistedCanonicalEvent(event), row.event_json, readBlob);

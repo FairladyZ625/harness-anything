@@ -81,6 +81,7 @@ export function createRelationGraphProjectionTables(db: DatabaseSync): void {
     CREATE INDEX IF NOT EXISTS relation_edge_state_page ON relation_edge(state, relation_id);
     CREATE INDEX IF NOT EXISTS relation_edge_target_observation
       ON relation_edge(target_ref, target_observed_version, relation_id);
+    CREATE INDEX IF NOT EXISTS relation_edge_owner ON relation_edge(owner_ref, relation_id);
   `);
 }
 

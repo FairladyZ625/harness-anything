@@ -17,7 +17,7 @@ import {
 } from "../domain/relation-event.ts";
 import type { MigrationImportEventV1 } from "../domain/migration-import-event.ts";
 import type { RelationGraphEdgeRow } from "./relation-graph-projection.ts";
-import { canonicalJson, queryRow, queryRows, runSql } from "./rebuildable-task-projection-sql.ts";
+import { canonicalJson, projectionTables, queryRow, queryRows, runSql } from "./rebuildable-task-projection-sql.ts";
 import { refreshTaskRelationProjection } from "./task-query-projection.ts";
 import { readEntityVersionWitness, readEntityVersionWitnesses } from "./entity-freshness-projection.ts";
 import { relationFreshnessAtCut, type EntityVersionWitness } from "../domain/entity-freshness.ts";
@@ -65,11 +65,7 @@ export function applyRelationProjectionEvent(
     canonicalJson(row),
   );
   const taskId = row.sourceRef.match(/^task\/([^/]+)$/u)?.[1];
-  const taskRelationReady = queryRow(
-    db,
-    "SELECT 1 AS present FROM sqlite_master WHERE type='table' AND name='task_relation'",
-  );
-  if (taskId && taskRelationReady)
+  if (taskId && projectionTables(db).has("task_relation"))
     refreshTaskRelationProjection(db, taskId, null, row.workspaceRevision, entity.updatedAt);
   return row;
 }
