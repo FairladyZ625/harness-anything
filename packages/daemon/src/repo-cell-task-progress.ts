@@ -293,7 +293,8 @@ export async function completeTask(
       ? {
           invalidDocument: {
             path: preparedContext.closeoutPath,
-            reason: `Submitted commit ${codeDoc.commitSha}: ${codeDoc.code}; paths: ${codeDoc.missingPaths.join(", ")}.`,
+            reason:
+              `Submitted commit ${codeDoc.commitSha}: ${codeDoc.code}; ` + `paths: ${codeDoc.missingPaths.join(", ")}.`,
           },
         }
       : {}),

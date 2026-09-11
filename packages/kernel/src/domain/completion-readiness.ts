@@ -144,7 +144,7 @@ export function completionBlockers(
       "lease_held",
       "lease",
       `ha task release ${task.taskId}`,
-      "Release the held execution lease through canonical submit.",
+      "The held execution lease must be released by its current holder.",
     );
   const assessment = closeoutReadiness(snapshot);
   const approved = approvedReviewHistoryForExecution(snapshot.reviews, execution);
@@ -167,7 +167,8 @@ export function completionBlockers(
     return one(
       "consent_missing",
       "consent",
-      `ha task review-consent ${task.taskId} --execution-id ${executionId} --review-id ${reviewId} --consent-id consent-${reviewId}`,
+      `ha task review-consent ${task.taskId} --execution-id ${executionId} ` +
+        `--review-id ${reviewId} --consent-id consent-${reviewId}`,
       "Select one approved Review with content-pinned owner consent.",
     );
   }
@@ -179,7 +180,10 @@ export function completionBlockers(
       ? one(
           "code_doc_missing",
           gate.gateId,
-          `Correct the delivery paths in harness/${context.closeoutPath} Summary for execution ${executionId}.`,
+          execution.submission.deliverables.length
+            ? `ha task code-doc reconcile ${task.taskId}` +
+                execution.submission.deliverables.map((value) => ` --path '${value.replaceAll("'", "'\\''")}'`).join("")
+            : `Identify the delivery paths in harness/${context.closeoutPath} Summary for execution ${executionId}.`,
           "The submitted execution cut has no canonical code/doc witness.",
         )
       : one(

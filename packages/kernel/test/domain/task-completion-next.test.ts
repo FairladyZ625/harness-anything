@@ -104,3 +104,14 @@ test("completion next is one pure judgment across lifecycle and unavailable-inpu
   }
   assert.equal(taskCompletionNext(cases[2][1], context).next?.authority, "other-agent");
 });
+
+test("missing delivery paths identify the Summary instead of a JSON closeout recipe", () => {
+  const snapshot = at(5),
+    result = taskCompletionNext(
+      { ...snapshot, task: { ...snapshot.task!, completionGateIds: ["code-doc-reconciliation"] } },
+      context,
+    );
+  assert.equal(result.blocker?.code, "code_doc_missing");
+  assert.match(result.next!.action, /Identify the delivery paths.*Summary/);
+  assert.doesNotMatch(result.next!.action, /packet.json|task closeout/);
+});
