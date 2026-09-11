@@ -1,3 +1,4 @@
+import { validateDaemonTaskCompletion } from "../../../daemon/src/protocol/gui-result-validation.ts";
 import type {
   AgendaRead,
   AgendaTaskRow,
@@ -404,7 +405,10 @@ export const harnessClient = {
     return readTaskDocumentResult(await invoke("repo.tasks.document.read", payload, "getTaskDocument"));
   },
   async getTaskCompletion(payload: RepoScope & { readonly taskId: string }): Promise<TaskCompletionRead> {
-    return readTaskCompletionResult(await invoke("repo.tasks.completion.read", payload, "getTaskCompletion"));
+    const result = await invoke("repo.tasks.completion.read", payload, "getTaskCompletion");
+    if (validateDaemonTaskCompletion(result).length)
+      throw new Error(localErrorHint(result, "Task completion bridge returned an invalid result."));
+    return result as TaskCompletionRead;
   },
   async getTaskDocuments(payload: RepoScope & { readonly taskId: string }): Promise<TaskDocumentListProjectionRead> {
     return readTaskDocumentListResult(await invoke("repo.tasks.documents.list", payload, "getTaskDocuments"));
@@ -616,20 +620,6 @@ function readTaskListResult(value: unknown): TaskListSuccess {
       : [],
     ...(result.page ? { page: result.page } : {}),
   };
-}
-
-function readTaskCompletionResult(value: unknown): TaskCompletionRead {
-  const result = value as Partial<TaskCompletionRead>;
-  if (
-    !result ||
-    result.ok !== true ||
-    typeof result.taskId !== "string" ||
-    !result.taskId ||
-    (result.completionNext !== null &&
-      (typeof result.completionNext !== "object" || typeof result.completionNext?.action !== "string"))
-  )
-    throw new Error(localErrorHint(value, "Task completion bridge returned an invalid result."));
-  return result as TaskCompletionRead;
 }
 
 function readTaskWipResult(value: unknown): TaskWipRead {
