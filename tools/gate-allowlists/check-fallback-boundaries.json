@@ -257,6 +257,7 @@
       "packages/kernel/src/store/local-version-control-system.ts#<module>",
       "packages/kernel/src/store/local-version-control-system.ts#currentBranch",
       "packages/kernel/src/store/local-version-control-system.ts#gitTopLevel",
+      "packages/kernel/src/store/local-version-control-system.ts#hasCommit",
       "packages/kernel/src/store/local-version-control-system.ts#isAncestor",
       "packages/kernel/src/store/local-version-control-system.ts#isDirectory",
       "packages/kernel/src/store/local-version-control-system.ts#processMayBeAlive",
