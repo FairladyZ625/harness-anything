@@ -585,12 +585,11 @@ export function resolveDocExecutionBinding(
 function dirtyPaths(repoRoot: string, authoredPrefix: string, logicalScope = ""): string[] {
   const scopePath = [authoredPrefix, logicalScope.replace(/\/$/u, "")].filter(Boolean).join("/"),
     scope = scopePath || ".",
-    changed = gitNames(repoRoot, ["diff", "--name-only", "-z", "HEAD", "--", scope]),
-    untracked = gitNames(repoRoot, ["ls-files", "--others", "--exclude-standard", "-z", "--", scope]),
+    changed = gitStatusNames(repoRoot, scope),
     prefix = authoredPrefix ? `${authoredPrefix}/` : "";
   return [
     ...new Set(
-      [...changed, ...untracked]
+      changed
         .filter(
           (value) =>
             (!prefix || value.startsWith(prefix)) &&
@@ -603,6 +602,21 @@ function dirtyPaths(repoRoot: string, authoredPrefix: string, logicalScope = "")
         ),
     ),
   ];
+}
+
+function gitStatusNames(repoRoot: string, scope: string): string[] {
+  const entries = gitNames(repoRoot, ["status", "--porcelain=v1", "-z", "--untracked-files=all", "--", scope]),
+    paths: string[] = [];
+  for (let index = 0; index < entries.length; index++) {
+    const entry = entries[index]!;
+    if (entry.length < 4) continue;
+    const xy = entry.slice(0, 2);
+    paths.push(entry.slice(3));
+    // In porcelain -z format, renamed and copied entries are followed by the
+    // original pathname. The scanner needs the destination candidate only.
+    if (xy[0] === "R" || xy[0] === "C" || xy[1] === "R" || xy[1] === "C") index++;
+  }
+  return paths;
 }
 function candidateConflicts(rootDir: string, authoredRoot: string, logical: string): string[] {
   const target = path.join(authoredRoot, ...logical.split("/")),
