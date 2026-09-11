@@ -12,10 +12,6 @@ export function preferTaskActionHelp(row: TaskActionHelpRow): TaskActionHelpRow 
   return byCommand.get(commandKey(row.usage)) ?? row;
 }
 
-export function projectedTaskActionHelpRows(): readonly TaskActionHelpRow[] {
-  return taskActionHelpRows;
-}
-
 function commandKey(usage: string): string {
   return usage.split(/ (?=<|\[)/u, 1)[0]!;
 }

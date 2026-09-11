@@ -15,15 +15,6 @@ import { readFlags } from "./cli/thin-command-flags.ts";
 
 type Emit = (receipt: Record<string, unknown>, json: boolean) => void;
 
-export function isOfflineStorageCommand(argv: readonly string[]): boolean {
-  return (
-    argv[0] === "backup" ||
-    argv[0] === "restore" ||
-    argv[0] === "events" ||
-    (argv[0] === "migrate" && argv[1] === "ledger")
-  );
-}
-
 export function runOfflineStorageCommand(argv: readonly string[], emit: Emit): number {
   const json = argv.includes("--json"),
     rootInput = option(argv, "--root") ?? process.cwd();
