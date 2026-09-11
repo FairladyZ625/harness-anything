@@ -8,7 +8,7 @@ export const DAEMON_TASK_SNAPSHOT_LIST_SCHEMA = Object.freeze({
 
 export const DAEMON_TASK_WIP_SCHEMA = Object.freeze({
   id: "daemon.task-wip/v1",
-  required: Object.freeze(["limit", "limitLabel", "counted", "roots", "threshold"]),
+  required: Object.freeze(["ok", "limit", "limitLabel", "counted", "roots", "threshold"]),
 });
 
 export const DAEMON_SETTINGS_READ_SCHEMA = Object.freeze({

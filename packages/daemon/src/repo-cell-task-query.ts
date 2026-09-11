@@ -256,6 +256,7 @@ export function readTaskWipSnapshot(cell: TaskQueryCell) {
     limitSetting = resolveTaskWipLimit(cell.rootDir),
     rootSetting = resolveTaskRootThreshold(cell.rootDir);
   return {
+    ok: true,
     limit: limitSetting.limit,
     limitLabel: limitSetting.label,
     counted: entries

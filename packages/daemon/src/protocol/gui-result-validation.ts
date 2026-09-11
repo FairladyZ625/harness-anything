@@ -131,7 +131,7 @@ const resultValidators = {
 
 export function validateDaemonTaskWip(value: unknown): readonly string[] {
   if (!isJsonObject(value)) return [validationError("task-wip", "result", value, "must be an object")];
-  const fields = ["limit", "limitLabel", "counted", "roots", "threshold"];
+  const fields = ["ok", "limit", "limitLabel", "counted", "roots", "threshold"];
   if (Object.keys(value).length !== fields.length || fields.some((field) => !Object.hasOwn(value, field)))
     return [validationError("task-wip", "result", value, "must have the exact task WIP fields")];
   const positive = (item: unknown) => Number.isSafeInteger(item) && Number(item) > 0,
@@ -159,7 +159,8 @@ export function validateDaemonTaskWip(value: unknown): readonly string[] {
           nonNegative(row.directChildCount) &&
           positive(row.threshold),
       );
-  return positive(value.limit) &&
+  return value.ok === true &&
+    positive(value.limit) &&
     typeof value.limitLabel === "string" &&
     value.limitLabel.length > 0 &&
     positive(value.threshold) &&

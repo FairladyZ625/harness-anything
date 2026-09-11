@@ -766,6 +766,7 @@ export type DaemonTaskSnapshotListResult = {
 };
 
 export type DaemonTaskWipResult = {
+  readonly ok: true;
   readonly limit: number;
   readonly limitLabel: string;
   readonly counted: readonly {
