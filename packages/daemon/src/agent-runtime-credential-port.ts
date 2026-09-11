@@ -12,7 +12,7 @@ import { runProcessTextAsync } from "./process-port.ts";
 // existed; other platforms reject it closed. The darwin store writes the
 // secret twice because `security add-generic-password -w` reads entry plus
 // retype from stdin; a single line exits 0 without storing anything.
-export type CredentialRunner = (command: CredentialCommand) => Promise<string>;
+export type CredentialRunner = (command: CredentialCommand, timeoutMs?: number) => Promise<string>;
 export interface CredentialCommand {
   readonly file: string;
   readonly args: readonly string[];
@@ -23,6 +23,11 @@ export interface CredentialPort {
   readonly store: (reference: string, secret: string) => Promise<void>;
   readonly resolve: (reference: string) => Promise<string>;
 }
+// Runtime spawns resolve credentials inside the repository write queue, so a vault that waits on a
+// person (a locked keychain's unlock dialog) must fail the lookup rather than hold every write. A
+// readable secret answers in well under a second; PowerShell's Add-Type compile takes a few. Stores
+// stay unbounded: a person storing a secret is there to answer the dialog.
+const credentialLookupTimeoutMs = 10_000;
 const namespace = "com.harness-anything.runtime-instance",
   neutralPattern = /^credential:v1:([a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?)$/u,
   legacyPattern = /^keychain:([A-Za-z0-9._-]+)\/([A-Za-z0-9._-]+)$/u;
@@ -34,6 +39,7 @@ export function isCredentialReferenceText(text: string): boolean {
 export function credentialPort(
   platform: NodeJS.Platform = process.platform,
   run: CredentialRunner = runCredentialCommand,
+  lookupTimeoutMs = credentialLookupTimeoutMs,
 ): CredentialPort {
   const backend = credentialBackend(platform);
   return {
@@ -45,15 +51,16 @@ export function credentialPort(
     },
     resolve: async (reference) => {
       const command = backend.resolve(reference);
-      return (await attempt(backend.hint, () => run(command))) || throwCredentialUnavailable(backend.hint);
+      return (
+        (await attempt(backend.hint, () => run(command, lookupTimeoutMs))) || throwCredentialUnavailable(backend.hint)
+      );
     },
   };
 }
-export async function runCredentialCommand(command: CredentialCommand): Promise<string> {
-  return (await runProcessTextAsync(command.file, command.args, undefined, undefined, command.stdin)).replace(
-    /[\r\n]+$/u,
-    "",
-  );
+export async function runCredentialCommand(command: CredentialCommand, timeoutMs?: number): Promise<string> {
+  return (
+    await runProcessTextAsync(command.file, command.args, undefined, undefined, command.stdin, undefined, { timeoutMs })
+  ).replace(/[\r\n]+$/u, "");
 }
 // The underlying error (exit status, stderr, ENOENT) is discarded on purpose:
 // it can echo command output, so only the fixed per-backend hint ever surfaces.

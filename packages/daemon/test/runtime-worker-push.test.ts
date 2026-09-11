@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -49,6 +49,47 @@ test("worker push records a single failure without retrying", async (context) =>
   assert.equal(result.ok, false);
   assert.equal(result.branch, "codex/push-failure");
   assert.match(result.detail, /does not appear to be a git repository|No such file|not found/iu);
+});
+
+test("a worker push that never answers ends as a timed-out push failure", async (context) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-worker-push-hang-")),
+    bare = path.join(root, "remote.git"),
+    canonical = path.join(root, "project"),
+    worker = path.join(root, "worker"),
+    hooks = path.join(root, "hooks"),
+    release = path.join(root, "release");
+  context.after(() => {
+    writeFileSync(release, "");
+    rmSync(root, { recursive: true, force: true });
+  });
+  git(root, "init", "--bare", bare);
+  git(root, "init", "-q", "project");
+  git(canonical, "config", "user.email", "push-test@example.invalid");
+  git(canonical, "config", "user.name", "Push Test");
+  git(canonical, "commit", "--allow-empty", "--quiet", "-m", "fixture");
+  git(canonical, "remote", "add", "origin", bare);
+  git(canonical, "worktree", "add", "--quiet", worker, "-b", "codex/push-hang");
+  // Stands in for a stalled remote or a credential dialog nobody answers.
+  mkdirSync(hooks);
+  writeFileSync(
+    path.join(hooks, "pre-push"),
+    `#!/bin/sh\nwhile [ -d '${root}' ] && [ ! -f '${release}' ]; do sleep 0.05; done\n`,
+    { mode: 0o755 },
+  );
+  git(canonical, "config", "core.hooksPath", hooks);
+
+  const result = await Promise.race([
+    pushWorkerBranch({ cwd: worker, canonicalRoot: canonical, timeoutMs: 300 }),
+    new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error("the hanging push never settled")), 10_000).unref();
+    }),
+  ]);
+  assert.deepEqual(result, {
+    attempted: true,
+    ok: false,
+    branch: "codex/push-hang",
+    detail: "git push timed out after 300 ms",
+  });
 });
 
 test("canonical roots never trigger worker push", async () => {

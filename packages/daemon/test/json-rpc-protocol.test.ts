@@ -17,7 +17,7 @@ import path from "node:path";
 import test from "node:test";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
-import { pullAndIngestCiObservations } from "../src/ci-observation-actions.ts";
+import { fetchCiObservations, ingestCiObservations } from "../src/ci-observation-actions.ts";
 import {
   canonicalEventWritePlan,
   makeTaskEventReader,
@@ -1669,51 +1669,48 @@ async function publishCiObservation(
     databaseId = Number.parseInt(createHash("sha256").update(runId).digest("hex").slice(0, 8), 16) + 1,
     observedRunId = `${databaseId}.1`;
   try {
-    const receipt = await pullAndIngestCiObservations(
-      {
-        rootDir,
-        store,
-        projection,
-        now: () => "2026-09-09T00:00:00.000Z",
-        cellCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),
-      } as unknown as Parameters<typeof pullAndIngestCiObservations>[0],
-      { kind: "ci-observe-pull", limit: 1 },
-      repoWriteBinding,
-      async (_command, args) => {
-        if (args[1] === "list")
-          return JSON.stringify([{ databaseId, headBranch: "main", createdAt: "2026-09-09T00:00:00.000Z" }]);
-        if (args[1] === "view")
-          return JSON.stringify({
-            workflowName: verified ? "rewrite-ci" : "rebuild-gates",
-            headSha: commitSha,
-            headBranch: "main",
-            status: "completed",
-            conclusion: "success",
-            attempt: 1,
-          });
-        assert.equal(args[1], "download");
-        const output = String(args[args.indexOf("--dir") + 1]);
-        mkdirSync(output, { recursive: true });
-        writeFileSync(
-          path.join(output, "observation.json"),
-          JSON.stringify({
-            schema: "ci-run-artifact/v1",
-            run: {
-              runId: observedRunId,
-              sha: commitSha,
-              branch: "main",
-              prNumber: null,
-              job: "full-check (24)",
-              wallclockMs: 25,
-              runner: "fixture-runner",
-            },
-            tests: [],
-            gates: [{ gate: "ci", pass: true, metrics: { runAttempt: 1 } }],
-          }),
-        );
-        return "";
-      },
-    );
+    const cell = {
+      rootDir,
+      store,
+      projection,
+      now: () => "2026-09-09T00:00:00.000Z",
+      cellCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),
+    } as unknown as Parameters<typeof ingestCiObservations>[0];
+    const fetched = await fetchCiObservations(cell, { kind: "ci-observe-pull", limit: 1 }, async (_command, args) => {
+      if (args[1] === "list")
+        return JSON.stringify([{ databaseId, headBranch: "main", createdAt: "2026-09-09T00:00:00.000Z" }]);
+      if (args[1] === "view")
+        return JSON.stringify({
+          workflowName: verified ? "rewrite-ci" : "rebuild-gates",
+          headSha: commitSha,
+          headBranch: "main",
+          status: "completed",
+          conclusion: "success",
+          attempt: 1,
+        });
+      assert.equal(args[1], "download");
+      const output = String(args[args.indexOf("--dir") + 1]);
+      mkdirSync(output, { recursive: true });
+      writeFileSync(
+        path.join(output, "observation.json"),
+        JSON.stringify({
+          schema: "ci-run-artifact/v1",
+          run: {
+            runId: observedRunId,
+            sha: commitSha,
+            branch: "main",
+            prNumber: null,
+            job: "full-check (24)",
+            wallclockMs: 25,
+            runner: "fixture-runner",
+          },
+          tests: [],
+          gates: [{ gate: "ci", pass: true, metrics: { runAttempt: 1 } }],
+        }),
+      );
+      return "";
+    });
+    const receipt = ingestCiObservations(cell, repoWriteBinding, fetched);
     assert.equal(JSON.parse(receipt.evidence).imported, 1);
     const event = store
       .read()

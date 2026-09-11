@@ -4,10 +4,20 @@ import path from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readCiObservatory } from "../src/ci-observatory-read.ts";
-import { pullAndIngestCiObservations, selectCiObservationRuns } from "../src/ci-observation-actions.ts";
+import { fetchCiObservations, ingestCiObservations, selectCiObservationRuns } from "../src/ci-observation-actions.ts";
 import type { CiRunObservationEventV2 } from "../../kernel/src/index.ts";
 
 const actor = { principal: { personId: "person-observatory" }, executor: null } as const;
+
+// The daemon runs the gh reads before the write queue and the appends inside it; these cases run both halves back to back.
+async function pullAndIngestCiObservations(
+  cell: Parameters<typeof ingestCiObservations>[0],
+  action: Parameters<typeof fetchCiObservations>[1],
+  binding: Parameters<typeof ingestCiObservations>[1],
+  runGh: Parameters<typeof fetchCiObservations>[2],
+) {
+  return ingestCiObservations(cell, binding, await fetchCiObservations(cell, action, runGh));
+}
 
 function event(
   revision: number,
