@@ -101,6 +101,7 @@ import type { AgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
 import type { RepoBootstrapReceipt } from "./repo-bootstrap.ts";
 import { explainAuthenticationRequired, readTaskActionExplanation } from "./task-action-explanation-read.ts";
 import { commitRuntimeSessionAction } from "./runtime-session-action-runtime.ts";
+import { readTaskWipSnapshot, type TaskQueryCell } from "./repo-cell-task-query.ts";
 
 export interface RepoCellApiContext {
   readonly extracted: RepoCellOperationalContext;
@@ -528,6 +529,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
     }),
     "repo.tasks.list": (payload: Readonly<Record<string, unknown>>) =>
       queryRead().guiTasks(taskListQueryFromPayload(payload)),
+    "repo.tasks.wip": () => readTaskWipSnapshot(context as unknown as TaskQueryCell),
     "repo.projection.read": (payload: Readonly<Record<string, unknown>>) => useCaseProjection(payload),
     "repo.entity.actions.explain": explainAuthenticationRequired,
     "repo.vertical.declaration.read": () =>

@@ -10,9 +10,20 @@ export const TASK_LIST_PAGE_LIMIT = 500;
 export const taskQueryKeys = {
   all: (repoId: string) => ["tasks", repoId] as const,
   list: (repoId: string) => ["tasks", repoId, "list"] as const,
+  wip: (repoId: string) => ["tasks", repoId, "wip"] as const,
   document: (repoId: string, taskId: string, path: string) => ["tasks", repoId, taskId, "document", path] as const,
   documentList: (repoId: string, taskId: string) => ["tasks", repoId, taskId, "document-list"] as const,
 };
+
+export function useTaskWipQuery(repoId: string | null, enabled: boolean) {
+  const selectedRepoId = repoId ?? "unselected";
+  return useQuery({
+    queryKey: taskQueryKeys.wip(selectedRepoId),
+    queryFn: () => harnessClient.getTaskWip({ repoId: selectedRepoId }),
+    enabled: repoId !== null && enabled,
+    staleTime: 10_000,
+  });
+}
 
 export function taskListQuery(repoId: string) {
   return {

@@ -13,7 +13,7 @@ import {
 } from "../../kernel/src/index.ts";
 import { seedRelationProjection } from "../../kernel/test/store/relation-graph-projection.fixtures.ts";
 import { canonicalRoot, validateDaemonRelationGraph } from "../src/protocol/daemon-protocol.contract.ts";
-import { wipSnapshotEntries, type TaskQueryCell } from "../src/repo-cell-task-query.ts";
+import { readTaskWipSnapshot, wipSnapshotEntries, type TaskQueryCell } from "../src/repo-cell-task-query.ts";
 import { makeTaskQueryReadModel } from "../src/task-query-read.ts";
 
 type ProjectionCut = {
@@ -208,6 +208,31 @@ test("task reads fail closed when event truth has no packageDisposition", () => 
   assert.throws(() => wipSnapshotEntries(cell, "task_missing"), /missing packageDisposition for task_missing/u);
 });
 
+test("task WIP read returns daemon-counted leaves and root assessments", (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "task-wip-read-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  const projection = projectionStub({
+      taskRows: [
+        protocolTaskRow("task_leaf", [], { status: "active" }),
+        protocolTaskRow("task_milestone", [], { status: "blocked", taskClass: "milestone" }),
+        protocolTaskRow("task_derived", [], { status: "in_review" }),
+      ],
+      childCounts: { task_leaf: 0, task_milestone: 2, task_derived: 4 },
+    }),
+    result = readTaskWipSnapshot({ rootDir, projection } as unknown as TaskQueryCell);
+
+  assert.deepEqual(
+    result.counted.map(({ taskId }) => taskId),
+    ["task_leaf"],
+  );
+  assert.deepEqual(result.roots, [
+    { taskId: "task_milestone", reason: "declared", directChildCount: 2, threshold: 3 },
+    { taskId: "task_derived", reason: "derived", directChildCount: 4, threshold: 3 },
+  ]);
+  assert.equal(result.limit, 30);
+  assert.equal(result.limitLabel, "settings.tasks.wipLimit");
+});
+
 test("relation graph validator accepts the canonical cut and rejects invented fields", () => {
   const result = queryRead(process.cwd(), projectionStub()).relationGraphNeighborhood(neighborhoodQuery());
   assert.deepEqual(validateDaemonRelationGraph(result), []);
@@ -264,6 +289,7 @@ function projectionStub(
     readonly targetCalls?: { targetRefs: readonly string[]; relationType: string }[];
     readonly statusCalls?: string[][];
     readonly decisionCalls?: string[][];
+    readonly childCounts?: Readonly<Record<string, number>>;
   } = {},
 ): TaskProjection {
   const cut = options.cut ?? readyCut,
@@ -273,13 +299,15 @@ function projectionStub(
   return {
     list: (query: TaskProjectionListQuery = {}) => ({
       ...cut,
-      rows: taskRows,
+      rows: query.status
+        ? taskRows.filter((row) => (row as ReturnType<typeof protocolTaskRow>).snapshot.task.status === query.status)
+        : taskRows,
       warnings: [],
       ...(query.limit === undefined
         ? {}
         : { page: { limit: query.limit, cursor: query.cursor ?? null, nextCursor: null } }),
     }),
-    readTaskChildCounts: () => ({}),
+    readTaskChildCounts: () => options.childCounts ?? {},
     readTaskRelations: () => ({ ...cut, rows: edges }),
     readTaskRelationNeighborhood: () => ({ ...cut, rows: edges }),
     readTaskDependencyClosure: (sourceRefs: readonly string[]) => {
@@ -350,7 +378,14 @@ function activeTaskRow(taskId: string) {
   return protocolTaskRow(taskId);
 }
 
-function protocolTaskRow(taskId: string, codeDocWitnesses: readonly unknown[] = []) {
+function protocolTaskRow(
+  taskId: string,
+  codeDocWitnesses: readonly unknown[] = [],
+  patch: {
+    readonly status?: "planned" | "active" | "blocked" | "in_review";
+    readonly taskClass?: "standard" | "milestone";
+  } = {},
+) {
   return {
     taskId,
     packagePath: null,
@@ -364,8 +399,8 @@ function protocolTaskRow(taskId: string, codeDocWitnesses: readonly unknown[] = 
         schema: "task/v2",
         taskId,
         title: taskId,
-        taskClass: "standard",
-        status: "planned",
+        taskClass: patch.taskClass ?? "standard",
+        status: patch.status ?? "planned",
         graph: {},
         currentNode: "implementation",
         iteration: 0,
@@ -397,7 +432,7 @@ function taskRowWithoutDisposition() {
     updatedAt: "2026-08-30T00:00:00.000Z",
     snapshot: {
       revision: 7,
-      task: { title: "Missing", status: "planned", taskClass: "standard" },
+      task: { title: "Missing", status: "active", taskClass: "standard" },
       executions: [],
       reviews: [],
       edgesTaken: [],

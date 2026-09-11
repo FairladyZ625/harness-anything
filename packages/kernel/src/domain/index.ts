@@ -120,6 +120,7 @@ export {
   admitTaskExecutionWip,
   deriveTaskRoot,
   hasCloseoutEvidence,
+  isExecutionWipTask,
   parseTaskWipLimit,
   taskWipOccupyingStatuses,
 } from "./task-wip-policy.ts";

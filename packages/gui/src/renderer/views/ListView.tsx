@@ -16,6 +16,7 @@ import {
 import type { TaskFilters } from "../model/taskFilters";
 import { sortByRecentThenPinAndFavoritesFirst } from "../model/taskFilters";
 import { spawningDecisionBadge } from "../model/triadic";
+import { TaskRootBadge } from "../components/TaskWipSummary.tsx";
 import { t } from "../i18n/index.tsx";
 import { formatTime } from "../model/time.ts";
 
@@ -153,6 +154,7 @@ const AuditRow = memo(function AuditRow({
           <div className="line-clamp-2 ui-prose font-medium leading-snug text-text">{task.title}</div>
         </div>
         <div className="mt-1 flex flex-wrap items-center gap-2 font-mono ui-meta text-text-faint">
+          <TaskRootBadge task={task} />
           <span className="min-w-0 truncate">
             {task.module === "unassigned" || !task.module ? t("views.listView.notProjected") : task.module}
           </span>

@@ -28,6 +28,7 @@ export type RelationCoverageRow = DaemonGuiReadResultMap["repo.triadic.relationG
 export type ServedRelationEdgeRow = DaemonGuiReadResultMap["repo.triadic.relationGraph"]["edges"][number];
 export type TaskSnapshotProjectionRow = DaemonGuiReadResultMap["repo.tasks.list"]["rows"][number];
 export type TaskSnapshotInvalidRow = DaemonGuiReadResultMap["repo.tasks.list"]["invalidRows"][number];
+export type TaskWipRead = DaemonGuiReadResultMap["repo.tasks.wip"];
 /** `repo.agenda.read`: the same supervisory agenda projection the CEO CLI tick reads. */
 export type AgendaRead = DaemonGuiReadResultMap["repo.agenda.read"];
 export type AgendaTaskRow = AgendaRead["inFlight"][number];

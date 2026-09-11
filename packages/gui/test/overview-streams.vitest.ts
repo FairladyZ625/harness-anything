@@ -18,6 +18,8 @@ import { summarizeWorkspace } from "../../kernel/src/index.ts";
 import { deriveRuntimeHealth } from "../src/renderer/model/runtime-health.ts";
 import type { AgendaSuccess } from "../src/renderer/api-client.ts";
 import { projectedTaskFields } from "./task-projection-fields.ts";
+import type { TaskWipRead } from "../src/api/renderer-dto.ts";
+import { TaskRootBadge, TaskWipSummary } from "../src/renderer/components/TaskWipSummary.tsx";
 
 function task(patch: Partial<TaskRow>): TaskRow {
   return {
@@ -60,6 +62,22 @@ function decision(patch: Partial<DecisionRow>): DecisionRow {
 }
 
 const noop = () => {};
+const wipSnapshot: TaskWipRead = {
+  limit: 30,
+  limitLabel: "settings.tasks.wipLimit",
+  counted: Array.from({ length: 24 }, (_, index) => ({
+    taskId: `task_leaf_${index}`,
+    status: "active" as const,
+    title: `Leaf ${index}`,
+  })),
+  roots: Array.from({ length: 10 }, (_, index) => ({
+    taskId: `task_root_${index}`,
+    reason: index < 8 ? ("declared" as const) : ("derived" as const),
+    directChildCount: index < 8 ? 0 : 4,
+    threshold: 3,
+  })),
+  threshold: 3,
+};
 const NOW = "2026-08-31T12:00:00.000Z";
 const blocking = { state: "clear" as const, blockers: [], warnings: [] };
 const agenda = (patch: Partial<AgendaSuccess> = {}): AgendaSuccess => ({
@@ -74,6 +92,26 @@ const agenda = (patch: Partial<AgendaSuccess> = {}): AgendaSuccess => ({
   watermark: 12,
   sourceRevision: 12,
   ...patch,
+});
+
+describe("task WIP presentation", () => {
+  it("renders daemon occupancy, root count, and limit source", () => {
+    const markup = renderToStaticMarkup(createElement(TaskWipSummary, { snapshot: wipSnapshot }));
+    expect(markup).toContain("WIP 24/30");
+    expect(markup).toContain("root 10");
+    expect(markup).toContain("上限来源: settings.tasks.wipLimit");
+    expect(markup).toContain("task_root_8 (4 children)");
+  });
+
+  it("marks a derived root row with its direct child count", () => {
+    const row = task({
+      taskId: "task_root_8",
+      rootAssessment: { reason: "derived", directChildCount: 4, threshold: 3 },
+    });
+    const markup = renderToStaticMarkup(createElement(TaskRootBadge, { task: row }));
+    expect(markup).toContain('data-testid="task-root-badge-task_root_8"');
+    expect(markup).toContain("derived 4 children");
+  });
 });
 // Read one status tab's rendered text exactly. A loose `testid … label … count` regex
 // matches any later digit in the document, so it stays green when the count is wrong.
@@ -265,7 +303,7 @@ describe("overview task stream", () => {
       expect(board).toContain(`data-testid="board-status-${status}-count">${drawn}</span>`);
     }
     expect(summary.total).toBe(visible.length);
-    expect(tabText(overview, "overview-status-active")).toBe("进行中 2");
+    expect(tabText(overview, "overview-status-active")).toBe("活跃 2");
     expect(tabText(overview, "overview-status-blocked")).toBe("已阻塞 1");
   });
 
@@ -317,7 +355,7 @@ describe("overview task stream", () => {
       }),
     );
 
-    expect(tabText(page, "overview-status-active")).toBe("进行中 2");
+    expect(tabText(page, "overview-status-active")).toBe("活跃 2");
     expect(tabText(page, "overview-status-blocked")).toBe("已阻塞 1");
     expect(page).toContain("xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]");
     expect(page).toContain("xl:row-span-2");
@@ -480,7 +518,7 @@ describe("overview task stream: freshly created tasks are visible with zero inte
     );
     expect(section(markup, "task-stream-ahead-rows")).toContain("计划中");
     // census 逐字照抄 daemon,不因为「让它可见」而被改写。
-    expect(tabText(markup, "overview-status-active")).toBe("进行中 1");
+    expect(tabText(markup, "overview-status-active")).toBe("活跃 1");
     expect(tabText(markup, "overview-status-planned")).toBe("计划中 1");
   });
 
@@ -704,7 +742,7 @@ describe("overview task stream: main row set renders in full", () => {
     expect(markup).not.toContain('data-testid="task-stream-more"');
     expect(markup).not.toContain("再显示");
     // 页签计数报的是真实总数,与渲染行数一致。
-    expect(tabText(markup, "overview-status-active")).toBe("进行中 45");
+    expect(tabText(markup, "overview-status-active")).toBe("活跃 45");
   });
 
   it("renders a small main row set in full", () => {

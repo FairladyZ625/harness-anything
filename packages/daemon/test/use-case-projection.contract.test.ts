@@ -68,11 +68,13 @@ test("the folded per-store reads are gone and the net read count fell", () => {
   // task_fe66965a89 then added repo.vertical.declaration.read: the repository-scoped vertical
   // declaration is the writable source behind those kinds and needs its own read. The artifact
   // timeline later added repo.artifacts.list as a separate payload-closed read.
+  // task_dbbc1760bb then added repo.tasks.wip: the WIP gate's own count, limit and roots, so the
+  // GUI renders the gate's numbers instead of re-deriving a different count from the task list.
   assert.equal(
     daemonGuiReadMethods.length,
-    34,
+    35,
     "31 array entries minus 3 folded plus 1 unified plus 3 entity reads plus 1 vertical " +
-      "declaration read plus 1 artifact read",
+      "declaration read plus 1 artifact read plus 1 task WIP read",
   );
 });
 
