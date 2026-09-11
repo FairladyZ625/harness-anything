@@ -99,6 +99,41 @@ function readCiEvidence(
   };
 }
 
+function submittedChangedPaths(
+  cell: RepoCellOperationalContext,
+  execution: Snapshot["executions"][number] | undefined,
+): readonly string[] {
+  const submission = execution?.submission;
+  if (!submission) return [];
+  const commit = submission.commitSha,
+    roots = [...new Set([cell.rootDir, resolveHarnessLayout(cell.rootDir).authoredRoot])],
+    changed = new Set<string>();
+  for (const root of roots) {
+    if (!localGitObjectRefStore.hasCommit(root, commit)) continue;
+    const parent = localGitObjectRefStore.resolveCommit(root, `${commit}^`);
+    for (const candidate of submission.deliverables) {
+      const current = localGitObjectRefStore.readPath(root, commit, candidate),
+        previous = localGitObjectRefStore.readPath(root, parent, candidate);
+      if (current?.equals(previous ?? Buffer.alloc(0)) === false || (current !== null && previous === null))
+        changed.add(candidate);
+    }
+  }
+  return [...changed];
+}
+
+function defaultCompletionPaths(
+  cell: RepoCellOperationalContext,
+  execution: Snapshot["executions"][number] | undefined,
+  taskId: string,
+): readonly string[] {
+  const candidates = submittedChangedPaths(cell, execution),
+    snapshot = cell.projection.read(taskId).snapshot;
+  const witnessed = new Set(snapshot.codeDocWitnesses.map((value) => value.paths).flat());
+  return [
+    ...new Set([...candidates, ...(execution?.submission?.deliverables ?? []).filter((value) => witnessed.has(value))]),
+  ];
+}
+
 export function appendProgress(
   cell: RepoCellOperationalContext,
   action: RepoTaskAction,
@@ -208,7 +243,7 @@ export async function completeTask(
     ),
     paths =
       action.paths === undefined && submittedExecution?.submission
-        ? submittedExecution.submission.deliverables
+        ? defaultCompletionPaths(cell, submittedExecution, taskId)
         : requestedPaths,
     ciEvidence = readCiEvidence(cell, action.ci, submittedExecution);
   if (
