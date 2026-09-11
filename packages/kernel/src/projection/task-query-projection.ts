@@ -705,16 +705,38 @@ export function readTaskRelationPage(
   }
   const paged = query.limit !== undefined || query.cursor !== undefined,
     pageLimit = query.limit === undefined ? (paged ? 100 : null) : checkedPageLimit(query.limit);
+  // Anchor the primary-key range even on the first page so SQLite can stop each
+  // source after limit plus one rows instead of treating it as a table scan.
+  if (pageLimit !== null && query.freshness === undefined && query.cursor === undefined) {
+    where.push("relation_id >= ?");
+    values.push("");
+  }
   const filterFreshness = query.freshness !== undefined,
-    sqlLimit = pageLimit === null || filterFreshness ? "" : " LIMIT ?",
+    sqlLimit = pageLimit === null || filterFreshness ? "" : " LIMIT ?";
+  let sql: string;
+  let sqlValues: (string | number)[];
+  if (pageLimit !== null && !filterFreshness) {
+    const predicate = where.length ? ` WHERE ${where.join(" AND ")}` : "";
+    sql = [
+      "SELECT * FROM (",
+      `SELECT * FROM (SELECT * FROM (${taskRows})${predicate} ORDER BY relation_id LIMIT ?)`,
+      "UNION ALL",
+      `SELECT * FROM (SELECT * FROM (${eventRows})${predicate} ORDER BY relation_id LIMIT ?)`,
+      ")",
+      " ORDER BY relation_id LIMIT ?",
+    ].join(" ");
+    sqlValues = [...values, pageLimit + 1, ...values, pageLimit + 1, pageLimit + 1];
+  } else {
     sql = [
       `SELECT * FROM (${taskRows} UNION ALL ${eventRows})`,
       where.length ? ` WHERE ${where.join(" AND ")}` : "",
       " ORDER BY relation_id",
       sqlLimit,
     ].join("");
-  if (pageLimit !== null && !filterFreshness) values.push(pageLimit + 1);
-  const selected = queryRows(db, sql, ...values),
+    sqlValues = [...values];
+    if (pageLimit !== null) sqlValues.push(pageLimit + 1);
+  }
+  const selected = queryRows(db, sql, ...sqlValues),
     witnesses = readEntityVersionWitnesses(
       db,
       selected.map((row) => String(row.target_ref)),
