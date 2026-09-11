@@ -1,0 +1,13 @@
+{
+  "enabled": false,
+  "note": "Opt-in scale tier: an operator enables it and sets targetEvents for one dispatched run.",
+  "seed": 1103,
+  "repoId": "v2-scale",
+  "targetEvents": 10000,
+  "drainEvery": 65536,
+  "readSamples": 20,
+  "writeSamples": 20,
+  "binaryBytes": 4096,
+  "measureBudgetMs": 300000,
+  "stageBudgetMs": 870000
+}
