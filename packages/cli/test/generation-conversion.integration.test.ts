@@ -485,8 +485,11 @@ test("gen2 reuses the evidence conversion without promoting historical CI measur
     const target = openSqliteEventStore({ rootInput: f.destination, generation: 2, readOnly: true });
     try {
       const current = target.events()[2]!;
-      assert.equal(current.schema, "ci-run-observation/v2");
+      assert.equal(current.schema, "ci-run-observation/v3");
       assert.equal((current.payload as Record<string, unknown>).verification, null);
+      assert.deepEqual((current.payload as { gates: unknown[] }).gates, [
+        { gate: "ci", result: "pass", metrics: { runAttempt: 1 } },
+      ]);
       assert.equal(target.outcome(event.opId)?.intentDigest, digest);
     } finally {
       target.close();

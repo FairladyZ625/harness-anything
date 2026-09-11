@@ -360,6 +360,7 @@ test("immutable generation-0 conversion retries into inactive generation-1 witho
         { name: "schedule-definitions", count: 0, firstRevision: null, lastRevision: null },
         { name: "settings-wal-flush", count: 1, firstRevision: 1, lastRevision: 1 },
         { name: "ci-workflow-verification", count: 0, firstRevision: null, lastRevision: null },
+        { name: "ci-run-observation-v3", count: 0, firstRevision: null, lastRevision: null },
       ],
     );
     assert.equal(first.migratedEvents, 1);
@@ -1094,7 +1095,7 @@ test("offline conversion retains old CI labels as unverified measurements", () =
     });
     assert.equal(plan.events.length, 1);
     const converted = plan.events[0]!;
-    assert.equal(converted.schema, "ci-run-observation/v2");
+    assert.equal(converted.schema, "ci-run-observation/v3");
     assert.deepEqual(converted.payload, {
       ...legacy.payload,
       gates: [{ gate: "ci", result: "pass", metrics: { runAttempt: 1 } }],

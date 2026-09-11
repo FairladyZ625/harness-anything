@@ -7,14 +7,19 @@ import {
   consumeKnownError,
   validateCurrentCiRunObservationEvent,
   type CiRunObservationEventV2,
+  type CiRunObservationEventV3,
   type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { runProcessTextAsync } from "./process-port.ts";
 import type { RepoCellActionContext } from "./repo-cell-action-context.ts";
 
-type CiRunArtifact = Omit<CiRunObservationEventV2["payload"], "verification"> & {
+type CiRunArtifactGate =
+  | CiRunObservationEventV3["payload"]["gates"][number]
+  | CiRunObservationEventV2["payload"]["gates"][number];
+type CiRunArtifact = Omit<CiRunObservationEventV3["payload"], "verification" | "gates"> & {
   readonly schema: "ci-run-artifact/v1";
+  readonly gates: readonly CiRunArtifactGate[];
 };
 type CiWorkflowRun = { readonly databaseId: number; readonly headBranch: string; readonly createdAt: string };
 type CiRunSummary = {
@@ -137,7 +142,7 @@ export function ingestCiObservations(
   for (const { databaseId, summary, artifacts } of fetched.runs)
     for (const artifact of artifacts) {
       const digest = createHash("sha256")
-          .update(`verified-v2\u0000${artifact.run.runId}\u0000${artifact.run.job}`)
+          .update(`verified-v3\u0000${artifact.run.runId}\u0000${artifact.run.job}`)
           .digest("hex"),
         opId = `ci-observation-${digest}`;
       if (cell.store.readEvent(opId)) {
@@ -145,8 +150,8 @@ export function ingestCiObservations(
         eventRefs.push(`event:${opId}`);
         continue;
       }
-      const event: CiRunObservationEventV2 = {
-          schema: "ci-run-observation/v2",
+      const event: CiRunObservationEventV3 = {
+          schema: "ci-run-observation/v3",
           eventId: `event-${digest}`,
           workspaceRevision: (cell.store.readHead()?.revision ?? 0) + 1,
           opId,
@@ -157,7 +162,7 @@ export function ingestCiObservations(
           payload: {
             run: artifact.run,
             tests: artifact.tests,
-            gates: artifact.gates,
+            gates: normalizeArtifactGates(artifact.gates),
             verification:
               summary.workflowName === "rewrite-ci" &&
               summary.headBranch === "main" &&
@@ -207,6 +212,12 @@ export function ingestCiObservations(
     },
     summary: `Imported ${imported} CI observation artifact(s); ${duplicate} already existed.\n` + eventRefs.join("\n"),
   } as WriteReceipt;
+}
+
+function normalizeArtifactGates(gates: readonly CiRunArtifactGate[]): CiRunObservationEventV3["payload"]["gates"] {
+  return gates.map((gate) =>
+    "result" in gate ? gate : { gate: gate.gate, result: gate.pass ? "pass" : "fail", metrics: gate.metrics },
+  );
 }
 
 export function selectCiObservationRuns(runs: readonly CiWorkflowRun[], limit: number): readonly CiWorkflowRun[] {

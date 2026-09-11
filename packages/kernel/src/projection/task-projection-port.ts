@@ -135,7 +135,7 @@ export interface TaskProjection {
   };
   readonly readCiRunObservations: (limit: number) => {
     readonly status: "ready" | "pending";
-    readonly events: readonly import("../domain/ci-run-observation-event.ts").CiRunObservationEventV2[];
+    readonly events: readonly import("../domain/ci-run-observation-event.ts").CiRunObservationEventV3[];
     readonly watermark: number;
     readonly sourceRevision: number;
   };
