@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
 import { Scales } from "@phosphor-icons/react";
-import type { DecisionRow, DecisionState } from "../../model/types";
+import type { DecisionState } from "../../model/types";
 import type { WorkspaceSummaryRead } from "../../../api/renderer-dto.ts";
+import type { DecisionSummaryRow } from "../../api-client.ts";
 import { sortDecisionQueue } from "../../model/triadic";
 import { RiskTierBadge, UrgencyBadge } from "../badges.tsx";
 import { t } from "../../i18n/index.tsx";
@@ -37,7 +38,7 @@ export function DecisionStream({
   onOpenPreview,
   onOpenInbox,
 }: {
-  decisions: ReadonlyArray<DecisionRow>;
+  decisions: ReadonlyArray<DecisionSummaryRow>;
   summary: WorkspaceSummaryRead["decisions"];
   stateLabel: (state: DecisionState) => string;
   onOpenPreview: (decisionId: string) => void;

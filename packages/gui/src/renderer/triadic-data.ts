@@ -356,7 +356,7 @@ function isKernelRelationKind(value: string): value is RelationEdge["kind"] {
   return Object.hasOwn(KIND_LABEL, value);
 }
 
-function adaptDecisionRows(
+export function adaptDecisionRows(
   rows: ReadonlyArray<DecisionProjectionRow>,
   relations: ReadonlyArray<RelationEdge>,
   coverageRows: ReadonlyArray<RelationCoverageRow>,

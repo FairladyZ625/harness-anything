@@ -587,7 +587,9 @@ export interface DaemonDecisionSummaryRow {
   readonly decisionId: string;
   readonly title: string;
   readonly state: DecisionProjectionRow["state"];
-  readonly appliesTo: DecisionProjectionRow["appliesTo"];
+  readonly riskTier: DecisionProjectionRow["riskTier"];
+  readonly urgency: DecisionProjectionRow["urgency"];
+  readonly proposedAt: DecisionProjectionRow["proposedAt"];
 }
 
 export interface DaemonDecisionListPayload {

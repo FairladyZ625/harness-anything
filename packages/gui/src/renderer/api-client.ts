@@ -121,16 +121,17 @@ export interface DecisionListSuccess {
 }
 
 /**
- * `repo.decisions.list {projection:"summary"}` row: identity + scope only. The summary
- * projection exists so always-mounted chrome (⌘K palette, task-detail decision titles)
- * never has to pull `chosen`/`rejected`/`claims`/`judgmentConsents`, which is where the
- * 4.2 MB full decision response spends its bytes.
+ * `repo.decisions.list {projection:"summary"}` row: the fields the overview's decision
+ * stream renders and sorts. It deliberately excludes claims, consents, and body; opening
+ * a row reads that one complete decision separately.
  */
 export interface DecisionSummaryRow {
   readonly decisionId: string;
   readonly title: string;
   readonly state: DecisionProjectionRow["state"];
-  readonly appliesTo: { readonly modules: readonly string[]; readonly productLines: readonly string[] };
+  readonly riskTier: DecisionProjectionRow["riskTier"];
+  readonly urgency: DecisionProjectionRow["urgency"];
+  readonly proposedAt: DecisionProjectionRow["proposedAt"];
 }
 export interface DecisionSummaryListSuccess {
   readonly ok: true;
@@ -808,14 +809,13 @@ function readDecisionSummaryListResult(value: unknown): DecisionSummaryListSucce
 
 function isDecisionSummaryRow(value: unknown): value is DecisionSummaryRow {
   if (!isRendererRecord(value)) return false;
-  const appliesTo = value.appliesTo;
   return (
     typeof value.decisionId === "string" &&
     typeof value.title === "string" &&
     typeof value.state === "string" &&
-    isRendererRecord(appliesTo) &&
-    Array.isArray(appliesTo.modules) &&
-    Array.isArray(appliesTo.productLines)
+    (value.riskTier === "low" || value.riskTier === "medium" || value.riskTier === "high") &&
+    (value.urgency === "low" || value.urgency === "medium" || value.urgency === "high") &&
+    typeof value.proposedAt === "string"
   );
 }
 

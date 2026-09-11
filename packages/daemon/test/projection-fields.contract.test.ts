@@ -51,7 +51,16 @@ test("decision full rows carry kernel capabilities while summary rows stay narro
     validateDaemonDecisionList({
       ok: true,
       projection: "summary",
-      decisions: [{ decisionId: row.decisionId, title: row.title, state, appliesTo: row.appliesTo }],
+      decisions: [
+        {
+          decisionId: row.decisionId,
+          title: row.title,
+          state,
+          riskTier: row.riskTier,
+          urgency: row.urgency,
+          proposedAt: row.proposedAt,
+        },
+      ],
       warnings: [],
     }),
     [],

@@ -1809,7 +1809,21 @@ test("decision readiness survives the wire when the canonical Git cut is unavail
   assert.equal(noCut[0]?.appliesToDrift.state, "unknown");
   assert.deepEqual(validateDaemonDecisionList(decisionList(noCut[0]!)), []);
   assert.deepEqual(validateDaemonDecisionList({ ...decisionList(noCut[0]!), projection: "full" }), []);
-  const summary = { ok: true, projection: "summary", decisions: [{ decisionId: "dec_1", title: "Title", state: "in_effect", appliesTo: { modules: ["daemon"], productLines: ["gui"] } }], warnings: [] };
+  const summary = {
+    ok: true,
+    projection: "summary",
+    decisions: [
+      {
+        decisionId: "dec_1",
+        title: "Title",
+        state: "in_effect",
+        riskTier: "medium",
+        urgency: "medium",
+        proposedAt: "2026-09-11T00:00:00.000Z",
+      },
+    ],
+    warnings: [],
+  };
   assert.deepEqual(validateDaemonDecisionList(summary), []);
   assertValidationDiagnostic(validateDaemonDecisionList({ ...summary, decisions: [{ ...summary.decisions[0]!, readiness: noCut[0] }] }), /dec_1/u, "decisions[0]");
   assertValidationDiagnostic(validateDaemonDecisionList({ ...summary, decisions: [{ ...summary.decisions[0]!, state: "unknown" }] }), /dec_1/u, "decisions[0]");
