@@ -9,7 +9,11 @@ const execFileAsync = promisify(execFile),
   detailLimit = 512,
   // Porcelain output grows with the worktree, and the dirty worktrees this answers about are the
   // large ones. Anything past this bound is still an answer: a worktree that says that much is dirty.
-  worktreeStatusLimit = 1 << 20;
+  worktreeStatusLimit = 1 << 20,
+  // Settlement pushes inside the repository write queue, so a stalled remote or a credential dialog
+  // nobody answers holds every write to the repo. A code-only worker branch pushes in seconds; this
+  // is the bound the fleet edge gives its own network transfers.
+  workerPushTimeoutMs = 60_000;
 
 export type WorkerPushResult =
   | { readonly attempted: false; readonly reason: "not-a-worker-worktree" | "not-codex-branch" | "detached" }
@@ -45,6 +49,7 @@ export async function pushWorkerBranch(input: {
   readonly cwd: string;
   readonly canonicalRoot: string;
   readonly env?: NodeJS.ProcessEnv;
+  readonly timeoutMs?: number;
 }): Promise<WorkerPushResult> {
   if (samePath(input.cwd, input.canonicalRoot)) return { attempted: false, reason: "not-a-worker-worktree" };
 
@@ -65,18 +70,27 @@ export async function pushWorkerBranch(input: {
   if (!branch) return { attempted: false, reason: "detached" };
   if (!workerBranchPattern.test(branch)) return { attempted: false, reason: "not-codex-branch" };
 
+  const timeoutMs = input.timeoutMs ?? workerPushTimeoutMs;
   try {
     const env = { ...process.env, ...input.env, GIT_TERMINAL_PROMPT: "0" },
       invocation = gitInvocation(input.cwd, ["push", "--force-with-lease", "origin", `HEAD:${branch}`], env);
     await execFileAsync(invocation.command, invocation.args, {
       env,
       maxBuffer: detailLimit * 2,
+      timeout: timeoutMs,
       windowsHide: true,
       ...(invocation.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
     });
     return { attempted: true, ok: true, branch };
   } catch (error) {
-    return { attempted: true, ok: false, branch, detail: errorDetail(error) };
+    // execFile marks the child killed only when it enforced the timeout itself.
+    const timedOut = typeof error === "object" && error !== null && "killed" in error && error.killed === true;
+    return {
+      attempted: true,
+      ok: false,
+      branch,
+      detail: timedOut ? `git push timed out after ${timeoutMs} ms` : errorDetail(error),
+    };
   }
 }
 

@@ -18,7 +18,6 @@ import { runMigrationImport } from "./migration-import.ts";
 import { assertExecutionExecutorDeclarationEligible } from "./repo-cell-execution-selection.ts";
 import { runLedgerReconcileAction } from "./repo-cell-migration-actions.ts";
 import { type RepoCellBinding, type RepoTaskAction, type Snapshot } from "./repo-cell-types.ts";
-import { pullAndIngestCiObservations } from "./ci-observation-actions.ts";
 import { readTaskLineageDispatches } from "./dispatch-read.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import { runFactAction } from "./repo-cell-fact-action.ts";
@@ -46,7 +45,6 @@ export async function executeAction(
       projection: cell.projection,
       now: cell.now,
     });
-  if (action.kind === "ci-observe-pull") return pullAndIngestCiObservations(cell, action, binding);
   if (action.kind === "migrate-import")
     return runMigrationImport({
       action,

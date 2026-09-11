@@ -17,14 +17,29 @@ type CiRunArtifact = Omit<CiRunObservationEventV2["payload"], "verification"> & 
   readonly schema: "ci-run-artifact/v1";
 };
 type CiWorkflowRun = { readonly databaseId: number; readonly headBranch: string; readonly createdAt: string };
+type CiRunSummary = {
+  readonly workflowName: string;
+  readonly headSha: string;
+  readonly headBranch: string;
+  readonly status: string;
+  readonly conclusion: string;
+  readonly attempt: number;
+};
 type RunGh = (command: string, args: readonly string[], options: { readonly cwd: string }) => Promise<string>;
+type FetchedCiRun = {
+  readonly databaseId: number;
+  readonly summary: CiRunSummary;
+  readonly artifacts: readonly CiRunArtifact[];
+};
+type CiObservationFetch = { readonly requestedRuns: number; readonly runs: readonly FetchedCiRun[] };
 
-export async function pullAndIngestCiObservations(
-  cell: RepoCellActionContext,
+// Every gh call finishes before the pull enters the repository write queue: GitHub can stall
+// without bound, and the queue waits only on the event appends in ingestCiObservations.
+export async function fetchCiObservations(
+  cell: Pick<RepoCellActionContext, "rootDir" | "cellCodedError">,
   action: RepoTaskAction,
-  binding: RepoCellBinding,
   runGh: RunGh = (command, args, options) => runProcessTextAsync(command, args, options.cwd),
-): Promise<WriteReceipt> {
+): Promise<CiObservationFetch> {
   const limit = Number(action.limit ?? 20),
     namedRuns = Array.isArray(action.runs) ? action.runs.map(Number) : null;
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100)
@@ -63,10 +78,7 @@ export async function pullAndIngestCiObservations(
         ).flat(),
         limit,
       );
-    const eventRefs: string[] = [];
-    let imported = 0,
-      duplicate = 0,
-      lastRevision = cell.store.readHead()?.revision ?? 0;
+    const fetched: FetchedCiRun[] = [];
     for (const run of runs) {
       const summary = JSON.parse(
         await runGh(
@@ -80,14 +92,7 @@ export async function pullAndIngestCiObservations(
           ],
           { cwd: cell.rootDir },
         ),
-      ) as {
-        workflowName: string;
-        headSha: string;
-        headBranch: string;
-        status: string;
-        conclusion: string;
-        attempt: number;
-      };
+      ) as CiRunSummary;
       const { status: runLifecycleState } = summary;
       // Publish immutable observations only for main runs that have a final conclusion.
       if (summary.headBranch !== "main" || runLifecycleState !== "completed") {
@@ -112,83 +117,96 @@ export async function pullAndIngestCiObservations(
         consumeKnownError(error);
         continue;
       }
-      for (const artifact of readArtifacts(runRoot)) {
-        const digest = createHash("sha256")
-            .update(`verified-v2\u0000${artifact.run.runId}\u0000${artifact.run.job}`)
-            .digest("hex"),
-          opId = `ci-observation-${digest}`;
-        if (cell.store.readEvent(opId)) {
-          duplicate += 1;
-          eventRefs.push(`event:${opId}`);
-          continue;
-        }
-        const event: CiRunObservationEventV2 = {
-            schema: "ci-run-observation/v2",
-            eventId: `event-${digest}`,
-            workspaceRevision: (cell.store.readHead()?.revision ?? 0) + 1,
-            opId,
-            type: "ci_run_observed",
-            actor: binding.actor,
-            source: binding.source,
-            occurredAt: cell.now(),
-            payload: {
-              run: artifact.run,
-              tests: artifact.tests,
-              gates: artifact.gates,
-              verification:
-                summary.workflowName === "rewrite-ci" &&
-                summary.headBranch === "main" &&
-                artifact.run.branch === "main" &&
-                artifact.run.sha === summary.headSha &&
-                artifact.run.runId === `${run.databaseId}.${summary.attempt}`
-                  ? {
-                      source: "github-actions",
-                      workflow: "rewrite-ci",
-                      runId: String(run.databaseId),
-                      attempt: summary.attempt,
-                      headSha: summary.headSha,
-                      conclusion: summary.conclusion,
-                    }
-                  : null,
-            },
-          },
-          errors = validateCurrentCiRunObservationEvent(event);
-        if (errors.length) throw cell.cellCodedError("invalid_command", errors.join("; "));
-        const plan = ciRunObservationWritePlan(event),
-          appended = cell.store.append({ event, plan, blobs: [] });
-        cell.projection.apply(event, plan);
-        lastRevision = appended.revision;
-        imported += 1;
-        eventRefs.push(`event:${opId}`);
-      }
+      fetched.push({ databaseId: run.databaseId, summary, artifacts: readArtifacts(runRoot) });
     }
-    const appliedCut = cell.projection.readCiRunObservations(1).watermark,
-      visible = appliedCut >= lastRevision;
-    return {
-      outcome: visible ? "applied" : "pending",
-      opId: `ci-observe-pull-${Date.now()}`,
-      revision: lastRevision,
-      evidence: JSON.stringify({
-        schema: "ci-observe-pull/v1",
-        imported,
-        duplicate,
-        requestedRuns: namedRuns?.length ?? limit,
-        eventRefs,
-      }),
-      visibility: "center",
-      proof: {
-        committedRevision: lastRevision,
-        appliedCut,
-        durable: true,
-        canonicalVisible: visible,
-        worktreeVisible: false,
-      },
-      summary:
-        `Imported ${imported} CI observation artifact(s); ${duplicate} already existed.\n` + eventRefs.join("\n"),
-    } as WriteReceipt;
+    return { requestedRuns: namedRuns?.length ?? limit, runs: fetched };
   } finally {
     rmSync(temporaryRoot, { recursive: true, force: true });
   }
+}
+
+export function ingestCiObservations(
+  cell: RepoCellActionContext,
+  binding: RepoCellBinding,
+  fetched: CiObservationFetch,
+): WriteReceipt {
+  const eventRefs: string[] = [];
+  let imported = 0,
+    duplicate = 0,
+    lastRevision = cell.store.readHead()?.revision ?? 0;
+  for (const { databaseId, summary, artifacts } of fetched.runs)
+    for (const artifact of artifacts) {
+      const digest = createHash("sha256")
+          .update(`verified-v2\u0000${artifact.run.runId}\u0000${artifact.run.job}`)
+          .digest("hex"),
+        opId = `ci-observation-${digest}`;
+      if (cell.store.readEvent(opId)) {
+        duplicate += 1;
+        eventRefs.push(`event:${opId}`);
+        continue;
+      }
+      const event: CiRunObservationEventV2 = {
+          schema: "ci-run-observation/v2",
+          eventId: `event-${digest}`,
+          workspaceRevision: (cell.store.readHead()?.revision ?? 0) + 1,
+          opId,
+          type: "ci_run_observed",
+          actor: binding.actor,
+          source: binding.source,
+          occurredAt: cell.now(),
+          payload: {
+            run: artifact.run,
+            tests: artifact.tests,
+            gates: artifact.gates,
+            verification:
+              summary.workflowName === "rewrite-ci" &&
+              summary.headBranch === "main" &&
+              artifact.run.branch === "main" &&
+              artifact.run.sha === summary.headSha &&
+              artifact.run.runId === `${databaseId}.${summary.attempt}`
+                ? {
+                    source: "github-actions",
+                    workflow: "rewrite-ci",
+                    runId: String(databaseId),
+                    attempt: summary.attempt,
+                    headSha: summary.headSha,
+                    conclusion: summary.conclusion,
+                  }
+                : null,
+          },
+        },
+        errors = validateCurrentCiRunObservationEvent(event);
+      if (errors.length) throw cell.cellCodedError("invalid_command", errors.join("; "));
+      const plan = ciRunObservationWritePlan(event),
+        appended = cell.store.append({ event, plan, blobs: [] });
+      cell.projection.apply(event, plan);
+      lastRevision = appended.revision;
+      imported += 1;
+      eventRefs.push(`event:${opId}`);
+    }
+  const appliedCut = cell.projection.readCiRunObservations(1).watermark,
+    visible = appliedCut >= lastRevision;
+  return {
+    outcome: visible ? "applied" : "pending",
+    opId: `ci-observe-pull-${Date.now()}`,
+    revision: lastRevision,
+    evidence: JSON.stringify({
+      schema: "ci-observe-pull/v1",
+      imported,
+      duplicate,
+      requestedRuns: fetched.requestedRuns,
+      eventRefs,
+    }),
+    visibility: "center",
+    proof: {
+      committedRevision: lastRevision,
+      appliedCut,
+      durable: true,
+      canonicalVisible: visible,
+      worktreeVisible: false,
+    },
+    summary: `Imported ${imported} CI observation artifact(s); ${duplicate} already existed.\n` + eventRefs.join("\n"),
+  } as WriteReceipt;
 }
 
 export function selectCiObservationRuns(runs: readonly CiWorkflowRun[], limit: number): readonly CiWorkflowRun[] {

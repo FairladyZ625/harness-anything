@@ -41,12 +41,11 @@ import { readAgentEntityGuiProjection } from "./agent-entities.ts";
 import {
   canonicalVertical,
   compiledArtifactKinds,
-  prepareArtifactEntityImportSource,
-  artifactImportSourceResolution,
   readCurrentArtifact,
   resolveEntityReadKind,
 } from "./artifact-entity-action.ts";
 import { requireCanonicalVerticalDeclaration } from "./vertical-declaration-action.ts";
+import { readBeforeWriteQueue } from "./write-queue-external-reads.ts";
 import { readDeclaredEntityRows } from "./entity-rows-read.ts";
 import { readEntityContent, type EntityContentSource } from "./entity-content-read.ts";
 import { readEntityLocator } from "./entity-locator-read.ts";
@@ -421,24 +420,10 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
             ),
           (error) => failAction(error, durable ? authorizeAtCurrentCut()! : undefined),
         );
-    if (action.kind === "entity-import")
-      return Promise.resolve()
-        .then(() =>
-          prepareArtifactEntityImportSource({
-            rootDir: context.rootDir,
-            repositoryId: context.input.repoId,
-            action,
-            projection: context.projection,
-          }),
-        )
-        .then((sourceResolution) =>
-          enqueuePublication((authorizationDecision) =>
-            context.executeAction(
-              { ...action, [artifactImportSourceResolution]: sourceResolution },
-              authorizationDecision ? { ...binding, authorizationDecision } : binding,
-            ),
-          ),
-        )
+    const externalRead = readBeforeWriteQueue(context, action, binding);
+    if (externalRead)
+      return externalRead
+        .then((publish) => enqueuePublication(publish))
         .catch((error) => failAction(error, durable ? authorizeAtCurrentCut()! : undefined));
     return enqueuePublication((authorizationDecision) =>
       context.executeAction(action, authorizationDecision ? { ...binding, authorizationDecision } : binding),
