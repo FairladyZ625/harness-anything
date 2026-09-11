@@ -131,12 +131,9 @@ function previousIntegrationTestState(repoRoot, requestedRef) {
       stdio: ["ignore", "pipe", "ignore"],
     });
     const files = output.split(/\r?\n/u).filter((file) => /\.(?:test|spec)\.(?:mjs|js|ts)$/u.test(file));
-    const tiers = files.map((file) => {
-      const source = execFileSync("git", ["show", `${ref}:${file}`], {
-        cwd: repoRoot,
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "ignore"],
-      });
+    const sources = readGitSources(repoRoot, ref, files);
+    const tiers = sources.map((source, index) => {
+      const file = files[index];
       try {
         return parseTestTierMarker(source, file);
       } catch (error) {
@@ -156,6 +153,33 @@ function previousIntegrationTestState(repoRoot, requestedRef) {
   } catch {
     return { count: null, files: null, ref: null };
   }
+}
+
+function readGitSources(repoRoot, ref, files) {
+  const output = execFileSync("git", ["cat-file", "--batch"], {
+    cwd: repoRoot,
+    input: files.map((file) => `${ref}:${file}`).join("\n") + "\n",
+    maxBuffer: 16 * 1024 * 1024,
+    stdio: ["pipe", "pipe", "ignore"],
+  });
+  const sources = [];
+  let offset = 0;
+  for (const file of files) {
+    const headerEnd = output.indexOf(0x0a, offset);
+    if (headerEnd < 0) throw new Error(`missing Git object header for ${file}`);
+    const header = output.subarray(offset, headerEnd).toString("utf8");
+    const match = /^[0-9a-f]+\s+\w+\s+(\d+)$/u.exec(header);
+    if (!match) throw new Error(`unable to read Git object for ${file}: ${header}`);
+    const size = Number(match[1]);
+    const contentStart = headerEnd + 1;
+    const contentEnd = contentStart + size;
+    if (contentEnd >= output.length || output[contentEnd] !== 0x0a) {
+      throw new Error(`truncated Git object for ${file}`);
+    }
+    sources.push(output.subarray(contentStart, contentEnd).toString("utf8"));
+    offset = contentEnd + 1;
+  }
+  return sources;
 }
 
 function legacyIntegrationFiles(repoRoot, ref, files) {
