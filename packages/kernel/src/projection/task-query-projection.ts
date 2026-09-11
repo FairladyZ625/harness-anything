@@ -309,6 +309,7 @@ export function createTaskRelationProjectionTable(db: DatabaseSync): void {
     CREATE INDEX IF NOT EXISTS task_relation_target ON task_relation(target_ref, state, relation_id);
     CREATE INDEX IF NOT EXISTS task_relation_type ON task_relation(relation_type, state, relation_id);
     CREATE INDEX IF NOT EXISTS task_relation_updated ON task_relation(updated_at DESC, relation_id ASC);
+    CREATE INDEX IF NOT EXISTS task_relation_task ON task_relation(task_id, relation_id);
   `);
 }
 

@@ -180,8 +180,10 @@ export function refreshDecisionDocumentSearch(db: DatabaseSync, document: Docume
 }
 
 function refreshDecisionFts(db: DatabaseSync, decisionId: string): void {
-  const row = db.prepare("SELECT title,question FROM decision WHERE decision_id=?").get(decisionId) as
-    | { readonly title: string; readonly question: string }
+  // decision_id is UNINDEXED in the fts5 table, so the search row is keyed by the decision rowid
+  // (stable: decision rows are inserted once and only updated) instead of deleted by a column scan.
+  const row = db.prepare("SELECT rowid, title, question FROM decision WHERE decision_id=?").get(decisionId) as
+    | { readonly rowid: number; readonly title: string; readonly question: string }
     | undefined;
   if (!row) return;
   const options = queryRows<{ readonly text: string }>(
@@ -195,13 +197,9 @@ function refreshDecisionFts(db: DatabaseSync, decisionId: string): void {
       .map((c) => c.text)
       .join(" "),
     body = readDecisionBody(db, decisionId)?.body ?? "";
-  db.prepare("DELETE FROM decision_fts WHERE decision_id=?").run(decisionId);
-  db.prepare("INSERT INTO decision_fts VALUES (?, ?, ?, ?, ?, ?)").run(
-    decisionId,
-    row.title,
-    row.question,
-    options,
-    claims,
-    body,
-  );
+  db.prepare("DELETE FROM decision_fts WHERE rowid=?").run(row.rowid);
+  db.prepare(
+    "INSERT INTO decision_fts(rowid, decision_id, title, question, option_text, claim_text, body) " +
+      "VALUES (?, ?, ?, ?, ?, ?, ?)",
+  ).run(row.rowid, decisionId, row.title, row.question, options, claims, body);
 }
