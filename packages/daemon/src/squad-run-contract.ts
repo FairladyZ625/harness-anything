@@ -46,6 +46,11 @@ export type SquadRunDecisionDto =
   | { readonly kind: "converged" }
   | { readonly kind: "plan"; readonly dispatchCount: number };
 export type SquadRunTurnStatus = "running" | "succeeded" | "failed" | "unknown" | "cancelled" | "lost";
+export interface SquadRunAttemptMetricsDto {
+  readonly tokenUsage: { readonly input: number; readonly output: number };
+  readonly toolCallCount: number;
+  readonly compacted: boolean;
+}
 export interface SquadRunLeaderTurnDto {
   readonly turnId: string;
   readonly trigger: SquadRunTriggerDto;
@@ -57,6 +62,9 @@ export interface SquadRunLeaderTurnDto {
   readonly status: SquadRunTurnStatus | null;
   readonly startedAt: string | null;
   readonly endedAt: string | null;
+  readonly tokenUsage: SquadRunAttemptMetricsDto["tokenUsage"];
+  readonly toolCallCount: number;
+  readonly compacted: boolean;
 }
 export interface SquadRunWorkerAttemptDto {
   readonly attemptId: string;
@@ -74,6 +82,9 @@ export interface SquadRunWorkerAttemptDto {
   readonly status: SquadRunTurnStatus | null;
   readonly startedAt: string | null;
   readonly endedAt: string | null;
+  readonly tokenUsage: SquadRunAttemptMetricsDto["tokenUsage"];
+  readonly toolCallCount: number;
+  readonly compacted: boolean;
 }
 /** `ha squad status` 的 statusDto 对 GUI 开放的编排流转扇出树(leaderTurnId 是
  * 父子边,turn.resultText 是该轮 receipt 原文):全部来自 SquadState、既有派工
@@ -193,6 +204,9 @@ function validSquadRunLeaderTurn(value: unknown): value is SquadRunLeaderTurnDto
       "status",
       "startedAt",
       "endedAt",
+      "tokenUsage",
+      "toolCallCount",
+      "compacted",
     ]) &&
     [value.turnId, value.dispatchId, value.runtimeSessionId].every(squadRunText) &&
     (value.resultText === null || squadRunText(value.resultText)) &&
@@ -200,7 +214,8 @@ function validSquadRunLeaderTurn(value: unknown): value is SquadRunLeaderTurnDto
     (value.decision === null || validSquadRunDecision(value.decision)) &&
     (value.status === null || turnStatuses.includes(value.status as SquadRunTurnStatus)) &&
     (value.startedAt === null || squadRunIso(value.startedAt)) &&
-    (value.endedAt === null || squadRunIso(value.endedAt))
+    (value.endedAt === null || squadRunIso(value.endedAt)) &&
+    validSquadRunAttemptMetrics(value)
   );
 }
 
@@ -219,6 +234,9 @@ function validSquadRunWorkerAttempt(value: unknown): value is SquadRunWorkerAtte
         "status",
         "startedAt",
         "endedAt",
+        "tokenUsage",
+        "toolCallCount",
+        "compacted",
       ],
       ["worktree"],
     ) &&
@@ -234,7 +252,19 @@ function validSquadRunWorkerAttempt(value: unknown): value is SquadRunWorkerAtte
     (value.rejection === null || squadRunText(value.rejection)) &&
     (value.status === null || turnStatuses.includes(value.status as SquadRunTurnStatus)) &&
     (value.startedAt === null || squadRunIso(value.startedAt)) &&
-    (value.endedAt === null || squadRunIso(value.endedAt))
+    (value.endedAt === null || squadRunIso(value.endedAt)) &&
+    validSquadRunAttemptMetrics(value)
+  );
+}
+
+function validSquadRunAttemptMetrics(value: Readonly<Record<string, unknown>>): boolean {
+  return (
+    squadRunRecord(value.tokenUsage) &&
+    exactSquadRunFields(value.tokenUsage, ["input", "output"]) &&
+    squadRunCount(value.tokenUsage.input) &&
+    squadRunCount(value.tokenUsage.output) &&
+    squadRunCount(value.toolCallCount) &&
+    typeof value.compacted === "boolean"
   );
 }
 
@@ -340,7 +370,10 @@ function squadRunSafeKeys(value: unknown): boolean {
   if (Array.isArray(value)) return value.every(squadRunSafeKeys);
   if (!squadRunRecord(value)) return true;
   for (const [key, nested] of Object.entries(value)) {
-    if (/(?:credential|password|secret|authorization|api[-_]?key|token|transcript|stdout|stderr)/iu.test(key))
+    if (
+      key !== "tokenUsage" &&
+      /(?:credential|password|secret|authorization|api[-_]?key|token|transcript|stdout|stderr)/iu.test(key)
+    )
       return false;
     if (!squadRunSafeKeys(nested)) return false;
   }

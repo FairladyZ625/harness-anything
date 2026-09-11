@@ -67,6 +67,16 @@ function seedRunningSquadRun(rootDir: string, squadRunId: string): void {
       error: null,
     },
   });
+  appendRuntimeWorkerRecord(rootDir, "dispatch_00000000000000000000a1b2", {
+    kind: "runtime_metrics",
+    inputTokens: 120,
+    cacheReadTokens: 20,
+    outputTokens: 30,
+    totalTokens: 150,
+    toolCallCount: 4,
+    compacted: true,
+    raw: { input_tokens: 120, output_tokens: 30 },
+  });
 }
 
 /** leader 派工的归档结算行:outcome/resultRef 是 receipt 原文的既有时实来源。 */
@@ -211,6 +221,19 @@ test("a settled leader turn carries its receipt verbatim and its dispatches link
     assert.equal(detail.run.workerAttempts[0]?.leaderTurnId, "leader-1");
     assert.equal(detail.run.workerAttempts[0]?.workerId, "sol");
     assert.equal(detail.run.workerAttempts[0]?.runtimeSessionId, "runtime-worker-1");
+    assert.deepEqual(detail.run.leaderTurns[0]?.tokenUsage, { input: 120, output: 30 });
+    assert.equal(detail.run.leaderTurns[0]?.toolCallCount, 4);
+    assert.equal(detail.run.leaderTurns[0]?.compacted, true);
+    assert.deepEqual(detail.run.workerAttempts[0]?.tokenUsage, { input: 0, output: 0 });
+    assert.equal(detail.run.workerAttempts[0]?.toolCallCount, 0);
+    assert.equal(detail.run.workerAttempts[0]?.compacted, false);
+    const status = squad.status("squad_0123456789abcdef01234567"),
+      leader = (status.leaders as Array<Record<string, unknown>>)[0],
+      worker = (status.workers as Array<Record<string, unknown>>)[0];
+    assert.deepEqual(leader?.tokenUsage, { input: 120, output: 30 });
+    assert.equal(leader?.toolCallCount, 4);
+    assert.equal(leader?.compacted, true);
+    assert.deepEqual(worker?.tokenUsage, { input: 0, output: 0 });
     assert.deepEqual(validateSquadRunRead(detail), []);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });

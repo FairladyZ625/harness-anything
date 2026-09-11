@@ -33,6 +33,7 @@ const commandRenderers = new Map<string, ReceiptRenderer>([
   ["schedule-show", renderScheduleReceipt],
   ["schedule-runs", renderScheduleReceipt],
   ["squad-list", renderSquadListReceipt],
+  ["squad-status", renderSquadStatusReceipt],
 ]);
 
 const preOutcomeCommandRenderers = new Map<string, ReceiptRenderer>([["runtime-batch", renderRuntimeBatchReceipt]]);
@@ -142,6 +143,26 @@ function renderSquadListReceipt(receipt: Record<string, unknown>): string {
   if (!parsed || parsed.schema !== "squad-list/v1" || !Array.isArray(parsed.squads))
     return renderSuccessfulReceipt(receipt);
   return parsed.squads.length === 0 ? "No squads." : parsed.squads.map(squadListColumns).join("\n");
+}
+
+function renderSquadStatusReceipt(receipt: Record<string, unknown>): string {
+  const leaders = Array.isArray(receipt.leaders) ? receipt.leaders : [],
+    workers = Array.isArray(receipt.workers) ? receipt.workers : [];
+  return [
+    String(receipt.summary ?? "squad-status"),
+    ...leaders.map((turn, index) => squadAttemptLine("leader", index + 1, turn)),
+    ...workers.map((attempt, index) => squadAttemptLine("worker", index + 1, attempt)),
+  ].join("\n");
+}
+
+function squadAttemptLine(kind: string, index: number, value: unknown): string {
+  if (!isRecord(value)) throw new TypeError(`Squad ${kind} metrics are invalid.`);
+  const usage = isRecord(value.tokenUsage) ? value.tokenUsage : {};
+  return (
+    `${kind} ${String(value.turnId ?? value.attemptId ?? index)}: status=${String(value.status ?? "unknown")}` +
+    ` tokens=${String(usage.input ?? 0)}in/${String(usage.output ?? 0)}out` +
+    ` tools=${String(value.toolCallCount ?? 0)} compacted=${String(value.compacted ?? false)}`
+  );
 }
 
 function parseEvidence(receipt: Record<string, unknown>): Record<string, unknown> | null {
