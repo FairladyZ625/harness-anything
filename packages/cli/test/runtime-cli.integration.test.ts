@@ -958,11 +958,23 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
     writeFileSync(path.join(root, "harness", submittedPlanPath), realizedPlan("Submitted runtime archive"));
     run(root, env, ["doc", "sync", "--submit", "--path", submittedPlanPath]);
     run(root, env, ["task", "start", submittedTaskId, "--execution-id", submittedExecutionId]);
-    const submittedArtifact = `${submittedPackagePath}/artifacts/runtime-delivery.md`;
-    mkdirSync(path.dirname(path.join(root, "harness", submittedArtifact)), { recursive: true });
-    writeFileSync(path.join(root, "harness", submittedArtifact), "Runtime archive delivery fixture.\n");
-    const submittedCut = published(root, env, run(root, env, ["doc", "sync", "--submit", "--path", submittedArtifact]));
-    assert.match(String(submittedCut.commitSha), /^[0-9a-f]{40}$/u);
+    // This standard task submits a public code cut bound to the runtime cwd.
+    const deliveryGit = (args: string[]) => {
+      const result = spawnSync("git", args, { cwd: root, env, encoding: "utf8" });
+      assert.equal(result.status, 0, result.stderr);
+      return result.stdout.trim();
+    };
+    deliveryGit(["init", "-b", "main"]);
+    deliveryGit(["config", "user.name", "Harness Test"]);
+    deliveryGit(["config", "user.email", "harness@example.test"]);
+    writeFileSync(path.join(root, "README.md"), "Runtime archive baseline.\n");
+    deliveryGit(["add", "README.md"]);
+    deliveryGit(["commit", "-m", "test: seed runtime delivery baseline"]);
+    deliveryGit(["update-ref", "refs/remotes/origin/main", "HEAD"]);
+    writeFileSync(path.join(root, "README.md"), "Runtime archive delivery.\n");
+    deliveryGit(["add", "README.md"]);
+    deliveryGit(["commit", "-m", "test: record runtime delivery"]);
+    const submittedCut = { commitSha: deliveryGit(["rev-parse", "HEAD"]) };
     const submittedRuntime = run(root, env, [
         "runtime",
         "run",
