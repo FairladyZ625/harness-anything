@@ -12,6 +12,5 @@
   { "path": "packages/gui/src/renderer/runtime-control.ts", "module": "gui" },
   { "path": "packages/gui/src/renderer/terminal-client.ts", "module": "gui" },
   { "path": "packages/gui/src/renderer/terminal-model.ts", "module": "gui" },
-  { "path": "packages/gui/src/renderer/views/RuntimeWorkspace.tsx", "module": "gui" },
-  { "path": "packages/gui/src/terminal/backend-policy.ts", "module": "gui" }
+  { "path": "packages/gui/src/renderer/views/RuntimeWorkspace.tsx", "module": "gui" }
 ]
