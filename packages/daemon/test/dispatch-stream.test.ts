@@ -410,6 +410,57 @@ test("fleet adoption does not probe a dispatch owned by another node", async () 
   }
 });
 
+test("runtime cancel settles a live projection whose recorded process already exited", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-runtime-cancel-exited-"));
+  try {
+    const dispatchId = "dispatch_cccccccccccccccccccccccc",
+      runtimeSessionId = "runtime_cccccccccccccccccccccccc",
+      binding = { actor: { principal: { personId: "operator" }, executor: null }, source: "local" as const };
+    openDispatchStream(rootDir, {
+      dispatchId,
+      taskId: null,
+      executionId: null,
+      runtimeSessionId,
+      instanceId: "instance-1",
+      startedAt: "2026-09-08T00:00:00.000Z",
+      dispatchOpId: "dispatch-op-exited",
+      kindId: "codex",
+      permissionMode: null,
+      binding,
+      cwd: rootDir,
+      prompt: "settle exited runtime",
+      model: "gpt-5.6-sol",
+      reasoningEffort: null,
+      fast: false,
+    });
+    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_started", pid: 2_147_483_647 });
+    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_exit", exitCode: 1, signal: null });
+    const settled: string[] = [],
+      context = {
+        input: { rootDir, repoId: "cancel-exited", now: () => "2026-09-11T00:00:00.000Z" },
+        requiredRuntimeProjection: () => ({
+          readRuntimeSessions: () => [
+            { runtimeSessionId, instanceId: "instance-1", providerSessionId: null, liveness: "live", outcome: null },
+          ],
+        }),
+        processes: new Map(),
+        reconcileFallback: () => undefined,
+        restoreDurableOutputRecords: () => undefined,
+        consumeLine: async () => undefined,
+        publishExit: async (active: { runtimeSessionId: string }) => {
+          settled.push(active.runtimeSessionId);
+          context.processes.delete(active.runtimeSessionId);
+        },
+        controlReceipt: () => ({ ok: true, detail: "already-exited" }),
+      };
+    const receipt = await cancelRuntime(context as never, { runtimeSessionId }, binding);
+    assert.equal(receipt.detail, "already-exited");
+    assert.deepEqual(settled, [runtimeSessionId]);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("the dispatch fuse drops unbounded output but preserves terminal records", () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-dispatch-write-fuse-"));
   const warning = console.warn,

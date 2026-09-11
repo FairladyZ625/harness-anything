@@ -114,35 +114,26 @@ export async function adoptRuntimes(context: RuntimeSpawnerContext): Promise<voi
         active.binding,
       );
     }
-    if (fullStream) attachActiveRuntime(context, active);
     const processState = stream.process;
-    if (processState && !processState.exited && !runtimePidIsAlive(processState.pid)) {
-      const timer = setTimeout(() => {
-        const current =
-          readDispatchStream(context.input.rootDir, active.dispatchId) ??
-          readDispatchStreamSummary(context.input.rootDir, active.dispatchId);
-        if (!current?.process?.exited && context.processes.get(active.runtimeSessionId) === active) {
-          const reason = `runtime process ${String(processState.pid)} is no longer alive after daemon restart`;
-          active.lossReason = reason;
-          active.lossExitCode = current?.process?.exitCode ?? null;
-          active.lossSignal = current?.process?.signal ?? null;
-          removeRuntimeCallbackRelay(context.input.rootDir, active.dispatchId);
-          appendRuntimeWorkerRecord(context.input.rootDir, active.dispatchId, {
-            kind: "process_lost",
-            occurredAt: context.input.now(),
-            reason,
-            exitCode: active.lossExitCode,
-            signal: active.lossSignal,
-          });
-          // No process_exit orders this settlement after the drain's last line. Settle from the stream.
-          context.input.schedule(async () => {
-            await consumeDurableOutput(context, active);
-            await context.publishExit(active, active.lossExitCode);
-          }, active.binding);
-        }
-      }, 50);
-      timer.unref();
+    if (processState.exited || !runtimePidIsAlive(processState.pid)) {
+      const reason = `runtime process ${String(processState.pid)} is no longer alive after daemon restart`;
+      active.lossReason = processState.exited ? null : reason;
+      active.lossExitCode = processState.exitCode ?? null;
+      active.lossSignal = processState.signal ?? null;
+      removeRuntimeCallbackRelay(context.input.rootDir, active.dispatchId);
+      if (!processState.exited)
+        appendRuntimeWorkerRecord(context.input.rootDir, active.dispatchId, {
+          kind: "process_lost",
+          occurredAt: context.input.now(),
+          reason,
+          exitCode: active.lossExitCode,
+          signal: active.lossSignal,
+        });
+      await consumeDurableOutput(context, active);
+      await context.publishExit(active, active.lossExitCode);
+      continue;
     }
+    if (fullStream) attachActiveRuntime(context, active);
   }
 }
 
