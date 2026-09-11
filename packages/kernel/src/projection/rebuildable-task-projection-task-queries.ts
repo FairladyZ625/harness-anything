@@ -14,6 +14,8 @@ import {
   readTaskRelationsByTargets,
   readTaskRuntimeBatchPage,
   readTaskStatusRows,
+  readTaskExists,
+  readTaskByIdempotencyKey,
 } from "./task-query-projection.ts";
 import type { TaskProjection } from "./task-projection-port.ts";
 import type { ProjectionContext } from "./rebuildable-task-projection-types.ts";
@@ -106,6 +108,8 @@ export function taskQueryApi(
   | "readTaskDependencyClosure"
   | "readTaskRelationsByTargets"
   | "readTaskStatuses"
+  | "readTaskExists"
+  | "readTaskByIdempotencyKey"
   | "readTaskRuntimeBatch"
   | "readRelationQuery"
   | "readOperation"
@@ -202,6 +206,9 @@ export function taskQueryApi(
           sourceRevision: cut.sourceRevision,
         };
       }),
+    readTaskExists: (taskId) => withDatabase(projectionPath, readHead, (db) => readTaskExists(db, taskId)),
+    readTaskByIdempotencyKey: (idempotencyKey) =>
+      withDatabase(projectionPath, readHead, (db) => readTaskByIdempotencyKey(db, idempotencyKey)),
     readTaskRuntimeBatch: (query) =>
       withDatabase(projectionPath, readHead, (db) => {
         const cut = readProjectionCut(db, readHead),

@@ -150,11 +150,9 @@ export function prepareTaskCreateAt(
   }
   const idempotent =
     !dryRun && typeof canonicalAction.idempotencyKey === "string"
-      ? cell.projection
-          .list()
-          .rows.find((row) => row.snapshot.task?.metadata?.idempotencyKey === canonicalAction.idempotencyKey)
-      : undefined;
-  if (idempotent?.snapshot.task) {
+      ? cell.projection.readTaskByIdempotencyKey(canonicalAction.idempotencyKey)
+      : null;
+  if (idempotent) {
     const current = cell.projection.read(idempotent.taskId);
     return {
       ...cell.readResult(
@@ -168,15 +166,14 @@ export function prepareTaskCreateAt(
         true,
       ),
       taskId: idempotent.taskId,
-      taskStatus: idempotent.snapshot.task.status,
-      packagePath: current.packagePath,
+      taskStatus: idempotent.status as TaskCreateReceipt["taskStatus"],
+      packagePath: idempotent.packagePath,
       summary: `reused task ${idempotent.taskId} for the supplied idempotency key`,
     } as WriteReceipt;
   }
-  const taskId = cell.createTaskId(canonicalAction, binding, cell.input.repoId),
-    taskIds = cell.projectedTaskIds();
-  if (taskIds.has(taskId)) return cell.rejected(opId, "task_exists");
-  if (typeof canonicalAction.parentTaskId === "string" && !taskIds.has(canonicalAction.parentTaskId))
+  const taskId = cell.createTaskId(canonicalAction, binding, cell.input.repoId);
+  if (cell.projection.readTaskExists(taskId)) return cell.rejected(opId, "task_exists");
+  if (typeof canonicalAction.parentTaskId === "string" && !cell.projection.readTaskExists(canonicalAction.parentTaskId))
     return cell.rejected(opId, "parent_not_found");
   const currentRevision = cell.store.readHead()?.revision ?? 0,
     workspaceRevision = assigned?.workspaceRevision ?? currentRevision + 1,
@@ -256,7 +253,7 @@ export function prepareTaskCreateAt(
 
 export function applyPreparedTaskCreate(cell: RepoCellOperationalContext, prepared: PreparedTaskCreate): void {
   cell.projection.apply(prepared.compiled.event, prepared.compiled.plan);
-  cell.projectedTaskIds().add(prepared.fields.taskId);
+  cell.knownTaskIds?.add(prepared.fields.taskId);
 }
 
 export function preparedTaskCreateReceipt(

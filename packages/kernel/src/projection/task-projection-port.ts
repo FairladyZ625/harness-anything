@@ -100,6 +100,12 @@ export interface TaskProjection {
     readonly watermark: number;
     readonly sourceRevision: number;
   };
+  readonly readTaskExists: (taskId: string) => boolean;
+  readonly readTaskByIdempotencyKey: (idempotencyKey: string) => {
+    readonly taskId: string;
+    readonly status: string;
+    readonly packagePath: string | null;
+  } | null;
   readonly readTaskRuntimeBatch: (query: TaskRuntimeBatchQuery) => TaskRuntimeBatchRead;
   readonly readRelationQuery: (query?: TaskRelationQuery) => TaskRelationProjectionRead;
   readonly readOperation: (opId: string) => { readonly event: CanonicalEventV1; readonly watermark: number } | null;
