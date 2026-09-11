@@ -430,6 +430,14 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       installation = prepared.installation,
       declaredKindId = runtimeKindForId(definition.kindId).kindId,
       launchedPermissionMode = runtimePermissionMode(effectivePermissionMode, declaredKindId);
+    if (declaredKindId === "zcode" && launchedPermissionMode !== "bypass")
+      throw runtimeSpawnError(
+        "zcode_unattended_permission_mode_unsupported",
+        [
+          "ZCode edit and plan modes require an interactive permission client and cannot run unattended. ",
+          "Use --permission-mode bypass, or use --agent glm-worker (which declares bypass).",
+        ].join(""),
+      );
     if (agent && !runtimeTypeMatchesKind(agent.runtime_type, declaredKindId))
       throw runtimeSpawnError(
         "agent_runtime_type_mismatch",

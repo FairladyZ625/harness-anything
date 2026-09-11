@@ -107,6 +107,118 @@ test("runtime spawn maps the GUI Claude kind to a canonical claude-compatible in
   }
 });
 
+test("runtime spawn rejects unattended zcode modes that require a permission client", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-spawn-zcode-permission-"));
+  let launchCount = 0;
+  try {
+    git(root, "init", "-q");
+    git(root, "config", "user.name", "Spawn Test");
+    git(root, "config", "user.email", "spawn@example.invalid");
+    git(root, "commit", "--allow-empty", "-qm", "base");
+    const zcodeDefinition: AgentDefinitionSnapshot = {
+        ...definition,
+        instanceId: "zcode-review",
+        installationId: "installation-zcode",
+        kindId: "zcode",
+        providerId: "zai",
+        model: "glm-5",
+        reasoningEffort: null,
+        baseUrl: null,
+      },
+      zcodeInstallation: RuntimeInstallationWitness = {
+        installationId: zcodeDefinition.installationId,
+        kindId: zcodeDefinition.kindId,
+        executablePath: "/opt/witnessed/zcode",
+        version: "0.16.5",
+        observedAt: "2026-09-12T00:00:00.000Z",
+      },
+      instance = {
+        schemaVersion: 2 as const,
+        instanceId: zcodeDefinition.instanceId,
+        name: "ZCode Review",
+        installationId: zcodeDefinition.installationId,
+        providerId: zcodeDefinition.providerId,
+        models: [zcodeDefinition.model],
+        defaultModel: zcodeDefinition.model,
+        enabled: true,
+        permissionMode: "bypass" as const,
+        authMode: "subscription" as const,
+        authState: "authenticated" as const,
+        authReadiness: { status: "ready" as const, code: null, hint: null },
+        isolationState: "enforced" as const,
+        configuration: {},
+        kindId: "zcode",
+      },
+      cell = await openRepoCell({
+        repoId: workspaceId("runtime-spawn-zcode-permission"),
+        rootDir: canonicalRoot(root),
+        ownerId: "spawn-test",
+        runtimeInstances: () => [instance],
+        prepareRuntimeLaunch: (_instanceId, request) => ({
+          definition: zcodeDefinition,
+          installation: zcodeInstallation,
+          executablePath: zcodeInstallation.executablePath,
+          args: ["--mode", request.permissionMode === "bypass" ? "yolo" : "edit"],
+          env: {},
+          cwd: request.cwd,
+          prompt: request.prompt,
+        }),
+        runtimeLaunch: () => {
+          launchCount += 1;
+          return {
+            pid: 125,
+            onOutput: () => undefined,
+            onErrorOutput: () => undefined,
+            onExit: () => undefined,
+            terminate: () => undefined,
+          };
+        },
+      }),
+      binding = {
+        actor: { principal: { personId: "person-spawn" }, executor: null },
+        source: "local" as const,
+      };
+    try {
+      await assert.rejects(
+        cell.spawnRuntime(
+          {
+            runtimeInstanceId: instance.instanceId,
+            cwd: { scope: "repo-root" },
+            prompt: "Review the repository",
+            permissionMode: "workspace-write",
+            taskId: null,
+            idempotencyKey: "spawn-zcode-edit",
+          },
+          binding,
+        ),
+        (error: unknown) =>
+          error instanceof Error &&
+          "code" in error &&
+          error.code === "zcode_unattended_permission_mode_unsupported" &&
+          /interactive permission client.*--permission-mode bypass.*--agent glm-worker/su.test(error.message),
+      );
+      assert.equal(launchCount, 0);
+      const bypass = await cell.spawnRuntime(
+        {
+          runtimeInstanceId: instance.instanceId,
+          cwd: { scope: "repo-root" },
+          prompt: "Review the repository",
+          permissionMode: "bypass",
+          taskId: null,
+          idempotencyKey: "spawn-zcode-yolo",
+        },
+        binding,
+      );
+      assert.equal(bypass.outcome, "applied");
+      assert.equal(launchCount, 1);
+    } finally {
+      await cell.close();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("runtime spawn resolves command model, Agent model, then instance default without silent fallback", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-agent-model-")),
     root = path.join(parent, "repo"),
