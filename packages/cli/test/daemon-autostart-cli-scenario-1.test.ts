@@ -36,6 +36,9 @@ const {
   stop,
   seedAttachableRuntime,
   probeRuntimeAttach,
+  git,
+  spawn,
+  escapeRegExp,
 } = shared;
 
 test("resident daemon autostart strips the worker callback relay marker", () => {
