@@ -64,8 +64,8 @@ export function readTaskActionExplanation(
       repositoryId: dependencies.rootDir,
     });
 
-  const stream = dependencies.store.read(),
-    cut = `canonical:${stream.revision}`,
+  const headRevision = dependencies.store.readHead()?.revision ?? 0,
+    cut = `canonical:${headRevision}`,
     evaluatedAt = dependencies.now(),
     authorize = ({
       action,
@@ -86,7 +86,7 @@ export function readTaskActionExplanation(
         },
         binding,
         actionId: `explain:${evaluatedAtCut}:${target}:${action.id}`,
-        revision: stream.revision,
+        revision: headRevision,
         now: evaluatedAt,
         targetOverride: target,
       });
@@ -94,12 +94,12 @@ export function readTaskActionExplanation(
     taskService = makeTaskActionExplanationService({
       actor: binding.actor,
       authorize: ({ action, target, evaluatedAtCut }) =>
-        explainAuthorization(action, target, evaluatedAtCut, "task", binding, stream.revision, evaluatedAt),
+        explainAuthorization(action, target, evaluatedAtCut, "task", binding, headRevision, evaluatedAt),
     }),
     squadService = makeSquadActionExplanationService({
       actor: binding.actor,
       authorize: ({ action, target, evaluatedAtCut }) =>
-        explainAuthorization(action, target, evaluatedAtCut, "squad", binding, stream.revision, evaluatedAt),
+        explainAuthorization(action, target, evaluatedAtCut, "squad", binding, headRevision, evaluatedAt),
     }),
     personService = makePersonActionExplanationService({ actor: binding.actor, authorize }),
     parsed = request.refs.map((ref) => ({ ref, parsed: parseEntityRef(ref) })),
@@ -107,25 +107,26 @@ export function readTaskActionExplanation(
       ({ parsed: entity }) =>
         entity !== null && !entity.externalHarness && (entity.kind === "task" || entity.kind === "squad"),
     ),
-    projection = supported.length ? dependencies.projection.list() : null,
+    cutRead = supported.length ? dependencies.projection.readCut() : null,
     projectionReady =
-      projection !== null &&
-      projection.status === "ready" &&
-      projection.watermark === stream.revision &&
-      projection.sourceRevision === stream.revision,
-    taskRows = new Map(projection?.rows.map((row) => [row.taskId, row]) ?? []),
-    effectiveLeaseByTask = new Map(
-      projection?.rows.map((row) => {
-        const lease = dependencies.projection.currentLease(row.taskId, evaluatedAt);
-        return [row.taskId, lease?.phase === "released" ? null : lease] as const;
-      }) ?? [],
-    ),
+      cutRead !== null &&
+      cutRead.status === "ready" &&
+      cutRead.watermark === headRevision &&
+      cutRead.sourceRevision === headRevision,
     installedAgentIds = new Set(
-      projectionReady ? dependencies.projection.listEntities("agent").map(({ id }) => id) : [],
+      parsed.some(({ parsed: entity }) => entity?.kind === "squad" && !entity.externalHarness) && projectionReady
+        ? dependencies.projection.listEntities("agent").map(({ id }) => id)
+        : [],
     ),
-    witnessByRevision = new Map(stream.events.map((event) => [event.workspaceRevision, event])),
+    /** Same-cut witness for one entity revision: an indexed event page of one,
+     * not a Map over the whole ledger. */
+    witnessAt = (revision: number) => {
+      if (!Number.isSafeInteger(revision) || revision < 1) return undefined;
+      const [event] = dependencies.projection.readCanonicalEvents(revision - 1, 1).events;
+      return event !== undefined && event.workspaceRevision === revision ? event : undefined;
+    },
     personCut = parsed.some(({ parsed: entity }) => entity?.kind === "person" && !entity.externalHarness)
-      ? personRosterAtCut(dependencies.rootDir, stream.events, stream.revision, binding, evaluatedAt)
+      ? personRosterAtCut(dependencies.rootDir, dependencies.store.read().events, headRevision, binding, evaluatedAt)
       : null,
     cache = new Map<string, EntityActionExplanationSubjectV1>(),
     subjects = parsed.map(({ ref, parsed: entity }) => {
@@ -198,14 +199,17 @@ export function readTaskActionExplanation(
           [`Retry after the ${entity.kind === "task" ? "Task" : "Squad"} projection reaches the canonical cut.`],
         );
       else if (entity.kind === "task") {
-        const row = taskRows.get(entity.id),
-          event = row ? witnessByRevision.get(row.workspaceRevision) : undefined,
-          task = row?.snapshot.task;
+        // Point reads: the task exists check, its snapshot, and the witness at
+        // its own revision — no full task list, no per-task lease sweep, no Map
+        // over every canonical event.
+        const row = dependencies.projection.readTaskExists(entity.id) ? dependencies.projection.read(entity.id) : null,
+          task = row?.snapshot.task,
+          event = row ? witnessAt(row.snapshot.revision) : undefined;
         if (!row)
           subject = failure("task", entity.raw as EntityRef, "entity_not_found", `Task ${entity.id} was not found.`, [
             "Run ha task list and choose an existing Task ref.",
           ]);
-        else if (!event || !task || row.snapshot.revision !== row.workspaceRevision)
+        else if (!event || !task)
           subject = failure(
             "task",
             entity.raw as EntityRef,
@@ -214,11 +218,12 @@ export function readTaskActionExplanation(
             ["Retry after the Task projection and canonical ledger witness agree."],
           );
         else {
-          const snapshot = { ...row.snapshot, lease: effectiveLeaseByTask.get(entity.id) ?? null },
+          const lease = dependencies.projection.currentLease(entity.id, evaluatedAt),
+            snapshot = { ...row.snapshot, lease: lease?.phase === "released" ? null : lease },
             entityWitness = projectBaseEntityAtCut<BaseEntity<"task">>(requireEntityTypeContract("task"), {
               kind: "task",
               id: entity.id,
-              workspaceRevision: row.workspaceRevision,
+              workspaceRevision: row.snapshot.revision,
               occurredAt: event.occurredAt,
               actor: event.actor,
               source: event.source,
@@ -229,7 +234,7 @@ export function readTaskActionExplanation(
         }
       } else {
         const row = dependencies.projection.getEntity("squad", entity.id),
-          event = row ? witnessByRevision.get(row.workspaceRevision) : undefined;
+          event = row ? witnessAt(row.workspaceRevision) : undefined;
         if (!row)
           subject = failure("squad", entity.raw as EntityRef, "entity_not_found", `Squad ${entity.id} was not found.`, [
             "Run ha squad list and choose an existing Squad ref.",
