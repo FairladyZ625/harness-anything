@@ -10,10 +10,11 @@ import {
   eventuallyNotification,
   readPublishedDispatch,
 } from "./runtime-cli.observations.fixture.ts";
-import { createRuntimeFixture, seedTask } from "./runtime-cli.setup.fixture.ts";
+import { installIdentities, createRuntimeFixture, seedTask } from "./runtime-cli.setup.fixture.ts";
 
 test("Missing and nonzero callbacks preserve runtime outcome and redact callback environment", async (context) => {
   const fixture = createRuntimeFixture(context);
+  installIdentities(fixture.parent, fixture.root, fixture.env);
   const { parent, root, env } = fixture;
   const { taskId, executionId, artifactRoot } = seedTask(root, env, "notification-failure");
   run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
@@ -36,9 +37,9 @@ test("Missing and nonzero callbacks preserve runtime outcome and redact callback
   assert.equal((invalidOnExit.receipt.diagnostic as Record<string, unknown>).kind, "validation");
   run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
   const controlNotification = run(root, env, [
-      "runtime",
+      "agent",
       "run",
-      "cli-worker",
+      "terra",
       "--prompt",
       "notification control",
       "--task",
@@ -56,9 +57,9 @@ test("Missing and nonzero callbacks preserve runtime outcome and redact callback
   run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
   const missingNotifier = path.join(parent, "missing-notifier"),
     missingNotification = run(root, env, [
-      "runtime",
+      "agent",
       "run",
-      "cli-worker",
+      "terra",
       "--prompt",
       "notification missing",
       "--task",
@@ -78,9 +79,9 @@ test("Missing and nonzero callbacks preserve runtime outcome and redact callback
     missingInvariant = await runtimeInvariantEvidence(root, artifactRoot, missingNotification, missingNotificationWait);
   run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
   const nonzeroNotification = run(root, env, [
-      "runtime",
+      "agent",
       "run",
-      "cli-worker",
+      "terra",
       "--prompt",
       "notification nonzero",
       "--task",

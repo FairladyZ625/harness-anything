@@ -44,6 +44,8 @@ export async function startDaemon(input: {
   readonly requestShutdown?: () => void;
   readonly attachTimeoutMs?: number;
   readonly openCell?: DaemonHostOpenInput["openCell"];
+  readonly runtimeDiscover?: DaemonHostOpenInput["runtimeDiscover"];
+  readonly runtimeEnv?: NodeJS.ProcessEnv;
 }): Promise<DaemonServeStart> {
   const endpoint = input.endpoint ?? localUserDaemonEndpoint(input.userRoot, input.daemonId);
   // The singleton claim precedes every workspace attachment and the socket

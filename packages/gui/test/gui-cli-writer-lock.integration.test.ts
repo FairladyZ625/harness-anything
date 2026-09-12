@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { createLocalGuiServiceBridge } from "../src/main/local-composition-root.ts";
+import { writeProviderExecutable } from "../../daemon/test/fixtures/runtime-stub.ts";
 
 const cli = path.resolve("packages/cli/src/index.ts");
 
@@ -15,10 +16,16 @@ test("GUI and CLI write the same canonical through one resident daemon", async (
   const root = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
     sourceRoot = path.join(parent, "cli-agent"),
+    binRoot = path.join(parent, "bin"),
     daemonId = "gui-cli-writer-lock",
     repoId = "gui-cli-writer-lock";
   mkdirSync(root, { recursive: true });
   mkdirSync(sourceRoot, { recursive: true });
+  mkdirSync(binRoot, { recursive: true });
+  writeProviderExecutable(
+    path.join(binRoot, "codex"),
+    'if (process.argv[2] === "--version") { console.log("codex gui-writer-fixture"); process.exit(0); }\n',
+  );
   writeFileSync(
     path.join(sourceRoot, "agent.json"),
     `${JSON.stringify(
@@ -27,7 +34,8 @@ test("GUI and CLI write the same canonical through one resident daemon", async (
         id: "cli-agent",
         name: "CLI Agent",
         instructions: "Written by the CLI path.",
-        runtime_type: "any",
+        runtime_type: "codex",
+        instance: "gui-writer-codex",
       },
       null,
       2,
@@ -36,6 +44,7 @@ test("GUI and CLI write the same canonical through one resident daemon", async (
   const env = {
     ...process.env,
     HOME: path.join(parent, "home"),
+    PATH: [binRoot, process.env.PATH ?? ""].join(path.delimiter),
     NODE_OPTIONS: [process.env.NODE_OPTIONS, "--experimental-strip-types"].filter(Boolean).join(" "),
     HARNESS_DAEMON_USER_ROOT: userRoot,
     HARNESS_DAEMON_ID: daemonId,
@@ -65,6 +74,31 @@ test("GUI and CLI write the same canonical through one resident daemon", async (
       "Owner",
     ]);
     assert.equal(initialized.status, 0, `${initialized.stderr}\n${JSON.stringify(initialized.receipt)}`);
+    const inventory = runCli(root, env, ["runtime", "instance", "list"]),
+      installation = (inventory.receipt.installations as Array<Record<string, unknown>>).find(
+        (row) => row.kindId === "codex" && row.version === "codex gui-writer-fixture",
+      );
+    assert.ok(installation, JSON.stringify(inventory));
+    const instance = runCli(root, env, [
+      "runtime",
+      "instance",
+      "create",
+      "--id",
+      "gui-writer-codex",
+      "--name",
+      "GUI Writer Codex",
+      "--kind",
+      "codex",
+      "--installation",
+      String(installation.installationId),
+      "--provider",
+      "openai",
+      "--model",
+      "fixture-model",
+      "--auth",
+      "subscription",
+    ]);
+    assert.equal(instance.status, 0, JSON.stringify(instance));
 
     const bridge = createLocalGuiServiceBridge(root),
       guiWrite = bridge.invoke("saveAgent", {
@@ -74,7 +108,8 @@ test("GUI and CLI write the same canonical through one resident daemon", async (
           id: "gui-agent",
           name: "GUI Agent",
           instructions: "Written by the GUI path.",
-          runtime_type: "any",
+          runtime_type: "codex",
+          instance: "gui-writer-codex",
         },
       }),
       cliSourceWrite = runCliAsync(root, env, ["agent", "install", "--source", sourceRoot]);

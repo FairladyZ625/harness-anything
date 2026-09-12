@@ -20,6 +20,7 @@ import {
 } from "../../../daemon/src/client/local-daemon-target.ts";
 import type { DaemonLaunchSpec } from "../../../daemon/src/client/daemon-autostart.ts";
 import { cliErrorMessage } from "../cli-error.ts";
+import { materializePromptFile } from "../cli-runtime-prompt-file.ts";
 import type { ThinCommand } from "../cli/thin-command.ts";
 import { fleetEdgeRegistration, fleetScheduleRoute } from "./fleet-command-route.ts";
 import { openDaemonStatusReader } from "./status-reader.ts";
@@ -126,7 +127,7 @@ export async function runCommandThroughDaemon(
   options: { readonly autostart?: boolean; readonly env?: NodeJS.ProcessEnv } = {},
   timeRequest?: (typeof import("../cli/timing.ts"))["timedDaemonRequest"],
 ): Promise<JsonObject> {
-  command = materializeScheduleMission(command);
+  command = materializePromptFile(materializeScheduleMission(command));
   const env = options.env ?? process.env;
   assertCanonicalCliEntry();
   const rpc = await import("../../../daemon/src/client/local-json-rpc-client.ts"),

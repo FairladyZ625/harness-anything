@@ -369,7 +369,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       fallbackCandidate = fallbackAttempt?.candidates[fallbackAttempt.attemptIndex],
       selectedModel = fallbackCandidate?.model ?? model ?? agent?.model ?? undefined,
       runtimeInstanceId = await resolveRuntimeInstanceId({
-        requested: fallbackCandidate?.instance ?? explicitRuntimeInstanceId,
+        requested: fallbackCandidate?.instance ?? explicitRuntimeInstanceId ?? agent?.instance,
         providerSessionId: providerSessionId ?? undefined,
         agent,
         model: selectedModel,
@@ -378,7 +378,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       }),
       runtimeInstance = runtimeInstances.find((instance) => instance.instanceId === runtimeInstanceId),
       configuredPermissionMode = runtimeInstance?.permissionMode ?? undefined,
-      effectivePermissionMode = permissionMode ?? configuredPermissionMode,
+      declaredPermissionMode = permissionMode ?? agent?.permissionMode,
+      effectivePermissionMode = declaredPermissionMode ?? configuredPermissionMode,
       callbackRelay =
         globalThis.process?.platform !== "win32" &&
         daemonRoute &&
@@ -423,7 +424,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         ...(selectedModel ? { model: selectedModel } : {}),
         ...(effort ? { effort } : {}),
         ...(fast === undefined ? {} : { fast }),
-        ...(permissionMode ? { permissionMode } : {}),
+        ...(declaredPermissionMode ? { permissionMode: declaredPermissionMode } : {}),
         ...(providerSessionId ? { providerSessionId } : {}),
       }),
       definition = prepared.definition,
@@ -435,7 +436,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         "zcode_unattended_permission_mode_unsupported",
         [
           "ZCode edit and plan modes require an interactive permission client and cannot run unattended. ",
-          "Use --permission-mode bypass, or use --agent glm-worker (which declares bypass).",
+          `Set permissionMode to bypass in Agent ${agent?.id ?? "declaration"}.`,
         ].join(""),
       );
     if (agent && !runtimeTypeMatchesKind(agent.runtime_type, declaredKindId))

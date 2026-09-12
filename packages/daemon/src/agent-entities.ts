@@ -35,6 +35,8 @@ export interface AgentEntityGuiAvailableRow {
   readonly id: string;
   readonly name: string;
   readonly runtimeType: string;
+  readonly instance: string | null;
+  readonly permissionMode: AgentDeclarationV1["permissionMode"] | null;
   readonly role: "worker" | "commander";
   readonly layer: string;
   readonly validity: "valid" | "blocked";
@@ -129,6 +131,7 @@ export function validateAgentEntityAction(input: {
   readonly entityStore?: EntityStore;
   readonly action: Readonly<Record<string, unknown>> & { readonly kind: string };
   readonly runtimeInstances?: readonly {
+    readonly instanceId: string;
     readonly kindId: string;
     readonly models: readonly string[];
     readonly enabled: boolean;
@@ -138,7 +141,11 @@ export function validateAgentEntityAction(input: {
     kind = entityKind(action.kind);
   if (!action.kind.endsWith("-validate"))
     throw entityError("invalid_command", "Only an Agent or Squad validate action can use this reader.");
-  return validateEntityDeclarationSource({ source: declarationSource(action), kind });
+  return validateEntityDeclarationSource({
+    source: declarationSource(action),
+    kind,
+    runtimeInstances: input.runtimeInstances,
+  });
 }
 export function readAgentEntityGuiProjection<
   const K extends "agent-list" | "squad-list" | "agent-inspect" | "squad-inspect",
@@ -180,6 +187,8 @@ export function readAgentEntityGuiProjection<
         id: agent.id,
         name: agent.name,
         runtimeType: agent.runtime_type,
+        instance: agent.instance ?? null,
+        permissionMode: agent.permissionMode ?? null,
         role: agent.role ?? "worker",
         instructions: agent.instructions,
         model: agent.model ?? null,
@@ -262,6 +271,8 @@ function agentEntityCatalogRow(row: AgentEntityProjectionRow): AgentEntityGuiRow
       id: agent.id,
       name: agent.name,
       runtimeType: agent.runtime_type,
+      instance: agent.instance ?? null,
+      permissionMode: agent.permissionMode ?? null,
       role: agent.role ?? "worker",
       layer: "user",
       validity: "valid",
@@ -405,10 +416,20 @@ function validateEntityDeclarationSource(input: {
     | { readonly declaration: AgentDeclarationV1 & SquadDeclarationV1 }
     | { readonly issues: readonly { readonly code: string; readonly message: string }[]; readonly source?: string };
   readonly kind: AgentEntityKind;
+  readonly runtimeInstances?: readonly {
+    readonly instanceId: string;
+    readonly kindId: string;
+    readonly models: readonly string[];
+    readonly enabled: boolean;
+  }[];
 }): EntityValidationReport {
   const source = "source" in input.source && input.source.source ? input.source.source : "runtime-result",
     decoded = input.source;
   if ("issues" in decoded) return { schema: "entity-validate-report/v1", valid: false, source, issues: decoded.issues };
+  if (input.kind === "agent") {
+    const issue = agentRuntimeSelectionIssue(decoded.declaration, input.runtimeInstances);
+    if (issue) return { schema: "entity-validate-report/v1", valid: false, source, issues: [issue] };
+  }
   return {
     schema: "entity-validate-report/v1",
     valid: true,
@@ -423,6 +444,7 @@ export function prepareAgentEntityInstall(input: {
   readonly rootDir: string;
   readonly entityStore?: EntityStore;
   readonly runtimeInstances?: readonly {
+    readonly instanceId: string;
     readonly kindId: string;
     readonly models: readonly string[];
     readonly enabled: boolean;
@@ -473,8 +495,10 @@ export function prepareAgentEntityInstall(input: {
     );
   if (input.action.generatedOnly === true && current.exists && input.replay !== true)
     throw generatedAgentConflict(declaration.id);
-  if (input.action.generatedOnly === true && kind === "agent")
-    admitGeneratedAgent(declaration as AgentDeclarationV1, input.runtimeInstances);
+  if (kind === "agent") {
+    const issue = agentRuntimeSelectionIssue(declaration as AgentDeclarationV1, input.runtimeInstances);
+    if (issue) throw agentInstallError("agent", issue.code, issue.message, "agent/runtime-compatibility");
+  }
   const body = `${JSON.stringify(declaration, null, 2)}\n`,
     changed = current.value === null || `${JSON.stringify(current.value, null, 2)}\n` !== body;
   return {
@@ -632,32 +656,64 @@ function generatedAgentConflict(id: string): Error & { readonly code: string } {
     "agent/generated-identity",
   );
 }
-function admitGeneratedAgent(
+function agentRuntimeSelectionIssue(
   agent: AgentDeclarationV1,
   runtimeInstances:
-    | readonly { readonly kindId: string; readonly models: readonly string[]; readonly enabled: boolean }[]
+    | readonly {
+        readonly instanceId: string;
+        readonly kindId: string;
+        readonly models: readonly string[];
+        readonly enabled: boolean;
+      }[]
     | undefined,
-): void {
+): { readonly code: string; readonly message: string } | null {
+  if (runtimeInstances === undefined) return null;
   const available = (runtimeInstances ?? []).filter((instance) => instance.enabled),
-    compatible = available.filter((instance) => agent.runtime_type === "any" || instance.kindId === agent.runtime_type);
+    compatible = available.filter(
+      (instance) =>
+        (agent.runtime_type === "any" || instance.kindId === agent.runtime_type) &&
+        (agent.model === undefined || instance.models.includes(agent.model)),
+    );
+  if (agent.instance !== undefined) {
+    const selected = available.find((instance) => instance.instanceId === agent.instance);
+    if (!selected)
+      return {
+        code: "agent_instance_unavailable",
+        message: `Agent ${agent.id} declares instance ${agent.instance}, but it is not enabled on this node.`,
+      };
+    if (!compatible.includes(selected))
+      return {
+        code: "agent_instance_incompatible",
+        message:
+          `Agent ${agent.id} declares instance ${agent.instance}, ` +
+          "which does not match its runtime_type and model.",
+      };
+    return null;
+  }
+  if (compatible.length === 1) return null;
+  if (
+    compatible.length === 0 &&
+    !available.some((instance) => agent.runtime_type === "any" || instance.kindId === agent.runtime_type)
+  )
+    return {
+      code: "agent_runtime_type_unavailable",
+      message:
+        `Agent ${agent.id} requires runtime_type ${agent.runtime_type}, ` +
+        "but no enabled instance provides it; run ha runtime instance list.",
+    };
   if (compatible.length === 0)
-    throw agentInstallError(
-      "agent",
-      "agent_runtime_type_unavailable",
-      `Agent ${agent.id} requires runtime_type ${
-        agent.runtime_type
-      }, but no enabled instance provides it; run ha runtime instance list, change runtime_type to any or a listed kind, and retry ha agent create.`,
-      "agent/runtime-compatibility",
-    );
-  if (agent.model !== undefined && !compatible.some((instance) => instance.models.includes(agent.model!)))
-    throw agentInstallError(
-      "agent",
-      "agent_model_unavailable",
-      `Agent ${agent.id} requests model ${
-        agent.model
-      }, but no compatible enabled instance supports it; run ha runtime instance list, remove model to use the instance default or choose a listed model, and retry ha agent create.`,
-      "agent/model-compatibility",
-    );
+    return {
+      code: "agent_model_unavailable",
+      message:
+        `Agent ${agent.id} requests model ${agent.model}, ` +
+        "but no compatible enabled instance supports it; run ha runtime instance list.",
+    };
+  return {
+    code: "agent_instance_ambiguous",
+    message: `Agent ${agent.id} matches multiple enabled instances on this node: ${compatible
+      .map(({ instanceId }) => instanceId)
+      .join(", ")}; declare instance explicitly.`,
+  };
 }
 
 function agentInstallError(

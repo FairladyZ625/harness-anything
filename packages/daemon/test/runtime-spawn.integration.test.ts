@@ -195,7 +195,7 @@ test("runtime spawn rejects unattended zcode modes that require a permission cli
           error instanceof Error &&
           "code" in error &&
           error.code === "zcode_unattended_permission_mode_unsupported" &&
-          /interactive permission client.*--permission-mode bypass.*--agent glm-worker/su.test(error.message),
+          /interactive permission client.*permissionMode.*Agent declaration/su.test(error.message),
       );
       assert.equal(launchCount, 0);
       const bypass = await cell.spawnRuntime(
@@ -379,6 +379,7 @@ test("runtime spawn resolves command model, Agent model, then instance default w
       name: "Declared Model",
       instructions: "Include the identity marker exactly: AGENT_INSTRUCTIONS_WITNESS.",
       runtime_type: "codex",
+      instance: "codex-agent-model",
       role: "worker",
       model: "agent-declared",
       prompts: ["PROMPT_FRAGMENT_FIRST", "PROMPT_FRAGMENT_SECOND"],
@@ -390,6 +391,7 @@ test("runtime spawn resolves command model, Agent model, then instance default w
       name: "Default Model",
       instructions: "Use instance default.",
       runtime_type: "codex",
+      instance: "codex-agent-model",
       role: "commander",
     },
     {
@@ -398,13 +400,7 @@ test("runtime spawn resolves command model, Agent model, then instance default w
       name: "Any Model",
       instructions: "Use any compatible runtime.",
       runtime_type: "any",
-    },
-    {
-      schema: "agent-declaration/v1",
-      id: "opencode-model",
-      name: "OpenCode Model",
-      instructions: "Use OpenCode only.",
-      runtime_type: "opencode",
+      instance: "codex-agent-model",
     },
     {
       schema: "agent-declaration/v1",
@@ -412,6 +408,7 @@ test("runtime spawn resolves command model, Agent model, then instance default w
       name: "Missing Preset",
       instructions: "Do not dispatch without the preset.",
       runtime_type: "codex",
+      instance: "codex-agent-model",
       preset: "missing-preset",
     },
     {
@@ -481,19 +478,6 @@ test("runtime spawn resolves command model, Agent model, then instance default w
         error.code === "agent_model_unavailable" &&
         error.message.includes("No enabled runtime instance declares model missing-model"),
     );
-    await assert.rejects(
-      cell.spawnRuntime(
-        {
-          agentId: "opencode-model",
-          cwd: { scope: "repo-root" },
-          prompt: "No compatible runtime.",
-          taskId: null,
-          idempotencyKey: "auto-route-missing-type",
-        },
-        binding,
-      ),
-      (error: unknown) => error instanceof Error && "code" in error && error.code === "agent_runtime_unavailable",
-    );
     const probesBeforeKnownUnavailable = probed.length;
     await assert.rejects(
       cell.spawnRuntime(
@@ -518,6 +502,7 @@ test("runtime spawn resolves command model, Agent model, then instance default w
     await assert.rejects(
       cell.spawnRuntime(
         {
+          runtimeInstanceId: "codex-unchecked-not-ready",
           agentId: "default-model",
           model: "unchecked-not-ready-only",
           cwd: { scope: "repo-root" },
@@ -646,21 +631,7 @@ test("runtime spawn resolves command model, Agent model, then instance default w
       assert.equal(launched?.definition.kindId, kindId);
       assert.match(launched?.prompt ?? "", /# Worker Role/u);
     }
-    await assert.rejects(
-      cell.spawnRuntime(
-        {
-          runtimeInstanceId: "codex-agent-model",
-          agentId: "opencode-model",
-          cwd: { scope: "repo-root" },
-          prompt: "Reject unknown runtime.",
-          taskId: null,
-          idempotencyKey: "opencode-model",
-        },
-        binding,
-      ),
-      (error: unknown) => error instanceof Error && "code" in error && error.code === "agent_runtime_type_mismatch",
-    );
-    await cell.run(
+    const unavailableInstall = await cell.run(
       {
         kind: "agent-install",
         declaration: {
@@ -674,20 +645,8 @@ test("runtime spawn resolves command model, Agent model, then instance default w
       },
       binding,
     );
-    await assert.rejects(
-      cell.spawnRuntime(
-        {
-          runtimeInstanceId: "codex-agent-model",
-          agentId: "declared-model",
-          cwd: { scope: "repo-root" },
-          prompt: "Reject unavailable model.",
-          taskId: null,
-          idempotencyKey: "unavailable-model",
-        },
-        binding,
-      ),
-      (error: unknown) => error instanceof Error && "code" in error && error.code === "invalid_runtime_model",
-    );
+    assert.equal(unavailableInstall.outcome, "op_rejected");
+    assert.equal(unavailableInstall.code, "agent_model_unavailable");
     await assert.rejects(
       cell.spawnRuntime(
         {
@@ -909,22 +868,6 @@ test("Agent skill is really read by the provider from the absolute path in its f
       runtimeDiscover: () => [installation],
     });
   await host.attachmentsSettled();
-  const install = await host.run(
-    repoId,
-    {
-      kind: "agent-install",
-      declaration: {
-        schema: "agent-declaration/v1",
-        id: "skill-agent",
-        name: "Skill Agent",
-        instructions: "Use the provider skill.",
-        runtime_type: "codex",
-        skills: [{ id: "provider-witness", path: "skills/provider-witness" }],
-      },
-    },
-    auth,
-  );
-  assert.equal(install.outcome, "applied", JSON.stringify(install));
   try {
     host.runtimeInstance(
       "daemon.runtimeInstance.create",
@@ -939,6 +882,23 @@ test("Agent skill is really read by the provider from the absolute path in its f
       },
       auth,
     );
+    const install = await host.run(
+      repoId,
+      {
+        kind: "agent-install",
+        declaration: {
+          schema: "agent-declaration/v1",
+          id: "skill-agent",
+          name: "Skill Agent",
+          instructions: "Use the provider skill.",
+          runtime_type: "codex",
+          instance: "codex-skill",
+          skills: [{ id: "provider-witness", path: "skills/provider-witness" }],
+        },
+      },
+      auth,
+    );
+    assert.equal(install.outcome, "applied", JSON.stringify(install));
     const receipt = await rpc(host, auth, "repo.agentRuntime.spawn", {
       repo: { repoId },
       payload: {

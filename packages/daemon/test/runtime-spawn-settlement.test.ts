@@ -28,7 +28,7 @@ test("path-like runtime missions produce an actionable receipt without exposing 
     actual: "path-like value",
     expectation:
       "Expected a bare mission id; the daemon resolves harness/<task-package>/artifacts/missions/<name>.md " +
-      "and did not look up this file. Retry ha runtime run <runtime-instance> --task <task-id> --mission <name>",
+      "and did not look up this file. Retry ha agent run <agent-id> --task <task-id> --mission <name>",
   });
   context.diagnostic(`invalid_runtime_mission receipt=${JSON.stringify(receipt)}`);
 });

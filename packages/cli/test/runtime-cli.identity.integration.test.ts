@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { run } from "./runtime-cli.commands.fixture.ts";
-import { createRuntimeFixture, installIdentities, writeIdentity } from "./runtime-cli.setup.fixture.ts";
+import { createRuntimeFixture, installIdentities, seedTask, writeIdentity } from "./runtime-cli.setup.fixture.ts";
 
 test("CLI installs identities, updates squads and assembles wildcard worker prompts", async (context) => {
   const fixture = createRuntimeFixture(context);
@@ -36,14 +36,16 @@ test("CLI installs identities, updates squads and assembles wildcard worker prom
     squad: { roster: string };
   };
   assert.match(squad.squad.roster, /humans edited/u);
+  const { taskId, executionId } = seedTask(root, env, "identity");
+  run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
   const wildcard = run(root, env, [
-    "runtime",
+    "agent",
     "run",
-    "cli-worker",
-    "--agent",
     "any-worker",
     "--prompt",
     "wildcard prompt",
+    "--task",
+    taskId,
     "--no-stream",
   ]);
   const wildcardText = String((wildcard.result as Record<string, unknown>).text);
@@ -54,7 +56,7 @@ test("CLI installs identities, updates squads and assembles wildcard worker prom
     wildcardText,
   );
   assert.match(wildcardText, /# Worker Role/u);
-  assert.ok(wildcardText.endsWith("\n\n# Mission\n\nwildcard prompt"), wildcardText);
+  assert.ok(wildcardText.endsWith("# Assigned Mission\nwildcard prompt"), wildcardText);
   assert.ok(
     wildcardText.indexOf("# Worker Role") < wildcardText.indexOf("prompt://review") &&
       wildcardText.indexOf("prompt://review") < wildcardText.indexOf("# Standard Task") &&

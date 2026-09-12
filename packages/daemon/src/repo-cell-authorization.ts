@@ -89,6 +89,8 @@ export function authorizeDurableRepoCellAction(
       return authorizeRepoCellAction(input);
     case "agent-install":
       return authorizeRepoCellAction(input);
+    case "agent-run":
+      return authorizeRepoCellAction(input);
     case "ci-observe-pull":
       return authorizeRepoCellAction(input);
     case "daemon-control-request":
@@ -491,7 +493,7 @@ function invalidExecutorBindingFor(
         executorRetryCommand(input.action, canonicalTaskId, executionId)
       : reviewerRedispatch
         ? `Expected a reviewer RuntimeSession bound to execution ${executionId ?? "<execution-id>"}; run ` +
-          `ha runtime run <runtime-instance-id> --role reviewer --task ${taskId}, then retry ${retry}`
+          `ha agent run <reviewer-agent-id> --role reviewer --task ${taskId}, then retry ${retry}`
         : expected
           ? `Expected ${expected} from the held execution lease; run from that executor, then retry ${retry}`
           : "Expected a task-bound executor with a matching held execution lease; run ha task start " +

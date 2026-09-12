@@ -90,13 +90,25 @@ function entityReadRowErrors(value: unknown, fields: readonly string[], prefix: 
     errors.push(`${prefix} carries a forbidden credential-shaped key.`);
   return errors;
 }
-const agentCatalogRowFields = Object.freeze(["id", "name", "runtimeType", "role", "layer", "validity", "issues"]),
+const agentCatalogRowFields = Object.freeze([
+    "id",
+    "name",
+    "runtimeType",
+    "instance",
+    "permissionMode",
+    "role",
+    "layer",
+    "validity",
+    "issues",
+  ]),
   squadCatalogRowFields = Object.freeze(["id", "name", "leader", "workers", "layer", "validity", "issues"]),
   degradedCatalogRowFields = Object.freeze(["id", "layer", "state", "error"]),
   agentDetailFields = Object.freeze([
     "id",
     "name",
     "runtimeType",
+    "instance",
+    "permissionMode",
     "role",
     "instructions",
     "model",

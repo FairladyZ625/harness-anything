@@ -77,6 +77,13 @@ test("GUI main reports every isolated task snapshot row with field-level context
 test("GUI client reaches every shipped read through a real resident daemon", async () => {
   const fixture = await startGuiResidentDaemonFixture({
     task: { taskId: "task-gui-smoke", title: "Resident GUI task" },
+    runtimeInstance: {
+      instanceId: "codex-gui",
+      name: "Codex GUI",
+      kindId: "codex",
+      providerId: "openai",
+      models: ["gpt-5.6-terra"],
+    },
     beforeRestart: async (rootDir: string, repoId: string, writerFence: WriterEpochFenceDescriptor) => {
       await seedRuntime(rootDir, repoId, writerFence);
       await seedSchedule(rootDir, repoId, writerFence);

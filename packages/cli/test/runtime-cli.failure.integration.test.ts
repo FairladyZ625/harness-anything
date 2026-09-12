@@ -5,10 +5,11 @@ import path from "node:path";
 import test from "node:test";
 import { run, runMaybe } from "./runtime-cli.commands.fixture.ts";
 import { eventuallyFile } from "./runtime-cli.observations.fixture.ts";
-import { createRuntimeFixture, seedTask } from "./runtime-cli.setup.fixture.ts";
+import { installIdentities, createRuntimeFixture, seedTask } from "./runtime-cli.setup.fixture.ts";
 
 test("Provider failures preserve reasons, redact secrets and publish failed task archives", async (context) => {
   const fixture = createRuntimeFixture(context);
+  installIdentities(fixture.parent, fixture.root, fixture.env);
   const { root, env } = fixture;
   const { taskId, executionId, packagePath, artifactRoot } = seedTask(root, env, "failure");
   run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
@@ -66,9 +67,9 @@ test("Provider failures preserve reasons, redact secrets and publish failed task
   assert.equal(failureRow.reason, "Provider exited with code 1 and produced no output.");
   run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
   const detachedFailure = run(root, env, [
-    "runtime",
+    "agent",
     "run",
-    "cli-worker",
+    "terra",
     "--prompt",
     "failure:structured",
     "--task",

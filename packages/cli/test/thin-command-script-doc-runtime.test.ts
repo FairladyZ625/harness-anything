@@ -193,41 +193,24 @@ test("thin parser exposes daemon-backed workspace bootstrap", () => {
 
 test("runtime work commands parse into closed daemon facade actions", () => {
   const run = parseThinCommand([
-      "runtime",
+      "agent",
       "run",
-      "worker",
-      "--agent",
       "fable",
-      "--to",
-      "terra",
-      "--squad",
-      "runtime-squad",
+      "--instance",
+      "worker",
       "--prompt",
       "Inspect",
       "--cwd",
       "packages/cli",
       "--task",
       "task-1",
-      "--resume",
-      "provider-1",
-      "--idempotency-key",
-      "once",
       "--no-stream",
     ]),
-    taskOnly = parseThinCommand(["runtime", "run", "worker", "--agent", "terra", "--task", "task-1", "--cwd", "."]),
+    taskOnly = parseThinCommand(["agent", "run", "terra", "--task", "task-1", "--cwd", "."]),
     reviewer = parseThinCommand(["runtime", "run", "worker", "--task", "task-1", "--role", "reviewer"]),
     file = parseThinCommand(["runtime", "run", "worker", "--prompt-file", "prompt.txt"]),
-    mission = parseThinCommand(["runtime", "run", "worker", "--task", "task-1", "--mission", "api-review"]),
-    missionJson = parseThinCommand([
-      "runtime",
-      "run",
-      "worker",
-      "--task",
-      "task-1",
-      "--mission",
-      "api-review",
-      "--json",
-    ]),
+    mission = parseThinCommand(["agent", "run", "terra", "--task", "task-1", "--mission", "api-review"]),
+    missionJson = parseThinCommand(["agent", "run", "terra", "--task", "task-1", "--mission", "api-review", "--json"]),
     batch = parseThinCommand(["runtime", "batch", "dispatches.json"]),
     detached = parseThinCommand([
       "runtime",
@@ -255,7 +238,6 @@ test("runtime work commands parse into closed daemon facade actions", () => {
   for (const parsed of [
     run,
     taskOnly,
-    reviewer,
     mission,
     missionJson,
     batch,
@@ -274,38 +256,28 @@ test("runtime work commands parse into closed daemon facade actions", () => {
       kind: "runtime-run",
       runtimeInstanceId: "worker",
       agentId: "fable",
-      targetAgentId: "terra",
-      squadId: "runtime-squad",
       prompt: "Inspect",
       cwd: { scope: "repo-relative", path: "packages/cli" },
       taskId: "task-1",
-      providerSessionId: "provider-1",
-      idempotencyKey: "once",
       noStream: true,
     });
   if (taskOnly.ok)
     assert.deepEqual(taskOnly.command.action, {
       kind: "runtime-run",
-      runtimeInstanceId: "worker",
       agentId: "terra",
       cwd: { scope: "repo-root" },
       taskId: "task-1",
+      detach: true,
     });
-  if (reviewer.ok)
-    assert.deepEqual(reviewer.command.action, {
-      kind: "runtime-run",
-      runtimeInstanceId: "worker",
-      role: "reviewer",
-      cwd: { scope: "repo-root" },
-      taskId: "task-1",
-    });
+  assert.equal(reviewer.ok, false);
   if (mission.ok)
     assert.deepEqual(mission.command.action, {
       kind: "runtime-run",
-      runtimeInstanceId: "worker",
+      agentId: "terra",
       missionName: "api-review",
       cwd: { scope: "repo-root" },
       taskId: "task-1",
+      detach: true,
     });
   if (mission.ok && missionJson.ok) {
     assert.equal(missionJson.command.json, true);

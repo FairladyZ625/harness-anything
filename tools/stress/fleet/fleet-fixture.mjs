@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import { openDaemonHost } from "../../../packages/daemon/src/daemon-host.ts";
+import { openRuntimeInstanceStore } from "../../../packages/daemon/src/agent-runtime-instances.ts";
 import { openPersistentWriterEpoch } from "../../../packages/daemon/src/writer-epoch.ts";
 import { listenFleetTls } from "../../../packages/daemon/src/fleet/center.ts";
 import { runFleetReplicaPullClient, runFleetScheduleCommandClient } from "../../../packages/daemon/src/fleet/edge.ts";
@@ -58,7 +59,29 @@ export async function openFleetCampaignFixture(options = {}) {
       });
     }
     makeCertificate(keyFile, certFile);
-    const host = await openDaemonHost({ daemonId: "stress-s4-center", userRoot, now: () => clock });
+    const installation = {
+      installationId: "installation-stress-runtime",
+      kindId: "codex",
+      executablePath: process.execPath,
+      version: "fixture",
+      observedAt: "2026-09-12T00:00:00.000Z",
+    };
+    await openRuntimeInstanceStore({ userRoot, discover: () => [installation] }).command({
+      kind: "runtime-instance-create",
+      instanceId: "stress-runtime",
+      name: "Stress Runtime",
+      kindId: "codex",
+      installationId: installation.installationId,
+      providerId: "openai",
+      models: ["stress-model"],
+      authMode: "subscription",
+    });
+    const host = await openDaemonHost({
+      daemonId: "stress-s4-center",
+      userRoot,
+      now: () => clock,
+      runtimeDiscover: () => [installation],
+    });
     await host.attachmentsSettled();
     for (const repo of repos) {
       const assignment = assignments.find((candidate) => candidate.repoId === repo.repoId);
@@ -72,6 +95,7 @@ export async function openFleetCampaignFixture(options = {}) {
             name: "Campaign Agent",
             instructions: "Exercise the fleet schedule claim.",
             runtime_type: "codex",
+            instance: "stress-runtime",
           },
         },
         assignmentAuth(assignment),

@@ -276,6 +276,8 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
       );
     });
     await t.test("the real CLI carries --agent identity through the daemon into the provider mission", async () => {
+      const taskId = "task-runtime-cli-agent";
+      await createReadyTask(taskId, "CLI agent runtime");
       const installed = await host.run(
         repoId,
         {
@@ -286,6 +288,8 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
             name: "Sol Reviewer",
             instructions: "Include AGENT_CLI_INGRESS_WITNESS in the review.",
             runtime_type: "codex",
+            instance: ingressDefinition.instanceId,
+            permissionMode: "read-only",
             role: "worker",
           },
         },
@@ -297,21 +301,19 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
           "--root",
           workerRoot,
           "--json",
-          "runtime",
+          "agent",
           "run",
-          ingressDefinition.instanceId,
-          "--agent",
           "sol-reviewer",
-          "--role",
-          "reviewer",
+          "--task",
+          taskId,
+          "--instance",
+          ingressDefinition.instanceId,
           "--prompt",
           "Review through the declared identity.",
-          "--permission-mode",
-          "read-only",
-          "--detach",
         ],
         {
           ...launchedEnv,
+          HARNESS_ACTOR: undefined,
           HARNESS_DAEMON_ENDPOINT: endpoint,
           HARNESS_DAEMON_RELAY: undefined,
         },
@@ -326,7 +328,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
       );
       assert.match(
         launchedPrompt,
-        /^# Agent Identity: Sol Reviewer \(sol-reviewer\)[\s\S]*AGENT_CLI_INGRESS_WITNESS[\s\S]*# Mission\n\nReview through the declared identity\.[\s\S]*# Read-only Dispatch Contract[\s\S]*final stdout/u,
+        /^# Agent Identity: Sol Reviewer \(sol-reviewer\)[\s\S]*AGENT_CLI_INGRESS_WITNESS[\s\S]*# Assigned Mission\nReview through the declared identity\.[\s\S]*# Read-only Dispatch Contract[\s\S]*final stdout/u,
       );
     });
     await t.test("enforced Codex runtimes receive a callback relay without opening operator routes", async () => {
@@ -794,7 +796,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
       assert.equal(staleReviewer.code, "executor_binding_invalid", JSON.stringify(staleReviewer));
       assert.match(
         String((staleReviewer.diagnostic as { expectation?: unknown } | undefined)?.expectation),
-        new RegExp(`ha runtime run <runtime-instance-id> --role reviewer --task ${taskId}`, "u"),
+        new RegExp(`ha agent run <reviewer-agent-id> --role reviewer --task ${taskId}`, "u"),
       );
 
       const independentReview = await rpc(host, auth, "repo.agentRuntime.spawn", {

@@ -132,6 +132,8 @@ export async function seedEntityDeclarations(endpoint: string, repoId: string): 
       name: "Terra",
       instructions: "Review precisely.",
       runtime_type: "codex",
+      instance: "codex-gui",
+      model: "gpt-5.6-terra",
       skills: [{ id: "review", path: "skills/review" }],
       prompts: ["prompt://review"],
       preset: "standard-task",

@@ -15,9 +15,9 @@ test("Named missions reject invalid inputs and task-derived missions carry dispa
   run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
   const existingMissionPath = `${packagePath}/artifacts/missions/existing-mission.md`;
   const pathLikeMission = runMaybe(root, env, [
-    "runtime",
+    "agent",
     "run",
-    "cli-worker",
+    "terra",
     "--mission",
     existingMissionPath,
     "--task",
@@ -33,16 +33,16 @@ test("Named missions reject invalid inputs and task-derived missions carry dispa
     actual: "path-like value",
     expectation:
       "Expected a bare mission id; the daemon resolves harness/<task-package>/artifacts/missions/<name>.md " +
-      "and did not look up this file. Retry ha runtime run <runtime-instance> --task <task-id> --mission <name>",
+      "and did not look up this file. Retry ha agent run <agent-id> --task <task-id> --mission <name>",
   });
   context.diagnostic(`invalid_runtime_mission receipt=${JSON.stringify(pathLikeMission.receipt)}`);
   // The unavailable rejection is only deterministic while the file is absent: once it exists on
   // disk, the WAL materializer's authored-candidate settlement may auto-submit it after any
   // flush, racing both this rejection and a doc status that expects "eligible".
   const unsyncedMission = runMaybe(root, env, [
-    "runtime",
+    "agent",
     "run",
-    "cli-worker",
+    "terra",
     "--mission",
     "existing-mission",
     "--task",
@@ -57,21 +57,26 @@ test("Named missions reject invalid inputs and task-derived missions carry dispa
   // the write, which the receipt reports as no_changes — both outcomes leave the doc clean.
   const missionSync = run(root, env, ["doc", "sync", "--submit", "--path", existingMissionPath]);
   assert.match(String(run(root, env, ["doc", "status", "--path", existingMissionPath]).evidence), /"state":"clean"/u);
-  const retiredPromptFile = runMaybe(root, env, [
-    "runtime",
+  const promptFile = runMaybe(root, env, [
+    "agent",
     "run",
-    "cli-worker",
+    "terra",
     "--prompt-file",
     path.join("harness", packagePath, "artifacts", "missions", "existing-mission.md"),
     "--task",
     taskId,
+    "--no-stream",
   ]);
-  assert.equal(retiredPromptFile.status, 2);
-  assert.equal(retiredPromptFile.receipt.code, "unknown_field");
+  assert.equal(promptFile.status, 0, JSON.stringify(promptFile));
+  assert.match(
+    String((promptFile.receipt.result as Record<string, unknown>).text),
+    /# Assigned Mission\nexisting mission$/u,
+  );
+  const promptFileDispatchId = String((promptFile.receipt.spawn as Record<string, unknown>).dispatchId);
   const reused = run(root, env, [
-      "runtime",
+      "agent",
       "run",
-      "cli-worker",
+      "terra",
       "--mission",
       "existing-mission",
       "--task",
@@ -98,7 +103,7 @@ test("Named missions reject invalid inputs and task-derived missions carry dispa
   assert.equal(reusedDispatch.missionRef, `${packagePath}/artifacts/missions/${reusedDispatchId}.md`);
   assert.deepEqual(
     readdirSync(path.join(artifactRoot, "missions")).sort(),
-    ["existing-mission.md", `${reusedDispatchId}.md`].sort(),
+    ["existing-mission.md", `${promptFileDispatchId}.md`, `${reusedDispatchId}.md`].sort(),
   );
   assert.equal(reusedReport, `final:${reusedMission}`);
   assertTaskMissionPrompt(reusedMission, {
@@ -118,18 +123,7 @@ test("Named missions reject invalid inputs and task-derived missions carry dispa
   run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
   const taskPackage = path.join(realpathSync(root), "harness", packagePath),
     derivedMission = `Your task package is ${taskPackage}.\nRead task_plan.md in that package and complete the task.`,
-    derived = run(root, env, [
-      "runtime",
-      "run",
-      "cli-worker",
-      "--agent",
-      "terra",
-      "--task",
-      taskId,
-      "--cwd",
-      ".",
-      "--no-stream",
-    ]),
+    derived = run(root, env, ["agent", "run", "terra", "--task", taskId, "--cwd", ".", "--no-stream"]),
     derivedText = String((derived.result as Record<string, unknown>).text);
   assert.match(
     derivedText,

@@ -13,11 +13,23 @@ export async function startGuiResidentDaemonFixture({
   task,
   beforeStop,
   beforeRestart,
+  runtimeInstance,
 } = {}) {
   const parent = mkdtempSync(path.join(tmpdir(), prefix));
   const rootDir = path.join(parent, "repo"),
     userRoot = path.join(parent, "user");
-  let daemon = await startDaemon({ daemonId, userRoot });
+  const runtimeDiscover = runtimeInstance
+    ? () => [
+        {
+          installationId: `installation-${runtimeInstance.instanceId}`,
+          kindId: runtimeInstance.kindId,
+          executablePath: process.execPath,
+          version: "fixture",
+          observedAt: "2026-09-12T00:00:00.000Z",
+        },
+      ]
+    : undefined;
+  let daemon = await startDaemon({ daemonId, userRoot, runtimeDiscover });
   let stopped = false;
   const pauseDaemon = async () => {
     await daemon.stop();
@@ -26,7 +38,7 @@ export async function startGuiResidentDaemonFixture({
     const originalTmpdir = process.env.TMPDIR;
     process.env.TMPDIR = "/tmp";
     try {
-      daemon = await startDaemon({ daemonId, userRoot });
+      daemon = await startDaemon({ daemonId, userRoot, runtimeDiscover });
       return daemon.endpoint;
     } finally {
       if (originalTmpdir === undefined) delete process.env.TMPDIR;
@@ -47,6 +59,21 @@ export async function startGuiResidentDaemonFixture({
       1_000,
     );
     if (bootstrapped.ok !== true) throw new Error(`GUI daemon bootstrap failed: ${JSON.stringify(bootstrapped)}`);
+    if (runtimeInstance) {
+      const created = await requestDaemonJsonRpcAt(
+        daemon.endpoint,
+        "daemon.runtimeInstance.create",
+        {
+          payload: {
+            ...runtimeInstance,
+            installationId: `installation-${runtimeInstance.instanceId}`,
+            authMode: "subscription",
+          },
+        },
+        1_000,
+      );
+      if (created.ok !== true) throw new Error(`GUI runtime fixture failed: ${JSON.stringify(created)}`);
+    }
     let packagePath = null;
     if (task) {
       const created = await requestDaemonJsonRpcAt(

@@ -20,6 +20,13 @@ import { restoreEnv } from "./service-bridge.fixtures.ts";
 test("GUI entity write channel validates then installs an Agent and preserves a Squad roster", async () => {
   const fixture = await startGuiResidentDaemonFixture({
     task: { taskId: "task-gui-entity-write", title: "Entity write" },
+    runtimeInstance: {
+      instanceId: "codex-gui",
+      name: "Codex GUI",
+      kindId: "codex",
+      providerId: "openai",
+      models: ["gpt-5.6-terra"],
+    },
   });
   const previous = {
     userRoot: process.env.HARNESS_DAEMON_USER_ROOT,
@@ -35,7 +42,8 @@ test("GUI entity write channel validates then installs an Agent and preserves a 
         id: "gui-created-agent",
         name: "GUI Created Agent",
         instructions: "Keep the roster intact.\nSecond line.",
-        runtime_type: "any",
+        runtime_type: "codex",
+        instance: "codex-gui",
         role: "commander",
         model: "gpt-5.6-terra",
         skills: [{ id: "review", path: "skills/review" }],
