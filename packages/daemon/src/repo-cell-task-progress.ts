@@ -60,7 +60,7 @@ export function readLatestCiEvidence(
   const observations = cell.projection.readCiRunObservations(2000);
   if (!cell.projectionReady(observations))
     throw cell.cellCodedError("content_not_ready", "CI observation projection is not ready.");
-  // Newest observation first; never skip a red or unverified run for an older green; cancelled/skipped gives no verdict.
+  // Newest observation first; never skip a red/unverified run for an older green; cancelled/skipped: no verdict.
   const submitted = execution.submission.commitSha,
     publicCut = localGitObjectRefStore.hasCommit(cell.rootDir, submitted),
     root = publicCut ? cell.rootDir : resolveHarnessLayout(cell.rootDir).authoredRoot;
