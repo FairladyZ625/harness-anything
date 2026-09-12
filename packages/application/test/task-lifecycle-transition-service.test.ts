@@ -68,6 +68,7 @@ test("completion blocker matrix returns one canonical next for every substantive
       ["consent_missing", reviewed.snapshot, ready],
       ["ci_missing", withGates(["ci"]), ready],
       ["code_doc_missing", withGates(["code-doc-reconciliation"]), ready],
+      ["gate_witness_missing", withGates(["lint"]), ready],
       ["decision_lineage_missing", orphanMilestone, ready],
       ["lease_held", { ...consented.snapshot, lease: started.snapshot.lease }, ready],
       [
@@ -102,6 +103,10 @@ test("completion blocker matrix returns one canonical next for every substantive
       closeoutMissingSections: [{ section: "Residual Risk", reason: "scaffold" }],
     })[0]!;
     assert.match(templateSection.next.reason, /section Residual Risk is scaffold/);
+    // A nonstandard gate has no ordinary selector-bearing command; the guidance names the checker, not --execution-id.
+    const witness = completionBlockers(withGates(["lint"]), "execution-1", ready)[0]!;
+    assert.equal(witness.next.action.includes("--execution-id"), false);
+    assert.match(witness.next.action, /canonical lint checker/);
     // The lineage blocker names the missing edge with the exact command that writes it.
     const lineage = completionBlockers(orphanMilestone, "execution-1", ready)[0]!;
     assert.equal(

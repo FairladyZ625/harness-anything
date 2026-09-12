@@ -181,7 +181,9 @@ function evaluateCompletion(
       : one(
           gate.gateId === "ci" ? "ci_missing" : "gate_witness_missing",
           gate.gateId,
-          gate.gateId === "ci" ? "ha ci observe pull" : `ha task complete ${task.taskId} --execution-id ${executionId}`,
+          gate.gateId === "ci"
+            ? "ha ci observe pull"
+            : `Run the canonical ${gate.gateId} checker to witness execution ${executionId}.`,
           `Publish a passing canonical ${gate.gateId} checker witness for this execution cut.`,
         );
   if (lineageOrphan(task, snapshot.decisionRelations ?? []))
