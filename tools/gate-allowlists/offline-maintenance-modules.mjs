@@ -148,6 +148,7 @@ export const offlineMaintenanceModules = new Set([
   "packages/kernel/src/domain/schedule-event.ts",
   "packages/kernel/src/domain/schedule.ts",
   "packages/kernel/src/domain/settings-action-contract.ts",
+  "packages/kernel/src/domain/settings-closeout.ts",
   "packages/kernel/src/domain/settings-event.ts",
   "packages/kernel/src/domain/settings.ts",
   "packages/kernel/src/domain/squad-action-contract.ts",

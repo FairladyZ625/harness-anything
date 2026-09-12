@@ -142,7 +142,8 @@ async function fixture(failProvider = false, available = true, artifactDelivery 
   writeFileSync(
     path.join(root, "harness", "harness.yaml"),
     "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n" +
-      "settings:\n  defaultVertical: software/coding\n  defaultPreset: standard-task\n  defaultProfile: baseline\n",
+      "settings:\n  defaultVertical: software/coding\n  defaultPreset: standard-task\n  defaultProfile: baseline\n" +
+      "  closeout:\n    profile: strict\n",
   );
   let cell = await open();
   const run = (action: Parameters<typeof cell.run>[0]) => cell.run(action, owner);

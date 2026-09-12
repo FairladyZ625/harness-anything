@@ -3,11 +3,21 @@ import { CloudSlash } from "@phosphor-icons/react";
 import { useTheme, type ThemeMode, type UiScale } from "../theme";
 import { t, useI18n, type MessageKey } from "../i18n/index.tsx";
 import { STATUS_META } from "../components/badges";
-import { BTN, Section, Row, Segmented, Toggle, Kbd } from "../components/ui/widgets";
+import {
+  BTN,
+  Section,
+  Row,
+  Segmented,
+  Toggle,
+  Kbd,
+  SettingSelect,
+  type SelectorOption,
+} from "../components/ui/widgets";
 import { readTimeZoneOverride, supportedTimeZones, systemTimeZone, writeTimeZoneOverride } from "../model/time.ts";
 import { useSettingsMutation, useSettingsQuery } from "../settings-data.ts";
 import { useCatalogSnapshot } from "../catalog-data.ts";
 import type { CatalogPresetRow, SettingsSuccess, SystemRepoRow } from "../api-client.ts";
+import { CloseoutRows } from "./settings/CloseoutRows.tsx";
 import { RepositoriesAndConnectionsView } from "./settings/RepositoriesAndConnectionsView.tsx";
 
 // i18n(task_bff1b8d6):设置页文案一律走 locales(同 task_9f39e256 的 tab 机制),
@@ -252,36 +262,7 @@ export function SettingsView({
                 onChange={(value) => updateDraft("defaultProfile", value)}
               />
             </Row>
-            <Row label="Closeout profile" desc="Choose the repository baseline for completion review gates.">
-              <SettingSelect
-                label="Closeout profile"
-                testId="settings-closeout-profile-select"
-                value={draft.closeout.profile}
-                options={[
-                  { value: "standard", label: "standard" },
-                  { value: "strict", label: "strict" },
-                ]}
-                onChange={(profile) =>
-                  setDraft({ ...draft, closeout: { ...draft.closeout, profile: profile as "standard" | "strict" } })
-                }
-              />
-            </Row>
-            {(["review", "consent", "factDisposition", "codeDoc"] as const).map((gate) => (
-              <Row key={gate} label={`Closeout ${gate}`} desc="Override this closeout gate for the repository.">
-                <Toggle
-                  checked={draft.closeout.overrides?.[gate] ?? draft.closeout.profile === "strict"}
-                  onChange={(enabled) =>
-                    setDraft({
-                      ...draft,
-                      closeout: {
-                        ...draft.closeout,
-                        overrides: { ...draft.closeout.overrides, [gate]: enabled },
-                      },
-                    })
-                  }
-                />
-              </Row>
-            ))}
+            <CloseoutRows closeout={draft.closeout} onChange={(closeout) => setDraft({ ...draft, closeout })} />
             <Row
               label={t("views.settingsView.taskScaffoldLabel")}
               desc={t("views.settingsView.taskScaffoldDescription")}
@@ -593,42 +574,6 @@ export function SettingsView({
   );
 }
 
-function SettingSelect({
-  label,
-  testId,
-  value,
-  options,
-  onChange,
-  disabled,
-}: {
-  readonly label: string;
-  readonly testId: string;
-  readonly value: string;
-  readonly options: readonly SelectorOption[];
-  readonly onChange: (value: string) => void;
-  readonly disabled?: boolean;
-}) {
-  return (
-    <select
-      aria-label={label}
-      data-testid={testId}
-      disabled={disabled}
-      className={[
-        "w-72 max-w-full rounded border border-border bg-surface-raised px-2 py-1",
-        "font-mono ui-meta text-text disabled:cursor-not-allowed disabled:opacity-40",
-      ].join(" ")}
-      value={value}
-      onChange={(event) => onChange(event.currentTarget.value)}
-    >
-      {options.map((option) => (
-        <option key={option.value} value={option.value}>
-          {option.label}
-        </option>
-      ))}
-    </select>
-  );
-}
-
 function SettingNumberInput({
   label,
   testId,
@@ -655,11 +600,6 @@ function SettingNumberInput({
       }}
     />
   );
-}
-
-interface SelectorOption {
-  readonly value: string;
-  readonly label: string;
 }
 
 /** 目录取值面 + 当前值取并集:当前值不在目录里也照实显示并保留可提交,

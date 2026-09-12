@@ -4,7 +4,8 @@ import test from "node:test";
 import { explainEntityKind, getExecutableEntityAction } from "../../src/domain/entity-kind-registry.ts";
 import { SettingsActionError } from "../../src/domain/settings-action-contract.ts";
 import { assertSettingsEventInputs } from "../../src/domain/settings-event.ts";
-import { effectiveCloseoutGates, readSettingsFacet, repositorySettings } from "../../src/domain/settings.ts";
+import { effectiveCloseoutGates } from "../../src/domain/settings-closeout.ts";
+import { readSettingsFacet, repositorySettings } from "../../src/domain/settings.ts";
 
 const documentBody = [
   "schema: harness-anything/v1",

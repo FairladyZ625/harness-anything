@@ -10,12 +10,12 @@ import {
   type EntityActionCompileInput,
 } from "./entity-action-execution.ts";
 import { compileSettingsChangedEvent, type SettingsEventBundle } from "./settings-event.ts";
+import { closeoutProfiles } from "./settings-closeout.ts";
 import {
   SETTINGS_ID,
   repositorySettings,
   DEFAULT_RESTORE_DRILL_RETENTION,
   reviewIndependenceLevels,
-  closeoutProfiles,
   settingValuePattern,
   settingsLocales,
   validateRepositorySettings,

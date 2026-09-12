@@ -128,9 +128,7 @@ export interface RelationFactFacetQuery {
   readonly facet: "facts";
 }
 /** `repo.triadic.relationGraph {facet:"runtimeEdges"}`:运行时平面(agent→task)派发边。 */
-export interface RelationRuntimeEdgeFacetQuery {
-  readonly facet: "runtimeEdges";
-}
+export type RelationRuntimeEdgeFacetQuery = { readonly facet: "runtimeEdges" };
 export type RelationQueryFacets =
   | RelationPageQuery
   | RelationEdgeFacetQuery
@@ -167,15 +165,12 @@ export type SettingsUpdateInput = RepoScope &
     walFlushBytes: number;
     walFlushMilliseconds: number;
     closeoutProfile: "standard" | "strict";
-    closeoutReview: boolean;
-    closeoutConsent: boolean;
-    closeoutFactDisposition: boolean;
-    closeoutCodeDoc: boolean;
-  }> & { readonly idempotencyKey: string };
+  }> &
+  Partial<{ [K in "closeoutReview" | "closeoutConsent" | "closeoutFactDisposition" | "closeoutCodeDoc"]: boolean }> & {
+    readonly idempotencyKey: string;
+  };
 
-export interface RepoScope {
-  readonly repoId: string;
-}
+export type RepoScope = { readonly repoId: string };
 export type ObserveTailRequest = RepoScope & ObserveTailPayload;
 export interface SystemRepoRow {
   readonly repoId: string;

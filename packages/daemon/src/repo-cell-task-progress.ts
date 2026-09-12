@@ -60,8 +60,7 @@ export function readLatestCiEvidence(
   const observations = cell.projection.readCiRunObservations(2000);
   if (!cell.projectionReady(observations))
     throw cell.cellCodedError("content_not_ready", "CI observation projection is not ready.");
-  // Projection order is newest canonical observation first. Never skip a related red or
-  // unverified observation to find an older green observation; verified cancelled/skipped runs give no verdict.
+  // Newest observation first; never skip a red or unverified run for an older green; cancelled/skipped gives no verdict.
   const submitted = execution.submission.commitSha,
     publicCut = localGitObjectRefStore.hasCommit(cell.rootDir, submitted),
     root = publicCut ? cell.rootDir : resolveHarnessLayout(cell.rootDir).authoredRoot;
@@ -339,8 +338,7 @@ export async function completeTask(
       cell.input.repoId,
       initial.snapshot.revision,
     );
-  // Read through every remaining preparation before publishing any witness or document.
-  // This does not change the authoritative snapshot or the final completion proof.
+  // Read through every remaining preparation before publishing any witness or document; snapshots stay authoritative.
   const preparedContext = cell.completionContext(
     taskId,
     initial.snapshot,
@@ -354,10 +352,8 @@ export async function completeTask(
       cell.completeRetryCommand(taskId, executionId, action),
     ),
   );
-  const closeoutGates = effectiveCloseoutGates(
-      cell.settings.readRepository().closeout,
-      initial.snapshot.task?.completionGateIds,
-    ),
+  const closeout = cell.settings.readRepository().closeout,
+    closeoutGates = effectiveCloseoutGates(closeout, initial.snapshot.task?.completionGateIds),
     codeDoc =
       closeoutGates.codeDoc && submittedExecution?.submission?.commitSha
         ? verifyCodeDocCommitPaths({ rootDir: cell.rootDir, commitSha: submittedExecution.submission.commitSha, paths })
@@ -402,8 +398,7 @@ export async function completeTask(
         steps,
       );
     }
-    // The current package digest is stable for the whole request; compiling it per retry would
-    // re-hash the preset catalog once per loop turn for the same answer.
+    // The package digest is stable for the whole request; per-retry compilation re-hashes the catalog identically.
     if (presetSnapshotDigest === null)
       presetSnapshotDigest = currentPresetSnapshotDigest(
         cell,

@@ -12,6 +12,7 @@ import { readLatestCiEvidence } from "../src/repo-cell-task-progress.ts";
 import { projectionReady } from "../src/repo-cell-settlement.ts";
 
 const actor = { principal: { personId: "person-synthesis" }, executor: null } as const;
+const cellSettings = { closeout: { profile: "standard" }, ci: { workflows: ["ci"] } };
 
 function git(root: string, ...args: readonly string[]): string {
   return execFileSync("git", ["-C", root, "-c", "user.name=test", "-c", "user.email=test@example.com", ...args], {
@@ -31,7 +32,7 @@ function ingestCell(rootDir: string, events: CiRunObservationEventV3[]) {
   let revision = 0;
   return {
     rootDir,
-    settings: { read: () => ({ ci: { workflows: ["ci"] } }) },
+    settings: { read: () => cellSettings, readRepository: () => cellSettings },
     now: () => "2026-09-12T00:00:00.000Z",
     cellCodedError: (_code: string, message: string) => new Error(message),
     store: {
@@ -99,7 +100,7 @@ test("an artifact-less green main run synthesizes a passing observation from its
       {
         rootDir,
         projectionReady,
-        settings: { read: () => ({ ci: { workflows: ["ci"] } }) },
+        settings: { read: () => cellSettings, readRepository: () => cellSettings },
         projection: {
           readCiRunObservations: () => ({
             status: "ready",

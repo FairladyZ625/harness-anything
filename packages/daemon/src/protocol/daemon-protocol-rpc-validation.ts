@@ -284,8 +284,7 @@ export function validateGuiActionPayload(method: DaemonGuiActionMethod, value: u
       required.every((field) => nonEmpty(item[field])) &&
       Object.keys(item).every((field) => required.includes(field) || optional.includes(field));
   if (method === "repo.settings.update") {
-    // ciWorkflows is array-typed (enforced by the action shape) and its contents are judged by the
-    // kernel compiler, so only the scalar settings get the identifier check here.
+    // ciWorkflows and the closeout fields are typed settings judged by the kernel compiler, not here.
     const settingFields = (
         "defaultVertical defaultPreset defaultProfile defaultReviewer reviewIndependence reviewReturnBudget " +
         "closeoutProfile closeoutReview closeoutConsent closeoutFactDisposition closeoutCodeDoc " +
@@ -299,19 +298,15 @@ export function validateGuiActionPayload(method: DaemonGuiActionMethod, value: u
       changed
         .filter((field) => !field.startsWith("walFlush") && !field.startsWith("closeout") && field !== "ciWorkflows")
         .some((field) => typeof value[field] !== "string" || !identifier.test(String(value[field]))) ||
-      (value.walFlushAdaptive !== undefined && typeof value.walFlushAdaptive !== "boolean") ||
-      [value.walFlushEvents, value.walFlushBytes, value.walFlushMilliseconds].some(
+      [value.walFlushEvents, value.walFlushBytes, value.walFlushMilliseconds, value.reviewReturnBudget].some(
         (item) => item !== undefined && (!Number.isSafeInteger(item) || Number(item) < 1),
       ) ||
-      (value.reviewReturnBudget !== undefined &&
-        (!Number.isSafeInteger(value.reviewReturnBudget) || Number(value.reviewReturnBudget) < 1)) ||
       (value.locale !== undefined && !["en-US", "zh-CN"].includes(String(value.locale))) ||
       (value.reviewIndependence !== undefined &&
         !["execution", "principal"].includes(String(value.reviewIndependence))) ||
-      (value.closeoutProfile !== undefined && !["standard", "strict"].includes(String(value.closeoutProfile))) ||
-      [value.closeoutReview, value.closeoutConsent, value.closeoutFactDisposition, value.closeoutCodeDoc].some(
-        (item) => item !== undefined && typeof item !== "boolean",
-      )
+      changed
+        .filter((field) => /^(walFlushAdaptive|closeout(Review|Consent|FactDisposition|CodeDoc))$/u.test(field))
+        .some((field) => typeof value[field] !== "boolean")
     )
       errors.push("settings update is invalid");
   }

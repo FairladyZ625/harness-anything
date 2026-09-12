@@ -2,7 +2,7 @@ import type { TaskLifecycleSnapshot } from "./task-lifecycle.contract.ts";
 import { closeoutReadiness, currentExecutionCuts, lineageOrphan } from "./closeout-readiness.ts";
 import { approvedReviewsForExecution } from "./review.ts";
 import type { TransitionDocumentMissingSection } from "./transition-document-readiness.ts";
-import type { CloseoutGate } from "./settings.ts";
+import type { CloseoutGate } from "./settings-closeout.ts";
 
 export type CompletionBlockerCode =
   | "projection_unknown"

@@ -32,6 +32,13 @@ test("task complete rejects an undeclared upstream Fact and persists a still-hol
     completionReader: ReturnType<typeof makeTaskEventReader> | undefined;
   try {
     initRepo(rootDir);
+    // The fact-disposition closeout gate only blocks under the strict profile.
+    mkdirSync(path.join(rootDir, "harness"), { recursive: true });
+    writeFileSync(
+      path.join(rootDir, "harness", "harness.yaml"),
+      "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n" +
+        "settings:\n  closeout:\n    profile: strict\n",
+    );
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "fact-retirement" });
     await reachGreenInReview(cell, rootDir, taskId, executionId);
     const { factRef, decisionId } = await linkUpstreamFact(cell, taskId);
