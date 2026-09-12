@@ -70,6 +70,7 @@ export function openRuntimeInstanceStore(input: {
     target = path.join(input.userRoot, "runtime-instances.json"),
     instancesRoot = path.join(input.userRoot, "runtime-instances"),
     readiness = new Map<string, RuntimeAuthReadiness>();
+  let cachedInstances: readonly RuntimeInstanceConfig[] | null = null;
   function create(
     candidate: RuntimeInstanceConfig | LegacyRuntimeInstanceConfig | FlatRuntimeInstanceConfig,
   ): RuntimeInstanceConfig {
@@ -237,7 +238,7 @@ export function openRuntimeInstanceStore(input: {
       effort = selectRuntimeEffort(config, request.effort),
       fast = selectRuntimeFast(config, request.fast),
       permissionMode = runtimePermissionMode(request.permissionMode ?? config.permissionMode, config.kindId),
-      witnessed = await refreshInstallations(),
+      witnessed = input.discover(),
       installation = witnessed.find(
         (entry) => entry.installationId === config.installationId && entry.kindId === config.kindId,
       );
@@ -300,10 +301,7 @@ export function openRuntimeInstanceStore(input: {
     } else if (config.kindId === "zcode") {
       const home = env.HOME ?? env.USERPROFILE;
       if (!home)
-        throw runtimeInstanceError(
-          "invalid_runtime_launch",
-          "ZCode launch environment has no home directory.",
-        );
+        throw runtimeInstanceError("invalid_runtime_launch", "ZCode launch environment has no home directory.");
       writeZcodeConfig(path.join(home, ".zcode", "cli", "config.json"), config, secret);
     } else env.ANTHROPIC_API_KEY = secret;
     rememberAuthReadiness(config.instanceId, available());
@@ -606,7 +604,14 @@ export function openRuntimeInstanceStore(input: {
     return input.refreshDiscovery ? input.refreshDiscovery() : input.discover();
   }
   function read(witnessed?: readonly RuntimeInstallationWitness[]): RuntimeInstanceConfig[] {
-    if (!existsSync(target)) return [];
+    if (cachedInstances) {
+      if (existsSync(target)) chmodSync(target, 0o600);
+      return [...cachedInstances];
+    }
+    if (!existsSync(target)) {
+      cachedInstances = [];
+      return [];
+    }
     chmodSync(target, 0o600);
     const value: unknown = JSON.parse(readFileSync(target, "utf8"));
     if (
@@ -624,7 +629,8 @@ export function openRuntimeInstanceStore(input: {
       installationMigrated = migrated.some((entry, index) => entry !== normalized[index]),
       instances = migrated.sort((a, b) => a.instanceId.localeCompare(b.instanceId));
     if (value.instances.some(needsRuntimeInstanceNormalization) || installationMigrated) persist(instances);
-    return instances;
+    cachedInstances = instances;
+    return [...instances];
   }
   function persist(instances: readonly RuntimeInstanceConfig[]): void {
     mkdirSync(input.userRoot, { recursive: true, mode: 0o700 });
@@ -645,6 +651,7 @@ export function openRuntimeInstanceStore(input: {
       throw error;
     }
     chmodSync(target, 0o600);
+    cachedInstances = [...instances].sort((left, right) => left.instanceId.localeCompare(right.instanceId));
   }
   function ensureStateRoot(config: RuntimeInstanceConfig): void {
     const root = path.join(instancesRoot, config.instanceId),
