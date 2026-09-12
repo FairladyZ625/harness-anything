@@ -17,6 +17,7 @@ import {
   resolveHarnessLayout,
   type FreshnessReason,
   type FreshnessReasonInput,
+  type ProjectionPage,
   type ProjectedExecution,
   type RelationGraphEdgeRow,
   type TaskProjection,
@@ -158,21 +159,52 @@ export function makeTaskQueryReadModel(input: {
       ...projectionCut(read),
     };
   }
-  function guiTasks(query: TaskProjectionListQuery = {}): DaemonTaskSnapshotListResult {
-    const lifecycle = projection.list(query),
-      taskRefs = lifecycle.rows.map(({ taskId }) => `task/${taskId}`),
+  /**
+   * Blocking judgments for one lifecycle page: the graph reads (dependency
+   * closure plus derives edges plus the statuses of every task those edges
+   * touch) and the kernel blocking verdict over them. The wide guiTasks
+   * assembly and the narrow agenda page read share this one implementation, so
+   * agenda no longer pays for placement, decision scopes, or execution
+   * evidence projection it never serves.
+   */
+  function readBlockingAssessments(taskIds: readonly string[]) {
+    const taskRefs = taskIds.map((taskId) => `task/${taskId}`),
       dependencies = projection.readTaskDependencyClosure(taskRefs),
       derives = projection.readTaskRelationsByTargets(taskRefs, "derives"),
       edges = [...dependencies.rows, ...derives.rows],
       relatedTaskIds = [
         ...new Set([
-          ...lifecycle.rows.map(({ taskId }) => taskId),
+          ...taskIds,
           ...dependencies.rows.flatMap(({ sourceRef, targetRef }) =>
             [sourceRef, targetRef].flatMap((ref) => /^task\/([^/]+)$/u.exec(ref)?.[1] ?? []),
           ),
         ]),
       ],
       taskStatuses = projection.readTaskStatuses(relatedTaskIds),
+      hardWarnings = [...relationFacetWarnings(dependencies.status), ...relationFacetWarnings(derives.status)]
+        .filter(({ severity }) => severity === "hard-fail")
+        .map(({ message }) => message),
+      blockingTasks = taskStatuses.rows.flatMap((row) =>
+        row.status === null ? [] : [{ taskId: row.taskId, status: row.status }],
+      );
+    return {
+      dependencies,
+      derives,
+      taskStatuses,
+      edges,
+      blockingByTaskId: new Map(
+        blocking(blockingTasks, edges, {
+          state: hardWarnings.length ? "error" : "ready",
+          hardFailWarnings: hardWarnings,
+        }).map((row) => [row.taskId, row]),
+      ),
+    };
+  }
+  function guiTasks(query: TaskProjectionListQuery = {}): DaemonTaskSnapshotListResult {
+    const lifecycle = projection.list(query),
+      { dependencies, derives, taskStatuses, blockingByTaskId } = readBlockingAssessments(
+        lifecycle.rows.map(({ taskId }) => taskId),
+      ),
       decisionIds = [
         ...new Set(derives.rows.flatMap(({ sourceRef }) => /^decision\/([^/]+)/u.exec(sourceRef)?.[1] ?? [])),
       ],
@@ -184,21 +216,10 @@ export function makeTaskQueryReadModel(input: {
         taskStatuses,
         decisionRead,
       ]),
-      graphWarnings = [...relationFacetWarnings(dependencies.status), ...relationFacetWarnings(derives.status)],
-      hardWarnings = graphWarnings.filter(({ severity }) => severity === "hard-fail").map(({ message }) => message),
-      activeDerives = new Map<string, typeof edges>();
+      activeDerives = new Map<string, typeof derives.rows>();
     for (const edge of derives.rows)
       if (edge.state === "active" && edge.direction === "directed" && edge.relationType === "derives")
         activeDerives.set(edge.targetRef, [...(activeDerives.get(edge.targetRef) ?? []), edge]);
-    const blockingTasks = taskStatuses.rows.flatMap((row) =>
-      row.status === null ? [] : [{ taskId: row.taskId, status: row.status }],
-    );
-    const blockingRows = new Map(
-      blocking(blockingTasks, edges, {
-        state: hardWarnings.length ? "error" : "ready",
-        hardFailWarnings: hardWarnings,
-      }).map((row) => [row.taskId, row]),
-    );
     const decisions = new Map(decisionRead.decisions.map((row) => [row.decisionId, row]));
     const result: Omit<DaemonTaskSnapshotListResult, "invalidRows"> = {
       ok: true,
@@ -246,7 +267,7 @@ export function makeTaskQueryReadModel(input: {
             codeDocWitnesses: "known" as const,
             gateWitnesses: "known" as const,
           },
-          blockingAssessment = blockingRows.get(row.taskId) ?? {
+          blockingAssessment = blockingByTaskId.get(row.taskId) ?? {
             taskId: row.taskId,
             state: "unknown" as const,
             label: "unresolved" as const,
@@ -287,18 +308,46 @@ export function makeTaskQueryReadModel(input: {
     };
     return { ...result, ...isolateDaemonTaskSnapshotRows(result.rows) };
   }
+  /**
+   * Narrow agenda page read: the lifecycle page plus only the blocking
+   * judgment each row needs. Deliberately skips everything the wide guiTasks
+   * assembly builds and the agenda never serves (placement scopes and their
+   * decision read, execution evidence ids, board/visibility/closeout) — the
+   * agenda consumes snapshots and blocking assessments directly.
+   */
+  function readAgendaTaskPage(
+    status: "active" | "blocked" | "planned" | "in_review",
+    sourceLimit: number,
+    pageCursor: string | undefined,
+  ): AgendaSourcePage {
+    const lifecycle = projection.list({
+        status,
+        limit: sourceLimit,
+        pinnedFirst: true,
+        ...(pageCursor ? { cursor: pageCursor } : {}),
+      }),
+      graph = readBlockingAssessments(lifecycle.rows.map(({ taskId }) => taskId));
+    return {
+      page: lifecycle.page ?? null,
+      rows: lifecycle.rows.map((row) => ({
+        ...row,
+        blockingAssessment: graph.blockingByTaskId.get(row.taskId) ?? {
+          taskId: row.taskId,
+          state: "unknown" as const,
+          label: "unresolved" as const,
+          blockers: [],
+          warnings: ["task snapshot missing from blocking judgment"],
+        },
+      })),
+      warnings: lifecycle.warnings,
+      reads: [lifecycle, graph.dependencies, graph.derives, graph.taskStatuses],
+    };
+  }
   function agenda(query: { readonly limit?: number; readonly cursor?: string } = {}): DaemonAgendaResult {
     const sourceLimit = query.limit ?? 100,
       cursor = query.cursor === undefined ? null : decodeAgendaCursor(query.cursor),
       readTaskPage = (status: "active" | "blocked" | "planned" | "in_review", key: AgendaCursorKey) =>
-        cursor?.[key] === null
-          ? null
-          : guiTasks({
-              status,
-              limit: sourceLimit,
-              pinnedFirst: true,
-              ...(cursor?.[key] ? { cursor: cursor[key]! } : {}),
-            }),
+        cursor?.[key] === null ? null : readAgendaTaskPage(status, sourceLimit, cursor?.[key] ?? undefined),
       active = readTaskPage("active", "active"),
       blocked = readTaskPage("blocked", "blocked"),
       planned = readTaskPage("planned", "planned"),
@@ -311,9 +360,13 @@ export function makeTaskQueryReadModel(input: {
               limit: sourceLimit,
               ...(cursor?.decisions ? { cursor: cursor.decisions } : {}),
             }),
-      reads = [active, blocked, planned, inReview, decisions].filter(
-        (read): read is NonNullable<typeof read> => read !== null,
-      ),
+      reads = [
+        ...(active?.reads ?? []),
+        ...(blocked?.reads ?? []),
+        ...(planned?.reads ?? []),
+        ...(inReview?.reads ?? []),
+        ...(decisions === null ? [] : [decisions]),
+      ],
       inFlight = (active?.rows ?? [])
         .filter((row) => row.snapshot.lease !== null || row.snapshot.executions.some(({ state }) => state === "active"))
         .map(agendaTaskRow)
@@ -585,10 +638,18 @@ function projectExecutionEvidence(
     })),
   };
 }
-type AgendaSourceRead = DaemonTaskSnapshotListResult["rows"][number];
+type AgendaSourceRow = ReturnType<TaskProjection["list"]>["rows"][number] & {
+  readonly blockingAssessment: DaemonTaskSnapshotListResult["rows"][number]["blockingAssessment"];
+};
+type AgendaSourcePage = {
+  readonly page: ProjectionPage | null;
+  readonly rows: readonly AgendaSourceRow[];
+  readonly warnings: ReturnType<TaskProjection["list"]>["warnings"];
+  readonly reads: readonly ProjectionCut[];
+};
 type AgendaCursorKey = "active" | "blocked" | "planned" | "inReview";
 type AgendaCursor = Readonly<Record<AgendaCursorKey | "decisions", string | null>>;
-function agendaTaskRow(row: AgendaSourceRead): AgendaTaskRow {
+function agendaTaskRow(row: AgendaSourceRow): AgendaTaskRow {
   const task = row.snapshot.task!;
   return {
     taskId: row.taskId,
