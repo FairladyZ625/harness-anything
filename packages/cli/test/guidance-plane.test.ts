@@ -214,7 +214,8 @@ test("receipt registry preserves migrated family goldens", () => {
       ok: true,
       command: "schedule-list",
       outcome: "applied",
-      evidence: JSON.stringify({ schema: "schedule-list/v1", schedules: [] }),
+      evidence: "schedule-list:0",
+      schedules: [],
     }),
     { stream: "stdout", text: "No schedules." },
   );

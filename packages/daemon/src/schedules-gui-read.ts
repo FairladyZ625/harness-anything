@@ -27,7 +27,6 @@ import type {
 } from "./protocol/schedules-gui-contract.ts";
 import { isAvailableScheduleGuiAgentOption } from "./protocol/schedules-gui-contract.ts";
 import { emptyScheduleHealthRollup, scheduleHealthRollupsFromEvents } from "./schedule-projection.ts";
-import { pageAllCanonicalEvents } from "./schedule-runs-read.ts";
 import { admitRepoMode } from "./repo-mode.ts";
 import { runtimeKindForId } from "./runtime-inventory.ts";
 
@@ -55,11 +54,7 @@ export interface SchedulesGuiReadContext {
       readonly watermark: number;
       readonly sourceRevision: number;
     };
-    /** 健康度 rollup 的事件源:与运行历史读同一分页纪律一次读全量。 */
-    readonly readCanonicalEvents: (
-      afterRevision: number,
-      limit: number,
-    ) => {
+    readonly readScheduleEvents: () => {
       readonly status: "ready" | "pending";
       readonly events: readonly CanonicalEventV1[];
       readonly watermark: number;
@@ -257,9 +252,7 @@ export function readSchedulesGui(context: SchedulesGuiReadContext): SchedulesLis
     agentOptions = scheduleAgentOptions(context),
     agentsById = new Map(agentOptions.map((agent) => [agent.agentId, agent])),
     // 健康度 rollup:一次事件扫描为全部 schedule 各折一份(daemon 侧聚合,renderer 只渲染)。
-    healthRollups = scheduleHealthRollupsFromEvents(
-      pageAllCanonicalEvents(context.projection.readCanonicalEvents).events,
-    ),
+    healthRollups = scheduleHealthRollupsFromEvents(context.projection.readScheduleEvents().events),
     healthRollupOf = (scheduleId: string): ScheduleGuiHealthDto =>
       healthRollups.get(scheduleId) ?? emptyScheduleHealthRollup();
   const schedules = context.projection

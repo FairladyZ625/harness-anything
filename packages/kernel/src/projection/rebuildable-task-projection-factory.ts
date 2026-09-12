@@ -230,6 +230,8 @@ export function makeTaskProjectionReader(options: {
       readRuntimeDispatches: taskQueries.readRuntimeDispatches,
       readRuntimeSessionEvents: taskQueries.readRuntimeSessionEvents,
       readCanonicalEvents: taskQueries.readCanonicalEvents,
+      readScheduleEvents: taskQueries.readScheduleEvents,
+      readScheduleOutputEvents: taskQueries.readScheduleOutputEvents,
       readCiRunObservations: taskQueries.readCiRunObservations,
       readDocument: taskQueries.readDocument,
       readReplicaBasis: taskQueries.readReplicaBasis,

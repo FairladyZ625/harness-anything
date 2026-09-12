@@ -1,6 +1,6 @@
 // @write-boundary-exemption rebuildable-projection
 import type { DatabaseSync } from "node:sqlite";
-import { isTaskEvent } from "../domain/doc-sync.contract.ts";
+import { isTaskEvent, type CanonicalEventV1 } from "../domain/doc-sync.contract.ts";
 import { isAgentRuntimeEvent, type AgentRuntimeEventV1 } from "../domain/agent-runtime.ts";
 import { type TaskProgressEventV1 } from "../domain/task-progress-event.ts";
 import { localRuntimeStateFileSystem } from "../local/local-layout-file-system.ts";
@@ -79,6 +79,17 @@ const CANONICAL_EVENTS_SQL = [
   "SELECT event_json FROM event_index WHERE workspace_revision > ?",
   "ORDER BY workspace_revision LIMIT ?",
 ].join(" ");
+const SCHEDULE_EVENTS_SQL = [
+  "SELECT event_json FROM event_index",
+  "WHERE json_extract(event_json, '$.schema') = 'schedule-event/v1'",
+  "ORDER BY workspace_revision",
+].join(" ");
+const SCHEDULE_EVENTS_BY_ID_SQL = [
+  "SELECT event_json FROM event_index",
+  "WHERE json_extract(event_json, '$.schema') = 'schedule-event/v1'",
+  "AND json_extract(event_json, '$.entity.id') = ?",
+  "ORDER BY workspace_revision",
+].join(" ");
 const CI_RUN_OBSERVATIONS_SQL = [
   "SELECT event_json FROM event_index",
   "WHERE json_extract(event_json, '$.schema') = 'ci-run-observation/v3'",
@@ -129,6 +140,8 @@ export function taskQueryApi(
   | "readRuntimeDispatches"
   | "readRuntimeSessionEvents"
   | "readCanonicalEvents"
+  | "readScheduleEvents"
+  | "readScheduleOutputEvents"
   | "readCiRunObservations"
   | "readDocument"
   | "readReplicaBasis"
@@ -318,6 +331,33 @@ export function taskQueryApi(
           watermark: cut.watermark,
           sourceRevision: cut.sourceRevision,
         };
+      }),
+    readScheduleEvents: (scheduleId) =>
+      withDatabase(projectionPath, readHead, (db) => {
+        const cut = readProjectionCut(db, readHead);
+        return {
+          status: cut.status,
+          events: queryRows(
+            db,
+            scheduleId === undefined ? SCHEDULE_EVENTS_SQL : SCHEDULE_EVENTS_BY_ID_SQL,
+            ...(scheduleId === undefined ? [] : [scheduleId]),
+          ).map((row) => JSON.parse(String(row.event_json))) as CanonicalEventV1[],
+          watermark: cut.watermark,
+          sourceRevision: cut.sourceRevision,
+        };
+      }),
+    readScheduleOutputEvents: (runtimeSessionIds) =>
+      withDatabase(projectionPath, readHead, (db) => {
+        if (runtimeSessionIds.length === 0) return [];
+        const sql = [
+          "SELECT event_json FROM event_index",
+          `WHERE json_extract(event_json, '$.actor.executor.id') IN (${runtimeSessionIds.map(() => "?").join(",")})`,
+          "AND json_extract(event_json, '$.schema') IN ('fact-event/v1','decision-event/v1','task-event/v1')",
+          "ORDER BY workspace_revision",
+        ].join(" ");
+        return queryRows(db, sql, ...runtimeSessionIds.map((id) => `runtime-session:${id}`)).map(
+          (row) => JSON.parse(String(row.event_json)) as CanonicalEventV1,
+        );
       }),
     readCiRunObservations: (pageLimit) =>
       withDatabase(projectionPath, readHead, (db) => {

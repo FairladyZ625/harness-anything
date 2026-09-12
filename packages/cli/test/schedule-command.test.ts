@@ -287,36 +287,34 @@ test("Schedule list human renderer shows state, next occurrence, and single-flig
       ok: true,
       command: "schedule-list",
       outcome: "applied",
-      evidence: JSON.stringify({
-        schema: "schedule-list/v1",
-        schedules: [
-          {
-            ...armed,
-            status: {
-              ...armed.status,
-              activeRun: {
-                occurrenceId: "manual-active",
-                kind: "manual",
-                scheduledFor: "2026-08-26T13:59:00.000Z",
-                claimedAt: "2026-08-26T13:59:00.000Z",
-                nodeId: "local",
-                assignmentId: null,
-                claimFence: "claim-active",
-                attemptIndex: 0,
-              },
+      evidence: "schedule-list:3",
+      schedules: [
+        {
+          ...armed,
+          status: {
+            ...armed.status,
+            activeRun: {
+              occurrenceId: "manual-active",
+              kind: "manual",
+              scheduledFor: "2026-08-26T13:59:00.000Z",
+              claimedAt: "2026-08-26T13:59:00.000Z",
+              nodeId: "local",
+              assignmentId: null,
+              claimFence: "claim-active",
+              attemptIndex: 0,
             },
-            definitionRevision: 1,
-            nextRunAt: "2026-08-26T14:00:00.000Z",
           },
-          { ...paused, definitionRevision: 2, nextRunAt: null },
-          {
-            scheduleId: "legacy",
-            state: "invalid",
-            invalidReason: 'schedule is missing required field "mode".',
-            definitionRevision: 3,
-          },
-        ],
-      }),
+          definitionRevision: 1,
+          nextRunAt: "2026-08-26T14:00:00.000Z",
+        },
+        { ...paused, definitionRevision: 2, nextRunAt: null },
+        {
+          scheduleId: "legacy",
+          state: "invalid",
+          invalidReason: 'schedule is missing required field "mode".',
+          definitionRevision: 3,
+        },
+      ],
     }),
     'armed\tarmed\t2026-08-26T14:00:00.000Z\tactive\npaused\tpaused\tnone\tidle\nlegacy\tinvalid\tschedule is missing required field "mode".',
   );
@@ -326,7 +324,8 @@ test("Schedule list human renderer shows state, next occurrence, and single-flig
       ok: true,
       command: "schedule-list",
       outcome: "applied",
-      evidence: JSON.stringify({ schema: "schedule-list/v1", schedules: [] }),
+      evidence: "schedule-list:0",
+      schedules: [],
     }),
     "No schedules.",
   );
@@ -337,7 +336,8 @@ test("Schedule list human renderer shows state, next occurrence, and single-flig
       ok: true,
       command: "schedule-list",
       outcome: "applied",
-      evidence: JSON.stringify({ schema: "schedule-list/v2", schedules: [] }),
+      evidence: "schedule-list:0",
+      schedules: {},
     }),
     null,
   );
