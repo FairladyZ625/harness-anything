@@ -60,6 +60,9 @@ test(
         { mode: 0o755 },
       );
       initRepo(rootDir);
+      // An explicit witness list keeps `ci observe pull` invoking gh; the default now witnesses nothing.
+      mkdirSync(path.join(rootDir, "harness"), { recursive: true });
+      writeFileSync(path.join(rootDir, "harness/harness.yaml"), "settings:\n  ci:\n    workflows: [rewrite-ci]\n");
       // The writer thread copies the environment when it starts, so the stub goes on PATH first.
       process.env.PATH = `${stubDir}${path.delimiter}${originalPath ?? ""}`;
       cell = await openRepoCell({

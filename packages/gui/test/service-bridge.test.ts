@@ -315,7 +315,7 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
         repository: "governance/repository-scaffold.json",
       },
       walFlush: { adaptive: true, events: 256, bytes: 8_388_608, milliseconds: 3_600_000 },
-      ci: { workflows: ["rewrite-ci"] },
+      ci: { workflows: [] },
     });
     const settingsUpdated = parseDaemonGuiActionResponse(
       "repo.settings.update",

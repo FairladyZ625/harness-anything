@@ -82,7 +82,7 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
         "would create task task-alpha at tasks/task-alpha-alpha",
         "preset: standard-task/baseline",
         "outputShape: repository-diff",
-        'completionGates: ["ci","code-doc-reconciliation"]',
+        'completionGates: ["code-doc-reconciliation"]',
         "contract: repository-diff requires a committable public-repository diff, " +
           "real CI, and a code-doc reconciliation witness. For a task-package-only " +
           "report or decision, use the task-package-artifact preset docs-task.",

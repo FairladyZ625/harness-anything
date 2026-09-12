@@ -306,6 +306,8 @@ function updatedWorkflows(action: Readonly<Record<string, unknown>>, current: re
   // An empty list is the explicit opt-out from repository CI witnessing; entry shape is still enforced.
   if (!Array.isArray(value) || value.some((workflow) => typeof workflow !== "string"))
     rejectSettings("invalid_command", "ciWorkflows must be an array of workflow names.");
+  // `--ci-workflows none` is the CLI spelling of that opt-out; a repeated flag cannot carry an empty value.
+  if (value.length === 1 && value[0] === "none") return [];
   const workflows = value.map((workflow) => workflow.trim());
   if (
     workflows.some((workflow) => !new RegExp(settingValuePattern, "u").test(workflow) || /\.ya?ml$/u.test(workflow)) ||

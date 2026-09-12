@@ -191,6 +191,36 @@ test("settings writes reject catalog-inconsistent vertical, preset, and profile 
       binding,
     );
     assert.equal(clearFlushed.wait?.state, "satisfied", JSON.stringify(clearFlushed));
+
+    const ciReconfigured = await cell.run(
+      {
+        kind: "settings-update",
+        ciWorkflows: ["ci"],
+        expectedVersion: ciCleared.revision,
+        idempotencyKey: "ci-workflows-reconfigure",
+      },
+      binding,
+    );
+    assert.equal(ciReconfigured.outcome, "applied", JSON.stringify(ciReconfigured));
+    const noneCleared = await cell.run(
+      {
+        kind: "settings-update",
+        ciWorkflows: ["none"],
+        expectedVersion: ciReconfigured.revision,
+        idempotencyKey: "ci-workflows-none",
+      },
+      binding,
+    );
+    assert.equal(noneCleared.outcome, "applied", JSON.stringify(noneCleared));
+    const noneSettings = (await cell.read("repo.settings.read")) as {
+      readonly settings: { readonly ci: { readonly workflows: readonly string[] } };
+    };
+    assert.deepEqual(noneSettings.settings.ci.workflows, []);
+    const noneFlushed = await cell.run(
+      { kind: "receipt-show", opId: noneCleared.opId, waitFor: ["worktree_visible"], timeoutMs: 5000 },
+      binding,
+    );
+    assert.equal(noneFlushed.wait?.state, "satisfied", JSON.stringify(noneFlushed));
     assert.match(readFileSync(configPath, "utf8"), /ci:\n    workflows: \[\]/u);
 
     const beforeLocalRevision = eventStore.readHead()!.revision,

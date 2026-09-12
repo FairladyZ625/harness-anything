@@ -47,3 +47,19 @@ test("Settings CLI rejects unknown and unsupported locale fields", () => {
   assert.equal(parseThinCommand(["settings", "update", "--wip-limit", "1"]).ok, false);
   assert.equal(parseThinCommand(["settings", "read", "--locale", "en-US"]).ok, false);
 });
+
+test("Settings CLI forwards CI workflow names and the none opt-out to the settings action", () => {
+  for (const [argv, ciWorkflows] of [
+    [["--ci-workflows", "rewrite-ci"], ["rewrite-ci"]],
+    [
+      ["--ci-workflows", "ci", "--ci-workflows", "nightly"],
+      ["ci", "nightly"],
+    ],
+    // The repeated flag cannot carry an empty list, so `none` is the CLI spelling of the opt-out.
+    [["--ci-workflows", "none"], ["none"]],
+  ] as const) {
+    const parsed = parseThinCommand(["settings", "update", ...argv]);
+    assert.equal(parsed.ok, true, JSON.stringify(argv));
+    if (parsed.ok) assert.deepEqual(parsed.command.action, { kind: "settings-update", ciWorkflows });
+  }
+});
