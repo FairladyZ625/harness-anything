@@ -29,6 +29,11 @@ export type ReceiptDiagnostic =
       readonly field: string;
       readonly actual: string;
       readonly expectation: string;
+      readonly allowedTriples?: readonly {
+        readonly sourceKind: string;
+        readonly type: string;
+        readonly targetKind: string;
+      }[];
     }
   | {
       readonly kind: "workspace-boundary";
@@ -399,7 +404,22 @@ export function isReceiptDiagnostic(value: unknown): value is ReceiptDiagnostic 
   if (!isReceiptDomainRecord(value) || !isNonEmptyString(value.kind)) return false;
   if (value.kind === "validation")
     return (
-      exact(value, ["kind", "entity", "field", "actual", "expectation"]) &&
+      exact(value, [
+        "kind",
+        "entity",
+        "field",
+        "actual",
+        "expectation",
+        ...("allowedTriples" in value ? ["allowedTriples"] : []),
+      ]) &&
+      (!("allowedTriples" in value) ||
+        (Array.isArray(value.allowedTriples) &&
+          value.allowedTriples.every(
+            (row) =>
+              isReceiptDomainRecord(row) &&
+              exact(row, ["sourceKind", "type", "targetKind"]) &&
+              [row.sourceKind, row.type, row.targetKind].every(isNonEmptyString),
+          ))) &&
       [value.entity, value.field, value.actual, value.expectation].every((field) => typeof field === "string")
     );
   if (value.kind === "workspace-boundary")

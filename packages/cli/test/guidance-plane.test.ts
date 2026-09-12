@@ -5,7 +5,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { readWorkspaceText } from "../../daemon/src/workspace-text-port.ts";
-import { taskCreateGuidance } from "../../daemon/src/receipt-guidance.ts";
+import { diagnosticForError, taskCreateGuidance } from "../../daemon/src/receipt-guidance.ts";
 import { humanError, renderReceiptGuidance } from "../src/cli/guidance-plane.ts";
 import { renderCliReceipt } from "../src/cli/receipt-render-registry.ts";
 
@@ -274,4 +274,31 @@ test("task show renders lifecycle status before the secondary graph cursor", () 
   });
   assert.equal(rendered.stream, "stdout");
   assert.deepEqual(rendered.text.split("\n").slice(0, 2), ["status: done", "graph cursor: review"]);
+});
+
+test("relation rejection renders structured triples and preserves them through diagnostic validation", () => {
+  const diagnostic = {
+    kind: "validation",
+    entity: "relation",
+    field: "source-ref/type/target-ref",
+    actual: "fact --derives--> decision",
+    expectation: "Choose a declared triple for source kind fact",
+    allowedTriples: [{ sourceKind: "fact", type: "supersedes-fact", targetKind: "fact" }],
+  };
+  assert.deepEqual(diagnosticForError({ diagnostic }), diagnostic);
+  const { allowedTriples: _triples, ...plainDiagnostic } = diagnostic;
+  assert.deepEqual(diagnosticForError({ diagnostic: plainDiagnostic }), plainDiagnostic);
+  const rendered = renderCliReceipt({ ok: false, code: "relation_triple_undeclared", diagnostic });
+  assert.equal(rendered.stream, "stderr");
+  assert.match(rendered.text, /source kind\ttype\ttarget kind\nfact\tsupersedes-fact\tfact/u);
+  assert.doesNotMatch(rendered.text, /ha relation triples/u);
+  assert.match(renderCliReceipt({ ok: false, diagnostic: { ...diagnostic, allowedTriples: [] } }).text, /\n\(none\)$/u);
+  for (const allowedTriples of [
+    null,
+    {},
+    [{ sourceKind: "fact", type: "relates" }],
+    [{ sourceKind: "fact", type: "relates", targetKind: "fact", extra: true }],
+  ]) {
+    assert.equal(diagnosticForError({ diagnostic: { ...diagnostic, allowedTriples } }), undefined);
+  }
 });
