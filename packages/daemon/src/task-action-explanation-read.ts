@@ -30,6 +30,7 @@ import {
 } from "../../kernel/src/index.ts";
 import { authorizeRepoCellAction } from "./repo-cell-authorization.ts";
 import { compiledArtifactKinds } from "./artifact-entity-action.ts";
+import { readEffectiveCloseoutGates } from "./repo-cell-settings-state.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 
 export interface TaskActionExplanationReadDependencies {
@@ -230,7 +231,12 @@ export function readTaskActionExplanation(
               pinned: task.pinned,
               disposition: task.packageDisposition ?? "active",
             });
-          subject = taskService.object({ entity: entityWitness, snapshot, evaluatedAtCut: cut }).subjects[0]!;
+          subject = taskService.object({
+            entity: entityWitness,
+            snapshot,
+            evaluatedAtCut: cut,
+            closeoutGates: readEffectiveCloseoutGates(dependencies.projection, task.completionGateIds),
+          }).subjects[0]!;
         }
       } else {
         const row = dependencies.projection.getEntity("squad", entity.id),

@@ -84,7 +84,7 @@ import {
 } from "./repo-cell-authorization.ts";
 import { admitRepoMode, entityActionCommandTopology } from "./repo-mode.ts";
 import { makeTaskQueryReadModel } from "./task-query-read.ts";
-import { chainRepoCellWrite, repoCellTaskQueryJudgments } from "./repo-cell.ts";
+import { chainRepoCellWrite, repoCellTaskQueryJudgmentsFor } from "./repo-cell.ts";
 import { executeVerticalScriptAction, publishExecutedVerticalScript } from "./vertical-script-actions.ts";
 import { deriveActionResult } from "./entity-action-catalog-executor.ts";
 import { workspaceSummaryFromProjection } from "./workspace-summary-read.ts";
@@ -932,7 +932,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
     makeTaskQueryReadModel({
       rootDir: context.rootDir,
       projection: context.projection,
-      judgments: repoCellTaskQueryJudgments,
+      judgments: repoCellTaskQueryJudgmentsFor(context.projection),
     });
   Object.assign(context.extracted, { taskListQueryFromAction, queryRead, relationQueryFromAction });
   // The runtime publication turn verifies any executor claim before it authorizes and executes.

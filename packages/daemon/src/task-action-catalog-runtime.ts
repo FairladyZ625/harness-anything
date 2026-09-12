@@ -10,6 +10,7 @@ import {
   type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
 import { actionCriterionFailure, attributeCellCriterion } from "./repo-cell-errors.ts";
+import { readEffectiveCloseoutGates } from "./repo-cell-settings-state.ts";
 import { assertCurrentSubmittedExecution } from "./repo-cell-execution-selection.ts";
 import { leaseTtlMs, type RepoCellBinding, type RepoTaskAction, type Snapshot } from "./repo-cell-types.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
@@ -38,6 +39,7 @@ export async function runTaskActionCatalogRuntime(
             action: contract,
             snapshot: current.snapshot,
             actor: binding.actor,
+            closeoutGates: readEffectiveCloseoutGates(cell.projection, current.snapshot.task?.completionGateIds ?? []),
             invocation: {
               taskId,
               ...(typeof action.executionId === "string" ? { executionId: action.executionId } : {}),

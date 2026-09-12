@@ -1,7 +1,13 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import { reduceTaskEvent, type TaskEventV1, type TaskLifecycleSnapshot } from "../../src/index.ts";
+import {
+  evaluateTaskActionCapability,
+  getExecutableEntityAction,
+  reduceTaskEvent,
+  type TaskEventV1,
+  type TaskLifecycleSnapshot,
+} from "../../src/index.ts";
 import {
   applyTransition,
   normalizeTaskLifecycleCommand,
@@ -96,4 +102,16 @@ test("legacy completion replay without recorded gates still demands consent", ()
   assert.equal(fixture.events[5]!.type, "task_completed");
   assert.equal(reduceTaskEvent(snapshot, legacy).task?.status, "done");
   assert.throws(() => reduceTaskEvent({ ...snapshot, consents: [] }, legacy), /accepted task and execution state/u);
+});
+
+test("read-side complete capability follows the effective closeout gate set", () => {
+  const action = getExecutableEntityAction("task-complete");
+  if (!action) throw new Error("The task-complete Action contract is unavailable.");
+  const readiness = (closeoutGates?: typeof standardGates) =>
+    evaluateTaskActionCapability({ action, snapshot: snapshotAfter(3), actor: implementer, closeoutGates }).find(
+      ({ criterionRef }) => criterionRef === "closeout-readiness/closeoutReadiness",
+    )!.status;
+  assert.equal(readiness(standardGates), "met");
+  assert.equal(readiness(strictGates), "unmet");
+  assert.equal(readiness(undefined), "unmet", "a caller that passes no gate set keeps the strict read");
 });

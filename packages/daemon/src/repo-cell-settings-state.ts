@@ -3,6 +3,8 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import {
   consumeKnownError,
+  DEFAULT_CLOSEOUT_SETTINGS,
+  effectiveCloseoutGates,
   INITIAL_SETTINGS_V1,
   SETTINGS_LOCAL_PATH,
   compileSettingsChangedEvent,
@@ -13,9 +15,12 @@ import {
   serializeLocalSettings,
   validateRepositorySettings,
   writeRepositorySettingsFacet,
+  type CloseoutGate,
+  type CloseoutSettingsV1,
   type RepositorySettingsV1,
   type SettingsLocale,
   type SettingsV1,
+  type TaskProjectionQueries,
 } from "../../kernel/src/index.ts";
 import { writeFileDurably } from "./durable-file.ts";
 import type { RepoCellActionContext, RepoCellSettingsState } from "./repo-cell-action-context.ts";
@@ -103,4 +108,19 @@ export function makeRepoCellSettingsState(cell: RepoCellActionContext): RepoCell
   };
 
   return { initialize, initializeFromAuthoredDocument, read, readRepository, writeLocal };
+}
+
+/**
+ * The effective closeout gate set for read-side judgments. Reads the settings facet from
+ * the same projection cut as the task being judged; a repository with no settings entity
+ * (or a pre-closeout settings event) reads the same standard default bootstrap would mint.
+ */
+export function readEffectiveCloseoutGates(
+  projection: Pick<TaskProjectionQueries, "getEntity">,
+  taskGateIds: readonly string[],
+): Readonly<Record<CloseoutGate, boolean>> {
+  const projected = projection.getEntity("settings", "repository")?.value as
+    | { readonly closeout?: CloseoutSettingsV1 }
+    | undefined;
+  return effectiveCloseoutGates(projected?.closeout ?? DEFAULT_CLOSEOUT_SETTINGS, taskGateIds);
 }

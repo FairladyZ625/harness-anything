@@ -272,7 +272,8 @@ export {
   writeRepositorySettingsFacet,
 } from "./settings.ts";
 export type { RepositorySettingsV1, SettingsLocale, SettingsV1 } from "./settings.ts";
-export { effectiveCloseoutGates } from "./settings-closeout.ts";
+export { DEFAULT_CLOSEOUT_SETTINGS, effectiveCloseoutGates } from "./settings-closeout.ts";
+export type { CloseoutGate, CloseoutSettingsV1 } from "./settings-closeout.ts";
 export { compileSettingsChangedEvent, isSettingsEvent } from "./settings-event.ts";
 export {
   applyVerticalKindCommand,

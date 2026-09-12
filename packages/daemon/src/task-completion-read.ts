@@ -9,6 +9,7 @@ import {
   type TaskProjectionQueries,
 } from "../../kernel/src/index.ts";
 import { readTaskTransitionDocument } from "./transition-document-access.ts";
+import { readEffectiveCloseoutGates } from "./repo-cell-settings-state.ts";
 
 /** Explicit --consent is recorded under every profile; the profile only decides whether absence blocks. */
 export function completionBlockersForAction(
@@ -60,6 +61,7 @@ export function readCompletionContext(
     closeout: assessment.ready ? "ready" : "placeholder",
     closeoutPath: document.path,
     closeoutMissingSections: assessment.missingSections,
+    closeoutGates: readEffectiveCloseoutGates(projection, snapshot.task?.completionGateIds ?? []),
     eligibleDirtyPaths: [],
     producesFactCount: facts.rows.filter((row) => row.targetRef.startsWith("fact/")).length,
     projectionStatus: facts.status,

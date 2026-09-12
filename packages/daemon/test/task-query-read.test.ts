@@ -497,6 +497,7 @@ test("single-task completion read carries the canonical next and validates its r
         reads.push(id);
         return { ...readyCut, snapshot, packagePath: "tasks/task-1" };
       },
+      getEntity: () => null,
       readDocument: (documentPath: string) => ({
         ...readyCut,
         document: {

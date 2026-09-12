@@ -7,6 +7,7 @@ import {
   type ActorIdentity,
   type AuthorizationDecision,
   type BaseEntity,
+  type CloseoutGate,
   type EntityActionContract,
   type EntityActionCriterionExplanationV1,
   type EntityActionExplanationSetV1,
@@ -30,6 +31,7 @@ export interface TaskActionExplanationObjectInput {
   readonly entity: BaseEntity<"task">;
   readonly snapshot: TaskLifecycleSnapshot;
   readonly evaluatedAtCut: string;
+  readonly closeoutGates?: Readonly<Record<CloseoutGate, boolean>>;
 }
 
 export interface TaskActionExplanationService {
@@ -126,10 +128,12 @@ function objectRow(
   dependencies: TaskActionExplanationServiceDependencies,
 ): EntityActionExplanationV1 {
   const evaluated = new Map(
-      evaluateTaskActionCapability({ action, snapshot: input.snapshot, actor: dependencies.actor }).map((criterion) => [
-        criterion.criterionRef,
-        criterion,
-      ]),
+      evaluateTaskActionCapability({
+        action,
+        snapshot: input.snapshot,
+        actor: dependencies.actor,
+        closeoutGates: input.closeoutGates,
+      }).map((criterion) => [criterion.criterionRef, criterion]),
     ),
     criteria = Object.freeze(
       action.criteria.map((criterion): EntityActionCriterionExplanationV1 => {

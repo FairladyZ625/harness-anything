@@ -8,6 +8,7 @@ import { revisionIssues } from "./task-lifecycle-contract-support.ts";
 import type { TaskLifecycleCommand } from "./task-lifecycle.contract.ts";
 import type { TaskLifecycleSnapshot } from "./task-lifecycle-contract-internal-types.ts";
 import type { ActorIdentity } from "./actor-identity.ts";
+import type { CloseoutGate } from "./settings-closeout.ts";
 
 export interface TaskActionCapabilityCriterionResult {
   readonly criterionRef: string;
@@ -20,6 +21,8 @@ export interface TaskActionCapabilityInput {
   readonly snapshot: TaskLifecycleSnapshot;
   readonly actor: ActorIdentity;
   readonly invocation?: TaskActionCapabilityInvocation;
+  /** The effective closeout gate set; absent means the strict read every gate still demands. */
+  readonly closeoutGates?: Readonly<Record<CloseoutGate, boolean>>;
 }
 
 export interface TaskActionCapabilityInvocation {
@@ -87,7 +90,8 @@ const taskCapabilityEvaluators = Object.freeze(
     [key("complete", "task-lifecycle-contract-support/revisionIssues"), revisionCurrent],
     [
       key("complete", "closeout-readiness/closeoutReadiness"),
-      ({ snapshot }) => (closeoutReadiness(snapshot).readiness === "ready" ? "met" : "unmet"),
+      ({ snapshot, closeoutGates }) =>
+        closeoutReadiness(snapshot, undefined, closeoutGates).readiness === "ready" ? "met" : "unmet",
     ],
     [
       key("complete", "task-lifecycle-review-transitions/complete.validate"),
