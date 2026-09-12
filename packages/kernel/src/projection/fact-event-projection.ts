@@ -140,8 +140,15 @@ export function assertFactAdmission(db: DatabaseSync, event: FactEventV1): void 
       );
   }
   for (const domainType of event.payload.domainTypes ?? [])
-    if (!prepareQuery(db, "SELECT 1 FROM fact_domain_type WHERE domain_type = ?").get(domainType))
-      throw new FactProjectionError("fact_type_unregistered", `Fact domain type ${domainType} is not registered.`);
+    if (!prepareQuery(db, "SELECT 1 FROM fact_domain_type WHERE domain_type = ?").get(domainType)) {
+      const registered = listFactDomainTypeRows(db)
+        .map(({ domainType: value }) => value)
+        .join(", ");
+      throw new FactProjectionError(
+        "fact_type_unregistered",
+        `Fact domain type ${domainType} is not registered. Registered: ${registered || "none yet"}.`,
+      );
+    }
   const supersedes = event.payload.supersedes;
   if (!supersedes) return;
   const target = prepareQuery(db, "SELECT ref FROM fact WHERE ref = ?").get(supersedes.factRef) as

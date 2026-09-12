@@ -212,6 +212,23 @@ test("fact_type_unregistered guides registering the domain type before retry", (
   );
 });
 
+test("fact_type_unregistered renders the daemon explanation so the legal values reach the operator", () => {
+  assert.deepEqual(
+    renderCliReceipt({
+      ok: false,
+      code: "fact_type_unregistered",
+      rejectionExplanation: "Fact domain type observation is not registered. Registered: verification.",
+      error: { code: "fact_type_unregistered" },
+    }),
+    {
+      stream: "stderr",
+      text:
+        "error code=fact_type_unregistered hint=Fact domain type observation is not registered. " +
+        "Registered: verification. Run ha fact type register <type> --source <source>, then retry this command.",
+    },
+  );
+});
+
 test("receipt registry preserves migrated family goldens", () => {
   assert.deepEqual(renderCliReceipt({ command: "runtime-batch", dispatches: [] }), {
     stream: "stdout",
