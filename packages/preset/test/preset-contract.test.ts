@@ -248,11 +248,13 @@ test("preset run receipt requires an exact current phase and bounded terminal vo
     phase: "admitted",
     phases: ["admitted"],
     snapshotDigest: `sha256:${"a".repeat(64)}`,
+    rejectionExplanation: "Repository repository-a is still warming up.",
   };
   assert.deepEqual(validatePresetRunReceiptV1(receipt), []);
   assert.match(validatePresetRunReceiptV1({ ...receipt, phase: "running" }).join("\n"), /invalid/u);
   assert.match(validatePresetRunReceiptV1({ ...receipt, outcome: "queued" }).join("\n"), /invalid/u);
   assert.match(validatePresetRunReceiptV1({ ...receipt, retry: true }).join("\n"), /invalid/u);
+  assert.match(validatePresetRunReceiptV1({ ...receipt, rejectionExplanation: "" }).join("\n"), /invalid/u);
 });
 
 test("generated task CLI projection accepts closeout submission without packet or evidence flags", () => {

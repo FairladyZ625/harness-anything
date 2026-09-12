@@ -14,7 +14,7 @@ import {
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 import { assertCurrentSubmittedExecution } from "./repo-cell-execution-selection.ts";
-import { artifactAnchors, readSubmissionArtifact } from "./submission-artifacts.ts";
+import { artifactAnchorGuidance, artifactAnchors, readSubmissionArtifact } from "./submission-artifacts.ts";
 import { readDispatchStreamHeaders } from "./dispatch-stream.ts";
 import { runDocAction } from "./doc-sync-actions.ts";
 import { makeGitReadinessSource, runProcessText } from "./process-port.ts";
@@ -46,14 +46,17 @@ export function deriveCloseoutSubmission(
   )
     throw cell.cellCodedError(
       "invalid_submission",
-      "Summary must explicitly name one commit or artifact:path@revision anchors.",
+      `Summary must explicitly name one commit or artifact:path@revision anchors. ${artifactAnchorGuidance}`,
     );
   if (anchors.length) {
     const artifacts = anchors.map(
       ({ path, revision }) => readSubmissionArtifact(cell, document.packagePath, path, revision).anchor,
     );
     if (new Set(artifacts.map((anchor) => anchor.path)).size !== artifacts.length)
-      throw cell.cellCodedError("invalid_submission", "Summary must name each artifact path once.");
+      throw cell.cellCodedError(
+        "invalid_submission",
+        `Summary must name each artifact path once. ${artifactAnchorGuidance}`,
+      );
     return { ...prose, commitSha: null, artifacts, deliverables: artifacts.map((anchor) => anchor.path), outputs: [] };
   }
   const dispatches = readDispatchStreamHeaders(cell.rootDir).filter(
@@ -131,7 +134,7 @@ export function deriveCloseoutSubmission(
       throw cell.cellCodedError(
         "invalid_submission",
         `Delivery cut contains no changed paths; publish harness/${document.packagePath}/artifacts/ ` +
-          `or name artifact:path@revision anchors in Summary.`,
+          `or name artifact:path@revision anchors in Summary. ${artifactAnchorGuidance}`,
       );
     return {
       ...codeProse,

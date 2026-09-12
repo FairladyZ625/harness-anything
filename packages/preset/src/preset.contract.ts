@@ -1,4 +1,5 @@
 import { presetCommands, presetMethods } from "./preset-command-contract.ts";
+import type { PresetRunOutcomeV1, PresetRunPhaseV1 } from "./preset-run-receipt-types.ts";
 export {
   decisionProposalDefaultJsonFields,
   decisionProposalJsonFields,
@@ -8,6 +9,7 @@ export {
   taskCreateJsonFields,
   type RpcShape,
 } from "./preset-command-contract.ts";
+export type { PresetRunOutcomeV1, PresetRunPhaseV1, PresetRunReceiptV1 } from "./preset-run-receipt-types.ts";
 export type PresetLayer = "bundled" | "user";
 export type PresetPurpose = "inspect" | "task-create" | "script-run";
 export type PresetKind = "template-content" | "process-action";
@@ -190,28 +192,6 @@ export interface PresetResolutionErrorV1 {
 export interface CanonicalPresetResolver {
   readonly list: (input: { readonly verticalId: string }) => Promise<readonly PresetCatalogEntryV1[]>;
   readonly resolve: (input: ResolvePresetRequestV1) => Promise<PresetResolveResultV1>;
-}
-export type PresetRunPhaseV1 =
-  | "admitted"
-  | "spawned"
-  | "running"
-  | "publishing"
-  | "applied"
-  | "op_rejected"
-  | "failed"
-  | "outcome_unknown";
-export type PresetRunOutcomeV1 = "started" | "running" | "applied" | "op_rejected" | "failed" | "outcome_unknown";
-export interface PresetRunReceiptV1 {
-  readonly schema: "preset-run-receipt/v1";
-  readonly runId: string;
-  readonly outcome: PresetRunOutcomeV1;
-  readonly phase: PresetRunPhaseV1;
-  readonly phases: readonly PresetRunPhaseV1[];
-  readonly snapshotDigest?: `sha256:${string}`;
-  readonly resultDigest?: `sha256:${string}`;
-  readonly code?: string;
-  readonly nextAction?: string;
-  readonly authorizationDecision?: import("../../kernel/src/index.ts").AuthorizationDecision;
 }
 export const PRESET_DOCUMENT_V1_SCHEMA = Object.freeze({
     id: "preset-document/v1",
@@ -396,6 +376,7 @@ export function validatePresetRunReceiptV1(value: unknown): readonly string[] {
       "resultDigest",
       "code",
       "nextAction",
+      "rejectionExplanation",
       "authorizationDecision",
     ];
   return isPresetContractRecord(value) &&
@@ -412,6 +393,7 @@ export function validatePresetRunReceiptV1(value: unknown): readonly string[] {
     (value.resultDigest === undefined || sha(value.resultDigest)) &&
     (value.code === undefined || nonEmpty(value.code)) &&
     (value.nextAction === undefined || nonEmpty(value.nextAction)) &&
+    (value.rejectionExplanation === undefined || nonEmpty(value.rejectionExplanation)) &&
     (value.authorizationDecision === undefined || isPresetContractRecord(value.authorizationDecision))
     ? []
     : ["preset run receipt is invalid"];

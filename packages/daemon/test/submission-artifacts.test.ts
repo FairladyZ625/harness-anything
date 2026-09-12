@@ -100,6 +100,18 @@ test("Summary requires exactly one delivery kind and complete unique artifact an
   ]);
 });
 
+test("invalid artifact anchors explain the copyable form and revision source", () => {
+  for (const action of [
+    () => derive("no anchor"),
+    () => derive(`artifact:${path}@7 artifact:${path}@7`),
+    () => readSubmissionArtifact(fixture().cell, packagePath, path, 8),
+  ])
+    assert.throws(action, {
+      code: "invalid_submission",
+      message: /artifact:artifacts\/report\.md@3.*ha doc sync --submit.*ha doc status/u,
+    });
+});
+
 test("only this task's accepted revision and portable artifact path resolve", () => {
   const { cell } = fixture();
   assert.equal(readSubmissionArtifact(cell, packagePath, path, 7).body, "Frozen evidence.\n");
