@@ -1,5 +1,6 @@
 import { readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
+import { workspacePathResolutionRule } from "../../preset/src/preset-command-contract.ts";
 
 /** Physical workspace text reads stay in the daemon adapter layer. */
 export function readWorkspaceText(rootDir: string, requested: string, field: string): string {
@@ -15,8 +16,7 @@ export function readWorkspaceText(rootDir: string, requested: string, field: str
   } catch (error) {
     if (isBoundaryError(error)) throw error;
     throw portError(
-      `${field} must name a readable UTF-8 file inside workspace root ${rootDir}; ` +
-        "relative paths are resolved from this root.",
+      `${field} must name a readable UTF-8 file inside workspace root ${rootDir}; ${workspacePathResolutionRule}.`,
     );
   }
 }

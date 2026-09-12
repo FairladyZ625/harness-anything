@@ -1,4 +1,4 @@
-import { cliInput, defineCliCommand } from "../../../preset/src/preset-command-contract.ts";
+import { cliInput, defineCliCommand, workspacePathFormat } from "../../../preset/src/preset-command-contract.ts";
 import { credentialKindWords, peopleCommandClassWords } from "./daemon-protocol-vocabulary.ts";
 
 export const peopleAddJsonFields = Object.freeze(["personId", "displayName", "role", "commandClass"] as const),
@@ -41,7 +41,12 @@ const peopleWriteTopology = {
       "single",
       false,
       { code: "invalid_field" },
-      { jsonFields: requiredFields, jsonAllowedFields: allowedFields, conflictsWith: ["--json-input"] },
+      {
+        jsonFields: requiredFields,
+        jsonAllowedFields: allowedFields,
+        format: workspacePathFormat,
+        conflictsWith: ["--json-input"],
+      },
     ),
     cliInput(
       "--json-input",
