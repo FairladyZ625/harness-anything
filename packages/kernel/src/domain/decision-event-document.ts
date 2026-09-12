@@ -26,6 +26,7 @@ import {
 
 export function compileDecisionWrite(input: {
   readonly event: DecisionEventDraftV1;
+  readonly approval?: Pick<DecisionJudgmentConsentV1, "approvedBy" | "at" | "channel">;
   readonly currentDecision: Omit<DecisionDocumentState, "relations"> | null;
   readonly currentRelations: readonly EntityRelationRecord[];
   readonly currentDocument: {
@@ -45,7 +46,7 @@ export function compileDecisionWrite(input: {
   const base = input.currentDecision === null ? null : { ...input.currentDecision, relations: input.currentRelations };
   assertDecisionEvidenceFloor(base, input.event);
   const reduced = reduceDecisionDocument(base, input.event),
-    consent = base && decisionOutcome(input.event) ? decisionConsent(base, input.event) : null,
+    consent = base && decisionOutcome(input.event) ? decisionConsent(base, input.event, input.approval) : null,
     amendment = base && input.event.type === "decision_amended" ? decisionAmendment(input.event) : null,
     pin =
       base &&
@@ -330,7 +331,7 @@ export function decisionMachineDigest(value: DecisionDocumentState): `sha256:${s
 }
 export function assertDecisionJudgmentConsent(current: DecisionDocumentState, event: DecisionEventV1): void {
   if (!decisionOutcome(event)) return;
-  const expected = decisionConsent(current, event);
+  const expected = decisionConsent(current, event, event.payload.judgmentConsent);
   if (stableStringify(event.payload.judgmentConsent) !== stableStringify(expected))
     invalidDecision("Decision judgment consent does not match the machine content cut or event authority.");
   assertDecisionEvidenceFloor(current, event);
@@ -349,6 +350,7 @@ export function assertDecisionContentPin(current: DecisionDocumentState, event: 
 function decisionConsent(
   current: DecisionDocumentState,
   event: Extract<DecisionEventDraftV1 | DecisionEventV1, { readonly type: DecisionOutcomeType }>,
+  approval?: Pick<DecisionJudgmentConsentV1, "approvedBy" | "at" | "channel">,
 ): DecisionJudgmentConsentV1 {
   const action = event.type.slice("decision_".length, -2) as DecisionJudgmentAction;
   return {
@@ -361,6 +363,14 @@ function decisionConsent(
     actor: event.actor,
     source: event.source,
     consentedAt: event.occurredAt,
+    ...(approval?.approvedBy === undefined
+      ? {}
+      : {
+          approvedBy: approval.approvedBy,
+          recordedBy: event.actor.executor,
+          at: approval.at,
+          channel: approval.channel,
+        }),
   };
 }
 function decisionAmendment(

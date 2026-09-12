@@ -164,6 +164,10 @@ export interface DecisionJudgmentConsentV1 {
   readonly actor: ActorIdentity;
   readonly source: DecisionEventDraftV1["source"];
   readonly consentedAt: string;
+  readonly approvedBy?: string;
+  readonly recordedBy?: ActorIdentity["executor"];
+  readonly at?: string;
+  readonly channel?: "chat" | "cli" | "gui";
 }
 export const DECISION_DOCUMENT_POLICY_ID = "markdown-body-replaceable/v1" as const;
 export interface DecisionDocumentClaim {

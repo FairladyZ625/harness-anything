@@ -1,15 +1,6 @@
 import type { SafePath } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
-import {
-  accepted,
-  nonEmpty,
-  readFlags,
-  rejectInput,
-  rejected,
-} from "./thin-command-flags.ts";
-import type {
-  ThinCliInputDirectory,
-  ThinParseResult,
-} from "./thin-command-types.ts";
+import { accepted, nonEmpty, readFlags, rejectInput, rejected } from "./thin-command-flags.ts";
+import type { ThinCliInputDirectory, ThinParseResult } from "./thin-command-types.ts";
 
 export function parseDecisionValidation(
   id: string,
@@ -22,8 +13,7 @@ export function parseDecisionValidation(
   const selector = args[2]?.startsWith("--") ? undefined : args[2],
     f = readFlags(id, args.slice(selector ? 3 : 2), inputs);
   if (!f.ok) return rejected(f.code, f.nextAction, json);
-  if (Boolean(selector) === f.booleans.has("--all"))
-    return rejectInput(inputs, id, "--all", json);
+  if (Boolean(selector) === f.booleans.has("--all")) return rejectInput(inputs, id, "--all", json);
   return accepted(rootDir, repoId, json, {
     kind: "decision-validate",
     ...(selector ? { decisionId: selector } : { all: true }),
@@ -40,8 +30,7 @@ export function parseDecisionRepin(
   const selector = args[2]?.startsWith("--") ? undefined : args[2],
     f = readFlags("decision-repin", args.slice(selector ? 3 : 2), inputs);
   if (!f.ok) return rejected(f.code, f.nextAction, json);
-  if (Boolean(selector) === f.booleans.has("--all"))
-    return rejectInput(inputs, "decision-repin", "--all", json);
+  if (Boolean(selector) === f.booleans.has("--all")) return rejectInput(inputs, "decision-repin", "--all", json);
   return accepted(rootDir, repoId, json, {
     kind: "decision-repin",
     ...(selector ? { decisionId: selector } : { all: true }),
@@ -60,13 +49,7 @@ export function parseDecisionTransition(
     decisionId = args[3];
   if (
     !nonEmpty(decisionId) ||
-    ![
-      "in_effect",
-      "rejected",
-      "deferred",
-      "superseded",
-      "outcome_retired",
-    ].includes(targetState ?? "")
+    !["in_effect", "rejected", "deferred", "superseded", "outcome_retired"].includes(targetState ?? "")
   )
     return rejected(
       "invalid_field",
@@ -75,6 +58,8 @@ export function parseDecisionTransition(
     );
   const f = readFlags("decision-transition", args.slice(4), inputs);
   if (!f.ok) return rejected(f.code, f.nextAction, json);
+  if (f.one.has("--consent-by") && !["in_effect", "rejected"].includes(targetState ?? ""))
+    return rejected("invalid_field", "Human consent is only valid for in_effect or rejected.", json);
   const acceptOnly =
     f.booleans.has("--standing-policy") ||
     f.one.has("--judgment-only") ||
@@ -89,8 +74,13 @@ export function parseDecisionTransition(
     kind: "decision-transition",
     decisionId,
     targetState,
-    ...(f.one.get("--decided-at")
-      ? { decidedAt: f.one.get("--decided-at") }
+    ...(f.one.get("--decided-at") ? { decidedAt: f.one.get("--decided-at") } : {}),
+    ...(f.one.has("--consent-by")
+      ? {
+          consentBy: f.one.get("--consent-by"),
+          consentAt: f.one.get("--consent-at"),
+          consentChannel: f.one.get("--consent-channel"),
+        }
       : {}),
     judgmentOnlyRationale: f.one.get("--judgment-only") ?? null,
     standingPolicy: f.booleans.has("--standing-policy"),
@@ -113,10 +103,8 @@ export function parseDecisionAmend(
     bodyFile = f.one.get("--body-file"),
     load = f.one.get("--load-bearing"),
     nonLoad = f.one.get("--non-load-bearing");
-  if (body !== undefined && bodyFile !== undefined)
-    return rejectInput(inputs, "decision-amend", "--body-file", json);
-  if (load && nonLoad)
-    return rejectInput(inputs, "decision-amend", "--non-load-bearing", json);
+  if (body !== undefined && bodyFile !== undefined) return rejectInput(inputs, "decision-amend", "--body-file", json);
+  if (load && nonLoad) return rejectInput(inputs, "decision-amend", "--non-load-bearing", json);
   const action = {
     kind: "decision-amend",
     decisionId,
@@ -143,11 +131,7 @@ export function parseDecisionAmend(
     body === undefined &&
     !bodyFile
   )
-    return rejected(
-      "invalid_field",
-      "Decision amend requires at least one machine-field or body change.",
-      json,
-    );
+    return rejected("invalid_field", "Decision amend requires at least one machine-field or body change.", json);
   return accepted(rootDir, repoId, json, action);
 }
 
