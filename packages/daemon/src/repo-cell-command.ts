@@ -220,7 +220,12 @@ export function buildCommand(
   }
   if (action.kind === "task-code-doc-reconcile") {
     if (!canonicalCodeDocPaths(action.paths, true))
-      throw cellCodedError("invalid_command", "Pass explicit canonical completion.codeDocPaths to code-doc reconcile.");
+      throw cellCodedError(
+        "invalid_command",
+        "Pass explicit canonical file paths as completion.codeDocPaths to code-doc reconcile; " +
+          "each --path must name one file relative to the Git repository root, and directories " +
+          "are not accepted.",
+      );
     const witness = submittedExecutionWitness(action, snapshot, taskId, ["kind", "taskId", "paths"], action.paths);
     if (witness.commitSha === null)
       throw cellCodedError("invalid_proof", "Code/doc reconciliation requires a code delivery.");
