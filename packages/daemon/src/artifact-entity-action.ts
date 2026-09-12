@@ -911,7 +911,9 @@ function artifactReplayReceipt(
 }
 
 function titleFromContent(content: Uint8Array, relative: string): string {
-  const decoded = new TextDecoder("utf-8").decode(content),
+  const decoded = new TextDecoder("utf-8").decode(content.subarray(0, 16 * 1024), {
+      stream: content.byteLength > 16 * 1024,
+    }),
     heading = /^#\s+(.+)$/mu.exec(decoded)?.[1]?.trim();
   return heading || path.basename(relative, path.extname(relative));
 }

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFileSync, realpathSync, statSync } from "node:fs";
+import { closeSync, openSync, readSync, readFileSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
 import {
   resolveHarnessLayout,
@@ -323,14 +323,28 @@ function isProjectionCut(value: unknown): value is ProjectionCut {
   );
 }
 function suggestedClaimFromWorkspaceFile(rootDir: string, relativePath: string): string {
-  return truncateClaim(readFileSync(path.join(rootDir, relativePath), "utf8"));
+  const fd = openSync(path.join(rootDir, relativePath), "r"),
+    buffer = Buffer.allocUnsafe(8192),
+    decoder = new TextDecoder("utf-8");
+  let text = "";
+  try {
+    for (;;) {
+      const length = readSync(fd, buffer),
+        done = length === 0;
+      text += decoder.decode(buffer.subarray(0, length), { stream: !done });
+      const first = /\S/u.exec(text);
+      if (first) {
+        text = text.slice(first.index);
+        if (done || text.includes("\n") || text.trimEnd().length > 240) return truncateClaim(text);
+      } else text = "";
+      if (done) return truncateClaim(text);
+    }
+  } finally {
+    closeSync(fd);
+  }
 }
 function truncateClaim(input: string): string {
-  const line =
-    input
-      .split(/\r?\n/u)
-      .map((entry) => entry.trim())
-      .find(Boolean) ?? "Distill candidate requires an explicit promotion claim.";
+  const line = /[^\n]*\S[^\n]*/u.exec(input)?.[0]?.trim() ?? "Distill candidate requires an explicit promotion claim.";
   return line.length > 240 ? `${line.slice(0, 237)}...` : line;
 }
 function nonEmptyString(value: unknown): value is string {

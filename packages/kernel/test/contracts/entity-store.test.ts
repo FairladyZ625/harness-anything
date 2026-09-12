@@ -299,6 +299,35 @@ test("EntityStore hot reads consume only events appended since the cached cursor
   }
 });
 
+test("EntityStore reuses accepted records while new content and revisions replace the cache", () => {
+  const body = `${JSON.stringify(agent, null, 2)}\n`,
+    first = storedAgentEvent(agent, body, 1),
+    events = [first],
+    blobs = new Map([[first.payload.declarationDocumentClaim.sha256, Buffer.from(body)]]),
+    source = entitySource(events, blobs);
+  let reads = 0;
+  const store = createEntityStore({
+    ...source,
+    readContentBlob: (sha256) => {
+      reads += 1;
+      return source.readContentBlob(sha256);
+    },
+  });
+  assert.equal(store.get("agent", "terra")?.workspaceRevision, 1);
+  assert.equal(store.list("agent").length, 1);
+  assert.equal(reads, 1);
+  events.push(storedAgentEvent(agent, body, 2));
+  assert.equal(store.get("agent", "terra")?.workspaceRevision, 2);
+  const changed = { ...agent, name: "Updated Terra" },
+    changedBody = `${JSON.stringify(changed, null, 2)}\n`,
+    next = storedAgentEvent(changed, changedBody, 3);
+  blobs.set(next.payload.declarationDocumentClaim.sha256, Buffer.from(changedBody));
+  events.push(next);
+  assert.equal(store.get<typeof agent>("agent", "terra")?.value.name, "Updated Terra");
+  assert.equal(store.list("agent")[0]?.workspaceRevision, 3);
+  assert.equal(reads, 3);
+});
+
 test("entity_upsert receipt detail is closed and registered", () => {
   const receipt = {
     ...committedAcceptance("op-agent-terra-1", 1),

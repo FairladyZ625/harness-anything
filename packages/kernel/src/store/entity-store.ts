@@ -1,3 +1,4 @@
+import { deepFreeze } from "../domain/artifact-entity.ts";
 import type { HarnessLayoutInput } from "../layout/index.ts";
 import { compileEntityUpsert, type EntityUpsertBundle } from "../domain/entity-event-compile.ts";
 import {
@@ -30,13 +31,18 @@ type EntityEventSource = Pick<CanonicalEventStore, "readBatch" | "readContentBlo
 
 const entityEventCaches = new WeakMap<
   EntityEventSource,
-  { cursor: string | null; latestByKind: Map<string, Map<string, StoredEntityEventV1>> }
+  {
+    cursor: string | null;
+    latestByKind: Map<string, Map<string, StoredEntityEventV1>>;
+    records: Map<string, { event: StoredEntityEventV1; contract: EntityStoreKindContract; record: StoredEntity }>;
+  }
 >();
 
 function entityEventCache(source: EntityEventSource): Map<string, Map<string, StoredEntityEventV1>> {
   const cache = entityEventCaches.get(source) ?? {
     cursor: null,
     latestByKind: new Map<string, Map<string, StoredEntityEventV1>>(),
+    records: new Map(),
   };
   entityEventCaches.set(source, cache);
   for (;;) {
@@ -45,6 +51,13 @@ function entityEventCache(source: EntityEventSource): Map<string, Map<string, St
       if (!isEntityEvent(event)) continue;
       const latest = cache.latestByKind.get(event.payload.entityKind) ?? new Map<string, StoredEntityEventV1>();
       cache.latestByKind.set(event.payload.entityKind, latest);
+      const previous = latest.get(event.payload.entityId);
+      if (
+        previous &&
+        isEntityDeclarationEvent(previous) &&
+        (isEntityDeclarationEvent(event) || event.type === "entity_deleted")
+      )
+        cache.records.delete(previous.payload.declarationDocumentClaim.sha256);
       if (isEntityDeclarationEvent(event)) latest.set(event.payload.entityId, event);
       else if (event.type === "entity_deleted") latest.delete(event.payload.entityId);
     }
@@ -118,7 +131,10 @@ function entityEventRecord(
 ): StoredEntity {
   if (!isEntityDeclarationEvent(event)) throw new Error("entity target-missing event has no declaration document");
   const claim = event.payload.declarationDocumentClaim,
-    bytes = source.readContentBlob(claim.sha256);
+    cache = entityEventCaches.get(source)!.records,
+    cached = cache.get(claim.sha256);
+  if (cached?.event === event && cached.contract === contract) return cached.record;
+  const bytes = source.readContentBlob(claim.sha256);
   if (!bytes || bytes.byteLength !== claim.size)
     throw new Error(`entity declaration blob ${claim.sha256} is unavailable`);
   let body: string;
@@ -140,12 +156,14 @@ function entityEventRecord(
   if (contractErrors.length) throw new Error(contractErrors.join("; "));
   if (entity.id !== event.payload.entityId)
     throw new Error(`entity declaration blob ${claim.sha256} identity mismatch`);
-  return {
+  const record = deepFreeze({
     kind: contract.kind,
     id: event.payload.entityId,
     value: entity.value,
     documentPath: claim.path,
     documentSha256: claim.sha256,
     workspaceRevision: event.workspaceRevision,
-  };
+  });
+  cache.set(claim.sha256, { event, contract, record });
+  return record;
 }

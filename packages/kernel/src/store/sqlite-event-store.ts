@@ -796,9 +796,7 @@ function objectPath(objectRoot: string, sha256: string): string {
 
 function readContentObject(objectRoot: string, sha256: string): Uint8Array | null {
   const target = objectPath(objectRoot, sha256);
-  return localContentObjectFileSystem.exists(target)
-    ? Buffer.from(localContentObjectFileSystem.readBytes(target))
-    : null;
+  return localContentObjectFileSystem.exists(target) ? localContentObjectFileSystem.readBytes(target) : null;
 }
 
 function listContentObjectDigests(objectRoot: string): readonly string[] {

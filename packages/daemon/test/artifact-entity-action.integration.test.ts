@@ -7,11 +7,90 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { deriveArtifactContentVersion, makeTaskEventReader, makeTaskProjection } from "../../kernel/src/index.ts";
+import {
+  entityContentPath,
+  requireEntityStoreKindContract,
+  deriveArtifactContentVersion,
+  makeTaskEventReader,
+  makeTaskProjection,
+} from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { initRepo } from "./task-surface.fixtures.ts";
+
+import { readEntityContent } from "../src/entity-content-read.ts";
+import { prepareDistillCandidate } from "../src/distill-actions.ts";
+
+test("owned-content size admission avoids reading oversized objects", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-content-size-")),
+    contract = requireEntityStoreKindContract("agent"),
+    sha256 = "a".repeat(64),
+    ownedContent = {
+      schema: "entity-owned-content/v1",
+      ownerRef: "agent/terra",
+      schemaId: contract.schema.$id,
+      schemaVersion: 1,
+      content: [{ sha256, byteLength: 100, mediaType: "text/markdown" }],
+      bindings: [
+        { path: entityContentPath(contract, "terra", "large.md"), contentSha256: sha256, policyId: "test/v1" },
+      ],
+      directories: [],
+      retirements: [],
+      directoryRetirements: [],
+    } as const;
+  let reads = 0;
+  try {
+    const source = {
+      entityKind: "agent",
+      contract,
+      entityId: "terra",
+      ownedContent,
+      readContentBlob: () => {
+        reads += 1;
+        return Buffer.from("small");
+      },
+    };
+    assert.equal(readEntityContent({ rootDir, source, requestedPath: "large.md", maxBytes: 99 }).outcome, "too-large");
+    assert.equal(reads, 0);
+    assert.equal(readEntityContent({ rootDir, source, requestedPath: "large.md", maxBytes: 100 }).content, "small");
+    assert.equal(reads, 1);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("distill claim streaming preserves first nonblank lines across UTF-8 chunk boundaries", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-distill-prefix-"));
+  try {
+    for (const text of [
+      "\n \r\n中文 claim\n" + "tail".repeat(10000),
+      " ".repeat(8191) + "中文 boundary\nsecond",
+      "x".repeat(300) + "\n",
+      " \r\n".repeat(10000),
+    ]) {
+      writeFileSync(path.join(rootDir, "input.md"), text);
+      const result = prepareDistillCandidate({
+        rootDir,
+        action: { taskId: "task-one", inputPath: "input.md" },
+        opId: "op-one",
+        revision: 1,
+        now: () => "2026-09-12T00:00:00.000Z",
+        readEntity: () => {
+          throw new Error("workspace file must not read an entity");
+        },
+      });
+      const first =
+        text
+          .split(/\r?\n/u)
+          .map((line) => line.trim())
+          .find(Boolean) ?? "Distill candidate requires an explicit promotion claim.";
+      assert.equal(JSON.parse(result.body).suggestedClaim, first.length > 240 ? `${first.slice(0, 237)}...` : first);
+    }
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
 
 const kind = "entity-kind/KND-1f5c0a7e9b3d4c6a8e2f0b1d3c5a7e94",
   researchKind = "entity-kind/KND-3b7e2c9a1d5f6e8c0a4b2d3f5e7c9a16",

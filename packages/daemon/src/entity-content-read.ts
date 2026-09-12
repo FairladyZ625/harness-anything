@@ -97,16 +97,18 @@ export function readEntityContent(input: {
     mediaOf = new Map(ownedContent.content.map(({ sha256, mediaType }) => [sha256, mediaType] as const)),
     file = bindings.find(({ path: bound }) => bound === manifestPath);
   if (file) {
-    const bytes = input.source.readContentBlob(file.contentSha256),
+    const size = sizeOf.get(file.contentSha256),
+      maxBytes = input.maxBytes ?? ENTITY_CONTENT_READ_MAX_BYTES,
       base = {
         ...contentResult("file", entityRef, relative, repositoryPath),
-        sizeBytes: sizeOf.get(file.contentSha256) ?? bytes?.byteLength ?? null,
+        sizeBytes: size ?? null,
         mediaType: mediaOf.get(file.contentSha256) ?? null,
       };
-    // An accepted object that storage cannot produce is a storage failure, not an absent file: say so rather
-    // than inventing an empty one.
+    if (size !== undefined && size > maxBytes) return { ...base, outcome: "too-large" };
+    const bytes = input.source.readContentBlob(file.contentSha256);
     if (!bytes) return { ...base, outcome: "missing", sizeBytes: null, mediaType: null };
-    if (bytes.byteLength > (input.maxBytes ?? ENTITY_CONTENT_READ_MAX_BYTES)) return { ...base, outcome: "too-large" };
+    base.sizeBytes = size ?? bytes.byteLength;
+    if (bytes.byteLength > maxBytes) return { ...base, outcome: "too-large" };
     const text = decodeUtf8(bytes);
     return text === null || text.includes(NUL) ? { ...base, outcome: "binary" } : { ...base, content: text };
   }
