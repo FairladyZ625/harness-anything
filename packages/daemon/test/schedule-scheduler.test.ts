@@ -32,18 +32,7 @@ test("an invalid Schedule row does not prevent healthy occurrences from arming",
     outcome: "applied",
     opId: "read:schedule-list:invalid-row",
     revision: 2,
-    evidence: JSON.stringify({
-      schema: "schedule-list/v1",
-      schedules: [
-        {
-          scheduleId: "legacy-probe",
-          state: "invalid",
-          invalidReason: 'schedule is missing required field "mode".',
-          definitionRevision: 1,
-        },
-        { ...healthy, definitionRevision: 2, nextRunAt: "2026-08-27T10:30:00.000Z" },
-      ],
-    }),
+    evidence: "schedule-list:2",
     schedules: [
       {
         scheduleId: "legacy-probe",
@@ -445,7 +434,7 @@ function fixtureRepo(repoId: string, mode: DaemonRepoMode, schedules: MutableSch
           outcome: "applied",
           opId: `read:schedule-list:${repoId}`,
           revision: 1,
-          evidence: JSON.stringify({ schema: "schedule-list/v1", schedules: rows }),
+          evidence: "schedule-list:1",
           schedules: rows,
           visibility: "center",
           proof: {
