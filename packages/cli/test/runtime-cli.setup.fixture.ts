@@ -45,10 +45,7 @@ export function createRuntimeFixture(context: TestContext) {
     HARNESS_NOTIFY_TEST_SECRET: "must-not-reach-notifier",
     HARNESS_DAEMON_USER_ROOT: userRoot,
     HARNESS_DAEMON_ID: daemonId,
-    HARNESS_DAEMON_ENDPOINT:
-      process.platform === "win32"
-        ? localUserDaemonEndpoint(userRoot, daemonId)
-        : path.join("/tmp/harness-anything", path.basename(localUserDaemonEndpoint(userRoot, daemonId))),
+    HARNESS_DAEMON_ENDPOINT: localUserDaemonEndpoint(userRoot, daemonId),
     HARNESS_ACTOR: "agent:runtime-cli-test",
   };
   context.after(() => {
