@@ -444,7 +444,11 @@ function assertDecisionEvidenceFloor(
       (edge) => edge.state === "active" && claims.has(edge.source) && isDecisionEvidenceTarget(edge.target),
     );
   if (!evidence)
-    invalidDecision("decision accept requires a claim-to-evidence relation or --judgment-only <rationale>.");
+    invalidDecision(
+      "decision accept has two valid routes: (1) run ha decision claim fulfill <id> --id <claim-id> " +
+        "--mode evidenced and add an active claim-to-evidence relation; or (2) retry with " +
+        "--judgment-only <rationale>.",
+    );
 }
 function isDecisionEvidenceTarget(value: string): boolean {
   return (

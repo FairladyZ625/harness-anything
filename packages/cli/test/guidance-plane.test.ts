@@ -80,7 +80,8 @@ test("failure guidance renders structured missing-section, validator, and worksp
       code: "invalid_command",
       diagnostic: { kind: "workspace-boundary", field: "fromFile", workspaceRoot: "/repo" },
     }).hint,
-    "fromFile must name a readable UTF-8 file inside workspace root /repo.",
+    "fromFile must name a readable UTF-8 file inside workspace root /repo; for example " +
+      "harness/tasks/<task-id>/artifacts/input.md.",
   );
   assert.deepEqual(
     renderCliReceipt({

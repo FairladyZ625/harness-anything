@@ -351,7 +351,7 @@ function decisionEvent(id: DecisionActionCompilerId, input: EntityActionCompileI
         body:
           typeof action.body === "string"
             ? action.body
-            : `\n# ${typeof action.title === "string" ? action.title : ""}\n`,
+            : decisionBodyTemplate(typeof action.title === "string" ? action.title : ""),
         claims: action.claims,
         fulfillments: action.fulfillments,
         relations: [],
@@ -434,6 +434,25 @@ function decisionEvent(id: DecisionActionCompilerId, input: EntityActionCompileI
       },
     };
   return replacementEvent(input, base);
+}
+
+function decisionBodyTemplate(title: string): string {
+  return [
+    `\n# ${title}`,
+    "",
+    "## 背景",
+    "",
+    "说明需要裁定的问题与已知事实。",
+    "",
+    "## 权衡",
+    "",
+    "说明所选方案、被拒方案与取舍理由。",
+    "",
+    "## 结论",
+    "",
+    "说明最终裁定及其适用范围。",
+    "",
+  ].join("\n");
 }
 
 function transitionEvent(

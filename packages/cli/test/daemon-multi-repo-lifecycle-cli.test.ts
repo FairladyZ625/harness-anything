@@ -177,15 +177,25 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
     assert.match(String(settleFollower(fixture.alpha, fixture.userRoot, decisionPropose).commitSha), /^[0-9a-f]{40}$/u);
     assert.ok(decisionPropose.cut);
     assert.match(String(decisionPropose.documentSha256), /^[0-9a-f]{64}$/u);
-    assert.match(
-      readFileSync(path.join(fixture.alpha, "harness", decisionPath), "utf8"),
-      /^---\nschema: decision-package\/v1[\s\S]*\nstate: proposed[\s\S]*\n---\n\n# Canonical Decision from CLI\n$/u,
+    const scaffoldPattern = new RegExp(
+      "^---\\nschema: decision-package/v1[\\s\\S]*\\nstate: proposed[\\s\\S]*\\n---\\n\\n" +
+        "# Canonical Decision from CLI\\n\\n## 背景\\n\\n说明需要裁定的问题与已知事实。\\n\\n" +
+        "## 权衡\\n\\n说明所选方案、被拒方案与取舍理由。\\n\\n" +
+        "## 结论\\n\\n说明最终裁定及其适用范围。\\n$",
+      "u",
     );
+    assert.match(readFileSync(path.join(fixture.alpha, "harness", decisionPath), "utf8"), scaffoldPattern);
     const decisionFile = path.join(fixture.alpha, "harness", decisionPath),
-      decisionBody = readFileSync(decisionFile, "utf8");
+      decisionBody = readFileSync(decisionFile, "utf8"),
+      bodyStart = decisionBody.indexOf("\n# Canonical Decision from CLI");
+    assert.notEqual(bodyStart, -1);
     writeFileSync(
       decisionFile,
-      `${decisionBody}\n## Decision\n\nUse the event-backed lifecycle selected by this fixture.\n`,
+      decisionBody.slice(0, bodyStart) +
+        "\n\n# Canonical Decision from CLI\n\n" +
+        "## 背景\n\nThe real CLI must exercise the decision lifecycle.\n\n" +
+        "## 权衡\n\nUse the event-backed path instead of direct document writes.\n\n" +
+        "## 结论\n\nUse the event-backed lifecycle selected by this fixture.\n",
     );
     assert.equal(
       run(fixture.alpha, fixture.userRoot, ["doc", "sync", "--submit", "--path", decisionPath]).outcome,
