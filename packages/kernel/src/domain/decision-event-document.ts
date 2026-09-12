@@ -456,7 +456,9 @@ function assertDecisionEvidenceFloor(
   if (!evidence)
     invalidDecision(
       "decision accept has two valid routes: (1) run ha decision claim fulfill <id> --id <claim-id> " +
-        "--mode evidenced and add an active claim-to-evidence relation; or (2) retry with " +
+        "--mode evidenced and add an active claim-to-evidence relation " +
+        `(for example ${[...claims].join(" or ") || `decision/${event.decisionId}/<claim-id>`} ` +
+        "--evidenced-by--> fact/<fact-id>; chosen CH anchors do not count); or (2) retry with " +
         "--judgment-only <rationale>.",
     );
 }

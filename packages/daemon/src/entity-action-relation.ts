@@ -1,6 +1,7 @@
 import {
   deriveRelationId,
   isRelationEvent,
+  parseEntityRef,
   relationEventWritePlan,
   relationStrengthForType,
   type AuthorizationDecision,
@@ -57,6 +58,19 @@ export function executeRelationAction(input: {
   if (action.kind === "relation-relate") {
     if (source?.currentVersion === null) reject("entity_not_found", `Relation source ${sourceRef} does not exist.`);
     if (target?.currentVersion === null) reject("entity_not_found", `Relation target ${targetRef} does not exist.`);
+    if (!replay && action.relationType === "evidenced-by") {
+      const ref = parseEntityRef(sourceRef!),
+        claims = ref?.kind === "decision" ? input.projection.readDecision(ref.id).decision?.claims : undefined;
+      if (claims && !claims.some((claim) => claim.id === ref?.anchor))
+        reject(
+          "relation_source_anchor_invalid",
+          `evidenced-by requires a declared claim source; ${sourceRef} is not a claim. ` +
+            `Use --source-ref ${
+              claims.map((claim) => `decision/${ref!.id}/${claim.id}`).join(" or ") ||
+              `decision/${ref!.id}/<claim-id> (declare a claim first)`
+            }.`,
+        );
+    }
   }
   const draft = replay
       ? null

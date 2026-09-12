@@ -434,6 +434,76 @@ test("decision transition accepts repeated matching proposal fulfillments and dr
   }
 });
 
+test("Evidence relations reject non-claim sources before writing and identify the missing accept edge", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-decision-evidence-anchor-"));
+  initRepo(rootDir);
+  const repoId = workspaceId("decision-evidence-anchor"),
+    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "evidence-anchor-test" });
+  try {
+    const proposed = await cell.run(
+      {
+        ...proposal("Evidence anchor admission"),
+        body: "# Evidence admission\n\nMeasured observations justify the selected approach.",
+      },
+      proposer,
+    );
+    assert.equal(proposed.outcome, "applied", JSON.stringify(proposed));
+    const decisionId = receiptJson(proposed).decisionId as string;
+    const fact = await cell.run(
+      {
+        kind: "fact-record",
+        factId: "F-12345678",
+        statement: "Observed evidence",
+        evidenceSource: "test:evidence-anchor",
+        confidence: "high",
+        memoryClass: "semantic",
+      },
+      proposer,
+    );
+    assert.equal(fact.outcome, "applied", JSON.stringify(fact));
+    const before = makeTaskEventReader({ repoId, rootDir }).readHead()?.revision;
+    for (const anchor of ["CH1", "RJ1", ""]) {
+      const related = await cell.run(
+        {
+          kind: "relation-relate",
+          sourceRef: `decision/${decisionId}${anchor ? `/${anchor}` : ""}`,
+          targetRef: "fact/F-12345678",
+          relationType: "evidenced-by",
+          rationale: "Evidence must originate at a declared claim.",
+          expectedVersion: 0,
+        },
+        proposer,
+      );
+      assert.equal(related.outcome, "op_rejected", JSON.stringify(related));
+      assert.equal(related.code, "relation_source_anchor_invalid", JSON.stringify(related));
+      assert.match(JSON.stringify(related), /C1/);
+      assert.equal(makeTaskEventReader({ repoId, rootDir }).readHead()?.revision, before);
+    }
+    const accepted = await cell.run(
+      { kind: "decision-accept", decisionId, rationale: "Attempt without evidence", judgmentOnlyRationale: null },
+      arbiter,
+    );
+    assert.equal(accepted.code, "invalid_transition", JSON.stringify(accepted));
+    assert.match(JSON.stringify(accepted), /evidenced-by/);
+    assert.match(JSON.stringify(accepted), new RegExp(`decision/${decisionId}/C1`));
+    const related = await cell.run(
+      {
+        kind: "relation-relate",
+        sourceRef: `decision/${decisionId}/C1`,
+        targetRef: "fact/F-12345678",
+        relationType: "evidenced-by",
+        rationale: "Measured claim evidence.",
+        expectedVersion: 0,
+      },
+      proposer,
+    );
+    assert.equal(related.outcome, "applied", JSON.stringify(related));
+  } finally {
+    await cell.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 function proposal(title: string) {
   return {
     kind: "decision-propose",
