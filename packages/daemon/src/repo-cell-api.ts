@@ -8,11 +8,8 @@ import {
   type SquadControlResult,
 } from "./squad-control-result.ts";
 import type { RepoCellCore } from "./repo-cell.ts";
-import {
-  attachReceiptAcceptance,
-  readAcceptedCommandOutcome,
-  waitForReceiptAcceptance,
-} from "../../kernel/src/index.ts";
+import { readAcceptedCommandOutcome } from "../../kernel/src/index.ts";
+import { settleWriteReceipt } from "./write-receipt-settlement.ts";
 import {
   assertCurrentWriter,
   buildVerticalDeclarationRead,
@@ -1002,28 +999,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
       const receipt = await run(action, binding, signal);
       if (isSquadControlResult(receipt)) return receipt;
       if (isSquadControlCommand(action.kind)) return squadControlRejected(action.kind, receipt);
-      if (
-        action.kind === "settings-update" &&
-        receipt.effects?.length === 1 &&
-        receipt.effects[0] === "settings-local/locale_changed"
-      )
-        return receipt;
-      if (
-        action.kind === "projection-rebuild" ||
-        action.kind === "doc-materialize" ||
-        // ci-observe-pull mints a synthetic opId over a batch of separately-opId'd imports; that
-        // opId is never itself an accepted command outcome, so acceptance lookup would mislabel
-        // its own already-correct applied/pending outcome as acceptance_unknown.
-        action.kind === "ci-observe-pull" ||
-        (!(durablePolicyActions as readonly string[]).includes(action.kind) && action.kind !== "receipt-show")
-      )
-        return receipt;
-      const read = () => attachReceiptAcceptance(receipt, context.store, context.projection);
-      return action.kind === "receipt-show" && action.waitFor !== undefined
-        ? waitForReceiptAcceptance(read, action.waitFor, action.timeoutMs, signal, async () => {
-            await context.store.settlePendingMaterialization?.("receipt wait");
-          })
-        : read();
+      return settleWriteReceipt(context, action, receipt, signal);
     },
     presetRun,
     spawnRuntime,
