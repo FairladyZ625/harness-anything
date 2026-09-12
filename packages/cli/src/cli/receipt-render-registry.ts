@@ -24,6 +24,7 @@ const schemaRenderers = new Map<string, ReceiptRenderer>([
 const commandRenderers = new Map<string, ReceiptRenderer>([
   ["task-create", renderTaskCreate],
   ["task-show", renderTaskShow],
+  ["decision-propose", renderDecisionPropose],
   ["preset-list", renderPresetListReceipt],
   ["migrate-import", renderSuccessfulReceipt],
   ["task-contract-migrate", renderSuccessfulReceipt],
@@ -102,6 +103,14 @@ function renderTaskShow(receipt: Record<string, unknown>): string {
   const payload = parseEvidence(receipt);
   if (!payload || !isRecord(payload.task)) return renderSuccessfulReceipt(receipt);
   return [`status: ${String(payload.task.status)}`, `graph cursor: ${String(payload.task.currentNode)}`].join("\n");
+}
+
+function renderDecisionPropose(receipt: Record<string, unknown>): string {
+  const payload = parseEvidence(receipt),
+    summary = renderSuccessfulReceipt(receipt);
+  return typeof payload?.decisionId === "string"
+    ? `${summary}\nnext: ha explain decision/${payload.decisionId}`
+    : summary;
 }
 
 function renderPresetListReceipt(receipt: Record<string, unknown>): string {

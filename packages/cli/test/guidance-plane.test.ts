@@ -1,9 +1,52 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { readWorkspaceText } from "../../daemon/src/workspace-text-port.ts";
 import { taskCreateGuidance } from "../../daemon/src/receipt-guidance.ts";
 import { humanError, renderReceiptGuidance } from "../src/cli/guidance-plane.ts";
 import { renderCliReceipt } from "../src/cli/receipt-render-registry.ts";
+
+test("missing workspace packets identify the root used for relative paths", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-packet-root-"));
+  try {
+    mkdirSync(path.join(root, "harness"));
+    writeFileSync(path.join(root, "harness/input.json"), "{}");
+    assert.equal(readWorkspaceText(root, "harness/input.json", "fromFile"), "{}");
+    assert.equal(readWorkspaceText(root, path.join(root, "harness/input.json"), "fromFile"), "{}");
+    assert.throws(
+      () => readWorkspaceText(root, "input.json", "fromFile"),
+      (error: Error) => {
+        const hint = humanError({ code: "invalid_command", rejectionExplanation: error.message }).hint;
+        assert.ok(hint.includes(root), hint);
+        assert.match(hint, /relative paths are resolved from this root/u);
+        return true;
+      },
+    );
+    writeFileSync(path.join(root, "invalid.json"), Buffer.from([0xff]));
+    assert.throws(() => readWorkspaceText(root, "invalid.json", "fromFile"), /readable UTF-8/u);
+    assert.throws(() => readWorkspaceText(root, "../outside.json", "fromFile"), /outside the workspace boundary/u);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("successful Decision proposals point to the canonical action explanation", () => {
+  const receipt = {
+    ok: true,
+    command: "decision-propose",
+    summary: "Decision proposed",
+    evidence: JSON.stringify({ decisionId: "dec_example", state: "proposed" }),
+  };
+  assert.deepEqual(renderCliReceipt(receipt), {
+    stream: "stdout",
+    text: "Decision proposed\nnext: ha explain decision/dec_example",
+  });
+  assert.equal(renderCliReceipt({ ...receipt, ok: false, code: "invalid_command" }).stream, "stderr");
+  assert.equal(renderCliReceipt({ ...receipt, command: "decision-show" }).text, "Decision proposed");
+});
 
 test("guidance plane renders all seven descriptor-derived task-create messages exactly", () => {
   const values = {
