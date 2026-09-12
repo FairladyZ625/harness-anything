@@ -1,5 +1,5 @@
 // @slice-activation PLT-Daemon W4 identity/RBAC roster exported for daemon composition and W7 team server wiring.
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { parsePeopleRosterDocument, resolveHarnessLayout, type HarnessLayoutInput } from "../../../kernel/src/index.ts";
 import {
@@ -23,9 +23,24 @@ export function loadPeopleRoster(rootInput: HarnessLayoutInput): PeopleRoster {
 export function loadPeopleRosterIfPresent(rootInput: HarnessLayoutInput): PeopleRoster | null {
   const layout = resolveHarnessLayout(rootInput),
     filePath = path.join(layout.authoredRoot, "people.yaml");
-  if (!existsSync(filePath)) return null;
-  return peopleRosterFromDocument(readFileSync(filePath, "utf8"));
+  if (!existsSync(filePath)) {
+    peopleRosterCache.delete(filePath);
+    return null;
+  }
+  const mtimeMs = statSync(filePath).mtimeMs,
+    cached = peopleRosterCache.get(filePath);
+  if (cached?.mtimeMs === mtimeMs) return cached.roster;
+  const roster = peopleRosterFromDocument(readFileSync(filePath, "utf8"));
+  peopleRosterCache.set(filePath, { mtimeMs, roster });
+  return roster;
 }
+
+interface CachedPeopleRoster {
+  readonly mtimeMs: number;
+  readonly roster: PeopleRoster;
+}
+
+const peopleRosterCache = new Map<string, CachedPeopleRoster>();
 
 export function peopleRosterFromDocument(body: string): PeopleRoster {
   const raw = parsePeopleRosterDocument(body),

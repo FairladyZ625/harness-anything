@@ -32,7 +32,7 @@ export function localSystemBinding(
     throw hostCodedError(resolved.code, resolved.message);
   }
   const actor = { principal: { personId: resolved.actor.personId }, executor };
-  return deriveLocalBinding(rootDir, actor);
+  return deriveLocalBinding(rootDir, actor, roster);
 }
 
 export function withDaemonWriterEpochFence(
@@ -48,10 +48,14 @@ export function withDaemonWriterEpochFence(
   };
 }
 
-function deriveLocalBinding(rootDir: string, actor: RepoCellBinding["actor"]): RepoCellBinding {
+function deriveLocalBinding(
+  rootDir: string,
+  actor: RepoCellBinding["actor"],
+  roster?: Parameters<typeof declaredRoleBindingsForActor>[2],
+): RepoCellBinding {
   return {
     actor,
-    roleBindings: declaredRoleBindingsForActor(rootDir, actor) ?? [],
+    roleBindings: declaredRoleBindingsForActor(rootDir, actor, roster) ?? [],
     authorizationBindingMode: "declared",
     source: "local",
   };
@@ -125,5 +129,5 @@ export async function binding(
   });
   if (!resolved.ok) throw hostCodedError(resolved.code, resolved.message);
   const actor = { principal: { personId: resolved.actor.personId }, executor };
-  return withSessionEnvironment(deriveLocalBinding(rootDir, actor), auth);
+  return withSessionEnvironment(deriveLocalBinding(rootDir, actor, roster), auth);
 }

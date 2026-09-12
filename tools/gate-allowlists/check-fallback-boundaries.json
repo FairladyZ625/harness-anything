@@ -302,12 +302,6 @@
         "reason": "Existing request-path historical scan pending a bounded-read deletion task."
       },
       {
-        "file": "packages/daemon/src/repo-cell-settings-state.ts",
-        "function": "initializeFromAuthoredDocument",
-        "task": "task_403e958e3fefd3496820e8843d",
-        "reason": "Existing request-path historical scan pending a bounded-read deletion task."
-      },
-      {
         "file": "packages/daemon/src/repo-cell-task-command-docs.ts",
         "function": "prepareTaskSurfaceWriteAt",
         "task": "task_403e958e3fefd3496820e8843d",
