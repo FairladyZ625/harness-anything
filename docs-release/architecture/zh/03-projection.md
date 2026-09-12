@@ -1,6 +1,7 @@
 # 投影：canonical SQLite 事件到读取缓存
 
-Generation 1 有两种 SQLite 职责：`store/generations/1/ledger.sqlite` 是接受命令的
+当前启用的 canonical generation 有两种 SQLite 职责：
+`store/generations/<generation>/ledger.sqlite` 是接受命令的
 canonical 数据库，task projection 是派生读取缓存。只有后者可在不丢失已接受命令的前提下删除重建。
 
 `makeTaskProjection` 读取 canonical store 的有限事件批次及必需对象。Catch-up 推进完整
@@ -16,3 +17,6 @@ watermark，cold rebuild 重放同一段已接受历史。读取者观察已安�
 切换验收对固定接受 cut 做两次 cold rebuild 并比较结果。独立台账对账还要验证不可变导入前缀、
 metadata、行 digest、command outcomes、必需对象和真实 Git follower 回读。
 两个读取器互相比较同一个数据库，不能证明导入保留了原始来源。
+
+实现依据：`packages/kernel/src/projection/rebuildable-task-projection-factory.ts` 与
+`packages/kernel/src/projection/rebuildable-task-projection-reads.ts`.

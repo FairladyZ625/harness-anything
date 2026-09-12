@@ -15,9 +15,10 @@ nothing went wrong; a fail-closed system assumes something might have, and makes
 you prove otherwise before the record changes.
 
 To make that enforceable, load-bearing writes don't go straight to disk. They go
-through a single **write coordinator** — one chokepoint that stamps a watermark
-and commits to git automatically. One door means there's exactly one place to
-enforce the rule, and every accepted write leaves a durable, attributable trace.
+through the daemon’s **RepoCell single-writer queue**. Validated events and
+command outcomes commit in SQLite before Git publication. The acceptance
+boundary
+is implemented in `packages/kernel/src/store/sqlite-event-store.ts`.
 
 ## Three gates
 

@@ -68,7 +68,10 @@
 
 ## 边落在哪里
 
-原语之间的类型化关系,是让整个系统运转起来的脉络。coverage(覆盖)、review(评审)、cleanup(清理),做的都是沿这些边的图遍历:*一个 decision 里每一条承重的主张,是否都能触达至少一个仍然存活的支持性 fact?* 这是一个可达性问题,答案要在 Markdown 的可重建投影上求得,而不是靠扫描文字。
+原语之间的类型化关系,是让整个系统运转起来的脉络。coverage(覆盖)、review(评审)、cleanup(清理),做的都是沿这些边的图遍历:*一个
+decision 里每一条承重的主张,是否都能触达至少一个仍然存活的支持性 fact?* 这是一个可达性问题,答案要在 canonical
+事件的可重建投影上求得，而不是靠扫描文字；实现见
+`packages/kernel/src/projection/rebuildable-task-projection-reads.ts`。
 
 "**选择一条路**"和"**判断某个输出是否成立**"之间的这层区别,足够微妙,值得单独用一章来讲。这就是 **decision** 和 **verdict** 的区别,接下来这一章就讲它:
 [02 · 决策 vs 裁决](02-decision-and-verdict.md)。

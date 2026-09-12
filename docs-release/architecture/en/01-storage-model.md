@@ -6,10 +6,11 @@ asymmetrically — decisions centralized, tasks as containers, facts independent
 page shows what that looks like as actual files: the directories, the frontmatter
 each file must carry, and the ID shapes the schemas enforce.
 
-Every entity is the same physical thing: a plain Markdown file with a YAML
-frontmatter block on top. The frontmatter is not decoration — it is validated
-against a schema in `packages/kernel/src/schemas/` before the file is accepted,
-so the fields below are contracts, not conventions.
+Authored Markdown is the published document surface of accepted entities.
+`packages/kernel/src/store/sqlite-task-event-store.ts` derives it from canonical
+SQLite events and required objects. The paths below describe that authored
+surface;
+the acceptance boundary is described in [the write path](02-write-path.md).
 
 ## Directory layout
 
@@ -39,7 +40,8 @@ so the fields below are contracts, not conventions.
   └── <session-id>.md                   captured Session manifest
 ```
 
-Three primitives, but only two storage sites. **Decisions** live together in a
+Three primitives have distinct authored storage sites. **Decisions** live
+together in a
 top-level `decisions/` directory — they are the one projection a human is meant to
 watch, so they are kept in one place. **Tasks** are containers: each task is its
 own directory named `task_<ULID>-<slug>/`, holding a small set of files. **Facts**
@@ -48,15 +50,14 @@ have their own top-level `facts/` directory, with one immutable document per
 `task/<id> -> fact/F-<id>` `produces` edge; standalone facts simply have no such
 edge.
 
-The `objects/sha256/` tree is different from those authored Markdown surfaces. It
-is the content-addressed blob store. A blob is addressed by its SHA-256 digest and
-stored as `objects/sha256/<first-two-hex>/<remaining-hex>`, with a descriptor
-carrying `ref`, `sha256`, `size`, and `mediaType`. Session exports use this as a
-claim-check: the session body is written to the blob store first, then the journal
-payload carries a `bodyRef` and the flush materializes the authored session
-document from that verified blob. In v0 this store has no garbage collection and
-no chunking; large or obsolete blobs remain whole files until a later storage
-version defines a collection policy.
+Canonical content objects live beside `ledger.sqlite`, under the active local
+`store/generations/<generation>/objects/sha256/` directory.
+`packages/kernel/src/store/sqlite-event-store.ts` verifies required content
+claims
+and synchronizes object bytes and directory links before accepting the
+referencing
+events. Authored object copies are publication output, not the acceptance
+record.
 
 ## The execution chain
 
@@ -105,11 +106,9 @@ equals its `arbiter` — same kind and same id — is *rejected*. You cannot arb
 your own proposal. This is enforced at the schema level, so a malformed decision
 of this shape never reaches disk in the first place.
 
-**The `_coordinatorWatermark`.** A decision also carries an optional
-`_coordinatorWatermark` field. You do not write this by hand; the single write
-path stamps it when the record passes through. Its presence is the mark that a
-write went through the one door rather than around it — the mechanics are the
-subject of [02 · The single write path](02-write-path.md).
+Accepted operations are identified by their SQLite command outcomes and event
+intervals; see `packages/kernel/src/store/sqlite-event-store.ts` and
+[the write path](02-write-path.md).
 
 ## The task package
 
@@ -130,8 +129,9 @@ machine — a task moves through states like planned, active, blocked, in-review
 done, and cancelled rather than being a free-form note. The other files in the
 directory are the narrative around that state: `task_plan.md` is the plan,
 `progress.md` is how far it has gotten, `review.md` is the judgment on its output,
-and `closeout.md` is the wrap-up. None of these are the source of truth for the
-task's state — `INDEX.md`'s frontmatter is.
+and `closeout.md` is the wrap-up. The task's state comes from canonical events;
+`INDEX.md` publishes their document
+view through `packages/kernel/src/store/sqlite-task-event-store.ts`.
 
 ## Fact documents
 

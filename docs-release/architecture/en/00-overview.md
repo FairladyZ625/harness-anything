@@ -1,12 +1,15 @@
 # The shape of the system
 
-Generation 1 accepts commands in SQLite. The canonical database and its required
+The active canonical generation accepts commands in SQLite. The canonical
+database and its required
 content objects are durable records; Git and the read projection follow that record.
 
 ## Storage roles
 
-The resolved local root contains `store/generations/1/ledger.sqlite` and
-`store/generations/1/objects/sha256/`. Required object bytes and directory links are
+The resolved local root contains `store/generations/<generation>/ledger.sqlite`
+and
+`store/generations/<generation>/objects/sha256/`. Required object bytes and
+directory links are
 synchronized before the database transaction accepts a command. One
 `BEGIN IMMEDIATE` transaction checks the repository writer lease and commits the
 complete event interval and command outcome. A Git commit is not an acceptance boundary.
@@ -19,9 +22,8 @@ top of that commit, and the authored worktree settles the same events. A file wi
 concurrent edit keeps the user's bytes and is reported as a conflict; the worktree
 facet stays pending until a later event or `ha doc materialize` settles that file.
 
-The old segment WAL, merged shadow reader, publication pointer family, and
-materializer worker are retired. SQLite's own transaction journal remains an
-implementation detail of the canonical database.
+SQLite uses its native transaction journal with `synchronous=FULL`; see
+`packages/kernel/src/store/sqlite-event-store.ts`.
 
 ## Request path
 
