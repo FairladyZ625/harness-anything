@@ -23,7 +23,7 @@ import type { MigrationImportContext } from "./migration-import-run.ts";
 export function addTask(context: MigrationImportContext, entry: TaskSourceEntry): void {
   let row;
   try {
-    row = taskEntryToRow(context.sourceRoot, entry);
+    row = taskEntryToRow(context.sourceLayout, entry);
     validateTaskIdSyntax(row.taskId);
   } catch (error) {
     const reason = context.message(error);
@@ -249,7 +249,7 @@ export function addOracleTask(context: MigrationImportContext, source: Projectio
           : []),
       ].join("\n"),
     },
-    row = taskEntryToRow(context.sourceRoot, syntheticEntry),
+    row = taskEntryToRow(context.sourceLayout, syntheticEntry),
     body = context.taskDocument(
       task,
       source.taskId,

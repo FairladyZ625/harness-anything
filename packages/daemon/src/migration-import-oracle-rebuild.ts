@@ -275,7 +275,7 @@ function overlayAuthoredOracle(
     entityKeys = new Set(base.entityKeys),
     firstTaskEvents = earliestTaskEvents(inspection.events);
   for (const entry of taskRead.entries) {
-    const row = taskEntryToRow(sourceRoot, entry),
+    const row = taskEntryToRow(layout, entry),
       occurredAt =
         timestamp(readScalar(entry.frontmatter, "  bindingCreatedAt")) ??
         timestamp(readScalar(entry.frontmatter, "bindingCreatedAt")) ??
