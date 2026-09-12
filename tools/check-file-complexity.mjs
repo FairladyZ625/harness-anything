@@ -1,13 +1,27 @@
+import { execFile } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import path from "node:path";
+import { promisify } from "node:util";
 
 const root = process.cwd();
 const sourceFile = /\.(?:ts|tsx|mts|js|jsx|mjs)$/;
-const sourceMaxLines = 1100;
-const testMaxLines = 1900;
-const toolMaxLines = 700;
+const FILE_COMPLEXITY_POLICY = {
+  source: { standard: 600, stage: 1100 },
+  test: { standard: 700, stage: 1900 },
+  tool: { standard: 650, stage: 700 },
+};
 const violations = [];
+const execute = promisify(execFile);
+
+async function git(args) {
+  const { stdout } = await execute("git", args, { cwd: root, encoding: "utf8", maxBuffer: 16 * 1024 * 1024 });
+  return stdout;
+}
+
+function countLines(body) {
+  return body.length === 0 ? 0 : body.split(/\r?\n/u).length;
+}
 
 function relative(filePath) {
   return path.relative(root, filePath).split(path.sep).join("/");
@@ -27,7 +41,7 @@ async function walk(dir) {
     const fullPath = path.join(dir, entry.name);
     if (entry.isDirectory()) {
       if (["node_modules", "dist", "out", "build-resources", ".git", ".harness"].includes(entry.name)) continue;
-      files.push(...await walk(fullPath));
+      files.push(...(await walk(fullPath)));
       continue;
     }
     if (sourceFile.test(entry.name) && !entry.name.endsWith(".d.ts")) files.push(fullPath);
@@ -35,24 +49,39 @@ async function walk(dir) {
   return files;
 }
 
-function defaultMaxLines(filePath) {
+function policyFor(filePath) {
   const rel = relative(filePath);
-  if (/\/test\//u.test(rel) || /\.test\./u.test(rel)) return testMaxLines;
-  if (rel.startsWith("tools/")) return toolMaxLines;
-  return sourceMaxLines;
+  if (/\/test\//u.test(rel) || /\.test\./u.test(rel)) return FILE_COMPLEXITY_POLICY.test;
+  if (rel.startsWith("tools/")) return FILE_COMPLEXITY_POLICY.tool;
+  return FILE_COMPLEXITY_POLICY.source;
 }
 
-const files = [
-  ...await walk(path.join(root, "packages")),
-  ...await walk(path.join(root, "tools"))
-];
+const base = (await git(["merge-base", "origin/main", "HEAD"])).trim();
+const baseFiles = new Set((await git(["ls-tree", "-r", "--name-only", "-z", base])).split("\0").filter(Boolean));
+const renameSources = new Map();
+const renameRecords = (await git(["diff", "-M", "--name-status", "--diff-filter=R", "-z", base, "HEAD"]))
+  .split("\0")
+  .filter(Boolean);
+for (let i = 0; i < renameRecords.length; i += 3) {
+  renameSources.set(renameRecords[i + 2], renameRecords[i + 1]);
+}
+const files = [...(await walk(path.join(root, "packages"))), ...(await walk(path.join(root, "tools")))];
 
 for (const filePath of files) {
   const body = readFileSync(filePath, "utf8");
-  const lines = body.length === 0 ? 0 : body.split(/\r?\n/u).length;
-  const limit = defaultMaxLines(filePath);
+  const lines = countLines(body);
+  const { standard, stage } = policyFor(filePath);
+  if (lines <= standard) continue;
+  const rel = relative(filePath);
+  // A renamed path inherits the merge-base allowance of its source so moves keep their shrink-only budget.
+  const historyPath = renameSources.get(rel) ?? rel;
+  const baseLines = baseFiles.has(historyPath) ? countLines(await git(["show", `${base}:${historyPath}`])) : 0;
+  // Existing debt may only shrink; the stage ceiling preserves the previous rejection surface.
+  const limit = Math.min(stage, Math.max(standard, baseLines));
   if (lines > limit) {
-    violations.push(`${relative(filePath)}: ${lines} lines exceeds max ${limit}; split this file by responsibility instead of shaving lines`);
+    violations.push(
+      `${relative(filePath)}: ${lines} lines exceeds max ${limit}; split this file by responsibility instead of shaving lines`,
+    );
   }
 }
 
