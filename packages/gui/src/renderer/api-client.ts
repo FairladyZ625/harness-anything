@@ -785,14 +785,27 @@ function isQueryPage(value: unknown): value is QueryPage {
   );
 }
 
+function decisionReadError(value: unknown): Error {
+  const error = daemonBridgeError(
+    value,
+    "GUI/daemon decision response shape mismatch; reload the GUI with the matching daemon build.",
+  );
+  return new Error(`Decision read failed [${error.code ?? "daemon_decision_result_invalid"}]: ${error.message}`);
+}
+
 function readDecisionListResult(value: unknown): DecisionListSuccess {
   const result = value as Partial<DecisionListSuccess>;
-  if (!result || result.ok !== true || !Array.isArray(result.decisions)) {
-    throw new Error(localErrorHint(value, "Decision list bridge returned an invalid result."));
+  if (
+    !result ||
+    result.ok !== true ||
+    !Array.isArray(result.decisions) ||
+    !result.decisions.every(isDecisionProjectionRow)
+  ) {
+    throw decisionReadError(value);
   }
   return {
     ok: true,
-    decisions: result.decisions.filter(isDecisionProjectionRow),
+    decisions: result.decisions,
     warnings: Array.isArray(result.warnings) ? result.warnings : [],
   };
 }
@@ -809,7 +822,7 @@ function readDecisionSummaryListResult(value: unknown): DecisionSummaryListSucce
     !Array.isArray(rows) ||
     !rows.every(isDecisionSummaryRow)
   ) {
-    throw new Error(localErrorHint(value, "Decision summary bridge returned an invalid result."));
+    throw decisionReadError(value);
   }
   return {
     ok: true,

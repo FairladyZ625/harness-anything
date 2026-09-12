@@ -78,6 +78,7 @@ export function useDecisionSummaryQuery(repoId: string | null, options: { readon
     decisions: query.data?.decisions ?? [],
     isPending: enabled && query.isPending,
     isError: query.isError,
+    error: query.error,
   };
 }
 
@@ -233,6 +234,7 @@ export function useTriadicProjectionQuery(
       isLoading,
       isPending,
       isError,
+      decisionError: decisionsEnabled ? decisions.error : null,
       graphAvailable,
       relationPageNextCursor: graph.data?.page?.nextCursor ?? null,
       relationState: graph.isError
@@ -248,6 +250,8 @@ export function useTriadicProjectionQuery(
       isPending,
       isError,
       graphAvailable,
+      decisionsEnabled,
+      decisions.error,
       graph.isError,
       graph.isPending,
       graphEnabled,
