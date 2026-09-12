@@ -26,6 +26,7 @@ export function createRuntimeFixture(context: TestContext) {
   mkdirSync(root, { recursive: true });
   mkdirSync(binRoot, { recursive: true });
   writeProgressProvider(path.join(binRoot, "codex"), version);
+  writeProgressProvider(path.join(binRoot, "claude"), version);
   writeProviderExecutable(
     path.join(binRoot, "gh"),
     'if (process.argv[2] !== "run" || process.argv[3] !== "list") process.exit(1); console.log("[]");\n',
@@ -94,28 +95,29 @@ export function installIdentities(parent: string, root: string, env: NodeJS.Proc
     path.join(root, "harness", "skills", "review", "SKILL.md"),
     "---\nname: review\ndescription: Review\n---\nReview fixture.\n",
   );
+  run(root, env, ["runtime", "instance", "create", "--id", "claude-worker", "--name", "Claude Worker", "--kind", "claude", "--provider", "anthropic", "--model", "runtime-test-model", "--auth", "subscription"]);
   const identities = [
-      { id: "fable", name: "Fable", instructions: "Lead precisely.", runtime_type: "codex", role: "commander" },
-      { id: "terra", name: "Terra", instructions: "Review precisely.", runtime_type: "codex", role: "worker" },
+      { id: "fable", name: "Fable", instructions: "Lead precisely.", runtime_type: "codex", instance: "cli-worker", role: "commander" },
+      { id: "terra", name: "Terra", instructions: "Review precisely.", runtime_type: "codex", instance: "cli-worker", role: "worker" },
       {
         id: "outsider",
         name: "Outsider",
         instructions: "Work outside the squad.",
-        runtime_type: "codex",
+        runtime_type: "codex", instance: "cli-worker",
         role: "worker",
       },
       {
         id: "opencode-worker",
         name: "OpenCode Worker",
         instructions: "Use OpenCode.",
-        runtime_type: "opencode",
+        runtime_type: "claude", instance: "claude-worker",
         role: "worker",
       },
       {
         id: "any-worker",
         name: "Any Worker",
         instructions: "Use any compatible runtime.",
-        runtime_type: "any",
+        runtime_type: "any", instance: "cli-worker",
         role: "worker",
       },
     ],

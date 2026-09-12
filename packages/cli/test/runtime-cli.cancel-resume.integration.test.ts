@@ -13,10 +13,11 @@ import {
   eventually,
   assertTaskMissionPrompt,
 } from "./runtime-cli.observations.fixture.ts";
-import { createRuntimeFixture, seedTask } from "./runtime-cli.setup.fixture.ts";
+import { installIdentities, createRuntimeFixture, seedTask } from "./runtime-cli.setup.fixture.ts";
 
 test("Cancellation is idempotent, notifies once and resumes the archived provider session", async (context) => {
   const fixture = createRuntimeFixture(context);
+  installIdentities(fixture.parent, fixture.root, fixture.env);
   const { parent, root, env, userRoot, daemonId } = fixture;
   const { taskId, executionId, packagePath, artifactRoot } = seedTask(root, env, "cancel-resume");
   run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
@@ -26,9 +27,9 @@ test("Cancellation is idempotent, notifies once and resumes the archived provide
     'const fs = require("node:fs"); fs.readFileSync(0, "utf8"); fs.appendFileSync(".notify-once", "once\\n");\n',
   );
   const detached = run(root, env, [
-      "runtime",
+      "agent",
       "run",
-      "cli-worker",
+      "terra",
       "--prompt",
       "hold",
       "--task",

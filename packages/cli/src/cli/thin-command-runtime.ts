@@ -27,6 +27,8 @@ export function parseRuntime(
     promptFlagPresent = f.one.has("--prompt"),
     detach = f.booleans.has("--detach"),
     onExitCommand = f.one.get("--on-exit");
+  if (taskId || f.one.has("--agent") || f.one.has("--role") || f.one.has("--to") || f.one.has("--squad"))
+    return rejected("invalid_field", "Use ha agent run <agent-id> --task <task-id> for task-bound work.", json);
   if (!prompt && (promptFlagPresent || !taskId)) return rejectInput(inputs, kind, "--prompt", json);
   if (onExitCommand && !detach) return rejectInput(inputs, kind, "--on-exit", json);
   const cwd = f.one.get("--cwd"),

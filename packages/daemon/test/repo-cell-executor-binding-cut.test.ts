@@ -172,7 +172,7 @@ test("a reviewer bound to an earlier execution receives a reviewer redispatch co
     actual: `agent:${runtimeActor.executor.id}`,
     expectation:
       `Expected a reviewer RuntimeSession bound to execution ${nextExecutionId}; run ` +
-      `ha runtime run <runtime-instance-id> --role reviewer --task ${taskId}, then retry ` +
+      `ha agent run <reviewer-agent-id> --role reviewer --task ${taskId}, then retry ` +
       `the ha task review execution command`,
   });
   assert.equal(context.observedActor, null);

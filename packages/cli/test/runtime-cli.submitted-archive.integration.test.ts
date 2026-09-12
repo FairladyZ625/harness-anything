@@ -7,10 +7,11 @@ import test from "node:test";
 import { realizedTaskPlan as realizedPlan } from "../../../tools/fixtures/task-plan.mjs";
 import { run, published } from "./runtime-cli.commands.fixture.ts";
 import { eventuallyFile } from "./runtime-cli.observations.fixture.ts";
-import { createRuntimeFixture } from "./runtime-cli.setup.fixture.ts";
+import { installIdentities, createRuntimeFixture } from "./runtime-cli.setup.fixture.ts";
 
 test("Runtime report is archived after the worker submits its execution", async (context) => {
   const fixture = createRuntimeFixture(context);
+  installIdentities(fixture.parent, fixture.root, fixture.env);
   const { root, env } = fixture;
   const taskId = "task-runtime-archive",
     executionId = "exec-runtime-archive";
@@ -49,9 +50,9 @@ test("Runtime report is archived after the worker submits its execution", async 
   deliveryGit(["commit", "-m", "test: record runtime delivery"]);
   const submittedCut = { commitSha: deliveryGit(["rev-parse", "HEAD"]) };
   const submittedRuntime = run(root, env, [
-      "runtime",
+      "agent",
       "run",
-      "cli-worker",
+      "terra",
       "--prompt",
       `submit-before-exit:${submittedTaskId}:${submittedCut.commitSha}`,
       "--task",

@@ -2,10 +2,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { run, runMaybe, runAsync } from "./runtime-cli.commands.fixture.ts";
-import { createRuntimeFixture, seedTask } from "./runtime-cli.setup.fixture.ts";
+import { installIdentities, createRuntimeFixture, seedTask } from "./runtime-cli.setup.fixture.ts";
 
 test("Concurrent fact writes preserve runtime progress attribution and task wait artifacts", async (context) => {
   const fixture = createRuntimeFixture(context);
+  installIdentities(fixture.parent, fixture.root, fixture.env);
   const { root, env } = fixture;
   const { taskId, executionId, packagePath } = seedTask(root, env, "progress");
   run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
@@ -22,9 +23,9 @@ test("Concurrent fact writes preserve runtime progress attribution and task wait
         ]),
       ),
       runAsync(root, env, [
-        "runtime",
+        "agent",
         "run",
-        "cli-worker",
+        "terra",
         "--prompt",
         `progress-middle:${taskId}`,
         "--task",

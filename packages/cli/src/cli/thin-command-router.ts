@@ -48,6 +48,7 @@ export function parseRouted(
   if (rootCommand === "runtime" && route.path[1] === "instance")
     return parseRuntimeInstance(route, args, rootDir, repoId, json, inputs);
   if (rootCommand === "runtime") return parseRuntime(route, args, rootDir, repoId, json, inputs);
+  if (route.id === "agent-run") return parseAgentRun(route, args, rootDir, repoId, json, inputs);
   if (rootCommand === "schedule") return parseSchedule(route, args, rootDir, repoId, json, inputs);
   if (rootCommand === "settings" || rootCommand === "ci")
     return parseProjected(route.id, args.slice(route.path.length), rootDir, repoId, json, inputs, {}, {}, route.method);
@@ -93,6 +94,49 @@ export function parseRouted(
   if (route.phase.startsWith("Preset-") || rootCommand === "agent" || rootCommand === "squad")
     return parsePreset(route, args, rootDir, repoId, json, inputs);
   return undefined;
+}
+
+function parseAgentRun(
+  route: ProtocolCommand,
+  args: readonly string[],
+  rootDir: SafePath,
+  repoId: string | undefined,
+  json: boolean,
+  inputs: ThinCliInputDirectory,
+): ThinParseResult {
+  const agentId = args[2],
+    f = readFlags(route.id, args.slice(3), inputs);
+  if (!nonEmpty(agentId)) return rejected("missing_field", "Use ha agent run <agent-id> --task <task-id>.", json);
+  if (!f.ok) return rejected(f.code, f.nextAction, json);
+  const cwd = f.one.get("--cwd"),
+    missionName = f.one.get("--mission"),
+    prompt = f.one.get("--prompt"),
+    noStream = f.booleans.has("--no-stream"),
+    onExitCommand = f.one.get("--on-exit");
+  return accepted(
+    rootDir,
+    repoId,
+    json,
+    {
+      kind: "runtime-run",
+      agentId,
+      ...(f.one.get("--to") ? { targetAgentId: f.one.get("--to") } : {}),
+      taskId: f.one.get("--task"),
+      ...(f.one.get("--instance") ? { runtimeInstanceId: f.one.get("--instance") } : {}),
+      ...(f.one.get("--role") ? { role: f.one.get("--role") } : {}),
+      ...(prompt ? { prompt } : {}),
+      ...(f.one.get("--prompt-file") ? { promptFile: f.one.get("--prompt-file") } : {}),
+      ...(f.one.get("--prompt-file") ? { promptFile: f.one.get("--prompt-file") } : {}),
+      ...(missionName ? { missionName } : {}),
+      ...(f.one.get("--effort") ? { effort: f.one.get("--effort") } : {}),
+      ...(f.booleans.has("--fast") ? { fast: true } : {}),
+      cwd: cwd && cwd !== "." ? { scope: "repo-relative", path: cwd } : { scope: "repo-root" },
+      ...(!noStream ? { detach: true } : {}),
+      ...(onExitCommand ? { onExitCommand } : {}),
+      ...(noStream ? { noStream: true } : {}),
+    },
+    route.method,
+  );
 }
 
 function parseBootstrapRouted(

@@ -208,7 +208,7 @@ export function runtimeMissionName(value: unknown): string {
         actual: typeof value === "string" && /[/\\]/u.test(value) ? "path-like value" : "invalid mission id",
         expectation:
           "Expected a bare mission id; the daemon resolves harness/<task-package>/artifacts/missions/<name>.md " +
-          "and did not look up this file. Retry ha runtime run <runtime-instance> --task <task-id> --mission <name>",
+          "and did not look up this file. Retry ha agent run <agent-id> --task <task-id> --mission <name>",
       },
     );
   return value;

@@ -12,25 +12,13 @@ export const runtimeFleetProtocolCommands = Object.freeze([
     id: "runtime-run",
     phase: "Runtime-B",
     path: ["runtime", "run", "<instance-id>"],
-    summary: [
-      "Dispatch work through an optional declared Agent, deriving the mission ",
-      "from --task when no prompt is supplied; stream and wait by default, or ",
-      "use --detach and retrieve the result with ha runtime status ",
-      "<runtime-session-id> --wait, or wait for all task dispatches with ",
-      "ha runtime status --task <task-id> --wait.",
-    ].join(""),
+    summary: "Dispatch an unbound runtime prompt; use ha agent run for task-bound work.",
     method: "repo.agentRuntime.spawn",
     inputs: [
-      cliInput("--agent", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput("--agent", "single", false, { code: "invalid_field" }),
       cliInput("--role", "single", false, { code: "invalid_field" }, { enum: ["reviewer"] }),
-      cliInput("--to", "single", false, {
-        code: "invalid_field",
-      }),
-      cliInput("--squad", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput("--to", "single", false, { code: "invalid_field" }),
+      cliInput("--squad", "single", false, { code: "invalid_field" }),
       cliInput("--model", "single", false, {
         code: "invalid_field",
       }),
@@ -66,9 +54,7 @@ export const runtimeFleetProtocolCommands = Object.freeze([
       cliInput("--cwd", "single", false, {
         code: "invalid_field",
       }),
-      cliInput("--task", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput("--task", "single", false, { code: "invalid_field" }),
       cliInput("--resume", "single", false, {
         code: "invalid_field",
       }),

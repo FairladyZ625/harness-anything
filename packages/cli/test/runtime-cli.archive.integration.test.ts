@@ -14,9 +14,9 @@ test("Delegated dispatches archive identity, mission and separate reports and re
   const { taskId, executionId, packagePath, artifactRoot } = seedTask(root, env, "archive");
   run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
   const first = run(root, env, [
-    "runtime",
+    "agent",
     "run",
-    "cli-worker",
+    "terra",
     "--prompt",
     "first report",
     "--task",
@@ -29,10 +29,8 @@ test("Delegated dispatches archive identity, mission and separate reports and re
   const assembledPromptPrefix =
       "# Agent Identity: Terra (terra)\n\nReview precisely.\n\n# Harness Execution Discipline",
     bound = run(root, env, [
-      "runtime",
+      "agent",
       "run",
-      "cli-worker",
-      "--agent",
       "fable",
       "--to",
       "terra",
@@ -146,10 +144,8 @@ test("Delegated dispatches archive identity, mission and separate reports and re
     { agentId: "terra", delegatedByAgentId: "fable", squadId: "core-squad" },
   );
   const outsider = runMaybe(root, env, [
-    "runtime",
+    "agent",
     "run",
-    "cli-worker",
-    "--agent",
     "fable",
     "--to",
     "outsider",
@@ -162,13 +158,13 @@ test("Delegated dispatches archive identity, mission and separate reports and re
   assert.equal(outsider.status, 1);
   assert.equal(outsider.receipt.code, "squad_member_not_found");
   const mismatch = runMaybe(root, env, [
-    "runtime",
+    "agent",
     "run",
-    "cli-worker",
-    "--agent",
     "fable",
     "--to",
     "opencode-worker",
+    "--instance",
+    "cli-worker",
     "--prompt",
     "reject mismatch",
     "--task",

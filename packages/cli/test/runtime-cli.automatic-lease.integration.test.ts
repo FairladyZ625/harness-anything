@@ -5,10 +5,11 @@ import path from "node:path";
 import test from "node:test";
 import { realizedTaskPlan as realizedPlan } from "../../../tools/fixtures/task-plan.mjs";
 import { run, runMaybe, published } from "./runtime-cli.commands.fixture.ts";
-import { createRuntimeFixture } from "./runtime-cli.setup.fixture.ts";
+import { installIdentities, createRuntimeFixture } from "./runtime-cli.setup.fixture.ts";
 
 test("Task dispatch rejects an incomplete plan then automatically acquires its lease", async (context) => {
   const fixture = createRuntimeFixture(context);
+  installIdentities(fixture.parent, fixture.root, fixture.env);
   const { root, env } = fixture;
   const taskId = "task-runtime-automatic-lease";
   const automaticTaskId = `${taskId}-automatic`;
@@ -30,9 +31,9 @@ test("Task dispatch rejects an incomplete plan then automatically acquires its l
   published(root, env, automaticTask);
   writeFileSync(path.join(root, "harness", automaticPlanPath), oneSectionMissing);
   const automaticArgs = [
-      "runtime",
+      "agent",
       "run",
-      "cli-worker",
+      "terra",
       "--prompt",
       "must acquire its lease",
       "--task",

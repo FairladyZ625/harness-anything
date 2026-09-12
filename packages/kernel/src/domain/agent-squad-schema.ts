@@ -16,6 +16,7 @@ export interface AgentFallbackDeclarationV1 {
   readonly backoff: { readonly baseMs: number; readonly maxMs: number };
 }
 export type AgentRole = "worker" | "commander";
+export type AgentPermissionMode = "bypass" | "workspace-write" | "read-only";
 export const agentStates = ["configured", "active", "retired"] as const;
 export type AgentState = (typeof agentStates)[number];
 export interface AgentDeclarationV1 {
@@ -23,6 +24,8 @@ export interface AgentDeclarationV1 {
   readonly name: string;
   readonly instructions: string;
   readonly runtime_type: string;
+  readonly instance?: string;
+  readonly permissionMode?: AgentPermissionMode;
   readonly role?: AgentRole;
   readonly model?: string;
   readonly skills?: readonly AgentSkillDeclarationV1[];
@@ -58,6 +61,16 @@ export const AGENT_DECLARATION_V1_SCHEMA = Object.freeze({
     runtime_type: {
       ...slug("Required runtime kind."),
       "x-error": "must be a non-empty lowercase runtime identifier such as claude, codex, or opencode.",
+    },
+    instance: {
+      ...slug("Optional node-local runtime instance selection."),
+      "x-error": "must be a lowercase instance id.",
+    },
+    permissionMode: {
+      type: "string",
+      enum: ["bypass", "workspace-write", "read-only"],
+      description: "Default unattended permission mode.",
+      "x-error": "must be bypass, workspace-write, or read-only.",
     },
     role: {
       type: "string",

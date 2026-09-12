@@ -13,7 +13,12 @@ import type {
   SessionIdentity,
   WriteSource,
 } from "../../kernel/src/index.ts";
-import type { AgentFallbackDeclarationV1, AgentRole, AgentSkillDeclarationV1 } from "../../kernel/src/index.ts";
+import type {
+  AgentFallbackDeclarationV1,
+  AgentPermissionMode,
+  AgentRole,
+  AgentSkillDeclarationV1,
+} from "../../kernel/src/index.ts";
 import type { PreparedRuntimeLaunch, RuntimeInstanceKind, RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
 import type { AgentRuntimeStreamHub, AgentRuntimeNativeSignal } from "./agent-runtime-stream.ts";
 import { type DispatchStreamWriter } from "./dispatch-stream.ts";
@@ -123,6 +128,8 @@ export type RuntimeAgent = {
   readonly name: string;
   readonly instructions: string;
   readonly runtime_type: string;
+  readonly instance?: string;
+  readonly permissionMode?: AgentPermissionMode;
   readonly role?: AgentRole;
   readonly model?: string;
   readonly skills?: readonly AgentSkillDeclarationV1[];

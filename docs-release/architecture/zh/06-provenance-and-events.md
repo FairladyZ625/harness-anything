@@ -97,10 +97,10 @@ leader 使用 `--agent <leader-id> --to <worker-id>` 时，同一条 dispatch ar
 `artifacts/missions/<dispatch-id>.md`、`artifacts/dispatches/<dispatch-id>.json` 与
 `artifacts/reports/<dispatch-id>.md`。已写实的 `task_plan.md` 是唯一必需的 mission 来源：task start、
 runtime 派工与 Squad 派工都会用同一个校验器拒绝必需节为空或仍保留 preset 脚手架句的 plan，错误码为
-`plan_placeholder`。`ha runtime run --task <id> --mission <name>` 会把 canonical
+`plan_placeholder`。`ha agent run <agent-id> --task <id> --mission <name>` 会把 canonical
 `artifacts/missions/<name>.md` 追加到 plan-derived mission；`--prompt` 仍是显式 override，而
-runtime run 不再提供 `--prompt-file`。`ha squad run --task <id>` 无需 prompt 即可派工，并接受与
-runtime run 同义的 cwd、permission-mode 与 effort override。report 来自 provider 的结构化 runtime
+agent 声明选择节点本地 instance 与 permissionMode；`--instance` 与 `--cwd` 只作本次覆盖。
+`ha squad run --task <id>` 无需 prompt 即可派工。report 来自 provider 的结构化 runtime
 result，绝不解析人类可读的终端输出。未绑定 task 的 runtime run 没有任务包，因此不会发布这些文档。
 
 ## 各部分如何相连

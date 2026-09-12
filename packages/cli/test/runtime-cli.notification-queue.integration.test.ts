@@ -7,10 +7,11 @@ import { makeTaskEventReader } from "../../kernel/src/index.ts";
 import { writeProviderExecutable } from "../../daemon/test/fixtures/runtime-stub.ts";
 import { run } from "./runtime-cli.commands.fixture.ts";
 import { eventuallyNotification, eventuallyFile } from "./runtime-cli.observations.fixture.ts";
-import { createRuntimeFixture, seedTask } from "./runtime-cli.setup.fixture.ts";
+import { installIdentities, createRuntimeFixture, seedTask } from "./runtime-cli.setup.fixture.ts";
 
 test("Repository writes commit while an exit callback is still running", async (context) => {
   const fixture = createRuntimeFixture(context);
+  installIdentities(fixture.parent, fixture.root, fixture.env);
   const { parent, root, env } = fixture;
   const { taskId, executionId } = seedTask(root, env, "notification-queue");
   run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
@@ -25,9 +26,9 @@ test("Repository writes commit while an exit callback is still running", async (
       'fs.writeFileSync(".notify-hold-started", "started\\n");\n',
   );
   const queueNotification = run(root, env, [
-    "runtime",
+    "agent",
     "run",
-    "cli-worker",
+    "terra",
     "--prompt",
     "notification queue hold",
     "--task",
