@@ -84,7 +84,9 @@ export const create: Transition = {
 /**
  * The state-side admissibility of StartExecution: a new execution, the
  * unleased active execution of the current round, or a review node stranded
- * without the submitted execution needed to proceed.
+ * without the submitted execution needed to proceed. An `orphaned` lease — the
+ * time-aware projection's view of a held lease past its TTL — no longer gates
+ * the round: the holder is gone, and the reservation CAS fences the takeover.
  * Exported so the daemon preview and this transition answer with one rule instead of two. */
 export function canStartExecution(snapshot: TaskLifecycleSnapshot, executionId: string): boolean {
   const task = snapshot.task,
@@ -100,7 +102,13 @@ export function canStartExecution(snapshot: TaskLifecycleSnapshot, executionId: 
     startablePhase =
       (["planned", "active"].includes(task?.status ?? "") && task?.currentNode === "implementation") ||
       (["planned", "active", "in_review"].includes(task?.status ?? "") && recoverableReview);
-  return Boolean(task) && startablePhase && !snapshot.lease && isNonEmptyString(executionId) && rejoin === round;
+  return (
+    Boolean(task) &&
+    startablePhase &&
+    (snapshot.lease === null || snapshot.lease.phase === "orphaned") &&
+    isNonEmptyString(executionId) &&
+    rejoin === round
+  );
 }
 /** The state-side admissibility shared by the block/unblock/cancel catalog entries. */
 export function allowsTaskStatusMove(
@@ -199,6 +207,7 @@ function transitionTask(
   snapshot: TaskLifecycleSnapshot,
   command: TransitionTaskCommand,
   status: "planned" | "active" | "in_review" | "blocked" | "cancelled",
+  extraMutationFields: readonly string[] = [],
 ): TransitionResult {
   const task: TaskV2 = {
       ...(snapshot.task as TaskV2),
@@ -206,7 +215,7 @@ function transitionTask(
       ...(status === "cancelled" ? { pinned: false } : {}),
     },
     reason = isNonEmptyString(command.reason) ? command.reason : `Explicit lifecycle transition to ${status}`,
-    mutation = { command: "transition" as const, reason, fields: ["status"] };
+    mutation = { command: "transition" as const, reason, fields: ["status", ...extraMutationFields] };
   return {
     snapshot: { ...snapshot, revision: command.workspaceRevision, task },
     event: envelope<TaskMutationEvent>(command, "task_transitioned", {
@@ -268,6 +277,9 @@ export const reinstate: Transition = {
       (raw as TransitionTaskCommand).status as "planned" | "active" | "in_review",
     ),
 };
+/** ReturnToPlanned closes the round the way changes_requested does: an unleased execution that is
+ * still active in the current iteration would otherwise keep claiming the round forever, leaving
+ * `ha task start` no way to allocate a fresh execution. Advancing the iteration supersedes it. */
 export const returnToPlanned: Transition = {
   actionId: "transition",
   matches: (command, snapshot) =>
@@ -290,7 +302,19 @@ export const returnToPlanned: Transition = {
       issues.push(lifecycleContractIssue("missing_field", "ReturnToPlanned requires an auditable reason"));
     return issues;
   },
-  reduce: (snapshot, raw) => transitionTask(snapshot, raw as TransitionTaskCommand, "planned"),
+  reduce: (snapshot, raw) => {
+    const command = raw as TransitionTaskCommand,
+      task = snapshot.task as TaskV2,
+      openRound = snapshot.executions.some(
+        (value) => isNativeExecution(value) && value.iteration === task.iteration && value.state === "active",
+      );
+    return transitionTask(
+      openRound ? { ...snapshot, task: { ...task, iteration: task.iteration + 1 } } : snapshot,
+      command,
+      "planned",
+      openRound ? ["iteration"] : [],
+    );
+  },
 };
 export const unblock: Transition = {
   actionId: "transition",

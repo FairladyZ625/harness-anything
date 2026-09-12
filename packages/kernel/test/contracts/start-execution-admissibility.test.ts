@@ -328,6 +328,118 @@ test("after the lease expires, only rejoining the round's active execution is ad
   );
 });
 
+// The lease the time-aware projection serves after TTL: still the stored CAS row, but with the
+// derived phase `orphaned`. Before the fix this object kept `!snapshot.lease` false and blocked
+// every `ha task start` form on a current-round execution whose holder was gone (T1-random-baseline).
+test("an orphaned expired lease no longer blocks rejoining the round's active execution", () => {
+  const orphaned: TaskLifecycleSnapshot = {
+    ...started(),
+    lease: { ...(started().lease as NonNullable<TaskLifecycleSnapshot["lease"]>), phase: "orphaned" },
+  };
+  assert.equal(orphaned.lease?.phase, "orphaned", "fixture precondition: the projection-derived phase");
+
+  assert.equal(
+    canStartExecution(orphaned, "execution-1"),
+    true,
+    "an expired lease must not gate the round its execution still holds",
+  );
+  assert.equal(
+    canStartExecution(orphaned, "execution-fresh"),
+    false,
+    "a fresh id still cannot be admitted while the round's execution is active",
+  );
+});
+
+test("a different actor takes over the orphaned lease and inherits the execution", () => {
+  const orphaned: TaskLifecycleSnapshot = {
+      ...started(),
+      lease: { ...(started().lease as NonNullable<TaskLifecycleSnapshot["lease"]>), phase: "orphaned" },
+    },
+    peer: ActorAxes = { principal: { personId: "person-peer" }, executor: { kind: "agent", id: "peer-worker" } },
+    // The daemon reservation CAS fences the takeover: reserving v1, held v2 on top of the orphaned v0.
+    applied = applyTransition(
+      orphaned,
+      command(
+        3,
+        { type: "StartExecution", taskId: "task-1", executionId: "execution-1" },
+        peer,
+      ) as TaskLifecycleCommand,
+      {
+        actorBinding: peer,
+        reservation: {
+          taskId: "task-1",
+          executionId: "execution-1",
+          expiresAt: "2026-08-17T01:30:00.000Z",
+          ttlMs: 1_800_000,
+          previousHolder: { taskId: "task-1", executionId: "execution-1", actor: implementer, source: "local" },
+          reason: "ttl_expired_takeover",
+          version: 2,
+        },
+      },
+    ),
+    { snapshot: taken, event } = applied;
+
+  assert.equal(taken.lease?.phase, "held");
+  assert.equal(taken.lease?.version, 2, "the takeover lease continues the orphaned CAS version chain");
+  assert.deepEqual(taken.lease?.actor, peer);
+  assert.equal(taken.executions.length, 1);
+  assert.deepEqual(taken.executions[0]?.actor, peer, "the execution is inherited, not replaced");
+  assert.deepEqual(event.payload.previousHolder, {
+    taskId: "task-1",
+    executionId: "execution-1",
+    actor: implementer,
+    source: "local",
+  });
+  assert.equal(event.payload.reason, "ttl_expired_takeover");
+});
+
+// The 14-task closeout deadlock shape: the lease is released, ReturnToPlanned resets the status,
+// but the still-active execution keeps claiming the round, so no fresh execution can ever start.
+test("ReturnToPlanned closes the open round so a fresh execution can start", () => {
+  const released: TaskLifecycleSnapshot = { ...started(), lease: null },
+    returned = apply(
+      released,
+      command(3, {
+        type: "TransitionTask",
+        taskId: "task-1",
+        status: "planned",
+        reason: "Reset the round",
+      }) as TaskLifecycleCommand,
+      {} as never,
+    );
+
+  assert.equal(returned.task?.status, "planned");
+  assert.equal(returned.task?.iteration, 1, "the open execution round is closed by round advancement");
+  assert.equal(returned.executions[0]?.state, "active", "the execution record itself is left untouched");
+  assert.equal(
+    canStartExecution(returned, "execution-fresh"),
+    true,
+    "a fresh execution must be allocatable after the round is returned to planned",
+  );
+  assert.equal(
+    canStartExecution(returned, "execution-1"),
+    false,
+    "the returned round's execution is closed and no longer rejoinable",
+  );
+});
+
+test("ReturnToPlanned without an open round keeps the iteration", () => {
+  const idle: TaskLifecycleSnapshot = { ...started(), executions: [], lease: null },
+    returned = apply(
+      idle,
+      command(3, {
+        type: "TransitionTask",
+        taskId: "task-1",
+        status: "planned",
+        reason: "Reset the round",
+      }) as TaskLifecycleCommand,
+      {} as never,
+    );
+
+  assert.equal(returned.task?.iteration, 0);
+  assert.equal(canStartExecution(returned, "execution-fresh"), true);
+});
+
 test("rejoining an active execution transfers its attribution to the new lease holder", () => {
   const expired: TaskLifecycleSnapshot = { ...started(), lease: null },
     runtimeActor: ActorAxes = {

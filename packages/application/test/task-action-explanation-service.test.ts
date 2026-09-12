@@ -88,7 +88,11 @@ test("Task explanations distinguish lifecycle state, actor capability, invocatio
       lease: active.lease ? { ...active.lease, phase: "orphaned" } : null,
     };
     assert.equal(row(explain(harness, lapsed, owner), "submit").available, false);
-    assert.equal(row(explain(harness, lapsed, owner), "start").available, false);
+    assert.equal(
+      row(explain(harness, lapsed, owner), "start").available,
+      true,
+      "an expired (orphaned) lease is recovered by rejoining the round's active execution",
+    );
 
     await harness.submit("execution-1");
     const submitted = await snapshot(harness),
