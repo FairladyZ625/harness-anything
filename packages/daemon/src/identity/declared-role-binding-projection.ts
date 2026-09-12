@@ -11,8 +11,8 @@ import { loadPeopleRosterIfPresent } from "./people-roster.ts";
 export function declaredRoleBindingsForActor(
   rootDir: string,
   actor: ActorIdentity,
+  roster = loadPeopleRosterIfPresent({ rootDir }),
 ): readonly RoleBinding[] | undefined {
-  const roster = loadPeopleRosterIfPresent({ rootDir });
   if (roster === null) return undefined;
   const person = roster.people.find((candidate) => candidate.personId === actor.principal.personId),
     roleIds = person?.roles ?? [],
