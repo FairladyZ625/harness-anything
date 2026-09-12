@@ -127,7 +127,7 @@ test("converged decisions carry the synthesis report while missing content remai
   );
 });
 
-test("a missing worker report explicitly fails callback synthesis", () => {
+test("an unavailable immutable worker result explicitly fails callback synthesis", () => {
   assert.throws(
     () =>
       callbackLeaderPrompt(
@@ -136,7 +136,6 @@ test("a missing worker report explicitly fails callback synthesis", () => {
           squadRunId: "squad_0123456789abcdef01234567",
           roster: "worker -> terra\nsynthesis -> artifacts/reports/{squadRunId}.md",
           mission: "Synthesize worker evidence.",
-          authoredRoot: "/definitely/missing/harness",
           workerAttempts: [
             {
               attemptId: "attempt-1",
@@ -157,16 +156,14 @@ test("a missing worker report explicitly fails callback synthesis", () => {
             runtimeSessionId: "runtime-1",
             status: "succeeded",
             exitCode: 0,
-            resultRef: "sha256:result",
+            resultRef: `artifact:runtime-result/sha256/${"1".repeat(64)}`,
             reportPath: "artifacts/report.md",
           },
         ],
+        (resultRef) => {
+          throw new Error(`Runtime result ${resultRef} is unavailable.`);
+        },
       ),
-    (error: unknown) =>
-      error instanceof Error &&
-      "code" in error &&
-      error.code === "worker_report_unreadable" &&
-      error.message.includes("reportPath=artifacts/report.md") &&
-      error.message.includes("reason="),
+    /Runtime result artifact:runtime-result\/sha256\/[0-9a-f]{64} is unavailable\./u,
   );
 });

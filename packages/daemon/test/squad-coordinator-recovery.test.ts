@@ -49,7 +49,7 @@ type RecoveryFixture = {
   readonly state: () => Readonly<Record<string, unknown>>;
   readonly resetProjection: () => void;
   readonly completeLeader: (runtimeSessionId: string, result: string) => void;
-  readonly completeWorker: (runtimeSessionId: string) => void;
+  readonly completeWorker: (runtimeSessionId: string, result?: string) => void;
 };
 
 function makeRecoveryFixture(
@@ -275,10 +275,19 @@ function makeRecoveryFixture(
         "provider-leader",
       );
     },
-    completeWorker: (runtimeSessionId) => {
+    completeWorker: (runtimeSessionId, result) => {
       const index = sessions.findIndex((session) => session.runtimeSessionId === runtimeSessionId);
       assert.notEqual(index, -1);
-      sessions[index] = { ...sessions[index]!, liveness: "exited", outcome: "succeeded", exitCode: 0 };
+      const sha256 = nextResult.toString(16).padStart(64, "0");
+      nextResult += 1;
+      if (result !== undefined) resultBodies.set(sha256, new TextEncoder().encode(result));
+      sessions[index] = {
+        ...sessions[index]!,
+        liveness: "exited",
+        outcome: "succeeded",
+        exitCode: 0,
+        resultRef: result === undefined ? null : `artifact:runtime-result/sha256/${sha256}`,
+      };
     },
   };
 }
@@ -786,5 +795,28 @@ test("a rejected worker attempt does not block a later dispatch to the same work
       fixture.spawns.map((spawn) => spawn.targetAgentId ?? "leader"),
       ["sol", "leader", "sol"],
     );
+  });
+});
+
+test("leader callback includes both immutable worker results without report files or truncation", async () => {
+  await withRootDir(async (rootDir) => {
+    const bodies = ["# First lens\n" + "evidence ".repeat(1100) + "FIRST-END", "# Second lens\nSECOND-EVIDENCE"],
+      workers = ["sol", "terra"].map((workerId, index) => ({
+        workerId,
+        dispatchId: `dispatch_${(index + 2).toString(16).padStart(24, "0")}`,
+        runtimeSessionId: `runtime-worker-${workerId}`,
+        outcome: null,
+      })),
+      fixture = makeRecoveryFixture(rootDir, { leaderOutcome: null, leaderTurnBudget: 3, workers });
+    for (const [index, worker] of workers.entries()) {
+      fixture.completeWorker(worker.runtimeSessionId, bodies[index]);
+      await fixture.coordinator.observeOutcome(outcomeEvent(worker.runtimeSessionId));
+    }
+    fixture.completeLeader(LEADER_SESSION_ID, JSON.stringify({ schema: "squad-decision/v1", action: "waiting" }));
+    await fixture.coordinator.observeOutcome(outcomeEvent(LEADER_SESSION_ID));
+    assert.equal(fixture.spawns.length, 1);
+    const prompt = String(fixture.spawns[0]?.prompt);
+    for (const body of bodies) assert.ok(prompt.includes(body), `missing worker body: ${body.slice(0, 20)}`);
+    assert.doesNotMatch(prompt, /\[truncated\]/u);
   });
 });
