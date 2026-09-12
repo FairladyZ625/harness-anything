@@ -4,6 +4,8 @@ import {
   heldLeaseForExecutionActor,
   isSameExecution,
   isTaskEvent,
+  ledgerGitPath,
+  resolveLedgerGitLayout,
   submissionFromCloseout,
   submissionDigest,
   type SubmissionV1,
@@ -62,32 +64,30 @@ export function deriveCloseoutSubmission(
         dispatch.cwd,
     ),
     directories = [...new Set(dispatches.map((dispatch) => dispatch.cwd!))],
-    git = makeGitReadinessSource();
-  if (directories.length > 1)
-    throw cell.cellCodedError("invalid_submission", "Execution has more than one delivery worktree.");
-  let root = directories[0] ?? cell.rootDir,
-    commitSha = named[0]!;
-  const publishedRoot = [...new Set([root, cell.rootDir])].find(
-    (candidate) => git.run(candidate, ["cat-file", "-e", `${commitSha}^{commit}`]).ok,
-  );
+    git = makeGitReadinessSource(),
+    publishedRoot = [...new Set([...directories, cell.rootDir])].find(
+      (candidate) => git.run(candidate, ["cat-file", "-e", `${named[0]!}^{commit}`]).ok,
+    );
   if (!publishedRoot)
     throw cell.cellCodedError(
       "invalid_submission",
-      `Delivery commit ${commitSha} is not published in either repository.`,
+      `Delivery commit ${named[0]!} is not published in any bound or canonical repository.`,
     );
-  root = publishedRoot;
-  commitSha = git.run(root, ["rev-parse", `${commitSha}^{commit}`]).stdout;
-  if (directories.length && named.length) {
-    const dispatchHead = git.run(directories[0]!, ["rev-parse", "HEAD"]).stdout;
+  const root = publishedRoot,
+    commitSha = git.run(root, ["rev-parse", `${named[0]!}^{commit}`]).stdout;
+  // One execution may dispatch through several cwds (delivery worktree, then closeout prep at
+  // the canonical root). The named cut must still be explained by one of them: it is that
+  // directory's HEAD, contains a dispatch HEAD, or is already published to origin/main.
+  if (directories.length) {
+    const published = git.run(root, ["merge-base", "--is-ancestor", commitSha, "origin/main"]).ok;
     if (
-      dispatchHead
-        ? commitSha !== dispatchHead &&
-          !(
-            git.run(root, ["merge-base", "--is-ancestor", dispatchHead, commitSha]).ok &&
-            git.run(root, ["merge-base", "--is-ancestor", commitSha, "origin/main"]).ok &&
-            git.run(root, ["rev-list", "--parents", "-n", "1", commitSha]).stdout.split(" ").length > 2
-          )
-        : !git.run(cell.rootDir, ["merge-base", "--is-ancestor", commitSha, "origin/main"]).ok
+      !directories.some((directory) => {
+        const head = git.run(directory, ["rev-parse", "HEAD"]).stdout;
+        return (
+          head === commitSha ||
+          (published && (head ? git.run(root, ["merge-base", "--is-ancestor", head, commitSha]).ok : true))
+        );
+      })
     )
       throw cell.cellCodedError(
         "invalid_submission",
@@ -110,9 +110,36 @@ export function deriveCloseoutSubmission(
     removed = runProcessText("git", ["diff", "--name-only", "-z", "--diff-filter=D", base, commitSha, "--"], root)
       .split("\0")
       .filter(Boolean);
-  if (!deliverables.length && !removed.length)
-    throw cell.cellCodedError("invalid_submission", "Delivery cut contains no changed paths.");
   const { artifacts: _artifacts, ...codeProse } = prose;
+  if (!deliverables.length && !removed.length) {
+    // A task without CI or code-doc gates delivers authored documents: its cut is the private
+    // ledger HEAD plus this package's accepted artifacts, never a public code diff.
+    const privateDelivery = !(snapshot.task?.completionGateIds ?? []).some(
+      (gate) => gate === "ci" || gate === "code-doc-reconciliation",
+    );
+    if (!privateDelivery) throw cell.cellCodedError("invalid_submission", "Delivery cut contains no changed paths.");
+    const ledger = resolveLedgerGitLayout(cell.rootDir),
+      artifacts = git.run(ledger.rootDir, [
+        "ls-tree",
+        "-r",
+        "--name-only",
+        "HEAD",
+        "--",
+        ledgerGitPath(ledger, `${document.packagePath}/artifacts/`),
+      ]);
+    if (!artifacts.ok || !artifacts.stdout)
+      throw cell.cellCodedError(
+        "invalid_submission",
+        `Delivery cut contains no changed paths; publish harness/${document.packagePath}/artifacts/ ` +
+          `or name artifact:path@revision anchors in Summary.`,
+      );
+    return {
+      ...codeProse,
+      commitSha: git.run(ledger.rootDir, ["rev-parse", "HEAD"]).stdout,
+      deliverables: artifacts.stdout.split("\n"),
+      outputs: [],
+    };
+  }
   return {
     ...codeProse,
     commitSha,

@@ -52,8 +52,8 @@ function fixture(t: TestContext, sharedGit = false) {
   return { root, ledger, base };
 }
 
-function derive(rootDir: string, summary: string, missingPath?: string) {
-  const snapshot = { executions: [], task: { completionGateIds: ["ci"] } } as unknown as Parameters<
+function derive(rootDir: string, summary: string, missingPath?: string, gates: readonly string[] = ["ci"]) {
+  const snapshot = { executions: [], task: { completionGateIds: gates } } as unknown as Parameters<
       typeof deriveCloseoutSubmission
     >[3],
     body = closeout(summary),
@@ -87,9 +87,9 @@ function derive(rootDir: string, summary: string, missingPath?: string) {
   );
 }
 
-function dispatch(root: string, cwd: string) {
+function dispatch(root: string, cwd: string, dispatchId = "dispatch_111111111111111111111111") {
   openDispatchStream(root, {
-    dispatchId: "dispatch_111111111111111111111111",
+    dispatchId,
     taskId: "task-1",
     executionId: "execution-1",
     runtimeSessionId: "runtime_111111111111111111111111",
@@ -212,4 +212,44 @@ test("removed dispatch worktree resolves an explicit published cut in the canoni
   put(root, "src/unpublished.ts", "unpublished\n");
   const unpublished = commit(root);
   assert.throws(() => derive(root, `Delivery ${unpublished}`), /published merge commit/u);
+});
+
+test("one execution with two dispatch directories accepts its published merge cut", (t) => {
+  const { root } = fixture(t),
+    worker = path.join(root, "worker");
+  git(root, "worktree", "add", "-qb", "worker", worker);
+  put(worker, "src/delivery.ts", "delivery\n");
+  commit(worker);
+  git(root, "merge", "--no-ff", "-qm", "test: merge delivery", "worker");
+  const merged = git(root, "rev-parse", "HEAD");
+  git(root, "update-ref", "refs/remotes/origin/main", merged);
+  dispatch(root, worker);
+  dispatch(root, root, "dispatch_222222222222222222222222");
+  const packet = derive(root, `Delivery ${merged}.`);
+  assert.equal(packet.commitSha, merged);
+  assert.deepEqual(packet.deliverables, ["src/delivery.ts"]);
+});
+
+test("dispatch-bound documentation task with an empty product cut falls back to ledger artifacts", (t) => {
+  const { root, ledger } = fixture(t);
+  put(ledger, `${packagePath}/artifacts/report.md`, "Evidence.\n");
+  commit(ledger);
+  git(root, "commit", "-q", "--allow-empty", "-m", "test: empty product cut");
+  const empty = git(root, "rev-parse", "HEAD");
+  dispatch(root, root);
+  const packet = derive(root, `Delivered ${empty}.`, undefined, []);
+  assert.equal(packet.commitSha, git(ledger, "rev-parse", "HEAD"));
+  assert.deepEqual(packet.deliverables, [`${packagePath}/artifacts/report.md`]);
+  assert.deepEqual(packet.outputs, []);
+});
+
+test("ledger fallback still fails closed when the task has no accepted artifacts", (t) => {
+  const { root } = fixture(t);
+  git(root, "commit", "-q", "--allow-empty", "-m", "test: empty product cut");
+  const empty = git(root, "rev-parse", "HEAD");
+  dispatch(root, root);
+  assert.throws(() => derive(root, `Delivered ${empty}.`, undefined, []), {
+    code: "invalid_submission",
+    message: /artifacts/u,
+  });
 });
