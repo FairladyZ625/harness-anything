@@ -119,8 +119,9 @@ test("reconcile requires an explicit canonical path list while preserving an exp
         "/repo",
         submitted,
       );
-  assert.throws(() => reconcile(), /explicit canonical completion\.codeDocPaths/u);
-  assert.throws(() => reconcile(["../escape"]), /explicit canonical completion\.codeDocPaths/u);
+  assert.throws(() => reconcile(), /completion\.codeDocPaths/u);
+  assert.throws(() => reconcile(["../escape"]), /directories are not accepted/u);
+  assert.throws(() => reconcile(["docs/"]), /directories are not accepted/u);
   const empty = reconcile([]);
   assert.equal(empty.type, "ReconcileCodeDoc");
   if (empty.type === "ReconcileCodeDoc") assert.deepEqual(empty.paths, []);

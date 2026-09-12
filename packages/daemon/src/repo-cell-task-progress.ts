@@ -504,28 +504,8 @@ export async function completeTask(
       steps.push(step);
       continue;
     }
-    if (blocker.code === "code_doc_missing" && submittedExecution?.submission) {
-      const submitted = current.snapshot.executions.find(
-        (candidate) =>
-          candidate.executionId === executionId && candidate.iteration === current.snapshot.task?.iteration,
-      );
-      if (!submitted?.submission)
-        throw cell.cellCodedError(
-          "invalid_transition",
-          "Complete requires a submitted execution before code-doc reconciliation.",
-        );
-      const step = await cell.lifecycleAction(
-        {
-          kind: "task-code-doc-reconcile",
-          taskId,
-          paths,
-        },
-        binding,
-      );
-      steps.push(step);
-      if (step.outcome === "applied") continue;
-      return cell.completionSettlement(step, current.snapshot, executionId, steps, "code-doc-settlement");
-    }
+    // A missing code/doc witness stops completion with the reconcile command; complete never
+    // writes another Action's witness under its own declaration.
     if (blocker.code === "doc_sync_required") {
       let step: WriteReceipt;
       try {

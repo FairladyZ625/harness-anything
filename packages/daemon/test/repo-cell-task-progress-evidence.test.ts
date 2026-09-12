@@ -1,15 +1,24 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { after } from "node:test";
-import type { CiRunObservationEventV3, CompletionEvidenceV1 } from "../../kernel/src/index.ts";
+import {
+  getExecutableEntityAction,
+  readSettingsFacet,
+  reviewDigest,
+  submissionDigest,
+  type CiRunObservationEventV3,
+  type CompletionEvidenceV1,
+} from "../../kernel/src/index.ts";
+import { compileRepoTaskPackage } from "../../preset/src/index.ts";
 import type { RepoCellOperationalContext } from "../src/repo-cell-action-context.ts";
 import type { RepoCellBinding, Snapshot } from "../src/repo-cell-types.ts";
 import { completeTask, prepareSubmissionEvidence, readLatestCiEvidence } from "../src/repo-cell-task-progress.ts";
-import { projectionReady } from "../src/repo-cell-settlement.ts";
+import { completionSettlement, completionStopped, projectionReady } from "../src/repo-cell-settlement.ts";
+import { deriveActionResult } from "../src/entity-action-catalog-executor.ts";
 
 const actor = { principal: { personId: "owner" }, executor: null } as const;
 const binding = { actor, source: "local" } as RepoCellBinding;
@@ -355,6 +364,167 @@ test("pending projection cannot select stale green and failed reconciliation sto
   assert.equal(steps.length, 1);
   assert.equal(steps[0]?.code, "publication_indeterminate");
   assert.deepEqual(rejected.calls, []);
+});
+
+test("complete without a code-doc witness stops on code_doc_missing under its own criterion", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-complete-reconcile-"));
+  try {
+    init(root);
+    mkdirSync(path.join(root, "packages/daemon/src"), { recursive: true });
+    writeFileSync(path.join(root, "packages/daemon/src/live.ts"), "export {};\n");
+    git(root, "add", ".");
+    git(root, "commit", "-qm", "deliverable");
+    const sha = git(root, "rev-parse", "HEAD"),
+      deliverables = ["packages/daemon/src/live.ts"],
+      submitted = execution(sha, deliverables),
+      pinned = submissionDigest(submitted.submission!),
+      review = {
+        schema: "review/v1",
+        reviewId: "review-complete",
+        taskId: "task",
+        executionId: "execution",
+        verdict: "approved",
+        actor,
+        capabilityRef: "default@5",
+        reason: "Approved.",
+        evidenceChecked: ["tests"],
+        commitSha: sha,
+        iteration: 0,
+        contentDigest: `sha256:${"1".repeat(64)}`,
+        submissionDigest: pinned,
+        reviewedAt: "2026-09-12T00:02:00.000Z",
+      } as Snapshot["reviews"][number],
+      settings = readSettingsFacet(""),
+      packagePath = "tasks/task-complete-reconcile",
+      presetSnapshotDigest = compileRepoTaskPackage({
+        rootDir: root,
+        settings,
+        taskId: "task",
+        action: { kind: "task-create", title: "Complete Reconcile Criterion" },
+      }).snapshot.digest,
+      snapshot = {
+        revision: 1,
+        task: {
+          taskId: "task",
+          status: "in_review",
+          currentNode: "review",
+          iteration: 0,
+          completionGateIds: ["code-doc-reconciliation"],
+          createdBy: actor,
+          taskClass: "standard",
+          presetSnapshotDigest,
+        },
+        executions: [submitted],
+        reviews: [review],
+        consents: [
+          {
+            schema: "review-consent/v1",
+            consentId: "consent-complete",
+            taskId: "task",
+            executionId: "execution",
+            reviewId: "review-complete",
+            reviewDigest: reviewDigest(review),
+            contentDigest: review.contentDigest,
+            submissionDigest: pinned,
+            actor,
+            source: "local",
+            consentedAt: "2026-09-12T00:03:00.000Z",
+          },
+        ],
+        codeDocWitnesses: [],
+        gateWitnesses: [],
+        lease: null,
+        decisionRelations: [],
+      } as unknown as Snapshot,
+      read = { snapshot, packagePath, status: "ready", watermark: 2, sourceRevision: 2 },
+      calls: unknown[] = [],
+      readiness = {
+        closeout: "ready",
+        closeoutPath: `${packagePath}/closeout.md`,
+        eligibleDirtyPaths: [],
+        producesFactCount: 1,
+        projectionStatus: "ready",
+      },
+      cell = {
+        rootDir: root,
+        projectionReady,
+        input: { repoId: "repo" },
+        settings: { read: () => settings },
+        requiredCellText: (value: string) => value,
+        operationId: () => "facade-op",
+        completeRetryCommand: () => "ha task complete task",
+        completionContext: () => readiness,
+        completionStopped,
+        completionSettlement,
+        service: { read: async () => read },
+        projection: {
+          read: () => read,
+          readTaskCompletion: () => null,
+          readRelationQuery: (query: { readonly relationType?: string }) =>
+            query.relationType === "produces"
+              ? { rows: [{ targetRef: "fact/one", state: "active" }], status: "ready" }
+              : { rows: [], status: "ready" },
+          readDecisions: () => ({ decisions: [], status: "ready" }),
+          readDocument: (target: string) => ({
+            watermark: 2,
+            sourceRevision: 2,
+            document: {
+              path: target,
+              blobSha256: "0".repeat(64),
+              body: target.endsWith("task-contract.json")
+                ? JSON.stringify({
+                    title: "Complete Reconcile Criterion",
+                    documents: [{ slot: "task.closeout", path: "closeout.md" }],
+                  })
+                : "## Summary\nDone.\n## Verification\nVerified.\n## Residual Risk\nNone.\n" +
+                  "## Same Mechanism Elsewhere\nChecked.\n",
+            },
+          }),
+        },
+        cellCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),
+        lifecycleAction: async (action: unknown) => {
+          calls.push(action);
+          return {
+            outcome: "op_rejected",
+            opId: "reconcile-op",
+            code: "invalid_command",
+            unmetCriteria: [
+              {
+                ref: "task-lifecycle-review-transitions/reconcile.validate",
+                failureCode: "invalid_proof",
+                explain: "The witness binds canonical document paths to the submitted commit.",
+              },
+            ],
+          };
+        },
+      } as unknown as RepoCellOperationalContext,
+      action = { kind: "task-complete", taskId: "task", executionId: "execution" };
+    const receipt = (await completeTask(cell, action, {
+      ...binding,
+      authorizationDecision: { outcome: "allowed" },
+    } as RepoCellBinding)) as unknown as Record<string, unknown>;
+    // The facade receipt settles under the complete Action's own criteria; a leaked
+    // reconcile criterion used to abort settlement with invalid_store.
+    const settled = deriveActionResult(
+      getExecutableEntityAction("task-complete")!,
+      action as Parameters<typeof deriveActionResult>[1],
+      receipt as Parameters<typeof deriveActionResult>[2],
+    );
+    assert.deepEqual(calls, []);
+    assert.equal(receipt.outcome, "op_rejected");
+    assert.equal(receipt.code, "code_doc_missing");
+    assert.match(String(receipt.rejectionExplanation), /no canonical code\/doc witness/u);
+    assert.match(
+      String((receipt.next as { readonly action: string }[])[0]?.action),
+      /ha task code-doc reconcile task --path 'packages\/daemon\/src\/live\.ts'/u,
+    );
+    assert.deepEqual(
+      settled.unmetCriteria?.map(({ ref }) => ref),
+      ["closeout-readiness/closeoutReadiness"],
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("completed receipt replay does not inspect a newer red or unavailable CI observation", async () => {
