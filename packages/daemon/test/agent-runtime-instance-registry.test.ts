@@ -365,10 +365,7 @@ test("Codex sidecar launch materializes the complete non-secret provider config 
     assert.deepEqual(launch.installation, observed);
     assert.equal(launch.executablePath, observed.executablePath);
     assert.deepEqual(launch.args, ["exec", "--json", "--sandbox", "danger-full-access", "--model", "gpt-5.6-sol", "-"]);
-    assert.deepEqual(
-      launch.env,
-      expectedIsolatedEnvironment(stateRoot, "codex", { PATH: "/runtime/tools" }),
-    );
+    assert.deepEqual(launch.env, expectedIsolatedEnvironment(stateRoot, "codex", { PATH: "/runtime/tools" }));
     const codexConfig = path.join(launch.env.CODEX_HOME!, "config.toml"),
       text = readFileSync(codexConfig, "utf8");
     if (process.platform !== "win32") assert.equal(statSync(codexConfig).mode & 0o777, 0o600);
@@ -383,10 +380,10 @@ test("Codex sidecar launch materializes the complete non-secret provider config 
     assert.equal(Object.values(launch.env).includes("http://host-proxy"), false);
     assert.equal(launch.prompt, "Inspect");
     assert.equal(launch.cwd, "/workspace/repo");
-    assertPrivateModes(
-      path.join(userRoot, "runtime-instances.json"),
-      [stateRoot, ...["home", "tmp", "run"].map((name) => path.join(stateRoot, name))],
-    );
+    assertPrivateModes(path.join(userRoot, "runtime-instances.json"), [
+      stateRoot,
+      ...["home", "tmp", "run"].map((name) => path.join(stateRoot, name)),
+    ]);
   } finally {
     rmSync(userRoot, { recursive: true, force: true });
   }
@@ -605,10 +602,7 @@ test("subscription launch fails closed without provider-native readiness and nev
       "--model",
       "claude-fable-5",
     ]);
-    assert.deepEqual(
-      launch.env,
-      expectedIsolatedEnvironment(stateRoot, "claude", { PATH: "/runtime/tools" }),
-    );
+    assert.deepEqual(launch.env, expectedIsolatedEnvironment(stateRoot, "claude", { PATH: "/runtime/tools" }));
     assert.deepEqual(readinessEnvironment, launch.env);
     assert.equal(credentialCalls, 0);
   } finally {
@@ -1010,7 +1004,7 @@ test("runtime instance command receipts expose readiness metadata without creden
     ]);
     assert.equal(
       listed.summary,
-      `ID\tNAME\tKIND\tMODEL\tENABLED\tAUTH MODE\tLOGIN STATUS\ncodex-safe\tCodex Safe\tcodex\tgpt-5.6-sol\tenabled\tapi-key\tnot-checked\n\nINSTALLATION\tKIND\tVERSION\tOBSERVED AT\n${observed.installationId}\tcodex\t${observed.version}\t${observed.observedAt}`,
+      `ID\tNAME\tKIND\tMODEL\tENABLED\tAUTH MODE\tLOGIN STATUS\tPERMISSION MODE\ncodex-safe\tCodex Safe\tcodex\tgpt-5.6-sol\tenabled\tapi-key\tnot-checked\tbypass\n\nINSTALLATION\tKIND\tVERSION\tOBSERVED AT\n${observed.installationId}\tcodex\t${observed.version}\t${observed.observedAt}`,
     );
     assert.deepEqual(shown.instance, created.instance);
     for (const receipt of [created, listed, shown]) {
