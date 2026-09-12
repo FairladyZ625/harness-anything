@@ -1,6 +1,12 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
+import { execFileSync, spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { removeTemporaryDirectory } from "./temporary-directory-cleanup.mjs";
 import {
   architectureJustificationThresholds,
   checkArchitectureJustification,
@@ -306,4 +312,80 @@ test("signal counter counts CJK characters and Latin words independently", () =>
     cjkChars: 4,
     latinWords: 3,
   });
+});
+
+const g1Table = [
+  "## Per-Write Cost",
+  "| Operation | Metric | Before (200) | Before (2000) | After (200) | After (2000) |",
+  "| --- | --- | --- | --- | --- | --- |",
+  ...["sqlRowsRead", "sha256Calls", "sha256Bytes", "gitProcesses", "fileReadBytes"].map(
+    (metric) => `| task-create | ${metric} | 0 | 0 | 0 | 0 |`,
+  ),
+].join("\n");
+
+function checkWriteBody(evidence = "", files = ["packages/kernel/src/store/write-journal-coordinator.ts"]) {
+  return checkPrBodyBilingual(twoBlockBody({ english: `${validEnglish}\n${evidence}` }), undefined, { files });
+}
+
+test("write path changes require a complete G1 before/after count table", () => {
+  for (const file of [
+    "packages/kernel/src/store/write-journal-coordinator.ts",
+    "packages/kernel/src/store/persist.ts",
+    "packages/kernel/src/projection/task.ts",
+    "packages/adapters/local/src/ledger.ts",
+  ]) {
+    assert.equal(checkWriteBody("", [file]).ok, false, file);
+    assert.equal(checkWriteBody(g1Table, [file]).ok, true, file);
+  }
+  assert.equal(checkWriteBody("", ["docs-release/write.md", "packages/kernel/test/ledger.test.ts"]).ok, true);
+});
+
+test("G1 evidence rejects headings, placeholders, partial metrics, and hidden tables", () => {
+  for (const table of [
+    "## Per-Write Cost\nG1: passed",
+    g1Table.replace("| 0 |", "| TBD |"),
+    g1Table.replace("| 0 |", "| -1 |"),
+    g1Table.replace("| 0 |", "| 1.5 |"),
+    g1Table.replace(/^.*fileReadBytes.*$/mu, ""),
+    g1Table.replace("Before (2000)", "Before"),
+    `<!--\n${g1Table}\n-->`,
+    `\`\`\`markdown\n${g1Table}\n\`\`\``,
+    g1Table.replace("## Per-Write Cost", "## Verification"),
+    g1Table.replace("| task-create | fileReadBytes", "| doc-submit | fileReadBytes"),
+  ])
+    assert.equal(checkWriteBody(table).ok, false, table);
+});
+
+test("PR lint CLI derives write changes from PR base/head and rejects missing evidence", (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "pr-write-cost-"));
+  t.after(() => removeTemporaryDirectory(root));
+  const git = (...args) => execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
+  git("init", "-q");
+  git("config", "user.name", "Fixture");
+  git("config", "user.email", "fixture@example.invalid");
+  git("commit", "--allow-empty", "-qm", "base");
+  const base = git("rev-parse", "HEAD");
+  mkdirSync(path.join(root, "packages/kernel/src"), { recursive: true });
+  writeFileSync(path.join(root, "packages/kernel/src/write.ts"), "export const count = 1;\n");
+  git("add", ".");
+  git("commit", "-qm", "write path");
+  const head = git("rev-parse", "HEAD");
+  for (const evidence of ["", g1Table]) {
+    const result = spawnSync(
+      process.execPath,
+      [fileURLToPath(new URL("./check-pr-body-bilingual.mjs", import.meta.url)), "--env", "PR_BODY"],
+      {
+        cwd: root,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          PR_BASE_SHA: base,
+          PR_HEAD_SHA: head,
+          PR_BODY: twoBlockBody({ english: `${validEnglish}\n${evidence}` }),
+        },
+      },
+    );
+    assert.equal(result.status, evidence ? 0 : 1, result.stderr);
+    if (!evidence) assert.match(result.stderr, /Write-path changes require/u);
+  }
 });

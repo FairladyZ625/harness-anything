@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import process from "node:process";
 import { agentProtocolCommands } from "../packages/daemon/src/protocol/daemon-protocol-commands-agent.ts";
 import { clientLocalCommands } from "../packages/cli/src/cli/thin-command-help.ts";
+import { G1_MARGINS, G1_SCALES } from "./gates/cost-budget.mjs";
 import { computeProductionDelta } from "./gates/production-delta.mjs";
 import { changedFiles, repoRoot } from "./gates/git.mjs";
 
@@ -224,11 +225,72 @@ export function checkArchitectureJustification({
   return { ok: issues.length === 0, required, known: true, added, deleted, churn, net, issues };
 }
 
+export function checkPerWriteCost(body, files = []) {
+  const required = files.some((file) =>
+    /^packages\/(?:[^/]+\/)+src\/.*(?:write|persist|projection|ledger)/u.test(file),
+  );
+  if (!required) return { ok: true, required, issues: [] };
+  const visible = body.replace(/<!--[\s\S]*?-->/gu, "").replace(/^\s*(`{3,}|~{3,}).*\n[\s\S]*?^\s*\1\s*$/gmu, ""),
+    section = sectionContent(visible, /^## Per-Write Cost\s*$/mu) ?? "",
+    rows = section
+      .split(/\r?\n/u)
+      .filter((line) => /^\s*\|.*\|\s*$/u.test(line))
+      .map((line) =>
+        line
+          .trim()
+          .slice(1, -1)
+          .split("|")
+          .map((cell) => cell.trim()),
+      ),
+    headers = [
+      "Operation",
+      "Metric",
+      ...["Before", "After"].flatMap((phase) =>
+        [G1_SCALES.small, G1_SCALES.large].map((scale) => `${phase} (${scale})`),
+      ),
+    ],
+    metrics = Object.keys(G1_MARGINS),
+    operations = new Map();
+  const validRows =
+    rows.length >= metrics.length + 2 &&
+    rows[0].join("|") === headers.join("|") &&
+    rows[1].length === headers.length &&
+    rows[1].every((cell) => /^:?-{3,}:?$/u.test(cell)) &&
+    rows.slice(2).every(([operation, metric, ...counts]) => {
+      if (
+        !/^[a-z]+(?:-[a-z]+)+$/u.test(operation ?? "") ||
+        !metrics.includes(metric) ||
+        counts.length !== 4 ||
+        !counts.every((count) => /^\d+$/u.test(count) && Number.isSafeInteger(Number(count)))
+      )
+        return false;
+      const seen = operations.get(operation) ?? new Set();
+      if (seen.has(metric)) return false;
+      seen.add(metric);
+      operations.set(operation, seen);
+      return true;
+    });
+  const ok = validRows && [...operations.values()].every((seen) => seen.size === metrics.length);
+  return {
+    ok,
+    required,
+    issues: ok
+      ? []
+      : [
+          "Write-path changes require `## Per-Write Cost` with a G1 count table: " +
+            headers.join(" | ") +
+            ". Include all five G1 metrics per operation and non-negative integer counts; see the PR template.",
+          "写路径变更必须填写 Per-Write Cost 节：每个操作包含 G1 五项指标，以及 200/2000 规模的修改前后整数计数。",
+        ],
+  };
+}
+
 export function checkPrBodyBilingual(body, thresholds = defaultThresholds, context = {}) {
   const blocks = splitPrBodyLanguageBlocks(body);
   const englishCounts = countBilingualSignals(blocks.englishBlock);
   const chineseCounts = countBilingualSignals(blocks.chineseBlock);
-  const issues = [...blocks.issues];
+  const perWriteCost = checkPerWriteCost(blocks.englishBlock, context.files);
+  const issues = [...blocks.issues, ...perWriteCost.issues];
   const gateHarvest = checkGateHarvestDeclarations(blocks.englishBlock);
   issues.push(...gateHarvest.issues);
   const eventMigration = checkEventMigrationDeclaration(blocks.englishBlock, context.eventMigration);
@@ -268,6 +330,7 @@ export function checkPrBodyBilingual(body, thresholds = defaultThresholds, conte
       chineseIndex: blocks.chineseIndex,
     },
     gateHarvest,
+    perWriteCost,
     eventMigration,
     architectureJustification,
     issues,
@@ -292,6 +355,7 @@ function readBodyFromArgs(argv) {
           "",
           "Requires a top-level `# English` block before a top-level `# 中文` block.",
           "The English block must contain at least 20 Latin words; the Chinese block must contain at least 20 CJK characters.",
+          "Write/persist/projection/ledger paths under packages/**/src require a completed Per-Write Cost G1 table (see the PR template).",
           "When Deleted-Production-Paths names a path, Deleted-Gates-Fixtures is required.",
           "When the computed production delta exceeds 200 churn lines or +300 net production lines, both language blocks must contain a completed architectural justification section.",
           "When an accepted canonical-event sample changes, Event-Migration must name an existing ha migrate command or explain why no migration is required.",
@@ -317,7 +381,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
       head = process.env.PR_HEAD_SHA,
       files = base && head ? changedFiles(repoRoot(), base, head) : [],
       productionDelta = base && head ? computeProductionDelta({ rootDir: repoRoot(), base }) : undefined,
-      result = checkPrBodyBilingual(body, defaultThresholds, { eventMigration: { files }, productionDelta });
+      result = checkPrBodyBilingual(body, defaultThresholds, { files, eventMigration: { files }, productionDelta });
     if (result.ok) {
       process.stdout.write(
         [
