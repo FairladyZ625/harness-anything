@@ -9,6 +9,9 @@ type TimeZoneStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
 export const TIME_ZONE_STORAGE_KEY = "harness:gui:time-zone";
 
+const formatters = new Map<string, Intl.DateTimeFormat>();
+const validTimeZones = new Set<string>();
+
 export function formatTime(iso: string, options: FormatTimeOptions): string | null {
   const date = new Date(iso),
     wantsDate = !options.style.startsWith("time"),
@@ -16,15 +19,9 @@ export function formatTime(iso: string, options: FormatTimeOptions): string | nu
     wantsYear = wantsDate && options.style !== "month-day-time",
     wantsSeconds = options.style.endsWith("seconds");
   if (!Number.isFinite(date.getTime())) return null;
-  const parts = Object.fromEntries(
-      new Intl.DateTimeFormat("en-US", {
-        ...(wantsYear ? { year: "numeric" as const } : {}),
-        ...(wantsDate ? { month: "2-digit" as const, day: "2-digit" as const } : {}),
-        ...(wantsTime ? { hour: "2-digit" as const, minute: "2-digit" as const } : {}),
-        ...(wantsSeconds ? { second: "2-digit" as const } : {}),
-        hourCycle: "h23",
-        timeZone: resolveTimeZone(options.tz),
-      })
+  const timeZone = resolveTimeZone(options.tz),
+    parts = Object.fromEntries(
+      formatterFor(options.style, timeZone)
         .formatToParts(date)
         .map(({ type, value }) => [type, value]),
     ),
@@ -80,9 +77,31 @@ function resolveTimeZone(explicit?: string): string {
   return timeZone;
 }
 
+function formatterFor(style: TimeStyle, timeZone: string): Intl.DateTimeFormat {
+  const key = `${style}\u0000${timeZone}`,
+    cached = formatters.get(key);
+  if (cached) return cached;
+  const wantsDate = !style.startsWith("time"),
+    wantsTime = style !== "date",
+    wantsYear = wantsDate && style !== "month-day-time",
+    wantsSeconds = style.endsWith("seconds"),
+    formatter = new Intl.DateTimeFormat("en-US", {
+      ...(wantsYear ? { year: "numeric" as const } : {}),
+      ...(wantsDate ? { month: "2-digit" as const, day: "2-digit" as const } : {}),
+      ...(wantsTime ? { hour: "2-digit" as const, minute: "2-digit" as const } : {}),
+      ...(wantsSeconds ? { second: "2-digit" as const } : {}),
+      hourCycle: "h23",
+      timeZone,
+    });
+  formatters.set(key, formatter);
+  return formatter;
+}
+
 function validTimeZone(value: string): boolean {
+  if (validTimeZones.has(value)) return true;
   try {
     new Intl.DateTimeFormat("en-US", { timeZone: value });
+    validTimeZones.add(value);
     return true;
   } catch (error) {
     consumeKnownError(error);

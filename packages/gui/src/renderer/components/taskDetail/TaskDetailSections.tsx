@@ -364,10 +364,14 @@ export function TaskEvidenceTab({
     () => buildTriadicRendererData({ graph: graph.data ?? emptyGraph, decisions: EMPTY_DECISION_LIST }),
     [graph.data],
   );
-  const ownedFactRefs = new Set(
-    activeProducesFactRefs(projected.relations, `task/${task.taskId}`).map((edge) => edge.targetRef),
+  const ownedFactRefs = useMemo(
+    () => new Set(activeProducesFactRefs(projected.relations, `task/${task.taskId}`).map((edge) => edge.targetRef)),
+    [projected.relations, task.taskId],
   );
-  const facts = (graph.data?.facts ?? []).filter((fact) => ownedFactRefs.has(fact.ref));
+  const facts = useMemo(
+    () => (graph.data?.facts ?? []).filter((fact) => ownedFactRefs.has(fact.ref)),
+    [graph.data, ownedFactRefs],
+  );
   const triageByAnchor = useMemo(
     () =>
       new Map(
@@ -377,7 +381,7 @@ export function TaskEvidenceTab({
           )
           .map((item) => [item.fact.anchor, item]),
       ),
-    [projected, task.taskId],
+    [ownedFactRefs, projected],
   );
   const orderedFacts = useMemo(() => {
     const anchorOf = (fact: RelationFactRow) => fact.ref;
