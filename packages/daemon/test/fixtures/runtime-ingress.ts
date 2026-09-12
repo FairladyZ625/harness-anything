@@ -39,7 +39,9 @@ export function initIngressRepo(root: string, uid: number): void {
   git(root, "config", "user.email", "spawn@example.invalid");
   writeFileSync(
     path.join(root, "harness/harness.yaml"),
-    "schema: harness-anything/v1\nname: runtime-spawn-ingress\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
+    // ci.workflows stays explicit: the ingress flows under test pull CI observations on submission.
+    "schema: harness-anything/v1\nname: runtime-spawn-ingress\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n" +
+      "settings:\n  ci:\n    workflows: [rewrite-ci]\n",
   );
   writeFileSync(
     path.join(root, "harness/people.yaml"),

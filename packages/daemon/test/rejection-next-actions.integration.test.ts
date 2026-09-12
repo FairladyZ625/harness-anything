@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
@@ -221,6 +221,9 @@ test("executor declaration and completion context refusals name projection rebui
     cache = path.join(rootDir, ".harness/cache/task.sqlite");
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
+    // The completion retry this test names only exists for a repository that declares CI witnessing.
+    mkdirSync(path.join(rootDir, "harness"), { recursive: true });
+    writeFileSync(path.join(rootDir, "harness/harness.yaml"), "settings:\n  ci:\n    workflows: [rewrite-ci]\n");
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "projection-exits-one" });
     const created = await cell.run({ kind: "task-create", taskId, title: "Projection exits" }, owner);
     assert.equal(created.outcome, "applied");

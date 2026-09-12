@@ -220,7 +220,7 @@ export function initRepo(root: string, roster: string = bootstrapRoster()): void
   mkdirSync(path.join(root, "harness"), { recursive: true });
   writeFileSync(
     path.join(root, "harness/harness.yaml"),
-    "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
+    "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\nsettings:\n  ci:\n    workflows: [rewrite-ci]\n",
   );
   writeFileSync(path.join(root, "harness/people.yaml"), roster);
   git(root, "add", ".");

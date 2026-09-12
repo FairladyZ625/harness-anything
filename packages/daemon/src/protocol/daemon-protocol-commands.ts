@@ -92,7 +92,10 @@ const settingsWriteTopology = {
           "repeated",
           false,
           { code: "invalid_field" },
-          { regex: "^[A-Za-z0-9][A-Za-z0-9/_.@-]*$" },
+          {
+            regex: "^[A-Za-z0-9][A-Za-z0-9/_.@-]*$",
+            format: "workflow names, or none to disable CI witnessing (unconfigured repositories witness none)",
+          },
         ),
         cliInput(
           "--expected-version",

@@ -70,7 +70,13 @@ test("Settings pins a configured reviewer through its canonical event and author
 
 test("Settings update hydrates the default when the projected event predates review independence", () => {
   const { reviewIndependence: _legacyMissing, ...legacyCurrent } = current;
-  const draft = compile({ reviewIndependence: "principal" }, legacyCurrent);
+  const draft = compile(
+    { reviewIndependence: "principal" },
+    {
+      currentEntity: legacyCurrent,
+      currentDocumentBody: documentBody,
+    },
+  );
   assert.equal(draft.kind, "settings");
   if (draft.kind !== "settings" || draft.result.kind !== "event") return;
   assert.equal(draft.result.bundle.event.payload.settings.reviewIndependence, "principal");
@@ -86,7 +92,16 @@ test("Settings update writes the repository CI workflow names through the canoni
 });
 
 test("Settings update clears CI witnessing through an empty workflow list", () => {
-  const draft = compile({ ciWorkflows: [] });
+  const draft = compile({ ciWorkflows: [] }, witnessed());
+  assert.equal(draft.kind, "settings");
+  if (draft.kind !== "settings" || draft.result.kind !== "event") throw new Error("missing settings event");
+  assert.deepEqual(draft.result.bundle.event.payload.settings.ci.workflows, []);
+  assert.deepEqual(readSettingsFacet(draft.result.bundle.blobs[0].body).ci.workflows, []);
+  assertSettingsEventInputs(draft.result.bundle.event, draft.result.bundle.plan, draft.result.bundle.blobs);
+});
+
+test("Settings update maps the CLI none sentinel to the CI-witnessing opt-out", () => {
+  const draft = compile({ ciWorkflows: ["none"] }, witnessed());
   assert.equal(draft.kind, "settings");
   if (draft.kind !== "settings" || draft.result.kind !== "event") throw new Error("missing settings event");
   assert.deepEqual(draft.result.bundle.event.payload.settings.ci.workflows, []);
@@ -122,7 +137,13 @@ test("Settings locale remains outside the canonical event compiler", () => {
   assert.deepEqual(draft.result, { kind: "no-changes", settings: current, revision: 7 });
 });
 
-function compile(action: Readonly<Record<string, unknown>>, currentEntity: unknown = current) {
+function compile(
+  action: Readonly<Record<string, unknown>>,
+  base: { readonly currentEntity: unknown; readonly currentDocumentBody: string } = {
+    currentEntity: current,
+    currentDocumentBody: documentBody,
+  },
+) {
   const compiler = getExecutableEntityAction("settings-update")?.execution?.compile;
   assert.ok(compiler);
   return compiler({
@@ -136,8 +157,14 @@ function compile(action: Readonly<Record<string, unknown>>, currentEntity: unkno
     opId: "settings-action-contract",
     occurredAt: "2026-09-01T00:00:00.000Z",
     workspaceRevision: 8,
-    currentEntity,
+    currentEntity: base.currentEntity,
     entityRevision: 7,
-    currentDocumentBody: documentBody,
+    currentDocumentBody: base.currentDocumentBody,
   });
+}
+
+/** Clearing is only a change for a repository that already witnesses CI runs. */
+function witnessed(): { readonly currentEntity: unknown; readonly currentDocumentBody: string } {
+  const body = `${documentBody}  ci:\n    workflows: [ci]\n`;
+  return { currentEntity: repositorySettings(readSettingsFacet(body)), currentDocumentBody: body };
 }

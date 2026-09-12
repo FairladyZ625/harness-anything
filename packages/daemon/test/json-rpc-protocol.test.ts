@@ -574,7 +574,7 @@ test("milestone-closeout uses the normal completion facade, review, and gates ex
       source: "local" as const,
     }, "repo-write");
   try {
-    initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("completion-facade"), rootDir: canonicalRoot(rootDir), ownerId: "completion-daemon" }); const store = () => makeTaskEventReader({ repoId: "completion-facade", rootDir });
+    initRepo(rootDir); mkdirSync(path.join(rootDir, "harness"), { recursive: true }); writeFileSync(path.join(rootDir, "harness/harness.yaml"), "settings:\n  ci:\n    workflows: [rewrite-ci]\n"); /* CI witnessing is opt-in per repository */ cell = await openRepoCell({ repoId: workspaceId("completion-facade"), rootDir: canonicalRoot(rootDir), ownerId: "completion-daemon" }); const store = () => makeTaskEventReader({ repoId: "completion-facade", rootDir });
     const created = await cell.run({ kind: "task-create", taskId, title: "Completion facade", presetId: "milestone-closeout" }, binding); const createdVisible = await waitForAcceptedReceipt(cell, created, binding); assert.equal(createdVisible.wait?.state, "satisfied", JSON.stringify(createdVisible)); await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) => cell!.run({ kind: "doc-submit", paths: [planPath] }, binding)); await cell.run({ kind: "task-start", taskId, executionId }, binding);
     const activeRow = (await cell.read("repo.tasks.list")).rows.find((row) => row.taskId === taskId)!,
       guiActive = (await cell.read("repo.tasks.completion.read", { taskId })).completionNext, eventsBefore = store().read().events,
@@ -685,7 +685,7 @@ test("milestone-closeout uses the normal completion facade, review, and gates ex
 test("CompleteTask response loss settles by stable receipt and never publishes a second completion", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-complete-unknown-")), taskId = "task-unknown-complete", executionId = "execution-unknown-complete", repoId = workspaceId("complete-unknown"); let armed = false, cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
-    initRepo(rootDir); cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "complete-unknown-one", killpoint: (point) => { if (armed && point === "before_response_write" && makeTaskEventReader({ repoId, rootDir }).read().events.some((event) => event.type === "task_completed")) { armed = false; throw new Error("response lost"); } } }); await prepareReadyCompletion(cell, rootDir, repoId, taskId, executionId, "Unknown complete"); const store = () => makeTaskEventReader({ repoId, rootDir }), before = store().read().revision; armed = true;
+    initRepo(rootDir); mkdirSync(path.join(rootDir, "harness"), { recursive: true }); writeFileSync(path.join(rootDir, "harness/harness.yaml"), "settings:\n  ci:\n    workflows: [rewrite-ci]\n"); /* CI witnessing is opt-in per repository */ cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "complete-unknown-one", killpoint: (point) => { if (armed && point === "before_response_write" && makeTaskEventReader({ repoId, rootDir }).read().events.some((event) => event.type === "task_completed")) { armed = false; throw new Error("response lost"); } } }); await prepareReadyCompletion(cell, rootDir, repoId, taskId, executionId, "Unknown complete"); const store = () => makeTaskEventReader({ repoId, rootDir }), before = store().read().revision; armed = true;
     const unknown = await cell.run({ kind: "task-complete", taskId, executionId }, repoWriteBinding) as unknown as Record<string, unknown>; assert.deepEqual({ outcome: unknown.outcome, status: unknown.status, code: unknown.code, stoppedAt: unknown.stoppedAt }, { outcome: "applied", status: "accepted_durable", code: "publication_indeterminate", stoppedAt: "complete-settlement" }); assert.match(String((unknown.next as { command: string }[])[0]?.command), new RegExp(`receipt show ${unknown.opId}`, "u")); assert.equal(store().read().revision, before + 2); assert.equal(store().read().events.filter((event) => event.type === "task_completed").length, 1); assert.equal(cell.status().state, "attached"); await cell.close(); cell = undefined;
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "complete-unknown-two" }); const settled = await cell.run({ kind: "receipt-show", opId: String(unknown.opId) }, repoWriteBinding), retried = await cell.run({ kind: "task-complete", taskId, executionId }, repoWriteBinding); assert.equal(settled.outcome, "applied", JSON.stringify(settled)); assert.equal(retried.outcome, "applied", JSON.stringify(retried)); assert.equal(retried.opId, unknown.opId); assert.equal(store().read().revision, before + 2); assert.equal(store().read().events.filter((event) => event.type === "task_completed").length, 1);
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
@@ -1314,11 +1314,9 @@ test("task complete rejects a passing observation for another submitted commit",
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     initRepo(rootDir);
-    cell = await openRepoCell({
-      repoId,
-      rootDir: canonicalRoot(rootDir),
-      ownerId: "complete-ci-binding",
-    });
+    mkdirSync(path.join(rootDir, "harness"), { recursive: true });
+    writeFileSync(path.join(rootDir, "harness/harness.yaml"), "settings:\n  ci:\n    workflows: [rewrite-ci]\n"); // CI witnessing is opt-in
+    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "complete-ci-binding" });
     await prepareReadyCompletion(cell, rootDir, repoId, taskId, executionId, "CI Binding", false, "f".repeat(40));
     const store = makeTaskEventReader({ repoId, rootDir }),
       submitted = store

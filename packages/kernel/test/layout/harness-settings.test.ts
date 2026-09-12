@@ -37,8 +37,8 @@ test("a key absent from the block reads as absent", () => {
   assert.equal(settingBlockValue(body, "absentBlock", "wipLimit"), undefined);
 });
 
-test("CI workflows default to rewrite-ci and accept configured workflow basenames", () => {
-  assert.deepEqual(readSettingsFacet(body).ci.workflows, ["rewrite-ci"]);
+test("CI workflows default to the witnessing opt-out and accept configured workflow basenames", () => {
+  assert.deepEqual(readSettingsFacet(body).ci.workflows, []);
   assert.deepEqual(readSettingsFacet(`${body}\n  ci:\n    workflows: [ci]\n`).ci.workflows, ["ci"]);
 });
 
@@ -64,5 +64,5 @@ test("the repository facet writer inserts, replaces, and leaves default CI workf
   assert.deepEqual(readSettingsFacet(cleared).ci.workflows, []);
   const replaced = writeRepositorySettingsFacet(`${body}\n  ci:\n    workflows: [legacy]\n`, readSettingsFacet(body));
   assert.doesNotMatch(replaced, /legacy/u);
-  assert.deepEqual(readSettingsFacet(replaced).ci.workflows, ["rewrite-ci"]);
+  assert.deepEqual(readSettingsFacet(replaced).ci.workflows, []);
 });
