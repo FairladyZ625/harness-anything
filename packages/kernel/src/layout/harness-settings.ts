@@ -15,8 +15,16 @@
 const horizontal = "[^\\S\\r\\n]*";
 // The value must open with a non-blank, non-`#` character, so `wipLimit: # unset` reads as
 // absent rather than as a one-space string that every caller would then have to re-trim.
-const scalar = (indent: string, key: string) =>
-  new RegExp(`^${indent}${key}:${horizontal}([^#\\s][^#\\r\\n]*?)${horizontal}(?:#[^\\r\\n]*)?$`, "mu");
+const scalarPatterns = new Map<string, RegExp>();
+
+function scalar(indent: string, key: string): RegExp {
+  const cacheKey = `${indent}\0${key}`,
+    cached = scalarPatterns.get(cacheKey);
+  if (cached) return cached;
+  const pattern = new RegExp(`^${indent}${key}:${horizontal}([^#\\s][^#\\r\\n]*?)${horizontal}(?:#[^\\r\\n]*)?$`, "mu");
+  scalarPatterns.set(cacheKey, pattern);
+  return pattern;
+}
 
 /** Reads a scalar directly under `settings:`, for example `defaultVertical`. */
 export function setting(body: string, key: string): string | undefined {
