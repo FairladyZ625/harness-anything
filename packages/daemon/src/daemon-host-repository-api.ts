@@ -27,6 +27,7 @@ import type { DaemonHostApiContext } from "./daemon-host-context.ts";
 import { localDefaultBinding } from "./daemon-host-binding.ts";
 import { requireAuthorizedHostAction } from "./host-action-authorization.ts";
 import { entityActionCommandTopology } from "./repo-mode.ts";
+import { resolveVerticalKindCommandAction } from "./vertical-kind-command-action.ts";
 
 function isRepoCellReadMethod(method: DaemonGuiRpcReadMethod): method is RepoCellReadMethod {
   return (
@@ -386,7 +387,8 @@ export function createDaemonHostRepositoryApi(
           undefined,
           command.commandClass === "repo-read" ? undefined : repoId,
         );
-        const receipt = await cell.run(action as RepoTaskAction, serverBinding, auth.connectionSignal);
+        const resolvedAction = await resolveVerticalKindCommandAction(cell, action as RepoTaskAction),
+          receipt = await cell.run(resolvedAction, serverBinding, auth.connectionSignal);
         if (getExecutableEntityAction(action.kind)?.target.kind === "schedule")
           await context.scheduleScheduler.refresh();
         return receipt;

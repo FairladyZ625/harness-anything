@@ -1,12 +1,13 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { buildEntityKindCatalog, makeTaskEventStore, makeTaskProjection } from "../../kernel/src/index.ts";
 import { canonicalVertical, compiledArtifactKinds } from "../src/artifact-entity-action.ts";
 import { runVerticalDeclarationAction } from "../src/vertical-declaration-action.ts";
+import { resolveVerticalKindCommandAction } from "../src/vertical-kind-command-action.ts";
 import { actor, initRepo } from "./doc-sync-slice-a.fixtures.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
@@ -164,10 +165,16 @@ test("declaration read revision drives create, catalog read, and retirement", as
         relations: [],
         attributes: { owner: { type: "string" } },
       },
-      upsert = await cell.run(
-        { kind: "vertical-kind-upsert", kindId: declaration.id, declaration, expectedVersion: 0 },
-        binding,
-      );
+      sourcePath = path.join(rootDir, "kind.json");
+    writeFileSync(sourcePath, `${JSON.stringify(declaration)}\n`);
+    const resolvedUpsert = await resolveVerticalKindCommandAction(cell, {
+        kind: "vertical-kind-upsert",
+        fromFile: "kind.json",
+      }),
+      upsert = await cell.run(resolvedUpsert, binding);
+    assert.equal(resolvedUpsert.kindId, declaration.id);
+    assert.equal(resolvedUpsert.expectedVersion, 0);
+    assert.equal("fromFile" in resolvedUpsert, false);
     assert.equal(upsert.outcome, "applied", JSON.stringify(upsert));
     const kinds = await cell.read("repo.entity.kinds.read", {}, binding),
       row = kinds.kinds.find(({ declaration: candidate }) => candidate?.id === declaration.id);
@@ -177,6 +184,14 @@ test("declaration read revision drives create, catalog read, and retirement", as
       ({ id }) => id === declaration.id,
     );
     assert.ok(created && created.entityType === "artifact");
+    writeFileSync(sourcePath, `${JSON.stringify(created)}\n`);
+    const resolvedUpdate = await resolveVerticalKindCommandAction(cell, {
+      kind: "vertical-kind-upsert",
+      fromFile: "kind.json",
+    });
+    assert.equal(resolvedUpdate.kindId, created.kindId);
+    assert.equal(resolvedUpdate.expectedVersion, created.revision);
+    assert.equal("fromFile" in resolvedUpdate, false);
     const retire = await cell.run(
       {
         kind: "vertical-kind-retire",
