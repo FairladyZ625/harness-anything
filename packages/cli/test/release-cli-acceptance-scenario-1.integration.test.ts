@@ -226,6 +226,12 @@ test("release acceptance: changes_requested rework keeps both same-named reports
       "verified",
     );
     const firstCommit = git(root, "rev-parse", "HEAD");
+    writeCloseout(
+      root,
+      packagePath,
+      `First round: artifact:${reportLogical}@${firstPublication.revision}`,
+      "已知缺口：The report needs a second execution.",
+    );
     run(root, userRoot, ["task", "submit", taskId, "--execution-id", firstExecutionId], worker);
     const firstSubmission = reader
       .read()
@@ -288,6 +294,7 @@ test("release acceptance: changes_requested rework keeps both same-named reports
       assert.equal(firstEvent.payload.executionId, firstExecutionId);
       assert.equal(secondEvent.payload.executionId, secondExecutionId);
     }
+    writeCloseout(root, packagePath, `Second round: artifact:${reportLogical}@${secondPublication.revision}`);
     run(root, userRoot, ["task", "submit", taskId, "--execution-id", secondExecutionId], worker);
     const secondSubmission = reader
       .read()

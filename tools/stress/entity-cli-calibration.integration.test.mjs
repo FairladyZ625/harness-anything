@@ -140,17 +140,18 @@ function taskChain(f, reader, index) {
   const reportBody = Buffer.from(`# Calibration ${f.seed}/${index}\n\n${"durable bytes\n".repeat(32)}`);
   mkdirSync(path.dirname(path.join(f.root, "harness", reportPath)), { recursive: true });
   writeFileSync(path.join(f.root, "harness", reportPath), reportBody);
-  writeFileSync(
-    path.join(f.root, "harness", packagePath, "closeout.md"),
-    "# Closeout\n\n## Summary\n\nReport delivered.\n\n## Verification\n\nExact bytes checked.\n\n" +
-      "## Residual Risk\n\nPilot only.\n\n## Same Mechanism Elsewhere\n\nTask report ownership.\n",
-  );
   f.invoke("doc.status", ["doc", "status", "--task", taskId], { actor });
   const report = f.invoke("task.report.acceptance", ["doc", "sync", "--submit", "--task", taskId], {
     actor,
   });
   f.publish(report, "task.report", actor);
   f.check("task.report.same-cut-bytes", () => assertBytes(f.root, reportPath, reportBody, report, reader));
+  writeFileSync(
+    path.join(f.root, "harness", packagePath, "closeout.md"),
+    `# Closeout\n\n## Summary\n\nReport delivered: artifact:${reportPath}@${report.revision}\n\n` +
+      "## Verification\n\nExact bytes checked.\n\n## Residual Risk\n\nPilot only.\n\n" +
+      "## Same Mechanism Elsewhere\n\nTask report ownership.\n",
+  );
   f.invoke("task.submit", ["task", "submit", taskId], { actor });
   const reviewed = f.invoke(
     "task.review",

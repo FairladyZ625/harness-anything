@@ -71,6 +71,9 @@ test("task complete rejects an undeclared upstream Fact and persists a still-hol
         binding,
       )) as unknown as Record<string, unknown>;
     assert.equal(completed.outcome, "applied", JSON.stringify(completed));
+    assert.equal(completed.status, "accepted_durable", JSON.stringify(completed));
+    const acceptance = completed.acceptance as { readonly memberOpIds: readonly string[] };
+    assert.ok(acceptance.memberOpIds.includes(String(completed.opId)));
     completionReader = makeTaskEventReader({ repoId, rootDir });
     const event = completionReader.readEvent(String(completed.opId));
     assert.equal(event?.type, "task_completed");
@@ -238,7 +241,7 @@ async function reachGreenInReview(
   await waitForFixturePublication(cell, artifactSync.opId, binding);
   writeFileSync(
     path.join(rootDir, "harness", closeoutPath),
-    "# Closeout\n\n## Summary\n\nDone.\n\n## Verification\n\nVerified.\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nNo sibling mechanism in this fixture.\n",
+    `# Closeout\n\n## Summary\n\nDone: artifact:${artifactPath}@${artifactSync.revision}\n\n## Verification\n\nVerified.\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nNo sibling mechanism in this fixture.\n`,
   );
   assert.equal((await cell.run({ kind: "doc-submit", paths: [closeoutPath] }, binding)).outcome, "applied");
   const submitted = await cell.run({ kind: "task-submit", taskId, executionId }, binding);

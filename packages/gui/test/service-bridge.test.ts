@@ -679,7 +679,7 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
     assert.match(String(artifactCut.commitSha), /^[0-9a-f]{40}$/u);
     writeFileSync(
       path.join(fixture.rootDir, "harness", String(fixture.packagePath), "closeout.md"),
-      `# Closeout\n\n## Summary\n\nGUI bridge evidence delivered in ${artifactCut.commitSha}.\n\n## Verification\n\nResident daemon reads and typed progress passed.\n\n## Residual Risk\n\n已知缺口: Electron E2E unverified.\nManual desktop verification pending.\n\n## Same Mechanism Elsewhere\n\nCLI and GUI share canonical task submission.\n`,
+      `# Closeout\n\n## Summary\n\nGUI bridge evidence delivered as artifact:${artifactPath}@${artifactReceipt.revision}\n\n## Verification\n\nResident daemon reads and typed progress passed.\n\n## Residual Risk\n\n已知缺口: Electron E2E unverified.\nManual desktop verification pending.\n\n## Same Mechanism Elsewhere\n\nCLI and GUI share canonical task submission.\n`,
     );
     const submitted = parseDaemonGuiActionResponse(
       "repo.task.submit",

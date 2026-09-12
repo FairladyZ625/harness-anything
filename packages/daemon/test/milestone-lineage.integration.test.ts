@@ -88,7 +88,9 @@ async function reachGreenInReview(
   await waitForFixturePublication(cell, artifactSync.opId, binding);
   writeFileSync(
     path.join(rootDir, "harness", closeoutPath),
-    "# Closeout\n\n## Summary\n\nDone.\n\n## Verification\n\nVerified.\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nNot applicable to this fixture.\n",
+    `# Closeout\n\n## Summary\n\nDelivered artifact:${artifactPath}@${artifactSync.revision}\n\n` +
+      "## Verification\n\nVerified.\n\n## Residual Risk\n\nNone.\n\n" +
+      "## Same Mechanism Elsewhere\n\nNot applicable to this fixture.\n",
   );
   assert.equal((await cell.run({ kind: "doc-submit", paths: [closeoutPath] }, binding)).outcome, "applied");
   const submitted = await cell.run({ kind: "task-submit", taskId, executionId }, binding);

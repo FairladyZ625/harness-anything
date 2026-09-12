@@ -837,7 +837,7 @@ test("review binding permits independent runtimes but still rejects the executio
     const closeoutPath = `${String((created as Record<string, unknown>).packagePath)}/closeout.md`;
     writeFileSync(
       path.join(rootDir, "harness", closeoutPath),
-      "# Closeout\n\n## Summary\n\nRuntime implementation complete.\n\n" +
+      `# Closeout\n\n## Summary\n\nRuntime implementation complete at ${git(rootDir, "rev-parse", "HEAD")}.\n\n` +
         "## Verification\n\nIntegration chain verified.\n\n## Residual Risk\n\nNone.\n\n" +
         "## Same Mechanism Elsewhere\n\nThe runtime ingress path is the shared mechanism.\n",
     );

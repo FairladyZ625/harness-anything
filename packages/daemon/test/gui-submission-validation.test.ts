@@ -24,7 +24,7 @@ test("#1546: a wrong-shape field is named with its expected shape, not a generic
   ]);
   const wrongCommitSha = validateGuiSubmission({ ...valid, commitSha: "not-a-sha" });
   assert.deepEqual(wrongCommitSha, [
-    "entity='not-a-sha' field=commitSha must be a native 40-character commit SHA; actual='not-a-sha'",
+    "entity='not-a-sha' field=commitSha must identify a commit or accepted artifact revisions; actual='not-a-sha'",
   ]);
   const emptyClaim = validateGuiSubmission({ ...valid, completionClaim: "" });
   assert.deepEqual(emptyClaim, [
@@ -36,7 +36,7 @@ test("#1546: multiple simultaneously wrong fields are all named, not just the fi
   const issues = validateGuiSubmission({ ...valid, deliverables: [1], commitSha: "bad" });
   assert.deepEqual(issues, [
     "entity='bad' field=deliverables must be an array of non-empty strings; actual=[ 1 ]",
-    "entity='bad' field=commitSha must be a native 40-character commit SHA; actual='bad'",
+    "entity='bad' field=commitSha must identify a commit or accepted artifact revisions; actual='bad'",
   ]);
 });
 
