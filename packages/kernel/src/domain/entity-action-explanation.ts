@@ -249,7 +249,17 @@ function validateAction(
   if (
     canonicalAction &&
     Array.isArray(value.criteria) &&
-    JSON.stringify(value.criteria.map(staticCriterion)) !== JSON.stringify(canonicalAction.criteria)
+    (value.criteria.length !== canonicalAction.criteria.length ||
+      value.criteria.some((criterion, index) => {
+        const expected = canonicalAction.criteria[index];
+        return (
+          !explanationRecord(criterion) ||
+          !expected ||
+          criterion.ref !== expected.ref ||
+          criterion.failureCode !== expected.failureCode ||
+          criterion.explain !== expected.explain
+        );
+      }))
   )
     errors.push("criteria must preserve the canonical Action contract identity and order");
   if (
@@ -359,10 +369,6 @@ function explanationCatalog(kind: string) {
     pattern: "^[A-Z][A-Z0-9]{0,15}-[a-f0-9]{16}$",
     refTemplate: `${kind}/{id}`,
   });
-}
-
-function staticCriterion(value: unknown): unknown {
-  return explanationRecord(value) ? { ref: value.ref, failureCode: value.failureCode, explain: value.explain } : value;
 }
 
 function validateCriterion(value: unknown): readonly string[] {

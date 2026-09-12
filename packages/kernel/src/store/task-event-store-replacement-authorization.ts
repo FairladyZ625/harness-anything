@@ -1,6 +1,6 @@
 import { isDecisionEvent, isMigrationImportEvent, type CanonicalEventV1 } from "../domain/doc-sync.contract.ts";
 import { isPeopleEvent } from "../domain/people-event.ts";
-import { parsePeopleRosterDocument, serializePeopleRosterDocument } from "../domain/people-roster.ts";
+import { serializePeopleRosterDocument } from "../domain/people-roster.ts";
 import { isSettingsEvent } from "../domain/settings-event.ts";
 import { writeRepositorySettingsFacet } from "../domain/settings.ts";
 import { localGitWorktreeSettlement } from "./local-version-control-system.ts";
@@ -72,19 +72,25 @@ export function assertAuthorizedReplacements(
       const node = localGitWorktreeSettlement.readNode(`${authoredRoot}/${target}`);
       return node && { ...node, nodeKind: node.mode === "120000" ? "symbolic-link" : "file" };
     },
-    current = (target: string): DocumentNode | null => {
+    current = (target: string): DocumentHead | null => {
       if (pending.has(target)) return pending.get(target)!;
       const head = heads.get(target);
       if (head === "retired") return null;
       // Only a never-claimed bootstrap document can take its baseline from authored bytes.
       if (head === undefined) return local(target);
-      const bytes = store.readContentObject(head.sha256);
-      if (bytes === null) throw new TaskEventStoreError("invalid_store", `Missing content for ${target}`);
-      return { ...head, body: bytes };
+      return head;
     };
   for (const member of members) {
     if (store.event(member.event.opId)) continue; // SQLite still verifies the replay's exact intent digest.
-    authorize(member, current, local);
+    authorize(member, current, local, (target) => {
+      if (pending.has(target)) return pending.get(target)?.body ?? null;
+      const head = heads.get(target);
+      if (head === "retired") return null;
+      if (head === undefined) return local(target)?.body ?? null;
+      const bytes = store.readContentObject(head.sha256);
+      if (bytes === null) throw new TaskEventStoreError("invalid_store", `Missing content for ${target}`);
+      return bytes;
+    });
     for (const claim of canonicalDocumentClaims(member.event)) {
       const blob = member.blobs.find((candidate) => candidate.sha256 === claim.sha256);
       if (!blob) throw new TaskEventStoreError("invalid_write_plan", `Missing candidate for ${claim.path}`);
@@ -100,8 +106,9 @@ export function assertAuthorizedReplacements(
 
 function authorize(
   member: CanonicalWriteBundle,
-  current: (target: string) => DocumentNode | null,
+  current: (target: string) => DocumentHead | null,
   local: (target: string) => DocumentNode | null,
+  readBody: (target: string) => string | Uint8Array | null,
 ): void {
   const { event, blobs } = member;
   if (isDecisionEvent(event)) {
@@ -114,10 +121,10 @@ function authorize(
     const base = current(event.payload.harnessDocumentClaim.path);
     if (base === null || base.sha256 !== event.payload.baseDocumentSha256)
       throw new TaskEventStoreError("revision_conflict", "harness.yaml changed before the Settings write committed");
+    const body = readBody(event.payload.harnessDocumentClaim.path);
+    if (body === null) throw new TaskEventStoreError("invalid_store", "Missing settings base content");
     const baseBody =
-        typeof base.body === "string"
-          ? base.body
-          : new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(base.body),
+        typeof body === "string" ? body : new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(body),
       candidate = blobs.find((blob) => blob.sha256 === event.payload.harnessDocumentClaim.sha256)?.body;
     if (typeof candidate !== "string" || candidate !== writeRepositorySettingsFacet(baseBody, event.payload.settings))
       throw new TaskEventStoreError(
@@ -131,11 +138,7 @@ function authorize(
       candidate = blobs.find((blob) => blob.sha256 === event.payload.peopleDocumentClaim.sha256)?.body;
     if ((base?.sha256 ?? null) !== event.payload.baseDocumentSha256)
       throw new TaskEventStoreError("revision_conflict", "people.yaml changed before the People write committed");
-    if (
-      typeof candidate !== "string" ||
-      candidate !== serializePeopleRosterDocument(event.payload.roster) ||
-      serializePeopleRosterDocument(parsePeopleRosterDocument(candidate)) !== candidate
-    )
+    if (typeof candidate !== "string" || candidate !== serializePeopleRosterDocument(event.payload.roster))
       throw new TaskEventStoreError("invalid_write_plan", "People may replace only the canonical people roster");
     return;
   }
@@ -154,7 +157,7 @@ function authorize(
   ) {
     const entity = event.payload.entity,
       expected = entity.destinationPreimage!,
-      same = (node: DocumentNode | null) =>
+      same = (node: DocumentHead | null) =>
         node !== null &&
         node.nodeKind === expected.nodeKind &&
         node.sha256 === expected.sha256 &&

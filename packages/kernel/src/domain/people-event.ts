@@ -4,7 +4,7 @@ import {
   applyPeopleRosterAction,
   parsePeopleRosterDocument,
   PEOPLE_ROSTER_PATH,
-  serializePeopleRosterDocument,
+  normalizePeopleRoster,
   type AppliedPeopleRosterAction,
   type PeopleRosterAction,
   type PeopleRosterDocumentV1,
@@ -123,7 +123,8 @@ export function compilePeopleRosterActionEvent(input: {
         baseDocumentSha256: input.currentBody === null ? null : sha256Text(input.currentBody),
       },
     };
-  const errors = validateCurrentPeopleEvent(event);
+  // applyPeopleRosterAction has validated the new roster; only the ingress envelope remains unchecked.
+  const errors = validateEventEnvelopeIdentity(event);
   if (errors.length) throw new Error(errors.join("; "));
   return {
     ...applied,
@@ -192,7 +193,7 @@ const peopleActions: readonly PeopleRosterAction["kind"][] = Object.freeze([
 function validRoster(value: unknown, allowUnknownFields: boolean): value is PeopleRosterDocumentV1 {
   try {
     const roster = value as PeopleRosterDocumentV1;
-    const normalized = parsePeopleRosterDocument(serializePeopleRosterDocument(roster));
+    const normalized = normalizePeopleRoster(roster);
     return allowUnknownFields || stableStringify(normalized) === stableStringify(roster);
   } catch {
     return false;

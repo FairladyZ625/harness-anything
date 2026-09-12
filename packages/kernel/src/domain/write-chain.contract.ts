@@ -1,4 +1,4 @@
-import { stablePayloadHash, stableStringify } from "../integrity/stable-hash.ts";
+import { stablePayloadHash } from "../integrity/stable-hash.ts";
 import { validateActorIdentity, type ActorIdentity } from "./actor-identity.ts";
 import { isNonEmptyString } from "./contract-validation.ts";
 import { validateWriteReceipt, type WriteReceipt, type WriteReceiptDraft } from "./receipt-domain-registry.ts";
@@ -243,12 +243,14 @@ function actorIdentityShape(value: unknown): readonly unknown[] | null {
   if (validateActorIdentity(value, true).length || !isRecord(value) || !isRecord(value.principal)) return null;
   return [
     value.principal.personId,
-    value.executor === null ? null : isRecord(value.executor) ? [value.executor.kind, value.executor.id] : null,
+    value.executor === null ? null : (value.executor as Record<string, unknown>).kind,
+    value.executor === null ? null : (value.executor as Record<string, unknown>).id,
   ];
 }
 export function sameActorIdentity(left: unknown, right: unknown): boolean {
-  const shape = actorIdentityShape(left);
-  return shape !== null && stableStringify(shape) === stableStringify(actorIdentityShape(right));
+  const shape = actorIdentityShape(left),
+    other = actorIdentityShape(right);
+  return shape !== null && other !== null && shape.every((field, index) => field === other[index]);
 }
 function writeSourceShape(value: unknown): unknown {
   if (validateWriteSource(value, true).length) return null;
@@ -258,8 +260,14 @@ function writeSourceShape(value: unknown): unknown {
     : [value.kind, value.sessionId, value.path, value.fingerprint];
 }
 export function sameWriteSource(left: unknown, right: unknown): boolean {
-  const shape = writeSourceShape(left);
-  return shape !== null && stableStringify(shape) === stableStringify(writeSourceShape(right));
+  const shape = writeSourceShape(left),
+    other = writeSourceShape(right);
+  return (
+    shape !== null &&
+    (Array.isArray(shape)
+      ? Array.isArray(other) && shape.length === other.length && shape.every((field, index) => field === other[index])
+      : shape === other)
+  );
 }
 
 export function createWriteReceipt<R extends WriteReceipt>(receipt: R): Readonly<R> {
@@ -407,6 +415,30 @@ function normalizeWriteTargets(targets: readonly WriteTarget[]): readonly WriteT
   });
 }
 
+/** Write targets are flat scalar records; compare their fields without serializing them. */
+export function sameWriteTarget(left: WriteTarget, right: WriteTarget): boolean {
+  const a = left as unknown as Record<string, unknown>,
+    b = right as unknown as Record<string, unknown>;
+  const keys = Object.keys(a).filter((key) => a[key] !== undefined);
+  return (
+    keys.length === Object.keys(b).filter((key) => b[key] !== undefined).length &&
+    keys.every((key) => a[key] === b[key])
+  );
+}
+
+export function sameWriteTargets(left: readonly WriteTarget[], right: readonly WriteTarget[]): boolean {
+  if (left.length !== right.length) return false;
+  const remaining = new Map(right.map((target) => [targetKey(target), target]));
+  if (remaining.size !== right.length) return false;
+  return left.every((target) => {
+    const key = targetKey(target),
+      candidate = remaining.get(key);
+    if (candidate === undefined || !sameWriteTarget(target, candidate)) return false;
+    remaining.delete(key);
+    return true;
+  });
+}
+
 export function normalizeContentAddressedInputs<T extends ContentAddressedInput>(inputs: readonly T[]): readonly T[] {
   const bySha256 = new Map<string, T>();
   for (const input of inputs) {
@@ -489,16 +521,11 @@ export function freezeDeclaredWritePlan<C extends string>(
   plan: WritePlan<C>,
   commandTypes: readonly string[],
 ): FrozenWritePlan<C> {
-  const logicalTargets = normalizeWriteTargets(plan.targets);
-  const resolvedPlan = { commandType: plan.commandType, targets: logicalTargets };
-  const errors = [
-    ...validateDeclaredWritePlan(plan, commandTypes),
-    ...validateDeclaredWritePlan(resolvedPlan, commandTypes),
-  ];
+  const errors = validateDeclaredWritePlan(plan, commandTypes);
   if (errors.length > 0) throw new WriteChainContractError("invalid_write_plan", errors.join("; "));
   return Object.freeze({
-    commandType: resolvedPlan.commandType,
-    targets: Object.freeze(resolvedPlan.targets.map((target) => Object.freeze({ ...target }))),
+    commandType: plan.commandType,
+    targets: Object.freeze(normalizeWriteTargets(plan.targets).map((target) => Object.freeze({ ...target }))),
   }) as FrozenWritePlan<C>;
 }
 
@@ -551,10 +578,11 @@ export function validateNormalizedCommandEnvelope<A extends ActorIdentity>(
   const errors: string[] = [];
   if (envelope.schema !== "normalized-command/v1" || envelope.workspaceId !== input.workspaceId)
     errors.push("normalized command schema or workspace is invalid");
-  if (JSON.stringify(canonicalizeWriteValue(envelope.actor)) !== JSON.stringify(canonicalizeWriteValue(input.actor)))
+  if (validateActorIdentity(envelope.actor).length > 0 || !sameActorIdentity(envelope.actor, input.actor))
     errors.push("normalized command actor is invalid");
   if (
-    JSON.stringify(canonicalizeWriteValue(envelope.source)) !== JSON.stringify(canonicalizeWriteValue(input.source)) ||
+    validateWriteSource(envelope.source).length > 0 ||
+    !sameWriteSource(envelope.source, input.source) ||
     envelope.expectedRevision !== input.expectedRevision
   )
     errors.push("normalized command source or expected revision is invalid");

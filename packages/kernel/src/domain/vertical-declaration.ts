@@ -11,6 +11,7 @@ import {
   freezeDeclaredWritePlan,
   hasContractFields,
   isFrozenWritePlan,
+  sameWriteTargets,
   isRecord,
   validateEventEnvelopeIdentity,
   type ActorIdentity,
@@ -498,10 +499,13 @@ export function assertVerticalDeclarationEventInputs(
     readonly body: string;
   }[],
 ): void {
-  const expected = verticalDeclarationWritePlan(event),
-    shape = (candidate: FrozenWritePlan) =>
-      stableStringify({ commandType: candidate.commandType, targets: candidate.targets.map(stableStringify).sort() });
-  if (!plan || !isFrozenWritePlan(plan) || shape(plan) !== shape(expected))
+  const expected = verticalDeclarationWritePlan(event);
+  if (
+    !plan ||
+    !isFrozenWritePlan(plan) ||
+    plan.commandType !== expected.commandType ||
+    !sameWriteTargets(plan.targets, expected.targets)
+  )
     throw new Error("vertical declaration write plan is not exact");
   const claim = event.payload.declarationDocumentClaim,
     blob = blobs.find((candidate) => candidate.sha256 === claim.sha256);

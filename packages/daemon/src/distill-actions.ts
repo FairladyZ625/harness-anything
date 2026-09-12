@@ -326,11 +326,7 @@ function suggestedClaimFromWorkspaceFile(rootDir: string, relativePath: string):
   return truncateClaim(readFileSync(path.join(rootDir, relativePath), "utf8"));
 }
 function truncateClaim(input: string): string {
-  const line =
-    input
-      .split(/\r?\n/u)
-      .map((entry) => entry.trim())
-      .find(Boolean) ?? "Distill candidate requires an explicit promotion claim.";
+  const line = /[^\n]*\S[^\n]*/u.exec(input)?.[0]?.trim() ?? "Distill candidate requires an explicit promotion claim.";
   return line.length > 240 ? `${line.slice(0, 237)}...` : line;
 }
 function nonEmptyString(value: unknown): value is string {

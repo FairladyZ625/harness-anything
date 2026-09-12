@@ -83,7 +83,12 @@ export function serializeEntityJsonSchema<T>(
   value: unknown,
   label?: string,
 ): string {
-  return `${JSON.stringify(parseEntityJsonSchema(schema, value, label), null, 2)}\n`;
+  return serializeEntityJsonSchemaUnchecked(parseEntityJsonSchema(schema, value, label));
+}
+
+/** The caller has already decoded the value against its declaration schema. */
+export function serializeEntityJsonSchemaUnchecked(value: unknown): string {
+  return `${JSON.stringify(value, null, 2)}\n`;
 }
 
 export function explainEntityJsonSchema(schema: EntityDocumentJsonSchema): readonly EntitySchemaFieldExplanation[] {

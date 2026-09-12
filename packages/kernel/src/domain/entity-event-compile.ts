@@ -27,7 +27,7 @@ import {
   type EntityUpdatedEventV1,
   type EntityUpsertEventV1,
 } from "./entity-event.ts";
-import { parseEntityJsonSchema, serializeEntityJsonSchema } from "./entity-json-schema.ts";
+import { parseEntityJsonSchema, serializeEntityJsonSchemaUnchecked } from "./entity-json-schema.ts";
 import {
   entityDocumentPath,
   requireEntityStoreKindContract,
@@ -305,7 +305,7 @@ export function compileEntityDeleted(
 }
 
 function declarationContent(contract: EntityStoreKindContract, entityId: string, entity: unknown) {
-  const body = serializeEntityJsonSchema(contract.schema, entity, `${contract.kind} declaration`),
+  const body = serializeEntityJsonSchemaUnchecked(entity),
     claim: EntityDeclarationClaim = {
       path: normalizeRelativeDocumentPath(entityDocumentPath(contract, entityId)),
       sha256: sha256Text(body),

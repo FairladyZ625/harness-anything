@@ -1,6 +1,5 @@
 import {
   assertGovernedRelationRecord,
-  assertGovernedRelationRegistryWitness,
   deriveRelationId,
   relationDirections,
   relationOrigins,
@@ -416,7 +415,6 @@ function validRelationEntity(value: Readonly<Record<string, unknown>>, allowUnkn
   if (!valid) return false;
   if (value.registry === undefined) return true;
   try {
-    assertGovernedRelationRegistryWitness(value.registry, allowUnknownFields);
     assertGovernedRelationRecord(relation as unknown as EntityRelationRecord, value.registry, allowUnknownFields);
     return true;
   } catch {

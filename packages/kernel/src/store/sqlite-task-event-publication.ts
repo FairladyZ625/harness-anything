@@ -326,7 +326,15 @@ export function readEventsThrough(
   sqlite: ReturnType<typeof openSqliteEventStore>,
   revision: number,
 ): readonly CanonicalEventV1[] {
-  return readPendingEvents(sqlite, 0).filter((event) => event.workspaceRevision <= revision);
+  const events: CanonicalEventV1[] = [];
+  let cursor = 0;
+  while (cursor < revision) {
+    const page = sqlite.eventsAfter(cursor, Math.min(1024, revision - cursor));
+    if (!page.length) break;
+    events.push(...page);
+    cursor = page.at(-1)!.workspaceRevision;
+  }
+  return events;
 }
 
 export function readPendingEvents(
@@ -428,19 +436,20 @@ export function settleWorktree(
       )
     )
       conflicts.push(target);
-  for (const file of writes)
+  for (const file of writes) {
+    const digest = publicationDigest(file.body);
     if (
       !settleVisibleChange(
         repoRoot,
         file.target,
-        `${file.mode}:${publicationDigest(file.body)}:${Buffer.byteLength(file.body)}`,
+        `${file.mode}:${digest}:${Buffer.byteLength(file.body)}`,
         baseline,
         killpoint,
         (hooks) => {
           if (preserve.has(file.target)) {
             hooks.beforeRename();
             const node = localGitWorktreeSettlement.readNode(`${repoRoot}/${file.target}`);
-            if (node && node.sha256 !== publicationDigest(file.body))
+            if (node && node.sha256 !== digest)
               localGitWorktreeSettlement.preserveVisibleConflict(
                 repoRoot,
                 `${repoRoot}/${file.target}`,
@@ -453,6 +462,7 @@ export function settleWorktree(
       )
     )
       conflicts.push(file.target);
+  }
   return conflicts;
 }
 

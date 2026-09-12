@@ -29,6 +29,7 @@ import { isTaskBoundRuntimeWriter, runtimeSessionIdFromActor } from "./task-boun
 import {
   freezeDeclaredWritePlan,
   isFrozenWritePlan,
+  sameWriteTargets,
   isRecord,
   normalizeContentAddressedInputs,
   type FrozenWritePlan,
@@ -379,13 +380,13 @@ export function assertDocSyncWritePlan(
   event: DocEventV1,
   plan: FrozenWritePlan<"DocSyncSubmit"> | undefined,
 ): asserts plan is FrozenWritePlan<"DocSyncSubmit"> {
-  const expected = docSyncWritePlan(event),
-    shape = (candidate: FrozenWritePlan<"DocSyncSubmit">) =>
-      stableStringify({
-        commandType: candidate.commandType,
-        targets: candidate.targets.map(stableStringify).sort(),
-      });
-  if (plan === undefined || !isFrozenWritePlan(plan) || shape(plan) !== shape(expected))
+  const expected = docSyncWritePlan(event);
+  if (
+    plan === undefined ||
+    !isFrozenWritePlan(plan) ||
+    plan.commandType !== expected.commandType ||
+    !sameWriteTargets(plan.targets, expected.targets)
+  )
     throw new DocSyncContractError("doc write plan must exactly declare event, head, projection, and content targets");
 }
 

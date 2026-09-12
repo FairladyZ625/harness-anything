@@ -13,6 +13,7 @@ import {
   type CanonicalWriteBundle,
 } from "../../src/store/task-event-store.ts";
 import { localGitObjectRefStore } from "../../src/store/local-version-control-system.ts";
+import { freezeDeclaredWritePlan } from "../../src/domain/write-chain.contract.ts";
 import { taskLifecycleWritePlan } from "../../src/domain/task-lifecycle-publication.ts";
 import { compileEntityUpsert } from "../../src/domain/entity-event-compile.ts";
 import type { TaskEventV1 } from "../../src/domain/task-lifecycle.contract.ts";
@@ -84,6 +85,20 @@ test("task/doc reducers share one SQLite transaction and L2 rebuild restores exa
       blobs: [{ sha256: hash, size: Buffer.byteLength(body), mediaType: "text/markdown", body }],
     });
     assert.throws(() => projection.apply(event), /write plan/iu);
+    for (const invalidPlan of [
+      { ...plan, targets: plan.targets.filter((target) => target.kind !== "content_blob") },
+      {
+        ...plan,
+        targets: [
+          ...plan.targets,
+          { kind: "content_blob" as const, sha256: "f".repeat(64), size: 1, mediaType: "text/plain" },
+        ],
+      },
+      { ...plan, commandType: "TaskCreate" as const },
+    ]) {
+      const frozen = freezeDeclaredWritePlan(invalidPlan, [invalidPlan.commandType]);
+      assert.throws(() => projection.apply(event, frozen), /write plan/iu);
+    }
     assert.deepEqual(projection.apply(event, plan).metrics, { sqliteTransactions: 1, reducedItems: 1 });
     const first = projection.readDocument("context/notes.md");
     assert.equal(first.status, "ready");

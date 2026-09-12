@@ -1,6 +1,10 @@
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { serializePersistedCanonicalEvent, type CanonicalEventV1 } from "../domain/doc-sync.contract.ts";
+import {
+  serializeCanonicalEventUnchecked,
+  serializePersistedCanonicalEvent,
+  type CanonicalEventV1,
+} from "../domain/doc-sync.contract.ts";
 import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 import { resolveHarnessLayout, type HarnessLayoutInput } from "../layout/index.ts";
 import { localRuntimeStateFileSystem } from "../local/local-layout-file-system.ts";
@@ -110,6 +114,14 @@ export interface SqliteEventStore {
       readonly recordedAt: string;
       readonly eventRecordedAt: readonly string[];
     };
+  }) => SqliteCommandOutcome;
+  /** Internal admission seam: the caller has validated the canonical bundle before invoking this. */
+  readonly appendValidatedBundle: (input: {
+    readonly intent?: (eventBytes: readonly string[]) => SqliteCommandIntent;
+    readonly fence: SqliteWriterFence;
+    readonly events: readonly CanonicalEventV1[];
+    readonly blobs: readonly CanonicalContentBlob[];
+    readonly beforeOutcome?: () => void;
   }) => SqliteCommandOutcome;
   readonly outcome: (opId: string) => SqliteCommandOutcome | null;
   readonly readCommandOutcome: (opId: string) => SqliteCommandOutcome | null;
@@ -395,6 +407,11 @@ export function openSqliteEventStore(options: {
       .get()!.version,
   );
 
+  const insertEvent = /* @gate-identity check-bypass-write-boundary/bypass-write-120 */ db.prepare(
+    "INSERT INTO event(revision, op_id, event_json, digest, occurred_at, recorded_at) " +
+      "VALUES (?, ?, ?, ?, ?, COALESCE(?, strftime('%Y-%m-%dT%H:%M:%fZ','now')))",
+  );
+
   const transaction = <A>(run: () => A): A => {
     /* @gate-identity check-bypass-write-boundary/bypass-write-125 */ db.exec("BEGIN IMMEDIATE");
     try {
@@ -445,7 +462,10 @@ export function openSqliteEventStore(options: {
     });
 
   const outcome = (opId: string): SqliteCommandOutcome | null => readOutcome(db, query, opId);
-  const appendCommand: SqliteEventStore["appendCommand"] = (input) => {
+  const appendCommand = (
+    input: Parameters<SqliteEventStore["appendCommand"]>[0],
+    eventBytes = input.events.map(serializePersistedCanonicalEvent),
+  ): SqliteCommandOutcome => {
     if ((options.conversionSourceGeneration !== undefined) !== (input.historicalRecord !== undefined))
       throw new TaskEventStoreError("invalid_write_plan", "historical timestamps require an offline conversion writer");
     if (
@@ -487,12 +507,9 @@ export function openSqliteEventStore(options: {
             "revision_conflict",
             `workspace revision ${event.workspaceRevision} must equal ` + `allocated revision ${revision}`,
           );
-        const eventJson = serializePersistedCanonicalEvent(event),
+        const eventJson = eventBytes[offset]!,
           digest = `sha256:${sha256Text(eventJson)}`;
-        /* @gate-identity check-bypass-write-boundary/bypass-write-120 */ db.prepare(
-          "INSERT INTO event(revision, op_id, event_json, digest, occurred_at, recorded_at) " +
-            "VALUES (?, ?, ?, ?, ?, COALESCE(?, strftime('%Y-%m-%dT%H:%M:%fZ','now')))",
-        ).run(
+        insertEvent.run(
           revision,
           event.opId,
           eventJson,
@@ -550,6 +567,22 @@ export function openSqliteEventStore(options: {
       return writer ? { repoId, ...writer } : null;
     },
     appendCommand,
+    appendValidatedBundle: ({ events, intent, ...input }) => {
+      const eventBytes = events.map(serializeCanonicalEventUnchecked),
+        terminal = events.at(-1)!;
+      return appendCommand(
+        {
+          ...input,
+          events,
+          intent: intent?.(eventBytes) ?? {
+            opId: terminal.opId,
+            intentDigest: `sha256:${sha256Text(JSON.stringify(eventBytes))}`,
+            summary: terminal.type,
+          },
+        },
+        eventBytes,
+      );
+    },
     outcome,
     readCommandOutcome: (opId) => readCommandOutcome(db, query, opId),
     outcomes: () => readOutcomes(db, query),
@@ -763,9 +796,7 @@ function objectPath(objectRoot: string, sha256: string): string {
 
 function readContentObject(objectRoot: string, sha256: string): Uint8Array | null {
   const target = objectPath(objectRoot, sha256);
-  return localContentObjectFileSystem.exists(target)
-    ? Buffer.from(localContentObjectFileSystem.readBytes(target))
-    : null;
+  return localContentObjectFileSystem.exists(target) ? localContentObjectFileSystem.readBytes(target) : null;
 }
 
 function listContentObjectDigests(objectRoot: string): readonly string[] {

@@ -630,6 +630,7 @@ function matchingReplayBundle(
     const claim = existing.payload.factsDocumentClaim,
       bytes = store.readContentBlob(claim.sha256);
     if (!bytes) reject("content_not_ready", `Facts content for ${existing.taskId} is unavailable.`);
+    const body = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
     return {
       event: existing,
       plan: factWritePlan(existing),
@@ -638,11 +639,11 @@ function matchingReplayBundle(
           sha256: claim.sha256,
           size: claim.size,
           mediaType: claim.mediaType,
-          body: new TextDecoder("utf-8", { fatal: true }).decode(bytes),
+          body,
         },
       ],
       path: claim.path,
-      body: new TextDecoder("utf-8", { fatal: true }).decode(bytes),
+      body,
     };
   }
   if (existing?.schema === "decision-event/v1" && !writesFact) {

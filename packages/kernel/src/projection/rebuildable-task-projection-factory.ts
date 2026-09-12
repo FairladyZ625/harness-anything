@@ -9,7 +9,7 @@ import {
   isMigrationImportEvent,
   isTaskEvent,
 } from "../domain/doc-sync.contract.ts";
-import type { FrozenWritePlan } from "../domain/write-chain.contract.ts";
+import { isFrozenWritePlan, sameWriteTargets, type FrozenWritePlan } from "../domain/write-chain.contract.ts";
 import { assertMigrationImportWritePlan } from "../domain/migration-import-event.ts";
 import {
   assertLedgerLayoutMigrationWritePlan,
@@ -106,11 +106,16 @@ export function makeTaskProjection(options: {
       if (isEntityEvent(event)) assertEntityUpsertWritePlan(event, plan as FrozenWritePlan<"EntityUpsert">);
       if (isScheduleEvent(event)) assertScheduleEventWritePlan(event, plan);
       if (isSettingsEvent(event)) assertSettingsEventWritePlan(event, plan);
-      if (
-        isVerticalDeclarationEvent(event) &&
-        JSON.stringify(plan) !== JSON.stringify(verticalDeclarationWritePlan(event))
-      )
-        throw new Error("vertical declaration write plan does not match the event");
+      if (isVerticalDeclarationEvent(event)) {
+        const expected = verticalDeclarationWritePlan(event);
+        if (
+          plan === undefined ||
+          !isFrozenWritePlan(plan) ||
+          plan.commandType !== expected.commandType ||
+          !sameWriteTargets(plan.targets, expected.targets)
+        )
+          throw new Error("vertical declaration write plan does not match the event");
+      }
       if (isPeopleEvent(event)) assertPeopleEventWritePlan(event, plan);
       if (
         isTaskEvent(event) &&

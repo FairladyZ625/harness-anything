@@ -1,6 +1,9 @@
 import { createHash } from "node:crypto";
 import path from "node:path";
-import { serializePersistedCanonicalEvent } from "../domain/doc-sync-canonical-events.ts";
+import {
+  serializeCanonicalEventUnchecked,
+  serializePersistedCanonicalEvent,
+} from "../domain/doc-sync-canonical-events.ts";
 import { validateCurrentCanonicalEvent } from "../domain/doc-sync-canonical-events.ts";
 import type { CanonicalEventV1 } from "../domain/doc-sync-types.ts";
 import { sha256Bytes, sha256Text, stableStringify } from "../integrity/stable-hash.ts";
@@ -175,21 +178,20 @@ export function convertLegacyGeneration(input: {
           body: generatedBlob?.body ?? new TextDecoder("utf-8", { fatal: true }).decode(bytes),
         };
       });
-      const eventJson = serializePersistedCanonicalEvent(event);
-      store.appendCommand({
+      store.appendValidatedBundle({
         fence,
-        intent: {
+        intent: ([eventJson]) => ({
           opId: event.opId,
-          intentDigest: `sha256:${sha256Text(eventJson)}`,
+          intentDigest: `sha256:${sha256Text(eventJson!)}`,
           summary: event.type,
-        },
+        }),
         events: [event],
         blobs,
       });
     }
     const stored = store.eventRows();
     for (const [index, event] of plan.events.entries())
-      if (stored[index]?.eventJson !== serializePersistedCanonicalEvent(event))
+      if (stored[index]?.eventJson !== serializeCanonicalEventUnchecked(event))
         throw new TaskEventStoreError("invalid_store", `converted event differs at revision ${index + 1}`);
     publishConvertedGeneration({ rootInput: input.rootDir, repoId: snapshot.repoId, store });
     return {
@@ -245,7 +247,7 @@ export function preflightConvertedGenerationActivation(input: {
       rows.length < plan.events.length ||
       rows
         .slice(0, plan.events.length)
-        .some((row, index) => row.eventJson !== serializePersistedCanonicalEvent(plan.events[index]!))
+        .some((row, index) => row.eventJson !== serializeCanonicalEventUnchecked(plan.events[index]!))
     )
       throw new TaskEventStoreError("invalid_store", "generation conversion is incomplete");
     const events = rows.map(
@@ -290,7 +292,6 @@ export function preflightConvertedGenerationActivation(input: {
 function validatedConversionPlan(snapshot: ImmutableLegacySnapshotV2, rootDir: string, snapshotPath: string) {
   const plan = planLegacyGenerationConversion({ rootDir, store: snapshotStore(snapshot, snapshotPath) });
   for (const event of plan.events) {
-    serializePersistedCanonicalEvent(event);
     const issues = validateCurrentCanonicalEvent(event);
     if (issues.length > 0)
       throw new TaskEventStoreError(

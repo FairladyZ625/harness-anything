@@ -387,10 +387,11 @@ function planned<A>(plan: FrozenWritePlan, target: WriteTarget, write: () => A):
   return write();
 }
 export function assertWriteTargetDeclared(plan: FrozenWritePlan, target: WriteTarget): void {
+  const targetJson = json(target);
   if (
     !Object.isFrozen(plan) ||
     !Object.isFrozen(plan.targets) ||
-    !plan.targets.some((candidate) => json(candidate) === json(target))
+    !plan.targets.some((candidate) => json(candidate) === targetJson)
   )
     throw new TaskLifecycleOperationConflict(`undeclared_write_target: ${json(target)}`);
 }

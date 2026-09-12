@@ -9,7 +9,7 @@ import { explainEntityKind } from "../../src/domain/entity-kind-registry.ts";
 import { type EntityEventV1 } from "../../src/domain/entity-event.ts";
 import { assertContentInputs } from "../../src/store/task-event-store-validation.ts";
 import type { EntityUpsertBundle } from "../../src/domain/entity-event-compile.ts";
-import { validateWriteReceipt } from "../../src/domain/write-chain.contract.ts";
+import { sameWriteTargets, validateWriteReceipt } from "../../src/domain/write-chain.contract.ts";
 import { createEntityOwnedContent, MAX_ENTITY_CONTENT_OBJECT_BYTES } from "../../src/domain/entity-owned-content.ts";
 
 const actor = { principal: { personId: "person-entity-store" }, executor: null } as const;
@@ -299,6 +299,35 @@ test("EntityStore hot reads consume only events appended since the cached cursor
   }
 });
 
+test("EntityStore reuses accepted records while new content and revisions replace the cache", () => {
+  const body = `${JSON.stringify(agent, null, 2)}\n`,
+    first = storedAgentEvent(agent, body, 1),
+    events = [first],
+    blobs = new Map([[first.payload.declarationDocumentClaim.sha256, Buffer.from(body)]]),
+    source = entitySource(events, blobs);
+  let reads = 0;
+  const store = createEntityStore({
+    ...source,
+    readContentBlob: (sha256) => {
+      reads += 1;
+      return source.readContentBlob(sha256);
+    },
+  });
+  assert.equal(store.get("agent", "terra")?.workspaceRevision, 1);
+  assert.equal(store.list("agent").length, 1);
+  assert.equal(reads, 1);
+  events.push(storedAgentEvent(agent, body, 2));
+  assert.equal(store.get("agent", "terra")?.workspaceRevision, 2);
+  const changed = { ...agent, name: "Updated Terra" },
+    changedBody = `${JSON.stringify(changed, null, 2)}\n`,
+    next = storedAgentEvent(changed, changedBody, 3);
+  blobs.set(next.payload.declarationDocumentClaim.sha256, Buffer.from(changedBody));
+  events.push(next);
+  assert.equal(store.get<typeof agent>("agent", "terra")?.value.name, "Updated Terra");
+  assert.equal(store.list("agent")[0]?.workspaceRevision, 3);
+  assert.equal(reads, 3);
+});
+
 test("entity_upsert receipt detail is closed and registered", () => {
   const receipt = {
     ...committedAcceptance("op-agent-terra-1", 1),
@@ -402,4 +431,21 @@ test("an owned content object is described up to the maximum object size and ref
     () => createEntityOwnedContent(binding(MAX_ENTITY_CONTENT_OBJECT_BYTES + 1, "3")),
     /content object reference is invalid/u,
   );
+});
+
+test("write-target comparison is order independent, rejects duplicates, and reads fields linearly", () => {
+  let reads = 0;
+  const count = 2000,
+    targets = Array.from({ length: count }, (_, index) => ({
+      kind: "event_file" as const,
+      get path() {
+        reads += 1;
+        return `harness/events/op-${index}.json`;
+      },
+      operation: "create" as const,
+    }));
+  assert.equal(sameWriteTargets([...targets].reverse(), targets), true);
+  assert.ok(reads <= count * 8, `comparison read ${reads} paths for ${count} targets`);
+  assert.equal(sameWriteTargets([targets[0]!, targets[0]!], targets.slice(0, 2)), false);
+  assert.equal(sameWriteTargets(targets.slice(0, 2), [targets[0]!, targets[0]!]), false);
 });
