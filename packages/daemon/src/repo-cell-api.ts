@@ -1019,6 +1019,19 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
       )
         return receipt;
       const read = () => attachReceiptAcceptance(receipt, context.store, context.projection);
+      if (action.kind === "task-create" && receipt.proof?.durable === true) {
+        await context.store.settlePendingMaterialization?.("task create");
+        const settled = read();
+        return settled.proof?.worktreeVisible
+          ? settled
+          : {
+              ...settled,
+              outcome: "pending",
+              summary:
+                "Task creation is durable; materialization is pending. " +
+                `Wait with ha receipt show ${receipt.opId} --wait worktree_visible.`,
+            };
+      }
       return action.kind === "receipt-show" && action.waitFor !== undefined
         ? waitForReceiptAcceptance(read, action.waitFor, action.timeoutMs, signal, async () => {
             await context.store.settlePendingMaterialization?.("receipt wait");
