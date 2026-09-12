@@ -635,9 +635,10 @@ test("portable runtime binding retains the assignment scope required by the exis
     prepare = runtimeSessionActionPreparer(
       () =>
         ({
-          readRuntimeDispatches: () => [
-            { source, payload: { runtimeSessionId: "runtime-1", dispatchId: "dispatch-1" } },
-          ],
+          readRuntimeDispatch: () => ({
+            source,
+            payload: { runtimeSessionId: "runtime-1", dispatchId: "dispatch-1" },
+          }),
         }) as never,
     ),
     contract = getExecutableEntityAction("runtime_session_task_bound");
