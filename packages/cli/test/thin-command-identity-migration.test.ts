@@ -1,7 +1,26 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
+import path from "node:path";
 import { parseThinCommand } from "../src/cli/thin-command.ts";
+
+test("Agent and Squad package sources resolve against caller cwd independently of repository selection", () => {
+  const caller = path.resolve("caller"),
+    repository = path.resolve("repository");
+  for (const kind of ["agent", "squad"]) {
+    for (const action of ["validate", "install"]) {
+      for (const source of ["./declaration", "../declaration", path.resolve("absolute-declaration")]) {
+        for (const selection of [[], ["--root", repository], ["--repo", "selected-repository"]]) {
+          const parsed = parseThinCommand([kind, action, "--source", source, ...selection], caller);
+          assert.equal(parsed.ok, true);
+          if (!parsed.ok) continue;
+          assert.equal(parsed.command.action.packageSource, path.resolve(caller, source));
+          assert.equal(parsed.command.rootDir, selection[0] === "--root" ? repository : caller);
+        }
+      }
+    }
+  }
+});
 
 test("squad run derives its mission from task unless prompt overrides it", () => {
   const promptFile = parseThinCommand([

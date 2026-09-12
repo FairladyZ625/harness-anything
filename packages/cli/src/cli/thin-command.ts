@@ -31,6 +31,7 @@ export type { ThinCommand } from "./thin-command-types.ts";
 export type { ThinParseResult } from "./thin-command-types.ts";
 export type { ThinCliInput } from "./thin-command-types.ts";
 
+import path from "node:path";
 import {
   daemonProtocolCommands,
   resolveThinCliCommand,
@@ -74,6 +75,14 @@ export function parseThinCommand(
   if (route?.id === "task-dispatches" && nonEmpty(args[2]) && args.length === 3)
     return accepted(rootDir, repoId, json, { kind: "task-dispatches", taskId: args[2] }, "repo.task.dispatches");
   const routed = parseRouted(route, args, rootDir, repoId, json, inputs);
+  if (routed?.ok && typeof routed.command.action.packageSource === "string")
+    return {
+      ...routed,
+      command: {
+        ...routed.command,
+        action: { ...routed.command.action, packageSource: path.resolve(cwd, routed.command.action.packageSource) },
+      },
+    };
   if (routed) return routed;
   if (!route || args[0] !== "task") return rejected("unsupported_command", unsupportedCommandHint(args), json);
   return parseTaskRoute(route.id, args, rootDir, repoId, json, inputs);
