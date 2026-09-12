@@ -65,6 +65,8 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useActiveEdgesQuery, usePaletteFactsQuery } from "../src/renderer/triadic-data.ts";
+import { useFactFacetStats } from "../src/renderer/entities-data.ts";
+import { FactFacetLive, FactTypeVocabulary } from "../src/renderer/components/entityDoc/FactVocabularySections.tsx";
 import { harnessClient } from "../src/renderer/api-client.ts";
 
 it("facet hooks fetch one page on mount and retain rows through explicit continuation and failure", async () => {
@@ -73,7 +75,7 @@ it("facet hooks fetch one page on mount and retain rows through explicit continu
     ok: true,
     facet: "facts",
     facts: [{ anchor: payload.cursor ? "fact/second" : "fact/first", text: "fact", category: "finding" }],
-    domainTypes: [],
+    domainTypes: [{ domainType: "architecture", registeredByFactId: "F-AAAABBBB", workspaceRevision: 1 }],
     warnings: [],
     page: { limit: 500, cursor: payload.cursor ?? null, nextCursor: payload.cursor ? null : "facts-next" },
   }));
@@ -82,8 +84,14 @@ it("facet hooks fetch one page on mount and retain rows through explicit continu
     .mockImplementation(async (payload) => page({}, payload.cursor ? null : "edges-next"));
   let current: { facts: ReturnType<typeof usePaletteFactsQuery>; edges: ReturnType<typeof useActiveEdgesQuery> };
   function Probe() {
+    const stats = useFactFacetStats("repo", true);
     current = { facts: usePaletteFactsQuery("repo", true), edges: useActiveEdgesQuery("repo", true) };
-    return null;
+    return createElement(
+      "div",
+      null,
+      createElement(FactFacetLive, { stats }),
+      createElement(FactTypeVocabulary, { stats }),
+    );
   }
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const host = document.createElement("div"),
@@ -103,6 +111,10 @@ it("facet hooks fetch one page on mount and retain rows through explicit continu
     expect(facts.mock.calls[0][0]).toEqual({ repoId: "repo", facet: "facts", limit: 500 });
     expect(current!.facts.hasNextPage).toBe(true);
     expect(current!.edges.hasNextPage).toBe(true);
+    expect(host.textContent).toContain("已加载 1 条 fact");
+    expect(host.textContent).toContain("统计仅含已加载事实");
+    expect(host.textContent).toContain("architecture");
+    expect(host.textContent).toContain("fact/F-AAAABBBB");
     facts.mockRejectedValueOnce(new Error("page unavailable"));
     await act(async () => {
       await current!.facts.fetchNextPage();
@@ -112,7 +124,7 @@ it("facet hooks fetch one page on mount and retain rows through explicit continu
     expect(current!.facts.facts.map((row) => row.anchor)).toEqual(["fact/first"]);
     expect(current!.facts.hasNextPage).toBe(true);
     await act(async () => {
-      await current!.facts.fetchNextPage();
+      host.querySelector("button")!.click();
       await current!.edges.fetchNextPage();
     });
     await settle();
@@ -126,6 +138,10 @@ it("facet hooks fetch one page on mount and retain rows through explicit continu
     expect(current!.facts.facts.map((row) => row.anchor)).toEqual(["fact/first", "fact/second"]);
     expect(current!.facts.hasNextPage).toBe(false);
     expect(current!.edges.hasNextPage).toBe(false);
+    expect(host.textContent).toContain("2 条 fact");
+    expect(host.textContent).toContain("finding · 2");
+    expect(host.textContent).not.toContain("统计仅含已加载事实");
+    expect(host.querySelector("button")).toBeNull();
   } finally {
     await act(async () => root.unmount());
     client.clear();

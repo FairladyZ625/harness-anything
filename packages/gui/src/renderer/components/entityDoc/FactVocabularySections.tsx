@@ -55,7 +55,10 @@ export function FactFacetLive({ stats }: { readonly stats: ReturnType<typeof use
       {stats.state === "error" && <p className="ui-meta text-status-blocked">事实切面读取失败。</p>}
       {stats.state === "ready" && (
         <div className="flex flex-wrap items-center gap-2 ui-meta">
-          <span className="font-mono text-text">{stats.total} 条 fact</span>
+          <span className="font-mono text-text">
+            {stats.hasNextPage ? "已加载 " : ""}
+            {stats.total} 条 fact
+          </span>
           {stats.byCategory.map((entry) => (
             <span
               key={entry.category}
@@ -65,6 +68,11 @@ export function FactFacetLive({ stats }: { readonly stats: ReturnType<typeof use
             </span>
           ))}
         </div>
+      )}
+      {stats.hasNextPage && (
+        <button disabled={stats.isFetching} onClick={() => stats.fetchNextPage()}>
+          统计仅含已加载事实，加载更多事实
+        </button>
       )}
       {stats.state === "ready" && (
         <p className="mt-2 ui-micro leading-relaxed text-text-faint">

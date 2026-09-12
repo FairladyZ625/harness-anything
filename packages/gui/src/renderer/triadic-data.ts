@@ -105,6 +105,7 @@ export function usePaletteFactsQuery(repoId: string | null, enabled: boolean) {
   );
   return {
     facts,
+    domainTypes: query.data?.pages[0]?.domainTypes ?? [],
     isPending: repoId !== null && enabled && query.isPending,
     isError: query.isError,
     hasNextPage: query.hasNextPage,
