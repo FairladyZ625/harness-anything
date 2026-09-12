@@ -147,7 +147,13 @@ type SummaryCacheEntry = {
   readonly value: DispatchStreamSummary | null;
 };
 
+type HeaderCacheEntry = {
+  readonly mtimeMs: number;
+  readonly values: readonly DispatchStreamHeader[];
+};
+
 const summaryCache = new Map<string, SummaryCacheEntry>();
+const headerCache = new Map<string, HeaderCacheEntry>();
 const summaryHeadBytes = 16 * 1024;
 const summaryTailBytes = 128 * 1024;
 const dispatchStreamReadLimitBytes = 200 * 1024 * 1024;
@@ -279,7 +285,11 @@ export function removeDispatchLiveIndexEntries(rootDir: string, removals: readon
 
 export function readDispatchStreamHeader(rootDir: string, dispatchId: string): DispatchStreamHeader | null {
   const target = dispatchStreamPath(rootDir, dispatchId);
-  if (!existsSync(target) || !statSync(target).isFile()) return null;
+  const stat = statSync(target, { throwIfNoEntry: false });
+  return stat?.isFile() ? readDispatchStreamHeaderAt(target, dispatchId) : null;
+}
+
+function readDispatchStreamHeaderAt(target: string, dispatchId: string): DispatchStreamHeader | null {
   const descriptor = openSync(target, fsConstants.O_RDONLY),
     chunks: Buffer[] = [];
   try {
@@ -305,14 +315,14 @@ export function readDispatchStreamHeader(rootDir: string, dispatchId: string): D
  */
 export function readDispatchStreamSummary(rootDir: string, dispatchId: string): DispatchStreamSummary | null {
   const target = dispatchStreamPath(rootDir, dispatchId);
-  if (!existsSync(target) || !statSync(target).isFile()) {
+  const stat = statSync(target, { throwIfNoEntry: false });
+  if (!stat?.isFile()) {
     summaryCache.delete(target);
     return null;
   }
-  const stat = statSync(target),
-    cached = summaryCache.get(target);
+  const cached = summaryCache.get(target);
   if (cached?.mtimeMs === stat.mtimeMs && cached.size === stat.size) return cached.value;
-  const header = readDispatchStreamHeader(rootDir, dispatchId);
+  const header = readDispatchStreamHeaderAt(target, dispatchId);
   if (!header) {
     summaryCache.set(target, { mtimeMs: stat.mtimeMs, size: stat.size, value: null });
     return null;
@@ -343,11 +353,19 @@ export function readDispatchStreamSummary(rootDir: string, dispatchId: string): 
 
 export function readDispatchStreamHeaders(rootDir: string): readonly DispatchStreamHeader[] {
   const root = dispatchStreamRoot(rootDir);
-  if (!existsSync(root) || !statSync(root).isDirectory()) return [];
-  return readdirSync(root)
+  const stat = statSync(root, { throwIfNoEntry: false });
+  if (!stat?.isDirectory()) {
+    headerCache.delete(root);
+    return [];
+  }
+  const cached = headerCache.get(root);
+  if (cached?.mtimeMs === stat.mtimeMs) return cached.values;
+  const values = readdirSync(root)
     .filter((name) => /^dispatch_[a-f0-9]{24}\.jsonl$/u.test(name))
     .map((name) => readDispatchStreamHeader(rootDir, name.slice(0, -6)))
     .filter((header): header is DispatchStreamHeader => header !== null);
+  headerCache.set(root, { mtimeMs: stat.mtimeMs, values });
+  return values;
 }
 
 export function readDispatchStreamSummaries(rootDir: string): readonly DispatchStreamSummary[] {
