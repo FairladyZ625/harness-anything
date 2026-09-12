@@ -63,8 +63,7 @@ export function readLatestCiEvidence(
   // unverified observation to find an older green observation; verified cancelled/skipped runs give no verdict.
   const submitted = execution.submission.commitSha,
     publicCut = localGitObjectRefStore.hasCommit(cell.rootDir, submitted),
-    root = publicCut ? cell.rootDir : resolveHarnessLayout(cell.rootDir).authoredRoot,
-    workflows = cell.settings.read().ci.workflows;
+    root = publicCut ? cell.rootDir : resolveHarnessLayout(cell.rootDir).authoredRoot;
   for (const event of observations.events) {
     if (!relatedCiObservation(root, event, submitted)) continue;
     const verification = event.payload.verification;
@@ -73,14 +72,14 @@ export function readLatestCiEvidence(
       !verification ||
       (publicCut
         ? verification.source !== "github-actions" ||
-          !workflows.includes(verification.workflow) ||
+          !cell.settings.read().ci.workflows.includes(verification.workflow) ||
           event.payload.run.branch !== "main"
         : verification.source !== "write-coordinator" || verification.workflow !== "ledger-publication")
     )
       throw cell.cellCodedError(
         "invalid_proof",
         publicCut
-          ? `Public delivery requires a verified ${workflows.join(" or ")} GitHub main run.`
+          ? `Public delivery requires a verified ${cell.settings.read().ci.workflows.join(" or ")} GitHub main run.`
           : "Private delivery requires a verified ledger-publication observation for its authored cut.",
       );
     if (verification.conclusion === "cancelled" || verification.conclusion === "skipped") continue;
