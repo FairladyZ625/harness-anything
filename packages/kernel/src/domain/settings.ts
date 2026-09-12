@@ -124,7 +124,7 @@ export const INITIAL_SETTINGS_V1: SettingsV1 = Object.freeze({
   restoreDrillRetention: DEFAULT_RESTORE_DRILL_RETENTION,
 });
 
-const settingValuePattern = "^[A-Za-z0-9][A-Za-z0-9/_.@-]*$";
+export const settingValuePattern = "^[A-Za-z0-9][A-Za-z0-9/_.@-]*$";
 
 export const SETTINGS_V1_SCHEMA: EntityDocumentJsonSchema<SettingsV1> = {
   $schema: "https://json-schema.org/draft/2020-12/schema",
@@ -356,6 +356,7 @@ export function writeRepositorySettingsFacet(body: string, settings: RepositoryS
     INITIAL_SETTINGS_V1.scaffolds.task,
   );
   next = writeWalFlushFacet(next, repository.walFlush);
+  next = writeCiFacet(next, repository.ci);
   next = replaceOptionalDefaultedScalar(
     next,
     "  ",
@@ -468,6 +469,17 @@ function writeWalFlushFacet(body: string, settings: WalFlushSettingsV1): string 
     `    milliseconds: ${settings.milliseconds}`,
     "",
   ].join("\n");
+  if (section.test(body)) return body.replace(section, rendered);
+  const header = /^settings:[^\r\n]*(?:\r?\n|$)/mu;
+  if (!header.test(body)) throw new Error("Missing settings block in harness.yaml.");
+  return body.replace(header, (match) => `${match}${rendered}`);
+}
+
+function writeCiFacet(body: string, ci: RepositorySettingsV1["ci"]): string {
+  const section = /^  ci:[^\S\r\n]*(?:\r?\n)(?:    [^\r\n]*(?:\r?\n|$))*/mu,
+    isDefault = JSON.stringify(ci) === JSON.stringify(INITIAL_SETTINGS_V1.ci);
+  if (!section.test(body) && isDefault) return body;
+  const rendered = `  ci:\n    workflows: [${ci.workflows.join(", ")}]\n`;
   if (section.test(body)) return body.replace(section, rendered);
   const header = /^settings:[^\r\n]*(?:\r?\n|$)/mu;
   if (!header.test(body)) throw new Error("Missing settings block in harness.yaml.");

@@ -15,6 +15,7 @@ import {
   repositorySettings,
   DEFAULT_RESTORE_DRILL_RETENTION,
   reviewIndependenceLevels,
+  settingValuePattern,
   settingsLocales,
   validateRepositorySettings,
   writeRepositorySettingsFacet,
@@ -49,6 +50,7 @@ const repositoryFieldNames = Object.freeze([
   "walFlushEvents",
   "walFlushBytes",
   "walFlushMilliseconds",
+  "ciWorkflows",
   "restoreDrillRetention",
 ] as const);
 
@@ -136,6 +138,7 @@ export function createSettingsActionCatalog(
           field("walFlushEvents", "number"),
           field("walFlushBytes", "number"),
           field("walFlushMilliseconds", "number"),
+          field("ciWorkflows", "string-array"),
           field("restoreDrillRetention", "number"),
           field("expectedVersion", "number"),
           field("idempotencyKey"),
@@ -219,7 +222,7 @@ export function compileSettingsUpdate(input: EntityActionCompileInput): Settings
         bytes: updatedPositiveInteger(input.action, "walFlushBytes", current.walFlush.bytes),
         milliseconds: updatedPositiveInteger(input.action, "walFlushMilliseconds", current.walFlush.milliseconds),
       },
-      ci: current.ci,
+      ci: { workflows: updatedWorkflows(input.action, current.ci.workflows) },
       restoreDrillRetention: updatedPositiveInteger(
         input.action,
         "restoreDrillRetention",
@@ -295,6 +298,20 @@ function updatedPositiveInteger(action: Readonly<Record<string, unknown>>, name:
     parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : Number.NaN;
   if (Number.isSafeInteger(parsed) && parsed > 0) return parsed;
   rejectSettings("invalid_command", `${name} must be a positive integer.`);
+}
+
+function updatedWorkflows(action: Readonly<Record<string, unknown>>, current: readonly string[]): readonly string[] {
+  if (!Object.hasOwn(action, "ciWorkflows")) return current;
+  const value = action.ciWorkflows;
+  if (!Array.isArray(value) || value.length === 0 || value.some((workflow) => typeof workflow !== "string"))
+    rejectSettings("invalid_command", "ciWorkflows must be a non-empty array of workflow names.");
+  const workflows = value.map((workflow) => workflow.trim());
+  if (
+    workflows.some((workflow) => !new RegExp(settingValuePattern, "u").test(workflow) || /\.ya?ml$/u.test(workflow)) ||
+    new Set(workflows).size !== workflows.length
+  )
+    rejectSettings("invalid_command", "ciWorkflows must contain unique workflow names without .yml.");
+  return workflows;
 }
 
 function rejectSettings(code: string, message: string): never {

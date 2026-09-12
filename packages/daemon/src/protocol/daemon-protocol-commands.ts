@@ -88,6 +88,13 @@ const settingsWriteTopology = {
         positiveSettingInput("--wal-flush-bytes"),
         positiveSettingInput("--wal-flush-milliseconds"),
         cliInput(
+          "--ci-workflows",
+          "repeated",
+          false,
+          { code: "invalid_field" },
+          { regex: "^[A-Za-z0-9][A-Za-z0-9/_.@-]*$" },
+        ),
+        cliInput(
           "--expected-version",
           "single",
           false,
