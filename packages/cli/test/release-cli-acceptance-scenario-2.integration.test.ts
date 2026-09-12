@@ -4,8 +4,6 @@ import * as shared from "./release-cli-acceptance.fixture.ts";
 
 const {
   assert,
-  execFileSync,
-  spawnSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -13,27 +11,17 @@ const {
   rmSync,
   statSync,
   writeFileSync,
-  hostname,
   tmpdir,
   path,
   makeTaskEventReader,
-  sha256Bytes,
   seedSettingsEvent,
-  realizedPlan,
-  cli,
-  daemonId,
   initialize,
   git,
   gitBytes,
-  gitHasPath,
-  environment,
   startDaemon,
   run,
   runMaybe,
-  runOffline,
   settle,
-  writeCloseout,
-  docStatusRows,
 } = shared;
 
 test("release acceptance: a fresh custom Artifact kind runs its file/folder lifecycle with Git-bound publication", async (context) => {

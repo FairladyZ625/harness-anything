@@ -14,7 +14,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import test from "node:test";
+import type { TestContext } from "node:test";
 import { makeTaskEventReader } from "../../kernel/src/index.ts";
 import { safePath } from "../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { localUserDaemonEndpoint, runCommandThroughDaemon } from "../src/daemon/client.ts";
@@ -23,7 +23,7 @@ import { realizedTaskPlan as realizedPlan } from "../../../tools/fixtures/task-p
 
 const cli = path.resolve("packages/cli/src/index.ts");
 
-test("real CLI runs, archives task-bound dispatches, resumes, waits through status, streams, and cancels idempotently", async (context) => {
+export async function runRuntimeCliLifecycleScenario(context: TestContext): Promise<void> {
   const parent = mkdtempSync(path.join(process.platform === "win32" ? tmpdir() : "/tmp", "ha-runtime-cli-")),
     root = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
@@ -1499,7 +1499,7 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
     runMaybe(root, env, ["daemon", "stop"]);
     rmSync(parent, { recursive: true, force: true });
   }
-});
+}
 
 async function runtimeInvariantEvidence(
   root: string,

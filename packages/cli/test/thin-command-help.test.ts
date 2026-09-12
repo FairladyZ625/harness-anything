@@ -2,10 +2,10 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { daemonProtocolCommands, thinCliCommands } from "../../daemon/src/protocol/daemon-protocol.contract.ts";
+import { daemonProtocolCommands } from "../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { taskCreateGuidance } from "../../daemon/src/receipt-guidance.ts";
-import { deriveCliCapabilities, parseThinCommand, renderThinHelp } from "../src/cli/thin-command.ts";
-import { emit, main, resolveCliVersion } from "../src/index.ts";
+import { parseThinCommand, renderThinHelp } from "../src/cli/thin-command.ts";
+import { emit, resolveCliVersion } from "../src/index.ts";
 
 test("doc conflict exits preserve the conflict id for daemon dispatch", () => {
   for (const action of ["resolve", "discard-local", "overwrite-center"] as const) {

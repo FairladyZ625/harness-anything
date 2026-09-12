@@ -14,7 +14,7 @@ import {
   writeFileSync,
 } from "node:fs";
 
-import { createServer, type Socket } from "node:net";
+import { createServer } from "node:net";
 
 import { hostname, tmpdir } from "node:os";
 

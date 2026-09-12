@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { parseThinCommand } from "../src/cli/thin-command.ts";
-import { materializePacketStdin, rawTemplateBody } from "../src/index.ts";
+import { rawTemplateBody } from "../src/index.ts";
 import { packetJson } from "../../daemon/src/repo-cell-packets.ts";
 
 test("thin parser derives builtin vertical, template, and script discovery actions", () => {

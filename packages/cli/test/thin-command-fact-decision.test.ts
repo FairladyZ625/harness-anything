@@ -2,8 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { parseThinCommand } from "../src/cli/thin-command.ts";
-import { materializePacketStdin, rawTemplateBody } from "../src/index.ts";
-import { packetJson } from "../../daemon/src/repo-cell-packets.ts";
+import { materializePacketStdin } from "../src/index.ts";
 
 test("Fact CLI exposes record, controlled types, search, and show while keeping local errors closed", () => {
   const record = parseThinCommand([

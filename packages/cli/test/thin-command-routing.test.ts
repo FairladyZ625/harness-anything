@@ -1,11 +1,9 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import test from "node:test";
 import { daemonProtocolCommands, thinCliCommands } from "../../daemon/src/protocol/daemon-protocol.contract.ts";
-import { taskCreateGuidance } from "../../daemon/src/receipt-guidance.ts";
 import { deriveCliCapabilities, parseThinCommand, renderThinHelp } from "../src/cli/thin-command.ts";
-import { emit, main, resolveCliVersion } from "../src/index.ts";
+import { main } from "../src/index.ts";
 
 test("top-level help renders a derived domain directory and domain help filters commands", () => {
   const help = renderThinHelp();
@@ -442,15 +440,3 @@ test("task transition leaves lifecycle eligibility to the kernel", () => {
     true,
   );
 });
-
-function captureStdout(run: () => void): string {
-  const lines: string[] = [],
-    log = console.log;
-  console.log = (...values: unknown[]) => lines.push(values.join(" "));
-  try {
-    run();
-    return lines.join("\n");
-  } finally {
-    console.log = log;
-  }
-}

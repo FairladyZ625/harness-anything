@@ -4,27 +4,18 @@ import * as shared from "./cli-lifecycle-user-journey-stress.fixture.ts";
 
 const {
   assert,
-  execFileSync,
-  spawn,
   existsSync,
-  mkdirSync,
-  mkdtempSync,
   readFileSync,
   readdirSync,
   rmSync,
   writeFileSync,
-  hostname,
-  tmpdir,
   path,
-  seedSettingsEvent,
   realizedTaskPlan,
-  cli,
   clientCount,
   chainsPerClient,
   runClient,
   runChain,
   startClient,
-  waitForAttached,
   stopClient,
   setup,
   actorLabel,
@@ -36,10 +27,8 @@ const {
   waitForMaterializationFailure,
   expectApplied,
   published,
-  expectNoop,
   runResult,
   git,
-  delay,
 } = shared;
 
 test("eight isolated CLI clients complete 24 lifecycle chains", async (context) => {
