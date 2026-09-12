@@ -4,8 +4,9 @@ set -eu
 # Installed by pointing git at this directory:
 #   git config core.hooksPath tools/git-hooks   (or: npm run hooks:install)
 #
-# Rebuilds CLI dist after a BRANCH checkout that changed CLI source or bundled
-# assets, so local `ha` reflects the branch you switched to.
+# Rebuilds CLI and daemon dist after a BRANCH checkout that changed their
+# sources or bundled assets, so local `ha` and the resident daemon reflect the
+# branch you switched to.
 # Args (git-provided): $1 = previous HEAD, $2 = new HEAD, $3 = 1 for branch
 # checkout / 0 for file checkout.
 
@@ -19,32 +20,35 @@ branch_checkout=$3
 [ "$prev_head" != "$new_head" ] || exit 0
 
 repo_root=$(git rev-parse --show-toplevel)
+hook_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
 cd "$repo_root"
+. "$hook_dir/lib.sh"
 
 # Fresh clone / unborn prev ref: cannot diff, so rebuild conservatively.
 if ! git rev-parse --verify --quiet "$prev_head^{commit}" >/dev/null 2>&1; then
-  echo "post-checkout: initial checkout; rebuilding CLI conservatively."
+  echo "post-checkout: initial checkout; rebuilding CLI and daemon conservatively."
   npm run build -w @harness-anything/cli
+  npm run build -w @harness-anything/daemon
   exit 0
 fi
 
-# CLI triggers are derived from the CLI build program itself (same derivation as
-# post-merge): the package roots tsc compiles for packages/cli/tsconfig.build.json,
-# so adding an upstream source dependency extends the trigger list with the code.
-cli_trigger_roots=$(node_modules/.bin/tsc -p packages/cli/tsconfig.build.json --listFilesOnly \
-  | awk -v root="$repo_root" 'index($0, root "/packages/") == 1 { sub(root "/", ""); split($0, seg, "/"); print seg[1] "/" seg[2] }' | sort -u)
+cli_trigger_paths=$(package_trigger_paths packages/cli)
+daemon_trigger_paths=$(package_trigger_paths packages/daemon)
 
-cli_trigger_paths="package-lock.json package.json packages/cli/package.json packages/cli/tsconfig.build.json packages/cli/scripts/copy-assets.mjs packages/preset/assets"
-for cli_root in $cli_trigger_roots; do
-  cli_trigger_paths="$cli_trigger_paths $cli_root $cli_root/package.json"
-done
+cli_changed_paths=$(git diff --name-only "$prev_head" "$new_head" -- $cli_trigger_paths)
+daemon_changed_paths=$(git diff --name-only "$prev_head" "$new_head" -- $daemon_trigger_paths)
 
-changed_paths=$(git diff --name-only "$prev_head" "$new_head" -- $cli_trigger_paths)
-
-if [ -z "$changed_paths" ]; then
-  echo "post-checkout: no CLI source or asset changes; skipping CLI build."
+if [ -z "$cli_changed_paths" ] && [ -z "$daemon_changed_paths" ]; then
+  echo "post-checkout: no CLI or daemon source changes; skipping builds."
   exit 0
 fi
 
-echo "post-checkout: CLI source or assets changed; rebuilding @harness-anything/cli."
-npm run build -w @harness-anything/cli
+if [ -n "$cli_changed_paths" ]; then
+  echo "post-checkout: CLI source, assets, or upstream packages changed; rebuilding @harness-anything/cli."
+  npm run build -w @harness-anything/cli
+fi
+
+if [ -n "$daemon_changed_paths" ]; then
+  echo "post-checkout: daemon source or upstream packages changed; rebuilding @harness-anything/daemon."
+  npm run build -w @harness-anything/daemon
+fi

@@ -4,32 +4,29 @@ set -eu
 # Installed by pointing git at this directory:
 #   git config core.hooksPath tools/git-hooks   (or: npm run hooks:install)
 #
-# Keeps the workspace CLI dist fresh after merges that changed CLI source or
-# bundled assets, so local `ha` shims that point at dist do not go stale.
+# Keeps the workspace CLI, daemon, and GUI dist fresh after merges that changed
+# their sources or bundled assets, so local `ha` shims that point at dist do
+# not go stale and the resident daemon does not run an old build. Fast-forward
+# pulls run this hook too.
 
 repo_root=$(git rev-parse --show-toplevel)
+hook_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
 cd "$repo_root"
+. "$hook_dir/lib.sh"
 
 previous_head=$(git rev-parse --verify ORIG_HEAD 2>/dev/null || true)
 if [ -z "$previous_head" ]; then
-  echo "post-merge: ORIG_HEAD unavailable; rebuilding CLI conservatively."
+  echo "post-merge: ORIG_HEAD unavailable; rebuilding CLI and daemon conservatively."
   npm run build -w @harness-anything/cli
+  npm run build -w @harness-anything/daemon
   exit 0
 fi
 
-# CLI triggers are derived from the CLI build program itself: the package roots tsc
-# compiles for packages/cli/tsconfig.build.json (tsconfig include + every followed
-# import), so adding an upstream source dependency extends the trigger list with the
-# code instead of a second hand-maintained copy that drifts stale.
-cli_trigger_roots=$(node_modules/.bin/tsc -p packages/cli/tsconfig.build.json --listFilesOnly \
-  | awk -v root="$repo_root" 'index($0, root "/packages/") == 1 { sub(root "/", ""); split($0, seg, "/"); print seg[1] "/" seg[2] }' | sort -u)
-
-cli_trigger_paths="package-lock.json package.json packages/cli/package.json packages/cli/tsconfig.build.json packages/cli/scripts/copy-assets.mjs packages/preset/assets"
-for cli_root in $cli_trigger_roots; do
-  cli_trigger_paths="$cli_trigger_paths $cli_root $cli_root/package.json"
-done
+cli_trigger_paths=$(package_trigger_paths packages/cli)
+daemon_trigger_paths=$(package_trigger_paths packages/daemon)
 
 cli_changed_paths=$(git diff --name-only "$previous_head" HEAD -- $cli_trigger_paths)
+daemon_changed_paths=$(git diff --name-only "$previous_head" HEAD -- $daemon_trigger_paths)
 
 # GUI triggers stay an explicit list: the GUI dist is bundled by Vite from relative
 # source imports, and packages/gui's tsconfigs are composite reference projects whose
@@ -50,14 +47,19 @@ gui_changed_paths=$(git diff --name-only "$previous_head" HEAD -- \
   packages/gui/package.json \
   packages/gui/src)
 
-if [ -z "$cli_changed_paths" ] && [ -z "$gui_changed_paths" ]; then
-  echo "post-merge: no CLI, upstream, or GUI source changes; skipping builds."
+if [ -z "$cli_changed_paths" ] && [ -z "$daemon_changed_paths" ] && [ -z "$gui_changed_paths" ]; then
+  echo "post-merge: no CLI, daemon, upstream, or GUI source changes; skipping builds."
   exit 0
 fi
 
 if [ -n "$cli_changed_paths" ]; then
   echo "post-merge: CLI source, assets, or upstream packages changed; rebuilding @harness-anything/cli."
   npm run build -w @harness-anything/cli
+fi
+
+if [ -n "$daemon_changed_paths" ]; then
+  echo "post-merge: daemon source or upstream packages changed; rebuilding @harness-anything/daemon."
+  npm run build -w @harness-anything/daemon
 fi
 
 if [ -n "$gui_changed_paths" ]; then
