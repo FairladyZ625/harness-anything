@@ -38,6 +38,17 @@ export function parseDecisionRepin(
   });
 }
 
+// The flag catalog keeps --consent-at/--consent-channel as required peers of --consent-by, but
+// human approval at the CLI is one flag: absent peers default to the command moment and "cli".
+function withDefaultConsent(tokens: readonly string[]): readonly string[] {
+  const present = (name: string) => tokens.some((token) => token === name || token.startsWith(`${name}=`));
+  if (!present("--consent-by")) return tokens;
+  const defaults: string[] = [];
+  if (!present("--consent-at")) defaults.push(`--consent-at=${new Date().toISOString()}`);
+  if (!present("--consent-channel")) defaults.push("--consent-channel=cli");
+  return defaults.length > 0 ? [...tokens, ...defaults] : tokens;
+}
+
 export function parseDecisionTransition(
   args: readonly string[],
   rootDir: SafePath,
@@ -56,7 +67,7 @@ export function parseDecisionTransition(
       "Use decision transition <in_effect|rejected|deferred|superseded|outcome_retired> <id>.",
       json,
     );
-  const f = readFlags("decision-transition", args.slice(4), inputs);
+  const f = readFlags("decision-transition", withDefaultConsent(args.slice(4)), inputs);
   if (!f.ok) return rejected(f.code, f.nextAction, json);
   if (f.one.has("--consent-by") && !["in_effect", "rejected"].includes(targetState ?? ""))
     return rejected("invalid_field", "Human consent is only valid for in_effect or rejected.", json);
