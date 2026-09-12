@@ -195,7 +195,7 @@ export function submissionFromCloseout(
 }
 
 function missingMarkdownSections(body: string, contract: MarkdownDocumentContract): TransitionDocumentMissingSection[] {
-  const sections = markdownSections(body),
+  const sections = markdownSections(body, contract === taskPlan ? contract.requiredSections : []),
     untouchedScaffold = contract.requiredSections.every((heading) => {
       const content = sections.get(normalizeHeading(heading));
       return (
@@ -248,8 +248,9 @@ function meaningfulMarkdown(body: string): boolean {
 }
 
 /** Shared section reader: fenced examples are content, and repeated sections retain every occurrence. */
-export function markdownSections(body: string): ReadonlyMap<string, string> {
+export function markdownSections(body: string, headingPrefixes: readonly string[] = []): ReadonlyMap<string, string> {
   const sections = new Map<string, string>();
+  const prefixes = headingPrefixes.map(normalizeHeading);
   let heading: string | null = null;
   let content: string[] = [];
   let fence: { marker: string; length: number } | null = null;
@@ -277,6 +278,11 @@ export function markdownSections(body: string): ReadonlyMap<string, string> {
     if (match) {
       retain();
       heading = normalizeHeading(match[1]!);
+      const authoredHeading = heading;
+      heading =
+        prefixes.find(
+          (prefix) => authoredHeading.startsWith(prefix) && /^[ \t]*[(—–-]/u.test(authoredHeading.slice(prefix.length)),
+        ) ?? heading;
       content = [];
     } else content.push(line);
   }

@@ -104,6 +104,59 @@ test("task plan rejects pure scaffolds but accepts a retained scaffold sentence 
   assert.equal(assessTransitionDocument("task.plan", realizedPlan()).ready, true);
 });
 
+test("task plan accepts explanatory suffixes on every required heading", () => {
+  for (const suffix of [" (context)", "（说明）", " - details", " – details", "—说明"]) {
+    const body = planHeadings.map((heading) => `## ${heading}${suffix}\n\nImplemented ${heading}.`).join("\n\n");
+    assert.deepEqual(assessTransitionDocument("task.plan", body).missingSections, [], suffix);
+  }
+});
+
+test("task plan suffixes preserve empty and scaffold detection", () => {
+  for (const suffix of [" (context)", "（说明）", " — details"]) {
+    const body = realizedPlan().replace("## Required Reading", `## Required Reading${suffix}`);
+    assert.deepEqual(
+      assessTransitionDocument("task.plan", body.replace("Implemented Required Reading.", "")).missingSections,
+      [{ section: "Required Reading", reason: "empty" }],
+    );
+    const scaffold = "List concrete code, document, and contract paths in reading order";
+    assert.deepEqual(
+      assessTransitionDocument("task.plan", body.replace("Implemented Required Reading.", scaffold)).missingSections,
+      [{ section: "Required Reading", reason: "scaffold", retainedScaffold: scaffold.slice(0, 60) }],
+    );
+  }
+  const template = readFileSync(
+    new URL("../../preset/assets/software-coding/templates/task.plan/en-US.md", import.meta.url),
+    "utf8",
+  ).replace(/^(## .+)$/gmu, "$1 (details)");
+  assert.deepEqual(
+    assessTransitionDocument("task.plan", template).missingSections.map(({ section, reason }) => ({ section, reason })),
+    planHeadings.map((section) => ({ section, reason: "scaffold" })),
+  );
+});
+
+test("task plan suffix matching respects heading boundaries and fenced examples", () => {
+  for (const heading of ["Required ReadingList", "Required Reading Optional", "Required Reading: optional"]) {
+    assert.deepEqual(
+      assessTransitionDocument("task.plan", realizedPlan().replace("## Required Reading", `## ${heading}`))
+        .missingSections,
+      [{ section: "Required Reading", reason: "empty" }],
+    );
+  }
+  const body = realizedPlan().replace("## Required Reading\n\nImplemented Required Reading.", "");
+  assert.deepEqual(
+    assessTransitionDocument("task.plan", body + "\n```md\n## Required Reading (example)\nRead file.\n```")
+      .missingSections,
+    [{ section: "Required Reading", reason: "empty" }],
+  );
+  assert.equal(
+    assessTransitionDocument(
+      "task.plan",
+      body + "\n## Required Reading (first)\nRead file.\n## Required Reading—second\n",
+    ).ready,
+    true,
+  );
+});
+
 test("closeout uses the same required-section and scaffold rules", () => {
   const template = readFileSync(
     new URL("../../preset/assets/software-coding/templates/task.closeout/zh-CN.md", import.meta.url),
