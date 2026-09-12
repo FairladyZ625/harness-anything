@@ -2,7 +2,8 @@
 
 import { randomUUID } from "node:crypto";
 import { execFileSync, spawn } from "node:child_process";
-import { lstatSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import {
@@ -23,22 +24,6 @@ const dispatchCommand = Object.freeze({
     ),
   ),
 });
-export const sourceRootAllowlist = Object.freeze([
-  ".github",
-  ".gitignore",
-  "README.md",
-  "docs-release",
-  "eslint.config.mjs",
-  "prettier.config.mjs",
-  "package-lock.json",
-  "package.json",
-  "packages",
-  "scripts",
-  "skills",
-  "tools",
-  "tsconfig.json",
-]);
-
 export function parseDispatchArgs(argv) {
   const parsed = parseToolOptions(dispatchCommand, argv);
   if (parsed.help) return { help: true };
@@ -84,19 +69,39 @@ export function sourceRsyncArgs(sourceRoot, destination) {
   return ["-a", "--delete", "--from0", "--files-from=-", `${sourceRoot}/`, destination];
 }
 
-export function sourceFileList(
-  sourceRoot = repoRoot,
-  allowedRoots = sourceRootAllowlist,
-  candidates = gitWorktreeFiles(sourceRoot),
-) {
-  const allowed = new Set(allowedRoots);
-  return candidates
-    .filter(
-      (entry) =>
-        entry !== "" && !path.isAbsolute(entry) && entry.split("/")[0] !== ".." && allowed.has(entry.split("/")[0]),
-    )
-    .filter((entry) => pathExists(path.join(sourceRoot, entry)))
+export function sourceFileList(sourceRoot = repoRoot) {
+  return execFileSync("git", ["-C", sourceRoot, "ls-files", "--cached", "-z"])
+    .toString("utf8")
+    .split("\0")
+    .filter(Boolean)
     .sort();
+}
+
+export function prepareSource(sourceRoot, snapshotRoot) {
+  const files = sourceFileList(sourceRoot);
+  // Two generations support both source identity (HEAD) and the clean-tree shard baseline (HEAD^).
+  execFileSync("git", [
+    "clone",
+    "--quiet",
+    "--no-checkout",
+    "--depth",
+    "2",
+    "--template=",
+    pathToFileURL(sourceRoot).href,
+    snapshotRoot,
+  ]);
+  execFileSync("git", ["-C", snapshotRoot, "remote", "remove", "origin"]);
+  rmSync(path.join(snapshotRoot, ".git", "logs"), { recursive: true, force: true });
+  execFileSync("git", ["-C", snapshotRoot, "reset", "--mixed", "HEAD"], { stdio: "ignore" });
+  for (const file of files) {
+    const target = path.join(snapshotRoot, file);
+    mkdirSync(path.dirname(target), { recursive: true });
+    cpSync(path.join(sourceRoot, file), target, { verbatimSymlinks: true });
+  }
+  const metadata = readdirSync(path.join(snapshotRoot, ".git"), { recursive: true, withFileTypes: true })
+    .filter((entry) => !entry.isDirectory())
+    .map((entry) => path.relative(snapshotRoot, path.join(entry.parentPath, entry.name)).split(path.sep).join("/"));
+  return [...files, ...metadata].sort();
 }
 
 export function posixTestScript(workspaceRoot, stateRoot, options) {
@@ -143,26 +148,36 @@ export async function main(argv = process.argv.slice(2)) {
   console.log(
     `[test-isolation] target=${options.target} selection=${options.tier ? `tier:${options.tier}` : `file:${options.file}`} run=${runId}`,
   );
-  const exitCode =
-    options.target === "ubuntu"
-      ? await runUbuntu(options, runId)
-      : options.target === "docker"
-        ? await runDocker(options, runId)
-        : await runWindows(options, runId);
+  const snapshotRoot = mkdtempSync(path.join(tmpdir(), `${runId}-`));
+  let exitCode;
+  try {
+    const files = prepareSource(repoRoot, snapshotRoot);
+    exitCode =
+      options.target === "ubuntu"
+        ? await runUbuntu(options, runId, snapshotRoot, files)
+        : options.target === "docker"
+          ? await runDocker(options, runId, snapshotRoot, files)
+          : await runWindows(options, runId, snapshotRoot, files);
+  } finally {
+    rmSync(snapshotRoot, { recursive: true, force: true });
+  }
   console.log(`[test-isolation] target=${options.target} exit=${exitCode} duration_ms=${Date.now() - startedAt}`);
   return exitCode;
 }
 
-async function runUbuntu(options, runId) {
+async function runUbuntu(options, runId, snapshotRoot, files) {
   const workspaceRoot = `/tmp/${runId}`;
   const stateRoot = `${workspaceRoot}/.test-isolation-state`;
-  const files = sourceFileList();
   let exitCode = 1;
   try {
     console.log(`[test-isolation] sync=rsync destination=ubuntu:${workspaceRoot}`);
     if (
       (await run("ssh", ["ubuntu", `mkdir -p -- ${shellQuote(workspaceRoot)}`])) === 0 &&
-      (await runWithInput("rsync", sourceRsyncArgs(repoRoot, `ubuntu:${workspaceRoot}/`), encodeFileList(files))) === 0
+      (await runWithInput(
+        "rsync",
+        sourceRsyncArgs(snapshotRoot, `ubuntu:${workspaceRoot}/`),
+        encodeFileList(files),
+      )) === 0
     ) {
       exitCode = await run("ssh", ["ubuntu", posixTestScript(workspaceRoot, stateRoot, options)]);
     }
@@ -173,7 +188,7 @@ async function runUbuntu(options, runId) {
   return exitCode;
 }
 
-async function runDocker(options, runId) {
+async function runDocker(options, runId, snapshotRoot, files) {
   const container = runId;
   const workspaceRoot = "/workspace";
   const stateRoot = `/tmp/${runId}`;
@@ -196,7 +211,7 @@ async function runDocker(options, runId) {
     ) {
       created = true;
       console.log(`[test-isolation] sync=tar destination=docker:${container}:${workspaceRoot}`);
-      if ((await copyArchive(["docker", "cp", "-", `${container}:${workspaceRoot}`])) === 0)
+      if ((await copyArchive(["docker", "cp", "-", `${container}:${workspaceRoot}`], snapshotRoot, files)) === 0)
         exitCode = await run("docker", ["start", "-a", container]);
     }
   } finally {
@@ -208,7 +223,7 @@ async function runDocker(options, runId) {
   return exitCode;
 }
 
-async function runWindows(options, runId) {
+async function runWindows(options, runId, snapshotRoot, files) {
   let workspaceRoot;
   let exitCode = 1;
   try {
@@ -223,7 +238,9 @@ async function runWindows(options, runId) {
     if (workspaceRoot) {
       console.log(`[test-isolation] sync=tar destination=windows:${workspaceRoot}`);
       const extractScript = `$ProgressPreference = 'SilentlyContinue'\ntar -xf - -C ${powerShellLiteral(workspaceRoot)}`;
-      if ((await copyArchive(["ssh", "windows-vm", ...powerShellArgs(extractScript).slice(1)])) === 0) {
+      if (
+        (await copyArchive(["ssh", "windows-vm", ...powerShellArgs(extractScript).slice(1)], snapshotRoot, files)) === 0
+      ) {
         exitCode = await run(
           "ssh",
           powerShellArgs(powerShellTestScript(workspaceRoot, `${workspaceRoot}\\.test-isolation-state`, options)),
@@ -254,9 +271,9 @@ function powerShellArgs(script) {
   ];
 }
 
-async function copyArchive(destinationArgs) {
-  const input = encodeFileList(sourceFileList());
-  const archive = spawn("tar", sourceArchiveArgs(), {
+async function copyArchive(destinationArgs, snapshotRoot, files) {
+  const input = encodeFileList(files);
+  const archive = spawn("tar", sourceArchiveArgs(process.platform, snapshotRoot), {
     stdio: ["pipe", "pipe", "pipe"],
     env: { ...process.env, COPYFILE_DISABLE: "1" },
   });
@@ -316,23 +333,6 @@ function formatCommand(command, args) {
   const encodedAt = args.indexOf("-EncodedCommand");
   const visible = encodedAt === -1 ? args : [...args.slice(0, encodedAt + 1), "<encoded>"];
   return [command, ...visible].map(shellQuote).join(" ");
-}
-
-function gitWorktreeFiles(sourceRoot) {
-  return execFileSync("git", ["-C", sourceRoot, "ls-files", "--cached", "--others", "--exclude-standard", "-z"])
-    .toString("utf8")
-    .split("\0")
-    .filter(Boolean);
-}
-
-function pathExists(target) {
-  try {
-    lstatSync(target);
-    return true;
-  } catch (error) {
-    if (error?.code === "ENOENT") return false;
-    throw error;
-  }
 }
 
 function encodeFileList(files) {

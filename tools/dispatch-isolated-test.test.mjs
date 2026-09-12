@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -11,7 +11,7 @@ import {
   powerShellTestScript,
   sourceArchiveArgs,
   sourceFileList,
-  sourceRootAllowlist,
+  prepareSource,
   sourceRsyncArgs,
   testRunnerArgs,
 } from "./dispatch-isolated-test.mjs";
@@ -100,24 +100,6 @@ test("GUI routing preserves native tests and accepts registered TSX", () => {
   ]);
 });
 
-test("source root allowlist contains only current test inputs", () => {
-  assert.deepEqual(sourceRootAllowlist, [
-    ".github",
-    ".gitignore",
-    "README.md",
-    "docs-release",
-    "eslint.config.mjs",
-    "prettier.config.mjs",
-    "package-lock.json",
-    "package.json",
-    "packages",
-    "scripts",
-    "skills",
-    "tools",
-    "tsconfig.json",
-  ]);
-});
-
 test("macOS source archives omit extended attributes while other hosts keep portable tar arguments", () => {
   assert.deepEqual(sourceArchiveArgs("darwin").slice(0, 2), ["--no-xattrs", "-cf"]);
   assert.equal(sourceArchiveArgs("linux").includes("--no-xattrs"), false);
@@ -136,62 +118,57 @@ test("source archives consume a structural NUL file list without exclusion patte
   });
 });
 
-test("source file discovery keeps worktree changes but drops ignored output and unknown roots", () => {
+test("source discovery includes every tracked root and excludes untracked and ignored files", () => {
   withFixture(({ source }) => {
-    execFileSync("git", ["-C", source, "init", "--quiet"]);
-    writeFileSync(path.join(source, ".gitignore"), "dist/\n");
-    write(source, "packages/tracked.ts");
+    seedRepository(source);
     write(source, "packages/untracked.ts");
-    write(source, "prettier.config.mjs");
-    write(source, "packages/gui/dist/ignored.js");
-    write(source, "future-private/untracked.txt");
-    execFileSync("git", ["-C", source, "add", ".gitignore", "packages/tracked.ts"]);
+    write(source, "dist/ignored.js");
     assert.deepEqual(sourceFileList(source), [
       ".gitignore",
-      "packages/tracked.ts",
-      "packages/untracked.ts",
+      "future-root/space name.txt",
       "prettier.config.mjs",
+      "tools/kept.txt",
     ]);
   });
 });
 
-test("tar copies the complete allowlist and rejects every other repository root", () => {
-  withFixture(({ source, destination }) => {
-    seedCompletePolicyFixture(source);
-    extractArchive(source, destination, sourceRootAllowlist);
-    assert.deepEqual(rootEntries(destination), ["packages", "tools"]);
-    console.log(`[archive-implementation] ${toolVersion("tar")}`);
-  });
-});
-
-test("tar file lists preserve a nested harness directory", () => {
-  withFixture(({ source, destination }) => {
-    write(source, "harness/root.txt");
-    write(source, "tmp/benchmarks/codex-hostnet-patch/harness/nested.txt");
-    extractArchive(source, destination, ["tmp"]);
-    assert.equal(existsSync(path.join(destination, "harness")), false);
-    assert.equal(existsSync(path.join(destination, "tmp/benchmarks/codex-hostnet-patch/harness/nested.txt")), true);
-  });
-});
-
-test("rsync copies the complete allowlist and rejects every other repository root", { skip: rsyncSkip }, () => {
-  withFixture(({ source, destination }) => {
-    seedCompletePolicyFixture(source);
-    syncWithRsync(source, destination, sourceRootAllowlist);
-    assert.deepEqual(rootEntries(destination), ["packages", "tools"]);
-    console.log(`[rsync-implementation] ${toolVersion("rsync")}`);
-  });
-});
-
-test("rsync file lists preserve a nested harness directory", { skip: rsyncSkip }, () => {
-  withFixture(({ source, destination }) => {
-    write(source, "harness/root.txt");
-    write(source, "tmp/benchmarks/codex-hostnet-patch/harness/nested.txt");
-    syncWithRsync(source, destination, ["tmp"]);
-    assert.equal(existsSync(path.join(destination, "harness")), false);
-    assert.equal(existsSync(path.join(destination, "tmp/benchmarks/codex-hostnet-patch/harness/nested.txt")), true);
-  });
-});
+for (const transport of ["tar", "rsync"]) {
+  test(
+    `${transport} preserves tracked content and independent Git identity from a linked worktree`,
+    { skip: transport === "rsync" ? rsyncSkip : false },
+    () => {
+      withFixture(({ source, destination }) => {
+        seedRepository(source);
+        const worktree = path.join(source, "linked");
+        execFileSync("git", ["-C", source, "worktree", "add", "--quiet", "--detach", worktree]);
+        writeFileSync(path.join(worktree, "tools/kept.txt"), "dirty tracked content\n");
+        write(worktree, "private/untracked.txt");
+        const snapshot = path.join(source, "snapshot");
+        const files = prepareSource(worktree, snapshot);
+        assert.deepEqual(
+          files.filter((file) => !file.startsWith(".git/")),
+          sourceFileList(worktree),
+        );
+        const head = gitText(worktree, ["rev-parse", "HEAD"]);
+        const parent = gitText(worktree, ["rev-parse", "HEAD^"]);
+        if (transport === "tar") extractArchive(snapshot, destination, files);
+        else syncWithRsync(snapshot, destination, files);
+        rmSync(source, { recursive: true, force: true });
+        assert.equal(gitText(destination, ["rev-parse", "HEAD"]), head);
+        assert.equal(gitText(destination, ["rev-parse", "HEAD^"]), parent);
+        assert.equal(gitText(destination, ["show", "HEAD:tools/kept.txt"]), "tools/kept.txt");
+        assert.equal(gitText(destination, ["show", "HEAD^:tools/kept.txt"]), "tools/kept.txt");
+        assert.match(gitText(destination, ["status", "--porcelain"]), /M tools\/kept.txt/u);
+        assert.equal(readFileSync(path.join(destination, "tools/kept.txt"), "utf8"), "dirty tracked content\n");
+        assert.equal(readFileSync(path.join(destination, "prettier.config.mjs"), "utf8"), "prettier.config.mjs\n");
+        assert.equal(existsSync(path.join(destination, "future-root/space name.txt")), true);
+        assert.equal(existsSync(path.join(destination, "private")), false);
+        assert.equal(gitText(destination, ["remote"]), "");
+        console.log(`[${transport}-implementation] ${toolVersion(transport)}`);
+      });
+    },
+  );
+}
 
 test("remote scripts preflight before executing tests with a dedicated root and id", () => {
   const options = { tier: "integration", file: undefined };
@@ -235,24 +212,22 @@ function write(root, relativePath) {
   writeFileSync(target, `${relativePath}\n`);
 }
 
-function seedCompletePolicyFixture(root) {
-  for (const entry of [
-    "harness",
-    ".harness",
-    ".harness-private",
-    ".worktrees",
-    "tmp",
-    ".harness-old-generation-20260818",
-    "harness-old-generation-20260818",
-    "future-private",
-  ])
-    write(root, `${entry}/excluded.txt`);
-  write(root, "packages/kept.txt");
-  write(root, "tools/kept.txt");
+function seedRepository(root) {
+  execFileSync("git", ["init", "--quiet", root]);
+  execFileSync("git", ["-C", root, "config", "user.name", "Dispatch Test"]);
+  execFileSync("git", ["-C", root, "config", "user.email", "dispatch@example.invalid"]);
+  writeFileSync(path.join(root, ".gitignore"), "dist/\n");
+  for (const file of ["tools/kept.txt", "prettier.config.mjs", "future-root/space name.txt"]) write(root, file);
+  execFileSync("git", ["-C", root, "add", "."]);
+  execFileSync("git", ["-C", root, "commit", "--quiet", "-m", "test: seed sources"]);
+  execFileSync("git", ["-C", root, "commit", "--quiet", "--allow-empty", "-m", "test: second generation"]);
 }
 
-function extractArchive(source, destination, allowedRoots) {
-  const files = sourceFileList(source, allowedRoots, fixtureFiles(source));
+function gitText(root, args) {
+  return execFileSync("git", ["-C", root, ...args], { encoding: "utf8" }).trim();
+}
+
+function extractArchive(source, destination, files) {
   const archive = spawnSync("tar", sourceArchiveArgs(process.platform, source), {
     input: encodeFileList(files),
     maxBuffer: 10 * 1024 * 1024,
@@ -262,8 +237,7 @@ function extractArchive(source, destination, allowedRoots) {
   assert.equal(extracted.status, 0, extracted.stderr.toString());
 }
 
-function syncWithRsync(source, destination, allowedRoots) {
-  const files = sourceFileList(source, allowedRoots, fixtureFiles(source));
+function syncWithRsync(source, destination, files) {
   const result = spawnSync("rsync", sourceRsyncArgs(source, `${destination}/`), {
     input: encodeFileList(files),
     encoding: "utf8",
@@ -271,22 +245,8 @@ function syncWithRsync(source, destination, allowedRoots) {
   assert.equal(result.status, 0, result.stderr);
 }
 
-function fixtureFiles(root, directory = root) {
-  const files = [];
-  for (const entry of readdirSync(directory, { withFileTypes: true })) {
-    const target = path.join(directory, entry.name);
-    if (entry.isDirectory()) files.push(...fixtureFiles(root, target));
-    else files.push(path.relative(root, target).split(path.sep).join("/"));
-  }
-  return files;
-}
-
 function encodeFileList(files) {
   return Buffer.from(files.length === 0 ? "" : `${files.join("\0")}\0`);
-}
-
-function rootEntries(root) {
-  return readdirSync(root).sort((left, right) => left.localeCompare(right));
 }
 
 function toolVersion(command) {
