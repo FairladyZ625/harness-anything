@@ -1,5 +1,5 @@
 import { presetCommands, presetMethods } from "./preset-command-contract.ts";
-import type { PresetRunOutcomeV1, PresetRunPhaseV1 } from "./preset-run-receipt.contract.ts";
+import type { PresetRunOutcomeV1, PresetRunPhaseV1 } from "./preset-run-receipt-types.ts";
 export {
   decisionProposalDefaultJsonFields,
   decisionProposalJsonFields,
@@ -9,7 +9,7 @@ export {
   taskCreateJsonFields,
   type RpcShape,
 } from "./preset-command-contract.ts";
-export type { PresetRunOutcomeV1, PresetRunPhaseV1, PresetRunReceiptV1 } from "./preset-run-receipt.contract.ts";
+export type { PresetRunOutcomeV1, PresetRunPhaseV1, PresetRunReceiptV1 } from "./preset-run-receipt-types.ts";
 export type PresetLayer = "bundled" | "user";
 export type PresetPurpose = "inspect" | "task-create" | "script-run";
 export type PresetKind = "template-content" | "process-action";
