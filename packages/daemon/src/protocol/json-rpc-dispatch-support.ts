@@ -73,7 +73,11 @@ export function resultErrorCode(result: object): string | null {
 }
 export function resultErrorDetail(result: object): string | null {
   if (resultOk(result)) return null;
-  const diagnostic = "diagnostic" in result ? result.diagnostic : undefined,
+  const explanation =
+      "rejectionExplanation" in result && typeof result.rejectionExplanation === "string"
+        ? result.rejectionExplanation
+        : null,
+    diagnostic = "diagnostic" in result ? result.diagnostic : undefined,
     error = "error" in result ? result.error : undefined,
     sqliteError = isJsonObject(error)
       ? {
@@ -81,11 +85,47 @@ export function resultErrorDetail(result: object): string | null {
           ...(typeof error.errstr === "string" ? { errstr: error.errstr } : {}),
         }
       : {},
+    // The rejection's own message says why it failed; the diagnostic is a fallback for results
+    // that carry no message, and a code-only {kind:"failure"} placeholder collapses to the code
+    // that the log's own field already records.
     detail =
-      (isJsonObject(diagnostic) ? JSON.stringify(diagnostic) : null) ??
+      explanation ??
+      (isJsonObject(diagnostic) && diagnostic.kind !== "failure" ? JSON.stringify(diagnostic) : null) ??
       (Object.keys(sqliteError).length > 0 ? JSON.stringify(sqliteError) : null) ??
       ("evidence" in result && typeof result.evidence === "string" ? result.evidence : null);
   return detail?.slice(0, 500) ?? "Unknown request failure.";
+}
+
+// The one place a dispatched result becomes its request-log entry, next to the result-derived
+// helpers it reads from, so the protocol server stays a routing concern.
+export function daemonRequestLogEntry(input: {
+  readonly method: string;
+  readonly repoId: string;
+  readonly command: string;
+  readonly connectionId: string;
+  readonly auth: DaemonAuthenticationContext;
+  readonly executor: DaemonRequestLogEntry["executor"];
+  readonly result: object;
+  readonly dispatchDelayMs: number;
+  readonly serviceMs: number;
+}): DaemonRequestLogEntry {
+  const ok = resultOk(input.result);
+  return {
+    method: input.method,
+    repoId: input.repoId,
+    command: input.command,
+    connectionId: input.connectionId,
+    auth: input.auth,
+    executor: input.executor,
+    ok,
+    outcome: "outcome" in input.result && typeof input.result.outcome === "string" ? input.result.outcome : null,
+    code: resultErrorCode(input.result),
+    opId: "opId" in input.result && typeof input.result.opId === "string" ? input.result.opId : null,
+    ...(ok ? {} : { detail: resultErrorDetail(input.result) }),
+    dispatchDelayMs: input.dispatchDelayMs,
+    serviceMs: input.serviceMs,
+    durationMs: input.serviceMs,
+  };
 }
 export function rpcError(id: JsonRpcId, errorCode: number, message: string): JsonRpcResponse {
   return { jsonrpc: "2.0", id, error: { code: errorCode, message } };

@@ -5,8 +5,9 @@ import { mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
-import { deriveCloseoutSubmission } from "../src/repo-cell-submit.ts";
+import { deriveCloseoutSubmission, submissionStopped } from "../src/repo-cell-submit.ts";
 import { openDispatchStream } from "../src/dispatch-stream.ts";
+import type { RepoCellBinding, RepoTaskAction, Snapshot } from "../src/repo-cell-types.ts";
 
 const packagePath = "tasks/task-1";
 const documentPath = `${packagePath}/closeout.md`;
@@ -252,4 +253,31 @@ test("ledger fallback still fails closed when the task has no accepted artifacts
     code: "invalid_submission",
     message: /artifacts/u,
   });
+});
+
+test("a stopped submission keeps the invalid_submission message as its rejection explanation", () => {
+  const cell = {
+      input: { repoId: "canonical" },
+      operationId: () => "op_stopped",
+      rejected: (opId: string, code: string) => ({
+        outcome: "op_rejected",
+        opId,
+        code,
+        origin: "daemon",
+        evidence: `rejection:${code}`,
+        diagnostic: { kind: "failure", code },
+      }),
+    } as unknown as Parameters<typeof submissionStopped>[0],
+    error = Object.assign(new Error("Delivery cut contains no changed paths."), { code: "invalid_submission" }),
+    receipt = submissionStopped(
+      cell,
+      { kind: "task-submit", taskId: "task-1" } as RepoTaskAction,
+      {} as RepoCellBinding,
+      { revision: 3 } as Snapshot,
+      "execution-1",
+      packagePath,
+      error,
+    );
+  assert.equal(receipt.code, "document_invalid");
+  assert.equal(receipt.rejectionExplanation, "Delivery cut contains no changed paths.");
 });

@@ -10,7 +10,7 @@ import { type RepoTaskAction } from "./repo-cell.ts";
 export function rejectHostAction(
   action: RepoTaskAction,
   errorCode: string,
-  _legacyGuidance: string,
+  explanation: string,
   diagnostic?: ReceiptDiagnostic,
 ): WriteReceipt {
   return {
@@ -20,6 +20,8 @@ export function rejectHostAction(
     origin: "daemon",
     evidence: `rejection:${errorCode}`,
     diagnostic: diagnostic ?? { kind: "failure", code: errorCode },
+    // The same receipt field every other rejection path uses; a host-caught error keeps its message.
+    rejectionExplanation: explanation,
   };
 }
 
