@@ -128,7 +128,7 @@ test("release acceptance: attributed lifecycle chain create→start→fact→sub
       ["task", "review-consent", taskId, "--execution-id", executionId, "--review-id", "review-release-acc-approved"],
       worker,
     );
-    const completed = run(root, userRoot, ["task", "complete", taskId, "--execution-id", executionId], worker);
+    const completed = run(root, userRoot, ["task", "complete", taskId], worker);
     assert.equal(completed.outcome, "applied", JSON.stringify(completed));
     const shown = run(root, userRoot, ["task", "show", taskId]),
       evidence = JSON.parse(String(shown.evidence)) as {

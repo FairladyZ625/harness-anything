@@ -293,15 +293,13 @@ function renderIndex(event: TaskEventV1, snapshot: TaskLifecycleSnapshot, path: 
           ? `Run \`ha task complete ${task.taskId}\`.`
           : task.status === "in_review" && !selected
             ? [`Run \`ha task complete ${task.taskId} --consent\`.`].join("")
-            : missingGate === "ci"
-              ? `Run \`ha task complete ${task.taskId} --execution-id <id>\`.`
-              : missingGate === "code-doc-reconciliation"
-                ? `Run \`ha task closeout ${task.taskId} --from-file <packet.json>\`.`
-                : task.status === "done"
-                  ? "Task complete."
-                  : task.status === "cancelled"
-                    ? "Task cancelled; create follow-up work with `ha task supersede`."
-                    : `Run \`ha task complete ${task.taskId} --execution-id <id>\`.`,
+            : missingGate === "code-doc-reconciliation"
+              ? `Run \`ha task code-doc reconcile ${task.taskId} --path <repo-relative-path>...\`.`
+              : task.status === "done"
+                ? "Task complete."
+                : task.status === "cancelled"
+                  ? "Task cancelled; create follow-up work with `ha task supersede`."
+                  : `Run \`ha task complete ${task.taskId}\`.`,
     gates = task.completionGateIds.length
       ? task.completionGateIds.map((gateId) => `- ${gateId}: ${gateStatus(gateId) ? "pass" : "blocked"}`).join("\n")
       : "- none",
