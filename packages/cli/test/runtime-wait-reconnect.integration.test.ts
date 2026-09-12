@@ -407,6 +407,7 @@ test("task dispatch wait classifies an ENOENT reconnect as daemon_gone and retai
     }
     assert.equal(request.method, "repo.task.dispatches");
     reply(socket, request.id, { ok: true, status: "ready", dispatches: [dispatch] });
+    socket.end();
     socket.once("close", fixture.die);
   };
   const invocation = runWait(fixture, ["runtime", "status", "--task", taskId, "--wait", "--no-stream"]);
