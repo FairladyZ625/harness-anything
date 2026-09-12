@@ -189,7 +189,8 @@ export function humanError(receipt: Record<string, unknown>): { readonly code: s
       code,
       hint:
         typeof receipt.rejectionExplanation === "string"
-          ? `${receipt.rejectionExplanation} Run ha fact type register <type> --source <source>, then retry this command.`
+          ? `${receipt.rejectionExplanation} ` +
+            `Run ha fact type register <type> --source <source>, then retry this command.`
           : renderTemplate("failure", "fact-type-unregistered", {}),
     };
   if (code === "daemon_restarting" && typeof outer.hint === "string") return { code, hint: outer.hint };
