@@ -87,7 +87,8 @@ function deferredServeReceipt(
     command: "daemon-serve",
     outcome: "deferred",
     incumbent: { pid: incumbent.pid, endpoint: incumbent.endpoint },
-    summary: `daemon serve deferred: ${witness}; this process did not bind the socket or take any workspace writer lock.`,
+    summary:
+      `daemon serve deferred: ${witness}; ` + "this process did not bind the socket or take any workspace writer lock.",
     nextAction: "Use the resident daemon (ha daemon status) or stop it first (ha daemon stop).",
   };
 }
