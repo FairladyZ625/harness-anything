@@ -91,7 +91,7 @@ function evaluateCompletion(
     return one(
       "projection_unknown",
       "projection",
-      "ha projection rebuild",
+      "ha daemon projection rebuild",
       "Rebuild the unavailable canonical task projection before retrying completion.",
     );
   if (context.authorization === "denied")

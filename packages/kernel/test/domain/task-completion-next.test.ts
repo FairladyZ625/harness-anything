@@ -52,7 +52,7 @@ test("completion next is one pure judgment across lifecycle and unavailable-inpu
       ready,
       { ...context, projectionStatus: "pending" as const },
       "projection_unknown",
-      "ha projection rebuild",
+      "ha daemon projection rebuild",
     ],
     [
       "multiple executions",

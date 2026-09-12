@@ -259,7 +259,7 @@ test("executor declaration and completion context refusals name projection rebui
     assert.equal(metadata.code, "projection_unknown", JSON.stringify(metadata));
     assert.deepEqual((metadata as Record<string, unknown>).next, [
       {
-        action: "ha projection rebuild",
+        action: "ha daemon projection rebuild",
         reason: "Rebuild the unavailable canonical task projection before retrying completion.",
         authority: "person-owner",
         readCut: { revision: submittedRevision, iteration: 0, executionId },
