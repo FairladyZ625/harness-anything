@@ -29,15 +29,32 @@ const env = fleetEnv(userRoot, nodeId);
 const generationFile = path.join(viewRoot, "generation.json");
 const generation = existsSync(generationFile) ? JSON.parse(readFileSync(generationFile, "utf8")) : null;
 if (generation?.canonicalHead !== state.canonicalHead) {
-  if (existsSync(viewRoot)) for (const entry of readdirSync(viewRoot)) rmSync(path.join(viewRoot, entry), { recursive: true, force: true });
+  if (existsSync(viewRoot))
+    for (const entry of readdirSync(viewRoot)) rmSync(path.join(viewRoot, entry), { recursive: true, force: true });
   writeFileSync(generationFile, `${JSON.stringify({ canonicalHead: state.canonicalHead }, null, 2)}\n`);
   log("view", `ledger generation changed; view reset for canonical ${state.canonicalHead.slice(0, 12)}`);
 }
 const syncArgs = [
-  "daemon", "fleet", "edge", "sync",
-  "--host", "center", "--port", String(state.fleet.port), "--ca", state.fleet.certPath,
-  "--node-id", nodeId, "--credential", node.credential, "--assignment", assignment.assignmentId,
-  "--view-root", viewRoot, "--quota-bytes", String(state.fleet.quotaBytes)
+  "daemon",
+  "fleet",
+  "edge",
+  "sync",
+  "--host",
+  "center",
+  "--port",
+  String(state.fleet.port),
+  "--ca",
+  state.fleet.certPath,
+  "--node-id",
+  nodeId,
+  "--credential",
+  node.credential,
+  "--assignment",
+  assignment.assignmentId,
+  "--view-root",
+  viewRoot,
+  "--quota-bytes",
+  String(state.fleet.quotaBytes),
 ];
 
 const first = ha("sync", env, syncArgs);
@@ -51,19 +68,31 @@ log("sync", `pull #1 ok: status ${first.status} ackCut ${first.ackCut} (center c
 
 const view = path.join(viewRoot, "repos", state.repoId, "views", assignment.viewId);
 const current = JSON.parse(readFileSync(path.join(view, "current.json"), "utf8"));
-if (current.cut.revision < state.seedRevision) fail("view", `view cut ${current.cut.revision} is behind the seed revision ${state.seedRevision}`);
-const cutFiles = path.join(view, "cuts", String(current.cut.revision), "files");
+if (current.cut.revision < state.seedRevision)
+  fail("view", `view cut ${current.cut.revision} is behind the seed revision ${state.seedRevision}`);
+// Snapshot cuts address their blobs through the edge CAS instead of
+// materializing cuts/<revision>/files/, so cut documents are read through
+// their manifest entries.
+const cutRoot = path.join(view, "cuts", String(current.cut.revision));
+const manifest = JSON.parse(readFileSync(path.join(cutRoot, "manifest.json"), "utf8"));
+const repoRoot = path.resolve(view, "..", "..");
+const cutFile = (logical) => {
+  const entry = manifest.entries.find((row) => row.path === logical);
+  if (!entry) fail("view", `cut ${current.cut.revision} manifest has no entry for ${logical}`);
+  return path.join(repoRoot, "cas", "sha256", entry.blob.sha256.slice(0, 2), entry.blob.sha256);
+};
 
-const taskDoc = readText(path.join(cutFiles, `${state.packagePath}/task_plan.md`));
+const taskDoc = readText(cutFile(`${state.packagePath}/task_plan.md`));
 assertContains("task doc", taskDoc, state.taskTitle);
-const decisionDoc = readText(path.join(cutFiles, state.decisionPath));
+const decisionDoc = readText(cutFile(state.decisionPath));
 assertContains("decision doc", decisionDoc, "The center daemon owns the canonical ledger");
-const factsDoc = readText(path.join(cutFiles, `${state.packagePath}/facts.md`));
+const factsDoc = readText(cutFile(`${state.packagePath}/facts.md`));
 assertContains("facts doc", factsDoc, "The testbed bootstrap wrote a task, a decision, and a fact");
 log("view", `edge view serves cut ${current.cut.revision} with task, decision, and fact documents`);
 
 const second = ha("resync", env, syncArgs);
-if (second.status !== "fleet.replica.current/v1") fail("resync", `expected idempotent fleet.replica.current/v1, got ${second.status}`);
+if (second.status !== "fleet.replica.current/v1")
+  fail("resync", `expected idempotent fleet.replica.current/v1, got ${second.status}`);
 log("resync", `pull #2 ok: center confirms the view is current at cut ${second.cut.revision} (no transfer)`);
 
 log("smoke", `SMOKE PASS: edge ${nodeId} reads the center ledger projection through fleet TLS`);

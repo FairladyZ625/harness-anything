@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { closeSync, fsyncSync, mkdirSync, openSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, fsyncSync, mkdirSync, openSync, readSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 // Windows refuses fsync on a handle that was not opened for writing: FlushFileBuffers needs
@@ -54,4 +54,20 @@ export function writeFileDurably(file: string, body: string | Uint8Array, mode?:
     throw error;
   }
   syncDirectory(directory);
+}
+
+// Positioned read for replay comparison: both fleet upload paths retry one
+// chunk against a durable prefix that can be far larger than the contested
+// window. A short read returns the shorter buffer so callers can reject it by
+// comparison. This is the only read-only file handle outside the flush ports
+// above (#1586: one implementation per capability).
+export function readFileWindow(file: string, offset: number, length: number): Buffer {
+  const descriptor = openSync(file, "r");
+  try {
+    const window = Buffer.alloc(length);
+    const read = readSync(descriptor, window, 0, length, offset);
+    return read === length ? window : window.subarray(0, read);
+  } finally {
+    closeSync(descriptor);
+  }
 }

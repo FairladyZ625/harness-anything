@@ -12,7 +12,7 @@ import {
 import path from "node:path";
 import { createServer, type Server } from "node:tls";
 import { resolveHarnessLayout, sha256Bytes } from "../../../kernel/src/index.ts";
-import { syncDirectory, syncFile } from "../durable-file.ts";
+import { readFileWindow, syncDirectory, syncFile } from "../durable-file.ts";
 import { openFleetLeaseBroker } from "../lease-broker.ts";
 import { openPersistentWriterEpoch, readLedgerWriterEpoch, type PersistentWriterEpoch } from "../writer-epoch.ts";
 import {
@@ -281,11 +281,9 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       if (frame.offset > length)
         throw new FleetFault("upload_gap", "Chunk offset is beyond the durable prefix.", true, length);
       if (frame.offset < length) {
-        if (
-          !readFileSync(file)
-            .subarray(frame.offset, frame.offset + bytes.length)
-            .equals(bytes)
-        )
+        // Replay comparison reads only the contested window; the durable
+        // prefix can be far larger than the chunk being retried.
+        if (!readFileWindow(file, frame.offset, bytes.length).equals(bytes))
           throw new FleetFault("upload_replay_mismatch", "Replayed chunk differs from durable bytes.");
       } else {
         appendFileSync(file, bytes);

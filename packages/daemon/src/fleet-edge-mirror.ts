@@ -249,13 +249,24 @@ export function locateFleetMirrorView(viewRoot: string, repoId: string, viewId?:
 // Pre-pull base caching (F3): while the marker cut is still the view's
 // CURRENT cut it is guaranteed on disk, so caching the base bytes of every
 // dirty path at scan time — before the pull that can collect that cut — keeps
-// base/ stageable no matter how many revisions the next pull jumps.
-export function cacheFleetMirrorDirtyBases(viewRoot: string, repoId: string, workspaceRoot: string): void {
+// base/ stageable no matter how many revisions the next pull jumps. The scan
+// this needs is the same dirty-detection callers perform, so it is returned
+// for reuse: a round that scans once feeds both the cache and its carry set.
+export function cacheFleetMirrorDirtyBases(
+  viewRoot: string,
+  repoId: string,
+  workspaceRoot: string,
+): FleetMirrorScan | null {
   const view = locateFleetMirrorView(viewRoot, repoId);
   const materializedRoot = fleetMirrorMaterializedRoot(workspaceRoot);
-  if (view === null || !existsSync(materializedRoot)) return;
-  const dirty = scanFleetMirrorWorktree(view, workspaceRoot).changes.map((change) => change.path);
-  if (dirty.length > 0) fleetMirrorRefreshBaseCache(view, dirty);
+  if (view === null || !existsSync(materializedRoot)) return null;
+  const scan = scanFleetMirrorWorktree(view, workspaceRoot);
+  if (scan.changes.length > 0)
+    fleetMirrorRefreshBaseCache(
+      view,
+      scan.changes.map((change) => change.path),
+    );
+  return scan;
 }
 
 export function scanFleetMirrorWorktree(
@@ -280,8 +291,9 @@ export function scanFleetMirrorWorktree(
       const raw = classifyRawArtifactPath(logical);
       if (raw === null) continue;
       const rawTarget = path.join(materializedRoot, ...logical.split("/")),
+        rawBytes = readFileSync(rawTarget),
         rawBase = view.entries.get(logical) ?? null;
-      if (rawBase !== null && rawBase.sha256 === sha256Bytes(readFileSync(rawTarget))) {
+      if (rawBase !== null && rawBase.size === rawBytes.byteLength && rawBase.sha256 === sha256Bytes(rawBytes)) {
         cleanCount += 1;
         continue;
       }
@@ -323,7 +335,9 @@ export function scanFleetMirrorWorktree(
     }
     const bytes = readFileSync(target),
       base = view.entries.get(logical) ?? null;
-    if (base !== null && base.sha256 === sha256Bytes(bytes)) {
+    // A size mismatch already proves divergence; only equal sizes need the
+    // hash to decide clean.
+    if (base !== null && base.size === bytes.byteLength && base.sha256 === sha256Bytes(bytes)) {
       cleanCount += 1;
       continue;
     }
@@ -417,9 +431,9 @@ export function applyFleetMirrorCut(
       }
       continue;
     }
-    const centerBytes = fleetMirrorCutFile(view.viewDir, view.revision, logical);
-    mkdirSync(path.dirname(path.join(materializedRoot, ...logical.split("/"))), { recursive: true });
-    if (centerBytes !== null) writeFileDurably(path.join(materializedRoot, ...logical.split("/")), centerBytes);
+    const centerBytes = fleetMirrorCutFile(view.viewDir, view.revision, logical),
+      target = path.join(materializedRoot, ...logical.split("/"));
+    if (centerBytes !== null) writeFileDurably(target, centerBytes);
     nextBlobs[logical] = blob.sha256;
   }
   // Center deletions: a locally untouched path follows the deletion; a locally
@@ -463,11 +477,20 @@ export function applyFleetMirrorCut(
     rows,
     stage,
   );
-  fleetMirrorWriteJson(path.join(view.viewDir, materializationMarker), {
-    revision: view.revision,
-    manifestDigest: view.manifestDigest,
-    blobs: nextBlobs,
-  });
+  // An unchanged marker (same revision, digest, and per-path base map) skips
+  // the durable rewrite — the same equality guard the base cache uses below.
+  const markerUnchanged =
+    marker !== null &&
+    marker.revision === view.revision &&
+    marker.manifestDigest === view.manifestDigest &&
+    Object.keys(marker.blobs).length === Object.keys(nextBlobs).length &&
+    Object.entries(nextBlobs).every(([logical, sha]) => marker.blobs[logical] === sha);
+  if (!markerUnchanged)
+    fleetMirrorWriteJson(path.join(view.viewDir, materializationMarker), {
+      revision: view.revision,
+      manifestDigest: view.manifestDigest,
+      blobs: nextBlobs,
+    });
   rmSync(path.join(view.viewDir, "worktree"), { recursive: true, force: true });
   return {
     outcome: conflicts.length > 0 ? "pull_blocked" : "applied",
@@ -499,9 +522,7 @@ export function stageFleetConflict(
     ] as const)
       if (bytes !== null) {
         fleetMirrorAssertLogical(file.path);
-        const target = path.join(dir, side, ...file.path.split("/"));
-        mkdirSync(path.dirname(target), { recursive: true });
-        writeFileDurably(target, bytes);
+        writeFileDurably(path.join(dir, side, ...file.path.split("/")), bytes);
       }
   const record: FleetConflictRecord = {
     ...input.record,
@@ -578,10 +599,8 @@ export function restoreFleetConflictCenterBytes(
 ): void {
   const source = fleetConflictSideFile(workspaceRoot, conflictId, row.path, "center");
   const target = path.join(fleetMirrorMaterializedRoot(workspaceRoot), ...row.path.split("/"));
-  if (source !== null) {
-    mkdirSync(path.dirname(target), { recursive: true });
-    writeFileDurably(target, readFileSync(source));
-  } else rmSync(target, { force: true });
+  if (source !== null) writeFileDurably(target, readFileSync(source));
+  else rmSync(target, { force: true });
 }
 
 // A re-detected divergence reuses its unresolved record instead of staging a
