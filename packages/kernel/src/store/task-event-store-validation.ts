@@ -32,16 +32,18 @@ import { assertPeopleEventInputs, isPeopleEvent } from "../domain/people-event.t
 import { assertSnapshotUpgradeInputs, isSnapshotUpgradeEvent } from "../domain/task-snapshot-upgrade-store-seam.ts";
 import {
   isFrozenWritePlan,
+  sameWriteTarget,
+  sameWriteTargets,
   normalizeContentAddressedInputs,
   WriteChainContractError,
   type FrozenWritePlan,
   type WriteTarget,
 } from "../domain/write-chain.contract.ts";
-import { sha256Bytes, stableStringify } from "../integrity/stable-hash.ts";
+import { sha256Bytes } from "../integrity/stable-hash.ts";
 import { assertPublishableOpId, eventObjectTarget } from "../layout/ledger-object-layout.ts";
 import type { CanonicalContentBlob, CanonicalEventWriteBundle } from "./task-event-store-types.ts";
 import { TaskEventStoreError } from "./task-event-store-types.ts";
-import { canonicalDocumentClaims, contentClaims, targetShape } from "./task-event-store-claims-layout.ts";
+import { canonicalDocumentClaims, contentClaims } from "./task-event-store-claims-layout.ts";
 
 // Bundle, plan, content-input, and prepared-publication validation.
 export function assertBundle(bundle: CanonicalEventWriteBundle): void {
@@ -189,12 +191,9 @@ export function assertBundle(bundle: CanonicalEventWriteBundle): void {
       },
     ],
     claims = contentClaims(event);
-  if (
-    required.some((target) => !plan.targets.some((candidate) => stableStringify(candidate) === stableStringify(target)))
-  )
+  if (required.some((target) => !plan.targets.some((candidate) => sameWriteTarget(candidate, target))))
     throw new TaskEventStoreError("invalid_write_plan", "canonical write bundle must declare its event and head");
-  assertContentInputs(claims, blobs, "canonical bundle");
-  const normalizedClaims = normalizeContentAddressedInputs(claims),
+  const normalizedClaims = assertContentInputs(claims, blobs, "canonical bundle"),
     declaredAuthored = plan.targets.filter((target) => target.kind === "authored_file"),
     expectedAuthored: WriteTarget[] = canonicalDocumentClaims(event).map((claim) => ({
       kind: "authored_file",
@@ -205,16 +204,16 @@ export function assertBundle(bundle: CanonicalEventWriteBundle): void {
       mediaType: claim.mediaType,
     }));
   if (
-    targetShape(declaredAuthored) !== targetShape(expectedAuthored) ||
-    targetShape(plan.targets.filter((target) => target.kind === "content_blob")) !==
-      targetShape(
-        normalizedClaims.map((claim) => ({
-          kind: "content_blob",
-          sha256: claim.sha256,
-          size: claim.size,
-          mediaType: claim.mediaType,
-        })),
-      )
+    !sameWriteTargets(declaredAuthored, expectedAuthored) ||
+    !sameWriteTargets(
+      plan.targets.filter((target) => target.kind === "content_blob"),
+      normalizedClaims.map((claim) => ({
+        kind: "content_blob",
+        sha256: claim.sha256,
+        size: claim.size,
+        mediaType: claim.mediaType,
+      })),
+    )
   )
     throw new TaskEventStoreError("invalid_write_plan", "canonical write bundle claims and plan differ");
 }
@@ -259,7 +258,7 @@ export function assertContentInputs(
     readonly body: string | Uint8Array;
   }[],
   label: string,
-): void {
+): typeof claims {
   let normalizedClaims: readonly (typeof claims)[number][];
   let normalizedBlobs: readonly (typeof blobs)[number][];
   try {
@@ -290,4 +289,5 @@ export function assertContentInputs(
       "invalid_write_plan",
       `${label} content inputs must exactly match the frozen write plan`,
     );
+  return normalizedClaims;
 }

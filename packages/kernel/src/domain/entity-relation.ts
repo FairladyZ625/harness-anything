@@ -235,7 +235,7 @@ export function isAllowedRelationRecord(
 
 export function assertGovernedRelationRecord(
   record: EntityRelationRecord,
-  witness: GovernedRelationRegistryWitness,
+  witness: unknown,
   allowUnknownFields = false,
 ): void {
   assertGovernedRelationRegistryWitness(witness, allowUnknownFields);

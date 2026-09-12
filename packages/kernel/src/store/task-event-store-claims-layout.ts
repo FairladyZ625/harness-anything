@@ -23,8 +23,6 @@ import { migrationImportClaims, migrationImportContentClaims } from "../domain/m
 import { isTaskBootstrapEvent, taskBootstrapClaims } from "../domain/task-bootstrap-event.ts";
 import { isTaskProgressEvent } from "../domain/task-progress-event.ts";
 import { isSnapshotUpgradeEvent, snapshotUpgradeClaims } from "../domain/task-snapshot-upgrade-store-seam.ts";
-import { type WriteTarget } from "../domain/write-chain.contract.ts";
-import { stableStringify } from "../integrity/stable-hash.ts";
 
 // Canonical document claim extraction plus flat-to-sharded layout auditing.
 export function canonicalDocumentClaims(event: PersistedCanonicalEventV1): readonly {
@@ -169,7 +167,4 @@ export function contentClaims(event: CanonicalEventV1): readonly {
                       ? runtimeEventContentClaims(event)
                       : [];
   return [...new Map(claims.map((claim) => [claim.sha256, claim])).values()];
-}
-export function targetShape(targets: readonly WriteTarget[]): string {
-  return stableStringify(targets.map(stableStringify).sort());
 }

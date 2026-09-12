@@ -39,6 +39,7 @@ import {
   hasOnlyFields,
   hasRequiredFields,
   isFrozenWritePlan,
+  sameWriteTargets,
   isRecord,
   validateEventEnvelopeIdentity,
   type ActorIdentity,
@@ -776,9 +777,12 @@ export function declarationWritePlan<Command extends "EntityUpsert" | "EntityCon
 }
 
 function assertExactWritePlan(plan: FrozenWritePlan | undefined, expected: FrozenWritePlan): void {
-  const shape = (value: FrozenWritePlan) =>
-    stableStringify({ commandType: value.commandType, targets: value.targets.map(stableStringify).sort() });
-  if (plan === undefined || !isFrozenWritePlan(plan) || shape(plan) !== shape(expected))
+  if (
+    plan === undefined ||
+    !isFrozenWritePlan(plan) ||
+    plan.commandType !== expected.commandType ||
+    !sameWriteTargets(plan.targets, expected.targets)
+  )
     throw new Error("entity write plan must exactly declare its event, declaration, projection, and content targets");
 }
 

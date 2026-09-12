@@ -1,6 +1,6 @@
 import { isDecisionEvent, isMigrationImportEvent, type CanonicalEventV1 } from "../domain/doc-sync.contract.ts";
 import { isPeopleEvent } from "../domain/people-event.ts";
-import { parsePeopleRosterDocument, serializePeopleRosterDocument } from "../domain/people-roster.ts";
+import { serializePeopleRosterDocument } from "../domain/people-roster.ts";
 import { isSettingsEvent } from "../domain/settings-event.ts";
 import { writeRepositorySettingsFacet } from "../domain/settings.ts";
 import { localGitWorktreeSettlement } from "./local-version-control-system.ts";
@@ -131,11 +131,7 @@ function authorize(
       candidate = blobs.find((blob) => blob.sha256 === event.payload.peopleDocumentClaim.sha256)?.body;
     if ((base?.sha256 ?? null) !== event.payload.baseDocumentSha256)
       throw new TaskEventStoreError("revision_conflict", "people.yaml changed before the People write committed");
-    if (
-      typeof candidate !== "string" ||
-      candidate !== serializePeopleRosterDocument(event.payload.roster) ||
-      serializePeopleRosterDocument(parsePeopleRosterDocument(candidate)) !== candidate
-    )
+    if (typeof candidate !== "string" || candidate !== serializePeopleRosterDocument(event.payload.roster))
       throw new TaskEventStoreError("invalid_write_plan", "People may replace only the canonical people roster");
     return;
   }

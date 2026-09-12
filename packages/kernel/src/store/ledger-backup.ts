@@ -151,12 +151,11 @@ export function readOfflineLedgerEvents(input: {
   const sinceMs = input.sinceTime === undefined ? null : Date.parse(input.sinceTime);
   if (sinceMs !== null && !Number.isFinite(sinceMs)) throw new Error("--since time must be an ISO timestamp");
   return events.filter((value) => {
-    const event = value as { readonly workspaceRevision: number; readonly occurredAt?: string },
-      body = JSON.stringify(value);
+    const event = value as { readonly workspaceRevision: number; readonly occurredAt?: string };
     return (
       (input.sinceRevision === undefined || event.workspaceRevision > input.sinceRevision) &&
       (sinceMs === null || Date.parse(event.occurredAt ?? "") >= sinceMs) &&
-      (input.grep === undefined || body.includes(input.grep))
+      (input.grep === undefined || JSON.stringify(value).includes(input.grep))
     );
   });
 }

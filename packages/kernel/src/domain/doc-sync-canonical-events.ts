@@ -143,7 +143,7 @@ export function serializeCanonicalEvent(event: CanonicalEventV1): string {
   const entry = canonicalEventSchemas.find((candidate) => candidate.schema === event.schema);
   const errors = entry?.validate(event) ?? ["canonical event schema is unknown"];
   if (errors.length) throw new Error(errors.join("; "));
-  return canonicalEventBytes(event);
+  return serializeCanonicalEventUnchecked(event);
 }
 
 export function serializePersistedCanonicalEvent(event: PersistedCanonicalEventV1): string {
@@ -151,7 +151,7 @@ export function serializePersistedCanonicalEvent(event: PersistedCanonicalEventV
     entry = canonicalEventSchemas.find((candidate) => candidate.schema === normalized.schema),
     errors = entry?.validate(normalized) ?? ["canonical event schema is unknown"];
   if (errors.length) throw new Error(errors.join("; "));
-  return canonicalEventBytes(event);
+  return serializeCanonicalEventUnchecked(event);
 }
 
 export function parseCanonicalEvent(body: string): CanonicalEventV1 {
@@ -166,7 +166,7 @@ export function parseCanonicalEvent(body: string): CanonicalEventV1 {
     entry = canonicalEventSchemas.find((candidate) => candidate.schema === normalized.schema),
     errors = entry?.validate(normalized) ?? ["canonical event schema is unknown"];
   if (errors.length) throw new Error(errors.join("; "));
-  if (canonicalEventBytes(value as unknown as CanonicalEventV1) !== body)
+  if (serializeCanonicalEventUnchecked(value as unknown as CanonicalEventV1) !== body)
     throw new Error("canonical event bytes are not canonical");
   return value as unknown as CanonicalEventV1;
 }
@@ -194,7 +194,8 @@ function normalizePersistedValue(value: unknown, field = ""): unknown {
     : normalized;
 }
 
-function canonicalEventBytes(event: PersistedCanonicalEventV1): string {
+/** Encode already validated current or historical events without changing their persisted bytes. */
+export function serializeCanonicalEventUnchecked(event: PersistedCanonicalEventV1): string {
   return `${JSON.stringify(canonicalizeWriteValue(event))}\n`;
 }
 

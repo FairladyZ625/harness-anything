@@ -1,10 +1,5 @@
 import { type EventHead, type LedgerCutIdentity } from "../domain/write-chain.contract.ts";
-import {
-  isTaskEvent,
-  ledgerCommitSha,
-  serializePersistedCanonicalEvent,
-  type CanonicalEventV1,
-} from "../domain/doc-sync.contract.ts";
+import { isTaskEvent, ledgerCommitSha, type CanonicalEventV1 } from "../domain/doc-sync.contract.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
 import { resolveHarnessLayout, type HarnessLayoutInput } from "../layout/index.ts";
 import { consumeKnownError } from "../error-consumption.ts";
@@ -140,13 +135,8 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
     }
     const fence = options.writerFence?.() ?? { repoId: options.repoId, holderId: "direct-store", epoch: 1 },
       accept = () =>
-        sqlite.appendCommand({
+        sqlite.appendValidatedBundle({
           fence: { repoId: fence.repoId, holder: fence.holderId, epoch: fence.epoch },
-          intent: {
-            opId: bundle.event.opId,
-            intentDigest: `sha256:${sha256Text(JSON.stringify(appended.map(serializePersistedCanonicalEvent)))}`,
-            summary: bundle.event.type,
-          },
           events: appended,
           blobs,
           beforeOutcome: () => options.killpoint?.("after_event_write"),

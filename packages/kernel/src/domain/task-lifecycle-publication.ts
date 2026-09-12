@@ -10,6 +10,7 @@ import type { TaskLifecycleSnapshot } from "./task-lifecycle.contract.ts";
 import {
   freezeDeclaredWritePlan,
   isFrozenWritePlan,
+  sameWriteTargets,
   type FrozenWritePlan,
   type WriteTarget,
 } from "./write-chain.contract.ts";
@@ -204,12 +205,13 @@ export function taskLifecycleWritePlan(event: TaskEventV1): FrozenWritePlan {
   return freezeDeclaredWritePlan({ commandType: event.type, targets }, [event.type]);
 }
 export function assertTaskLifecycleWritePlan(event: TaskEventV1, plan: FrozenWritePlan | undefined): void {
-  const shape = (value: FrozenWritePlan) =>
-    stableStringify({
-      commandType: value.commandType,
-      targets: value.targets.map(stableStringify).sort(),
-    });
-  if (!plan || !isFrozenWritePlan(plan) || shape(plan) !== shape(taskLifecycleWritePlan(event)))
+  const expected = taskLifecycleWritePlan(event);
+  if (
+    !plan ||
+    !isFrozenWritePlan(plan) ||
+    plan.commandType !== expected.commandType ||
+    !sameWriteTargets(plan.targets, expected.targets)
+  )
     throw new Error(
       "lifecycle write plan must exactly declare event, authored documents, blobs, lease, and projections",
     );

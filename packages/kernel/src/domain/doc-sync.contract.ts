@@ -18,6 +18,7 @@ export {
   parseCanonicalEvent,
   serializeCanonicalEvent,
   serializePersistedCanonicalEvent,
+  serializeCanonicalEventUnchecked,
   validateCurrentCanonicalEvent,
 } from "./doc-sync-canonical-events.ts";
 export {

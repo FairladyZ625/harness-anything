@@ -150,22 +150,26 @@ export function parsePeopleRosterDocument(body: string): PeopleRosterDocumentV1 
   };
 }
 
-export function serializePeopleRosterDocument(roster: PeopleRosterDocumentV1): string {
-  const bindings = roster.bindings ?? [];
-  const delegatedExecutionTokens = roster.delegatedExecutionTokens ?? [];
+export function normalizePeopleRoster(roster: PeopleRosterDocumentV1): PeopleRosterDocumentV1 {
+  const bindings = roster.bindings ?? [],
+    delegatedExecutionTokens = roster.delegatedExecutionTokens ?? [];
   validatePeopleRoster(roster.people, roster.roles, bindings, delegatedExecutionTokens);
+  return {
+    schema: PEOPLE_ROSTER_SCHEMA,
+    people: roster.people.map(orderedPerson),
+    roles: roster.roles.map(({ roleId, commandClasses }) => ({ roleId, commandClasses: [...commandClasses] })),
+    bindings: bindings.map(orderedBinding),
+    delegatedExecutionTokens: delegatedExecutionTokens.map(orderedDelegatedExecutionToken),
+  } as unknown as PeopleRosterDocumentV1;
+}
+
+export function serializePeopleRosterDocument(roster: PeopleRosterDocumentV1): string {
+  const { bindings, delegatedExecutionTokens, ...value } = normalizePeopleRoster(roster);
   return `${JSON.stringify(
     {
-      schema: PEOPLE_ROSTER_SCHEMA,
-      people: roster.people.map(orderedPerson),
-      roles: roster.roles.map(({ roleId, commandClasses }) => ({
-        roleId,
-        commandClasses: [...commandClasses],
-      })),
-      ...(bindings.length ? { bindings: bindings.map(orderedBinding) } : {}),
-      ...(delegatedExecutionTokens.length
-        ? { delegatedExecutionTokens: delegatedExecutionTokens.map(orderedDelegatedExecutionToken) }
-        : {}),
+      ...value,
+      ...(bindings.length ? { bindings } : {}),
+      ...(delegatedExecutionTokens.length ? { delegatedExecutionTokens } : {}),
     },
     null,
     2,
@@ -191,9 +195,9 @@ export function applyPeopleRosterAction(
     if (!merged.ok) throw new PeopleRosterContractError(merged.reason);
     next = parsePeopleRosterDocument(merged.body);
   }
+  const body = serializePeopleRosterDocument(next);
   assertPeopleRosterActionInvariants(current, next, action);
-  const body = serializePeopleRosterDocument(next),
-    changed = currentBody === null || body !== currentBody,
+  const changed = currentBody === null || body !== currentBody,
     targetPersonId =
       action.kind === "people-add"
         ? action.person.personId
@@ -226,7 +230,6 @@ function addPerson(
   if (roster.people.length > 0 && person.roles.includes("owner"))
     throw new PeopleRosterContractError("the owner role is reserved for the bootstrap creator");
   const roles = withRolePolicy(roster.roles, rolePolicy);
-  validatePeopleRoster([...roster.people, person], roles, roster.bindings, roster.delegatedExecutionTokens);
   return {
     schema: PEOPLE_ROSTER_SCHEMA,
     people: [...roster.people, person],
@@ -253,7 +256,6 @@ function setPersonRole(
     people = roster.people.map((person) =>
       person.personId === personId ? { ...person, roles: [rolePolicy.roleId] } : person,
     );
-  validatePeopleRoster(people, roles, roster.bindings, roster.delegatedExecutionTokens);
   return {
     schema: PEOPLE_ROSTER_SCHEMA,
     people,
@@ -278,7 +280,6 @@ function bindActorRole(roster: PeopleRosterDocumentV1, value: RoleBinding): Peop
       existing < 0
         ? [...roster.bindings, binding]
         : roster.bindings.map((candidate, index) => (index === existing ? binding : candidate));
-  validatePeopleRoster(roster.people, roster.roles, bindings, roster.delegatedExecutionTokens);
   return { ...roster, bindings };
 }
 
@@ -302,7 +303,6 @@ function issueDelegatedExecutionToken(
     throw new PeopleRosterContractError(`DelegatedExecutionToken ${token.tokenId} already exists`);
   }
   const delegatedExecutionTokens = [...roster.delegatedExecutionTokens, token];
-  validatePeopleRoster(roster.people, roster.roles, roster.bindings, delegatedExecutionTokens);
   return { ...roster, delegatedExecutionTokens };
 }
 
@@ -323,7 +323,6 @@ function revokeDelegatedExecutionToken(
     delegatedExecutionTokens = roster.delegatedExecutionTokens.map((token) =>
       token.tokenId === tokenId ? revoked : token,
     );
-  validatePeopleRoster(roster.people, roster.roles, roster.bindings, delegatedExecutionTokens);
   return { ...roster, delegatedExecutionTokens };
 }
 

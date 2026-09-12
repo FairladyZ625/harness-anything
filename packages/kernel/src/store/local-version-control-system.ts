@@ -648,7 +648,9 @@ function readNode(target: string): {
     const bytes = mode === "120000" ? readlinkSync(target, { encoding: "buffer" }) : readFileSync(target);
     return {
       mode,
-      body: bytes.toString("utf8"),
+      get body() {
+        return bytes.toString("utf8");
+      },
       bytes,
       sha256: hashVcsBytes("sha256", bytes),
       size: bytes.byteLength,

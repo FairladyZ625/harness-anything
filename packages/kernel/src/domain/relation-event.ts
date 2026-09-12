@@ -295,6 +295,10 @@ export function compileRelationCreatedEvent(input: {
 }): RelationCreated {
   assertRelationEventRecord(input.record);
   assertRelationAdmission(input.record, input.directions);
+  return relationCreatedEvent(input);
+}
+
+function relationCreatedEvent(input: Parameters<typeof compileRelationCreatedEvent>[0]): RelationCreated {
   return {
     schema: "relation-event/v1",
     eventId: `event-${input.opId}`,
@@ -350,7 +354,14 @@ export function compileRelationRetiredEvent(input: {
   readonly occurredAt: string;
   readonly workspaceRevision: number;
 }): RelationRetired {
-  const event: RelationRetired = {
+  const event = relationRetiredEvent(input);
+  const issues = validateCurrentRelationEvent(event);
+  if (issues.length) throw new Error(issues.join("; "));
+  return event;
+}
+
+function relationRetiredEvent(input: Parameters<typeof compileRelationRetiredEvent>[0]): RelationRetired {
+  return {
     schema: "relation-event/v1",
     eventId: `event-${input.opId}`,
     workspaceRevision: input.workspaceRevision,
@@ -362,9 +373,6 @@ export function compileRelationRetiredEvent(input: {
     occurredAt: input.occurredAt,
     payload: { reason: input.reason },
   };
-  const issues = validateCurrentRelationEvent(event);
-  if (issues.length) throw new Error(issues.join("; "));
-  return event;
 }
 
 /** Historical Decision and Fact envelopes embedded relation mutations before
@@ -380,7 +388,7 @@ export function embeddedRelationEventsForReplay(
   if (event.type === "decision_related") return [replayCreatedEvent(event, event.payload.relation)];
   if (event.type === "decision_relation_retired")
     return [
-      compileRelationRetiredEvent({
+      relationRetiredEvent({
         relationId: event.payload.relationId,
         reason: event.payload.reason,
         actor: event.actor,
@@ -392,7 +400,7 @@ export function embeddedRelationEventsForReplay(
     ];
   if (event.type !== "decision_relation_replaced") return [];
   return [
-    compileRelationRetiredEvent({
+    relationRetiredEvent({
       relationId: event.payload.relationId,
       reason: event.payload.reason,
       actor: event.actor,
@@ -473,7 +481,7 @@ function replayCreatedEvent(
   event: DecisionEventV1 | FactEventV1 | TaskEventV1,
   record: EntityRelationRecord,
 ): RelationEventV1 {
-  return compileRelationCreatedEvent({
+  return relationCreatedEvent({
     record: eventRecord(record),
     actor: event.actor,
     source: event.source,
