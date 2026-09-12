@@ -107,6 +107,7 @@ function fixture(
     rootDir,
     projectionReady,
     service: { read: async () => read },
+    settings: { read: () => ({ ci: { workflows: ["rewrite-ci"] } }) },
     projection: {
       read: () => read,
       readCiRunObservations: () => ({ status: "ready", events, watermark: 2, sourceRevision: 2 }),
@@ -287,6 +288,22 @@ test("public and private cuts reject cross-kind exact and descendant witnesses",
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("CI evidence follows the repository's configured workflow names, not only rewrite-ci", () => {
+  const current = execution(publicSha),
+    configured = fixture(publicRoot, current, [observation(publicSha, 1, "success", "ci")]);
+  Object.assign(configured.cell, { settings: { read: () => ({ ci: { workflows: ["ci"] } }) } });
+  assert.equal(readLatestCiEvidence(configured.cell, current)?.result, "pass");
+  const unconfigured = fixture(publicRoot, current, [observation(publicSha, 2, "success", "rewrite-ci")]);
+  Object.assign(unconfigured.cell, { settings: { read: () => ({ ci: { workflows: ["ci"] } }) } });
+  assert.throws(
+    () => readLatestCiEvidence(unconfigured.cell, current),
+    (error: unknown) => {
+      if ((error as { readonly code?: string }).code !== "invalid_proof") return false;
+      return /verified ci GitHub main run/u.test((error as Error).message);
+    },
+  );
 });
 
 test("pure deletion reconciles empty paths and surviving deliverables reconcile without deletion output", async () => {

@@ -284,18 +284,19 @@ export function validateGuiActionPayload(method: DaemonGuiActionMethod, value: u
       required.every((field) => nonEmpty(item[field])) &&
       Object.keys(item).every((field) => required.includes(field) || optional.includes(field));
   if (method === "repo.settings.update") {
+    // ciWorkflows is array-typed (enforced by the action shape) and its contents are judged by the
+    // kernel compiler, so only the scalar settings get the identifier check here.
     const settingFields = (
-        "defaultVertical defaultPreset defaultProfile defaultReviewer reviewIndependence " +
-        "reviewReturnBudget locale taskScaffold " +
-        "repositoryScaffold " +
-        "walFlushAdaptive walFlushEvents walFlushBytes walFlushMilliseconds"
+        "defaultVertical defaultPreset defaultProfile defaultReviewer reviewIndependence reviewReturnBudget " +
+        "locale taskScaffold repositoryScaffold walFlushAdaptive walFlushEvents " +
+        "walFlushBytes walFlushMilliseconds ciWorkflows"
       ).split(" "),
       changed = settingFields.filter((field) => value[field] !== undefined),
       identifier = /^[A-Za-z0-9][A-Za-z0-9/_.@-]*$/u;
     if (
       changed.length === 0 ||
       changed
-        .filter((field) => !field.startsWith("walFlush"))
+        .filter((field) => !field.startsWith("walFlush") && field !== "ciWorkflows")
         .some((field) => typeof value[field] !== "string" || !identifier.test(String(value[field]))) ||
       (value.walFlushAdaptive !== undefined && typeof value.walFlushAdaptive !== "boolean") ||
       [value.walFlushEvents, value.walFlushBytes, value.walFlushMilliseconds].some(

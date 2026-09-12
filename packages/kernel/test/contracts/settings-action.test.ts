@@ -76,6 +76,25 @@ test("Settings update hydrates the default when the projected event predates rev
   assert.equal(draft.result.bundle.event.payload.settings.reviewIndependence, "principal");
 });
 
+test("Settings update writes the repository CI workflow names through the canonical event", () => {
+  const draft = compile({ ciWorkflows: ["ci", "nightly"] });
+  assert.equal(draft.kind, "settings");
+  if (draft.kind !== "settings" || draft.result.kind !== "event") throw new Error("missing settings event");
+  assert.deepEqual(draft.result.bundle.event.payload.settings.ci.workflows, ["ci", "nightly"]);
+  assert.equal(readSettingsFacet(draft.result.bundle.blobs[0].body).ci.workflows.join(","), "ci,nightly");
+  assertSettingsEventInputs(draft.result.bundle.event, draft.result.bundle.plan, draft.result.bundle.blobs);
+});
+
+test("Settings update rejects malformed CI workflow name lists", () => {
+  for (const ciWorkflows of [[], ["ci", "ci"], ["ci.yml"], ["ci.yaml"], [""]]) {
+    assert.throws(
+      () => compile({ ciWorkflows }),
+      (error: unknown) => error instanceof SettingsActionError && error.code === "invalid_command",
+      JSON.stringify(ciWorkflows),
+    );
+  }
+});
+
 test("Settings expectedVersion rejects a stale edge update with a typed error", () => {
   assert.throws(
     () => compile({ walFlushEvents: 512, expectedVersion: 6 }),

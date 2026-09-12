@@ -72,14 +72,14 @@ export function readLatestCiEvidence(
       !verification ||
       (publicCut
         ? verification.source !== "github-actions" ||
-          verification.workflow !== "rewrite-ci" ||
+          !cell.settings.read().ci.workflows.includes(verification.workflow) ||
           event.payload.run.branch !== "main"
         : verification.source !== "write-coordinator" || verification.workflow !== "ledger-publication")
     )
       throw cell.cellCodedError(
         "invalid_proof",
         publicCut
-          ? "Public delivery requires a verified rewrite-ci GitHub main run."
+          ? `Public delivery requires a verified ${cell.settings.read().ci.workflows.join(" or ")} GitHub main run.`
           : "Private delivery requires a verified ledger-publication observation for its authored cut.",
       );
     if (verification.conclusion === "cancelled" || verification.conclusion === "skipped") continue;

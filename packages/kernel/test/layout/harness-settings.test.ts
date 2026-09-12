@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { setting, settingBlockValue } from "../../src/layout/index.ts";
-import { readSettingsFacet } from "../../src/index.ts";
+import { readSettingsFacet, writeRepositorySettingsFacet } from "../../src/index.ts";
 
 const body = [
   "schema: harness-anything/v1",
@@ -47,4 +47,15 @@ test("CI workflows fail closed on empty, duplicate, extension-bearing, or block 
     const configured = `${body}\n  ci:\n    workflows: ${workflows}\n`;
     assert.throws(() => readSettingsFacet(configured), /settings\.ci\.workflows/u);
   }
+});
+
+test("the repository facet writer inserts, replaces, and leaves default CI workflows unmaterialized", () => {
+  const defaultCi = writeRepositorySettingsFacet(body, readSettingsFacet(body));
+  assert.doesNotMatch(defaultCi, /^  ci:/mu);
+  const inserted = writeRepositorySettingsFacet(body, { ...readSettingsFacet(body), ci: { workflows: ["ci"] } });
+  assert.match(inserted, /^  ci:\n    workflows: \[ci\]$/mu);
+  assert.deepEqual(readSettingsFacet(inserted).ci.workflows, ["ci"]);
+  const replaced = writeRepositorySettingsFacet(`${body}\n  ci:\n    workflows: [legacy]\n`, readSettingsFacet(body));
+  assert.doesNotMatch(replaced, /legacy/u);
+  assert.deepEqual(readSettingsFacet(replaced).ci.workflows, ["rewrite-ci"]);
 });
