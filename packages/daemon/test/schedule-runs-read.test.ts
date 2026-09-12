@@ -277,12 +277,17 @@ function projection(events: readonly CanonicalEventV1[], value: ScheduleV1 | nul
   return {
     projection: {
       getEntity: () => value,
-      readCanonicalEvents: (afterRevision: number, limit: number) => ({
+      readScheduleEvents: (scheduleId: string) => ({
         status: "ready" as const,
-        events: events.filter(({ workspaceRevision }) => workspaceRevision > afterRevision).slice(0, limit),
+        events: events.filter((event) => event.schema === "schedule-event/v1" && event.entity.id === scheduleId),
         watermark: events.at(-1)?.workspaceRevision ?? 0,
         sourceRevision: events.at(-1)?.workspaceRevision ?? 0,
       }),
+      readScheduleOutputEvents: (runtimeSessionIds: readonly string[]) =>
+        events.filter(({ actor }) => {
+          const executor = actor?.executor;
+          return executor?.kind === "agent" && runtimeSessionIds.includes(executor.id.slice("runtime-session:".length));
+        }),
     },
   };
 }

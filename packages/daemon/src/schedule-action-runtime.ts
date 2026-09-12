@@ -257,7 +257,7 @@ function readScheduleAction(
           };
         }),
       opId = cell.operationId(action, binding, cell.input.repoId, revision);
-    return scheduleReadReceipt(opId, revision, JSON.stringify({ schema: "schedule-list/v1", schedules }), {
+    return scheduleReadReceipt(opId, revision, `schedule-list:${revision}`, {
       schedules,
       summary: schedules.length ? `${schedules.length} schedule(s)` : "No schedules.",
     });

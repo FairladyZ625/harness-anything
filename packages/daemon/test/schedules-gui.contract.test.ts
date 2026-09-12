@@ -95,7 +95,7 @@ function guiContext(overrides: Partial<SchedulesGuiReadContext> = {}): Schedules
             ? [{ id: probeAgent.id, value: probeAgent, workspaceRevision: 2 }]
             : [],
       readTaskStatuses: () => ({ status: "ready", watermark: 9, sourceRevision: 9 }),
-      readCanonicalEvents: () => ({ status: "ready", events: [], watermark: 0, sourceRevision: 0 }),
+      readScheduleEvents: () => ({ status: "ready", events: [], watermark: 0, sourceRevision: 0 }),
     },
     ...overrides,
   };
@@ -316,7 +316,7 @@ test("rows with a claimed-but-unlinked activeRun and a detail-less lastRun pass 
       projection: {
         listEntities: (kind) => (kind === "schedule" ? [{ value: claimed, workspaceRevision: 2 }] : []),
         readTaskStatuses: guiContext().projection.readTaskStatuses,
-        readCanonicalEvents: guiContext().projection.readCanonicalEvents,
+        readScheduleEvents: guiContext().projection.readScheduleEvents,
       },
     }),
   );
@@ -352,7 +352,7 @@ test("malformed definitions degrade to invalid rows while trigger DTO variants r
         projection: {
           listEntities: (kind) => (kind === "schedule" ? [{ value: malformed, workspaceRevision: 1 }] : []),
           readTaskStatuses: guiContext().projection.readTaskStatuses,
-          readCanonicalEvents: guiContext().projection.readCanonicalEvents,
+          readScheduleEvents: guiContext().projection.readScheduleEvents,
         },
       }),
     ),
@@ -413,7 +413,7 @@ test("invalid Agent options and schedules with unavailable Agent targets degrade
                   ]
                 : [],
           readTaskStatuses: guiContext().projection.readTaskStatuses,
-          readCanonicalEvents: guiContext().projection.readCanonicalEvents,
+          readScheduleEvents: guiContext().projection.readScheduleEvents,
         },
       }),
     );
@@ -649,7 +649,7 @@ test("paused and single-flight states produce precise run-now blockers", () => {
       projection: {
         listEntities: (kind) => (kind === "schedule" ? [{ value: pausedSchedule, workspaceRevision: 1 }] : []),
         readTaskStatuses: guiContext().projection.readTaskStatuses,
-        readCanonicalEvents: guiContext().projection.readCanonicalEvents,
+        readScheduleEvents: guiContext().projection.readScheduleEvents,
       },
     }),
   );
@@ -662,7 +662,7 @@ test("paused and single-flight states produce precise run-now blockers", () => {
       projection: {
         listEntities: (kind) => (kind === "schedule" ? [{ value: singleFlight, workspaceRevision: 1 }] : []),
         readTaskStatuses: guiContext().projection.readTaskStatuses,
-        readCanonicalEvents: guiContext().projection.readCanonicalEvents,
+        readScheduleEvents: guiContext().projection.readScheduleEvents,
       },
     }),
   );
@@ -721,9 +721,9 @@ test("the health rollup aggregates recent outcomes daemon-side from canonical ru
                 ? [{ id: probeAgent.id, value: probeAgent, workspaceRevision: 2 }]
                 : [],
           readTaskStatuses: guiContext().projection.readTaskStatuses,
-          readCanonicalEvents: (afterRevision: number, limit: number) => ({
+          readScheduleEvents: () => ({
             status: "ready" as const,
-            events: events.filter(({ workspaceRevision }) => workspaceRevision > afterRevision).slice(0, limit),
+            events,
             watermark: events.at(-1)?.workspaceRevision ?? 0,
             sourceRevision: events.at(-1)?.workspaceRevision ?? 0,
           }),

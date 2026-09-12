@@ -76,15 +76,8 @@ export function parseScheduleListReceipt(
     typeof receipt.evidence !== "string"
   )
     return null;
-  const payload: unknown = JSON.parse(receipt.evidence);
-  if (
-    !exactRecord(payload, ["schema", "schedules"]) ||
-    payload.schema !== "schedule-list/v1" ||
-    !Array.isArray(payload.schedules) ||
-    !payload.schedules.every(scheduleListRow)
-  )
-    return null;
-  return payload.schedules;
+  if (!Array.isArray(receipt.schedules) || !receipt.schedules.every(scheduleListRow)) return null;
+  return receipt.schedules;
 }
 
 export function makeDaemonCommandReceipt(command: string, receipt: object): JsonObject {

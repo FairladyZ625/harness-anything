@@ -140,6 +140,13 @@ export interface TaskProjection {
     readonly watermark: number;
     readonly sourceRevision: number;
   };
+  readonly readScheduleEvents: (scheduleId?: string) => {
+    readonly status: "ready" | "pending";
+    readonly events: readonly CanonicalEventV1[];
+    readonly watermark: number;
+    readonly sourceRevision: number;
+  };
+  readonly readScheduleOutputEvents: (runtimeSessionIds: readonly string[]) => readonly CanonicalEventV1[];
   readonly readCiRunObservations: (limit: number) => {
     readonly status: "ready" | "pending";
     readonly events: readonly import("../domain/ci-run-observation-event.ts").CiRunObservationEventV3[];

@@ -44,6 +44,15 @@ test("an invalid Schedule row does not prevent healthy occurrences from arming",
         { ...healthy, definitionRevision: 2, nextRunAt: "2026-08-27T10:30:00.000Z" },
       ],
     }),
+    schedules: [
+      {
+        scheduleId: "legacy-probe",
+        state: "invalid",
+        invalidReason: 'schedule is missing required field "mode".',
+        definitionRevision: 1,
+      },
+      { ...healthy, definitionRevision: 2, nextRunAt: "2026-08-27T10:30:00.000Z" },
+    ],
   });
   const scheduler = makeScheduleScheduler({
     cells: new Map([[repo.repoId, repo.cell]]),
@@ -437,6 +446,7 @@ function fixtureRepo(repoId: string, mode: DaemonRepoMode, schedules: MutableSch
           opId: `read:schedule-list:${repoId}`,
           revision: 1,
           evidence: JSON.stringify({ schema: "schedule-list/v1", schedules: rows }),
+          schedules: rows,
           visibility: "center",
           proof: {
             committedRevision: 1,

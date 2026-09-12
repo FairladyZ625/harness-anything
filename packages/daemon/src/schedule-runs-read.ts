@@ -27,15 +27,13 @@ export type {
 export interface ScheduleRunsReadContext {
   readonly projection: {
     readonly getEntity: (entityKind: string, entityId: string) => unknown;
-    readonly readCanonicalEvents: (
-      afterRevision: number,
-      limit: number,
-    ) => {
+    readonly readScheduleEvents: (scheduleId: string) => {
       readonly status: "ready" | "pending";
       readonly events: readonly CanonicalEventV1[];
       readonly watermark: number;
       readonly sourceRevision: number;
     };
+    readonly readScheduleOutputEvents: (runtimeSessionIds: readonly string[]) => readonly CanonicalEventV1[];
   };
   /** runtime-result artifact 内容读;缺省时报告正文为 null,引用照常投影。 */
   readonly store?: {
@@ -50,9 +48,15 @@ export function readScheduleRuns(context: ScheduleRunsReadContext, scheduleId: s
   if (!context.projection.getEntity("schedule", scheduleId))
     throw scheduleRunsError("entity_not_found", `Schedule ${scheduleId} does not exist.`);
 
-  const read = readAllCanonicalEvents(context.projection),
+  const read = context.projection.readScheduleEvents(scheduleId),
     rows = projectScheduleRuns(read.events, scheduleId),
-    outputs = scheduleRunOutputs(read.events, new Set(rows.map(({ runtimeSessionId }) => runtimeSessionId))),
+    runtimeSessionIds = [
+      ...new Set(rows.flatMap(({ runtimeSessionId }) => (runtimeSessionId === null ? [] : [runtimeSessionId]))),
+    ],
+    outputs = scheduleRunOutputs(
+      context.projection.readScheduleOutputEvents(runtimeSessionIds),
+      new Set(runtimeSessionIds),
+    ),
     runs = rows.slice(0, limit).map((row) => ({
       ...row,
       reportText: reportTextOf(context, row.reportRef),
@@ -130,59 +134,6 @@ export function serializeScheduleRuns(value: unknown): string {
   const errors = validateScheduleRuns(value);
   if (errors.length) throw new Error(errors.join("; "));
   return `${JSON.stringify(value)}\n`;
-}
-
-function readAllCanonicalEvents(projection: ScheduleRunsReadContext["projection"]): {
-  readonly status: "ready" | "pending";
-  readonly events: readonly CanonicalEventV1[];
-  readonly watermark: number;
-  readonly sourceRevision: number;
-} {
-  return pageAllCanonicalEvents(projection.readCanonicalEvents);
-}
-
-/** 分页读全量 canonical 事件的共用折页;列表读的健康度 rollup 与本读共用同一遍历纪律。 */
-export function pageAllCanonicalEvents(
-  readCanonicalEvents: (
-    afterRevision: number,
-    limit: number,
-  ) => {
-    readonly status: "ready" | "pending";
-    readonly events: readonly CanonicalEventV1[];
-    readonly watermark: number;
-    readonly sourceRevision: number;
-  },
-): {
-  readonly status: "ready" | "pending";
-  readonly events: readonly CanonicalEventV1[];
-  readonly watermark: number;
-  readonly sourceRevision: number;
-} {
-  const events: CanonicalEventV1[] = [];
-  let cursor = 0,
-    status: "ready" | "pending" = "ready";
-  while (true) {
-    const page = readCanonicalEvents(cursor, 500);
-    status = page.status === "pending" ? "pending" : status;
-    if (!page.events.length)
-      return {
-        status,
-        events,
-        watermark: page.watermark,
-        sourceRevision: page.sourceRevision,
-      };
-    events.push(...page.events);
-    const nextCursor = page.events.at(-1)!.workspaceRevision;
-    if (nextCursor <= cursor) throw new Error("canonical Schedule run projection did not advance");
-    cursor = nextCursor;
-    if (page.events.length < 500)
-      return {
-        status,
-        events,
-        watermark: page.watermark,
-        sourceRevision: page.sourceRevision,
-      };
-  }
 }
 
 function projectScheduleRuns(events: readonly CanonicalEventV1[], scheduleId: string): readonly ScheduleRunRowDto[] {
