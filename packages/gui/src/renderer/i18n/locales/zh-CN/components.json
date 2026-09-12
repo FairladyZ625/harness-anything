@@ -145,7 +145,6 @@
   "components.taskPreviewDrawer.notProjected": "未投影",
   "components.factInspector.contradictsValue": "矛盾于 {value}",
   "components.factInspector.replacedByValue": "已被 {value} 取代",
-  "components.graphFilterPanel.assocRelatesTurnedOffByDefaultReduce": "默认关 assoc(relates),减少噪音;点开切换。",
   "components.graphFilterPanel.collapseFilterPanel": "收起筛选面板",
   "components.graphFilterPanel.decisionState": "Decision 状态",
   "components.graphFilterPanel.density": "信息密度",

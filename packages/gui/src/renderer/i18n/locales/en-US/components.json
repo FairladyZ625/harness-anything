@@ -145,7 +145,6 @@
   "components.taskPreviewDrawer.notProjected": "not projected",
   "components.factInspector.contradictsValue": "contradicts {value}",
   "components.factInspector.replacedByValue": "replaced by {value}",
-  "components.graphFilterPanel.assocRelatesTurnedOffByDefaultReduce": "Assoc off by default — click to enable.",
   "components.graphFilterPanel.collapseFilterPanel": "Collapse filter panel",
   "components.graphFilterPanel.decisionState": "Decision state",
   "components.graphFilterPanel.density": "Density",
