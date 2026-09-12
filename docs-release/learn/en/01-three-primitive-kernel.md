@@ -106,7 +106,9 @@ If the primitives are the organs, the typed relations between them are the
 circulatory system. Coverage, review, and cleanup are all graph traversals over
 those edges: *can each load-bearing claim of a decision reach at least one living
 fact that supports it?* That's a reachability question, answered over a rebuildable
-projection of the Markdown — never by scanning prose.
+projection of canonical events, implemented in
+`packages/kernel/src/projection/rebuildable-task-projection-reads.ts` — never by
+scanning prose.
 
 That distinction — **choosing a path** versus **judging whether an output holds**
 — is subtle enough to deserve its own chapter. It's the difference between a

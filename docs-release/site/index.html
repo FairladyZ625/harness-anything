@@ -849,8 +849,8 @@
           <span class="sec-no">02</span>
           <h3><span lang="en">The bet: make these first-class, in git</span><span lang="zh">我们的赌注：把它们做成一等公民，存进 git</span></h3>
           <p class="lead">
-            <span lang="en">The fix isn't better note-taking. It's promoting that trail into <strong>structured entities that live in git</strong> — Markdown as the source of truth, the repository as the single place the truth lives.</span>
-            <span lang="zh">解法不是"做更好的笔记"，而是把那条轨迹提升为<strong>活在 git 里的结构化实体</strong>——以 Markdown 作为真相的载体，代码库作为真相唯一的栖身之所。</span>
+            <span lang="en">The fix isn't better note-taking. It's promoting that trail into <strong>structured entities that live in git</strong> — SQLite as the accepted record, with readable Markdown published to Git (<code>packages/kernel/src/store/sqlite-task-event-store.ts</code>).</span>
+            <span lang="zh">解法不是"做更好的笔记"，而是把那条轨迹提升为<strong>活在 git 里的结构化实体</strong>——SQLite 保存接受记录，Git 发布可读 Markdown（<code>packages/kernel/src/store/sqlite-task-event-store.ts</code>）。</span>
           </p>
           <p>
             <span lang="en">Not a scratchpad — entities with lifecycles, state machines, and typed relations between them. A choice becomes a decision that can be proposed, accepted, and later overturned, with a paper trail. Progress becomes a task that moves through defined states. An observation becomes a fact that is immutable and carries its own provenance. Because they're plain files under version control, they're diffable, reviewable, and permanent, and any agent can pick them up without a warm conversation to inherit.</span>
@@ -1081,8 +1081,8 @@
           <span lang="zh">撑起这个赌注的那台机器的形状。</span>
         </h2>
         <p class="lede">
-          <span lang="en">The Why tab made a bet: promote the agent's trail into structured entities in git, with Markdown as the source of truth. This tab shows the machine — what the layers are, where the truth actually sits, and the single door every durable write goes through. Each section opens with a back-link to the claim it proves.</span>
-          <span lang="zh">"为什么"标签页押下了一个赌注：把代理的轨迹提升为 git 里的结构化实体，以 Markdown 作为真相的载体。这个标签页展示那台机器——有哪些层、真相到底落在哪里、以及每一次持久写入都要经过的那扇唯一的门。每一节开头都带一个回链，指向它所证明的那个主张。</span>
+          <span lang="en">The Why tab made a bet: promote the agent's trail into structured entities in git, with SQLite acceptance and Markdown publication (<code>packages/kernel/src/store/sqlite-task-event-store.ts</code>). This tab shows the machine — what the layers are, where the truth actually sits, and the single door every durable write goes through. Each section opens with a back-link to the claim it proves.</span>
+          <span lang="zh">"为什么"标签页押下了一个赌注：把代理的轨迹提升为 git 里的结构化实体，SQLite 接受后发布 Markdown（<code>packages/kernel/src/store/sqlite-task-event-store.ts</code>）。这个标签页展示那台机器——有哪些层、真相到底落在哪里、以及每一次持久写入都要经过的那扇唯一的门。每一节开头都带一个回链，指向它所证明的那个主张。</span>
         </p>
       </div>
 
@@ -1094,56 +1094,15 @@
             <span class="arrow" aria-hidden="true">←</span>
             <span lang="en">Why this matters</span><span lang="zh">为什么这很重要</span>
           </button>
-          <h3><span lang="en">Two stores, and they are not peers</span><span lang="zh">两个存储，而它们并不对等</span></h3>
-          <p class="pull">
-            <span lang="en">Markdown in your git repository is the source of truth. SQLite is a rebuildable projection — a fast read cache you can delete and regenerate from the Markdown at any time.</span>
-            <span lang="zh">你 git 仓库里的 Markdown 是真相的来源。SQLite 是一个可重建的投影——一个快速的读缓存，你随时可以删掉它，再从 Markdown 重新生成。</span>
+          <h3><span lang="en">SQLite accepts; Git publishes</span><span lang="zh">SQLite 接受，Git 发布</span></h3>
+          <p>
+            <span lang="en">The canonical SQLite database and its required content objects hold accepted commands. Git publishes readable documents; a separate read projection can be rebuilt.</span>
+            <span lang="zh">canonical SQLite 数据库与必需内容对象保存已接受命令。Git 发布可读文档；独立的读取投影可以重建。</span>
           </p>
           <p>
-            <span lang="en">Every entity — decision, task, fact — is a plain Markdown file with YAML frontmatter, committed to git. Nothing about correctness depends on the database surviving: delete it and the next read rebuilds it from the files. When the two disagree, the Markdown wins by definition, and a freshness check exists precisely to notice. Hold onto that asymmetry — it explains the whole layout: writes flow <em>down</em> toward Markdown and git; reads are served <em>from</em> a projection any write can invalidate and any command can rebuild.</span>
-            <span lang="zh">每个实体——decision、task、fact——都是一份带 YAML frontmatter 的纯 Markdown 文件，提交进 git。正确性不依赖数据库的存活：删掉它，下一次读取就从文件把它重建出来。当两者不一致时，按定义 Markdown 说了算，而一个新鲜度检查的存在正是为了发现这种不一致。记住这处不对称——它解释了整个布局：写入朝着 Markdown 与 git <em>向下</em>流动；读取则由一个任何写入都能让它失效、任何命令都能把它重建的<em>投影</em>来提供。</span>
+            <span lang="en">The daemon serializes writes through RepoCell. <code>packages/kernel/src/store/sqlite-event-store.ts</code> commits events and command outcomes together. <code>packages/kernel/src/store/sqlite-task-event-store.ts</code> publishes accepted events to Git and the authored worktree.</span>
+            <span lang="zh">daemon 经 RepoCell 串行化写入。<code>packages/kernel/src/store/sqlite-event-store.ts</code> 一起提交事件与 command outcome；<code>packages/kernel/src/store/sqlite-task-event-store.ts</code> 把已接受事件发布到 Git 与撰写工作区。</span>
           </p>
-
-          <figure class="diagram">
-            <div class="diagram-scroll">
-              <svg viewBox="0 0 660 300" role="img" aria-labelledby="stack-title stack-desc">
-                <title id="stack-title"><span></span></title>
-                <desc id="stack-desc">Four-layer stack: CLI command surface, application lifecycle and gates, kernel, durable git and Markdown store. Writes flow down, reads flow up from a projection.</desc>
-                <defs>
-                  <marker id="ahd" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" class="svg-arrow"/></marker>
-                </defs>
-                <!-- layers -->
-                <g>
-                  <rect class="svg-layer" x="70" y="18" width="470" height="46" rx="6"/>
-                  <text class="svg-label" x="86" y="40" font-size="14"><tspan lang="en">CLI command surface</tspan><tspan lang="zh">CLI 命令面</tspan></text>
-                  <text class="svg-mono" x="86" y="56" font-size="11">packages/cli/ — the `ha` command</text>
-                </g>
-                <g>
-                  <rect class="svg-layer" x="70" y="76" width="470" height="46" rx="6"/>
-                  <text class="svg-label" x="86" y="98" font-size="14"><tspan lang="en">Application / lifecycle + gates</tspan><tspan lang="zh">应用层 / 生命周期 + 门</tspan></text>
-                  <text class="svg-mono" x="86" y="114" font-size="11">packages/application/ — orchestration, fail-closed gates</text>
-                </g>
-                <g>
-                  <rect class="svg-layer-k" x="70" y="134" width="470" height="70" rx="6"/>
-                  <text class="svg-label" x="86" y="155" font-size="14"><tspan lang="en">Kernel (kept small)</tspan><tspan lang="zh">内核（保持精简）</tspan></text>
-                  <text class="svg-mono" x="86" y="172" font-size="10.5">packages/kernel/src/ — domain · schemas · store</text>
-                  <text class="svg-mono" x="86" y="188" font-size="10.5">write-coordination (the single write path) · projection (SQLite)</text>
-                </g>
-                <g>
-                  <rect class="svg-layer" x="70" y="216" width="470" height="46" rx="6"/>
-                  <text class="svg-label" x="86" y="238" font-size="14"><tspan lang="en">Durable store</tspan><tspan lang="zh">持久存储</tspan></text>
-                  <text class="svg-mono" x="86" y="254" font-size="11">git + plain Markdown files — the source of truth</text>
-                </g>
-                <!-- write arrow (down, left side) -->
-                <path class="svg-edge" d="M40 26 L 40 254" stroke-width="1.8" marker-end="url(#ahd)"/>
-                <text class="svg-edge-label" x="34" y="150" font-size="11" text-anchor="middle" transform="rotate(-90 34 150)"><tspan lang="en">writes</tspan><tspan lang="zh">写入</tspan></text>
-                <!-- read arrow (up, right side) -->
-                <path class="svg-edge" d="M570 254 L 570 26" stroke-width="1.8" marker-end="url(#ahd)"/>
-                <text class="svg-edge-label" x="588" y="150" font-size="11" text-anchor="middle" transform="rotate(90 588 150)"><tspan lang="en">reads (from projection)</tspan><tspan lang="zh">读取（走投影）</tspan></text>
-              </svg>
-            </div>
-            <figcaption><span lang="en">The layer stack. Writes flow down to git; reads flow up from a rebuildable projection.</span><span lang="zh">层栈。写入向下流到 git；读取从一个可重建的投影向上流出。</span></figcaption>
-          </figure>
         </section>
 
         <section class="block" id="storage">
@@ -1154,8 +1113,8 @@
           </button>
           <h3><span lang="en">How the three entities live on disk</span><span lang="zh">三个实体在磁盘上怎么住</span></h3>
           <p>
-            <span lang="en">Every entity is the same physical thing: a Markdown file with a YAML frontmatter block on top. The frontmatter isn't decoration — it's validated against a schema in <code>packages/kernel/src/schemas/</code> before the file is accepted, so the fields are contracts, not conventions. Three primitives, but only two storage sites: decisions centralized, tasks as containers, facts embedded.</span>
-            <span lang="zh">每个实体都是同一种物理东西：一份顶部带 YAML frontmatter 块的 Markdown 文件。frontmatter 不是装饰——在文件被接受之前，它要经 <code>packages/kernel/src/schemas/</code> 里的 schema 校验，所以这些字段是合同，不是约定。三个原语，却只有两个存储点：决策集中，任务作容器，事实嵌入。</span>
+            <span lang="en">Accepted entities publish authored Markdown with YAML frontmatter through <code>packages/kernel/src/store/sqlite-task-event-store.ts</code>. The frontmatter isn't decoration — it's validated against a schema in <code>packages/kernel/src/schemas/</code> before the file is accepted, so the fields are contracts, not conventions. Three primitives, but only two storage sites: decisions centralized, tasks as containers, facts embedded.</span>
+            <span lang="zh">已接受实体经 <code>packages/kernel/src/store/sqlite-task-event-store.ts</code> 发布带 YAML frontmatter 的撰写 Markdown。frontmatter 不是装饰——在文件被接受之前，它要经 <code>packages/kernel/src/schemas/</code> 里的 schema 校验，所以这些字段是合同，不是约定。三个原语，却只有两个存储点：决策集中，任务作容器，事实嵌入。</span>
           </p>
           <p>
             <span lang="en">The IDs are shaped and enforced. A decision id matches <span class="idchip">dec_…</span>. A task id is <span class="idchip">task_&lt;ULID&gt;-&lt;slug&gt;</span> — the ULID is sortable and unique, the slug is human-readable. A fact id is <span class="idchip">F-</span> plus exactly eight Crockford base32 characters (digits and uppercase, excluding <code>I L O U</code>), e.g. <span class="idchip">F-3DQ0KZRV</span>.</span>
@@ -1188,33 +1147,18 @@
             <span class="arrow" aria-hidden="true">←</span>
             <span lang="en">Why this matters</span><span lang="zh">为什么这很重要</span>
           </button>
-          <h3><span lang="en">The single write path — the seal</span><span lang="zh">唯一的写路径——那枚印章</span></h3>
+          <h3><span lang="en">One writer and a durable acceptance receipt</span><span lang="zh">一个写者与持久接受回执</span></h3>
           <p>
-            <span lang="en">Load-bearing writes — creating a task, transitioning it, appending progress, proposing or accepting a decision — never touch disk directly. They go through one component, the <strong>write coordinator</strong> (<code>WriteCoordinator</code> in <code>packages/kernel/src/ports/write-coordinator.ts</code>), whose interface is tiny on purpose:</span>
-            <span lang="zh">承重写入——创建任务、迁移它、追加进度、提议或接受决策——从不直接落盘。它们经过一个组件，<strong>写协调器</strong>（<code>packages/kernel/src/ports/write-coordinator.ts</code> 里的 <code>WriteCoordinator</code>），它的接口刻意做得很小：</span>
-          </p>
-          <figure class="code">
-            <figcaption><span lang="en">enqueue intent, then flush effect</span><span lang="zh">先把意图入队，再落实效果</span></figcaption>
-<pre>WriteCoordinator
-  <span class="k">enqueue</span>(op)   → WriteAck        <span class="c"># record intent in the journal</span>
-  <span class="k">flush</span>(reason) → FlushReport      <span class="c"># apply pending ops, commit, watermark</span>
-  <span class="k">recover</span>       → RecoveryReport   <span class="c"># replay anything left half-applied</span></pre>
-          </figure>
-          <p>
-            <span lang="en">Every write splits into two phases so a crash leaves a recoverable state, not a corrupt one. <strong>Enqueue</strong> records <em>intent</em>: it validates the op, runs a preflight check, and appends a record to an append-only journal — nothing in your tree has changed yet. <strong>Flush</strong> produces the <em>effect</em>: under a repository lock it applies each pending op to disk (atomically, via a temp-file write then rename), commits the touched paths to git, and finally writes a <strong>watermark</strong> — the authoritative record of what has been committed.</span>
-            <span lang="zh">每次写入分成两个阶段，好让崩溃留下一个可恢复的状态，而不是一个损坏的状态。<strong>Enqueue</strong> 记录<em>意图</em>：它校验 op、跑一次预检、往一个只增不改的 journal 追加一条记录——你的工作树此刻还什么都没变。<strong>Flush</strong> 产生<em>效果</em>：在仓库锁下，它把每条待处理的 op 原子地应用到磁盘（先写临时文件再改名），把被触碰的路径提交到 git，最后写一个<strong>水印（watermark）</strong>——已提交内容的权威记录。</span>
+            <span lang="en">CLI and GUI submit typed commands to the daemon. <code>packages/daemon/src/repo-cell.ts</code> supplies the writer epoch fence; required content objects are synchronized before a SQLite transaction accepts the event interval and command outcome.</span>
+            <span lang="zh">CLI 与 GUI 向 daemon 提交 typed command。<code>packages/daemon/src/repo-cell.ts</code> 提供 writer epoch fence；必需内容对象同步完成后，SQLite 事务接受事件区间与 command outcome。</span>
           </p>
           <p>
-            <span lang="en">That watermark is the wax seal. Each decision document also gets a <code>_coordinatorWatermark</code> stamped into its frontmatter; its presence proves the file went through the single write path, and post-merge checks hard-fail if it's missing or duplicated. The git commit carries a semantic message like <code>task(transition): &lt;id&gt; → in_review [&lt;opId&gt;]</code>. There is no "write these bytes to that path" primitive — if an operation isn't one of the enumerated kinds, it cannot enter the system.</span>
-            <span lang="zh">那个水印就是蜡封。每个决策文档还会被在 frontmatter 里盖上一个 <code>_coordinatorWatermark</code>；它的存在证明这份文件走过了那条唯一的写路径，合并后的检查会在它缺失或重复时硬失败。git 提交带一条语义信息，如 <code>task(transition): &lt;id&gt; → in_review [&lt;opId&gt;]</code>。系统里没有"把这些字节写到那个路径"的原语——如果一个操作不属于被枚举的种类之一，它就进不来。</span>
+            <span lang="en">SQLite uses its native transaction journal and <code>synchronous=FULL</code>. Acceptance is recorded before Git publication; Git or worktree progress can remain pending. See <code>packages/kernel/src/store/sqlite-event-store.ts</code> and <code>packages/kernel/src/store/sqlite-task-event-store.ts</code>.</span>
+            <span lang="zh">SQLite 使用自身的事务日志与 <code>synchronous=FULL</code>。接受先于 Git 发布；Git 或工作区进度可以保持 pending。实现见 <code>packages/kernel/src/store/sqlite-event-store.ts</code> 与 <code>packages/kernel/src/store/sqlite-task-event-store.ts</code>。</span>
           </p>
           <p>
-            <span lang="en">Read that as one design move: <strong>stamp, then commit — one door.</strong> Because every load-bearing write ends by stamping a watermark and then committing to git, there is exactly one place where structure becomes durable, and exactly one artifact to audit afterward. A record without its watermark, or one that never became a git commit, simply isn't a real write — and the checks that run after a merge are built to notice precisely that.</span>
-            <span lang="zh">把这理解成一个设计动作：<strong>先盖章，再提交——一扇门。</strong>因为每一次承重写入都以盖一个水印、再提交到 git 收尾，所以结构变得持久的地方只有一个，事后可审计的工件也只有一个。一条没有水印、或从未变成 git 提交的记录，根本不算一次真实的写入——而合并之后跑的检查，正是为发现这一点而造的。</span>
-          </p>
-          <p>
-            <span lang="en">Three hardening layers sit on top of that single door. First, <strong>real actor attribution</strong>: every write must carry a <code>HARNESS_ACTOR</code> identity, and the CLI has no fallback — a write without a real author is refused at the door, never anonymized through. Second, <strong>optimistic concurrency on decision documents</strong>: concurrent edits produce a retryable <code>cas_watermark_mismatch</code> instead of a silent overwrite, so two sessions can't quietly stomp each other's reasoning. Third, a <strong>content-addressed blob store</strong> stashes large session bodies under <code>harness/objects/sha256/…</code>, keyed by hash — so bulk evidence is deduplicated and tamper-evident without bloating the Markdown that humans actually read.</span>
-            <span lang="zh">在这唯一的门之上，还有三层硬化。第一，<strong>真实的 actor 归属</strong>：每次写入都必须带一个 <code>HARNESS_ACTOR</code> 身份，CLI 没有任何回退——一条没有真实作者的写入会在门口被拒，而不会被匿名放行。第二，<strong>决策文档上的乐观并发</strong>：并发的编辑会产生一个可重试的 <code>cas_watermark_mismatch</code>，而不是一次静默覆写，于是两个会话没法悄悄踩掉彼此的推理。第三，一个<strong>内容寻址的 blob 存储</strong>把大体量的会话正文以哈希为键放在 <code>harness/objects/sha256/…</code> 下——于是批量证据既去重又防篡改，又不会撑爆人类真正要读的那份 Markdown。</span>
+            <span lang="en">Use <code>ha receipt show &lt;op-id&gt; --wait git_verified</code> to wait for the Git facet. Concurrent worktree edits are preserved and reported as conflicts.</span>
+            <span lang="zh">用 <code>ha receipt show &lt;op-id&gt; --wait git_verified</code> 等待 Git facet；工作区并发编辑会保留并报告为冲突。</span>
           </p>
         </section>
 
@@ -1226,11 +1170,11 @@
           </button>
           <h3><span lang="en">The daemon: many repos, one write path</span><span lang="zh">daemon：多个仓库，同一条写路径</span></h3>
           <p>
-            <span lang="en">That write coordinator doesn't have to live inside the CLI process. An optional <em>local</em> daemon serves many repositories through the same serialized, journaled write path — so the CLI and the desktop panel share one spine instead of two parallel writers that could race each other on the same ledger.</span>
-            <span lang="zh">那个写协调器不必活在 CLI 进程里。一个可选的<em>本地</em> daemon 通过同一条串行化、日志化的写路径服务多个仓库——于是 CLI 与桌面面板共享同一条主干，而不是两个可能在同一账本上互赛的并行写者。</span>
+            <span lang="en">The daemon owns the single write path for each repository. CLI and GUI use the same protocol and RepoCell queue; <code>packages/daemon/src/repo-cell.ts</code> connects that queue to SQLite acceptance.</span>
+            <span lang="zh">daemon 为每仓持有唯一写路。CLI 与 GUI 使用同一协议和 RepoCell 队列；<code>packages/daemon/src/repo-cell.ts</code> 将该队列接入 SQLite 接受事务。</span>
           </p>
           <figure class="code">
-            <figcaption><span lang="en">one daemon, many repos, opt-in</span><span lang="zh">一个 daemon，多个仓库，opt-in</span></figcaption>
+            <figcaption><span lang="en">one daemon, many repositories</span><span lang="zh">一个 daemon，多个仓库</span></figcaption>
 <pre><span class="c"># register as many repos as you want, then start one daemon</span>
 <span class="c">$</span> ha daemon repo register <span class="k">--repo-id</span> A <span class="k">--root</span> /path/to/A
 <span class="c">$</span> ha daemon start <span class="k">--service</span>
@@ -1249,18 +1193,14 @@
             <span class="arrow" aria-hidden="true">←</span>
             <span lang="en">Why this matters</span><span lang="zh">为什么这很重要</span>
           </button>
-          <h3><span lang="en">The projection: Markdown to SQLite</span><span lang="zh">投影：从 Markdown 到 SQLite</span></h3>
+          <h3><span lang="en">The read projection follows canonical events</span><span lang="zh">读取投影追随 canonical 事件</span></h3>
           <p>
-            <span lang="en">The read side is served from a SQLite file at <code>.harness/cache/projections.sqlite</code> — a <em>rebuildable projection</em>, safe to delete because the Markdown in git is authoritative and the rebuild is a pure, reproducible function of the files. Rebuild is a single pass: scan the Markdown (task <code>INDEX.md</code> files, decision docs), validate and convert each entry into a typed row, compute content hashes, build the relation graph, then write a fresh SQLite to a temp file and rename it into place atomically.</span>
-            <span lang="zh">读取一侧由一个 SQLite 文件提供，位于 <code>.harness/cache/projections.sqlite</code>——一个<em>可重建的投影</em>，删掉也安全，因为 git 里的 Markdown 是权威，而重建是这些文件的一个纯粹、可复现的函数。重建是单趟：扫描 Markdown（任务 <code>INDEX.md</code> 文件、决策文档），校验并把每条 entry 转成类型化的行，计算内容哈希，构建关系图，然后把全新的 SQLite 写到临时文件并原子改名到位。</span>
+            <span lang="en">The read projection catches up or rebuilds from canonical SQLite events and their required content objects. See <code>packages/kernel/src/projection/rebuildable-task-projection-reads.ts</code> and <code>packages/kernel/src/projection/rebuildable-task-projection.ts</code>.</span>
+            <span lang="zh">读取投影从 canonical SQLite 事件及其必需对象追赶或重建。实现见 <code>packages/kernel/src/projection/rebuildable-task-projection-reads.ts</code> 与 <code>packages/kernel/src/projection/rebuildable-task-projection.ts</code>。</span>
           </p>
           <p>
-            <span lang="en">Freshness is checked on every read. If the stored <code>sourceHash</code> matches the Markdown, the read is served from the database. If it differs, the projection is stale and gets rebuilt transparently. If a stored row-hash doesn't match — a sign of tampering — it hard-fails and rebuilds. Missing or unreadable file? Rebuilt. The cache holds real tables (<code>task_projection</code>, <code>decision_projection</code>, <code>relation_edges</code>, <code>relation_coverage</code>, <code>task_fact_anchors</code>, and a <code>projection_meta</code> row of fingerprints), but none of them is a source of truth.</span>
-            <span lang="zh">每次读取都会检查新鲜度。如果存下的 <code>sourceHash</code> 与 Markdown 匹配，读取就从数据库来。如果不同，投影就是陈旧的，会被透明重建。如果某个存下的行哈希对不上——篡改的迹象——它会硬失败并重建。文件缺失或读不出？重建。这个缓存里有真实的表（<code>task_projection</code>、<code>decision_projection</code>、<code>relation_edges</code>、<code>relation_coverage</code>、<code>task_fact_anchors</code>，还有一行指纹用的 <code>projection_meta</code>），但它们没有一个是真相的来源。</span>
-          </p>
-          <p>
-            <span lang="en">The practical upshot: this whole SQLite file is <em>disposable</em>. It lives under <code>.harness/</code>, stays out of git, and can be deleted at any moment with zero loss — the next command rebuilds it from the Markdown that git already holds. That's what lets the tables above be aggressive and denormalized for fast reads without ever becoming a liability: a projection you can always throw away is one you never have to migrate, back up, or trust over the files.</span>
-            <span lang="zh">实际的结论是：整个 SQLite 文件是<em>可丢弃</em>的。它住在 <code>.harness/</code> 下，留在 git 之外，随时可以删掉而毫无损失——下一条命令会从 git 早已保存的 Markdown 把它重建出来。正因如此，上面那些表可以为了读取速度而激进地反范式，却永远不会变成负担：一个你随时能扔掉的投影，就是一个你永远不必迁移、不必备份、也不必凌驾于文件之上去信任的投影。</span>
+            <span lang="en">Only the read projection is disposable. Preserve <code>store/generations/&lt;generation&gt;/ledger.sqlite</code> and its matching <code>objects/sha256/</code> under the resolved local root. A Git clone may lack accepted commands that have not yet been published.</span>
+            <span lang="zh">只有读取投影可丢弃。必须保留解析后 local root 下的 <code>store/generations/&lt;generation&gt;/ledger.sqlite</code> 及配套 <code>objects/sha256/</code>。Git clone 可能缺少尚未发布的已接受命令。</span>
           </p>
         </section>
 
@@ -1378,8 +1318,8 @@
       </a>
     </div>
     <p style="margin-top:20px">
-      <span lang="en">The <code>ha</code> CLI is the tool you use today: it writes plain Markdown into your git repo and keeps a rebuildable SQLite projection for fast queries.</span>
-      <span lang="zh"><code>ha</code> CLI 是你今天就用的工具：它把纯 Markdown 写进你的 git 仓库，并维护一个可重建的 SQLite 投影用于快速查询。</span>
+      <span lang="en">The <code>ha</code> CLI submits commands to the daemon; SQLite accepts them, Git publishes Markdown, and a separate projection serves queries. See <code>packages/kernel/src/store/sqlite-task-event-store.ts</code>.</span>
+      <span lang="zh"><code>ha</code> CLI 向 daemon 提交命令；SQLite 接受记录，Git 发布 Markdown，独立投影提供查询。实现见 <code>packages/kernel/src/store/sqlite-task-event-store.ts</code>。</span>
     </p>
   </div>
 </footer>

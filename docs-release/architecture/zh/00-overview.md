@@ -1,12 +1,12 @@
 # 系统的形状
 
-Generation 1 在 SQLite 中接受命令。canonical 数据库及其必需的内容对象是持久记录；
+当前启用的 canonical generation 在 SQLite 中接受命令。canonical 数据库及其必需的内容对象是持久记录；
 Git 和读取投影从这份记录派生。
 
 ## 存储职责
 
-解析后的 local root 包含 `store/generations/1/ledger.sqlite` 与
-`store/generations/1/objects/sha256/`。接受事务前先同步必需对象的文件与目录链接。
+解析后的 local root 包含 `store/generations/<generation>/ledger.sqlite` 与
+`store/generations/<generation>/objects/sha256/`。接受事务前先同步必需对象的文件与目录链接。
 一个 `BEGIN IMMEDIATE` 事务校验仓库 writer lease，并提交完整事件区间与 command outcome。
 
 `packages/kernel/src/store/sqlite-event-store.ts` 实现接受事务；
@@ -15,8 +15,8 @@ Git 和读取投影从这份记录派生。
 提交在该 commit 之上，撰写 worktree 结算同一批事件。有并发修改的文件保留用户字节并报告为冲突；
 worktree facet 保持 pending，直到后续事件或 `ha doc materialize` 结算该文件。
 
-旧 segment WAL、合并 shadow reader、publication pointer 家族和 materializer worker 已退役。
-SQLite 自身的事务日志仍是数据库实现细节。
+SQLite 使用自身的事务日志与 `synchronous=FULL`；
+实现见 `packages/kernel/src/store/sqlite-event-store.ts`。
 
 ## 命令与回执
 

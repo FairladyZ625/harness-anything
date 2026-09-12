@@ -29,8 +29,9 @@ it gets — a pond that only takes inflow eventually turns green.
 ## The bet: make these first-class, in git
 
 Our bet is that the fix is not better note-taking. It's promoting that trail into
-**structured entities that live in git** — Markdown as the source of truth, the
-repository as the single place the truth lives.
+**structured entities with a durable record** — SQLite accepts their events and
+required content; Git publishes readable Markdown. The implementation lives in
+`packages/kernel/src/store/sqlite-task-event-store.ts`.
 
 Not a scratchpad. Entities with lifecycles, state machines, and typed relations
 between them. A choice becomes a **decision** that can be proposed, accepted, and

@@ -4,9 +4,10 @@
 内核,并且它们存储得不对称——decision 集中式、task 是容器、fact 独立存储。这一页展示这套主张
 落成真实文件时的样子:目录、每个文件必须携带的 frontmatter,以及模式所强制的 ID 形状。
 
-每个实体在物理上都是同一样东西:一份顶部带着 YAML frontmatter 块的纯 Markdown 文件。这个
-frontmatter 不是装饰——在文件被接受之前,它会对着 `packages/kernel/src/schemas/` 里的一个模式
-做校验,所以下面这些字段是契约,不是惯例。
+撰写 Markdown 是已接受实体的发布文档面。
+`packages/kernel/src/store/sqlite-task-event-store.ts` 从 canonical SQLite
+事件与必需对象派生文档。
+下列目录说明撰写面；接受边界见[唯一写路径](02-write-path.md)。
 
 ## 目录结构
 
@@ -36,18 +37,16 @@ frontmatter 不是装饰——在文件被接受之前,它会对着 `packages/ke
   └── <session-id>.md                   捕获的 Session manifest
 ```
 
-三个原语,但只有两个存储位置。**Decision** 一起住在顶级 `decisions/` 目录里——它们是唯一一个
+三个原语各有撰写存储位置。**Decision** 一起住在顶级 `decisions/` 目录里——它们是唯一一个
 应该让人类盯着看的投影,所以被放在一处。**Task** 是容器:每个 task 是它自己的目录,命名为
 `task_<ULID>-<slug>/`,里面放着一小组文件。**Fact** 有自己的顶级 `facts/` 目录,每条记录对应
 一个 `fact/F-<id>` 文档。与 task 关联的 fact 另有一条 active 的
 `task/<id> -> fact/F-<id>` `produces` 边;独立 fact 则没有这条边。
 
-`objects/sha256/` 树不同于这些手写 Markdown 面。它是内容寻址 blob store。一个 blob 由它的
-SHA-256 摘要寻址，存成 `objects/sha256/<前两个十六进制字符>/<剩余十六进制字符>`，描述符携带
-`ref`、`sha256`、`size` 和 `mediaType`。session 导出把它当作 claim-check：先把 session 正文
-写入 blob store，然后 journal payload 携带 `bodyRef`，flush 时再从这个已校验的 blob 物化出手写树
-里的 session 文档。v0 没有 GC，也没有分块；大的或过期的 blob 会一直作为完整文件存在，直到后续存储
-版本定义回收策略。
+canonical 内容对象位于 active local `store/generations/<generation>/objects/sha256/`，
+与 `ledger.sqlite` 配套保存。`packages/kernel/src/store/sqlite-event-store.ts`
+校验必需内容声明，
+先同步对象字节与目录链接，再接受引用它们的事件。撰写树的对象副本属于发布产物。
 
 ## 执行链
 
@@ -92,9 +91,8 @@ authored CAS object 或 registry entity ref。Review 是针对某个 submitted E
 做过滤。一个 `proposedBy` 等于 `arbiter`——同种类、同 id——的 decision 会被**拒绝**。你不能
 裁决你自己的提议。这条规则在模式层强制,所以这种形状的畸形 decision 从一开始就到不了磁盘。
 
-**`_coordinatorWatermark`。** decision 还携带一个可选的 `_coordinatorWatermark` 字段。你不用手写
-它;单一写路径在记录穿过时把它盖上。它的存在,是这次写入走了那道唯一的门、而不是绕过它的印记
-——其机理是 [02 · 单一写路径](02-write-path.md) 的主题。
+接受操作由 SQLite command outcome 与事件区间定位；见
+`packages/kernel/src/store/sqlite-event-store.ts` 和[唯一写路径](02-write-path.md)。
 
 ## task 包
 
@@ -113,7 +111,8 @@ task 的 `status` 活在它的 `lifecycle` 绑定里,而它是一台真实的状
 (规划中)、active(进行中)、blocked(阻塞)、in-review(评审中)、done(完成)、cancelled
 (取消)这样的状态之间流转,而不是一张自由形式的便签。目录里其他文件是围绕这个状态的叙述:
 `task_plan.md` 是计划,`progress.md` 是进度,`review.md` 是对其产出的判断,`closeout.md` 是收尾。
-它们都不是 task 状态的真相来源——`INDEX.md` 的 frontmatter 才是。
+task 状态来自 canonical 事件；`packages/kernel/src/store/sqlite-task-event-store.ts`
+将其文档视图发布到 `INDEX.md`。
 
 ## Fact 文档
 

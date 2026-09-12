@@ -1,6 +1,7 @@
 # The projection: canonical SQLite events to a read cache
 
-Generation 1 has two distinct SQLite roles. `store/generations/1/ledger.sqlite`
+The active canonical generation has two distinct SQLite roles.
+`store/generations/<generation>/ledger.sqlite`
 is the canonical accepting database. The task projection is a derived read cache.
 Only the cache can be discarded and rebuilt without losing accepted commands.
 
@@ -25,3 +26,7 @@ compare their outputs. Independent ledger reconciliation also checks the immutab
 import prefix, ledger metadata, row digests, command outcomes, required objects,
 and actual Git follower read-back. Comparing two readers of the same database is
 not a proof that the import preserved its source.
+
+Implementation:
+`packages/kernel/src/projection/rebuildable-task-projection-factory.ts` and
+`packages/kernel/src/projection/rebuildable-task-projection-reads.ts`.
