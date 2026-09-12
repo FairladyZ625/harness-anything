@@ -1,5 +1,4 @@
 import type { FactAnchorRow, RelationCoverageRow } from "../../api/renderer-dto";
-import { incomingRelations } from "./relation-direction.ts";
 import type { FactRef, RelationEdge } from "./types";
 
 /**
@@ -35,6 +34,12 @@ export const SIGNAL_LABEL: Record<FactTriageSignalKind, string> = {
   SUPERSEDED: "已被取代",
 };
 
+interface FactTriageIndex {
+  readonly incomingByTargetAndKind: ReadonlyMap<string, ReadonlyArray<RelationEdge>>;
+  readonly coveredDecisionIdsByFact: ReadonlyMap<string, ReadonlyArray<string>>;
+  readonly anchoredFactRefs: ReadonlySet<string>;
+}
+
 function decisionIdFromRef(ref: string): string | undefined {
   if (!ref.startsWith("decision/")) return undefined;
   return ref.split("/")[1];
@@ -46,6 +51,10 @@ export function computeFactTriageSignals(
   coverageRows: ReadonlyArray<RelationCoverageRow>,
   factAnchors: ReadonlyArray<FactAnchorRow>,
 ): FactTriageItem {
+  return computeFactTriageSignalsWithIndex(fact, createFactTriageIndex(relations, coverageRows, factAnchors));
+}
+
+function computeFactTriageSignalsWithIndex(fact: FactRef, index: FactTriageIndex): FactTriageItem {
   const factRef = fact.anchor.startsWith("fact/") ? fact.anchor : `fact/${fact.anchor}`;
   const signals: FactTriageSignal[] = [];
 
@@ -54,7 +63,7 @@ export function computeFactTriageSignals(
   // edges here are current by construction (pipeline collection point); retired/deleted
   // edges remain audit history. The reverse
   // question goes through the domain query, never the retired invalidated-by alias.
-  const refutingDecisionRefs = incomingRelations(factRef, "refuted-by", relations).map((edge) => edge.from);
+  const refutingDecisionRefs = incoming(index, factRef, "refuted-by").map((edge) => edge.from);
   if (refutingDecisionRefs.length > 0) {
     signals.push({
       kind: "INVALIDATED",
@@ -64,18 +73,13 @@ export function computeFactTriageSignals(
 
   // coverageRows is the kernel's canonical answer to “which fact currently
   // carries a decision claim?”. factAnchors supplies the complete fact universe.
-  const citingDecisionIdSet = new Set(
-    coverageRows
-      .filter((row) => row.covered && row.coveringFactRef === factRef)
-      .map((row) => decisionIdFromRef(row.decisionRef))
-      .filter((id): id is string => Boolean(id)),
-  );
-  for (const edge of incomingRelations(factRef, "evidenced-by", relations)) {
+  const citingDecisionIdSet = new Set(index.coveredDecisionIdsByFact.get(factRef) ?? []);
+  for (const edge of incoming(index, factRef, "evidenced-by")) {
     const decisionId = decisionIdFromRef(edge.from);
     if (decisionId) citingDecisionIdSet.add(decisionId);
   }
   const citingDecisionIds = [...citingDecisionIdSet].sort();
-  const isKnownFact = factAnchors.some((row) => row.factRef === factRef);
+  const isKnownFact = index.anchoredFactRefs.has(factRef);
   if (isKnownFact && citingDecisionIds.length === 0) {
     signals.push({
       kind: "ORPHAN",
@@ -94,7 +98,7 @@ export function computeFactTriageSignals(
   // the source is the replacement and must not be penalized. Kernel criterion
   // (fact-liveness): retired/deleted edges are audit history and do not supersede;
   // currency was settled at the pipeline collection point.
-  const supersedingRefs = incomingRelations(factRef, "supersedes-fact", relations).map((edge) => edge.from);
+  const supersedingRefs = incoming(index, factRef, "supersedes-fact").map((edge) => edge.from);
   if (supersedingRefs.length > 0) {
     signals.push({
       kind: "SUPERSEDED",
@@ -126,5 +130,38 @@ export function buildFactTriage(
   coverageRows: ReadonlyArray<RelationCoverageRow>,
   factAnchors: ReadonlyArray<FactAnchorRow>,
 ): FactTriageItem[] {
-  return rankFactTriage(facts.map((fact) => computeFactTriageSignals(fact, relations, coverageRows, factAnchors)));
+  const index = createFactTriageIndex(relations, coverageRows, factAnchors);
+  return rankFactTriage(facts.map((fact) => computeFactTriageSignalsWithIndex(fact, index)));
+}
+
+function createFactTriageIndex(
+  relations: ReadonlyArray<RelationEdge>,
+  coverageRows: ReadonlyArray<RelationCoverageRow>,
+  factAnchors: ReadonlyArray<FactAnchorRow>,
+): FactTriageIndex {
+  const incomingByTargetAndKind = new Map<string, RelationEdge[]>();
+  for (const relation of relations) {
+    const key = `${relation.to}\u0000${relation.kind}`;
+    const edges = incomingByTargetAndKind.get(key);
+    if (edges) edges.push(relation);
+    else incomingByTargetAndKind.set(key, [relation]);
+  }
+  const coveredDecisionIdsByFact = new Map<string, string[]>();
+  for (const row of coverageRows) {
+    if (!row.covered || !row.coveringFactRef) continue;
+    const decisionId = decisionIdFromRef(row.decisionRef);
+    if (!decisionId) continue;
+    const ids = coveredDecisionIdsByFact.get(row.coveringFactRef);
+    if (ids) ids.push(decisionId);
+    else coveredDecisionIdsByFact.set(row.coveringFactRef, [decisionId]);
+  }
+  return {
+    incomingByTargetAndKind,
+    coveredDecisionIdsByFact,
+    anchoredFactRefs: new Set(factAnchors.map((row) => row.factRef)),
+  };
+}
+
+function incoming(index: FactTriageIndex, targetRef: string, kind: RelationEdge["kind"]): ReadonlyArray<RelationEdge> {
+  return index.incomingByTargetAndKind.get(`${targetRef}\u0000${kind}`) ?? [];
 }

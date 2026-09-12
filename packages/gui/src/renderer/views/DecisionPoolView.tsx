@@ -235,7 +235,10 @@ export function DecisionPoolView({
     enabled: remoteEnabled,
     staleTime: 4_000,
   });
-  const remoteIds = remote.data?.status === "ready" ? new Set(remote.data.decisionIds) : null;
+  const remoteIds = useMemo(
+    () => (remote.data?.status === "ready" ? new Set(remote.data.decisionIds) : null),
+    [remote.data],
+  );
   const currentGroup = summary.groups.find((group) => group.id === tab) ?? summary.groups[0]!;
   const rows = useMemo(() => {
     const groupDecisionIds = new Set(currentGroup.decisionIds);
