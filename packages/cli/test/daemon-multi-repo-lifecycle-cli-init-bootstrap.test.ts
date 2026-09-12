@@ -67,6 +67,11 @@ test("REQ-CTX-01..10 empty init publishes the canonical scaffold, authority pari
     assert.deepEqual(initialized.updated, []);
     assert.deepEqual(initialized.preserved, []);
     assert.deepEqual(initialized.drifted, []);
+    for (const kind of ["agent", "squad"]) {
+      const catalog = JSON.parse(String(run(fixture.repo, fixture.userRoot, [kind, "list"]).evidence));
+      assert.deepEqual(catalog[`${kind}s`], []);
+      assert.match(String(initialized.next), new RegExp(`${kind} install --source`));
+    }
     const plan = initialized.plan as {
       digest: string;
       baseScaffoldDigest: string;
@@ -258,6 +263,8 @@ test("REQ-CTX-01..10 empty init publishes the canonical scaffold, authority pari
       /drifted: \[\]\ncommit: none\nnext: ha daemon repo register --repo-id fresh --root/u,
     );
     assert.match(textReceipt.stdout, /daemon status/u);
+    assert.match(textReceipt.stdout, /agent install --source/u);
+    assert.match(textReceipt.stdout, /squad install --source/u);
     assert.equal(
       run(fixture.repo, fixture.userRoot, ["task", "create", "--id", "task-first", "--admin", "--title", "First task"])
         .outcome,
