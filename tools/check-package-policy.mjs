@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { publicReadyPackagesByPath } from "./public-ready-packages.mjs";
 
 const root = process.cwd();
 const expectedPackages = new Map([
@@ -10,29 +11,6 @@ const expectedPackages = new Map([
   ["packages/gui/package.json", "@harness-anything/gui"],
   ["packages/adapters/local/package.json", "@harness-anything/adapter-local"],
   ["packages/adapters/multica/package.json", "@harness-anything/adapter-multica"],
-]);
-const publicReadyPackages = new Map([
-  [
-    "packages/cli/package.json",
-    {
-      version: "0.0.1",
-      repositoryDirectory: "packages/cli",
-      bins: new Map([
-        ["harness-anything", "dist/cli/src/index.js"],
-        ["ha", "dist/cli/src/index.js"],
-      ]),
-      required: true,
-    },
-  ],
-  [
-    "packages/daemon/package.json",
-    {
-      version: "0.0.1",
-      repositoryDirectory: "packages/daemon",
-      bins: new Map([["harness-anything-daemon", "dist/index.js"]]),
-      required: false,
-    },
-  ],
 ]);
 
 const violations = [];
@@ -60,7 +38,7 @@ for (const [relativePath, expectedName] of expectedPackages.entries()) {
   const packageJson = readJson(relativePath);
   if (packageJson.name !== expectedName)
     record(`${relativePath} expected name ${expectedName}, got ${packageJson.name}`);
-  const publicContract = publicReadyPackages.get(relativePath);
+  const publicContract = publicReadyPackagesByPath.get(relativePath);
   if (publicContract && (publicContract.required || packageJson.private !== true)) {
     if (packageJson.private === true) record(`${relativePath} must be public-ready for npm publish dry-run preflight`);
     if (packageJson.version !== publicContract.version)
@@ -70,7 +48,7 @@ for (const [relativePath, expectedName] of expectedPackages.entries()) {
     if (packageJson.repository?.directory !== publicContract.repositoryDirectory)
       record(`${relativePath} must declare repository.directory ${publicContract.repositoryDirectory}`);
     if (packageJson.engines?.node !== ">=24") record(`${relativePath} must declare Node >=24 runtime support`);
-    for (const [name, target] of publicContract.bins)
+    for (const [name, target] of Object.entries(publicContract.bins))
       if (packageJson.bin?.[name] !== target) record(`${relativePath} must declare bin ${name} as ${target}`);
   } else {
     if (packageJson.private !== true)

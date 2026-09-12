@@ -30,10 +30,10 @@ test("runtime release readiness policy covers source, check, package smoke and G
     },
   );
   assert.deepEqual(harnessRuntimeReleaseReadiness.releaseBoundary, {
-    packagesPrivateExceptCli: true,
+    packagesPrivateExceptPublicReady: true,
     internalWorkspaceVersion: "0.0.0",
     productVersion: "0.0.1",
-    cliPublishDryRunVersion: "0.0.1",
+    publicReadyPackageVersion: "0.0.1",
     npmReleaseClaimed: false,
     signedInstallersShipped: false,
     notarizedBuildsShipped: false,

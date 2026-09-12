@@ -21,6 +21,17 @@ test("package policy accepts the approved CLI and daemon npm publish set", async
   });
 });
 
+test("package policy accepts a daemon that remains private", async () => {
+  await withFixtureRepo((root) => {
+    writeValidFixture(root);
+
+    const result = runCheck(root);
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /Package policy check passed/u);
+  });
+});
+
 test("package policy rejects GUI as an npm package", async () => {
   await withFixtureRepo((root) => {
     writeValidFixture(root);

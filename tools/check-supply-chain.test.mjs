@@ -20,18 +20,29 @@ test("supply-chain check accepts the expected release gate contract", async () =
   });
 });
 
-test("supply-chain check rejects non-CLI publishable packages", async () => {
+test("supply-chain check rejects a public daemon missing metadata", async () => {
   await withFixtureRepo((root) => {
     writeValidSupplyChainFixture(root, {
       packageMutator: (packages) => {
-        packages["packages/daemon/package.json"].private = false;
+        makeDaemonPublicReady(packages);
+        delete packages["packages/daemon/package.json"].bin;
       },
     });
 
     const result = runCheck(root);
 
     assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /packages\/daemon\/package\.json must remain private/u);
+    assert.match(result.stderr, /must declare bin harness-anything-daemon/u);
+  });
+});
+
+test("supply-chain check accepts a public daemon with complete metadata", async () => {
+  await withFixtureRepo((root) => {
+    writeValidSupplyChainFixture(root, { packageMutator: makeDaemonPublicReady });
+
+    const result = runCheck(root);
+
+    assert.equal(result.status, 0, result.stderr);
   });
 });
 
@@ -336,6 +347,20 @@ function writeValidSupplyChainFixture(root, options = {}) {
   writeFile(root, "README.md", validReadme());
   writeFile(root, "docs-release/release-posture.md", options.supplyDocBody ?? validSupplyDoc());
   writeMockNpm(root, options.sbomMutator, options.auditBehavior);
+}
+
+function makeDaemonPublicReady(packages) {
+  packages["packages/daemon/package.json"] = {
+    ...packages["packages/daemon/package.json"],
+    name: "@harness-anything/daemon",
+    version: "0.0.1",
+    private: false,
+    publishConfig: { access: "public" },
+    repository: { directory: "packages/daemon" },
+    engines: { node: ">=24" },
+    bin: { "harness-anything-daemon": "dist/index.js" },
+    files: ["dist", "README.md", "package.json"],
+  };
 }
 
 function validReadme() {

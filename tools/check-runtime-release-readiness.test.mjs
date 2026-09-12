@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -17,6 +17,42 @@ test("runtime release readiness check accepts the expected contract", async () =
 
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /Runtime release readiness check passed/u);
+  });
+});
+
+test("runtime release readiness check accepts a daemon that remains private", async () => {
+  await withFixtureRepo((root) => {
+    writeValidRuntimeReleaseFixture(root);
+
+    const result = runCheck(root);
+
+    assert.equal(result.status, 0, result.stderr);
+  });
+});
+
+test("runtime release readiness check rejects a public daemon missing metadata", async () => {
+  await withFixtureRepo((root) => {
+    writeValidRuntimeReleaseFixture(root);
+    makeDaemonPublicReady(root);
+    const daemon = readJson(root, "packages/daemon/package.json");
+    delete daemon.bin;
+    writeJson(root, "packages/daemon/package.json", daemon);
+
+    const result = runCheck(root);
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /must declare bin harness-anything-daemon/u);
+  });
+});
+
+test("runtime release readiness check accepts a public daemon with complete metadata", async () => {
+  await withFixtureRepo((root) => {
+    writeValidRuntimeReleaseFixture(root);
+    makeDaemonPublicReady(root);
+
+    const result = runCheck(root);
+
+    assert.equal(result.status, 0, result.stderr);
   });
 });
 
@@ -124,7 +160,13 @@ function writeValidRuntimeReleaseFixture(root, options = {}) {
   ]) {
     const packageJson =
       packagePath === "packages/cli/package.json"
-        ? { name: "@harness-anything/cli", version: "0.0.1", publishConfig: { access: "public" } }
+        ? {
+            name: "@harness-anything/cli",
+            version: "0.0.1",
+            publishConfig: { access: "public" },
+            repository: { directory: "packages/cli" },
+            bin: { "harness-anything": "dist/cli/src/index.js", ha: "dist/cli/src/index.js" },
+          }
         : {
             name: packagePath,
             version: packagePath === "packages/gui/package.json" ? "0.0.1" : "0.0.0",
@@ -189,6 +231,20 @@ function validWorkflow() {
 
 function writeJson(root, relativePath, value) {
   writeFile(root, relativePath, JSON.stringify(value, null, 2));
+}
+
+function readJson(root, relativePath) {
+  return JSON.parse(readFileSync(path.join(root, relativePath), "utf8"));
+}
+
+function makeDaemonPublicReady(root) {
+  writeJson(root, "packages/daemon/package.json", {
+    name: "@harness-anything/daemon",
+    version: "0.0.1",
+    publishConfig: { access: "public" },
+    repository: { directory: "packages/daemon" },
+    bin: { "harness-anything-daemon": "dist/index.js" },
+  });
 }
 
 function writeFile(root, relativePath, body) {
