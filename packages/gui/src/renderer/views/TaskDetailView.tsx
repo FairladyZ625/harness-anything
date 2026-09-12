@@ -348,7 +348,6 @@ export function TaskDetailView({
               <TaskRelationsTab
                 task={task}
                 tasks={tasks}
-                relations={relations}
                 decisions={decisions}
                 onSelect={onSelect}
                 onNavigateDecision={onNavigateDecision}

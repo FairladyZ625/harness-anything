@@ -18,7 +18,12 @@ import { agentRuntimeClient, runtimeQueryKeys } from "../../agent-runtime-client
 import { harnessClient } from "../../api-client.ts";
 import type { TaskMutationFeedback } from "../../task-actions.ts";
 import { useTaskCompletionQuery, useTaskDocumentQuery } from "../../task-data.ts";
-import { buildTriadicRendererData, triadicQueryKeys } from "../../triadic-data.ts";
+import {
+  buildTriadicRendererData,
+  readCompleteRelationGraph,
+  useTriadicProjectionQuery,
+  triadicQueryKeys,
+} from "../../triadic-data.ts";
 import { formatTime } from "../../model/time.ts";
 import type { RelationEdge, TaskRow } from "../../model/types.ts";
 import { t } from "../../i18n/index.tsx";
@@ -349,7 +354,8 @@ export function TaskEvidenceTab({
 }) {
   const graph = useQuery({
     queryKey: triadicQueryKeys.graph(task.projectId),
-    queryFn: () => harnessClient.getRelationGraph({ repoId: task.projectId }),
+    queryFn: () =>
+      readCompleteRelationGraph((payload) => harnessClient.getRelationGraph({ repoId: task.projectId, ...payload })),
     staleTime: 10_000,
   });
   const decisionRows = useQuery({
@@ -521,7 +527,6 @@ function FactRow({
 export function TaskRelationsTab({
   task,
   tasks = [],
-  relations = [],
   decisions = [],
   onSelect,
   onNavigateDecision,
@@ -530,7 +535,6 @@ export function TaskRelationsTab({
 }: {
   readonly task: TaskRow;
   readonly tasks?: readonly TaskRow[];
-  readonly relations?: readonly RelationEdge[];
   readonly decisions?: readonly TaskDecisionRef[];
   readonly onSelect?: (taskId: string) => void;
   readonly onNavigateDecision?: (decisionId: string) => void;
@@ -542,6 +546,8 @@ export function TaskRelationsTab({
     queryFn: () => agentRuntimeClient.overview(task.projectId, task.taskId),
     staleTime: 4_000,
   });
+  const graph = useTriadicProjectionQuery(task.projectId, { decisionsEnabled: false });
+  const relations = graph.relations;
   const taskRef = `task/${task.taskId}`;
   const outEdges = relations.filter((edge) => edge.from === taskRef || normalizeTaskId(edge.from) === task.taskId);
   const inEdges = relations.filter((edge) => edge.to === taskRef || normalizeTaskId(edge.to) === task.taskId);
@@ -556,6 +562,8 @@ export function TaskRelationsTab({
 
   return (
     <section data-testid="task-relations-tab">
+      {graph.isPending && <p role="status">正在加载任务关系…</p>}
+      {graph.isError && <p role="alert">任务关系读取失败，请刷新后重试。</p>}
       <SectionHeading
         eyebrow="CONTEXT"
         title="任务关系"

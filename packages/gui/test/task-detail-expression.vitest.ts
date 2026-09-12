@@ -6,7 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { TaskControlPanel } from "../src/renderer/components/TaskControlPanel.tsx";
 import { TaskDetailView } from "../src/renderer/views/TaskDetailView.tsx";
-import type { DecisionRow, RelationEdge, TaskRow } from "../src/renderer/model/types.ts";
+import type { DecisionRow, TaskRow } from "../src/renderer/model/types.ts";
 import { decisionProjectionFields } from "./decision-projection-fields.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import { projectedTaskFields } from "./task-projection-fields.ts";
@@ -197,19 +197,6 @@ const decision: DecisionRow = {
   claims: [],
   judgmentConsents: [],
 };
-const relations: RelationEdge[] = [
-  {
-    relationId: "rel-gui",
-    from: "decision/dec-gui",
-    to: "task/task-w3",
-    kind: "derives",
-    direction: "directed",
-    state: "active",
-    provenance: "local-document",
-    rationale: "UI boundary",
-  },
-];
-
 beforeAll(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   setActiveLocale("zh-CN");
@@ -560,9 +547,29 @@ function installBridge({ uncommittedPlan = false }: { readonly uncommittedPlan?:
       watermark: 7,
       sourceRevision: 7,
     })),
-    getRelationGraph: vi.fn(async () => ({
+    getRelationGraph: vi.fn(async (payload: { cursor?: string }) => ({
+      page: { limit: 500, cursor: payload.cursor ?? null, nextCursor: payload.cursor ? null : "decision-bindings" },
       ok: true,
       edges: [
+        ...(payload.cursor
+          ? [
+              {
+                relationId: "rel-gui",
+                sourceRef: "decision/dec-gui/CH1",
+                targetRef: "task/task-w3",
+                relationType: "derives",
+                direction: "directed",
+                strength: "strong",
+                origin: "declared",
+                state: "active",
+                current: true,
+                rationale: "UI boundary",
+                ownerRef: "decision/dec-gui",
+                sourcePath: "event:decision/dec-gui",
+                recordIndex: 0,
+              },
+            ]
+          : []),
         {
           relationId: "rel-produced-dom",
           sourceRef: "task/task-w3",
@@ -692,7 +699,7 @@ async function mount() {
         createElement(TaskDetailView, {
           task,
           tasks: [parent, task, child],
-          relations,
+          relations: [],
           decisions: [decision],
           onBack: () => undefined,
           onSelect: () => undefined,

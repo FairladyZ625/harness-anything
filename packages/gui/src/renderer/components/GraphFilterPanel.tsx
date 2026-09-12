@@ -432,6 +432,7 @@ export function GraphFilterPanel({
                   <button
                     key={mode}
                     data-testid={`graph-density-${mode}`}
+                    aria-pressed={active}
                     onClick={() => setDensity(mode)}
                     title={t("components.graphFilterPanel.densityHint")}
                     className={`flex-1 rounded-md px-2 py-1 ui-micro font-medium transition-colors ${
