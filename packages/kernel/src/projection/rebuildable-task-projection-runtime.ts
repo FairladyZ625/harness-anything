@@ -23,7 +23,7 @@ import {
 } from "./rebuildable-task-projection-sql.ts";
 import type { LeaseInterval } from "./projection-reads.ts";
 import type { RuntimeSessionPageQuery, RuntimeSessionPageRead } from "./task-projection-port.ts";
-import { readRelationProjectionRows } from "./relation-entity-projection.ts";
+import { readRelationProjectionRows, readRelationProjectionRowsForTargets } from "./relation-entity-projection.ts";
 export type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
 export type { TaskProjection } from "./task-projection-port.ts";
 
@@ -116,52 +116,122 @@ export function replayRelease(db: DatabaseSync, taskId: string, executionId: str
 }
 
 export function readSnapshot(db: DatabaseSync, taskId: string, now?: string): TaskLifecycleSnapshot {
-  const row = prepareQuery(db, "SELECT snapshot_json FROM task_snapshot WHERE task_id = ?", (sql) =>
-    /* @gate-identity check-bypass-write-boundary/bypass-write-024 */ db.prepare(sql),
-  ).get(taskId) as { readonly snapshot_json: string } | undefined;
-  if (row === undefined) return emptyTaskLifecycleSnapshot();
-  let snapshot: TaskLifecycleSnapshot;
-  try {
-    snapshot = JSON.parse(row.snapshot_json) as TaskLifecycleSnapshot;
-  } catch {
-    throw new Error(`projection snapshot mismatch for task ${taskId}`);
+  return readSnapshots(db, [taskId], now).get(taskId) ?? emptyTaskLifecycleSnapshot();
+}
+
+export function readSnapshots(
+  db: DatabaseSync,
+  taskIds: readonly string[],
+  now?: string,
+): ReadonlyMap<string, TaskLifecycleSnapshot> {
+  if (taskIds.length === 0) return new Map();
+  const requested = JSON.stringify(taskIds),
+    snapshotRows = queryPreparedRows<{ readonly task_id: string; readonly snapshot_json: string }>(
+      prepareQuery(
+        db,
+        "SELECT task_id, snapshot_json FROM task_snapshot WHERE task_id IN (SELECT value FROM json_each(?))",
+        (sql) => /* @gate-identity check-bypass-write-boundary/bypass-write-024 */ db.prepare(sql),
+      ),
+      requested,
+    ),
+    snapshots = new Map<string, TaskLifecycleSnapshot>();
+  for (const row of snapshotRows) {
+    let snapshot: TaskLifecycleSnapshot;
+    try {
+      snapshot = JSON.parse(row.snapshot_json) as TaskLifecycleSnapshot;
+    } catch {
+      throw new Error(`projection snapshot mismatch for task ${row.task_id}`);
+    }
+    if (snapshot.task !== null && validateTaskV2(snapshot.task, true).length)
+      throw new Error(`projection snapshot mismatch for task ${row.task_id}`);
+    snapshots.set(row.task_id, snapshot);
   }
-  if (snapshot.task !== null && validateTaskV2(snapshot.task, true).length)
-    throw new Error(`projection snapshot mismatch for task ${taskId}`);
-  const executions = queryRows(
+  const grouped = <Value>(rows: readonly { readonly task_id: string; readonly value_json: string }[]) => {
+    const values = new Map<string, Value[]>();
+    for (const row of rows) {
+      const groupedValues = values.get(row.task_id) ?? [];
+      groupedValues.push(JSON.parse(row.value_json) as Value);
+      values.set(row.task_id, groupedValues);
+    }
+    return values;
+  };
+  const executions = grouped<TaskLifecycleSnapshot["executions"][number]>(
+      queryRows(
+        db,
+        [
+          "SELECT task_id, value_json FROM entity_projection WHERE entity_kind = 'execution'",
+          "AND task_id IN (SELECT value FROM json_each(?))",
+          "ORDER BY task_id, json_extract(value_json, '$.iteration'),",
+          "json_extract(value_json, '$.claimedAt'), entity_id",
+        ].join(" "),
+        requested,
+      ) as readonly { readonly task_id: string; readonly value_json: string }[],
+    ),
+    reviews = grouped<TaskLifecycleSnapshot["reviews"][number]>(
+      queryRows(
+        db,
+        [
+          "SELECT task_id, value_json FROM entity_projection WHERE entity_kind = 'review'",
+          "AND task_id IN (SELECT value FROM json_each(?)) ORDER BY task_id, entity_id",
+        ].join(" "),
+        requested,
+      ) as readonly { readonly task_id: string; readonly value_json: string }[],
+    ),
+    leases = new Map(
+      queryRows<{ readonly task_id: string; readonly lease_json: string }>(
+        db,
+        "SELECT task_id, lease_json FROM lease_cas WHERE task_id IN (SELECT value FROM json_each(?))",
+        requested,
+      ).map((row) => [row.task_id, checkedLease(JSON.parse(row.lease_json) as LeaseV1)]),
+    ),
+    relationRows = readRelationProjectionRowsForTargets(
       db,
-      [
-        "SELECT value_json FROM entity_projection WHERE entity_kind = 'execution' AND task_id = ?",
-        "ORDER BY json_extract(value_json, '$.iteration'), json_extract(value_json, '$.claimedAt'), entity_id",
-      ].join(" "),
-      taskId,
-    ).map((value) => JSON.parse(String(value.value_json)) as TaskLifecycleSnapshot["executions"][number]),
-    reviews = queryRows(
-      db,
-      "SELECT value_json FROM entity_projection WHERE entity_kind = 'review' AND task_id = ? ORDER BY entity_id",
-      taskId,
-    ).map((value) => JSON.parse(String(value.value_json)) as TaskLifecycleSnapshot["reviews"][number]);
-  const lease = now === undefined ? storedLease(db, taskId) : effectiveLease(db, taskId, now);
-  // The stored snapshot is pure task-aggregate state; the decision relations this task is a
-  // target of are stamped at read time as-of the applied cut, the same join the live lease uses.
-  const decisionRelations = readRelationProjectionRows(db, `task/${taskId}`).map(
-    ({ relationId, sourceRef, targetRef, relationType, state, strength, freshness }) => ({
-      relationId,
-      sourceRef,
-      targetRef,
-      relationType,
-      state,
-      strength,
-      freshness,
+      taskIds.map((taskId) => `task/${taskId}`),
+    ),
+    relations = new Map<string, ReturnType<typeof lifecycleRelation>[]>();
+  for (const row of relationRows) {
+    const values = relations.get(row.targetRef) ?? [];
+    values.push(lifecycleRelation(row));
+    relations.set(row.targetRef, values);
+  }
+  return new Map(
+    taskIds.flatMap((taskId) => {
+      const snapshot = snapshots.get(taskId);
+      if (!snapshot) return [];
+      const stored = leases.get(taskId) ?? null,
+        lease = now === undefined ? stored : effectiveLeaseValue(stored, now);
+      return [
+        [
+          taskId,
+          {
+            ...snapshot,
+            executions: executions.get(taskId) ?? [],
+            reviews: reviews.get(taskId) ?? [],
+            lease: lease?.phase === "released" ? null : lease,
+            decisionRelations: relations.get(`task/${taskId}`) ?? [],
+          },
+        ] as const,
+      ];
     }),
   );
-  return {
-    ...snapshot,
-    executions,
-    reviews,
-    lease: lease?.phase === "released" ? null : lease,
-    decisionRelations,
-  };
+}
+
+function lifecycleRelation({
+  relationId,
+  sourceRef,
+  targetRef,
+  relationType,
+  state,
+  strength,
+  freshness,
+}: ReturnType<typeof readRelationProjectionRows>[number]) {
+  return { relationId, sourceRef, targetRef, relationType, state, strength, freshness };
+}
+
+function effectiveLeaseValue(current: LeaseV1 | null, now: string): LeaseV1 | null {
+  if (current === null || current.phase === "released") return current;
+  if (current.expiresAt > now) return current;
+  return current.phase === "reserving" ? null : checkedLease({ ...current, phase: "orphaned" });
 }
 
 export function readIntervals(db: DatabaseSync, taskId: string): readonly LeaseInterval[] {
@@ -338,7 +408,15 @@ export function refreshRuntimeSessionAssociations(db: DatabaseSync, session: Run
     );
 }
 export function markRuntimeSessionsUnknown(db: DatabaseSync): number {
-  const rows = queryRows(db, "SELECT runtime_session_id, value_json FROM runtime_session");
+  const rows = queryRows(
+    db,
+    [
+      "SELECT runtime_session_id, value_json FROM runtime_session",
+      "WHERE json_extract(value_json, '$.liveness') NOT IN ('exited', 'unknown')",
+      "OR (json_extract(value_json, '$.liveness') = 'unknown'",
+      "AND json_extract(value_json, '$.attachable') <> 0)",
+    ].join(" "),
+  );
   let changed = 0;
   for (const row of rows) {
     const current = JSON.parse(String(row.value_json)) as RuntimeSession,

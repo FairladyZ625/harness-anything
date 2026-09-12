@@ -121,7 +121,7 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
       projection.catchUp?.();
       // Opening a reader generation is also a structural probe: a watermark can
       // be current while a persisted snapshot row is corrupt.
-      projection.readTaskIndex();
+      projection.readTaskIndex({ limit: 1 });
     } catch (error) {
       consumeKnownError(error);
       recovery = {

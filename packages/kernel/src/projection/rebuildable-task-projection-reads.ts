@@ -13,7 +13,7 @@ import type {
 } from "./projection-reads.ts";
 import { discardDatabase, withDatabase } from "./rebuildable-task-projection-database.ts";
 import { catchUpRound } from "./rebuildable-task-projection-catch-up.ts";
-import { markRuntimeSessionsUnknown, readSnapshot } from "./rebuildable-task-projection-runtime.ts";
+import { markRuntimeSessionsUnknown, readSnapshot, readSnapshots } from "./rebuildable-task-projection-runtime.ts";
 import {
   prepareQuery,
   queryPreparedRows,
@@ -61,17 +61,22 @@ export function listProjection(
       query.pinnedFirst !== true
     ) {
       const rows = queryPreparedRows<{
-        readonly task_id: string;
-        readonly package_path: string | null;
-        readonly generation: "v0" | "v1";
-        readonly workspace_revision: number;
-        readonly created_at: string | null;
-        readonly event_json: string;
-      }>(
-        prepareQuery(db, UNPARAMETERIZED_LIST_SQL, (sql) =>
-          /* @gate-identity check-bypass-write-boundary/bypass-write-012 */ db.prepare(sql),
+          readonly task_id: string;
+          readonly package_path: string | null;
+          readonly generation: "v0" | "v1";
+          readonly workspace_revision: number;
+          readonly created_at: string | null;
+          readonly event_json: string;
+        }>(
+          prepareQuery(db, UNPARAMETERIZED_LIST_SQL, (sql) =>
+            /* @gate-identity check-bypass-write-boundary/bypass-write-012 */ db.prepare(sql),
+          ),
         ),
-      );
+        snapshots = readSnapshots(
+          db,
+          rows.map((row) => row.task_id),
+          at,
+        );
       return {
         status: cut.status,
         rows: rows.map((row) => ({
@@ -81,14 +86,19 @@ export function listProjection(
           workspaceRevision: row.workspace_revision,
           createdAt: row.created_at,
           updatedAt: (JSON.parse(row.event_json) as { readonly occurredAt: string }).occurredAt,
-          snapshot: readSnapshot(db, row.task_id, at),
+          snapshot: snapshots.get(row.task_id)!,
         })),
         watermark: cut.watermark,
         sourceRevision: cut.sourceRevision,
         warnings: !existed && cut.sourceRevision > 0 ? ["projection_missing"] : [],
       };
     }
-    const page = listTaskRowsNarrow(db, query);
+    const page = listTaskRowsNarrow(db, query),
+      snapshots = readSnapshots(
+        db,
+        page.rows.map((row) => row.task_id),
+        at,
+      );
     return {
       status: cut.status,
       rows: page.rows.map((row) => ({
@@ -98,7 +108,7 @@ export function listProjection(
         workspaceRevision: row.workspace_revision,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
-        snapshot: readSnapshot(db, row.task_id, at),
+        snapshot: snapshots.get(row.task_id)!,
       })),
       watermark: cut.watermark,
       sourceRevision: cut.sourceRevision,
