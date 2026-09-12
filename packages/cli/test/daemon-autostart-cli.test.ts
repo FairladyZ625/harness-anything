@@ -776,7 +776,8 @@ test("CLI reports lifecycle attach progress and waits through a slow warming rep
   lifecycle.record({ event: "process_start", endpoint: socketPath });
   lifecycle.record({ event: "socket_bound", endpoint: socketPath });
   lifecycle.record({ event: "repo_attach_started", repoId, attachIndex: 2, attachTotal: 5 });
-  let requests = 0;
+  let requests = 0,
+    helloRequests = 0;
   const server = createServer((socket) => {
     let buffered = "";
     socket.on("data", (chunk) => {
@@ -787,8 +788,9 @@ test("CLI reports lifecycle attach progress and waits through a slow warming rep
         const line = buffered.slice(0, newline);
         buffered = buffered.slice(newline + 1);
         const request = JSON.parse(line) as { id: number; method: string };
-        requests += request.method === "protocol.hello" ? 0 : 1;
-        if (requests === 2)
+        if (request.method === "protocol.hello") helloRequests += 1;
+        else requests += 1;
+        if (requests === 3)
           lifecycle.record({
             event: "repo_attach_completed",
             repoId,
@@ -799,7 +801,7 @@ test("CLI reports lifecycle attach progress and waits through a slow warming rep
         const result =
           request.method === "protocol.hello"
             ? { protocolVersion: { major: 1, minor: 0 } }
-            : requests >= 2
+            : requests >= 3
               ? {
                   schema: "command-receipt/v2",
                   ok: true,
@@ -827,7 +829,8 @@ test("CLI reports lifecycle attach progress and waits through a slow warming rep
     const result = await spawnCli(fixture.root, fixture.userRoot, ["task", "list"]);
     assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`);
     assert.equal((JSON.parse(result.stdout) as { outcome: string }).outcome, "applied");
-    assert.ok(requests >= 2, "the original command must retry after the warming receipt");
+    assert.equal(requests, 3, "the original command must poll twice after the warming receipt");
+    assert.equal(helloRequests, 2, "the warming polls must share one JSON-RPC connection");
     assert.match(result.stderr, /daemon is starting; waited \d+s \(repo 2\/5: slow-warming\)/u);
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));

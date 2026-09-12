@@ -407,6 +407,7 @@ test("task dispatch wait classifies an ENOENT reconnect as daemon_gone and retai
     }
     assert.equal(request.method, "repo.task.dispatches");
     reply(socket, request.id, { ok: true, status: "ready", dispatches: [dispatch] });
+    socket.end();
     socket.once("close", fixture.die);
   };
   const invocation = runWait(fixture, ["runtime", "status", "--task", taskId, "--wait", "--no-stream"]);
@@ -417,6 +418,43 @@ test("task dispatch wait classifies an ENOENT reconnect as daemon_gone and retai
     assert.equal(result.receipt.taskId, taskId);
     assert.deepEqual(result.receipt.lastKnownDispatches, [dispatch]);
     assert.match(String((result.receipt.error as Record<string, unknown>).cause), /ENOENT/u);
+  } finally {
+    invocation.stop();
+    await fixture.close();
+  }
+});
+
+test("task dispatch wait reuses one hello connection across polling ticks", async () => {
+  const fixture = await openFixtureDaemon("task-persistent-reader"),
+    taskId = "task-runtime-wait";
+  let helloRequests = 0,
+    statusReads = 0;
+  fixture.onRequest = (socket, request) => {
+    if (request.method === "protocol.hello") {
+      helloRequests += 1;
+      reply(socket, request.id, { ok: true });
+      return;
+    }
+    assert.equal(request.method, "repo.task.dispatches");
+    statusReads += 1;
+    reply(socket, request.id, {
+      ok: true,
+      status: "ready",
+      dispatches: [
+        {
+          dispatchId: "dispatch-runtime-wait",
+          status: statusReads === 3 ? "succeeded" : "running",
+          fallbackState: null,
+        },
+      ],
+    });
+  };
+  const invocation = runWait(fixture, ["runtime", "status", "--task", taskId, "--wait", "--no-stream"]);
+  try {
+    const result = await invocation.result(2_000);
+    assert.equal(result.code, 0, result.stderr);
+    assert.equal(statusReads, 3);
+    assert.equal(helloRequests, 1, "all polling ticks must share the initial JSON-RPC connection");
   } finally {
     invocation.stop();
     await fixture.close();

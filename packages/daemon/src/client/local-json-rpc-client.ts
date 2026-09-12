@@ -96,6 +96,44 @@ export async function requestDaemonJsonRpcAt(
   );
 }
 
+export async function openDaemonJsonRpcClientAt(
+  socketPath: string,
+  timeoutMs = 75,
+  responseTimeoutMs?: number,
+  sessionEnvironment?: DaemonSessionEnvironment,
+): Promise<JsonRpcLineClient> {
+  const socket = await connectSocket(socketPath, timeoutMs),
+    client = new JsonRpcLineClient(socket, socket);
+  try {
+    await client.request(
+      "protocol.hello",
+      {
+        protocolVersion: currentDaemonProtocolVersion,
+        ...(sessionEnvironment && Object.keys(sessionEnvironment).length > 0
+          ? { sessionEnvironment: sessionEnvironment as JsonObject }
+          : {}),
+      },
+      responseTimeoutMs,
+    );
+    return client;
+  } catch (error) {
+    client.close();
+    throw error;
+  }
+}
+
+export async function openDaemonJsonRpcReaderAt(
+  socketPath: string,
+  method: string,
+  params: JsonObject,
+  timeoutMs = 75,
+  responseTimeoutMs?: number,
+  sessionEnvironment?: DaemonSessionEnvironment,
+): Promise<{ readonly read: () => Promise<JsonObject>; readonly close: () => void }> {
+  const client = await openDaemonJsonRpcClientAt(socketPath, timeoutMs, responseTimeoutMs, sessionEnvironment);
+  return { read: () => client.request(method, params, responseTimeoutMs), close: () => client.close() };
+}
+
 // One line reader per client, not per request. A readline interface attaches its own data/end/error
 // listeners to the input, so a fresh interface per request stacked one listener set per request on a
 // reused connection and nothing detached them: the read loop abandoned its iterator at the matching

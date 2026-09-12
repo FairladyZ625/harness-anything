@@ -22,6 +22,7 @@ import type { DaemonLaunchSpec } from "../../../daemon/src/client/daemon-autosta
 import { cliErrorMessage } from "../cli-error.ts";
 import type { ThinCommand } from "../cli/thin-command.ts";
 import { fleetEdgeRegistration, fleetScheduleRoute } from "./fleet-command-route.ts";
+import { openDaemonStatusReader } from "./status-reader.ts";
 import { withAutostart } from "./with-autostart.ts";
 import { assertCanonicalCliEntry, cliEntryNotCanonicalCode } from "./cli-entry-guard.ts";
 export {
@@ -248,56 +249,71 @@ export async function runCommandThroughDaemon(
     target.socketPath,
     daemonAutostartOptions(command, autostart, env, target.userRoot, target.daemonId),
   );
-  result = await settleRepoWarming(result, request, target.userRoot, target.daemonId);
+  result = await settleRepoWarming(
+    result,
+    () =>
+      openLocalDaemonReader(target, command.method, {
+        repo: { repoId: target.repoId },
+        ...(daemonMethodAcceptsPayload(command.method) ? { payload: requestPayload as JsonObject } : {}),
+      }),
+    target.userRoot,
+    target.daemonId,
+  );
   if (command.action.kind !== "preset-run-start") return result;
-  let observed = 0;
-  for (;;) {
-    const phases = Array.isArray(result.phases)
-      ? result.phases.filter((phase): phase is string => typeof phase === "string")
-      : [];
-    for (const phase of phases.slice(observed))
-      onPhase({
-        ...result,
-        ok: !["op_rejected", "failed", "outcome_unknown"].includes(phase),
-        command: "preset-run-start",
-        summary: `preset-run-start: ${phase}`,
-      });
-    observed = phases.length;
-    if (["applied", "op_rejected", "failed", "outcome_unknown"].includes(String(result.outcome))) {
-      const ok = result.outcome === "applied";
-      return {
-        ...result,
-        ok,
-        command: "preset-run-start",
-        summary: `preset-run-start: ${String(result.phase)}`,
-        ...(!ok
-          ? {
-              error: {
-                code: result.code ?? "preset_run_failed",
-              },
-            }
-          : {}),
-      };
+  let observed = 0,
+    statusReader: Awaited<ReturnType<typeof openLocalDaemonReader>> | undefined;
+  try {
+    for (;;) {
+      const phases = Array.isArray(result.phases)
+        ? result.phases.filter((phase): phase is string => typeof phase === "string")
+        : [];
+      for (const phase of phases.slice(observed))
+        onPhase({
+          ...result,
+          ok: !["op_rejected", "failed", "outcome_unknown"].includes(phase),
+          command: "preset-run-start",
+          summary: `preset-run-start: ${phase}`,
+        });
+      observed = phases.length;
+      if (["applied", "op_rejected", "failed", "outcome_unknown"].includes(String(result.outcome))) {
+        const ok = result.outcome === "applied";
+        return {
+          ...result,
+          ok,
+          command: "preset-run-start",
+          summary: `preset-run-start: ${String(result.phase)}`,
+          ...(!ok
+            ? {
+                error: {
+                  code: result.code ?? "preset_run_failed",
+                },
+              }
+            : {}),
+        };
+      }
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      try {
+        statusReader ??= await openLocalDaemonReader(target, "repo.preset.run.status", {
+          repo: { repoId: target.repoId },
+          payload: { runId: result.runId },
+        });
+        result = await statusReader.read();
+      } catch (error) {
+        consumeKnownError(error);
+        statusReader?.close();
+        statusReader = undefined;
+        result = {
+          ...result,
+          outcome: "outcome_unknown",
+          phase: "outcome_unknown",
+          phases: [...phases, "outcome_unknown"],
+          code: "daemon_disconnect",
+          nextAction: "Reconnect and inspect status; do not automatically retry.",
+        };
+      }
     }
-    await new Promise((resolve) => setTimeout(resolve, 250));
-    try {
-      result = await requestLocalDaemonJsonRpcForTarget(
-        target,
-        "repo.preset.run.status",
-        { repo: { repoId: target.repoId }, payload: { runId: result.runId } },
-        75,
-      );
-    } catch (error) {
-      consumeKnownError(error);
-      result = {
-        ...result,
-        outcome: "outcome_unknown",
-        phase: "outcome_unknown",
-        phases: [...phases, "outcome_unknown"],
-        code: "daemon_disconnect",
-        nextAction: "Reconnect and inspect status; do not automatically retry.",
-      };
-    }
+  } finally {
+    statusReader?.close();
   }
 }
 
@@ -335,7 +351,6 @@ function daemonRequestPayload(command: ThinCommand, env: NodeJS.ProcessEnv): Rea
       ? { ...payload, executor }
       : payload;
 }
-
 function materializeScheduleMission(command: ThinCommand): ThinCommand {
   if (
     !["schedule-create", "schedule-update"].includes(command.action.kind) ||
@@ -353,7 +368,7 @@ function materializeScheduleMission(command: ThinCommand): ThinCommand {
 }
 async function settleRepoWarming(
   initial: JsonObject,
-  request: () => Promise<JsonObject>,
+  openReader: () => ReturnType<typeof openLocalDaemonReader>,
   userRoot: string,
   daemonId: string,
 ): Promise<JsonObject> {
@@ -363,20 +378,26 @@ async function settleRepoWarming(
     startedAt = Date.now(),
     deadline = startedAt + 60_000;
   let result = initial,
+    reader: Awaited<ReturnType<typeof openLocalDaemonReader>> | undefined,
     reported = "";
-  while (isRepoWarming(result) && Date.now() < deadline) {
-    const progress = readDaemonStartProgress(launch, Date.now() - startedAt);
-    if (progress) {
-      const key = `${progress.fingerprint}:${Math.floor((Date.now() - startedAt) / 1_000)}`;
-      if (key !== reported) {
-        reported = key;
-        process.stderr.write(`${progress.message}\n`);
+  try {
+    while (isRepoWarming(result) && Date.now() < deadline) {
+      const progress = readDaemonStartProgress(launch, Date.now() - startedAt);
+      if (progress) {
+        const key = `${progress.fingerprint}:${Math.floor((Date.now() - startedAt) / 1_000)}`;
+        if (key !== reported) {
+          reported = key;
+          process.stderr.write(`${progress.message}\n`);
+        }
       }
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      reader ??= await openReader();
+      result = await reader.read();
     }
-    await new Promise((resolve) => setTimeout(resolve, 250));
-    result = await request();
+    return result;
+  } finally {
+    reader?.close();
   }
-  return result;
 }
 function isRepoWarming(result: JsonObject): boolean {
   const error =
@@ -417,26 +438,24 @@ export async function openRuntimeStatusReader(
       read: () => runCommandThroughDaemon(fleetCommand, () => undefined, { autostart: false }),
       close: () => undefined,
     };
-  const daemonTarget = await resolveLocalDaemonTarget({ rootDir: command.rootDir, repoIdOverride: command.repoId }),
-    { connectSocket, JsonRpcLineClient } = await import("../../../daemon/src/client/local-json-rpc-client.ts"),
-    { currentDaemonProtocolVersion } = await import("../../../daemon/src/protocol/version.ts"),
-    socket = await connectSocket(daemonTarget.socketPath, 2_000),
-    client = new JsonRpcLineClient(socket, socket);
-  try {
-    await client.request("protocol.hello", { protocolVersion: currentDaemonProtocolVersion }, 30_000);
-  } catch (error) {
-    socket.destroy();
-    throw error;
-  }
-  return {
-    read: () =>
-      client.request(
-        "repo.agentRuntime.sessions.read",
-        { repo: { repoId: daemonTarget.repoId }, payload: waitTarget ?? { runtimeSessionId } },
-        30_000,
-      ),
-    close: () => client.close(),
-  };
+  return openDaemonStatusReader(fleetCommand, "repo.agentRuntime.sessions.read", waitTarget ?? { runtimeSessionId });
+}
+async function openLocalDaemonReader(
+  target: { readonly socketPath: string; readonly sessionEnvironment?: DaemonSessionEnvironment },
+  method: string,
+  params: JsonObject,
+  connectTimeoutMs = 75,
+  responseTimeoutMs?: number,
+): Promise<{ readonly read: () => Promise<JsonObject>; readonly close: () => void }> {
+  const { openDaemonJsonRpcReaderAt } = await import("../../../daemon/src/client/local-json-rpc-client.ts");
+  return openDaemonJsonRpcReaderAt(
+    target.socketPath,
+    method,
+    params,
+    connectTimeoutMs,
+    responseTimeoutMs,
+    target.sessionEnvironment,
+  );
 }
 // The sign-in relay stays lazy for the same reason the autostart seam does: the thin dist static
 // import graph stays entry/parser/transport-only, and the tty bridge only loads for an
@@ -658,7 +677,6 @@ function interactiveSessionEnvironment(env: NodeJS.ProcessEnv): DaemonSessionEnv
     ...(harnessActor ? { HARNESS_ACTOR: harnessActor } : {}),
   };
 }
-
 function interactiveAgentActor(env: NodeJS.ProcessEnv): string | null {
   const explicit = env.HARNESS_ACTOR?.trim();
   if (explicit) return explicit;
@@ -671,7 +689,6 @@ function interactiveAgentActor(env: NodeJS.ProcessEnv): string | null {
   const codex = thread ?? session;
   return codex ? `agent:codex-session:${codex}` : null;
 }
-
 export function consumeKnownError(error: unknown): void {
   void error;
 }

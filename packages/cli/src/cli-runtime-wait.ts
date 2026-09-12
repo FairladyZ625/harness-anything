@@ -8,6 +8,7 @@ import {
   runCommandThroughDaemon,
   streamRuntimeThroughDaemon,
 } from "./daemon/client.ts";
+import { openDaemonStatusReader } from "./daemon/status-reader.ts";
 
 type DaemonGone = { readonly kind: "daemon-gone"; readonly cause: string };
 type RuntimeStreamSignal = "terminal" | "lost";
@@ -215,62 +216,73 @@ export async function waitForTaskDispatches(command: ThinCommand, taskId: string
     method: "repo.task.dispatches",
     action: { kind: "task-dispatches", taskId },
   };
-  let current: JsonObject | undefined;
-  for (;;) {
-    const next = await readDaemonSubscription(() =>
-      runCommandThroughDaemon(readCommand, () => undefined, { autostart: false }),
-    );
-    if (isDaemonGone(next)) {
-      const dispatches = Array.isArray(current?.dispatches) ? current.dispatches : [],
-        rows = `${dispatches.length} row${dispatches.length === 1 ? "" : "s"}`;
-      return daemonGoneReceipt(
-        "runtime-status",
-        next.cause,
-        rows,
-        { taskId, lastKnownDispatches: dispatches },
-        `runtime-status task ${taskId}`,
+  let current: JsonObject | undefined, statusReader: Awaited<ReturnType<typeof openDaemonStatusReader>> | undefined;
+  try {
+    for (;;) {
+      const next = await readDaemonSubscription(
+        async () => {
+          statusReader ??= await openDaemonStatusReader(readCommand, "repo.task.dispatches", { taskId });
+          return statusReader.read();
+        },
+        () => {
+          statusReader?.close();
+          statusReader = undefined;
+        },
       );
+      if (isDaemonGone(next)) {
+        const dispatches = Array.isArray(current?.dispatches) ? current.dispatches : [],
+          rows = `${dispatches.length} row${dispatches.length === 1 ? "" : "s"}`;
+        return daemonGoneReceipt(
+          "runtime-status",
+          next.cause,
+          rows,
+          { taskId, lastKnownDispatches: dispatches },
+          `runtime-status task ${taskId}`,
+        );
+      }
+      current = next;
+      if (current.ok !== true) return current;
+      if (current.status !== "pending" && taskDispatchesSettled(current)) break;
+      await new Promise((resolve) => setTimeout(resolve, 250));
     }
-    current = next;
-    if (current.ok !== true) return current;
-    if (current.status !== "pending" && taskDispatchesSettled(current)) break;
-    await new Promise((resolve) => setTimeout(resolve, 250));
-  }
-  const dispatches: readonly unknown[] = Array.isArray(current.dispatches) ? current.dispatches : [],
-    finalDispatches = dispatches.filter(
-      (row: unknown) => (row as Record<string, unknown>).fallbackState !== "dispatched",
-    ),
-    noDispatches = finalDispatches.length === 0,
-    cancelled = finalDispatches.some((row: unknown) => (row as Record<string, unknown>).status === "cancelled"),
-    lost = finalDispatches.some((row: unknown) => {
-      const status = row && typeof row === "object" ? (row as Record<string, unknown>).status : undefined;
-      return status === "lost";
-    }),
-    failed = finalDispatches.some((row: unknown) => {
-      const status = row && typeof row === "object" ? (row as Record<string, unknown>).status : undefined;
-      return status === "failed";
-    }),
-    outcome = noDispatches
-      ? "unknown"
-      : lost || finalDispatches.some((row: unknown) => (row as Record<string, unknown>).status === "unknown")
+    const dispatches: readonly unknown[] = Array.isArray(current.dispatches) ? current.dispatches : [],
+      finalDispatches = dispatches.filter(
+        (row: unknown) => (row as Record<string, unknown>).fallbackState !== "dispatched",
+      ),
+      noDispatches = finalDispatches.length === 0,
+      cancelled = finalDispatches.some((row: unknown) => (row as Record<string, unknown>).status === "cancelled"),
+      lost = finalDispatches.some((row: unknown) => {
+        const status = row && typeof row === "object" ? (row as Record<string, unknown>).status : undefined;
+        return status === "lost";
+      }),
+      failed = finalDispatches.some((row: unknown) => {
+        const status = row && typeof row === "object" ? (row as Record<string, unknown>).status : undefined;
+        return status === "failed";
+      }),
+      outcome = noDispatches
         ? "unknown"
-        : failed
-          ? "failed"
-          : cancelled
-            ? "cancelled"
-            : "succeeded";
-  return {
-    ...current,
-    command: "runtime-status",
-    taskId,
-    outcome,
-    summary: [
-      `runtime-status task ${taskId}:`,
-      `${dispatches.length} dispatch${dispatches.length === 1 ? "" : "es"}`,
+        : lost || finalDispatches.some((row: unknown) => (row as Record<string, unknown>).status === "unknown")
+          ? "unknown"
+          : failed
+            ? "failed"
+            : cancelled
+              ? "cancelled"
+              : "succeeded";
+    return {
+      ...current,
+      command: "runtime-status",
+      taskId,
       outcome,
-    ].join(" "),
-    exitCode: outcome === "succeeded" ? 0 : 1,
-  };
+      summary: [
+        `runtime-status task ${taskId}:`,
+        `${dispatches.length} dispatch${dispatches.length === 1 ? "" : "es"}`,
+        outcome,
+      ].join(" "),
+      exitCode: outcome === "succeeded" ? 0 : 1,
+    };
+  } finally {
+    statusReader?.close();
+  }
 }
 
 export async function waitForSquadRun(command: ThinCommand, squadRunId: string): Promise<JsonObject> {
