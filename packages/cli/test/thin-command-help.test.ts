@@ -1,6 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import path from "node:path";
 import test from "node:test";
 import { daemonProtocolCommands } from "../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { taskCreateGuidance } from "../../daemon/src/receipt-guidance.ts";
@@ -202,12 +203,12 @@ test("thin parser derives closed preset and task-create payloads from descriptor
   if (validate.ok)
     assert.deepEqual(validate.command.action, {
       kind: "preset-validate",
-      packageSource: "package",
+      packageSource: path.resolve("package"),
     });
   if (install.ok)
     assert.deepEqual(install.command.action, {
       kind: "preset-install",
-      packageSource: "package",
+      packageSource: path.resolve("package"),
       dryRun: true,
     });
   if (seed.ok)
