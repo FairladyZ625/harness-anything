@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -1177,7 +1177,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
     );
     await t.test(
       "the task-bound runtime keeps writes scoped and submits only its own execution after projection reopen",
-      async () => {
+      async (runtimeTest) => {
         const taskId = "task-runtime-artifact",
           executionId = "exec-runtime-artifact",
           otherTaskId = "task-runtime-artifact-other",
@@ -1253,6 +1253,68 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
         const synced = await host.run(repoId, { kind: "doc-submit", paths: [syncedPath], executor: worker }, auth);
         assert.equal(synced.outcome, "applied", JSON.stringify(synced));
         assert.match(String(synced.summary), new RegExp(`applied:[\\s\\S]*${syncedPath}`, "u"));
+
+        await runtimeTest.test(
+          "doc retire removes a runtime-produced artifact through the repository writer",
+          async () => {
+            const reason = "runtime evidence superseded",
+              action = { kind: "doc-retire", path: syncedPath, reason } as const,
+              waitForPublication = (opId: string) =>
+                host.run(
+                  repoId,
+                  {
+                    kind: "receipt-show",
+                    opId,
+                    waitFor: ["git_verified", "worktree_visible"],
+                    timeoutMs: 5000,
+                  },
+                  auth,
+                );
+            const submitted = await waitForPublication(synced.opId);
+            assert.equal(submitted.wait?.state, "satisfied", JSON.stringify(submitted));
+            assert.equal(readFileSync(syncedTarget, "utf8"), "# Runtime doc sync artifact\n");
+            const denied = await host.run(repoId, { ...action, executor: worker }, auth);
+            assert.equal(denied.outcome, "op_rejected", JSON.stringify(denied));
+            assert.equal(denied.code, "lease_conflict", JSON.stringify(denied));
+            assert.equal(readFileSync(syncedTarget, "utf8"), "# Runtime doc sync artifact\n");
+            const cliRetirement = await spawnCli(
+              ["--root", workerRoot, "--json", "doc", "retire", "--path", syncedPath, "--reason", reason],
+              {
+                ...process.env,
+                HARNESS_DAEMON_USER_ROOT: userRoot,
+                HARNESS_DAEMON_ID: "runtime-spawn-ingress",
+                HARNESS_DAEMON_ENDPOINT: endpoint,
+                HARNESS_ACTOR: undefined,
+                HARNESS_DAEMON_RELAY: undefined,
+              },
+            );
+            assert.equal(cliRetirement.status, 0, JSON.stringify(cliRetirement));
+            const retired = JSON.parse(cliRetirement.stdout) as { outcome: string; opId: string };
+            assert.equal(retired.outcome, "applied", JSON.stringify(retired));
+            const settled = await waitForPublication(retired.opId);
+            assert.equal(settled.wait?.state, "satisfied", JSON.stringify(settled));
+            const event = makeTaskEventReader({ repoId, rootDir: root }).readEvent(retired.opId);
+            assert.equal(event?.schema, "doc-event/v1");
+            if (event?.schema === "doc-event/v1") {
+              assert.equal(event.payload.retirementReason, reason);
+              assert.equal(event.payload.changes.length, 1);
+              assert.equal(event.payload.changes[0]?.path, syncedPath);
+              assert.equal(event.payload.changes[0]?.candidate, null);
+            }
+            assert.equal(
+              (await host.run(repoId, { kind: "doc-show", path: syncedPath }, auth)).code,
+              "document_not_found",
+            );
+            assert.equal(existsSync(syncedTarget), false, "the writer must remove the file without manual unlink");
+            assert.equal(
+              execFileSync("git", ["ls-tree", "--name-only", "HEAD", `harness/${syncedPath}`], {
+                cwd: root,
+                encoding: "utf8",
+              }).trim(),
+              "",
+            );
+          },
+        );
 
         const crossTask = await host.run(
           repoId,
