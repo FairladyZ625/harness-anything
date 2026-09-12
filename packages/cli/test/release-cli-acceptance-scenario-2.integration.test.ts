@@ -71,6 +71,8 @@ test("release acceptance: a fresh custom Artifact kind runs its file/folder life
     writeFileSync(path.join(absoluteSource, "README.md"), readmeBytes);
     writeFileSync(path.join(absoluteSource, "data.json"), dataBytes);
     writeFileSync(path.join(absoluteSource, "blobs", "binary.bin"), binaryBytes);
+    // Same HEAD-race guard as scenario 1: drain the daemon's ledger publication before committing.
+    settle(root, userRoot, String(upserted.opId));
     git(root, "add", sourcePath);
     git(root, "commit", "--quiet", "-m", "custom kind source");
 
