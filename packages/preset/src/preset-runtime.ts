@@ -1,13 +1,8 @@
 import { assertCanonicalVertical, loadCanonicalAssets, packageCatalog } from "./preset-assets.ts";
 import { effectiveCatalog } from "./preset-catalog.ts";
 import { listCatalog } from "./preset-discovery.ts";
-import {
-  catalogAnchors,
-  materializeSelections,
-  requiredRegularFile,
-  taskOverlayPath,
-} from "./preset-materialization.ts";
-import { presetPackageScripts } from "./preset-package.ts";
+import { catalogAnchors, materializeSelections, taskOverlayPath } from "./preset-materialization.ts";
+import { file, presetPackageScripts } from "./preset-package.ts";
 import {
   asFailure,
   compareVersion,
@@ -35,7 +30,6 @@ import type {
   ResolvePresetRequestV1,
 } from "./preset.contract.ts";
 import { mergeScaffoldOverlay } from "./scaffold-overlay.ts";
-import { existsSync, lstatSync } from "node:fs";
 import path from "node:path";
 
 export function createRuntime(options: PresetResolverOptions): {
@@ -141,6 +135,7 @@ export function createRuntime(options: PresetResolverOptions): {
       }
     }
     const documents = materializeSelections([...selections.values()], normalizeLocale(request.locale)),
+      documentHashes = documents.map((item) => resolverContentHash(item.body)),
       catalogDigests = [
         ...new Set([...selections.values()].flatMap((item) => (item.source ? [item.source.sha256] : []))),
       ].sort(),
@@ -156,6 +151,7 @@ export function createRuntime(options: PresetResolverOptions): {
               definition,
               root: item.decoded!.root,
               packageDigest: item.decoded!.packageDigest,
+              files: item.decoded!.files,
             },
           ]),
         ),
@@ -165,12 +161,7 @@ export function createRuntime(options: PresetResolverOptions): {
       throw presetFailure("entrypoint_not_found", `Entrypoint ${request.entrypoint ?? "<missing>"} is not declared.`);
     for (const [name, owned] of Object.entries(entrypoints)) {
       const command = path.resolve(owned.root, owned.definition.command);
-      if (
-        !isWithinPresetAssetRoot(owned.root, command) ||
-        !existsSync(command) ||
-        !lstatSync(command).isFile() ||
-        lstatSync(command).isSymbolicLink()
-      )
+      if (!isWithinPresetAssetRoot(owned.root, command) || !owned.files.has(owned.definition.command))
         throw presetFailure("missing_script", `Entrypoint ${name} command is missing or unsafe.`);
       const missing = [...owned.definition.requires, ...owned.definition.produces, ...owned.definition.sideEffects]
         .filter((capability) => {
@@ -187,14 +178,14 @@ export function createRuntime(options: PresetResolverOptions): {
     }
     const resolvedSelectionDigest = `sha256:${resolverContentHash(
         canonicalPresetBytes(
-          documents.map((item) => ({
+          documents.map((item, index) => ({
             slot: item.selection.slot,
             path: item.selection.materializeAs,
             templateRef: item.selection.templateRef,
             locale: item.locale,
             owner: item.owner,
             requiredAnchors: item.requiredAnchors,
-            sha256: resolverContentHash(item.body),
+            sha256: documentHashes[index]!,
           })),
         ),
       )}` as const,
@@ -221,7 +212,7 @@ export function createRuntime(options: PresetResolverOptions): {
           overlayDigest: overlay.digest,
           resolvedSelectionDigest,
         },
-        templates: documents.map((item) => ({
+        templates: documents.map((item, index) => ({
           slot: item.selection.slot,
           path: item.selection.materializeAs,
           templateRef: item.selection.templateRef,
@@ -229,14 +220,14 @@ export function createRuntime(options: PresetResolverOptions): {
           owner: item.owner,
           requiredAnchors: item.requiredAnchors,
           content: {
-            sha256: resolverContentHash(item.body),
+            sha256: documentHashes[index]!,
             size: Buffer.byteLength(item.body),
             mediaType: item.mediaType,
           },
         })),
         entrypoints: Object.fromEntries(
-          Object.entries(entrypoints).map(([name, { definition: item, root }]) => {
-            const commandBody = requiredRegularFile(path.resolve(root, item.command), "missing_script");
+          Object.entries(entrypoints).map(([name, { definition: item, files }]) => {
+            const commandBody = file(files, item.command, "missing_script");
             return [
               name,
               {
@@ -277,7 +268,7 @@ export function createRuntime(options: PresetResolverOptions): {
         requiredAnchors: item.requiredAnchors,
         templateRef: item.selection.templateRef,
       })),
-      scripts: request.purpose === "task-create" ? presetPackageScripts(leaf.root) : [],
+      scripts: request.purpose === "task-create" ? presetPackageScripts(leaf.files) : [],
       ...(requiredTaskClass ? { requiredTaskClass } : {}),
       packageRoot: executablePackage.root,
       packageDigest: executablePackage.packageDigest,

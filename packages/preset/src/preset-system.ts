@@ -26,8 +26,10 @@ import {
   uninstallPresetPackage,
   validateVerticalSource,
   validatePresetPackage,
+  type InternalPresetResolution,
   type RepositoryScaffoldPlan,
 } from "./preset-resolver.ts";
+import { asFailure } from "./preset-resolver-common.ts";
 
 type TaskWorkKind = NonNullable<Parameters<typeof compileTaskPackage>[0]["workKind"]>;
 type PriorityTier = NonNullable<Parameters<typeof compileTaskPackage>[0]["riskTier"]>;
@@ -98,27 +100,31 @@ export async function runPresetAction(input: {
       ...(profileId ? { profileId } : {}),
       locale: optionalActionText(action.locale) ?? defaults.locale,
       purpose: "inspect" as const,
-    },
-    result = await resolver.resolve(request);
-  if (!result.ok) throw presetActionError(result.error.code, result.error.hint);
+    };
+  let resolved: InternalPresetResolution;
+  try {
+    resolved = runtime.resolveInternal(request);
+  } catch (error) {
+    const known = asFailure(error);
+    throw presetActionError(known.code, known.message);
+  }
   if (action.kind === "preset-check") {
     const actual = optionalActionText(action.snapshotDigest);
-    return actual && actual !== result.snapshot.digest
+    return actual && actual !== resolved.snapshot.digest
       ? {
           valid: false,
           code: "snapshot_mismatch",
           actualDigest: actual,
-          expectedDigest: result.snapshot.digest,
+          expectedDigest: resolved.snapshot.digest,
           nextAction: "Run ha preset upgrade <task-id>.",
         }
-      : { valid: true, digest: result.snapshot.digest };
+      : { valid: true, digest: resolved.snapshot.digest };
   }
-  const inspected = runtime.resolveInternal(request);
   return {
-    manifest: inspected.manifest,
-    snapshot: inspected.snapshot,
-    entrypoints: Object.keys(inspected.snapshot.entrypoints).sort(),
-    documents: inspected.documents,
+    manifest: resolved.manifest,
+    snapshot: resolved.snapshot,
+    entrypoints: Object.keys(resolved.snapshot.entrypoints).sort(),
+    documents: resolved.documents,
   };
 }
 export function compileRepoTaskBootstrap(input: {

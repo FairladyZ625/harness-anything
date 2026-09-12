@@ -257,7 +257,8 @@ export function validateVerticalDefinition(vertical: VerticalDefinition): Extens
 }
 
 export function planTemplateMaterialization(request: MaterializationRequest): MaterializationResult {
-  const catalogValidation = validateTemplateCatalog(request.catalog, { resolveBody: request.resolveBody });
+  const resolveBody = memoizeBodyResolver(request.resolveBody);
+  const catalogValidation = validateTemplateCatalog(request.catalog, { resolveBody });
   const issues: ExtensionValidationIssue[] = [...catalogValidation.issues];
   const documents: MaterializedTemplatePlan[] = [];
 
@@ -295,7 +296,7 @@ export function planTemplateMaterialization(request: MaterializationRequest): Ma
     }
     const documentIndex = request.catalog.documents.indexOf(document);
     const localeIndex = document.locales.indexOf(selected);
-    const body = request.resolveBody?.({ document, locale: selected, documentIndex, localeIndex });
+    const body = resolveBody?.({ document, locale: selected, documentIndex, localeIndex });
     if (body === undefined) {
       issues.push(
         extensionIssue(
@@ -320,6 +321,16 @@ export function planTemplateMaterialization(request: MaterializationRequest): Ma
   }
 
   return { ok: issues.length === 0, documents, issues };
+}
+
+function memoizeBodyResolver(resolver: TemplateBodyResolver | undefined): TemplateBodyResolver | undefined {
+  if (!resolver) return undefined;
+  const cache = new Map<string, string | undefined>();
+  return (input) => {
+    const cacheKey = `${input.documentIndex}\0${input.localeIndex}`;
+    if (!cache.has(cacheKey)) cache.set(cacheKey, resolver(input));
+    return cache.get(cacheKey);
+  };
 }
 
 function formatTemplateRef(id: string, version: string): string {

@@ -123,7 +123,8 @@ export function safeTemplatePath(root: string, value: string, ref: string): stri
 }
 
 export function requiredRegularFile(target: string, code: string): string {
-  if (!existsSync(target) || !lstatSync(target).isFile() || lstatSync(target).isSymbolicLink())
+  const stat = existsSync(target) ? lstatSync(target) : undefined;
+  if (!stat?.isFile() || stat.isSymbolicLink())
     throw presetFailure(code, `Required regular file ${target} is unavailable.`);
   return readFileSync(target, "utf8");
 }

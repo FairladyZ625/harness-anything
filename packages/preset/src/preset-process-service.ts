@@ -106,6 +106,7 @@ export function createPresetProcessService(options: PresetProcessServiceOptions)
     maxResultBytes = options.maxResultBytes ?? resultLimit;
   ensureTree(rootDir, runRoot, witnessRoot, stagingRoot);
   const witnesses = new Map<string, Witness>(),
+    runIdByKey = new Map<string, string>(),
     children = new Map<string, TrackedChild>();
   let closed = false;
   for (const name of readdirSync(witnessRoot).filter((entry) => entry.endsWith(".json"))) {
@@ -123,6 +124,7 @@ export function createPresetProcessService(options: PresetProcessServiceOptions)
             nextAction: "Inspect authored state before deciding whether to start with a new idempotency key.",
           }),
     );
+    if (!runIdByKey.has(loaded.idempotencyKey)) runIdByKey.set(loaded.idempotencyKey, loaded.runId);
   }
   const status = (runId: string): PresetRunReceiptV1 => {
     const witness = witnesses.get(runId);
@@ -138,7 +140,8 @@ export function createPresetProcessService(options: PresetProcessServiceOptions)
       return rejection("run_invalid", "invalid_idempotency_key", "idempotencyKey is required.");
     const requestDigest = digest(input),
       runId = `run_${digest(input.idempotencyKey).slice(7, 33)}`,
-      prior = [...witnesses.values()].find((item) => item.idempotencyKey === input.idempotencyKey);
+      priorRunId = runIdByKey.get(input.idempotencyKey),
+      prior = priorRunId === undefined ? undefined : witnesses.get(priorRunId);
     if (prior)
       return prior.requestDigest === requestDigest
         ? receipt(prior)
@@ -219,6 +222,7 @@ export function createPresetProcessService(options: PresetProcessServiceOptions)
 
   function save(witness: Witness): Witness {
     witnesses.set(witness.runId, witness);
+    runIdByKey.set(witness.idempotencyKey, witness.runId);
     const target = path.join(witnessRoot, `${witness.runId}.json`),
       temporary = path.join(witnessRoot, `.${witness.runId}-${randomUUID()}.tmp`);
     try {

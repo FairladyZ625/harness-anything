@@ -1,5 +1,6 @@
 import { decodePresetPackageV3, parsePresetJson } from "./preset-package.ts";
 import { defaultBundled, isPresetResolutionRecord, presetFailure } from "./preset-resolver-common.ts";
+import type { DecodedPresetPackageV3 } from "./preset-resolver-types.ts";
 import { consumeKnownError } from "./preset.contract.ts";
 import { randomUUID } from "node:crypto";
 import {
@@ -28,14 +29,16 @@ export function seedPresetPackages(input: {
           .map((entry) => path.join(root, entry.name))
           .sort()
       : [];
-  sources.forEach(decodePresetPackageV3);
-  const packages = sources.map((source) =>
-    installPresetPackage({
-      source,
-      userRoot: input.userRoot,
-      dryRun: input.dryRun,
-    }),
-  );
+  const packages = sources
+    .map((source) => decodePresetPackageV3(source))
+    .map((decoded) =>
+      installPresetPackage({
+        source: decoded.root,
+        userRoot: input.userRoot,
+        dryRun: input.dryRun,
+        decoded,
+      }),
+    );
   return {
     schema: "preset-seed-report/v1" as const,
     mode: input.dryRun ? ("dry-run" as const) : ("apply" as const),
@@ -49,8 +52,9 @@ export function installPresetPackage(input: {
   readonly userRoot: string;
   readonly dryRun?: boolean;
   readonly killpoint?: (point: "after-object" | "after-pointer") => void;
+  readonly decoded?: DecodedPresetPackageV3;
 }) {
-  const decoded = decodePresetPackageV3(input.source),
+  const decoded = input.decoded ?? decodePresetPackageV3(input.source),
     userRoot = path.resolve(input.userRoot),
     objects = path.join(userRoot, "preset-objects"),
     active = path.join(userRoot, "active"),

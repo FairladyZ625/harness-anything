@@ -16,8 +16,9 @@ export function decodePackage(
   root: string,
   requireLocalCatalog = false,
   trustedDigest?: string,
+  scannedFiles?: Map<string, string>,
 ): DecodedPresetPackageV3 {
-  const files = scan(root),
+  const files = scannedFiles ?? scan(root),
     manifestBody = file(files, "preset.json", "missing_manifest"),
     presetBody = file(files, "PRESET.md", "missing_preset_document"),
     manifest = parsePresetManifestV3(parsePresetJson(manifestBody, "invalid_manifest")),
@@ -47,6 +48,7 @@ export function decodePackage(
     manifest,
     document,
     root,
+    files,
     packageDigest,
     manifestSha256: resolverContentHash(canonicalPresetBytes(manifest)),
   } as DecodedPresetPackageV3;
@@ -70,25 +72,22 @@ export function scan(root: string): Map<string, string> {
   return files;
 }
 
-export function presetPackageScripts(root: string): readonly PresetPackageScript[] {
-  const directory = path.join(root, "scripts");
-  if (!existsSync(directory)) return [];
-  if (!lstatSync(directory).isDirectory() || lstatSync(directory).isSymbolicLink())
-    throw presetFailure("invalid_preset_scripts", `Preset package ${root} ships scripts as a non-directory node.`);
-  return readdirSync(directory, { withFileTypes: true })
-    .sort((left, right) => left.name.localeCompare(right.name))
-    .map((entry) => {
-      if (entry.isSymbolicLink() || !entry.isFile())
-        throw presetFailure(
-          "invalid_preset_scripts",
-          `Preset scripts entry scripts/${entry.name} is not a regular file; ` +
-            "subdirectories and other node kinds are not materialized.",
-        );
-      return {
-        name: entry.name,
-        body: readFileSync(path.join(directory, entry.name), "utf8"),
-      };
-    });
+export function presetPackageScripts(files: Map<string, string>): readonly PresetPackageScript[] {
+  const scripts: PresetPackageScript[] = [];
+  for (const [name, body] of [...files].sort(([left], [right]) => left.localeCompare(right))) {
+    if (name === "scripts")
+      throw presetFailure("invalid_preset_scripts", `Preset package ships scripts as a non-directory node.`);
+    if (!name.startsWith("scripts/")) continue;
+    const entry = name.split("/")[1]!;
+    if (name.slice("scripts/".length) !== entry)
+      throw presetFailure(
+        "invalid_preset_scripts",
+        `Preset scripts entry scripts/${entry} is not a regular file; ` +
+          "subdirectories and other node kinds are not materialized.",
+      );
+    scripts.push({ name: entry, body });
+  }
+  return scripts;
 }
 
 export function parseDocument(body: string): PresetDocumentV1 {
