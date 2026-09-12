@@ -108,6 +108,23 @@ Dependency-Change: none
 - [ ] GitHub Actions `rewrite-ci` passed
 - Not run: [command and reason]
 
+## Per-Write Cost
+
+<!-- Required for changes to write/persist/projection/ledger paths under packages/**/src.
+Run the G1 probe on the base and head with the same environment. Repeat these five rows
+for each measured operation; replace placeholders with actual non-negative integer counts.
+The lint checks table completeness, not measurement truth or performance budgets.
+G1 command: node tools/gates/cost-budget.mjs (compare its 200/2000 measured counts).
+-->
+
+| Operation   | Metric        | Before (200) | Before (2000) | After (200) | After (2000) |
+| ----------- | ------------- | ------------ | ------------- | ----------- | ------------ |
+| <operation> | sqlRowsRead   |              |               |             |              |
+| <operation> | sha256Calls   |              |               |             |              |
+| <operation> | sha256Bytes   |              |               |             |              |
+| <operation> | gitProcesses  |              |               |             |              |
+| <operation> | fileReadBytes |              |               |             |              |
+
 ## Review Evidence
 
 - Self-review:
@@ -206,6 +223,12 @@ Dependency-Change: none
 - [ ] `npm run harness:smoke-cli-package`
 - [ ] GitHub Actions `rewrite-ci` passed
 - 未运行：[命令和原因]
+
+## 单次写入成本
+
+<!-- 涉及 packages/**/src 内 write/persist/projection/ledger 路径时，在英文 Per-Write Cost 节填写 G1 表。
+同一环境分别运行 base/head 的 node tools/gates/cost-budget.mjs；每个实测操作填写五项指标在 200/2000 规模的前后计数。
+lint 只验证表格完整性，测量真实性仍需审查，性能预算仍由 G1 门判定。 -->
 
 ## 审查证据
 
