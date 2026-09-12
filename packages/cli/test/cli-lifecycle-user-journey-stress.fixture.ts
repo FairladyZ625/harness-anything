@@ -158,11 +158,7 @@ async function runChain(
     ],
     reviewerEnvironment,
   );
-  await expectApplied(
-    fixture,
-    ["task", "complete", taskId, "--execution-id", executionId, "--consent"],
-    workerEnvironment,
-  );
+  await expectApplied(fixture, ["task", "complete", taskId, "--consent"], workerEnvironment);
   const final = await expectApplied(fixture, ["task", "show", taskId], workerEnvironment),
     finalEvidence = JSON.parse(String(final.evidence)) as { readonly task?: { readonly status?: string } };
   assert.equal(finalEvidence.task?.status, "done");

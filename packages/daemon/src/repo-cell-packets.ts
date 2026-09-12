@@ -227,11 +227,9 @@ export function lifecycleReceipt(
                     ].join("")
                 : !selected
                   ? `ha task complete ${event.taskId} --consent`
-                  : missingGate === "ci"
-                    ? `ha task complete ${event.taskId} --execution-id ${executionId}`
-                    : missingGate === "code-doc-reconciliation"
-                      ? `ha task closeout ${event.taskId} --from-file <packet.json>`
-                      : `ha task complete ${event.taskId} --execution-id ${executionId}`,
+                  : missingGate === "code-doc-reconciliation"
+                    ? `ha task code-doc reconcile ${event.taskId} --path <repo-relative-path>...`
+                    : `ha task complete ${event.taskId}`,
     next = nextCommand
       ? [
           {

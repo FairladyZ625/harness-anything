@@ -429,10 +429,7 @@ test("semantic sources and agent execution cross the daemon before transport-bou
       ]).outcome,
       "applied",
     );
-    assert.equal(
-      run(fixture.root, fixture.userRoot, ["task", "complete", taskId, "--execution-id", executionId]).outcome,
-      "applied",
-    );
+    assert.equal(run(fixture.root, fixture.userRoot, ["task", "complete", taskId]).outcome, "applied");
 
     const shown = run(fixture.root, fixture.userRoot, ["task", "show", taskId]),
       snapshot = JSON.parse(String(shown.evidence)) as {
