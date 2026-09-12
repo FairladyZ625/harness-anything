@@ -211,7 +211,8 @@ function copyWorkingTree(rootDir: string, authoredRoot: string, payloadRoot: str
     recursive: true,
     errorOnExist: true,
     verbatimSymlinks: true,
-    filter: (candidate) => included.has(candidate),
+    filter: (candidate) =>
+      candidate === authoredRoot || (included.has(candidate) && !vanishedAfterEnumeration(candidate)),
   });
 }
 
@@ -223,14 +224,23 @@ function copySource(rootDir: string, sourcePath: string, payloadRoot: string): v
     recursive: true,
     errorOnExist: true,
     verbatimSymlinks: true,
-    // A repository nested inside a source (a tool worktree under .claude/, a checkout someone
-    // left in the tree) is tool state, not ledger content.
-    filter: (candidate) => candidate === sourcePath || !nestedRepository(candidate),
+    filter: (candidate) => candidate === sourcePath || !skippedFromSource(candidate),
   });
 }
 
-function nestedRepository(candidate: string): boolean {
-  return fileSystem.lstat(candidate).isDirectory() && fileSystem.exists(path.join(candidate, ".git"));
+// An entry that vanishes between its enumeration and this stat — Git's transient
+// gc/maintenance locks under .git/, a write path replacing a temp file — no longer needs
+// backing up. Tolerating only the missing-entry case is not a retry: every other stat
+// error still fails the backup.
+function vanishedAfterEnumeration(candidate: string): boolean {
+  return fileSystem.lstat(candidate, { throwIfNoEntry: false }) === undefined;
+}
+
+// A repository nested inside a source (a tool worktree under .claude/, a checkout someone
+// left in the tree) is tool state, not ledger content, and is skipped like a vanished entry.
+function skippedFromSource(candidate: string): boolean {
+  const stat = fileSystem.lstat(candidate, { throwIfNoEntry: false });
+  return stat === undefined || (stat.isDirectory() && fileSystem.exists(path.join(candidate, ".git")));
 }
 
 function vacuumSqlite(rootDir: string, databasePath: string, payloadRoot: string): void {

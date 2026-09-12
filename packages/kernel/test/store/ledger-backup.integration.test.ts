@@ -17,7 +17,13 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
-import { createLedgerBackup, drillLedgerBackup, readOfflineLedgerEvents } from "../../src/store/ledger-backup.ts";
+import { Worker } from "node:worker_threads";
+import {
+  createLedgerBackup,
+  drillLedgerBackup,
+  readOfflineLedgerEvents,
+  readVerifiedLedgerBackup,
+} from "../../src/store/ledger-backup.ts";
 import { openSqliteEventStore, sqliteLedgerPath } from "../../src/store/sqlite-event-store.ts";
 import { sha256Bytes, sha256Text } from "../../src/integrity/stable-hash.ts";
 import { event, flatLedgerFixture } from "./task-event-store.fixtures.ts";
@@ -223,6 +229,67 @@ test("restore drill rolls shadows by retention, preserves unrelated directories 
     );
     assert.equal(single.removedShadowRoots.length, 2);
   } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(backupDir, { recursive: true, force: true });
+  }
+});
+
+// Git's own gc/maintenance briefly creates and deletes lock files inside .git/ while a
+// backup walks it (#2543): a vanishing worker deletes enumerated-but-unvisited entries
+// mid-traversal, and the backup must skip them instead of failing on lstat ENOENT.
+test("backup skips entries that vanish after enumeration instead of failing", async () => {
+  const root = fixture("vanish"),
+    backupDir = path.join(os.tmpdir(), `ha-backup-vanish-${process.pid}-${Date.now()}`),
+    gitDir = path.join(root, "harness", ".git"),
+    fillerCount = 1000,
+    lockCount = 30;
+  let worker: Worker | undefined;
+  try {
+    for (let index = 0; index < fillerCount; index += 1)
+      writeFileSync(path.join(gitDir, `vanish-f-${index}.pack`), "x");
+    for (let index = 0; index < lockCount; index += 1)
+      writeFileSync(path.join(gitDir, `vanish-lock-${index}.lock`), "transient\n");
+    const ready = new Promise<void>((resolve) => {
+      worker = new Worker(new URL("./ledger-backup-vanishing-source.fixture.ts", import.meta.url), {
+        execArgv: process.execArgv.filter(
+          (argument) => argument === "--experimental-strip-types" || argument === "--enable-source-maps",
+        ),
+        workerData: {
+          sourceDir: gitDir,
+          // The payload .git directory appears after the source .git was enumerated.
+          triggerPath: path.join(backupDir, "payload", "harness", ".git"),
+          prefix: "vanish-lock-",
+        },
+      });
+      worker.on("message", (message: unknown) => {
+        if ((message as { readonly ready?: boolean }).ready === true) resolve();
+      });
+    });
+    await ready;
+    const manifest = createLedgerBackup({ rootInput: root, backupDir }),
+      report = new Promise<number>((resolve, reject) => {
+        worker!.on("message", (message: unknown) => {
+          const vanished = (message as { readonly vanished?: number }).vanished;
+          if (typeof vanished === "number") resolve(vanished);
+        });
+        worker!.once("error", reject);
+        worker!.once("exit", (code) => {
+          if (code !== 0) reject(new Error(`vanishing worker exited ${code}`));
+        });
+      });
+    assert.equal(await report, lockCount);
+    const manifestLocks = manifest.files.filter(({ path: file }) => file.startsWith("harness/.git/vanish-lock-"));
+    assert.ok(
+      manifestLocks.length < lockCount,
+      `vanishing must overtake at least one enumerated entry (copied ${manifestLocks.length})`,
+    );
+    assert.equal(
+      manifest.files.some(({ path: file }) => file === "harness/.git/HEAD"),
+      true,
+    );
+    readVerifiedLedgerBackup(backupDir);
+  } finally {
+    await worker?.terminate();
     rmSync(root, { recursive: true, force: true });
     rmSync(backupDir, { recursive: true, force: true });
   }
