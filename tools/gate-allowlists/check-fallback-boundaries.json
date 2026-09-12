@@ -344,6 +344,7 @@
       "packages/cli/src/cli-runtime-auth.ts#runRuntimeAuthCommand",
       "packages/cli/src/cli-runtime-batch.ts#runRuntimeBatch",
       "packages/cli/src/cli-runtime-batch.ts#worker",
+      "packages/cli/src/cli-vertical-kind.ts#runVerticalKindFacadeCommand",
       "packages/cli/src/cli/gui-launch.ts#runGuiLaunch",
       "packages/cli/src/cli/thin-command-preset.ts#parsePreset",
       "packages/cli/src/daemon/control.ts#fleetControl",

@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -164,17 +164,14 @@ test("declaration read revision drives create, catalog read, and retirement", as
         store: { pathTemplate: "entities/e2e-runbooks/{id}.json" },
         relations: [],
         attributes: { owner: { type: "string" } },
-      },
-      sourcePath = path.join(rootDir, "kind.json");
-    writeFileSync(sourcePath, `${JSON.stringify(declaration)}\n`);
+      };
     const resolvedUpsert = await resolveVerticalKindCommandAction(cell, {
         kind: "vertical-kind-upsert",
-        fromFile: "kind.json",
+        kindId: declaration.id,
+        declaration,
       }),
       upsert = await cell.run(resolvedUpsert, binding);
-    assert.equal(resolvedUpsert.kindId, declaration.id);
     assert.equal(resolvedUpsert.expectedVersion, 0);
-    assert.equal("fromFile" in resolvedUpsert, false);
     assert.equal(upsert.outcome, "applied", JSON.stringify(upsert));
     const kinds = await cell.read("repo.entity.kinds.read", {}, binding),
       row = kinds.kinds.find(({ declaration: candidate }) => candidate?.id === declaration.id);
@@ -184,14 +181,12 @@ test("declaration read revision drives create, catalog read, and retirement", as
       ({ id }) => id === declaration.id,
     );
     assert.ok(created && created.entityType === "artifact");
-    writeFileSync(sourcePath, `${JSON.stringify(created)}\n`);
     const resolvedUpdate = await resolveVerticalKindCommandAction(cell, {
       kind: "vertical-kind-upsert",
-      fromFile: "kind.json",
+      kindId: created.kindId,
+      declaration: created,
     });
-    assert.equal(resolvedUpdate.kindId, created.kindId);
     assert.equal(resolvedUpdate.expectedVersion, created.revision);
-    assert.equal("fromFile" in resolvedUpdate, false);
     const retire = await cell.run(
       {
         kind: "vertical-kind-retire",
