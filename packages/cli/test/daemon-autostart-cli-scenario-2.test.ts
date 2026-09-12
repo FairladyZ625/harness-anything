@@ -4,6 +4,7 @@ import * as shared from "./daemon-autostart-cli.fixture.ts";
 
 const {
   assert,
+  git,
   spawnSync,
   chmodSync,
   existsSync,
@@ -357,9 +358,13 @@ test("semantic sources and agent execution cross the daemon before transport-bou
   );
   assert.equal(closeoutSync.outcome, "applied");
   published(fixture.root, fixture.userRoot, closeoutSync);
+  writeFileSync(path.join(fixture.root, "executor-axis.mjs"), "export const executorAxis = true;\n");
+  git(fixture.root, "add", "executor-axis.mjs");
+  git(fixture.root, "commit", "--quiet", "-m", "executor axis implementation");
+  const deliveryCommit = git(fixture.root, "rev-parse", "HEAD");
   writeFileSync(
     path.join(fixture.root, "harness", closeoutPath),
-    `# Closeout\n\n## Summary\n\nExecutor attribution restored: artifact:${packagePath}/artifacts/executor-axis.txt@${closeoutSync.revision}\n\n` +
+    `# Closeout\n\n## Summary\n\nExecutor attribution restored at ${deliveryCommit}.\n\n` +
       "## Verification\n\nEnd-to-end daemon flow.\n\n## Residual Risk\n\nNone.\n\n" +
       "## Same Mechanism Elsewhere\n\nNot applicable to this fixture.\n",
   );
@@ -372,7 +377,7 @@ test("semantic sources and agent execution cross the daemon before transport-bou
     run(
       fixture.root,
       fixture.userRoot,
-      ["task", "code-doc", "reconcile", taskId, "--path", `${packagePath}/artifacts/executor-axis.txt`],
+      ["task", "code-doc", "reconcile", taskId, "--path", "executor-axis.mjs"],
       "agent:claude-code",
     ).outcome,
     "applied",
