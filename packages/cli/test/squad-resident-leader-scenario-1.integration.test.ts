@@ -24,6 +24,7 @@ const {
   isolatedDaemonEnvironment,
   daemonSocketTemp,
   writeIdentity,
+  writeProviderExecutable,
   writeMixedLeaderProvider,
   writeBlockingWorkerProvider,
   writeResidentProvider,
@@ -60,26 +61,6 @@ test("each worker outcome calls back into a new leader turn and a failed worker 
 
   run(root, env, ["daemon", "start", "--service"]);
   run(root, env, ["init", "--repo-id", "squad-resident", "--person-id", "owner", "--display-name", "Owner"]);
-  for (const id of ["fable", "terra", "luna"]) {
-    const source = path.join(parent, id);
-    writeIdentity(source, id, id === "fable" ? "Fable" : id === "terra" ? "Terra" : "Luna");
-    run(root, env, ["agent", "install", "--source", source]);
-  }
-  const squadSource = path.join(parent, "core-squad");
-  mkdirSync(squadSource, { recursive: true });
-  writeFileSync(
-    path.join(squadSource, "squad.json"),
-    JSON.stringify({
-      schema: "squad-declaration/v1",
-      id: "core-squad",
-      name: "Core Squad",
-      leader: "fable",
-      workers: ["terra", "luna"],
-      leaderTurnBudget: 8,
-      roster: "terra -> backend\nluna -> frontend\nsynthesis -> artifacts/reports/{squadRunId}.md",
-    }),
-  );
-  run(root, env, ["squad", "install", "--source", squadSource]);
   run(root, env, [
     "runtime",
     "instance",
@@ -97,6 +78,33 @@ test("each worker outcome calls back into a new leader turn and a failed worker 
     "--auth",
     "subscription",
   ]);
+  for (const id of ["fable", "terra", "luna"]) {
+    const source = path.join(parent, id);
+    writeIdentity(
+      source,
+      id,
+      id === "fable" ? "Fable" : id === "terra" ? "Terra" : "Luna",
+      "codex",
+      undefined,
+      "resident-worker",
+    );
+    run(root, env, ["agent", "install", "--source", source]);
+  }
+  const squadSource = path.join(parent, "core-squad");
+  mkdirSync(squadSource, { recursive: true });
+  writeFileSync(
+    path.join(squadSource, "squad.json"),
+    JSON.stringify({
+      schema: "squad-declaration/v1",
+      id: "core-squad",
+      name: "Core Squad",
+      leader: "fable",
+      workers: ["terra", "luna"],
+      leaderTurnBudget: 8,
+      roster: "terra -> backend\nluna -> frontend\nsynthesis -> artifacts/reports/{squadRunId}.md",
+    }),
+  );
+  run(root, env, ["squad", "install", "--source", squadSource]);
   const residentTask = run(root, env, [
       "task",
       "create",
@@ -239,6 +247,10 @@ test("a Claude leader dispatches Codex workers by each worker declaration and re
   mkdirSync(path.join(parent, "tmp"), { recursive: true });
   writeMixedLeaderProvider(path.join(binRoot, "claude"));
   writeBlockingWorkerProvider(path.join(binRoot, "codex"));
+  writeProviderExecutable(
+    path.join(binRoot, "agy"),
+    'if (process.argv[2] === "--version") { console.log("agy mixed-runtime-test"); process.exit(0); }\n',
+  );
   const env = isolatedDaemonEnvironment({
     HOME: path.join(parent, "home"),
     USERPROFILE: path.join(parent, "home"),
@@ -263,6 +275,29 @@ test("a Claude leader dispatches Codex workers by each worker declaration and re
 
   run(root, env, ["daemon", "start", "--service"]);
   run(root, env, ["init", "--repo-id", "squad-mixed-runtime", "--person-id", "owner", "--display-name", "Owner"]);
+  for (const [id, name, kind, provider, model] of [
+    ["claude-lee", "Claude Leader", "claude", "anthropic", "fable"],
+    ["test-codex-sol", "Codex Workers", "codex", "openai", "gpt-5.6-terra"],
+    ["missing-agy", "Missing AGY", "agy", "agy", "agy-model"],
+  ] as const)
+    run(root, env, [
+      "runtime",
+      "instance",
+      "create",
+      "--id",
+      id,
+      "--name",
+      name,
+      "--kind",
+      kind,
+      "--provider",
+      provider,
+      "--model",
+      model,
+      ...(id === "test-codex-sol" ? ["--model", "gpt-5.6-sol"] : []),
+      "--auth",
+      "subscription",
+    ]);
   for (const [id, name, runtimeType, model] of [
     ["mixed-leader", "Mixed Leader", "claude", "fable"],
     ["mixed-reconcile", "Mixed Reconcile", "codex", "gpt-5.6-terra"],
@@ -271,7 +306,14 @@ test("a Claude leader dispatches Codex workers by each worker declaration and re
     ["mixed-missing", "Mixed Missing", "agy", "agy-model"],
   ] as const) {
     const source = path.join(parent, id);
-    writeIdentity(source, id, name, runtimeType, model);
+    writeIdentity(
+      source,
+      id,
+      name,
+      runtimeType,
+      model,
+      runtimeType === "claude" ? "claude-lee" : runtimeType === "codex" ? "test-codex-sol" : "missing-agy",
+    );
     run(root, env, ["agent", "install", "--source", source]);
   }
   for (const [id, workers] of [
@@ -294,42 +336,7 @@ test("a Claude leader dispatches Codex workers by each worker declaration and re
     );
     run(root, env, ["squad", "install", "--source", source]);
   }
-  run(root, env, [
-    "runtime",
-    "instance",
-    "create",
-    "--id",
-    "claude-lee",
-    "--name",
-    "Claude Leader",
-    "--kind",
-    "claude",
-    "--provider",
-    "anthropic",
-    "--model",
-    "fable",
-    "--auth",
-    "subscription",
-  ]);
-  run(root, env, [
-    "runtime",
-    "instance",
-    "create",
-    "--id",
-    "test-codex-sol",
-    "--name",
-    "Codex Workers",
-    "--kind",
-    "codex",
-    "--provider",
-    "openai",
-    "--model",
-    "gpt-5.6-terra",
-    "--model",
-    "gpt-5.6-sol",
-    "--auth",
-    "subscription",
-  ]);
+  run(root, env, ["runtime", "instance", "update", "missing-agy", "--disable"]);
   for (const [taskId, title] of [
     ["mixed-positive-task", "Mixed positive"],
     ["mixed-negative-task", "Mixed negative"],
@@ -485,26 +492,6 @@ test(
     assert.equal(stored.status, 0, stored.stderr);
     run(root, env, ["daemon", "start", "--service"]);
     run(root, env, ["init", "--repo-id", "squad-api-key", "--person-id", "owner", "--display-name", "Owner"]);
-    for (const id of ["fable", "terra", "luna"]) {
-      const source = path.join(parent, id);
-      writeIdentity(source, id, id === "fable" ? "Fable" : id === "terra" ? "Terra" : "Luna");
-      run(root, env, ["agent", "install", "--source", source]);
-    }
-    const squadSource = path.join(parent, "core-squad");
-    mkdirSync(squadSource, { recursive: true });
-    writeFileSync(
-      path.join(squadSource, "squad.json"),
-      JSON.stringify({
-        schema: "squad-declaration/v1",
-        id: "core-squad",
-        name: "Core Squad",
-        leader: "fable",
-        workers: ["terra", "luna"],
-        leaderTurnBudget: 8,
-        roster: "terra -> backend\nluna -> frontend\nsynthesis -> artifacts/reports/{squadRunId}.md",
-      }),
-    );
-    run(root, env, ["squad", "install", "--source", squadSource]);
     run(root, env, [
       "runtime",
       "instance",
@@ -529,6 +516,33 @@ test(
       "--credential-ref",
       "credential:v1:squad-key",
     ]);
+    for (const id of ["fable", "terra", "luna"]) {
+      const source = path.join(parent, id);
+      writeIdentity(
+        source,
+        id,
+        id === "fable" ? "Fable" : id === "terra" ? "Terra" : "Luna",
+        "codex",
+        undefined,
+        "squad-api",
+      );
+      run(root, env, ["agent", "install", "--source", source]);
+    }
+    const squadSource = path.join(parent, "core-squad");
+    mkdirSync(squadSource, { recursive: true });
+    writeFileSync(
+      path.join(squadSource, "squad.json"),
+      JSON.stringify({
+        schema: "squad-declaration/v1",
+        id: "core-squad",
+        name: "Core Squad",
+        leader: "fable",
+        workers: ["terra", "luna"],
+        leaderTurnBudget: 8,
+        roster: "terra -> backend\nluna -> frontend\nsynthesis -> artifacts/reports/{squadRunId}.md",
+      }),
+    );
+    run(root, env, ["squad", "install", "--source", squadSource]);
     const apiTask = run(root, env, ["task", "create", "--id", "squad-api-task", "--admin", "--title", "Squad API run"]);
     const placeholderPlan = runMaybe(root, env, [
       "squad",

@@ -13,16 +13,7 @@ test("Delegated dispatches archive identity, mission and separate reports and re
   installIdentities(parent, root, env);
   const { taskId, executionId, packagePath, artifactRoot } = seedTask(root, env, "archive");
   run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
-  const first = run(root, env, [
-    "agent",
-    "run",
-    "terra",
-    "--prompt",
-    "first report",
-    "--task",
-    taskId,
-    "--no-stream",
-  ]);
+  const first = run(root, env, ["agent", "run", "terra", "--prompt", "first report", "--task", taskId, "--no-stream"]);
   const firstDispatchId = String((first.spawn as Record<string, unknown>).dispatchId);
   await readPublishedDispatch(path.join(artifactRoot, "dispatches", `${firstDispatchId}.json`));
   run(root, env, ["task", "start", taskId, "--execution-id", executionId]);

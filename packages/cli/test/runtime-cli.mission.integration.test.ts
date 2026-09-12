@@ -68,6 +68,10 @@ test("Named missions reject invalid inputs and task-derived missions carry dispa
     "--no-stream",
   ]);
   assert.equal(promptFile.status, 0, JSON.stringify(promptFile));
+  assert.match(
+    String((promptFile.receipt.result as Record<string, unknown>).text),
+    /# Assigned Mission\nexisting mission$/u,
+  );
   const promptFileDispatchId = String((promptFile.receipt.spawn as Record<string, unknown>).dispatchId);
   const reused = run(root, env, [
       "agent",
@@ -119,16 +123,7 @@ test("Named missions reject invalid inputs and task-derived missions carry dispa
   run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
   const taskPackage = path.join(realpathSync(root), "harness", packagePath),
     derivedMission = `Your task package is ${taskPackage}.\nRead task_plan.md in that package and complete the task.`,
-    derived = run(root, env, [
-      "agent",
-      "run",
-      "terra",
-      "--task",
-      taskId,
-      "--cwd",
-      ".",
-      "--no-stream",
-    ]),
+    derived = run(root, env, ["agent", "run", "terra", "--task", taskId, "--cwd", ".", "--no-stream"]),
     derivedText = String((derived.result as Record<string, unknown>).text);
   assert.match(
     derivedText,
