@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { ownDaemonFixture } from "./daemon-cleanup.fixture.ts";
 
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 
@@ -91,8 +92,10 @@ function cliEnv(root: string, userRoot: string, actor?: string): NodeJS.ProcessE
 
 function setup(): { parent: string; root: string; userRoot: string } {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-autostart-")),
-    root = setupRepository(parent, "repo"),
+    root = path.join(parent, "repo"),
     userRoot = path.join(parent, "user");
+  ownDaemonFixture({ parent, userRoot, daemonId: "default", env: cliEnv(root, userRoot) });
+  setupRepository(parent, "repo");
   return { parent, root, userRoot };
 }
 

@@ -30,38 +30,43 @@ export async function reproduceRegistrySqliteRestart(arm, options = {}) {
     createConvenienceLinks: false,
   });
   downgradeRegistryToV1(userRoot);
-  startDaemon(fixture);
-  await waitForAttached(fixture);
-  const taskReceipt = runCli(fixture, ["task", "create", "--title", `Daemon SQLite ${arm}`]),
-    taskId = String(taskReceipt.taskId),
-    factReceipt = runCli(fixture, [
-      "fact",
-      "record",
-      taskId,
-      "--statement",
-      `Daemon WAL ${arm} fact`,
-      "--source",
-      `test:registry-wal-${arm}`,
-      "--confidence",
-      "high",
-    ]),
-    before = observeBefore(fixture, taskReceipt, factReceipt);
-  assert.equal(taskReceipt.status, "accepted_durable", JSON.stringify(taskReceipt));
-  assert.equal(factReceipt.status, "accepted_durable", JSON.stringify(factReceipt));
-  assert.ok(before.canonicalEventHead >= 2, JSON.stringify(before));
-  if (arm === "graceful-stop") runCli(fixture, ["daemon", "stop"]);
-  else killDaemon(fixture);
-  await waitForStopped(fixture);
-  startDaemon(fixture);
-  await waitForAttached(fixture);
-  const task = runCli(fixture, ["task", "show", taskId]),
-    fact = runCli(fixture, ["fact", "show", "--id", String(factReceipt.factId)]),
-    after = observeAfter(fixture, taskId, String(factReceipt.factId), String(taskReceipt.packagePath), task, fact);
-  await waitForPublication(fixture, factReceipt.opId);
-  after.taskPackageExists = packageExists(fixture.rootDir, String(taskReceipt.packagePath));
-  runCli(fixture, ["daemon", "stop"]);
-  await waitForStopped(fixture);
-  return { arm, fixtureRoot, before, after };
+  try {
+    startDaemon(fixture);
+    await waitForAttached(fixture);
+    const taskReceipt = runCli(fixture, ["task", "create", "--title", `Daemon SQLite ${arm}`]),
+      taskId = String(taskReceipt.taskId),
+      factReceipt = runCli(fixture, [
+        "fact",
+        "record",
+        taskId,
+        "--statement",
+        `Daemon WAL ${arm} fact`,
+        "--source",
+        `test:registry-wal-${arm}`,
+        "--confidence",
+        "high",
+      ]),
+      before = observeBefore(fixture, taskReceipt, factReceipt);
+    assert.equal(taskReceipt.status, "accepted_durable", JSON.stringify(taskReceipt));
+    assert.equal(factReceipt.status, "accepted_durable", JSON.stringify(factReceipt));
+    assert.ok(before.canonicalEventHead >= 2, JSON.stringify(before));
+    if (arm === "graceful-stop") runCli(fixture, ["daemon", "stop"]);
+    else killDaemon(fixture);
+    await waitForStopped(fixture);
+    startDaemon(fixture);
+    await waitForAttached(fixture);
+    const task = runCli(fixture, ["task", "show", taskId]),
+      fact = runCli(fixture, ["fact", "show", "--id", String(factReceipt.factId)]),
+      after = observeAfter(fixture, taskId, String(factReceipt.factId), String(taskReceipt.packagePath), task, fact);
+    await waitForPublication(fixture, factReceipt.opId);
+    after.taskPackageExists = packageExists(fixture.rootDir, String(taskReceipt.packagePath));
+    return { arm, fixtureRoot, before, after };
+  } finally {
+    if (readDaemonPid(userRoot, daemonId) !== null) {
+      runCli(fixture, ["daemon", "stop"]);
+      await waitForStopped(fixture);
+    }
+  }
 }
 
 function observeBefore(fixture, taskReceipt, factReceipt) {
