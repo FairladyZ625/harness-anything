@@ -1,6 +1,7 @@
 import type { DaemonTaskCompletionResult } from "./protocol/daemon-protocol-gui-types.ts";
 import {
   assessTransitionDocument,
+  completionBlockers,
   requireTransitionDocumentKind,
   taskCompletionNext,
   type CompletionReadinessContext,
@@ -8,6 +9,20 @@ import {
   type TaskProjectionQueries,
 } from "../../kernel/src/index.ts";
 import { readTaskTransitionDocument } from "./transition-document-access.ts";
+
+/** Explicit --consent is recorded under every profile; the profile only decides whether absence blocks. */
+export function completionBlockersForAction(
+  snapshot: TaskLifecycleSnapshot,
+  executionId: string,
+  context: CompletionReadinessContext,
+  consent: unknown,
+): readonly ReturnType<typeof completionBlockers>[number][] {
+  return completionBlockers(snapshot, executionId, consent === true ? consentArmed(context) : context);
+}
+
+function consentArmed(context: CompletionReadinessContext): CompletionReadinessContext {
+  return { ...context, closeoutGates: { ...context.closeoutGates!, consent: true } };
+}
 
 /** Canonical completion inputs shared by command and GUI projection consumers. */
 export function readCompletionContext(

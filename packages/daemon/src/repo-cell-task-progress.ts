@@ -4,7 +4,6 @@ import {
   canStartExecution,
   assessTransitionDocument,
   compileTaskProgress,
-  completionBlockers,
   completionPreparationBlockers,
   approvedReviewsForExecution,
   reviewDigest,
@@ -41,7 +40,7 @@ import { runDocAction } from "./doc-sync-actions.ts";
 import { scanDocCandidates } from "./doc-sync-candidate-scanner.ts";
 import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 import { verifyCodeDocCommitPaths } from "./code-doc-path-verification.ts";
-import { readCompletionContext } from "./task-completion-read.ts";
+import { readCompletionContext, completionBlockersForAction } from "./task-completion-read.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 
 import { dispatchCompletionReview } from "./task-completion-review.ts";
@@ -408,13 +407,13 @@ export async function completeTask(
         cell.completeRetryCommand(taskId, executionId, action),
       );
     const completion = cell.completionContext(
-        taskId,
-        current.snapshot,
-        current.packagePath,
-        binding,
-        presetSnapshotDigest,
-      ),
-      blocker = completionBlockers(current.snapshot, executionId, completion)[0];
+      taskId,
+      current.snapshot,
+      current.packagePath,
+      binding,
+      presetSnapshotDigest,
+    );
+    const blocker = completionBlockersForAction(current.snapshot, executionId, completion, action.consent)[0];
     if (!blocker) {
       const retirement = factRetirementAssessment(cell, taskId, factRetirementAttestations);
       if (completion.closeoutGates?.factDisposition && !retirement.ready)

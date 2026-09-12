@@ -13,6 +13,7 @@ import type { NormalizedCommandEnvelope } from "./write-chain.contract.ts";
 import type { LeaseChangeReason, TaskEventV1 } from "./task-lifecycle-event.ts";
 import type { DomainStatus } from "./lifecycle-status.ts";
 import type { FactStillHoldsAttestation } from "./fact-retirement-readiness.ts";
+import type { CloseoutGate } from "./settings-closeout.ts";
 
 // Shared public contract shapes and internal transition protocol.
 export interface TaskLifecycleSnapshot {
@@ -188,6 +189,7 @@ export interface CompleteTaskProof {
   readonly capabilityRef: string;
   readonly actorRole: "owner" | "commander";
   readonly noActiveLease: true;
+  readonly closeoutGates: Readonly<Record<CloseoutGate, boolean>>;
   readonly gateReceipts: readonly {
     readonly gateId: string;
     readonly receiptRef: string;

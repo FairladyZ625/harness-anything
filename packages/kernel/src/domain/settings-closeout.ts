@@ -26,6 +26,14 @@ export function effectiveCloseoutGates(
   });
 }
 
+export function isValidCloseoutGateRecord(value: unknown): value is Readonly<Record<CloseoutGate, boolean>> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    closeoutOverrideKeys.every((key) => typeof (value as Record<CloseoutGate, unknown>)[key] === "boolean")
+  );
+}
+
 export function readCloseoutSettings(body: string): CloseoutSettingsV1 {
   const profile = settingBlockValue(body, "closeout", "profile");
   if (profile === undefined) return DEFAULT_CLOSEOUT_SETTINGS;

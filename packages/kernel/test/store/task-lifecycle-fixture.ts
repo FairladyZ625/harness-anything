@@ -138,6 +138,7 @@ export function lifecycleFixture(
     capabilityRef: "cap-complete",
     actorRole: "owner",
     noActiveLease: true,
+    closeoutGates: { review: true, consent: true, factDisposition: true, codeDoc: true },
     gateReceipts: [],
   });
   return { events, snapshot };

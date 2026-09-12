@@ -228,6 +228,7 @@ test("canonical checker receipt becomes a content-cut gate witness before Comple
         capabilityRef: "cap-complete",
         actorRole: "owner" as const,
         noActiveLease: true as const,
+        closeoutGates: { review: true, consent: true, factDisposition: true, codeDoc: true },
         gateReceipts: [
           {
             gateId: "ci",
@@ -312,8 +313,7 @@ test("transition service freezes targets and makes create/start idempotent by op
     assert.equal(eventReads, 1, "a first write reads once for idempotency and does not read back after append");
     assert.equal((await service.execute(create, createProof)).revision, 1);
     assert.equal(eventReads, 2, "an opId retry performs only its idempotency read");
-    assert.equal(Object.isFrozen(created.frozenPlan), true);
-    assert.equal(Object.isFrozen(created.frozenPlan.targets), true);
+    assert.deepEqual([Object.isFrozen(created.frozenPlan), Object.isFrozen(created.frozenPlan.targets)], [true, true]);
     await assert.rejects(
       service.execute({ ...create, title: "Different" }, createProof),
       TaskLifecycleOperationConflict,
@@ -344,8 +344,7 @@ test("transition service freezes targets and makes create/start idempotent by op
     );
 
     assert.equal(started.outcome, "applied");
-    assert.equal(started.snapshot.lease?.phase, "held");
-    assert.equal(started.snapshot.executions[0]?.state, "active");
+    assert.deepEqual([started.snapshot.lease?.phase, started.snapshot.executions[0]?.state], ["held", "active"]);
     assert.equal(JSON.stringify(eventStore.read().events).includes("credential"), false);
   } finally {
     projection?.close();
@@ -596,6 +595,7 @@ test("terminal lifecycle states clear a prior task pin", async () => {
         capabilityRef: "cap-complete-pin",
         actorRole: "owner",
         noActiveLease: true,
+        closeoutGates: { review: true, consent: true, factDisposition: true, codeDoc: true },
         gateReceipts: [],
       },
     );
