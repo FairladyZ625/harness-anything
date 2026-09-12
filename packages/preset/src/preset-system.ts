@@ -269,7 +269,6 @@ function taskPackageFields(
   | "registerModule"
   | "slug"
   | "surfaces"
-  | "fromLegacyId"
 > {
   const register =
     action.registerModule && typeof action.registerModule === "object" && !Array.isArray(action.registerModule)
@@ -296,7 +295,6 @@ function taskPackageFields(
       : {}),
     ...(optionalActionText(action.slug) ? { slug: optionalActionText(action.slug)! } : {}),
     ...(Array.isArray(action.surfaces) ? { surfaces: action.surfaces.map((value) => required(value, "surface")) } : {}),
-    ...(optionalActionText(action.fromLegacyId) ? { fromLegacyId: optionalActionText(action.fromLegacyId)! } : {}),
   };
 }
 function oneOf<const T extends readonly string[]>(value: unknown, allowed: T): T[number] | undefined {

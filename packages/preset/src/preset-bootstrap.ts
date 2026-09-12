@@ -48,7 +48,6 @@ export interface CompileTaskPackageInput extends PresetResolverOptions {
   readonly registerModule?: TaskModuleRegistration;
   readonly slug?: string;
   readonly surfaces?: readonly string[];
-  readonly fromLegacyId?: string;
 }
 export interface CompileTaskBootstrapInput extends CompileTaskPackageInput {
   readonly actor: ActorIdentity;
@@ -126,7 +125,7 @@ export function compileTaskPackage(input: CompileTaskPackageInput): CompiledTask
       moduleKey: input.moduleKey ?? input.registerModule?.key ?? null,
       slug,
       surfaces: [...(input.surfaces ?? [])],
-      fromLegacyId: input.fromLegacyId ?? null,
+      fromLegacyId: null,
     },
     prose = resolved.documents.map((document): CompiledTaskDocument => {
       const body = document.body.replaceAll("{{title}}", input.title);

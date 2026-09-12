@@ -14,14 +14,13 @@ export function parseTaskCreate(
   if (!f.ok) return rejected(f.code, f.nextAction, json);
   const title = f.one.get("--title"),
     id = f.one.get("--id"),
-    fromLegacy = f.one.get("--from-legacy"),
     modes = ["migration", "import", "admin"].filter((mode) => f.booleans.has(`--${mode}`)),
     structured = [f.one.get("--from-file"), f.one.get("--json-input")].filter(Boolean),
     moduleNames = ["--register-module", "--module-title", "--module-prefix", "--module-scope"],
     moduleFields = moduleNames.map((name) => f.one.get(name)),
     moduleCount = moduleFields.filter(Boolean).length;
   if (
-    (!title && !structured.length && !fromLegacy) ||
+    (!title && !structured.length) ||
     (id && modes.length !== 1) ||
     (!id && modes.length > 0) ||
     structured.length > 1 ||
@@ -31,7 +30,7 @@ export function parseTaskCreate(
     return rejectInput(
       inputs,
       route.id,
-      !title && !structured.length && !fromLegacy
+      !title && !structured.length
         ? "--title"
         : id || modes.length
           ? "--id"
