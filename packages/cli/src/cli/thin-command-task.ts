@@ -5,7 +5,7 @@ import { parseContractMigrate, parseTaskArchive, parseTaskDelete } from "./thin-
 import { parseCodeDoc, parseCodeDocRepoint, parseProgress } from "./thin-command-task-evidence.ts";
 import { parseAmend, parseSupersede } from "./thin-command-task-relations.ts";
 import { renderCliGuidance } from "./guidance-plane.ts";
-import type { ThinCLIInputDirectory, ThinParseResult } from "./thin-command-types.ts";
+import type { ThinCliInputDirectory, ThinParseResult } from "./thin-command-types.ts";
 
 export function parseTask(
   id: string,

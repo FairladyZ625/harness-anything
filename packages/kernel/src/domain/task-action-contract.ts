@@ -86,29 +86,16 @@ function input(
 
 const stringArrayValue = Object.freeze({ kind: "array" as const, items: Object.freeze({ kind: "string" as const }) });
 const submissionFields = Object.freeze(
-  SUBMISSION_V1_SCHEMA.required.map((name) => {
-    const item = {
+  SUBMISSION_V1_SCHEMA.required.map((name) =>
+    Object.freeze({
       field: name,
       type: (name === "completionClaim" || name === "commitSha" ? "string" : "string-array") as
         | "string"
         | "string-array",
       required: true,
       value: name === "completionClaim" || name === "commitSha" ? { kind: "string" as const } : stringArrayValue,
-    };
-    return Object.freeze(
-      name === "commitSha"
-        ? {
-            ...item,
-            regex: "^[0-9a-f]{40}$",
-            cli: Object.freeze({
-              name: "--commit",
-              kind: "single" as const,
-              error: Object.freeze({ code: "invalid_field" }),
-            }),
-          }
-        : item,
-    );
-  }),
+    }),
+  ),
 );
 const reviewFields = Object.freeze(
   REVIEW_V1_SCHEMA.inputRequired.map((name) =>

@@ -306,13 +306,7 @@ function renderIndex(event: TaskEventV1, snapshot: TaskLifecycleSnapshot, path: 
     metadata = task.metadata;
   let initial =
     base ??
-    [
-      "---\n",
-      `taskId: ${task.taskId}\n`,
-      `status: ${task.status}\n`,
-      "owner: machine\n---\n",
-      `# ${task.title}\n\n## Next\n\n${next}\n`,
-    ].join("");
+    `---\ntaskId: ${task.taskId}\nstatus: ${task.status}\nowner: machine\n---\n# ${task.title}\n\n## Next\n\n${next}\n`;
   if (metadata) {
     const body = (base?.replace(/^---\n[\s\S]*?\n---\n/u, "") ?? `# ${task.title}\n\n## Next\n\n${next}\n`).replace(
         /^# .*$/mu,
