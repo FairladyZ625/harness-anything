@@ -367,7 +367,7 @@ export async function openRepoWriterCell(
           );
         // Opening a reader generation is also a structural probe: a watermark can be current
         // while a persisted snapshot row is corrupt.
-        projection.list();
+        projection.readTaskIndex({ limit: 1 });
         state = "attached";
         lastError = null;
         causeClass = null;
@@ -386,7 +386,7 @@ export async function openRepoWriterCell(
           }
           recoveryUncertain = true;
         } else if (!adoptedIndeterminate) {
-          // The adopted candidate's post-catch-up structural probe (projection.list()) failed:
+          // The adopted candidate's post-catch-up structural probe failed:
           // a stronger signal than the plain indeterminate recovery.status above.
           recoveryUncertain = true;
         }

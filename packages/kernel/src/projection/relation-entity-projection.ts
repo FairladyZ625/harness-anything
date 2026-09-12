@@ -213,6 +213,24 @@ export function readRelationProjectionRows(
   );
 }
 
+export function readRelationProjectionRowsForTargets(
+  db: DatabaseSync,
+  targetRefs: readonly string[],
+): readonly VersionedRelationProjectionRow[] {
+  if (targetRefs.length === 0) return [];
+  return relationProjectionRowsAtCut(
+    db,
+    queryRows<{ readonly row_json: string }>(
+      db,
+      [
+        "SELECT row_json FROM relation_edge",
+        "WHERE target_ref IN (SELECT value FROM json_each(?)) ORDER BY target_ref, relation_id",
+      ].join(" "),
+      JSON.stringify(targetRefs),
+    ),
+  );
+}
+
 /** Projection rows for selected relation_edge `row_json` values, each judged fresh or stale at this cut. */
 export function relationProjectionRowsAtCut(
   db: DatabaseSync,

@@ -1,4 +1,5 @@
 import {
+  createEntityStore,
   parseAgentDeclarationV1,
   parseSquadDeclarationV1,
   type SquadDeclarationV1,
@@ -20,6 +21,7 @@ export function makeSquadActionRuntime(cell: RepoCellRuntimeContext): EntityActi
       const report = validateAgentEntityAction({
         rootDir: cell.rootDir,
         action,
+        entityStore: createEntityStore(cell.store),
         runtimeInstances: cell.input.runtimeInstances?.(),
       });
       return cell.readResult(opId, report as object, revision, null);
