@@ -5,6 +5,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { makeTaskEventReader, serializeCanonicalEvent } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
@@ -66,6 +67,93 @@ test("Decision outcomes reject self-judgment and accept an independent reviewer"
       independentAgent,
     );
     assert.equal(accepted.outcome, "applied", JSON.stringify(accepted));
+  } finally {
+    await cell.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("Human approval preserves the proposing executor and survives a cold read", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-decision-human-consent-"));
+  initRepo(rootDir);
+  const options = {
+    repoId: workspaceId("human-consent"),
+    rootDir: canonicalRoot(rootDir),
+    ownerId: "human-consent-test",
+  };
+  let cell = await openRepoCell(options);
+  const binding = withRoleBinding(proposer, "arbiter"),
+    consentAt = "2026-09-12T01:02:03.000Z";
+  const eventIds: string[] = [];
+  try {
+    for (const targetState of ["in_effect", "rejected"] as const) {
+      const proposal = await cell.run({ ...decisionProposal(), body: realizedDecisionBody(targetState) }, proposer),
+        decisionId = receiptJson(proposal).decisionId as string,
+        transition = {
+          kind: "decision-transition",
+          decisionId,
+          targetState,
+          judgmentOnlyRationale: "The principal explicitly approved this outcome in chat.",
+          fulfillments: [],
+          standingPolicy: false,
+        },
+        approval = { consentBy: proposer.actor.principal.personId, consentAt, consentChannel: "chat" };
+      const denied = await cell.run(transition, binding);
+      assert.equal(denied.code, "actor_unauthorized", JSON.stringify(denied));
+      for (const invalid of [
+        { ...approval, consentBy: "another-person" },
+        { ...approval, consentBy: proposer.actor.executor.id },
+        { ...approval, consentAt: "not-a-time" },
+        { ...approval, consentChannel: "email" },
+        { consentBy: approval.consentBy },
+      ]) {
+        const result = await cell.run({ ...transition, ...invalid }, binding);
+        assert.equal(result.outcome, "op_rejected", JSON.stringify(result));
+      }
+      const accepted = await cell.run({ ...transition, ...approval }, binding);
+      assert.equal(accepted.outcome, "applied", JSON.stringify(accepted));
+      eventIds.push(accepted.opId);
+      const event = makeTaskEventReader({ repoId: "human-consent", rootDir }).readEvent(accepted.opId);
+      assert.ok(
+        event?.schema === "decision-event/v1" &&
+          (event.type === "decision_accepted" || event.type === "decision_rejected"),
+      );
+      assert.deepEqual(event.actor, proposer.actor);
+      const consent = event.payload.judgmentConsent;
+      assert.deepEqual(
+        { approvedBy: consent.approvedBy, recordedBy: consent.recordedBy, at: consent.at, channel: consent.channel },
+        { approvedBy: approval.consentBy, recordedBy: proposer.actor.executor, at: consentAt, channel: "chat" },
+      );
+      assert.doesNotThrow(() => serializeCanonicalEvent(event));
+      for (const patch of [{ recordedBy: null }, { approvedBy: "another-person" }, { at: "bad" }, { channel: "email" }])
+        assert.throws(() =>
+          serializeCanonicalEvent({
+            ...event,
+            payload: { ...event.payload, judgmentConsent: { ...consent, ...patch } },
+          }),
+        );
+      const again = await cell.run({ ...transition, ...approval }, binding);
+      assert.equal(again.outcome, "applied", JSON.stringify(again));
+      assert.equal(again.opId, accepted.opId);
+      assert.equal(again.revision, accepted.revision);
+      const conflicting = await cell.run(
+        { ...transition, ...approval, targetState: targetState === "in_effect" ? "rejected" : "in_effect" },
+        binding,
+      );
+      assert.equal(conflicting.outcome, "op_rejected", JSON.stringify(conflicting));
+    }
+    await cell.close();
+    cell = await openRepoCell(options);
+    for (const opId of eventIds) {
+      const event = makeTaskEventReader({ repoId: "human-consent", rootDir }).readEvent(opId);
+      assert.ok(
+        event?.schema === "decision-event/v1" &&
+          (event.type === "decision_accepted" || event.type === "decision_rejected"),
+      );
+      assert.deepEqual(event.payload.judgmentConsent.recordedBy, proposer.actor.executor);
+      assert.equal(event.payload.judgmentConsent.at, consentAt);
+      assert.doesNotThrow(() => serializeCanonicalEvent(event));
+    }
   } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });

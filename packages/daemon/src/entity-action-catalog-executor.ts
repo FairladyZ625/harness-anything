@@ -432,14 +432,19 @@ export function makeEntityActionCatalogExecutor(input: {
         ...(currentEntity === undefined ? {} : { currentEntity }),
         ...(coverage ? { coverage } : {}),
       });
-    return compileDraft(input.projection, draft, {
-      eventId: `event-${createHash("sha256").update(opId).digest("hex")}`,
-      opId,
-      workspaceRevision,
-      actor: binding.actor,
-      source: binding.source,
-      occurredAt,
-    });
+    return compileDraft(
+      input.projection,
+      draft,
+      {
+        eventId: `event-${createHash("sha256").update(opId).digest("hex")}`,
+        opId,
+        workspaceRevision,
+        actor: binding.actor,
+        source: binding.source,
+        occurredAt,
+      },
+      decisionApproval(action, binding),
+    );
   };
 
   return Object.freeze({ run });
@@ -543,6 +548,7 @@ function compileDraft(
   projection: TaskProjection,
   draft: EntityActionDraft,
   event: Omit<Parameters<typeof compileEntityUpsert>[0], "entityKind" | "entity">,
+  approval?: Parameters<typeof compileDecisionWrite>[0]["approval"],
 ): CatalogBundle {
   if (draft.kind === "fact") return compileFactWrite({ event: draft.event });
   if (draft.kind === "entity")
@@ -583,6 +589,7 @@ function compileDraft(
     }));
   return compileDecisionWrite({
     event: draft.event,
+    ...(approval ? { approval } : {}),
     currentDecision: read.decision,
     currentRelations: relations,
     currentDocument: document.document,
@@ -686,9 +693,44 @@ function decisionAuthorization(
   if (!judgment) return authorizationDecision;
   const decisionId = requiredCommandText(action.decisionId, "decisionId"),
     proposalActor = input.projection.readDecision(decisionId).decision?.proposer ?? null;
-  if (proposalActor !== null && proposalActor.executor !== null && isSameExecution(proposalActor, binding.actor))
-    reject("actor_unauthorized", "An agent cannot judge its own Decision proposal; use an independent reviewer.");
+  const approval = decisionApproval(action, binding);
+  if (
+    !approval &&
+    proposalActor !== null &&
+    proposalActor.executor !== null &&
+    isSameExecution(proposalActor, binding.actor)
+  )
+    reject(
+      "actor_unauthorized",
+      "An agent cannot judge its own Decision proposal; use an independent reviewer " +
+        "or record explicit human approval with decision transition " +
+        "--consent-by, --consent-at, and --consent-channel.",
+    );
   return authorizationDecision;
+}
+
+function decisionApproval(
+  action: Readonly<Record<string, unknown>>,
+  binding: RepoCellBinding,
+): Parameters<typeof compileDecisionWrite>[0]["approval"] {
+  if ([action.consentBy, action.consentAt, action.consentChannel].every((value) => value === undefined))
+    return undefined;
+  if (action.kind !== "decision-transition" || !["in_effect", "rejected"].includes(String(action.targetState)))
+    reject("invalid_command", "Human consent is only valid for in_effect or rejected transitions.");
+  if (action.consentBy !== binding.actor.principal.personId)
+    reject("actor_unauthorized", "Human consent must name the authenticated principal person.");
+  if (
+    typeof action.consentAt !== "string" ||
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/u.test(action.consentAt) ||
+    !Number.isFinite(Date.parse(action.consentAt)) ||
+    !["chat", "cli", "gui"].includes(String(action.consentChannel))
+  )
+    reject("invalid_command", "Human consent requires an ISO UTC consentAt and a chat, cli, or gui consentChannel.");
+  return {
+    approvedBy: binding.actor.principal.personId,
+    at: action.consentAt,
+    channel: action.consentChannel as "chat" | "cli" | "gui",
+  };
 }
 
 function factReceipt(

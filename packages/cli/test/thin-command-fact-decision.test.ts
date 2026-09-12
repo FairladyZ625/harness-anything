@@ -513,3 +513,25 @@ test("Decision F06 and distill leaf commands preserve their complete structured 
   assert.equal(parseThinCommand(["decision", "transition", "retired", "dec_1", "--standing-policy"]).ok, false);
   assert.equal(parseThinCommand(["decision", "amend", "dec_1"]).ok, false);
 });
+
+test("Decision human consent has one explicit, complete transition input", () => {
+  const base = ["decision", "transition", "in_effect", "dec_TEST"],
+    approval = ["--consent-by", "person-test", "--consent-at", "2026-09-12T01:02:03Z", "--consent-channel", "chat"],
+    parsed = parseThinCommand([...base, ...approval]);
+  assert.equal(parsed.ok, true);
+  if (parsed.ok)
+    assert.deepEqual(
+      {
+        consentBy: parsed.command.action.consentBy,
+        consentAt: parsed.command.action.consentAt,
+        consentChannel: parsed.command.action.consentChannel,
+      },
+      { consentBy: "person-test", consentAt: "2026-09-12T01:02:03Z", consentChannel: "chat" },
+    );
+  for (const args of [
+    [...base, "--consent-by", "person-test"],
+    [...base, ...approval.slice(0, -1), "email"],
+    ["decision", "transition", "deferred", "dec_TEST", ...approval],
+  ])
+    assert.equal(parseThinCommand(args).ok, false, JSON.stringify(args));
+});

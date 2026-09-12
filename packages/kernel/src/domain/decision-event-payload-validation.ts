@@ -221,9 +221,10 @@ export function judgmentConsent(
 ): value is DecisionJudgmentConsentV1 {
   if (
     !isRecord(value) ||
-    !matchesFields(
+    !requiredWithOptional(
       value,
       ["schema", "consentId", "decisionId", "action", "targetState", "machineDigest", "actor", "source", "consentedAt"],
+      ["approvedBy", "recordedBy", "at", "channel"],
       allowUnknownFields,
     )
   )
@@ -241,7 +242,17 @@ export function judgmentConsent(
     sameActorIdentity(value.actor, event.actor) &&
     validateWriteSource(value.source, allowUnknownFields).length === 0 &&
     sameWriteSource(value.source, event.source) &&
-    value.consentedAt === event.occurredAt
+    value.consentedAt === event.occurredAt &&
+    (value.approvedBy === undefined
+      ? [value.recordedBy, value.at, value.channel].every((field) => field === undefined)
+      : isRecord(event.actor) &&
+        isRecord(event.actor.principal) &&
+        value.approvedBy === event.actor.principal.personId &&
+        validateActorIdentity({ principal: event.actor.principal, executor: value.recordedBy }, allowUnknownFields)
+          .length === 0 &&
+        sameActorIdentity({ principal: event.actor.principal, executor: value.recordedBy }, event.actor) &&
+        timestamp(value.at) &&
+        ["chat", "cli", "gui"].includes(String(value.channel)))
   );
 }
 

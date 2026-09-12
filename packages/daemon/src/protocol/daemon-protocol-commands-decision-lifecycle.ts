@@ -125,6 +125,26 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
     summary: "Canonical lifecycle transition; terminal states cannot transition again.",
     method: "repo.task.run",
     inputs: [
+      cliInput(
+        "--consent-by",
+        "single",
+        false,
+        { code: "invalid_field" },
+        {
+          requires: ["--consent-at", "--consent-channel"],
+        },
+      ),
+      cliInput("--consent-at", "single", false, { code: "invalid_field" }, { requires: ["--consent-by"] }),
+      cliInput(
+        "--consent-channel",
+        "single",
+        false,
+        { code: "invalid_field" },
+        {
+          requires: ["--consent-by"],
+          regex: "^(chat|cli|gui)$",
+        },
+      ),
       cliInput("--decided-at", "single", false, {
         code: "invalid_field",
       }),
