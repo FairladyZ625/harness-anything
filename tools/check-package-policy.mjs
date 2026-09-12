@@ -11,6 +11,29 @@ const expectedPackages = new Map([
   ["packages/adapters/local/package.json", "@harness-anything/adapter-local"],
   ["packages/adapters/multica/package.json", "@harness-anything/adapter-multica"],
 ]);
+const publicReadyPackages = new Map([
+  [
+    "packages/cli/package.json",
+    {
+      version: "0.0.1",
+      repositoryDirectory: "packages/cli",
+      bins: new Map([
+        ["harness-anything", "dist/cli/src/index.js"],
+        ["ha", "dist/cli/src/index.js"],
+      ]),
+      required: true,
+    },
+  ],
+  [
+    "packages/daemon/package.json",
+    {
+      version: "0.0.1",
+      repositoryDirectory: "packages/daemon",
+      bins: new Map([["harness-anything-daemon", "dist/index.js"]]),
+      required: false,
+    },
+  ],
+]);
 
 const violations = [];
 
@@ -37,19 +60,21 @@ for (const [relativePath, expectedName] of expectedPackages.entries()) {
   const packageJson = readJson(relativePath);
   if (packageJson.name !== expectedName)
     record(`${relativePath} expected name ${expectedName}, got ${packageJson.name}`);
-  if (relativePath === "packages/cli/package.json") {
-    if (packageJson.private === true)
-      record(`${relativePath} must be public-ready for the CLI-only npm publish dry-run preflight`);
-    if (packageJson.version !== "0.0.1")
-      record(`${relativePath} must use version 0.0.1 for the npm publish dry-run preflight`);
+  const publicContract = publicReadyPackages.get(relativePath);
+  if (publicContract && (publicContract.required || packageJson.private !== true)) {
+    if (packageJson.private === true) record(`${relativePath} must be public-ready for npm publish dry-run preflight`);
+    if (packageJson.version !== publicContract.version)
+      record(`${relativePath} must use version ${publicContract.version} for npm publish dry-run preflight`);
     if (packageJson.publishConfig?.access !== "public")
-      record(`${relativePath} must define publishConfig.access public for the scoped CLI package`);
-    if (packageJson.repository?.directory !== "packages/cli")
-      record(`${relativePath} must declare repository.directory packages/cli`);
+      record(`${relativePath} must define publishConfig.access public for the scoped npm package`);
+    if (packageJson.repository?.directory !== publicContract.repositoryDirectory)
+      record(`${relativePath} must declare repository.directory ${publicContract.repositoryDirectory}`);
     if (packageJson.engines?.node !== ">=24") record(`${relativePath} must declare Node >=24 runtime support`);
+    for (const [name, target] of publicContract.bins)
+      if (packageJson.bin?.[name] !== target) record(`${relativePath} must declare bin ${name} as ${target}`);
   } else {
     if (packageJson.private !== true)
-      record(`${relativePath} must stay private until npm ownership is explicitly confirmed`);
+      record(`${relativePath} is not in the approved npm publish set and must stay private`);
     const expectedVersion = relativePath === "packages/gui/package.json" ? "0.0.1" : "0.0.0";
     if (packageJson.version !== expectedVersion) record(`${relativePath} must use version ${expectedVersion}`);
     if (packageJson.publishConfig)

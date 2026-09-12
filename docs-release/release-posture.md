@@ -140,27 +140,48 @@ This proves the renderer bundle compiles. The release build additionally runs
 
 ### GUI distribution and update boundary
 
-Harness Anything GUI 0.0.1 retains a manual, unsigned macOS arm64 packaging
-candidate, but `ha gui` from the source installation is the only supported
-launch entry. Direct DMG application launch, signing, notarization, other
-operating systems, and update feeds are future release tasks. Auto-update
-requires a later implementation packet with signing, an update feed, rollback,
-and security tests.
+The GUI is an Electron installer product, not a public npm startup package.
+`@harness-anything/gui` remains a private build workspace; its distributable
+artifacts are platform installers produced by electron-builder. Harness Anything
+GUI 0.0.1 retains a manual, unsigned macOS arm64 packaging candidate, but `ha
+gui` from the source installation is the only supported launch entry. Direct
+DMG application launch, signing, notarization, other operating systems, and
+update feeds are future release tasks. Auto-update requires a later
+implementation packet with signing, an update feed, rollback, and security
+tests.
 
 ### Runtime release boundary
 
 Current release boundaries are intentionally conservative:
 
-- The root product, GUI, and publishable `@harness-anything/cli` use version
-  `0.0.1`; the CLI is limited to npm publish dry-run in this task.
-- Internal workspace packages remain private and at version `0.0.0`.
+- The approved public npm set is `@harness-anything/cli` and
+  `@harness-anything/daemon`, both under the `@harness-anything` organization
+  owned by `lizeyu990625`. The daemon package is not public-ready until its
+  independent executable and package metadata land.
+- `@harness-anything/daemon` owns the resident server, service process, runtime
+  worker host, and the `harness-anything-daemon` bin. The CLI owns the `ha daemon
+  start --service` control UX and autostart orchestration, which must resolve and
+  spawn that installed daemon executable instead of hosting the daemon itself.
+- The root product, CLI, daemon release candidate, and Electron GUI use one
+  lockstep version. The current candidate is `0.0.1`; internal workspace
+  libraries remain private at `0.0.0`.
+- `@harness-anything/gui`, kernel, application, and adapter workspaces are not in
+  the approved npm publish set and remain private.
+- Every client must complete `protocol.hello` with the daemon's exact protocol
+  major and minor version before any other command. A mismatched edge CLI or GUI
+  is rejected with `incompatible_protocol_version`; an edge must not replace or
+  autostart over the center daemon to resolve a mismatch.
 - No real npm package release is claimed.
 - signed installers, notarized builds, auto-update, release feeds, and published
   artifacts are not shipped.
-- Desktop and daemon distribution policy is governed by this page.
 
 Future release tasks must extend the executable runtime/release readiness
-contract instead of relying on prose-only release notes.
+contract instead of relying on prose-only release notes. Before any real
+publication they must make the selected package public-ready, run package policy,
+runtime readiness, supply-chain checks, and package-specific pack/install smoke,
+then attach successful `npm publish --dry-run` evidence. Electron releases also
+require clean-install artifact validation plus the signing, notarization, and
+update requirements above.
 
 ## Supply chain and license gate
 
@@ -193,14 +214,16 @@ components.
 
 ### npm publish dry-run
 
-The only npm publish preflight command allowed in this phase is:
+The allowed npm publish preflight commands are:
 
 ```bash
 npm publish --dry-run --workspace @harness-anything/cli --access public
+npm publish --dry-run --workspace @harness-anything/daemon --access public
 ```
 
-This command is dry-run only. It may build and inspect the CLI package artifact,
-but it must not be replaced by a real `npm publish` command in this task phase.
+The daemon command becomes runnable only after its independent bin and public
+package metadata land. These commands are dry-run only; neither may be replaced
+by a real `npm publish` command in this task phase.
 
 ### OSV readiness
 
