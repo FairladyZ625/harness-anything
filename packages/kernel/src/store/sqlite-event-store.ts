@@ -395,6 +395,11 @@ export function openSqliteEventStore(options: {
       .get()!.version,
   );
 
+  const insertEvent = /* @gate-identity check-bypass-write-boundary/bypass-write-120 */ db.prepare(
+    "INSERT INTO event(revision, op_id, event_json, digest, occurred_at, recorded_at) " +
+      "VALUES (?, ?, ?, ?, ?, COALESCE(?, strftime('%Y-%m-%dT%H:%M:%fZ','now')))",
+  );
+
   const transaction = <A>(run: () => A): A => {
     /* @gate-identity check-bypass-write-boundary/bypass-write-125 */ db.exec("BEGIN IMMEDIATE");
     try {
@@ -489,10 +494,7 @@ export function openSqliteEventStore(options: {
           );
         const eventJson = serializePersistedCanonicalEvent(event),
           digest = `sha256:${sha256Text(eventJson)}`;
-        /* @gate-identity check-bypass-write-boundary/bypass-write-120 */ db.prepare(
-          "INSERT INTO event(revision, op_id, event_json, digest, occurred_at, recorded_at) " +
-            "VALUES (?, ?, ?, ?, ?, COALESCE(?, strftime('%Y-%m-%dT%H:%M:%fZ','now')))",
-        ).run(
+        insertEvent.run(
           revision,
           event.opId,
           eventJson,
