@@ -7,8 +7,7 @@ import { entityKindAxisVar } from "../graph/kindVisuals.ts";
  *
  * 纯前端派生:从 tasks/decisions/facts 建索引,typeahead 过滤,Enter 跳转。
  * 不消费任何写 IPC;只触发导航(onSelect ref)。
- * 完整渲染匹配结果,不分批(2026-08-25 泽宇裁决:性能顾虑用按需渲染解决,不转嫁给用户
- * 点击):每条带 content-visibility:auto,离屏条目的布局与绘制由渲染器跳过。
+ * 渲染已加载页的匹配结果;事实仍有后续页时显示搜索范围与续页入口。
  */
 export interface PaletteEntry {
   ref: string;
@@ -56,7 +55,15 @@ export function CommandPalette({
   entries,
   onSelect,
   onClose,
+  factsIncomplete,
+  factsLoading,
+  factsError,
+  onLoadFacts,
 }: {
+  factsIncomplete?: boolean;
+  factsLoading?: boolean;
+  factsError?: boolean;
+  onLoadFacts?: () => void;
   open: boolean;
   entries: ReadonlyArray<PaletteEntry>;
   onSelect: (ref: string) => void;
@@ -163,6 +170,14 @@ export function CommandPalette({
               </button>
             ))
           )}
+        </div>
+        <div role="status">
+          {factsError ? "事实读取失败。" : factsLoading ? "正在加载事实…" : null}
+          {factsIncomplete ? (
+            <button disabled={factsLoading} onClick={onLoadFacts}>
+              搜索仅含已加载事实，加载更多事实
+            </button>
+          ) : null}
         </div>
       </div>
     </div>

@@ -39,6 +39,7 @@ export interface TaskProjectionListQuery {
   readonly activePackagesOnly?: boolean;
 }
 export interface TaskRelationQuery {
+  readonly direction?: EntityRelationRecord["direction"];
   readonly entity?: string;
   readonly source?: string;
   readonly target?: string;
@@ -715,6 +716,10 @@ export function readTaskRelationPage(
   if (query.state !== undefined) {
     where.push(`${residual}state = ?`);
     values.push(query.state);
+  }
+  if (query.direction !== undefined) {
+    where.push("direction = ?");
+    values.push(query.direction);
   }
   if (query.ownerRef !== undefined) {
     where.push("owner_ref = ?");

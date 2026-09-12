@@ -270,7 +270,7 @@ export const daemonTaskQueryPayloadShape = shape({
 export const daemonRelationQueryPayloadShape = shape({
   entity: "string?",
   hops: "json?",
-  facet: optionalEnum(["edges", "facts", "coverageRows", "factAnchors", "runtimeEdges"]),
+  facet: optionalEnum(["edges", "facts", "coverageRows", "runtimeEdges"]),
   relationType: "string?",
   state: "string?",
   direction: optionalEnum(["directed", "undirected"]),

@@ -97,12 +97,16 @@ export interface RelationPageQuery {
 }
 /** `repo.triadic.relationGraph` facet read: one row array, every other array empty. */
 export interface RelationEdgeFacetQuery {
+  readonly limit?: number;
+  readonly cursor?: string;
   readonly facet: "edges";
   readonly relationType?: string;
   readonly state?: RelationState;
   readonly direction?: RelationDirection;
 }
 export interface RelationFactFacetQuery {
+  readonly limit?: number;
+  readonly cursor?: string;
   readonly facet: "facts";
 }
 /** `repo.triadic.relationGraph {facet:"runtimeEdges"}`:运行时平面(agent→task)派发边。 */
@@ -149,6 +153,7 @@ export interface RelationFactSummaryRow {
   readonly taskId?: string;
 }
 export interface RelationFactFacetSuccess {
+  readonly page: QueryPage;
   readonly ok: true;
   readonly facet: "facts";
   readonly facts: ReadonlyArray<RelationFactSummaryRow>;
@@ -834,6 +839,7 @@ function readRelationFactFacetResult(value: unknown): RelationFactFacetSuccess {
     result.facet !== "facts" ||
     !Array.isArray(result.facts) ||
     !result.facts.every(isRelationFactSummaryRow) ||
+    !isQueryPage(result.page) ||
     !Array.isArray(result.domainTypes) ||
     !result.domainTypes.every(isFactDomainTypeSummaryRow)
   ) {
@@ -842,6 +848,7 @@ function readRelationFactFacetResult(value: unknown): RelationFactFacetSuccess {
   return {
     ok: true,
     facet: "facts",
+    page: result.page,
     facts: result.facts,
     domainTypes: result.domainTypes,
     warnings: Array.isArray(result.warnings) ? result.warnings : [],

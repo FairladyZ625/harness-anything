@@ -178,16 +178,17 @@ test("relation graph contract accepts the materialized ledger row schema and rej
   assertValidationDiagnostic(validateDaemonRelationGraph({ ...payload, facts: [{ ...payload.facts[0], invalidated: "superseded_fact" }] }), /F-REAL/u, "facts[0]");
   const empty = { edges: [], coverageRows: [], factAnchors: [], facts: [] };
   const facets = [
-    { ok: true, ...cut, facet: "edges", ...empty, edges: payload.edges, warnings: [] },
-    { ok: true, ...cut, facet: "facts", ...empty, facts: [{ anchor: "fact/F-REAL", text: "Real observation.", category: "lesson", taskId: "task_REAL" }], warnings: [] },
+    { ok: true, ...cut, facet: "edges", page: { limit: 500, cursor: null, nextCursor: null }, ...empty, edges: payload.edges, warnings: [] },
+    { ok: true, ...cut, facet: "facts", page: { limit: 500, cursor: null, nextCursor: null }, ...empty, facts: [{ anchor: "fact/F-REAL", text: "Real observation.", category: "lesson", taskId: "task_REAL" }], warnings: [] },
     { ok: true, ...cut, facet: "coverageRows", ...empty, coverageRows: payload.coverageRows, warnings: [] },
-    { ok: true, ...cut, facet: "factAnchors", ...empty, factAnchors: payload.factAnchors, warnings: [] },
   ];
   for (const facet of facets) assert.deepEqual(validateDaemonRelationGraph(facet), [], String(facet.facet));
+  assert.ok(validateDaemonRelationGraph({ ...facets[0], page: undefined }).length > 0);
+  assert.ok(validateDaemonRelationGraph({ ...facets[1], page: { limit: 0, cursor: null, nextCursor: null } }).length > 0);
   // Every facet echoes the fact-type vocabulary (empty outside `facts`); it is declared, not required.
   for (const facet of facets) assert.deepEqual(validateDaemonRelationGraph({ ...facet, domainTypes: [] }), [], `${facet.facet}+domainTypes`);
   assert.deepEqual(validateDaemonRelationGraph({ ...payload, domainTypes: ["lesson"] }), []);
-  assertValidationDiagnostic(validateDaemonRelationGraph({ ...facets[0], facet: "unknown" }), /relation-graph:unknown/u, "facet");
+  assertValidationDiagnostic(validateDaemonRelationGraph({ ...facets[2], facet: "unknown" }), /relation-graph:unknown/u, "facet");
   assertValidationDiagnostic(validateDaemonRelationGraph({ ...facets[1], extra: true }), /relation-graph:facts/u, "extra");
   assertValidationDiagnostic(validateDaemonRelationGraph({ ...facets[2], facts: facets[1]!.facts }), /relation-graph:coverageRows/u, "facts");
   assertValidationDiagnostic(validateDaemonRelationGraph({ ...facets[1], facts: [{ ...facets[1]!.facts[0], category: "semantic" }] }), /F-REAL/u, "facts[0]");
@@ -210,8 +211,15 @@ test("wide GUI read contracts accept only their explicit narrow and page facets"
   assert.equal(graph({ updatedAfter: "later", updatedBefore: "earlier" }).ok, false);
   assert.equal(task({ unexpected: true }).ok, false);
   assert.equal(graph({ facet: "edges", relationType: "derives", state: "active", direction: "directed" }).ok, true);
-  for (const facet of ["facts", "coverageRows", "factAnchors"]) assert.equal(graph({ facet }).ok, true, facet);
+  for (const facet of ["facts", "coverageRows"]) assert.equal(graph({ facet }).ok, true, facet);
   assert.equal(graph({ facet: "unknown" }).ok, false);
+  assert.equal(graph({ facet: "factAnchors" }).ok, false);
+  for (const facet of ["edges", "facts"]) {
+    assert.equal(graph({ facet, limit: 500, cursor: "next" }).ok, true);
+    for (const limit of [0, 501, 1.5, "5"]) assert.equal(graph({ facet, limit }).ok, false);
+    assert.equal(graph({ facet, cursor: "" }).ok, false);
+  }
+  assert.equal(graph({ facet: "coverageRows", limit: 5 }).ok, false);
   assert.equal(graph({ facet: "facts", relationType: "derives" }).ok, false);
   assert.equal(graph({ relationType: "derives" }).ok, false);
   assert.equal(decisions({ projection: "summary" }).ok, true);

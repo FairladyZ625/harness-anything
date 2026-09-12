@@ -96,28 +96,33 @@ export function makeTaskQueryReadModel(input: {
     }
     if (query.facet === "edges") {
       const read = projection.readRelationQuery({
+          ...(query.direction === undefined ? {} : { direction: query.direction }),
+          limit: query.limit ?? 500,
+          ...(query.cursor === undefined ? {} : { cursor: query.cursor }),
           ...(query.relationType === undefined ? {} : { relationType: query.relationType }),
           ...(query.state === undefined ? {} : { state: query.state }),
         }),
-        edges =
-          query.direction === undefined
-            ? read.rows.map(withRelationCurrent)
-            : read.rows.filter(({ direction }) => direction === query.direction).map(withRelationCurrent);
+        edges = read.rows.map(withRelationCurrent);
       return {
         ok: true,
         facet: "edges",
         ...emptyRows,
         edges,
+        page: read.page!,
         warnings: relationFacetWarnings(read.status),
         ...projectionCut(read),
       };
     }
     if (query.facet === "facts") {
-      const read = projection.searchFacts({}),
+      const read = projection.searchFacts({
+          limit: query.limit ?? 500,
+          ...(query.cursor === undefined ? {} : { cursor: query.cursor }),
+        }),
         domainTypes = projection.listFactDomainTypes();
       return {
         ok: true,
         facet: "facts",
+        page: read.page!,
         ...emptyRows,
         facts: read.facts.map((row) => ({
           anchor: row.ref,
@@ -132,17 +137,6 @@ export function makeTaskQueryReadModel(input: {
         })),
         domainTypes: domainTypes.domainTypes,
         warnings: relationFacetWarnings(read.status === "ready" ? domainTypes.status : read.status),
-        ...projectionCut(read),
-      };
-    }
-    if (query.facet === "factAnchors") {
-      const read = projection.readFactAnchors();
-      return {
-        ok: true,
-        facet: "factAnchors",
-        ...emptyRows,
-        factAnchors: read.rows,
-        warnings: relationFacetWarnings(read.status),
         ...projectionCut(read),
       };
     }

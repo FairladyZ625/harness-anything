@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import type { DecisionProjectionRow, RelationCoverageRow, ServedRelationEdgeRow } from "../api/renderer-dto.ts";
 import { harnessClient } from "./api-client.ts";
 import type { DecisionListSuccess, RelationFactSummaryRow, RelationGraphSuccess } from "./api-client.ts";
@@ -33,42 +33,36 @@ export const triadicQueryKeys = {
   decisionSummary: (repoId: string) => ["triadic", repoId, "decisions", "summary"] as const,
 };
 
-export interface RelationReadState {
-  readonly relations: RelationEdge[];
-  readonly relationState: "ready" | "loading" | "error";
-  readonly relationWarnings: ReadonlyArray<{
-    readonly severity?: string;
-    readonly code?: string;
-    readonly message?: string;
-  }>;
-}
-
-function relationReadState(
-  query: { readonly data?: RelationGraphSuccess; readonly isPending: boolean; readonly isError: boolean },
-  enabled: boolean,
-): RelationReadState {
-  return {
-    relations: adaptRelationRows(query.data?.edges ?? []),
-    relationState: query.isError ? "error" : enabled && query.isPending ? "loading" : "ready",
-    relationWarnings: query.data?.warnings ?? [],
-  };
-}
-
 /**
  * 预览抽屉 / 任务详情 / 会话页自己的读面:全部 active 边(含 task↔task 与
  * decision↔decision 的 `relates`/`supersedes`/`depends-on`)。这些界面渲染的是边本身,
- * 不是完整投影,所以读边切面(~2.8 MB)而不是 4.96 MB 的完整图。`enabled` 由挂载方
- * 决定;完整图已在缓存里时调用方应传 `false`,避免同一批边读两遍。
+ * 不是完整投影,所以按页读边切面。`enabled` 由挂载方决定;
+ * 完整图已在缓存里时调用方应传 `false`,避免同一批边读两遍。
  */
-export function useActiveEdgesQuery(repoId: string | null, enabled: boolean): RelationReadState {
-  const query = useQuery({
+export function useActiveEdgesQuery(repoId: string | null, enabled: boolean) {
+  const query = useInfiniteQuery({
     queryKey: triadicQueryKeys.activeEdges(repoId ?? "unselected"),
-    queryFn: () => harnessClient.getRelationGraph({ repoId: repoId!, facet: "edges", state: "active" }),
+    initialPageParam: undefined as string | undefined,
+    queryFn: ({ pageParam }) =>
+      harnessClient.getRelationGraph({
+        repoId: repoId!,
+        facet: "edges",
+        state: "active",
+        limit: 500,
+        ...(pageParam === undefined ? {} : { cursor: pageParam }),
+      }),
+    getNextPageParam: (last) => last.page!.nextCursor ?? undefined,
     enabled: repoId !== null && enabled,
     staleTime: 10_000,
   });
   const active = repoId !== null && enabled;
-  return useMemo(() => relationReadState(query, active), [query.data, query.isPending, query.isError, active]);
+  return {
+    relations: useMemo(() => adaptRelationRows(query.data?.pages.flatMap((page) => page.edges) ?? []), [query.data]),
+    relationState: query.isError ? "error" : active && query.isPending ? "loading" : "ready",
+    hasNextPage: query.hasNextPage,
+    isFetching: query.isFetching,
+    fetchNextPage: query.fetchNextPage,
+  };
 }
 
 /** 根级常驻读面:决策摘要投影(decisionId/title/state/appliesTo),157,246 B 量级。 */
@@ -88,18 +82,35 @@ export function useDecisionSummaryQuery(repoId: string | null, options: { readon
 }
 
 /**
- * ⌘K 面板自己的读面:事实切面(989,858 B 量级)。面板没打开就不读——这不是缓存或
- * 降频,是"没有挂载的视图就不请求"。
+ * ⌘K 面板打开时读取首个事实页;后续页由面板显式加载。
  */
 export function usePaletteFactsQuery(repoId: string | null, enabled: boolean) {
-  const query = useQuery({
+  const query = useInfiniteQuery({
     queryKey: triadicQueryKeys.facts(repoId ?? "unselected"),
-    queryFn: () => harnessClient.getRelationFacts({ repoId: repoId!, facet: "facts" }),
+    initialPageParam: undefined as string | undefined,
+    queryFn: ({ pageParam }) =>
+      harnessClient.getRelationFacts({
+        repoId: repoId!,
+        facet: "facts",
+        limit: 500,
+        ...(pageParam === undefined ? {} : { cursor: pageParam }),
+      }),
+    getNextPageParam: (last) => last.page.nextCursor ?? undefined,
     enabled: repoId !== null && enabled,
     staleTime: 10_000,
   });
-  const facts = useMemo<ReadonlyArray<RelationFactSummaryRow>>(() => query.data?.facts ?? [], [query.data]);
-  return { facts, isPending: repoId !== null && enabled && query.isPending, isError: query.isError };
+  const facts = useMemo<ReadonlyArray<RelationFactSummaryRow>>(
+    () => query.data?.pages.flatMap((page) => page.facts) ?? [],
+    [query.data],
+  );
+  return {
+    facts,
+    isPending: repoId !== null && enabled && query.isPending,
+    isError: query.isError,
+    hasNextPage: query.hasNextPage,
+    isFetching: query.isFetching,
+    fetchNextPage: query.fetchNextPage,
+  };
 }
 
 /**
@@ -212,7 +223,7 @@ export function useTriadicProjectionQuery(
   const isLoading = (graphEnabled && graph.isLoading) || (decisionsEnabled && decisions.isLoading);
   const isError = (graphEnabled && graph.isError) || (decisionsEnabled && decisions.isError);
   /** 缓存里是否已有完整图(含之前挂载时读到的):有就不再读边切面。 */
-  const graphAvailable = graph.data !== undefined;
+  const graphAvailable = graph.data !== undefined && graph.data.page?.nextCursor == null;
   /** 挂载方需要它而它还没到位(禁用且无缓存时为 false,不冒充加载态)。 */
   const isPending = (graphEnabled && graph.isPending) || (decisionsEnabled && decisions.isPending);
 

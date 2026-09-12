@@ -197,14 +197,17 @@ export function validateDaemonQueryPayload(
 
 function validateRelationFacetPayload(value: JsonObject): string[] {
   const facet = value.facet,
-    edgeFields = ["facet", "relationType", "state", "direction"],
-    allowed = facet === "edges" ? edgeFields : ["facet"];
-  if (!["edges", "facts", "coverageRows", "factAnchors", "runtimeEdges"].includes(String(facet)))
+    edgeFields = ["facet", "relationType", "state", "direction", "limit", "cursor"],
+    allowed = facet === "edges" ? edgeFields : facet === "facts" ? ["facet", "limit", "cursor"] : ["facet"];
+  if (!["edges", "facts", "coverageRows", "runtimeEdges"].includes(String(facet)))
     return ["repo.triadic.relationGraph.payload.facet is invalid"];
   const unknown = unknownFieldViolation(value, allowed);
   if (unknown) return [`repo.triadic.relationGraph.payload contains an ${unknown}`];
-  if (facet !== "edges") return [];
-  const errors: string[] = [];
+  const errors = validateDaemonQueryPayload("repo.triadic.relationGraph", {
+    ...(value.limit === undefined ? {} : { limit: value.limit }),
+    ...(value.cursor === undefined ? {} : { cursor: value.cursor }),
+  });
+  if (facet !== "edges") return errors;
   if (value.relationType !== undefined && !nonEmpty(value.relationType))
     errors.push("repo.triadic.relationGraph.payload.relationType is invalid");
   if (value.state !== undefined && !statusWord(relationStateWords, value.state))

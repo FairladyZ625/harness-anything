@@ -731,6 +731,18 @@ function AppShell() {
             </div>
           </div>
         </main>
+        {edgeSurfaceMounted &&
+        !triadicQuery.graphAvailable &&
+        (activeEdges.hasNextPage || activeEdges.relationState === "error") ? (
+          <aside className="fixed bottom-4 left-4 z-50 rounded border border-border bg-bg p-3" role="status">
+            <span>{activeEdges.relationState === "error" ? "关系读取失败。" : "当前关系尚未全部加载。"}</span>
+            {activeEdges.hasNextPage ? (
+              <button disabled={activeEdges.isFetching} onClick={() => void activeEdges.fetchNextPage()}>
+                加载更多关系
+              </button>
+            ) : null}
+          </aside>
+        ) : null}
         <TaskPreviewDrawer
           task={previewTask}
           tasks={projectTasks}
@@ -743,6 +755,10 @@ function AppShell() {
         <CommandPalette
           open={paletteOpen}
           entries={paletteEntries}
+          factsIncomplete={paletteFacts.hasNextPage}
+          factsLoading={paletteFacts.isFetching}
+          factsError={paletteFacts.isError}
+          onLoadFacts={() => void paletteFacts.fetchNextPage()}
           onSelect={navigateToEntity}
           onClose={() => setPaletteOpen(false)}
         />

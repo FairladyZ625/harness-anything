@@ -346,8 +346,7 @@ test("wide task reads keep byte-identical unparameterized results and serve narr
         direction: "directed",
       }),
       factsFacet = await cell.read("repo.triadic.relationGraph", { facet: "facts" }),
-      coverageFacet = await cell.read("repo.triadic.relationGraph", { facet: "coverageRows" }),
-      anchorsFacet = await cell.read("repo.triadic.relationGraph", { facet: "factAnchors" });
+      coverageFacet = await cell.read("repo.triadic.relationGraph", { facet: "coverageRows" });
     assert.deepEqual(
       edgeFacet.edges.map(({ relationType, state, direction }) => ({ relationType, state, direction })),
       [{ relationType: "derives", state: "active", direction: "directed" }],
@@ -367,8 +366,9 @@ test("wide task reads keep byte-identical unparameterized results and serve narr
     assert.deepEqual([factsFacet.edges, factsFacet.coverageRows, factsFacet.factAnchors], [[], [], []]);
     assert.equal(coverageFacet.facet, "coverageRows");
     assert.deepEqual([coverageFacet.edges, coverageFacet.factAnchors, coverageFacet.facts], [[], [], []]);
-    assert.equal(anchorsFacet.factAnchors.length, 1);
-    assert.deepEqual([anchorsFacet.edges, anchorsFacet.coverageRows, anchorsFacet.facts], [[], [], []]);
+    assert.equal(edgeFacet.page?.limit, 500);
+    assert.equal(factsFacet.page?.limit, 500);
+    await assert.rejects(cell.read("repo.triadic.relationGraph", { facet: "factAnchors" } as never), /facet|invalid/u);
     const decisionSummary = await cell.read("repo.decisions.list", { projection: "summary" }),
       decisionFull = await cell.read("repo.decisions.list", { projection: "full" });
     assert.equal(decisionSummary.projection, "summary");

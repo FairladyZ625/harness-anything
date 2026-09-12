@@ -100,7 +100,12 @@ const EMPTY_GRAPH_FACET = {
 type RecordedCall = { readonly method: string; readonly payload: Record<string, unknown> | null };
 
 function emptyRelationFacet(facet: string) {
-  return { ...EMPTY_GRAPH_FACET, facet };
+  return {
+    ...EMPTY_GRAPH_FACET,
+    facet,
+    domainTypes: [],
+    ...(facet === "edges" || facet === "facts" ? { page: { limit: 500, cursor: null, nextCursor: null } } : {}),
+  };
 }
 
 /** 直接以某个视图启动(等价于「会话停在这个页面」),避免先经过总览。 */
