@@ -4,7 +4,6 @@ import type {
   AgendaTaskRow,
   AgendaAwaitingRow,
   ContractVersion,
-  DecisionProjectionRow,
   FactAnchorRow,
   RelationFactRow,
   GuiActionResult,
@@ -36,6 +35,25 @@ import { isSettingsSuccess } from "./settings-payload.ts";
 import { invoke } from "./api-client-invoke.ts";
 import { readGuiActionResult } from "./command-receipt.ts";
 import { daemonBridgeError } from "./daemon-startup.ts";
+import {
+  readDecisionControlList,
+  readDecisionListResult,
+  readDecisionShowResult,
+  readDecisionSummaryListResult,
+  type DecisionControlListSuccess,
+  type DecisionListSuccess,
+  type DecisionProposalInput,
+  type DecisionShowSuccess,
+  type DecisionSummaryListSuccess,
+} from "./api-client-decisions.ts";
+export type {
+  DecisionControlListSuccess,
+  DecisionListSuccess,
+  DecisionProposalInput,
+  DecisionShowSuccess,
+  DecisionSummaryListSuccess,
+  DecisionSummaryRow,
+} from "./api-client-decisions.ts";
 
 export interface TaskListSuccess {
   readonly ok: true;
@@ -119,32 +137,6 @@ export type RelationQueryFacets =
   | RelationFactFacetQuery
   | RelationRuntimeEdgeFacetQuery;
 
-export interface DecisionListSuccess {
-  readonly ok: true;
-  readonly decisions: ReadonlyArray<DecisionProjectionRow>;
-  readonly warnings: ReadonlyArray<ProjectionWarning>;
-}
-
-/**
- * `repo.decisions.list {projection:"summary"}` row: the fields the overview's decision
- * stream renders and sorts. It deliberately excludes claims, consents, and body; opening
- * a row reads that one complete decision separately.
- */
-export interface DecisionSummaryRow {
-  readonly decisionId: string;
-  readonly title: string;
-  readonly state: DecisionProjectionRow["state"];
-  readonly riskTier: DecisionProjectionRow["riskTier"];
-  readonly urgency: DecisionProjectionRow["urgency"];
-  readonly proposedAt: DecisionProjectionRow["proposedAt"];
-}
-export interface DecisionSummaryListSuccess {
-  readonly ok: true;
-  readonly projection: "summary";
-  readonly decisions: ReadonlyArray<DecisionSummaryRow>;
-  readonly warnings: ReadonlyArray<ProjectionWarning>;
-}
-
 /** `repo.triadic.relationGraph {facet:"facts"}` row: the palette's fact vocabulary. */
 export interface RelationFactSummaryRow {
   readonly anchor: string;
@@ -175,19 +167,6 @@ export type SettingsUpdateInput = RepoScope &
     walFlushBytes: number;
     walFlushMilliseconds: number;
   }> & { readonly idempotencyKey: string };
-
-export interface DecisionControlListSuccess {
-  readonly status: "ready" | "pending";
-  readonly decisionIds: ReadonlyArray<string>;
-  readonly opId: string;
-  readonly hint?: string;
-}
-
-export interface DecisionShowSuccess {
-  readonly status: "ready" | "pending";
-  readonly decision: DecisionProjectionRow;
-  readonly hint: string | null;
-}
 
 export interface RepoScope {
   readonly repoId: string;
@@ -347,25 +326,6 @@ export interface CatalogRereadReceipt {
   readonly repoId: string;
   readonly observedAt: string;
   readonly error: BridgeError | null;
-}
-
-export interface DecisionProposalInput {
-  readonly title: string;
-  readonly question: string;
-  readonly riskTier: "low" | "medium" | "high";
-  readonly urgency: "low" | "medium" | "high";
-  readonly vertical: string;
-  readonly preset: string;
-  readonly decisionClass: "ordinary" | "standing_policy";
-  readonly appliesTo: { readonly modules: readonly string[]; readonly productLines: readonly string[] };
-  readonly chosen: ReadonlyArray<{ readonly id: string; readonly text: string; readonly rationale?: string }>;
-  readonly rejected: ReadonlyArray<{ readonly id: string; readonly text: string; readonly whyNot: string }>;
-  readonly body: string;
-  readonly claims: ReadonlyArray<{ readonly id: string; readonly text: string; readonly loadBearing: boolean }>;
-  readonly fulfillments: ReadonlyArray<{
-    readonly claimId: string;
-    readonly mode: "evidenced" | "delivered" | "standing_policy";
-  }>;
 }
 
 export const harnessClient = {
@@ -785,65 +745,6 @@ function isQueryPage(value: unknown): value is QueryPage {
   );
 }
 
-function decisionReadError(value: unknown): Error {
-  const error = daemonBridgeError(
-    value,
-    "GUI/daemon decision response shape mismatch; reload the GUI with the matching daemon build.",
-  );
-  return new Error(`Decision read failed [${error.code ?? "daemon_decision_result_invalid"}]: ${error.message}`);
-}
-
-function readDecisionListResult(value: unknown): DecisionListSuccess {
-  const result = value as Partial<DecisionListSuccess>;
-  if (
-    !result ||
-    result.ok !== true ||
-    !Array.isArray(result.decisions) ||
-    !result.decisions.every(isDecisionProjectionRow)
-  ) {
-    throw decisionReadError(value);
-  }
-  return {
-    ok: true,
-    decisions: result.decisions,
-    warnings: Array.isArray(result.warnings) ? result.warnings : [],
-  };
-}
-
-/** Summary rows are a different wire shape than `decision-row/v1`; never filter them
- *  through `isDecisionProjectionRow`, which would silently drop every row. */
-function readDecisionSummaryListResult(value: unknown): DecisionSummaryListSuccess {
-  const result = value as Partial<DecisionSummaryListSuccess>;
-  const rows = result?.decisions;
-  if (
-    !result ||
-    result.ok !== true ||
-    result.projection !== "summary" ||
-    !Array.isArray(rows) ||
-    !rows.every(isDecisionSummaryRow)
-  ) {
-    throw decisionReadError(value);
-  }
-  return {
-    ok: true,
-    projection: "summary",
-    decisions: rows,
-    warnings: Array.isArray(result.warnings) ? result.warnings : [],
-  };
-}
-
-function isDecisionSummaryRow(value: unknown): value is DecisionSummaryRow {
-  if (!isRendererRecord(value)) return false;
-  return (
-    typeof value.decisionId === "string" &&
-    typeof value.title === "string" &&
-    typeof value.state === "string" &&
-    (value.riskTier === "low" || value.riskTier === "medium" || value.riskTier === "high") &&
-    (value.urgency === "low" || value.urgency === "medium" || value.urgency === "high") &&
-    typeof value.proposedAt === "string"
-  );
-}
-
 function readRelationFactFacetResult(value: unknown): RelationFactFacetSuccess {
   const result = value as Partial<RelationFactFacetSuccess>;
   if (
@@ -876,54 +777,6 @@ function isRelationFactSummaryRow(value: unknown): value is RelationFactSummaryR
     (value.category === "lesson" || value.category === "finding" || value.category === "progress") &&
     (value.taskId === undefined || typeof value.taskId === "string")
   );
-}
-
-function readDecisionControlList(value: unknown): DecisionControlListSuccess {
-  const receipt = readGuiActionResult(value) as GuiActionResult & {
-    readonly evidence?: string;
-    readonly nextAction?: string;
-    readonly error?: { readonly code?: string; readonly hint?: string };
-  };
-  if (receipt.outcome === "op_rejected" || receipt.outcome === "indeterminate")
-    throw new Error(
-      `${receipt.error?.code ?? receipt.outcome}: ${receipt.error?.hint ?? receipt.nextAction ?? "Decision list failed."}`,
-    );
-  try {
-    const evidence = JSON.parse(receipt.evidence ?? "") as { readonly status?: unknown; readonly decisions?: unknown };
-    if ((evidence.status !== "ready" && evidence.status !== "pending") || !Array.isArray(evidence.decisions))
-      throw new Error();
-    const decisionIds = evidence.decisions.flatMap((item) =>
-      isRendererRecord(item) && typeof item.decisionId === "string" ? [item.decisionId] : [],
-    );
-    return {
-      status: evidence.status,
-      decisionIds,
-      opId: receipt.opId,
-      ...(receipt.nextAction ? { hint: receipt.nextAction } : {}),
-    };
-  } catch {
-    throw new Error("Decision list receipt evidence is invalid.");
-  }
-}
-
-function readDecisionShowResult(value: unknown): DecisionShowSuccess {
-  const receipt = readGuiActionResult(value) as GuiActionResult & {
-    readonly evidence?: string;
-    readonly nextAction?: string;
-    readonly error?: { readonly code?: string; readonly hint?: string };
-  };
-  if (receipt.outcome === "op_rejected" || receipt.outcome === "indeterminate") {
-    const detail = receipt.error?.hint ?? receipt.nextAction ?? "Decision show failed.";
-    throw new Error(`${receipt.error?.code ?? receipt.outcome}: ${detail}`);
-  }
-  try {
-    const evidence = JSON.parse(receipt.evidence ?? "") as { readonly status?: unknown; readonly decision?: unknown };
-    if ((evidence.status !== "ready" && evidence.status !== "pending") || !isDecisionProjectionRow(evidence.decision))
-      throw new Error();
-    return { status: evidence.status, decision: evidence.decision, hint: receipt.nextAction ?? null };
-  } catch {
-    throw new Error("Decision show receipt evidence is invalid.");
-  }
 }
 
 function readSystemStatus(value: unknown): SystemStatusSuccess {
@@ -1062,18 +915,6 @@ function isTaskSnapshotInvalidRow(value: unknown): value is TaskSnapshotInvalidR
     typeof value.taskId === "string" &&
     typeof value.field === "string" &&
     typeof value.message === "string"
-  );
-}
-
-function isDecisionProjectionRow(value: unknown): value is DecisionProjectionRow {
-  return (
-    isRendererRecord(value) &&
-    value.schema === "decision-row/v1" &&
-    typeof value.decisionId === "string" &&
-    typeof value.title === "string" &&
-    typeof value.state === "string" &&
-    Number.isInteger(value.workspaceRevision) &&
-    Array.isArray(value.claims)
   );
 }
 
