@@ -19,6 +19,7 @@ import {
 } from "./daemon-protocol.contract.ts";
 import {
   declaredExecutorOrNull,
+  daemonRequestLogEntry,
   isDaemonStreamCall,
   isRepoGuiReadCall,
   isRuntimeInstanceAuthCall,
@@ -563,21 +564,19 @@ export function createJsonRpcProtocolServer(options: {
     serviceMs: number,
   ): void {
     if (!options.recordRequest || !observed.repoId) return;
-    options.recordRequest({
-      method,
-      repoId: observed.repoId,
-      command: observed.command,
-      connectionId,
-      auth: options.authContext,
-      executor: observed.executor,
-      ok: resultOk(result),
-      outcome: "outcome" in result && typeof result.outcome === "string" ? result.outcome : null,
-      code: resultErrorCode(result),
-      opId: "opId" in result && typeof result.opId === "string" ? result.opId : null,
-      dispatchDelayMs,
-      serviceMs,
-      durationMs: serviceMs,
-    });
+    options.recordRequest(
+      daemonRequestLogEntry({
+        method,
+        repoId: observed.repoId,
+        command: observed.command,
+        connectionId,
+        auth: options.authContext,
+        executor: observed.executor,
+        result,
+        dispatchDelayMs,
+        serviceMs,
+      }),
+    );
   }
   // Daemon-scoped counterpart: every request including hello and pre-dispatch rejections gets one
   // line, so connection-level forensics never depends on repo binding.

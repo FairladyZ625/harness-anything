@@ -256,6 +256,8 @@ export function submissionStopped(
   const code = error.code === "closeout_placeholder" ? "closeout_placeholder" : "document_invalid";
   return {
     ...cell.rejected(cell.operationId(action, binding, cell.input.repoId, snapshot.revision), code),
+    // The remapped code alone cannot say why the document was rejected; the guard's own message can.
+    rejectionExplanation: error.message,
     next: [
       completionGuidance(
         snapshot,

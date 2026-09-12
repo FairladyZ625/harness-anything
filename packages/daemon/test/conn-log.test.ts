@@ -51,6 +51,29 @@ test("request failure detail records native SQLite result details", () => {
   );
 });
 
+test("request failure detail carries the daemon's rejection message over the code-only placeholder", () => {
+  const message = "CI receipt cannot support completion: evidence executionId is not the current execution.";
+  assert.equal(
+    resultErrorDetail({
+      ok: false,
+      code: "invalid_proof",
+      error: { code: "invalid_proof" },
+      diagnostic: { kind: "failure", code: "invalid_proof" },
+      rejectionExplanation: message,
+    }),
+    message,
+  );
+  // A structured diagnostic that says more than the code still wins when no message exists.
+  assert.equal(
+    resultErrorDetail({
+      ok: false,
+      error: { code: "invalid_result" },
+      diagnostic: { kind: "invalid-enum", field: "status", actual: "unknown", allowedValues: ["ready"] },
+    }),
+    '{"kind":"invalid-enum","field":"status","actual":"unknown","allowedValues":["ready"]}',
+  );
+});
+
 test("conn log records open/request/close with monotonic ids, active counts, and per-connection request totals", async () => {
   const userRoot = tempRoot(),
     log = openDaemonConnLog({ userRoot, daemonId: "test-daemon", now: at("2026-08-20T13:00:00Z") });

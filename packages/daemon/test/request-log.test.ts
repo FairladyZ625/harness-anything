@@ -195,6 +195,42 @@ test("a rejected request is recorded with its error code", async () => {
   assert.equal(records[0].outcome, "op_rejected");
 });
 
+test("a rejected request records the daemon's failure message as its detail", async () => {
+  const rootDir = tempRoot(),
+    host = stubHost(rootDir),
+    message = "CI receipt cannot support completion: evidence executionId is not the current execution.";
+  const rejecting = {
+    ...host,
+    run: async () => ({
+      outcome: "op_rejected" as const,
+      opId: "rejected:task-complete",
+      code: "invalid_proof",
+      origin: "daemon",
+      evidence: "rejection:invalid_proof",
+      diagnostic: { kind: "failure", code: "invalid_proof" },
+      rejectionExplanation: message,
+    }),
+  } as unknown as DaemonHost;
+  const server = openServerWithLog(rootDir, rejecting);
+  await handshake(server);
+  await server.handle({
+    jsonrpc: "2.0",
+    id: 2,
+    method: "repo.task.run",
+    params: {
+      repo: { repoId: "logged" },
+      payload: { action: { kind: "task-complete", taskId: "task_01ARZ3NDEKTSV4RRFFQ69G5FAV" } },
+    },
+  });
+  server.close();
+  await server.requestLog.settle();
+
+  const records = readRecords(rootDir);
+  assert.equal(records.length, 1);
+  assert.equal(records[0].ok, false);
+  assert.equal(records[0].detail, message);
+});
+
 test("a request that binds no repository is not recorded", async () => {
   const rootDir = tempRoot(),
     server = openServerWithLog(rootDir);

@@ -302,3 +302,41 @@ test("relation rejection renders structured triples and preserves them through d
     assert.equal(diagnosticForError({ diagnostic: { ...diagnostic, allowedTriples } }), undefined);
   }
 });
+
+test("daemon-coded rejection messages reach the CLI hint verbatim for submit and complete", () => {
+  const submitMessage =
+      "Delivery cut contains no changed paths; publish harness/tasks/task-1/artifacts/ " +
+      "or name artifact:path@revision anchors in Summary.",
+    submit = renderCliReceipt({
+      schema: "command-receipt/v2",
+      ok: false,
+      command: "task-submit",
+      outcome: "op_rejected",
+      opId: "op_submit",
+      code: "document_invalid",
+      origin: "daemon",
+      evidence: "rejection:document_invalid",
+      diagnostic: { kind: "failure", code: "document_invalid" },
+      rejectionExplanation: submitMessage,
+      error: { code: "document_invalid" },
+    });
+  assert.equal(submit.stream, "stderr");
+  assert.match(submit.text, /error code=document_invalid hint=/u);
+  assert.ok(submit.text.includes(submitMessage), submit.text);
+  const completeMessage = "CI receipt cannot support completion: evidence executionId is not the current execution.",
+    complete = renderCliReceipt({
+      schema: "command-receipt/v2",
+      ok: false,
+      command: "task-complete",
+      outcome: "op_rejected",
+      opId: "op_complete",
+      code: "invalid_proof",
+      origin: "daemon",
+      evidence: "rejection:invalid_proof",
+      diagnostic: { kind: "failure", code: "invalid_proof" },
+      rejectionExplanation: completeMessage,
+      error: { code: "invalid_proof" },
+    });
+  assert.equal(complete.stream, "stderr");
+  assert.ok(complete.text.includes(completeMessage), complete.text);
+});
