@@ -4,7 +4,12 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { declaredRelationTriples, deriveRelationId, makeTaskEventReader } from "../../kernel/src/index.ts";
+import {
+  declaredRelationTriples,
+  deriveRelationId,
+  makeTaskEventReader,
+  makeTaskProjection,
+} from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
@@ -30,6 +35,121 @@ const binding = withRoleBinding(
     },
     "repo-write",
   );
+
+test("immediate relate observes all newly created endpoints across twenty writer turns", async (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-relation-immediate-"));
+  initRepo(rootDir);
+  const repoId = workspaceId("relation-immediate"),
+    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "relation-immediate-test" }),
+    reader = makeTaskEventReader({ repoId, rootDir }),
+    projection = makeTaskProjection({ rootDir, eventStore: reader });
+  try {
+    const decision = await cell.run(
+      {
+        kind: "decision-propose",
+        jsonInput: JSON.stringify({
+          title: "Immediate relation anchors",
+          question: "Can a chosen option derive a newly created task?",
+          riskTier: "medium",
+          urgency: "high",
+          vertical: "software/coding",
+          preset: "standard-task",
+          decisionClass: "ordinary",
+          appliesTo: { modules: ["daemon"], productLines: [] },
+          chosen: Array.from({ length: 5 }, (_, index) => ({
+            id: `CH${index + 1}`,
+            text: `Create task group ${index + 1}`,
+          })),
+          rejected: [{ id: "RJ1", text: "Delay relation writes", whyNot: "The writer turn must expose its entities" }],
+          claims: [{ id: "C1", text: "New entities are visible to the next writer turn.", loadBearing: true }],
+          fulfillments: [],
+        }),
+      },
+      binding,
+    );
+    assert.equal(decision.outcome, "applied", JSON.stringify(decision));
+    const decisionId = (JSON.parse(String(decision.evidence)) as { decisionId: string }).decisionId;
+    for (let index = 0; index < 20; index += 1) {
+      const sourceRef = `task/task_immediate_source_${index}`,
+        targetRef = `task/task_immediate_target_${index}`;
+      for (const ref of [sourceRef, targetRef])
+        assert.equal(
+          (await cell.run({ kind: "task-create", taskId: ref.slice(5), title: ref }, binding)).outcome,
+          "applied",
+        );
+      const anchoredSourceRef = `decision/${decisionId}/CH${(index % 5) + 1}`,
+        anchorCut = projection.readCut(),
+        anchorWriteRevision = reader.readHead()?.revision ?? 0,
+        anchored = await cell.run(
+          {
+            kind: "relation-relate",
+            sourceRef: anchoredSourceRef,
+            targetRef,
+            relationType: "derives",
+            rationale: "Chosen option derives this task",
+            expectedVersion: 0,
+          },
+          index % 2 === 0 ? binding : secondNodeBinding,
+        );
+      t.diagnostic(
+        JSON.stringify({
+          index,
+          sourceRef: anchoredSourceRef,
+          watermark: anchorCut.watermark,
+          writeRevision: anchorWriteRevision,
+          delta: anchorWriteRevision - anchorCut.watermark,
+          outcome: anchored.outcome,
+        }),
+      );
+      assert.equal(anchored.outcome, "applied", JSON.stringify(anchored));
+      assert.equal(anchorCut.watermark, anchorWriteRevision);
+      const cut = projection.readCut(),
+        writeRevision = reader.readHead()?.revision ?? 0,
+        receipt = await cell.run(
+          {
+            kind: "relation-relate",
+            sourceRef,
+            targetRef,
+            relationType: "depends-on",
+            rationale: "Immediate dependency",
+            expectedVersion: 0,
+          },
+          binding,
+        );
+      t.diagnostic(
+        JSON.stringify({
+          index,
+          watermark: cut.watermark,
+          writeRevision,
+          delta: writeRevision - cut.watermark,
+          outcome: receipt.outcome,
+        }),
+      );
+      assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+      assert.equal(cut.watermark, writeRevision);
+    }
+    for (const missing of ["source", "target"] as const) {
+      const receipt = await cell.run(
+        {
+          kind: "relation-relate",
+          sourceRef: missing === "source" ? "task/missing_source" : "task/task_immediate_source_0",
+          targetRef: missing === "target" ? "task/missing_target" : "task/task_immediate_target_0",
+          relationType: "depends-on",
+          rationale: "Missing endpoint control",
+          expectedVersion: 0,
+        },
+        binding,
+      );
+      t.diagnostic(JSON.stringify({ missing, receipt }));
+      assert.equal(receipt.code, "entity_not_found");
+      assert.equal(receipt.rejectionExplanation, `Relation ${missing} task/missing_${missing} does not exist.`);
+    }
+  } finally {
+    projection.close();
+    await cell.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
 
 test("Relation triples read projects the canonical registry with endpoint filters", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-relation-triples-"));
