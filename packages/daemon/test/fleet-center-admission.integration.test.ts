@@ -127,7 +127,9 @@ async function admissionFixture(t: TestContext, initialState: "warming" | "unava
       return repoState === null ? live : { ...live, repos: live.repos.map((row) => ({ ...row, state: repoState })) };
     },
   };
+  const centers: FleetTlsCenter[] = [];
   t.after(async () => {
+    for (const center of centers.splice(0)) await center.close();
     try {
       await opened.close();
     } finally {
@@ -146,10 +148,6 @@ async function admissionFixture(t: TestContext, initialState: "warming" | "unava
     expiresAt: "2099-01-01T00:00:00.000Z",
     actor: { principal: { personId: "admission-owner" }, executor: { kind: "agent", id: "fleet-edge" } },
   };
-  const centers: FleetTlsCenter[] = [];
-  t.after(async () => {
-    for (const center of centers.splice(0)) await center.close();
-  });
   const center = await listenFleetTls({
     host,
     stateRoot,
