@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
@@ -15,12 +15,27 @@ import { withTempStoreAsync } from "./helpers.ts";
 
 const previousProjectionSchemaVersion = 13;
 
-test("a projection schema bump discards pre-first-class Fact DDL before replay", async () => {
+test("a projection schema bump discards pre-first-class Fact DDL before replay", async (t) => {
   await withTempStoreAsync(async (rootDir) => {
     const { projectionPath, eventStore } = tasklessFactLedger(rootDir, "automatic-ddl-rebuild", "F-ABE050B5");
     writeLegacyFactProjection(projectionPath, previousProjectionSchemaVersion);
+    const logged = t.mock.method(console, "error", (line: string) => {
+      assert.equal(existsSync(projectionPath), true, "report the old cache before removing it");
+      return JSON.parse(line);
+    });
 
     const projection = makeTaskProjection({ rootDir, eventStore });
+    assert.equal(logged.mock.callCount(), 1);
+    assert.deepEqual(logged.mock.calls[0]!.result, {
+      event: "projection_discard_started",
+      reason: "schema_mismatch",
+      projectionPath,
+      schemaVersion: previousProjectionSchemaVersion,
+      supportedSchemaVersion: taskProjectionSchemaVersion,
+      watermark: 0,
+      scannedRevision: 0,
+      eventStreamHead: 1,
+    });
     projection.catchUp();
     assert.equal(projection.searchFacts({ query: "standalone" }).facts[0]?.factId, "F-ABE050B5");
     projection.close();
@@ -28,15 +43,37 @@ test("a projection schema bump discards pre-first-class Fact DDL before replay",
   });
 });
 
-test("explicit projection rebuild replaces stale DDL even when its version claims to be current", async () => {
+test("explicit projection rebuild replaces stale DDL even when its version claims to be current", async (t) => {
   await withTempStoreAsync(async (rootDir) => {
     const { projectionPath, eventStore } = tasklessFactLedger(rootDir, "explicit-ddl-rebuild", "F-C01DB01D");
     writeLegacyFactProjection(projectionPath, taskProjectionSchemaVersion);
 
     const projection = makeTaskProjection({ rootDir, eventStore });
+    const logged = t.mock.method(console, "error", (line: string) => {
+      assert.equal(existsSync(projectionPath), true, "report the old cache before removing it");
+      return JSON.parse(line);
+    });
     const rebuilt = projection.rebuild();
+    assert.equal(logged.mock.callCount(), 1);
+    assert.deepEqual(logged.mock.calls[0]!.result, {
+      event: "projection_discard_started",
+      reason: "explicit_rebuild",
+      projectionPath,
+      schemaVersion: taskProjectionSchemaVersion,
+      supportedSchemaVersion: taskProjectionSchemaVersion,
+      watermark: 0,
+      scannedRevision: 0,
+      eventStreamHead: 1,
+    });
     assert.equal(rebuilt.watermark, 1);
     assert.equal(projection.searchFacts({ query: "standalone" }).facts[0]?.factId, "F-C01DB01D");
+    projection.rebuild();
+    assert.equal(logged.mock.callCount(), 2);
+    assert.deepEqual(logged.mock.calls[1]!.result, {
+      ...logged.mock.calls[0]!.result,
+      watermark: 1,
+      scannedRevision: 1,
+    });
     projection.close();
     assertCurrentFactSchema(projectionPath);
   });

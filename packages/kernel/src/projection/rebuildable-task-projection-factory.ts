@@ -83,7 +83,7 @@ export function makeTaskProjection(options: {
     } catch (error) {
       if (error instanceof ProjectionSchemaMismatchError && error.observed < taskProjectionSchemaVersion) {
         consumeKnownError(error);
-        discardDatabase(projectionPath, options.eventStore);
+        discardDatabase(projectionPath, options.eventStore, "schema_mismatch");
       } else if (error instanceof ProjectionIdentityMismatchError) consumeKnownError(error);
       else throw error;
     }
