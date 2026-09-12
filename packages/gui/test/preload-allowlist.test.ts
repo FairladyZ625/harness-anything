@@ -37,6 +37,7 @@ const runtimeCreateForm: CreateInstanceFormState = {
   isolation: "operator-environment",
 };
 
+// harness-contract: gui.preload-allowlist
 test("preload exposes only the approved API methods", () => {
   const approved = [...daemonGuiInvokeFacets, ...daemonGuiStreamFacets].map(({ guiBridgeMethod }) => guiBridgeMethod);
   assert.equal(HARNESS_PRELOAD_API, "harness");

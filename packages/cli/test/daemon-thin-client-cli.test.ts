@@ -13,6 +13,7 @@ test("daemon process port hides detached startup windows", () => {
   assert.deepEqual(detachedProcessOptions, { detached: true, stdio: "ignore", windowsHide: true });
 });
 
+// harness-contract: cli.missing-daemon-no-fallback
 test("daemon-missing write rejects without autostart or local fallback", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-no-daemon-"));
   try {

@@ -938,6 +938,7 @@ test("a post-accept Git failure leaves SQLite writable and the receipt independe
 });
 
 for (const killpoint of ["after_sqlite_commit", "before_response_write", "after_response_write"] as const) {
+  // harness-contract: daemon.recovery-publishes-once
   test(`Decision response recovery handles ${killpoint} without a duplicate publication`, async () => {
     const rootDir = mkdtempSync(path.join(tmpdir(), "ha-decision-response-crash-")),
       repoId = workspaceId("decision-response-crash"),

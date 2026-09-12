@@ -6,6 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { validateProjectPath } from "../src/index.ts";
 
+// harness-contract: gui.path-traversal-rejection
 test("path guard rejects traversal, private folder access, absolute escape and file symlink escape", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-gui-root-"));
   const outside = mkdtempSync(path.join(tmpdir(), "ha-gui-outside-"));
@@ -36,10 +37,7 @@ test("path guard rejects missing files under symlinked parent directories", () =
     mkdirSync(path.join(root, "harness/tasks"), { recursive: true });
     if (!trySymlink(outside, path.join(root, "harness/tasks/outdir"), "junction")) return;
 
-    assert.equal(
-      validateProjectPath(root, "harness/tasks/outdir/new.md").reason,
-      "path_outside_project"
-    );
+    assert.equal(validateProjectPath(root, "harness/tasks/outdir/new.md").reason, "path_outside_project");
   } finally {
     rmSync(root, { recursive: true, force: true });
     rmSync(outside, { recursive: true, force: true });
@@ -57,9 +55,11 @@ function trySymlink(target: string, path: string, type?: "file" | "dir" | "junct
 }
 
 function isWindowsSymlinkPermissionError(error: unknown): boolean {
-  return process.platform === "win32" &&
+  return (
+    process.platform === "win32" &&
     typeof error === "object" &&
     error !== null &&
     "code" in error &&
-    error.code === "EPERM";
+    error.code === "EPERM"
+  );
 }

@@ -713,6 +713,7 @@ test("steady apply reads only the projection rows its event touches", async () =
   });
 });
 
+// harness-contract: projection.deterministic-rebuild
 test("steady apply and rebuild use the same reducer and reproduce watermark, op index, lease intervals", async () => {
   await withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir);
@@ -1032,6 +1033,7 @@ test("completion lookup answers from the projection index and stays scoped to on
   });
 });
 
+// harness-contract: projection.bounded-catch-up-no-stale-ready
 test("projection catch-up processes at most one bounded round and never reports stale data ready", async () => {
   await withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir);
@@ -1063,6 +1065,7 @@ test("projection catch-up processes at most one bounded round and never reports 
   });
 });
 
+// harness-contract: projection.lease-cas-rejection
 test("lease CAS rejects stale renew/release, marks expiry orphaned, and permits takeover", async () => {
   await withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir);
