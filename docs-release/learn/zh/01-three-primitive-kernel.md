@@ -36,14 +36,9 @@
 
 ## 走一遍回环
 
-按下面的顺序使用规范命令。每条命令都会写入图上的一部分，最后一条 fact 会成为下一轮的输入：
-
-1. `ha fact record --statement "<observation>" --source "<source>" --confidence high` 记录初始的不可变观察。
-2. `ha decision propose --json-input '<decision-packet.json contents>'` 创建 decision，让其中的主张可以由这条观察支撑。
-3. `ha decision relate <decision-id> --anchor <claim-id> --type evidenced-by --target fact/F-XXXXXXXX --rationale "<why this fact supports the claim>"` 把 fact 挂到 decision 的主张上。
-4. `ha task create --title "<work selected by the decision>"` 创建由 decision 选定的可执行任务包。
-5. `ha decision relate <decision-id> --anchor <claim-id> --type derives --target task/<task-id> --rationale "<why this task follows>"` 记录 decision 到 task 的衍生关系边。
-6. `ha fact record --task <task-id> --statement "<result>" --source "<verification>" --confidence high` 记录任务结果并闭合回环。
+上面的概念只有一份可执行演练：[第一个完整闭环](../../start/zh/02-first-loop.md)。其中包括
+当前 relation anchors、明确的人类批准、task submit、review、consent、上游 Fact disposition，
+以及用于闭环的新 Fact。把命令集中在那里，可以避免概念章节变成第二条逐渐漂移的工作流。
 
 ## 不对称的存储:task 归属由边表达
 

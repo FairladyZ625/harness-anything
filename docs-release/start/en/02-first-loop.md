@@ -1,131 +1,158 @@
-# Your first loop
+# Your first closed loop
 
-Run this end to end in a scratch git repo. In a few minutes you'll have a real
-task, a fact, and an adjudicated decision — all as Markdown inside the private
-`harness/` ledger. Every output below is captured from an actual run.
-
-## 0. Set write attribution
-
-Local `ha` write commands are attributed by the authenticated daemon. Initialize
-the workspace with the human identity and set the commit author variables:
-
-```bash
-export HARNESS_GIT_AUTHOR_NAME="Your Name"
-export HARNESS_GIT_AUTHOR_EMAIL="you@example.com"
-ha init --person-id you --display-name "Your Name"
-```
-
-Continue this loop with plain `ha` commands. The daemon authenticates the
-local socket owner and records the configured person; do not export
-`HARNESS_ACTOR=human:you`. Agent automation may use `HARNESS_ACTOR=agent:<id>`
-per command. See [Actor Attribution](../../actor-attribution.md) for the source
-matrix.
-
-## 1. Initialize
-
-```bash
-$ ha init --person-id you --display-name "Your Name"
-ok command=init path=harness/harness.yaml summary="initialized harness at harness/harness.yaml"
-```
-
-This creates the authored `harness/` directory. Your tasks, decisions, and
-standards live here, but not in your project git repository. `ha init` adds
-`harness/` to the outer `.gitignore` and initializes `harness/` as its own
-private nested git repository.
-
-That isolation is the leak-prevention design: code PRs must not include
-`harness/` changes. Commit ledger changes inside `harness/` when you want to
-version the private ledger:
-
-```bash
-git -C harness status
-git -C harness add .
-git -C harness -c user.name="$HARNESS_GIT_AUTHOR_NAME" \
-  -c user.email="$HARNESS_GIT_AUTHOR_EMAIL" \
-  commit -m "docs: update harness ledger"
-```
-
-The generated `.harness/` cache is local-only and also stays out of the outer
-project git repository.
+Run this recipe in a scratch Git repository after `ha init`. It follows the
+canonical cycle:
 
 ```text
-harness/
-├── harness.yaml
-├── adr/
-├── context/
-├── milestones/
-├── standards/
-└── tasks/
+Fact → Decision → Task → Fact
 ```
 
-## 2. Create a task
+The receipt fragments below came from an isolated Ubuntu fixture on 2026-09-12.
+IDs will differ in your repository. Every write still goes through the center's
+single-writer queue; do not run the example against somebody else's workspace.
+
+## Before the loop
+
+Initialize once with the human who owns the workspace:
 
 ```bash
-$ ha task create --title "Fix login redirect bug"
-ok command="task create" task=task_01KWPP52D062Q7BWTD8BCNDRWF status=planned
-   path=harness/tasks/task_01KWPP52D...-fix-login-redirect-bug
+ha init --person-id owner --display-name "Loop Owner"
 ```
 
-You get a stable `task_<id>` and a task package on disk. IDs are identity; titles are just display metadata.
+Expected: `ok=true command=repo-bootstrap`. Do not set `HARNESS_ACTOR` to a
+human value; the daemon authenticates the socket owner. Agent automation may set
+`HARNESS_ACTOR=agent:<id>` for its own commands.
 
-## 3. Move it through the lifecycle
+## 1. Record the observation
 
 ```bash
-$ ha task transition task_01KWPP52D062Q7BWTD8BCNDRWF active
-ok command="task transition" task=task_01KWPP52D062Q7BWTD8BCNDRWF status=active
-   summary="set task task_01KWPP52D062Q7BWTD8BCNDRWF to active"
+ha fact record --statement "Repeated handoffs lose the reason for the work." --source "support-review-2026-09-12" --confidence high
 ```
 
-Tasks move through six states: `planned → active → blocked → in_review → done → cancelled`. `done` and `cancelled` are terminal.
+Expected: `ok=true command=fact-record factId=F-3C9EB45C status=accepted_durable`.
+Keep the returned Fact ID; do not invent one from the statement.
 
-## 4. Record a fact, then a decision
-
-Facts are append-only observations. Add `--task` when the observation belongs to
-the task and should receive a `produces` edge:
+## 2. Propose the choice
 
 ```bash
-$ ha fact record --task task_01KWPP52D062Q7BWTD8BCNDRWF \
-    --statement "Redirect loops when the session cookie is missing" \
-    --source "manual repro" --confidence high
-ok command="fact record" fact=F-7K3M2Q9R path=facts/F-7K3M2Q9R.md
+ha decision propose --json-input '{"title":"Keep handoff reasons in the ledger","question":"How should handoff context survive between sessions?","riskTier":"medium","urgency":"medium","decisionClass":"ordinary","chosen":[{"id":"CH1","text":"Record reasons as facts before creating follow-up work","rationale":"Preserves provenance"}],"rejected":[{"id":"RJ1","text":"Keep reasons only in chat","whyNot":"Chat is not a durable ledger"}],"claims":[{"id":"C1","text":"Durable facts preserve handoff reasons","loadBearing":true}]}' --body $'## 背景\nRepeated handoffs lose their rationale.\n\n## 权衡\nDurable facts preserve provenance; chat alone does not.\n\n## 结论\nRecord the reason as a Fact before creating follow-up work.'
 ```
 
-Now propose a decision — the WHY — and adjudicate it:
+Expected: `ok=true command=decision-propose decisionId=dec_... state=proposed`.
+The packet carries machine fields; the body must keep the three human-readable
+sections `背景`, `权衡`, and `结论`.
+
+## 3. Attach evidence, then accept with human approval
 
 ```bash
-$ ha decision propose --title "Use a server-side redirect guard" \
-    --question "How do we stop the login redirect loop?" \
-    --chosen "Add a server-side guard" \
-    --rejected "Client-only fix" \
-    --why-not "Client fix races with cookie set"
-ok command="decision propose" path=harness/decisions/decision-dec_mr6f3b4z/decision.md
-
-$ ha decision accept dec_mr6f3b4z --arbiter you
-ok command="decision accept" path=harness/decisions/decision-dec_mr6f3b4z/decision.md
+ha relation relate --source-ref decision/dec_.../C1 --target-ref fact/F-3C9EB45C --type evidenced-by --rationale "The observed handoff loss supports the durability claim." --expected-version 0
 ```
 
-`accept` is the adjudication checkpoint: it's where a decision's evidence relations (attach them with `--evidence-relation` on propose, or `ha decision relate` later) are validated before the decision becomes binding. This is what makes an accepted decision _trustworthy_ rather than just asserted — the full fail-closed policy is covered in **[learn/](../../learn/en/00-overview.md)**.
-
-## 5. Watch the structure grow
+Expected: `ok=true command=relation-relate relationId=rel_...`. Point to claim
+`C1`, not chosen option `CH1`; acceptance requires the evidence edge or an
+explicit judgment-only rationale.
 
 ```bash
-$ ha status
-ok command=status path=.harness/cache/projections.sqlite rows=1
-
-$ ha graph
-ok command=graph path=.harness/generated/graph-panorama/index.html
+ha decision transition in_effect dec_... --consent-by owner --consent-at 2026-09-12T08:00:00Z --consent-channel cli
 ```
 
-`graph` renders a self-contained HTML panorama linking your tasks, decisions, and facts.
+Expected: `ok=true command=decision-transition state=in_effect consentId=djc_...`.
+The two independent conditions are now visible: claim evidence and explicit
+human approval. All three consent flags are one atomic input, and `--consent-by`
+must name the authenticated principal. The old `ha decision accept` spelling is
+a deprecated alias, not a second workflow.
 
-**This is the aha:** what you produced isn't a chat log. It's real, versioned
-structure in the private `harness/` ledger — the task, the fact it observed, and
-the decision it justified, all linked and reviewable with `git -C harness diff`.
+## 4. Create the derived task
 
-![demo](../assets/demo.gif)
+```bash
+ha task create --title "Publish a durable handoff note" --preset docs-task
+```
 
-> **GIF coming soon** — replaced with a live clip once the GUI ships.
+Expected: `ok=true command=task-create taskId=task_... status=accepted_durable`.
+Use the returned package path, replace the scaffolded `task_plan.md` with a real
+plan, then publish it with `ha doc sync --submit` before starting.
 
----
+```bash
+ha relation relate --source-ref decision/dec_.../CH1 --target-ref task/task_... --type derives --rationale "The chosen durable-record path creates this work." --expected-version 0
+```
 
-Next: go deeper on the _why_ → **[learn/](../../learn/en/00-overview.md)**, or grab the **[daily commands cheat sheet](03-daily-commands.md)**.
+Expected: `ok=true command=relation-relate relationId=rel_...`. A derivation
+starts at the chosen option `CH1`; this is intentionally different from the
+claim anchor used by `evidenced-by`.
+
+## 5. Start, produce the closing Fact, and submit
+
+```bash
+ha task start task_...
+```
+
+Expected: `ok=true command=task-start executionId=exe_... status=accepted_durable`.
+`start` acquires the execution lease; the holder must perform the task writes.
+
+After doing the work, record a new observation owned by this task:
+
+```bash
+ha fact record --task task_... --statement "The handoff note is present in the task package." --source "tasks/task_.../closeout.md" --confidence high
+```
+
+Expected: `ok=true command=fact-record factId=F-... status=accepted_durable`.
+This new Fact closes the loop; reusing the opening Fact does not.
+
+Fill the task's `closeout.md` before submission:
+
+```markdown
+## Summary
+
+Published the durable handoff note.
+
+## Verification
+
+Checked the submitted task package and closing Fact.
+
+## Residual Risk
+
+None known.
+
+## Same Mechanism Elsewhere
+
+Use the same Fact → Decision → Task → Fact cycle for the next handoff.
+```
+
+```bash
+ha task submit task_...
+```
+
+Expected: `ok=true command=task-submit transition.from=active/implementation transition.to=in_review/review`.
+`submit` publishes eligible task documents, including the closeout; do not make
+a separate manual Git commit in the private ledger.
+
+## 6. Review and complete with owner consent
+
+An independent reviewer records the verdict against the submitted execution:
+
+```bash
+HARNESS_ACTOR=agent:loop-reviewer ha task review-execution task_... --review-id review-docs-loop --json-input '{"verdict":"approved","reason":"Independent reviewer checked the submitted closeout and result fact.","evidenceChecked":["fact/F-...","tasks/task_.../closeout.md"]}'
+```
+
+Expected: `ok=true command=task-review-execution reviewId=review-docs-loop`.
+The reviewer must not be the execution's agent.
+
+```bash
+ha task complete task_...
+```
+
+Expected before owner consent/disposition: `ok=false command=task-complete
+code=fact_retirement_undeclared`. The receipt names every upstream Fact that
+still needs an explicit disposition; do not bypass it.
+
+```bash
+ha task complete task_... --consent --fact-holds "F-3C9EB45C:The handoff-loss observation still holds after publishing this note."
+```
+
+Expected: `ok=true command=task-complete transition.to=done/review status=accepted_durable`.
+`--consent` selects the approved Review and records owner consent atomically;
+`--fact-holds` records why the opening evidence remains standing.
+
+You now have a complete, queryable cycle rather than a task-shaped chat log.
+Next, read [The three-primitive kernel](../../learn/en/01-three-primitive-kernel.md)
+or keep the [daily command sheet](03-daily-commands.md) nearby.
