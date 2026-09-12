@@ -236,9 +236,15 @@ export const docFactProtocolCommands = Object.freeze([
       cliInput("--memory-tag", "repeated", false, {
         code: "invalid_field",
       }),
-      cliInput("--supersedes", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--supersedes",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { requires: ["--rationale"] },
+      ),
       cliInput(
         "--rationale",
         "single",
@@ -246,7 +252,7 @@ export const docFactProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { regex: "^[\\s\\S]{1,199}$" },
+        { requires: ["--supersedes"], regex: "^[\\s\\S]{1,199}$" },
       ),
     ],
   }),

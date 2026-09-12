@@ -92,15 +92,6 @@ export function parseFactRecord(
       "Use --statement <observation> or --text <observation>; --source <source> is also required.",
       json,
     );
-  if (Boolean(supersedes) !== Boolean(rationale))
-    return rejected(
-      "missing_field",
-      supersedes
-        ? "--rationale and --supersedes must be provided together; add --rationale <why>, then rerun the command."
-        : "--rationale and --supersedes must be provided together; " +
-            "add --supersedes <fact-ref>, then rerun the command.",
-      json,
-    );
   return accepted(rootDir, repoId, json, {
     kind: "fact-record",
     ...(positionalTaskId || flaggedTaskId ? { taskId: positionalTaskId ?? flaggedTaskId } : {}),

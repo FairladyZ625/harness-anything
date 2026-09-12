@@ -1,6 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
+import { daemonProtocolCommands } from "../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { parseThinCommand } from "../src/cli/thin-command.ts";
 import { materializePacketStdin } from "../src/index.ts";
 
@@ -137,9 +138,8 @@ test("Fact CLI exposes record, controlled types, search, and show while keeping 
   ]);
   assert.deepEqual(rationaleOnly, {
     ok: false,
-    code: "missing_field",
-    nextAction:
-      "--rationale and --supersedes must be provided together; add --supersedes <fact-ref>, then rerun the command.",
+    code: "invalid_field",
+    nextAction: "--rationale requires --supersedes.",
     json: false,
   });
   const supersedesOnly = parseThinCommand([
@@ -156,9 +156,8 @@ test("Fact CLI exposes record, controlled types, search, and show while keeping 
   ]);
   assert.deepEqual(supersedesOnly, {
     ok: false,
-    code: "missing_field",
-    nextAction:
-      "--rationale and --supersedes must be provided together; add --rationale <why>, then rerun the command.",
+    code: "invalid_field",
+    nextAction: "--supersedes requires --rationale.",
     json: false,
   });
   const superseding = parseThinCommand([
@@ -203,6 +202,30 @@ test("Fact CLI exposes record, controlled types, search, and show while keeping 
     false,
   );
   assert.equal(parseThinCommand(["fact", "record", "--statement", "x", "--text", "y", "--source", "s"]).ok, false);
+});
+
+test("fact record help declares the supersedes/rationale pairing the rejection enforces", () => {
+  const command = daemonProtocolCommands.find(({ id }) => id === "fact-record");
+  assert.ok(command);
+  for (const name of ["--supersedes", "--rationale"]) {
+    const input = command.inputs.find((candidate) => candidate.name === name);
+    assert.ok(input, name);
+    const partner = name === "--supersedes" ? "--rationale" : "--supersedes";
+    assert.deepEqual(input.requires, [partner], name);
+    assert.match(command.help, new RegExp(`${name} — [^\\n]*requires: ${partner}`, "u"), name);
+    const parsed = parseThinCommand([
+      "fact",
+      "record",
+      "--statement",
+      "Observed",
+      "--source",
+      "test",
+      name,
+      name === "--supersedes" ? "fact/F-ABCDEFGH" : "why",
+    ]);
+    assert.equal(parsed.ok, false, name);
+    if (!parsed.ok) assert.equal(parsed.nextAction, `${name} requires ${partner}.`, name);
+  }
 });
 
 test("Fact search CLI forwards observed-time windows and keyset pagination", () => {
