@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -91,25 +91,6 @@ test("task read surfaces, dry-runs, idempotency, structured input, and supersede
       ).outcome,
       "applied",
     );
-    mkdirSync(path.join(rootDir, "harness/legacy/source"), { recursive: true });
-    writeFileSync(path.join(rootDir, "harness/legacy/source/old.md"), "# Legacy\n");
-    writeFileSync(
-      path.join(rootDir, "harness/legacy/index.json"),
-      JSON.stringify({
-        entries: [
-          {
-            id: "legacy-1",
-            title: "Legacy Rebuilt",
-            storedPath: "harness/legacy/source/old.md",
-          },
-        ],
-      }),
-    );
-    const legacy = (await cell.run({ kind: "task-create", fromLegacyId: "legacy-1" }, binding)) as Record<
-      string,
-      unknown
-    >;
-    assert.equal(legacy.outcome, "applied", JSON.stringify(legacy));
     const eventCount = makeTaskEventReader({
       repoId: "task-read-surface",
       rootDir,

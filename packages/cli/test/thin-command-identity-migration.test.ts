@@ -346,3 +346,9 @@ test("thin parser rejects retired caller-supplied gate receipts", () => {
     json: false,
   });
 });
+
+test("task create rejects the retired legacy flag and still accepts a title", () => {
+  assert.equal(parseThinCommand(["task", "create", "--from-legacy", "legacy-1"]).ok, false);
+  assert.equal(parseThinCommand(["task", "create", "--title", "New task", "--from-legacy", "legacy-1"]).ok, false);
+  assert.equal(parseThinCommand(["task", "create", "--title", "New task"]).ok, true);
+});

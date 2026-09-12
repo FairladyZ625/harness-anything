@@ -1,14 +1,11 @@
-import { realpathSync } from "node:fs";
-import path from "node:path";
 import {
   decisionProposalJsonFields,
   decisionProposalRequiredJsonFields,
   taskCreateJsonFields,
 } from "../../preset/src/index.ts";
 import { consumeKnownError, type SettingsV1 } from "../../kernel/src/index.ts";
-import { cellCodedError, cellErrorCode } from "./repo-cell-errors.ts";
+import { cellCodedError } from "./repo-cell-errors.ts";
 import { packetRecord, readPacketSource, workspaceText } from "./repo-cell-packets.ts";
-import { requiredCellText } from "./repo-cell-settlement.ts";
 import type { RepoTaskAction } from "./repo-cell-types.ts";
 
 export const decisionProposalFields = decisionProposalJsonFields;
@@ -66,24 +63,16 @@ export function resolvePacketAction(
 
 export function taskCreateAction(rootDir: string, action: RepoTaskAction): RepoTaskAction {
   const fromFile = typeof action.fromFile === "string",
-    jsonInput = typeof action.jsonInput === "string",
-    fromLegacy = typeof action.fromLegacyId === "string";
-  if (fromLegacy) {
-    if (fromFile || jsonInput)
-      throw cellCodedError(
-        "invalid_command",
-        "Use --from-legacy by itself, with only optional --title, --slug, or --dry-run overrides.",
-      );
-    const allowed = ["kind", "fromLegacyId", "title", "slug", "dryRun"],
-      invalid = Object.keys(action).filter((field) => !allowed.includes(field));
-    if (invalid.length)
-      throw cellCodedError("invalid_command", `Remove ${invalid.join(", ")} from --from-legacy task creation.`);
-    return legacyTaskCreateAction(rootDir, action);
-  }
+    jsonInput = typeof action.jsonInput === "string";
+  const unsupported = Object.keys(action).filter(
+    (field) => !["kind", "fromFile", "jsonInput", "dryRun", ...taskCreateFields].includes(field),
+  );
+  if (unsupported.length)
+    throw cellCodedError("invalid_command", `Remove unsupported task create fields: ${unsupported.join(", ")}.`);
   if (!fromFile && !jsonInput) return action;
   if (fromFile === jsonInput)
     throw cellCodedError("invalid_command", "Choose exactly one structured task source: --from-file or --json-input.");
-  const resolved = resolvePacketAction(rootDir, action, {
+  return resolvePacketAction(rootDir, action, {
     required: [],
     allowed: taskCreateFields,
     invalid: (message) => cellCodedError("invalid_command", message),
@@ -98,56 +87,6 @@ export function taskCreateAction(rootDir: string, action: RepoTaskAction): RepoT
       return { kind: "task-create", ...packet, ...direct };
     },
   });
-  return typeof resolved.fromLegacyId === "string" ? taskCreateAction(rootDir, resolved) : resolved;
-}
-
-export function legacyTaskCreateAction(rootDir: string, action: RepoTaskAction): RepoTaskAction {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(workspaceText(rootDir, "harness/legacy/index.json", "legacy index"));
-  } catch (error) {
-    if (cellErrorCode(error) === "invalid_command")
-      throw cellCodedError(
-        "legacy_index_missing",
-        "Create a valid harness/legacy/index.json with ha legacy index, then retry --from-legacy.",
-      );
-    throw error;
-  }
-  const entries =
-      parsed && typeof parsed === "object" && !Array.isArray(parsed)
-        ? (parsed as Record<string, unknown>).entries
-        : null,
-    legacyId = requiredCellText(action.fromLegacyId, "fromLegacyId"),
-    entry = Array.isArray(entries)
-      ? (entries.find(
-          (value) => value && typeof value === "object" && (value as Record<string, unknown>).id === legacyId,
-        ) as Record<string, unknown> | undefined)
-      : undefined;
-  if (!entry)
-    throw cellCodedError(
-      "legacy_entry_not_found",
-      `Add legacy entry ${legacyId} to harness/legacy/index.json, then retry --from-legacy.`,
-    );
-  const storedPath = requiredCellText(entry.storedPath, "legacy storedPath");
-  try {
-    const root = realpathSync(rootDir),
-      stored = realpathSync(path.resolve(root, storedPath));
-    if (stored !== root && !stored.startsWith(`${root}${path.sep}`)) throw new Error("outside");
-  } catch {
-    throw cellCodedError(
-      "legacy_source_missing",
-      `Restore ${storedPath} inside the workspace, then retry --from-legacy ${legacyId}.`,
-    );
-  }
-  return {
-    ...action,
-    title:
-      typeof action.title === "string"
-        ? action.title
-        : typeof entry.title === "string" && entry.title
-          ? entry.title
-          : legacyId,
-  };
 }
 
 export function decisionProposalAction(

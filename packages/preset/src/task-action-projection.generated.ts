@@ -148,7 +148,6 @@ export const taskActionDescriptorProjection = {
                 "surfaces",
                 "taskClass",
                 "locale",
-                "fromLegacyId",
                 "createMode",
               ],
               jsonEnums: {
@@ -189,7 +188,6 @@ export const taskActionDescriptorProjection = {
                 "surfaces",
                 "taskClass",
                 "locale",
-                "fromLegacyId",
                 "createMode",
               ],
               jsonEnums: {
@@ -282,12 +280,6 @@ export const taskActionDescriptorProjection = {
             required: false,
             enum: ["en-US", "zh-CN"],
             cli: { name: "--locale", kind: "single", error: "invalid_field" },
-          },
-          {
-            field: "fromLegacyId",
-            type: "string",
-            required: false,
-            cli: { name: "--from-legacy", kind: "single", error: "invalid_field" },
           },
           {
             field: "migration",

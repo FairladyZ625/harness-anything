@@ -550,7 +550,6 @@ export async function fleetTaskRoute(
     commandType: _commandType,
     fromFile,
     jsonInput,
-    fromLegacyId,
     ...action
   } = command.action as Record<string, unknown> & {
     executor?: unknown;
@@ -559,13 +558,12 @@ export async function fleetTaskRoute(
     commandType?: unknown;
     fromFile?: unknown;
     jsonInput?: unknown;
-    fromLegacyId?: unknown;
   };
-  // Migration/import/admin creation and legacy conversion are intentionally
+  // Migration/import/admin creation is intentionally
   // outside the remote-edge surface. Falling through produces the existing,
   // explicit repo_mode_read_only receipt instead of silently dropping their
   // authority-bearing fields on the fleet route.
-  if (actionKind === "task-create" && (createMode !== undefined || fromLegacyId !== undefined)) return null;
+  if (actionKind === "task-create" && createMode !== undefined) return null;
   const payload: Record<string, unknown> = {
     host: config.host,
     port: config.port,
@@ -603,7 +601,7 @@ export async function fleetTaskRoute(
     if (actionKind === "task-create" || ("path" in descriptor && descriptor.path[0] === "schedule")) {
       const fields = packet as Record<string, unknown>;
       const unsupported = Object.keys(fields).filter((field) =>
-        ["fromFile", "jsonInput", "kind", "createMode", "fromLegacyId"].includes(field),
+        ["fromFile", "jsonInput", "kind", "createMode"].includes(field),
       );
       if (unsupported.length)
         throw Object.assign(new Error(`--from-file cannot carry ${unsupported.join(", ")} over the fleet channel.`), {

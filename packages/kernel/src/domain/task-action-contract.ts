@@ -134,7 +134,6 @@ const createPacketFields = Object.freeze([
   field("surfaces", "string-array"),
   field("taskClass", "string", false, taskClasses),
   field("locale", "string", false, settingsLocales),
-  field("fromLegacyId"),
   field("createMode", "string", false, ["migration", "import", "admin"]),
 ]);
 const packet = (schemaRef: string, fields: readonly EntityActionInputField[]) => Object.freeze({ schemaRef, fields });
@@ -194,7 +193,6 @@ const createInput = input([
   cli("taskClass", "string", false, "--task-class", "single", { enum: taskClasses }),
   cli("dryRun", "boolean", false, "--dry-run", "boolean"),
   cli("locale", "string", false, "--locale", "single", { enum: settingsLocales }),
-  cli("fromLegacyId", "string", false, "--from-legacy"),
   cli("migration", "boolean", false, "--migration", "boolean"),
   cli("import", "boolean", false, "--import", "boolean"),
   cli("admin", "boolean", false, "--admin", "boolean"),
