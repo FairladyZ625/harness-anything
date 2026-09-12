@@ -130,7 +130,8 @@ function anchors(template: ProjectTemplate, required: readonly string[], slot: s
       throw scaffoldFailure("required_anchor", `Template for ${slot} is missing required anchor ${anchor}.`);
 }
 function requiredFile(target: string, code: string): string {
-  if (!existsSync(target) || !lstatSync(target).isFile() || lstatSync(target).isSymbolicLink())
+  const stat = existsSync(target) ? lstatSync(target) : undefined;
+  if (!stat?.isFile() || stat.isSymbolicLink())
     throw scaffoldFailure(code, `Required regular file ${target} is unavailable.`);
   return readFileSync(target, "utf8");
 }

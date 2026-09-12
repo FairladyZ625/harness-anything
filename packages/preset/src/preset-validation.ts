@@ -1,5 +1,5 @@
 import { loadCanonicalAssets } from "./preset-assets.ts";
-import { decodePresetPackageV3, parsePresetJson, presetDocumentValue, scan } from "./preset-package.ts";
+import { decodePackage, parsePresetJson, presetDocumentValue, scan } from "./preset-package.ts";
 import { asFailure, defaultAssets, isPresetResolutionRecord, presetFailure } from "./preset-resolver-common.ts";
 import type { PresetFailure } from "./preset-resolver-types.ts";
 import { consumeKnownError, validatePresetDocumentV1, validatePresetManifestV3 } from "./preset.contract.ts";
@@ -57,7 +57,7 @@ export function validatePresetPackage(input: { readonly source: string }) {
       issues,
     };
   try {
-    const decoded = decodePresetPackageV3(source);
+    const decoded = decodePackage(source, true, undefined, files);
     return {
       schema: "preset-validate-report/v1" as const,
       valid: true,

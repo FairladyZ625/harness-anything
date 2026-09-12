@@ -63,6 +63,7 @@ export interface CompiledTaskDocument {
   readonly relativePath: string;
   readonly path: string;
   readonly body: string;
+  readonly contentSha256: string;
   readonly mediaType: "application/json" | "text/markdown" | "text/plain" | OpaqueTextualMediaType;
   readonly owner: TaskDocumentOwner;
   readonly requiredAnchors: readonly string[];
@@ -126,18 +127,20 @@ export function compileTaskPackage(input: CompileTaskPackageInput): CompiledTask
       surfaces: [...(input.surfaces ?? [])],
       fromLegacyId: input.fromLegacyId ?? null,
     },
-    prose = resolved.documents.map(
-      (document): CompiledTaskDocument => ({
+    prose = resolved.documents.map((document): CompiledTaskDocument => {
+      const body = document.body.replaceAll("{{title}}", input.title);
+      return {
         slot: document.slot,
         relativePath: document.path,
         path: `${packagePath}/${document.path}`,
-        body: document.body.replaceAll("{{title}}", input.title),
+        body,
+        contentSha256: sha256Text(body),
         mediaType: document.mediaType,
         owner: document.owner,
         requiredAnchors: document.requiredAnchors,
         templateRef: document.templateRef,
-      }),
-    ),
+      };
+    }),
     bySlot = new Map(prose.map((document) => [document.slot, document]));
   const createAction = getExecutableEntityAction("task-create");
   if (!createAction) throw bootstrapFailure("invalid_scaffold", "task.create descriptor is missing.");
@@ -153,6 +156,7 @@ export function compileTaskPackage(input: CompileTaskPackageInput): CompiledTask
       relativePath: `artifacts/scripts/${script.name}`,
       path: `${packagePath}/artifacts/scripts/${script.name}`,
       body: script.body,
+      contentSha256: sha256Text(script.body),
       mediaType: classifyTextualArtifactPath(`artifacts/scripts/${script.name}`)?.mediaType ?? "text/plain",
       owner: "machine",
       requiredAnchors: [],
@@ -241,6 +245,7 @@ export function compileTaskPackage(input: CompileTaskPackageInput): CompiledTask
       relativePath,
       path: `${packagePath}/${relativePath}`,
       body,
+      contentSha256: sha256Text(body),
       mediaType: relativePath.endsWith(".json") ? "application/json" : "text/markdown",
       owner: "machine",
       requiredAnchors: [],
@@ -260,7 +265,7 @@ export function compileTaskBootstrap(input: CompileTaskBootstrapInput): Compiled
     },
     initialDocumentClaims = compiled.documents.map((document) => ({
       path: document.path,
-      sha256: sha256Text(document.body),
+      sha256: document.contentSha256,
       size: Buffer.byteLength(document.body),
       mediaType: document.mediaType,
       owner: document.owner,
@@ -375,7 +380,7 @@ export function compilePresetSnapshotUpgrade(input: CompilePresetSnapshotUpgrade
     contractDocument = compiled.documents.find(({ relativePath }) => relativePath === "task-contract.json")!,
     taskContractClaim = {
       path: contractDocument.path,
-      sha256: sha256Text(contractDocument.body),
+      sha256: contractDocument.contentSha256,
       size: Buffer.byteLength(contractDocument.body),
       mediaType: "application/json" as const,
       owner: "machine" as const,
@@ -426,7 +431,7 @@ function descriptor(document: CompiledTaskDocument) {
     materializeAs: document.relativePath,
     requiredAnchors: document.requiredAnchors,
     templateRef: document.templateRef,
-    contentSha256: sha256Text(document.body),
+    contentSha256: document.contentSha256,
   };
 }
 function descriptorStub(slot: string, path: string, owner: TaskDocumentOwner) {

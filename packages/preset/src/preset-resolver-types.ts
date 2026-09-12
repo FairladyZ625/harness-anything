@@ -15,6 +15,7 @@ export interface DecodedPresetPackageV3 {
   readonly manifest: PresetManifestV3;
   readonly document: PresetDocumentV1;
   readonly root: string;
+  readonly files: Map<string, string>;
   readonly packageDigest: string;
   readonly manifestSha256: string;
   readonly [decodedPackageBrand]: true;
@@ -78,6 +79,7 @@ export interface OwnedEntrypoint {
   readonly definition: ManifestEntrypoint;
   readonly root: string;
   readonly packageDigest: string;
+  readonly files: Map<string, string>;
 }
 
 export interface PresetPackageScript {
