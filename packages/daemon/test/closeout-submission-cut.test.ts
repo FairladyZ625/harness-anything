@@ -191,7 +191,9 @@ test("already merged dispatch preserves earlier branch changes and rejects unrel
   dispatch(root, root);
   assert.deepEqual(derive(root, `Delivery ${merged}`).deliverables, ["src/first.ts", "src/second.ts"]);
   assert.equal(derive(root, `Delivery ${merged}`).commitSha, merged);
-  assert.throws(() => derive(root, `Delivery ${base}`), /bound worktree HEAD/u);
+  // Naming an older published commit is still rejected, by the comparison-cut check rather than
+  // by any relationship to the dispatch HEAD.
+  assert.throws(() => derive(root, `Delivery ${base}`), /no verifiable comparison cut/u);
   assert.throws(() => derive(root, "Worktree delivery."), { code: "invalid_submission" });
 });
 
@@ -226,6 +228,25 @@ test("one execution with two dispatch directories accepts its published merge cu
   git(root, "update-ref", "refs/remotes/origin/main", merged);
   dispatch(root, worker);
   dispatch(root, root, "dispatch_222222222222222222222222");
+  const packet = derive(root, `Delivery ${merged}.`);
+  assert.equal(packet.commitSha, merged);
+  assert.deepEqual(packet.deliverables, ["src/delivery.ts"]);
+});
+
+test("a published cut is accepted even when no dispatch HEAD explains it", (t) => {
+  const { root } = fixture(t),
+    worker = path.join(root, "worker");
+  git(root, "worktree", "add", "-qb", "worker", worker);
+  put(worker, "src/delivery.ts", "delivery\n");
+  commit(worker);
+  git(root, "merge", "--no-ff", "-qm", "test: merge delivery", "worker");
+  const merged = git(root, "rev-parse", "HEAD");
+  git(root, "update-ref", "refs/remotes/origin/main", merged);
+  // The worker moved on to an unrelated commit after the merge: its HEAD is neither the named
+  // cut nor an ancestor of it.
+  put(worker, "src/unrelated.ts", "unrelated\n");
+  commit(worker);
+  dispatch(root, worker);
   const packet = derive(root, `Delivery ${merged}.`);
   assert.equal(packet.commitSha, merged);
   assert.deepEqual(packet.deliverables, ["src/delivery.ts"]);
