@@ -274,6 +274,7 @@ export function stubBridge(
         return {
           ok: true,
           facet: "facts",
+          page: { limit: 500, cursor: null, nextCursor: null },
           edges: [],
           coverageRows: [],
           factAnchors: [],
@@ -443,6 +444,7 @@ export function stubCrudBridge(
       getRelationGraph: vi.fn(async () => ({
         ok: true,
         facet: "facts",
+        page: { limit: 500, cursor: null, nextCursor: null },
         edges: [],
         coverageRows: [],
         factAnchors: [],

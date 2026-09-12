@@ -852,9 +852,13 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
     ) {
       const facet = payload.facet;
       if (
-        !["edges", "facts", "coverageRows", "factAnchors", "runtimeEdges"].includes(String(facet)) ||
+        !["edges", "facts", "coverageRows", "runtimeEdges"].includes(String(facet)) ||
         Object.keys(payload).some((field) =>
-          facet === "edges" ? !["facet", "relationType", "state", "direction"].includes(field) : field !== "facet",
+          facet === "edges"
+            ? !["facet", "relationType", "state", "direction", "limit", "cursor"].includes(field)
+            : facet === "facts"
+              ? !["facet", "limit", "cursor"].includes(field)
+              : field !== "facet",
         ) ||
         (payload.relationType !== undefined && (typeof payload.relationType !== "string" || !payload.relationType)) ||
         (payload.state !== undefined &&
@@ -863,6 +867,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
           !relationDirections.includes(String(payload.direction) as (typeof relationDirections)[number]))
       )
         throw context.cellCodedError("invalid_command", "Relation graph facet selectors are invalid.");
+      queryPayloadFacets(payload, "repo.triadic.relationGraph");
       return queryRead().relationGraphFacet(payload as DaemonRelationGraphFacetPayload);
     }
     const common = queryPayloadFacets(payload, "repo.triadic.relationGraph");

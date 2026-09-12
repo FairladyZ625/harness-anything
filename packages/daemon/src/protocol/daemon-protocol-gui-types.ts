@@ -510,10 +510,12 @@ export interface DaemonRelationQueryPayload {
   readonly cursor?: string;
 }
 
-export type DaemonRelationGraphFacet = "edges" | "facts" | "coverageRows" | "factAnchors" | "runtimeEdges";
+export type DaemonRelationGraphFacet = "edges" | "facts" | "coverageRows" | "runtimeEdges";
 
 export interface DaemonRelationEdgeFacetPayload {
   readonly facet: "edges";
+  readonly limit?: number;
+  readonly cursor?: string;
   readonly relationType?: string;
   readonly state?: string;
   readonly direction?: "directed" | "undirected";
@@ -521,7 +523,8 @@ export interface DaemonRelationEdgeFacetPayload {
 
 export type DaemonRelationGraphFacetPayload =
   | DaemonRelationEdgeFacetPayload
-  | { readonly facet: Exclude<DaemonRelationGraphFacet, "edges"> };
+  | { readonly facet: "facts"; readonly limit?: number; readonly cursor?: string }
+  | { readonly facet: "coverageRows" | "runtimeEdges" };
 
 export interface DaemonFactSummaryRow {
   readonly anchor: string;
@@ -567,18 +570,16 @@ export type DaemonRelationGraphFacetResult =
   | ({ readonly ok: true; readonly facet: "edges" } & EventProjectionCut &
       Omit<EmptyRelationFacetRows, "edges"> & {
         readonly edges: DaemonRelationGraphProjection["edges"];
+        readonly page: ProjectionPage;
       })
   | ({ readonly ok: true; readonly facet: "coverageRows" } & EventProjectionCut &
       Omit<EmptyRelationFacetRows, "coverageRows"> & {
         readonly coverageRows: readonly ServedCoverageRow[];
       })
-  | ({ readonly ok: true; readonly facet: "factAnchors" } & EventProjectionCut &
-      Omit<EmptyRelationFacetRows, "factAnchors"> & {
-        readonly factAnchors: DaemonRelationGraphProjection["factAnchors"];
-      })
   | ({ readonly ok: true; readonly facet: "facts" } & EventProjectionCut &
       Omit<EmptyRelationFacetRows, "facts" | "domainTypes"> & {
         readonly facts: readonly DaemonFactSummaryRow[];
+        readonly page: ProjectionPage;
         readonly domainTypes: ReturnType<TaskProjection["listFactDomainTypes"]>["domainTypes"];
       })
   | ({ readonly ok: true; readonly facet: "runtimeEdges" } & Omit<EmptyRelationFacetRows, "edges"> & {

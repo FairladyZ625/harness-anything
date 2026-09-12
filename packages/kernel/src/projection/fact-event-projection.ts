@@ -307,8 +307,6 @@ export function searchFactRowsPage(
 ): { readonly rows: readonly FactProjectionRow[]; readonly page?: FactSearchPage } {
   const where: string[] = [],
     values: Array<string> = [];
-  // A ref list above SQLite's parameter budget filters in memory after the decode instead of in SQL.
-  const memoryRefs = filters.refs !== undefined && filters.refs.length > 900 ? new Set(filters.refs) : null;
   if (filters.query?.trim()) {
     where.push("fact.rowid IN (SELECT rowid FROM fact_fts WHERE fact_fts MATCH ?)");
     values.push(ftsQuery(filters.query));
@@ -317,12 +315,9 @@ export function searchFactRowsPage(
     where.push("fact.task_id = ?");
     values.push(filters.taskId);
   }
-  if (filters.refs !== undefined && memoryRefs === null) {
-    if (filters.refs.length === 0) where.push("0");
-    else {
-      where.push(`fact.ref IN (${filters.refs.map(() => "?").join(",")})`);
-      values.push(...filters.refs);
-    }
+  if (filters.refs !== undefined) {
+    where.push("fact.ref IN (SELECT value FROM json_each(?))");
+    values.push(JSON.stringify(filters.refs));
   }
   if (filters.confidence) {
     where.push("fact.confidence = ?");
@@ -357,8 +352,7 @@ export function searchFactRowsPage(
   if (pageLimit !== null) values.push(String(pageLimit + 1));
   const records = queryRows<FactRecord>(db, sql, ...values);
   const visible = pageLimit === null ? records : records.slice(0, pageLimit),
-    decoded = decodeFactRows(db, visible);
-  const rows = memoryRefs === null ? decoded : decoded.filter((row) => memoryRefs.has(row.ref));
+    rows = decodeFactRows(db, visible);
   if (pageLimit === null) return { rows };
   const hasMore = records.length > pageLimit,
     last = rows.at(-1);
@@ -388,21 +382,23 @@ export function readFactGraphRows(db: DatabaseSync): {
 
 export function readFactAnchorRows(db: DatabaseSync, refs?: readonly string[]): readonly FactAnchorRow[] {
   if (refs !== undefined && refs.length === 0) return [];
-  const scoped = refs !== undefined && refs.length <= 900;
-  const where = scoped ? ` WHERE ref IN (${refs.map(() => "?").join(",")})` : "";
-  const memoryRefs = refs !== undefined && !scoped ? new Set(refs) : null;
+  const where = refs === undefined ? "" : " WHERE ref IN (SELECT value FROM json_each(?))";
   const rows = queryRows<{
     readonly ref: string;
     readonly task_id: string | null;
     readonly fact_id: string;
     readonly op_id: string;
-  }>(db, `SELECT ref, task_id, fact_id, op_id FROM fact${where} ORDER BY ref`, ...(scoped ? refs : [])).map((row) => ({
+  }>(
+    db,
+    `SELECT ref, task_id, fact_id, op_id FROM fact${where} ORDER BY ref`,
+    ...(refs === undefined ? [] : [JSON.stringify(refs)]),
+  ).map((row) => ({
     factRef: row.ref,
     ...(row.task_id ? { taskId: row.task_id } : {}),
     factId: row.fact_id,
     sourcePath: `event:${row.op_id}`,
   }));
-  return memoryRefs === null ? rows : rows.filter((row) => memoryRefs.has(row.factRef));
+  return rows;
 }
 function checkedFactPageLimit(value: number): number {
   if (!Number.isSafeInteger(value) || value < 1 || value > 500)

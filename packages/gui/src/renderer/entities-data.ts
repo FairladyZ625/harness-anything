@@ -5,7 +5,7 @@ import { agentEntityClient } from "./agent-entity-client.ts";
 import { schedulesClient } from "./schedules-client.ts";
 import { catalogQueryKeys } from "./catalog-data.ts";
 import { workspaceSummaryQuery } from "./workspace-summary-data.ts";
-import { triadicQueryKeys } from "./triadic-data.ts";
+import { usePaletteFactsQuery } from "./triadic-data.ts";
 import type { RelationFactSummaryRow } from "./api-client.ts";
 
 /**
@@ -75,6 +75,9 @@ function countOf(value: number): number {
 export interface FactFacetStats {
   readonly state: "ready" | "pending" | "error";
   readonly total: number | null;
+  readonly hasNextPage: boolean;
+  readonly isFetching: boolean;
+  readonly fetchNextPage: () => unknown;
   /** memoryClass 在读面上的折叠:semantic→lesson、procedural→progress、episodic→finding。 */
   readonly byCategory: ReadonlyArray<{ readonly category: RelationFactSummaryRow["category"]; readonly count: number }>;
   readonly domainTypes: ReadonlyArray<{
@@ -83,29 +86,21 @@ export interface FactFacetStats {
   }>;
 }
 
-/**
- * Fact 详情的实况切面:与 ⌘K 面板同一条 facts 切面读(同一 queryKey,共享缓存
- * 与失效)。只在 Fact 实体详情打开时启用——这是本面唯一的大读(约 1 MB 量级),
- * 不为目录页的计数去拉它。
- */
+/** Fact 详情与 ⌘K 共用分页缓存;统计只覆盖已加载页,由视图显式续页。 */
 export function useFactFacetStats(repoId: string, enabled: boolean): FactFacetStats {
-  const query = useQuery({
-    queryKey: triadicQueryKeys.facts(repoId),
-    queryFn: () => harnessClient.getRelationFacts({ repoId, facet: "facts" }),
-    enabled,
-    staleTime: 10_000,
-  });
-  return useMemo(() => {
-    if (query.isError) return { state: "error", total: null, byCategory: [], domainTypes: [] };
-    if (query.data === undefined) return { state: "pending", total: null, byCategory: [], domainTypes: [] };
-    const facts = query.data.facts,
-      counts = new Map<RelationFactSummaryRow["category"], number>();
-    for (const fact of facts) counts.set(fact.category, (counts.get(fact.category) ?? 0) + 1);
-    return {
-      state: "ready",
-      total: facts.length,
-      byCategory: [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([category, count]) => ({ category, count })),
-      domainTypes: query.data.domainTypes,
-    };
-  }, [query.data, query.isError]);
+  const query = usePaletteFactsQuery(repoId, enabled);
+  const byCategory = useMemo(() => {
+    const counts = new Map<RelationFactSummaryRow["category"], number>();
+    for (const fact of query.facts) counts.set(fact.category, (counts.get(fact.category) ?? 0) + 1);
+    return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([category, count]) => ({ category, count }));
+  }, [query.facts]);
+  return {
+    state: query.isError ? "error" : query.isPending ? "pending" : "ready",
+    total: query.isError || query.isPending ? null : query.facts.length,
+    byCategory,
+    domainTypes: query.domainTypes,
+    hasNextPage: query.hasNextPage,
+    isFetching: query.isFetching,
+    fetchNextPage: query.fetchNextPage,
+  };
 }

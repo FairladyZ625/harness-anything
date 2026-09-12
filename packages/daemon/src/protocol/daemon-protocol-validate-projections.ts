@@ -145,12 +145,13 @@ export function validateDaemonRelationGraph(value: unknown): readonly string[] {
     );
   if (requiredShapeError) return [requiredShapeError];
   if (!isJsonObject(value)) return [];
-  const full = value.facet === undefined,
+  const pagedFacet = value.facet === "edges" || value.facet === "facts",
+    full = value.facet === undefined,
     canonicalCut = full || value.facet !== "runtimeEdges",
     topFields = [
       ...DAEMON_RELATION_GRAPH_SCHEMA.required,
       ...(canonicalCut ? DAEMON_RELATION_GRAPH_SCHEMA.canonicalCut : []),
-      ...(full && value.page !== undefined ? ["page"] : []),
+      ...(pagedFacet || (full && value.page !== undefined) ? ["page"] : []),
       ...(full ? [] : ["facet"]),
     ];
   const shapeError = recordShapeError(entityId, value, topFields, [
@@ -169,7 +170,12 @@ export function validateDaemonRelationGraph(value: unknown): readonly string[] {
     ["watermark", value.watermark, !canonicalCut || integer(value.watermark), "must be an integer"],
     ["sourceRevision", value.sourceRevision, !canonicalCut || integer(value.sourceRevision), "must be an integer"],
     ["warnings", value.warnings, warningArray(value.warnings), "must contain valid warnings"],
-    ["page", value.page, !full || value.page === undefined || queryPageRow(value.page), "must be a valid query page"],
+    [
+      "page",
+      value.page,
+      pagedFacet ? queryPageRow(value.page) : !full || value.page === undefined || queryPageRow(value.page),
+      "must be a valid query page",
+    ],
     ["edges", value.edges, Array.isArray(value.edges), "must be an array"],
     ["coverageRows", value.coverageRows, Array.isArray(value.coverageRows), "must be an array"],
     ["factAnchors", value.factAnchors, Array.isArray(value.factAnchors), "must be an array"],
@@ -203,14 +209,14 @@ export function validateDaemonRelationGraph(value: unknown): readonly string[] {
     }
     return [];
   }
-  if (!["edges", "facts", "coverageRows", "factAnchors", "runtimeEdges"].includes(String(value.facet)))
+  if (!["edges", "facts", "coverageRows", "runtimeEdges"].includes(String(value.facet)))
     return [validationError(entityId, "facet", value.facet, "must name a supported relation-graph facet")];
   // `runtimeEdges` 与 `edges` 同为边切面:选中的数组是 edges,其余必须为空。
   const edgesFacet = value.facet === "edges" || value.facet === "runtimeEdges";
   const populatedUnselected = [
     ["edges", value.edges, edgesFacet],
     ["coverageRows", value.coverageRows, value.facet === "coverageRows"],
-    ["factAnchors", value.factAnchors, value.facet === "factAnchors"],
+    ["factAnchors", value.factAnchors, false],
     ["facts", value.facts, value.facet === "facts"],
   ] as const;
   const unexpected = populatedUnselected.find(([, rows, selected]) => !selected && rows.length !== 0);
@@ -220,9 +226,7 @@ export function validateDaemonRelationGraph(value: unknown): readonly string[] {
     ? (["edges", value.edges, relationEdgeInvalid] as const)
     : value.facet === "coverageRows"
       ? (["coverageRows", value.coverageRows, coverageRowInvalid] as const)
-      : value.facet === "factAnchors"
-        ? (["factAnchors", value.factAnchors, factAnchorInvalid] as const)
-        : (["facts", value.facts, factSummaryInvalid] as const);
+      : (["facts", value.facts, factSummaryInvalid] as const);
   const invalidIndex = selected[1].findIndex(selected[2]);
   if (invalidIndex >= 0)
     return [

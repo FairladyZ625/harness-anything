@@ -114,7 +114,7 @@ test("relation filters, facets, and pages select one event-backed edge universe"
       { relationType: "derives", limit: undefined, cursor: undefined },
       { relationType: undefined, limit: 1, cursor: undefined },
       { relationType: undefined, limit: 1, cursor: "page-2" },
-      { relationType: undefined, limit: undefined, cursor: undefined },
+      { relationType: undefined, limit: 500, cursor: undefined },
     ],
   );
 });
