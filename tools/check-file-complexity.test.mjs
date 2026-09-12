@@ -104,15 +104,23 @@ test("uses merge-base even when origin/main advanced independently", (t) => {
   f.check(1, /801 lines exceeds max 800/);
 });
 
-test("committed additions and renamed paths do not acquire a historical allowance", (t) => {
+test("committed additions do not acquire a historical allowance", (t) => {
+  const f = fixture(t);
+  f.base();
+  f.write("packages/demo/src/fresh.ts", 800);
+  f.commit();
+  f.check(1, /fresh.ts: 800 lines exceeds max 600/);
+});
+
+test("renamed paths inherit the merge-base allowance of their source and still cannot grow", (t) => {
   const f = fixture(t);
   f.write("packages/demo/src/old.ts", 800);
   f.base();
   f.git("mv", "packages/demo/src/old.ts", "packages/demo/src/new name.ts");
   f.commit();
-  f.check(1, /new name.ts: 800 lines exceeds max 600/);
-  rmSync(path.join(f.root, "packages/demo/src/new name.ts"));
   f.check(0);
+  f.write("packages/demo/src/new name.ts", 801);
+  f.check(1, /new name.ts: 801 lines exceeds max 800/);
 });
 
 test("retains empty, CRLF, trailing newline and excluded-directory counting behavior", (t) => {

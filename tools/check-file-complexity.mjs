@@ -57,9 +57,14 @@ function policyFor(filePath) {
 }
 
 const base = (await git(["merge-base", "origin/main", "HEAD"])).trim();
-const baseFiles = new Set(
-  (await git(["ls-tree", "-r", "--name-only", "-z", base, "--", "packages", "tools"])).split("\0").filter(Boolean),
-);
+const baseFiles = new Set((await git(["ls-tree", "-r", "--name-only", "-z", base])).split("\0").filter(Boolean));
+const renameSources = new Map();
+const renameRecords = (await git(["diff", "-M", "--name-status", "--diff-filter=R", "-z", base, "HEAD"]))
+  .split("\0")
+  .filter(Boolean);
+for (let i = 0; i < renameRecords.length; i += 3) {
+  renameSources.set(renameRecords[i + 2], renameRecords[i + 1]);
+}
 const files = [...(await walk(path.join(root, "packages"))), ...(await walk(path.join(root, "tools")))];
 
 for (const filePath of files) {
@@ -68,7 +73,9 @@ for (const filePath of files) {
   const { standard, stage } = policyFor(filePath);
   if (lines <= standard) continue;
   const rel = relative(filePath);
-  const baseLines = baseFiles.has(rel) ? countLines(await git(["show", `${base}:${rel}`])) : 0;
+  // A renamed path inherits the merge-base allowance of its source so moves keep their shrink-only budget.
+  const historyPath = renameSources.get(rel) ?? rel;
+  const baseLines = baseFiles.has(historyPath) ? countLines(await git(["show", `${base}:${historyPath}`])) : 0;
   // Existing debt may only shrink; the stage ceiling preserves the previous rejection surface.
   const limit = Math.min(stage, Math.max(standard, baseLines));
   if (lines > limit) {
