@@ -42,8 +42,12 @@ test("CI workflows default to rewrite-ci and accept configured workflow basename
   assert.deepEqual(readSettingsFacet(`${body}\n  ci:\n    workflows: [ci]\n`).ci.workflows, ["ci"]);
 });
 
-test("CI workflows fail closed on empty, duplicate, extension-bearing, or block arrays", () => {
-  for (const workflows of ["[]", "[ci, ci]", "[ci.yml]", "", "\n      - ci"]) {
+test("CI workflows read an explicit empty list as the CI-witnessing opt-out", () => {
+  assert.deepEqual(readSettingsFacet(`${body}\n  ci:\n    workflows: []\n`).ci.workflows, []);
+});
+
+test("CI workflows fail closed on duplicate, extension-bearing, or block arrays", () => {
+  for (const workflows of ["[ci, ci]", "[ci.yml]", "", "\n      - ci"]) {
     const configured = `${body}\n  ci:\n    workflows: ${workflows}\n`;
     assert.throws(() => readSettingsFacet(configured), /settings\.ci\.workflows/u);
   }
@@ -55,6 +59,9 @@ test("the repository facet writer inserts, replaces, and leaves default CI workf
   const inserted = writeRepositorySettingsFacet(body, { ...readSettingsFacet(body), ci: { workflows: ["ci"] } });
   assert.match(inserted, /^  ci:\n    workflows: \[ci\]$/mu);
   assert.deepEqual(readSettingsFacet(inserted).ci.workflows, ["ci"]);
+  const cleared = writeRepositorySettingsFacet(inserted, { ...readSettingsFacet(inserted), ci: { workflows: [] } });
+  assert.match(cleared, /^  ci:\n    workflows: \[\]$/mu);
+  assert.deepEqual(readSettingsFacet(cleared).ci.workflows, []);
   const replaced = writeRepositorySettingsFacet(`${body}\n  ci:\n    workflows: [legacy]\n`, readSettingsFacet(body));
   assert.doesNotMatch(replaced, /legacy/u);
   assert.deepEqual(readSettingsFacet(replaced).ci.workflows, ["rewrite-ci"]);

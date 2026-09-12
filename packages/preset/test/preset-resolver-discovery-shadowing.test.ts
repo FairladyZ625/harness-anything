@@ -301,3 +301,23 @@ test("profile precedence is explicit action, then projected settings", () => {
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
+
+test("a repository without CI witness workflows resolves the standard task without the ci gate", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-preset-ci-gate-"));
+  try {
+    const compile = (settings: Parameters<typeof compileRepoTaskPackage>[0]["settings"]) =>
+      compileRepoTaskPackage({
+        rootDir,
+        settings,
+        taskId: "task-ci-gate",
+        action: { kind: "task-create", title: "Witness", presetId: "standard-task" },
+      }).snapshot;
+    const witnessed = compile(INITIAL_SETTINGS_V1);
+    assert.deepEqual(witnessed.profile.completionGateIds, ["ci", "code-doc-reconciliation"]);
+    const witnessless = compile({ ...INITIAL_SETTINGS_V1, ci: { workflows: [] } });
+    assert.deepEqual(witnessless.profile.completionGateIds, ["code-doc-reconciliation"]);
+    assert.notEqual(witnessless.digest, witnessed.digest);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});

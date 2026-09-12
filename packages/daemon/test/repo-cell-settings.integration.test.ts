@@ -172,6 +172,27 @@ test("settings writes reject catalog-inconsistent vertical, preset, and profile 
     assert.equal(ciFlushed.wait?.state, "satisfied", JSON.stringify(ciFlushed));
     assert.match(readFileSync(configPath, "utf8"), /ci:\n    workflows: \[ci, nightly\]/u);
 
+    const ciCleared = await cell.run(
+      {
+        kind: "settings-update",
+        ciWorkflows: [],
+        expectedVersion: ciApplied.revision,
+        idempotencyKey: "ci-workflows-clear",
+      },
+      binding,
+    );
+    assert.equal(ciCleared.outcome, "applied", JSON.stringify(ciCleared));
+    const clearedSettings = (await cell.read("repo.settings.read")) as {
+      readonly settings: { readonly ci: { readonly workflows: readonly string[] } };
+    };
+    assert.deepEqual(clearedSettings.settings.ci.workflows, []);
+    const clearFlushed = await cell.run(
+      { kind: "receipt-show", opId: ciCleared.opId, waitFor: ["worktree_visible"], timeoutMs: 5000 },
+      binding,
+    );
+    assert.equal(clearFlushed.wait?.state, "satisfied", JSON.stringify(clearFlushed));
+    assert.match(readFileSync(configPath, "utf8"), /ci:\n    workflows: \[\]/u);
+
     const beforeLocalRevision = eventStore.readHead()!.revision,
       localApplied = await cell.run(
         { kind: "settings-update", locale: "zh-CN", idempotencyKey: "local-settings-update" },
