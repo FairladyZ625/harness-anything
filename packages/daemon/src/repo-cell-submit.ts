@@ -39,9 +39,14 @@ export function deriveCloseoutSubmission(
     prose = submissionFromCloseout(document.body, { commitSha: "0".repeat(40), deliverables: [], outputs: [] }),
     anchors = artifactAnchors(prose.completionClaim),
     named = [...new Set(prose.completionClaim.replace(/artifact:[^\s`<>]+/gu, "").match(/\b[0-9a-f]{40}\b/gu) ?? [])];
+  if (named.length > 1)
+    throw cell.cellCodedError(
+      "invalid_submission",
+      `Summary names ${named.length} delivery commits; one execution has exactly one delivery cut, ` +
+        "so name only the commit being delivered.",
+    );
   if (
     (named.length === 1) === anchors.length > 0 ||
-    named.length > 1 ||
     (prose.completionClaim.match(/artifact:/gu) ?? []).length !== anchors.length
   )
     throw cell.cellCodedError(
