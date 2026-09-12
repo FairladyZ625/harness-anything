@@ -217,9 +217,19 @@ export function runCliPackageSmoke(root = process.cwd()) {
       path.join(taskDir, "artifacts", "smoke.md"),
       "# Packaged CLI smoke\n\nBootstrap, task creation and execution start returned successful receipts.\n",
     );
+    const artifactPath = `${String(created.packagePath)}/artifacts/smoke.md`;
+    const artifactSync = expectOk(
+      runJson(
+        binPath,
+        ["--root", projectDir, "--json", "doc", "sync", "--submit", "--task", "task-smoke"],
+        projectDir,
+        env(userRoot, home),
+      ),
+      "smoke artifact submit",
+    );
     writeFileSync(
       path.join(taskDir, "closeout.md"),
-      "# Closeout\n\n## Summary\n\nThe packaged CLI bootstrapped a workspace and started its smoke task.\n\n" +
+      `# Closeout\n\n## Summary\n\nThe packaged CLI delivered artifact:${artifactPath}@${artifactSync.revision}\n\n` +
         "## Verification\n\nBoth installed CLI aliases expose help; init, task create and task start returned successful receipts.\n\n" +
         "## Residual Risk\n\nDaemon restart behavior is checked after submission.\n\n" +
         "## Same Mechanism Elsewhere\n\nThe installed ha alias uses the same lifecycle entry point.\n",
