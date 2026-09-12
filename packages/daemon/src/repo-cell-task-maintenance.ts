@@ -89,7 +89,8 @@ export function supersedeWithNewTask(
           : null;
     return { ...replay, replacementTaskId } as WriteReceipt;
   }
-  if (old.snapshot.lease)
+  // Same phase-aware guard as taskMutation: an orphaned lease's holder is gone and fences nothing.
+  if (old.snapshot.lease !== null && ["reserving", "held"].includes(old.snapshot.lease.phase))
     throw cell.cellCodedError("active_lease", `Run ha task release ${oldTaskId} before task-supersede.`);
   if ((old.snapshot.task.packageDisposition ?? "active") !== "active" || old.snapshot.task.supersededBy)
     throw cell.cellCodedError(

@@ -104,7 +104,11 @@ export function taskMutation(
       },
     };
   }
-  if (activeLease && !pinOnlyAmend && action.kind !== "task-contract-migrate")
+  // An orphaned lease's holder is gone; it fences nothing (start already takes it over via the
+  // reservation CAS), so only a live reservation or hold keeps task-level mutations out. Release
+  // above still needs the orphaned record itself to settle it.
+  const liveLease = activeLease !== null && ["reserving", "held"].includes(activeLease.phase);
+  if (liveLease && !pinOnlyAmend && action.kind !== "task-contract-migrate")
     throw cell.cellCodedError("active_lease", `Run ha task release ${task.taskId} before ${action.kind}.`);
   if (action.kind === "task-amend") {
     const patches = amendPatches,

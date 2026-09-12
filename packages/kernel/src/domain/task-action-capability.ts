@@ -139,14 +139,19 @@ function mutationInvocation(): "invocation-required" {
   return "invocation-required";
 }
 
+/** An orphaned lease's holder is gone and fences nothing — the write path treats it like no lease. */
+function toleratesLapsedLease(lease: TaskActionCapabilityInput["snapshot"]["lease"]): boolean {
+  return lease === null || lease.phase === "orphaned";
+}
+
 function activeDispositionInvocation({ snapshot }: TaskActionCapabilityInput): "invocation-required" | "unmet" {
-  return snapshot.lease === null && (snapshot.task?.packageDisposition ?? "active") === "active"
+  return toleratesLapsedLease(snapshot.lease) && (snapshot.task?.packageDisposition ?? "active") === "active"
     ? "invocation-required"
     : "unmet";
 }
 
 function reopenInvocation({ snapshot }: TaskActionCapabilityInput): "invocation-required" | "unmet" {
-  return snapshot.lease === null &&
+  return toleratesLapsedLease(snapshot.lease) &&
     snapshot.task !== null &&
     !["done", "cancelled"].includes(snapshot.task.status) &&
     ["archived", "tombstoned"].includes(snapshot.task.packageDisposition ?? "active")

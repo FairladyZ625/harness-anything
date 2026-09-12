@@ -165,6 +165,52 @@ test("ReturnToPlanned frees the round so ha task start allocates a fresh executi
   }
 });
 
+test("an archived dead-zone task reopens and rejoins its execution through ha task start --execution-id", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-lease-dead-zone-archive-"));
+  let clock = new Date("2026-09-12T00:00:00.000Z");
+  let cell: Cell | undefined;
+  try {
+    initRepo(rootDir);
+    cell = await openRepoCell({
+      repoId: workspaceId("lease-dead-zone-archive"),
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "lease-dead-zone-archive",
+      now: () => clock.toISOString(),
+    });
+    await createReadyTask(cell, rootDir, "task_archive_dz", "Archived dead-zone recovery");
+    const started = (await cell.run(
+      { kind: "task-start", taskId: "task_archive_dz", executionId: "exe_archive_dz", ttlMs: 60_000 },
+      holderBinding,
+    )) as WriteReceipt;
+    assert.equal(started.outcome, "applied", JSON.stringify(started));
+
+    // The holder is gone and past TTL the stored lease reads orphaned. Before the fix the
+    // active_lease guard rejected task-archive itself, so the T1-random-baseline recovery
+    // chain (archive, then reopen, then start --execution-id) died at step one for any
+    // actor who could not release the orphaned lease.
+    clock = new Date("2026-09-12T02:00:00.000Z");
+    const archived = (await cell.run(
+      { kind: "task-archive", taskId: "task_archive_dz", reason: "Holder gone; parking the dead round" },
+      peerBinding,
+    )) as WriteReceipt;
+    assert.equal(archived.outcome, "applied", JSON.stringify(archived));
+    const reopened = (await cell.run(
+      { kind: "task-reopen", taskId: "task_archive_dz", reason: "Recovering the parked execution" },
+      peerBinding,
+    )) as WriteReceipt;
+    assert.equal(reopened.outcome, "applied", JSON.stringify(reopened));
+    const rejoined = (await cell.run(
+      { kind: "task-start", taskId: "task_archive_dz", executionId: "exe_archive_dz" },
+      peerBinding,
+    )) as WriteReceipt;
+    assert.equal(rejoined.outcome, "applied", JSON.stringify(rejoined));
+    assert.equal(rejoined.executionId, "exe_archive_dz", "reopen leaves the round recoverable");
+  } finally {
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 async function createReadyTask(cell: Cell, rootDir: string, taskId: string, title: string): Promise<void> {
   await createRealizedTaskPlanFixture(
     rootDir,
