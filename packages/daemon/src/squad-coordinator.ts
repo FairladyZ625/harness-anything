@@ -6,7 +6,6 @@ import {
   latestRuntimeActivityAt,
   parseAgentDeclarationV1,
   parseSquadDeclarationV1,
-  resolveHarnessLayout,
   runtimeSessionSemanticState,
   type AgentRuntimeEventV1,
   type CanonicalEventStore,
@@ -642,11 +641,7 @@ export function makeSquadCoordinator(input: {
       prompt =
         trigger.kind === "initial"
           ? initialLeaderPrompt(state)
-          : callbackLeaderPrompt(
-              { ...state, authoredRoot: resolveHarnessLayout(input.rootDir).authoredRoot },
-              drainedTriggers,
-              dispatchRows(state),
-            ),
+          : callbackLeaderPrompt(state, drainedTriggers, dispatchRows(state), resultText),
       receipt = await input.runtimeSpawner().spawn(
         {
           runtimeInstanceId: state.runtimeInstanceId,
@@ -772,9 +767,9 @@ export function makeSquadCoordinator(input: {
 
   function resultText(resultRef: string | null | undefined): string {
     const match = resultRef ? /^artifact:runtime-result\/sha256\/([0-9a-f]{64})$/u.exec(resultRef) : null;
-    if (!match) throw new Error("Leader TaskDispatchRow has no runtime result reference.");
+    if (!match) throw new Error("TaskDispatchRow has no runtime result reference.");
     const blob = input.store().readContentBlob(match[1]!);
-    if (!blob) throw new Error(`Leader result ${resultRef} is unavailable.`);
+    if (!blob) throw new Error(`Runtime result ${resultRef} is unavailable.`);
     return new TextDecoder().decode(blob);
   }
 
