@@ -25,7 +25,7 @@ export function rejectHostAction(
   };
 }
 
-export function rejectPresetRun(runId: string, code: string, _legacyGuidance: string) {
+export function rejectPresetRun(runId: string, code: string, rejectionExplanation: string) {
   return {
     schema: "preset-run-receipt/v1" as const,
     runId,
@@ -33,6 +33,7 @@ export function rejectPresetRun(runId: string, code: string, _legacyGuidance: st
     phase: "op_rejected" as const,
     phases: ["op_rejected"] as const,
     code,
+    rejectionExplanation,
   };
 }
 

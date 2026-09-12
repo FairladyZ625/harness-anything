@@ -7,6 +7,9 @@ import {
 } from "../../kernel/src/index.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 
+export const artifactAnchorGuidance =
+  "Use artifact:artifacts/report.md@3; take the revision from the ha doc sync --submit or ha doc status receipt.";
+
 /** Resolve only center-accepted bytes; current workspace files are never evidence for a historical cut. */
 export function readSubmissionArtifact(
   cell: Pick<RepoCellOperationalContext, "store" | "cellCodedError">,
@@ -16,13 +19,18 @@ export function readSubmissionArtifact(
   expectedBlob?: string,
 ): { readonly anchor: ArtifactDelivery; readonly body: string; readonly acceptance: string } {
   const invalid = (reason: string): never => {
-    throw cell.cellCodedError("invalid_submission", `Artifact ${path}@${revision}: ${reason}`);
+    throw cell.cellCodedError(
+      "invalid_submission",
+      `Artifact ${path}@${revision}: ${reason}. ${artifactAnchorGuidance}`,
+    );
   };
   let normalized: string;
   try {
     normalized = normalizeRelativeDocumentPath(path);
   } catch (cause) {
-    throw Object.assign(new Error(`Artifact path is invalid: ${path}`, { cause }), { code: "invalid_submission" });
+    throw Object.assign(new Error(`Artifact path is invalid: ${path}. ${artifactAnchorGuidance}`, { cause }), {
+      code: "invalid_submission",
+    });
   }
   if (normalized !== path || !path.startsWith(`${packagePath}/artifacts/`))
     return invalid("path must belong to this task's artifacts");
