@@ -514,24 +514,51 @@ test("Decision F06 and distill leaf commands preserve their complete structured 
   assert.equal(parseThinCommand(["decision", "amend", "dec_1"]).ok, false);
 });
 
-test("Decision human consent has one explicit, complete transition input", () => {
+test("Decision human consent defaults absent consent-at and consent-channel at the CLI plane", () => {
   const base = ["decision", "transition", "in_effect", "dec_TEST"],
-    approval = ["--consent-by", "person-test", "--consent-at", "2026-09-12T01:02:03Z", "--consent-channel", "chat"],
-    parsed = parseThinCommand([...base, ...approval]);
-  assert.equal(parsed.ok, true);
-  if (parsed.ok)
-    assert.deepEqual(
-      {
+    consentOf = (args: readonly string[]) => {
+      const parsed = parseThinCommand(args);
+      assert.equal(parsed.ok, true, JSON.stringify(args));
+      if (!parsed.ok) throw new Error("parse failed");
+      return {
         consentBy: parsed.command.action.consentBy,
         consentAt: parsed.command.action.consentAt,
         consentChannel: parsed.command.action.consentChannel,
-      },
-      { consentBy: "person-test", consentAt: "2026-09-12T01:02:03Z", consentChannel: "chat" },
-    );
+      };
+    };
+  assert.deepEqual(
+    consentOf([
+      ...base,
+      "--consent-by",
+      "person-test",
+      "--consent-at",
+      "2026-09-12T01:02:03Z",
+      "--consent-channel",
+      "chat",
+    ]),
+    { consentBy: "person-test", consentAt: "2026-09-12T01:02:03Z", consentChannel: "chat" },
+  );
+  assert.deepEqual(consentOf([...base, "--consent-by", "person-test", "--consent-at", "2026-09-12T01:02:03Z"]), {
+    consentBy: "person-test",
+    consentAt: "2026-09-12T01:02:03Z",
+    consentChannel: "cli",
+  });
+  const before = Date.now(),
+    defaulted = consentOf([...base, "--consent-by", "person-test"]),
+    channelOnly = consentOf([...base, "--consent-by", "person-test", "--consent-channel", "chat"]),
+    after = Date.now();
+  for (const consent of [defaulted, channelOnly]) {
+    assert.equal(consent.consentBy, "person-test");
+    assert.equal(consent.consentChannel, consent === channelOnly ? "chat" : "cli");
+    assert.match(String(consent.consentAt), /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/u);
+    const at = Date.parse(String(consent.consentAt));
+    assert.ok(at >= before && at <= after, `consentAt ${String(consent.consentAt)} outside [${before}, ${after}]`);
+  }
   for (const args of [
-    [...base, "--consent-by", "person-test"],
-    [...base, ...approval.slice(0, -1), "email"],
-    ["decision", "transition", "deferred", "dec_TEST", ...approval],
+    [...base, "--consent-at", "2026-09-12T01:02:03Z"],
+    [...base, "--consent-by", "person-test", "--consent-channel", "email"],
+    [...base, "--consent-by", "person-test", "--consent-at"],
+    ["decision", "transition", "deferred", "dec_TEST", "--consent-by", "person-test"],
   ])
     assert.equal(parseThinCommand(args).ok, false, JSON.stringify(args));
 });
