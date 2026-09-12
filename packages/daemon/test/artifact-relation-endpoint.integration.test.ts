@@ -104,6 +104,13 @@ test("A vertical artifact entity is a relation endpoint for its declared triple 
     assert.equal(undeclared.outcome, "op_rejected", JSON.stringify(undeclared));
     assert.equal(undeclared.code, "relation_triple_undeclared", JSON.stringify(undeclared));
 
+    assert.deepEqual(JSON.parse(JSON.stringify(undeclared)).diagnostic.allowedTriples, [
+      { sourceKind: kind, type: "relates", targetKind: "decision" },
+    ]);
+    assert.equal(reversed.diagnostic?.kind, "validation");
+    assert.equal("allowedTriples" in (reversed.diagnostic ?? {}), false);
+    assert.equal("allowedTriples" in (invalidTarget.diagnostic ?? {}), false);
+
     await cell.close();
     cell = undefined;
     const relationId = deriveRelationId({

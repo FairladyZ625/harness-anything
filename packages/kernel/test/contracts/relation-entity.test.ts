@@ -124,11 +124,15 @@ test("undeclared relation triples name the available triples for their source ki
         occurredAt: "2026-09-04T00:00:00.000Z",
         workspaceRevision: 1,
       }),
-    (error: unknown) =>
-      (error as { readonly code?: string }).code === "relation_triple_undeclared" &&
-      /Declared triples for source kind fact: supersedes-fact -> fact, relates -> relation/u.test(
-        String((error as { readonly diagnostic?: { readonly expectation?: unknown } }).diagnostic?.expectation),
-      ),
+    (error: unknown) => {
+      const rejected = error as { code: string; diagnostic: { allowedTriples: unknown } };
+      assert.equal(rejected.code, "relation_triple_undeclared");
+      assert.deepEqual(rejected.diagnostic.allowedTriples, [
+        { sourceKind: "fact", type: "supersedes-fact", targetKind: "fact" },
+        { sourceKind: "fact", type: "relates", targetKind: "relation" },
+      ]);
+      return true;
+    },
   );
 });
 

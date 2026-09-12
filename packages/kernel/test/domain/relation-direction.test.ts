@@ -1,6 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
+import { assertRelationAdmission } from "../../src/domain/relation-event.ts";
 import { isAllowedRelationKindTriple, relationTypes } from "../../src/domain/entity-relation.ts";
 import {
   canonicalRelationDirections,
@@ -132,4 +133,31 @@ test("Relation is a first-class endpoint without changing existing verb meanings
   }
   assert.equal(isAllowedRelationKindTriple("relation", "depends-on", "task"), false);
   assert.equal(isAllowedRelationKindTriple("fact", "supersedes-fact", "relation"), false);
+});
+
+test("undeclared admission lists only writable rows from the supplied registry", () => {
+  const record = { source: "task/task-source", target: "fact/F-target", type: "derives" } as const;
+  for (const directions of [canonicalRelationDirections, []]) {
+    assert.throws(
+      () => assertRelationAdmission(record, directions),
+      (error: unknown) => {
+        const rejected = error as { code: string; diagnostic: { allowedTriples: unknown } };
+        assert.equal(rejected.code, "relation_triple_undeclared");
+        assert.deepEqual(
+          rejected.diagnostic.allowedTriples,
+          directions.length
+            ? [
+                { sourceKind: "task", type: "implements", targetKind: "decision" },
+                { sourceKind: "task", type: "depends-on", targetKind: "task" },
+                { sourceKind: "task", type: "relates", targetKind: "task" },
+                { sourceKind: "task", type: "produces", targetKind: "fact" },
+                { sourceKind: "task", type: "evidences", targetKind: "fact" },
+                { sourceKind: "task", type: "relates", targetKind: "relation" },
+              ]
+            : [],
+        );
+        return true;
+      },
+    );
+  }
 });

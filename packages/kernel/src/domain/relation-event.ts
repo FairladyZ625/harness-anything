@@ -14,11 +14,7 @@ import {
 } from "./entity-relation.ts";
 import type { EntityVersion } from "./entity-freshness.ts";
 import { parseEntityRef } from "./entity-ref.ts";
-import {
-  canonicalRelationDirections,
-  declaredRelationTriples,
-  type CanonicalRelationDirection,
-} from "./relation-direction.ts";
+import { canonicalRelationDirections, type CanonicalRelationDirection } from "./relation-direction.ts";
 import type { DecisionEventV1 } from "./decision-event.ts";
 import { factRef, type FactEventV1 } from "./fact-event.ts";
 import type { MigrationImportEventV1 } from "./migration-import-event.ts";
@@ -530,13 +526,8 @@ export function assertRelationAdmission(
     "relation_triple_undeclared",
     record,
     kinds,
-    `Declared triples for source kind ${kinds.source}: ` +
-      declaredRelationTriples({ sourceKind: kinds.source })
-        .map(({ type, targetKind }) => `${type} -> ${targetKind}`)
-        .join(", ") +
-      ". Run ha relation triples --source-kind " +
-      `${kinds.source} to inspect the canonical registry. ` +
-      "evidenced-by is directed decision/claim -> fact.",
+    `Choose a declared triple for source kind ${kinds.source}`,
+    writable.filter(({ sourceKind }) => sourceKind === kinds.source),
   );
 }
 
@@ -545,6 +536,7 @@ function relationAdmissionError(
   record: Pick<EntityRelationRecord, "type">,
   kinds: { readonly source: string; readonly target: string },
   expectation: string,
+  allowedTriples?: readonly CanonicalRelationDirection[],
 ): never {
   throw Object.assign(
     new Error(
@@ -559,6 +551,15 @@ function relationAdmissionError(
         field: "source-ref/type/target-ref",
         actual: `${kinds.source} --${record.type}--> ${kinds.target}`,
         expectation,
+        ...(allowedTriples
+          ? {
+              allowedTriples: allowedTriples.map(({ sourceKind, type, targetKind }) => ({
+                sourceKind,
+                type,
+                targetKind,
+              })),
+            }
+          : {}),
       },
     },
   );

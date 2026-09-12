@@ -215,7 +215,14 @@ export function humanError(receipt: Record<string, unknown>): { readonly code: s
 }
 
 function renderDiagnostic(diagnostic: Record<string, unknown>): string | null {
-  if (diagnostic.kind === "validation") return renderTemplate("failure", "validation", diagnostic);
+  if (diagnostic.kind === "validation") {
+    const hint = renderTemplate("failure", "validation", diagnostic);
+    if (!Array.isArray(diagnostic.allowedTriples)) return hint;
+    const rows = diagnostic.allowedTriples.map((row: { sourceKind: string; type: string; targetKind: string }) =>
+      [row.sourceKind, row.type, row.targetKind].join("\t"),
+    );
+    return [hint, "source kind\ttype\ttarget kind", ...(rows.length ? rows : ["(none)"])].join("\n");
+  }
   if (diagnostic.kind === "workspace-boundary") return renderTemplate("failure", "workspace-boundary", diagnostic);
   if (diagnostic.kind === "missing-sections") return renderTemplate("failure", "missing-sections", diagnostic);
   if (diagnostic.kind === "materialization-failed")
