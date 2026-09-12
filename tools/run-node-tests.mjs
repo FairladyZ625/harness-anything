@@ -223,6 +223,11 @@ const exitCode = await new Promise((resolveRun) => {
     console.error(error.message);
     finish(1);
   });
+  child.once("exit", () => {
+    if (watchdog !== null) clearInterval(watchdog);
+    // Descendants can keep the host's pipes open, so close cannot initiate cleanup.
+    if (process.platform !== "win32" && timedOutFiles.length === 0) termination = terminateProcessTree(child);
+  });
   child.once("close", (code, signal) => {
     if (signal !== null && timedOutFiles.length === 0) console.error(`node --test terminated by signal ${signal}`);
     finish(timedOutFiles.length > 0 || signal !== null ? 1 : (code ?? 1));
@@ -307,7 +312,7 @@ async function terminateProcessTree(child) {
     if (child.exitCode === null) child.kill("SIGKILL");
     return;
   }
-  signalProcessGroup(child.pid, "SIGTERM");
+  if (!signalProcessGroup(child.pid, "SIGTERM")) return;
   await new Promise((resolveDelay) => setTimeout(resolveDelay, PROCESS_TREE_KILL_GRACE_MS));
   signalProcessGroup(child.pid, "SIGKILL");
 }
@@ -315,8 +320,10 @@ async function terminateProcessTree(child) {
 function signalProcessGroup(pid, signal) {
   try {
     process.kill(-pid, signal);
+    return true;
   } catch (error) {
     if (error?.code !== "ESRCH") throw error;
+    return false;
   }
 }
 
