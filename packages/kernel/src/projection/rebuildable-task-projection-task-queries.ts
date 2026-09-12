@@ -55,14 +55,17 @@ const TASK_COMPLETION_SQL = [
   "AND json_extract(event_json, '$.payload.execution.executionId') = ?",
   "ORDER BY workspace_revision DESC LIMIT 1",
 ].join(" ");
-const RUNTIME_DISPATCH_SQL = [
+const RUNTIME_DISPATCH_SESSION_SQL = [
   "SELECT event_json FROM event_index",
   "WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'",
   "AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested'",
   "AND json_extract(event_json, '$.payload.runtimeSessionId') = ?",
-  "AND json_extract(event_json, '$.payload.definitionSnapshotRef') = ?",
   "ORDER BY workspace_revision LIMIT 1",
 ].join(" ");
+const RUNTIME_DISPATCH_SQL = RUNTIME_DISPATCH_SESSION_SQL.replace(
+  "ORDER BY",
+  "AND json_extract(event_json, '$.payload.definitionSnapshotRef') = ? ORDER BY",
+);
 const RUNTIME_DISPATCHES_SQL = [
   "SELECT event_json FROM event_index",
   "WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'",
@@ -290,7 +293,10 @@ export function taskQueryApi(
       }),
     readRuntimeDispatch: (runtimeSessionIdValue, definitionSnapshotRef) =>
       withDatabase(projectionPath, readHead, (db) => {
-        const row = queryRow(db, RUNTIME_DISPATCH_SQL, runtimeSessionIdValue, definitionSnapshotRef);
+        const row =
+          definitionSnapshotRef === undefined
+            ? queryRow(db, RUNTIME_DISPATCH_SESSION_SQL, runtimeSessionIdValue)
+            : queryRow(db, RUNTIME_DISPATCH_SQL, runtimeSessionIdValue, definitionSnapshotRef);
         if (!row) return null;
         const event = JSON.parse(String(row.event_json));
         return isAgentRuntimeEvent(event) && event.type === "runtime_dispatch_requested" ? event : null;

@@ -56,6 +56,11 @@ import { applyEmbeddedRelationProjectionEvents, applyRelationProjectionEvent } f
 export type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
 export type { TaskProjection } from "./task-projection-port.ts";
 
+const DOCUMENT_BASE_SQL = [
+  "SELECT json_extract(value_json, '$.blobSha256') AS blobSha256,",
+  "json_extract(value_json, '$.size') AS size, json_extract(value_json, '$.mediaType') AS mediaType,",
+  "json_extract(value_json, '$.policyId') AS policyId FROM document WHERE path = ?",
+].join(" ");
 const UPSERT_DOCUMENT_SQL = [
   "INSERT INTO document(path, workspace_revision, value_json) VALUES (?, ?, ?)",
   "ON CONFLICT(path) DO UPDATE SET workspace_revision=excluded.workspace_revision,",
@@ -400,14 +405,13 @@ export function applyEvent(
       eventJson,
     );
     for (const change of event.payload.changes) {
-      const previous = prepareQuery(db, "SELECT value_json FROM document WHERE path = ?", (sql) =>
-          /* @gate-identity check-bypass-write-boundary/bypass-write-011 */ db.prepare(sql),
-        ).get(change.path) as { readonly value_json: string } | undefined,
-        base = previous ? (JSON.parse(previous.value_json) as DocumentState) : null;
+      const base = prepareQuery(db, DOCUMENT_BASE_SQL, (sql) =>
+        /* @gate-identity check-bypass-write-boundary/bypass-write-011 */ db.prepare(sql),
+      ).get(change.path) as Pick<DocumentState, "blobSha256" | "size" | "mediaType" | "policyId"> | undefined;
       if (change.candidate === null) {
         if (
           event.payload.retirementReason === undefined ||
-          (base !== null && change.baseBlobSha256 !== base.blobSha256)
+          (base !== undefined && change.baseBlobSha256 !== base.blobSha256)
         )
           throw new Error(`document retirement mismatch for ${change.path}`);
         runSql(db, "DELETE FROM document WHERE path = ?", change.path);
@@ -415,7 +419,7 @@ export function applyEvent(
       }
       if (change.baseBlobSha256 !== (base?.blobSha256 ?? null)) {
         if (
-          base !== null &&
+          base !== undefined &&
           change.candidate.sha256 === base.blobSha256 &&
           change.candidate.size === base.size &&
           change.candidate.mediaType === base.mediaType &&

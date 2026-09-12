@@ -101,6 +101,8 @@ test("runtime events use the canonical envelope, head, store, and the shared pro
     const session = projection.readRuntimeSession("runtime-session-claude");
     assert.equal(session?.providerSessionId, "provider-session-claude");
     const dispatch = projection.readRuntimeDispatch("runtime-session-claude", session!.definitionSnapshotRef);
+    assert.deepEqual(projection.readRuntimeDispatch("runtime-session-claude"), dispatch);
+    assert.equal(projection.readRuntimeDispatch("missing"), null);
     assert.equal(dispatch?.type, "runtime_dispatch_requested");
     assert.equal(dispatch?.payload.runtimeSessionId, session?.runtimeSessionId);
     assert.equal(

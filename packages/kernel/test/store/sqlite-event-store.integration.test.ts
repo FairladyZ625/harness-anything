@@ -710,7 +710,8 @@ test("event, writer takeover, ledger head, and outcome roll back atomically", ()
 });
 
 test("one canonical bundle appends preceding events and its terminal event in one command", () => {
-  const store = openSqliteEventStore({ repoId, databasePath: scratch("bundle") }),
+  const databasePath = scratch("bundle"),
+    store = openSqliteEventStore({ repoId, databasePath }),
     events = [eventAt(1), eventAt(2), eventAt(3)],
     eventBytes = events.map(serializePersistedCanonicalEvent),
     outcome = store.appendCommand({
@@ -728,6 +729,22 @@ test("one canonical bundle appends preceding events and its terminal event in on
       { firstRevision: 1, lastRevision: 3 },
     );
     assert.deepEqual(store.events(), events);
+    assert.deepEqual(store.readCommandOutcome(events[0]!.opId), outcome);
+    assert.deepEqual(store.readCommandOutcome(events[1]!.opId), outcome);
+    const db = new DatabaseSync(databasePath, { readOnly: true });
+    try {
+      const plan = db
+        .prepare(
+          "EXPLAIN QUERY PLAN SELECT op_id FROM command_outcome WHERE first_revision<=? AND last_revision>=? ORDER BY last_revision LIMIT 1",
+        )
+        .all(2, 2)
+        .map((row) => String(row.detail))
+        .join("\n");
+      assert.match(plan, /SEARCH command_outcome USING INDEX command_outcome_revision/u);
+      assert.doesNotMatch(plan, /USE TEMP B-TREE/u);
+    } finally {
+      db.close();
+    }
   } finally {
     store.close();
   }

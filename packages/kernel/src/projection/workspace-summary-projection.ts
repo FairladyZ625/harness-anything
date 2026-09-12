@@ -18,11 +18,7 @@ interface TaskCensusRow {
 export function readWorkspaceSummaryRows(db: DatabaseSync): WorkspaceSummary {
   const taskRows = queryRows<TaskCensusRow & ProjectionSqlRow>(
     db,
-    [
-      "SELECT task_id, status,",
-      "COALESCE(json_extract(snapshot_json, '$.task.packageDisposition'), 'active') AS package_disposition",
-      "FROM task_snapshot ORDER BY task_id",
-    ].join(" "),
+    "SELECT task_id, status, package_disposition FROM task_snapshot ORDER BY task_id",
   );
   const dependencyRows: Array<ReturnType<typeof readTaskRelationPage>["rows"][number]> = [];
   let relationCursor: string | undefined;

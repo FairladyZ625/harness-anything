@@ -102,7 +102,7 @@ export function readTaskChildCounts(
       db,
       [
         `SELECT ${parent} AS parent_task_id, COUNT(*) AS child_count FROM task_snapshot`,
-        "WHERE COALESCE(json_extract(snapshot_json, '$.task.packageDisposition'), 'active') = 'active'",
+        "WHERE package_disposition = 'active'",
         `AND ${parent} IN (SELECT value FROM json_each(?)) GROUP BY parent_task_id`,
       ].join(" "),
       JSON.stringify(parentTaskIds),

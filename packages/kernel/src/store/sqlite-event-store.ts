@@ -670,6 +670,7 @@ function createSchema(db: DatabaseSync, repoId: string, generation: number): voi
         OR (status='rejected' AND rejection_code IS NOT NULL)
       )
     ) STRICT;
+    CREATE INDEX IF NOT EXISTS command_outcome_revision ON command_outcome(last_revision, first_revision);
     CREATE TABLE IF NOT EXISTS writer_lease (
       repo_id TEXT PRIMARY KEY, holder TEXT NOT NULL, epoch INTEGER NOT NULL CHECK(epoch>0)
     ) STRICT;

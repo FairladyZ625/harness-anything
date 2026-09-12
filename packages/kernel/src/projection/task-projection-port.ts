@@ -120,7 +120,7 @@ export interface TaskProjection {
   readonly readTaskCompletion: (taskId: string, executionId: string) => TaskEventV1 | null;
   readonly readRuntimeDispatch: (
     runtimeSessionIdValue: string,
-    definitionSnapshotRef: string,
+    definitionSnapshotRef?: string,
   ) => Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }> | null;
   readonly readRuntimeDispatches: () => readonly Extract<
     AgentRuntimeEventV1,

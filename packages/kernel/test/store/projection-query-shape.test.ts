@@ -721,6 +721,7 @@ test("task child counts search the parent expression index instead of scanning t
     db.exec(`
       CREATE TABLE task_snapshot (task_id TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, snapshot_json TEXT NOT NULL,
         status TEXT, updated_at TEXT NOT NULL DEFAULT '');
+      ALTER TABLE task_snapshot ADD COLUMN package_disposition TEXT GENERATED ALWAYS AS (COALESCE(json_extract(snapshot_json, '$.task.packageDisposition'), 'active')) STORED;
       CREATE INDEX task_snapshot_parent ON task_snapshot(json_extract(snapshot_json, '$.task.metadata.parentTaskId'));
     `);
     const insert = db.prepare("INSERT INTO task_snapshot(task_id, workspace_revision, snapshot_json) VALUES (?, ?, ?)");
@@ -734,7 +735,7 @@ test("task child counts search the parent expression index instead of scanning t
     const parent = "json_extract(snapshot_json, '$.task.metadata.parentTaskId')",
       sql =
         `SELECT ${parent} AS parent_task_id, COUNT(*) AS child_count FROM task_snapshot ` +
-        "WHERE COALESCE(json_extract(snapshot_json, '$.task.packageDisposition'), 'active') = 'active' " +
+        "WHERE package_disposition = 'active' " +
         `AND ${parent} IN (SELECT value FROM json_each(?)) GROUP BY parent_task_id`,
       plan = queryPlan(db, { sql, args: [JSON.stringify(["task_00000"])] });
     assert.match(plan, /SEARCH task_snapshot USING INDEX task_snapshot_parent/u);
