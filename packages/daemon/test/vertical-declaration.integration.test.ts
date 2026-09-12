@@ -7,6 +7,7 @@ import test from "node:test";
 import { buildEntityKindCatalog, makeTaskEventStore, makeTaskProjection } from "../../kernel/src/index.ts";
 import { canonicalVertical, compiledArtifactKinds } from "../src/artifact-entity-action.ts";
 import { runVerticalDeclarationAction } from "../src/vertical-declaration-action.ts";
+import { resolveVerticalKindCommandAction } from "../src/vertical-kind-command-action.ts";
 import { actor, initRepo } from "./doc-sync-slice-a.fixtures.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
@@ -163,11 +164,14 @@ test("declaration read revision drives create, catalog read, and retirement", as
         store: { pathTemplate: "entities/e2e-runbooks/{id}.json" },
         relations: [],
         attributes: { owner: { type: "string" } },
-      },
-      upsert = await cell.run(
-        { kind: "vertical-kind-upsert", kindId: declaration.id, declaration, expectedVersion: 0 },
-        binding,
-      );
+      };
+    const resolvedUpsert = await resolveVerticalKindCommandAction(cell, {
+        kind: "vertical-kind-upsert",
+        kindId: declaration.id,
+        declaration,
+      }),
+      upsert = await cell.run(resolvedUpsert, binding);
+    assert.equal(resolvedUpsert.expectedVersion, 0);
     assert.equal(upsert.outcome, "applied", JSON.stringify(upsert));
     const kinds = await cell.read("repo.entity.kinds.read", {}, binding),
       row = kinds.kinds.find(({ declaration: candidate }) => candidate?.id === declaration.id);
@@ -177,6 +181,12 @@ test("declaration read revision drives create, catalog read, and retirement", as
       ({ id }) => id === declaration.id,
     );
     assert.ok(created && created.entityType === "artifact");
+    const resolvedUpdate = await resolveVerticalKindCommandAction(cell, {
+      kind: "vertical-kind-upsert",
+      kindId: created.kindId,
+      declaration: created,
+    });
+    assert.equal(resolvedUpdate.expectedVersion, created.revision);
     const retire = await cell.run(
       {
         kind: "vertical-kind-retire",
