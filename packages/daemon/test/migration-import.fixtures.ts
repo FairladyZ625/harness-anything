@@ -8,6 +8,7 @@ import {
   readLegacyMigrationSource,
   readMarkdownSource,
   readScalar,
+  resolveHarnessLayout,
   sha256Text,
   taskEntryToRow,
 } from "../../kernel/src/index.ts";
@@ -317,7 +318,8 @@ export function snapshot(root: string): readonly string[] {
 export function buildProjectionOracle(root: string): void {
   const localRoot = path.join(root, ".harness/cache"),
     databasePath = path.join(localRoot, "task.sqlite"),
-    taskRead = readMarkdownSource(root),
+    layout = resolveHarnessLayout(root),
+    taskRead = readMarkdownSource(layout),
     cold = readLegacyMigrationSource(root);
   mkdirSync(localRoot, { recursive: true });
   rmSync(databasePath, { force: true });
@@ -339,7 +341,7 @@ export function buildProjectionOracle(root: string): void {
     for (const statement of statements) database.exec(statement);
     let revision = 0;
     for (const entry of taskRead.entries) {
-      const row = taskEntryToRow(root, entry),
+      const row = taskEntryToRow(layout, entry),
         title = row.title || markdownH1(entry.body) || row.taskId,
         occurredAt =
           readScalar(entry.frontmatter, "  bindingCreatedAt") ||

@@ -248,7 +248,7 @@ export function readDispatchLiveIndex(rootDir: string, taskIds: readonly string[
 }
 
 export function rebuildDispatchLiveIndex(rootDir: string, taskIds: readonly string[]): DispatchLiveIndex {
-  const root = dispatchStreamRoot(rootDir),
+  const root = dispatchStreamRoot(resolveHarnessLayout(rootDir)),
     selected = new Set(taskIds);
   const entries = new Map<string, DispatchLiveIndexEntry>();
   if (existsSync(root) && statSync(root).isDirectory()) {
@@ -352,7 +352,7 @@ export function readDispatchStreamSummary(rootDir: string, dispatchId: string): 
 }
 
 export function readDispatchStreamHeaders(rootDir: string): readonly DispatchStreamHeader[] {
-  const root = dispatchStreamRoot(rootDir);
+  const root = dispatchStreamRoot(resolveHarnessLayout(rootDir));
   const stat = statSync(root, { throwIfNoEntry: false });
   if (!stat?.isDirectory()) {
     headerCache.delete(root);
@@ -452,8 +452,9 @@ export function readRuntimeWorkerChunk(target: string, offset: number, limit = 1
 }
 
 export function dispatchStreamRef(rootDir: string, dispatchId: string): string {
+  const layout = resolveHarnessLayout(rootDir);
   const relative = path
-    .relative(resolveHarnessLayout(rootDir).rootDir, dispatchStreamPath(rootDir, dispatchId))
+    .relative(layout.rootDir, dispatchStreamPathForLayout(layout, dispatchId))
     .split(path.sep)
     .join("/");
   return `file:${relative}`;
@@ -475,15 +476,19 @@ export function scrubProviderValue(value: unknown): unknown {
 }
 
 export function dispatchStreamPath(rootDir: string, dispatchId: string): string {
+  return dispatchStreamPathForLayout(resolveHarnessLayout(rootDir), dispatchId);
+}
+function dispatchStreamPathForLayout(layout: ReturnType<typeof resolveHarnessLayout>, dispatchId: string): string {
   if (!/^dispatch_[a-f0-9]{24}$/u.test(dispatchId)) throw new Error("dispatch id is invalid");
-  return path.join(dispatchStreamRoot(rootDir), `${dispatchId}.jsonl`);
+  return path.join(dispatchStreamRoot(layout), `${dispatchId}.jsonl`);
 }
 export function dispatchLiveIndexPath(rootDir: string, taskId: string): string {
-  const shard = `task-${Buffer.from(taskId).toString("base64url")}.json`;
-  return path.join(dispatchStreamRoot(rootDir), "live-index", shard);
+  const layout = resolveHarnessLayout(rootDir),
+    shard = `task-${Buffer.from(taskId).toString("base64url")}.json`;
+  return path.join(dispatchStreamRoot(layout), "live-index", shard);
 }
-function dispatchStreamRoot(rootDir: string): string {
-  return path.join(resolveHarnessLayout(rootDir).localRoot, "runtime", "dispatches");
+function dispatchStreamRoot(layout: ReturnType<typeof resolveHarnessLayout>): string {
+  return path.join(layout.localRoot, "runtime", "dispatches");
 }
 
 function dispatchLiveIndex(entries: readonly DispatchLiveIndexEntry[]): DispatchLiveIndex {

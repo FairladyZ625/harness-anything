@@ -7,7 +7,7 @@ import { isDomainStatus } from "../domain/lifecycle-status.ts";
 import { taskBoardColumnOf } from "../domain/task-board-projection.ts";
 import { isPackageDisposition } from "../domain/package-disposition.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
-import type { HarnessLayoutInput } from "../layout/index.ts";
+import type { HarnessLayout, HarnessLayoutInput } from "../layout/index.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
 import { readFrontmatter, readNestedScalar, readScalar } from "../markdown/frontmatter.ts";
 import type {
@@ -102,11 +102,11 @@ export interface TaskProjectionSourceHashInput {
 }
 
 export function taskEntryToRow(
-  rootInput: HarnessLayoutInput,
+  layout: HarnessLayout,
   entry: TaskSourceEntry,
   fieldExtensions: ReadonlyArray<TaskFieldExtensionProjection> = [],
 ): TaskProjectionRow {
-  const rootDir = resolveHarnessLayout(rootInput).rootDir;
+  const rootDir = layout.rootDir;
   const rawStatus = readScalar(entry.frontmatter, "  status") || "unknown";
   const canonicalStatus = isDomainStatus(rawStatus) ? rawStatus : "unknown";
   const rawDisposition = readScalar(entry.frontmatter, "packageDisposition") || "active";
