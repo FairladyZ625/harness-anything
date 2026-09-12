@@ -113,7 +113,8 @@ test("after_head_write and after_git_commit are absent from the SQLite accept tr
   }
 });
 
-test("Git follower no longer advances canonical and authored refs to one SHA while preserving index, prose, and every unrelated dirty path byte", async () => {
+// harness-contract: store.git-follower-preserves-unrelated-worktree
+test("Git follower preserves unrelated index and worktree bytes while leaving canonical ref unchanged", async () => {
   const rootDir = fixture("separate-facets");
   initRepo(rootDir);
   mkdirSync(path.join(rootDir, "notes"));
@@ -172,6 +173,7 @@ test("Git follower no longer advances canonical and authored refs to one SHA whi
   }
 });
 
+// harness-contract: store.history-independent-subprocess-cost
 test("acceptance subprocess cost is independent of 100 versus 10,000-event history", async () => {
   const rootDir = fixture("history-independent");
   initRepo(rootDir);

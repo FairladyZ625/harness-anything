@@ -393,44 +393,52 @@
     ],
     "guiSecurityEvidence": [
       {
-        "value": "renderer model has no Node or Electron privileged surface",
+        "value": "gui.renderer-no-privileges",
         "ref": "ADR-0022#D6",
-        "reason": "GUI tests must prove renderer privilege isolation."
+        "reason": "GUI tests must prove renderer privilege isolation.",
+        "path": "packages/gui/test/renderer-no-node.test.ts"
       },
       {
-        "value": "preload exposes only the approved API methods",
+        "value": "gui.preload-allowlist",
         "ref": "ADR-0022#D6",
-        "reason": "GUI tests must prove preload API allowlist enforcement."
+        "reason": "GUI tests must prove preload API allowlist enforcement.",
+        "path": "packages/gui/test/preload-allowlist.test.ts"
       },
       {
-        "value": "main process registers one IPC handler for each preload allowlist method",
+        "value": "gui.ipc-preload-alignment",
         "ref": "ADR-0022#D6",
-        "reason": "GUI tests must prove IPC/preload alignment."
+        "reason": "GUI tests must prove IPC/preload alignment.",
+        "path": "packages/gui/test/ipc-handler-registration.test.ts"
       },
       {
-        "value": "local GUI bridge fails closed without explicit daemon registration and never autostarts",
+        "value": "gui.explicit-daemon-registration",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 GUI tests must prove explicit daemon registration and the absence of local/autostart fallback."
+        "reason": "W3 GUI tests must prove explicit daemon registration and the absence of local/autostart fallback.",
+        "path": "packages/gui/test/service-bridge.test.ts"
       },
       {
-        "value": "Markdown sanitizer strips scripts",
+        "value": "gui.markdown-sanitization",
         "ref": "ADR-0022#D6",
-        "reason": "GUI tests must prove markdown sanitization."
+        "reason": "GUI tests must prove markdown sanitization.",
+        "path": "packages/gui/test/markdown-sanitize.test.ts"
       },
       {
-        "value": "local API binds localhost",
+        "value": "gui.localhost-authorization",
         "ref": "ADR-0022#D6",
-        "reason": "GUI tests must prove localhost-only API binding."
+        "reason": "GUI tests must prove localhost-only API binding.",
+        "path": "packages/gui/test/local-api-auth.test.ts"
       },
       {
-        "value": "path guard rejects traversal",
+        "value": "gui.path-traversal-rejection",
         "ref": "ADR-0022#D6",
-        "reason": "GUI tests must prove path traversal rejection."
+        "reason": "GUI tests must prove path traversal rejection.",
+        "path": "packages/gui/test/path-traversal.test.ts"
       },
       {
-        "value": "PTY output stays display-only",
+        "value": "gui.terminal-display-only",
         "ref": "ADR-0022#D6",
-        "reason": "GUI tests must prove terminal output is display-only."
+        "reason": "GUI tests must prove terminal output is display-only.",
+        "path": "packages/gui/test/terminal-no-ingestion.test.ts"
       }
     ],
     "storeRequiredSnippets": [

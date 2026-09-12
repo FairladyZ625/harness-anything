@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { entryPairs, entryValues, loadGateAllowlist } from "./gate-allowlists/load-gate-allowlist.mjs";
-import { missingEventStoreEvidence } from "./implementation-contract-evidence.mjs";
+import { hasContractEvidence, missingEventStoreEvidence } from "./implementation-contract-evidence.mjs";
 
 const root = process.cwd();
 const sourceFile = /\.(?:ts|tsx|mts|js|jsx|mjs|html)$/;
@@ -46,7 +46,7 @@ const portablePathTestEvidence = entryValues(allowlist.portablePathTestEvidence)
 const guiCliTextFiles = entryValues(allowlist.guiCliTextFiles);
 const guiImplementationSnippets = entryValues(allowlist.guiImplementationSnippets);
 const applicationServiceSnippets = entryValues(allowlist.applicationServiceSnippets);
-const guiSecurityEvidence = entryValues(allowlist.guiSecurityEvidence);
+const guiSecurityEvidence = allowlist.guiSecurityEvidence;
 const storeRequiredSnippets = entryValues(allowlist.storeRequiredSnippets);
 const localLifecycleCliTextFiles = entryValues(allowlist.localLifecycleCliTextFiles);
 const localLifecycleRequiredSnippets = entryValues(allowlist.localLifecycleRequiredSnippets);
@@ -59,6 +59,12 @@ const browserWindowRequiredPatterns = allowlist.browserWindowRequiredPatterns.ma
 
 function record(message) {
   violations.push(message);
+}
+
+function requireTestContract(testPath, id) {
+  const file = path.join(root, testPath);
+  if (!existsSync(file) || !hasContractEvidence(readFileSync(file, "utf8"), id))
+    record(`${testPath}: missing test contract marker ${id}`);
 }
 
 function readJson(relativePath) {
@@ -218,12 +224,7 @@ if (hasGuiImplementation) {
   ) {
     record("thin CLI must transport through the daemon without restoring GUI launch or domain imports");
   }
-  const guiSecurityTests = expectedRuntimeTestFiles.gui
-    .map((testPath) => readFileSync(path.join(root, testPath), "utf8"))
-    .join("\n");
-  for (const requiredEvidence of guiSecurityEvidence) {
-    if (!guiSecurityTests.includes(requiredEvidence)) record(`GUI security tests must prove: ${requiredEvidence}`);
-  }
+  for (const { path: testPath, value: id } of guiSecurityEvidence) requireTestContract(testPath, id);
 }
 
 if (hasDaemonImplementation) {
@@ -253,8 +254,15 @@ if (hasStoreImplementation) {
   const publisher = readFileSync(path.join(root, "packages/kernel/src/store/task-event-store.ts"), "utf8");
   for (const forbidden of ["update-index", "checkout", "reset", "restore"])
     if (publisher.includes(forbidden)) record(`object/ref event publisher must not expose Git ${forbidden}`);
-  if (!daemonTest.includes("without a duplicate publication"))
-    record("RepoCell crash recovery must prove publish-once behavior");
+  requireTestContract(
+    "packages/kernel/test/store/task-event-store.test.ts",
+    "store.git-follower-preserves-unrelated-worktree",
+  );
+  requireTestContract(
+    "packages/kernel/test/store/task-event-store.test.ts",
+    "store.history-independent-subprocess-cost",
+  );
+  requireTestContract("packages/daemon/test/json-rpc-protocol.test.ts", "daemon.recovery-publishes-once");
   // A cell that latches on how long recovery took makes availability a function of machine
   // speed: the same committed recovery attaches on an idle laptop and latches the workspace
   // unavailable on a loaded CI runner. Only the recovery status may decide availability.
@@ -280,11 +288,7 @@ if (hasLocalLifecycleImplementation) {
   }
   if (/WriteCoordinator|makeJournaledWriteCoordinator|HARNESS_DAEMON_MODE|local fallback/u.test(lifecycleText))
     record("W3 local lifecycle must not restore coordinator, journal, daemon-mode, or local fallback paths");
-  const cliTestText = existsSync(path.join(root, cliTestPath))
-    ? readFileSync(path.join(root, cliTestPath), "utf8")
-    : "";
-  if (!/without autostart or local fallback/.test(cliTestText))
-    record("thin CLI tests must prove missing-daemon rejection without autostart or fallback");
+  requireTestContract(cliTestPath, "cli.missing-daemon-no-fallback");
 }
 
 if (hasTaskProjectionImplementation) {
@@ -292,18 +296,17 @@ if (hasTaskProjectionImplementation) {
     .filter((file) => relative(file).startsWith("packages/kernel/src/projection/"))
     .map((file) => readFileSync(file, "utf8"))
     .join("\n");
-  const rebuildTestText = readFileSync(path.join(root, "packages/kernel/test/store/task-projection.test.ts"), "utf8");
   for (const requiredSnippet of taskProjectionRequiredSnippets) {
     if (!projectionText.includes(requiredSnippet)) {
       record(`task projection implementation must include ${requiredSnippet}`);
     }
   }
-  if (!/steady apply and rebuild use the same reducer/.test(rebuildTestText))
-    record("task projection tests must prove deterministic event-stream rebuild");
-  if (!/at most one bounded round and never reports stale data ready/.test(rebuildTestText))
-    record("task projection tests must prove bounded catch-up and no stale-ready result");
-  if (!/lease CAS rejects stale renew\/release/.test(rebuildTestText))
-    record("task projection tests must prove lease CAS rejection");
+  for (const id of [
+    "projection.deterministic-rebuild",
+    "projection.bounded-catch-up-no-stale-ready",
+    "projection.lease-cas-rejection",
+  ])
+    requireTestContract("packages/kernel/test/store/task-projection.test.ts", id);
   if (/writeFileSync\s*\([^)]*tasks\//s.test(projectionText) || /renameSync\s*\([^)]*tasks\//s.test(projectionText)) {
     record("task projection must not write authored task documents");
   }

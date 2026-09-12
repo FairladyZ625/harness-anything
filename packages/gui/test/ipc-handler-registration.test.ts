@@ -47,6 +47,7 @@ test("preload and IPC channels derive from the API registry", () => {
   assert.deepEqual(channels, [...invokeChannels, ...streamChannels]);
 });
 
+// harness-contract: gui.ipc-preload-alignment
 test("main process registers one IPC handler for each preload allowlist method", async () => {
   const bridge: GuiServiceBridge = {
     invoke: async (method, payload) => ({ ok: true, method, payload }),

@@ -821,6 +821,7 @@ async function seedSchedule(rootDir: string, repoId: string, writerFence: Writer
   await store.drain();
 }
 
+// harness-contract: gui.explicit-daemon-registration
 test("local GUI bridge fails closed without explicit daemon registration and never autostarts", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-gui-explicit-daemon-")),
     userRoot = path.join(rootDir, "user-daemon");
