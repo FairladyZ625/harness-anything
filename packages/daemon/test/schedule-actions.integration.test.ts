@@ -12,6 +12,7 @@ import {
   type AgentDefinitionSnapshot,
 } from "../../kernel/src/index.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
+import { openRuntimeInstanceStore } from "../src/agent-runtime-instances.ts";
 import { openFleetEdgeRuntime } from "../src/fleet-edge-runtime.ts";
 import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
 import { listenFleetTls, type FleetAssignmentRecord } from "../src/fleet/center.ts";
@@ -160,6 +161,7 @@ test("run-now launches only after an applied claim, stays single-flight, and set
                 name: "Probe Agent",
                 instructions: "Run the exact probe mission.",
                 runtime_type: "codex",
+                instance: definition.instanceId,
                 fallback: {
                   providerPriority: [definition.providerId, "openai-secondary"],
                   backoff: { baseMs: 1, maxMs: 1 },
@@ -605,7 +607,28 @@ test(
         ],
         { stdio: "ignore" },
       );
-      host = await openDaemonHost({ daemonId: "schedule-center", userRoot });
+      const runtimeInstallation = {
+        installationId: definition.installationId,
+        kindId: definition.kindId,
+        executablePath: process.execPath,
+        version: "fixture",
+        observedAt: "2026-09-12T00:00:00.000Z",
+      } as const;
+      await openRuntimeInstanceStore({ userRoot, discover: () => [runtimeInstallation] }).command({
+        kind: "runtime-instance-create",
+        instanceId: definition.instanceId,
+        name: "Schedule Codex",
+        kindId: definition.kindId,
+        installationId: definition.installationId,
+        providerId: definition.providerId,
+        models: [definition.model],
+        authMode: "subscription",
+      });
+      host = await openDaemonHost({
+        daemonId: "schedule-center",
+        userRoot,
+        runtimeDiscover: () => [runtimeInstallation],
+      });
       await host.attachmentsSettled();
       const assignmentAuth = { transportKind: "fleet-tls" as const, assignmentBinding: assignments[0]! };
       assert.equal(
@@ -620,6 +643,7 @@ test(
                 name: "Probe Agent",
                 instructions: "Run the exact probe mission.",
                 runtime_type: "codex",
+                instance: definition.instanceId,
               },
             },
             assignmentAuth,

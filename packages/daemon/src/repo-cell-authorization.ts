@@ -89,6 +89,8 @@ export function authorizeDurableRepoCellAction(
       return authorizeRepoCellAction(input);
     case "agent-install":
       return authorizeRepoCellAction(input);
+    case "agent-run":
+      return authorizeRepoCellAction(input);
     case "ci-observe-pull":
       return authorizeRepoCellAction(input);
     case "daemon-control-request":

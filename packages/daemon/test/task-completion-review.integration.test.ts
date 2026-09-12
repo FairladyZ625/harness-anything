@@ -75,6 +75,7 @@ async function fixture(failProvider = false, available = true) {
   git(root, "add", "README.md");
   git(root, "commit", "-qm", "docs: fixture delivery");
   const launches: { prompt: string; instanceId: string }[] = [];
+  let instancesAvailable = available;
   const open = () =>
     openRepoCell({
       repoId,
@@ -87,7 +88,7 @@ async function fixture(failProvider = false, available = true) {
       },
       runtimeInstances: () => [
         { ...instance("ambient-first"), models: ["flash-model"], defaultModel: "flash-model" },
-        ...(available ? [instance("review-first"), instance("review-second")] : []),
+        ...(instancesAvailable ? [instance("review-first"), instance("review-second")] : []),
       ],
       prepareRuntimeLaunch: (instanceId, request) => ({
         definition: {
@@ -174,6 +175,9 @@ async function fixture(failProvider = false, available = true) {
     root,
     packagePath,
     launches,
+    disableInstances: () => {
+      instancesAvailable = false;
+    },
     run,
     events,
     cell: () => cell,
@@ -187,6 +191,7 @@ async function fixture(failProvider = false, available = true) {
           name: "Independent reviewer",
           instructions: "Inspect submitted bytes and record your independent verdict.",
           runtime_type: "codex",
+          instance: "review-first",
           role: "worker",
           model: "review-model",
           fallback: { providerPriority: ["review-first", "review-second"], backoff: { baseMs: 1, maxMs: 2 } },
@@ -317,6 +322,7 @@ test("completion requires a declared reviewer model instead of selecting the amb
         name: "Unconstrained reviewer",
         instructions: "Review the submitted delivery.",
         runtime_type: "any",
+        instance: "ambient-first",
       },
     });
     assert.equal(installed.outcome, "applied", JSON.stringify(installed));
@@ -498,9 +504,10 @@ test(
   },
 );
 test("completion with an unavailable declared model returns guidance without launching an ambient instance", async () => {
-  const f = await fixture(false, false);
+  const f = await fixture(false, true);
   try {
     await f.install();
+    f.disableInstances();
     const result = await f.complete();
     assert.equal(result.code, "review_missing", JSON.stringify(result));
     assert.match(JSON.stringify((result as Record<string, unknown>).next), /ready compatible instance/u);

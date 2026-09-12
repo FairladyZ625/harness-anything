@@ -500,6 +500,7 @@ async function installAgent(
         name: agentId,
         instructions: "Execute the assigned mission.",
         runtime_type: "codex",
+        instance: providers[0]!.instance,
         model: "provider-success-model",
         fallback: { providerPriority: providers.map(({ instance }) => instance), backoff },
       },

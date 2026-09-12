@@ -39,6 +39,30 @@ test("agent create runs and ontology-squad reinstall stays on the canonical Enti
   try {
     assert.equal(run(root, env, ["daemon", "start", "--service"]).ok, true);
     run(root, env, ["init", "--repo-id", "agent-create", "--person-id", "owner", "--display-name", "Owner"]);
+    const runtimeInventory = run(root, env, ["runtime", "instance", "list"]),
+      agentInstallation = (runtimeInventory.installations as Array<Record<string, unknown>>).find(
+        (row) => row.kindId === "codex",
+      );
+    assert.ok(agentInstallation, JSON.stringify(runtimeInventory));
+    run(root, env, [
+      "runtime",
+      "instance",
+      "create",
+      "--id",
+      "agent-create-codex",
+      "--name",
+      "Agent Create Codex",
+      "--kind",
+      "codex",
+      "--installation",
+      String(agentInstallation.installationId),
+      "--provider",
+      "openai",
+      "--model",
+      "gpt-5.6-sol",
+      "--auth",
+      "subscription",
+    ]);
     const designerRoot = path.join(parent, "designer"),
       squadRoot = path.join(parent, "squad"),
       ontologySquadRoot = path.join(parent, "ontology-squad");
@@ -48,6 +72,7 @@ test("agent create runs and ontology-squad reinstall stays on the canonical Enti
       name: "Meta Designer",
       instructions: "Design only.",
       runtime_type: "codex",
+      instance: "agent-create-codex",
     });
     const preview = run(root, env, ["agent", "install", "--source", designerRoot, "--dry-run"]);
     assert.equal(preview.outcome, "pending");
@@ -180,6 +205,7 @@ test("agent create runs and ontology-squad reinstall stays on the canonical Enti
       name: "Mechanical Repair",
       instructions: "MECHANIC_INSTRUCTIONS_WITNESS",
       runtime_type: "codex",
+      instance: "builder",
     };
     const create = run(root, env, [
       "agent",
@@ -234,13 +260,12 @@ test("agent create runs and ontology-squad reinstall stays on the canonical Enti
       "agent-create-task",
     ]);
     assert.equal(unavailable.status, 1);
-    assert.equal(unavailable.receipt.code, "agent_runtime_type_unavailable");
+    assert.equal(unavailable.receipt.code, "agent_declaration_invalid");
+    assert.match(JSON.stringify(unavailable.receipt), /agent_runtime_type_unavailable/u);
     run(root, env, ["task", "start", "agent-create-task", "--execution-id", "agent-create-execution"]);
     const child = run(root, env, [
-      "runtime",
+      "agent",
       "run",
-      "builder",
-      "--agent",
       "mechanic-agent",
       "--prompt",
       "WRITE_WITNESS",
@@ -325,6 +350,6 @@ function writeSquad(root: string, declaration: Record<string, unknown>): void {
 function writeProvider(target: string): void {
   writeProviderExecutable(
     target,
-    `const fs = require("node:fs");\nconst prompt = fs.readFileSync(0, "utf8"), args = process.argv.slice(2);\nif (args[0] === "--version") { console.log("codex agent-create-fixture"); process.exit(0); }\nif (args[0] === "login" && args[1] === "status") process.exit(0);\nconst declaration = prompt.includes("UNKNOWN_RUNTIME") ? ${JSON.stringify({ schema: "agent-declaration/v1", id: "unavailable-agent", name: "Unavailable", instructions: "Unavailable instructions.", runtime_type: "opencode" })} : ${JSON.stringify({ schema: "agent-declaration/v1", id: "mechanic-agent", name: "Mechanical Repair", instructions: "MECHANIC_INSTRUCTIONS_WITNESS", runtime_type: "codex" })};\nconst session = "agent-create-provider-session";\nconsole.log(JSON.stringify({ type: "thread.started", thread_id: session }));\nif (prompt.includes("# Agent declaration protocol") && prompt.includes('schema exactly "agent-declaration/v1"')) console.log(JSON.stringify({ type: "item.completed", item: { id: "declaration", type: "agent_message", text: JSON.stringify(declaration) } }));\nelse { if (prompt.includes("WRITE_WITNESS")) fs.writeFileSync("created-by-agent.txt", "created by mechanic-agent\\n"); console.log(JSON.stringify({ type: "item.completed", item: { id: "write", type: "file_change", changes: [{ path: "created-by-agent.txt", kind: "add" }], status: "completed" } })); console.log(JSON.stringify({ type: "item.completed", item: { id: "final", type: "agent_message", text: "mechanic result" } })); }\nconsole.log(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }));\n`,
+    `const fs = require("node:fs");\nconst prompt = fs.readFileSync(0, "utf8"), args = process.argv.slice(2);\nif (args[0] === "--version") { console.log("codex agent-create-fixture"); process.exit(0); }\nif (args[0] === "login" && args[1] === "status") process.exit(0);\nconst declaration = prompt.includes("UNKNOWN_RUNTIME") ? ${JSON.stringify({ schema: "agent-declaration/v1", id: "unavailable-agent", name: "Unavailable", instructions: "Unavailable instructions.", runtime_type: "opencode" })} : ${JSON.stringify({ schema: "agent-declaration/v1", id: "mechanic-agent", name: "Mechanical Repair", instructions: "MECHANIC_INSTRUCTIONS_WITNESS", runtime_type: "codex", instance: "builder" })};\nconst session = "agent-create-provider-session";\nconsole.log(JSON.stringify({ type: "thread.started", thread_id: session }));\nif (prompt.includes("# Agent declaration protocol") && prompt.includes('schema exactly "agent-declaration/v1"')) console.log(JSON.stringify({ type: "item.completed", item: { id: "declaration", type: "agent_message", text: JSON.stringify(declaration) } }));\nelse { if (prompt.includes("WRITE_WITNESS")) fs.writeFileSync("created-by-agent.txt", "created by mechanic-agent\\n"); console.log(JSON.stringify({ type: "item.completed", item: { id: "write", type: "file_change", changes: [{ path: "created-by-agent.txt", kind: "add" }], status: "completed" } })); console.log(JSON.stringify({ type: "item.completed", item: { id: "final", type: "agent_message", text: "mechanic result" } })); }\nconsole.log(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }));\n`,
   );
 }

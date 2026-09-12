@@ -85,7 +85,14 @@ function daemonSocketTemp(parent: string): string {
   return process.platform === "win32" ? path.join(parent, "tmp") : path.join(path.parse(parent).root, "tmp");
 }
 
-function writeIdentity(target: string, id: string, name: string, runtimeType = "codex", model?: string): void {
+function writeIdentity(
+  target: string,
+  id: string,
+  name: string,
+  runtimeType = "codex",
+  model?: string,
+  instance?: string,
+): void {
   mkdirSync(target, { recursive: true });
   writeFileSync(
     path.join(target, "agent.json"),
@@ -96,6 +103,7 @@ function writeIdentity(target: string, id: string, name: string, runtimeType = "
       instructions: `${name} instructions`,
       runtime_type: runtimeType,
       ...(model ? { model } : {}),
+      ...(instance ? { instance } : {}),
       skills: [],
       prompts: [],
       preset: "standard-task",
