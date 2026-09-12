@@ -80,14 +80,24 @@ interface ArtifactFileRow {
   readonly mtimeMs: number;
 }
 
-/** 一棵 artifacts/ 子树下的产物文件;符号链接一律不跟(产物只认真实文件)。 */
-function walkArtifactTree(artifactsRoot: string, packageDir: string): readonly ArtifactFileRow[] {
-  const rows: ArtifactFileRow[] = [];
+/** 一棵 artifacts/ 子树下的产物文件;符号链接一律不跟(产物只认真实文件)。
+ * kind 下推进 walk:三种 kind 都计数(计数只需 Dirent 与扩展名分类,零额外
+ * syscall),但只有请求的 kind 才 stat 取 size/mtime——非请求 kind 的文件
+ * 不再付每文件 2 次 stat 的代价。遍历规模上限按分类文件总数计,与收窄前
+ * 一致。 */
+function walkArtifactTree(
+  artifactsRoot: string,
+  packageDir: string,
+  wanted: ArtifactGuiKind,
+  counts: { [K in ArtifactGuiKind]: number },
+): readonly ArtifactFileRow[] {
+  const rows: ArtifactFileRow[] = [],
+    classifiedTotal = () => counts.html + counts.md + counts.raw;
   if (statLinkSync(artifactsRoot)?.isSymbolicLink() === true || statFileSync(artifactsRoot)?.isDirectory() !== true)
     return rows;
   const queue: (readonly [string, string])[] = [[artifactsRoot, "artifacts"]];
   let visited = 0;
-  while (queue.length > 0 && rows.length < artifactWalkMaxFiles && visited < artifactWalkMaxVisits) {
+  while (queue.length > 0 && classifiedTotal() < artifactWalkMaxFiles && visited < artifactWalkMaxVisits) {
     const [directory, prefix] = queue.shift()!;
     let entries: readonly import("node:fs").Dirent[];
     try {
@@ -106,7 +116,10 @@ function walkArtifactTree(artifactsRoot: string, packageDir: string): readonly A
         continue;
       }
       const classified = artifactKindOf(packageDir, relative, entry.name);
-      if (classified === null || !entry.isFile() || statLinkSync(target)?.isSymbolicLink() === true) continue;
+      if (classified === null || !entry.isFile() || entry.isSymbolicLink()) continue;
+      counts[classified.kind] += 1;
+      if (classifiedTotal() >= artifactWalkMaxFiles) break;
+      if (classified.kind !== wanted) continue;
       const stat = statFileSync(target);
       if (stat === null || !stat.isFile()) continue;
       rows.push({ packageDir, relative, ...classified, sizeBytes: stat.size, mtimeMs: stat.mtimeMs });
@@ -117,21 +130,25 @@ function walkArtifactTree(artifactsRoot: string, packageDir: string): readonly A
 
 /** 全部 task 包的 artifacts 文件:只进各包的 artifacts/ 子树,包内其它目录不扫,
  * 因此非 artifacts/ 的 html 永远不会出现在时间线里。 */
-function walkAllTaskArtifacts(tasksRoot: string): readonly ArtifactFileRow[] {
+function walkAllTaskArtifacts(
+  tasksRoot: string,
+  wanted: ArtifactGuiKind,
+): { readonly rows: readonly ArtifactFileRow[]; readonly counts: { [K in ArtifactGuiKind]: number } } {
   let entries: readonly import("node:fs").Dirent[];
   try {
     entries = readdirSync(tasksRoot, { withFileTypes: true });
   } catch (error) {
     consumeKnownError(error);
-    return [];
+    return { rows: [], counts: { html: 0, md: 0, raw: 0 } };
   }
-  const rows: ArtifactFileRow[] = [];
+  const rows: ArtifactFileRow[] = [],
+    counts = { html: 0, md: 0, raw: 0 };
   for (const entry of entries) {
     if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
-    rows.push(...walkArtifactTree(path.join(tasksRoot, entry.name, "artifacts"), entry.name));
-    if (rows.length >= artifactWalkMaxFiles) break;
+    rows.push(...walkArtifactTree(path.join(tasksRoot, entry.name, "artifacts"), entry.name, wanted, counts));
+    if (counts.html + counts.md + counts.raw >= artifactWalkMaxFiles) break;
   }
-  return rows;
+  return { rows, counts };
 }
 
 /** 投影批量 join:packagePath → {taskId, title}。标题列取自 readTaskRuntimeBatch 的
@@ -173,19 +190,15 @@ export function readArtifactsGui(
 ): ArtifactsListResult {
   const kind: ArtifactGuiKind = payload.kind === "md" || payload.kind === "raw" ? payload.kind : "html",
     cut = context.projection.readTaskStatuses(),
-    files = walkAllTaskArtifacts(resolveHarnessLayout(context.rootDir).tasksRoot),
-    counts = {
-      html: files.filter((row) => row.kind === "html").length,
-      md: files.filter((row) => row.kind === "md").length,
-      raw: files.filter((row) => row.kind === "raw").length,
-    },
+    walk = walkAllTaskArtifacts(resolveHarnessLayout(context.rootDir).tasksRoot, kind),
+    files = walk.rows,
+    counts = walk.counts,
     tasksByPackage = taskIndexByPackage(
       context.projection,
       cut.rows.map(({ taskId }) => taskId),
     ),
     eventTimes = new Map<number, string>(),
     artifacts: readonly ArtifactGuiRowDto[] = files
-      .filter((row) => row.kind === kind)
       .map((row) => {
         const packagePath = `tasks/${row.packageDir}`,
           task = tasksByPackage.get(packagePath) ?? null,
