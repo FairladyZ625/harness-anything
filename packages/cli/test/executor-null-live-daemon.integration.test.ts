@@ -5,6 +5,7 @@ import { accessSync, constants, existsSync, mkdirSync, mkdtempSync, rmSync, writ
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test, { before, after } from "node:test";
+import { daemonServeEntry } from "../src/daemon/client.ts";
 import { localUserDaemonEndpoint } from "../../daemon/src/client/local-daemon-target.ts";
 import { readDaemonPid } from "../../daemon/src/runtime.ts";
 import { seedSettingsEvent } from "../../daemon/test/repo-settings.fixture.ts";
@@ -37,7 +38,7 @@ type TaskSnapshot = {
   readonly reviews: readonly { readonly verdict: string }[];
 };
 
-test("a live source daemon refuses to declare an executor for a reviewed execution that was never dispatched", async (context) => {
+test("a live installed-bin daemon refuses to declare an executor for a reviewed execution that was never dispatched", async (context) => {
   const parent = mkdtempSync(path.join(privateTemporaryRoot(), "executor-null-live.")),
     root = path.join(parent, "repo"),
     userRoot = path.join(parent, "edge-user-root"),
@@ -49,7 +50,7 @@ test("a live source daemon refuses to declare an executor for a reviewed executi
   initialize(root);
   seedSettingsEvent({ rootDir: root, repoId: "executor-null-live" });
   try {
-    daemon = spawnSourceDaemon(root, userRoot, daemonId);
+    daemon = spawnBinDaemon(root, userRoot, daemonId);
     const status = waitForDaemon(root, userRoot, daemonId),
       daemonPid = readDaemonPid(userRoot, daemonId);
     assert.equal(status.ok, true, JSON.stringify(status));
@@ -121,7 +122,7 @@ test("a live source daemon refuses to declare an executor for a reviewed executi
       JSON.stringify({
         verdict: "approved",
         reason: "Independent agent review passed.",
-        evidenceChecked: ["live source daemon route"],
+        evidenceChecked: ["live installed-bin daemon route"],
       }),
     );
     const reviewed = run(
@@ -243,12 +244,16 @@ roles:
   git(root, "commit", "--quiet", "-m", "fixture");
 }
 
-function spawnSourceDaemon(root: string, userRoot: string, daemonId: string): ChildProcess {
-  return spawn(process.execPath, [cli, "daemon", "serve", "--user-root", userRoot, "--daemon-id", daemonId, "--json"], {
-    cwd: root,
-    env: environment(root, userRoot, daemonId),
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+function spawnBinDaemon(root: string, userRoot: string, daemonId: string): ChildProcess {
+  return spawn(
+    process.execPath,
+    [daemonServeEntry(), "serve", "--user-root", userRoot, "--daemon-id", daemonId, "--json"],
+    {
+      cwd: root,
+      env: environment(root, userRoot, daemonId),
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
 }
 
 function waitForDaemon(root: string, userRoot: string, daemonId: string): Record<string, unknown> {

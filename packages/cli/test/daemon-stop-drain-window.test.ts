@@ -101,7 +101,7 @@ interface Fixture {
 function launchSpec(userRoot: string, daemonId: string): DaemonLaunchSpec {
   return {
     command: process.execPath,
-    args: ["index.ts", "daemon", "serve", "--user-root", userRoot, "--daemon-id", daemonId],
+    args: ["index.ts", "serve", "--user-root", userRoot, "--daemon-id", daemonId],
     env: {},
   };
 }

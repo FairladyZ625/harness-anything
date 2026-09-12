@@ -70,18 +70,18 @@ test("operator stop blocks autostart until explicit start while process death re
   assert.equal(run(fixture.root, fixture.userRoot, ["daemon", "start", "--service"]).ok, true);
   register(fixture.root, fixture.userRoot, "autostart");
   const status = run(fixture.root, fixture.userRoot, ["daemon", "status"]);
-  assert.equal(status.entry, "source");
-  const sourceCommit = (status.build as { readonly commit?: unknown }).commit;
+  assert.equal(status.entry, "dist");
+  const buildCommit = (status.build as { readonly commit?: unknown }).commit;
   const gitCommitResult = spawnSync("git", ["rev-parse", "--verify", "HEAD"], {
     cwd: path.resolve("."),
     encoding: "utf8",
   });
-  const expectedSourceCommit = gitCommitResult.status === 0 ? gitCommitResult.stdout.trim() : null;
-  if (expectedSourceCommit !== null) {
-    assert.match(expectedSourceCommit, /^[0-9a-f]{40}$/u);
-    assert.equal(sourceCommit, expectedSourceCommit);
-    assert.match(String(status.summary), /entry=source commit=[0-9a-f]{40}/u);
-  } else assert.equal(sourceCommit, null, "an isolated source archive has no Git identity to report");
+  const expectedBuildCommit = gitCommitResult.status === 0 ? gitCommitResult.stdout.trim() : null;
+  if (expectedBuildCommit !== null) {
+    assert.match(expectedBuildCommit, /^[0-9a-f]{40}$/u);
+    assert.equal(buildCommit, expectedBuildCommit);
+    assert.match(String(status.summary), /entry=dist commit=[0-9a-f]{40}/u);
+  } else assert.equal(buildCommit, null, "an isolated source archive has no Git identity to report");
   assert.deepEqual(status.target, {
     endpoint: localUserDaemonEndpoint(fixture.userRoot, "default"),
     daemonId: "default",
@@ -114,8 +114,8 @@ test("operator stop blocks autostart until explicit start while process death re
   );
   const lifecycle = readDaemonLifecycleRecords(fixture.userRoot, "default");
   const processStart = lifecycle.find((record) => record.event === "process_start");
-  assert.equal(processStart?.entry, "source");
-  assert.equal(processStart?.commit, expectedSourceCommit);
+  assert.equal(processStart?.entry, "dist");
+  assert.equal(processStart?.commit, expectedBuildCommit);
   assert.equal(
     lifecycle.some((record) => record.event === "socket_bound"),
     true,

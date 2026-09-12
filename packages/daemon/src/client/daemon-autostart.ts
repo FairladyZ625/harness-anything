@@ -327,13 +327,16 @@ function classifySpawnFailure(
   return { code: "daemon_start_failed", hint: `Starting the daemon failed: ${detail}. Command: ${command}.` };
 }
 function daemonLaunchTarget(launch: DaemonLaunchSpec): { readonly userRoot: string; readonly daemonId: string } | null {
-  const daemon = launch.args.indexOf("daemon"),
-    serve = daemon < 0 ? -1 : launch.args.indexOf("serve", daemon + 1),
+  const serve = 1,
     rootAt = launch.args.indexOf("--user-root", serve + 1),
     idAt = launch.args.indexOf("--daemon-id", serve + 1),
     userRoot = launch.args[rootAt + 1],
     daemonId = launch.args[idAt + 1];
-  return daemon >= 0 && serve === daemon + 1 && rootAt >= 0 && idAt >= 0 && userRoot && daemonId
+  return (launch.args[serve] === "serve" || launch.args[serve] === "--service") &&
+    rootAt > serve &&
+    idAt > serve &&
+    userRoot &&
+    daemonId
     ? { userRoot: path.resolve(userRoot), daemonId }
     : null;
 }

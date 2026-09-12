@@ -349,7 +349,7 @@ function runningDaemon(started: Awaited<ReturnType<typeof startDaemon>>): Runnin
 function launchSpec(userRoot: string, daemonId: string): DaemonLaunchSpec {
   return {
     command: process.execPath,
-    args: ["index.ts", "daemon", "serve", "--user-root", userRoot, "--daemon-id", daemonId],
+    args: ["index.js", "serve", "--user-root", userRoot, "--daemon-id", daemonId],
     env: {},
   };
 }

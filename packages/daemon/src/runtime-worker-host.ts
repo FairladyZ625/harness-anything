@@ -16,7 +16,7 @@ type RuntimeWorkerManifest = {
   readonly callbackRelay?: RuntimeCallbackRelay;
 };
 
-async function runRuntimeWorkerHost(): Promise<void> {
+export async function runRuntimeWorkerHost(): Promise<void> {
   const manifest = parseManifest(await readStandardInput());
   const stream = dispatchStreamPath(manifest.rootDir, manifest.dispatchId);
   const append = (value: Readonly<Record<string, unknown>>): void =>
@@ -129,11 +129,4 @@ function parseManifest(value: string): RuntimeWorkerManifest {
 }
 function isRuntimeWorkerRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-if (process.argv[2] === "--runtime-worker-host") {
-  void runRuntimeWorkerHost().catch((error: unknown) => {
-    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
-    process.exitCode = 1;
-  });
 }

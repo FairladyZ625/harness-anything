@@ -37,6 +37,7 @@
       "packages/daemon/src/agent-runtime-launch-config.ts#providerSubscriptionReadiness",
       "packages/daemon/src/artifacts-gui-read.ts#walkAllTaskArtifacts",
       "packages/daemon/src/artifacts-gui-read.ts#walkArtifactTree",
+      "packages/daemon/src/bin.ts#<module>",
       "packages/daemon/src/build-identity.ts#resolveStamp",
       "packages/daemon/src/ci-observation-actions.ts#fetchCiObservations",
       "packages/daemon/src/client/local-json-rpc-client.ts#onLine",
