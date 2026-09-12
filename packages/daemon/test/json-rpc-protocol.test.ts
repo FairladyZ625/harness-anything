@@ -345,8 +345,7 @@ test("RepoCell serializes identical lifecycle intents into one accepted SQLite o
     initRepo(rootDir);
     cell = await openRepoCell({ repoId: workspaceId("alpha"), rootDir: canonicalRoot(rootDir), ownerId: "daemon-test" });
     const baselineRevision = makeTaskEventReader({ repoId: "alpha", rootDir }).read().revision;
-    const action = { kind: "task-create", verb: "create", commandType: "CreateReplayTask", taskId: "task-alpha",
-      title: "Alpha task" } as const;
+    const action = { kind: "task-create", taskId: "task-alpha", title: "Alpha task" } as const;
 
     const [left, right] = await Promise.all([
       cell.run(action, repoWriteBinding),
