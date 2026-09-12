@@ -148,11 +148,25 @@ export function withQueryOnlyDatabaseSession<A>(
     db.close();
   }
 }
-export function discardDatabase(projectionPath: string, eventStore: EventStreamPort): void {
+export function discardDatabase(
+  projectionPath: string,
+  eventStore: EventStreamPort,
+  reason: "schema_mismatch" | "explicit_rebuild",
+): void {
   if (!localRuntimeStateFileSystem.exists(projectionPath)) return;
   const coverage = readProjectionCoverage(projectionPath, eventStore.readHead);
   assertEventStreamContinuity(eventStore, coverage);
   closeProjectionHandlesAt(canonicalProjectionPath(projectionPath));
+  console.error(
+    JSON.stringify({
+      event: "projection_discard_started",
+      reason,
+      projectionPath,
+      ...coverage,
+      supportedSchemaVersion: taskProjectionSchemaVersion,
+      eventStreamHead: eventStore.readHead()?.revision ?? null,
+    }),
+  );
   localRuntimeStateFileSystem.remove(projectionPath);
 }
 // close() shares discard()'s invariant: callers close a projection so they can remove its file, and
@@ -287,6 +301,7 @@ function readProjectionCoverage(
   projectionPath: string,
   readHead: EventStreamPort["readHead"],
 ): {
+  readonly schemaVersion: number | null;
   readonly watermark: number;
   readonly scannedRevision: number;
 } {
@@ -296,7 +311,11 @@ function readProjectionCoverage(
       "SELECT watermark, scanned_revision FROM projection_meta WHERE singleton = 1",
     )[0];
     if (row === undefined) throw new Error(`projection cache metadata is unavailable at ${projectionPath}`);
-    return { watermark: Number(row.watermark), scannedRevision: Number(row.scanned_revision) };
+    return {
+      schemaVersion: projectionSchemaVersion(db),
+      watermark: Number(row.watermark),
+      scannedRevision: Number(row.scanned_revision),
+    };
   });
 }
 

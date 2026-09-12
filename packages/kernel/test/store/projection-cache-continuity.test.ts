@@ -14,6 +14,7 @@ import { initRepo } from "./task-event-store.fixtures.ts";
 import { withTempStoreAsync } from "./helpers.ts";
 
 test("a real SQLite event gap blocks schema rebuild and preserves the cache bytes", async (t) => {
+  const logged = t.mock.method(console, "error", () => undefined);
   await withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir);
     const writer = makeTaskEventStore({ repoId: "cache-continuity", rootDir }),
@@ -69,6 +70,7 @@ test("a real SQLite event gap blocks schema rebuild and preserves the cache byte
     assert.deepEqual(readFileSync(projection.path), retained);
     assert.throws(() => makeTaskProjection({ rootDir, eventStore }), rejectsGap);
     assert.deepEqual(readFileSync(projection.path), retained);
+    assert.equal(logged.mock.callCount(), 0, "a refused discard must not report that deletion started");
     t.diagnostic(
       JSON.stringify({
         case: "sqlite-event-gap",
