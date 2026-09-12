@@ -181,8 +181,9 @@ export async function runTaskActionCatalogRuntime(
                     `status=${current.snapshot.task?.status ?? "missing"} ` +
                     `node=${current.snapshot.task?.currentNode ?? "missing"}`,
                   expectation:
-                    `Current round already has an active execution; run ha task start ${taskId} ` +
-                    "without --execution-id to reuse it",
+                    `Current round already has active execution ${activeExecution.executionId}; ` +
+                    `run ha task start ${taskId} without --execution-id, or with ` +
+                    `--execution-id ${activeExecution.executionId}, to rejoin it`,
                 },
               ),
               contract,

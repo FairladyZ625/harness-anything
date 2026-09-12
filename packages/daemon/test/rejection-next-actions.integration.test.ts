@@ -158,7 +158,7 @@ test("start rejection identifies the active execution and its reuse command", as
       entity: `task ${taskId}`,
       field: "executionId",
       actual: `active execution=${executionId} status=active node=implementation`,
-      expectation: `Current round already has an active execution; run ha task start ${taskId} without --execution-id to reuse it`,
+      expectation: `Current round already has active execution exec-start-reuse; run ha task start ${taskId} without --execution-id, or with --execution-id exec-start-reuse, to rejoin it`,
     });
     context.diagnostic(`invalid_transition receipt=${JSON.stringify(rejected)}`);
     assert.equal((await cell.run({ kind: "task-start", taskId }, owner)).outcome, "applied");

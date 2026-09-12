@@ -88,7 +88,25 @@ test("Task explanations distinguish lifecycle state, actor capability, invocatio
       lease: active.lease ? { ...active.lease, phase: "orphaned" } : null,
     };
     assert.equal(row(explain(harness, lapsed, owner), "submit").available, false);
-    assert.equal(row(explain(harness, lapsed, owner), "start").available, false);
+    assert.equal(
+      row(explain(harness, lapsed, owner), "start").available,
+      true,
+      "an expired (orphaned) lease is recovered by rejoining the round's active execution",
+    );
+    assert.equal(
+      row(explain(harness, lapsed, owner), "archive").available,
+      true,
+      "an expired (orphaned) lease no longer blocks the disposition mutations",
+    );
+    const lapsedArchived: TaskLifecycleSnapshot = {
+      ...lapsed,
+      task: lapsed.task ? { ...lapsed.task, packageDisposition: "archived" } : null,
+    };
+    assert.equal(
+      row(explain(harness, lapsedArchived, owner), "reopen").available,
+      true,
+      "an archived task with an expired (orphaned) lease can be reopened",
+    );
 
     await harness.submit("execution-1");
     const submitted = await snapshot(harness),
