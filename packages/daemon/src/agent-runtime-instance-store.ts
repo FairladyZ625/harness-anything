@@ -238,7 +238,7 @@ export function openRuntimeInstanceStore(input: {
       effort = selectRuntimeEffort(config, request.effort),
       fast = selectRuntimeFast(config, request.fast),
       permissionMode = runtimePermissionMode(request.permissionMode ?? config.permissionMode, config.kindId),
-      witnessed = input.discover(),
+      witnessed = await refreshInstallations(),
       installation = witnessed.find(
         (entry) => entry.installationId === config.installationId && entry.kindId === config.kindId,
       );
