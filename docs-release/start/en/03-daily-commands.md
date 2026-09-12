@@ -2,6 +2,10 @@
 
 A cheat sheet for the commands you'll reach for most. Add `--json` to any command for structured output.
 
+For the executable Fact → Decision → Task → Fact sequence, use the single
+[first closed-loop recipe](02-first-loop.md). This page does not duplicate that
+stateful workflow.
+
 ## The commands you'll use constantly
 
 | Command | What it does |
@@ -10,34 +14,10 @@ A cheat sheet for the commands you'll reach for most. Add `--json` to any comman
 | `ha task create --title <title>` | Create a new task package. |
 | `ha task list` | List task packages, with state / module / search filters. |
 | `ha task show <id>` | Show one task with projected status, metadata, hierarchy, relation edges, and fact anchors. |
-| `ha task transition <id> <state>` | Move a task to a new lifecycle state. |
-| `ha decision propose --title <t> ...` | Propose a decision (question, chosen, rejected, why-not). |
-| `ha decision accept <id>` | Adjudicate a proposed decision — the evidence checkpoint. |
-| `ha fact record --statement <text> --source <text> [--task <id>]` | Record an append-only fact; optionally associate it with a task. |
+| `ha task start <id>` | Acquire or reuse the current execution lease. |
 | `ha status` | Summarize harness state. |
 | `ha check` | Run harness health checks. |
 | `ha graph` | Render the relation graph as a self-contained HTML panorama. |
-
-## By scenario
-
-**Task lifecycle**
-```bash
-ha task create --title "Implement slice"
-ha task transition <id> active
-ha task progress append <id> --text "Implemented first slice"
-```
-
-**Decisions**
-```bash
-ha decision propose --title "..." --question "..." --chosen "..." --rejected "..." --why-not "..."
-ha decision accept <id>       # or: reject | defer
-ha decision list --state active
-```
-
-**Facts**
-```bash
-ha fact record --statement "..." --source "..." --confidence high [--task <id>]
-```
 
 **Check & navigate**
 ```bash
@@ -57,4 +37,5 @@ ha --help              # global help, or: ha help <command>
 ha capabilities        # entity operations, input schemas, and examples
 ```
 
-Some older command spellings still work as deprecated aliases and will be retired in a future release — prefer the forms shown above.
+Deprecated aliases are not documented as alternate workflows; use the forms
+shown by current help and by the closed-loop recipe.

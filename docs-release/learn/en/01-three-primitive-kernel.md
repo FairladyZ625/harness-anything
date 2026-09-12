@@ -56,15 +56,12 @@ reviewed. The three interlock; only together are they self-consistent.
 
 ## One pass through the loop
 
-Use the canonical commands in this order. Each command writes one part of the
-graph, and the final fact is the input to the next pass:
-
-1. `ha fact record --statement "<observation>" --source "<source>" --confidence high` records the initial immutable observation.
-2. `ha decision propose --json-input '<decision-packet.json contents>'` creates a decision whose claims can be supported by that observation.
-3. `ha decision relate <decision-id> --anchor <claim-id> --type evidenced-by --target fact/F-XXXXXXXX --rationale "<why this fact supports the claim>"` attaches the fact to a decision claim.
-4. `ha task create --title "<work selected by the decision>"` creates the executable work package selected by the decision.
-5. `ha decision relate <decision-id> --anchor <claim-id> --type derives --target task/<task-id> --rationale "<why this task follows>"` records the decision-to-task derivation edge.
-6. `ha fact record --task <task-id> --statement "<result>" --source "<verification>" --confidence high` records the task result and closes the loop.
+The concepts above have one executable walkthrough: the
+[first closed-loop recipe](../../start/en/02-first-loop.md). It includes the
+current relation anchors, explicit human approval, task submission, review,
+consent, upstream Fact disposition, and the new closing Fact. Keeping the
+commands there prevents this conceptual chapter from becoming a second,
+drifting workflow.
 
 ## Asymmetric storage: task ownership is an edge
 
