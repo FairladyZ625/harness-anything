@@ -78,10 +78,8 @@ export function runtimeLeaseApi(
       withDatabase(projectionPath, readHead, (db) => effectiveLease(db, taskId, at ?? now())),
     currentLeaseForExecution: (executionId, at) =>
       withDatabase(projectionPath, readHead, (db: DatabaseSync) => {
-        const row = prepareQuery(
-          db,
-          "SELECT task_id FROM lease_cas WHERE json_extract(lease_json, '$.executionId') = ?",
-          (sql) => /* @gate-identity check-bypass-write-boundary/bypass-write-016 */ db.prepare(sql),
+        const row = prepareQuery(db, "SELECT task_id FROM lease_cas WHERE execution_id = ?", (sql) =>
+          /* @gate-identity check-bypass-write-boundary/bypass-write-016 */ db.prepare(sql),
         ).get(executionId) as { readonly task_id: string } | undefined;
         return row ? effectiveLease(db, row.task_id, at ?? now()) : null;
       }),

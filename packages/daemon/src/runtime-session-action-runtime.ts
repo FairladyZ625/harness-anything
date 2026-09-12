@@ -11,9 +11,7 @@ import type { RepoCellBinding, RuntimeIngressAction } from "./repo-cell-types.ts
 export function runtimeSessionActionPreparer(projection: () => TaskProjection): EntityActionCatalogPreparer {
   return (contract, action, binding) => {
     const runtimeSessionId = requiredRuntimeActionText(action.runtimeSessionId, "runtimeSessionId"),
-      dispatch = projection()
-        .readRuntimeDispatches()
-        .find((event) => event.payload.runtimeSessionId === runtimeSessionId),
+      dispatch = projection().readRuntimeDispatch(runtimeSessionId),
       dispatchSource = dispatch?.source,
       ingressSource = binding.source,
       localOwner = dispatchSource === "local" && ingressSource === "local";

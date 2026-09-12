@@ -17,6 +17,7 @@ import { readRuntimeSession, readSnapshot, storedLease } from "./rebuildable-tas
 export type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
 export type { TaskProjection } from "./task-projection-port.ts";
 
+const DOCUMENT_BASE_SQL = "SELECT json_extract(value_json, '$.blobSha256') AS blob_sha256 FROM document WHERE path = ?";
 const UPSERT_DOCUMENT_SQL = [
   "INSERT INTO document(path, workspace_revision, value_json) VALUES (?, ?, ?)",
   "ON CONFLICT(path) DO UPDATE SET workspace_revision=excluded.workspace_revision,",
@@ -35,8 +36,7 @@ export function projectProgress(
     lease = storedLease(db, taskId),
     packagePath = queryRows(db, "SELECT package_path FROM task_package WHERE task_id = ?", taskId)[0]?.package_path,
     claim = event.payload.resultDocumentClaim,
-    previous = queryRows(db, "SELECT value_json FROM document WHERE path = ?", claim.path)[0],
-    base = previous ? (JSON.parse(String(previous.value_json)) as DocumentState) : null,
+    base = queryRows(db, DOCUMENT_BASE_SQL, claim.path)[0],
     bytes = readBlob(claim.sha256),
     runtimeSessionIdValue = event.payload.runtimeSessionId,
     runtime = runtimeSessionIdValue ? readRuntimeSession(db, runtimeSessionIdValue) : null;
@@ -61,7 +61,7 @@ export function projectProgress(
     (!directHolder && !runtimeWorker)
   )
     throw new Error(`progress event lease mismatch for task ${taskId}`);
-  if (event.payload.baseDocumentSha256 !== (base?.blobSha256 ?? null) || !bytes || bytes.byteLength !== claim.size)
+  if (event.payload.baseDocumentSha256 !== (base?.blob_sha256 ?? null) || !bytes || bytes.byteLength !== claim.size)
     throw new Error(`progress document base or blob mismatch for task ${taskId}`);
   const body = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   const document: DocumentState = {
@@ -91,8 +91,7 @@ export function projectProgress(
   );
   runSql(db, UPSERT_DOCUMENT_SQL, claim.path, event.workspaceRevision, canonicalJson(document));
   for (const change of event.payload.carriedDocumentClaims ?? []) {
-    const previous = queryRows(db, "SELECT value_json FROM document WHERE path = ?", change.path)[0],
-      carriedBase = previous ? (JSON.parse(String(previous.value_json)) as DocumentState) : null,
+    const carriedBase = queryRows(db, DOCUMENT_BASE_SQL, change.path)[0],
       carriedBytes = readBlob(change.candidate.sha256);
     if (!carriedBytes || carriedBytes.byteLength !== change.candidate.size)
       throw new Error(`carried document blob ${change.candidate.sha256} is unavailable`);
@@ -102,7 +101,7 @@ export function projectProgress(
     } catch {
       throw new Error(`carried document blob ${change.candidate.sha256} is not UTF-8`);
     }
-    if (change.baseBlobSha256 !== (carriedBase?.blobSha256 ?? null))
+    if (change.baseBlobSha256 !== (carriedBase?.blob_sha256 ?? null))
       throw new Error(`carried document proof mismatch for ${change.path}`);
     const carriedDocument: DocumentState = {
       path: change.path as DocumentState["path"],
@@ -157,12 +156,11 @@ export function projectDecision(
   readBlob: EventStreamPort["readContentBlob"],
 ): void {
   const claim = event.payload.decisionDocumentClaim,
-    previousRow = queryRows(db, "SELECT value_json FROM document WHERE path = ?", claim.path)[0],
-    previous = previousRow ? (JSON.parse(String(previousRow.value_json)) as DocumentState) : null,
+    previous = queryRows(db, DOCUMENT_BASE_SQL, claim.path)[0],
     bytes = readBlob(claim.sha256);
   if (
     claim.path !== `decisions/decision-${event.decisionId}/decision.md` ||
-    event.payload.baseDocumentSha256 !== (previous?.blobSha256 ?? null) ||
+    event.payload.baseDocumentSha256 !== (previous?.blob_sha256 ?? null) ||
     !bytes ||
     bytes.byteLength !== claim.size
   )

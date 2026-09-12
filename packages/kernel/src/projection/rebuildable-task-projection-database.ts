@@ -400,6 +400,14 @@ function createTables(db: DatabaseSync): void {
     ) WHERE
       json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
       AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested';
+    CREATE INDEX IF NOT EXISTS event_index_runtime_dispatches ON event_index(workspace_revision)
+      WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
+        AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested';
+    CREATE INDEX IF NOT EXISTS event_index_runtime_session ON event_index(
+      json_extract(event_json, '$.payload.runtimeSessionId'), workspace_revision
+    ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1';
+    CREATE INDEX IF NOT EXISTS event_index_ci_observations ON event_index(workspace_revision)
+      WHERE json_extract(event_json, '$.schema') = 'ci-run-observation/v3';
     CREATE TABLE IF NOT EXISTS document (
       path TEXT PRIMARY KEY,
       workspace_revision INTEGER NOT NULL,
@@ -441,6 +449,9 @@ function createTables(db: DatabaseSync): void {
       status TEXT,
       pinned INTEGER NOT NULL GENERATED ALWAYS AS (
         json_extract(snapshot_json, '$.task.pinned')
+      ) STORED,
+      package_disposition TEXT NOT NULL GENERATED ALWAYS AS (
+        COALESCE(json_extract(snapshot_json, '$.task.packageDisposition'), 'active')
       ) STORED,
       updated_at TEXT NOT NULL DEFAULT ''
     );
@@ -489,7 +500,11 @@ function createTables(db: DatabaseSync): void {
       value_json TEXT NOT NULL,
       PRIMARY KEY(task_id, edge_id, iteration)
     );
-    CREATE TABLE IF NOT EXISTS lease_cas (task_id TEXT PRIMARY KEY, lease_json TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS lease_cas (
+      task_id TEXT PRIMARY KEY, lease_json TEXT NOT NULL,
+      execution_id TEXT GENERATED ALWAYS AS (json_extract(lease_json, '$.executionId')) STORED
+    );
+    CREATE INDEX IF NOT EXISTS lease_cas_execution ON lease_cas(execution_id);
     CREATE TABLE IF NOT EXISTS lease_interval (
       task_id TEXT NOT NULL,
       execution_id TEXT NOT NULL,

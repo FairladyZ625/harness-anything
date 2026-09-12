@@ -79,6 +79,77 @@ test("explicit projection rebuild replaces stale DDL even when its version claim
   });
 });
 
+test("previous projection DDL is replaced on reopen and hot reads use their indexes", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    const { projectionPath, eventStore } = tasklessFactLedger(rootDir, "hot-index-rebuild", "F-0123ABCD");
+    const original = makeTaskProjection({ rootDir, eventStore });
+    original.catchUp();
+    original.close();
+    const stale = new DatabaseSync(projectionPath);
+    stale.exec(`DROP INDEX lease_cas_execution;
+      ALTER TABLE lease_cas DROP COLUMN execution_id;
+      ALTER TABLE task_snapshot DROP COLUMN package_disposition;
+      UPDATE projection_meta SET schema_version = ${taskProjectionSchemaVersion - 1}`);
+    stale.close();
+    const projection = makeTaskProjection({ rootDir, eventStore });
+    projection.catchUp();
+    assert.equal(projection.searchFacts({ query: "standalone" }).facts[0]?.factId, "F-0123ABCD");
+    const statements: string[] = [],
+      prepare = DatabaseSync.prototype.prepare;
+    DatabaseSync.prototype.prepare = function (sql: string) {
+      statements.push(sql);
+      return prepare.call(this, sql);
+    };
+    try {
+      assert.equal(projection.currentLeaseForExecution("missing"), null);
+      assert.equal(projection.readRuntimeDispatch("missing"), null);
+      assert.deepEqual(projection.readRuntimeDispatches(), []);
+      assert.deepEqual(projection.readRuntimeSessionEvents("missing", 0, 10), []);
+      projection.readCiRunObservations(10);
+    } finally {
+      DatabaseSync.prototype.prepare = prepare;
+      projection.close();
+    }
+    const db = new DatabaseSync(projectionPath);
+    try {
+      for (const [part, args, expected] of [
+        ["FROM lease_cas WHERE execution_id", ["missing"], "lease_cas_execution"],
+        ["runtime_dispatch_requested' AND json_extract", ["missing"], "event_index_runtime_session"],
+        ["runtime_dispatch_requested' ORDER BY", [], "event_index_runtime_dispatches"],
+        ["WHERE workspace_revision > ? AND json_extract", [0, "missing", 10], "event_index_runtime_session"],
+        ["ci-run-observation/v3", [10], "event_index_ci_observations"],
+      ] as const) {
+        const sql = statements.find((statement) => statement.includes(part));
+        assert.ok(sql, part);
+        const plan = db
+          .prepare(`EXPLAIN QUERY PLAN ${sql}`)
+          .all(...args)
+          .map((row) => String(row.detail))
+          .join("\n");
+        assert.ok(plan.includes(expected), plan);
+        assert.doesNotMatch(plan, /USE TEMP B-TREE|SCAN event_index(?:\n|$)|SCAN lease_cas(?:\n|$)/u);
+      }
+      db.prepare("INSERT INTO lease_cas(task_id, lease_json) VALUES (?, ?)").run(
+        "task-fixture",
+        JSON.stringify({ executionId: "first" }),
+      );
+      db.prepare("UPDATE lease_cas SET lease_json = ? WHERE task_id = ?").run(
+        JSON.stringify({ executionId: "second" }),
+        "task-fixture",
+      );
+      assert.equal(db.prepare("SELECT execution_id FROM lease_cas").get()?.execution_id, "second");
+      db.prepare("INSERT INTO task_snapshot(task_id, workspace_revision, snapshot_json) VALUES (?, ?, ?)").run(
+        "task-fixture",
+        1,
+        JSON.stringify({ task: { packageDisposition: "archived", pinned: false } }),
+      );
+      assert.equal(db.prepare("SELECT package_disposition FROM task_snapshot").get()?.package_disposition, "archived");
+    } finally {
+      db.close();
+    }
+  });
+});
+
 // A pure index needs no replay: every owner runs CREATE INDEX IF NOT EXISTS when it opens, so a
 // current-version cache written before the index existed gains it in place.
 test("an owner adds the relation owner index to a current-version cache in place", async () => {
