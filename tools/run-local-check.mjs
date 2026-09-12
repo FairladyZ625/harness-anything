@@ -16,7 +16,8 @@
  *     fall back to `nice -n 10`; if neither is available, run bare.
  *   - Tiers: default "fast" (fresh-main line-budget, typecheck, lint,
  *     test:fast, test:contract, boundaries checkers, package-policy, and rebuild contract gates).
- *     `--full` appends test:integration test:gui, and test:gui:e2e. First
+ *     Changed paths derive integration through G25; integration runs in isolation.
+ *     `--full` additionally forces integration, test:gui, and test:gui:e2e. First
  *     failing step stops the run with a non-zero exit and a clear report of
  *     which step failed.
  *
@@ -27,10 +28,14 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { availableParallelism } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+
+import { git } from "./gates/git.mjs";
+import { selectTests } from "./gates/test-selection.mjs";
+import { parseTestTierMarker } from "./test-tier-manifest.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
 const LOCK_DIR = "/tmp/harness-local-check.lock";
@@ -124,8 +129,41 @@ export function parseLocalCheckArgs(args) {
   return options;
 }
 
-export function buildSteps(full) {
-  return full ? [...FAST_STEPS, ...FULL_EXTRA_STEPS] : [...FAST_STEPS];
+export function localChangedPaths(root = repoRoot) {
+  const base = git(root, ["merge-base", "origin/main", "HEAD"]).trim();
+  return [
+    ...new Set(
+      [
+        ...git(root, ["diff", "--name-only", "-z", base, "--"]).split("\0"),
+        ...git(root, ["ls-files", "--others", "--exclude-standard", "-z"]).split("\0"),
+      ].filter(Boolean),
+    ),
+  ];
+}
+
+export function buildSteps(
+  full,
+  changedPaths = [],
+  readSource = (file) => {
+    const absolute = path.join(repoRoot, file);
+    return existsSync(absolute) ? readFileSync(absolute, "utf8") : null;
+  },
+) {
+  if (full) return [...FAST_STEPS, ...FULL_EXTRA_STEPS];
+  const selection = selectTests(changedPaths, {
+    readTestTier(file) {
+      if (!/\.(?:test|spec)\.(?:mjs|js|ts|tsx)$/u.test(file)) return null;
+      const source = readSource(file);
+      return source === null ? null : parseTestTierMarker(source, file);
+    },
+  });
+  if (!selection.ok) throw new Error(selection.errors.join("\n"));
+  return [
+    ...FAST_STEPS,
+    ...FULL_EXTRA_STEPS.filter(
+      ([, script]) => script === "test:integration" && selection.required.includes("integration"),
+    ),
+  ];
 }
 
 /**
@@ -226,7 +264,12 @@ function sleep(ms) {
 }
 
 function runStep(label, scriptName, qosPrefix) {
-  const argv = [...qosPrefix, "npm", "run", scriptName];
+  const argv = [
+    ...qosPrefix,
+    ...(scriptName === "test:integration"
+      ? [process.execPath, "tools/dispatch-isolated-test.mjs", "--tier", "integration"]
+      : ["npm", "run", scriptName]),
+  ];
   const [command, ...rest] = argv;
   console.log(`\n▶ ${label}  (${argv.join(" ")})`);
   const started = Date.now();
@@ -264,6 +307,10 @@ async function main(argv) {
     hasNice: binaryExists("nice"),
   });
 
+  const steps = buildSteps(options.full, localChangedPaths());
+  const integrationSelected = steps.some(([, script]) => script === "test:integration");
+  const tierLabel = options.full ? "full" : integrationSelected ? "fast + integration" : "fast";
+
   let release;
   try {
     release = await acquireLock({ wait: options.wait, pollMs: options.pollMs });
@@ -276,11 +323,10 @@ async function main(argv) {
     throw error;
   }
 
-  const steps = buildSteps(options.full);
   const cores = availableParallelism();
   const qosLabel = qosPrefix.length ? qosPrefix.join(" ") : "none";
   console.log(
-    `Local check (${options.full ? "full" : "fast"} tier): ${steps.length} steps, ` +
+    `Local check (${tierLabel} tier): ${steps.length} steps, ` +
       `QoS wrapper: ${qosLabel}, cores: ${cores}. ` +
       `Cloud CI enforces the required checks on pull requests.`,
   );
@@ -300,10 +346,10 @@ async function main(argv) {
   }
 
   const totalS = ((Date.now() - totalStart) / 1000).toFixed(1);
-  console.log(`\nLocal check passed (${options.full ? "full" : "fast"} tier) in ${totalS}s.`);
+  console.log(`\nLocal check passed (${tierLabel} tier) in ${totalS}s.`);
   if (!options.full) {
     console.log(
-      "Note: this tier did not run test:integration or test:gui. Cloud CI runs the integration shards on every " +
+      `Note: integration ${integrationSelected ? "ran in isolation" : "was not selected by changed paths"}; GUI tests did not run. Cloud CI runs integration on every ` +
         "pull request; the GUI job runs only when the pull request touches packages/gui or the root " +
         "package/tsconfig manifests. Run `npm run check:local -- --full` to cover both here.",
     );

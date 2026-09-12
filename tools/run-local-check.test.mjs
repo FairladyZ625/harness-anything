@@ -1,8 +1,17 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import test from "node:test";
-import { buildSteps, parseLocalCheckArgs, excludedBoundaryGateIds, selectQosPrefix } from "./run-local-check.mjs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { execFileSync } from "node:child_process";
+import {
+  buildSteps,
+  localChangedPaths,
+  parseLocalCheckArgs,
+  excludedBoundaryGateIds,
+  selectQosPrefix,
+} from "./run-local-check.mjs";
 
 test("parseLocalCheckArgs defaults to the waiting fast tier", () => {
   assert.deepEqual(parseLocalCheckArgs([]), { full: false, wait: true, pollMs: 2000 });
@@ -20,7 +29,7 @@ test("parseLocalCheckArgs rejects unknown options", () => {
   assert.throws(() => parseLocalCheckArgs(["--bogus"]), /unknown run-local-check option/u);
 });
 
-test("buildSteps appends integration and gui lanes only in the full tier", () => {
+test("buildSteps keeps unchanged work fast and forces all extra lanes with full", () => {
   const fastScripts = buildSteps(false).map(([, script]) => script);
   const fullScripts = buildSteps(true).map(([, script]) => script);
 
@@ -85,4 +94,57 @@ test("selectQosPrefix falls back to nice off darwin or without taskpolicy", () =
 
 test("selectQosPrefix runs bare when no QoS tool is available", () => {
   assert.deepEqual(selectQosPrefix({ platform: "linux", hasTaskpolicy: false, hasNice: false }), []);
+});
+
+for (const file of [
+  "packages/cli/src/index.ts",
+  "packages/kernel/src/store/task-store.ts",
+  "packages/daemon/src/runtime.ts",
+]) {
+  test(`default local steps include integration for ${file}`, () => {
+    assert.ok(buildSteps(false, [file]).some(([, script]) => script === "test:integration"));
+  });
+}
+
+test("changed test selection reads its marker, regardless of its filename", () => {
+  const file = "tools/custom.test.mjs";
+  const readSource = () => "// harness-test-tier: integration\n";
+  assert.ok(buildSteps(false, [file], readSource).some(([, script]) => script === "test:integration"));
+  assert.ok(!buildSteps(false, [file], () => "// harness-test-tier: fast\n").some(([, s]) => s === "test:integration"));
+  assert.equal(buildSteps(true, [file], readSource).filter(([, s]) => s === "test:integration").length, 1);
+  assert.ok(!buildSteps(false, ["README.md"]).some(([, s]) => s === "test:integration"));
+});
+
+test("local changed paths include committed, staged, unstaged, deleted and untracked files", (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "local-changes-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const git = (...args) => execFileSync("git", args, { cwd: root, encoding: "utf8", stdio: "pipe" });
+  const write = (file, text) => writeFileSync(path.join(root, file), text);
+  git("init");
+  git("config", "user.name", "Test");
+  git("config", "user.email", "test@example.com");
+  for (const file of ["committed", "staged", "unstaged", "deleted"]) write(file, "base");
+  git("add", ".");
+  git("commit", "-m", "test: base");
+  git("update-ref", "refs/remotes/origin/main", "HEAD");
+  write("committed", "changed");
+  git("add", "committed");
+  git("commit", "-m", "test: branch change");
+  write("staged", "changed");
+  git("add", "staged");
+  write("unstaged", "changed");
+  rmSync(path.join(root, "deleted"));
+  write("untracked", "changed");
+  assert.deepEqual(localChangedPaths(root).sort(), ["committed", "deleted", "staged", "unstaged", "untracked"]);
+});
+
+test("deleted tests select integration and malformed markers cannot silently omit it", () => {
+  assert.ok(buildSteps(false, ["tools/deleted.test.mjs"], () => null).some(([, s]) => s === "test:integration"));
+  assert.throws(() => buildSteps(false, ["tools/broken.test.mjs"], () => ""), /test tier marker missing/u);
+});
+
+test("test helpers and data fixtures select all tiers without requiring test markers", () => {
+  for (const file of ["packages/cli/test/helpers.ts", "packages/kernel/test/fixtures/input.json"]) {
+    assert.ok(buildSteps(false, [file], () => "{}").some(([, s]) => s === "test:integration"));
+  }
 });
