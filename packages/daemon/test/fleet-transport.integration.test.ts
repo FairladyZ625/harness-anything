@@ -1072,6 +1072,25 @@ test(
       offset: ready.resumeOffset,
       dataBase64: Buffer.from("xyz").toString("base64"),
     });
+    // Replay comparison reads only the window a retried chunk names: identical
+    // bytes at a non-zero offset are accepted, divergent bytes are refused.
+    const replayed = await peer.request({
+      schema: "fleet.upload.chunk/v1",
+      messageId: "replay-chunk",
+      uploadId: ready.uploadId,
+      offset: 1,
+      dataBase64: Buffer.from("yz").toString("base64"),
+    });
+    assert.equal(replayed.schema, "fleet.upload.ready/v1");
+    const divergent = await peer.request({
+      schema: "fleet.upload.chunk/v1",
+      messageId: "divergent-chunk",
+      uploadId: ready.uploadId,
+      offset: 1,
+      dataBase64: Buffer.from("zz").toString("base64"),
+    });
+    assert.equal(divergent.schema, "fleet.error/v1");
+    if (divergent.schema === "fleet.error/v1") assert.equal(divergent.code, "upload_replay_mismatch");
     const bad = await peer.request({
       schema: "fleet.upload.finish/v1",
       messageId: "bad-finish",

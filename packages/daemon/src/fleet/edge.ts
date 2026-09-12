@@ -7,6 +7,7 @@ import {
   openSync,
   readFileSync,
   readdirSync,
+  readSync,
   renameSync,
   rmSync,
   statSync,
@@ -152,12 +153,16 @@ export function openFleetEdgeView(
         const length = existsSync(target) ? statSync(target).size : 0;
         if (frame.offset > length) throw new Error("chunk gap");
         if (frame.offset < length) {
-          if (
-            !readFileSync(target)
-              .subarray(frame.offset, frame.offset + bytes.length)
-              .equals(bytes)
-          )
-            throw new Error("chunk replay mismatch");
+          // Replay comparison reads only the contested window; the staged blob
+          // can be far larger than the chunk being retried.
+          const descriptor = openSync(target, "r");
+          try {
+            const window = Buffer.alloc(bytes.length),
+              read = readSync(descriptor, window, 0, bytes.length, frame.offset);
+            if (read !== bytes.length || !window.equals(bytes)) throw new Error("chunk replay mismatch");
+          } finally {
+            closeSync(descriptor);
+          }
         } else {
           const usedBytes = accountedDiskBytes();
           if (usedBytes + bytes.byteLength > diskQuotaBytes)
@@ -226,7 +231,6 @@ function finish(
       entries.reduce((sum, entry) => sum + entry.blob.size, 0) !== begin.manifest.totalBytes
     )
       throw new Error("snapshot manifest count mismatch");
-    mkdirSync(files, { recursive: true });
   } else {
     const previous = readJson<Current>(path.join(viewRoot, "current.json"));
     if (!previous || JSON.stringify(previous.cut) !== JSON.stringify(begin.fromCut))
@@ -238,7 +242,6 @@ function finish(
     if (changes.length !== begin.changeCount) throw new Error("delta change count mismatch");
     // Delta cuts keep a complete manifest and materialize only changed files;
     // unchanged bytes remain addressable through the verified edge CAS.
-    mkdirSync(files, { recursive: true });
     for (const change of changes) {
       entries = entries.filter((entry) => entry.path !== change.path);
       const target = path.join(files, change.path);
@@ -250,7 +253,8 @@ function finish(
   const changedPaths = new Set(changes.filter((change) => change.op === "put").map((change) => change.path));
   for (const entry of entries) {
     // A delta base is an immutable cut whose bytes were verified before its
-    // current pointer was published. Only incoming puts need CAS revalidation.
+    // current pointer was published; only its incoming puts need CAS
+    // revalidation. A snapshot ingests every blob below.
     if (begin.schema === "fleet.delta.begin/v1" && !changedPaths.has(entry.path)) continue;
     const cas = path.join(casRoot, entry.blob.sha256.slice(0, 2), entry.blob.sha256),
       incoming = path.join(staging, "blobs", entry.blob.sha256);
@@ -260,6 +264,9 @@ function finish(
           throw new Error("transfer blob missing");
         writeFileDurably(cas, Buffer.alloc(0));
       } else {
+        // Incoming bytes are hashed exactly once, here; the CAS file is the
+        // verified rename of them, and a CAS blob that already exists was
+        // verified when it was written, so no read-back rehash follows.
         const bytes = readFileSync(incoming);
         if (bytes.byteLength !== entry.blob.size || sha256Bytes(bytes) !== entry.blob.sha256)
           throw new Error("transfer blob mismatch");
@@ -267,12 +274,14 @@ function finish(
         renameSync(incoming, cas);
       }
     }
-    const bytes = readFileSync(cas);
-    if (bytes.byteLength !== entry.blob.size || sha256Bytes(bytes) !== entry.blob.sha256)
-      throw new Error("edge CAS blob mismatch");
-    const target = path.join(files, entry.path);
-    mkdirSync(path.dirname(target), { recursive: true });
-    cpSync(cas, target);
+    // Delta cuts materialize changed files beside their manifest; a snapshot
+    // cut addresses every blob through the verified CAS instead of copying
+    // the whole tree into cuts/<revision>/files/.
+    if (begin.schema === "fleet.delta.begin/v1") {
+      const target = path.join(files, entry.path);
+      mkdirSync(path.dirname(target), { recursive: true });
+      cpSync(cas, target);
+    }
   }
   const digest = fleetManifestDigest(entries);
   if (digest !== expected) throw new Error("result manifest mismatch");

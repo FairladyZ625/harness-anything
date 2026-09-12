@@ -78,7 +78,17 @@ test("edge staging replays snapshot/delta pages and chunks and switches only com
       "fleet.ack/v1",
     );
     assert.equal(view.current("repo", "many")?.cut.revision, 1);
-    assert.equal(readFileSync(path.join(root, "repos/repo/views/many/cuts/1/files/tasks/t/many-05.md"), "utf8"), "");
+    // Snapshot cuts address their blobs through the verified CAS instead of
+    // copying the tree into cuts/<revision>/files/; only delta cuts
+    // materialize changed files beside their manifest.
+    assert.equal(existsSync(path.join(root, "repos/repo/views/many/cuts/1/files/tasks/t/many-05.md")), false);
+    assert.equal(
+      readFileSync(
+        path.join(root, "repos/repo/cas/sha256", manyEntries[5]!.blob.sha256.slice(0, 2), manyEntries[5]!.blob.sha256),
+        "utf8",
+      ),
+      "",
+    );
     const otherBody = Buffer.from("other-view"),
       otherEntry = wireEntry("tasks/t/other.md", otherBody),
       otherSnapshot = snapshotFrames("snap-other", "other", cutOne, [otherEntry], [otherBody]);
@@ -138,6 +148,69 @@ test("edge staging replays snapshot/delta pages and chunks and switches only com
     view = openFleetEdgeView(root, replicaQuota);
     for (const frame of deltaThree) view.receive(frame);
     assert.equal(view.current("repo", "view")?.cut.revision, 3);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("edge chunk replay compares only the named window against the staged blob", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-fleet-edge-window-"));
+  try {
+    const body = Buffer.concat([Buffer.from("a".repeat(100 * 1024)), Buffer.from("b".repeat(100 * 1024))]),
+      entry = wireEntry("tasks/t/big.md", body),
+      digest = fleetManifestDigest([entry]),
+      cut = wireCut(1),
+      begin = {
+        schema: "fleet.snapshot.begin/v1" as const,
+        messageId: "big-begin",
+        transferId: "big",
+        repoId: "repo",
+        viewId: "view",
+        cut,
+        manifest: { digest, entryCount: 1, totalBytes: body.byteLength },
+      },
+      page = {
+        schema: "fleet.snapshot.page/v1" as const,
+        messageId: "big-page",
+        transferId: "big",
+        pageIndex: 0,
+        entries: [entry],
+      },
+      first = {
+        schema: "fleet.snapshot.chunk/v1" as const,
+        messageId: "big-chunk-0",
+        transferId: "big",
+        blobSha256: entry.blob.sha256,
+        offset: 0,
+        dataBase64: body.subarray(0, 100 * 1024).toString("base64"),
+      },
+      second = {
+        schema: "fleet.snapshot.chunk/v1" as const,
+        messageId: "big-chunk-1",
+        transferId: "big",
+        blobSha256: entry.blob.sha256,
+        offset: 100 * 1024,
+        dataBase64: body.subarray(100 * 1024).toString("base64"),
+      };
+    let view = openFleetEdgeView(root, replicaQuota, (point) => {
+      if (point === "after_chunk") throw new Error("crash-after-chunk");
+    });
+    view.receive(begin);
+    view.receive(page);
+    assert.throws(() => view.receive(first), /crash-after-chunk/u);
+    view = openFleetEdgeView(root, replicaQuota);
+    view.receive(begin);
+    view.receive(page);
+    view.receive(first);
+    view.receive(second);
+    // Replaying the identical mid-blob window at a non-zero offset is
+    // accepted; a chunk whose window diverges is refused without re-reading
+    // the whole staged blob.
+    view.receive(second);
+    assert.throws(
+      () => view.receive({ ...second, dataBase64: Buffer.from("c".repeat(100 * 1024)).toString("base64") }),
+      /chunk replay mismatch/u,
+    );
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

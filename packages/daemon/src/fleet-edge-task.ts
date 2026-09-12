@@ -35,7 +35,6 @@ import {
   cacheFleetMirrorDirtyBases,
   locateFleetMirrorView,
   readFleetUnresolvedConflicts,
-  scanFleetMirrorWorktree,
   withFleetMirrorLock,
   type FleetMirrorView,
   type FleetStagedConflict,
@@ -317,13 +316,15 @@ export async function runFleetEdgeTask(input: FleetEdgeTaskRequest): Promise<Rec
     if (taskId === null || workspaceRoot === null || action.kind === "task-create") return null;
     const view = locateFleetMirrorView(payload.viewRoot, payload.repoId);
     if (view === null) return null;
-    cacheFleetMirrorDirtyBases(payload.viewRoot, payload.repoId, workspaceRoot);
+    // The pre-pull base-cache scan over this same view and tree is exactly the
+    // dirty-detection the carry set needs; reuse it instead of scanning twice.
+    const preScan = cacheFleetMirrorDirtyBases(payload.viewRoot, payload.repoId, workspaceRoot);
     const packagePath = fleetExactTaskPackagePath(view, workspaceRoot, taskId);
-    if (packagePath === null) return null;
+    if (packagePath === null || preScan === null) return null;
     const scope = fleetEdgeScopePaths(payload.assignmentId, payload.rosterPath);
     const inScope = (changePath: string): boolean =>
       scope === null || scope.some((allowed) => changePath === allowed || changePath.startsWith(`${allowed}/`));
-    const candidates = scanFleetMirrorWorktree(view, workspaceRoot).changes.filter(
+    const candidates = preScan.changes.filter(
       (change) => change.path.startsWith(`${packagePath}/`) && inScope(change.path),
     );
     if (candidates.length === 0) return null;

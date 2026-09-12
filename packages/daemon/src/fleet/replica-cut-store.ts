@@ -22,6 +22,13 @@ import {
 } from "./contract.ts";
 import { writeFileDurably } from "../durable-file.ts";
 
+type DocumentClaim = {
+  readonly path: string;
+  readonly sha256: string;
+  readonly size: number;
+  readonly mediaType: string;
+};
+
 export interface SnapshotCut {
   readonly repoId: string;
   readonly revision: number;
@@ -75,8 +82,9 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
     if (database) return database;
     mkdirSync(root, { recursive: true });
     database = new DatabaseSync(databasePath);
+    database.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;");
     database.exec(
-      "PRAGMA journal_mode = DELETE; CREATE TABLE IF NOT EXISTS cut (repo_id TEXT NOT NULL, revision INTEGER PRIMARY KEY, head_digest TEXT NOT NULL, manifest_digest TEXT NOT NULL, entry_count INTEGER NOT NULL, total_bytes INTEGER NOT NULL, event_occurred_at TEXT NOT NULL); CREATE TABLE IF NOT EXISTS change (repo_id TEXT NOT NULL, from_revision INTEGER NOT NULL, to_revision INTEGER NOT NULL, path TEXT NOT NULL, op TEXT NOT NULL, blob_sha256 TEXT, size INTEGER, media_type TEXT, PRIMARY KEY(repo_id, from_revision, to_revision, path));",
+      "CREATE TABLE IF NOT EXISTS cut (repo_id TEXT NOT NULL, revision INTEGER PRIMARY KEY, head_digest TEXT NOT NULL, manifest_digest TEXT NOT NULL, entry_count INTEGER NOT NULL, total_bytes INTEGER NOT NULL, event_occurred_at TEXT NOT NULL); CREATE TABLE IF NOT EXISTS change (repo_id TEXT NOT NULL, from_revision INTEGER NOT NULL, to_revision INTEGER NOT NULL, path TEXT NOT NULL, op TEXT NOT NULL, blob_sha256 TEXT, size INTEGER, media_type TEXT, PRIMARY KEY(repo_id, from_revision, to_revision, path));",
     );
     return database;
   };
@@ -132,16 +140,14 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
       throw new Error(`replica manifest ${row.manifest_digest} is corrupt`);
     return JSON.parse(bytes) as FleetEntry[];
   };
-  const writeManifest = (entries: readonly FleetEntry[]) => {
-    const bytes = stableStringify(entries),
-      digest = sha256Text(bytes),
-      target = manifestPath(digest);
+  const writeManifest = (manifest: { readonly bytes: string; readonly digest: string }) => {
+    const target = manifestPath(manifest.digest);
     if (existsSync(target)) {
-      if (readFileSync(target, "utf8") !== bytes) throw new Error(`replica manifest CAS collision ${digest}`);
-      return digest;
+      if (readFileSync(target, "utf8") !== manifest.bytes)
+        throw new Error(`replica manifest CAS collision ${manifest.digest}`);
+      return;
     }
-    writeFileDurably(target, bytes);
-    return digest;
+    writeFileDurably(target, manifest.bytes);
   };
   const prune = (store: DatabaseSync) => {
     const retained = store
@@ -158,65 +164,77 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
     store.prepare("DELETE FROM change WHERE from_revision < ?").run(oldest);
     return digests;
   };
-  const persist = (
+  // Cut rows are inserted inside the caller's round transaction; manifest files
+  // for pruned digests are unlinked only after that transaction commits, so a
+  // rollback restores rows whose files are still on disk.
+  const persistCut = (
+    store: DatabaseSync,
     event: CanonicalEventV1,
     entries: readonly FleetEntry[],
-    previous?: { readonly revision: number; readonly entries: readonly FleetEntry[] },
-  ) => {
-    const digest = writeManifest(entries),
-      headDigest = `sha256:${sha256Text(
+    claims: readonly DocumentClaim[],
+    previous: { readonly revision: number; readonly entries: readonly FleetEntry[] } | null,
+    digest: string,
+  ): { readonly cut: SnapshotCut; readonly pruned: readonly string[] } => {
+    const headDigest = `sha256:${sha256Text(
         serializeEventHead({
           revision: event.workspaceRevision,
           opId: event.opId,
           eventDigest: `sha256:${sha256Text(serializePersistedCanonicalEvent(event))}`,
         }),
       )}`,
-      store = db(),
       prior = new Map(previous?.entries.map((entry) => [entry.path, entry])),
-      next = new Map(entries.map((entry) => [entry.path, entry])),
+      // nextEntries only ever adds or replaces claim paths, so the delta against
+      // the previous cut is exactly the claims whose blob fields differ.
       changes = previous
-        ? [
-            ...entries
-              .filter((entry) => stableStringify(prior.get(entry.path)?.blob) !== stableStringify(entry.blob))
-              .map((entry) => ({ op: "put" as const, path: entry.path, blob: entry.blob })),
-            ...previous.entries
-              .filter((entry) => !next.has(entry.path))
-              .map((entry) => ({ op: "delete" as const, path: entry.path })),
-          ]
-        : [];
-    let pruned: string[];
+        ? claims
+            .filter((claim) => {
+              const before = prior.get(claim.path)?.blob;
+              return (
+                before === undefined ||
+                before.sha256 !== claim.sha256 ||
+                before.size !== claim.size ||
+                before.mediaType !== claim.mediaType
+              );
+            })
+            .map((claim) => ({
+              path: claim.path,
+              blob: { sha256: claim.sha256, size: claim.size, mediaType: claim.mediaType },
+            }))
+        : [],
+      insertCut = store.prepare(
+        "INSERT OR IGNORE INTO cut(repo_id, revision, head_digest, manifest_digest, entry_count, total_bytes, event_occurred_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      ),
+      insertChange = store.prepare(
+        "INSERT OR IGNORE INTO change(repo_id, from_revision, to_revision, path, op, blob_sha256, size, media_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      );
+    insertCut.run(
+      options.repoId,
+      event.workspaceRevision,
+      headDigest,
+      digest,
+      entries.length,
+      entries.reduce((sum, entry) => sum + entry.blob.size, 0),
+      event.occurredAt,
+    );
+    for (const change of changes)
+      insertChange.run(
+        options.repoId,
+        previous!.revision,
+        event.workspaceRevision,
+        change.path,
+        "put",
+        change.blob.sha256,
+        change.blob.size,
+        change.blob.mediaType,
+      );
+    return { cut: latest()!, pruned: prune(store) };
+  };
+  const transact = (store: DatabaseSync, body: () => readonly string[]): readonly string[] => {
     store.exec("BEGIN IMMEDIATE");
     try {
-      store
-        .prepare(
-          "INSERT OR IGNORE INTO cut(repo_id, revision, head_digest, manifest_digest, entry_count, total_bytes, event_occurred_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        )
-        .run(
-          options.repoId,
-          event.workspaceRevision,
-          headDigest,
-          digest,
-          entries.length,
-          entries.reduce((sum, entry) => sum + entry.blob.size, 0),
-          event.occurredAt,
-        );
-      for (const change of changes)
-        store
-          .prepare(
-            "INSERT OR IGNORE INTO change(repo_id, from_revision, to_revision, path, op, blob_sha256, size, media_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-          )
-          .run(
-            options.repoId,
-            previous!.revision,
-            event.workspaceRevision,
-            change.path,
-            change.op,
-            change.op === "put" ? change.blob.sha256 : null,
-            change.op === "put" ? change.blob.size : null,
-            change.op === "put" ? change.blob.mediaType : null,
-          );
-      pruned = prune(store);
+      const pruned = body();
       store.exec("COMMIT");
+      return pruned;
     } catch (error) {
       try {
         store.exec("ROLLBACK");
@@ -225,13 +243,28 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
       }
       throw error;
     }
-    for (const orphan of pruned)
+  };
+  const unlinkOrphanManifests = (store: DatabaseSync, digests: readonly string[]): void => {
+    for (const orphan of digests)
       if (
         !store.prepare("SELECT 1 FROM cut WHERE manifest_digest = ? LIMIT 1").get(orphan) &&
         existsSync(manifestPath(orphan))
       )
         unlinkSync(manifestPath(orphan));
-    return latest()!;
+  };
+  const persistInitial = (event: CanonicalEventV1, entries: readonly FleetEntry[]): SnapshotCut => {
+    const bytes = stableStringify(entries),
+      digest = sha256Text(bytes),
+      store = db();
+    let cut!: SnapshotCut;
+    const pruned = transact(store, () => {
+      const persisted = persistCut(store, event, entries, canonicalDocumentClaims(event), null, digest);
+      cut = persisted.cut;
+      writeManifest({ bytes, digest });
+      return persisted.pruned;
+    });
+    unlinkOrphanManifests(store, pruned);
+    return cut;
   };
   const entriesFrom = (basis: ReplicaProjectionBasis) =>
     basis.documents
@@ -240,9 +273,9 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
         blob: { sha256: blobSha256, size, mediaType },
       }))
       .sort((left, right) => left.path.localeCompare(right.path));
-  const nextEntries = (prior: readonly FleetEntry[], event: CanonicalEventV1) => {
+  const nextEntries = (prior: readonly FleetEntry[], claims: readonly DocumentClaim[]) => {
     const entries = new Map(prior.map((entry) => [entry.path, entry]));
-    for (const claim of canonicalDocumentClaims(event))
+    for (const claim of claims)
       entries.set(claim.path, {
         path: claim.path,
         blob: { sha256: claim.sha256, size: claim.size, mediaType: claim.mediaType },
@@ -256,33 +289,62 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
     for (const row of rows) row.resolve(cut);
   };
   const runRound = () => {
-    let prior = latest();
-    if (!prior) {
+    const initial = latest();
+    if (!initial) {
       const basis = options.readBasis(null);
       if (basis.watermark === 0 || basis.watermark !== basis.sourceRevision || !basis.headEvent) return false;
-      prior = persist(basis.headEvent, entriesFrom(basis));
-      settle(prior);
+      const first = persistInitial(basis.headEvent, entriesFrom(basis));
+      settle(first);
       return false;
     }
-    const basis = options.readBasis(prior.revision),
-      started = monotonicNow();
-    let entries = manifest(prior.revision)!,
+    const basis = options.readBasis(initial.revision),
+      started = monotonicNow(),
+      store = db();
+    let entries = manifest(initial.revision)!,
+      current: SnapshotCut = initial,
       processed = 0;
-    for (const event of basis.events) {
-      if (processed > 0 && monotonicNow() - started >= 100) break;
-      if (event.workspaceRevision !== prior.revision + 1) throw new Error(`replica cut gap after ${prior.revision}`);
-      const before = entries;
-      entries = nextEntries(entries, event);
-      if (
-        event.workspaceRevision === basis.watermark &&
-        fleetManifestDigest(entries) !== fleetManifestDigest(entriesFrom(basis))
-      )
-        throw new Error(`replica manifest drift at revision ${event.workspaceRevision}`);
-      prior = persist(event, entries, { revision: prior.revision, entries: before });
-      settle(prior);
-      processed += 1;
-    }
-    return prior.revision < basis.watermark;
+    const settled: SnapshotCut[] = [],
+      pruned: string[] = [];
+    // One transaction drains the whole round: each commit under the old
+    // rollback journal paid its own journal fsync chain per event. Waiters are
+    // settled only after the commit, so a rolled-back round resolves nobody.
+    // Manifest files stay per-revision because delta offers address any
+    // retained revision, not only round-final ones.
+    transact(store, () => {
+      for (const event of basis.events) {
+        if (processed > 0 && monotonicNow() - started >= 100) break;
+        if (event.workspaceRevision !== current.revision + 1)
+          throw new Error(`replica cut gap after ${current.revision}`);
+        const before = entries,
+          claims = canonicalDocumentClaims(event);
+        entries = nextEntries(entries, claims);
+        if (
+          event.workspaceRevision === basis.watermark &&
+          fleetManifestDigest(entries) !== fleetManifestDigest(entriesFrom(basis))
+        )
+          throw new Error(`replica manifest drift at revision ${event.workspaceRevision}`);
+        const bytes = stableStringify(entries),
+          digest = sha256Text(bytes),
+          manifest = { bytes, digest };
+        writeManifest(manifest);
+        const persisted = persistCut(
+          store,
+          event,
+          entries,
+          claims,
+          { revision: current.revision, entries: before },
+          digest,
+        );
+        current = persisted.cut;
+        settled.push(persisted.cut);
+        pruned.push(...persisted.pruned);
+        processed += 1;
+      }
+      return pruned;
+    });
+    unlinkOrphanManifests(store, pruned);
+    for (const cut of settled) settle(cut);
+    return current.revision < basis.watermark;
   };
   const waiters = new Map<
     number,
@@ -298,7 +360,7 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
     const basis = options.readBasis(null),
       cut =
         basis.watermark > 0 && basis.watermark === basis.sourceRevision && basis.headEvent
-          ? persist(basis.headEvent, entriesFrom(basis))
+          ? persistInitial(basis.headEvent, entriesFrom(basis))
           : null;
     if (cut) settle(cut);
     else kick();
@@ -332,23 +394,34 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
     kick();
     return promise;
   };
-  const changeLog = () =>
-    (
-      db()
-        .prepare("SELECT * FROM change ORDER BY from_revision, to_revision, path")
-        .all() as unknown as readonly Record<string, unknown>[]
-    ).map((row) => ({
-      fromRevision: Number(row.from_revision),
-      toRevision: Number(row.to_revision),
-      change:
-        row.op === "put"
-          ? {
-              op: "put" as const,
-              path: String(row.path),
-              blob: { sha256: String(row.blob_sha256), size: Number(row.size), mediaType: String(row.media_type) },
-            }
-          : { op: "delete" as const, path: String(row.path) },
-    }));
+  const changeRowOf = (row: Record<string, unknown>): ReplicaChangeLogEntry => ({
+    fromRevision: Number(row.from_revision),
+    toRevision: Number(row.to_revision),
+    change:
+      row.op === "put"
+        ? {
+            op: "put" as const,
+            path: String(row.path),
+            blob: { sha256: String(row.blob_sha256), size: Number(row.size), mediaType: String(row.media_type) },
+          }
+        : { op: "delete" as const, path: String(row.path) },
+  });
+  const changeRows = (range?: { readonly from: number; readonly to: number }): readonly ReplicaChangeLogEntry[] => {
+    const store = db(),
+      rows =
+        range === undefined
+          ? (store
+              .prepare("SELECT * FROM change ORDER BY from_revision, to_revision, path")
+              .all() as unknown as readonly Record<string, unknown>[])
+          : (store
+              .prepare(
+                "SELECT * FROM change WHERE from_revision >= ? AND to_revision <= ? " +
+                  "ORDER BY from_revision, to_revision, path",
+              )
+              .all(range.from, range.to) as unknown as readonly Record<string, unknown>[]);
+    return rows.map(changeRowOf);
+  };
+  const changeLog = () => changeRows();
   const changes = (fromRevision: number, toRevision: number) => {
     const cuts = db()
       .prepare("SELECT revision FROM cut WHERE revision >= ? AND revision <= ? ORDER BY revision")
@@ -359,10 +432,7 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
     )
       return null;
     const folded = new Map<string, FleetDeltaChange>();
-    for (const row of changeLog().filter(
-      (entry) => entry.fromRevision >= fromRevision && entry.toRevision <= toRevision,
-    ))
-      folded.set(row.change.path, row.change);
+    for (const row of changeRows({ from: fromRevision, to: toRevision })) folded.set(row.change.path, row.change);
     return [...folded.values()].sort((left, right) => left.path.localeCompare(right.path));
   };
   const content = (blob: FleetBlob) => {
