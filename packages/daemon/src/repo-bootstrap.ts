@@ -499,7 +499,13 @@ function jsonStringEnd(body: string, start: number): number {
   throw repoBootstrapError("invalid_package_json", "package.json string is incomplete.");
 }
 function initNext(rootDir: string, repoId: string, orphaned: boolean, maintenanceDegraded: string | null): string {
-  return `ha daemon repo register --repo-id ${repoId} --root ${JSON.stringify(rootDir)}; ha --root ${JSON.stringify(rootDir)} daemon status${orphaned ? " # Resolve orphaned scaffold documents through an explicit governance task; init will not delete or migrate them." : ""}${maintenanceDegraded ? ` # ${maintenanceDegraded}` : ""}`;
+  return [
+    `ha daemon repo register --repo-id ${repoId} --root ${JSON.stringify(rootDir)}; ha --root ${JSON.stringify(rootDir)} daemon status${orphaned ? " # Resolve orphaned scaffold documents through an explicit governance task; init will not delete or migrate them." : ""}${maintenanceDegraded ? ` # ${maintenanceDegraded}` : ""}`,
+    "Init does not install agents or squads. To populate an empty catalog:",
+    "Install Agent packages first, then a Squad package referencing those agents.",
+    `ha --root ${JSON.stringify(rootDir)} agent install --source <directory-containing-agent.json>`,
+    `ha --root ${JSON.stringify(rootDir)} squad install --source <directory-containing-squad.json>`,
+  ].join("\n");
 }
 function withTopLevelName(body: string, name: string): string {
   const match = /^name:[ \t]*(.*?)[ \t]*(\r?)$/mu.exec(body);
