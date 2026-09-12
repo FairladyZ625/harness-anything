@@ -214,6 +214,11 @@ function AppShell() {
     previewTask !== null || selected !== null || overviewDecisionPreviewId !== null || view === "sessions";
   const activeEdges = useActiveEdgesQuery(activeRepoId, edgeSurfaceMounted && !triadicQuery.graphAvailable);
 
+  const decisionReadError = fullProjectionMounted
+    ? triadicQuery.decisionError
+    : view === "overview"
+      ? decisionSummary.error
+      : null;
   const decisions = triadicQuery.decisions;
   const facts = triadicQuery.facts;
   const coverageRows = triadicQuery.coverageRows;
@@ -442,6 +447,8 @@ function AppShell() {
                   }}
                   onFocusGraph={focusEntityInGraph}
                 />
+              ) : decisionReadError ? (
+                <WorkspaceSummaryPending error={decisionReadError} />
               ) : view === "home" ? (
                 <HomeView
                   repos={systemQuery.data?.repos ?? []}

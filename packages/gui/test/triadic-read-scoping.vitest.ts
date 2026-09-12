@@ -135,7 +135,7 @@ function startOnView(view: string) {
  * 挂 App,从 `options.view` 起步。`getTasks` 决定台账 cut:每次返回的 watermark/
  * sourceRevision 变化都会触发 `invalidateLedgerDependents`,这正是被测的失效面。
  */
-async function mountApp(options: { readonly view: string }): Promise<{
+async function mountApp(options: { readonly view: string; readonly decisionResult?: unknown }): Promise<{
   readonly calls: () => readonly RecordedCall[];
   readonly container: HTMLElement;
   readonly navigate: (label: string) => Promise<void>;
@@ -229,6 +229,7 @@ async function mountApp(options: { readonly view: string }): Promise<{
     },
     getDecisions: async (payload) => {
       calls.push({ method: "getDecisions", payload: payload ?? null });
+      if (options.decisionResult !== undefined) return options.decisionResult;
       return payload?.projection === "summary"
         ? { ok: true, projection: "summary", decisions: [], warnings: [] }
         : { ok: true, decisions: [], warnings: [] };
@@ -316,6 +317,28 @@ afterEach(() => {
 const relationGraphCalls = (calls: readonly RecordedCall[]) =>
   calls.filter(({ method }) => method === "getRelationGraph");
 const decisionCalls = (calls: readonly RecordedCall[]) => calls.filter(({ method }) => method === "getDecisions");
+
+describe("决策读失败不能冒充空台账", () => {
+  it.each(["overview", "decisionPool", "graph"])("%s 显示拒绝码与原因", async (view) => {
+    const { container } = await mountApp({
+      view,
+      decisionResult: { ok: false, error: { code: "unknown_field", hint: "Rejected projection selector" } },
+    });
+    expect(container.textContent).toContain("unknown_field");
+    expect(container.textContent).toContain("Rejected projection selector");
+    expect(container.textContent).not.toContain("该状态下暂无决策");
+  });
+
+  it.each(["overview", "decisionPool", "graph"])("%s 明示不匹配的决策响应形状", async (view) => {
+    const { container } = await mountApp({
+      view,
+      decisionResult: { ok: true, projection: "summary", decisions: [{ decisionId: "dec_probe" }], warnings: [] },
+    });
+    expect(container.textContent).toContain("daemon_decision_result_invalid");
+    expect(container.textContent).toContain("GUI/daemon");
+    expect(container.textContent).not.toContain("该状态下暂无决策");
+  });
+});
 
 describe("三元读取按挂载域分层", () => {
   it("总览只读决策摘要与 ha agenda,决策抽屉关闭时不读图或完整决策", async () => {
