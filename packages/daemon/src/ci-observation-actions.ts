@@ -89,47 +89,57 @@ export async function fetchCiObservations(
         ).flat(),
         limit,
       );
-    const fetched: FetchedCiRun[] = [];
-    for (const run of runs) {
-      const summary = JSON.parse(
-        await runGh(
-          "gh",
-          [
-            "run",
-            "view",
-            String(run.databaseId),
-            "--json",
-            "workflowName,headSha,headBranch,status,conclusion,attempt",
-          ],
-          { cwd: cell.rootDir },
-        ),
-      ) as CiRunSummary;
-      const { status: runLifecycleState } = summary;
-      // Publish immutable observations only for main runs that have a final conclusion.
-      if (summary.headBranch !== "main" || runLifecycleState !== "completed") {
-        if (namedRuns)
-          throw cell.cellCodedError(
-            "invalid_command",
-            `CI run ${run.databaseId} is ${runLifecycleState} on ${summary.headBranch}; ` +
-              "only completed main runs can be imported.",
-          );
-        continue;
-      }
-      const runRoot = path.join(temporaryRoot, String(run.databaseId));
-      try {
-        await runGh(
-          "gh",
-          ["run", "download", String(run.databaseId), "--pattern", "ci-observation-*", "--dir", runRoot],
-          {
-            cwd: cell.rootDir,
-          },
-        );
-      } catch (error) {
-        consumeKnownError(error);
-        continue;
-      }
-      fetched.push({ databaseId: run.databaseId, summary, artifacts: readArtifacts(runRoot) });
-    }
+    const fetchResults = await Promise.all(
+      runs.map(async (run): Promise<{ fetched: FetchedCiRun | null } | { failure: unknown }> => {
+        try {
+          const summary = JSON.parse(
+            await runGh(
+              "gh",
+              [
+                "run",
+                "view",
+                String(run.databaseId),
+                "--json",
+                "workflowName,headSha,headBranch,status,conclusion,attempt",
+              ],
+              { cwd: cell.rootDir },
+            ),
+          ) as CiRunSummary;
+          const { status: runLifecycleState } = summary;
+          // Publish immutable observations only for main runs that have a final conclusion.
+          if (summary.headBranch !== "main" || runLifecycleState !== "completed") {
+            if (namedRuns)
+              throw cell.cellCodedError(
+                "invalid_command",
+                `CI run ${run.databaseId} is ${runLifecycleState} on ${summary.headBranch}; ` +
+                  "only completed main runs can be imported.",
+              );
+            return { fetched: null };
+          }
+          const runRoot = path.join(temporaryRoot, String(run.databaseId));
+          try {
+            await runGh(
+              "gh",
+              ["run", "download", String(run.databaseId), "--pattern", "ci-observation-*", "--dir", runRoot],
+              {
+                cwd: cell.rootDir,
+              },
+            );
+          } catch (error) {
+            consumeKnownError(error);
+            return { fetched: null };
+          }
+          return { fetched: { databaseId: run.databaseId, summary, artifacts: readArtifacts(runRoot) } };
+        } catch (failure) {
+          return { failure };
+        }
+      }),
+    );
+    const failedFetch = fetchResults.find((result) => "failure" in result);
+    if (failedFetch && "failure" in failedFetch) throw failedFetch.failure;
+    const fetched = fetchResults.flatMap((result) =>
+      "fetched" in result && result.fetched !== null ? [result.fetched] : [],
+    );
     if (!namedRuns) {
       const authoredRoot = resolveHarnessLayout(cell.rootDir).authoredRoot;
       if (existsSync(authoredRoot)) {
