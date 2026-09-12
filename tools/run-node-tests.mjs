@@ -235,7 +235,11 @@ const exitCode = await new Promise((resolveRun) => {
 });
 const slowTests = collectSlowTests(output, options.slowThresholdMs);
 console.log(formatSlowTestSummary(slowTests, options.slowThresholdMs, options.slowLimit));
-process.exit(exitCode);
+// A forced exit here discards forwarded output still queued in userspace when stdout is a slow
+// pipe (CI log shipping): the inline ✖ lines survive because they were written earlier, while
+// the failing-tests recap — the assertion details a red lane exists to show — is written last
+// and is exactly what gets lost. Exit naturally so pending writes drain first.
+process.exitCode = exitCode;
 
 function exactNamePattern(names) {
   if (names.length === 0) return null;
