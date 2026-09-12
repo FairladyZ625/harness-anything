@@ -14,13 +14,12 @@ import {
   openSync,
   readFileSync,
   readdirSync,
-  renameSync,
   rmSync,
   statSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { randomBytes, randomUUID } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import path from "node:path";
 import {
   classifyRawArtifactPath,
@@ -434,7 +433,7 @@ export function applyFleetMirrorCut(
     }
     const centerBytes = fleetMirrorCutFile(view.viewDir, view.revision, logical),
       target = path.join(materializedRoot, ...logical.split("/"));
-    if (centerBytes !== null) writeFileMaterialized(target, centerBytes);
+    if (centerBytes !== null) writeFileDurably(target, centerBytes);
     nextBlobs[logical] = blob.sha256;
   }
   // Center deletions: a locally untouched path follows the deletion; a locally
@@ -523,7 +522,7 @@ export function stageFleetConflict(
     ] as const)
       if (bytes !== null) {
         fleetMirrorAssertLogical(file.path);
-        writeFileMaterialized(path.join(dir, side, ...file.path.split("/")), bytes);
+        writeFileDurably(path.join(dir, side, ...file.path.split("/")), bytes);
       }
   const record: FleetConflictRecord = {
     ...input.record,
@@ -600,7 +599,7 @@ export function restoreFleetConflictCenterBytes(
 ): void {
   const source = fleetConflictSideFile(workspaceRoot, conflictId, row.path, "center");
   const target = path.join(fleetMirrorMaterializedRoot(workspaceRoot), ...row.path.split("/"));
-  if (source !== null) writeFileMaterialized(target, readFileSync(source));
+  if (source !== null) writeFileDurably(target, readFileSync(source));
   else rmSync(target, { force: true });
 }
 
@@ -778,22 +777,6 @@ function fleetMirrorAssertLogical(value: string): void {
 }
 function fleetMirrorWriteJson(file: string, value: unknown): void {
   writeFileDurably(file, Buffer.from(`${JSON.stringify(value, null, 2)}\n`));
-}
-// Materialized workspace bytes are a projection of the durable replica cut
-// (viewDir/cuts + CAS); a crash mid-write is repaired by the next
-// materialization, so they need rename atomicity but not per-file fsync.
-// Durable writes stay reserved for the marker and the dirty-base cache, the
-// two records a later round cannot reconstruct.
-function writeFileMaterialized(file: string, bytes: Uint8Array): void {
-  mkdirSync(path.dirname(file), { recursive: true });
-  const temp = `${file}.${process.pid}.${randomUUID()}.tmp`;
-  try {
-    writeFileSync(temp, bytes);
-    renameSync(temp, file);
-  } catch (error) {
-    rmSync(temp, { force: true });
-    throw error;
-  }
 }
 function fleetMirrorReadJson<T>(file: string): T | null {
   if (!existsSync(file) || !statSync(file).isFile()) return null;

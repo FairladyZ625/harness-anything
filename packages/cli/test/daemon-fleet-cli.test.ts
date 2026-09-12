@@ -146,7 +146,7 @@ test(
       assert.equal(pulled.viewId, "edge-one-view");
       assert.equal((pulled.cut as { revision: number }).revision, pulled.ackCut);
       const viewRoot = path.join(fixture.viewRoot, "repos", "fleet-demo", "views", "edge-one-view");
-      assert.equal(readFileSync(path.join(viewRoot, "cuts", String(pulled.ackCut), "files", docPath), "utf8"), docBody);
+      assert.equal(readCutFile(viewRoot, pulled.ackCut as number, docPath), docBody);
       assert.equal(
         readFileSync(path.join(fixture.edgeRepo, "harness", docPath), "utf8"),
         docBody,
@@ -241,6 +241,20 @@ function retryReplicaPending(sync: () => Record<string, unknown>): Record<string
     if (last.ok !== false || last.code !== "replica_pending") return last;
   }
   return last;
+}
+// Snapshot cuts address their blobs through the verified edge CAS instead of
+// materializing cuts/<revision>/files/, so a cut document is read through its
+// manifest entry (delta cuts materialize changed files, snapshots do not).
+function readCutFile(viewRoot: string, revision: number, logical: string): string {
+  const manifest = JSON.parse(readFileSync(path.join(viewRoot, "cuts", String(revision), "manifest.json"), "utf8")) as {
+    entries: readonly { readonly path: string; readonly blob: { readonly sha256: string } }[];
+  };
+  const entry = manifest.entries.find((row) => row.path === logical);
+  if (entry === undefined) throw new Error(`cut ${revision} manifest has no entry for ${logical}`);
+  return readFileSync(
+    path.join(path.resolve(viewRoot, "..", ".."), "cas", "sha256", entry.blob.sha256.slice(0, 2), entry.blob.sha256),
+    "utf8",
+  );
 }
 function setup(): {
   root: string;

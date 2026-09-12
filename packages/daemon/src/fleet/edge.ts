@@ -7,7 +7,6 @@ import {
   openSync,
   readFileSync,
   readdirSync,
-  readSync,
   renameSync,
   rmSync,
   statSync,
@@ -17,7 +16,7 @@ import path from "node:path";
 import { connect, type TLSSocket } from "node:tls";
 import { consumeKnownError, type LedgerCutIdentity } from "../../../kernel/src/index.ts";
 import { sha256Bytes } from "../../../kernel/src/index.ts";
-import { writeFileDurably } from "../durable-file.ts";
+import { readFileWindow, writeFileDurably } from "../durable-file.ts";
 import {
   FLEET_CHUNK_BYTES,
   FLEET_SESSION_SEND_WINDOW_BYTES,
@@ -155,14 +154,8 @@ export function openFleetEdgeView(
         if (frame.offset < length) {
           // Replay comparison reads only the contested window; the staged blob
           // can be far larger than the chunk being retried.
-          const descriptor = openSync(target, "r");
-          try {
-            const window = Buffer.alloc(bytes.length),
-              read = readSync(descriptor, window, 0, bytes.length, frame.offset);
-            if (read !== bytes.length || !window.equals(bytes)) throw new Error("chunk replay mismatch");
-          } finally {
-            closeSync(descriptor);
-          }
+          if (!readFileWindow(target, frame.offset, bytes.length).equals(bytes))
+            throw new Error("chunk replay mismatch");
         } else {
           const usedBytes = accountedDiskBytes();
           if (usedBytes + bytes.byteLength > diskQuotaBytes)

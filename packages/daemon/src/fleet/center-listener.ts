@@ -1,13 +1,10 @@
 import { isSquadControlResult } from "../squad-control-result.ts";
 import {
   appendFileSync,
-  closeSync,
   existsSync,
   lstatSync,
   mkdirSync,
-  openSync,
   readFileSync,
-  readSync,
   renameSync,
   statSync,
   writeFileSync,
@@ -15,10 +12,9 @@ import {
 import path from "node:path";
 import { createServer, type Server } from "node:tls";
 import { resolveHarnessLayout, sha256Bytes } from "../../../kernel/src/index.ts";
-import { syncDirectory, syncFile } from "../durable-file.ts";
+import { readFileWindow, syncDirectory, syncFile } from "../durable-file.ts";
 import { openFleetLeaseBroker } from "../lease-broker.ts";
 import { openPersistentWriterEpoch, readLedgerWriterEpoch, type PersistentWriterEpoch } from "../writer-epoch.ts";
-import type { RepoCellStatus } from "../repo-cell-types.ts";
 import {
   brokerHost as brokerHostImpl,
   discardOwnedClaims as discardOwnedClaimsImpl,
@@ -59,25 +55,15 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       holderId: options.writerId,
       now,
     }),
-    ownedEpochs = new Map<string, ReturnType<PersistentWriterEpoch["acquire"]>>();
-  // Repo rows answer per-frame staging lookups (upload paths, epoch reads);
-  // host.status() rebuilds every cell's status, so cache one row per repoId and
-  // refresh only for a repoId the cache has never seen. A repo that attaches
-  // after the listener starts is picked up on its first use; a cached rootDir
-  // outliving a detach is inert because staging writes still pass through
-  // host.run's own cell admission.
-  const repoRows = new Map<string, RepoCellStatus>(),
-    repoRowOf = (repoId: string): RepoCellStatus | undefined => {
-      if (!repoRows.has(repoId)) for (const repo of options.host.status().repos) repoRows.set(repo.repoId, repo);
-      return repoRows.get(repoId);
-    },
+    ownedEpochs = new Map<string, ReturnType<PersistentWriterEpoch["acquire"]>>(),
     acquireWriterEpoch =
       options.writerEpochLease ??
-      ((repoId: string) => writerEpoch.acquire(repoId, readLedgerWriterEpoch(repoId, repoRowOf(repoId)?.rootDir)));
-  for (const repo of options.host.status().repos) {
-    repoRows.set(repo.repoId, repo);
+      ((repoId: string) => {
+        const rootDir = options.host.status().repos.find((repo) => repo.repoId === repoId)?.rootDir;
+        return writerEpoch.acquire(repoId, readLedgerWriterEpoch(repoId, rootDir));
+      });
+  for (const repo of options.host.status().repos)
     if (repo.state === "attached") ownedEpochs.set(repo.repoId, acquireWriterEpoch(repo.repoId));
-  }
   // A center must keep using the epoch it acquired, even after another center
   // advances the shared state. Reading the latest row here would let a stale
   // process silently adopt its successor's epoch and defeat fencing.
@@ -170,9 +156,8 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     return value;
   };
   const repoRoot = (repoId: string) => {
-    const found = repoRowOf(repoId);
-    if (!found || found.state !== "attached")
-      throw new FleetFault("repo_unavailable", `Repo ${repoId} is unavailable.`, true);
+    const found = options.host.status().repos.find((repo) => repo.repoId === repoId && repo.state === "attached");
+    if (!found) throw new FleetFault("repo_unavailable", `Repo ${repoId} is unavailable.`, true);
     return found.rootDir;
   };
   const assertFrameEpoch = (repoId: string, provided: number): void => {
@@ -298,15 +283,8 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       if (frame.offset < length) {
         // Replay comparison reads only the contested window; the durable
         // prefix can be far larger than the chunk being retried.
-        const descriptor = openSync(file, "r");
-        try {
-          const window = Buffer.alloc(bytes.length),
-            read = readSync(descriptor, window, 0, bytes.length, frame.offset);
-          if (read !== bytes.length || !window.equals(bytes))
-            throw new FleetFault("upload_replay_mismatch", "Replayed chunk differs from durable bytes.");
-        } finally {
-          closeSync(descriptor);
-        }
+        if (!readFileWindow(file, frame.offset, bytes.length).equals(bytes))
+          throw new FleetFault("upload_replay_mismatch", "Replayed chunk differs from durable bytes.");
       } else {
         appendFileSync(file, bytes);
         syncFile(file);

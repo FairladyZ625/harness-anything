@@ -51,8 +51,9 @@ test("a durable write that cannot rename takes its own temporary with it", () =>
 
 // #1586 was one defect repeated in six modules and fixed in three of them, because each module
 // restated the flush sequence itself. Windows rejects fsync on a read-only handle, so a bare
-// `openSync(target, "r")` anywhere in this package is that defect coming back; the port is the
-// one place allowed to hold such a handle, and only for a directory it then skips on win32.
+// `openSync(target, "r")` anywhere in this package is that defect coming back; the one module
+// allowed to hold such a handle is the durable-file port itself — the flush path skips
+// directories on win32, and the windowed replay read never flushes at all.
 test("#1586: a read-only handle is opened for flushing in exactly one module", () => {
   const offenders = sourceFiles(sourceRoot)
     .filter((file) => /openSync\([^)]*, "r"\)/u.test(readFileSync(file, "utf8")))
