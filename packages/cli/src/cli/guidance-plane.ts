@@ -184,7 +184,14 @@ export function humanError(receipt: Record<string, unknown>): { readonly code: s
         `Inner receipt: ${typeof receipt.summary === "string" ? receipt.summary : "summary unavailable"}`,
     };
   if (code === "daemon_stopping") return { code, hint: renderTemplate("failure", "daemon-stopping", {}) };
-  if (code === "fact_type_unregistered") return { code, hint: renderTemplate("failure", "fact-type-unregistered", {}) };
+  if (code === "fact_type_unregistered")
+    return {
+      code,
+      hint:
+        typeof receipt.rejectionExplanation === "string"
+          ? `${receipt.rejectionExplanation} Run ha fact type register <type> --source <source>, then retry this command.`
+          : renderTemplate("failure", "fact-type-unregistered", {}),
+    };
   if (code === "daemon_restarting" && typeof outer.hint === "string") return { code, hint: outer.hint };
   const rawDiagnostic = record(receipt.diagnostic) ? receipt.diagnostic : null,
     // A bare {kind:"failure"} diagnostic is the code-only placeholder `rejected()` always attaches;

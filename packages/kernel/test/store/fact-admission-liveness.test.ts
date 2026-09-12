@@ -64,6 +64,39 @@ test("Fact admission names an unregistered domain type instead of a relation fai
   }
 });
 
+test("Fact admission lists the registered domain types when rejecting an unregistered one", () => {
+  const db = new DatabaseSync(":memory:");
+  try {
+    createRelationGraphProjectionTables(db);
+    createFactProjectionTables(db);
+    assert.throws(
+      () => reduceFactEvent(db, fact(1, "F-ABCDEFGH", undefined, ["observation"])),
+      (error: unknown) =>
+        error instanceof FactProjectionError &&
+        error.code === "fact_type_unregistered" &&
+        /Fact domain type observation is not registered\. Registered: none yet\./u.test(
+          (error as FactProjectionError).message,
+        ),
+    );
+    const registration = fact(2, "F-BCDEFGHJ");
+    reduceFactEvent(db, {
+      ...registration,
+      payload: { ...registration.payload, registersDomainType: "verification" },
+    });
+    assert.throws(
+      () => reduceFactEvent(db, fact(3, "F-CDEFGHJK", undefined, ["observation"])),
+      (error: unknown) =>
+        error instanceof FactProjectionError &&
+        error.code === "fact_type_unregistered" &&
+        /Fact domain type observation is not registered\. Registered: verification\./u.test(
+          (error as FactProjectionError).message,
+        ),
+    );
+  } finally {
+    db.close();
+  }
+});
+
 function fact(revision: number, factId: string, supersedesRef?: string, domainTypes?: string[]): FactEventV1 {
   return {
     schema: "fact-event/v1",
