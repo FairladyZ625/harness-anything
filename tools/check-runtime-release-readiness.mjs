@@ -5,6 +5,7 @@ import {
   harnessRuntimeReleaseReadiness,
   validateRuntimeReleaseReadiness,
 } from "../packages/gui/src/distribution/runtime-release-readiness.ts";
+import { publicReadyPackagesByPath } from "./public-ready-packages.mjs";
 import { selectManifestGateIds } from "./run-manifest-gates.mjs";
 
 const root = process.cwd();
@@ -87,15 +88,18 @@ for (const workspace of [
   "packages/adapters/multica/package.json",
 ]) {
   const packageJson = readJson(workspace);
-  if (workspace === "packages/cli/package.json") {
+  const publicContract = publicReadyPackagesByPath.get(workspace);
+  if (publicContract && (publicContract.required || packageJson.private !== true)) {
     if (packageJson.private === true) record(`${workspace} must be public-ready for npm publish --dry-run preflight`);
-    if (packageJson.version !== harnessRuntimeReleaseReadiness.releaseBoundary.cliPublishDryRunVersion) {
-      record(
-        `${workspace} must be ${harnessRuntimeReleaseReadiness.releaseBoundary.cliPublishDryRunVersion} for npm publish --dry-run preflight`,
-      );
+    if (packageJson.version !== publicContract.version) {
+      record(`${workspace} must be ${publicContract.version} for npm publish --dry-run preflight`);
     }
     if (packageJson.publishConfig?.access !== "public")
       record(`${workspace} must define publishConfig.access public for scoped npm dry-run preflight`);
+    if (packageJson.repository?.directory !== publicContract.repositoryDirectory)
+      record(`${workspace} must declare repository.directory ${publicContract.repositoryDirectory}`);
+    for (const [name, target] of Object.entries(publicContract.bins))
+      if (packageJson.bin?.[name] !== target) record(`${workspace} must declare bin ${name} as ${target}`);
   } else if (workspace === "packages/gui/package.json") {
     if (packageJson.private !== true) record(`${workspace} must remain private`);
     if (packageJson.version !== harnessRuntimeReleaseReadiness.releaseBoundary.productVersion) {

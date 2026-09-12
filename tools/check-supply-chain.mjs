@@ -5,6 +5,7 @@ import {
   harnessSupplyChainReleaseReadiness,
   validateSupplyChainReleaseReadiness,
 } from "../packages/gui/src/distribution/supply-chain-release-readiness.ts";
+import { publicReadyPackagesByPath } from "./public-ready-packages.mjs";
 import { selectManifestGateIds } from "./run-manifest-gates.mjs";
 
 const root = process.cwd();
@@ -136,13 +137,12 @@ function validatePackageMetadata() {
     if (packageJson.license !== policy.licensePolicy.projectLicense) {
       record(`${packagePath} must declare license ${policy.licensePolicy.projectLicense}`);
     }
-    if (packagePath === policy.npmPublishDryRun.packagePath) {
-      validateCliPublishPreflightMetadata(packagePath, packageJson);
+    const publicContract = publicReadyPackagesByPath.get(packagePath);
+    if (publicContract && (publicContract.required || packageJson.private !== true)) {
+      validatePublicReadyPackageMetadata(packagePath, packageJson, publicContract);
     } else {
       if (packageJson.private !== true) {
-        record(
-          `${packagePath} must remain private; only ${policy.npmPublishDryRun.packageName} is allowed into npm dry-run preflight`,
-        );
+        record(`${packagePath} is not in the approved npm publish set and must stay private`);
       }
       const expectedVersion =
         packagePath === "package.json" || packagePath === "packages/gui/package.json"
@@ -168,31 +168,27 @@ function validatePackageMetadata() {
   }
 }
 
-function validateCliPublishPreflightMetadata(packagePath, packageJson) {
-  if (packageJson.name !== policy.npmPublishDryRun.packageName) {
-    record(`${packagePath} must be the CLI-only dry-run package ${policy.npmPublishDryRun.packageName}`);
+function validatePublicReadyPackageMetadata(packagePath, packageJson, publicContract) {
+  if (packageJson.name !== publicContract.packageName) {
+    record(`${packagePath} must be the public-ready package ${publicContract.packageName}`);
   }
   if (packageJson.private === true) {
     record(`${packagePath} must not be private for npm publish --dry-run preflight`);
   }
-  if (packageJson.version !== policy.npmPublishDryRun.version) {
-    record(`${packagePath} must use version ${policy.npmPublishDryRun.version} for npm publish --dry-run preflight`);
+  if (packageJson.version !== publicContract.version) {
+    record(`${packagePath} must use version ${publicContract.version} for npm publish --dry-run preflight`);
   }
   if (packageJson.publishConfig?.access !== "public") {
     record(`${packagePath} must define publishConfig.access public for the scoped CLI package`);
   }
-  if (packageJson.repository?.directory !== "packages/cli") {
-    record(`${packagePath} must declare repository.directory packages/cli`);
+  if (packageJson.repository?.directory !== publicContract.repositoryDirectory) {
+    record(`${packagePath} must declare repository.directory ${publicContract.repositoryDirectory}`);
   }
   if (packageJson.engines?.node !== ">=24") {
     record(`${packagePath} must declare Node >=24 runtime support`);
   }
-  if (
-    packageJson.bin?.["harness-anything"] !== "dist/cli/src/index.js" ||
-    packageJson.bin?.ha !== "dist/cli/src/index.js"
-  ) {
-    record(`${packagePath} must expose harness-anything and ha bins from dist/cli/src/index.js`);
-  }
+  for (const [name, target] of Object.entries(publicContract.bins))
+    if (packageJson.bin?.[name] !== target) record(`${packagePath} must declare bin ${name} as ${target}`);
   if (
     !Array.isArray(packageJson.files) ||
     !packageJson.files.includes("dist") ||
