@@ -30,7 +30,7 @@ active Execution
     │ submitted
 in_review
     │  ha task review-execution <id> ... --rationale "..."
-    │  ha task complete <id> [--ci passed]
+    │  ha task complete <id> [--consent]
     ▼
 [ approved Review · declared completionGates · closeout ] ─ reject ─▶ (status unchanged)
     │ pass

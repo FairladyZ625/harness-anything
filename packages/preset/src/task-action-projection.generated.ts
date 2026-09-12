@@ -673,7 +673,7 @@ export const taskActionDescriptorProjection = {
         ],
         exactlyOneOf: [],
       },
-      explain: "Complete the reviewed execution after canonical closeout readiness and gate checks.",
+      explain: "Complete after readiness checks; --execution-id only repairs ambiguous current executions.",
       execution: {
         ingress: "task-complete",
         topology: "ledger-write",

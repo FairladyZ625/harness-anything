@@ -47,9 +47,8 @@ error code=terminal_status_requires_task_complete
 充分性只能由 reviewer 判断，并记录 `evidence_checked` 与 rationale（依据
 `dec_mrg3z1we/CH1-CH3`、ADR-0027 D3、D5-D6）。
 
-`ha task complete` 从 task 选中的 preset/profile 解析确定性门。内置 coding profile
-声明了 CI 与 code-doc reconciliation，所以 coding completion 传 `--ci passed`；
-`--ci` 不再是全局必填。带 Execution 的任务还必须有 approved Review。任何路径都不
+`ha task complete` 从 task 选中的 preset/profile 解析确定性门并准备其 canonical witness。
+带 Execution 的任务还必须有 approved Review 与明确 consent。任何路径都不
 要求最低 Fact 数量：Fact 是 `0..N` 的显式晋升，submit、review 或 complete 都不会
 自动生成 Fact（依据 `dec_mrg3z1we/CH4`、ADR-0027 D7）。
 

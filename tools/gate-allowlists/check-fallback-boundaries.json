@@ -249,7 +249,6 @@
       "packages/kernel/src/projection/rebuildable-task-projection-sql.ts#queryTransaction",
       "packages/kernel/src/projection/rebuildable-task-projection-sql.ts#transaction",
       "packages/kernel/src/projection/sqlite-task-source.ts#readTaskProjectionSource",
-      "packages/kernel/src/schemas/task-closeout-packet.ts#validatePortablePath",
       "packages/kernel/src/store/generation-two-conversion.ts#historicalContentClaims",
       "packages/kernel/src/store/generation-two-conversion.ts#planConversion",
       "packages/kernel/src/store/ledger-backup.ts#drillLedgerBackup",
@@ -340,7 +339,6 @@
       }
     ],
     "catchSubstitutions": [
-      "packages/application/src/task-closeout-action.ts#runTaskCloseoutAction",
       "packages/application/src/task-lifecycle-service.ts#executeInternal",
       "packages/cli/src/cli-agent-create.ts#runAgentCreate",
       "packages/cli/src/cli-runtime-auth.ts#runRuntimeAuthCommand",

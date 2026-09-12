@@ -16,7 +16,7 @@ active Execution
     │ submitted
 in_review
     │  ha task review-execution <id> ... --rationale "..."
-    │  ha task complete <id> [--ci passed]
+    │  ha task complete <id> [--consent]
     ▼
 [ approved Review · 声明的 completionGates · closeout ] ─ 拒绝 ─▶ (状态不变)
     │ 通过

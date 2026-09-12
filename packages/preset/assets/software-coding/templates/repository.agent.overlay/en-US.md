@@ -7,7 +7,7 @@
 - Both `--opt value` and `--opt=value` are accepted for value options; an unsupported option is rejected with `unknown_field`.
 - `runtime run --mission` takes a synced mission name, not a file path; submit the mission with `ha doc sync --submit` first or dispatch rejects it with `mission_not_found`.
 - Closeout order is start → submit → independent `review-execution` → `review-consent` → complete; an out-of-order lifecycle action is `invalid_transition`, and self-review is `actor_unauthorized`.
-- `ha task complete --path` resolves paths from the project repository root and rejects paths absent from the submitted commit with `invalid_proof`.
+- `ha task complete` derives code/doc evidence from the submitted delivery; `--execution-id` is only for repairing an ambiguous current execution selection.
 - Before completion, replace `closeout.md` with the exact sections `## Summary`, `## Verification`, `## Residual Risk`, and `## Same Mechanism Elsewhere`, or completion rejects it with `closeout_placeholder`.
 
 ## Repository Scaffolds

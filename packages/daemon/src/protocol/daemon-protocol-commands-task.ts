@@ -125,65 +125,6 @@ export const taskExecutionProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineLedgerWriteCommand({
-    id: "task-closeout",
-    phase: "W3",
-    path: ["task", "closeout", "<task-id>"],
-    summary: [
-      "Prepare and submit the current execution, then request completion. ",
-      "Review and explicit consent use the canonical completion flow.",
-    ].join(""),
-    method: "repo.task.run",
-    inputs: [
-      cliInput("--execution-id", "single", false, {
-        code: "invalid_field",
-      }),
-      cliInput(
-        "--from-file",
-        "single",
-        false,
-        {
-          code: "missing_field",
-        },
-        {
-          jsonFields: ["completion"],
-          jsonAllowedFields: ["submission", "completion"],
-          format: "task-closeout-packet/v1 JSON; run --print-schema for the field contract",
-          conflictsWith: ["--json-input", "--print-template", "--print-schema"],
-        },
-      ),
-      cliInput(
-        "--json-input",
-        "single",
-        false,
-        { code: "missing_field" },
-        {
-          jsonFields: ["completion"],
-          jsonAllowedFields: ["submission", "completion"],
-          format: "<json|@->",
-          conflictsWith: ["--from-file", "--print-template", "--print-schema"],
-        },
-      ),
-      cliInput(
-        "--print-template",
-        "boolean",
-        false,
-        {
-          code: "invalid_field",
-        },
-        { conflictsWith: ["--from-file", "--json-input", "--print-schema"] },
-      ),
-      cliInput(
-        "--print-schema",
-        "boolean",
-        false,
-        {
-          code: "invalid_field",
-        },
-        { conflictsWith: ["--from-file", "--json-input", "--print-template", "--execution-id"] },
-      ),
-    ],
-  }),
   defineCenterForwardReadCommand({
     id: "task-show",
     phase: "W3",

@@ -276,12 +276,6 @@ export type {
 export * from "./schemas/registry.ts";
 export * from "./schemas/common.ts";
 export {
-  createTaskCloseoutPacketTemplate,
-  taskCloseoutPacketSchema,
-  validateTaskCloseoutPacket,
-} from "./schemas/task-closeout-packet.ts";
-export type { CloseoutCiJudgment, TaskCloseoutPacket } from "./schemas/task-closeout-packet.ts";
-export {
   canonicalDocumentClaims,
   canonicalEventCut,
   canonicalEventWritePlan,
