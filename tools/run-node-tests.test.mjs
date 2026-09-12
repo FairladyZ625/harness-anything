@@ -1,8 +1,17 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { once } from "node:events";
 import path from "node:path";
 import test from "node:test";
+
+// A bounded wait whose timer never keeps the test process alive on its own.
+function boundedWait(ms) {
+  return new Promise((resolveWait) => {
+    const timer = setTimeout(resolveWait, ms);
+    timer.unref();
+  });
+}
 import {
   collectSlowTests,
   filterTestFilesByNames,
@@ -346,4 +355,42 @@ test("slow test summary parses node test output and formats top entries", () => 
     formatSlowTestSummary(slow, 1000, 1),
     ["Slow test summary: top 1 tests at or above 1000ms", "1. 2200.000ms slower thing"].join("\n"),
   );
+});
+
+test("forwarded failing-test details survive a stdout consumer that lags behind the pipe", async () => {
+  const childEnv = { ...process.env, HARNESS_RUNNER_OUTPUT_DRAIN_FIXTURE: "1" };
+  delete childEnv.NODE_TEST_CONTEXT;
+  const child = spawn(
+    process.execPath,
+    ["tools/run-node-tests.mjs", "--tier", "fast", "--prefix", "tools/test-fixtures/runner-output-drain"],
+    { cwd: repoRoot, env: childEnv, stdio: ["ignore", "pipe", "pipe"] },
+  );
+  // Read stdout the way a slow CI log consumer does: a throttled pump that stays well behind the
+  // fixture's burst, so the OS pipe stays full and the runner's remaining writes sit queued in
+  // its userspace buffer. A runner that force-exits drops that queue — the failing-tests recap
+  // lives at the very end of it — while a runner that exits naturally cannot exit at all until
+  // the pipe drains, so a bounded wait for its exit is what tells the two apart.
+  let stdout = "";
+  const pump = setInterval(() => {
+    const chunk = child.stdout.read(4 * 1024);
+    if (chunk !== null) stdout += chunk;
+  }, 100);
+  await Promise.race([once(child, "exit"), boundedWait(1_500)]);
+  clearInterval(pump);
+  child.stdout.on("data", (text) => {
+    stdout += text;
+  });
+  child.stdout.resume();
+  let guardFired = false;
+  const guard = setTimeout(() => {
+    guardFired = true;
+    child.kill("SIGKILL");
+  }, 30_000);
+  guard.unref();
+  const [status] = await once(child, "close");
+  clearTimeout(guard);
+  assert.equal(guardFired, false, "runner never exited after stdout drained");
+  assert.equal(status, 1, stdout);
+  assert.match(stdout, /✖ failing tests:/u, "failing-tests recap was lost to a backpressured pipe");
+  assert.match(stdout, /runner output drain fixture assertion/u, "assertion details were lost to a backpressured pipe");
 });
