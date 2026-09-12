@@ -12,6 +12,7 @@ import {
   completionGuidance,
   completionEvidenceBasis,
   completionEvidenceResults,
+  effectiveCloseoutGates,
   currentCodeDocWitness,
   judgeCompletionEvidence,
   type CiRunObservationEventV3,
@@ -353,11 +354,14 @@ export async function completeTask(
       cell.completeRetryCommand(taskId, executionId, action),
     ),
   );
-  const codeDoc =
-    initial.snapshot.task?.completionGateIds.includes("code-doc-reconciliation") &&
-    submittedExecution?.submission?.commitSha
-      ? verifyCodeDocCommitPaths({ rootDir: cell.rootDir, commitSha: submittedExecution.submission.commitSha, paths })
-      : null;
+  const closeoutGates = effectiveCloseoutGates(
+      cell.settings.readRepository().closeout,
+      initial.snapshot.task?.completionGateIds,
+    ),
+    codeDoc =
+      closeoutGates.codeDoc && submittedExecution?.submission?.commitSha
+        ? verifyCodeDocCommitPaths({ rootDir: cell.rootDir, commitSha: submittedExecution.submission.commitSha, paths })
+        : null;
   const remaining = completionPreparationBlockers(initial.snapshot, executionId, {
     ...preparedContext,
     preparedGateIds: [
@@ -377,7 +381,7 @@ export async function completeTask(
   if (remaining && remaining.code !== "doc_sync_required")
     return cell.completionStopped(facadeOpId, initial.snapshot, executionId, remaining, []);
   const retirement = factRetirementAssessment(cell, taskId, factRetirementAttestations);
-  if (!retirement.ready)
+  if (closeoutGates.factDisposition && !retirement.ready)
     return cell.completionStopped(
       facadeOpId,
       initial.snapshot,
@@ -418,7 +422,7 @@ export async function completeTask(
       blocker = completionBlockers(current.snapshot, executionId, completion)[0];
     if (!blocker) {
       const retirement = factRetirementAssessment(cell, taskId, factRetirementAttestations);
-      if (!retirement.ready)
+      if (completion.closeoutGates?.factDisposition && !retirement.ready)
         return cell.completionStopped(
           facadeOpId,
           current.snapshot,
@@ -744,6 +748,7 @@ export function completionContext(
     invalid = scan.rows.find((row) => row.state === "blocked" || row.state === "conflict" || row.state === "deletion");
   return {
     ...canonical,
+    closeoutGates: effectiveCloseoutGates(cell.settings.readRepository().closeout, snapshot.task?.completionGateIds),
     ...(assessment
       ? {
           closeout: assessment.ready ? ("ready" as const) : ("placeholder" as const),

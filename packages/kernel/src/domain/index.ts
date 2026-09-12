@@ -270,6 +270,7 @@ export {
   validateRepositorySettings,
   validateSettingsV1,
   writeRepositorySettingsFacet,
+  effectiveCloseoutGates,
 } from "./settings.ts";
 export type { RepositorySettingsV1, SettingsLocale, SettingsV1 } from "./settings.ts";
 export { compileSettingsChangedEvent, isSettingsEvent } from "./settings-event.ts";

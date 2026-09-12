@@ -15,6 +15,7 @@ import {
   repositorySettings,
   DEFAULT_RESTORE_DRILL_RETENTION,
   reviewIndependenceLevels,
+  closeoutProfiles,
   settingValuePattern,
   settingsLocales,
   validateRepositorySettings,
@@ -51,6 +52,11 @@ const repositoryFieldNames = Object.freeze([
   "walFlushBytes",
   "walFlushMilliseconds",
   "ciWorkflows",
+  "closeoutProfile",
+  "closeoutReview",
+  "closeoutConsent",
+  "closeoutFactDisposition",
+  "closeoutCodeDoc",
   "restoreDrillRetention",
 ] as const);
 
@@ -139,6 +145,11 @@ export function createSettingsActionCatalog(
           field("walFlushBytes", "number"),
           field("walFlushMilliseconds", "number"),
           field("ciWorkflows", "string-array"),
+          field("closeoutProfile", "string", false, closeoutProfiles),
+          field("closeoutReview", "boolean"),
+          field("closeoutConsent", "boolean"),
+          field("closeoutFactDisposition", "boolean"),
+          field("closeoutCodeDoc", "boolean"),
           field("restoreDrillRetention", "number"),
           field("expectedVersion", "number"),
           field("idempotencyKey"),
@@ -223,6 +234,10 @@ export function compileSettingsUpdate(input: EntityActionCompileInput): Settings
         milliseconds: updatedPositiveInteger(input.action, "walFlushMilliseconds", current.walFlush.milliseconds),
       },
       ci: { workflows: updatedWorkflows(input.action, current.ci.workflows) },
+      closeout: {
+        profile: updatedCloseoutProfile(input.action.closeoutProfile, current.closeout.profile),
+        ...closeoutOverrides(input.action, current),
+      },
       restoreDrillRetention: updatedPositiveInteger(
         input.action,
         "restoreDrillRetention",
@@ -281,6 +296,32 @@ function updatedReviewIndependence(
   if (reviewIndependenceLevels.includes(value as RepositorySettingsV1["reviewIndependence"]))
     return value as RepositorySettingsV1["reviewIndependence"];
   rejectSettings("invalid_command", `reviewIndependence must be one of ${reviewIndependenceLevels.join(", ")}.`);
+}
+
+function updatedCloseoutProfile(value: unknown, current: RepositorySettingsV1["closeout"]["profile"]) {
+  if (value === undefined) return current;
+  if (closeoutProfiles.includes(value as RepositorySettingsV1["closeout"]["profile"]))
+    return value as RepositorySettingsV1["closeout"]["profile"];
+  rejectSettings("invalid_command", `closeoutProfile must be one of ${closeoutProfiles.join(", ")}.`);
+}
+
+function closeoutOverrides(action: Readonly<Record<string, unknown>>, current: RepositorySettingsV1) {
+  const mapping = {
+    review: "closeoutReview",
+    consent: "closeoutConsent",
+    factDisposition: "closeoutFactDisposition",
+    codeDoc: "closeoutCodeDoc",
+  } as const;
+  const overrides = Object.fromEntries(
+    Object.entries(mapping).flatMap(([key, field]) =>
+      Object.hasOwn(action, field)
+        ? [[key, updatedBoolean(action, field, current.closeout.overrides?.[key as keyof typeof mapping] ?? false)]]
+        : current.closeout.overrides?.[key as keyof typeof mapping] === undefined
+          ? []
+          : [[key, current.closeout.overrides[key as keyof typeof mapping]]],
+    ),
+  );
+  return Object.keys(overrides).length ? { overrides } : {};
 }
 
 function updatedBoolean(action: Readonly<Record<string, unknown>>, name: string, current: boolean): boolean {

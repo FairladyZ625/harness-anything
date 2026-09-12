@@ -288,6 +288,7 @@ export function validateGuiActionPayload(method: DaemonGuiActionMethod, value: u
     // kernel compiler, so only the scalar settings get the identifier check here.
     const settingFields = (
         "defaultVertical defaultPreset defaultProfile defaultReviewer reviewIndependence reviewReturnBudget " +
+        "closeoutProfile closeoutReview closeoutConsent closeoutFactDisposition closeoutCodeDoc " +
         "locale taskScaffold repositoryScaffold walFlushAdaptive walFlushEvents " +
         "walFlushBytes walFlushMilliseconds ciWorkflows"
       ).split(" "),
@@ -296,7 +297,7 @@ export function validateGuiActionPayload(method: DaemonGuiActionMethod, value: u
     if (
       changed.length === 0 ||
       changed
-        .filter((field) => !field.startsWith("walFlush") && field !== "ciWorkflows")
+        .filter((field) => !field.startsWith("walFlush") && !field.startsWith("closeout") && field !== "ciWorkflows")
         .some((field) => typeof value[field] !== "string" || !identifier.test(String(value[field]))) ||
       (value.walFlushAdaptive !== undefined && typeof value.walFlushAdaptive !== "boolean") ||
       [value.walFlushEvents, value.walFlushBytes, value.walFlushMilliseconds].some(
@@ -305,7 +306,12 @@ export function validateGuiActionPayload(method: DaemonGuiActionMethod, value: u
       (value.reviewReturnBudget !== undefined &&
         (!Number.isSafeInteger(value.reviewReturnBudget) || Number(value.reviewReturnBudget) < 1)) ||
       (value.locale !== undefined && !["en-US", "zh-CN"].includes(String(value.locale))) ||
-      (value.reviewIndependence !== undefined && !["execution", "principal"].includes(String(value.reviewIndependence)))
+      (value.reviewIndependence !== undefined &&
+        !["execution", "principal"].includes(String(value.reviewIndependence))) ||
+      (value.closeoutProfile !== undefined && !["standard", "strict"].includes(String(value.closeoutProfile))) ||
+      [value.closeoutReview, value.closeoutConsent, value.closeoutFactDisposition, value.closeoutCodeDoc].some(
+        (item) => item !== undefined && typeof item !== "boolean",
+      )
     )
       errors.push("settings update is invalid");
   }

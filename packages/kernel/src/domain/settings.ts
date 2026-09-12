@@ -10,6 +10,29 @@ export const reviewIndependenceLevels = ["execution", "principal"] as const;
 export type ReviewIndependence = (typeof reviewIndependenceLevels)[number];
 export const DEFAULT_RESTORE_DRILL_RETENTION = 3;
 export const DEFAULT_CI_WORKFLOWS = Object.freeze([] as const);
+export const closeoutProfiles = ["standard", "strict"] as const;
+export type CloseoutProfile = (typeof closeoutProfiles)[number];
+export const closeoutOverrideKeys = ["review", "consent", "factDisposition", "codeDoc"] as const;
+export type CloseoutOverrideKey = (typeof closeoutOverrideKeys)[number];
+export type CloseoutOverridesV1 = Readonly<Partial<Record<CloseoutOverrideKey, boolean>>>;
+export interface CloseoutSettingsV1 {
+  readonly profile: CloseoutProfile;
+  readonly overrides?: CloseoutOverridesV1;
+}
+export type CloseoutGate = CloseoutOverrideKey;
+
+export function effectiveCloseoutGates(
+  closeout: CloseoutSettingsV1,
+  taskGateIds: readonly string[] = [],
+): Readonly<Record<CloseoutGate, boolean>> {
+  const baseline = closeout.profile === "strict";
+  return Object.freeze({
+    review: closeout.overrides?.review ?? baseline,
+    consent: closeout.overrides?.consent ?? baseline,
+    factDisposition: closeout.overrides?.factDisposition ?? baseline,
+    codeDoc: (closeout.overrides?.codeDoc ?? baseline) || taskGateIds.includes("code-doc-reconciliation"),
+  });
+}
 
 export interface WalFlushSettingsV1 {
   readonly adaptive: boolean;
@@ -40,6 +63,7 @@ export const SETTINGS_FIELD_OWNERSHIP = Object.freeze({
   scaffolds: "repository",
   walFlush: "repository",
   ci: "repository",
+  closeout: "repository",
   restoreDrillRetention: "repository",
 } as const);
 
@@ -67,6 +91,7 @@ export interface RepositorySettingsV1 {
   };
   readonly walFlush: WalFlushSettingsV1;
   readonly ci: { readonly workflows: readonly string[] };
+  readonly closeout: CloseoutSettingsV1;
   readonly restoreDrillRetention: number;
 }
 
@@ -91,6 +116,7 @@ export interface SettingsV1 {
   };
   readonly walFlush: WalFlushSettingsV1;
   readonly ci: { readonly workflows: readonly string[] };
+  readonly closeout: CloseoutSettingsV1;
   readonly restoreDrillRetention: number;
 }
 
@@ -121,6 +147,7 @@ export const INITIAL_SETTINGS_V1: SettingsV1 = Object.freeze({
   }),
   walFlush: DEFAULT_WAL_FLUSH_SETTINGS,
   ci: Object.freeze({ workflows: DEFAULT_CI_WORKFLOWS }),
+  closeout: Object.freeze({ profile: "standard" }),
   restoreDrillRetention: DEFAULT_RESTORE_DRILL_RETENTION,
 });
 
@@ -180,6 +207,7 @@ export const SETTINGS_V1_SCHEMA: EntityDocumentJsonSchema<SettingsV1> = {
     },
     walFlush: walFlushSchema(),
     ci: ciSettingsSchema(),
+    closeout: closeoutSettingsSchema(),
     restoreDrillRetention: ownedSchema("restoreDrillRetention", { type: "integer", minimum: 1 }),
   },
   required: [
@@ -239,6 +267,7 @@ export const SETTINGS_REPOSITORY_V1_SCHEMA: EntityDocumentJsonSchema<RepositoryS
     },
     walFlush: walFlushSchema(),
     ci: ciSettingsSchema(),
+    closeout: closeoutSettingsSchema(),
     restoreDrillRetention: ownedSchema("restoreDrillRetention", { type: "integer", minimum: 1 }),
   },
   required: ["schema", "settingsId", "defaultVertical", "defaultPreset", "defaultProfile", "scaffolds", "walFlush"],
@@ -262,6 +291,7 @@ export function repositorySettings(settings: SettingsV1 | RepositorySettingsV1):
     scaffolds: { task: settings.scaffolds.task, repository: settings.scaffolds.repository },
     walFlush: settings.walFlush ?? DEFAULT_WAL_FLUSH_SETTINGS,
     ci: settings.ci ?? INITIAL_SETTINGS_V1.ci,
+    closeout: settings.closeout ?? INITIAL_SETTINGS_V1.closeout,
     restoreDrillRetention: settings.restoreDrillRetention ?? DEFAULT_RESTORE_DRILL_RETENTION,
   };
 }
@@ -299,6 +329,7 @@ export function readSettingsFacet(body: string): SettingsV1 {
     },
     walFlush: readWalFlushSettings(body),
     ci: readCiSettings(body),
+    closeout: readCloseoutSettings(body),
     restoreDrillRetention: readRestoreDrillRetention(body),
   };
   const errors = validateSettingsV1(settings);
@@ -357,6 +388,7 @@ export function writeRepositorySettingsFacet(body: string, settings: RepositoryS
   );
   next = writeWalFlushFacet(next, repository.walFlush);
   next = writeCiFacet(next, repository.ci);
+  next = writeCloseoutFacet(next, repository.closeout);
   next = replaceOptionalDefaultedScalar(
     next,
     "  ",
@@ -406,6 +438,44 @@ function ciSettingsSchema() {
     required: ["workflows"],
     additionalProperties: false,
   };
+}
+
+function closeoutSettingsSchema() {
+  return {
+    ...ownedSchema("closeout", {}),
+    type: "object" as const,
+    properties: {
+      profile: ownedSchema("closeout", { type: "string" as const, enum: closeoutProfiles }),
+      overrides: {
+        ...ownedSchema("closeout", {}),
+        type: "object" as const,
+        properties: Object.fromEntries(
+          closeoutOverrideKeys.map((key) => [key, ownedSchema("closeout", { type: "boolean" as const })]),
+        ),
+        required: [],
+        additionalProperties: false,
+      },
+    },
+    required: ["profile"],
+    additionalProperties: false,
+  };
+}
+
+function readCloseoutSettings(body: string): CloseoutSettingsV1 {
+  const profile = settingBlockValue(body, "closeout", "profile");
+  if (profile === undefined) return INITIAL_SETTINGS_V1.closeout;
+  if (!closeoutProfiles.includes(profile as CloseoutProfile))
+    throw new Error(`settings.closeout.profile must be one of ${closeoutProfiles.join(", ")}`);
+  const section = /^  closeout:[^\S\r\n]*(?:\r?\n)((?:(?:    |      )[^\r\n]*(?:\r?\n|$))*)/mu.exec(body)?.[1] ?? "";
+  const overrides = Object.fromEntries(
+    closeoutOverrideKeys.flatMap((key) => {
+      const raw = new RegExp(`^      ${key}:[^\\S\\r\\n]*([^#\\r\\n]*?)\\s*(?:#.*)?$`, "mu").exec(section)?.[1]?.trim();
+      if (raw === undefined) return [];
+      if (raw !== "true" && raw !== "false") throw new Error(`settings.closeout.overrides.${key} must be boolean`);
+      return [[key, raw === "true"]];
+    }),
+  ) as CloseoutOverridesV1;
+  return { profile: profile as CloseoutProfile, ...(Object.keys(overrides).length ? { overrides } : {}) };
 }
 
 function readCiSettings(body: string): SettingsV1["ci"] {
@@ -480,6 +550,25 @@ function writeCiFacet(body: string, ci: RepositorySettingsV1["ci"]): string {
     isDefault = JSON.stringify(ci) === JSON.stringify(INITIAL_SETTINGS_V1.ci);
   if (!section.test(body) && isDefault) return body;
   const rendered = `  ci:\n    workflows: [${ci.workflows.join(", ")}]\n`;
+  if (section.test(body)) return body.replace(section, rendered);
+  const header = /^settings:[^\r\n]*(?:\r?\n|$)/mu;
+  if (!header.test(body)) throw new Error("Missing settings block in harness.yaml.");
+  return body.replace(header, (match) => `${match}${rendered}`);
+}
+
+function writeCloseoutFacet(body: string, closeout: CloseoutSettingsV1): string {
+  const section = /^  closeout:[^\S\r\n]*(?:\r?\n)(?:(?:    |      )[^\r\n]*(?:\r?\n|$))*/mu,
+    isDefault = JSON.stringify(closeout) === JSON.stringify(INITIAL_SETTINGS_V1.closeout);
+  if (!section.test(body) && isDefault) return body;
+  const overrideLines = closeoutOverrideKeys.flatMap((key) =>
+      closeout.overrides?.[key] === undefined ? [] : [`      ${key}: ${closeout.overrides[key]}`],
+    ),
+    rendered = [
+      "  closeout:",
+      `    profile: ${closeout.profile}`,
+      ...(overrideLines.length ? ["    overrides:", ...overrideLines] : []),
+      "",
+    ].join("\n");
   if (section.test(body)) return body.replace(section, rendered);
   const header = /^settings:[^\r\n]*(?:\r?\n|$)/mu;
   if (!header.test(body)) throw new Error("Missing settings block in harness.yaml.");

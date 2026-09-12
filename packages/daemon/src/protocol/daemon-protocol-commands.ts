@@ -72,6 +72,17 @@ const settingsWriteTopology = {
           },
         ),
         positiveSettingInput("--review-return-budget"),
+        cliInput("--closeout-profile", "single", false, { code: "invalid_field" }, { enum: ["standard", "strict"] }),
+        cliInput("--closeout-review", "single", false, { code: "invalid_field" }, { enum: ["true", "false"] }),
+        cliInput("--closeout-consent", "single", false, { code: "invalid_field" }, { enum: ["true", "false"] }),
+        cliInput(
+          "--closeout-fact-disposition",
+          "single",
+          false,
+          { code: "invalid_field" },
+          { enum: ["true", "false"] },
+        ),
+        cliInput("--closeout-code-doc", "single", false, { code: "invalid_field" }, { enum: ["true", "false"] }),
         cliInput(
           "--locale",
           "single",

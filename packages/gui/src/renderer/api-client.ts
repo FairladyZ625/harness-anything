@@ -166,6 +166,11 @@ export type SettingsUpdateInput = RepoScope &
     walFlushEvents: number;
     walFlushBytes: number;
     walFlushMilliseconds: number;
+    closeoutProfile: "standard" | "strict";
+    closeoutReview: boolean;
+    closeoutConsent: boolean;
+    closeoutFactDisposition: boolean;
+    closeoutCodeDoc: boolean;
   }> & { readonly idempotencyKey: string };
 
 export interface RepoScope {

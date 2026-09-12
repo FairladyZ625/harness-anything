@@ -204,6 +204,12 @@ export function SettingsView({
                     walFlushEvents: draft.walFlush.events,
                     walFlushBytes: draft.walFlush.bytes,
                     walFlushMilliseconds: draft.walFlush.milliseconds,
+                    closeoutProfile: draft.closeout.profile,
+                    closeoutReview: draft.closeout.overrides?.review ?? draft.closeout.profile === "strict",
+                    closeoutConsent: draft.closeout.overrides?.consent ?? draft.closeout.profile === "strict",
+                    closeoutFactDisposition:
+                      draft.closeout.overrides?.factDisposition ?? draft.closeout.profile === "strict",
+                    closeoutCodeDoc: draft.closeout.overrides?.codeDoc ?? draft.closeout.profile === "strict",
                   })
                 }
               >
@@ -246,6 +252,36 @@ export function SettingsView({
                 onChange={(value) => updateDraft("defaultProfile", value)}
               />
             </Row>
+            <Row label="Closeout profile" desc="Choose the repository baseline for completion review gates.">
+              <SettingSelect
+                label="Closeout profile"
+                testId="settings-closeout-profile-select"
+                value={draft.closeout.profile}
+                options={[
+                  { value: "standard", label: "standard" },
+                  { value: "strict", label: "strict" },
+                ]}
+                onChange={(profile) =>
+                  setDraft({ ...draft, closeout: { ...draft.closeout, profile: profile as "standard" | "strict" } })
+                }
+              />
+            </Row>
+            {(["review", "consent", "factDisposition", "codeDoc"] as const).map((gate) => (
+              <Row key={gate} label={`Closeout ${gate}`} desc="Override this closeout gate for the repository.">
+                <Toggle
+                  checked={draft.closeout.overrides?.[gate] ?? draft.closeout.profile === "strict"}
+                  onChange={(enabled) =>
+                    setDraft({
+                      ...draft,
+                      closeout: {
+                        ...draft.closeout,
+                        overrides: { ...draft.closeout.overrides, [gate]: enabled },
+                      },
+                    })
+                  }
+                />
+              </Row>
+            ))}
             <Row
               label={t("views.settingsView.taskScaffoldLabel")}
               desc={t("views.settingsView.taskScaffoldDescription")}

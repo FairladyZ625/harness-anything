@@ -2,6 +2,7 @@ import type { TaskLifecycleSnapshot } from "./task-lifecycle.contract.ts";
 import { closeoutReadiness, currentExecutionCuts, lineageOrphan } from "./closeout-readiness.ts";
 import { approvedReviewsForExecution } from "./review.ts";
 import type { TransitionDocumentMissingSection } from "./transition-document-readiness.ts";
+import type { CloseoutGate } from "./settings.ts";
 
 export type CompletionBlockerCode =
   | "projection_unknown"
@@ -47,6 +48,7 @@ export interface CompletionReadinessContext {
   readonly preparedGateIds?: readonly string[];
   readonly authorization?: "allowed" | "denied";
   readonly invalidDocument?: { readonly path: string; readonly reason: string };
+  readonly closeoutGates?: Readonly<Record<CloseoutGate, boolean>>;
 }
 
 export function completionBlockers(
@@ -163,9 +165,13 @@ function evaluateCompletion(
       `ha task release ${task.taskId}`,
       "The held execution lease must be released by its current holder.",
     );
-  const assessment = closeoutReadiness(snapshot);
+  const assessment = closeoutReadiness(snapshot),
+    closeoutGates = context.closeoutGates ?? { review: true, consent: true, factDisposition: true, codeDoc: true };
   const gate = assessment.gates.find(
-    ({ gateId, status }) => status !== "passed" && !context.preparedGateIds?.includes(gateId),
+    ({ gateId, status }) =>
+      status !== "passed" &&
+      (gateId !== "code-doc-reconciliation" || closeoutGates.codeDoc) &&
+      !context.preparedGateIds?.includes(gateId),
   );
   if (gate)
     return gate.gateId === "code-doc-reconciliation"
@@ -216,14 +222,14 @@ function evaluateCompletion(
     );
   if (!includeReview) return [];
   const approved = approvedReviewsForExecution(snapshot.reviews, execution);
-  if (approved.length === 0)
+  if (closeoutGates.review && approved.length === 0)
     return one(
       "review_missing",
       "review",
       `ha task complete ${task.taskId}`,
       "Dispatch an independent reviewer for the current submitted cut.",
     );
-  if (assessment.blocker === "consent")
+  if (closeoutGates.consent && assessment.blocker === "consent")
     return one(
       "consent_missing",
       "consent",

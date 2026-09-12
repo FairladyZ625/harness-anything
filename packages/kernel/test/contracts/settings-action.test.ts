@@ -4,7 +4,7 @@ import test from "node:test";
 import { explainEntityKind, getExecutableEntityAction } from "../../src/domain/entity-kind-registry.ts";
 import { SettingsActionError } from "../../src/domain/settings-action-contract.ts";
 import { assertSettingsEventInputs } from "../../src/domain/settings-event.ts";
-import { readSettingsFacet, repositorySettings } from "../../src/domain/settings.ts";
+import { effectiveCloseoutGates, readSettingsFacet, repositorySettings } from "../../src/domain/settings.ts";
 
 const documentBody = [
   "schema: harness-anything/v1",
@@ -21,6 +21,21 @@ const documentBody = [
   "",
 ].join("\n");
 const current = repositorySettings(readSettingsFacet(documentBody));
+
+test("closeout profiles default consistently and task gates can only tighten", () => {
+  assert.deepEqual(effectiveCloseoutGates({ profile: "standard" }), {
+    review: false,
+    consent: false,
+    factDisposition: false,
+    codeDoc: false,
+  });
+  assert.equal(effectiveCloseoutGates({ profile: "standard", overrides: { review: true } }).review, true);
+  assert.equal(
+    effectiveCloseoutGates({ profile: "standard", overrides: { codeDoc: false } }, ["code-doc-reconciliation"]).codeDoc,
+    true,
+  );
+  assert.equal(effectiveCloseoutGates({ profile: "strict", overrides: { consent: false } }).consent, false);
+});
 
 test("Settings exposes executable singleton read and update contracts", () => {
   const explanation = explainEntityKind("settings"),
@@ -107,6 +122,20 @@ test("Settings update maps the CLI none sentinel to the CI-witnessing opt-out", 
   assert.deepEqual(draft.result.bundle.event.payload.settings.ci.workflows, []);
   assert.deepEqual(readSettingsFacet(draft.result.bundle.blobs[0].body).ci.workflows, []);
   assertSettingsEventInputs(draft.result.bundle.event, draft.result.bundle.plan, draft.result.bundle.blobs);
+});
+
+test("Settings update persists closeout profile and individual overrides", () => {
+  const draft = compile({ closeoutProfile: "strict", closeoutReview: false, closeoutCodeDoc: true });
+  assert.equal(draft.kind, "settings");
+  if (draft.kind !== "settings" || draft.result.kind !== "event") throw new Error("missing settings event");
+  assert.deepEqual(draft.result.bundle.event.payload.settings.closeout, {
+    profile: "strict",
+    overrides: { review: false, codeDoc: true },
+  });
+  assert.deepEqual(readSettingsFacet(draft.result.bundle.blobs[0].body).closeout, {
+    profile: "strict",
+    overrides: { review: false, codeDoc: true },
+  });
 });
 
 test("Settings update rejects malformed CI workflow name lists", () => {

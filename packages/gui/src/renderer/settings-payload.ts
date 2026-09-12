@@ -12,6 +12,8 @@ export function isSettingsSuccess(value: unknown): value is SettingsRead {
     [settings.defaultVertical, settings.defaultPreset, settings.defaultProfile].every(
       (field) => typeof field === "string" && field.length > 0,
     ) &&
+    isRendererRecord(settings.closeout) &&
+    ["standard", "strict"].includes(String(settings.closeout.profile)) &&
     ["en-US", "zh-CN"].includes(String(settings.locale)) &&
     isRendererRecord(settings.scaffolds) &&
     [settings.scaffolds.task, settings.scaffolds.repository].every(
