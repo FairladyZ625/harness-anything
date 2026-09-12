@@ -296,9 +296,6 @@ export function GraphFilterPanel({
                 </button>
               );
             })}
-            <div className="mt-0.5 ui-micro leading-snug text-text-faint">
-              {t("components.graphFilterPanel.assocRelatesTurnedOffByDefaultReduce")}
-            </div>
           </div>
         </div>
 
