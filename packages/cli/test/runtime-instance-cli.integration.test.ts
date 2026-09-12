@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
+import { renderCliReceipt } from "../src/cli/receipt-render-registry.ts";
 import { writeProviderExecutable } from "../../daemon/test/fixtures/runtime-stub.ts";
 
 const cli = path.resolve("packages/cli/src/index.ts");
@@ -88,6 +89,25 @@ test("real CLI performs machine runtime instance CRUD through an isolated reside
       http_headers: { "X-Harness-Probe": "present" },
     });
     assert.equal((listed.instances as Array<Record<string, unknown>>).length, 1);
+    assert.equal((shown.instance as Record<string, unknown>).permissionMode, "bypass");
+    assert.match(renderCliReceipt(shown).text, /permissionMode: bypass/u);
+    for (const permissionMode of ["bypass", "read-only", "workspace-write"]) {
+      run(root, env, ["runtime", "instance", "update", "cli-isolated", "--permission-mode", permissionMode]);
+      const updatedShow = run(root, env, ["runtime", "instance", "show", "cli-isolated"]),
+        updatedProbe = run(root, env, ["runtime", "instance", "show", "cli-isolated", "--probe"]),
+        updatedList = run(root, env, ["runtime", "instance", "list"]);
+      for (const receipt of [updatedShow, updatedProbe]) {
+        assert.equal((receipt.instance as Record<string, unknown>).permissionMode, permissionMode);
+        assert.match(renderCliReceipt(receipt).text, new RegExp(`permissionMode: ${permissionMode}`, "u"));
+      }
+      assert.equal((updatedList.instances as Array<Record<string, unknown>>)[0].permissionMode, permissionMode);
+      assert.match(renderCliReceipt(updatedList).text, /PERMISSION MODE/u);
+      assert.ok(
+        renderCliReceipt(updatedList)
+          .text.split("\n")
+          .some((line) => line.split("\t").includes(permissionMode)),
+      );
+    }
     assert.equal(
       ((probed.instance as Record<string, unknown>).authReadiness as Record<string, unknown>).status,
       "not-ready",

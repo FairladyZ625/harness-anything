@@ -404,7 +404,7 @@ export function openRuntimeInstanceStore(input: {
         );
       const listed = (instances: readonly RuntimeInstanceSummary[]) => {
         const summary = [
-          "ID\tNAME\tKIND\tMODEL\tENABLED\tAUTH MODE\tLOGIN STATUS",
+          "ID\tNAME\tKIND\tMODEL\tENABLED\tAUTH MODE\tLOGIN STATUS\tPERMISSION MODE",
           ...instances.map((instance) =>
             [
               "",
@@ -421,6 +421,8 @@ export function openRuntimeInstanceStore(input: {
               `${instance.authMode}`,
               "\t",
               authReadinessLabel(instance.authReadiness),
+              "\t",
+              `${instance.permissionMode}`,
               "",
             ].join(""),
           ),
@@ -562,7 +564,7 @@ export function openRuntimeInstanceStore(input: {
             ...base,
             instance,
             evidence: JSON.stringify(instance),
-            summary: `runtime-instance-show: ${instanceId}`,
+            summary: `runtime-instance-show: ${instanceId}\npermissionMode: ${instance.permissionMode}`,
           };
         });
       const instance = publicConfig(config, readiness.get(config.instanceId));
@@ -570,7 +572,7 @@ export function openRuntimeInstanceStore(input: {
         ...base,
         instance,
         evidence: JSON.stringify(instance),
-        summary: `runtime-instance-show: ${instanceId}`,
+        summary: `runtime-instance-show: ${instanceId}\npermissionMode: ${instance.permissionMode}`,
       };
     }
     if (kind === "runtime-instance-delete") {
