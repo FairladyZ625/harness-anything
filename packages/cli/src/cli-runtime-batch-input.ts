@@ -1,4 +1,3 @@
-import { unknownFieldViolation } from "../../daemon/src/protocol/json-rpc-types.ts";
 import { cliErrorMessage } from "./cli-error.ts";
 import { runtimeBatchDefaultConcurrency, runtimeBatchMaxConcurrency } from "./cli-types.ts";
 import type { RuntimeBatchDeclaration, RuntimeBatchEntry } from "./cli-types.ts";
@@ -6,6 +5,11 @@ import { runtimeBatchDeclarationFields, runtimeRunEfforts } from "./cli/thin-com
 import type { ThinCommand } from "./cli/thin-command.ts";
 import { readFileSync } from "node:fs";
 import path from "node:path";
+
+function unknownFieldViolation(value: Record<string, unknown>, allowed: readonly string[]): string | null {
+  const unknown = Object.keys(value).find((field) => !allowed.includes(field));
+  return unknown ? `unknown field: ${unknown}.` : null;
+}
 
 export function readRuntimeBatch(command: ThinCommand): RuntimeBatchDeclaration {
   let value: unknown;
