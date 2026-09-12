@@ -86,3 +86,29 @@ test("a receipt with an unsupported provenance source cannot become a verified f
   assert.equal(judgment.accepted, false);
   assert.match(judgment.reason ?? "", /provenance source/u);
 });
+
+test("artifact evidence binds ledger revisions and never passes code gates", async () => {
+  const { gateResults } = await import("../../src/domain/closeout-readiness.ts");
+  const { validateSubmissionV1 } = await import("../../src/domain/execution.ts");
+  const artifactExecution: ExecutionV1 = {
+    ...execution,
+    submission: {
+      ...execution.submission,
+      commitSha: null,
+      artifacts: [{ path: "tasks/t/artifacts/report.md", revision: 7, blobSha256: "a".repeat(64) }],
+    },
+  };
+  assert.deepEqual(validateSubmissionV1(artifactExecution.submission), []);
+  assert.ok(validateSubmissionV1({ ...artifactExecution.submission, commitSha: "a".repeat(40) }).length);
+  const basis = completionEvidenceBasis(artifactExecution);
+  assert.equal(basis.codeCommit, undefined);
+  assert.equal(basis.ledgerCut, 7);
+  const snapshot = {
+    task: { completionGateIds: ["ci", "code-doc-reconciliation"] },
+    gateWitnesses: [],
+    codeDocWitnesses: [],
+  } as unknown as Parameters<typeof gateResults>[0];
+  const results = gateResults(snapshot, undefined, artifactExecution.executionId, null, 0);
+  assert.equal(results.length, 2);
+  assert.ok(results.every((gate) => gate.status !== "passed"));
+});

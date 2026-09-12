@@ -72,7 +72,7 @@ export interface RecordReviewIntent extends Intent<"RecordReview"> {
   readonly noDispatchReason?: string;
   readonly noIndependentReview?: boolean;
   readonly noIndependentReviewReason?: string;
-  readonly commitSha: string;
+  readonly commitSha: string | null;
   readonly iteration: number;
   readonly contentDigest: `sha256:${string}`;
   readonly submissionDigest: `sha256:${string}`;

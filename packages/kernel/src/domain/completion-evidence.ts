@@ -45,7 +45,9 @@ export function completionEvidenceBasis(execution: ExecutionV1): CompletionEvide
     executionId: execution.executionId,
     iteration: execution.iteration,
     submissionDigest: submissionDigest(execution.submission),
-    codeCommit: execution.submission.commitSha,
+    ...(execution.submission.commitSha === null
+      ? { ledgerCut: Math.max(...execution.submission.artifacts.map((anchor) => anchor.revision)) }
+      : { codeCommit: execution.submission.commitSha }),
   };
 }
 

@@ -55,7 +55,7 @@ export function readLatestCiEvidence(
   cell: RepoCellOperationalContext,
   execution: Snapshot["executions"][number] | undefined,
 ): CompletionEvidenceV1 | null {
-  if (!execution?.submission) return null;
+  if (!execution?.submission?.commitSha) return null;
   const observations = cell.projection.readCiRunObservations(2000);
   if (!cell.projectionReady(observations))
     throw cell.cellCodedError("content_not_ready", "CI observation projection is not ready.");
@@ -354,7 +354,8 @@ export async function completeTask(
     ),
   );
   const codeDoc =
-    initial.snapshot.task?.completionGateIds.includes("code-doc-reconciliation") && submittedExecution?.submission
+    initial.snapshot.task?.completionGateIds.includes("code-doc-reconciliation") &&
+    submittedExecution?.submission?.commitSha
       ? verifyCodeDocCommitPaths({ rootDir: cell.rootDir, commitSha: submittedExecution.submission.commitSha, paths })
       : null;
   const remaining = completionPreparationBlockers(initial.snapshot, executionId, {

@@ -65,12 +65,14 @@ function instance(instanceId: string): RuntimeInstanceSummary {
 function git(root: string, ...args: string[]): string {
   return execFileSync("git", ["-C", root, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 }
-async function fixture(failProvider = false, available = true) {
+async function fixture(failProvider = false, available = true, artifactDelivery = false) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-completion-review-")),
     repoId = workspaceId("completion-review");
   git(root, "init", "-q");
   git(root, "config", "user.name", "Completion Review Test");
   git(root, "config", "user.email", "review@example.invalid");
+  git(root, "commit", "--allow-empty", "-qm", "test: base");
+  git(root, "update-ref", "refs/remotes/origin/main", git(root, "rev-parse", "HEAD"));
   writeFileSync(path.join(root, "README.md"), "# Reviewed delivery\n");
   git(root, "add", "README.md");
   git(root, "commit", "-qm", "docs: fixture delivery");
@@ -164,9 +166,18 @@ async function fixture(failProvider = false, available = true) {
     ).outcome,
     "applied",
   );
+  let delivery = git(root, "rev-parse", "HEAD");
+  if (artifactDelivery) {
+    const report = `${packagePath}/artifacts/delivery.md`;
+    mkdirSync(path.dirname(path.join(root, "harness", report)), { recursive: true });
+    writeFileSync(path.join(root, "harness", report), "Frozen artifact evidence.\n");
+    const accepted = await run({ kind: "doc-submit", taskId });
+    assert.equal(accepted.outcome, "applied", JSON.stringify(accepted));
+    delivery = `artifact:${report}@${accepted.revision}`;
+  }
   writeFileSync(
     path.join(root, "harness", packagePath, "closeout.md"),
-    "# Closeout\n\n## Summary\n\nReviewed delivery.\n\n## Verification\n\nREADME bytes checked.\n\n" +
+    `# Closeout\n\n## Summary\n\nReviewed delivery ${delivery}\n\n## Verification\n\nREADME bytes checked.\n\n` +
       "## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nReview dispatch retry.\n",
   );
   assert.equal((await run({ kind: "task-submit", taskId, executionId })).outcome, "applied");
@@ -210,7 +221,10 @@ async function fixture(failProvider = false, available = true) {
         .at(-1);
       assert.ok(submitted?.type === "execution_submitted" && submitted.payload.execution.submission);
       const reviewedCommit = submitted.payload.execution.submission.commitSha;
-      assert.equal(git(root, "show", `${reviewedCommit}:README.md`), "# Reviewed delivery");
+      if (artifactDelivery) {
+        assert.equal(reviewedCommit, null);
+        assert.match(launches.at(-1)!.prompt, /Frozen artifact evidence/u);
+      } else assert.equal(git(root, "show", `${reviewedCommit}:README.md`), "# Reviewed delivery");
       assert.match(
         readFileSync(path.join(root, "harness", packagePath, "closeout.md"), "utf8"),
         /README bytes checked/u,
@@ -221,8 +235,12 @@ async function fixture(failProvider = false, available = true) {
         path.join(root, "harness", packet),
         JSON.stringify({
           verdict: "approved",
-          reason: "Independently inspected committed README and submitted closeout.",
-          evidenceChecked: [`${reviewedCommit}:README.md`, "closeout.md"],
+          reason: artifactDelivery
+            ? "Inspected center-accepted artifact contents and submitted closeout."
+            : "Independently inspected committed README and submitted closeout.",
+          evidenceChecked: artifactDelivery
+            ? submitted.payload.execution.submission.artifacts!.map((anchor) => `${anchor.path}@${anchor.revision}`)
+            : [`${reviewedCommit}:README.md`, "closeout.md"],
         }),
       );
       return cell.run(
@@ -482,7 +500,7 @@ test(
       const closeoutPath = path.join(f.root, "harness", f.packagePath, "closeout.md");
       writeFileSync(
         closeoutPath,
-        readFileSync(closeoutPath, "utf8").replace("Reviewed delivery.", "Amended reviewed delivery."),
+        readFileSync(closeoutPath, "utf8").replace("Reviewed delivery ", "Amended reviewed delivery "),
       );
       let amended = await f.run({ kind: "task-submit", taskId, executionId, amend: true });
       for (let attempt = 0; amended.outcome === "pending" && attempt < 4; attempt += 1) {
@@ -519,3 +537,41 @@ test("completion with an unavailable declared model returns guidance without lau
     await f.close();
   }
 });
+
+test(
+  "artifact delivery reaches the same independent review and completion after reopening",
+  { timeout: 20_000 },
+  async () => {
+    const f = await fixture(false, true, true);
+    try {
+      await f.install();
+      await f.reopen();
+      const artifactPath = path.join(f.root, "harness", f.packagePath, "artifacts/delivery.md");
+      writeFileSync(artifactPath, "Latest replacement must not be reviewed.\n");
+      const republished = await f.run({ kind: "doc-submit", taskId });
+      if (republished.outcome === "pending") await waitForFixturePublication(f.cell(), republished.opId, owner);
+      else assert.equal(republished.outcome, "applied", JSON.stringify(republished));
+      const dispatched = await f.complete();
+      assert.equal(dispatched.code, "review_missing", JSON.stringify(dispatched));
+      assert.equal(f.launches.length, 1);
+      assert.match(f.launches[0]!.prompt, /Frozen artifact evidence/u);
+      assert.doesNotMatch(f.launches[0]!.prompt, /Latest replacement must not be reviewed/u);
+      const session = String((dispatched as unknown as Record<string, unknown>).runtimeSessionId);
+      const reviewed = await f.review(session, "artifact-reviewed");
+      if (reviewed.outcome === "pending") await waitForFixturePublication(f.cell(), reviewed.opId, owner);
+      else assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
+      const complete = await f.complete(true);
+      assert.equal(complete.outcome, "applied", JSON.stringify(complete));
+      const final = f
+        .events()
+        .filter((event) => event.type === "task_completed")
+        .at(-1);
+      assert.equal(final?.payload.task.status, "done");
+      await f.reopen();
+      const shown = await f.run({ kind: "task-show", taskId });
+      assert.equal(JSON.parse(String(shown.evidence)).task.status, "done");
+    } finally {
+      await f.close();
+    }
+  },
+);

@@ -696,6 +696,8 @@ test("review binding permits independent runtimes but still rejects the executio
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     initRepo(rootDir);
+    const workerRoot = path.join(rootDir, ".worktrees", "implementer");
+    git(rootDir, "worktree", "add", "--quiet", "--detach", workerRoot);
     const processes: { exit: ((code: number | null) => void) | null }[] = [];
     let providerSequence = 0;
     cell = await openRepoCell({
@@ -779,7 +781,7 @@ test("review binding permits independent runtimes but still rejects the executio
     const original = await cell.spawnRuntime(
       {
         runtimeInstanceId: "review-runtime",
-        cwd: { scope: "repo-root" },
+        cwd: { scope: "repo-relative", path: ".worktrees/implementer" },
         prompt: "Implement the task.",
         taskId,
         idempotencyKey: "original-runtime",
@@ -809,7 +811,7 @@ test("review binding permits independent runtimes but still rejects the executio
     const resumed = await cell.spawnRuntime(
       {
         runtimeInstanceId: "review-runtime",
-        cwd: { scope: "repo-root" },
+        cwd: { scope: "repo-relative", path: ".worktrees/implementer" },
         prompt: "Resume the task.",
         taskId,
         providerSessionId: "provider-1",
@@ -824,9 +826,9 @@ test("review binding permits independent runtimes but still rejects the executio
         event.type === "runtime_session_task_bound" && event.payload.runtimeSessionId === resumed.runtimeSessionId,
     );
 
-    writeFileSync(path.join(rootDir, "README.md"), "# Runtime closeout chain\n");
-    git(rootDir, "add", "README.md");
-    git(rootDir, "commit", "--quiet", "-m", "runtime implementation");
+    writeFileSync(path.join(workerRoot, "README.md"), "# Runtime closeout chain\n");
+    git(workerRoot, "add", "README.md");
+    git(workerRoot, "commit", "--quiet", "-m", "runtime implementation");
     const resumedImplementer = {
       actor: {
         principal,
@@ -837,7 +839,7 @@ test("review binding permits independent runtimes but still rejects the executio
     const closeoutPath = `${String((created as Record<string, unknown>).packagePath)}/closeout.md`;
     writeFileSync(
       path.join(rootDir, "harness", closeoutPath),
-      "# Closeout\n\n## Summary\n\nRuntime implementation complete.\n\n" +
+      `# Closeout\n\n## Summary\n\nRuntime implementation complete at ${git(workerRoot, "rev-parse", "HEAD")}.\n\n` +
         "## Verification\n\nIntegration chain verified.\n\n## Residual Risk\n\nNone.\n\n" +
         "## Same Mechanism Elsewhere\n\nThe runtime ingress path is the shared mechanism.\n",
     );

@@ -198,6 +198,7 @@ export type {
   MigrationImportEventV1,
 } from "./domain/migration-import-event.ts";
 export type {
+  ArtifactDelivery,
   ArchivedExecutionV0,
   ExecutionV1,
   LeaseV1,

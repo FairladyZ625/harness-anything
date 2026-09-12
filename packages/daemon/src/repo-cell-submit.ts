@@ -4,8 +4,6 @@ import {
   heldLeaseForExecutionActor,
   isSameExecution,
   isTaskEvent,
-  resolveLedgerGitLayout,
-  ledgerGitPath,
   submissionFromCloseout,
   submissionDigest,
   type SubmissionV1,
@@ -14,15 +12,16 @@ import {
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 import { assertCurrentSubmittedExecution } from "./repo-cell-execution-selection.ts";
+import { artifactAnchors, readSubmissionArtifact } from "./submission-artifacts.ts";
 import { readDispatchStreamHeaders } from "./dispatch-stream.ts";
 import { runDocAction } from "./doc-sync-actions.ts";
 import { makeGitReadinessSource, runProcessText } from "./process-port.ts";
 import { readTaskTransitionDocument } from "./transition-document-access.ts";
 import { prepareSubmissionEvidence } from "./repo-cell-task-progress.ts";
 
-/** The cut comes from the execution's dispatch or an explicit commit in its closeout. */
+/** Summary explicitly selects a public commit or center-accepted artifact revisions. */
 export function deriveCloseoutSubmission(
-  cell: Pick<RepoCellOperationalContext, "rootDir" | "projection" | "cellCodedError">,
+  cell: Pick<RepoCellOperationalContext, "rootDir" | "projection" | "store" | "cellCodedError">,
   taskId: string,
   executionId: string,
   snapshot: Snapshot,
@@ -34,35 +33,41 @@ export function deriveCloseoutSubmission(
       slot: "task.closeout",
       bodyOverrides,
     }),
-    existing = snapshot.executions.find((execution) => execution.executionId === executionId)?.submission,
     // Parse/validate before reading any Git cut. No risk or verification line is filtered.
     prose = submissionFromCloseout(document.body, { commitSha: "0".repeat(40), deliverables: [], outputs: [] }),
-    named = [...new Set(prose.completionClaim.match(/\b[0-9a-f]{40}\b/gu) ?? [])],
-    dispatches = readDispatchStreamHeaders(cell.rootDir).filter(
-      (dispatch) => dispatch.taskId === taskId && dispatch.executionId === executionId && dispatch.cwd,
-    ),
-    directories = [...new Set(dispatches.map((dispatch) => dispatch.cwd!))],
-    git = makeGitReadinessSource(),
-    ledgerLayout = resolveLedgerGitLayout(cell.rootDir),
-    ledgerRoot = ledgerLayout.rootDir,
-    privateDelivery = !(snapshot.task?.completionGateIds ?? []).some(
-      (gate) => gate === "ci" || gate === "code-doc-reconciliation",
-    );
-  if (named.length > 1 || directories.length > 1)
-    throw cell.cellCodedError("invalid_submission", "Summary must identify one delivery commit for this execution.");
-  let root = directories[0] ?? cell.rootDir,
-    commitSha =
-      named[0] ?? existing?.commitSha ?? (directories.length ? git.run(root, ["rev-parse", "HEAD"]).stdout : "");
-  if (!commitSha && privateDelivery) {
-    root = ledgerRoot;
-    commitSha = git.run(root, ["rev-parse", "HEAD"]).stdout;
-  }
-  if (!commitSha)
+    anchors = artifactAnchors(prose.completionClaim),
+    named = [...new Set(prose.completionClaim.replace(/artifact:[^\s`<>]+/gu, "").match(/\b[0-9a-f]{40}\b/gu) ?? [])];
+  if (
+    (named.length === 1) === anchors.length > 0 ||
+    named.length > 1 ||
+    (prose.completionClaim.match(/artifact:/gu) ?? []).length !== anchors.length
+  )
     throw cell.cellCodedError(
       "invalid_submission",
-      "Write the delivery commit in Summary; no execution-bound worktree cut is available.",
+      "Summary must explicitly name one commit or artifact:path@revision anchors.",
     );
-  const publishedRoot = [...new Set([root, cell.rootDir, ledgerRoot])].find(
+  if (anchors.length) {
+    const artifacts = anchors.map(
+      ({ path, revision }) => readSubmissionArtifact(cell, document.packagePath, path, revision).anchor,
+    );
+    if (new Set(artifacts.map((anchor) => anchor.path)).size !== artifacts.length)
+      throw cell.cellCodedError("invalid_submission", "Summary must name each artifact path once.");
+    return { ...prose, commitSha: null, artifacts, deliverables: artifacts.map((anchor) => anchor.path), outputs: [] };
+  }
+  const dispatches = readDispatchStreamHeaders(cell.rootDir).filter(
+      (dispatch) =>
+        dispatch.taskId === taskId &&
+        dispatch.executionId === executionId &&
+        dispatch.role !== "reviewer" &&
+        dispatch.cwd,
+    ),
+    directories = [...new Set(dispatches.map((dispatch) => dispatch.cwd!))],
+    git = makeGitReadinessSource();
+  if (directories.length > 1)
+    throw cell.cellCodedError("invalid_submission", "Execution has more than one delivery worktree.");
+  let root = directories[0] ?? cell.rootDir,
+    commitSha = named[0]!;
+  const publishedRoot = [...new Set([root, cell.rootDir])].find(
     (candidate) => git.run(candidate, ["cat-file", "-e", `${commitSha}^{commit}`]).ok,
   );
   if (!publishedRoot)
@@ -89,49 +94,11 @@ export function deriveCloseoutSubmission(
         "Summary commit must be the bound worktree HEAD or its published merge commit.",
       );
   }
-  if (
-    root === ledgerRoot &&
-    (privateDelivery || !git.run(cell.rootDir, ["cat-file", "-e", `${commitSha}^{commit}`]).ok)
-  ) {
-    const artifacts = git.run(root, [
-      "ls-tree",
-      "-r",
-      "--name-only",
-      commitSha,
-      "--",
-      ledgerGitPath(ledgerLayout, `${document.packagePath}/artifacts/`),
-    ]);
-    if (!artifacts.ok || !artifacts.stdout)
-      throw cell.cellCodedError(
-        "invalid_submission",
-        "Publish this task's artifacts before submitting the private delivery.",
-      );
-    return { ...prose, commitSha, deliverables: artifacts.stdout.split("\n"), outputs: [] };
-  }
   const mergeBase = git.run(root, ["merge-base", "origin/main", commitSha]);
-  let base =
+  const base =
     mergeBase.ok && mergeBase.stdout !== commitSha
       ? mergeBase.stdout
       : git.run(root, ["rev-parse", `${commitSha}^1`]).stdout;
-  // A worktree branch can already be merged. Compare against its merge base,
-  // not just its final commit's parent, or earlier branch deliveries disappear.
-  if (directories.length && !named.length && mergeBase.stdout === commitSha) {
-    const merges = git.run(root, ["rev-list", "--ancestry-path", "--merges", "--reverse", `${commitSha}..origin/main`]);
-    const containing = merges.stdout
-      .split("\n")
-      .filter(Boolean)
-      .find(
-        (merge) =>
-          git.run(root, ["merge-base", "--is-ancestor", commitSha, `${merge}^2`]).ok &&
-          !git.run(root, ["merge-base", "--is-ancestor", commitSha, `${merge}^1`]).ok,
-      );
-    if (!containing)
-      throw cell.cellCodedError(
-        "invalid_submission",
-        "Name the delivery commit in Summary; the bound branch has no distinct cut against origin/main.",
-      );
-    base = git.run(root, ["merge-base", commitSha, `${containing}^1`]).stdout;
-  }
   if (!base) throw cell.cellCodedError("invalid_submission", "Delivery commit has no verifiable comparison cut.");
   const deliverables = runProcessText(
       "git",
@@ -145,8 +112,9 @@ export function deriveCloseoutSubmission(
       .filter(Boolean);
   if (!deliverables.length && !removed.length)
     throw cell.cellCodedError("invalid_submission", "Delivery cut contains no changed paths.");
+  const { artifacts: _artifacts, ...codeProse } = prose;
   return {
-    ...prose,
+    ...codeProse,
     commitSha,
     deliverables,
     outputs: removed.map((target) => `Deleted-Production-Paths: ${target}`),

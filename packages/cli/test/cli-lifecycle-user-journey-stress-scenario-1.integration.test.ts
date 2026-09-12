@@ -156,9 +156,10 @@ test("CLI changes-requested recovery releases and re-enters a new execution", as
     await expectApplied(fixture, ["task", "start", taskId, "--execution-id", firstExecutionId], workerEnvironment);
     await expectApplied(fixture, ["doc", "sync", "--submit", "--task", taskId], workerEnvironment);
     writeFileSync(path.join(packageRoot, "artifacts", "recovery.txt"), "Changes-requested recovery execution.\n");
+    const artifactSync = await expectApplied(fixture, ["doc", "sync", "--submit", "--task", taskId], workerEnvironment);
     writeFileSync(
       closeoutPath,
-      "# Closeout\n\n## Summary\n\nFirst execution needs another iteration.\n\n" +
+      `# Closeout\n\n## Summary\n\nFirst execution needs another iteration: artifact:${packagePath}/artifacts/recovery.txt@${artifactSync.revision}\n\n` +
         "## Verification\n\nChanges-requested recovery exercised.\n\n" +
         "## Residual Risk\n\n已知缺口：review requested another iteration\n\n" +
         "## Same Mechanism Elsewhere\n\nRecovery lifecycle.\n",
@@ -193,7 +194,7 @@ test("CLI changes-requested recovery releases and re-enters a new execution", as
     await expectApplied(fixture, ["task", "start", taskId, "--execution-id", secondExecutionId], workerEnvironment);
     writeFileSync(
       closeoutPath,
-      "# Closeout\n\n## Summary\n\nSecond execution addresses the requested verification note.\n\n" +
+      `# Closeout\n\n## Summary\n\nSecond execution addresses the verification note: artifact:${packagePath}/artifacts/recovery.txt@${artifactSync.revision}\n\n` +
         "## Verification\n\nRequested verification note addressed.\n\n" +
         "## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nRecovery lifecycle.\n",
     );

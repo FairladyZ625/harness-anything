@@ -91,9 +91,12 @@ export const taskSurfaceProtocolCommands = Object.freeze([
     id: "task-contract-migrate",
     phase: "W3",
     path: ["task", "contract", "migrate"],
-    summary: "Plan or apply deterministic Task contract backfills; ambiguous Tasks remain manual.",
+    summary: "Backfill Task contracts, or explicitly migrate one inactive Task to an existing preset.",
     method: "repo.task.run",
     inputs: [
+      cliInput("--to-preset", "single", false, {
+        code: "invalid_field",
+      }),
       cliInput("--dry-run", "boolean", false, {
         code: "invalid_field",
       }),

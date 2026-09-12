@@ -448,3 +448,26 @@ test("task transition leaves lifecycle eligibility to the kernel", () => {
     true,
   );
 });
+
+test("task contract migration carries an explicit target preset through the thin CLI", () => {
+  for (const mode of ["--apply", "--dry-run"]) {
+    const parsed = parseThinCommand([
+      "task",
+      "contract",
+      "migrate",
+      "--task",
+      "task_example",
+      "--to-preset",
+      "docs-task",
+      mode,
+    ]);
+    assert.equal(parsed.ok, true);
+    if (parsed.ok)
+      assert.deepEqual(parsed.command.action, {
+        kind: "task-contract-migrate",
+        taskId: "task_example",
+        toPresetId: "docs-task",
+        mode: mode === "--apply" ? "apply" : "dry-run",
+      });
+  }
+});

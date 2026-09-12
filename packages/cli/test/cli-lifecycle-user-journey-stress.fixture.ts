@@ -131,9 +131,10 @@ async function runChain(
     ],
     workerEnvironment,
   );
+  const artifactSync = await expectApplied(fixture, ["doc", "sync", "--submit", "--task", taskId], workerEnvironment);
   writeFileSync(
     closeoutPath,
-    "# Closeout\n\n## Summary\n\nSynthetic chain complete.\n\n" +
+    `# Closeout\n\n## Summary\n\nSynthetic chain complete: artifact:${packagePath}/artifacts/chain.txt@${artifactSync.revision}\n\n` +
       "## Verification\n\nCLI stress path.\n\n## Residual Risk\n\nNone.\n\n" +
       "## Same Mechanism Elsewhere\n\nNo production behavior changed.\n",
   );

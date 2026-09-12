@@ -29,7 +29,7 @@ export interface TaskEdgeTaken {
   readonly on: GraphEdgeTrigger;
   readonly actorRole: GraphActorRole;
   readonly reason: string;
-  readonly commitSha: string;
+  readonly commitSha: string | null;
   readonly iteration: number;
 }
 export interface GraphValidationIssue {

@@ -54,7 +54,7 @@ export function reviewExecutionSelection(
   taskId: string,
 ): {
   readonly executionId: string;
-  readonly commitSha: string;
+  readonly commitSha: string | null;
   readonly iteration: number;
   readonly submissionDigest: `sha256:${string}`;
 } {

@@ -1,16 +1,6 @@
 import type { SafePath } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
-import {
-  accepted,
-  nonEmpty,
-  optionalFlags,
-  readFlags,
-  rejectInput,
-  rejected,
-} from "./thin-command-flags.ts";
-import type {
-  ThinCliInputDirectory,
-  ThinParseResult,
-} from "./thin-command-types.ts";
+import { accepted, nonEmpty, optionalFlags, readFlags, rejectInput, rejected } from "./thin-command-flags.ts";
+import type { ThinCliInputDirectory, ThinParseResult } from "./thin-command-types.ts";
 
 export function parseContractMigrate(
   args: readonly string[],
@@ -23,12 +13,12 @@ export function parseContractMigrate(
   if (!f.ok) return rejected(f.code, f.nextAction, json);
   const dryRun = f.booleans.has("--dry-run"),
     apply = f.booleans.has("--apply");
-  if (dryRun === apply)
-    return rejectInput(inputs, "task-contract-migrate", "--dry-run", json);
+  if (dryRun === apply) return rejectInput(inputs, "task-contract-migrate", "--dry-run", json);
   return accepted(rootDir, repoId, json, {
     kind: "task-contract-migrate",
     mode: dryRun ? "dry-run" : "apply",
     ...(f.one.get("--task") ? { taskId: f.one.get("--task") } : {}),
+    ...(f.one.get("--to-preset") ? { toPresetId: f.one.get("--to-preset") } : {}),
   });
 }
 
@@ -45,26 +35,15 @@ export function parseTaskDelete(
     hard = f.one.get("--hard"),
     reason = f.one.get("--reason"),
     confirm = f.one.get("--confirm");
-  if (
-    Boolean(soft) === Boolean(hard) ||
-    (soft && !reason) ||
-    (hard && confirm !== hard)
-  )
-    return rejectInput(
-      inputs,
-      "task-delete",
-      soft && !reason ? "--reason" : hard ? "--confirm" : "--soft",
-      json,
-    );
+  if (Boolean(soft) === Boolean(hard) || (soft && !reason) || (hard && confirm !== hard))
+    return rejectInput(inputs, "task-delete", soft && !reason ? "--reason" : hard ? "--confirm" : "--soft", json);
   return accepted(rootDir, repoId, json, {
     kind: "task-delete",
     taskId: soft ?? hard,
     mode: soft ? "soft" : "hard",
     ...(reason ? { reason } : {}),
     ...(confirm ? { confirm } : {}),
-    ...(f.one.get("--deleted-by")
-      ? { deletedBy: f.one.get("--deleted-by") }
-      : {}),
+    ...(f.one.get("--deleted-by") ? { deletedBy: f.one.get("--deleted-by") } : {}),
   });
 }
 
@@ -85,11 +64,7 @@ export function parseTaskArchive(
     return rejectInput(inputs, "task-archive", "--ids", json);
   return accepted(rootDir, repoId, json, {
     kind: "task-archive",
-    ...(taskId
-      ? { taskId }
-      : ids
-        ? { taskIds: ids.split(",").filter(nonEmpty) }
-        : { filter }),
+    ...(taskId ? { taskId } : ids ? { taskIds: ids.split(",").filter(nonEmpty) } : { filter }),
     reason: f.one.get("--reason"),
     ...optionalFlags(f.one, [
       ["--before", "before"],

@@ -222,15 +222,19 @@ export function buildCommand(
     if (!canonicalCodeDocPaths(action.paths, true))
       throw cellCodedError("invalid_command", "Pass explicit canonical completion.codeDocPaths to code-doc reconcile.");
     const witness = submittedExecutionWitness(action, snapshot, taskId, ["kind", "taskId", "paths"], action.paths);
+    if (witness.commitSha === null)
+      throw cellCodedError("invalid_proof", "Code/doc reconciliation requires a code delivery.");
     return normalizeTaskLifecycleCommand(bound, {
       type: "ReconcileCodeDoc",
       taskId,
       ...witness,
+      commitSha: witness.commitSha,
       witnessId: `code-doc-${createHash("sha256").update(JSON.stringify(witness)).digest("hex").slice(0, 16)}`,
     });
   }
   if (action.kind === "task-code-doc-repoint") {
     const witness = submittedExecutionWitness(action, snapshot, taskId, CODE_DOC_REPOINT_FIELDS, []);
+    if (witness.commitSha === null) throw cellCodedError("invalid_proof", "Code/doc repoint requires a code delivery.");
     return normalizeTaskLifecycleCommand(bound, {
       type: "RepointCodeDoc",
       taskId,

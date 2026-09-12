@@ -29,7 +29,7 @@ export function publishCiWitness(
   const execution = snapshot.executions.find(
     (value) => value.executionId === executionId && value.iteration === snapshot.task?.iteration,
   );
-  if (!execution?.submission)
+  if (!execution?.submission?.commitSha)
     throw cell.cellCodedError("invalid_transition", "CI witness requires a submitted execution.");
   const judgment: CompletionEvidenceJudgment = judgeCompletionEvidence(evidence, { execution, gateId: "ci" });
   if (!judgment.accepted)

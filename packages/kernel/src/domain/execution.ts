@@ -13,15 +13,22 @@ export type LeasePhase = (typeof leasePhases)[number];
 
 export const executionV1States = ["active", "submitted", "changes_requested", "accepted"] as const;
 export type ExecutionV1State = (typeof executionV1States)[number];
-export interface SubmissionV1 {
+export interface ArtifactDelivery {
+  readonly path: string;
+  readonly revision: number;
+  readonly blobSha256: string;
+}
+export type SubmissionDelivery =
+  | { readonly commitSha: string; readonly artifacts?: never }
+  | { readonly commitSha: null; readonly artifacts: readonly ArtifactDelivery[] };
+export type SubmissionV1 = SubmissionDelivery & {
   readonly completionClaim: string;
   readonly deliverables: readonly string[];
   readonly outputs: readonly string[];
   readonly verificationNotes: readonly string[];
   readonly knownGaps: readonly string[];
   readonly residualRisks: readonly string[];
-  readonly commitSha: string;
-}
+};
 export const SUBMISSION_V1_SCHEMA = Object.freeze({
   id: "Submission/v1",
   required: Object.freeze([
@@ -145,21 +152,39 @@ export function isNativeCommitSha(value: unknown): value is string {
 function stringArray(value: unknown): boolean {
   return Array.isArray(value) && value.every(isNonEmptyString);
 }
+export function validSubmissionDelivery(value: Record<string, unknown>): boolean {
+  if (value.commitSha !== null) return isNativeCommitSha(value.commitSha) && value.artifacts === undefined;
+  return (
+    Array.isArray(value.artifacts) &&
+    value.artifacts.length > 0 &&
+    value.artifacts.every(
+      (anchor) =>
+        isRecord(anchor) &&
+        hasOnlyFields(anchor, ["path", "revision", "blobSha256"]) &&
+        isNonEmptyString(anchor.path) &&
+        Number.isSafeInteger(anchor.revision) &&
+        Number(anchor.revision) > 0 &&
+        typeof anchor.blobSha256 === "string" &&
+        /^[0-9a-f]{64}$/u.test(anchor.blobSha256),
+    )
+  );
+}
 export function validateSubmissionV1(value: unknown, allowUnknownFields = false): readonly ContractValidationIssue[] {
   if (
     !isRecord(value) ||
-    !(allowUnknownFields ? hasRequiredFields : hasOnlyFields)(value, SUBMISSION_V1_SCHEMA.required) ||
+    !(allowUnknownFields ? hasRequiredFields : hasOnlyFields)(value, [
+      ...SUBMISSION_V1_SCHEMA.required,
+      ...(value.commitSha === null ? ["artifacts"] : []),
+    ]) ||
     !isNonEmptyString(value.completionClaim) ||
     !stringArray(value.deliverables) ||
     !stringArray(value.outputs) ||
     !stringArray(value.verificationNotes) ||
     !stringArray(value.knownGaps) ||
     !stringArray(value.residualRisks) ||
-    !isNativeCommitSha(value.commitSha)
+    !validSubmissionDelivery(value)
   ) {
-    return [
-      { code: "invalid_submission", message: "Submission must be complete and use a native 40-character commit SHA" },
-    ];
+    return [{ code: "invalid_submission", message: "Submission must name a commit or accepted artifact revisions" }];
   }
   return [];
 }
