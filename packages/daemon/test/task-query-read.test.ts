@@ -199,7 +199,31 @@ test("a surface fails closed instead of stitching mismatched projection cuts", (
     /relation graph neighborhood spans multiple event projection cuts/u,
   );
   assert.throws(() => read.guiTasks(), /task control surface spans multiple event projection cuts/u);
-  assert.throws(() => read.agenda(), /task control surface spans multiple event projection cuts/u);
+  assert.throws(() => read.agenda(), /review queue spans multiple event projection cuts/u);
+});
+
+test("agenda reads one narrow lifecycle page per status and no wide-assembly reads", () => {
+  const listCalls: TaskProjectionListQuery[] = [],
+    decisionCalls: string[][] = [],
+    projection = projectionStub({
+      taskRows: [protocolTaskRow("task_event", [], { status: "active" })],
+      listCalls,
+      decisionCalls,
+    });
+
+  const result = queryRead(process.cwd(), projection).agenda();
+
+  assert.deepEqual(listCalls, [
+    { status: "active", limit: 100, pinnedFirst: true },
+    { status: "blocked", limit: 100, pinnedFirst: true },
+    { status: "planned", limit: 100, pinnedFirst: true },
+    { status: "in_review", limit: 100, pinnedFirst: true },
+  ]);
+  assert.deepEqual(decisionCalls, []);
+  assert.deepEqual(
+    result.waitingOnOthers.map(({ taskId }) => taskId),
+    ["task_event"],
+  );
 });
 
 test("task reads fail closed when event truth has no packageDisposition", () => {
@@ -289,6 +313,7 @@ function projectionStub(
     readonly edges?: TaskRelationProjectionRead["rows"];
     readonly calls?: TaskRelationQuery[];
     readonly taskRows?: readonly unknown[];
+    readonly listCalls?: TaskProjectionListQuery[];
     readonly dependencyCalls?: string[][];
     readonly targetCalls?: { targetRefs: readonly string[]; relationType: string }[];
     readonly statusCalls?: string[][];
@@ -301,16 +326,19 @@ function projectionStub(
     edges = options.edges ?? [eventEdge],
     taskRows = options.taskRows ?? [];
   return {
-    list: (query: TaskProjectionListQuery = {}) => ({
-      ...cut,
-      rows: query.status
-        ? taskRows.filter((row) => (row as ReturnType<typeof protocolTaskRow>).snapshot.task.status === query.status)
-        : taskRows,
-      warnings: [],
-      ...(query.limit === undefined
-        ? {}
-        : { page: { limit: query.limit, cursor: query.cursor ?? null, nextCursor: null } }),
-    }),
+    list: (query: TaskProjectionListQuery = {}) => {
+      options.listCalls?.push(query);
+      return {
+        ...cut,
+        rows: query.status
+          ? taskRows.filter((row) => (row as ReturnType<typeof protocolTaskRow>).snapshot.task.status === query.status)
+          : taskRows,
+        warnings: [],
+        ...(query.limit === undefined
+          ? {}
+          : { page: { limit: query.limit, cursor: query.cursor ?? null, nextCursor: null } }),
+      };
+    },
     read: () => ({ ...cut, packagePath: null }),
     readTaskChildCounts: () => options.childCounts ?? {},
     readTaskRelations: () => ({ ...cut, rows: edges }),

@@ -3,6 +3,7 @@ import {
   createEntityStore,
   isMigrationImportEvent,
   requireEntityStoreKindContract,
+  type TaskProjectionListQuery,
   type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
 import {
@@ -31,27 +32,7 @@ export function archiveTasks(
   binding: RepoCellBinding,
 ): WriteReceipt {
   const selected = [
-    ...new Set(
-      Array.isArray(action.taskIds)
-        ? cell.cellStringList(action.taskIds)
-        : cell
-            .queryRead()
-            .guiTasks()
-            .rows.filter((row) => {
-              const state = /^state:(.+)$/u.exec(String(action.filter ?? ""))?.[1],
-                before = typeof action.before === "string" ? Date.parse(action.before) : Number.NaN;
-              if (action.before && Number.isNaN(before))
-                throw cell.cellCodedError(
-                  "invalid_command",
-                  "Use an ISO-compatible --before date, then retry task archive.",
-                );
-              return (
-                (!state || row.snapshot.task?.status === state) &&
-                (!action.before || Date.parse(row.updatedAt) < before)
-              );
-            })
-            .map((row) => row.taskId),
-    ),
+    ...new Set(Array.isArray(action.taskIds) ? cell.cellStringList(action.taskIds) : archiveCandidateIds(cell, action)),
   ];
   if (!selected.length)
     throw cell.cellCodedError(
@@ -177,6 +158,22 @@ export function supersedeWithNewTask(
     replacementTaskId: preparedCreate.fields.taskId,
     steps: [created, replaced],
   } as WriteReceipt;
+}
+
+/** Selection candidates for a filter/before archive: the narrow task index
+ * scan with the status filter pushed down, so bulk archive no longer pays for
+ * the wide guiTasks assembly (graph reads, blocking, placement, evidence) only
+ * to discard it. The before bound stays a JS comparison because it compares
+ * parsed instants, not raw timestamp strings. */
+function archiveCandidateIds(cell: RepoCellOperationalContext, action: RepoTaskAction): readonly string[] {
+  const state = /^state:(.+)$/u.exec(String(action.filter ?? ""))?.[1],
+    before = typeof action.before === "string" ? Date.parse(action.before) : Number.NaN;
+  if (action.before && Number.isNaN(before))
+    throw cell.cellCodedError("invalid_command", "Use an ISO-compatible --before date, then retry task archive.");
+  return cell.projection
+    .readTaskIndex(state === undefined ? {} : { status: state as TaskProjectionListQuery["status"] })
+    .rows.filter((row) => !action.before || Date.parse(row.updatedAt) < before)
+    .map(({ taskId }) => taskId);
 }
 
 function taskValidationContext(

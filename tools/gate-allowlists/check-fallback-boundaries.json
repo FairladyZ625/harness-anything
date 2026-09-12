@@ -314,6 +314,12 @@
         "reason": "Existing request-path historical scan pending a bounded-read deletion task."
       },
       {
+        "file": "packages/daemon/src/task-action-explanation-read.ts",
+        "function": "readTaskActionExplanation",
+        "task": "task_212cde7d9f5f916bee17bf2c63",
+        "reason": "Person-ref explanation still reads the whole ledger to build the roster at cut (no narrow people read yet); the task/decision refs on this path became point reads in batch 9. Pending a people point-read in batch 17 / G4."
+      },
+      {
         "file": "packages/gui/src/renderer/components/taskDetail/TaskDetailSections.tsx",
         "function": "queryFn",
         "task": "task_403e958e3fefd3496820e8843d",

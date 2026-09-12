@@ -75,6 +75,8 @@ export function readCiObservatory(input: {
     throw new Error("CI observatory window must be 1..100");
   const read = input.projection.readCiRunObservations(Math.max(window * 20, 100)),
     events = selectRunWindow(read.events.filter(mainBranch), window),
+    // One derivation per event, reused by the run rows and the flake rows.
+    finalOutcomes = events.map((event) => ({ event, outcomes: finalTestOutcomes(event) })),
     quarantine = new Map(readQuarantine(input.rootDir).map((entry) => [entry.test, entry])),
     now = Date.parse(input.now ?? new Date().toISOString());
   return {
@@ -82,15 +84,15 @@ export function readCiObservatory(input: {
     ok: true,
     status: read.status,
     window,
-    flakes: flakeRows(events, quarantine, now),
+    flakes: flakeRows(finalOutcomes, quarantine, now),
     shardDurations: shardRows(events),
     gateTrends: gateRows(events),
     l0MedianMs: percentile(l0Wallclocks(events), 0.5),
-    runs: events.map((event) => ({
+    runs: finalOutcomes.map(({ event, outcomes }) => ({
       ...event.payload.run,
       occurredAt: event.occurredAt,
       pass:
-        finalTestOutcomes(event).every((entry) => !outcomeIs(entry, "failed")) &&
+        outcomes.every((entry) => !outcomeIs(entry, "failed")) &&
         event.payload.gates.every((entry) => entry.result === "pass"),
       testCount: event.payload.tests.length,
       gateCount: event.payload.gates.length,
@@ -140,13 +142,16 @@ function l0Wallclocks(events: readonly CiRunObservationEventV3[]): readonly numb
 }
 
 function flakeRows(
-  events: readonly CiRunObservationEventV3[],
+  observations: readonly {
+    readonly event: CiRunObservationEventV3;
+    readonly outcomes: readonly CiRunObservationEventV3["payload"]["tests"][number][];
+  }[],
   quarantine: ReadonlyMap<string, QuarantineEntry>,
   now: number,
 ): CiObservatoryRead["flakes"] {
   const rows = new Map<string, { file: string; durations: number[]; attempts: number; flakes: number }>();
-  for (const event of events)
-    for (const observation of finalTestOutcomes(event)) {
+  for (const { outcomes } of observations)
+    for (const observation of outcomes) {
       if (outcomeIs(observation, "skipped")) continue;
       const key = observation.name,
         row = rows.get(key) ?? { file: observation.file, durations: [], attempts: 0, flakes: 0 };
@@ -158,15 +163,16 @@ function flakeRows(
   return [...rows]
     .map(([test, row]) => {
       const entry = quarantine.get(test),
-        quarantinedAt = entry?.quarantinedAt ?? null;
+        quarantinedAt = entry?.quarantinedAt ?? null,
+        sortedDurations = [...row.durations].sort((left, right) => left - right);
       return {
         test,
         file: row.file,
         attempts: row.attempts,
         flakes: row.flakes,
         flakeRate: row.attempts === 0 ? 0 : row.flakes / row.attempts,
-        p50Ms: percentile(row.durations, 0.5) ?? 0,
-        p95Ms: percentile(row.durations, 0.95) ?? 0,
+        p50Ms: percentileOfSorted(sortedDurations, 0.5) ?? 0,
+        p95Ms: percentileOfSorted(sortedDurations, 0.95) ?? 0,
         quarantined: entry !== undefined,
         ownerTask: entry?.ownerTask ?? null,
         quarantinedAt,
@@ -201,29 +207,47 @@ function shardRows(events: readonly CiRunObservationEventV3[]): CiObservatoryRea
 }
 
 function gateRows(events: readonly CiRunObservationEventV3[]): CiObservatoryRead["gateTrends"] {
-  const trends = new Map<string, CiObservatoryRead["gateTrends"][number]>();
+  const trends = new Map<
+    string,
+    {
+      readonly gate: string;
+      readonly metric: string;
+      readonly points: {
+        runId: string;
+        occurredAt: string;
+        value: number;
+        pass: boolean;
+      }[];
+    }
+  >();
   for (const event of [...events].reverse())
     for (const gate of event.payload.gates)
       for (const [metric, value] of Object.entries(gate.metrics)) {
         const key = `${gate.gate}\u0000${metric}`,
           current = trends.get(key) ?? { gate: gate.gate, metric, points: [] };
-        trends.set(key, {
-          ...current,
-          points: [
-            ...current.points,
-            { runId: event.payload.run.runId, occurredAt: event.occurredAt, value, pass: gate.result === "pass" },
-          ],
+        current.points.push({
+          runId: event.payload.run.runId,
+          occurredAt: event.occurredAt,
+          value,
+          pass: gate.result === "pass",
         });
+        trends.set(key, current);
       }
   return [...trends.values()].sort(
     (left, right) => left.gate.localeCompare(right.gate) || left.metric.localeCompare(right.metric),
   );
 }
 
-function percentile(values: readonly number[], ratio: number): number | null {
-  if (values.length === 0) return null;
-  const sorted = [...values].sort((left, right) => left - right);
+function percentileOfSorted(sorted: readonly number[], ratio: number): number | null {
+  if (sorted.length === 0) return null;
   return sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * ratio) - 1)]!;
+}
+
+function percentile(values: readonly number[], ratio: number): number | null {
+  return percentileOfSorted(
+    [...values].sort((left, right) => left - right),
+    ratio,
+  );
 }
 
 function readQuarantine(rootDir: string): readonly QuarantineEntry[] {
