@@ -1,6 +1,6 @@
-import { realpathSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
 import type { JsonObject } from "../../../daemon/src/protocol/json-rpc-types.ts";
 import {
   canonicalRoot,
@@ -54,21 +54,25 @@ const daemonRuntimeScopedEnvironmentKeys = [
   "HARNESS_DAEMON_USER_ROOT",
 ] as const;
 export function daemonServeEntry(): string {
-  return realpathSync(
-    fileURLToPath(new URL(import.meta.url.endsWith(".js") ? "../index.js" : "../index.ts", import.meta.url)),
-  );
+  const manifestPath = createRequire(import.meta.url).resolve("@harness-anything/daemon/package.json");
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+  const bin = manifest.bin?.["harness-anything-daemon"];
+  if (manifest.version !== "0.0.1" || typeof bin !== "string")
+    throw new Error("The installed daemon must provide the 0.0.1 harness-anything-daemon bin.");
+  return path.resolve(path.dirname(manifestPath), bin);
 }
 export function cliDaemonServeLaunch(
   userRoot: string,
   daemonId: string,
   execPath = process.execPath,
   entry = daemonServeEntry(),
+  mode: "serve" | "--service" = "serve",
 ): DaemonLaunchSpec {
   const env = { ...process.env };
   for (const key of daemonRuntimeScopedEnvironmentKeys) delete env[key];
   return {
     command: execPath,
-    args: [entry, "daemon", "serve", "--user-root", userRoot, "--daemon-id", daemonId],
+    args: [entry, mode, "--user-root", userRoot, "--daemon-id", daemonId],
     env,
   };
 }

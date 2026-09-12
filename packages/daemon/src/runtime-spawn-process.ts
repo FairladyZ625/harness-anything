@@ -441,7 +441,7 @@ export function launchNative(
   },
 ): RuntimeProcess {
   const command = nativeCommand(input);
-  const workerHost = import.meta.url.endsWith(".js") ? "./runtime-worker-host.js" : "./runtime-worker-host.ts";
+  const workerHost = import.meta.url.endsWith(".js") ? "./bin.js" : "./bin.ts";
   const entry = fileURLToPath(new URL(workerHost, import.meta.url));
   const child = spawn(process.execPath, [entry, "--runtime-worker-host"], {
     detached: true,

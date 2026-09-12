@@ -13,6 +13,7 @@ export async function ensureCliDaemonRunning(input: {
   readonly daemonId?: string;
   readonly socketPath?: string;
   readonly launchEntry?: string;
+  readonly mode?: "serve" | "--service";
   readonly onProgress?: (progress: DaemonStartProgress) => void;
 }): Promise<DaemonAutostartResult> {
   const { ensureLocalDaemonRunning, runtimeDaemonStartRefusal } = await import(
@@ -25,7 +26,7 @@ export async function ensureCliDaemonRunning(input: {
   return ensureLocalDaemonRunning({
     socketPath: input.socketPath ?? localUserDaemonEndpoint(userRoot, daemonId),
     invokingRoot: input.invokingRoot,
-    launch: () => cliDaemonServeLaunch(userRoot, daemonId, process.execPath, input.launchEntry),
+    launch: () => cliDaemonServeLaunch(userRoot, daemonId, process.execPath, input.launchEntry, input.mode),
     ...(input.onProgress ? { onProgress: input.onProgress } : {}),
   });
 }

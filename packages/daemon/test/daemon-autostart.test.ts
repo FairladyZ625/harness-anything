@@ -26,7 +26,7 @@ function coded(code: string): Error & { code: string } {
 }
 const launch = (): DaemonLaunchSpec => ({
   command: "node",
-  args: ["index.ts", "daemon", "serve", "--user-root", "/tmp/ha-user", "--daemon-id", "default"],
+  args: ["index.ts", "serve", "--user-root", "/tmp/ha-user", "--daemon-id", "default"],
   env: {},
 });
 
@@ -89,7 +89,7 @@ test("a worktree is refused before spawn while the registered canonical checkout
       invokingRoot: worktree,
       launch: () => ({
         command: "node",
-        args: ["index.ts", "daemon", "serve", "--user-root", userRoot, "--daemon-id", "default"],
+        args: ["index.ts", "serve", "--user-root", userRoot, "--daemon-id", "default"],
         env: {},
       }),
       probe: async () => false,
@@ -129,7 +129,7 @@ test("concurrent callers share one autostart flight and wait for the same socket
     reachable = false;
   const sharedLaunch = (): DaemonLaunchSpec => ({
     command: "node",
-    args: ["index.ts", "daemon", "serve", "--user-root", userRoot, "--daemon-id", "default"],
+    args: ["index.ts", "serve", "--user-root", userRoot, "--daemon-id", "default"],
     env: {},
   });
   try {
@@ -165,7 +165,7 @@ test("a GUI/CLI peer that already owns the daemon singleton is awaited, not resp
   let spawns = 0;
   const sharedLaunch = (): DaemonLaunchSpec => ({
     command: "node",
-    args: ["index.ts", "daemon", "serve", "--user-root", userRoot, "--daemon-id", "default"],
+    args: ["index.ts", "serve", "--user-root", userRoot, "--daemon-id", "default"],
     env: {},
   });
   try {
@@ -217,7 +217,7 @@ test("a live process with lifecycle attach progress reports starting instead of 
     progress: string[] = [],
     spec = (): DaemonLaunchSpec => ({
       command: "node",
-      args: ["index.ts", "daemon", "serve", "--user-root", userRoot, "--daemon-id", "progress"],
+      args: ["index.ts", "serve", "--user-root", userRoot, "--daemon-id", "progress"],
       env: {},
     });
   try {
@@ -335,7 +335,7 @@ test("daemon launch output path is the stdio sink, not the structured lifecycle 
   assert.equal(
     daemonLaunchOutputPath({
       command: "node",
-      args: ["index.js", "daemon", "serve", "--user-root", userRoot, "--daemon-id", "blue"],
+      args: ["index.js", "--service", "--user-root", userRoot, "--daemon-id", "blue"],
       env: {},
     }),
     daemonStdioLogPath(userRoot, "blue"),
@@ -349,7 +349,7 @@ test("start progress stages report the last repository, attach timeouts, prunes,
     const log = openDaemonLifecycleLog({ userRoot, daemonId: "stages" }),
       spec = (): DaemonLaunchSpec => ({
         command: "node",
-        args: ["index.ts", "daemon", "serve", "--user-root", userRoot, "--daemon-id", "stages"],
+        args: ["index.ts", "serve", "--user-root", userRoot, "--daemon-id", "stages"],
         env: {},
       });
     log.record({ event: "process_start" });

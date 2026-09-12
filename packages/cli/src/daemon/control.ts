@@ -15,7 +15,7 @@ import {
   runtimeDaemonStartRefusal,
   writeDaemonStoppedMarker,
 } from "../../../daemon/src/client/daemon-autostart.ts";
-import { readDaemonPid, startDaemon } from "../../../daemon/src/runtime.ts";
+import { readDaemonPid } from "../../../daemon/src/runtime.ts";
 import {
   daemonProcessAlive,
   daemonSocketProbe,
@@ -75,12 +75,6 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
       if (result !== undefined) return result;
     }
     if (command === "connection") return runDaemonConnectionControl(argv, subcommand, userRoot, daemonId, finish);
-    if (command === "serve") {
-      const refusal = runtimeDaemonStartRefusal();
-      if (refusal) return finish(daemonFailure("daemon-serve", "daemon_start_runtime_forbidden", refusal.hint), 1);
-      clearDaemonStoppedMarker(userRoot, daemonId);
-      return serve(userRoot, daemonId, finish);
-    }
     if (command === "start") return startDaemonService(argv, userRoot, daemonId, invokingRoot, finish);
     if (command === "status") {
       const assessed = assessDaemonStatus(await status(userRoot, daemonId, argv));
@@ -147,6 +141,7 @@ async function startDaemonService(
   }
   if (running?.ok === true) return finish(running, 0);
   const started = await ensureCliDaemonRunning({
+    mode: "--service",
     invokingRoot,
     userRoot,
     daemonId,
@@ -240,60 +235,6 @@ async function fleetControl(
       1,
     );
   }
-}
-async function serve(userRoot: string, daemonId: string, finish: ControlFinisher): Promise<number> {
-  // The signal latch registers before startup: a TERM that lands during the
-  // startup replay parks here and drains at the next yield instead of being
-  // swallowed by synchronous work. stop() is idempotent, so a second signal
-  // cannot cut the drain short.
-  let daemon: Awaited<ReturnType<typeof startDaemon>>,
-    stopping: Promise<void> | null = null,
-    parked: (() => void) | undefined;
-  const idle = new Promise<void>((resolve) => {
-    parked = resolve;
-  });
-  const requestStop = () => {
-    parked?.();
-    stopping ??= (async () => {
-      if (daemon && "stop" in daemon) await daemon.stop();
-    })();
-  };
-  process.once("SIGTERM", requestStop);
-  process.once("SIGINT", requestStop);
-  try {
-    daemon = await startDaemon({
-      userRoot,
-      daemonId,
-      shutdownRequested: () => stopping !== null,
-      requestShutdown: requestStop,
-    });
-    if (!("stop" in daemon)) return finish(deferredServeReceipt(daemon, userRoot), 0);
-    if (stopping === null) {
-      await idle;
-      await stopping;
-    } else await daemon.stop();
-    return 0;
-  } finally {
-    process.removeListener("SIGTERM", requestStop);
-    process.removeListener("SIGINT", requestStop);
-  }
-}
-function deferredServeReceipt(
-  incumbent: { readonly pid: number | null; readonly endpoint: string; readonly witness: string },
-  userRoot: string,
-): Record<string, unknown> {
-  const witness =
-    incumbent.witness === "unix-socket"
-      ? `a daemon is already accepting connections at ${incumbent.endpoint}`
-      : `daemon pid ${incumbent.pid} already holds the singleton lock for --user-root ${userRoot}`;
-  return {
-    ok: true,
-    command: "daemon-serve",
-    outcome: "deferred",
-    incumbent: { pid: incumbent.pid, endpoint: incumbent.endpoint },
-    summary: `daemon serve deferred: ${witness}; this process did not bind the socket or take any workspace writer lock.`,
-    nextAction: "Use the resident daemon (ha daemon status) or stop it first (ha daemon stop).",
-  };
 }
 async function status(
   userRoot: string,

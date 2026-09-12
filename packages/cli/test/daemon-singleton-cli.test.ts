@@ -12,6 +12,8 @@ import { daemonPidPath, readDaemonPid } from "../../daemon/src/runtime.ts";
 import { buildProjectionOracle } from "../../daemon/test/migration-import.fixtures.ts";
 import { seedSettingsEvent } from "../../daemon/test/repo-settings.fixture.ts";
 
+import { daemonServeEntry } from "../src/daemon/client.ts";
+
 const cli = path.resolve("packages/cli/src/index.ts");
 
 // #1565: on Windows nothing delivers SIGTERM -- process.kill terminates unconditionally and the
@@ -162,7 +164,7 @@ const serveOutput = new WeakMap<ChildProcess, string>();
 function spawnServe(userRoot: string): ChildProcess {
   const child = spawn(
     process.execPath,
-    [cli, "daemon", "serve", "--user-root", userRoot, "--daemon-id", "default", "--json"],
+    [daemonServeEntry(), "serve", "--user-root", userRoot, "--daemon-id", "default", "--json"],
     { env: cliEnv(userRoot, userRoot) },
   );
   serveOutput.set(child, "");
