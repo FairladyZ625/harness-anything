@@ -1,7 +1,35 @@
 // @write-boundary-exemption rebuildable-projection
 import path from "node:path";
 import { consumeKnownError } from "../error-consumption.ts";
+import {
+  assertDocSyncWritePlan,
+  isDecisionEvent,
+  isDocEvent,
+  isFactEvent,
+  isMigrationImportEvent,
+  isTaskEvent,
+} from "../domain/doc-sync.contract.ts";
+import { isFrozenWritePlan, sameWriteTargets, type FrozenWritePlan } from "../domain/write-chain.contract.ts";
+import { assertMigrationImportWritePlan } from "../domain/migration-import-event.ts";
+import {
+  assertLedgerLayoutMigrationWritePlan,
+  isLedgerLayoutMigrationEvent,
+} from "../domain/ledger-layout-migration-event.ts";
 import { localRuntimeStateFileSystem } from "../local/local-layout-file-system.ts";
+import { assertEntityUpsertWritePlan, isEntityEvent } from "../domain/entity-event.ts";
+import { assertScheduleEventWritePlan, isScheduleEvent } from "../domain/schedule-event.ts";
+import { assertSettingsEventWritePlan, isSettingsEvent } from "../domain/settings-event.ts";
+import { isVerticalDeclarationEvent, verticalDeclarationWritePlan } from "../domain/vertical-declaration.ts";
+import { assertPeopleEventWritePlan, isPeopleEvent } from "../domain/people-event.ts";
+import { assertTaskBootstrapWritePlan, isTaskBootstrapEvent } from "../domain/task-bootstrap-event.ts";
+import { assertTaskProgressWritePlan, isTaskProgressEvent } from "../domain/task-progress-event.ts";
+import {
+  assertPresetSnapshotUpgradeWritePlan,
+  isPresetSnapshotUpgradeEvent,
+} from "../domain/preset-snapshot-upgrade-event.ts";
+import { assertDecisionWritePlan } from "../domain/decision-event.ts";
+import { assertFactWritePlan } from "../domain/fact-event.ts";
+import { assertTaskLifecycleWritePlan } from "../domain/task-lifecycle-publication.ts";
 import type { TaskProjection, TaskProjectionQueries, TaskProjectionReader } from "./task-projection-port.ts";
 import type { EventStreamPort, ProjectionContext } from "./rebuildable-task-projection-types.ts";
 import {
@@ -73,7 +101,35 @@ export function makeTaskProjection(options: {
   return {
     path: projectionPath,
     close: closeProjection,
-    apply: (event) => {
+    apply: (event, plan) => {
+      if (isDocEvent(event)) assertDocSyncWritePlan(event, plan as FrozenWritePlan<"DocSyncSubmit">);
+      if (isEntityEvent(event)) assertEntityUpsertWritePlan(event, plan as FrozenWritePlan<"EntityUpsert">);
+      if (isScheduleEvent(event)) assertScheduleEventWritePlan(event, plan);
+      if (isSettingsEvent(event)) assertSettingsEventWritePlan(event, plan);
+      if (isVerticalDeclarationEvent(event)) {
+        const expected = verticalDeclarationWritePlan(event);
+        if (
+          plan === undefined ||
+          !isFrozenWritePlan(plan) ||
+          plan.commandType !== expected.commandType ||
+          !sameWriteTargets(plan.targets, expected.targets)
+        )
+          throw new Error("vertical declaration write plan does not match the event");
+      }
+      if (isPeopleEvent(event)) assertPeopleEventWritePlan(event, plan);
+      if (
+        isTaskEvent(event) &&
+        ((event.payload.documentClaims?.length ?? 0) > 0 || (event.payload.carriedDocumentClaims?.length ?? 0) > 0)
+      )
+        assertTaskLifecycleWritePlan(event, plan);
+      if (isTaskBootstrapEvent(event)) assertTaskBootstrapWritePlan(event, plan as FrozenWritePlan<"TaskBootstrap">);
+      if (isPresetSnapshotUpgradeEvent(event))
+        assertPresetSnapshotUpgradeWritePlan(event, plan as FrozenWritePlan<"PresetSnapshotUpgrade">);
+      if (isTaskProgressEvent(event)) assertTaskProgressWritePlan(event, plan);
+      if (isFactEvent(event)) assertFactWritePlan(event, plan);
+      if (isDecisionEvent(event)) assertDecisionWritePlan(event, plan);
+      if (isMigrationImportEvent(event)) assertMigrationImportWritePlan(event, plan);
+      if (isLedgerLayoutMigrationEvent(event)) assertLedgerLayoutMigrationWritePlan(event, plan);
       return withDatabase(projectionPath, readHead, (db) =>
         reduceBatch(db, [event], limit, options.eventStore.readContentBlob, options.eventStore.readHead()),
       );
