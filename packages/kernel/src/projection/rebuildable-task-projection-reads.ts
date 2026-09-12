@@ -30,9 +30,8 @@ const UNPARAMETERIZED_LIST_SQL = [
   "COALESCE(task_generation.generation, 'v1') AS generation,",
   "task_snapshot.workspace_revision AS workspace_revision,",
   `${taskCreatedAtSql("task_snapshot.task_id")} AS created_at,`,
-  "event_index.event_json AS event_json FROM task_snapshot",
+  "task_snapshot.updated_at AS updated_at FROM task_snapshot",
   "LEFT JOIN task_package USING(task_id) LEFT JOIN task_generation USING(task_id)",
-  "JOIN event_index ON event_index.workspace_revision = task_snapshot.workspace_revision",
   "ORDER BY task_snapshot.task_id",
 ].join(" ");
 
@@ -66,7 +65,7 @@ export function listProjection(
           readonly generation: "v0" | "v1";
           readonly workspace_revision: number;
           readonly created_at: string | null;
-          readonly event_json: string;
+          readonly updated_at: string;
         }>(
           prepareQuery(db, UNPARAMETERIZED_LIST_SQL, (sql) =>
             /* @gate-identity check-bypass-write-boundary/bypass-write-012 */ db.prepare(sql),
@@ -85,7 +84,7 @@ export function listProjection(
           generation: row.generation,
           workspaceRevision: row.workspace_revision,
           createdAt: row.created_at,
-          updatedAt: (JSON.parse(row.event_json) as { readonly occurredAt: string }).occurredAt,
+          updatedAt: row.updated_at,
           snapshot: snapshots.get(row.task_id)!,
         })),
         watermark: cut.watermark,
