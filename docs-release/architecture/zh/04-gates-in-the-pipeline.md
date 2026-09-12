@@ -69,7 +69,7 @@ closeout readiness，最后才写入 `done`。legacy task 会重新运行 `revie
 | 转换文档就绪 | 被转换消费的文档必须写实全部必需节且不保留 preset 脚手架句；共享校验器覆盖 task plan/closeout、Decision body、Agent instructions 与 Squad roster | `<doc>_placeholder` |
 | code-doc reconciliation | 解析出的契约声明 `code-doc-reconciliation` 且已复核 submission 含任一公开仓交付物时，Execution 必须有已验证的 code-doc witness；非空 deliverable 列表若全部是 `artifacts/`、`tasks/` 或 `harness/tasks/` 下的任务包工件，则此门不适用 | 适用但缺 witness 时报告 `code_doc_missing` |
 | review 门轴 | 上面的 review 门通过后，completion 函数收到的 review 必须是 `passed` | `review_not_passed` |
-| CI 门轴 | 解析出的契约声明 `ci` 时，CLI 传入的 CI 门必须是 `passed`；否则无需 `--ci` | `missing_ci_gate` 或 `ci_not_passed` |
+| CI 门轴 | 只有当仓库 settings 配置了 CI 见证 workflow（`settings.ci.workflows` 非空）时，解析出的契约才声明 `ci`；声明时，submitted cut 必须有经 `ha ci observe pull` 导入的、配置 workflow 在 `main` 上的绿 run 见证，run conclusion 即判定，上传的 `ci-observation-*` 工件只是可选细节 | `ci_missing` |
 | closeout 就绪度轴 | 投影出的 closeout readiness 必须是 `ready` 或 `passed` | `closeout_not_ready` |
 | task tree dirty 检查 | 迁移清扫之后，`tasks/<id>/` 必须足够干净，让 lifecycle writer 可以提交 | `task_tree_dirty` |
 

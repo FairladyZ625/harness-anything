@@ -28,6 +28,8 @@ export interface PresetResolverOptions {
   readonly kernelVersion?: string;
   readonly projectScaffold?: string;
   readonly projectRoot?: string;
+  /** Repository settings.ci.workflows; an empty list drops the `ci` completion gate from the resolved profile. */
+  readonly ciWorkflows?: readonly string[];
 }
 
 export interface Candidate {

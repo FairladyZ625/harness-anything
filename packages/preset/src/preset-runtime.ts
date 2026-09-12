@@ -200,7 +200,12 @@ export function createRuntime(options: PresetResolverOptions): {
         profile: {
           id: profile.id,
           outputShape: leafManifest.outputShape,
-          completionGateIds: profile.completionGates,
+          // A repository that configures no CI witness workflows cannot satisfy the ci gate;
+          // resolution drops it so the effective gate set (and digest) stays honest.
+          completionGateIds:
+            options.ciWorkflows !== undefined && options.ciWorkflows.length === 0
+              ? profile.completionGates.filter((gateId) => gateId !== "ci")
+              : profile.completionGates,
         },
         guidance: {
           description: leaf.document.description,

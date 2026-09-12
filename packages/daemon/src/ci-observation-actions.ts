@@ -126,10 +126,36 @@ export async function fetchCiObservations(
               },
             );
           } catch (error) {
+            // A run without ci-observation-* artifacts fails the download; whatever landed is used below.
             consumeKnownError(error);
-            return { fetched: null };
           }
-          return { fetched: { databaseId: run.databaseId, summary, artifacts: readArtifacts(runRoot) } };
+          // The run conclusion is the completion verdict; a run that uploads no artifacts still
+          // yields one observation synthesized from its summary (tests/gates stay empty).
+          const artifacts = readArtifacts(runRoot);
+          return {
+            fetched: {
+              databaseId: run.databaseId,
+              summary,
+              artifacts: artifacts.length
+                ? artifacts
+                : [
+                    {
+                      schema: "ci-run-artifact/v1",
+                      run: {
+                        runId: `${run.databaseId}.${summary.attempt}`,
+                        sha: summary.headSha,
+                        branch: summary.headBranch,
+                        prNumber: null,
+                        job: summary.workflowName,
+                        wallclockMs: 0,
+                        runner: "github-actions",
+                      },
+                      tests: [],
+                      gates: [],
+                    },
+                  ],
+            },
+          };
         } catch (failure) {
           return { failure };
         }
@@ -273,7 +299,7 @@ export function ingestCiObservations(
       canonicalVisible: visible,
       worktreeVisible: false,
     },
-    summary: `Imported ${imported} CI observation artifact(s); ${duplicate} already existed.\n` + eventRefs.join("\n"),
+    summary: `Imported ${imported} CI observation(s); ${duplicate} already existed.\n` + eventRefs.join("\n"),
   } as WriteReceipt;
 }
 

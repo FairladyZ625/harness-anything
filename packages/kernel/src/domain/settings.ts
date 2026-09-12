@@ -400,7 +400,6 @@ function ciSettingsSchema() {
       workflows: ownedSchema("ci", {
         type: "array" as const,
         items: { type: "string" as const, pattern: settingValuePattern, minLength: 1 },
-        minItems: 1,
         uniqueItems: true,
       }),
     },
@@ -413,15 +412,16 @@ function readCiSettings(body: string): SettingsV1["ci"] {
   const section = /^  ci:[^\S\r\n]*(?:\r?\n)((?:    [^\r\n]*(?:\r?\n|$))*)/mu.exec(body)?.[1];
   if (section === undefined) return INITIAL_SETTINGS_V1.ci;
   const raw = settingBlockValue(body, "ci", "workflows");
-  if (raw === undefined) throw new Error("settings.ci.workflows must be a non-empty inline array of workflow names");
+  if (raw === undefined) throw new Error("settings.ci.workflows must be an inline array of workflow names");
   if (!raw.startsWith("[") || !raw.endsWith("]"))
-    throw new Error("settings.ci.workflows must be a non-empty inline array of workflow names");
+    throw new Error("settings.ci.workflows must be an inline array of workflow names");
+  // An empty list opts the repository out of CI witnessing; the section must still be explicit.
+  if (raw.slice(1, -1).trim() === "") return { workflows: [] };
   const workflows = raw
     .slice(1, -1)
     .split(",")
     .map((workflow) => workflow.trim());
   if (
-    workflows.length === 0 ||
     workflows.some((workflow) => !new RegExp(settingValuePattern, "u").test(workflow) || /\.ya?ml$/u.test(workflow)) ||
     new Set(workflows).size !== workflows.length
   )

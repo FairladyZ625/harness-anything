@@ -158,7 +158,7 @@ export function createPresetProcessService(options: PresetProcessServiceOptions)
           "Run input must contain presetId, entrypoint, optional taskId, object inputs, and idempotencyKey.",
         );
       const defaults = presetRuntimeDefaults(options.readSettings()),
-        resolved = createRuntime({ userRoot: options.userRoot }).resolveInternal({
+        resolved = createRuntime({ userRoot: options.userRoot, ciWorkflows: defaults.ciWorkflows }).resolveInternal({
           presetId: input.presetId,
           entrypoint: input.entrypoint,
           verticalId: defaults.verticalId,

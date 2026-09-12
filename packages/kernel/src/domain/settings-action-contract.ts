@@ -303,8 +303,9 @@ function updatedPositiveInteger(action: Readonly<Record<string, unknown>>, name:
 function updatedWorkflows(action: Readonly<Record<string, unknown>>, current: readonly string[]): readonly string[] {
   if (!Object.hasOwn(action, "ciWorkflows")) return current;
   const value = action.ciWorkflows;
-  if (!Array.isArray(value) || value.length === 0 || value.some((workflow) => typeof workflow !== "string"))
-    rejectSettings("invalid_command", "ciWorkflows must be a non-empty array of workflow names.");
+  // An empty list is the explicit opt-out from repository CI witnessing; entry shape is still enforced.
+  if (!Array.isArray(value) || value.some((workflow) => typeof workflow !== "string"))
+    rejectSettings("invalid_command", "ciWorkflows must be an array of workflow names.");
   const workflows = value.map((workflow) => workflow.trim());
   if (
     workflows.some((workflow) => !new RegExp(settingValuePattern, "u").test(workflow) || /\.ya?ml$/u.test(workflow)) ||

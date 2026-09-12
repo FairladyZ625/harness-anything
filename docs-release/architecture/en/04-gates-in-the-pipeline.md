@@ -106,7 +106,7 @@ for the current Execution (ADR-0027 D5, D7).
 | transition document readiness | documents consumed by a transition must have every required section realized and contain no preset scaffold sentence; the shared validator covers task plan/closeout, Decision body, Agent instructions, and Squad roster | `<doc>_placeholder` |
 | code-doc reconciliation | when the resolved contract declares `code-doc-reconciliation` and the reviewed submission names any repository deliverable, the execution must carry a verified code-doc witness; a non-empty deliverable list containing only `artifacts/`, `tasks/`, or `harness/tasks/` task-package references makes the gate not applicable | `code_doc_missing` when an applicable execution has no witness |
 | review gate axis | the completion function receives review as `passed` after the review gate above succeeds | `review_not_passed` |
-| CI gate axis | when the resolved contract declares `ci`, the CLI-provided CI gate must be `passed`; otherwise `--ci` is not required | `missing_ci_gate` or `ci_not_passed` |
+| CI gate axis | the resolved contract declares `ci` only when repository settings configure CI witness workflows (`settings.ci.workflows`); with the gate declared, a green run of a configured workflow on `main` — imported through `ha ci observe pull` — must be witnessed for the submitted cut, the run conclusion being the verdict and uploaded `ci-observation-*` artifacts being optional detail | `ci_missing` |
 | closeout readiness axis | projected closeout readiness must be `ready` or `passed` | `closeout_not_ready` |
 | task tree dirty check | after the transition sweep, `tasks/<id>/` must be clean enough for the lifecycle writer to commit | `task_tree_dirty` |
 

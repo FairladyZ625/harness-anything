@@ -44,6 +44,7 @@ interface Defaults {
   readonly locale: string;
   readonly taskOverlay: string;
   readonly repositoryOverlay: string;
+  readonly ciWorkflows: readonly string[];
 }
 export async function runPresetAction(input: {
   readonly rootDir: string;
@@ -218,6 +219,7 @@ export function presetRuntimeDefaults(settings: SettingsV1): Defaults {
     locale: settings.locale,
     taskOverlay: settings.scaffolds.task,
     repositoryOverlay: settings.scaffolds.repository,
+    ciWorkflows: settings.ci.workflows,
   };
 }
 function presetResolverOptions(rootDir: string, defaults: Defaults) {
@@ -229,6 +231,7 @@ function presetResolverOptions(rootDir: string, defaults: Defaults) {
   return {
     userRoot: presetUserRoot(rootDir),
     projectRoot,
+    ciWorkflows: defaults.ciWorkflows,
     ...(existsSync(projectScaffold) ? { projectScaffold } : {}),
   };
 }

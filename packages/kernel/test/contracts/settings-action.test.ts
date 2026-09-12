@@ -85,8 +85,17 @@ test("Settings update writes the repository CI workflow names through the canoni
   assertSettingsEventInputs(draft.result.bundle.event, draft.result.bundle.plan, draft.result.bundle.blobs);
 });
 
+test("Settings update clears CI witnessing through an empty workflow list", () => {
+  const draft = compile({ ciWorkflows: [] });
+  assert.equal(draft.kind, "settings");
+  if (draft.kind !== "settings" || draft.result.kind !== "event") throw new Error("missing settings event");
+  assert.deepEqual(draft.result.bundle.event.payload.settings.ci.workflows, []);
+  assert.deepEqual(readSettingsFacet(draft.result.bundle.blobs[0].body).ci.workflows, []);
+  assertSettingsEventInputs(draft.result.bundle.event, draft.result.bundle.plan, draft.result.bundle.blobs);
+});
+
 test("Settings update rejects malformed CI workflow name lists", () => {
-  for (const ciWorkflows of [[], ["ci", "ci"], ["ci.yml"], ["ci.yaml"], [""]]) {
+  for (const ciWorkflows of [["ci", "ci"], ["ci.yml"], ["ci.yaml"], [""]]) {
     assert.throws(
       () => compile({ ciWorkflows }),
       (error: unknown) => error instanceof SettingsActionError && error.code === "invalid_command",
