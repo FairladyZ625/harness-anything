@@ -388,6 +388,65 @@ test("CI observation pull writes canonical events once per run and job", async (
   }
 });
 
+test("CI observation pull collects selected GitHub runs concurrently in selection order", async () => {
+  const rootDir = mkdtempSync(path.join(process.cwd(), ".tmp-ci-observation-concurrent-"));
+  const viewResolvers = new Map<string, () => void>();
+  const viewStarts: string[] = [];
+  const runGh = (async (_command: string, args: readonly string[]) => {
+    const runId = String(args[2]);
+    if (args[1] === "view") {
+      viewStarts.push(runId);
+      await new Promise<void>((resolve) => viewResolvers.set(runId, resolve));
+      return JSON.stringify({
+        workflowName: "rewrite-ci",
+        headSha: `sha-${runId}`,
+        headBranch: "main",
+        status: "completed",
+        conclusion: "success",
+        attempt: 1,
+      });
+    }
+    const outputDir = String(args[args.indexOf("--dir") + 1]);
+    mkdirSync(outputDir, { recursive: true });
+    writeFileSync(
+      path.join(outputDir, "observation.json"),
+      JSON.stringify({
+        schema: "ci-run-artifact/v1",
+        run: {
+          runId: `${runId}.1`,
+          sha: `sha-${runId}`,
+          branch: "main",
+          prNumber: null,
+          job: `job-${runId}`,
+          wallclockMs: 20,
+          runner: "ubuntu",
+        },
+        tests: [],
+        gates: [],
+      }),
+    );
+    return "";
+  }) as never;
+  try {
+    const fetching = fetchCiObservations(
+      { rootDir, settings: ciSettings(), cellCodedError: (_code: string, message: string) => new Error(message) },
+      { kind: "ci-observe-pull", runs: [102, 101] },
+      runGh,
+    );
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.deepEqual(viewStarts, ["102", "101"]);
+    viewResolvers.get("102")?.();
+    viewResolvers.get("101")?.();
+    const result = await fetching;
+    assert.deepEqual(
+      result.runs.map((run) => run.databaseId),
+      [102, 101],
+    );
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("CI observation pull synthesizes a ledger-publication run only for private ledger commits", async () => {
   const rootDir = mkdtempSync(path.join(process.cwd(), ".tmp-ci-observation-ledger-"));
   const ledgerRoot = path.join(rootDir, "harness");
