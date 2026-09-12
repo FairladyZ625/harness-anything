@@ -1,7 +1,7 @@
 import process from "node:process";
 import { consumeKnownError } from "../../../kernel/src/index.ts";
 import type { JsonObject } from "../protocol/json-rpc-types.ts";
-import { requestLocalDaemonJsonRpcForTarget } from "./local-json-rpc-client.ts";
+import { openDaemonJsonRpcClientAt, type JsonRpcLineClient } from "./local-json-rpc-client.ts";
 import { streamDaemonFacetAt } from "./local-json-rpc-stream.ts";
 
 // Interactive runtime sign-in runs on a daemon-owned PTY, never in this process, so the person
@@ -21,14 +21,20 @@ export async function relayDaemonTerminal(input: {
   readonly rows?: () => number;
 }): Promise<number> {
   const stdin = input.stdin ?? process.stdin,
-    call = (method: string, payload: JsonObject, responseTimeoutMs?: number) =>
-      requestLocalDaemonJsonRpcForTarget(
-        { socketPath: input.socketPath },
-        method,
-        Object.keys(payload).length ? { repo: { repoId: input.repoId }, payload } : { repo: { repoId: input.repoId } },
-        75,
-        responseTimeoutMs,
-      );
+    params = (payload: JsonObject): JsonObject =>
+      Object.keys(payload).length ? { repo: { repoId: input.repoId }, payload } : { repo: { repoId: input.repoId } };
+  let client: Promise<JsonRpcLineClient> | undefined;
+  const call = async (method: string, payload: JsonObject, responseTimeoutMs?: number): Promise<JsonObject> => {
+    client ??= openDaemonJsonRpcClientAt(input.socketPath, 75, responseTimeoutMs);
+    const active = await client;
+    try {
+      return await active.request(method, params(payload), responseTimeoutMs);
+    } catch (error) {
+      active.close();
+      client = undefined;
+      throw error;
+    }
+  };
   let clientSeq = 0,
     queue: Promise<unknown> = Promise.resolve(),
     settled = false,
@@ -62,6 +68,7 @@ export async function relayDaemonTerminal(input: {
     stdin.setRawMode?.(false);
     process.stdout.off("resize", onResize);
     detach();
+    void client?.then((active) => active.close());
     resolveExit?.(code);
   };
   const finishFromFrame = async () => {
