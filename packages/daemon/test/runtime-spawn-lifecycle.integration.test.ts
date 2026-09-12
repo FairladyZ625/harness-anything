@@ -1650,6 +1650,7 @@ test("dispatch reclaims an orphaned task lease instead of requiring a manual rel
       const projection = makeTaskProjection({
         rootDir: root,
         eventStore: makeTaskEventReader({ repoId: "runtime-orphan-lease", rootDir: root }),
+        now: () => clock,
       });
       try {
         const snapshot = projection.read(taskId).snapshot;
