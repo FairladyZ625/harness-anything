@@ -140,6 +140,13 @@ test("automatic CI evidence selects exact and descendant main runs, excluding un
     const descendant = git(root, "rev-parse", "HEAD");
     assert.equal(readLatestCiEvidence(fixture(root, current, [observation(submitted)]).cell, current)?.result, "pass");
     assert.equal(readLatestCiEvidence(fixture(root, current, [observation(descendant)]).cell, current)?.result, "pass");
+    assert.equal(
+      readLatestCiEvidence(
+        fixture(root, current, [observation(descendant, 2, "cancelled"), observation(submitted)]).cell,
+        current,
+      )?.result,
+      "pass",
+    );
     assert.equal(readLatestCiEvidence(fixture(root, current, [observation("f".repeat(40))]).cell, current), null);
     assert.throws(
       () =>
@@ -182,6 +189,37 @@ test("unverified latest observation rejects and latest real red never falls back
   await assert.rejects(prepareSubmissionEvidence(red.cell, "task", "execution", binding), { code: "invalid_proof" });
   assert.deepEqual(red.calls, []);
 });
+
+for (const conclusion of ["cancelled", "skipped"]) {
+  test(`${conclusion} latest observation falls back to older success`, () => {
+    const current = execution(publicSha),
+      prepared = fixture(publicRoot, current, [observation(publicSha, 2, conclusion), observation(publicSha)]),
+      evidence = readLatestCiEvidence(prepared.cell, current);
+    assert.equal(evidence?.result, "pass");
+    assert.equal(evidence?.provenance.rawResult, "event:op-1");
+  });
+
+  test(`${conclusion} observation without older evidence returns null`, () => {
+    const current = execution(publicSha);
+    assert.equal(
+      readLatestCiEvidence(fixture(publicRoot, current, [observation(publicSha, 2, conclusion)]).cell, current),
+      null,
+    );
+  });
+}
+
+for (const conclusion of ["failure", "timed_out"]) {
+  test(`cancelled latest observation preserves older ${conclusion} over success`, () => {
+    const current = execution(publicSha),
+      prepared = fixture(publicRoot, current, [
+        observation(publicSha, 3, "cancelled"),
+        observation(publicSha, 2, conclusion),
+        observation(publicSha),
+      ]);
+    assert.equal(readLatestCiEvidence(prepared.cell, current)?.result, "fail");
+    assert.equal(readLatestCiEvidence(prepared.cell, current)?.provenance.rawResult, "event:op-2");
+  });
+}
 
 test("private ledger ancestor observation supports its cut and pending publication provides no witness", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-ledger-evidence-"));
