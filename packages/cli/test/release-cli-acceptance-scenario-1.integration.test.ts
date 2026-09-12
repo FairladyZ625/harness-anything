@@ -79,7 +79,10 @@ test("release acceptance: attributed lifecycle chain create→start→fact→sub
     const reportFile = path.join(root, "harness", packagePath, "artifacts", "implementation.md");
     mkdirSync(path.dirname(reportFile), { recursive: true });
     writeFileSync(reportFile, "# Release acceptance\n\nThe public probe is the code-doc verification target.\n");
-    run(root, userRoot, ["doc", "sync", "--submit", "--task", taskId], worker);
+    // The probe below commits repo Git directly, so the daemon must finish publishing this cut first;
+    // otherwise the two HEAD writers race and git dies with `cannot lock ref 'HEAD'`.
+    const probePublication = run(root, userRoot, ["doc", "sync", "--submit", "--task", taskId], worker);
+    settle(root, userRoot, String(probePublication.opId), worker);
 
     // A real repository deliverable, committed by the fixture, so code-doc reconcile has a true path.
     mkdirSync(path.join(root, "scripts"), { recursive: true });

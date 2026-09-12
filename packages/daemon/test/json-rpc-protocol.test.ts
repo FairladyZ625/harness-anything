@@ -380,7 +380,13 @@ test("GUI and CLI submit derive the same canonical event from closeout", async (
     roots.forEach(initDeterministicRepo);
     for (const [index, rootDir] of roots.entries()) cells.push(await openRepoCell({ repoId: workspaceId("submit-ab"), rootDir: canonicalRoot(rootDir), ownerId: `submit-ab-${index}`, now }));
     for (const [index, cell] of cells.entries()) { const created = await cell.run({ kind: "task-create", taskId, title: "Submit A B" }, binding); assert.equal(created.outcome, "applied"); const visible = await waitForAcceptedReceipt(cell, created, binding); assert.equal(visible.wait?.state, "satisfied", JSON.stringify(visible)); await realizeTaskPlanFixture(roots[index]!, String((created as Record<string, unknown>).packagePath), (planPath) => cell.run({ kind: "doc-submit", paths: [planPath] }, binding)); assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, binding)).outcome, "applied"); }
-    roots.forEach((rootDir) => writeCloseout(rootDir, "tasks/task-submit-ab-submit-a-b", "Typed GUI submit is equivalent."));
+    for (const [index, rootDir] of roots.entries())
+      await writeCloseout(
+        () => cells[index]!.settlePendingMaterialization("closeout git commit"),
+        rootDir,
+        "tasks/task-submit-ab-submit-a-b",
+        "Typed GUI submit is equivalent.",
+      );
     assert.equal((await cells[0]!.run({ kind: "task-submit", taskId, executionId }, binding)).outcome, "applied");
     const server = createJsonRpcProtocolServer({ host: { remoteProxy: { route: () => false }, run: async (_repoId: string, action: Record<string, unknown>) => cells[1]!.run(action as { readonly kind: string }, binding) } as never, build: { commit: null }, authContext: {} as never, emit: async () => undefined }); await server.handle({ jsonrpc: "2.0", id: 1, method: "protocol.hello", params: { protocolVersion: currentDaemonProtocolVersion } }); const response = await server.handle({ jsonrpc: "2.0", id: 2, method: "repo.task.submit", params: { repo: { repoId: "submit-ab" }, payload: { taskId, executionId } } }); assert.ok(response && !Array.isArray(response) && "result" in response, JSON.stringify(response)); assert.equal((response as { result: { outcome: string } }).result.outcome, "applied", JSON.stringify(response)); server.close();
     const events = roots.map((rootDir) => makeTaskEventReader({ repoId: "submit-ab", rootDir }).read().events.find((event) => event.type === "execution_submitted"));
@@ -414,7 +420,12 @@ test("lifecycle commands publish typed events, machine files, rebuildable L2, an
     assert.equal(invalidSubmit.outcome, "op_rejected");
     assert.equal(makeTaskEventReader({ repoId: "lifecycle-files", rootDir }).readHead()?.revision, Number(beforeInvalidSubmit) + 1);
     assert.equal(makeTaskEventReader({ repoId: "lifecycle-files", rootDir }).read().events.some((event) => event.type === "execution_submitted"), false);
-    const commitSha = writeCloseout(rootDir, packagePath, "Lifecycle output is ready.");
+    const commitSha = await writeCloseout(
+      () => cell!.settlePendingMaterialization("closeout git commit"),
+      rootDir,
+      packagePath,
+      "Lifecycle output is ready.",
+    );
     const submitted = await cell.run({ kind: "task-submit", taskId, executionId }, binding) as unknown as Record<string, unknown>; await assertCut(submitted, "execution_submitted", [indexPath, executionPath]); assert.deepEqual(submitted.transition, { from: "active/implementation", to: "in_review/review" }); assert.match(readFileSync(path.join(rootDir, "harness", executionPath), "utf8"), /State: submitted[\s\S]*Lifecycle output is ready/u);
     writeFileSync(path.join(rootDir, "review.json"), JSON.stringify({ verdict: "approved", reason: "Independent review passed.", evidenceChecked: ["tests"] })); const reviewBinding = withRoleBinding({ actor: { principal: { personId: "person-reviewer" }, executor: { kind: "agent" as const, id: "arbiter" } }, source: "local" as const }, "arbiter");
     const reviewed = await cell.run({ kind: "task-review-execution", taskId, executionId, reviewId: "review-life", fromFile: "review.json" }, reviewBinding) as unknown as Record<string, unknown>; await assertCut(reviewed, "review_recorded", [indexPath, executionPath, reviewPath]); assert.equal(reviewed.reviewId, "review-life"); assert.match(readFileSync(path.join(rootDir, "harness", reviewPath), "utf8"), /Verdict: approved[\s\S]*Consent: pending/u);
@@ -573,7 +584,13 @@ test("milestone-closeout uses the normal completion facade, review, and gates ex
 
     await cell.run({ kind: "task-progress-append", taskId, text: "implementation complete", evidence: [] }, binding); await cell.run({ kind: "fact-record", taskId, statement: "Completion uses canonical witnesses.", evidenceSource: "test:completion", confidence: "high", memoryClass: "semantic", memoryTags: [] }, binding);
     const closeoutPath = `${packagePath}/closeout.md`, artifactPath = `${packagePath}/artifacts/evidence.md`; writeFileSync(path.join(rootDir, "harness", closeoutPath), "# Closeout\n\n## Summary\n\nComplete.\n\n## Verification\n\nAll checks passed.\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nNot applicable to this fixture.\n"); writeFileSync(path.join(rootDir, "harness", artifactPath), "# Evidence\n\nCanonical flow.\n");
-    const commitSha = writeCloseout(rootDir, packagePath, "All required outputs are complete.", "All checks passed.");
+    const commitSha = await writeCloseout(
+      () => cell!.settlePendingMaterialization("closeout git commit"),
+      rootDir,
+      packagePath,
+      "All required outputs are complete.",
+      "All checks passed.",
+    );
     assert.equal((await cell.run({ kind: "task-submit", taskId, executionId }, binding)).outcome, "applied");
     const missingCi = await cell.run({ kind: "task-complete", taskId, executionId }, binding) as unknown as Record<string, unknown>; assert.deepEqual({ outcome: missingCi.outcome, code: missingCi.code, steps: missingCi.steps }, { outcome: "op_rejected", code: "ci_missing", steps: [] }); await publishCiObservation("completion-facade", rootDir, executionId, commitSha, "run-completion-facade");
     const beforeReviewBlock = store().read().revision,
@@ -1187,7 +1204,12 @@ test("Policy rejects a principal without a durable-action RoleBinding", async ()
     assert.equal(deniedReview.outcome, "op_rejected"); assert.equal(deniedReview.code, "authorization_denied");
     const deniedAdmin = await rpc(host, auth(ids.reader), "daemon.repo.register", { rootDir: second, repoId: "second" });
     assert.equal(deniedAdmin.outcome, "op_rejected"); assert.equal(deniedAdmin.code, "authorization_denied");
-    writeCloseout(root, String((created as Record<string, unknown>).packagePath), "Role-bound delivery complete.");
+    await writeCloseout(
+      () => host.run("rbac", { kind: "doc-materialize" }, auth(ids.writer)),
+      root,
+      String((created as Record<string, unknown>).packagePath),
+      "Role-bound delivery complete.",
+    );
     assert.equal((await host.run("rbac", { kind: "task-submit", taskId: "task-rbac", executionId }, auth(ids.writer))).outcome, "applied");
     writeFileSync(path.join(root, "review.json"), JSON.stringify({ verdict: "approved", reason: "checked", evidenceChecked: [] }));
     const review = await host.run("rbac", { kind: "task-review-execution", taskId: "task-rbac", executionId, reviewId: "review-rbac", fromFile: "review.json" }, auth(ids.arbiter)); assert.equal(review.outcome, "applied", JSON.stringify(review));
@@ -1355,7 +1377,16 @@ test("task complete accepts a verified main run on a commit that contains the su
   }
 });
 
-function writeCloseout(rootDir: string, packagePath: string, summary: string, verification = "Verified."): string {
+async function writeCloseout(
+  drain: () => Promise<unknown>,
+  rootDir: string,
+  packagePath: string,
+  summary: string,
+  verification = "Verified.",
+): Promise<string> {
+  // The cell publishes ledger cuts to the same repo Git; drain its writer queue before this fixture
+  // commit, or the two HEAD writers race and git dies with `cannot lock ref 'HEAD'`.
+  await drain();
   writeFileSync(path.join(rootDir, "README.md"), "# Verified delivery\n");
   git(rootDir, "add", "README.md");
   execFileSync("git", ["-C", rootDir, "commit", "--quiet", "-m", "test: verified delivery"], {
@@ -1447,7 +1478,12 @@ async function prepareReadyCompletion(
     .toLocaleLowerCase("en-US")
     .replace(/[^a-z0-9]+/gu, "-")
     .replace(/^-|-$/gu, "")}`;
-  const commitSha = writeCloseout(rootDir, packagePath, "Ready.");
+  const commitSha = await writeCloseout(
+    () => cell.settlePendingMaterialization("closeout git commit"),
+    rootDir,
+    packagePath,
+    "Ready.",
+  );
   const submitted = await cell.run({ kind: "task-submit", taskId, executionId }, binding);
   assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
   assert.equal((await waitForAcceptedReceipt(cell, submitted, binding)).wait?.state, "satisfied");
