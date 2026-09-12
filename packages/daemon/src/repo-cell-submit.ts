@@ -79,24 +79,17 @@ export function deriveCloseoutSubmission(
   const root = publishedRoot,
     commitSha = git.run(root, ["rev-parse", `${named[0]!}^{commit}`]).stdout;
   // One execution may dispatch through several cwds (delivery worktree, then closeout prep at
-  // the canonical root). The named cut must still be explained by one of them: it is that
-  // directory's HEAD, contains a dispatch HEAD, or is already published to origin/main.
-  if (directories.length) {
-    const published = git.run(root, ["merge-base", "--is-ancestor", commitSha, "origin/main"]).ok;
-    if (
-      !directories.some((directory) => {
-        const head = git.run(directory, ["rev-parse", "HEAD"]).stdout;
-        return (
-          head === commitSha ||
-          (published && (head ? git.run(root, ["merge-base", "--is-ancestor", head, commitSha]).ok : true))
-        );
-      })
-    )
-      throw cell.cellCodedError(
-        "invalid_submission",
-        "Summary commit must be the bound worktree HEAD or its published merge commit.",
-      );
-  }
+  // the canonical root). A cut already published to origin/main needs nothing else; an
+  // unpublished cut must be the HEAD of one of those directories.
+  if (
+    directories.length &&
+    !git.run(root, ["merge-base", "--is-ancestor", commitSha, "origin/main"]).ok &&
+    !directories.some((directory) => git.run(directory, ["rev-parse", "HEAD"]).stdout === commitSha)
+  )
+    throw cell.cellCodedError(
+      "invalid_submission",
+      "Summary commit must be the bound worktree HEAD or its published merge commit.",
+    );
   const mergeBase = git.run(root, ["merge-base", "origin/main", commitSha]);
   const base =
     mergeBase.ok && mergeBase.stdout !== commitSha
