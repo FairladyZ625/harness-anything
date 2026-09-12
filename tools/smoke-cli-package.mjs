@@ -8,6 +8,7 @@ import { realizedTaskPlan } from "./fixtures/task-plan.mjs";
 
 export function runCliPackageSmoke(root = process.cwd()) {
   buildCliPackageArtifact(root);
+  execNpmFileSync(["run", "build", "--workspace", "@harness-anything/daemon"], { cwd: root, stdio: "inherit" });
   const tempRoot = mkdtempSync(path.join(tmpdir(), "ha-cli-pack-")),
     packDir = path.join(tempRoot, "pack"),
     consumerDir = path.join(tempRoot, "consumer");
@@ -23,16 +24,20 @@ export function runCliPackageSmoke(root = process.cwd()) {
     mkdirSync(consumerDir, { recursive: true });
     mkdirSync(projectDir);
     mkdirSync(home);
-    const packed = JSON.parse(
-      execNpmFileSync(["pack", "--workspace", "@harness-anything/cli", "--pack-destination", packDir, "--json"], {
-        cwd: root,
-        encoding: "utf8",
-        env: { ...process.env, NPM_CONFIG_IGNORE_SCRIPTS: "true" },
-      }),
-    )[0];
-    const tarball = path.join(packDir, packed?.filename ?? "");
-    if (!packed?.filename || !existsSync(tarball)) throw new Error("npm pack did not produce the CLI tarball");
-    execNpmFileSync(["install", "--prefix", consumerDir, "--no-audit", "--no-fund", tarball], {
+    const tarballs = ["@harness-anything/cli", "@harness-anything/daemon"].map((workspace) => {
+      const packed = JSON.parse(
+        execNpmFileSync(["pack", "--workspace", workspace, "--pack-destination", packDir, "--json"], {
+          cwd: root,
+          encoding: "utf8",
+          env: { ...process.env, NPM_CONFIG_IGNORE_SCRIPTS: "true" },
+        }),
+      )[0];
+      const tarball = path.join(packDir, packed?.filename ?? "");
+      if (!packed?.filename || !existsSync(tarball))
+        throw new Error(`npm pack did not produce the ${workspace} tarball`);
+      return tarball;
+    });
+    execNpmFileSync(["install", "--prefix", consumerDir, "--no-audit", "--no-fund", ...tarballs], {
       cwd: root,
       stdio: "inherit",
     });
@@ -336,7 +341,7 @@ export function assertUnstartableDaemonFailedClosed(result, harnessExists) {
   if (result.receipt?.ok !== false) throw new Error(`unstartable-daemon receipt must report ok=false: ${detail}`);
   const code = result.receipt?.error?.code;
   if (code !== "daemon_bind_timeout" && code !== "daemon_spawn_permission")
-    throw new Error(`unexpected unstartable-daemon code: ${String(code)}`);
+    throw new Error(`unexpected unstartable-daemon code: ${String(code)}; ${detail}`);
   if (harnessExists) throw new Error(`unstartable-daemon created harness before failing: ${detail}`);
 }
 function runJson(command, args, cwd, environment) {

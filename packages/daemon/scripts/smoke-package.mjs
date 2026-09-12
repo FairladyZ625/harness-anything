@@ -24,7 +24,29 @@ try {
   mkdirSync(consumer);
   writeFileSync(path.join(consumer, "package.json"), '{"private":true,"type":"module"}\n');
   run(npm, ["pack", "-w", "@harness-anything/daemon", "--pack-destination", parent]);
-  run(npm, ["install", "--no-audit", "--no-fund", path.join(parent, "harness-anything-daemon-0.0.1.tgz")], consumer);
+  run(npm, ["pack", "-w", "@harness-anything/cli", "--pack-destination", parent]);
+  run(
+    npm,
+    [
+      "install",
+      "--no-audit",
+      "--no-fund",
+      path.join(parent, "harness-anything-daemon-0.0.1.tgz"),
+      path.join(parent, "harness-anything-cli-0.0.1.tgz"),
+    ],
+    consumer,
+  );
+  const cli = path.join(consumer, "node_modules/@harness-anything/cli/dist/cli/src/index.js");
+  const cliArgs = ["--user-root", path.join(parent, "cli-user"), "--daemon-id", "cli-smoke", "--json"];
+  run(process.execPath, [cli, "daemon", "start", "--service", ...cliArgs], consumer);
+  try {
+    const status = JSON.parse(run(process.execPath, [cli, "daemon", "status", ...cliArgs], consumer));
+    assert.equal(status.ok, true);
+    assert.equal(status.entry, "dist");
+    console.log("installed CLI status exit=0; daemon start --service and protocol hello=true");
+  } finally {
+    run(process.execPath, [cli, "daemon", "stop", ...cliArgs], consumer);
+  }
   const installed = path.join(consumer, "node_modules/@harness-anything/daemon");
   const manifest = JSON.parse(readFileSync(path.join(installed, "package.json"), "utf8"));
   const entry = path.join(installed, manifest.bin["harness-anything-daemon"]);
