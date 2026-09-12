@@ -1,4 +1,6 @@
 import js from "@eslint/js";
+import { includeIgnoreFile } from "eslint/config";
+import { fileURLToPath } from "node:url";
 import tseslint from "typescript-eslint";
 import { kernelImportBoundaryKnownDebt } from "./tools/kernel-import-boundary-known-debt.mjs";
 import { portPhysicalIoBoundaryKnownDebt } from "./tools/port-physical-io-boundary-known-debt.mjs";
@@ -214,30 +216,10 @@ const kernelImportKnownDebtOverrides = Object.values(
 }));
 
 export default tseslint.config(
+  includeIgnoreFile(fileURLToPath(new URL(".gitignore", import.meta.url)), { gitignoreResolution: true }),
   {
-    ignores: [
-      ".git/",
-      ".b5-baseline/",
-      ".agents/",
-      ".claude/",
-      ".codex/",
-      ".gstack/",
-      ".harness/",
-      ".harness-private/",
-      ".harness-old-generation-*/",
-      ".worktrees/",
-      "coverage/",
-      "dist/",
-      "docs/",
-      "harness/",
-      "harness-old-generation-*/",
-      "node_modules/",
-      "packages/gui/build-resources/",
-      "packages/gui/.runtime-cache/",
-      "packages/**/dist/",
-      "packages/**/dist-electron/",
-      "tmp/",
-    ],
+    // Lint-only exclusions; all Git exclusions come from .gitignore above.
+    ignores: [".b5-baseline/", "packages/gui/build-resources/", "packages/**/dist-electron/"],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
