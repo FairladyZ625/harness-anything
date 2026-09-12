@@ -160,7 +160,10 @@ for (const transport of ["tar", "rsync"]) {
         assert.equal(gitText(destination, ["show", "HEAD^:tools/kept.txt"]), "tools/kept.txt");
         assert.match(gitText(destination, ["status", "--porcelain"]), /M tools\/kept.txt/u);
         assert.equal(readFileSync(path.join(destination, "tools/kept.txt"), "utf8"), "dirty tracked content\n");
-        assert.equal(readFileSync(path.join(destination, "prettier.config.mjs"), "utf8"), "prettier.config.mjs\n");
+        assert.equal(
+          readFileSync(path.join(destination, "prettier.config.mjs"), "utf8").replace(/\r\n/gu, "\n"),
+          "prettier.config.mjs\n",
+        );
         assert.equal(existsSync(path.join(destination, "future-root/space name.txt")), true);
         assert.equal(existsSync(path.join(destination, "private")), false);
         assert.equal(gitText(destination, ["remote"]), "");
