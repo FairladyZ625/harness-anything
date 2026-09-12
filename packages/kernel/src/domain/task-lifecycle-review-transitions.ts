@@ -16,6 +16,7 @@ import type {
 } from "./task-lifecycle-event.ts";
 import { isSameExecution } from "./actor-domain-services.ts";
 import { closeoutReadiness } from "./closeout-readiness.ts";
+import { isValidCloseoutGateRecord } from "./settings-closeout.ts";
 import { validFactStillHoldsAttestation } from "./fact-retirement-readiness.ts";
 import type {
   CodeDocProof,
@@ -326,7 +327,10 @@ export const complete: Transition = {
       issues = revisionIssues(snapshot, command),
       task = snapshot.task,
       current = execution(snapshot, command.executionId),
-      assessment = closeoutReadiness(snapshot);
+      gatesValid = isValidCloseoutGateRecord(proof.closeoutGates),
+      assessment = closeoutReadiness(snapshot, undefined, gatesValid ? proof.closeoutGates : undefined);
+    if (!gatesValid)
+      issues.push(lifecycleContractIssue("invalid_proof", "CompleteTask requires the effective closeout gate set"));
     if (
       command.factRetirementAttestations !== undefined &&
       (!Array.isArray(command.factRetirementAttestations) ||
@@ -373,8 +377,9 @@ export const complete: Transition = {
     }
     return issues;
   },
-  reduce: (snapshot, raw) => {
+  reduce: (snapshot, raw, rawProof) => {
     const command = raw as CompleteTaskCommand,
+      proof = rawProof as CompleteTaskProof,
       current = execution(snapshot, command.executionId) as ExecutionV1,
       nextExecution: ExecutionV1 = {
         ...current,
@@ -396,6 +401,7 @@ export const complete: Transition = {
       event: envelope<TaskCompletedEvent>(command, "task_completed", {
         task,
         execution: nextExecution,
+        closeoutGates: proof.closeoutGates,
         ...(command.factRetirementAttestations?.length
           ? { factRetirementAttestations: command.factRetirementAttestations }
           : {}),

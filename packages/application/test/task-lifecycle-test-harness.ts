@@ -332,6 +332,7 @@ export function lifecycleHarness() {
         capabilityRef: `cap-${opId}`,
         actorRole: "owner",
         noActiveLease: true,
+        closeoutGates: { review: true, consent: true, factDisposition: true, codeDoc: true },
         gateReceipts: [],
       });
     },

@@ -17,6 +17,7 @@ import type {
   TaskLifecycleSnapshot,
   TransitionResult,
 } from "./task-lifecycle-contract-internal-types.ts";
+import type { CloseoutGate } from "./settings-closeout.ts";
 import { validateTaskLifecycleCommandEnvelope } from "./task-lifecycle-contract-commands.ts";
 import {
   errorCode,
@@ -474,7 +475,7 @@ function assertReplay(snapshot: TaskLifecycleSnapshot, event: TaskEventV1, next:
     ]);
   if (
     event.type === "task_completed" &&
-    (!acceptedCompletionWitnesses(snapshot, event.payload.execution.executionId) ||
+    (!acceptedCompletionWitnesses(snapshot, event.payload.execution.executionId, event.payload.closeoutGates) ||
       event.payload.task.taskId !== event.taskId ||
       event.payload.execution.taskId !== event.taskId ||
       event.payload.task.status !== "done" ||
@@ -492,14 +493,19 @@ function assertReplay(snapshot: TaskLifecycleSnapshot, event: TaskEventV1, next:
 }
 
 // Accepted history retains its original witness shape; command admission still requires bound evidence.
-function acceptedCompletionWitnesses(snapshot: TaskLifecycleSnapshot, executionId: string): boolean {
+function acceptedCompletionWitnesses(
+  snapshot: TaskLifecycleSnapshot,
+  executionId: string,
+  closeoutGates?: Readonly<Record<CloseoutGate, boolean>>,
+): boolean {
   const current = execution(snapshot, executionId);
   if (
     snapshot.task?.status !== "in_review" ||
     current?.state !== "submitted" ||
     current.iteration !== snapshot.task.iteration ||
     !current.submission ||
-    !consentedApprovedReviewForExecution(snapshot.reviews, snapshot.consents, current)
+    (closeoutGates?.consent !== false &&
+      !consentedApprovedReviewForExecution(snapshot.reviews, snapshot.consents, current))
   )
     return false;
   return snapshot.task.completionGateIds.every((gateId) => {

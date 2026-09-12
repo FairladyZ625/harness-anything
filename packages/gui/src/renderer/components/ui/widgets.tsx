@@ -96,3 +96,44 @@ export function Kbd({ children }: { children: ReactNode }) {
     </kbd>
   );
 }
+
+export interface SelectorOption {
+  readonly value: string;
+  readonly label: string;
+}
+
+export function SettingSelect({
+  label,
+  testId,
+  value,
+  options,
+  onChange,
+  disabled,
+}: {
+  readonly label: string;
+  readonly testId: string;
+  readonly value: string;
+  readonly options: readonly SelectorOption[];
+  readonly onChange: (value: string) => void;
+  readonly disabled?: boolean;
+}) {
+  return (
+    <select
+      aria-label={label}
+      data-testid={testId}
+      disabled={disabled}
+      className={[
+        "w-72 max-w-full rounded border border-border bg-surface-raised px-2 py-1",
+        "font-mono ui-meta text-text disabled:cursor-not-allowed disabled:opacity-40",
+      ].join(" ")}
+      value={value}
+      onChange={(event) => onChange(event.currentTarget.value)}
+    >
+      {options.map((option) => (
+        <option key={option.value} value={option.value}>
+          {option.label}
+        </option>
+      ))}
+    </select>
+  );
+}

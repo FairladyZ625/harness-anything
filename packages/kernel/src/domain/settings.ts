@@ -1,6 +1,14 @@
 import { setting, settingBlockValue } from "../layout/harness-settings.ts";
 import type { EntityDocumentJsonSchema } from "./entity-json-schema.ts";
 import { validateEntityJsonSchema } from "./entity-json-schema.ts";
+import {
+  DEFAULT_CLOSEOUT_SETTINGS,
+  closeoutOverrideKeys,
+  closeoutProfiles,
+  readCloseoutSettings,
+  writeCloseoutFacet,
+  type CloseoutSettingsV1,
+} from "./settings-closeout.ts";
 
 export const SETTINGS_ID = "repository";
 export const SETTINGS_LOCAL_PATH = ".harness/settings.local.json";
@@ -40,6 +48,7 @@ export const SETTINGS_FIELD_OWNERSHIP = Object.freeze({
   scaffolds: "repository",
   walFlush: "repository",
   ci: "repository",
+  closeout: "repository",
   restoreDrillRetention: "repository",
 } as const);
 
@@ -67,6 +76,7 @@ export interface RepositorySettingsV1 {
   };
   readonly walFlush: WalFlushSettingsV1;
   readonly ci: { readonly workflows: readonly string[] };
+  readonly closeout: CloseoutSettingsV1;
   readonly restoreDrillRetention: number;
 }
 
@@ -91,6 +101,7 @@ export interface SettingsV1 {
   };
   readonly walFlush: WalFlushSettingsV1;
   readonly ci: { readonly workflows: readonly string[] };
+  readonly closeout: CloseoutSettingsV1;
   readonly restoreDrillRetention: number;
 }
 
@@ -121,6 +132,7 @@ export const INITIAL_SETTINGS_V1: SettingsV1 = Object.freeze({
   }),
   walFlush: DEFAULT_WAL_FLUSH_SETTINGS,
   ci: Object.freeze({ workflows: DEFAULT_CI_WORKFLOWS }),
+  closeout: DEFAULT_CLOSEOUT_SETTINGS,
   restoreDrillRetention: DEFAULT_RESTORE_DRILL_RETENTION,
 });
 
@@ -180,6 +192,7 @@ export const SETTINGS_V1_SCHEMA: EntityDocumentJsonSchema<SettingsV1> = {
     },
     walFlush: walFlushSchema(),
     ci: ciSettingsSchema(),
+    closeout: closeoutSettingsSchema(),
     restoreDrillRetention: ownedSchema("restoreDrillRetention", { type: "integer", minimum: 1 }),
   },
   required: [
@@ -239,6 +252,7 @@ export const SETTINGS_REPOSITORY_V1_SCHEMA: EntityDocumentJsonSchema<RepositoryS
     },
     walFlush: walFlushSchema(),
     ci: ciSettingsSchema(),
+    closeout: closeoutSettingsSchema(),
     restoreDrillRetention: ownedSchema("restoreDrillRetention", { type: "integer", minimum: 1 }),
   },
   required: ["schema", "settingsId", "defaultVertical", "defaultPreset", "defaultProfile", "scaffolds", "walFlush"],
@@ -262,6 +276,7 @@ export function repositorySettings(settings: SettingsV1 | RepositorySettingsV1):
     scaffolds: { task: settings.scaffolds.task, repository: settings.scaffolds.repository },
     walFlush: settings.walFlush ?? DEFAULT_WAL_FLUSH_SETTINGS,
     ci: settings.ci ?? INITIAL_SETTINGS_V1.ci,
+    closeout: settings.closeout ?? INITIAL_SETTINGS_V1.closeout,
     restoreDrillRetention: settings.restoreDrillRetention ?? DEFAULT_RESTORE_DRILL_RETENTION,
   };
 }
@@ -299,6 +314,7 @@ export function readSettingsFacet(body: string): SettingsV1 {
     },
     walFlush: readWalFlushSettings(body),
     ci: readCiSettings(body),
+    closeout: readCloseoutSettings(body),
     restoreDrillRetention: readRestoreDrillRetention(body),
   };
   const errors = validateSettingsV1(settings);
@@ -357,6 +373,7 @@ export function writeRepositorySettingsFacet(body: string, settings: RepositoryS
   );
   next = writeWalFlushFacet(next, repository.walFlush);
   next = writeCiFacet(next, repository.ci);
+  next = writeCloseoutFacet(next, repository.closeout);
   next = replaceOptionalDefaultedScalar(
     next,
     "  ",
@@ -404,6 +421,27 @@ function ciSettingsSchema() {
       }),
     },
     required: ["workflows"],
+    additionalProperties: false,
+  };
+}
+
+function closeoutSettingsSchema() {
+  return {
+    ...ownedSchema("closeout", {}),
+    type: "object" as const,
+    properties: {
+      profile: ownedSchema("closeout", { type: "string" as const, enum: closeoutProfiles }),
+      overrides: {
+        ...ownedSchema("closeout", {}),
+        type: "object" as const,
+        properties: Object.fromEntries(
+          closeoutOverrideKeys.map((key) => [key, ownedSchema("closeout", { type: "boolean" as const })]),
+        ),
+        required: [],
+        additionalProperties: false,
+      },
+    },
+    required: ["profile"],
     additionalProperties: false,
   };
 }

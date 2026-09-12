@@ -22,6 +22,10 @@ import { deriveActionResult } from "../src/entity-action-catalog-executor.ts";
 
 const actor = { principal: { personId: "owner" }, executor: null } as const;
 const binding = { actor, source: "local" } as RepoCellBinding;
+const settingsStub = (workflows: readonly string[]) => {
+  const settings = { closeout: { profile: "standard" }, ci: { workflows } };
+  return { read: () => settings, readRepository: () => settings };
+};
 function git(root: string, ...args: string[]): string {
   return execFileSync("git", ["-C", root, ...args], {
     encoding: "utf8",
@@ -116,7 +120,7 @@ function fixture(
     rootDir,
     projectionReady,
     service: { read: async () => read },
-    settings: { read: () => ({ ci: { workflows: ["rewrite-ci"] } }) },
+    settings: settingsStub(["rewrite-ci"]),
     projection: {
       read: () => read,
       readCiRunObservations: () => ({ status: "ready", events, watermark: 2, sourceRevision: 2 }),
@@ -302,10 +306,10 @@ test("public and private cuts reject cross-kind exact and descendant witnesses",
 test("CI evidence follows the repository's configured workflow names, not only rewrite-ci", () => {
   const current = execution(publicSha),
     configured = fixture(publicRoot, current, [observation(publicSha, 1, "success", "ci")]);
-  Object.assign(configured.cell, { settings: { read: () => ({ ci: { workflows: ["ci"] } }) } });
+  Object.assign(configured.cell, { settings: settingsStub(["ci"]) });
   assert.equal(readLatestCiEvidence(configured.cell, current)?.result, "pass");
   const unconfigured = fixture(publicRoot, current, [observation(publicSha, 2, "success", "rewrite-ci")]);
-  Object.assign(unconfigured.cell, { settings: { read: () => ({ ci: { workflows: ["ci"] } }) } });
+  Object.assign(unconfigured.cell, { settings: settingsStub(["ci"]) });
   assert.throws(
     () => readLatestCiEvidence(unconfigured.cell, current),
     (error: unknown) => {
@@ -449,7 +453,7 @@ test("complete without a code-doc witness stops on code_doc_missing under its ow
         rootDir: root,
         projectionReady,
         input: { repoId: "repo" },
-        settings: { read: () => settings },
+        settings: { read: () => settings, readRepository: () => settings },
         requiredCellText: (value: string) => value,
         operationId: () => "facade-op",
         completeRetryCommand: () => "ha task complete task",

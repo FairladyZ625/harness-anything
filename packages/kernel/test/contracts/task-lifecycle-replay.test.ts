@@ -162,6 +162,7 @@ test("accepted completion keeps legacy receipts without admitting a new unbound 
         capabilityRef: "cap-complete",
         actorRole: "owner",
         noActiveLease: true,
+        closeoutGates: { review: true, consent: true, factDisposition: true, codeDoc: true },
         gateReceipts: [],
       }),
     /gate|witness|completion/i,

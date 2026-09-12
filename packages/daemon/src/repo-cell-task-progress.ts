@@ -4,7 +4,6 @@ import {
   canStartExecution,
   assessTransitionDocument,
   compileTaskProgress,
-  completionBlockers,
   completionPreparationBlockers,
   approvedReviewsForExecution,
   reviewDigest,
@@ -12,6 +11,7 @@ import {
   completionGuidance,
   completionEvidenceBasis,
   completionEvidenceResults,
+  effectiveCloseoutGates,
   currentCodeDocWitness,
   judgeCompletionEvidence,
   type CiRunObservationEventV3,
@@ -40,7 +40,7 @@ import { runDocAction } from "./doc-sync-actions.ts";
 import { scanDocCandidates } from "./doc-sync-candidate-scanner.ts";
 import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 import { verifyCodeDocCommitPaths } from "./code-doc-path-verification.ts";
-import { readCompletionContext } from "./task-completion-read.ts";
+import { readCompletionContext, completionBlockersForAction } from "./task-completion-read.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 
 import { dispatchCompletionReview } from "./task-completion-review.ts";
@@ -59,8 +59,7 @@ export function readLatestCiEvidence(
   const observations = cell.projection.readCiRunObservations(2000);
   if (!cell.projectionReady(observations))
     throw cell.cellCodedError("content_not_ready", "CI observation projection is not ready.");
-  // Projection order is newest canonical observation first. Never skip a related red or
-  // unverified observation to find an older green observation; verified cancelled/skipped runs give no verdict.
+  // Newest observation first; never skip a red/unverified run for an older green; cancelled/skipped: no verdict.
   const submitted = execution.submission.commitSha,
     publicCut = localGitObjectRefStore.hasCommit(cell.rootDir, submitted),
     root = publicCut ? cell.rootDir : resolveHarnessLayout(cell.rootDir).authoredRoot;
@@ -338,8 +337,7 @@ export async function completeTask(
       cell.input.repoId,
       initial.snapshot.revision,
     );
-  // Read through every remaining preparation before publishing any witness or document.
-  // This does not change the authoritative snapshot or the final completion proof.
+  // Read through every remaining preparation before publishing any witness or document; snapshots stay authoritative.
   const preparedContext = cell.completionContext(
     taskId,
     initial.snapshot,
@@ -353,11 +351,12 @@ export async function completeTask(
       cell.completeRetryCommand(taskId, executionId, action),
     ),
   );
-  const codeDoc =
-    initial.snapshot.task?.completionGateIds.includes("code-doc-reconciliation") &&
-    submittedExecution?.submission?.commitSha
-      ? verifyCodeDocCommitPaths({ rootDir: cell.rootDir, commitSha: submittedExecution.submission.commitSha, paths })
-      : null;
+  const closeout = cell.settings.readRepository().closeout,
+    closeoutGates = effectiveCloseoutGates(closeout, initial.snapshot.task?.completionGateIds),
+    codeDoc =
+      closeoutGates.codeDoc && submittedExecution?.submission?.commitSha
+        ? verifyCodeDocCommitPaths({ rootDir: cell.rootDir, commitSha: submittedExecution.submission.commitSha, paths })
+        : null;
   const remaining = completionPreparationBlockers(initial.snapshot, executionId, {
     ...preparedContext,
     preparedGateIds: [
@@ -377,7 +376,7 @@ export async function completeTask(
   if (remaining && remaining.code !== "doc_sync_required")
     return cell.completionStopped(facadeOpId, initial.snapshot, executionId, remaining, []);
   const retirement = factRetirementAssessment(cell, taskId, factRetirementAttestations);
-  if (!retirement.ready)
+  if (closeoutGates.factDisposition && !retirement.ready)
     return cell.completionStopped(
       facadeOpId,
       initial.snapshot,
@@ -398,8 +397,7 @@ export async function completeTask(
         steps,
       );
     }
-    // The current package digest is stable for the whole request; compiling it per retry would
-    // re-hash the preset catalog once per loop turn for the same answer.
+    // The package digest is stable for the whole request; per-retry compilation re-hashes the catalog identically.
     if (presetSnapshotDigest === null)
       presetSnapshotDigest = currentPresetSnapshotDigest(
         cell,
@@ -409,16 +407,16 @@ export async function completeTask(
         cell.completeRetryCommand(taskId, executionId, action),
       );
     const completion = cell.completionContext(
-        taskId,
-        current.snapshot,
-        current.packagePath,
-        binding,
-        presetSnapshotDigest,
-      ),
-      blocker = completionBlockers(current.snapshot, executionId, completion)[0];
+      taskId,
+      current.snapshot,
+      current.packagePath,
+      binding,
+      presetSnapshotDigest,
+    );
+    const blocker = completionBlockersForAction(current.snapshot, executionId, completion, action.consent)[0];
     if (!blocker) {
       const retirement = factRetirementAssessment(cell, taskId, factRetirementAttestations);
-      if (!retirement.ready)
+      if (completion.closeoutGates?.factDisposition && !retirement.ready)
         return cell.completionStopped(
           facadeOpId,
           current.snapshot,
@@ -744,6 +742,7 @@ export function completionContext(
     invalid = scan.rows.find((row) => row.state === "blocked" || row.state === "conflict" || row.state === "deletion");
   return {
     ...canonical,
+    closeoutGates: effectiveCloseoutGates(cell.settings.readRepository().closeout, snapshot.task?.completionGateIds),
     ...(assessment
       ? {
           closeout: assessment.ready ? ("ready" as const) : ("placeholder" as const),

@@ -34,6 +34,7 @@ import { normalizeRelativeDocumentPath } from "../layout/portable-path.ts";
 import { isValidDocEventChange, type DocEventChange } from "./doc-sync.contract.ts";
 import { timestamp } from "./timestamp.ts";
 import { validFactStillHoldsAttestation, type FactStillHoldsAttestation } from "./fact-retirement-readiness.ts";
+import { isValidCloseoutGateRecord, type CloseoutGate } from "./settings-closeout.ts";
 import { isSamePerson } from "./actor-domain-services.ts";
 export const taskEventTypes = [
   "task_created",
@@ -179,6 +180,7 @@ export type TaskCompletedEvent = TaskEventEnvelope<
   {
     readonly task: TaskV2;
     readonly execution: ExecutionV1;
+    readonly closeoutGates?: Readonly<Record<CloseoutGate, boolean>>;
     readonly factRetirementAttestations?: readonly FactStillHoldsAttestation[];
   }
 >;
@@ -315,6 +317,7 @@ function validateTaskEventFields(value: unknown, allowUnknownFields: boolean): r
       Object.hasOwn(payloadWithoutCarried as Record<string, unknown>, "factRetirementAttestations"),
       Object.hasOwn(payloadWithoutCarried as Record<string, unknown>, "dispatchTaskId"),
       Object.hasOwn(payloadWithoutCarried as Record<string, unknown>, "supersedesSubmissionId"),
+      Object.hasOwn(payloadWithoutCarried as Record<string, unknown>, "closeoutGates"),
     ),
     claims = payload.documentClaims;
   const claimlessFields =
@@ -416,6 +419,9 @@ function validateTaskEventFields(value: unknown, allowUnknownFields: boolean): r
       ))
   )
     issues.push(invalidEventPayloadIssue("task completion Fact retirement attestations are invalid"));
+  if (value.type === "task_completed" && payload.closeoutGates !== undefined)
+    if (!isValidCloseoutGateRecord(payload.closeoutGates))
+      issues.push(invalidEventPayloadIssue("task completion closeout gates are invalid"));
   if (
     value.type === "code_doc_repointed" &&
     isRecord(payload.record) &&
@@ -475,6 +481,7 @@ function lifecyclePayloadFields(
   factRetirementAttestations = false,
   dispatchTaskId = false,
   supersedesSubmissionId = false,
+  closeoutGates = false,
 ): readonly string[] {
   const common = ["task", "execution", "documentClaims"];
   if (type === "task_created") return ["task", "documentClaims"];
@@ -489,7 +496,11 @@ function lifecyclePayloadFields(
   if (type === "code_doc_reconciled" || type === "completion_gate_verified") return [...common, "witness"];
   if (type === "code_doc_repointed") return [...common, "record"];
   if (type === "task_completed")
-    return [...common, ...(factRetirementAttestations ? ["factRetirementAttestations"] : [])];
+    return [
+      ...common,
+      ...(closeoutGates ? ["closeoutGates"] : []),
+      ...(factRetirementAttestations ? ["factRetirementAttestations"] : []),
+    ];
   if (type === "lease_released") return [...common, "releasedLease", "mutation"];
   if (type.startsWith("task_") && !["task_created", "task_completed"].includes(type))
     return ["task", "mutation", "documentClaims"];

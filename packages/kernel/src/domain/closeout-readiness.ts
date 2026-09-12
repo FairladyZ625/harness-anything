@@ -11,6 +11,7 @@ import type { CodeDocWitnessRecord } from "./code-doc-witness.ts";
 import type { CompletionGateWitnessV1 } from "./completion-gate-witness.ts";
 import type { CoverageRelation } from "./decision-coverage.ts";
 import { judgeCompletionEvidence } from "./completion-evidence.ts";
+import type { CloseoutGate } from "./settings-closeout.ts";
 
 export type CloseoutGateStatus = "passed" | "failed" | "missing" | "unknown";
 export interface CloseoutGateResult {
@@ -51,6 +52,7 @@ export interface CloseoutSnapshot {
 export function closeoutReadiness(
   snapshot: CloseoutSnapshot,
   availability?: CloseoutProjectionAvailability,
+  effectiveGates?: Readonly<Record<CloseoutGate, boolean>>,
 ): CloseoutAssessment {
   const task = snapshot.task;
   if (!task) return { readiness: "missing", blocker: "execution", gates: [] };
@@ -88,10 +90,11 @@ export function closeoutReadiness(
     gates.some(({ status }) => status === "unknown")
   )
     return { readiness: "incomplete", executionId: execution.executionId, blocker: "projection_unknown", gates };
-  const approved = approvedReviewHistoryForExecution(snapshot.reviews, execution);
-  if (!approved.length)
+  const approved = approvedReviewHistoryForExecution(snapshot.reviews, execution),
+    consented = consentedApprovedReviewForExecution(snapshot.reviews, snapshot.consents, execution);
+  if (effectiveGates?.review !== false && !approved.length)
     return { readiness: "incomplete", executionId: execution.executionId, blocker: "review", gates };
-  if (!consentedApprovedReviewForExecution(snapshot.reviews, snapshot.consents, execution))
+  if (effectiveGates?.consent !== false && !consented)
     return { readiness: "incomplete", executionId: execution.executionId, blocker: "consent", gates };
   const failed = gates.some(({ status }) => status === "failed"),
     missing = gates.some(({ status }) => status !== "passed");
