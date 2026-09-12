@@ -200,10 +200,7 @@ function environment(root: string, userRoot: string): NodeJS.ProcessEnv {
     TMPDIR: process.platform === "win32" ? base.TMPDIR : "/tmp",
     GIT_CONFIG_GLOBAL: "/dev/null",
     HARNESS_DAEMON_USER_ROOT: userRoot,
-    HARNESS_DAEMON_ENDPOINT:
-      process.platform === "win32"
-        ? localUserDaemonEndpoint(userRoot)
-        : path.join("/tmp/harness-anything", path.basename(localUserDaemonEndpoint(userRoot))),
+    HARNESS_DAEMON_ENDPOINT: localUserDaemonEndpoint(userRoot),
   };
 }
 function stop(userRoot: string, root: string): void {

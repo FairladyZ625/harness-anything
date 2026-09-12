@@ -2,8 +2,9 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync, rmSync, chmodSync, statSync } from "node:fs";
 import net from "node:net";
-import os from "node:os";
 import path from "node:path";
+import { defaultUnixSocketPath } from "../client/local-daemon-target.ts";
+export { defaultUnixSocketPath } from "../client/local-daemon-target.ts";
 import type { DaemonAuthenticationContext } from "./auth-context.ts";
 import { serveJsonRpcStream, type DaemonTransportConnection } from "./json-rpc-stream.ts";
 import type { JsonRpcProtocolServer } from "../protocol/json-rpc-server.ts";
@@ -26,10 +27,6 @@ export interface UnixSocketTransportServer {
   readonly endpoint: string;
   readonly start: () => Promise<void>;
   readonly stop: () => Promise<void>;
-}
-
-export function defaultUnixSocketPath(daemonId: string, uid = process.getuid?.() ?? 0): string {
-  return path.join(os.tmpdir(), "harness-anything", `daemon-${uid}-${safeUnixSocketEndpointId(daemonId)}.sock`);
 }
 
 export function createUnixSocketTransportServer(options: UnixSocketTransportOptions): UnixSocketTransportServer {
@@ -110,8 +107,4 @@ export function createUnixSocketTransportServer(options: UnixSocketTransportOpti
       if (process.platform !== "win32") rmSync(endpoint, { force: true });
     },
   };
-}
-
-function safeUnixSocketEndpointId(value: string): string {
-  return value.replace(/[^A-Za-z0-9_.-]/gu, "-");
 }

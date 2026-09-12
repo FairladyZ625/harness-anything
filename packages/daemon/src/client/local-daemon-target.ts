@@ -32,9 +32,7 @@ export function localUserDaemonEndpoint(
   platform: NodeJS.Platform = process.platform,
 ): EndpointIdentity {
   const id = `u-${localDaemonTargetHash(`${path.resolve(userRoot)}\0${daemonId}`)}`;
-  return endpointIdentity(
-    platform === "win32" ? `\\\\.\\pipe\\harness-anything-${safeDaemonId(id)}` : unixEndpoint(id),
-  );
+  return endpointIdentity(platform === "win32" ? `\\\\.\\pipe\\harness-anything-${id}` : defaultUnixSocketPath(id));
 }
 export function daemonUserRoot(env: NodeJS.ProcessEnv = process.env): string {
   return path.resolve(env.HARNESS_DAEMON_USER_ROOT || path.join(os.homedir(), ".harness"));
@@ -63,8 +61,8 @@ export function resolveLocalDaemonEndpoint(input: {
     return expected;
   }
   const endpoint = endpointIdentity(injected);
-  // An enforced runtime changes TMPDIR, so a matching POSIX socket may live in a different
-  // directory. Its basename still carries the hash of the sealed (userRoot, daemonId) pair.
+  // An explicitly injected POSIX socket may live in a different directory. Its basename
+  // carries the hash of the sealed (userRoot, daemonId) pair.
   const accepted =
     env.HARNESS_DAEMON_RELAY === "1"
       ? input.canonicalRoot !== undefined && isWorkspaceRelayEndpoint(endpoint, input.canonicalRoot)
@@ -156,13 +154,6 @@ export async function readRegisteredRepos(
 function localDaemonTargetHash(value: string): string {
   return createHash("sha256").update(value).digest("hex").slice(0, 16);
 }
-function safeDaemonId(value: string): string {
-  return value.replace(/[^A-Za-z0-9_.-]/gu, "-");
-}
-function unixEndpoint(id: string): string {
-  return path.join(os.tmpdir(), "harness-anything", `daemon-${process.getuid?.() ?? 0}-${safeDaemonId(id)}.sock`);
-}
-
 function isWorkspaceRelayEndpoint(endpoint: string, rootDir: string): boolean {
   const root = path.resolve(rootDir),
     relative = path.relative(root, path.resolve(endpoint)),
@@ -175,4 +166,13 @@ function isWorkspaceRelayEndpoint(endpoint: string, rootDir: string): boolean {
     if (info?.isSymbolicLink()) return false;
   }
   return true;
+}
+
+export function defaultUnixSocketPath(daemonId: string, uid = process.getuid?.() ?? 0): string {
+  // TMPDIR can exceed the Unix socket path limit and differ between clients and the daemon.
+  return path.join(
+    "/tmp",
+    `harness-anything-${uid}`,
+    `daemon-${uid}-${daemonId.replace(/[^A-Za-z0-9_.-]/gu, "-")}.sock`,
+  );
 }
