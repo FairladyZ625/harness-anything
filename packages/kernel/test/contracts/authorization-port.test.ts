@@ -59,7 +59,8 @@ test("the default Policy covers the frozen durable inventory exactly once", () =
   // 写入口。112 → 114。2026-09-09:Root 已明确确认这四条属于既有 built-in/generic Entity CRUD 范围,
   // 四条都有真实未授权调用者被 policy 拒绝的证据(agent-action / entity-content-lifecycle /
   // entity-kind-content-declared 三个 integration 测试),不是把数字改对就算数。
-  assert.equal(durablePolicyActions.length, 114);
+  // 2026-09-12: task-closeout retired with its packet protocol; complete is the sole closeout mutation, 114 → 113.
+  assert.equal(durablePolicyActions.length, 113);
   // 其余两条是自洽不变量,不需要第二个硬编码数字:清单内无重复(三个角色分段互不重叠),
   // 且每个 durable Action 恰好被一条 rule 覆盖。
   assert.equal(new Set(durablePolicyActions).size, durablePolicyActions.length);

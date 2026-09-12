@@ -64,33 +64,6 @@ export function parseTask(
       patches: [{ field: "pinned", value: id === "task-pin" ? "true" : "false" }],
     });
   if (id === "task-supersede") return parseSupersede(args, taskId, rootDir, repoId, json, inputs);
-  if (id === "task-closeout") {
-    const f = readFlags(id, args.slice(3), inputs);
-    if (!f.ok) return rejected(f.code, f.nextAction, json);
-    const fromFile = f.one.get("--from-file"),
-      jsonInput = f.one.get("--json-input"),
-      printTemplate = f.booleans.has("--print-template"),
-      printSchema = f.booleans.has("--print-schema"),
-      modes = Number(fromFile !== undefined || jsonInput !== undefined) + Number(printTemplate) + Number(printSchema);
-    if (modes !== 1)
-      return rejected(
-        modes === 0 ? "missing_field" : "invalid_field",
-        "Choose exactly one of --from-file <path>, --json-input <json|@->, --print-template, or --print-schema.",
-        json,
-      );
-    const executionId = f.one.get("--execution-id");
-    if (printSchema && executionId)
-      return rejected("invalid_field", "--execution-id does not apply to --print-schema.", json);
-    return accepted(rootDir, repoId, json, {
-      kind: id,
-      taskId,
-      ...(executionId ? { executionId } : {}),
-      ...(fromFile ? { fromFile } : {}),
-      ...(jsonInput ? { jsonInput } : {}),
-      ...(printTemplate ? { printTemplate: true } : {}),
-      ...(printSchema ? { printSchema: true } : {}),
-    });
-  }
   if (id === "task-declare-executor") {
     const f = readFlags(id, args.slice(3), inputs),
       executionId = f.ok ? f.one.get("--execution-id") : undefined;

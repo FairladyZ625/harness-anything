@@ -457,6 +457,16 @@
         "value": "packages/daemon/test/cli-fault-stress.integration.test.ts",
         "ref": "dec_EF5F3820E81FB8A5266F1F3342",
         "reason": "B5 deletes the projectedTaskIds canonical scan and its empty-set cache that this fault stress injected into; a lagging projection now fails closed with content_not_ready, covered by repo-cell-latch-recovery.test.ts in the same PR."
+      },
+      {
+        "value": "packages/cli/test/task-closeout-docs-ci.integration.test.ts",
+        "ref": "dec_13FF6AEF3598AF34DC8F4A0558",
+        "reason": "One-path slice 4 retired the task closeout packet protocol; closeout.md-derived submit, automatic review dispatch, and complete --consent are covered by json-rpc-protocol and completion tests."
+      },
+      {
+        "value": "packages/cli/test/task-closeout.integration.test.ts",
+        "ref": "dec_13FF6AEF3598AF34DC8F4A0558",
+        "reason": "One-path slice 4 retired the task closeout packet protocol; closeout.md-derived submit, automatic review dispatch, and complete --consent are covered by json-rpc-protocol and completion tests."
       }
     ]
   }

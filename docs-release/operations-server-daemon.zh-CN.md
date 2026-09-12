@@ -70,7 +70,7 @@ ha gui
 
 | 错误码                                | 条件                                                   | 恢复方式                                                                                                                                                |
 | ------------------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `invalid_submission`                  | submission 字段类型或取值错误                          | 修正回执点名的 JSON 字段，再运行 `ha task submit <task-id> --execution-id <execution-id> --from-file <submission.json>`。                               |
+| `invalid_submission`                  | closeout 文档无法生成有效 submission                   | 修正回执点名的 `closeout.md` 小节，再运行 `ha task submit <task-id>`。                                                                       |
 | `invalid_runtime_mission`             | `--mission` 收到路径或非法 id                          | 使用小写裸 id；daemon 读取 `harness/<task-package>/artifacts/missions/<name>.md`，再运行 `ha runtime run <runtime> --task <task-id> --mission <name>`。 |
 | `declare-executor` 的 `invalid_proof` | execution 不满足 `submitted/review` 且 `executor=none` | 已分配的 submitted execution 运行 `ha task review-execution`；仅未分配的 execution 使用 `ha task declare-executor`。                                    |
 | `executor_binding_invalid`            | 声明的 executor 与 task binding 或 held lease 不同     | 从 diagnostic 点名的 expected executor 执行回执里的重试命令。                                                                                           |

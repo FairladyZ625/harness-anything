@@ -140,7 +140,6 @@ export const commandTable = [
     (c, s) => ["fact", "record", chain2(s), "--statement", c.text(`chain2 fact ${s}`), "--source", "bench"],
   ],
   ["task-submit~chain2", (c, s) => ["task", "submit", chain2(s)], worker],
-  ["task-closeout", (c, s) => ["task", "closeout", chain2(s), "--print-template"]],
   [
     "task-review-execution~chain2",
     (c, s) => [

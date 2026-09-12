@@ -54,14 +54,14 @@ test("eight isolated CLI clients complete 24 lifecycle chains", async (context) 
   }
 });
 
-test("eight CLI clients share one center while closeout facade completes each task", async (context) => {
+test("eight CLI clients share one center while completing each task", async (context) => {
   const fixture = setup(8),
     startedAt = Date.now();
   try {
     await startClient(fixture);
     const outcomes = await Promise.all(
       Array.from({ length: clientCount }, (_, clientIndex) =>
-        runChain(fixture, clientIndex, 0, actorLabel(clientIndex), true),
+        runChain(fixture, clientIndex, 0, actorLabel(clientIndex)),
       ),
     );
     assert.equal(outcomes.length, clientCount);
@@ -540,7 +540,6 @@ async function runChain(
   clientIndex: number,
   chainIndex: number,
   actor: string,
-  facade = false,
 ): Promise<ChainOutcome> {
   const taskId = `task-cli-stress-${clientIndex}-${chainIndex}`,
     executionId = `execution-cli-stress-${clientIndex}-${chainIndex}`,
@@ -649,26 +648,11 @@ async function runChain(
     ],
     reviewerEnvironment,
   );
-  if (facade) {
-    await expectApplied(fixture, ["task", "review-consent", taskId], workerEnvironment);
-    const closeoutPacketPath = path.join(fixture.root, `closeout-${taskId}.json`);
-    writeFileSync(closeoutPacketPath, JSON.stringify({ completion: { ci: "not_applicable", codeDocPaths: [] } }));
-    const closeout = await expectApplied(
-      fixture,
-      ["task", "closeout", taskId, "--execution-id", executionId, "--from-file", path.basename(closeoutPacketPath)],
-      workerEnvironment,
-    );
-    assert.deepEqual(
-      (closeout.steps as Array<Record<string, unknown>>).map(({ stage }) => stage),
-      ["complete"],
-    );
-  } else {
-    await expectApplied(
-      fixture,
-      ["task", "complete", taskId, "--execution-id", executionId, "--consent"],
-      workerEnvironment,
-    );
-  }
+  await expectApplied(
+    fixture,
+    ["task", "complete", taskId, "--execution-id", executionId, "--consent"],
+    workerEnvironment,
+  );
   const final = await expectApplied(fixture, ["task", "show", taskId], workerEnvironment),
     finalEvidence = JSON.parse(String(final.evidence)) as { readonly task?: { readonly status?: string } };
   assert.equal(finalEvidence.task?.status, "done");

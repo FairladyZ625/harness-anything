@@ -606,7 +606,7 @@ const declarations: readonly Declaration[] = Object.freeze([
       { authority: "task-lease/v1", mode: "must-be-released" },
       { authority: "operation-id", retry: "closeout-stage-resume" },
     ),
-    explain: "Complete the reviewed execution after canonical closeout readiness and gate checks.",
+    explain: "Complete after readiness checks; --execution-id only repairs ambiguous current executions.",
   }),
   mutation(
     "release",

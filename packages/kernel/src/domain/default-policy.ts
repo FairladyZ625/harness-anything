@@ -64,7 +64,6 @@ const repositoryWriteActions = Object.freeze([
   "task-amend",
   "task-archive",
   "task-artifact-add",
-  "task-closeout",
   "task-code-doc-reconcile",
   "task-code-doc-repoint",
   "task-complete",
