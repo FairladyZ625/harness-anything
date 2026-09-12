@@ -10,6 +10,7 @@ import {
   readGraphTerritoryShowArchived,
   writeGraphTerritoryShowArchived,
 } from "../src/renderer/graph-territory-preferences.ts";
+import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import { projectedTaskFields } from "./task-projection-fields.ts";
 
 /**
@@ -243,10 +244,12 @@ describe("territory archive-noise filter (board parity)", () => {
   }
 
   beforeAll(() => {
+    setActiveLocale("zh-CN");
     window.localStorage.clear();
   });
 
   it("hides cancelled/archived chips by default and shows them after the toggle", async () => {
+    setActiveLocale("zh-CN");
     window.localStorage.clear();
     const { div, root } = await mountTerritory(noiseTasks());
     expect(chipRefs(div)).toEqual(["task/t_live"]);
@@ -277,6 +280,7 @@ describe("territory archive-noise filter (board parity)", () => {
   });
 
   it("writes the default (hidden) on mount so the memory always reflects the live view", async () => {
+    setActiveLocale("zh-CN");
     window.localStorage.clear();
     const { div, root } = await mountTerritory(noiseTasks());
     expect(chipRefs(div)).toEqual(["task/t_live"]);
@@ -308,4 +312,39 @@ describe("graph territory show-archived preference storage", () => {
     stub.value = '"yes"';
     expect(readGraphTerritoryShowArchived(stub)).toBe(false);
   });
+});
+
+it("decision scope has its own visible density switch and preserves task scope", async () => {
+  setActiveLocale("zh-CN");
+  window.localStorage.clear();
+  const { div, root } = await mountGraph({ viewMode: "territory", focusRef: null });
+  const click = async (text: string) => {
+    const button = [...div.querySelectorAll("button")].find((button) => button.textContent?.trim() === text);
+    expect(button, text).toBeDefined();
+    await act(async () => button!.click());
+  };
+  await click("决策");
+  await act(async () => div.querySelector<HTMLButtonElement>("button[title='展开筛选面板']")!.click());
+  const allButton = div.querySelector<HTMLButtonElement>("[data-testid='graph-density-all']");
+  expect(allButton).not.toBeNull();
+  await act(async () => allButton!.click());
+  await click("任务");
+  const focus = div.querySelector("[data-testid=graph-density-focus]");
+  expect(focus?.getAttribute("aria-pressed")).toBe("true");
+  await click("决策");
+  const all = div.querySelector("[data-testid=graph-density-all]");
+  expect(all?.getAttribute("aria-pressed")).toBe("true");
+  await act(async () => root.unmount());
+  div.remove();
+});
+
+it("does not classify decisions while relations are loading or failed", async () => {
+  const { div, root, render } = await mountGraph({ viewMode: "territory", relationState: "loading" });
+  expect(div.querySelector("[role=status]")?.textContent).toContain("正在加载完整关系");
+  expect(div.textContent).not.toContain("孤立");
+  await render({ viewMode: "territory", relationState: "error" });
+  expect(div.querySelector("[role=alert]")?.textContent).toContain("关系读取失败");
+  expect(div.textContent).not.toContain("孤立");
+  await act(async () => root.unmount());
+  div.remove();
 });

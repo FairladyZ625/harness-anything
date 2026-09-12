@@ -48,7 +48,7 @@ export interface EntityWorkspaceProps {
   entityKinds?: readonly EntityTypeOption[];
   /** 声明实体行(vertical kind),透传给 GraphView。 */
   governedEntities?: ReadonlyArray<GovernedEntityRow>;
-  relationPageNextCursor?: string | null;
+  relationState?: "ready" | "loading" | "error";
 }
 
 const FOCUS_REF_DECISION = /^decision\//u;
@@ -73,7 +73,7 @@ export function EntityWorkspace({
   onOpenPalette,
   entityKinds,
   governedEntities,
-  relationPageNextCursor,
+  relationState,
 }: EntityWorkspaceProps) {
   // lineage 仅 decision 有谱系。
   const canShowLineage = focusedEntityRef ? FOCUS_REF_DECISION.test(focusedEntityRef) : false;
@@ -141,7 +141,7 @@ export function EntityWorkspace({
             focusRef={focusedEntityRef}
             viewMode={viewMode}
             onViewModeChange={setViewMode}
-            relationPageNextCursor={relationPageNextCursor}
+            relationState={relationState}
             recentRefs={recentRefs}
             entries={entries}
             onOpenPalette={onOpenPalette}

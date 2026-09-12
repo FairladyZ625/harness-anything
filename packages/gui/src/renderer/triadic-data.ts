@@ -181,13 +181,47 @@ export function useRuntimePlaneQuery(repoId: string | null, options: { readonly 
 }
 
 /**
- * Read one bounded relation-graph page. The daemon page contract carries a cursor for
- * explicit follow-up reads, but the GUI must not drain a 10k+ ledger on every refresh.
+ * Read the complete relation set before classifying graph membership.
+ * A failed page rejects the whole read; partial edges cannot prove isolation.
  */
-export async function readRelationGraphPage(
+export async function readCompleteRelationGraph(
   read: (payload: { readonly limit: number; readonly cursor?: string }) => Promise<RelationGraphSuccess>,
 ): Promise<RelationGraphSuccess> {
-  return read({ limit: 500 });
+  const first = await read({ limit: 500 });
+  const pages = [first];
+  let cursor = first.page?.nextCursor;
+  while (cursor) {
+    const next = await read({ limit: 500, cursor });
+    pages.push(next);
+    cursor = next.page?.nextCursor;
+  }
+  const unique = <T>(rows: readonly T[], key: (row: T) => string): T[] => [
+    ...new Map(rows.map((row) => [key(row), row])).values(),
+  ];
+  return {
+    ...first,
+    edges: unique(
+      pages.flatMap((page) => page.edges),
+      (row) => row.relationId,
+    ),
+    facts: unique(
+      pages.flatMap((page) => page.facts),
+      (row) => row.ref,
+    ),
+    coverageRows: unique(
+      pages.flatMap((page) => page.coverageRows),
+      (row) => row.claimRef,
+    ),
+    factAnchors: unique(
+      pages.flatMap((page) => page.factAnchors),
+      (row) => JSON.stringify(row),
+    ),
+    warnings: unique(
+      pages.flatMap((page) => page.warnings),
+      (row) => JSON.stringify(row),
+    ),
+    ...(first.page ? { page: { ...first.page, nextCursor: null } } : {}),
+  };
 }
 
 /**
@@ -204,7 +238,8 @@ export function useTriadicProjectionQuery(
   const decisionsEnabled = enabled && options.decisionsEnabled !== false;
   const graph = useQuery({
     queryKey: triadicQueryKeys.graph(repoId ?? "unselected"),
-    queryFn: () => readRelationGraphPage((payload) => harnessClient.getRelationGraph({ repoId: repoId!, ...payload })),
+    queryFn: () =>
+      readCompleteRelationGraph((payload) => harnessClient.getRelationGraph({ repoId: repoId!, ...payload })),
     enabled: graphEnabled,
     staleTime: 10_000,
   });
@@ -236,7 +271,6 @@ export function useTriadicProjectionQuery(
       isError,
       decisionError: decisionsEnabled ? decisions.error : null,
       graphAvailable,
-      relationPageNextCursor: graph.data?.page?.nextCursor ?? null,
       relationState: graph.isError
         ? ("error" as const)
         : graphEnabled && graph.isPending
