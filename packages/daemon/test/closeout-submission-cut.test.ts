@@ -145,7 +145,7 @@ test("missing dispatch requires an explicit Summary cut and rejects ambiguous co
   put(root, "src/live.ts", "export const liveValue = 3;\n");
   const sha = commit(root);
   assert.throws(() => derive(root, "Completed the live path."), { code: "invalid_submission" });
-  assert.throws(() => derive(root, `Delivered ${base} and ${sha}.`), { code: "invalid_submission" });
+  assert.throws(() => derive(root, `Delivered ${base} and ${sha}.`), /names 2 delivery commits/u);
   assert.throws(() => derive(root, `Delivered ${"f".repeat(40)}.`), { code: "invalid_submission" });
 });
 
