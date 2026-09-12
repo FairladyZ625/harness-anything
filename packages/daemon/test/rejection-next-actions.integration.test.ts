@@ -374,6 +374,77 @@ test("symptom task_6edcc0d990dae7e42f4bc93ff9 (review-execution before submit): 
   }
 });
 
+test("symptom task_6edcc0d990dae7e42f4bc93ff9 (submit packet): a submission packet on task submit names the closeout route instead of a bare invalid_command", async () => {
+  const rootDir = workspace("submit-packet"),
+    taskId = "task-submit-packet",
+    executionId = "exec-submit-packet",
+    holder = binding("holder");
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    cell = await openRepoCell({
+      repoId: workspaceId("submit-packet"),
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "submit-packet",
+    });
+    const created = await cell.run({ kind: "task-create", taskId, title: "Submit packet" }, holder);
+    assert.equal(created.outcome, "applied");
+    await waitForFixturePublication(cell, created.opId, holder);
+    await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
+      cell!.run({ kind: "doc-submit", paths: [planPath] }, holder),
+    );
+    assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, holder)).outcome, "applied");
+    const rejected = await cell.run({ kind: "task-submit", taskId, executionId, fromFile: "sub.json" }, holder);
+    assert.equal(rejected.outcome, "op_rejected", JSON.stringify(rejected));
+    assert.equal(rejected.code, "invalid_command", JSON.stringify(rejected));
+    assert.match(String(rejected.rejectionExplanation), /Write closeout\.md/u);
+  } finally {
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("symptom task_6edcc0d990dae7e42f4bc93ff9 (complete --path): code-doc reconcile against a ledger-internal path names the Git-root requirement instead of a bare invalid_proof", async () => {
+  const rootDir = workspace("reconcile-wrong-root"),
+    taskId = "task-reconcile-wrong-root",
+    executionId = "exec-reconcile-wrong-root",
+    holder = binding("holder");
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    cell = await openRepoCell({
+      repoId: workspaceId("reconcile-wrong-root"),
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "reconcile-wrong-root",
+    });
+    const created = await cell.run({ kind: "task-create", taskId, title: "Reconcile wrong root" }, holder);
+    assert.equal(created.outcome, "applied");
+    await waitForFixturePublication(cell, created.opId, holder);
+    await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
+      cell!.run({ kind: "doc-submit", paths: [planPath] }, holder),
+    );
+    assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, holder)).outcome, "applied");
+    writeCloseout(rootDir, (created as Record<string, unknown>).packagePath);
+    assert.equal((await cell.run({ kind: "task-submit", taskId, executionId }, holder)).outcome, "applied");
+    const rejected = await cell.run(
+      { kind: "task-code-doc-reconcile", taskId, paths: ["harness/agents/x.json"] },
+      withRoleBinding(holder, "repo-write"),
+    );
+    assert.equal(rejected.outcome, "op_rejected", JSON.stringify(rejected));
+    assert.equal(rejected.code, "invalid_proof", JSON.stringify(rejected));
+    assert.match(String(rejected.rejectionExplanation), /harness\/agents\/x\.json/u);
+    assert.match(String(rejected.rejectionExplanation), /relative to the Git repository/u);
+    assert.deepEqual(rejected.diagnostic, {
+      kind: "validation",
+      entity: "code-doc reconciliation",
+      field: "paths[0]",
+      actual: "harness/agents/x.json",
+      expectation: "Path must be relative to the Git repository that owns the submitted commit",
+    });
+  } finally {
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("symptom task_356fe6c7a05cb987d93a807b46: relation relate against a nonexistent entity names the missing ref instead of a bare entity_not_found", async () => {
   const rootDir = workspace("relation-entity-not-found"),
     repoId = workspaceId("relation-entity-not-found");
