@@ -86,7 +86,7 @@
       "packages/daemon/src/fleet/edge.ts#peerFor",
       "packages/daemon/src/fleet/replica-ack-store.ts#ack",
       "packages/daemon/src/fleet/replica-cut-store.ts#kick",
-      "packages/daemon/src/fleet/replica-cut-store.ts#persist",
+      "packages/daemon/src/fleet/replica-cut-store.ts#transact",
       "packages/daemon/src/lease-broker.ts#domainLease",
       "packages/daemon/src/lease-broker.ts#execute",
       "packages/daemon/src/lease-broker.ts#pumpQueue",
