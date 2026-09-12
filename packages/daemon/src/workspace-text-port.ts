@@ -11,14 +11,13 @@ export function readWorkspaceText(rootDir: string, requested: string, field: str
     candidate = realpathSync(requestedPath);
     if (candidate !== root && !candidate.startsWith(`${root}${path.sep}`)) throw boundaryError(field, root);
     bytes = readFileSync(candidate);
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   } catch (error) {
     if (isBoundaryError(error)) throw error;
-    throw portError(`${field} must be a readable UTF-8 file.`);
-  }
-  try {
-    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-  } catch {
-    throw portError(`${field} must be a readable UTF-8 file.`);
+    throw portError(
+      `${field} must name a readable UTF-8 file inside workspace root ${rootDir}; ` +
+        "relative paths are resolved from this root.",
+    );
   }
 }
 
