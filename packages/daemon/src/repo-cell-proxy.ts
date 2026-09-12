@@ -32,7 +32,7 @@ import { requiredCellText } from "./repo-cell-settlement.ts";
 import { makeRepoCellSettingsState } from "./repo-cell-settings-state.ts";
 import { listTasks, type TaskQueryCell } from "./repo-cell-task-query.ts";
 import type { RepoCell, RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
-import { repoCellTaskQueryJudgments } from "./repo-cell.ts";
+import { repoCellTaskQueryJudgmentsFor } from "./repo-cell.ts";
 import { makeSquadCoordinator } from "./squad-coordinator.ts";
 import { makeTaskQueryReadModel } from "./task-query-read.ts";
 import { openWriterSupervisor } from "./writer-supervisor.ts";
@@ -289,7 +289,7 @@ export async function openRepoCellProxy(
           makeTaskQueryReadModel({
             rootDir: input.rootDir,
             projection: projection as TaskProjection,
-            judgments: repoCellTaskQueryJudgments,
+            judgments: repoCellTaskQueryJudgmentsFor(projection),
           }).guiTasks(taskListQuery(payload)),
         ) as never;
       return query((projection) => readAtCut(projection, method, payload, binding)) as never;

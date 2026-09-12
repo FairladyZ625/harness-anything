@@ -351,8 +351,7 @@ export async function completeTask(
       cell.completeRetryCommand(taskId, executionId, action),
     ),
   );
-  const closeout = cell.settings.readRepository().closeout,
-    closeoutGates = effectiveCloseoutGates(closeout, initial.snapshot.task?.completionGateIds),
+  const closeoutGates = preparedContext.closeoutGates!,
     codeDoc =
       closeoutGates.codeDoc && submittedExecution?.submission?.commitSha
         ? verifyCodeDocCommitPaths({ rootDir: cell.rootDir, commitSha: submittedExecution.submission.commitSha, paths })

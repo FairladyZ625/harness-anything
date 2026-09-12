@@ -1,6 +1,5 @@
 import type { TaskLifecycleSnapshot } from "./task-lifecycle.contract.ts";
 import { closeoutReadiness, currentExecutionCuts, lineageOrphan } from "./closeout-readiness.ts";
-import { approvedReviewsForExecution } from "./review.ts";
 import type { TransitionDocumentMissingSection } from "./transition-document-readiness.ts";
 import type { CloseoutGate } from "./settings-closeout.ts";
 
@@ -165,8 +164,8 @@ function evaluateCompletion(
       `ha task release ${task.taskId}`,
       "The held execution lease must be released by its current holder.",
     );
-  const assessment = closeoutReadiness(snapshot),
-    closeoutGates = context.closeoutGates ?? { review: true, consent: true, factDisposition: true, codeDoc: true };
+  const closeoutGates = context.closeoutGates ?? { review: true, consent: true, factDisposition: true, codeDoc: true },
+    assessment = closeoutReadiness(snapshot, undefined, closeoutGates);
   const gate = assessment.gates.find(
     ({ gateId, status }) =>
       status !== "passed" &&
@@ -221,15 +220,16 @@ function evaluateCompletion(
       "Publish eligible closeout and artifact edits through doc-sync.",
     );
   if (!includeReview) return [];
-  const approved = approvedReviewsForExecution(snapshot.reviews, execution);
-  if (closeoutGates.review && approved.length === 0)
+  // The assessment already carries the gate judgment; re-deriving review or consent here
+  // would duplicate the one closeout-readiness decision.
+  if (assessment.blocker === "review")
     return one(
       "review_missing",
       "review",
       `ha task complete ${task.taskId}`,
       "Dispatch an independent reviewer for the current submitted cut.",
     );
-  if (closeoutGates.consent && assessment.blocker === "consent")
+  if (assessment.blocker === "consent")
     return one(
       "consent_missing",
       "consent",

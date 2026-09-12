@@ -9,6 +9,7 @@ import {
   makeTaskEventStore,
   makeTaskProjection,
   type DaemonRepoMode,
+  type TaskProjectionQueries,
 } from "../../kernel/src/index.ts";
 import { makeAgentRuntimeReadModel } from "./agent-runtime-read.ts";
 import {
@@ -20,6 +21,7 @@ import {
 import { makeEntityActionCatalogExecutor } from "./entity-action-catalog-executor.ts";
 import { openReplicaCutSource } from "./fleet/replica-cut-store.ts";
 import { cellErrorCode, cellErrorMessage } from "./repo-cell-errors.ts";
+import { readEffectiveCloseoutGates } from "./repo-cell-settings-state.ts";
 import type { DaemonLifecycleRecorder } from "./lifecycle-log.ts";
 import type { RepoCellAttachProgress, RepoCellBinding } from "./repo-cell-types.ts";
 import { resolveWriteSessionIdentity } from "./session-identity/index.ts";
@@ -39,10 +41,18 @@ export type {
   RuntimeIngressAction,
 } from "./repo-cell-types.ts";
 
-export const repoCellTaskQueryJudgments: TaskQueryJudgments = {
-  closeout: (snapshot, availability) => closeoutReadiness(snapshot, availability),
-  blocking: (tasks, relations, state) => blockingOf(tasks, relations, state),
-};
+/** Read judgments bound to one projection cut: the closeout verdict follows the effective gate set. */
+export function repoCellTaskQueryJudgmentsFor(projection: TaskProjectionQueries): TaskQueryJudgments {
+  return {
+    closeout: (snapshot, availability) =>
+      closeoutReadiness(
+        snapshot,
+        availability,
+        readEffectiveCloseoutGates(projection, snapshot.task?.completionGateIds ?? []),
+      ),
+    blocking: blockingOf,
+  };
+}
 
 export interface RepoCellCoreInput {
   readonly input: {

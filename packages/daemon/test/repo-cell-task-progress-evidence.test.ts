@@ -448,6 +448,7 @@ test("complete without a code-doc witness stops on code_doc_missing under its ow
         eligibleDirtyPaths: [],
         producesFactCount: 1,
         projectionStatus: "ready",
+        closeoutGates: { review: false, consent: false, factDisposition: false, codeDoc: true },
       },
       cell = {
         rootDir: root,
@@ -463,6 +464,7 @@ test("complete without a code-doc witness stops on code_doc_missing under its ow
         service: { read: async () => read },
         projection: {
           read: () => read,
+          getEntity: () => null,
           readTaskCompletion: () => null,
           readRelationQuery: (query: { readonly relationType?: string }) =>
             query.relationType === "produces"
@@ -556,6 +558,7 @@ test("completed receipt replay does not inspect a newer red or unavailable CI ob
   });
   Object.assign(prepared.cell.projection, {
     read: () => read,
+    getEntity: () => null,
     readTaskCompletion: () => completedEvent,
     readCiRunObservations: () => {
       assert.fail("completed replay must not read newer CI observations");
