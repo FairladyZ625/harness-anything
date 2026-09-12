@@ -6,6 +6,7 @@ import {
   type ExecutionV1,
   type WriteReceiptDraft,
 } from "../../kernel/src/index.ts";
+import { readSubmissionArtifact } from "./submission-artifacts.ts";
 import { isRuntimeEvent } from "./runtime-spawn-errors.ts";
 import { readAgentDeclaration } from "./agent-entities.ts";
 import { authorizeRepoCellAction } from "./repo-cell-authorization.ts";
@@ -82,7 +83,16 @@ export async function dispatchCompletionReview(
         prompt: [
           `Independently review task ${taskId}, execution ${execution.executionId}, iteration ${execution.iteration}.`,
           `The exact submission digest is ${submissionDigest(execution.submission!)}; ` +
-            `commit ${execution.submission!.commitSha}.`,
+            `delivery ${JSON.stringify(execution.submission!)}.`,
+          ...(execution.submission!.commitSha === null
+            ? execution.submission!.artifacts.map((anchor) =>
+                JSON.stringify(
+                  readSubmissionArtifact(cell, packagePath, anchor.path, anchor.revision, anchor.blobSha256),
+                ),
+              )
+            : []),
+          "For artifact delivery, review the center-accepted frozen contents above against the contract; " +
+            "do not substitute local files or require Git ancestry. Honor every gate declared by the task.",
           "Read the task plan, closeout, and submitted delivery yourself. " +
             "Record approved or changes_requested through RecordReview; never infer approval from provider success.",
           `Write this execution's review report to harness/${report} and review input to harness/${packet}. ` +

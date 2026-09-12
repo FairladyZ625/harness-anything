@@ -657,15 +657,7 @@ export interface ExecutionEvidenceProjection {
   }[];
 }
 
-export interface GuiSubmissionV1 {
-  readonly completionClaim: string;
-  readonly deliverables: readonly string[];
-  readonly outputs: readonly string[];
-  readonly verificationNotes: readonly string[];
-  readonly knownGaps: readonly string[];
-  readonly residualRisks: readonly string[];
-  readonly commitSha: string;
-}
+export type GuiSubmissionV1 = import("../../../kernel/src/index.ts").SubmissionV1;
 
 /** One projected document under a task package (paths relative to the package root, e.g. artifacts/report.md). */
 export interface TaskDocumentListEntryRow {

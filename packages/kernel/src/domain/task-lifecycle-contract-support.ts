@@ -106,7 +106,7 @@ export function takeEdge(
   task: TaskV2,
   trigger: TaskEdgeTaken["on"],
   reason: string,
-  commitSha: string,
+  commitSha: string | null,
   iteration: number,
 ): TaskEdgeTaken {
   const edge = task.graph.edges.find((value) => value.on === trigger);
@@ -129,6 +129,8 @@ export function canonicalGateReceipts(
   snapshot: TaskLifecycleSnapshot,
   current: ExecutionV1,
 ): CompleteTaskProof["gateReceipts"] {
+  if (!current.submission?.commitSha) return [];
+  const commitSha = current.submission.commitSha;
   const passed = new Set(
     gateResults(snapshot, undefined, current.executionId, current.submission?.commitSha, current.iteration)
       .filter(({ status }) => status === "passed")
@@ -165,7 +167,7 @@ export function canonicalGateReceipts(
             receiptRef,
             result: "pass" as const,
             executionId: current.executionId,
-            commitSha: current.submission!.commitSha,
+            commitSha,
             iteration: current.iteration,
           },
         ]

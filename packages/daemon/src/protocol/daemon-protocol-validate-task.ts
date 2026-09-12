@@ -478,7 +478,7 @@ function snapshotFailurePaths(value: unknown, availability: unknown): readonly s
         !exactRecord(edge, ["edgeId", "from", "to", "on", "actorRole", "reason", "commitSha", "iteration"]) ||
         !nonEmpty(edge.edgeId) ||
         !nonEmpty(edge.reason) ||
-        !sha(edge.commitSha) ||
+        (edge.commitSha !== null && !sha(edge.commitSha)) ||
         !iteration(edge.iteration),
     )
   )

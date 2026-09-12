@@ -82,6 +82,7 @@ export interface CompiledTaskBootstrap extends CompiledTaskPackage {
   readonly blobs: readonly TaskBootstrapBlob[];
 }
 export interface CompilePresetSnapshotUpgradeInput extends PresetResolverOptions {
+  readonly toPresetId?: string;
   readonly task: TaskBootstrapEventV1["payload"]["task"];
   readonly taskContractBody: string;
   readonly actor: ActorIdentity;
@@ -346,17 +347,19 @@ export function compilePresetSnapshotUpgrade(input: CompilePresetSnapshotUpgrade
     documents.some((item) => !item || typeof item !== "object" || typeof (item as { path?: unknown }).path !== "string")
   )
     throw bootstrapFailure("invalid_task_contract", "Task contract metadata does not match the canonical task.");
-  const compiled = compileTaskPackage({
-    ...input,
-    taskId: input.task.taskId,
-    title,
-    taskClass: input.task.taskClass,
-    presetId,
-    verticalId,
-    profileId,
-    locale,
-    slug: input.task.metadata?.slug,
-  });
+  const currentTask = currentTaskForWrite(input.task),
+    compiled = compileTaskPackage({
+      ...input,
+      taskId: input.task.taskId,
+      title,
+      taskClass: input.task.taskClass,
+      slug: input.task.metadata?.slug,
+      moduleKey: input.task.metadata?.moduleKey ?? undefined,
+      verticalId,
+      profileId: input.toPresetId && input.toPresetId !== presetId ? undefined : profileId,
+      locale,
+      presetId: input.toPresetId ?? presetId,
+    });
   // A preset may retire a document slot (afa7f26fc retired the fact ledger document once facts became
   // entities); the retired file stays on disk as committed prose. Only a slot the package does not have yet
   // would need materialization, so only additions are rejected.
@@ -377,7 +380,24 @@ export function compilePresetSnapshotUpgrade(input: CompilePresetSnapshotUpgrade
       size: Buffer.byteLength(snapshotBody),
       mediaType: "application/json" as const,
     },
-    contractDocument = compiled.documents.find(({ relativePath }) => relativePath === "task-contract.json")!,
+    compiledContract = compiled.documents.find(({ relativePath }) => relativePath === "task-contract.json")!,
+    contractBody = `${JSON.stringify(
+      {
+        ...JSON.parse(compiledContract.body),
+        packagePath: contract.packagePath,
+        metadata: currentTask.metadata
+          ? { ...currentTask.metadata, presetId: input.toPresetId ?? presetId, profileId: compiled.metadata.profileId }
+          : null,
+      },
+      null,
+      2,
+    )}\n`,
+    contractDocument = {
+      ...compiledContract,
+      path: `${contract.packagePath}/task-contract.json`,
+      body: contractBody,
+      contentSha256: sha256Text(contractBody),
+    },
     taskContractClaim = {
       path: contractDocument.path,
       sha256: contractDocument.contentSha256,
@@ -399,7 +419,17 @@ export function compilePresetSnapshotUpgrade(input: CompilePresetSnapshotUpgrade
       payload: {
         previousDigest: previousDigest as `sha256:${string}`,
         task: {
-          ...currentTaskForWrite(input.task),
+          ...currentTask,
+          ...(input.toPresetId && input.toPresetId !== presetId ? { iteration: input.task.iteration + 1 } : {}),
+          ...(input.toPresetId && currentTask.metadata
+            ? {
+                metadata: {
+                  ...currentTask.metadata,
+                  presetId: input.toPresetId,
+                  profileId: compiled.metadata.profileId,
+                },
+              }
+            : {}),
           completionGateIds: compiled.snapshot.profile.completionGateIds,
           presetSnapshotDigest: compiled.snapshot.digest,
         },

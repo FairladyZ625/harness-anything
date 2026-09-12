@@ -116,7 +116,7 @@ export const reviewSchema: EntityDocumentJsonSchema = {
     capabilityRef: { type: "string", minLength: 1 },
     reason: { type: "string", minLength: 1 },
     evidenceChecked: { type: "array", items: { type: "string", minLength: 1 } },
-    commitSha: { type: "string", pattern: "^[0-9a-f]{40}$" },
+    commitSha: { type: "string", pattern: "^[0-9a-f]{40}$", "x-nullable": true },
     iteration: { type: "integer" },
     contentDigest: { type: "string", pattern: "^sha256:[0-9a-f]{64}$" },
     submissionDigest: { type: "string", pattern: "^sha256:[0-9a-f]{64}$" },

@@ -135,7 +135,7 @@ export function gateResults(
   snapshot: CloseoutSnapshot,
   availability?: CloseoutProjectionAvailability,
   executionId?: string,
-  commitSha?: string,
+  commitSha?: string | null,
   iteration?: number,
 ): readonly CloseoutGateResult[] {
   return (snapshot.task?.completionGateIds ?? []).map((gateId) => {

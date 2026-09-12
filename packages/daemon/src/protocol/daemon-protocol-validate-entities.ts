@@ -143,6 +143,22 @@ export function sessionProvenance(value: unknown): boolean {
   );
 }
 
+function validArtifactDelivery(value: unknown): boolean {
+  return (
+    Array.isArray(value) &&
+    value.length > 0 &&
+    value.every(
+      (anchor) =>
+        exactRecord(anchor, ["path", "revision", "blobSha256"]) &&
+        nonEmpty(anchor.path) &&
+        Number.isSafeInteger(anchor.revision) &&
+        Number(anchor.revision) > 0 &&
+        typeof anchor.blobSha256 === "string" &&
+        /^[0-9a-f]{64}$/u.test(anchor.blobSha256),
+    )
+  );
+}
+
 export function validateGuiSubmission(value: unknown): readonly string[] {
   const fields = [
       "completionClaim",
@@ -152,6 +168,7 @@ export function validateGuiSubmission(value: unknown): readonly string[] {
       "knownGaps",
       "residualRisks",
       "commitSha",
+      ...(isJsonObject(value) && value.commitSha === null ? ["artifacts"] : []),
     ],
     entityId = validationEntityId(value, ["commitSha"], "submission:<unknown>"),
     shapeError = recordShapeError(entityId, value, fields);
@@ -163,8 +180,10 @@ export function validateGuiSubmission(value: unknown): readonly string[] {
   for (const field of ["deliverables", "outputs", "verificationNotes", "knownGaps", "residualRisks"] as const)
     if (!stringArray(value[field]))
       errors.push(validationError(entityId, field, value[field], "must be an array of non-empty strings"));
-  if (!sha(value.commitSha))
-    errors.push(validationError(entityId, "commitSha", value.commitSha, "must be a native 40-character commit SHA"));
+  if (value.commitSha === null ? !validArtifactDelivery(value.artifacts) : !sha(value.commitSha))
+    errors.push(
+      validationError(entityId, "commitSha", value.commitSha, "must identify a commit or accepted artifact revisions"),
+    );
   return errors;
 }
 
@@ -349,7 +368,7 @@ export function review(value: unknown): boolean {
     statusWord(reviewVerdictWords, value.verdict) &&
     actor(value.actor) &&
     stringArray(value.evidenceChecked) &&
-    sha(value.commitSha) &&
+    (value.commitSha === null ? digest(value.submissionDigest) : sha(value.commitSha)) &&
     iteration(value.iteration) &&
     digest(value.contentDigest) &&
     (value.submissionDigest === undefined || digest(value.submissionDigest))

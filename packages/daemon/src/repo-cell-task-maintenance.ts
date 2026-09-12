@@ -2,10 +2,12 @@ import { createHash } from "node:crypto";
 import {
   createEntityStore,
   isMigrationImportEvent,
+  isTerminalStatus,
   requireEntityStoreKindContract,
   type TaskProjectionListQuery,
   type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
+import { compileRepoPresetSnapshotUpgrade } from "../../preset/src/index.ts";
 import {
   compileRestatedTaskContract,
   restateTaskContractBody,
@@ -200,6 +202,7 @@ export function migrateTaskContracts(
   action: RepoTaskAction,
   binding: RepoCellBinding,
 ): WriteReceipt {
+  if (action.toPresetId !== undefined) return migrateTaskPreset(cell, action, binding);
   const migratedTaskIds = new Set(
       cell.store
         .read()
@@ -361,6 +364,63 @@ export function migrateTaskContracts(
     cell.store.readHead()?.revision ?? 0,
     steps.length > 0,
   );
+}
+
+function migrateTaskPreset(
+  cell: RepoCellOperationalContext,
+  action: RepoTaskAction,
+  binding: RepoCellBinding,
+): WriteReceipt {
+  const taskId = cell.requiredCellText(action.taskId, "taskId"),
+    toPresetId = cell.requiredCellText(action.toPresetId, "toPresetId"),
+    current = cell.projection.read(taskId),
+    task = current.snapshot.task;
+  if (!cell.projectionReady(current) || !task || !current.packagePath)
+    throw cell.cellCodedError("task_not_found", `Task ${taskId} is not ready for contract migration.`);
+  if (current.snapshot.lease)
+    throw cell.cellCodedError("active_lease", `Run ha task release ${taskId} before contract migration.`);
+  if (isTerminalStatus(task.status))
+    throw cell.cellCodedError("terminal_task", "Contract migration requires a non-terminal task.");
+  if (action.mode !== "apply" && action.mode !== "dry-run")
+    throw cell.cellCodedError("invalid_command", "Choose --dry-run or --apply for contract migration.");
+  const contract = cell.projection.readDocument(`${current.packagePath}/task-contract.json`);
+  if (!cell.projectionReady(contract) || !contract.document)
+    throw cell.cellCodedError("content_not_ready", `Task ${taskId} contract is not ready for migration.`);
+  const revision = cell.store.readHead()?.revision ?? 0,
+    opId = cell.operationId(action, binding, cell.input.repoId, current.snapshot.revision),
+    compiled = compileRepoPresetSnapshotUpgrade({
+      rootDir: cell.rootDir,
+      settings: cell.settings.read(),
+      task,
+      taskContractBody: contract.document.body,
+      toPresetId,
+      actor: binding.actor,
+      source: binding.source,
+      workspaceRevision: revision + 1,
+      eventId: `event-${createHash("sha256").update(opId).digest("hex")}`,
+      opId,
+      occurredAt: cell.now(),
+    }),
+    report = {
+      taskId,
+      actor: binding.actor,
+      occurredAt: compiled.event.occurredAt,
+      from: { presetId: task.metadata?.presetId, digest: task.presetSnapshotDigest, gates: task.completionGateIds },
+      to: {
+        presetId: toPresetId,
+        digest: compiled.snapshot.digest,
+        gates: compiled.snapshot.profile.completionGateIds,
+      },
+    };
+  if (action.mode === "dry-run")
+    return cell.previewResult(opId, { report, applied: false }, revision, "task-contract-migrate");
+  const appended = cell.store.append(compiled),
+    publication = cell.publicPublication(appended);
+  cell.projection.apply(compiled.event, compiled.plan);
+  return {
+    ...cell.readResult(opId, { report, applied: true, migrated: [taskId] }, appended.revision, true),
+    proof: cell.receiptProof(compiled.event, publication),
+  };
 }
 
 function requirePrepared(value: WriteReceipt | PreparedTaskSurfaceWrite): PreparedTaskSurfaceWrite {

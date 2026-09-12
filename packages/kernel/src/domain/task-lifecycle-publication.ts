@@ -382,7 +382,10 @@ function renderExecution(value: ExecutionV1, snapshot: TaskLifecycleSnapshot): s
     `- Claimed: ${value.claimedAt}\n`,
     `- Submitted: ${value.submittedAt ?? "pending"}\n`,
     `- Closed: ${value.closedAt ?? "open"}\n`,
-    `- Commit: ${packet?.commitSha ?? "pending"}\n`,
+    `- Commit: ${packet ? (packet.commitSha ?? "none (artifact delivery)") : "pending"}\n`,
+    ...(packet?.commitSha === null
+      ? packet.artifacts.map((anchor) => `- Artifact: ${anchor.path}@${anchor.revision} (${anchor.blobSha256})\n`)
+      : []),
     `- Completion claim: ${packet?.completionClaim ?? "pending"}\n`,
     `- Reviews: ${
       reviews.length

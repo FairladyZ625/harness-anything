@@ -51,13 +51,19 @@ test("closeout submit preserves holder authority and resumes one cut after a dis
     await waitForFixturePublication(cell, started.opId, holder);
     const closeoutPath = path.join(ledger, packagePath, "closeout.md"),
       artifacts = path.join(ledger, packagePath, "artifacts"),
-      completeBody =
+      completeBodyTemplate =
         "## Summary\nDelivered the private report.\n" +
         "## Verification\n- Targeted test passed.\n- Real publication observed.\n" +
         "## Residual Risk\n- 已知缺口：pending external audit.\n- Accepted risk: manual review.\n" +
         "## Same Mechanism Elsewhere\n- Sibling known gap remains unverified.\n";
     mkdirSync(artifacts, { recursive: true });
     writeFileSync(path.join(artifacts, "report.md"), "# Evidence\n\nHolder-bound receipt under test.\n");
+    const artifactReceipt = await cell.run({ kind: "doc-submit", taskId }, holder);
+    assert.equal(artifactReceipt.outcome, "applied", JSON.stringify(artifactReceipt));
+    const completeBody = completeBodyTemplate.replace(
+      "Delivered the private report.",
+      `Delivered the private report. artifact:${packagePath}/artifacts/report.md@${artifactReceipt.revision}`,
+    );
     writeFileSync(closeoutPath, completeBody.replace(/## Verification\n[\s\S]*?(?=## Residual Risk)/u, ""));
     const submit = async () => {
       let receipt = await cell.run({ kind: "task-submit", taskId, executionId }, holder);

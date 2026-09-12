@@ -470,15 +470,26 @@ export function applyEvent(
       contractBytes.byteLength !== event.payload.taskContractClaim.size
     )
       throw new Error(`preset snapshot upgrade basis mismatch for ${event.taskId}`);
-    const changed = {
-        completionGateIds: event.payload.task.completionGateIds,
-        presetSnapshotDigest: event.payload.task.presetSnapshotDigest,
+    const snapshot = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(snapshotBytes)),
+      changedPreset = current.task.metadata?.presetId !== snapshot.identity.id,
+      changed = {
+        completionGateIds: snapshot.profile.completionGateIds,
+        presetSnapshotDigest: snapshot.digest,
+        ...(changedPreset && current.task.metadata
+          ? {
+              metadata: {
+                ...currentTaskForWrite(current.task).metadata,
+                presetId: snapshot.identity.id,
+                profileId: snapshot.profile.id,
+              },
+              iteration: current.task.iteration + 1,
+            }
+          : {}),
       },
       currentShape = { ...currentTaskForWrite(current.task), ...changed };
     if (canonicalJson(currentShape) !== canonicalJson(currentTaskForWrite(event.payload.task)))
       throw new Error(`preset snapshot upgrade changed immutable task fields for ${event.taskId}`);
-    const snapshot = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(snapshotBytes)),
-      contractBody = new TextDecoder("utf-8", { fatal: true }).decode(contractBytes),
+    const contractBody = new TextDecoder("utf-8", { fatal: true }).decode(contractBytes),
       contract = event.payload.taskContractClaim,
       document: DocumentState = {
         path: contract.path as DocumentState["path"],
