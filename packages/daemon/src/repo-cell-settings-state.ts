@@ -96,9 +96,8 @@ export function makeRepoCellSettingsState(cell: RepoCellActionContext): RepoCell
 
   // A repository that carries no authored settings document has nothing to mint into the ledger.
   const initializeFromAuthoredDocument = (binding: RepoCellBinding) => {
-    const configPath = path.join(resolveHarnessLayout(cell.rootDir).authoredRoot, "harness.yaml"),
-      isSettingsEvent = (event: { readonly schema: string }) => event.schema === "settings-event/v1";
-    if (!existsSync(configPath) || cell.store.read().events.some(isSettingsEvent)) return null;
+    const configPath = path.join(resolveHarnessLayout(cell.rootDir).authoredRoot, "harness.yaml");
+    if (!existsSync(configPath) || cell.projection.getEntity("settings", "repository") !== undefined) return null;
     const documentBody = readFileSync(configPath, "utf8");
     return initialize(readSettingsFacet(documentBody), documentBody, binding);
   };
