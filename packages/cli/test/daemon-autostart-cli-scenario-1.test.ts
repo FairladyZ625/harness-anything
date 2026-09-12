@@ -37,7 +37,6 @@ const {
   seedAttachableRuntime,
   probeRuntimeAttach,
   git,
-  spawn,
   escapeRegExp,
 } = shared;
 

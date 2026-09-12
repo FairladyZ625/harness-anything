@@ -29,7 +29,6 @@ const {
   published,
   runResult,
   git,
-  cli,
 } = shared;
 
 test("eight isolated CLI clients complete 24 lifecycle chains", async (context) => {
