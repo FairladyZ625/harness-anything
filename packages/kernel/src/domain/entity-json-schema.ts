@@ -100,6 +100,18 @@ export function explainEntityJsonSchema(schema: EntityDocumentJsonSchema): reado
   }));
 }
 
+// One compiled RegExp per distinct pattern string, bounded by the schemas and kind contracts the
+// process has validated; shared by every identity/pattern check in the domain.
+const compiledPatterns = new Map<string, RegExp>();
+
+export function compiledPattern(pattern: string): RegExp {
+  const cached = compiledPatterns.get(pattern);
+  if (cached) return cached;
+  const compiled = new RegExp(pattern, "u");
+  compiledPatterns.set(pattern, compiled);
+  return compiled;
+}
+
 function validateNode(schema: EntityJsonSchemaNode, value: unknown, path: string, errors: string[]): void {
   if (value === null && schema["x-nullable"] === true) return;
   const errorStart = errors.length;
@@ -135,7 +147,7 @@ function validateNodeValue(schema: EntityJsonSchemaNode, value: unknown, path: s
       errors.push(`${path} must be one of ${schema.enum.join(", ")}.`);
     if (schema.minLength !== undefined && value.trim().length < schema.minLength)
       errors.push(`${path} must be a non-empty string.`);
-    if (schema.pattern !== undefined && !new RegExp(schema.pattern, "u").test(value))
+    if (schema.pattern !== undefined && !compiledPattern(schema.pattern).test(value))
       errors.push(`${path} does not match its declared pattern.`);
     return;
   }

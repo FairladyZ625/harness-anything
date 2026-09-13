@@ -122,6 +122,9 @@ export function compileVerticalContract(
           Object.freeze({ artifactTypeIdentity: typeIdentity, declaration }),
         ),
       ),
+      // Archiving a kind closes the door to new material, not to the material already inside it:
+      // only `import` loses its execution, so existing instances stay updatable and archivable.
+      compiledActionCatalog = artifactEntityActionCatalog(typeIdentity, identity),
       entityKindContract: EntityKindContract = Object.freeze({
         ...entityTypeContract,
         schema: schemaVersions[schemaVersions.length - 1]!.schema,
@@ -137,18 +140,16 @@ export function compileVerticalContract(
               ]),
             }
           : {}),
-        // Archiving a kind closes the door to new material, not to the material already inside it:
-        // only `import` loses its execution, so existing instances stay updatable and archivable.
         actionCatalog: artifact.retired
           ? Object.freeze({
-              ...artifactEntityActionCatalog(typeIdentity, identity),
+              ...compiledActionCatalog,
               actions: Object.freeze(
-                artifactEntityActionCatalog(typeIdentity, identity).actions.map((action) =>
+                compiledActionCatalog.actions.map((action) =>
                   action.id === "import" ? Object.freeze({ ...action, execution: null }) : action,
                 ),
               ),
             })
-          : artifactEntityActionCatalog(typeIdentity, identity),
+          : compiledActionCatalog,
         entityStore: genericEntityStore(artifact.store.pathTemplate),
         authoring: genericAuthoring,
         sdkExposure: noSdkExposure,

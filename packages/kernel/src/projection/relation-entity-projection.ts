@@ -24,6 +24,22 @@ import { relationFreshnessAtCut, type EntityVersionWitness } from "../domain/ent
 
 export const RELATION_PROJECTION_VERSION = "relation-projection/v1" as const;
 
+/**
+ * Which kinds can interpret each event schema, in registry order, so replay visits only the contracts
+ * that declare the schema instead of every kind. Contracts without a canonical projection cannot
+ * produce embedded projections and are absent by construction.
+ */
+const embeddedProjectionContractsBySchema = new Map<string, readonly (typeof entityKindContracts)[number][]>(
+  [...new Set(entityKindContracts.flatMap((contract) => contract.canonicalProjection?.embeddedEvents ?? []))].map(
+    (source) => [
+      source.schema,
+      entityKindContracts.filter((contract) =>
+        contract.canonicalProjection?.embeddedEvents.some((candidate) => candidate.schema === source.schema),
+      ),
+    ],
+  ),
+);
+
 export interface VersionedRelationProjectionRow extends RelationGraphEdgeRow {
   readonly schema: typeof RELATION_PROJECTION_VERSION;
   readonly entity: RelationEntity;
@@ -126,7 +142,11 @@ function derivedRelationRecordsForReplay(
   const records: EntityRelationRecord[] = [];
   if (event.schema === "agent-runtime-event/v1" && event.type === "runtime_session_task_bound")
     records.push(runtimeTaskExecutionRelation(event.payload.runtimeSessionId, event.payload.taskId));
-  for (const contract of entityKindContracts)
+  // Hoisted from interpretEmbeddedEntityProjections: it raised this for every declaring contract
+  // regardless of schema match, so replay keeps rejecting a malformed payload outright.
+  if (typeof event.payload !== "object" || event.payload === null || Array.isArray(event.payload))
+    throw new Error(`${event.schema}/${event.type} payload must be an object`);
+  for (const contract of embeddedProjectionContractsBySchema.get(event.schema) ?? [])
     for (const projection of interpretEmbeddedEntityProjections(contract, event))
       for (const relation of projection.relations) {
         const record = {

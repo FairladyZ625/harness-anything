@@ -16,6 +16,15 @@ const horizontal = "[^\\S\\r\\n]*";
 // The value must open with a non-blank, non-`#` character, so `wipLimit: # unset` reads as
 // absent rather than as a one-space string that every caller would then have to re-trim.
 const scalarPatterns = new Map<string, RegExp>();
+const blockPatterns = new Map<string, RegExp>();
+
+function blockSection(block: string): RegExp {
+  const cached = blockPatterns.get(block);
+  if (cached) return cached;
+  const pattern = new RegExp(`^  ${block}:[^\\S\\r\\n]*(?:\\r?\\n)((?:    [^\\r\\n]*(?:\\r?\\n|$))*)`, "mu");
+  blockPatterns.set(block, pattern);
+  return pattern;
+}
 
 function scalar(indent: string, key: string): RegExp {
   const cacheKey = `${indent}\0${key}`,
@@ -33,7 +42,6 @@ export function setting(body: string, key: string): string | undefined {
 
 /** Reads a scalar nested under a named settings block, for example `settings.scaffolds.task` or `settings.tasks.wipLimit`. */
 export function settingBlockValue(body: string, block: string, key: string): string | undefined {
-  const section =
-    new RegExp(`^  ${block}:[^\\S\\r\\n]*(?:\\r?\\n)((?:    [^\\r\\n]*(?:\\r?\\n|$))*)`, "mu").exec(body)?.[1] ?? "";
+  const section = blockSection(block).exec(body)?.[1] ?? "";
   return scalar("    ", key).exec(section)?.[1];
 }

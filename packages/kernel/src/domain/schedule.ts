@@ -7,6 +7,7 @@ import { timestamp } from "./timestamp.ts";
 import { hasContractFields, isNonEmptyString, isRecord } from "./write-chain.contract.ts";
 
 export const scheduleStates = ["armed", "paused"] as const;
+const scheduleIdPattern = new RegExp(ENTITY_ID_PATTERN, "u");
 export const scheduleModes = ["detect", "remediate"] as const;
 export const scheduleMissedReasons = ["scheduler_unavailable", "single_flight"] as const;
 export const scheduleRunOutcomes = ["succeeded", "failed", "unknown", "cancelled"] as const;
@@ -270,7 +271,7 @@ export function validateScheduleDefinitionV1(value: unknown, allowUnknownFields 
     return ["schedule definition fields are invalid"];
   if (
     typeof value.scheduleId !== "string" ||
-    !new RegExp(ENTITY_ID_PATTERN, "u").test(value.scheduleId) ||
+    !scheduleIdPattern.test(value.scheduleId) ||
     !isNonEmptyString(value.name) ||
     !scheduleStates.includes(value.state as ScheduleState) ||
     !scheduleModes.includes(value.mode as ScheduleMode) ||
@@ -357,7 +358,7 @@ function validTarget(value: unknown, allowUnknownFields: boolean): value is Sche
     return (
       hasContractFields(value, ["kind", "squadId"], allowUnknownFields) &&
       typeof value.squadId === "string" &&
-      new RegExp(ENTITY_ID_PATTERN, "u").test(value.squadId)
+      scheduleIdPattern.test(value.squadId)
     );
   const optionalText = ["model", "reasoningEffort"],
     optional = [...optionalText, "fast"],
@@ -367,7 +368,7 @@ function validTarget(value: unknown, allowUnknownFields: boolean): value is Sche
     (allowUnknownFields || Object.keys(value).every((field) => required.includes(field) || optional.includes(field))) &&
     value.kind === "agent" &&
     typeof value.agentId === "string" &&
-    new RegExp(ENTITY_ID_PATTERN, "u").test(value.agentId) &&
+    scheduleIdPattern.test(value.agentId) &&
     isNonEmptyString(value.runtimeInstanceId) &&
     optionalText.every((field) => value[field] === undefined || isNonEmptyString(value[field])) &&
     (value.fast === undefined || typeof value.fast === "boolean")

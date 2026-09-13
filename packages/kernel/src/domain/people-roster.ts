@@ -1,4 +1,4 @@
-import type { EntityDocumentJsonSchema } from "./entity-json-schema.ts";
+import { compiledPattern, type EntityDocumentJsonSchema } from "./entity-json-schema.ts";
 import { parseDelegatedExecutionToken, type DelegatedExecutionToken } from "./delegated-execution-token.ts";
 import {
   parseRoleBinding,
@@ -604,7 +604,7 @@ export function validatePeopleRoster(
         throw new PeopleRosterContractError(`unknown command class: ${commandClass}`);
   }
   for (const person of people) {
-    if (!new RegExp(personIdPattern, "u").test(person.personId))
+    if (!compiledPattern(personIdPattern).test(person.personId))
       throw new PeopleRosterContractError(`invalid personId: ${person.personId || "<missing>"}`);
     if (personIds.has(person.personId)) throw new PeopleRosterContractError(`duplicate personId: ${person.personId}`);
     personIds.add(person.personId);

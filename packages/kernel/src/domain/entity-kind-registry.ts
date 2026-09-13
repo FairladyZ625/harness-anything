@@ -12,7 +12,7 @@ import {
 import { CONTRACT_VERSION_1_0, type ContractVersion } from "./contract-version.ts";
 import { DEFAULT_POLICY } from "./default-policy.ts";
 import { normalizeRelativeDocumentPath } from "../layout/portable-path.ts";
-import { explainEntityJsonSchema, type EntityDocumentJsonSchema } from "./entity-json-schema.ts";
+import { compiledPattern, explainEntityJsonSchema, type EntityDocumentJsonSchema } from "./entity-json-schema.ts";
 import { decisionSchema, executionSchema, factSchema, reviewSchema, taskSchema } from "./entity-document-schemas.ts";
 import {
   compileDecisionReckonAction,
@@ -906,7 +906,16 @@ export const entityKindContracts = Object.freeze([
 const entityKindContractByKind = new Map<string, EntityKindContract>(
   entityKindContracts.map((contract) => [contract.kind, contract]),
 );
-
+const executableActionsByIngress = new Map<string, EntityActionContract>(),
+  taskActionsByTransition = new Map<string, EntityActionContract>();
+for (const { actionCatalog, kind } of entityKindContracts as readonly EntityKindContract[])
+  for (const action of actionCatalog?.actions ?? []) {
+    if (action.execution?.ingress !== undefined && !executableActionsByIngress.has(action.execution.ingress))
+      executableActionsByIngress.set(action.execution?.ingress, action);
+    if (kind === "task")
+      for (const key of [action.id, `task.${action.id}`, action.execution?.lifecycle?.transitionId])
+        if (key !== undefined && !taskActionsByTransition.has(key)) taskActionsByTransition.set(key, action);
+  }
 export function getEntityKindContract(kind: string): EntityKindContract | undefined {
   return entityKindContractByKind.get(kind);
 }
@@ -916,20 +925,11 @@ export function isRelationEndpointKind(kind: string): kind is EntityKind {
 }
 
 export function getExecutableEntityAction(ingress: string): EntityActionContract | undefined {
-  for (const contract of entityKindContracts) {
-    const action = contract.actionCatalog?.actions.find((candidate) => candidate.execution?.ingress === ingress);
-    if (action) return action;
-  }
-  return undefined;
+  return executableActionsByIngress.get(ingress);
 }
 
 export function getTaskActionForTransition(transitionId: string): EntityActionContract | undefined {
-  return getEntityKindContract("task")?.actionCatalog?.actions.find(
-    (action) =>
-      action.id === transitionId ||
-      `task.${action.id}` === transitionId ||
-      action.execution?.lifecycle?.transitionId === transitionId,
-  );
+  return taskActionsByTransition.get(transitionId);
 }
 
 export function requireEntityKindContract(kind: string): EntityKindContract {
@@ -990,7 +990,7 @@ export function explainEntityKindContract(contract: EntityKindContract): EntityK
 }
 
 export function entityDocumentPath(contract: EntityStoreKindContract, id: string): string {
-  if (!new RegExp(contract.id.pattern, "u").test(id))
+  if (!compiledPattern(contract.id.pattern).test(id))
     throw Object.assign(new Error(`${id} is not a valid ${contract.kind} id.`), { code: "invalid_entity_id" });
   return contract.entityStore.document.pathTemplate.replace("{id}", id);
 }

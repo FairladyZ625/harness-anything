@@ -1,4 +1,5 @@
 import { sha256Text } from "../integrity/stable-hash.ts";
+import { compiledPattern } from "./entity-json-schema.ts";
 import { parseEntityRef } from "./entity-ref.ts";
 import type { ParsedEntityRef } from "./entity-ref.ts";
 import { canonicalRelationDirections, type CanonicalRelationDirection } from "./relation-direction.ts";
@@ -66,6 +67,29 @@ export interface GovernedRelationRegistryWitness {
 export function relationStrengthForType(type: RelationType): RelationStrength {
   return type === "relates" ? "weak" : "strong";
 }
+
+function relationTripleKey(sourceKind: string, type: RelationType, targetKind: string): string {
+  return `${sourceKind}\0${type}\0${targetKind}`;
+}
+
+/**
+ * Inverted index over the canonical registry's writable rows, so each triple/record check is one lookup
+ * instead of a scan over every direction. Values are the strength rules of the rows that carry the
+ * triple, in registry order; `undefined` means the row leaves strength unconstrained.
+ */
+const writableRelationStrengths = new Map<string, readonly (RelationStrength | undefined)[]>(
+  (() => {
+    const strengths = new Map<string, (RelationStrength | undefined)[]>();
+    for (const direction of canonicalRelationDirections) {
+      if (direction.registration === "derived") continue;
+      const key = relationTripleKey(direction.sourceKind, direction.type, direction.targetKind);
+      const rules = strengths.get(key) ?? [];
+      rules.push(direction.strength);
+      strengths.set(key, rules);
+    }
+    return [...strengths];
+  })(),
+);
 
 export function normalizeLegacyRelationState(state: unknown): RelationState {
   if (state === "edge_retired") return "retired";
@@ -199,6 +223,8 @@ export function isAllowedRelationKindTriple(
   targetKind: string,
   registry: readonly CanonicalRelationDirection[] = canonicalRelationDirections,
 ): boolean {
+  if (registry === canonicalRelationDirections)
+    return writableRelationStrengths.has(relationTripleKey(sourceKind, type, targetKind));
   // Ratified convention (dec_mr74sbka, 2026-07-05): every edge reads as one sentence,
   // `source <verb> target`, in the physical (host -> target) direction — no cell whose
   // verb reads backwards. The canonical direction registry is the single authority:
@@ -223,6 +249,12 @@ export function isAllowedRelationRecord(
   targetKind: string,
   registry: readonly CanonicalRelationDirection[] = canonicalRelationDirections,
 ): boolean {
+  if (registry === canonicalRelationDirections) {
+    const strengths = writableRelationStrengths.get(relationTripleKey(sourceKind, record.type, targetKind));
+    return (
+      strengths !== undefined && strengths.some((strength) => strength === undefined || strength === record.strength)
+    );
+  }
   return registry.some(
     (direction) =>
       direction.registration !== "derived" &&
@@ -307,7 +339,7 @@ function matchesWitnessedEndpoint(
 ): boolean {
   const [prefix = "", suffix = ""] = endpoint.refTemplate.split("{id}");
   if (!ref.startsWith(prefix) || !ref.endsWith(suffix) || ref.length < prefix.length + suffix.length) return false;
-  return new RegExp(endpoint.idPattern, "u").test(ref.slice(prefix.length, ref.length - suffix.length));
+  return compiledPattern(endpoint.idPattern).test(ref.slice(prefix.length, ref.length - suffix.length));
 }
 
 function validGovernedArtifactEndpoint(

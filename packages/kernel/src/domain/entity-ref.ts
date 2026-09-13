@@ -29,9 +29,10 @@ const artifactIdPrefixPattern = "[A-Z][A-Z0-9]{0,15}",
 export const ENTITY_KIND_ID_PATTERN = "KND-[0-9a-f]{32}";
 export const ENTITY_KIND_REF_PATTERN = `entity-kind/${ENTITY_KIND_ID_PATTERN}`;
 
+const entityKindIdPattern = new RegExp(`^${ENTITY_KIND_ID_PATTERN}$`, "u");
+
 export function entityKindRef(kindId: string): string {
-  if (!new RegExp(`^${ENTITY_KIND_ID_PATTERN}$`, "u").test(kindId))
-    throw new Error(`${kindId} is not a valid entity kind identity.`);
+  if (!entityKindIdPattern.test(kindId)) throw new Error(`${kindId} is not a valid entity kind identity.`);
   return `entity-kind/${kindId}`;
 }
 
@@ -55,20 +56,53 @@ function artifactRefBodyPattern(capture: boolean): string {
 }
 const artifactRefPattern = new RegExp(`^${artifactRefBodyPattern(true)}$`, "u");
 
+/**
+ * The built-in ref grammar, compiled once on first use: this module sits in an import cycle
+ * (entity-ref → base-entity → write-chain.contract → receipt-domain-registry → entity-ref), so the
+ * table may only be built once `entityTypeContracts` has actually initialized. Afterwards every
+ * parse reuses one table instead of rebuilding a RegExp per authority per call.
+ */
+interface CompiledRefAuthority {
+  readonly authority: EntityKindRefAuthority;
+  readonly parse: RegExp;
+  readonly identity: RegExp;
+}
+let compiledRefGrammar: {
+  readonly byOrder: readonly CompiledRefAuthority[];
+  readonly authorityByKind: ReadonlyMap<string, EntityKindRefAuthority>;
+  readonly identityByKind: ReadonlyMap<string, RegExp>;
+} | null = null;
+
+function refGrammar() {
+  if (compiledRefGrammar === null) {
+    const authorities = entityTypeContracts.map(({ kind, id }) => Object.freeze({ kind, ...id }));
+    const compiled = authorities.map((authority) => ({
+      authority,
+      parse: new RegExp(`^${compileRefBodyPattern(authority, true)}$`, "u"),
+      identity: new RegExp(authority.refPattern ?? authority.pattern, "u"),
+    }));
+    compiledRefGrammar = {
+      byOrder: compiled,
+      authorityByKind: new Map(authorities.map((authority) => [authority.kind, authority])),
+      identityByKind: new Map(compiled.map(({ authority, identity }) => [authority.kind, identity])),
+    };
+  }
+  return compiledRefGrammar;
+}
+
 export function parseEntityRef(value: string): ParsedEntityRef | null {
   const prefix = value.match(entityRefPrefixPattern),
     body = prefix?.groups?.body;
   if (!body) return null;
   const harnessAlias = prefix.groups?.alias;
 
-  for (const contract of refAuthorities()) {
-    const parse = new RegExp(`^${compileRefBodyPattern(contract, true)}$`, "u");
+  for (const { authority, parse } of refGrammar().byOrder) {
     const match = body.match(parse),
       id = match?.groups?.id;
     if (!id) continue;
     return {
       raw: value,
-      kind: contract.kind,
+      kind: authority.kind,
       id,
       ...(match.groups?.anchor ? { anchor: match.groups.anchor } : {}),
       ...(match.groups?.execution ? { ownerExecutionId: match.groups.execution } : {}),
@@ -88,16 +122,16 @@ export function parseEntityRef(value: string): ParsedEntityRef | null {
 }
 
 export function requireEntityKindRefAuthority(kind: string): EntityKindRefAuthority {
-  const authority = refAuthorities().find((candidate) => candidate.kind === kind);
+  const authority = refGrammar().authorityByKind.get(kind);
   if (!authority) throw new Error(`Entity kind ${kind} has no ref authority.`);
   return authority;
 }
 
 export function formatEntityRef(kind: string, id: string): EntityRef {
-  const authority = requireEntityKindRefAuthority(kind);
-  if (!new RegExp(authority.refPattern ?? authority.pattern, "u").test(id))
-    throw new Error(`${id} is not a valid ${kind} ref identity.`);
-  return authority.refTemplate.replace("{id}", id);
+  const identity = refGrammar().identityByKind.get(kind);
+  if (!identity) throw new Error(`Entity kind ${kind} has no ref authority.`);
+  if (!identity.test(id)) throw new Error(`${id} is not a valid ${kind} ref identity.`);
+  return requireEntityKindRefAuthority(kind).refTemplate.replace("{id}", id);
 }
 
 function compileRefBodyPattern(contract: EntityKindRefAuthority, capture: boolean): string {
@@ -105,7 +139,7 @@ function compileRefBodyPattern(contract: EntityKindRefAuthority, capture: boolea
     const token = segment.match(templateTokenPattern)?.groups?.kind;
     if (!token) return escapeRegExp(segment);
     const source: EntityKindRefAuthority | undefined =
-      token === "id" ? contract : refAuthorities().find(({ kind }) => kind === token);
+      token === "id" ? contract : refGrammar().authorityByKind.get(token);
     if (!source) throw new Error(`Entity ref template ${contract.refTemplate} names unknown kind ${token}.`);
     const pattern = unanchored(source.refPattern ?? source.pattern);
     return capture ? `(?<${token}>${pattern})` : `(?:${pattern})`;
@@ -113,10 +147,6 @@ function compileRefBodyPattern(contract: EntityKindRefAuthority, capture: boolea
   const anchorPattern = contract.anchorPattern ? unanchored(contract.anchorPattern) : "",
     anchor = contract.anchorPattern ? `(?:/${capture ? `(?<anchor>${anchorPattern})` : `(?:${anchorPattern})`})?` : "";
   return `${segments.join("/")}${anchor}`;
-}
-
-function refAuthorities(): readonly EntityKindRefAuthority[] {
-  return entityTypeContracts.map(({ kind, id }) => Object.freeze({ kind, ...id }));
 }
 
 function unanchored(pattern: string): string {

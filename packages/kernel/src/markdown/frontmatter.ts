@@ -25,7 +25,13 @@ export function readNestedScalar(block: string, key: string, options: ReadScalar
   return value.trim();
 }
 
+const scalarPatterns = new Map<string, RegExp>();
+
 function matchScalar(body: string, key: string, prefix: string): string | undefined {
   const escaped = key.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
-  return body.match(new RegExp(`^${prefix}${escaped}:[ \\t]*(.*)$`, "mu"))?.[1];
+  const cacheKey = `${prefix}\0${escaped}`;
+  const cached = scalarPatterns.get(cacheKey);
+  const pattern = cached ?? new RegExp(`^${prefix}${escaped}:[ \\t]*(.*)$`, "mu");
+  if (!cached) scalarPatterns.set(cacheKey, pattern);
+  return body.match(pattern)?.[1];
 }

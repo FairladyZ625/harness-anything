@@ -3,6 +3,7 @@ import { timestamp } from "./timestamp.ts";
 import { validateActorIdentity, type ActorIdentity } from "./actor-identity.ts";
 import { isRecord, type WriteSource } from "./write-chain.contract.ts";
 import { entityFreshnesses, type EntityFreshness } from "./entity-freshness.ts";
+import { compiledPattern } from "./entity-json-schema.ts";
 
 export const ENTITY_ID_PATTERN = "^[a-z0-9][a-z0-9-]{0,63}$";
 export const entityDispositions = packageDispositions;
@@ -350,7 +351,7 @@ function entityRef<K extends string>(identity: EntityIdentityContract<K>, id: st
 }
 
 function matchesIdentity(identity: EntityIdentityContract, id: string): boolean {
-  return new RegExp(identity.refPattern ?? identity.pattern, "u").test(id);
+  return compiledPattern(identity.refPattern ?? identity.pattern).test(id);
 }
 
 function validWriteSource(value: unknown): value is WriteSource {
