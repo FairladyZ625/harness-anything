@@ -6,7 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { type RuntimeSession, type TaskProjection } from "../../kernel/src/index.ts";
 import { appendRuntimeWorkerRecord, openDispatchStream, readDispatchLiveIndex } from "../src/dispatch-stream.ts";
-import { readTaskDispatches } from "../src/dispatch-read.ts";
+import { readTaskDispatches, readTaskDispatchSession } from "../src/dispatch-read.ts";
 
 const dispatchId = "dispatch_a1b2c3d4e5f60718293a4b5c",
   runtimeSessionId = "runtime-1",
@@ -451,6 +451,47 @@ test("archived dispatch rows expose terminal result and task artifact references
       dispatchPath: "tasks/task-1/artifacts/dispatches/dispatch_a1b2c3d4e5f60718293a4b5c.json",
       reportPath,
     });
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+// The single-dispatch point read (session lookups by taskId+dispatchId) resolves straight from
+// the stream header: building the whole task dispatch list to JS-find one row scanned every
+// candidate's summary and archived document per call.
+test("single-dispatch point reads resolve from the stream header without building the task list", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-dispatch-point-read-"));
+  try {
+    openDispatchStream(rootDir, {
+      dispatchId,
+      taskId,
+      executionId: "execution-1",
+      runtimeSessionId,
+      instanceId: "instance-1",
+      startedAt: "2026-08-23T00:00:00.000Z",
+    });
+    assert.deepEqual(readTaskDispatchSession(rootDir, taskId, dispatchId), { runtimeSessionId });
+    // A dispatch attributed to another task never resolves, and neither does an unattributed one.
+    assert.equal(readTaskDispatchSession(rootDir, "task-other", dispatchId), null);
+    assert.equal(readTaskDispatchSession(rootDir, "not-a-dispatch-id", "whatever"), null);
+    assert.equal(readTaskDispatchSession(rootDir, taskId, "dispatch_000000000000000000000000"), null);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("single-dispatch point reads never resolve an unattributed dispatch", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-dispatch-point-unattributed-"));
+  try {
+    openDispatchStream(rootDir, {
+      dispatchId,
+      taskId: null,
+      executionId: null,
+      runtimeSessionId,
+      instanceId: "instance-1",
+      startedAt: "2026-08-23T00:00:00.000Z",
+    });
+    assert.equal(readTaskDispatchSession(rootDir, taskId, dispatchId), null);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

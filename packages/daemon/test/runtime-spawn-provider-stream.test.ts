@@ -5,7 +5,12 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { createActiveRuntime } from "../src/runtime-spawn-active.ts";
-import { consumeProviderChunk, consumeProviderLine } from "../src/runtime-spawn-provider-stream.ts";
+import {
+  consumeDurableOutput,
+  consumeProviderChunk,
+  consumeProviderLine,
+} from "../src/runtime-spawn-provider-stream.ts";
+import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/dispatch-stream.ts";
 
 function active() {
   return createActiveRuntime({
@@ -151,5 +156,68 @@ test("Codex empty turn usage is replaced by the matching session turn token coun
     assert.deepEqual(runtime.rawUsage, { input_tokens: 62284, cached_input_tokens: 60672, output_tokens: 2046 });
   } finally {
     rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
+test("durable drains wait for the first record while the worker runs, then consume it once", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-durable-wait-"));
+  try {
+    const dispatchId = "dispatch_e1f2a3b4c5d60718293a4b5c";
+    openDispatchStream(rootDir, {
+      dispatchId,
+      taskId: null,
+      executionId: null,
+      runtimeSessionId: "runtime-durable-wait",
+      instanceId: "instance-1",
+      startedAt: "2026-09-12T00:00:00.000Z",
+    });
+    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_started", pid: 2_147_483_647 });
+    const consumed: string[] = [],
+      active = { dispatchId, durableOutputCount: 0 },
+      context = {
+        input: { rootDir },
+        consumeLine: async (_active: unknown, line: string) => {
+          consumed.push(line);
+        },
+      };
+    const draining = consumeDurableOutput(context as never, active as never, 2_000);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.deepEqual(consumed, []);
+    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "provider_event", event: { seq: 1 } });
+    await draining;
+    assert.deepEqual(consumed, ['{"seq":1}']);
+    active.durableOutputCount = consumed.length;
+    await consumeDurableOutput(context as never, active as never);
+    assert.deepEqual(consumed, ['{"seq":1}'], "an already-counted record is never consumed twice");
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("durable drains do not wait when no process record shows the worker running", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-durable-no-wait-"));
+  try {
+    const dispatchId = "dispatch_f1a2b3c4d5e60718293a4b5c",
+      consumed: string[] = [],
+      context = {
+        input: { rootDir },
+        consumeLine: async (_active: unknown, line: string) => {
+          consumed.push(line);
+        },
+      };
+    openDispatchStream(rootDir, {
+      dispatchId,
+      taskId: null,
+      executionId: null,
+      runtimeSessionId: "runtime-durable-no-wait",
+      instanceId: "instance-1",
+      startedAt: "2026-09-12T00:00:00.000Z",
+    });
+    const startedAt = Date.now();
+    await consumeDurableOutput(context as never, { dispatchId, durableOutputCount: 0 } as never, 2_000);
+    assert.ok(Date.now() - startedAt < 1_000, "a stream without a running worker must not poll its budget away");
+    assert.deepEqual(consumed, []);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
   }
 });

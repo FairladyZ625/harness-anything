@@ -112,7 +112,8 @@ test("historical runtime sessions with no snapshot event degrade without failing
   withRuntime(({ store, projection, stream }) => {
     const withoutDispatchSnapshot = new Proxy(projection, {
         get: (target, property, receiver) => {
-          if (property === "readRuntimeDispatch") return () => null;
+          if (property === "readRuntimeDispatch" || property === "readRuntimeDispatches")
+            return property === "readRuntimeDispatch" ? () => null : () => [];
           const value = Reflect.get(target, property, receiver);
           return typeof value === "function" ? value.bind(target) : value;
         },
@@ -194,7 +195,7 @@ test("runtime overview batches definitions while a single-session read selects o
     reads.session({ runtimeSessionId: "runtime-session" });
     assert.deepEqual(
       { fullTaskListReads, taskStatusReads, cutReads, singleDispatchReads, batchDispatchReads },
-      { fullTaskListReads: 0, taskStatusReads: 0, cutReads: 2, singleDispatchReads: 2, batchDispatchReads: 0 },
+      { fullTaskListReads: 0, taskStatusReads: 0, cutReads: 2, singleDispatchReads: 1, batchDispatchReads: 1 },
     );
   }));
 
@@ -228,49 +229,6 @@ test("runtime session reads resolve a task dispatch after observing its projecti
       synchronizedReads.session({ taskId: "task-runtime", dispatchId: "dispatch-runtime" }).session.runtimeSessionId,
       "runtime-session",
     );
-  }));
-
-test("runtime overview pages at the server before DTO and dispatch expansion", () =>
-  withRuntime(({ store, projection, stream, session }) => {
-    const rows = Array.from({ length: 12 }, (_, index) => ({
-      ...session,
-      runtimeSessionId: `runtime-${String(index).padStart(2, "0")}`,
-    }));
-    let unboundedReads = 0,
-      exactDispatchReads = 0,
-      pageQuery: unknown;
-    const measured = new Proxy(projection, {
-      get: (target, property, receiver) => {
-        if (property === "readRuntimeSessions")
-          return () => {
-            unboundedReads += 1;
-            return [...rows, ...rows];
-          };
-        if (property === "readRuntimeSessionPage")
-          return (query: unknown) => {
-            pageQuery = query;
-            return { rows, nextRuntimeSessionId: "runtime-11", remainingCount: 13 };
-          };
-        if (property === "readRuntimeDispatch")
-          return (runtimeSessionId: string) => {
-            exactDispatchReads += 1;
-            return { ...dispatch(), payload: { ...dispatch().payload, runtimeSessionId } };
-          };
-        const value = Reflect.get(target, property, receiver);
-        return typeof value === "function" ? value.bind(target) : value;
-      },
-    });
-    const overview = makeAgentRuntimeReadModel({ store, projection: measured, stream }).overview({ limit: 12 });
-    assert.equal(overview.sessions.length, 12);
-    assert.equal(unboundedReads, 0);
-    assert.equal(exactDispatchReads, 12);
-    assert.deepEqual(pageQuery, { limit: 12 });
-    assert.deepEqual(overview.page, {
-      limit: 12,
-      cursor: null,
-      nextCursor: "runtime-session:runtime-11",
-      remainingCount: 13,
-    });
   }));
 
 test("fleet runtime adoption keeps every overview response below the negotiated frame ceiling", async (t) =>

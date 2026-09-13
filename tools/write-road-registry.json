@@ -50,6 +50,7 @@
     "packages/daemon/src/client/daemon-autostart.ts",
     "packages/daemon/src/conn-log.ts",
     "packages/daemon/src/daemon-singleton.ts",
+    "packages/daemon/src/dispatch-stream-io.ts",
     "packages/daemon/src/dispatch-stream.ts",
     "packages/daemon/src/doc-sync-candidate-scanner.ts",
     "packages/daemon/src/doc-sync-details.ts",

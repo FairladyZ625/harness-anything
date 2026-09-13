@@ -14,7 +14,7 @@ import {
   readRuntimeAttemptChain,
   readRuntimeSessionActivityEvidence,
   readSessionGroupDispatches,
-  readTaskDispatches,
+  readTaskDispatchSession,
 } from "./dispatch-read.ts";
 import { openReplicaCutSource } from "./fleet/replica-cut-store.ts";
 import { readObserveEventTail, readObserveTail } from "./observe-tail.ts";
@@ -168,10 +168,7 @@ export async function openRepoCellProxy(
       runtimeReads = makeAgentRuntimeReadModel({
         readActivityEvidence: (dispatchId) => readRuntimeSessionActivityEvidence(input.rootDir, dispatchId),
         readAttemptChain: (runtimeSessionId) => readRuntimeAttemptChain(input.rootDir, runtimeSessionId),
-        readDispatch: (taskId, dispatchId) =>
-          readTaskDispatches({ rootDir: input.rootDir, projection: writableProjection, taskId }).dispatches.find(
-            (row) => row.dispatchId === dispatchId,
-          ) ?? null,
+        readDispatch: (taskId, dispatchId) => readTaskDispatchSession(input.rootDir, taskId, dispatchId),
         readDispatches: ({ sessions, events }) =>
           readSessionGroupDispatches({ rootDir: input.rootDir, sessions, events }),
         projection: writableProjection,

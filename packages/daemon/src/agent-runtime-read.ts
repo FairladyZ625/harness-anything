@@ -46,10 +46,14 @@ export function makeAgentRuntimeReadModel(input: {
   readonly runtimeInstances?: () => readonly RuntimeInstanceSummary[];
   readonly now?: () => string;
 }) {
-  const activityEvidenceFor = (session: RuntimeSession): RuntimeSessionActivityEvidence | undefined => {
+  const activityEvidenceFor = (
+    session: RuntimeSession,
+    dispatch?: Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }>,
+  ): RuntimeSessionActivityEvidence | undefined => {
     if (!input.readActivityEvidence) return undefined;
-    const dispatch = input.projection.readRuntimeDispatch(session.runtimeSessionId, session.definitionSnapshotRef);
-    return dispatch ? input.readActivityEvidence(dispatch.payload.dispatchId) : undefined;
+    const event =
+      dispatch ?? input.projection.readRuntimeDispatch(session.runtimeSessionId, session.definitionSnapshotRef);
+    return event ? input.readActivityEvidence(event.payload.dispatchId) : undefined;
   };
   const installationDto = (installation: RuntimeInstallation): AgentRuntimeInstallationDto => ({
     installationId: installation.installationId,
@@ -116,6 +120,7 @@ export function makeAgentRuntimeReadModel(input: {
   };
   const definitionFor = (
     session: RuntimeSession,
+    dispatch?: Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }>,
   ): { readonly snapshot: AgentDefinitionSnapshot | null; readonly persisted: boolean } => {
     const match = /^artifact:runtime-definition\/sha256\/([0-9a-f]{64})$/u.exec(session.definitionSnapshotRef);
     if (match) {
@@ -142,8 +147,9 @@ export function makeAgentRuntimeReadModel(input: {
         return { snapshot, persisted: true };
       }
     }
-    const dispatch = input.projection.readRuntimeDispatch(session.runtimeSessionId, session.definitionSnapshotRef);
-    return { snapshot: dispatch?.payload.definitionSnapshot ?? null, persisted: false };
+    const event =
+      dispatch ?? input.projection.readRuntimeDispatch(session.runtimeSessionId, session.definitionSnapshotRef);
+    return { snapshot: event?.payload.definitionSnapshot ?? null, persisted: false };
   };
   return {
     overview: (payload: Readonly<Record<string, unknown>>): AgentRuntimeOverviewResult => {
@@ -164,6 +170,19 @@ export function makeAgentRuntimeReadModel(input: {
           : input.projection.readRuntimeSessions());
       const installationIds = new Set(sessions.map(({ installationId }) => installationId));
       const installations = input.projection.readRuntimeInstallations();
+      const installationsById = new Map(
+        installations.map((installation) => [installation.installationId, installation]),
+      );
+      const dispatchBySessionKey = new Map<
+        string,
+        Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }>
+      >();
+      for (const event of input.projection.readRuntimeDispatches()) {
+        const key = `${event.payload.runtimeSessionId}\0${event.payload.definitionSnapshotRef}`;
+        if (!dispatchBySessionKey.has(key)) dispatchBySessionKey.set(key, event);
+      }
+      const dispatchEventFor = (session: RuntimeSession) =>
+        dispatchBySessionKey.get(`${session.runtimeSessionId}\0${session.definitionSnapshotRef}`);
       return {
         ok: true,
         status: cut.status,
@@ -174,9 +193,9 @@ export function makeAgentRuntimeReadModel(input: {
         sessions: sessions.map((session) =>
           sessionDto(
             session,
-            installations.find(({ installationId }) => installationId === session.installationId),
-            definitionFor(session),
-            activityEvidenceFor(session),
+            installationsById.get(session.installationId),
+            definitionFor(session, dispatchEventFor(session)),
+            activityEvidenceFor(session, dispatchEventFor(session)),
           ),
         ),
         ...(paged === null
@@ -197,18 +216,31 @@ export function makeAgentRuntimeReadModel(input: {
     sessionGroups: (payload: Readonly<Record<string, unknown>>): AgentRuntimeSessionGroupsResult => {
       const query = sessionGroupsQuery(payload, input.now?.() ?? new Date().toISOString()),
         cut = input.projection.readCut(),
-        sessions = input.projection
+        dispatchEvents = input.projection.readRuntimeDispatches(),
+        // The dispatch event per (session, definition snapshot) that the activity-evidence lookup
+        // needs; first by revision matches the readRuntimeDispatch point query it replaces.
+        dispatchBySessionKey = new Map<
+          string,
+          Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }>
+        >();
+      for (const event of dispatchEvents) {
+        const key = `${event.payload.runtimeSessionId}\0${event.payload.definitionSnapshotRef}`;
+        if (!dispatchBySessionKey.has(key)) dispatchBySessionKey.set(key, event);
+      }
+      const dispatchEventFor = (session: RuntimeSession) =>
+        dispatchBySessionKey.get(`${session.runtimeSessionId}\0${session.definitionSnapshotRef}`);
+      const sessions = input.projection
           .readRuntimeSessions()
-          .map((session) => sessionWithActivityEvidence(session, activityEvidenceFor(session)))
+          .map((session) =>
+            sessionWithActivityEvidence(session, activityEvidenceFor(session, dispatchEventFor(session))),
+          )
           .filter((session) => runtimeSessionInActivityWindow(session, query.since)),
         sessionIds = new Set(sessions.map(({ runtimeSessionId }) => runtimeSessionId)),
-        dispatchEvents = input.projection
-          .readRuntimeDispatches()
-          .filter((event) => sessionIds.has(event.payload.runtimeSessionId)),
+        windowedDispatchEvents = dispatchEvents.filter((event) => sessionIds.has(event.payload.runtimeSessionId)),
         dispatchStartedAt = new Map(
-          dispatchEvents.map((event) => [event.payload.runtimeSessionId, event.occurredAt] as const),
+          windowedDispatchEvents.map((event) => [event.payload.runtimeSessionId, event.occurredAt] as const),
         ),
-        dispatches = input.readDispatches?.({ sessions, events: dispatchEvents }) ?? [],
+        dispatches = input.readDispatches?.({ sessions, events: windowedDispatchEvents }) ?? [],
         taskIds = [
           ...new Set([
             ...sessions.flatMap((session) => session.taskBindings.map(({ taskId }) => taskId)),

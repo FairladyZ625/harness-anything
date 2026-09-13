@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { consumeKnownError } from "../../kernel/src/index.ts";
-import { appendDispatchStreamRecord, dispatchStreamPath, scrubProviderValue } from "./dispatch-stream.ts";
+import { dispatchStreamPath, openDispatchStreamAppender, scrubProviderValue } from "./dispatch-stream.ts";
 import { createRuntimeCallbackRelay } from "./runtime-callback-relay.ts";
 import type { RuntimeCallbackRelay } from "./runtime-spawn-types.ts";
 
@@ -18,9 +18,11 @@ type RuntimeWorkerManifest = {
 
 export async function runRuntimeWorkerHost(): Promise<void> {
   const manifest = parseManifest(await readStandardInput());
-  const stream = dispatchStreamPath(manifest.rootDir, manifest.dispatchId);
+  const stream = dispatchStreamPath(manifest.rootDir, manifest.dispatchId),
+    // One descriptor for the host's whole lifetime: provider output appends once per line.
+    appender = openDispatchStreamAppender(stream);
   const append = (value: Readonly<Record<string, unknown>>): void =>
-    appendDispatchStreamRecord(stream, {
+    appender.append({
       occurredAt: new Date().toISOString(),
       ...value,
     });
@@ -88,6 +90,7 @@ export async function runRuntimeWorkerHost(): Promise<void> {
     child.stdin!.end(manifest.prompt);
     await new Promise<void>((resolve) => child?.once("close", () => resolve()));
   } finally {
+    appender.close();
     await relay?.stop();
   }
 }
