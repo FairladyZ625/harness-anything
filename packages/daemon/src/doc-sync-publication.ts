@@ -106,6 +106,14 @@ export function archiveRuntimeDispatch(
     );
   const existingMissionRef = runtimeArchiveMissionRef(input, task.packagePath, value),
     missionRef = existingMissionRef ?? `${task.packagePath}/artifacts/missions/${value.dispatchId}.md`,
+    reportRef = documentPath(`${task.packagePath}/artifacts/reports/${value.dispatchId}.md`),
+    layout = resolveHarnessLayout(input.rootDir),
+    // A reviewer the completion facade dispatches authors its own report at the dispatch report path
+    // before the runtime settles. That authored report is the dispatch report; the final message is
+    // still reachable through resultRef, so it is not archived over the report and cannot collide.
+    reportAuthored =
+      input.projection.readDocument(reportRef).document !== null ||
+      existsSync(path.join(layout.authoredRoot, ...reportRef.split("/"))),
     dispatch = {
       schema: "runtime-dispatch/v1",
       dispatchId: value.dispatchId,
@@ -156,17 +164,20 @@ export function archiveRuntimeDispatch(
         body: `${JSON.stringify(dispatch, null, 2)}\n`,
         mediaType: "text/plain" as const,
       },
-      {
-        path: `${task.packagePath}/artifacts/reports/${value.dispatchId}.md`,
-        body: runtimeArchiveText(value.resultText),
-        mediaType: "text/markdown" as const,
-      },
+      ...(reportAuthored
+        ? []
+        : [
+            {
+              path: reportRef,
+              body: runtimeArchiveText(value.resultText),
+              mediaType: "text/markdown" as const,
+            },
+          ]),
     ].map((document) => ({
       ...document,
       path: documentPath(document.path),
       bytes: Buffer.from(document.body),
     })),
-    layout = resolveHarnessLayout(input.rootDir),
     reads = documents.map((document) => input.projection.readDocument(document.path)),
     opId = `runtime-archive-${createHash("sha256")
       .update(`${input.workspaceId}\0${value.dispatchId}\0${value.runtimeSessionId}`)

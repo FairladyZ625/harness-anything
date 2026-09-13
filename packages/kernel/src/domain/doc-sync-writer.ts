@@ -306,18 +306,21 @@ function decideDocWriteInternal(input: DocWriteDecisionInput, requireAuthorizati
 
 function validRuntimeArchiveChanges(input: DocWriteDecisionInput, scope: RuntimeArchiveWriteScope): boolean {
   const artifactRoot = `${scope.packagePath}/artifacts`,
-    requiredPaths = new Set([
-      `${artifactRoot}/dispatches/${scope.dispatchId}.json`,
+    requiredPath = `${artifactRoot}/dispatches/${scope.dispatchId}.json`,
+    // The report is optional: a reviewer that authored its own report at the dispatch report path
+    // before settlement already owns it, and the mission is only written on the first archive.
+    allowedPaths = new Set([
+      requiredPath,
       `${artifactRoot}/reports/${scope.dispatchId}.md`,
+      `${artifactRoot}/missions/${scope.dispatchId}.md`,
     ]),
-    allowedMission = `${artifactRoot}/missions/${scope.dispatchId}.md`,
     paths = input.intent.changes.map(({ path }) => String(path));
   return (
     input.intent.executionId === null &&
     input.lease === null &&
     paths.length === new Set(paths).size &&
-    [...requiredPaths].every((path) => paths.includes(path)) &&
-    paths.every((path) => requiredPaths.has(path) || path === allowedMission) &&
+    paths.includes(requiredPath) &&
+    paths.every((path) => allowedPaths.has(path)) &&
     input.intent.changes.every((change) => change.baseBlobSha256 === null && change.candidate !== null) &&
     input.resolvedTaskIds?.every((taskId) => taskId === scope.taskId) === true
   );
