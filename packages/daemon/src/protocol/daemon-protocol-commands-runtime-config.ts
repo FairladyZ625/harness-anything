@@ -385,6 +385,9 @@ export const runtimeConfigProtocolCommands = Object.freeze([
       cliInput("--base-url", "single", false, {
         code: "invalid_base_url",
       }),
+      cliInput("--effort", "single", false, {
+        code: "invalid_field",
+      }),
       cliInput("--fast", "boolean", false, {
         code: "invalid_runtime_fast",
       }),

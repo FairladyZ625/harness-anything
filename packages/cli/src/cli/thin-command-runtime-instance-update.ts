@@ -22,6 +22,7 @@ export function parseRuntimeInstanceUpdate(
     models.length === 0 &&
     !flags.one.has("--default-model") &&
     !flags.one.has("--base-url") &&
+    !flags.one.has("--effort") &&
     !flags.one.has("--permission-mode") &&
     !flags.one.has("--isolation") &&
     !flags.booleans.has("--fast") &&
@@ -31,7 +32,7 @@ export function parseRuntimeInstanceUpdate(
     return rejected(
       "invalid_field",
       "Runtime instance update requires --name, --installation, --model, --default-model, " +
-        "--base-url, --permission-mode, --isolation, --fast, --enable, or --disable.",
+        "--base-url, --effort, --permission-mode, --isolation, --fast, --enable, or --disable.",
       json,
     );
   return accepted(
@@ -46,6 +47,7 @@ export function parseRuntimeInstanceUpdate(
       ...(models.length ? { models } : {}),
       ...(flags.one.get("--default-model") ? { defaultModel: flags.one.get("--default-model") } : {}),
       ...(flags.one.has("--base-url") ? { baseUrl: flags.one.get("--base-url") } : {}),
+      ...(flags.one.has("--effort") ? { effort: flags.one.get("--effort") } : {}),
       ...(flags.one.get("--permission-mode") ? { permissionMode: flags.one.get("--permission-mode") } : {}),
       ...(flags.one.get("--isolation") ? { isolationState: flags.one.get("--isolation") } : {}),
       ...(flags.booleans.has("--fast") ? { fast: true } : {}),

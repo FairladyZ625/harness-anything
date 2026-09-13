@@ -160,6 +160,12 @@ test("preload exposes only the approved API methods", () => {
     assertPreloadPayload("updateRuntimeInstance", { instanceId: "claude-review", isolationState: "enforced" }),
     true,
   );
+  assert.equal(assertPreloadPayload("updateRuntimeInstance", { instanceId: "claude-review", effort: "xhigh" }), true);
+  assert.equal(assertPreloadPayload("updateRuntimeInstance", { instanceId: "claude-review", effort: "" }), true);
+  assert.throws(
+    () => assertPreloadPayload("updateRuntimeInstance", { instanceId: "claude-review", effort: 5 }),
+    /invalid/u,
+  );
   assert.throws(
     () =>
       assertPreloadPayload("updateRuntimeInstance", {
@@ -449,6 +455,13 @@ test("preload accepts the renderer's claude create payload", () => {
     "providerId",
   ]);
   assert.equal(assertPreloadPayload("createRuntimeInstance", payload), true);
+  // The claude plane's effort enum reaches the daemon through the same create payload.
+  const withEffort = buildRuntimeInstanceCreatePayload(
+    { ...runtimeCreateForm, reasoningEffort: "high" },
+    "claude-install",
+  );
+  assert.deepEqual((withEffort as { readonly claude: Record<string, unknown> }).claude, { effort: "high" });
+  assert.equal(assertPreloadPayload("createRuntimeInstance", withEffort), true);
 });
 
 test("preload accepts the renderer's agy create payload", () => {
@@ -522,6 +535,7 @@ test("runtime update accepts exactly the fields the registry declares", () => {
   assert.deepEqual([...declared].sort(), [
     "baseUrl",
     "defaultModel",
+    "effort",
     "enabled",
     "fast",
     "installationId",

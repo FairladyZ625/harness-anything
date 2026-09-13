@@ -73,6 +73,23 @@ describe("provider edit form", () => {
     authState: "configured",
     authReadiness: { status: "ready", code: null, hint: null },
   } as const;
+  const claude = {
+    schemaVersion: 2,
+    instanceId: "claude-edit",
+    name: "Claude Edit",
+    kindId: "claude",
+    installationId: "claude-install",
+    providerId: "anthropic",
+    models: ["claude-opus"],
+    defaultModel: "claude-opus",
+    enabled: true,
+    permissionMode: "bypass",
+    isolationState: "operator-environment",
+    configuration: { effort: "high", baseUrl: null, baseUrlConfigured: false },
+    authMode: "subscription",
+    authState: "authenticated",
+    authReadiness: { status: "ready", code: null, hint: null },
+  } as const;
   it("seeds the edit form with the current base URL and keeps it editable", () => {
     const form = runtimeInstanceEditForm(apiCodex);
     expect(form.baseUrl).toBe("https://old.example/v1");
@@ -104,6 +121,29 @@ describe("provider edit form", () => {
     });
     expect(agy.baseUrlEditable).toBe(false);
     expect("baseUrl" in buildRuntimeInstanceUpdatePayload("codex-edit", agy)).toBe(false);
+  });
+  it("seeds the claude edit form with the current effort and edits it through the update payload", () => {
+    const form = runtimeInstanceEditForm(claude);
+    expect(form.effortEditable).toBe(true);
+    expect(form.effort).toBe("high");
+    expect(buildRuntimeInstanceUpdatePayload("claude-edit", { ...form, effort: "xhigh" }).effort).toBe("xhigh");
+    // An explicit empty effort clears back to the provider default.
+    expect(buildRuntimeInstanceUpdatePayload("claude-edit", { ...form, effort: "" }).effort).toBe("");
+    // An untouched effort survives an unrelated edit.
+    expect(buildRuntimeInstanceUpdatePayload("claude-edit", form).effort).toBe("high");
+  });
+  it("omits effort for kinds whose update write path does not carry it", () => {
+    const codex = runtimeInstanceEditForm(apiCodex);
+    expect(codex.effortEditable).toBe(false);
+    expect("effort" in buildRuntimeInstanceUpdatePayload("codex-edit", codex)).toBe(false);
+    const agy = runtimeInstanceEditForm({
+      ...apiCodex,
+      kindId: "agy",
+      configuration: { effort: "high" },
+      authMode: "subscription",
+    });
+    expect(agy.effortEditable).toBe(false);
+    expect("effort" in buildRuntimeInstanceUpdatePayload("agy-edit", agy)).toBe(false);
   });
 });
 

@@ -416,6 +416,27 @@ function ProviderEditor({
             </span>
           </label>
         )}
+        {instance.kindId === "claude" && (
+          <label className="grid gap-0.5">
+            <span className="font-mono ui-micro uppercase tracking-[0.08em] text-text-faint">
+              {t("agentRuntime.effort")}
+            </span>
+            <select
+              data-testid="runtime-provider-effort"
+              aria-label={t("agentRuntime.effort")}
+              value={draft.effort}
+              onChange={(event) => patch({ effort: event.target.value })}
+              className="control"
+            >
+              <option value="">{t("agentRuntime.providerDefault")}</option>
+              {runtimeProviderPlane(instance.kindId).effortValues.map((effort) => (
+                <option key={effort} value={effort}>
+                  {effort}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         <label className="grid gap-0.5">
           <span className="font-mono ui-micro uppercase tracking-[0.08em] text-text-faint">
             {t("agentRuntime.installation")}

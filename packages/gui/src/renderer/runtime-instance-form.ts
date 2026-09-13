@@ -42,6 +42,10 @@ export type RuntimeInstanceEditFormState = {
   readonly fast: boolean;
   readonly initialFast: boolean;
   readonly fastEditable: boolean;
+  /** Claude effort preset; empty means the provider default. */
+  readonly effort: string;
+  /** Claude-only: the effort update write path covers claude instances today. */
+  readonly effortEditable: boolean;
 };
 
 type DetectedModels = { readonly models?: readonly string[]; readonly defaultModel?: string };
@@ -96,7 +100,8 @@ export function buildRuntimeInstanceCreatePayload(
 
 export function runtimeInstanceEditForm(instance: RuntimeInstanceSummary): RuntimeInstanceEditFormState {
   const editable = planeAllowsBaseUrl(instance.kindId, instance.authMode),
-    fastEditable = "fast" in runtimeKindForId(instance.kindId).configuration.fields;
+    fastEditable = "fast" in runtimeKindForId(instance.kindId).configuration.fields,
+    effortEditable = instance.kindId === "claude";
   return {
     name: instance.name,
     installationId: instance.installationId,
@@ -108,6 +113,8 @@ export function runtimeInstanceEditForm(instance: RuntimeInstanceSummary): Runti
     fast: fastEditable && instance.configuration.fast === true,
     initialFast: fastEditable && instance.configuration.fast === true,
     fastEditable,
+    effortEditable,
+    effort: effortEditable && typeof instance.configuration.effort === "string" ? instance.configuration.effort : "",
   };
 }
 
@@ -164,7 +171,10 @@ export function buildRuntimeInstanceUpdatePayload(
     // Base URL rides the same update write path the other fields use; the empty field is
     // meaningful (back to the official endpoint), so it is sent whenever the plane has one.
     // A plane without an API mode has no base URL at all and the field is omitted there.
+    // Effort follows the same rule on the claude plane: empty means back to the provider
+    // default, so it is sent whenever the plane can set it.
     ...(form.baseUrlEditable ? { baseUrl: form.baseUrl.trim() } : {}),
+    ...(form.effortEditable ? { effort: form.effort.trim() } : {}),
     ...(form.fastEditable && form.fast !== form.initialFast ? { fast: form.fast } : {}),
   };
 }
