@@ -504,6 +504,58 @@ test("Evidence relations reject non-claim sources before writing and identify th
   }
 });
 
+test("the decisions readiness cache key never reserializes the decision rows", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-decision-readiness-cache-"));
+  initRepo(rootDir);
+  const cell = await openRepoCell({
+    repoId: workspaceId("decision-readiness-cache"),
+    rootDir: canonicalRoot(rootDir),
+    ownerId: "decision-readiness-cache-test",
+    now: monotonicClock(),
+  });
+  try {
+    assert.equal((await cell.run(proposal("Readiness cache"), proposer)).outcome, "applied");
+    const first = await cell.read("repo.decisions.list");
+    assert.equal(first.decisions.length, 1);
+    assert.ok(first.decisions[0]?.readiness, "the full projection carries the git readiness rows");
+
+    // A repeated identical read must hit the readiness cache without rebuilding the key from every
+    // decision row: a long-lived daemon serves this read per GUI poll, so the key has to be O(1).
+    const reserialized: number[] = [],
+      stringify = JSON.stringify;
+    JSON.stringify = ((value: unknown, ...rest: unknown[]) => {
+      if (
+        Array.isArray(value) &&
+        value.length === 1 &&
+        typeof (value[0] as { readonly decisionId?: unknown } | undefined)?.decisionId === "string"
+      )
+        reserialized.push(value.length);
+      return stringify(value, ...(rest as Parameters<typeof stringify>));
+    }) as typeof JSON.stringify;
+    let cached: typeof first;
+    try {
+      cached = await cell.read("repo.decisions.list");
+    } finally {
+      JSON.stringify = stringify;
+    }
+    assert.deepEqual(reserialized, []);
+    assert.deepEqual(
+      cached.decisions.map(({ decisionId }) => decisionId),
+      first.decisions.map(({ decisionId }) => decisionId),
+    );
+
+    // A later write bumps the ledger revision, and the cache key must follow it: the next read sees
+    // the new decision's readiness instead of the rows cached before the write.
+    assert.equal((await cell.run(proposal("Readiness cache second"), proposer)).outcome, "applied");
+    const updated = await cell.read("repo.decisions.list");
+    assert.equal(updated.decisions.length, 2);
+    assert.ok(updated.decisions.every(({ readiness }) => readiness));
+  } finally {
+    await cell.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 function proposal(title: string) {
   return {
     kind: "decision-propose",

@@ -32,6 +32,13 @@ const bootstrap = workerData as RepoWriterBootstrapV1;
 if (!isMainThread) void startRepoWriterWorker();
 
 async function startRepoWriterWorker(): Promise<void> {
+  // One buffer pair serves the worker's whole life: syncCapability blocks the thread in Atomics.wait
+  // until the supervisor answers, so rounds never overlap and the supervisor overwrites the shared
+  // bytes in place. The state cell is re-armed before each post so the next round waits for a fresh
+  // answer instead of reading the previous round's completion. Declared before the open so the hoisted
+  // syncCapability can be called from open-time capabilities (killpoint, fleetRoster) without a TDZ.
+  let syncState: SharedArrayBuffer | null = null,
+    syncBytes: SharedArrayBuffer | null = null;
   if (
     bootstrap?.schema !== "harness-repo-writer-bootstrap/v1" ||
     bootstrap.protocolVersion !== REPO_WRITER_PROTOCOL_VERSION ||
@@ -239,20 +246,24 @@ async function startRepoWriterWorker(): Promise<void> {
   }
 
   function syncCapability<T>(capability: RepoWriterCapabilityCallV1["capability"], payload: unknown): T {
-    const state = new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT * 2),
-      bytes = new SharedArrayBuffer(1024 * 1024),
-      view = new Int32Array(state),
+    syncState ??= new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT * 2);
+    syncBytes ??= new SharedArrayBuffer(1024 * 1024);
+    const view = new Int32Array(syncState),
       call: RepoWriterCapabilityCallV1 = {
         schema: "harness-repo-writer-capability-call/v1",
         callId: randomUUID(),
         capability,
         payload,
-        sync: { state, bytes },
+        sync: { state: syncState, bytes: syncBytes },
       };
+    Atomics.store(view, 0, 0);
+    Atomics.store(view, 1, 0);
     parentPort!.postMessage(call);
     while (Atomics.load(view, 0) === 0) Atomics.wait(view, 0, 0);
     const length = Atomics.load(view, 1),
-      decoded = JSON.parse(new TextDecoder().decode(new Uint8Array(bytes, 0, length))) as RepoWriterCapabilityResultV1;
+      decoded = JSON.parse(
+        new TextDecoder().decode(new Uint8Array(syncBytes, 0, length)),
+      ) as RepoWriterCapabilityResultV1;
     if (decoded.outcome === "error") throw deserializeWriterError(decoded.error!);
     return decoded.value as T;
   }
@@ -320,10 +331,10 @@ function reviveBinding(
   descriptor: SerializableRepoCellBindingV1["writerEpochFence"] | null,
 ): RepoCellBinding | undefined {
   if (!binding) return undefined;
-  if (descriptor !== (binding.writerEpochFence ?? null)) {
-    if (JSON.stringify(descriptor) !== JSON.stringify(binding.writerEpochFence ?? null))
-      throw new Error("writer epoch descriptor changed in transit");
-  }
+  // Structured clone hands the worker two distinct objects for the same fence, so equality is decided
+  // field by field; a stringify comparison would reserialize both descriptors on every request.
+  if (!sameWriterEpochFence(descriptor ?? null, binding.writerEpochFence ?? null))
+    throw new Error("writer epoch descriptor changed in transit");
   return {
     ...binding,
     ...(descriptor
@@ -334,6 +345,22 @@ function reviveBinding(
 
 function assertWriterEpoch(descriptor: SerializableRepoCellBindingV1["writerEpochFence"] | null): void {
   if (descriptor) assertWriterEpochFenceDescriptor(descriptor);
+}
+
+function sameWriterEpochFence(
+  left: NonNullable<SerializableRepoCellBindingV1["writerEpochFence"]> | null,
+  right: NonNullable<SerializableRepoCellBindingV1["writerEpochFence"]> | null,
+): boolean {
+  return (
+    left === right ||
+    (left !== null &&
+      right !== null &&
+      left.schema === right.schema &&
+      left.stateRoot === right.stateRoot &&
+      left.repoId === right.repoId &&
+      left.epoch === right.epoch &&
+      left.holderId === right.holderId)
+  );
 }
 
 function postReceipt(requestId: string, value?: unknown, error?: unknown): void {
