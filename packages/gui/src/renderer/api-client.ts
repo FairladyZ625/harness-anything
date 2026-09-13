@@ -36,6 +36,7 @@ import type { SettingsFieldValue } from "./settings-form.ts";
 import { invoke } from "./api-client-invoke.ts";
 import { readGuiActionResult } from "./command-receipt.ts";
 import { daemonBridgeError } from "./daemon-startup.ts";
+import { readCatalogPreset, readCatalogRereadReceipt, readCatalogSnapshot } from "./api-client-catalog.ts";
 import {
   readDecisionControlList,
   readDecisionListResult,
@@ -784,21 +785,6 @@ function readDaemonControlReceipt(value: unknown): DaemonControlReceipt {
     throw new Error(localErrorHint(value, "Daemon control bridge returned an invalid receipt."));
   return value;
 }
-function readCatalogSnapshot(value: unknown): CatalogSnapshotSuccess {
-  if (!isCatalogSnapshotSuccess(value))
-    throw new Error(localErrorHint(value, "Catalog snapshot bridge returned an invalid result."));
-  return value;
-}
-function readCatalogPreset(value: unknown): CatalogPresetSuccess {
-  if (!isCatalogPresetSuccess(value))
-    throw new Error(localErrorHint(value, "Catalog preset bridge returned an invalid result."));
-  return value;
-}
-function readCatalogRereadReceipt(value: unknown): CatalogRereadReceipt {
-  if (!isCatalogRereadReceipt(value))
-    throw new Error(localErrorHint(value, "Catalog reread bridge returned an invalid receipt."));
-  return value;
-}
 
 function isSystemStatusSuccess(value: unknown): value is SystemStatusSuccess {
   return (
@@ -827,61 +813,6 @@ function isDaemonControlReceipt(value: unknown): value is DaemonControlReceipt {
     ["refresh", "restart"].includes(String(value.kind)) &&
     typeof value.operationId === "string" &&
     ["queued", "draining", "starting", "settled", "failed"].includes(String(value.phase))
-  );
-}
-function isCatalogSnapshotSuccess(value: unknown): value is CatalogSnapshotSuccess {
-  return (
-    isRendererRecord(value) &&
-    value.schema === "gui-catalog-snapshot/v1" &&
-    value.ok === true &&
-    ["ready", "pending"].includes(String(value.status)) &&
-    typeof value.repoId === "string" &&
-    isRendererRecord(value.defaults) &&
-    Array.isArray(value.presets) &&
-    Array.isArray(value.verticals) &&
-    Array.isArray(value.templates) &&
-    Array.isArray(value.adapters) &&
-    isRendererRecord(value.scaffolds) &&
-    Array.isArray(value.scaffolds.task) &&
-    Array.isArray(value.scaffolds.repository) &&
-    Array.isArray(value.settingsFields) &&
-    value.presets.every(
-      (row) =>
-        isRendererRecord(row) &&
-        Array.isArray(row.profiles) &&
-        row.profiles.every(
-          (profile) => isRendererRecord(profile) && typeof profile.id === "string" && typeof profile.title === "string",
-        ),
-    )
-  );
-}
-function isCatalogPresetSuccess(value: unknown): value is CatalogPresetSuccess {
-  return (
-    isRendererRecord(value) &&
-    value.schema === "gui-catalog-preset/v1" &&
-    value.ok === true &&
-    typeof value.repoId === "string" &&
-    isRendererRecord(value.preset) &&
-    isRendererRecord(value.resolved) &&
-    Array.isArray(value.resolved.documents) &&
-    value.resolved.documents.every(
-      (row) =>
-        isRendererRecord(row) &&
-        typeof row.slot === "string" &&
-        typeof row.path === "string" &&
-        typeof row.body === "string" &&
-        typeof row.mediaType === "string",
-    )
-  );
-}
-function isCatalogRereadReceipt(value: unknown): value is CatalogRereadReceipt {
-  return (
-    isRendererRecord(value) &&
-    value.schema === "catalog-reread-receipt/v1" &&
-    typeof value.ok === "boolean" &&
-    ["applied", "op_rejected"].includes(String(value.outcome)) &&
-    typeof value.operationId === "string" &&
-    typeof value.repoId === "string"
   );
 }
 
