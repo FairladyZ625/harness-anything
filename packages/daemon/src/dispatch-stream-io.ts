@@ -1,5 +1,4 @@
 import { closeSync, constants as fsConstants, fstatSync, openSync, readSync, statSync, writeFileSync } from "node:fs";
-import { consumeKnownError } from "../../kernel/src/index.ts";
 
 export const dispatchStreamSchema = "runtime-dispatch-stream/v1" as const;
 export const dispatchStreamReadLimitBytes = 200 * 1024 * 1024;
@@ -65,12 +64,9 @@ export function openDispatchStreamAppender(
         }
         writeFileSync(handle, `${JSON.stringify(input.scrub({ schema: dispatchStreamSchema, ...value }))}\n`, "utf8");
       } catch (error) {
+        // Drop the held descriptor; a close failure surfaces like the finally-close did before the split.
         descriptor = null;
-        try {
-          closeSync(handle);
-        } catch (closeError) {
-          consumeKnownError(closeError);
-        }
+        closeSync(handle);
         throw error;
       }
       descriptor = handle;
