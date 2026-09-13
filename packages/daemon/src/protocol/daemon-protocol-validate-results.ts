@@ -27,7 +27,7 @@ import {
   validateDaemonRelationGraph,
 } from "./daemon-protocol-validate-projections.ts";
 import { queryPageRow, validateDaemonTaskSnapshotList } from "./daemon-protocol-validate-task.ts";
-import { validateDaemonWorkspaceSummary } from "./daemon-protocol-validate-workspace.ts";
+import { validateDaemonWorkspaceSummary } from "./daemon-protocol-validate-relation-query.ts";
 import { receiptOutcomeWords } from "./daemon-protocol-vocabulary.ts";
 import { generatedTaskCreateResultFields, generatedWriteReceiptFields } from "./daemon-protocol-commands-task.ts";
 import { isJsonObject, type JsonObject } from "./json-rpc-types.ts";
