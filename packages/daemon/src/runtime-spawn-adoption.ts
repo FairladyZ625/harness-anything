@@ -45,14 +45,13 @@ export async function adoptRuntimes(context: RuntimeSpawnerContext): Promise<voi
     }
     const fullStream = readDispatchStream(context.input.rootDir, header.dispatchId),
       stream = fullStream ?? readDispatchStreamSummary(context.input.rootDir, header.dispatchId);
-    if (!stream?.process) {
-      removeRuntimeCallbackRelay(context.input.rootDir, header.dispatchId);
-      continue;
-    }
+    if (!stream) continue;
+    const processState = stream.process,
+      processPid = processState?.pid ?? 0;
     const runtimeProcess = adoptNativeProcess(
       context.input.rootDir,
       stream.header.dispatchId,
-      stream.process.pid,
+      processPid,
       durableOutputRecordCount(fullStream?.records ?? []),
     );
     if (!fullStream) runtimeProcess.release?.();
@@ -114,14 +113,15 @@ export async function adoptRuntimes(context: RuntimeSpawnerContext): Promise<voi
         active.binding,
       );
     }
-    const processState = stream.process;
-    if (processState.exited || !runtimePidIsAlive(processState.pid)) {
-      const reason = `runtime process ${String(processState.pid)} is no longer alive after daemon restart`;
-      active.lossReason = processState.exited ? null : reason;
-      active.lossExitCode = processState.exitCode ?? null;
-      active.lossSignal = processState.signal ?? null;
+    if (!processState || processState.exited || !runtimePidIsAlive(processState.pid)) {
+      const reason = processState
+        ? `runtime process ${String(processState.pid)} is no longer alive after daemon restart`
+        : "runtime process was never recorded before daemon restart";
+      active.lossReason = processState?.exited ? null : reason;
+      active.lossExitCode = processState?.exitCode ?? null;
+      active.lossSignal = processState?.signal ?? null;
       removeRuntimeCallbackRelay(context.input.rootDir, active.dispatchId);
-      if (!processState.exited)
+      if (!processState?.exited)
         appendRuntimeWorkerRecord(context.input.rootDir, active.dispatchId, {
           kind: "process_lost",
           occurredAt: context.input.now(),
@@ -137,7 +137,7 @@ export async function adoptRuntimes(context: RuntimeSpawnerContext): Promise<voi
   }
 }
 
-function ownedByRuntimeNode(binding: RuntimeBinding, runtimeNodeId: string | undefined): boolean {
+export function ownedByRuntimeNode(binding: RuntimeBinding, runtimeNodeId: string | undefined): boolean {
   if (runtimeNodeId === undefined) return true;
   const source: unknown = binding.source;
   if (source === null || typeof source !== "object" || Array.isArray(source)) return false;
