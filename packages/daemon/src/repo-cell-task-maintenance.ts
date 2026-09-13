@@ -394,6 +394,10 @@ function migrateTaskPreset(
       settings: cell.settings.read(),
       task,
       taskContractBody: contract.document.body,
+      documentExists: (relativePath) => {
+        const document = cell.projection.readDocument(`${current.packagePath}/${relativePath}`);
+        return document.status === "ready" && document.document !== null;
+      },
       toPresetId,
       actor: binding.actor,
       source: binding.source,
