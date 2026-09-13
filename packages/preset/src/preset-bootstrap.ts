@@ -22,8 +22,9 @@ import {
   type OpaqueTextualMediaType,
   type WriteSource,
 } from "../../kernel/src/index.ts";
-import { serializePresetSnapshotV1, type PresetSnapshotV1 } from "./preset.contract.ts";
+import { canonicalPresetBytes, serializePresetSnapshotV1, type PresetSnapshotV1 } from "./preset.contract.ts";
 import { createRuntime, type PresetResolverOptions } from "./preset-resolver.ts";
+import { resolverContentHash } from "./preset-resolver-common.ts";
 
 export interface TaskModuleRegistration {
   readonly key: string;
@@ -111,7 +112,8 @@ export function compileTaskPackage(input: CompileTaskPackageInput): CompiledTask
     );
   if (resolved.requiredTaskClass && input.taskClass !== resolved.requiredTaskClass)
     throw bootstrapFailure("task_class_mismatch", `Preset requires taskClass=${resolved.requiredTaskClass}.`);
-  const slug = input.slug ?? slugifyTaskTitle(input.title),
+  const snapshot = input.workKind === "docs" ? withoutCodeDeliveryGates(resolved.snapshot) : resolved.snapshot,
+    slug = input.slug ?? slugifyTaskTitle(input.title),
     packagePath = `tasks/${input.taskId}-${slug}`,
     metadata: TaskMetadataV1 = {
       idempotencyKey: input.idempotencyKey ?? null,
@@ -215,8 +217,8 @@ export function compileTaskPackage(input: CompileTaskPackageInput): CompiledTask
           locale: input.locale,
           metadata,
           registerModule: input.registerModule ?? null,
-          completionGates: resolved.snapshot.profile.completionGateIds,
-          presetSnapshotDigest: resolved.snapshot.digest,
+          completionGates: snapshot.profile.completionGateIds,
+          presetSnapshotDigest: snapshot.digest,
           scaffold: {
             baseVersion: resolved.snapshot.scaffold.baseVersion,
             overlayDigest: resolved.snapshot.scaffold.overlayDigest,
@@ -238,7 +240,7 @@ export function compileTaskPackage(input: CompileTaskPackageInput): CompiledTask
       ...additions,
       ...presetScripts,
     ];
-  return { snapshot: resolved.snapshot, packagePath, scaffoldDigest, documents, metadata };
+  return { snapshot, packagePath, scaffoldDigest, documents, metadata };
   function machine(slot: string, relativePath: string, body: string): CompiledTaskDocument {
     return {
       slot,
@@ -252,6 +254,19 @@ export function compileTaskPackage(input: CompileTaskPackageInput): CompiledTask
       templateRef: null,
     };
   }
+}
+
+function withoutCodeDeliveryGates(snapshot: PresetSnapshotV1): PresetSnapshotV1 {
+  const completionGateIds = snapshot.profile.completionGateIds.filter(
+    (gateId) => gateId !== "ci" && gateId !== "code-doc-reconciliation",
+  );
+  if (completionGateIds.length === snapshot.profile.completionGateIds.length) return snapshot;
+  const { digest: _digest, ...withoutDigest } = snapshot,
+    effective = { ...withoutDigest, profile: { ...snapshot.profile, completionGateIds } };
+  return {
+    ...effective,
+    digest: `sha256:${resolverContentHash(canonicalPresetBytes(effective))}`,
+  };
 }
 export function compileTaskBootstrap(input: CompileTaskBootstrapInput): CompiledTaskBootstrap {
   const compiled = compileTaskPackage(input),
