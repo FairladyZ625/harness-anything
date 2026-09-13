@@ -103,7 +103,7 @@ const claudeInstance = {
   kindId: "claude",
   authMode: "subscription",
   isolationState: "operator-environment",
-  configuration: { baseUrl: null, baseUrlConfigured: false },
+  configuration: { effort: "high", baseUrl: null, baseUrlConfigured: false },
 } as never;
 const agyInstance = {
   ...instance,
@@ -704,7 +704,7 @@ describe("agent runtime renderer", () => {
     expect(dialog("agy")).toContain("agy does not support API override in this call path.");
     expect(dialog("agy")).toMatch(/<input[^>]*data-testid="new-runtime-base-url"[^>]*disabled=""/u);
     expect(dialog("agy")).toMatch(/<input[^>]*data-testid="new-runtime-api-key"[^>]*disabled=""/u);
-    expect(dialog("claude")).toMatch(/<input[^>]*aria-label="Effort"[^>]*disabled=""/u);
+    expect(dialog("claude")).toMatch(/<select[^>]*aria-label="Effort"/u);
     expect(dialog("agy")).not.toContain("Fast mode");
   });
   it("renders detected models as selected checkboxes and keeps custom text behind an override", () => {

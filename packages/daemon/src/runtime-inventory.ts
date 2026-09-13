@@ -128,7 +128,11 @@ export const runtimeKinds = [
       transcriptReachability: "by_session_id",
       everyFrame: false,
     },
-    gui: { modelFamily: "open", effort: "none", effortValues: [] },
+    // Installed parser 2.1.260 accepts low/medium/high/xhigh/max (capability matrix
+    // dimension 12, E-level). `minimal` is deliberately absent: the launcher rewrites
+    // it to `low` (agent-runtime-launch-config.ts), so offering it would let the GUI
+    // submit a value that never reaches the provider as typed.
+    gui: { modelFamily: "open", effort: "enum", effortValues: ["low", "medium", "high", "xhigh", "max"] },
     capabilities: {
       ...sharedCapabilities,
       toolAllowlist: "supported",

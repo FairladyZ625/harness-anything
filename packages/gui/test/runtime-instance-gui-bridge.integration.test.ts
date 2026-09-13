@@ -34,13 +34,20 @@ test("GUI registry bridge lists, creates, updates, deletes, and probes a runtime
       ...installation,
       installationId: "installation-gui-runtime-b",
       version: "1.1.0",
+    },
+    claudeInstallation: RuntimeInstallationWitness = {
+      installationId: "installation-gui-runtime-claude",
+      kindId: "claude",
+      executablePath,
+      version: "2.1.260",
+      observedAt: "2026-08-23T00:00:00.000Z",
     };
   const endpoint = localUserDaemonEndpoint(userRoot, daemonId),
     host = await openDaemonHost({
       daemonId,
       userRoot,
       endpoint,
-      runtimeDiscover: () => [installation, replacementInstallation],
+      runtimeDiscover: () => [installation, replacementInstallation, claudeInstallation],
       runtimeEnv: { HOME: path.join(parent, "operator-home"), PATH: process.env.PATH ?? "" },
     });
   const transport = createUnixSocketTransportServer({
@@ -120,6 +127,37 @@ test("GUI registry bridge lists, creates, updates, deletes, and probes a runtime
       ],
       JSON.stringify(relisted),
     );
+    // Claude effort end to end: the create payload stores it, the update write path
+    // replaces it and an explicit empty value clears it, and both read back through
+    // the same bridge the GUI renderer uses.
+    const claudeCreated = (await bridge.invoke("createRuntimeInstance", {
+      instanceId: "claude-gui",
+      name: "Claude GUI",
+      kindId: "claude",
+      installationId: claudeInstallation.installationId,
+      providerId: "anthropic",
+      models: ["claude-fable-5"],
+      defaultModel: "claude-fable-5",
+      claude: { effort: "high" },
+      authMode: "subscription",
+    })) as RuntimeReceipt;
+    assert.equal(claudeCreated.instance?.configuration?.effort, "high", JSON.stringify(claudeCreated));
+    const claudeShown = (await bridge.invoke("showRuntimeInstance", { instanceId: "claude-gui" })) as RuntimeReceipt;
+    assert.equal(claudeShown.instance?.configuration?.effort, "high", JSON.stringify(claudeShown));
+    const claudeUpdated = (await bridge.invoke("updateRuntimeInstance", {
+      instanceId: "claude-gui",
+      effort: "max",
+    })) as RuntimeReceipt;
+    assert.equal(claudeUpdated.instance?.configuration?.effort, "max", JSON.stringify(claudeUpdated));
+    const claudeCleared = (await bridge.invoke("updateRuntimeInstance", {
+      instanceId: "claude-gui",
+      effort: "",
+    })) as RuntimeReceipt;
+    assert.equal(claudeCleared.instance?.configuration?.effort ?? null, null, JSON.stringify(claudeCleared));
+    const claudeDeleted = (await bridge.invoke("deleteRuntimeInstance", {
+      instanceId: "claude-gui",
+    })) as RuntimeReceipt;
+    assert.equal(claudeDeleted.deletedInstanceId, "claude-gui", JSON.stringify(claudeDeleted));
     const probed = (await bridge.invoke("showRuntimeInstance", {
       instanceId: "codex-gui",
       probe: true,
@@ -130,7 +168,7 @@ test("GUI registry bridge lists, creates, updates, deletes, and probes a runtime
     const after = (await bridge.invoke("listRuntimeInstances", { all: true })) as RuntimeReceipt;
     assert.deepEqual(after.instances, []);
     console.info(
-      `GUI_RUNTIME_INSTANCE_BEHAVIOR ${JSON.stringify({ listed: true, created: created.instance?.instanceId, shown: shown.instance?.instanceId, updatedName: updated.instance?.name, updatedInstallation: updated.instance?.installationId, updatedModels: updated.instance?.models, updatedDefaultModel: updated.instance?.defaultModel, relisted: relisted.instances?.[0]?.name, probed: probed.instance?.authReadiness?.status, deleted: deleted.deletedInstanceId })}`,
+      `GUI_RUNTIME_INSTANCE_BEHAVIOR ${JSON.stringify({ listed: true, created: created.instance?.instanceId, shown: shown.instance?.instanceId, updatedName: updated.instance?.name, updatedInstallation: updated.instance?.installationId, updatedModels: updated.instance?.models, updatedDefaultModel: updated.instance?.defaultModel, relisted: relisted.instances?.[0]?.name, claudeEffortCreated: claudeCreated.instance?.configuration?.effort, claudeEffortUpdated: claudeUpdated.instance?.configuration?.effort, claudeEffortCleared: claudeCleared.instance?.configuration?.effort ?? null, probed: probed.instance?.authReadiness?.status, deleted: deleted.deletedInstanceId })}`,
     );
   } finally {
     await transport.stop();
@@ -156,6 +194,7 @@ interface RuntimeReceipt {
     readonly installationId?: string;
     readonly models?: readonly string[];
     readonly defaultModel?: string;
+    readonly configuration?: { readonly effort?: string | null };
     readonly authReadiness?: { readonly status: string };
   };
   readonly deletedInstanceId?: string;

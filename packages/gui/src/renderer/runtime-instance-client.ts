@@ -21,6 +21,9 @@ export type RuntimeInstanceUpdateInput = {
   /** Non-empty replaces the endpoint (create-time validation applies); empty clears back
    * to the official endpoint; omitted leaves it untouched. claude/codex API mode only. */
   readonly baseUrl?: string;
+  /** Non-empty replaces the Claude effort preset (create-time validation applies); empty
+   * clears back to the provider default; omitted leaves it untouched. claude only. */
+  readonly effort?: string;
   readonly enabled?: boolean;
   readonly permissionMode?: "bypass" | "workspace-write" | "read-only";
   readonly isolationState?: "enforced" | "operator-environment";

@@ -115,6 +115,49 @@ export function installationLabel(installation: RuntimeInstallationWitness): str
   return `${installation.installationId} (${installation.version})`;
 }
 
+/** Rebuilds the kind-scoped configuration after a base URL or effort edit. `baseUrl === undefined`
+ * means the update did not touch it (keep the stored endpoint); a non-empty string
+ * replaces it; an explicit empty string clears it back to the official endpoint. Effort
+ * follows the same tri-state on the claude plane (empty clears to the provider default). */
+export function runtimeInstanceKindConfig(
+  current: RuntimeInstanceConfig,
+  baseUrl: string | undefined,
+  fast: boolean | undefined,
+  effort: string | undefined,
+): { readonly claude?: unknown } | { readonly codex?: unknown } | { readonly zcode?: unknown } {
+  const provider = runtimeProviderConfig(current);
+  if (current.kindId === "codex") {
+    const { baseUrl: _droppedBaseUrl, fast: _droppedFast, ...rest } = provider,
+      nextBaseUrl = baseUrl === undefined ? provider.baseUrl : baseUrl || undefined,
+      nextFast = fast === undefined ? provider.fast : fast;
+    return {
+      codex: {
+        ...rest,
+        ...(nextBaseUrl ? { baseUrl: nextBaseUrl } : {}),
+        ...(nextFast === undefined ? {} : { fast: nextFast }),
+      },
+    };
+  }
+  if (current.kindId === "claude") {
+    const { baseUrl: _droppedBaseUrl, effort: _droppedEffort, ...rest } = provider,
+      nextBaseUrl = baseUrl === undefined ? provider.baseUrl : baseUrl || undefined,
+      nextEffort = effort === undefined ? provider.effort : effort || undefined;
+    return {
+      claude: {
+        ...rest,
+        ...(nextBaseUrl ? { baseUrl: nextBaseUrl } : {}),
+        ...(nextEffort ? { effort: nextEffort } : {}),
+      },
+    };
+  }
+  if (current.kindId === "zcode") {
+    const { baseUrl: _dropped, ...rest } = provider,
+      next = baseUrl === undefined ? provider.baseUrl : baseUrl || undefined;
+    return { [current.kindId]: { ...rest, ...(next ? { baseUrl: next } : {}) } };
+  }
+  return {};
+}
+
 export function publicConfig(
   config: RuntimeInstanceConfig,
   authReadiness: RuntimeAuthReadiness = unavailable(

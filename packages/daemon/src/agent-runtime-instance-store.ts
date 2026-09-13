@@ -29,6 +29,7 @@ import {
   publicConfig,
   requireWitnessedInstallation,
   runtimeBaseUrl,
+  runtimeInstanceKindConfig,
   sharedProviderDirectory,
   writeCodexConfig,
   writeZcodeConfig,
@@ -482,7 +483,8 @@ export function openRuntimeInstanceStore(input: {
         hasPermission = action.permissionMode !== undefined,
         hasIsolation = action.isolationState !== undefined,
         hasFast = action.fast !== undefined,
-        hasBaseUrl = action.baseUrl !== undefined;
+        hasBaseUrl = action.baseUrl !== undefined,
+        hasEffort = action.effort !== undefined;
       if (
         !hasName &&
         !hasInstallation &&
@@ -492,13 +494,14 @@ export function openRuntimeInstanceStore(input: {
         !hasPermission &&
         !hasIsolation &&
         !hasFast &&
-        !hasBaseUrl
+        !hasBaseUrl &&
+        !hasEffort
       )
         throw runtimeInstanceError(
           "invalid_runtime_instance_update",
           [
             "Runtime instance update requires --name, --installation, --model, ",
-            "--default-model, --base-url, --permission-mode, --isolation, --fast, --enable, or --disable.",
+            "--default-model, --base-url, --effort, --permission-mode, --isolation, --fast, --enable, or --disable.",
           ].join(""),
         );
       if (hasBaseUrl && current.kindId === "agy")
@@ -508,6 +511,11 @@ export function openRuntimeInstanceStore(input: {
         );
       if (hasFast && current.kindId !== "codex")
         throw runtimeInstanceError("invalid_runtime_fast", "Fast mode is supported only by Codex runtime instances.");
+      if (hasEffort && current.kindId !== "claude")
+        throw runtimeInstanceError(
+          "invalid_runtime_effort",
+          "Reasoning effort updates are supported only by Claude runtime instances.",
+        );
       const installationId = hasInstallation
           ? requireWitnessedInstallation(current.kindId, action.installationId, input.discover()).installationId
           : current.installationId,
@@ -518,12 +526,15 @@ export function openRuntimeInstanceStore(input: {
         enabled = hasEnabled ? requireBoolean(action.enabled, "enabled") : current.enabled,
         // Base URL edit on the existing instance: a non-empty value replaces the current
         // endpoint (same secure validation as create); an explicit empty string clears it
-        // back to the official endpoint. Omitted leaves it untouched.
+        // back to the official endpoint. Omitted leaves it untouched. Effort follows the
+        // same rule on the claude plane: empty clears back to the provider default.
         baseUrl = hasBaseUrl ? String(action.baseUrl).trim() : undefined,
+        effort = hasEffort ? String(action.effort).trim() : undefined,
         kindConfig = runtimeInstanceKindConfig(
           current,
           baseUrl,
           hasFast ? requireBoolean(action.fast, "fast") : undefined,
+          effort,
         );
       if (!models.includes(defaultModel))
         throw runtimeInstanceError(
@@ -720,35 +731,6 @@ export function openRuntimeInstanceStore(input: {
 
 function codexConfigHasBearer(configPath: string): boolean {
   return existsSync(configPath) && /^\s*experimental_bearer_token\s*=/mu.test(readFileSync(configPath, "utf8"));
-}
-
-/** Rebuilds the kind-scoped configuration after a base URL edit. `baseUrl === undefined`
- * means the update did not touch it (keep the stored endpoint); a non-empty string
- * replaces it; an explicit empty string clears it back to the official endpoint. */
-function runtimeInstanceKindConfig(
-  current: RuntimeInstanceConfig,
-  baseUrl: string | undefined,
-  fast: boolean | undefined,
-): { readonly claude?: unknown } | { readonly codex?: unknown } | { readonly zcode?: unknown } {
-  const provider = runtimeProviderConfig(current);
-  if (current.kindId === "codex") {
-    const { baseUrl: _droppedBaseUrl, fast: _droppedFast, ...rest } = provider,
-      nextBaseUrl = baseUrl === undefined ? provider.baseUrl : baseUrl || undefined,
-      nextFast = fast === undefined ? provider.fast : fast;
-    return {
-      codex: {
-        ...rest,
-        ...(nextBaseUrl ? { baseUrl: nextBaseUrl } : {}),
-        ...(nextFast === undefined ? {} : { fast: nextFast }),
-      },
-    };
-  }
-  if (current.kindId === "claude" || current.kindId === "zcode") {
-    const { baseUrl: _dropped, ...rest } = provider,
-      next = baseUrl === undefined ? provider.baseUrl : baseUrl || undefined;
-    return { [current.kindId]: { ...rest, ...(next ? { baseUrl: next } : {}) } };
-  }
-  return {};
 }
 
 function authReadinessLabel(readiness: RuntimeAuthReadiness): string {

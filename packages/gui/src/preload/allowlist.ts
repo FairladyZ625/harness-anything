@@ -279,6 +279,7 @@ function validRuntimeInstanceUpdate(value: unknown): boolean {
     runtimeInstanceUpdateFields.some((field) => field !== "instanceId" && value[field] !== undefined) &&
     (value.enabled === undefined || typeof value.enabled === "boolean") &&
     (value.fast === undefined || typeof value.fast === "boolean") &&
+    (value.effort === undefined || typeof value.effort === "string") &&
     (value.permissionMode === undefined ||
       ["bypass", "workspace-write", "read-only"].includes(String(value.permissionMode))) &&
     (value.isolationState === undefined ||
