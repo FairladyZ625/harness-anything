@@ -99,8 +99,9 @@ export async function settleEntitySaveReceipt(
 
 // One busy/feedback channel per runtime page: every mutation reports through the same
 // feedback line, the same error line, and (for spawn-shaped actions) the same receipt
-// settlement footer. The channel owns no reads; the page hook passes its own refresh.
-function useRuntimeChannel(repoId: string, refresh: () => Promise<unknown>) {
+// settlement footer. The channel owns no reads; the page hook passes its own refresh,
+// or none when its reads ride the ledger cut fan-out instead (the sessions page).
+function useRuntimeChannel(repoId: string, refresh?: () => Promise<unknown>) {
   const [busy, setBusy] = useState(false),
     [feedback, setFeedback] = useState<string | null>(null),
     [error, setError] = useState<string | null>(null),
@@ -126,7 +127,7 @@ function useRuntimeChannel(repoId: string, refresh: () => Promise<unknown>) {
       }
       const id = String(record?.sessionId ?? record?.opId ?? "applied");
       setFeedback(t("agentRuntime.feedbackApplied", { label, id }));
-      if (reread) await refresh();
+      if (reread && refresh) await refresh();
       return result;
     } catch (cause) {
       consumeKnownError(cause);
@@ -152,7 +153,7 @@ function useRuntimeChannel(repoId: string, refresh: () => Promise<unknown>) {
         onPending: setSettlement,
       });
       setSettlement(result);
-      await refresh();
+      if (refresh) await refresh();
       return result;
     } catch (cause) {
       consumeKnownError(cause);
@@ -180,6 +181,8 @@ function useRuntimeChannel(repoId: string, refresh: () => Promise<unknown>) {
 // 会话入口:daemon 聚合读面(sessionGroups + squad.runs.list),一次往返一组数据。
 // 组展开(单任务轮次 / 孤儿会话 / squad run 详情)由视图按展开键补读;唯一的写是 cancel。
 // 两段读窗独立(G12 §2a):sessions 段用 since,squads 段用 squadSince。
+// 本页不自带刷新:cancel 的 canonical 事件推进台账 cut,App 层探针的扇出
+// (invalidateLedgerDependents)在几秒内把新状态带进挂载中的列表。
 const SESSION_GROUPS_PAGE_LIMIT = 1000;
 const SQUAD_RUNS_LIMIT = 1000;
 const RELATED_TASK_BATCH_LIMIT = 500;
@@ -195,11 +198,17 @@ export function useSessionsWorkspace(
     readonly taskId?: string;
   },
 ) {
-  const client = useQueryClient();
   // 状态筛选进 query key:漏了它切筛选会命中旧结果的缓存,页面看起来没反应。
   const statusKey = [...list.status].sort().join(",");
   const groups = useQuery({
-    queryKey: ["session-groups", repoId, list.groupBy, list.range, list.query, statusKey, list.taskId ?? ""],
+    queryKey: [
+      ...runtimeQueryKeys.sessionGroupsAll(repoId),
+      list.groupBy,
+      list.range,
+      list.query,
+      statusKey,
+      list.taskId ?? "",
+    ],
     queryFn: () =>
       agentRuntimeClient.sessionGroups(repoId, {
         groupBy: list.groupBy,
@@ -211,7 +220,7 @@ export function useSessionsWorkspace(
     staleTime: 4_000,
   });
   const squadRuns = useQuery({
-    queryKey: ["squad-runs", repoId, list.squadSince, list.query],
+    queryKey: [...runtimeQueryKeys.squadRunsAll(repoId), list.squadSince, list.query],
     queryFn: () =>
       squadRunsClient.list(repoId, {
         since: list.squadSince,
@@ -220,16 +229,7 @@ export function useSessionsWorkspace(
       }),
     staleTime: 4_000,
   });
-  const channel = useRuntimeChannel(repoId, async () => {
-    await Promise.all([
-      client.invalidateQueries({ queryKey: ["session-groups", repoId] }),
-      client.invalidateQueries({ queryKey: ["squad-runs", repoId] }),
-      client.invalidateQueries({ queryKey: ["squad-run-detail", repoId] }),
-      client.invalidateQueries({ queryKey: runtimeQueryKeys.dispatchesAll(repoId) }),
-      client.invalidateQueries({ queryKey: runtimeQueryKeys.overviewAll(repoId) }),
-      client.invalidateQueries({ queryKey: runtimeQueryKeys.sessionAll(repoId) }),
-    ]);
-  });
+  const channel = useRuntimeChannel(repoId);
   return {
     groups,
     squadRuns,
@@ -267,7 +267,7 @@ export function useAgentSquadWorkspace(
   });
   const machine = useQuery(runtimeInstanceCatalogQuery());
   const relatedGroups = useQuery({
-    queryKey: ["session-groups", repoId, "related", related?.kind ?? "", related?.id ?? ""],
+    queryKey: [...runtimeQueryKeys.sessionGroupsAll(repoId), "related", related?.kind ?? "", related?.id ?? ""],
     queryFn: () =>
       agentRuntimeClient.sessionGroups(repoId, {
         groupBy: "task",
@@ -296,7 +296,7 @@ export function useAgentSquadWorkspace(
     ),
     relatedDispatches = useQueries({
       queries: relatedTaskBatches.map((taskIds) => ({
-        queryKey: ["related-dispatches", repoId, related?.kind ?? "", related?.id ?? "", taskIds],
+        queryKey: [...runtimeQueryKeys.relatedDispatchesAll(repoId), related?.kind ?? "", related?.id ?? "", taskIds],
         queryFn: () => harnessClient.getTaskDispatches({ repoId, taskIds, limit: RELATED_TASK_BATCH_LIMIT }),
         staleTime: 4_000,
       })),
@@ -329,8 +329,8 @@ export function useAgentSquadWorkspace(
       client.invalidateQueries({
         queryKey: ["runtime-control", repoId],
       }),
-      client.invalidateQueries({ queryKey: ["session-groups", repoId] }),
-      client.invalidateQueries({ queryKey: ["related-dispatches", repoId] }),
+      client.invalidateQueries({ queryKey: runtimeQueryKeys.sessionGroupsAll(repoId) }),
+      client.invalidateQueries({ queryKey: runtimeQueryKeys.relatedDispatchesAll(repoId) }),
     ]);
   });
   return {
@@ -424,18 +424,12 @@ export function useAgentSquadWorkspace(
           await new Promise((resolve) => window.setTimeout(resolve, 250));
         }
         await Promise.all([
-          client.invalidateQueries({ queryKey: ["session-groups", repoId] }),
-          client.invalidateQueries({ queryKey: ["related-dispatches", repoId] }),
+          client.invalidateQueries({ queryKey: runtimeQueryKeys.sessionGroupsAll(repoId) }),
+          client.invalidateQueries({ queryKey: runtimeQueryKeys.relatedDispatchesAll(repoId) }),
         ]);
-        // Navigation to the session page happens immediately after this promise resolves. A
-        // second invalidation after the new page mounts covers the narrow window where the
-        // binding event lands between the pre-navigation read and the first active query fetch.
-        window.setTimeout(() => {
-          void Promise.all([
-            client.invalidateQueries({ queryKey: ["session-groups", repoId] }),
-            client.invalidateQueries({ queryKey: ["related-dispatches", repoId] }),
-          ]);
-        }, 1_000);
+        // 导航紧跟本 promise 结算:这次失效保证会话页挂载即读到带绑定的组。绑定事件
+        // 若落在其后,它是 canonical 事件,会推进台账 cut,由 App 层探针的扇出补上——
+        // 不再需要第二个定时失效。
       }
       return settled;
     },
@@ -628,11 +622,11 @@ export function useSquadDetail(repoId: string, squadId: string | null) {
     staleTime: 4_000,
   });
 }
-/** squad run 的编排流转详情(repo.squad.run.read):与 useSessionsWorkspace 里
- * ["squad-run-detail"] 的失效键同源,是唯一的 run 详情读面——选中即读,null 不发。 */
+/** squad run 的编排流转详情(repo.squad.run.read):与台账 cut 扇出里的
+ * squadRunDetailAll 同源,是唯一的 run 详情读面——选中即读,null 不发。 */
 export function useSquadRunDetail(repoId: string, squadRunId: string | null) {
   return useQuery({
-    queryKey: ["squad-run-detail", repoId, squadRunId],
+    queryKey: [...runtimeQueryKeys.squadRunDetailAll(repoId), squadRunId],
     queryFn: () => squadRunsClient.read(repoId, squadRunId!),
     enabled: squadRunId !== null,
     staleTime: 4_000,

@@ -43,6 +43,8 @@ export type SessionGroupsQuery = {
  * One query key per daemon read, shared by every view that shows it (task detail, sessions page,
  * runtime workspace): the same dispatch list or runtime overview was fetched under three
  * different keys, so react-query could neither dedupe the requests nor invalidate them together.
+ * The sessions-page read families live here too, so the ledger cut fan-out (task-data.ts)
+ * invalidates exactly the keys the mounted hooks observe.
  */
 export const runtimeQueryKeys = {
   dispatchesAll: (repoId: string) => ["dispatches", repoId] as const,
@@ -51,6 +53,10 @@ export const runtimeQueryKeys = {
   overview: (repoId: string, taskId: string) => ["runtime-overview", repoId, taskId] as const,
   sessionAll: (repoId: string) => ["runtime-session", repoId] as const,
   session: (repoId: string, runtimeSessionId: string) => ["runtime-session", repoId, runtimeSessionId] as const,
+  sessionGroupsAll: (repoId: string) => ["session-groups", repoId] as const,
+  squadRunsAll: (repoId: string) => ["squad-runs", repoId] as const,
+  squadRunDetailAll: (repoId: string) => ["squad-run-detail", repoId] as const,
+  relatedDispatchesAll: (repoId: string) => ["related-dispatches", repoId] as const,
 };
 
 export const agentRuntimeClient = {
