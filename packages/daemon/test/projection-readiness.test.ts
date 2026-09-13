@@ -5,6 +5,7 @@ import test from "node:test";
 import type { TaskProjection } from "../../kernel/src/index.ts";
 import { listProjectedTaskDocuments, readProjectedDocument } from "../src/doc-sync-reads.ts";
 import { requireCurrentTaskProjection } from "../src/projection-readiness.ts";
+import { readTaskCompletion } from "../src/task-completion-read.ts";
 import type { RepoCellOperationalContext } from "../src/repo-cell-action-context.ts";
 import { runFactAction } from "../src/repo-cell-fact-action.ts";
 import type { RepoCellBinding } from "../src/repo-cell-types.ts";
@@ -235,3 +236,22 @@ function readyTaskRead(): TaskRead {
     catchUp: { maxItems: 1, reducedItems: 1, sqliteTransactions: 1 },
   } as unknown as TaskRead;
 }
+
+test("task completion read settles lagging, absent, and unpackaged tasks via the shared judgment", () => {
+  assert.throws(
+    () =>
+      readTaskCompletion(
+        projectionOf({ ...readyTaskRead(), status: "pending", watermark: 1, sourceRevision: 2 }),
+        "task_ready",
+      ),
+    (error: unknown) => (error as { readonly code?: unknown }).code === "content_not_ready",
+  );
+  assert.throws(
+    () => readTaskCompletion(projectionOf(missingTaskRead()), "task_missing"),
+    (error: unknown) => (error as { readonly code?: unknown }).code === "task_not_found",
+  );
+  assert.throws(
+    () => readTaskCompletion(projectionOf({ ...readyTaskRead(), packagePath: null }), "task_ready"),
+    (error: unknown) => (error as { readonly code?: unknown }).code === "content_not_ready",
+  );
+});
