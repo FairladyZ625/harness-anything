@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { isAvailableSquadRunSummary } from "../../../../daemon/src/squad-run-contract.ts";
 import { agentEntityClient, isAvailableSquadEntityRow } from "../agent-entity-client.ts";
@@ -273,6 +273,22 @@ export function SessionsView({
     [squads.data],
   );
 
+  // 组列表的行回调用 useCallback 稳定:App 层台账探针每 ~2s 推进一次 cut 都会让本页
+  // 重渲染,行级 memo(SessionGroupList 的 GroupSection)靠这些稳定引用跳过未变组。
+  const groupDecisionRefsFor = useCallback((taskId: string) => sessionDecisionRefs(relations, taskId), [relations]);
+  const selectSessionFromRail = useCallback(
+    (runtimeSessionId: string) => onSelectEntity(`session/${runtimeSessionId}`),
+    [onSelectEntity],
+  );
+  const toggleGroup = useCallback((key: string) => {
+    setExpandedGroups((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+
   // 小队编排详情(G12 §2b/§2c):选中行的 repo.squad.run.read,渲染 leader 轮次 →
   // worker 派工链扇出树;只有显式点击行才读取详情,切换范围后若该 run 不在列表则
   // 回到空选中。读面收敛在 useSquadRunDetail(与失效键同源)。
@@ -436,16 +452,9 @@ export function SessionsView({
             rowsByGroup={groupRows}
             selectedId={selectedSessionId}
             query={debouncedSearch}
-            decisionRefsFor={(taskId) => sessionDecisionRefs(relations, taskId)}
-            onSelectSession={(runtimeSessionId) => onSelectEntity(`session/${runtimeSessionId}`)}
-            onToggleGroup={(key) =>
-              setExpandedGroups((current) => {
-                const next = new Set(current);
-                if (next.has(key)) next.delete(key);
-                else next.add(key);
-                return next;
-              })
-            }
+            decisionRefsFor={groupDecisionRefsFor}
+            onSelectSession={selectSessionFromRail}
+            onToggleGroup={toggleGroup}
             onOpenTask={onOpenTask}
             onSelectEntity={onSelectEntity}
           />
