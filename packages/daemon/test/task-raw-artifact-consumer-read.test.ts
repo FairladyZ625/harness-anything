@@ -148,7 +148,7 @@ test("raw task artifacts read back with true metadata and canonical bytes, never
       "the canonical bytes survive the working copy being deleted",
     );
     assert.equal(beforeRestore.worktreeBody, null);
-    assert.equal((await cell.run({ kind: "doc-materialize" }, binding)).outcome, "applied");
+    assert.equal((await cell.run({ kind: "doc-materialize", paths: [], all: true }, binding)).outcome, "applied");
     for (const { destination, bytes, mediaType } of cases) {
       const read = (await cell.read("repo.tasks.document.read", {
         taskId: "task-consumer",

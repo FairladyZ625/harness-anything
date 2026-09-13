@@ -115,7 +115,7 @@ test("An imported directory keeps its empty directories through publication and 
     // materializer an operator reaches for. Git can restore the files on its own; only the manifest can
     // restore the directories, and a recovery that returns without them is not the roundtrip that was asked for.
     rmSync(path.join(rootDir, "harness", root), { recursive: true, force: true });
-    const restored = await cell.run({ kind: "doc-materialize" }, binding);
+    const restored = await cell.run({ kind: "doc-materialize", paths: [], all: true }, binding);
     assert.equal(restored.outcome, "applied", JSON.stringify(restored));
     assert.equal(readFileSync(path.join(rootDir, "harness", root, "README.md"), "utf8"), "# Empty directories\n");
     assert.ok(
@@ -478,14 +478,14 @@ test("Deleting an entity retires its declared empty directories and leaves user 
 
     // Recovery through the operator's own entry point: retirement is not undone, and it is not re-attempted
     // against the directory the user is still using.
-    const recovered = await cell.run({ kind: "doc-materialize" }, binding);
+    const recovered = await cell.run({ kind: "doc-materialize", paths: [], all: true }, binding);
     assert.equal(recovered.outcome, "applied", JSON.stringify(recovered));
     assert.equal(existsSync(held("outbox")), false, "recovery must not restore a retired directory");
     assert.equal(readFileSync(held("reserved", "user-note.txt"), "utf8"), "mine\n");
 
     // Once the user's own file is gone, the same retirement takes the directories it was holding open.
     rmSync(held("reserved", "user-note.txt"));
-    const retried = await cell.run({ kind: "doc-materialize" }, binding);
+    const retried = await cell.run({ kind: "doc-materialize", paths: [], all: true }, binding);
     assert.equal(retried.outcome, "applied", JSON.stringify(retried));
     assert.equal(existsSync(held("reserved")), false, "a retirement that was blocked is re-attempted, not dropped");
     assert.equal(existsSync(held()), false, "the entity's content root goes with the last directory it held");
@@ -645,7 +645,7 @@ test("A user's own empty directory inside an entity's content root survives that
     );
 
     // Rebuild reaches the same answer from the ledger alone: still no restoration, still no removal.
-    const recovered = await cell.run({ kind: "doc-materialize" }, binding);
+    const recovered = await cell.run({ kind: "doc-materialize", paths: [], all: true }, binding);
     assert.equal(recovered.outcome, "applied", JSON.stringify(recovered));
     assert.equal(existsSync(held("outbox")), false, "recovery must not restore a retired directory");
     assert.ok(statSync(held("scratch", "deep")).isDirectory(), "recovery must not remove what the entity never held");
@@ -653,7 +653,7 @@ test("A user's own empty directory inside an entity's content root survives that
 
     // Once the user takes their own directory away, the retirement the entity did state completes.
     rmSync(held("scratch"), { recursive: true });
-    const retried = await cell.run({ kind: "doc-materialize" }, binding);
+    const retried = await cell.run({ kind: "doc-materialize", paths: [], all: true }, binding);
     assert.equal(retried.outcome, "applied", JSON.stringify(retried));
     assert.equal(existsSync(held()), false, "the blocked retirement is re-attempted, not dropped");
     assert.ok(statSync(neighbourHeld("spool")).isDirectory(), "the surviving entity keeps everything it declared");

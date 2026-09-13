@@ -15,7 +15,7 @@ import { resolveLedgerGitLayout, ledgerGitPath } from "./ledger-git-layout.ts";
 import { localGitObjectRefStore, localGitWorktreeSettlement } from "./local-version-control-system.ts";
 import { openSqliteEventStore } from "./sqlite-event-store.ts";
 import type { SqliteEventStore } from "./sqlite-event-store.ts";
-import type { PublicationFile, PublicationWrite, PublicationDelete } from "./task-event-store-types.ts";
+import type { PreservedCopy, PublicationFile, PublicationWrite, PublicationDelete } from "./task-event-store-types.ts";
 import { TaskEventStoreError } from "./task-event-store-types.ts";
 import { finalizeRefs, prepareCommit } from "./task-event-store-git-refs.ts";
 
@@ -62,7 +62,7 @@ export function publishConvertedGeneration(input: {
     localGitWorktreeSettlement.index(ledger.rootDir, files);
     if (
       !worktreeMatchesBaseline(ledger.rootDir, baseline, files) ||
-      settleWorktree(ledger.rootDir, files, baseline).length > 0
+      settleWorktree(ledger.rootDir, files, baseline).conflicts.length > 0
     )
       throw new TaskEventStoreError("publication_indeterminate", "authored worktree has concurrent edits");
     settleWorktreeDirectories(ledger.rootDir, directories);
@@ -75,7 +75,7 @@ export function publishConvertedGeneration(input: {
   localGitWorktreeSettlement.index(ledger.rootDir, files);
   if (
     !worktreeMatchesBaseline(ledger.rootDir, baseline, files) ||
-    settleWorktree(ledger.rootDir, files, baseline).length > 0
+    settleWorktree(ledger.rootDir, files, baseline).conflicts.length > 0
   )
     throw new TaskEventStoreError("publication_indeterminate", "authored worktree has concurrent edits");
   settleWorktreeDirectories(ledger.rootDir, directories);
@@ -425,10 +425,11 @@ export function settleWorktree(
   killpoint?: (point: import("./task-event-store-types.ts").EventPublicationKillpoint) => void,
   preserve: ReadonlySet<string> = new Set(),
   commit = "",
-): readonly string[] {
+): { readonly conflicts: readonly string[]; readonly preserved: readonly PreservedCopy[] } {
   const deletes = files.flatMap((file) => ("delete" in file ? [file.delete] : [])),
     writes = files.flatMap((file) => ("target" in file ? [file] : [])),
-    conflicts: string[] = [];
+    conflicts: string[] = [],
+    preserved: PreservedCopy[] = [];
   for (const target of deletes)
     if (
       !settleVisibleChange(repoRoot, target, "missing", baseline, killpoint, (hooks) =>
@@ -437,7 +438,8 @@ export function settleWorktree(
     )
       conflicts.push(target);
   for (const file of writes) {
-    const digest = publicationDigest(file.body);
+    const digest = publicationDigest(file.body),
+      absolute = `${repoRoot}/${file.target}`;
     if (
       !settleVisibleChange(
         repoRoot,
@@ -448,14 +450,12 @@ export function settleWorktree(
         (hooks) => {
           if (preserve.has(file.target)) {
             hooks.beforeRename();
-            const node = localGitWorktreeSettlement.readNode(`${repoRoot}/${file.target}`);
+            const node = localGitWorktreeSettlement.readNode(absolute);
             if (node && node.sha256 !== digest)
-              localGitWorktreeSettlement.preserveVisibleConflict(
-                repoRoot,
-                `${repoRoot}/${file.target}`,
-                file.target,
-                commit,
-              );
+              preserved.push({
+                target: file.target,
+                copy: localGitWorktreeSettlement.preserveVisibleConflict(repoRoot, absolute, file.target, commit),
+              });
           }
           localGitWorktreeSettlement.visible(repoRoot, [file], hooks);
         },
@@ -463,10 +463,10 @@ export function settleWorktree(
     )
       conflicts.push(file.target);
   }
-  return conflicts;
+  return { conflicts, preserved };
 }
 
-function settleVisibleChange(
+export function settleVisibleChange(
   repoRoot: string,
   target: string,
   settled: string,

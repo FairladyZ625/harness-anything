@@ -184,7 +184,7 @@ test("three progress bundles preserve every old byte and ordered duplicate evide
     );
     unlinkSync(path.join(rootDir, "harness", progressPath));
     const accepted = store.read();
-    assert.deepEqual(store.materialize().changed, []);
+    assert.deepEqual(store.materialize().settlements, [{ path: progressPath, action: "restore", copy: null }]);
     assert.equal(readFileSync(path.join(rootDir, "harness", progressPath), "utf8"), body);
     assert.deepEqual(store.read(), accepted);
     assert.equal(Buffer.from(store.readContentBlob(sha256Text(body))!).toString("utf8"), body);

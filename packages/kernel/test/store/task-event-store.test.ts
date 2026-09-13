@@ -501,3 +501,100 @@ test("later acceptance retains the verified prefix without certifying the newer 
     await store.drain();
   }
 });
+
+test("a preview materialization reports the whole-closure plan without changing any file", async () => {
+  const rootDir = fixture("materialize-preview");
+  initRepo(rootDir);
+  const older = path.join(rootDir, "harness/context/older.md"),
+    missing = path.join(rootDir, "harness/context/missing.md");
+  mkdirSync(path.dirname(older), { recursive: true });
+  writeFileSync(older, "older accepted bytes\n");
+  writeFileSync(missing, "missing doc bytes\n");
+  let blockWorktree = false;
+  const store = makeTaskEventStore({
+    repoId,
+    rootDir,
+    writerFence,
+    killpoint: (point) => {
+      if (blockWorktree && point === "before_worktree_rename") throw new Error("worktree unavailable");
+    },
+  });
+  try {
+    store.append(docBundle(store, "older accepted bytes\n", 1, "preview-older", "context/older.md"));
+    store.append(docBundle(store, "missing doc bytes\n", 2, "preview-missing", "context/missing.md"));
+    await store.settlePendingMaterialization!("settle the initial cut");
+    // The other node's cut: canonical moves to newer bytes while this worktree keeps the older ones,
+    // and one settled document disappears locally — the two shapes a whole-closure restore would touch.
+    blockWorktree = true;
+    store.append(docBundle(store, "newer canonical bytes\n", 3, "preview-newer", "context/older.md"));
+    await store.settlePendingMaterialization!("git follows, worktree does not");
+    blockWorktree = false;
+    rmSync(missing);
+
+    const preview = store.materialize({ preview: true });
+
+    assert.equal(preview.status, "planned");
+    assert.deepEqual(
+      preview.settlements.map(({ path: settledPath, action }) => [settledPath, action]).sort(),
+      [
+        ["context/missing.md", "restore"],
+        ["context/older.md", "overwrite"],
+      ],
+      JSON.stringify(preview.settlements),
+    );
+    assert.equal(readFileSync(older, "utf8"), "older accepted bytes\n", "preview must not overwrite");
+    assert.equal(existsSync(missing), false, "preview must not restore a missing file");
+    assert.equal(store.followerStatus().worktree.status, "pending", "preview must not settle the follower");
+  } finally {
+    blockWorktree = false;
+    await store.drain();
+  }
+});
+
+test("a path-scoped materialization restores the named document and keeps its local bytes as a copy", async () => {
+  const rootDir = fixture("materialize-paths");
+  initRepo(rootDir);
+  const named = path.join(rootDir, "harness/context/named.md"),
+    untouched = path.join(rootDir, "harness/context/untouched.md");
+  mkdirSync(path.dirname(named), { recursive: true });
+  writeFileSync(named, "named canonical\n");
+  writeFileSync(untouched, "untouched canonical\n");
+  const store = makeTaskEventStore({ repoId, rootDir, writerFence });
+  try {
+    store.append(docBundle(store, "named canonical\n", 1, "paths-named", "context/named.md"));
+    store.append(docBundle(store, "untouched canonical\n", 2, "paths-untouched", "context/untouched.md"));
+    await store.settlePendingMaterialization!("settle the initial cut");
+    writeFileSync(named, "operator draft\n");
+    rmSync(untouched);
+
+    const restored = store.materialize({ paths: ["context/named.md"] });
+
+    assert.equal(restored.status, "visible");
+    assert.deepEqual(
+      restored.settlements.map(({ path: settledPath, action, copy }) => [settledPath, action, copy !== null]),
+      [["context/named.md", "overwrite", true]],
+      JSON.stringify(restored.settlements),
+    );
+    assert.equal(readFileSync(named, "utf8"), "named canonical\n");
+    const copy = restored.settlements[0]!.copy!;
+    assert.equal(readFileSync(path.join(rootDir, "harness", copy), "utf8"), "operator draft\n");
+    assert.match(copy, /^context\/named\.conflict-[0-9a-f]{8}\.md$/u);
+    assert.equal(existsSync(untouched), false, "a named restore must not touch other documents");
+  } finally {
+    await store.drain();
+  }
+});
+
+test("a path-scoped materialization refuses a path the canonical cut cannot restore", async () => {
+  const rootDir = fixture("materialize-paths-unknown");
+  initRepo(rootDir);
+  const store = makeTaskEventStore({ repoId, rootDir, writerFence });
+  try {
+    store.append(docBundle(store, "present\n", 1, "paths-unknown", "context/present.md"));
+    await store.settlePendingMaterialization!("settle the initial cut");
+    assert.throws(() => store.materialize({ paths: ["context/never-existed.md"] }), /no restorable document/u);
+    assert.throws(() => store.materialize({ paths: [".gitignore"] }), /no restorable document/u);
+  } finally {
+    await store.drain();
+  }
+});

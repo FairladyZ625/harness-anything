@@ -39,6 +39,7 @@ import {
 } from "./doc-sync-files.ts";
 import { publishDocIntent } from "./doc-sync-publication.ts";
 import { readAction, readDocReceipt } from "./doc-sync-reads.ts";
+import { runDocMaterialize } from "./doc-sync-materialize-action.ts";
 import { noOp, scanDetail, scanRejectionSummary, scannerSettlement } from "./doc-sync-settlement.ts";
 import type { FleetAssignmentScope } from "./fleet/contract.ts";
 
@@ -96,22 +97,7 @@ export async function runDocAction(input: Input): Promise<DocSettlementReceipt> 
   if (Buffer.byteLength(JSON.stringify(input.action)) > DOC_COMMAND_FRAME_MAX_BYTES)
     throw docSyncError("invalid_command", "doc command frame exceeds the descriptor-only limit");
   if (input.action.kind.startsWith("doc-conflict-")) return runLocalDocConflictExit(input);
-  if (input.action.kind === "doc-materialize") {
-    if (!hasExactDocSyncActionFields(input.action, ["kind"]))
-      throw docSyncError("invalid_command", "doc materialize takes no options");
-    const result = input.store.materialize(),
-      revision = input.store.readHead()?.revision ?? 0,
-      visible = input.store.followerStatus().worktree.status === "verified";
-    return {
-      outcome: visible ? "applied" : "pending",
-      opId: `materialize:${result.commitSha.sha}`,
-      revision,
-      acceptance: null,
-      evidence: `doc-materialize:${stableStringify({ changed: result.changed, conflicts: result.conflicts })}`,
-      visibility: "center",
-      proof: proof(revision, revision, true, visible),
-    };
-  }
+  if (input.action.kind === "doc-materialize") return runDocMaterialize(input);
   if (input.action.kind === "doc-retire") return runDocRetire(input);
   if (input.action.kind !== "doc-submit") return readAction(input);
   const scan = localProseSource(input.binding.source) ? scannerSubmit(input) : null;

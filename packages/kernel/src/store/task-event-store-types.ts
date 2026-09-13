@@ -89,11 +89,32 @@ export interface EventFileBatch {
   readonly accessedItems: number;
   readonly prefetchContent?: (events: readonly CanonicalEventV1[]) => ReadonlyMap<string, Uint8Array | null>;
 }
+export interface MaterializationSettlement {
+  /** The authored document path this row describes, relative to the authored root. */
+  readonly path: string;
+  readonly action: "overwrite" | "restore" | "delete";
+  /** Where the overwritten local bytes were kept; null when nothing local was kept. */
+  readonly copy: string | null;
+}
+/** A worktree target whose overwritten bytes live on in a conflict copy beside it. */
+export interface PreservedCopy {
+  readonly target: string;
+  readonly copy: string;
+}
 export interface MaterializationReceipt {
-  readonly status: "visible";
+  /** "planned" rows describe what a settlement would touch without changing any file. */
+  readonly status: "visible" | "planned";
   readonly commitSha: LedgerCommitSha;
-  readonly changed: readonly string[];
+  /** Documents this pass settled, in authored-relative paths; a settled no-op pass reports none. */
+  readonly settlements: readonly MaterializationSettlement[];
+  /** Targets left alone because a concurrent local edit owns them, in authored-relative paths. */
   readonly conflicts: readonly string[];
+}
+export interface MaterializationRequest {
+  /** Restrict the restore to these authored document paths; omitted settles the whole closure. */
+  readonly paths?: readonly string[];
+  /** Report what a whole-closure settlement would touch without changing any file. */
+  readonly preview?: boolean;
 }
 export const materializationStates = Object.freeze(["ok", "retrying", "failed"] as const);
 export type MaterializationState = (typeof materializationStates)[number];
@@ -153,7 +174,7 @@ export interface CanonicalEventStore {
   readonly readContentBlob: (sha256: string) => Uint8Array | null;
   readonly layout: () => LedgerLayoutState;
   readonly append: (bundle: CanonicalWriteBundle) => CanonicalEventAppendReceipt;
-  readonly materialize: () => MaterializationReceipt;
+  readonly materialize: (request?: MaterializationRequest) => MaterializationReceipt;
   /** Read-only health of the WAL to Git materialization owned by this store. */
   readonly materializationHealth: () => MaterializationHealth;
   readonly drain: () => Promise<void>;

@@ -31,3 +31,9 @@ export function resolveLedgerGitLayout(input: HarnessLayoutInput): LedgerGitLayo
 export function ledgerGitPath(layout: LedgerGitLayout, authoredRelativePath: string): string {
   return layout.authoredPrefix ? `${layout.authoredPrefix}/${authoredRelativePath}` : authoredRelativePath;
 }
+/** The inverse of ledgerGitPath: a target outside the authored root keeps its Git-path form. */
+export function ledgerAuthoredPath(layout: LedgerGitLayout, target: string): string {
+  return layout.authoredPrefix && target.startsWith(`${layout.authoredPrefix}/`)
+    ? target.slice(layout.authoredPrefix.length + 1)
+    : target;
+}

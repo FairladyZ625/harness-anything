@@ -1,12 +1,11 @@
 import { type EventHead, type LedgerCutIdentity } from "../domain/write-chain.contract.ts";
-import { isTaskEvent, ledgerCommitSha, type CanonicalEventV1 } from "../domain/doc-sync.contract.ts";
+import { isTaskEvent, ledgerCommitSha } from "../domain/doc-sync.contract.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
 import { resolveHarnessLayout, type HarnessLayoutInput } from "../layout/index.ts";
 import { consumeKnownError } from "../error-consumption.ts";
 import { canonicalDocumentClaims, contentClaims } from "./task-event-store-claims-layout.ts";
 import { canonicalEventCut, canonicalEventCutFromHead, canonicalLedgerCut } from "./task-event-store-contract.ts";
-import { isTaskBootstrapEvent } from "../domain/task-bootstrap-event.ts";
-import { resolveLedgerGitLayout, ledgerGitPath } from "./ledger-git-layout.ts";
+import { resolveLedgerGitLayout, ledgerGitPath, ledgerAuthoredPath } from "./ledger-git-layout.ts";
 import { localGitObjectRefStore, localGitWorktreeSettlement } from "./local-version-control-system.ts";
 import { openSqliteEventStore, type SqliteCommandOutcome } from "./sqlite-event-store.ts";
 import { validateCanonicalWriteBundle } from "./task-event-store-contract.ts";
@@ -17,6 +16,7 @@ import type {
   EventFileBatch,
   MaterializationHealth,
   MaterializationReceipt,
+  MaterializationRequest,
   PublicationWrite,
   PublicationDelete,
 } from "./task-event-store-types.ts";
@@ -24,18 +24,23 @@ import { TaskEventStoreError } from "./task-event-store-types.ts";
 import { assertAuthorizedReplacements } from "./task-event-store-replacement-authorization.ts";
 import { finalizeRefs, prepareCommit } from "./task-event-store-git-refs.ts";
 import {
+  closureFiles,
+  planFollowerSettlement,
+  recoverGeneratedWorktreeBaseline,
+  restoreRequestedDocuments,
+  settlementRows,
+  settledFingerprint,
+} from "./sqlite-task-event-materialize.ts";
+import {
   certifiedFollowerRevision,
   captureGitBaseline,
   followerDirectories,
-  followerFiles,
   legacyRetirements,
   ledgerWorktreeBaseline,
   physicalWorktreeRevision,
   settleWorktree,
   settleWorktreeDirectories,
   worktreeFingerprint,
-  publicationDigest,
-  readPendingEvents,
   type FollowerDirectorySettlement,
 } from "./sqlite-task-event-publication.ts";
 
@@ -177,71 +182,79 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
 
   /** Returns the targets left alone: bytes that are neither baseline nor settled are a concurrent edit, and win. */
   const settleFollowerWorktree = (
-    currentLedger: ReturnType<typeof ledger>,
+    currentLedger: ReturnType<typeof resolveLedgerGitLayout>,
     files: readonly (PublicationWrite | PublicationDelete)[],
     baseline: ReadonlyMap<string, string>,
     commit: string,
     directories: FollowerDirectorySettlement,
     restoreMissing: boolean,
-  ): readonly string[] => {
-    const permitted = new Map(baseline),
-      preserve = new Set<string>(),
-      conflicts: string[] = [];
-    for (const [logical, accepted] of acceptedWorktree) {
-      const target = ledgerGitPath(currentLedger, logical);
-      if (
-        !baseline.has(target) ||
-        worktreeFingerprint(localGitWorktreeSettlement.readNode(`${currentLedger.rootDir}/${target}`)) !==
-          accepted.fingerprint
-      )
-        continue;
-      permitted.set(target, accepted.fingerprint);
-      if (accepted.preserve && baseline.get(target) !== accepted.fingerprint) preserve.add(target);
-    }
-    const manifest = ledgerGitPath(currentLedger, "events/segments/manifest.json"),
-      eligible = files.filter((file) => {
-        const target = "target" in file ? file.target : file.delete,
-          current = worktreeFingerprint(localGitWorktreeSettlement.readNode(`${currentLedger.rootDir}/${target}`));
-        if (current === "missing" && (restoreMissing || !permitted.has(target))) permitted.set(target, "missing");
-        if (current === settledFingerprint(file)) return false;
-        if (current === permitted.get(target)) return true;
-        conflicts.push(target);
-        return false;
-      }),
-      isManifest = (file: PublicationWrite | PublicationDelete) => "target" in file && file.target === manifest;
-    conflicts.push(
-      ...settleWorktree(
+  ): { readonly settlements: MaterializationReceipt["settlements"]; readonly conflicts: readonly string[] } => {
+    const plan = planFollowerSettlement(acceptedWorktree, currentLedger, files, baseline, restoreMissing),
+      manifest = ledgerGitPath(currentLedger, "events/segments/manifest.json"),
+      isManifest = (file: PublicationWrite | PublicationDelete) => "target" in file && file.target === manifest,
+      conflicts: string[] = [...plan.conflicts],
+      first = settleWorktree(
         currentLedger.rootDir,
-        eligible.filter((file) => !isManifest(file)),
-        permitted,
+        plan.eligible.filter((file) => !isManifest(file)),
+        plan.permitted,
         options.killpoint,
-        preserve,
+        plan.preserve,
         commit,
-      ),
-    );
+      );
+    conflicts.push(...first.conflicts);
     // Creating an owned directory is additive and idempotent, so it runs even when a concurrent edit made part
     // of this settlement ineligible: a partial pass must not be the reason a directory stays missing. Retiring
     // one is equally safe under a partial pass, because a directory whose files have not been removed yet is
     // still occupied and is therefore left standing.
     settleWorktreeDirectories(currentLedger.rootDir, directories);
     // A restart resumes from this manifest, so it lands only after everything it vouches for.
-    conflicts.push(...settleWorktree(currentLedger.rootDir, eligible.filter(isManifest), permitted, options.killpoint));
+    const second = settleWorktree(
+      currentLedger.rootDir,
+      plan.eligible.filter(isManifest),
+      plan.permitted,
+      options.killpoint,
+    );
+    conflicts.push(...second.conflicts);
     acceptedWorktree.clear();
-    return conflicts;
+    const skipped = new Set(conflicts),
+      settledTargets = new Set(
+        plan.eligible.flatMap((file) => {
+          const target = "target" in file ? file.target : file.delete;
+          return skipped.has(target) ? [] : [target];
+        }),
+      ),
+      copies = new Map(first.preserved.map((preserved) => [preserved.target, preserved.copy]));
+    return {
+      settlements: settlementRows(currentLedger, plan, settledTargets, copies),
+      conflicts,
+    };
   };
 
   /**
    * Publishes only what SQLite accepted since the followers last settled: Git on top of its certified parent, the
-   * worktree against what it last held. `restoreMissing` (materialize) settles the whole closure instead.
+   * worktree against what it last held. `restoreMissing` (materialize) settles the whole closure instead; `preview`
+   * runs that same whole-closure read and reports the plan without writing anything.
    */
-  const publishFollower = (restoreMissing = false): MaterializationReceipt => {
+  const publishFollower = (restoreMissing = false, preview = false): MaterializationReceipt => {
     const accepted = cut(),
       currentLedger = ledger(),
       currentRef = authoredRef(),
       parent = localGitObjectRefStore.resolveCommit(currentLedger.rootDir, currentRef);
     if (accepted.revision === 0) {
+      if (preview)
+        return {
+          status: "planned",
+          commitSha: ledgerCommitSha(options.repoId, parent),
+          settlements: [],
+          conflicts: [],
+        };
       follower = pendingFollower("No accepted ledger cut exists to publish");
-      return { status: "visible", commitSha: ledgerCommitSha(options.repoId, parent), changed: [], conflicts: [] };
+      return {
+        status: "visible",
+        commitSha: ledgerCommitSha(options.repoId, parent),
+        settlements: [],
+        conflicts: [],
+      };
     }
     const verifiedRevision =
         certified?.commit === parent ? certified.revision : certifiedFollowerRevision(currentLedger, parent, sqlite),
@@ -259,16 +272,21 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
             ? follower.worktree
             : { status: "verified", cut: accepted, commitSha: parent, conflicts: [] },
       };
-      return { status: "visible", commitSha: ledgerCommitSha(options.repoId, parent), changed: [], conflicts: [] };
+      return {
+        status: "visible",
+        commitSha: ledgerCommitSha(options.repoId, parent),
+        settlements: [],
+        conflicts: [],
+      };
     }
-    const events = readPendingEvents(sqlite, from),
-      files = [...followerFiles(currentLedger, events, readContent, accepted, sqlite.metadata().generation), ...legacy],
+    const closure = closureFiles(materializeContext(), accepted, from),
+      files = [...closure.files, ...legacy],
       baseline = new Map(captureGitBaseline(currentLedger.rootDir, parent, files));
     if (restoreMissing || worktreeRevision !== verifiedRevision) {
       // The worktree last settled at another cut than Git's parent, so it may still hold what the ledger held then.
       const held = new Map([
         ...ledgerWorktreeBaseline(currentLedger, sqlite, worktreeRevision, files),
-        ...recoverGeneratedWorktreeBaseline(currentLedger, events),
+        ...recoverGeneratedWorktreeBaseline(currentLedger, closure.events),
       ]);
       for (const [target, previous] of held)
         if (
@@ -276,6 +294,23 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
           baseline.get(target)
         )
           baseline.set(target, previous);
+    }
+    if (preview) {
+      // The same whole-closure classification the settling pass below applies, reported without writing anything.
+      const plan = planFollowerSettlement(acceptedWorktree, currentLedger, files, baseline, restoreMissing);
+      return {
+        status: "planned",
+        commitSha: ledgerCommitSha(options.repoId, parent),
+        settlements: settlementRows(
+          currentLedger,
+          plan,
+          new Set(plan.eligible.map((file) => ("target" in file ? file.target : file.delete))),
+          new Map(),
+        ),
+        conflicts: [...new Set([...plan.conflicts, ...worktreeConflicts.keys()])]
+          .sort()
+          .map((target) => ledgerAuthoredPath(currentLedger, target)),
+      };
     }
     let commit = parent;
     if (verifiedRevision < accepted.revision) {
@@ -298,19 +333,20 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
       worktree: pendingFollower("worktree settlement has not verified the Git cut").worktree,
     };
     localGitWorktreeSettlement.index(currentLedger.rootDir, files);
-    const skipped = new Set(
-      settleFollowerWorktree(
-        currentLedger,
-        files,
-        baseline,
-        commit,
-        followerDirectories(currentLedger, events),
-        restoreMissing,
-      ),
+    const settled = settleFollowerWorktree(
+      currentLedger,
+      files,
+      baseline,
+      commit,
+      followerDirectories(currentLedger, closure.events),
+      restoreMissing,
     );
+    const skipped = new Set(settled.conflicts);
     // A skipped target is never retried on its own: it stays reported until settled or its settled bytes appear.
-    for (const [target, settled] of worktreeConflicts)
-      if (worktreeFingerprint(localGitWorktreeSettlement.readNode(`${currentLedger.rootDir}/${target}`)) === settled)
+    for (const [target, settledBytes] of worktreeConflicts)
+      if (
+        worktreeFingerprint(localGitWorktreeSettlement.readNode(`${currentLedger.rootDir}/${target}`)) === settledBytes
+      )
         worktreeConflicts.delete(target);
     for (const file of files) {
       const target = "target" in file ? file.target : file.delete;
@@ -333,7 +369,12 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
             },
     };
     options.onMaterializationHealthChange?.(health("ok"));
-    return { status: "visible", commitSha: ledgerCommitSha(options.repoId, commit), changed: [], conflicts };
+    return {
+      status: "visible",
+      commitSha: ledgerCommitSha(options.repoId, commit),
+      settlements: settled.settlements,
+      conflicts: conflicts.map((target) => ledgerAuthoredPath(currentLedger, target)),
+    };
   };
 
   const scheduleFollower = (): Promise<void> => {
@@ -369,6 +410,19 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
 
   if (options.mutable !== false) void scheduleFollower();
 
+  // The operator-facing materialize requests live in their own module but settle through this store's live state.
+  const materializeContext = () => ({
+    repoId: options.repoId,
+    killpoint: options.killpoint,
+    cut,
+    ledger,
+    authoredRef,
+    sqlite,
+    readContent,
+    acceptedWorktree,
+    worktreeConflicts,
+  });
+
   return {
     canonicalRef: `sqlite:generation-${sqlite.metadata().generation}`,
     read: () => ({ schema: "canonical-event-stream/v1", revision: sqlite.revision(), events: sqlite.events() }),
@@ -388,7 +442,12 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
     readContentBlob: readContent,
     layout: () => "sharded-sha256-2/v1",
     append,
-    materialize: () => publishFollower(true),
+    materialize: (request?: MaterializationRequest) =>
+      request?.preview === true
+        ? publishFollower(true, true)
+        : request?.paths
+          ? restoreRequestedDocuments(materializeContext(), request.paths)
+          : publishFollower(true),
     materializationHealth: () =>
       health(
         follower.git.status === "verified" && follower.git.cut?.revision === sqlite.revision()
@@ -418,38 +477,6 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
       ...(reason ? { reason: "deterministic_failure", lastError: reason } : {}),
     };
   }
-}
-
-/**
- * A machine-written file the window restates may still hold any earlier snapshot of it that an interrupted pass
- * left.
- */
-function recoverGeneratedWorktreeBaseline(
-  ledger: ReturnType<typeof resolveLedgerGitLayout>,
-  events: readonly CanonicalEventV1[],
-): ReadonlyMap<string, string> {
-  const recovered = new Map<string, string>(),
-    observed = new Map<string, string>();
-  for (const event of events) {
-    const claims = isTaskEvent(event)
-      ? (event.payload.documentClaims ?? [])
-      : isTaskBootstrapEvent(event)
-        ? event.payload.initialDocumentClaims
-        : [];
-    for (const claim of claims) {
-      if (claim.policyId !== "typed-machine-writer/v1") continue;
-      const target = ledgerGitPath(ledger, claim.path),
-        fingerprint = `100644:${claim.sha256}:${claim.size}`;
-      if (!observed.has(target))
-        observed.set(target, worktreeFingerprint(localGitWorktreeSettlement.readNode(`${ledger.rootDir}/${target}`)));
-      if (observed.get(target) === fingerprint) recovered.set(target, fingerprint);
-    }
-  }
-  return recovered;
-}
-
-function settledFingerprint(file: PublicationWrite | PublicationDelete): string {
-  return "target" in file ? `${file.mode}:${publicationDigest(file.body)}:${Buffer.byteLength(file.body)}` : "missing";
 }
 
 function pendingFollower(reason: string): { readonly git: FollowerFacet; readonly worktree: FollowerFacet } {
