@@ -52,7 +52,7 @@ import {
   providerSubscriptionReadiness,
 } from "./agent-runtime-launch-config.ts";
 import { runtimePermissionMode, type RuntimeIsolationState } from "./runtime-permissions.ts";
-import { runtimeKindIds } from "./runtime-inventory.ts";
+import { runtimeEffortField, runtimeKindIds } from "./runtime-inventory.ts";
 
 export function openRuntimeInstanceStore(input: {
   readonly userRoot: string;
@@ -511,10 +511,10 @@ export function openRuntimeInstanceStore(input: {
         );
       if (hasFast && current.kindId !== "codex")
         throw runtimeInstanceError("invalid_runtime_fast", "Fast mode is supported only by Codex runtime instances.");
-      if (hasEffort && current.kindId !== "claude")
+      if (hasEffort && runtimeEffortField(current.kindId) === undefined)
         throw runtimeInstanceError(
           "invalid_runtime_effort",
-          "Reasoning effort updates are supported only by Claude runtime instances.",
+          `Reasoning effort updates are not supported by ${current.kindId} runtime instances.`,
         );
       const installationId = hasInstallation
           ? requireWitnessedInstallation(current.kindId, action.installationId, input.discover()).installationId
@@ -527,7 +527,7 @@ export function openRuntimeInstanceStore(input: {
         // Base URL edit on the existing instance: a non-empty value replaces the current
         // endpoint (same secure validation as create); an explicit empty string clears it
         // back to the official endpoint. Omitted leaves it untouched. Effort follows the
-        // same rule on the claude plane: empty clears back to the provider default.
+        // same rule on every plane that declares an effort field, under that field's name.
         baseUrl = hasBaseUrl ? String(action.baseUrl).trim() : undefined,
         effort = hasEffort ? String(action.effort).trim() : undefined,
         kindConfig = runtimeInstanceKindConfig(

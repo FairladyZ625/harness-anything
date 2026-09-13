@@ -21,7 +21,7 @@ import type {
   RuntimeInstanceSummary,
 } from "./agent-runtime-instance-types.ts";
 import { runtimeProviderConfig } from "./agent-runtime-instance-types.ts";
-import { runtimeKindForId } from "./runtime-inventory.ts";
+import { runtimeEffortField, runtimeKindForId } from "./runtime-inventory.ts";
 
 export function migrateLegacyInstallationIdentities(
   instances: readonly RuntimeInstanceConfig[],
@@ -115,47 +115,46 @@ export function installationLabel(installation: RuntimeInstallationWitness): str
   return `${installation.installationId} (${installation.version})`;
 }
 
-/** Rebuilds the kind-scoped configuration after a base URL or effort edit. `baseUrl === undefined`
- * means the update did not touch it (keep the stored endpoint); a non-empty string
- * replaces it; an explicit empty string clears it back to the official endpoint. Effort
- * follows the same tri-state on the claude plane (empty clears to the provider default). */
+/** Rebuilds the kind-scoped configuration after a base URL, fast, or effort edit. For each
+ * edit `undefined` means the update did not touch it (keep the stored value); a non-empty
+ * value replaces it; an explicit empty string clears it back to the provider default. The
+ * editable keys come from the kind's catalog entry, so each kind keeps its own field names
+ * (codex stores effort as `reasoningEffort`) and fields a kind does not declare never move. */
 export function runtimeInstanceKindConfig(
   current: RuntimeInstanceConfig,
   baseUrl: string | undefined,
   fast: boolean | undefined,
   effort: string | undefined,
-): { readonly claude?: unknown } | { readonly codex?: unknown } | { readonly zcode?: unknown } {
-  const provider = runtimeProviderConfig(current);
-  if (current.kindId === "codex") {
-    const { baseUrl: _droppedBaseUrl, fast: _droppedFast, ...rest } = provider,
-      nextBaseUrl = baseUrl === undefined ? provider.baseUrl : baseUrl || undefined,
-      nextFast = fast === undefined ? provider.fast : fast;
-    return {
-      codex: {
-        ...rest,
-        ...(nextBaseUrl ? { baseUrl: nextBaseUrl } : {}),
-        ...(nextFast === undefined ? {} : { fast: nextFast }),
-      },
-    };
-  }
-  if (current.kindId === "claude") {
-    const { baseUrl: _droppedBaseUrl, effort: _droppedEffort, ...rest } = provider,
-      nextBaseUrl = baseUrl === undefined ? provider.baseUrl : baseUrl || undefined,
-      nextEffort = effort === undefined ? provider.effort : effort || undefined;
-    return {
-      claude: {
-        ...rest,
-        ...(nextBaseUrl ? { baseUrl: nextBaseUrl } : {}),
-        ...(nextEffort ? { effort: nextEffort } : {}),
-      },
-    };
-  }
-  if (current.kindId === "zcode") {
-    const { baseUrl: _dropped, ...rest } = provider,
-      next = baseUrl === undefined ? provider.baseUrl : baseUrl || undefined;
-    return { [current.kindId]: { ...rest, ...(next ? { baseUrl: next } : {}) } };
-  }
-  return {};
+):
+  | { readonly claude?: unknown }
+  | { readonly codex?: unknown }
+  | { readonly zcode?: unknown }
+  | { readonly agy?: unknown } {
+  const effortField = runtimeEffortField(current.kindId),
+    provider = runtimeProviderConfig(current),
+    editable = new Set(
+      ["baseUrl", "fast", effortField].filter(
+        (field): field is string =>
+          field !== undefined && field in runtimeKindForId(current.kindId).configuration.fields,
+      ),
+    ),
+    rest = Object.fromEntries(Object.entries(provider).filter(([field]) => !editable.has(field))),
+    nextBaseUrl = editable.has("baseUrl")
+      ? baseUrl === undefined
+        ? provider.baseUrl
+        : baseUrl || undefined
+      : undefined,
+    nextFast = editable.has("fast") ? (fast === undefined ? provider.fast : fast) : undefined,
+    nextEffort =
+      effortField === undefined ? undefined : effort === undefined ? provider[effortField] : effort || undefined;
+  return {
+    [current.kindId]: {
+      ...rest,
+      ...(nextBaseUrl ? { baseUrl: nextBaseUrl } : {}),
+      ...(nextFast === undefined ? {} : { fast: nextFast }),
+      ...(effortField !== undefined && nextEffort ? { [effortField]: nextEffort } : {}),
+    },
+  };
 }
 
 export function publicConfig(

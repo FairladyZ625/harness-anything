@@ -416,25 +416,36 @@ function ProviderEditor({
             </span>
           </label>
         )}
-        {instance.kindId === "claude" && (
+        {draft.effortEditable && (
           <label className="grid gap-0.5">
             <span className="font-mono ui-micro uppercase tracking-[0.08em] text-text-faint">
               {t("agentRuntime.effort")}
             </span>
-            <select
-              data-testid="runtime-provider-effort"
-              aria-label={t("agentRuntime.effort")}
-              value={draft.effort}
-              onChange={(event) => patch({ effort: event.target.value })}
-              className="control"
-            >
-              <option value="">{t("agentRuntime.providerDefault")}</option>
-              {runtimeProviderPlane(instance.kindId).effortValues.map((effort) => (
-                <option key={effort} value={effort}>
-                  {effort}
-                </option>
-              ))}
-            </select>
+            {runtimeProviderPlane(instance.kindId).effort === "enum" ? (
+              <select
+                data-testid="runtime-provider-effort"
+                aria-label={t("agentRuntime.effort")}
+                value={draft.effort}
+                onChange={(event) => patch({ effort: event.target.value })}
+                className="control"
+              >
+                <option value="">{t("agentRuntime.providerDefault")}</option>
+                {runtimeProviderPlane(instance.kindId).effortValues.map((effort) => (
+                  <option key={effort} value={effort}>
+                    {effort}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <TextInput
+                label={t("agentRuntime.effort")}
+                testId="runtime-provider-effort"
+                mono
+                value={draft.effort}
+                onChange={(effort) => patch({ effort })}
+                placeholder="xhigh"
+              />
+            )}
           </label>
         )}
         <label className="grid gap-0.5">

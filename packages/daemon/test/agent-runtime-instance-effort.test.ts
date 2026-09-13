@@ -15,11 +15,30 @@ const observed: RuntimeInstallationWitness = {
 };
 
 type EffortConfiguration = { readonly configuration: { readonly effort: string | null } };
+type CodexEffortConfiguration = { readonly configuration: { readonly reasoningEffort: string | null } };
 
-test("claude effort rides the create and update write paths and reads back", () => {
+function installationWitness(kindId: "codex" | "agy" | "zcode"): RuntimeInstallationWitness {
+  return {
+    installationId: `${kindId}-installation-test`,
+    kindId,
+    executablePath: `/opt/runtime-test/${kindId}`,
+    version: "1.0.0",
+    observedAt: "2026-09-13T00:00:00.000Z",
+  };
+}
+
+test("effort rides the create and update write paths for every kind that declares it", () => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-claude-effort-"));
   try {
-    const store = openRuntimeInstanceStore({ userRoot, discover: () => [observed] });
+    const store = openRuntimeInstanceStore({
+      userRoot,
+      discover: () => [
+        observed,
+        installationWitness("codex"),
+        installationWitness("agy"),
+        installationWitness("zcode"),
+      ],
+    });
     const created = store.command({
       kind: "runtime-instance-create",
       instanceId: "claude-effort",
@@ -58,20 +77,9 @@ test("claude effort rides the create and update write paths and reads back", () 
       () => store.command({ kind: "runtime-instance-update", instanceId: "claude-effort", effort: "ultra" }),
       (error: unknown) => codedAs(error, "invalid_runtime_effort"),
     );
-    // The effort write path is claude-only today.
-    const codexStore = openRuntimeInstanceStore({
-      userRoot,
-      discover: () => [
-        observed,
-        {
-          ...observed,
-          installationId: "codex-installation-test",
-          kindId: "codex" as const,
-          executablePath: "/opt/runtime-test/codex",
-        },
-      ],
-    });
-    codexStore.command({
+    // The effort write path is declaration-driven: every kind whose catalog entry declares
+    // an effort configuration field can update it under that field's own name.
+    store.command({
       kind: "runtime-instance-create",
       instanceId: "codex-effort",
       name: "Codex Effort",
@@ -82,8 +90,73 @@ test("claude effort rides the create and update write paths and reads back", () 
       codex: { reasoningEffort: "high" },
       authMode: "subscription",
     });
+    const codexReplaced = store.command({
+      kind: "runtime-instance-update",
+      instanceId: "codex-effort",
+      effort: "xhigh",
+    });
+    assert.equal((codexReplaced.instance as CodexEffortConfiguration).configuration.reasoningEffort, "xhigh");
+    const codexRenamed = store.command({
+      kind: "runtime-instance-update",
+      instanceId: "codex-effort",
+      name: "Codex Effort Edited",
+    });
+    assert.equal(
+      (codexRenamed.instance as CodexEffortConfiguration).configuration.reasoningEffort,
+      "xhigh",
+      "an unrelated update preserves the stored codex effort",
+    );
+    const codexCleared = store.command({
+      kind: "runtime-instance-update",
+      instanceId: "codex-effort",
+      effort: "",
+    });
+    assert.equal((codexCleared.instance as CodexEffortConfiguration).configuration.reasoningEffort, null);
     assert.throws(
-      () => codexStore.command({ kind: "runtime-instance-update", instanceId: "codex-effort", effort: "high" }),
+      () => store.command({ kind: "runtime-instance-update", instanceId: "codex-effort", effort: "ultra" }),
+      (error: unknown) => codedAs(error, "invalid_runtime_effort"),
+    );
+    store.command({
+      kind: "runtime-instance-create",
+      instanceId: "agy-effort",
+      name: "AGY Effort",
+      kindId: "agy",
+      installationId: "agy-installation-test",
+      providerId: "google",
+      models: ["gemini-3.1-pro-low"],
+      agy: { effort: "high" },
+      authMode: "subscription",
+    });
+    const agyReplaced = store.command({
+      kind: "runtime-instance-update",
+      instanceId: "agy-effort",
+      effort: "low",
+    });
+    assert.equal((agyReplaced.instance as EffortConfiguration).configuration.effort, "low");
+    const agyCleared = store.command({
+      kind: "runtime-instance-update",
+      instanceId: "agy-effort",
+      effort: "",
+    });
+    assert.equal((agyCleared.instance as EffortConfiguration).configuration.effort, null);
+    // agy's own vocabulary applies on update just as it does on create.
+    assert.throws(
+      () => store.command({ kind: "runtime-instance-update", instanceId: "agy-effort", effort: "xhigh" }),
+      (error: unknown) => codedAs(error, "invalid_runtime_effort"),
+    );
+    // zcode declares no effort field at all, so the update write path rejects it.
+    store.command({
+      kind: "runtime-instance-create",
+      instanceId: "zcode-effort",
+      name: "ZCode Effort",
+      kindId: "zcode",
+      installationId: "zcode-installation-test",
+      providerId: "zai",
+      models: ["glm-5.3-air"],
+      authMode: "subscription",
+    });
+    assert.throws(
+      () => store.command({ kind: "runtime-instance-update", instanceId: "zcode-effort", effort: "high" }),
       (error: unknown) => codedAs(error, "invalid_runtime_effort"),
     );
   } finally {

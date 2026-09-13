@@ -427,3 +427,12 @@ export function runtimeKindForId(kindId: string): RuntimeKindInventory {
   if (!found) throw new Error(`Unknown runtime kind: ${kindId}`);
   return found;
 }
+
+/** The configuration key that stores this kind's reasoning effort ("effort" or
+ * "reasoningEffort"), or undefined when the kind declares no effort field. The update
+ * write path and the edit form both key off this instead of hard-coding kind lists. */
+export function runtimeEffortField(kindId: string): string | undefined {
+  return Object.entries(runtimeKindForId(kindId).configuration.fields).find(
+    ([, shape]) => shape === "effort" || shape === "agy-effort",
+  )?.[0];
+}
