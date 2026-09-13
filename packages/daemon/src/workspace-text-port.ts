@@ -4,10 +4,14 @@ import { workspacePathResolutionRule } from "../../preset/src/preset-command-con
 
 /** Physical workspace text reads stay in the daemon adapter layer. */
 export function readWorkspaceText(rootDir: string, requested: string, field: string): string {
-  let root: string, requestedPath: string, candidate: string, bytes: Uint8Array;
+  let root = rootDir,
+    requestedPath: string,
+    candidate: string,
+    bytes: Uint8Array;
   try {
     root = realpathSync(rootDir);
     requestedPath = path.resolve(root, requested);
+    requestedPath = path.join(realpathSync(path.dirname(requestedPath)), path.basename(requestedPath));
     if (requestedPath !== root && !requestedPath.startsWith(`${root}${path.sep}`)) throw boundaryError(field, root);
     candidate = realpathSync(requestedPath);
     if (candidate !== root && !candidate.startsWith(`${root}${path.sep}`)) throw boundaryError(field, root);
@@ -16,7 +20,7 @@ export function readWorkspaceText(rootDir: string, requested: string, field: str
   } catch (error) {
     if (isBoundaryError(error)) throw error;
     throw portError(
-      `${field} must name a readable UTF-8 file inside workspace root ${rootDir}; ${workspacePathResolutionRule}.`,
+      `${field} must name a readable UTF-8 file inside workspace root ${root}; ${workspacePathResolutionRule}.`,
     );
   }
 }
