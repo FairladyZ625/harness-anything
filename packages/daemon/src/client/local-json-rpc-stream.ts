@@ -2,7 +2,8 @@ import net from "node:net";
 import { createInterface } from "node:readline";
 import { consumeKnownError } from "../../../kernel/src/index.ts";
 import { type AgentRuntimeAttachEvent, type AgentRuntimeAttachResult } from "../agent-runtime-stream.ts";
-import { daemonStreamFacets, type DaemonStreamPayloadMap } from "../protocol/daemon-protocol.contract.ts";
+import { daemonStreamFacetByMethod } from "../protocol/daemon-protocol-gui-actions.ts";
+import type { DaemonStreamPayloadMap } from "../protocol/daemon-protocol.contract.ts";
 import { parseDaemonStreamEvent, parseDaemonStreamResult } from "../protocol/gui-result-validation.ts";
 import { currentDaemonProtocolVersion } from "../protocol/version.ts";
 import { createDaemonEndpointSocket } from "./local-json-rpc-client.ts";
@@ -57,7 +58,7 @@ export async function streamDaemonFacetAt(input: {
       input.method === "repo.agentRuntime.attach"
         ? (input.payload as DaemonStreamPayloadMap["repo.agentRuntime.attach"]).afterCursor
         : (input.payload as DaemonStreamPayloadMap["repo.terminal.attach"]).afterSeq;
-  const facet = daemonStreamFacets.find((candidate) => candidate.method === input.method)!;
+  const facet = daemonStreamFacetByMethod.get(input.method)!;
   const scheduleReconnect = (): void => {
     if (detached) return;
     if (reconnects >= reconnectAttemptLimit) {

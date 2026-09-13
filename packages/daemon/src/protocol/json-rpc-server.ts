@@ -5,7 +5,6 @@ import type { DaemonTrafficLogEntry } from "../conn-log.ts";
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
 import {
   actionForDaemonMethod,
-  daemonStreamFacets,
   daemonProtocolError,
   invalidParamsReceipt,
   isDaemonGuiActionMethod,
@@ -17,6 +16,7 @@ import {
   type DaemonRpcMethod,
   type DaemonRpcResult,
 } from "./daemon-protocol.contract.ts";
+import { daemonStreamFacetByMethod } from "./daemon-protocol-gui-actions.ts";
 import {
   declaredExecutorOrNull,
   daemonRequestLogEntry,
@@ -429,7 +429,7 @@ export function createJsonRpcProtocolServer(options: {
           initial = parseDaemonStreamResult(method, subscription.initial);
         if (initial.ok) {
           subscriptions.add(subscription);
-          const eventMethod = daemonStreamFacets.find((facet) => facet.method === method)!.eventMethod;
+          const eventMethod = daemonStreamFacetByMethod.get(method)!.eventMethod;
           setImmediate(() => pump(subscription, eventMethod));
         }
         return reply(method, initial);

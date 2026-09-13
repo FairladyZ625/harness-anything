@@ -18,6 +18,8 @@ export function optionalFlags(
   );
 }
 
+const inputPatternCache = new Map<string, RegExp>();
+
 export function readFlags(
   commandId: string,
   tokens: readonly string[],
@@ -109,7 +111,11 @@ export function readFlags(
     const invalidValue = values.find(
       (value) =>
         (input.enum !== undefined && !input.enum.includes(value)) ||
-        (input.regex !== undefined && !new RegExp(input.regex, "u").test(value)),
+        (input.regex !== undefined &&
+          !(
+            inputPatternCache.get(input.regex) ??
+            inputPatternCache.set(input.regex, new RegExp(input.regex, "u")).get(input.regex)!
+          ).test(value)),
     );
     if (invalidValue !== undefined)
       return {

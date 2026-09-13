@@ -16,7 +16,8 @@ import { taskExecutionProtocolCommands } from "./daemon-protocol-commands-task.t
 import { peopleProtocolCommands } from "./daemon-protocol-commands-people.ts";
 import { ciObservationProtocolCommands } from "./daemon-protocol-commands-ci.ts";
 import { relationProtocolCommands } from "./daemon-protocol-commands-relation.ts";
-import { daemonGuiActionMethods } from "./daemon-protocol-gui-actions.ts";
+import { daemonGuiActionMethods, daemonStreamFacets } from "./daemon-protocol-gui-actions.ts";
+import { daemonGuiReadMethods } from "./daemon-protocol-gui-reads.ts";
 import { DaemonProtocolContractError, type JsonObject } from "./json-rpc-types.ts";
 
 const settingsWriteTopology = {
@@ -163,9 +164,7 @@ export function resolveThinCliCommand(args: readonly string[]): (typeof daemonPr
 }
 
 export function commandDescriptorForAction(kind: string) {
-  const descriptor =
-    daemonProtocolCommands.find((entry) => commandAcceptsAction(entry, kind)) ??
-    presetMethods.find((entry) => entry.actionKind === kind);
+  const descriptor = commandDescriptorByActionKind.get(kind) ?? presetMethodByActionKind.get(kind);
   if (!descriptor)
     throw new DaemonProtocolContractError("unsupported_command", `No command descriptor exists for ${kind}.`);
   return descriptor;
@@ -178,7 +177,7 @@ export function commandClassForAction(kind: string): "repo-read" | "repo-write" 
 export function actionForDaemonMethod(method: string, payload: JsonObject): JsonObject & { readonly kind: string } {
   if (method === "repo.task.run" || method === "repo.task.read") {
     const action = payload.action as JsonObject & { readonly kind: string },
-      descriptor = daemonProtocolCommands.find((entry) => commandAcceptsAction(entry, action.kind));
+      descriptor = commandDescriptorByActionKind.get(action.kind);
     if (descriptor?.method !== method)
       throw new DaemonProtocolContractError(
         "unsupported_command",
@@ -186,13 +185,13 @@ export function actionForDaemonMethod(method: string, payload: JsonObject): Json
       );
     return action;
   }
-  const descriptor = [...presetMethods, ...daemonGuiActionMethods].find((entry) => entry.method === method);
+  const descriptor = actionDescriptorByMethod.get(method);
   if (!descriptor)
     throw new DaemonProtocolContractError("unsupported_command", `No action descriptor exists for ${method}.`);
   // A GUI action may pin the closed parts of its action the renderer cannot say
   // (repo.task.pin's pinned-only amend patch); the declared payload is spread last,
   // so the ingress stays the only writer of those fields.
-  const command = presetCommands.find((entry) => entry.method === method),
+  const command = presetCommandByMethod.get(method),
     defaults =
       "actionDefaults" in descriptor
         ? descriptor.actionDefaults
@@ -202,6 +201,29 @@ export function actionForDaemonMethod(method: string, payload: JsonObject): Json
   return { ...defaults, kind: descriptor.actionKind, ...payload };
 }
 
-function commandAcceptsAction(entry: (typeof daemonProtocolCommands)[number], kind: string): boolean {
-  return ("actionKind" in entry ? entry.actionKind : entry.id) === kind;
-}
+const commandDescriptorByActionKind: ReadonlyMap<string, (typeof daemonProtocolCommands)[number]> = new Map(
+    [...daemonProtocolCommands].reverse().map((entry) => ["actionKind" in entry ? entry.actionKind : entry.id, entry]),
+  ),
+  presetMethodByActionKind: ReadonlyMap<string, (typeof presetMethods)[number]> = new Map(
+    presetMethods.map((entry) => [entry.actionKind, entry]),
+  ),
+  actionDescriptorByMethod: ReadonlyMap<
+    string,
+    (typeof presetMethods)[number] | (typeof daemonGuiActionMethods)[number]
+  > = new Map([...presetMethods, ...daemonGuiActionMethods].map((entry) => [entry.method, entry])),
+  presetCommandByMethod: ReadonlyMap<string, (typeof presetCommands)[number]> = new Map(
+    presetCommands.map((entry) => [entry.method, entry]),
+  );
+
+// Method-name sets consumed by the RPC validation entry; built once beside the descriptor maps.
+export const daemonMethodNameSets: {
+  readonly guiRead: ReadonlySet<string>;
+  readonly guiAction: ReadonlySet<string>;
+  readonly stream: ReadonlySet<string>;
+  readonly decisionAdjudication: ReadonlySet<string>;
+} = {
+  guiRead: new Set(daemonGuiReadMethods.map((entry) => entry.method)),
+  guiAction: new Set(daemonGuiActionMethods.map((entry) => entry.method)),
+  stream: new Set(daemonStreamFacets.map((entry) => entry.method)),
+  decisionAdjudication: new Set(["repo.decision.accept", "repo.decision.reject", "repo.decision.defer"]),
+};
