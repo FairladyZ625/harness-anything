@@ -77,7 +77,12 @@ export function runGenerationTwoConversion(input: {
     if (relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".."))
       throw new Error("conversion destination must be outside the immutable backup");
     if (input.mode === "convert") {
-      drillLedgerBackup({ backupDir, shadowParent: path.dirname(destinationRoot), destinationRoot });
+      drillLedgerBackup({
+        backupDir,
+        shadowParent: path.dirname(destinationRoot),
+        destinationRoot,
+        verifiedManifest: manifest,
+      });
       convert(source, destinationRoot, plan, events, rows);
     }
     // Activation follows verification, never precedes it: a destination that fails verification
@@ -348,24 +353,26 @@ function convert(
     for (const outcome of outcomes) {
       const members = mappedMembers(byOpId, outcome.memberOpIds),
         converted = members.map((mapping) => events[mapping.destinationRevision! - 1]!),
-        blobs = converted.flatMap((event, index) =>
-          contentClaims(event).map((claim) => {
-            const witness =
-              members[index]!.disposition === "retained-read-only" &&
-              event.schema === "migration-import-event/v1" &&
-              event.payload.entity.kind === "repo-document" &&
-              claim.sha256 === event.payload.entity.documentClaim.sha256;
-            const body = witness
-              ? new TextEncoder().encode(rows[members[index]!.sourceRevision - 1]!.eventJson)
-              : source.readContentObject(claim.sha256)!;
-            return { ...claim, body };
-          }),
+        blobs = new Map(
+          converted.flatMap((event, index) =>
+            contentClaims(event).map((claim) => {
+              const witness =
+                members[index]!.disposition === "retained-read-only" &&
+                event.schema === "migration-import-event/v1" &&
+                event.payload.entity.kind === "repo-document" &&
+                claim.sha256 === event.payload.entity.documentClaim.sha256;
+              const body = witness
+                ? new TextEncoder().encode(rows[members[index]!.sourceRevision - 1]!.eventJson)
+                : source.readContentObject(claim.sha256)!;
+              return [claim.sha256, { ...claim, body }] as const;
+            }),
+          ),
         );
       destination.appendCommand({
         fence,
         intent: { opId: outcome.opId, intentDigest: outcome.intentDigest, summary: outcome.summary },
         events: converted,
-        blobs,
+        blobs: [...blobs.values()],
         ...(outcome.rejectionCode === null ? {} : { rejectionCode: outcome.rejectionCode }),
         historicalRecord: {
           recordedAt: outcome.recordedAt,

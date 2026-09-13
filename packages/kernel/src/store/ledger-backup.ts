@@ -86,6 +86,7 @@ export function drillLedgerBackup(input: {
   readonly shadowParent: string;
   readonly destinationRoot?: string;
   readonly retention?: number;
+  readonly verifiedManifest?: LedgerBackupManifestV1;
 }): {
   readonly shadowRoot: string;
   readonly manifest: LedgerBackupManifestV1;
@@ -93,9 +94,9 @@ export function drillLedgerBackup(input: {
   readonly warnings: readonly string[];
 } {
   const backupDir = path.resolve(input.backupDir),
-    manifest = readManifest(backupDir),
+    manifest = input.verifiedManifest ?? readManifest(backupDir),
     payloadRoot = path.join(backupDir, "payload");
-  verifyManifest(payloadRoot, manifest);
+  if (!input.verifiedManifest) verifyManifest(payloadRoot, manifest);
   fileSystem.mkdir(input.shadowParent, { recursive: true });
   if (input.destinationRoot && fileSystem.exists(input.destinationRoot))
     throw new Error("restore destination already exists");

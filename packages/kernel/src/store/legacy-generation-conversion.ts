@@ -313,7 +313,6 @@ function readLegacySnapshot(snapshotPath: string): ImmutableLegacySnapshotV2 {
     digest = snapshotSourceDigest(value.repoId, eventBytes, value.objects, value.sourceEvidence);
   if (digest !== value.sourceDigest)
     throw new TaskEventStoreError("invalid_store", "legacy generation snapshot digest differs");
-  for (const object of value.objects) readSnapshotObject(snapshotPath, object.sha256, object.size);
   return { ...value, eventBytes };
 }
 

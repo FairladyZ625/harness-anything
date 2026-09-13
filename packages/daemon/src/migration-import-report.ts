@@ -119,19 +119,17 @@ export function reportTable(
         `| ${row.passed ? "PASS" : "FAIL"} |`,
       ].join(" ");
     }),
-    sampleRows = migrationOracleKinds.flatMap((kind) => [
-      ...fieldDerivations
-        .filter(({ entityType }) => entityType === kind)
-        .slice(0, 20)
-        .map(({ entityId, field, derived_from }) => `- SAMPLE derived ${kind} ${entityId}.${field} <- ${derived_from}`),
-      ...dispositions
-        .filter(({ entityType }) => entityType === kind)
-        .slice(0, 20)
-        .map(
-          ({ entityId, disposition, sourcePath, reason }) =>
-            `- SAMPLE ${disposition} ${kind} ${entityId} (${sourcePath}): ${reason}`,
-        ),
-    ]),
+    derivationSamples = sampleBuckets(),
+    dispositionSamples = sampleBuckets();
+  for (const { entityType, entityId, field, derived_from } of fieldDerivations)
+    if (derivationSamples[entityType].length < 20)
+      derivationSamples[entityType].push(`- SAMPLE derived ${entityType} ${entityId}.${field} <- ${derived_from}`);
+  for (const { entityType, entityId, disposition, sourcePath, reason } of dispositions)
+    if (dispositionSamples[entityType].length < 20)
+      dispositionSamples[entityType].push(
+        `- SAMPLE ${disposition} ${entityType} ${entityId} (${sourcePath}): ${reason}`,
+      );
+  const sampleRows = migrationOracleKinds.flatMap((kind) => [...derivationSamples[kind], ...dispositionSamples[kind]]),
     backfillDifferenceRows = backfillRows.map(
       ({ entityType, entityId, action, sourceAnchor }) =>
         `| ${entityType} | ${entityId} | ${action} | ${sourceAnchor} |`,
@@ -219,6 +217,13 @@ export function reportTable(
     `ID map: ${dryRun || !authored.passed ? `would write ${idMapPath}` : idMapPath}`,
     ["Reconciliation: ", reconciliation, ""].join(""),
   ].join("\n");
+}
+
+function sampleBuckets(): Record<MigrationOracleKind, string[]> {
+  return Object.fromEntries(migrationOracleKinds.map((kind) => [kind, []])) as unknown as Record<
+    MigrationOracleKind,
+    string[]
+  >;
 }
 
 export function fromColdIssue(issue: ColdRebuildIssue): Skip {

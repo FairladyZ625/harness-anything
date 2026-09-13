@@ -235,17 +235,18 @@ function addFact(context: MigrationImportContext, row: RelationFactRow): void {
   if (held?.kind === "fact") {
     const targetRef = `fact/${held.fact.factId}`;
     context.factMap.set(factRef, targetRef);
+    context.factTargets.add(targetRef);
     if (row.ref !== factRef && !context.factMap.has(row.ref)) context.factMap.set(row.ref, targetRef);
     context.alreadyImported.fact += 1;
     return;
   }
   let targetFactId = row.factId,
     targetRef = `fact/${targetFactId}`;
-  const sourceTargetOccupied = [...context.factMap.values()].includes(targetRef);
+  const sourceTargetOccupied = context.factTargets.has(targetRef);
   if (context.existingFacts.has(targetRef) || sourceTargetOccupied) {
     targetFactId = `F-${sha256Text(`${context.sourceKey}\0${factRef}`).slice(0, 8).toUpperCase()}`;
     targetRef = `fact/${targetFactId}`;
-    if (context.existingFacts.has(targetRef) || [...context.factMap.values()].includes(targetRef))
+    if (context.existingFacts.has(targetRef) || context.factTargets.has(targetRef))
       throw context.idRemapConflict("fact", factRef, targetRef);
     context.remappings.push({
       entityType: "fact",
@@ -261,6 +262,7 @@ function addFact(context: MigrationImportContext, row: RelationFactRow): void {
     });
   }
   context.factMap.set(factRef, targetRef);
+  context.factTargets.add(targetRef);
   if (row.ref !== factRef && !context.factMap.has(row.ref)) context.factMap.set(row.ref, targetRef);
   context.drafts.push({
     kind: "fact",

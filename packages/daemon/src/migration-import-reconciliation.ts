@@ -5,14 +5,21 @@ import type { MigrationKindReconciliation } from "./migration-import-types.ts";
 export function reconcileProjectionOracle(
   context: MigrationImportContext,
 ): Readonly<Record<MigrationOracleKind, MigrationKindReconciliation>> {
+  const factIds = new Set(
+    [...context.factMap.entries()].flatMap(([source, target]) => [factId(source), factId(target)]),
+  );
   return Object.fromEntries(
-    migrationOracleKinds.map((kind) => [kind, reconcileKind(context, kind)]),
+    migrationOracleKinds.map((kind) => [kind, reconcileKind(context, kind, factIds)]),
   ) as unknown as Readonly<Record<MigrationOracleKind, MigrationKindReconciliation>>;
 }
 
-function reconcileKind(context: MigrationImportContext, kind: MigrationOracleKind): MigrationKindReconciliation {
+function reconcileKind(
+  context: MigrationImportContext,
+  kind: MigrationOracleKind,
+  factIds: ReadonlySet<string>,
+): MigrationKindReconciliation {
   const sourceIds = oracleIds(context, kind),
-    includedIds = new Set([...sourceIds].filter((id) => isIncluded(context, kind, id))),
+    includedIds = new Set([...sourceIds].filter((id) => isIncluded(context, kind, id, factIds))),
     derivedIds = intersection(sourceIds, context.derivedIds[kind]),
     archivedIds = intersection(sourceIds, context.archivedIds[kind]),
     retiredIds = kind === "relation" ? intersection(sourceIds, context.retiredIds) : new Set<string>(),
@@ -44,19 +51,25 @@ function oracleIds(context: MigrationImportContext, kind: MigrationOracleKind): 
   return new Set(context.oracle.runtimeSessions.keys());
 }
 
-function isIncluded(context: MigrationImportContext, kind: MigrationOracleKind, id: string): boolean {
+function isIncluded(
+  context: MigrationImportContext,
+  kind: MigrationOracleKind,
+  id: string,
+  factIds: ReadonlySet<string>,
+): boolean {
   if (context.archivedIds[kind].has(id)) return true;
   if (kind === "task") return context.taskMap.has(id);
   if (kind === "decision") return context.decisionMap.has(id);
-  if (kind === "fact")
-    return [...context.factMap.entries()].some(
-      ([source, target]) => source.endsWith(`/${id}`) || target.endsWith(`/${id}`),
-    );
+  if (kind === "fact") return factIds.has(id);
   if (kind === "relation") return context.relationMap.has(id) || context.retiredIds.has(id);
   if (kind === "execution") return context.nativeExecutionIds.has(id);
   if (kind === "agent") return context.agentMap.has(id);
   if (kind === "schedule") return context.scheduleMap.has(id);
   return context.runtimeSessionMap.has(id);
+}
+
+function factId(ref: string): string {
+  return ref.slice(ref.lastIndexOf("/") + 1);
 }
 
 function intersection(left: ReadonlySet<string>, right: ReadonlySet<string>): Set<string> {

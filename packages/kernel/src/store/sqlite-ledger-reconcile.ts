@@ -114,8 +114,6 @@ export function reconcileSqliteEvents(input: {
         metadata.revision === rows.length,
       rowDigestMatches =
         rows.length >= expectedRows.length &&
-        stableStringify(rows.slice(0, expectedRows.length).map(({ recordedAt: _recordedAt, ...row }) => row)) ===
-          stableStringify(expectedRows) &&
         rows.every((row, index) => {
           const event = parsedRows[index];
           return (

@@ -39,7 +39,9 @@ export interface MigrationRelationsContext {
   readonly taskMap: Map<string, string>;
   readonly decisionMap: Map<string, string>;
   readonly factMap: Map<string, string>;
+  readonly factTargets: Set<string>;
   readonly relationMap: Map<string, string>;
+  readonly legacyRelationIdsByCanonicalId: ReadonlyMap<string, string>;
   readonly prepare: (
     sourceKey: string,
     actor: ActorIdentity,
@@ -72,6 +74,16 @@ export interface MigrationRelationsContext {
   readonly retiredIds: Set<string>;
 }
 
+export function migrationRelationIndexes(source: ColdRebuildSource, relationMap: Map<string, string>) {
+  return {
+    relationMap,
+    factTargets: new Set<string>(),
+    legacyRelationIdsByCanonicalId: new Map(
+      [...source.legacyRelationIds].map(([legacyId, canonicalId]) => [canonicalId, legacyId]),
+    ),
+  };
+}
+
 export function reboundRelation(context: MigrationRelationsContext, row: RelationGraphEdgeRow): ReboundRelation | null {
   const source = context.reboundRef(row.sourceRef),
     target = context.reboundRef(row.targetRef),
@@ -99,9 +111,7 @@ export function reboundRelation(context: MigrationRelationsContext, row: Relatio
     rationale: row.rationale,
     state: truthGap ? "retired" : normalizeLegacyRelationState(row.state),
   };
-  const legacyRelationId = [...context.cold.legacyRelationIds.entries()].find(
-    ([, canonicalId]) => canonicalId === row.relationId,
-  )?.[0];
+  const legacyRelationId = context.legacyRelationIdsByCanonicalId.get(row.relationId);
   if (truthGap && !context.retiredIds.has(row.relationId)) {
     context.retiredIds.add(row.relationId);
     context.dispositions.push({
@@ -182,7 +192,11 @@ export function prepareRelation(
 export function dropMap(context: MigrationRelationsContext, kind: Draft["kind"], id: string): void {
   if (kind === "task") context.taskMap.delete(id);
   if (kind === "decision") context.decisionMap.delete(id);
-  if (kind === "fact") context.factMap.delete(id);
+  if (kind === "fact") {
+    const target = context.factMap.get(id);
+    context.factMap.delete(id);
+    if (target && ![...context.factMap.values()].includes(target)) context.factTargets.delete(target);
+  }
 }
 
 export function actorFor(context: MigrationRelationsContext, entityId: string): ActorIdentity {
@@ -240,51 +254,56 @@ export function existingSourceEntity(
 
 export function readMigrationOperationRestatements(store: CanonicalEventStore): ReadonlyMap<string, string> {
   const mappings = new Map<string, string>();
-  for (const event of store.read().events) {
-    if (
-      !isMigrationImportEvent(event) ||
-      event.payload.entity.kind !== "id-map" ||
-      event.type !== "entity_migrated" ||
-      event.source !== "migration-import/v1" ||
-      event.payload.generation !== "v0"
-    )
-      continue;
-    const claim = event.payload.entity.documentClaim,
-      digest = claim.sha256,
-      markerOpId = `op_${sha256Text(`fact-rekey\0${digest}`)}`;
-    if (
-      event.opId !== markerOpId ||
-      event.eventId !== `event-${sha256Text(markerOpId)}` ||
-      event.payload.migratedFrom !== `fact-rekey:${digest}` ||
-      event.payload.entity.importId !== `fact-rekey-${digest.slice(0, 16)}` ||
-      claim.path !== `migrations/fact-rekey/${digest.slice(0, 16)}/id-map.json` ||
-      claim.mediaType !== "application/json" ||
-      claim.policyId !== "typed-migration-import/v1"
-    )
-      continue;
-    const bytes = store.readContentBlob(claim.sha256);
-    if (bytes === null || bytes.byteLength !== claim.size) continue;
-    let body: string, parsed: unknown;
-    try {
-      body = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-      parsed = JSON.parse(body);
-    } catch (error) {
-      consumeKnownError(error);
-      continue;
-    }
-    if (sha256Text(body) !== claim.sha256) continue;
-    if (!isRecordValue(parsed) || parsed.schema !== "fact-rekey-id-map/v1" || !isRecordValue(parsed.maps)) continue;
-    for (const kind of ["fact", "relation"] as const) {
-      const entries = parsed.maps[kind];
-      if (!isRecordValue(entries)) continue;
-      for (const [sourceId, targetId] of Object.entries(entries)) {
-        if (typeof targetId !== "string" || !validRestatementId(kind, sourceId, targetId)) continue;
-        const key = `${kind}\0${sourceId}`,
-          existing = mappings.get(key);
-        mappings.set(key, existing === undefined || existing === targetId ? targetId : "");
+  let cursor: string | null = null;
+  do {
+    const batch = store.readBatch(cursor, 256);
+    cursor = batch.cursor;
+    for (const event of batch.events) {
+      if (
+        !isMigrationImportEvent(event) ||
+        event.payload.entity.kind !== "id-map" ||
+        event.type !== "entity_migrated" ||
+        event.source !== "migration-import/v1" ||
+        event.payload.generation !== "v0"
+      )
+        continue;
+      const claim = event.payload.entity.documentClaim,
+        digest = claim.sha256,
+        markerOpId = `op_${sha256Text(`fact-rekey\0${digest}`)}`;
+      if (
+        event.opId !== markerOpId ||
+        event.eventId !== `event-${sha256Text(markerOpId)}` ||
+        event.payload.migratedFrom !== `fact-rekey:${digest}` ||
+        event.payload.entity.importId !== `fact-rekey-${digest.slice(0, 16)}` ||
+        claim.path !== `migrations/fact-rekey/${digest.slice(0, 16)}/id-map.json` ||
+        claim.mediaType !== "application/json" ||
+        claim.policyId !== "typed-migration-import/v1"
+      )
+        continue;
+      const bytes = store.readContentBlob(claim.sha256);
+      if (bytes === null || bytes.byteLength !== claim.size) continue;
+      let body: string, parsed: unknown;
+      try {
+        body = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+        parsed = JSON.parse(body);
+      } catch (error) {
+        consumeKnownError(error);
+        continue;
+      }
+      if (sha256Text(body) !== claim.sha256) continue;
+      if (!isRecordValue(parsed) || parsed.schema !== "fact-rekey-id-map/v1" || !isRecordValue(parsed.maps)) continue;
+      for (const kind of ["fact", "relation"] as const) {
+        const entries = parsed.maps[kind];
+        if (!isRecordValue(entries)) continue;
+        for (const [sourceId, targetId] of Object.entries(entries)) {
+          if (typeof targetId !== "string" || !validRestatementId(kind, sourceId, targetId)) continue;
+          const key = `${kind}\0${sourceId}`,
+            existing = mappings.get(key);
+          mappings.set(key, existing === undefined || existing === targetId ? targetId : "");
+        }
       }
     }
-  }
+  } while (cursor !== null);
   return mappings;
 }
 
