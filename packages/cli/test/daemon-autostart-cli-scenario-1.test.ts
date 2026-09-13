@@ -1,5 +1,7 @@
 // harness-test-tier: integration
 import test from "node:test";
+import { daemonStoppedMarkerPath } from "../../daemon/src/client/daemon-autostart.ts";
+import { startDaemon } from "../../daemon/src/runtime.ts";
 import * as shared from "./daemon-autostart-cli.fixture.ts";
 
 const {
@@ -197,6 +199,67 @@ test("operator stop blocks autostart until explicit start while process death re
   context.diagnostic(`SIGKILL negative control autostart pid=${recoveredPid}`);
   assert.equal(run(fixture.root, fixture.userRoot, ["daemon", "stop"]).ok, true);
 });
+
+test("daemon status names a build_superseded self-exit and its recovery once the daemon is down", async () => {
+  const fixture = setup(),
+    endpoint = localUserDaemonEndpoint(fixture.userRoot, "default"),
+    runtimeRoot = path.join(fixture.parent, "runtime"),
+    runtimeFile = builtRuntime(runtimeRoot, "build-a"),
+    buildIdPath = path.join(runtimeRoot, "packages/cli/dist/build-id.txt");
+  let daemon: Awaited<ReturnType<typeof startDaemon>> | undefined;
+  try {
+    const started = await startDaemon({
+      daemonId: "default",
+      userRoot: fixture.userRoot,
+      runtimeFile,
+      endpoint,
+    });
+    if (!("stop" in started)) throw new Error(`daemon start deferred unexpectedly: ${JSON.stringify(started)}`);
+    daemon = started;
+    writeFileSync(buildIdPath, "build-b\n", "utf8");
+    // One reportStaleBuild request lets the daemon observe the drift; with nothing live to drain
+    // it self-exits, leaving exactly the state status must speak for: no daemon, no operator stop
+    // marker, and a lifecycle log whose final record is the exit.
+    await requestDaemonJsonRpcAt(endpoint, "daemon.status", {}, 2_000, 2_000, undefined, true);
+    // The daemon stops itself through the same event loop as this test, so the wait must yield;
+    // the fixture's Atomics.wait-based waitForDaemonDown would starve the in-process drain.
+    for (const deadline = Date.now() + 5_000; Date.now() < deadline; ) {
+      if (readDaemonPid(fixture.userRoot, "default") === null && !existsSync(endpoint)) break;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    assert.equal(
+      readDaemonLifecycleRecords(fixture.userRoot, "default").some(
+        (record) => record.event === "process_exit" && record.outcome === "build_superseded",
+      ),
+      true,
+    );
+    assert.equal(existsSync(daemonStoppedMarkerPath(fixture.userRoot, "default")), false);
+    const statusRun = spawnSync(process.execPath, [cli, "--root", fixture.root, "--json", "daemon", "status"], {
+      encoding: "utf8",
+      env: cliEnv(fixture.root, fixture.userRoot),
+    });
+    assert.notEqual(statusRun.status, 0, `${statusRun.stderr}\n${statusRun.stdout}`);
+    const receipt = JSON.parse(statusRun.stdout) as { summary?: string; nextAction?: string };
+    assert.match(String(receipt.summary), /not running \(exited build_superseded at \d{4}-\d{2}-\d{2}T/u);
+    assert.match(String(receipt.nextAction), /autostart/u);
+    assert.match(String(receipt.nextAction), /ha daemon start --service/u);
+  } finally {
+    await daemon?.stop();
+  }
+});
+
+function builtRuntime(runtimeRoot: string, buildId: string): string {
+  const runtimeFile = path.join(runtimeRoot, "packages/cli/dist/daemon/src/runtime.js"),
+    marker = path.join(runtimeRoot, "packages/cli/dist/build-id.txt");
+  for (const [file, body] of [
+    [runtimeFile, "runtime\n"],
+    [marker, `${buildId}\n`],
+  ] as const) {
+    mkdirSync(path.dirname(file), { recursive: true });
+    writeFileSync(file, body, "utf8");
+  }
+  return runtimeFile;
+}
 
 test("task-bound runtime identity cannot autostart the shared daemon", (context) => {
   const fixture = setup(),
