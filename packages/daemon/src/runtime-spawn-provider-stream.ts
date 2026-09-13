@@ -1,9 +1,10 @@
 import { setTimeout as delay } from "node:timers/promises";
 import { globSync, readFileSync } from "node:fs";
+import { StringDecoder } from "node:string_decoder";
 import path from "node:path";
 import type { SessionIdentity } from "../../kernel/src/index.ts";
 import { consumeKnownError } from "../../kernel/src/index.ts";
-import { readDispatchStream, scrubProviderValue } from "./dispatch-stream.ts";
+import { dispatchStreamPath, parseRecord, readDispatchStreamIncrement, scrubProviderValue } from "./dispatch-stream.ts";
 import type { ActiveRuntime, ProviderFrame, RuntimeBinding } from "./runtime-spawn-types.ts";
 import { transcriptRefForSessionIdentity } from "./session-identity/index.ts";
 import { observeProviderFault } from "./runtime-provider-fault.ts";
@@ -211,21 +212,38 @@ export async function consumeDurableOutput(
   active: ActiveRuntime,
   waitForFirstRecordMs = 0,
 ): Promise<void> {
-  let stream = readDispatchStream(context.input.rootDir, active.dispatchId);
-  let records = durableOutputRecords(stream?.records ?? []);
-  const deadline = Date.now() + waitForFirstRecordMs;
-  while (records.length === 0 && stream?.process?.exited === false && Date.now() < deadline) {
+  const target = dispatchStreamPath(context.input.rootDir, active.dispatchId),
+    deadline = Date.now() + waitForFirstRecordMs,
+    pending: string[] = [],
+    decoder = new StringDecoder("utf8");
+  let durableSeen = 0,
+    workerRunning = false,
+    offset = 0,
+    tail = "";
+  const scan = (): void => {
+    const next = readDispatchStreamIncrement(target, offset);
+    if (next === null || next.bytes.length === 0) return;
+    offset += next.bytes.length;
+    tail += decoder.write(next.bytes);
+    const lines = tail.split(/\r?\n/u);
+    tail = lines.pop() ?? "";
+    for (const line of lines) {
+      const record = parseRecord(line);
+      if (record?.kind === "process_started") workerRunning = true;
+      else if (record?.kind === "process_exit") workerRunning = false;
+      else if (record?.kind === "provider_event" || record?.kind === "provider_output_invalid") {
+        durableSeen += 1;
+        if (durableSeen > active.durableOutputCount)
+          pending.push(record.kind === "provider_event" ? JSON.stringify(record.event) : String(record.output));
+      }
+    }
+  };
+  scan();
+  while (durableSeen === 0 && workerRunning && Date.now() < deadline) {
     await delay(Math.min(10, Math.max(1, deadline - Date.now())));
-    stream = readDispatchStream(context.input.rootDir, active.dispatchId);
-    records = durableOutputRecords(stream?.records ?? []);
+    scan();
   }
-  for (const record of records.slice(active.durableOutputCount)) {
-    await context.consumeLine(
-      active,
-      record.kind === "provider_event" ? JSON.stringify(record.event) : String(record.output),
-      true,
-    );
-  }
+  for (const line of pending) await context.consumeLine(active, line, true);
 }
 
 export async function restoreDurableOutputRecords(

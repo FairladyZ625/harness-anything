@@ -15,6 +15,13 @@ import {
 } from "node:fs";
 import path from "node:path";
 import {
+  dispatchStreamReadLimitBytes,
+  dispatchStreamSchema as streamSchema,
+  openDispatchStreamAppender as openStreamAppender,
+  type DispatchStreamAppender,
+} from "./dispatch-stream-io.ts";
+export { readDispatchStreamIncrement, readRuntimeWorkerChunk } from "./dispatch-stream-io.ts";
+import {
   consumeKnownError,
   resolveHarnessLayout,
   type ActorIdentity,
@@ -23,7 +30,6 @@ import {
 import type { RuntimePermissionMode } from "./runtime-permissions.ts";
 import type { RuntimeAttemptOutcome, RuntimeFallbackAttempt } from "./runtime-fallback-contract.ts";
 
-const streamSchema = "runtime-dispatch-stream/v1" as const;
 const liveIndexSchema = "runtime-dispatch-live-index/v1" as const;
 const forbiddenKey =
   /(?:token|credential|password|secret|authorization|executablepath|api[-_ ]?key|private[-_ ]?key|cookie)/iu;
@@ -156,8 +162,6 @@ const summaryCache = new Map<string, SummaryCacheEntry>();
 const headerCache = new Map<string, HeaderCacheEntry>();
 const summaryHeadBytes = 16 * 1024;
 const summaryTailBytes = 128 * 1024;
-const dispatchStreamReadLimitBytes = 200 * 1024 * 1024;
-const dispatchStreamWriteLimitBytes = 500 * 1024 * 1024;
 const readLimitWarnings = new Set<string>();
 const writeLimitWarnings = new Set<string>();
 const summaryKinds = new Set([
@@ -438,17 +442,18 @@ export function appendDispatchStreamRecord(target: string, value: Readonly<Recor
   appendJsonl(target, { schema: streamSchema, ...value });
 }
 
-export function readRuntimeWorkerChunk(target: string, offset: number, limit = 1024 * 1024): Buffer {
-  const descriptor = openSync(target, fsConstants.O_RDONLY);
-  try {
-    const size = fstatSync(descriptor).size;
-    if (size <= offset) return Buffer.alloc(0);
-    const bytes = Buffer.alloc(Math.min(size - offset, limit));
-    const read = readSync(descriptor, bytes, 0, bytes.length, offset);
-    return bytes.subarray(0, read);
-  } finally {
-    closeSync(descriptor);
-  }
+export function openDispatchStreamAppender(target: string): DispatchStreamAppender {
+  return openStreamAppender(target, {
+    invalidateSummary: () => summaryCache.delete(target),
+    scrub: scrubDispatchRecord,
+    unbounded: unboundedDispatchRecord,
+    warnDroppedOutput: () =>
+      warnOnce(
+        writeLimitWarnings,
+        target,
+        `${path.basename(target)} reached 524288000 bytes; dropping unbounded output`,
+      ),
+  });
 }
 
 export function dispatchStreamRef(rootDir: string, dispatchId: string): string {
@@ -534,21 +539,11 @@ function readStoredDispatchLiveIndex(target: string, taskId: string): DispatchLi
   }
 }
 function appendJsonl(target: string, value: unknown): void {
-  summaryCache.delete(target);
-  const descriptor = openSync(target, fsConstants.O_APPEND | fsConstants.O_WRONLY);
+  const appender = openDispatchStreamAppender(target);
   try {
-    const size = fstatSync(descriptor).size;
-    if (size >= dispatchStreamWriteLimitBytes && unboundedDispatchRecord(value)) {
-      warnOnce(
-        writeLimitWarnings,
-        target,
-        `${path.basename(target)} reached ${String(dispatchStreamWriteLimitBytes)} bytes; dropping unbounded output`,
-      );
-      return;
-    }
-    writeFileSync(descriptor, `${JSON.stringify(scrubDispatchRecord(value))}\n`, "utf8");
+    appender.append(value as Readonly<Record<string, unknown>>);
   } finally {
-    closeSync(descriptor);
+    appender.close();
   }
 }
 
@@ -758,7 +753,7 @@ function readLatestRecordOfKind(target: string, kind: string): Record<string, un
   }
   return null;
 }
-function parseRecord(value: string | undefined): Record<string, unknown> | null {
+export function parseRecord(value: string | undefined): Record<string, unknown> | null {
   if (!value) return null;
   try {
     const parsed: unknown = JSON.parse(value);

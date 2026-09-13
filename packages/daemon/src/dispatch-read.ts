@@ -169,6 +169,19 @@ export function readTaskDispatches(
       };
 }
 
+/** Single-dispatch point read: resolves (taskId, dispatchId) to its session straight from the
+ * stream header instead of building the whole task dispatch list. Unattributed dispatches
+ * (header.taskId null) never resolve — the task list only ever returned attributed rows. */
+export function readTaskDispatchSession(
+  rootDir: string,
+  taskId: string,
+  dispatchId: string,
+): { readonly runtimeSessionId: string } | null {
+  if (!/^dispatch_[a-f0-9]{24}$/u.test(dispatchId)) return null;
+  const stream = readDispatchStreamSummary(rootDir, dispatchId);
+  return stream?.header.taskId === taskId ? { runtimeSessionId: stream.header.runtimeSessionId } : null;
+}
+
 export function readTaskLineageDispatches(input: {
   readonly rootDir: string;
   readonly projection: TaskProjection;

@@ -16,7 +16,7 @@ import {
   readRuntimeAttemptChain,
   readRuntimeSessionActivityEvidence,
   readSessionGroupDispatches,
-  readTaskDispatches,
+  readTaskDispatchSession,
 } from "./dispatch-read.ts";
 import { makeEntityActionCatalogExecutor } from "./entity-action-catalog-executor.ts";
 import { openReplicaCutSource } from "./fleet/replica-cut-store.ts";
@@ -160,10 +160,7 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
     const runtimeReads = makeAgentRuntimeReadModel({
         readActivityEvidence: (dispatchId) => readRuntimeSessionActivityEvidence(context.rootDir, dispatchId),
         readAttemptChain: (runtimeSessionId) => readRuntimeAttemptChain(context.rootDir, runtimeSessionId),
-        readDispatch: (taskId, dispatchId) =>
-          readTaskDispatches({ rootDir: context.rootDir, projection: projection!, taskId }).dispatches.find(
-            (row) => row.dispatchId === dispatchId,
-          ) ?? null,
+        readDispatch: (taskId, dispatchId) => readTaskDispatchSession(context.rootDir, taskId, dispatchId),
         readDispatches: ({ sessions, events }) =>
           readSessionGroupDispatches({ rootDir: context.rootDir, sessions, events }),
         projection,
