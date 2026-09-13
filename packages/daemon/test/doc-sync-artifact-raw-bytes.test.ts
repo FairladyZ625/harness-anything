@@ -111,7 +111,7 @@ test("raw task artifacts publish their original bytes, filename, and owner throu
     }
     const beforeMaterialize = reader.readHead();
     rmSync(path.join(rootDir, "harness", "tasks"), { recursive: true, force: true });
-    const materialized = await cell.run({ kind: "doc-materialize" }, binding);
+    const materialized = await cell.run({ kind: "doc-materialize", paths: [], all: true }, binding);
     assert.equal(materialized.outcome, "applied", JSON.stringify(materialized));
     assert.deepEqual(reader.readHead(), beforeMaterialize, "restore must not admit a new command");
     for (const { destination, bytes } of cases)

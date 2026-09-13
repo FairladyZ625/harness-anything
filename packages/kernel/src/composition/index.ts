@@ -35,6 +35,9 @@ export type {
   CanonicalWriteBundle,
   EventPublicationKillpoint,
   MaterializationHealth,
+  MaterializationReceipt,
+  MaterializationRequest,
+  MaterializationSettlement,
   MaterializationState,
   PublicationFile,
 } from "../store/task-event-store.ts";

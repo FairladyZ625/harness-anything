@@ -66,6 +66,8 @@ test("thin doc commands derive descriptor-only actions from the protocol directo
     selectedStatus = parseThinCommand(["doc", "status", "--path", "context/a.md", "--path", "context/b.md"]),
     dryRun = parseThinCommand(["doc", "sync", "--dry-run", "--path", "context/a.md", "--path", "context/b.md"]),
     materialize = parseThinCommand(["doc", "materialize"]),
+    selectedMaterialize = parseThinCommand(["doc", "materialize", "--path", "context/a.md"]),
+    allMaterialize = parseThinCommand(["doc", "materialize", "--all"]),
     show = parseThinCommand(["doc", "show", "--path", "tasks/task-1/INDEX.md"]),
     retire = parseThinCommand(["doc", "retire", "--path", "context/old.md", "--reason", "superseded scratch"]),
     submit = parseThinCommand(["doc", "sync", "--submit", "--path", "context/a.md", "--path", "context/b.md"]),
@@ -75,6 +77,8 @@ test("thin doc commands derive descriptor-only actions from the protocol directo
   assert.equal(selectedStatus.ok, true);
   assert.equal(dryRun.ok, true);
   assert.equal(materialize.ok, true);
+  assert.equal(selectedMaterialize.ok, true);
+  assert.equal(allMaterialize.ok, true);
   assert.equal(show.ok, true);
   assert.equal(retire.ok, true);
   assert.equal(submit.ok, true);
@@ -91,7 +95,18 @@ test("thin doc commands derive descriptor-only actions from the protocol directo
       kind: "doc-dry-run",
       paths: ["context/a.md", "context/b.md"],
     });
-  if (materialize.ok) assert.deepEqual(materialize.command.action, { kind: "doc-materialize" });
+  if (materialize.ok) assert.deepEqual(materialize.command.action, { kind: "doc-materialize", paths: [] });
+  if (selectedMaterialize.ok)
+    assert.deepEqual(selectedMaterialize.command.action, {
+      kind: "doc-materialize",
+      paths: ["context/a.md"],
+    });
+  if (allMaterialize.ok)
+    assert.deepEqual(allMaterialize.command.action, {
+      kind: "doc-materialize",
+      paths: [],
+      all: true,
+    });
   if (show.ok)
     assert.deepEqual(show.command.action, {
       kind: "doc-show",
@@ -127,6 +142,7 @@ test("thin doc commands derive descriptor-only actions from the protocol directo
   );
   assert.equal(parseThinCommand(["doc", "sync", "--submit", "--all", "--path", "context/a.md"]).ok, false);
   assert.equal(parseThinCommand(["doc", "sync", "--submit", "--all", "--task", "task-1"]).ok, false);
+  assert.equal(parseThinCommand(["doc", "materialize", "--all", "--path", "context/a.md"]).ok, false);
   assert.equal(parseThinCommand(["doc", "sync", "--submit", "--execution-id", "exec-1"]).ok, false);
   assert.equal(parseThinCommand(["doc", "show", "--path", "INDEX.md", "--body", "inline"]).ok, false);
   assert.equal(parseThinCommand(["doc", "retire", "--path", "context/old.md"]).ok, false);

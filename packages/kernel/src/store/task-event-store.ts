@@ -13,6 +13,8 @@ export {
   type EventFileBatch,
   type EventPublicationKillpoint,
   type MaterializationReceipt,
+  type MaterializationRequest,
+  type MaterializationSettlement,
   type MaterializationFailureReason,
   type MaterializationHealth,
   type MaterializationState,

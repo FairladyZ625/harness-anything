@@ -10,10 +10,15 @@ export function parseDoc(
   json: boolean,
   inputs: ThinCliInputDirectory,
 ): ThinParseResult {
-  if (id === "doc-materialize")
-    return args.length === 2
-      ? accepted(rootDir, repoId, json, { kind: id })
-      : rejected("unknown_field", "ha doc materialize takes no options.", json);
+  if (id === "doc-materialize") {
+    const f = readFlags(id, args.slice(2), inputs);
+    if (!f.ok) return rejected(f.code, f.nextAction, json);
+    const paths = f.many.get("--path") ?? [],
+      all = f.booleans.has("--all");
+    if (all && paths.length)
+      return rejected("invalid_field", "Use either --path or --all for doc materialize, not both.", json);
+    return accepted(rootDir, repoId, json, { kind: id, paths, ...(all ? { all: true } : {}) });
+  }
   if (id.startsWith("doc-conflict-")) {
     const verb = args[2],
       conflictId = args[3];

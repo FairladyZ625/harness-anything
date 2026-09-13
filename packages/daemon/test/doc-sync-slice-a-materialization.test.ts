@@ -104,25 +104,26 @@ test("materialize reports an already settled SQLite follower without inventing a
     await waitForWorktree(cell, submitted);
     const cut = git(rootDir, "rev-parse", "HEAD"),
       count = git(rootDir, "rev-list", "--count", "HEAD");
-    const first = await cell.run({ kind: "doc-materialize" }, binding),
+    // Bare materialize on an already settled worktree previews nothing to confirm and writes nothing.
+    const first = await cell.run({ kind: "doc-materialize", paths: [] }, binding),
       firstReport = materializeReport(first.evidence);
     assert.equal(first.outcome, "applied", JSON.stringify(first));
     assert.equal(first.acceptance, null);
     assert.equal(first.proof?.worktreeVisible, true);
-    assert.deepEqual(firstReport.changed, []);
+    assert.deepEqual(firstReport.settlements, []);
     assert.deepEqual(firstReport.conflicts, []);
     assert.equal(existsSync(taskRoot), true);
     for (const logical of prosePaths)
       assert.match(readFileSync(path.join(rootDir, "harness", logical), "utf8"), /Canonical prose update/u);
     assert.equal(readFileSync(path.join(rootDir, "harness/context/notes.md"), "utf8"), "# Notes\n\ncanonical\n");
     assert.equal(git(rootDir, "diff", "--name-only"), "");
-    const second = await cell.run({ kind: "doc-materialize" }, binding),
+    const second = await cell.run({ kind: "doc-materialize", paths: [], all: true }, binding),
       secondReport = materializeReport(second.evidence);
     assert.equal(second.outcome, "applied", JSON.stringify(second));
     assert.equal(second.acceptance, null);
     assert.equal(second.proof?.worktreeVisible, true);
     assert.equal(second.opId, first.opId);
-    assert.deepEqual(secondReport.changed, []);
+    assert.deepEqual(secondReport.settlements, []);
     assert.deepEqual(secondReport.conflicts, []);
     assert.equal(git(rootDir, "rev-parse", "HEAD"), cut);
     assert.equal(git(rootDir, "rev-list", "--count", "HEAD"), count);
@@ -168,14 +169,36 @@ test("the SQLite worktree follower preserves a caller edit and recovers from its
     assert.equal(gitSettled.worktree.state, "pending");
     assert.equal(readFileSync(path.join(rootDir, "harness", logical), "utf8"), local);
 
-    const conflicted = await cell.run({ kind: "doc-materialize" }, binding);
+    // Bare materialize must not settle anything: the local edit still owns the target, so the
+    // preview reports the conflict and leaves the worktree exactly as it is.
+    const conflicted = await cell.run({ kind: "doc-materialize", paths: [] }, binding);
     assert.equal(conflicted.outcome, "pending");
     assert.equal(conflicted.acceptance, null);
     assert.equal(conflicted.proof?.worktreeVisible, false);
     assert.equal(readFileSync(path.join(rootDir, "harness", logical), "utf8"), local);
 
     rmSync(path.join(rootDir, "harness", logical));
-    const retried = await cell.run({ kind: "doc-materialize" }, binding);
+    // The deleted target is something a whole-closure restore would recreate, so bare materialize
+    // refuses it with the confirmation gate instead of restoring the file by implication.
+    const unconfirmed = await cell.run({ kind: "doc-materialize", paths: [] }, binding);
+    assert.equal(unconfirmed.outcome, "op_rejected");
+    assert.equal(unconfirmed.code, "doc_materialize_confirmation_required");
+    assert.equal(existsSync(path.join(rootDir, "harness", logical)), false);
+    assert.match(String(unconfirmed.summary), /context\/notes\.md/u);
+    assert.match(String(unconfirmed.summary), /--all/u);
+    // The action surface stays closed: a selection and --all in one action is not a command.
+    const both = await cell.run({ kind: "doc-materialize", paths: [logical], all: true }, binding);
+    assert.equal(both.outcome, "op_rejected");
+    assert.equal(both.code, "invalid_command");
+    const named = await cell.run({ kind: "doc-materialize", paths: ["context/notes.md"] }, binding);
+    assert.equal(named.outcome, "applied", JSON.stringify(named));
+    assert.deepEqual(
+      materializeReport(named.evidence).settlements.map((row) => row.path),
+      ["context/notes.md"],
+    );
+    assert.equal(readFileSync(path.join(rootDir, "harness", logical), "utf8"), canonical);
+    rmSync(path.join(rootDir, "harness", logical));
+    const retried = await cell.run({ kind: "doc-materialize", paths: [], all: true }, binding);
     assert.equal(retried.acceptance, null);
     assert.equal(retried.outcome, "applied");
     assert.equal(retried.proof?.worktreeVisible, true);

@@ -92,12 +92,12 @@ export function blockedReason(evidence: string | undefined): string {
   );
 }
 export function materializeReport(evidence: string | undefined): {
-  readonly changed: readonly string[];
+  readonly settlements: readonly { readonly path: string; readonly action: string; readonly copy: string | null }[];
   readonly conflicts: readonly string[];
 } {
   assert.match(evidence ?? "", /^doc-materialize:/u);
   return JSON.parse((evidence ?? "").slice("doc-materialize:".length)) as {
-    changed: readonly string[];
+    settlements: readonly { readonly path: string; readonly action: string; readonly copy: string | null }[];
     conflicts: readonly string[];
   };
 }

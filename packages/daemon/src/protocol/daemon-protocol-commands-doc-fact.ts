@@ -67,9 +67,25 @@ export const docFactProtocolCommands = Object.freeze([
     id: "doc-materialize",
     phase: "DocSync-B",
     path: ["doc", "materialize"],
-    summary: "Restore the current canonical document cut to the worktree.",
+    summary: [
+      "Preview what restoring the canonical cut would touch; restore named paths with --path ",
+      "or the whole cut with --all.",
+    ].join(""),
     method: "repo.task.run",
-    inputs: [],
+    inputs: [
+      cliInput("--path", "repeated", false, {
+        code: "invalid_field",
+      }),
+      cliInput(
+        "--all",
+        "boolean",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { conflictsWith: ["--path"] },
+      ),
+    ],
   }),
   defineRepoReadCommand({
     id: "doc-show",

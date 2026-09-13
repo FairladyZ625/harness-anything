@@ -136,7 +136,7 @@ test("artifact add treats every artifacts/ path as opaque while preserving media
     const reader = makeTaskEventReader({ repoId, rootDir }),
       beforeMaterialize = reader.readHead();
     rmSync(path.join(rootDir, "harness", "tasks"), { recursive: true, force: true });
-    const materialized = await cell.run({ kind: "doc-materialize" }, binding);
+    const materialized = await cell.run({ kind: "doc-materialize", paths: [], all: true }, binding);
     assert.equal(materialized.outcome, "applied", JSON.stringify(materialized));
     assert.equal(materialized.proof?.worktreeVisible, true);
     assert.equal(materialized.acceptance, null);

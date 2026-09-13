@@ -54,15 +54,20 @@ test("all public commands expose the canonical structured input facet", () => {
       command.id,
     );
   }
-  for (const id of [
-    "task-show",
-    "doc-materialize",
-    "preset-upgrade",
-    "daemon-projection-rebuild",
-    "daemon-start",
-    "daemon-status",
-  ])
+  for (const id of ["task-show", "preset-upgrade", "daemon-projection-rebuild", "daemon-start", "daemon-status"])
     assert.deepEqual(daemonProtocolCommands.find((command) => command.id === id)?.inputs, [], id);
+  // doc-materialize mirrors doc-sync-submit's confirmation gate surface: a repeated --path for an
+  // explicit selection and a boolean --all that excludes it.
+  assert.deepEqual(
+    daemonProtocolCommands
+      .find(({ id }) => id === "doc-materialize")
+      ?.inputs.map(({ name, kind, required, conflictsWith }) => [name, kind, required, conflictsWith]),
+    [
+      ["--path", "repeated", false, undefined],
+      ["--all", "boolean", false, ["--path"]],
+    ],
+    "doc-materialize",
+  );
   assert.deepEqual(
     daemonProtocolCommands
       .find(({ id }) => id === "receipt-show")

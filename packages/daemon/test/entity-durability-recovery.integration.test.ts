@@ -181,7 +181,7 @@ test("An entity accepted into SQLite recovers its bytes after its publication is
     // Cold rebuild: throw the materialized tree away and let the ledger put it back through the operator's
     // own entry point, with the source still gone.
     rmSync(path.join(rootDir, "harness", root), { recursive: true, force: true });
-    const rebuilt = await recovered.run({ kind: "doc-materialize" }, binding);
+    const rebuilt = await recovered.run({ kind: "doc-materialize", paths: [], all: true }, binding);
     assert.equal(rebuilt.outcome, "applied", JSON.stringify(rebuilt));
     assert.deepEqual(readFileSync(held("blobs", "binary.bin")), binaryBytes, "a cold rebuild restores the same bytes");
     assert.equal(statSync(held("blobs", "empty.bin")).size, 0);

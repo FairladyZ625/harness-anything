@@ -1212,7 +1212,7 @@ test("Policy rejects a principal without a durable-action RoleBinding", async ()
     const deniedAdmin = await rpc(host, auth(ids.reader), "daemon.repo.register", { rootDir: second, repoId: "second" });
     assert.equal(deniedAdmin.outcome, "op_rejected"); assert.equal(deniedAdmin.code, "authorization_denied");
     await writeCloseout(
-      () => host.run("rbac", { kind: "doc-materialize" }, auth(ids.writer)),
+      () => host.run("rbac", { kind: "doc-materialize", paths: [], all: true }, auth(ids.writer)),
       root,
       String((created as Record<string, unknown>).packagePath),
       "Role-bound delivery complete.",
