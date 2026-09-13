@@ -83,6 +83,7 @@ export interface CompiledTaskBootstrap extends CompiledTaskPackage {
 }
 export interface CompilePresetSnapshotUpgradeInput extends PresetResolverOptions {
   readonly toPresetId?: string;
+  readonly documentExists?: (relativePath: string) => boolean;
   readonly task: TaskBootstrapEventV1["payload"]["task"];
   readonly taskContractBody: string;
   readonly actor: ActorIdentity;
@@ -378,7 +379,9 @@ export function compilePresetSnapshotUpgrade(input: CompilePresetSnapshotUpgrade
   // entities); the retired file stays on disk as committed prose. Only a slot the package does not have yet
   // would need materialization, so only additions are rejected.
   const knownPaths = new Set(documents.map((item) => (item as { path: string }).path)),
-    addedPaths = compiled.documents.map(({ relativePath }) => relativePath).filter((item) => !knownPaths.has(item));
+    addedPaths = compiled.documents
+      .map(({ relativePath }) => relativePath)
+      .filter((item) => !knownPaths.has(item) && !input.documentExists?.(item));
   if (addedPaths.length)
     throw bootstrapFailure(
       "upgrade_document_set_changed",

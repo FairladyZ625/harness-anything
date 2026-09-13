@@ -104,12 +104,32 @@ test("snapshot upgrade atomically replaces the complete snapshot and typed task 
       contract = {
         body: bootstrap.documents.find(({ relativePath }) => relativePath === "task-contract.json")!.body,
       };
+    const incompleteContract = JSON.parse(contract.body) as { documents: Array<{ path: string }> };
+    incompleteContract.documents = incompleteContract.documents.filter(
+      ({ path: documentPath }) => documentPath !== "INDEX.md" && documentPath !== "task-contract.json",
+    );
+    assert.throws(
+      () =>
+        compilePresetSnapshotUpgrade({
+          userRoot,
+          task,
+          taskContractBody: JSON.stringify(incompleteContract),
+          actor: { principal: { personId: "person-1" }, executor: null },
+          source: "local",
+          workspaceRevision: 2,
+          eventId: "event-upgrade-missing-documents",
+          opId: "op-upgrade-missing-documents",
+          occurredAt: "2026-08-14T00:01:00.000Z",
+        }),
+      (error: unknown) => (error as { code?: string }).code === "upgrade_document_set_changed",
+    );
     let upgraded: ReturnType<typeof compilePresetSnapshotUpgrade> | undefined;
     assert.doesNotThrow(() => {
       upgraded = compilePresetSnapshotUpgrade({
         userRoot,
         task,
-        taskContractBody: contract.body,
+        taskContractBody: JSON.stringify(incompleteContract),
+        documentExists: (relativePath) => relativePath === "INDEX.md" || relativePath === "task-contract.json",
         actor: { principal: { personId: "person-1" }, executor: null },
         source: "local",
         workspaceRevision: 2,

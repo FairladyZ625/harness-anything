@@ -310,6 +310,10 @@ export function upgradePresetSnapshot(
       settings: cell.settings.read(),
       task: projected.snapshot.task,
       taskContractBody: contract.document.body,
+      documentExists: (relativePath) => {
+        const document = cell.projection.readDocument(`${projected.packagePath}/${relativePath}`);
+        return document.status === "ready" && document.document !== null;
+      },
       actor: binding.actor,
       source: binding.source,
       workspaceRevision: (cell.store.readHead()?.revision ?? 0) + 1,
