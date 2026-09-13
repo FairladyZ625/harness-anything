@@ -48,6 +48,7 @@ test("run-now launches only after an applied claim, stays single-flight, and set
     preparedFast: boolean | undefined,
     workerGitEnvironmentRequests = 0,
     launched: { readonly env: NodeJS.ProcessEnv; readonly prompt: string } | null = null;
+  const secondLaunch = Promise.withResolvers<void>();
   try {
     git(root, "init", "-q");
     git(root, "config", "user.name", "Schedule Test");
@@ -135,6 +136,7 @@ test("run-now launches only after an applied claim, stays single-flight, and set
       },
       runtimeLaunch: (prepared) => {
         launchCount += 1;
+        if (launchCount === 2) secondLaunch.resolve();
         launched = { env: prepared.env, prompt: prepared.prompt };
         return {
           pid: 4242,
@@ -283,7 +285,8 @@ test("run-now launches only after an applied claim, stays single-flight, and set
           `${JSON.stringify({ type: "turn.failed", error: { http_status: 429, message: "rate limited" } })}\n`,
       );
       exit?.(1);
-      assert.equal(await eventually(async () => launchCount === 2), true);
+      await secondLaunch.promise;
+      assert.equal(launchCount, 2);
       const continuing = (await cell.run({ kind: "schedule-list" }, actor)) as unknown as {
         readonly schedules: readonly { readonly status: { readonly activeRun: unknown; readonly lastRun: unknown } }[];
       };
