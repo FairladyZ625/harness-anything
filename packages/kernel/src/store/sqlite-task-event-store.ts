@@ -279,7 +279,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
         conflicts: [],
       };
     }
-    const closure = closureFiles(materializeContext(), from),
+    const closure = closureFiles(materializeContext(), accepted, from),
       files = [...closure.files, ...legacy],
       baseline = new Map(captureGitBaseline(currentLedger.rootDir, parent, files));
     if (restoreMissing || worktreeRevision !== verifiedRevision) {

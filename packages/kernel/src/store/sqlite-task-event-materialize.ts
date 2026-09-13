@@ -112,21 +112,18 @@ export function settlementRows(
 /**
  * The closure file read every materialize mode shares — the whole-cut settling pass, its preview, and a
  * named-path restore — so each operator-facing selection classifies the same files the pass would settle.
+ * The cut comes from the caller because every mode already holds it: computing it here would hash the
+ * ledger head a second time on every write the settling pass follows.
  */
 export function closureFiles(
   context: MaterializeStoreContext,
+  accepted: LedgerCutIdentity,
   from: number,
 ): { readonly events: readonly CanonicalEventV1[]; readonly files: readonly (PublicationWrite | PublicationDelete)[] } {
   const events = readPendingEvents(context.sqlite, from);
   return {
     events,
-    files: followerFiles(
-      context.ledger(),
-      events,
-      context.readContent,
-      context.cut(),
-      context.sqlite.metadata().generation,
-    ),
+    files: followerFiles(context.ledger(), events, context.readContent, accepted, context.sqlite.metadata().generation),
   };
 }
 
@@ -147,7 +144,7 @@ export function restoreRequestedDocuments(
   // The named selection still reads the whole closure — the same start the whole-cut pass settles from —
   // because any document in the cut may be named.
   const canonical = new Map(
-      closureFiles(context, 0).files.flatMap((file) =>
+      closureFiles(context, accepted, 0).files.flatMap((file) =>
         "target" in file ? [[ledgerAuthoredPath(currentLedger, file.target), file] as const] : [],
       ),
     ),
