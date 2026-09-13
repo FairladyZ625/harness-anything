@@ -16,6 +16,8 @@ import type { RepoCellBinding, Snapshot } from "./repo-cell-types.ts";
 import { resolveTaskRootThreshold } from "./task-wip-settings.ts";
 import type { RepoCellActionContext } from "./repo-cell-action-context.ts";
 import { renderEvidencePayload } from "./repo-cell-evidence.ts";
+import { failed } from "./repo-cell-settlement.ts";
+import { projectedTaskNotFound } from "./projection-readiness.ts";
 
 export function publishCiWitness(
   cell: RepoCellActionContext,
@@ -130,7 +132,12 @@ export function taskShowFromProjection(
   const read = projection.read(taskId),
     progress = projection.readProgress(taskId),
     rootSetting = resolveTaskRootThreshold(rootDir),
-    task = read.snapshot.task,
+    notFound = projectedTaskNotFound(read, taskId);
+  // task-show answers with receipts on every path — the fleet lease probe reads outcome/code
+  // off the receipt — so settle the shared judgment instead of throwing past the attached
+  // fast path, which has no write-queue settlement.
+  if (notFound !== null) return failed(`read:${taskId}`, notFound);
+  const task = read.snapshot.task,
     rootAssessment = task
       ? deriveTaskRoot(
           {

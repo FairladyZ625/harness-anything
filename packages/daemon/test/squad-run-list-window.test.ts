@@ -145,6 +145,7 @@ function projectionWith(
   const rows: { squadRunId: string; revision: number; state: unknown }[] = [],
     batchCalls: (readonly string[])[] = [];
   return {
+    read: () => ({ watermark: 1, sourceRevision: 1, snapshot: { task: { taskId: "squad-window-witness" } } }),
     readTaskStatuses: () => ({ status: "ready", rows: [], watermark: 1, sourceRevision: 1 }),
     readTaskRuntimeBatch: (query: { readonly taskIds: readonly string[] }) => {
       batchCalls.push(query.taskIds);

@@ -489,6 +489,33 @@ test("review-execution against a nonexistent task names the missing task", async
   }
 });
 
+test("task reads against a task id the projection does not have answer task_not_found naming the requested id", async () => {
+  const rootDir = workspace("task-read-not-found"),
+    repoId = workspaceId("task-read-not-found"),
+    reader = binding("task-read-not-found");
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "task-read-not-found" });
+    // A short prefix and a full-length id that was never created are the same question:
+    // does the canonical projection hold this task?
+    for (const taskId of ["task_9bfc3029", "task_00000000000000000000000000"]) {
+      const shown = await cell.run({ kind: "task-show", taskId }, reader);
+      assert.equal(shown.outcome, "op_rejected", JSON.stringify(shown));
+      assert.equal(shown.code, "task_not_found", JSON.stringify(shown));
+      assert.match(String(shown.rejectionExplanation), new RegExp(taskId, "u"));
+      const dispatches = await cell.read("repo.task.dispatches", { taskId }, reader).then(
+        () => null,
+        (error: Error & { code?: string }) => error,
+      );
+      assert.equal(dispatches?.code, "task_not_found", String(dispatches));
+      assert.match(String(dispatches?.message), new RegExp(taskId, "u"));
+    }
+  } finally {
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 function binding(executorId: string) {
   return {
     actor: { principal: { personId: "person-owner" }, executor: { kind: "agent" as const, id: executorId } },

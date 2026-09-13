@@ -39,6 +39,7 @@ function session(
 
 function projectionFor(current: RuntimeSession): TaskProjection {
   return {
+    read: () => ({ watermark: 1, sourceRevision: 1, snapshot: { task: { taskId } } }),
     readTaskRuntimeBatch: () => ({
       status: "ready",
       taskIds: [taskId],
@@ -81,6 +82,63 @@ test("a dispatch whose session has exited reports unknown, not running", () => {
   assert.equal(statusFor(session("exited", null)), "unknown");
   assert.equal(statusFor(session("unknown", null)), "unknown");
   assert.equal(statusFor(session("stale", null)), "unknown");
+});
+
+// A read that resolves one taskId answers from the projection: an id the projection does not
+// hold is a not-found answer naming that id, never a bare untyped throw that callers must
+// guess at (bootstrap_failed downstream).
+test("a single-task query for an id the projection does not have answers task_not_found naming the id", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-dispatch-read-not-found-"));
+  try {
+    const projection = {
+      read: () => ({ watermark: 1, sourceRevision: 1, snapshot: { task: null } }),
+      readTaskRuntimeBatch: () => ({
+        status: "ready",
+        taskIds: [taskId],
+        rows: [],
+        watermark: 1,
+        sourceRevision: 1,
+      }),
+      readReplicaBasis: () => {
+        throw new Error("dispatch reads must not enumerate the replica document basis");
+      },
+      readDocument: () => ({ document: null }),
+    } as unknown as TaskProjection;
+    assert.throws(
+      () => readTaskDispatches({ rootDir, projection, taskId: "task_9bfc3029" }),
+      (error: Error & { code?: string }) =>
+        error.code === "task_not_found" &&
+        /Task task_9bfc3029 does not exist in the canonical event stream\./u.test(error.message),
+    );
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("a single-task query for a task without a projected package answers task_not_found naming the id", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-dispatch-read-no-package-"));
+  try {
+    const projection = {
+      read: () => ({ watermark: 1, sourceRevision: 1, snapshot: { task: { taskId, title: "Packless" } } }),
+      readTaskRuntimeBatch: () => ({
+        status: "ready",
+        taskIds: [taskId],
+        rows: [{ taskId, packagePath: null, sessions: [] }],
+        watermark: 1,
+        sourceRevision: 1,
+      }),
+      readReplicaBasis: () => {
+        throw new Error("dispatch reads must not enumerate the replica document basis");
+      },
+      readDocument: () => ({ document: null }),
+    } as unknown as TaskProjection;
+    assert.throws(
+      () => readTaskDispatches({ rootDir, projection, taskId }),
+      (error: Error & { code?: string }) => error.code === "task_not_found" && error.message.includes(taskId),
+    );
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
 });
 
 test("a daemon restart loss is a terminal lost dispatch", () => {
@@ -212,6 +270,7 @@ test("an unbound detached dispatch is read from the live index", () => {
     });
     appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_started", pid: 12345 });
     const projection = {
+      read: () => ({ watermark: 1, sourceRevision: 1, snapshot: { task: { taskId } } }),
       readTaskRuntimeBatch: () => ({
         status: "ready",
         taskIds: [taskId],
@@ -293,6 +352,7 @@ test("live and archived rows carry the parent runtime session edge only when pre
       resultRef: "artifact:runtime-result/sha256/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     };
     const projection = {
+      read: () => ({ watermark: 1, sourceRevision: 1, snapshot: { task: { taskId } } }),
       readTaskRuntimeBatch: () => ({
         status: "ready",
         taskIds: [taskId],
@@ -346,6 +406,7 @@ test("archived dispatch rows expose terminal result and task artifact references
       resultRef: "artifact:runtime-result/sha256/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     };
     const projection = {
+      read: () => ({ watermark: 1, sourceRevision: 1, snapshot: { task: { taskId } } }),
       readTaskRuntimeBatch: () => ({
         status: "ready",
         taskIds: [taskId],

@@ -23,6 +23,23 @@ export function requireCurrentTaskProjection(
   return read;
 }
 
+// Serving read faces (task show, task dispatches) resolve one requested id against the applied
+// cut: a current projection without that task is a not-found answer naming the id, never an
+// empty success. A lagging cut stays the caller's pending case — not-found must not race a
+// projection that could still apply the task. Callers throw it or settle it into a receipt
+// per their channel; the judgment and its wording live only here.
+export function projectedTaskNotFound(
+  read: Pick<ReturnType<TaskProjection["read"]>, "watermark" | "sourceRevision" | "snapshot">,
+  taskId: string,
+): (Error & { readonly code: "task_not_found" }) | null {
+  if (read.watermark < read.sourceRevision) return null;
+  return read.snapshot.task
+    ? null
+    : Object.assign(new Error(`Task ${taskId} does not exist in the canonical event stream.`), {
+        code: "task_not_found",
+      } as const);
+}
+
 function projectionNotReady(
   label: string,
   cut: { readonly watermark: number; readonly sourceRevision: number },
