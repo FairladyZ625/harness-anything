@@ -1,7 +1,8 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -262,6 +263,51 @@ test("terminal settlement keeps the worker result when fallback settlement fails
   }
 });
 
+test("terminal settlement reports the branch and head its worker push published", async (context) => {
+  const fixture = workerGitFixture(context, "settle-push", { reachableRemote: true }),
+    runtime = workerSettlementRuntime(fixture, { finalText: "worker delivery" }),
+    outcomeBodies: string[] = [],
+    outcomes: Record<string, unknown>[] = [],
+    settleContext = workerSettlementContext(fixture, async (type, payload = {}, _opId?, _binding?, body?) => {
+      if (type === "runtime_session_outcome_observed") {
+        outcomes.push(payload);
+        outcomeBodies.push(String(body));
+      }
+      return {};
+    });
+  await publishExit(settleContext, runtime, 0);
+  const head = git(fixture.worker, "rev-parse", "HEAD").trim(),
+    expectedBody = `worker delivery\n\nWorker branch pushed at settlement: codex/settle-push @ ${head}`;
+  assert.deepEqual(outcomeBodies, [expectedBody]);
+  assert.equal(
+    outcomes[0]?.resultRef,
+    `artifact:runtime-result/sha256/${createHash("sha256").update(expectedBody).digest("hex")}`,
+    "the push line must be inside the durable terminal result the CEO reads",
+  );
+  assert.ok(git(fixture.bare, "show-ref", "--verify", "refs/heads/codex/settle-push").trim().startsWith(`${head} `));
+});
+
+test("terminal settlement names the branch when the worker push fails", async (context) => {
+  const fixture = workerGitFixture(context, "settle-fail", { reachableRemote: false }),
+    runtime = workerSettlementRuntime(fixture, { finalText: "worker delivery" }),
+    outcomeBodies: string[] = [],
+    outcomes: Record<string, unknown>[] = [],
+    settleContext = workerSettlementContext(fixture, async (type, payload = {}, _opId?, _binding?, body?) => {
+      if (type === "runtime_session_outcome_observed") {
+        outcomes.push(payload);
+        outcomeBodies.push(String(body));
+      }
+      return {};
+    });
+  await publishExit(settleContext, runtime, 0);
+  assert.equal(outcomeBodies.length, 1);
+  assert.match(
+    outcomeBodies[0],
+    /^worker delivery\n\nWorker branch push failed \(no retry\): codex\/settle-fail @ [0-9a-f]+: .+/u,
+  );
+  assert.equal(outcomes[0]?.outcome, "succeeded", "a push failure is reported, not turned into a task failure");
+});
+
 function active(overrides: Partial<ActiveRuntime>): ActiveRuntime {
   return {
     dispatchId: "dispatch_0123456789abcdef01234567",
@@ -284,4 +330,112 @@ function active(overrides: Partial<ActiveRuntime>): ActiveRuntime {
     writeItemObserved: true,
     ...overrides,
   } as ActiveRuntime;
+}
+
+type WorkerGitFixture = {
+  readonly root: string;
+  readonly bare: string;
+  readonly canonical: string;
+  readonly worker: string;
+};
+
+function workerGitFixture(
+  context: { after(handler: () => void): unknown },
+  slug: string,
+  options: { readonly reachableRemote: boolean },
+): WorkerGitFixture {
+  const root = mkdtempSync(path.join(tmpdir(), `ha-settle-${slug}-`)),
+    bare = path.join(root, "remote.git"),
+    canonical = path.join(root, "project"),
+    worker = path.join(root, "worker");
+  context.after(() => rmSync(root, { recursive: true, force: true }));
+  git(root, "init", "--bare", bare);
+  git(root, "init", "-q", "project");
+  git(canonical, "config", "user.email", "settle-test@example.invalid");
+  git(canonical, "config", "user.name", "Settle Test");
+  writeFileSync(path.join(canonical, "README.md"), "fixture\n");
+  git(canonical, "add", "README.md");
+  git(canonical, "commit", "--quiet", "-m", "fixture");
+  git(canonical, "worktree", "add", "--quiet", worker, "-b", `codex/${slug}`);
+  writeFileSync(path.join(worker, "change.txt"), "worker\n");
+  git(worker, "add", "change.txt");
+  git(worker, "commit", "--quiet", "-m", "feat: worker change");
+  git(worker, "remote", "add", "origin", options.reachableRemote ? bare : path.join(root, "missing.git"));
+  return { root, bare, canonical, worker };
+}
+
+function workerSettlementRuntime(fixture: WorkerGitFixture, overrides: Partial<ActiveRuntime>): ActiveRuntime {
+  return active({
+    process: {
+      pid: process.pid,
+      onOutput: () => undefined,
+      onErrorOutput: () => undefined,
+      onExit: () => undefined,
+      terminate: () => undefined,
+    },
+    runtimeSessionId: "runtime-settle-push",
+    dispatchOpId: "settle-dispatch-op",
+    binding: {
+      actor: {
+        principal: { kind: "human", id: "operator" },
+        executor: { kind: "agent", id: "runtime-session:runtime-settle-push" },
+      },
+      source: "local",
+    },
+    task: { taskId: "task-owner", executionId: "execution-owner", leaseVersion: 1 },
+    schedule: null,
+    cwd: fixture.worker,
+    prompt: "settle this result",
+    onExitCommand: null,
+    reasoningEffort: null,
+    fast: false,
+    startedAt: "2026-09-14T00:00:00.000Z",
+    stream: {
+      ref: "runtime-stream:dispatch_0123456789abcdef01234567",
+      appendAttemptOutcome: () => undefined,
+    } as never,
+    buffer: "",
+    durableOutputCount: 0,
+    stdoutObserved: true,
+    providerSessionId: "provider-session",
+    resumeProviderSessionId: null,
+    finalText: null,
+    cancelBinding: null,
+    cancelOpId: null,
+    toolCallObserved: true,
+    ...overrides,
+  });
+}
+
+function workerSettlementContext(
+  fixture: WorkerGitFixture,
+  publishRuntimeEvent: (
+    type: string,
+    payload?: Record<string, unknown>,
+    opId?: string,
+    binding?: unknown,
+    resultBody?: string,
+  ) => Promise<unknown>,
+): RuntimeSpawnerContext {
+  return {
+    exiting: new Set<string>(),
+    processes: new Map(),
+    input: {
+      repoId: "canonical",
+      rootDir: fixture.canonical,
+      now: () => "2026-09-14T00:01:00.000Z",
+      stream: { publish: () => ({}) },
+      remote: { archive: async () => ({ outcome: "applied" }) },
+    },
+    resultMediaType: "text/markdown",
+    runtimeResultText: () => "worker delivery",
+    markProtocolError: () => undefined,
+    settleFallback: async () => undefined,
+    prepareWorkerGitEnvironment: async () => ({}),
+    publishRuntimeEvent,
+  } as unknown as RuntimeSpawnerContext;
+}
+
+function git(root: string, ...args: string[]): string {
+  return execFileSync("git", ["-C", root, ...args], { encoding: "utf8" });
 }

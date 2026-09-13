@@ -27,8 +27,12 @@ test("worker push publishes only a codex branch with force-with-lease", async (c
   git(worker, "commit", "--quiet", "-m", "feat: worker change");
 
   const result = await pushWorkerBranch({ cwd: worker, canonicalRoot: canonical });
-  assert.deepEqual(result, { attempted: true, ok: true, branch: "codex/push-test" });
-  assert.match(git(bare, "show-ref", "--verify", "refs/heads/codex/push-test"), /codex\/push-test/u);
+  assert.equal(result.attempted, true);
+  assert.equal(result.ok, true);
+  assert.equal(result.branch, "codex/push-test");
+  assert.equal(result.head, git(worker, "rev-parse", "HEAD").trim());
+  const remoteRef = git(bare, "show-ref", "--verify", "refs/heads/codex/push-test").trim();
+  assert.ok(remoteRef.startsWith(`${String(result.head)} `), `remote holds the pushed head: ${remoteRef}`);
 });
 
 test("worker push records a single failure without retrying", async (context) => {
@@ -48,6 +52,7 @@ test("worker push records a single failure without retrying", async (context) =>
   assert.equal(result.attempted, true);
   assert.equal(result.ok, false);
   assert.equal(result.branch, "codex/push-failure");
+  assert.equal(result.head, git(worker, "rev-parse", "HEAD").trim());
   assert.match(result.detail, /does not appear to be a git repository|No such file|not found/iu);
 });
 
@@ -88,6 +93,7 @@ test("a worker push that never answers ends as a timed-out push failure", async 
     attempted: true,
     ok: false,
     branch: "codex/push-hang",
+    head: git(worker, "rev-parse", "HEAD").trim(),
     detail: "git push timed out after 300 ms",
   });
 });

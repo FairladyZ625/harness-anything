@@ -71,7 +71,13 @@ export async function publishExit(
       try {
         const env = await context.prepareWorkerGitEnvironment(active.instanceId),
           push = await pushWorkerBranch({ cwd: active.cwd, canonicalRoot: context.input.rootDir, env });
-        if (push.attempted && !push.ok) body = `${body}\n\nWorker branch push failed (no retry): ${push.detail}`;
+        if (push.attempted)
+          body = push.ok
+            ? `${body}\n\nWorker branch pushed at settlement: ${push.branch} @ ${push.head}`
+            : [
+                `${body}\n\nWorker branch push failed (no retry):`,
+                `${push.branch ?? "unknown branch"} @ ${push.head ?? "unknown head"}: ${push.detail}`,
+              ].join(" ");
       } catch (error) {
         consumeKnownError(error);
         const detail = String(scrubProviderValue(error instanceof Error ? error.message : String(error))).slice(0, 512);
