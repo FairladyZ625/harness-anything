@@ -156,6 +156,7 @@ function makeRecoveryFixture(
   });
 
   const projection = {
+      read: (taskId: string) => ({ watermark: 1, sourceRevision: 1, snapshot: { task: { taskId } } }),
       readTaskStatuses: () => ({ status: "ready", rows: [], watermark: 1, sourceRevision: 1 }),
       readTaskRuntimeBatch: (query: { readonly taskIds: readonly string[] }) => ({
         status: "ready",
@@ -198,11 +199,7 @@ function makeRecoveryFixture(
         sessions.find((session) => session.runtimeSessionId === runtimeSessionId) ?? null,
     } as unknown as TaskProjection,
     store = {
-      read: () => ({
-        schema: "canonical-event-stream/v1",
-        revision: 0,
-        events: [],
-      }),
+      read: () => ({ schema: "canonical-event-stream/v1", revision: 0, events: [] }),
       readContentBlob: (sha256: string) => resultBodies.get(sha256) ?? null,
     } as CanonicalEventStore;
   return {

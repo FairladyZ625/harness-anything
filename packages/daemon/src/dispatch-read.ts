@@ -24,6 +24,7 @@ import type {
 } from "./protocol/daemon-protocol.contract.ts";
 import type { AgentRuntimeAttemptChainDto } from "./agent-runtime-contract.ts";
 import { runtimePidIsAlive } from "./runtime-spawn-process.ts";
+import { projectedTaskNotFound } from "./projection-readiness.ts";
 
 type DispatchLiveIndexRow = ReturnType<typeof readDispatchLiveIndex>["entries"][number];
 
@@ -65,8 +66,14 @@ export function readTaskDispatches(
         : { taskIds: [singleTaskId] },
     batch = input.projection.readTaskRuntimeBatch(query),
     tasks = new Map(batch.rows.map((row) => [row.taskId, row]));
+  if (singleTaskId !== undefined) {
+    const notFound = projectedTaskNotFound(input.projection.read(singleTaskId), singleTaskId);
+    if (notFound !== null) throw notFound;
+  }
   if (singleTaskId !== undefined && !batch.rows[0]?.packagePath)
-    throw new Error(`Task ${singleTaskId} has no projected package path.`);
+    throw Object.assign(new Error(`Task ${singleTaskId} has no projected package path.`), {
+      code: "task_not_found",
+    });
   const sessions = new Map(
     batch.rows.flatMap((task) => task.sessions.map((session) => [session.runtimeSessionId, session] as const)),
   );
