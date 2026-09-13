@@ -39,36 +39,6 @@ export {
 
 export const currentDaemonProtocolVersion = Object.freeze({ major: 1, minor: 0 }) satisfies ContractVersion;
 
-export const builtInRuntimeProviderInputDeclaration = Object.freeze({
-  claude: Object.freeze({
-    authModes: ["subscription", "api-key"] as const,
-    fields: ["effort", "baseUrl"] as const,
-    effortField: "effort",
-    fast: false,
-  }),
-  codex: Object.freeze({
-    authModes: ["subscription", "api-key"] as const,
-    fields: [
-      "reasoningEffort",
-      "fast",
-      "baseUrl",
-      "allowInsecureHttp",
-      "wireApi",
-      "requiresOpenAiAuth",
-      "httpHeaders",
-      "credentialHeader",
-    ] as const,
-    effortField: "reasoningEffort",
-    fast: true,
-  }),
-  agy: Object.freeze({
-    authModes: ["subscription"] as const,
-    fields: ["effort"] as const,
-    effortField: "effort",
-    fast: false,
-  }),
-});
-
 // Build-time projections of the kernel status vocabularies (register:
 // packages/kernel/src/domain/status-vocabulary.ts, blueprint 铁律四). This module sits
 // on the CLI's eager startup path, so it must not import the kernel barrel — the p50

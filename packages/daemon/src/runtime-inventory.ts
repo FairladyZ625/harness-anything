@@ -70,6 +70,39 @@ const sharedCapabilities = {
   authentication: "supported",
 } as const;
 
+// The CLI's per-kind input summary, mirroring the catalog entries above: which auth modes
+// the create command accepts, the kind configuration field names (and which one is the
+// effort field), and whether the kind has a fast tier at all.
+export const builtInRuntimeProviderInputDeclaration = Object.freeze({
+  claude: Object.freeze({
+    authModes: ["subscription", "api-key"] as const,
+    fields: ["effort", "baseUrl"] as const,
+    effortField: "effort",
+    fast: false,
+  }),
+  codex: Object.freeze({
+    authModes: ["subscription", "api-key"] as const,
+    fields: [
+      "reasoningEffort",
+      "fast",
+      "baseUrl",
+      "allowInsecureHttp",
+      "wireApi",
+      "requiresOpenAiAuth",
+      "httpHeaders",
+      "credentialHeader",
+    ] as const,
+    effortField: "reasoningEffort",
+    fast: true,
+  }),
+  agy: Object.freeze({
+    authModes: ["subscription"] as const,
+    fields: ["effort"] as const,
+    effortField: "effort",
+    fast: false,
+  }),
+});
+
 export const runtimeKinds = [
   {
     kindId: "claude",
@@ -128,7 +161,11 @@ export const runtimeKinds = [
       transcriptReachability: "by_session_id",
       everyFrame: false,
     },
-    gui: { modelFamily: "open", effort: "none", effortValues: [] },
+    // Installed parser 2.1.260 accepts low/medium/high/xhigh/max (capability matrix
+    // dimension 12, E-level). `minimal` is deliberately absent: the launcher rewrites
+    // it to `low` (agent-runtime-launch-config.ts), so offering it would let the GUI
+    // submit a value that never reaches the provider as typed.
+    gui: { modelFamily: "open", effort: "enum", effortValues: ["low", "medium", "high", "xhigh", "max"] },
     capabilities: {
       ...sharedCapabilities,
       toolAllowlist: "supported",

@@ -23,6 +23,7 @@ import {
   planeAuthMode,
   planeAuthModes,
   planeUsesApiOverride,
+  runtimeProviderPlane,
   RUNTIME_KIND_IDS,
 } from "../src/renderer/runtime-provider-planes.ts";
 import { squadChartLayout } from "../src/renderer/components/runtime/SquadCard.tsx";
@@ -122,7 +123,12 @@ describe("provider planes (2026-08-20 adjudication)", () => {
     expect(planeAllowsBaseUrl("claude", "subscription")).toBe(false);
     expect(planeAllowsBaseUrl("claude", "api-key")).toBe(true);
     expect(planeAllowsApiKey("claude", "api-key")).toBe(true);
-    expect(planeAllowsEffort("claude")).toBe(false);
+    expect(planeAllowsEffort("claude")).toBe(true);
+  });
+  it("offers claude only the enum values the launcher forwards as typed", () => {
+    expect(runtimeProviderPlane("claude").effort).toBe("enum");
+    // `minimal` is excluded on purpose: the launcher silently rewrites it to `low`.
+    expect(runtimeProviderPlane("claude").effortValues).toEqual(["low", "medium", "high", "xhigh", "max"]);
   });
   it("keeps codex's two call paths separate and its models codex-only", () => {
     expect(planeUsesApiOverride("codex")).toBe(false);
@@ -166,11 +172,17 @@ describe("provider planes (2026-08-20 adjudication)", () => {
       permissionMode: undefined,
     });
     expect(
+      applyRuntimeKind({ ...form, reasoningEffort: "xhigh" }, "zcode", {
+        permissionMode: "bypass",
+        isolation: "enforced",
+      }).reasoningEffort,
+    ).toBe("");
+    expect(
       applyRuntimeKind({ ...form, reasoningEffort: "xhigh" }, "claude", {
         permissionMode: "bypass",
         isolation: "operator-environment",
       }).reasoningEffort,
-    ).toBe("");
+    ).toBe("xhigh");
   });
   it("turning the claude API override off again drops the key and the endpoint", () => {
     const off = applyRuntimeAuthMode(
@@ -388,6 +400,7 @@ describe("provider planes (2026-08-20 adjudication)", () => {
         instanceId: "glm-53",
         name: "GLM 5.3",
         model: "glm-5.3-air",
+        reasoningEffort: " high ",
         authMode: "api-key",
         apiKey: "sk-glm",
         baseUrl: "https://open.bigmodel.cn/api/anthropic",
@@ -405,7 +418,7 @@ describe("provider planes (2026-08-20 adjudication)", () => {
       kindId: "claude",
       isolationState: "operator-environment",
       permissionMode: "bypass",
-      claude: { baseUrl: "https://open.bigmodel.cn/api/anthropic" },
+      claude: { effort: "high", baseUrl: "https://open.bigmodel.cn/api/anthropic" },
     });
     expect("codex" in glm).toBe(false);
     const agy = buildRuntimeInstanceCreatePayload(

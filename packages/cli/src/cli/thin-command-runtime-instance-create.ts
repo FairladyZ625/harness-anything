@@ -1,7 +1,5 @@
-import {
-  builtInRuntimeProviderInputDeclaration,
-  type SafePath,
-} from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
+import { builtInRuntimeProviderInputDeclaration } from "../../../daemon/src/runtime-inventory.ts";
+import type { SafePath } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { accepted, readFlags, rejected } from "./thin-command-flags.ts";
 import type { ProtocolCommand, ThinParseResult } from "./thin-command-types.ts";
 
@@ -33,14 +31,7 @@ export function parseRuntimeInstanceCreate(
   if (declaration && hasForeignAdapterOptions(declaration.fields, flags, header.value))
     return rejected("invalid_field", "This runtime kind does not accept options for another adapter.", json);
   const baseUrl = flags.one.get("--base-url"),
-    kindConfig = runtimeInstanceKindConfig(
-      kindId,
-      flags.one,
-      flags.booleans,
-      baseUrl,
-      header.value,
-      credentialHeader,
-    );
+    kindConfig = runtimeInstanceKindConfig(kindId, flags.one, flags.booleans, baseUrl, header.value, credentialHeader);
   return accepted(
     rootDir,
     undefined,
@@ -110,7 +101,8 @@ function runtimeHttpHeaderFlags(
   | { readonly ok: true; readonly value?: Readonly<Record<string, string>> }
   | { readonly ok: false; readonly hint: string } {
   if (values.length === 0) return { ok: true };
-  const headers: Record<string, string> = {}, normalizedNames = new Set<string>();
+  const headers: Record<string, string> = {},
+    normalizedNames = new Set<string>();
   for (const value of values) {
     const separator = value.indexOf("=");
     if (separator < 1 || separator === value.length - 1)
