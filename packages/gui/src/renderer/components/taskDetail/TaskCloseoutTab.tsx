@@ -17,6 +17,8 @@ import { CopyContextButton } from "../CopyContextButton.tsx";
 import { TaskControlPanel } from "../TaskControlPanel.tsx";
 import { ReadError, SectionHeading, Timestamp } from "./TaskDetailSections.tsx";
 
+const asideClass = "grid content-start gap-7 border-t border-border pt-6 xl:border-t-0 xl:border-l xl:pt-0 xl:pl-6";
+
 export interface TaskActionProps {
   readonly mutationFeedback?: TaskMutationFeedback;
   readonly onProgress?: (input: {
@@ -88,7 +90,11 @@ export function TaskCloseoutTab({
               </span>
             ) : null}
           </div>
-          <CompletionPanel task={task} completionNext={completionNext ?? null} onComplete={onComplete} />
+          <CompletionPanel
+            task={task}
+            completionBlocker={completion.data?.completionBlocker ?? null}
+            onComplete={onComplete}
+          />
           <AuditGroup title="Review" count={reviews.length}>
             {reviews.map((review) => (
               <AuditRow
@@ -138,7 +144,7 @@ export function TaskCloseoutTab({
           <ExecutionOutputsGroup executions={executions} />
         </div>
 
-        <aside className="grid content-start gap-7 border-t border-border pt-6 xl:border-t-0 xl:border-l xl:pt-0 xl:pl-6">
+        <aside className={asideClass}>
           <div>
             <h3 className="ui-body font-semibold text-text">Gate assessment</h3>
             {task.gates.length === 0 ? (
@@ -172,30 +178,28 @@ export function TaskCloseoutTab({
 
 /**
  * 完成销账面板:完成/评审/同意的状态只有一个来源——`repo.tasks.completion.read`
- * 的 completionNext,不从 task 行自行推导。它的 action 就是中心建议的下一条 CLI
- * 命令;面板动作只镜像这条入口(「提交完成」=无 consent 的 task-complete,由
- * daemon 在 review 门派发独立评审;评审批准后 read 会给出 --consent 命令,那时
- * 「同意完成」才可点)。不提供人工填 verdict 的按钮,也不提供 CI 观察选择。
+ * 的 completionNext 与 completionBlocker,不从 task 行自行推导。阶段由结构化
+ * blocker.code 判别(review_missing=待独立评审,consent_missing=待同意),
+ * action 文案只作展示;面板动作只镜像这条入口(「提交完成」=无 consent 的
+ * task-complete,由 daemon 在 review 门派发独立评审;评审批准后 read 会给出
+ * consent_missing,那时「同意完成」才可点)。不提供人工填 verdict 的按钮,
+ * 也不提供 CI 观察选择。
  */
 function CompletionPanel({
   task,
-  completionNext,
+  completionBlocker,
   onComplete,
 }: {
   readonly task: TaskRow;
-  readonly completionNext: TaskCompletionRead["completionNext"];
+  readonly completionBlocker: TaskCompletionRead["completionBlocker"];
   readonly onComplete?: (consent: boolean) => Promise<unknown>;
 }) {
-  const action = completionNext?.action,
-    stage =
-      typeof action === "string" && action.startsWith("ha task complete")
-        ? action.includes("--consent")
-          ? ("consent" as const)
-          : ("review" as const)
-        : null;
+  const code = completionBlocker?.code,
+    stage = code === "consent_missing" ? ("consent" as const) : code === "review_missing" ? ("review" as const) : null;
   if (task.coordinationStatus !== "in_review" || stage === null) return null;
   const buttonClass =
-    "rounded-md bg-accent px-2.5 py-1.5 ui-meta font-semibold text-accent-fg transition-colors duration-100 hover:bg-accent/85 disabled:opacity-50";
+    "rounded-md bg-accent px-2.5 py-1.5 ui-meta font-semibold text-accent-fg transition-colors duration-100 " +
+    "hover:bg-accent/85 disabled:opacity-50";
   return (
     <section data-testid="task-completion-panel" className="rounded-lg border border-accent/40 bg-accent/5 p-3">
       <h3 className="ui-body font-semibold text-text">完成销账</h3>
@@ -283,7 +287,10 @@ function ExecutionOutputsGroup({ executions }: { readonly executions: readonly E
               {execution.outputs.map((output, index) => (
                 <div
                   key={`${output.evidenceId ?? "unknown"}-${index}`}
-                  className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded border border-border/70 bg-surface-raised/35 px-2 py-1.5 font-mono ui-micro"
+                  className={
+                    "flex flex-wrap items-center gap-x-3 gap-y-1 rounded border border-border/70 " +
+                    "bg-surface-raised/35 px-2 py-1.5 font-mono ui-micro"
+                  }
                 >
                   <span className="min-w-0 truncate text-text">{field(output.evidenceId)}</span>
                   <span className="min-w-0 truncate text-text-muted">

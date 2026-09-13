@@ -1,4 +1,4 @@
-import type { DaemonTaskCompletionResult } from "./protocol/daemon-protocol-gui-types.ts";
+import type { DaemonTaskCompletionResult } from "./protocol/daemon-protocol-task-completion.ts";
 import {
   assessTransitionDocument,
   completionBlockers,
@@ -73,13 +73,15 @@ export function readTaskCompletion(projection: TaskProjectionQueries, taskId: st
   // The same judgment task show, task dispatches, task read-set, task review and the task document
   // reads consult: a lagging cut is not an answer about this task, and a current cut without it is a
   // not-found naming the id — never an ok-shaped completion for a task that does not exist.
-  const read = requireCurrentTaskProjection(projection, taskId, "task completion read");
+  const read = requireCurrentTaskProjection(projection, taskId, "task completion read"),
+    { next, blocker } = taskCompletionNext(
+      read.snapshot,
+      readCompletionContext(projection, taskId, read.snapshot, read.status),
+    );
   return {
     ok: true,
     taskId,
-    completionNext: taskCompletionNext(
-      read.snapshot,
-      readCompletionContext(projection, taskId, read.snapshot, read.status),
-    ).next,
+    completionNext: next,
+    completionBlocker: blocker === null ? null : { code: blocker.code, gate: blocker.gate },
   };
 }

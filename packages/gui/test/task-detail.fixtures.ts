@@ -213,17 +213,20 @@ export async function cleanupMountedDetail() {
 export function installBridge({
   uncommittedPlan = false,
   completionAction = "Center completion action",
+  completionBlocker = { code: "closeout_placeholder", gate: "closeout" },
 }: {
   readonly uncommittedPlan?: boolean;
-  /** `repo.tasks.completion.read` 的 next 动作原样透传;null = 无待办(completionNext 缺席)。 */
+  /** `repo.tasks.completion.read` 的 next 动作原样透传;null = 无待办(next/blocker 均为 null)。 */
   readonly completionAction?: string | null;
+  /** 同一读结果的结构化 blocker;面板按 code 判别阶段,与 action 文案解耦。 */
+  readonly completionBlocker?: { readonly code: string; readonly gate: string } | null;
 } = {}) {
   const bridge = {
     getTaskCompletion: vi.fn(async ({ taskId }: { taskId: string }) => ({
       ok: true,
       taskId,
       ...(completionAction === null
-        ? {}
+        ? { completionNext: null, completionBlocker: null }
         : {
             completionNext: {
               reason: "Center completion reason",
@@ -231,6 +234,7 @@ export function installBridge({
               authority: "task owner",
               readCut: { revision: 7, iteration: 0, executionId: "execution-w3" },
             },
+            completionBlocker,
           }),
     })),
     getTaskDocument: vi.fn(async ({ taskId, path }: { taskId: string; path: string }) => {

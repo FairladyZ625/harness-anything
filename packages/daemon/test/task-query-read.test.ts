@@ -532,20 +532,23 @@ test("single-task completion read carries the canonical next and validates its r
       readRelationQuery: () => ({ ...readyCut, rows: [] }),
     } as unknown as TaskProjection,
     result = readTaskCompletion(projection, taskId);
+  const canonical = taskCompletionNext(snapshot, {
+    closeout: "placeholder",
+    closeoutPath: "tasks/task-1/closeout.md",
+    eligibleDirtyPaths: [],
+    producesFactCount: 0,
+    projectionStatus: "ready",
+  });
   assert.ok(reads.length > 0);
   assert.ok(
     reads.every((id) => id === taskId),
     "only the selected task is read",
   );
+  assert.deepEqual(result.completionNext, canonical.next);
+  // The structured blocker travels beside its guidance so readers judge the stage without parsing prose.
   assert.deepEqual(
-    result.completionNext,
-    taskCompletionNext(snapshot, {
-      closeout: "placeholder",
-      closeoutPath: "tasks/task-1/closeout.md",
-      eligibleDirtyPaths: [],
-      producesFactCount: 0,
-      projectionStatus: "ready",
-    }).next,
+    result.completionBlocker,
+    canonical.blocker === null ? null : { code: canonical.blocker.code, gate: canonical.blocker.gate },
   );
   assert.equal(result.completionNext?.action, `ha task start ${taskId}`);
   assert.deepEqual(parseDaemonGuiReadResult("repo.tasks.completion.read", result), result);
@@ -557,13 +560,26 @@ test("single-task completion read carries the canonical next and validates its r
       }),
     /completionNext/,
   );
+  assert.throws(
+    () =>
+      parseDaemonGuiReadResult("repo.tasks.completion.read", {
+        ...result,
+        completionBlocker: { code: "review_missing" },
+      }),
+    /completionBlocker/,
+  );
+  assert.throws(
+    () => parseDaemonGuiReadResult("repo.tasks.completion.read", { ...result, completionNext: null }),
+    /completionBlocker/,
+  );
   assert.throws(() => parseDaemonGuiReadResult("repo.tasks.completion.read", { ok: true, taskId }));
   assert.deepEqual(
     parseDaemonGuiReadResult("repo.tasks.completion.read", {
       ok: true,
       taskId,
       completionNext: null,
+      completionBlocker: null,
     }),
-    { ok: true, taskId, completionNext: null },
+    { ok: true, taskId, completionNext: null, completionBlocker: null },
   );
 });

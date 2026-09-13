@@ -21,7 +21,8 @@ import {
   validateSquadEntityCatalog,
   validateSquadEntityDetail,
 } from "./agent-entity-gui-contract.ts";
-import { validateDaemonTaskCompletion, validateObserveTailResult } from "./daemon-protocol-gui-types.ts";
+import { validateObserveTailResult } from "./daemon-protocol-gui-types.ts";
+import { validateDaemonTaskCompletion } from "./daemon-protocol-task-completion.ts";
 import { validateDaemonTaskSnapshotListServed } from "./daemon-protocol-validate-task.ts";
 import { validationError } from "./daemon-protocol-validate-entities.ts";
 import { validateArtifactsList } from "./artifacts-gui-contract.ts";

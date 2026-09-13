@@ -427,7 +427,6 @@ function AppShell() {
                   mutationFeedback={taskActions.feedback.get(selected.taskId)}
                   onProgress={(input) => taskActions.appendProgress(selected, input)}
                   onSubmit={() => taskActions.submitTask(selected)}
-                  onComplete={(consent) => taskActions.completeTask(selected, consent)}
                   onSetPin={handleSetPin}
                   onOpenTerminal={(task) => {
                     setTerminalLaunch({ requestId: crypto.randomUUID(), taskId: task.taskId, title: task.title });
