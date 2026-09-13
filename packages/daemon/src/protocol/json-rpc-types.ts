@@ -62,15 +62,20 @@ export function unknownFieldViolation(
     ? null
     : `unknown field ${JSON.stringify(field)}; allowed fields: ${allowedFields.map((candidate) => JSON.stringify(candidate)).join(", ")}.`;
 }
-/** Shallow like isJsonObject: only this object's own keys are judged here; nested layers belong
- * to their own field rules. */
+/** Deliberately recursive, unlike isJsonObject: secret-like keys are a hygiene invariant over the
+ * whole payload, and free-form object fields have no per-layer rule that would catch them. */
 export function rejectSecretKeys(value: unknown): readonly string[] {
-  return isJsonObject(value) &&
-    Object.keys(value).some(
-      (key) => /(?:secret|token|password|passphrase)/iu.test(key) || /^(?:api[-_]?key|credentialvalue)$/iu.test(key),
-    )
-    ? ["payload contains a forbidden secret-like key"]
-    : [];
+  return hasSensitiveKey(value) ? ["payload contains a forbidden secret-like key"] : [];
+}
+function hasSensitiveKey(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(hasSensitiveKey);
+  if (!isJsonObject(value)) return false;
+  return Object.entries(value).some(
+    ([key, nested]) =>
+      /(?:secret|token|password|passphrase)/iu.test(key) ||
+      /^(?:api[-_]?key|credentialvalue)$/iu.test(key) ||
+      hasSensitiveKey(nested),
+  );
 }
 
 export class DaemonProtocolContractError extends Error {
