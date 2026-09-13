@@ -17,8 +17,14 @@ const execFileAsync = promisify(execFile),
 
 export type WorkerPushResult =
   | { readonly attempted: false; readonly reason: "not-a-worker-worktree" | "not-codex-branch" | "detached" }
-  | { readonly attempted: true; readonly ok: true; readonly branch: string }
-  | { readonly attempted: true; readonly ok: false; readonly branch: string | null; readonly detail: string };
+  | { readonly attempted: true; readonly ok: true; readonly branch: string; readonly head: string }
+  | {
+      readonly attempted: true;
+      readonly ok: false;
+      readonly branch: string | null;
+      readonly head: string | null;
+      readonly detail: string;
+    };
 
 // Read-only: settlement observes the worktree, it never commits, stashes or cleans it. A worktree
 // git refuses to describe is not a clean worktree, so an unreadable one answers "dirty" rather than
@@ -65,10 +71,25 @@ export async function pushWorkerBranch(input: {
       });
     branch = String(result.stdout).trim();
   } catch (error) {
-    return { attempted: true, ok: false, branch: null, detail: errorDetail(error) };
+    return { attempted: true, ok: false, branch: null, head: null, detail: errorDetail(error) };
   }
   if (!branch) return { attempted: false, reason: "detached" };
   if (!workerBranchPattern.test(branch)) return { attempted: false, reason: "not-codex-branch" };
+
+  let head: string;
+  try {
+    const env = { ...process.env, ...input.env, GIT_TERMINAL_PROMPT: "0" },
+      invocation = gitInvocation(input.cwd, ["rev-parse", "HEAD"], env),
+      result = await execFileAsync(invocation.command, invocation.args, {
+        env,
+        maxBuffer: detailLimit * 2,
+        windowsHide: true,
+        ...(invocation.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
+      });
+    head = String(result.stdout).trim();
+  } catch (error) {
+    return { attempted: true, ok: false, branch, head: null, detail: errorDetail(error) };
+  }
 
   const timeoutMs = input.timeoutMs ?? workerPushTimeoutMs;
   try {
@@ -81,7 +102,7 @@ export async function pushWorkerBranch(input: {
       windowsHide: true,
       ...(invocation.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
     });
-    return { attempted: true, ok: true, branch };
+    return { attempted: true, ok: true, branch, head };
   } catch (error) {
     // execFile marks the child killed only when it enforced the timeout itself.
     const timedOut = typeof error === "object" && error !== null && "killed" in error && error.killed === true;
@@ -89,6 +110,7 @@ export async function pushWorkerBranch(input: {
       attempted: true,
       ok: false,
       branch,
+      head,
       detail: timedOut ? `git push timed out after ${timeoutMs} ms` : errorDetail(error),
     };
   }
