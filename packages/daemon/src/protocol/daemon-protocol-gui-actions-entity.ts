@@ -116,3 +116,20 @@ export const entityDeclarationGuiActions = Object.freeze([
     DAEMON_GUI_COMMAND_RECEIPT_SCHEMA.id,
   ),
 ] as const);
+
+/** 任务收口的 GUI 写入 ingress:与 `ha task complete` 同一个 fleet `task-complete` 动作。放在这里
+ * 而不是注册表文件,沿用 43aa1a51e9 的做法,让 `daemon-protocol-gui-actions.ts` 维持在 G0-5 基线内。 */
+export const taskCompletionGuiActions = Object.freeze([
+  // Pure passthrough of the fleet `task-complete` action: consent=false asks the center to
+  // dispatch the independent reviewer, consent=true records the one human consent. The GUI
+  // adds no verdict, CI, or business judgment of its own.
+  guiAction(
+    "task.complete",
+    "repo.task.complete",
+    "task-complete",
+    shape({ taskId: "string", executionId: "string?", consent: "boolean?" }),
+    "completeTask",
+    "/api/tasks/:taskId/complete",
+    "repo-write",
+  ),
+]);
