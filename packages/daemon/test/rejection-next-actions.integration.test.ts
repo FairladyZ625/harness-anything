@@ -499,10 +499,12 @@ test("task reads against a task id the projection does not have answer task_not_
     // A short prefix and a full-length id that was never created are the same question:
     // does the canonical projection hold this task?
     for (const taskId of ["task_9bfc3029", "task_00000000000000000000000000"]) {
-      const shown = await cell.run({ kind: "task-show", taskId }, reader);
-      assert.equal(shown.outcome, "op_rejected", JSON.stringify(shown));
-      assert.equal(shown.code, "task_not_found", JSON.stringify(shown));
-      assert.match(String(shown.rejectionExplanation), new RegExp(taskId, "u"));
+      for (const kind of ["task-show", "task-read-set", "task-review"] as const) {
+        const shown = await cell.run({ kind, taskId }, reader);
+        assert.equal(shown.outcome, "op_rejected", `${kind} ${JSON.stringify(shown)}`);
+        assert.equal(shown.code, "task_not_found", `${kind} ${JSON.stringify(shown)}`);
+        assert.match(String(shown.rejectionExplanation), new RegExp(taskId, "u"), kind);
+      }
       const dispatches = await cell.read("repo.task.dispatches", { taskId }, reader).then(
         () => null,
         (error: Error & { code?: string }) => error,
