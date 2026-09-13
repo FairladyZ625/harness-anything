@@ -142,7 +142,14 @@ test("immediate relate observes all newly created endpoints across twenty writer
       );
       t.diagnostic(JSON.stringify({ missing, receipt }));
       assert.equal(receipt.code, "entity_not_found");
-      assert.equal(receipt.rejectionExplanation, `Relation ${missing} task/missing_${missing} does not exist.`);
+      assert.ok(
+        String(receipt.rejectionExplanation).startsWith(`Relation ${missing} task/missing_${missing} does not exist (`),
+        JSON.stringify(receipt.rejectionExplanation),
+      );
+      const cut = lookupCutOf(receipt.rejectionExplanation);
+      assert.ok(cut, JSON.stringify(receipt.rejectionExplanation));
+      assert.ok(cut.watermark <= cut.writeHead, JSON.stringify(cut));
+      assert.equal(cut.writeHead, reader.readHead()?.revision ?? 0);
     }
   } finally {
     projection.close();
@@ -217,6 +224,30 @@ test("Relation actions serialize aggregate revisions and reject cycles and stale
     assert.equal(missingTarget.outcome, "op_rejected", JSON.stringify(missingTarget));
     assert.equal(missingTarget.code, "entity_not_found", JSON.stringify(missingTarget));
     assert.equal(makeTaskEventReader({ repoId, rootDir }).read().events.length, beforeMissingEndpoints);
+
+    const missingAggregate = await cell.run(
+      {
+        kind: "relation-unrelate",
+        relationId: deriveRelationId({
+          source: "task/task_relation_a",
+          target: "task/task_relation_c",
+          type: "depends-on",
+          direction: "directed",
+        }),
+        reason: "A never-created aggregate must explain its lookup cut.",
+        expectedVersion: 0,
+      },
+      binding,
+    );
+    assert.equal(missingAggregate.outcome, "op_rejected", JSON.stringify(missingAggregate));
+    assert.equal(missingAggregate.code, "entity_not_found", JSON.stringify(missingAggregate));
+    assert.match(
+      String(missingAggregate.rejectionExplanation),
+      /^Relation \S+ is not an active aggregate \(looked up at projection watermark \d+, write head \d+\)\.$/u,
+    );
+    const aggregateCut = lookupCutOf(missingAggregate.rejectionExplanation);
+    assert.ok(aggregateCut, JSON.stringify(missingAggregate.rejectionExplanation));
+    assert.ok(aggregateCut.watermark <= aggregateCut.writeHead, JSON.stringify(aggregateCut));
 
     const identity = {
         source: "task/task_relation_a",
@@ -468,6 +499,12 @@ function relationRows(receipt: { readonly evidence?: unknown }): readonly {
       }[];
     }
   ).rows;
+}
+
+function lookupCutOf(explanation: unknown): { readonly watermark: number; readonly writeHead: number } | null {
+  if (typeof explanation !== "string") return null;
+  const match = /looked up at projection watermark (\d+), write head (\d+)\)\.$/u.exec(explanation);
+  return match ? { watermark: Number(match[1]), writeHead: Number(match[2]) } : null;
 }
 
 function relationEventCount(rootDir: string, repoId: string): number {

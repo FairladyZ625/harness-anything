@@ -54,10 +54,14 @@ export function executeRelationAction(input: {
     source = sourceRef ? input.projection.readEntityVersionWitness(sourceRef) : null,
     target = targetRef ? input.projection.readEntityVersionWitness(targetRef) : null,
     replay = input.store.readEvent(opId),
-    headRevision = input.store.readHead()?.revision ?? 0;
+    headRevision = input.store.readHead()?.revision ?? 0,
+    lookupCut = input.projection.readCut(),
+    lookupNote = ` (looked up at projection watermark ${lookupCut.watermark}, write head ${headRevision}).`;
   if (action.kind === "relation-relate") {
-    if (source?.currentVersion === null) reject("entity_not_found", `Relation source ${sourceRef} does not exist.`);
-    if (target?.currentVersion === null) reject("entity_not_found", `Relation target ${targetRef} does not exist.`);
+    if (source?.currentVersion === null)
+      reject("entity_not_found", `Relation source ${sourceRef} does not exist${lookupNote}`);
+    if (target?.currentVersion === null)
+      reject("entity_not_found", `Relation target ${targetRef} does not exist${lookupNote}`);
     if (!replay && action.relationType === "evidenced-by") {
       const ref = parseEntityRef(sourceRef!),
         claims = ref?.kind === "decision" ? input.projection.readDecision(ref.id).decision?.claims : undefined;
@@ -121,7 +125,7 @@ export function executeRelationAction(input: {
     (compiled.type === "relation_retired" || compiled.type === "relation_reconfirmed") &&
     (!current || current.state !== "active")
   )
-    reject("entity_not_found", `Relation ${relationId} is not an active aggregate.`);
+    reject("entity_not_found", `Relation ${relationId} is not an active aggregate${lookupNote}`);
   if (
     compiled.type === "relation_reconfirmed" &&
     current?.targetObservedVersion === compiled.payload.targetObservedVersion
