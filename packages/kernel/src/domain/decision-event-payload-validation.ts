@@ -97,55 +97,66 @@ export function proposalIssues(
     claims = Array.isArray(value.claims) ? value.claims : [],
     fulfilled = Array.isArray(value.fulfillments) ? value.fulfillments : [],
     relations = Array.isArray(value.relations) ? value.relations : [],
+    // Each entry names its own path and violated limit, so a rejected packet never has to be
+    // bisected by hand; the boolean keeps the accept/reject verdict exactly where it was.
+    entryIssues = (
+      entries: readonly unknown[],
+      field: string,
+      allowed: readonly string[],
+      fieldIssues: (entry: Readonly<Record<string, unknown>>, path: (key: string) => string) => readonly string[],
+    ): boolean => {
+      let valid = true;
+      entries.forEach((entry, index) => {
+        if (!isRecord(entry)) {
+          valid = false;
+          issues.push(`${field}[${index}] must be an object`);
+          return;
+        }
+        const unsupported = allowUnknownFields ? [] : Object.keys(entry).filter((key) => !allowed.includes(key)),
+          found = [
+            ...(unsupported.length ? [`${field}[${index}] has unsupported fields: ${unsupported.join(", ")}`] : []),
+            ...fieldIssues(entry, (key) => `${field}[${index}].${key}`),
+          ];
+        if (found.length) {
+          valid = false;
+          issues.push(...found);
+        }
+      });
+      return valid;
+    },
     chosenValid =
       Array.isArray(value.chosen) &&
       value.chosen.length > 0 &&
-      chosen.every(
-        (entry) =>
-          isRecord(entry) &&
-          requiredWithOptional(entry, ["id", "text"], ["rationale"], allowUnknownFields) &&
-          optionId(entry.id, "CH") &&
-          isNonEmptyString(entry.text) &&
-          (entry.rationale === undefined || codePoints(entry.rationale, 1, 199)),
-      ),
+      entryIssues(chosen, "chosen", ["id", "text", "rationale"], (entry, path) => [
+        ...(optionId(entry.id, "CH") ? [] : [`${path("id")} must be a CH id`]),
+        ...(isNonEmptyString(entry.text) ? [] : [`${path("text")} must be a non-empty string`]),
+        ...(entry.rationale === undefined || codePoints(entry.rationale, 1, 199)
+          ? []
+          : [`${path("rationale")} must be 1..199 code points`]),
+      ]),
     rejectedValid =
       Array.isArray(value.rejected) &&
       value.rejected.length > 0 &&
-      rejected.every(
-        (entry) =>
-          isRecord(entry) &&
-          matchesFields(entry, ["id", "text", "whyNot"], allowUnknownFields) &&
-          optionId(entry.id, "RJ") &&
-          isNonEmptyString(entry.text) &&
-          codePoints(entry.whyNot, 1, 199),
-      ),
+      entryIssues(rejected, "rejected", ["id", "text", "whyNot"], (entry, path) => [
+        ...(optionId(entry.id, "RJ") ? [] : [`${path("id")} must be an RJ id`]),
+        ...(isNonEmptyString(entry.text) ? [] : [`${path("text")} must be a non-empty string`]),
+        ...(codePoints(entry.whyNot, 1, 199) ? [] : [`${path("whyNot")} must be 1..199 code points`]),
+      ]),
     claimsValid =
       Array.isArray(value.claims) &&
-      claims.every(
-        (entry) =>
-          isRecord(entry) &&
-          matchesFields(entry, ["id", "text", "loadBearing"], allowUnknownFields) &&
-          claimId(entry.id) &&
-          isNonEmptyString(entry.text) &&
-          typeof entry.loadBearing === "boolean",
-      ),
+      entryIssues(claims, "claims", ["id", "text", "loadBearing"], (entry, path) => [
+        ...(claimId(entry.id) ? [] : [`${path("id")} must be a C id`]),
+        ...(isNonEmptyString(entry.text) ? [] : [`${path("text")} must be a non-empty string`]),
+        ...(typeof entry.loadBearing === "boolean" ? [] : [`${path("loadBearing")} must be a boolean`]),
+      ]),
     fulfillmentsValid =
       Array.isArray(value.fulfillments) &&
-      fulfilled.every(
-        (entry) =>
-          isRecord(entry) &&
-          matchesFields(entry, ["claimId", "mode"], allowUnknownFields) &&
-          claimId(entry.claimId) &&
-          includes(decisionFulfillmentModes, entry.mode),
-      );
-  if (Array.isArray(value.chosen) && value.chosen.length > 0)
-    check(chosenValid, "every chosen entry needs a CH id, non-empty text, and an optional 1..199 rationale");
-  if (Array.isArray(value.rejected) && value.rejected.length > 0)
-    check(rejectedValid, "every rejected entry needs an RJ id, non-empty text, and a 1..199 whyNot");
-  if (Array.isArray(value.claims))
-    check(claimsValid, "every claim needs a C id, non-empty text, and a boolean loadBearing");
-  if (Array.isArray(value.fulfillments))
-    check(fulfillmentsValid, `every fulfillment needs a claimId and a mode of ${decisionFulfillmentModes.join(", ")}`);
+      entryIssues(fulfilled, "fulfillments", ["claimId", "mode"], (entry, path) => [
+        ...(claimId(entry.claimId) ? [] : [`${path("claimId")} must be a C id`]),
+        ...(includes(decisionFulfillmentModes, entry.mode)
+          ? []
+          : [`${path("mode")} must be one of ${decisionFulfillmentModes.join(", ")}`]),
+      ]);
   const ids = [...chosen, ...rejected, ...claims].map((entry) => (isRecord(entry) ? String(entry.id) : "")),
     claimIds = new Set(claims.map((entry) => (isRecord(entry) ? entry.id : null))),
     fulfillmentIds = fulfilled.map((entry) => (isRecord(entry) ? entry.claimId : null)),

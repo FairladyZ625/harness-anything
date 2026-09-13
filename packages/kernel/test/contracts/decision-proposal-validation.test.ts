@@ -40,12 +40,64 @@ test("Decision proposal validation reports every independent packet violation in
         "urgency must be low, medium, or high",
         "decisionClass must be ordinary or standing_policy",
         "appliesTo must carry exactly modules and productLines",
-        "every chosen entry needs a CH id",
-        "every rejected entry needs an RJ id",
-        "every claim needs a C id",
-        "every fulfillment needs a claimId and a mode of evidenced, delivered, standing_policy",
+        "chosen\\[0\\]\\.id must be a CH id",
+        "rejected\\[0\\]\\.whyNot must be 1\\.\\.199 code points",
+        "claims\\[0\\]\\.id must be a C id",
+        "fulfillments\\[0\\]\\.mode must be one of evidenced, delivered, standing_policy",
       ])
         assert.match(message, new RegExp(expected, "u"));
+      return true;
+    },
+  );
+});
+
+test("a rejected Decision packet names the failing entry path and the violated limit", () => {
+  assert.ok(compile);
+  const base = {
+    title: "Decision",
+    question: "Should the packet validate?",
+    riskTier: "medium",
+    urgency: "medium",
+    vertical: "software/coding",
+    preset: "standard-task",
+    decisionClass: "ordinary",
+    appliesTo: { modules: ["kernel"], productLines: [] },
+    chosen: [{ id: "CH1", text: "Use events" }],
+    claims: [],
+    fulfillments: [],
+  } as const;
+  const input = (action: Record<string, unknown>) => ({
+    action: { ...base, ...action },
+    actor: { principal: { personId: "person-owner" }, executor: null },
+    source: "local",
+    session: { kind: "unavailable", reason: "test" },
+    opId: "decision-validation-entry-path",
+    occurredAt: "2026-09-01T00:00:00.000Z",
+    workspaceRevision: 1,
+  });
+  assert.throws(
+    () => compile(input({ rejected: [{ id: "RJ1", text: "Rewrite files", whyNot: "x".repeat(200) }] })),
+    (error: unknown) => {
+      assert.match(
+        error instanceof Error ? error.message : String(error),
+        /rejected\[0\]\.whyNot must be 1\.\.199 code points/u,
+      );
+      return true;
+    },
+  );
+  assert.throws(
+    () =>
+      compile(
+        input({
+          rejected: [{ id: "RJ1", text: "Rewrite files", whyNot: "It loses event history" }],
+          claims: [{ id: "C1", text: "The task provides evidence.", loadBearing: true, extra: "nope" }],
+        }),
+      ),
+    (error: unknown) => {
+      assert.match(
+        error instanceof Error ? error.message : String(error),
+        /claims\[0\] has unsupported fields: extra/u,
+      );
       return true;
     },
   );
