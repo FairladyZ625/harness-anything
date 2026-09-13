@@ -1,3 +1,5 @@
+import { memo, useRef } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import type { AgentRuntimeUnattributedGroupKey } from "../../../../../daemon/src/agent-runtime-contract.ts";
 import {
   relativeTime,
@@ -29,6 +31,12 @@ export type SessionGroupRows = {
   readonly error: string | null;
 };
 
+/** 折叠组头的估算高度(两行文本 + padding);展开组行高由 measureElement 实测收敛。 */
+export const GROUP_HEADER_ESTIMATE_PX = 56;
+export const GROUP_OVERSCAN = 10;
+/** 无布局环境(静态渲染/happy-dom)的视口兜底:ResizeObserver 上报前按 800px 高出首屏。 */
+const GROUP_INITIAL_RECT = { width: 400, height: 800 } as const;
+
 export function SessionGroupList({
   groups,
   truncated,
@@ -54,8 +62,21 @@ export function SessionGroupList({
   readonly onOpenTask: (taskId: string) => void;
   readonly onSelectEntity: (ref: string) => void;
 }) {
+  const scrollRef = useRef<HTMLElement | null>(null);
+  // 列内 windowing(与看板列同构):DOM 组数 = 视口内 + 两侧 overscan,不随组总数
+  // 线性增长(harness 仓 858+ 组全挂载是每 2s 轮询整列表重渲的载体)。组 key 稳定,
+  // 轮询刷新时未变组由 memo(GroupSection) 跳过重渲染。
+  const virtualizer = useVirtualizer({
+    count: groups.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => GROUP_HEADER_ESTIMATE_PX,
+    overscan: GROUP_OVERSCAN,
+    getItemKey: (index) => groups[index]!.key,
+    initialRect: GROUP_INITIAL_RECT,
+  });
   return (
     <nav
+      ref={scrollRef}
       data-testid="sessions-group-list"
       aria-label={t("agentRuntime.segSessions")}
       className="flex basis-1/4 shrink-0 flex-col overflow-y-auto border-r border-border bg-surface"
@@ -65,21 +86,32 @@ export function SessionGroupList({
           {t(query === "" ? "agentRuntime.noSessions" : "agentRuntime.sessionsNoMatches")}
         </p>
       ) : (
-        groups.map((group) => (
-          <GroupSection
-            key={group.key}
-            group={group}
-            rows={rowsByGroup.get(group.key)}
-            expanded={expandedKeys.has(group.key)}
-            selectedId={selectedId}
-            query={query}
-            decisionRefsFor={decisionRefsFor}
-            onSelectSession={onSelectSession}
-            onToggleGroup={onToggleGroup}
-            onOpenTask={onOpenTask}
-            onSelectEntity={onSelectEntity}
-          />
-        ))
+        // spacer 带 shrink-0:nav 是 flex 列也是滚动容器,spacer 作为 flex item 会被默认的
+        // flex-shrink 压回视口高,滚动范围就只剩首屏(实测 scrollHeight 被压到 2031px)。
+        <div className="relative shrink-0" style={{ height: virtualizer.getTotalSize() }}>
+          {virtualizer.getVirtualItems().map((item) => (
+            <div
+              key={item.key}
+              data-index={item.index}
+              ref={virtualizer.measureElement}
+              className="absolute inset-x-0 top-0"
+              style={{ transform: `translateY(${item.start}px)` }}
+            >
+              <GroupSection
+                group={groups[item.index]!}
+                rows={rowsByGroup.get(groups[item.index]!.key)}
+                expanded={expandedKeys.has(groups[item.index]!.key)}
+                selectedId={selectedId}
+                query={query}
+                decisionRefsFor={decisionRefsFor}
+                onSelectSession={onSelectSession}
+                onToggleGroup={onToggleGroup}
+                onOpenTask={onOpenTask}
+                onSelectEntity={onSelectEntity}
+              />
+            </div>
+          ))}
+        </div>
       )}
       {truncated && (
         <p
@@ -93,7 +125,10 @@ export function SessionGroupList({
   );
 }
 
-function GroupSection({
+/** 行级 memo(与看板 Card 同构):比较键是组对象引用 + 标量 props。台账 cut 扇出
+ * 每 ~2s 失效一次 sessionGroups,react-query 结构共享让内容未变的组保持同一引用,
+ * 回调由页级 useCallback 稳定——「数据刷新但组没变」时挂载中的组行不再重渲染。 */
+const GroupSection = memo(function GroupSection({
   group,
   rows,
   expanded,
@@ -256,7 +291,7 @@ function GroupSection({
       )}
     </section>
   );
-}
+});
 
 /** 检索词对轮次行的展示过滤:与 daemon 组成员过滤同口径(多检索词 AND、子串)。 */
 function roundMatchesQuery(row: SessionRound, terms: readonly string[]): boolean {

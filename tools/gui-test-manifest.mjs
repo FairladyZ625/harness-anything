@@ -92,6 +92,7 @@ export const guiVitestManifest = [
   "packages/gui/test/system-group-widescreen.vitest.ts",
   "packages/gui/test/ledger-invalidation-scope.vitest.ts",
   "packages/gui/test/sessions-list-refresh.vitest.ts",
+  "packages/gui/test/sessions-list-windowing.vitest.ts",
   "packages/gui/test/view-in-graph-button.vitest.tsx",
   "packages/gui/test/local-doc-reader.vitest.tsx",
   "packages/gui/test/markdown-links.vitest.ts",
