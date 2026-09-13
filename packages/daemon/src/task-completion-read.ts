@@ -10,6 +10,7 @@ import {
 } from "../../kernel/src/index.ts";
 import { readTaskTransitionDocument } from "./transition-document-access.ts";
 import { readEffectiveCloseoutGates } from "./repo-cell-settings-state.ts";
+import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 
 /** Explicit --consent is recorded under every profile; the profile only decides whether absence blocks. */
 export function completionBlockersForAction(
@@ -69,7 +70,10 @@ export function readCompletionContext(
 }
 
 export function readTaskCompletion(projection: TaskProjectionQueries, taskId: string): DaemonTaskCompletionResult {
-  const read = projection.read(taskId);
+  // The same judgment task show, task dispatches, task read-set, task review and the task document
+  // reads consult: a lagging cut is not an answer about this task, and a current cut without it is a
+  // not-found naming the id — never an ok-shaped completion for a task that does not exist.
+  const read = requireCurrentTaskProjection(projection, taskId, "task completion read");
   return {
     ok: true,
     taskId,
