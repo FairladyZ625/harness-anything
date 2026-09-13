@@ -140,37 +140,43 @@ export const localContentObjectFileSystem = {
   readNames: (inputPath: string) => readdirSync(inputPath),
   exists: (inputPath: string) => existsSync(inputPath),
   readBytes: (inputPath: string): Uint8Array => readFileSync(inputPath),
-  replace: (inputPath: string, body: string | Uint8Array): void => {
-    const directories = [path.dirname(inputPath)];
-    while (!existsSync(directories.at(-1)!)) {
-      const parent = path.dirname(directories.at(-1)!);
-      if (parent === directories.at(-1)) break;
-      directories.push(parent);
-    }
-    /* @gate-identity check-bypass-write-boundary/bypass-write-067 */
-    mkdirSync(path.dirname(inputPath), { recursive: true });
-    const temporary = `${inputPath}.${process.pid}.tmp`;
-    const descriptor =
-      /* @gate-identity check-bypass-write-boundary/bypass-write-068 */
-      openSync(temporary, "w", 0o600);
-    // A failed write owns and removes only its temporary object.
+  replaceMany: (entries: readonly { readonly path: string; readonly body: string | Uint8Array }[]): void => {
+    const directories = new Set<string>(),
+      temporaryObjects: { readonly temporary: string; readonly target: string }[] = [];
     try {
-      try {
-        /* @gate-identity check-bypass-write-boundary/bypass-write-069 */
-        writeSync(descriptor, typeof body === "string" ? Buffer.from(body, "utf8") : body);
-        syncDescriptor(descriptor);
-      } finally {
-        /* @gate-identity check-bypass-write-boundary/bypass-write-071 */
-        closeSync(descriptor);
+      for (const entry of entries) {
+        let directory = path.dirname(entry.path);
+        directories.add(directory);
+        while (!existsSync(directory)) {
+          const parent = path.dirname(directory);
+          if (parent === directory) break;
+          directory = parent;
+          directories.add(directory);
+        }
+        /* @gate-identity check-bypass-write-boundary/bypass-write-067 */
+        mkdirSync(path.dirname(entry.path), { recursive: true });
+        const temporary = `${entry.path}.${process.pid}.tmp`,
+          descriptor =
+            /* @gate-identity check-bypass-write-boundary/bypass-write-068 */
+            openSync(temporary, "w", 0o600);
+        temporaryObjects.push({ temporary, target: entry.path });
+        try {
+          /* @gate-identity check-bypass-write-boundary/bypass-write-069 */
+          writeSync(descriptor, typeof entry.body === "string" ? Buffer.from(entry.body, "utf8") : entry.body);
+          syncDescriptor(descriptor);
+        } finally {
+          /* @gate-identity check-bypass-write-boundary/bypass-write-071 */
+          closeSync(descriptor);
+        }
       }
       /* @gate-identity check-bypass-write-boundary/bypass-write-072 */
-      renameSync(temporary, inputPath);
+      for (const object of temporaryObjects) renameSync(object.temporary, object.target);
+      syncDirectories([...directories]);
     } catch (error) {
       /* @gate-identity check-bypass-write-boundary/bypass-write-110 */
-      rmSync(temporary, { force: true });
+      for (const object of temporaryObjects) rmSync(object.temporary, { force: true });
       throw error;
     }
-    syncDirectories(directories);
   },
 };
 
