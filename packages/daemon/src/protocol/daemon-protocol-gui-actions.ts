@@ -1,5 +1,6 @@
 import { shape } from "./daemon-protocol-gui-types.ts";
 import { entityDeclarationGuiActions, entityImportGuiActions } from "./daemon-protocol-gui-actions-entity.ts";
+import { taskCompletionGuiActions } from "./daemon-protocol-gui-actions-entity.ts";
 import {
   CATALOG_REREAD_RECEIPT_SCHEMA,
   DAEMON_CONTROL_RECEIPT_SCHEMA,
@@ -70,6 +71,7 @@ export const daemonGuiActionMethods = Object.freeze([
     "/api/tasks/:taskId/submit",
     "repo-write",
   ),
+  ...taskCompletionGuiActions,
   // Pin/unpin is a named ingress onto task-amend, not a second path; its closed payload keeps the write canonical.
   guiAction(
     "task.pin",

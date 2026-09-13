@@ -8,7 +8,7 @@ export const DAEMON_TASK_SNAPSHOT_LIST_SCHEMA = Object.freeze({
 
 export const DAEMON_TASK_COMPLETION_SCHEMA = Object.freeze({
   id: "daemon.task-completion/v1",
-  required: Object.freeze(["ok", "taskId", "completionNext"]),
+  required: Object.freeze(["ok", "taskId", "completionNext", "completionBlocker"]),
 });
 
 export const DAEMON_TASK_WIP_SCHEMA = Object.freeze({

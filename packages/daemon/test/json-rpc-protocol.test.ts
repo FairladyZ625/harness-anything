@@ -243,7 +243,7 @@ test("GUI action facets are exact, typed, and exclude the generic runner", () =>
     ["daemon.gui.control.request", { kind: "refresh", authorityRepoId: "alpha", reason: "Refresh catalog" }],
     ["repo.task.start", { taskId: "task-a", executionId: "execution-a" }],
     ["repo.task.progress.append", { taskId: "task-a", executionId: "execution-a", text: "Progress", evidence: [{ type: "test", path: "report.txt", summary: "Passed" }] }],
-    ["repo.task.submit", { taskId: "task-a", executionId: "execution-a" }],
+    ["repo.task.submit", { taskId: "task-a", executionId: "execution-a" }], ["repo.task.complete", { taskId: "task-a", consent: true }],
     ["repo.task.pin", { taskId: "task-a" }],
     ["repo.task.unpin", { taskId: "task-a" }],
     ["repo.decision.list", { state: "proposed", legacyRange: { start: 1, end: 4 }, limit: 25, cursor: "WyJkZWNfQSJd" }],
@@ -297,7 +297,7 @@ test("GUI action facets are exact, typed, and exclude the generic runner", () =>
   assert.equal(parseDaemonRpcParams(retiredPacket.method, retiredPacket.params).ok, false);
   assert.throws(() => serializeDaemonRpcCall(retiredPacket), /submission/u);
   assert.equal(parseDaemonRpcParams("repo.task.submit", { repo: { repoId: "alpha" }, payload: { taskId: "task-a", amend: "true" } }).ok, false);
-  assert.deepEqual(actionForDaemonMethod("repo.task.submit", cases.get("repo.task.submit")!), { kind: "task-submit", ...cases.get("repo.task.submit")! });
+  assert.deepEqual(actionForDaemonMethod("repo.task.submit", cases.get("repo.task.submit")!), { kind: "task-submit", ...cases.get("repo.task.submit")! }); assert.deepEqual(actionForDaemonMethod("repo.task.complete", cases.get("repo.task.complete")!), { kind: "task-complete", ...cases.get("repo.task.complete")! });
 });
 
 // prettier-ignore

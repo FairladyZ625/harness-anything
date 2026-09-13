@@ -58,7 +58,7 @@ export const STATUS_META: Record<SnapshotStatus, { label: string; color: string;
     icon: <PauseCircle weight="duotone" />,
   },
   in_review: {
-    ...localizedLabel("components.badges.finalizing"),
+    ...localizedLabel("components.badges.inReview"),
     color: "var(--color-status-in-review)",
     icon: <CircleHalf weight="duotone" />,
   },
