@@ -21,7 +21,7 @@ import { makeGitReadinessSource, runProcessText } from "./process-port.ts";
 import { readTaskTransitionDocument } from "./transition-document-access.ts";
 import { prepareSubmissionEvidence } from "./repo-cell-task-progress.ts";
 
-/** Summary explicitly selects a public commit or center-accepted artifact revisions. */
+/** Summary explicitly selects one public delivery commit and may anchor center-accepted artifacts to it. */
 export function deriveCloseoutSubmission(
   cell: Pick<RepoCellOperationalContext, "rootDir" | "projection" | "store" | "cellCodedError">,
   taskId: string,
@@ -46,24 +46,24 @@ export function deriveCloseoutSubmission(
         "so name only the commit being delivered.",
     );
   if (
-    (named.length === 1) === anchors.length > 0 ||
+    (named.length === 0 && anchors.length === 0) ||
     (prose.completionClaim.match(/artifact:/gu) ?? []).length !== anchors.length
   )
     throw cell.cellCodedError(
       "invalid_submission",
-      `Summary must explicitly name one commit or artifact:path@revision anchors. ${artifactAnchorGuidance}`,
+      `Summary must explicitly name one delivery commit, optionally with artifact:path@revision anchors. ` +
+        artifactAnchorGuidance,
     );
-  if (anchors.length) {
-    const artifacts = anchors.map(
-      ({ path, revision }) => readSubmissionArtifact(cell, document.packagePath, path, revision).anchor,
+  const artifacts = anchors.map(
+    ({ path, revision }) => readSubmissionArtifact(cell, document.packagePath, path, revision).anchor,
+  );
+  if (new Set(artifacts.map((anchor) => anchor.path)).size !== artifacts.length)
+    throw cell.cellCodedError(
+      "invalid_submission",
+      `Summary must name each artifact path once. ${artifactAnchorGuidance}`,
     );
-    if (new Set(artifacts.map((anchor) => anchor.path)).size !== artifacts.length)
-      throw cell.cellCodedError(
-        "invalid_submission",
-        `Summary must name each artifact path once. ${artifactAnchorGuidance}`,
-      );
+  if (named.length === 0)
     return { ...prose, commitSha: null, artifacts, deliverables: artifacts.map((anchor) => anchor.path), outputs: [] };
-  }
   const dispatches = readDispatchStreamHeaders(cell.rootDir).filter(
       (dispatch) =>
         dispatch.taskId === taskId &&
@@ -111,8 +111,10 @@ export function deriveCloseoutSubmission(
     removed = runProcessText("git", ["diff", "--name-only", "-z", "--diff-filter=D", base, commitSha, "--"], root)
       .split("\0")
       .filter(Boolean);
-  const { artifacts: _artifacts, ...codeProse } = prose;
-  if (!deliverables.length && !removed.length) {
+  // Deliverables stay paths of the delivery commit: anchored in-package artifacts ride in the
+  // artifacts field and outputs lines so commit-based gates never verify ledger paths against
+  // the public cut.
+  if (!deliverables.length && !removed.length && !artifacts.length) {
     // A task without CI or code-doc gates delivers authored documents: its cut is the private
     // ledger HEAD plus this package's accepted artifacts, never a public code diff.
     const privateDelivery = !(snapshot.task?.completionGateIds ?? []).some(
@@ -120,7 +122,7 @@ export function deriveCloseoutSubmission(
     );
     if (!privateDelivery) throw cell.cellCodedError("invalid_submission", "Delivery cut contains no changed paths.");
     const ledger = resolveLedgerGitLayout(cell.rootDir),
-      artifacts = git.run(ledger.rootDir, [
+      ledgerArtifacts = git.run(ledger.rootDir, [
         "ls-tree",
         "-r",
         "--name-only",
@@ -128,24 +130,28 @@ export function deriveCloseoutSubmission(
         "--",
         ledgerGitPath(ledger, `${document.packagePath}/artifacts/`),
       ]);
-    if (!artifacts.ok || !artifacts.stdout)
+    if (!ledgerArtifacts.ok || !ledgerArtifacts.stdout)
       throw cell.cellCodedError(
         "invalid_submission",
         `Delivery cut contains no changed paths; publish harness/${document.packagePath}/artifacts/ ` +
           `or name artifact:path@revision anchors in Summary. ${artifactAnchorGuidance}`,
       );
     return {
-      ...codeProse,
+      ...prose,
       commitSha: git.run(ledger.rootDir, ["rev-parse", "HEAD"]).stdout,
-      deliverables: artifacts.stdout.split("\n"),
+      deliverables: ledgerArtifacts.stdout.split("\n"),
       outputs: [],
     };
   }
   return {
-    ...codeProse,
+    ...prose,
     commitSha,
+    ...(artifacts.length ? { artifacts } : {}),
     deliverables,
-    outputs: removed.map((target) => `Deleted-Production-Paths: ${target}`),
+    outputs: [
+      ...removed.map((target) => `Deleted-Production-Paths: ${target}`),
+      ...artifacts.map((anchor) => `Artifact-Anchor: ${anchor.path}@${anchor.revision}`),
+    ],
   };
 }
 

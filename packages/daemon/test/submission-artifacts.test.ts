@@ -74,8 +74,11 @@ test("artifact submission pins accepted bytes and both validators accept the sam
   assert.deepEqual(validateGuiSubmission(submitted), []);
   const changed = { ...submitted, artifacts: [{ ...submitted.artifacts![0]!, revision: 8 }] };
   assert.notEqual(submissionDigest(submitted), submissionDigest(changed));
+  // A commit cut with artifact anchors is the same union: both validators accept it.
+  const hybrid = { ...submitted, commitSha: "a".repeat(40) };
+  assert.deepEqual(validateGuiSubmission(hybrid), []);
   for (const invalid of [
-    { ...submitted, commitSha: "a".repeat(40) },
+    { ...hybrid, artifacts: [] },
     { ...submitted, artifacts: [] },
     { ...submitted, artifacts: [{ path, revision: 0, blobSha256: "a".repeat(64) }] },
   ]) {
@@ -83,10 +86,9 @@ test("artifact submission pins accepted bytes and both validators accept the sam
   }
 });
 
-test("Summary requires exactly one delivery kind and complete unique artifact anchors", () => {
+test("Summary may pair one commit with artifact anchors but never omits both", () => {
   for (const summary of [
     "no anchor",
-    `${"a".repeat(40)} artifact:${path}@7`,
     `artifact:${path}@7 artifact:${path}@7`,
     `artifact:${path}@7.2`,
     `artifact:${path}@7oops`,
