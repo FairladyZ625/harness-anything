@@ -77,7 +77,7 @@ async function runThinCli(argv: readonly string[]): Promise<number> {
   }
   if (explainHelpOverlay === undefined && (argv.length === 0 || argv.includes("--help"))) {
     const domain = helpDomain(argv);
-    if (domain !== undefined && !cliCommandDomains().includes(domain)) {
+    if (domain !== undefined && !cliCommandDomains.includes(domain)) {
       emit(cliFailure("help", "unsupported_command", unsupportedCommandHint([domain])), argv.includes("--json"));
       return 2;
     }

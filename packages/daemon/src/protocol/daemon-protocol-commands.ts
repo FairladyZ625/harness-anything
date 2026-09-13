@@ -220,10 +220,8 @@ export const daemonMethodNameSets: {
   readonly guiRead: ReadonlySet<string>;
   readonly guiAction: ReadonlySet<string>;
   readonly stream: ReadonlySet<string>;
-  readonly decisionAdjudication: ReadonlySet<string>;
 } = {
   guiRead: new Set(daemonGuiReadMethods.map((entry) => entry.method)),
   guiAction: new Set(daemonGuiActionMethods.map((entry) => entry.method)),
   stream: new Set(daemonStreamFacets.map((entry) => entry.method)),
-  decisionAdjudication: new Set(["repo.decision.accept", "repo.decision.reject", "repo.decision.defer"]),
 };

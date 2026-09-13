@@ -1,5 +1,5 @@
 import type { JsonObject } from "../../daemon/src/protocol/json-rpc-types.ts";
-import { deriveCliCapabilities, parseThinCommand, renderThinCapabilities } from "./cli/thin-command.ts";
+import { cliCapabilities, parseThinCommand, renderThinCapabilities } from "./cli/thin-command.ts";
 import { runCommandThroughDaemon } from "./daemon/client.ts";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -25,8 +25,7 @@ export function resolveCliVersion(): string {
 
 export function emitMeta(command: "version" | "capabilities", json: boolean): number {
   if (command === "capabilities") {
-    const capabilities = deriveCliCapabilities();
-    console.log(json ? JSON.stringify(capabilities) : renderThinCapabilities());
+    console.log(json ? JSON.stringify(cliCapabilities) : renderThinCapabilities());
     return 0;
   }
   const version = resolveCliVersion();

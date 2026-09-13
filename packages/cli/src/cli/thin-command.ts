@@ -16,7 +16,7 @@ export const thinCliLocalErrorCodes = Object.freeze([
   "unsupported_command",
 ]);
 
-export { deriveCliCapabilities } from "./thin-command-help.ts";
+export { cliCapabilities } from "./thin-command-help.ts";
 export { runtimeBatchDeclarationFields } from "./thin-command-help.ts";
 export { runtimeRunEfforts } from "./thin-command-help.ts";
 export { renderThinCapabilities } from "./thin-command-help.ts";
@@ -111,7 +111,7 @@ export function renderThinHelp(catalog: readonly ThinHelpCatalogEntry[] = [], do
       ...clientLocalCommands,
     ],
     visible = domain ? rows.filter(({ usage }) => usage.split(" ")[1] === domain) : rows,
-    groups = commandDomains(),
+    groups = commandDomains,
     body = domain
       ? [
           `Commands for ${domain}:`,

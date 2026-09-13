@@ -52,13 +52,9 @@ const sortedCommandDomains = [...commandDirectory]
   .map(([domain, ids]) => [domain, ids.sort()] as const)
   .sort(([left], [right]) => left.localeCompare(right));
 
-const cliCapabilities: Readonly<Record<string, readonly string[]>> = Object.freeze(
+export const cliCapabilities: Readonly<Record<string, readonly string[]>> = Object.freeze(
   Object.fromEntries(sortedCommandDomains),
 );
-
-export function deriveCliCapabilities(): Readonly<Record<string, readonly string[]>> {
-  return cliCapabilities;
-}
 
 const runtimeRunInputs = (daemonProtocolCommands.find((command) => command.id === "runtime-run")?.inputs ??
   []) as readonly {
@@ -66,7 +62,7 @@ const runtimeRunInputs = (daemonProtocolCommands.find((command) => command.id ==
   readonly enum?: readonly string[];
 }[];
 
-const batchDeclarationFields: readonly string[] = Object.freeze([
+export const runtimeBatchDeclarationFields: readonly string[] = Object.freeze([
   "instance",
   ...runtimeRunInputs
     .filter(
@@ -78,17 +74,9 @@ const batchDeclarationFields: readonly string[] = Object.freeze([
     .map((input) => input.name.slice(2)),
 ]);
 
-const batchRunEfforts: readonly string[] = Object.freeze(
+export const runtimeRunEfforts: readonly string[] = Object.freeze(
   runtimeRunInputs.find((input) => input.name === "--effort")?.enum ?? [],
 );
-
-export function runtimeBatchDeclarationFields(): readonly string[] {
-  return batchDeclarationFields;
-}
-
-export function runtimeRunEfforts(): readonly string[] {
-  return batchRunEfforts;
-}
 
 export function renderThinCapabilities(): string {
   return [
@@ -123,23 +111,12 @@ export function helpDomain(argv: readonly string[]): string | undefined {
   return firstCliCommand(argv);
 }
 
-const domains: readonly {
-  readonly name: string;
-  readonly count: number;
-}[] = Object.freeze(sortedCommandDomains.map(([name, ids]) => ({ name, count: ids.length })));
+export const commandDomains = Object.freeze(sortedCommandDomains.map(([name, ids]) => ({ name, count: ids.length })));
 
-const domainNames: readonly string[] = Object.freeze(domains.map(({ name }) => name));
-
-export function commandDomains(): typeof domains {
-  return domains;
-}
-
-export function cliCommandDomains(): readonly string[] {
-  return domainNames;
-}
+export const cliCommandDomains: readonly string[] = Object.freeze(commandDomains.map(({ name }) => name));
 
 export function unsupportedCommandHint(args: readonly string[]): string {
-  const domains = domainNames,
+  const domains = cliCommandDomains,
     domain = args[0],
     verb = args
       .slice(1)
