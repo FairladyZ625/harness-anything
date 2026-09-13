@@ -180,6 +180,25 @@ test("a rejected receipt's own explanation replaces the generic code-only hint",
   );
 });
 
+test("a failure receipt's own top-level hint reaches the operator instead of the generic retry sentence", () => {
+  const hint = "ENOENT: no such file or directory, lstat '/repo/.harness/store/imports'";
+  assert.deepEqual(
+    renderCliReceipt({
+      schema: "offline-storage-failure/v1",
+      ok: false,
+      exitCode: 1,
+      code: "offline_storage_failed",
+      hint,
+    }),
+    { stream: "stderr", text: `error code=offline_storage_failed hint=${hint}` },
+  );
+  // An empty hint is no hint: the generic guidance still applies.
+  assert.match(
+    humanError({ ok: false, code: "offline_storage_failed", hint: "" }).hint,
+    /Inspect error code offline_storage_failed/u,
+  );
+});
+
 test("write_rejected renders the inner receipt reason and summary without suggesting a retry", () => {
   assert.deepEqual(
     renderCliReceipt({
