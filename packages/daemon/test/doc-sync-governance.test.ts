@@ -4,7 +4,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { classifyDocSyncCandidatePath, documentPath } from "../../kernel/src/index.ts";
+import { classifyTextualArtifactPath, documentPath } from "../../kernel/src/index.ts";
+import { OPAQUE_TEXTUAL_POLICY_ID } from "../../kernel/test/store/canonical-generation.fixtures.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { actor, initRepo, rows, write } from "./doc-sync-slice-a.fixtures.ts";
@@ -33,9 +34,13 @@ test("the authored walls manifest can be created and edited through doc sync", a
       const clean = await cell.run({ kind: "doc-status", paths: [logical] }, binding);
       assert.equal(rows(clean.evidence)[0]?.state, "clean", JSON.stringify(clean));
     }
-    assert.equal(classifyDocSyncCandidatePath("governance/arbitrary.json"), null);
-    assert.equal(classifyDocSyncCandidatePath("tasks/task-owner/task-contract.json"), null);
-    assert.equal(classifyDocSyncCandidatePath("tasks/task-owner/artifacts/dispatch.json"), null);
+    assert.equal(classifyTextualArtifactPath("governance/arbitrary.json"), null);
+    assert.equal(classifyTextualArtifactPath("tasks/task-owner/task-contract.json"), null);
+    assert.deepEqual(classifyTextualArtifactPath("tasks/task-owner/artifacts/dispatch.json"), {
+      kind: "opaque-textual",
+      mediaType: "application/json",
+      policyId: OPAQUE_TEXTUAL_POLICY_ID,
+    });
   } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });

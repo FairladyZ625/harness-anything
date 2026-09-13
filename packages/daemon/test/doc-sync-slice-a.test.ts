@@ -255,7 +255,7 @@ test("large projections do not expand dirty or missing-path candidate scans", as
   }
 });
 
-test("scanner refuses multi-megabyte JSONL without reading it and names oversized prose", async () => {
+test("scanner routes multi-megabyte JSONL to artifact add without reading it and names oversized prose", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-size-type-"));
   initRepo(rootDir);
   const repoId = workspaceId("size-type"),
@@ -314,12 +314,8 @@ test("scanner refuses multi-megabyte JSONL without reading it and names oversize
     assert.equal(unconfirmed.code, "preview_blocked");
     assert.deepEqual(
       unconfirmed.detail?.unresolvedTouches.map((touch) => [touch.path, touch.requiredRoute]),
-      [
-        ["events/segments/manifest.json", "canonical-event"],
-        [secondLog, "doc-sync"],
-        [firstLog, "doc-sync"],
-      ],
-      "the canonical manifest and unsupported JSONL are explained before full-submit confirmation",
+      [["events/segments/manifest.json", "canonical-event"]],
+      "the canonical manifest is explained before full-submit confirmation; oversized JSONL is artifact-add routed",
     );
 
     const confirmed = await cell.run({ kind: "doc-submit", paths: [], all: true }, binding);
@@ -335,8 +331,8 @@ test("scanner refuses multi-megabyte JSONL without reading it and names oversize
     for (const logical of [firstLog, secondLog]) {
       const selected = await cell.run({ kind: "doc-status", paths: [logical] }, binding),
         row = rows(selected.evidence)[0];
-      assert.deepEqual([row?.path, row?.state, row?.size], [logical, "blocked", Buffer.byteLength(jsonl)]);
-      assert.match(row?.reason ?? "", /not a supported textual document/u);
+      assert.deepEqual([row?.path, row?.state, row?.size], [logical, "inapplicable", Buffer.byteLength(jsonl)]);
+      assert.match(row?.reason ?? "", /ha task artifact add/u);
     }
     write(rootDir, oversized, `# Oversized\n${"x".repeat(DOC_SYNC_INLINE_MAX_BYTES)}`);
     const rejected = await cell.run({ kind: "doc-submit", paths: [oversized] }, binding);

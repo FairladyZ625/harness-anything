@@ -3,7 +3,6 @@ import { committedAcceptance } from "./receipt-acceptance.fixtures.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  classifyDocSyncCandidatePath,
   OPAQUE_TEXTUAL_MEDIA_TYPE,
   OPAQUE_TEXTUAL_POLICY_ID,
   classifyTextualArtifactPath,
@@ -269,15 +268,29 @@ test("opaque textual paths preserve their media type", () => {
   });
   assert.equal(classifyTextualArtifactPath("context/architecture/notes.json"), null);
   assert.equal(classifyTextualArtifactPath("context/architecture/views/write-path.c4"), null);
-  assert.equal(classifyDocSyncCandidatePath("tasks/task-owner/artifacts/data.json"), null);
-  assert.equal(classifyDocSyncCandidatePath("tasks/task-owner/artifacts/run.jsonl"), null);
-  assert.equal(classifyDocSyncCandidatePath("tasks/task-owner/artifacts/run.log"), null);
-  assert.deepEqual(classifyDocSyncCandidatePath("context/architecture/architecture-manifest.json"), {
+  // The artifacts subtree is the one textual judgment shared with task artifact add: every
+  // extension classifies, and the bytes decide text versus raw at write time.
+  assert.deepEqual(classifyTextualArtifactPath("tasks/task-owner/artifacts/data.json"), {
     kind: "opaque-textual",
     mediaType: "application/json",
     policyId: OPAQUE_TEXTUAL_POLICY_ID,
   });
-  assert.deepEqual(classifyDocSyncCandidatePath("tasks/task-owner/artifacts/report.md"), {
+  assert.deepEqual(classifyTextualArtifactPath("tasks/task-owner/artifacts/run.jsonl"), {
+    kind: "opaque-textual",
+    mediaType: OPAQUE_TEXTUAL_MEDIA_TYPE,
+    policyId: OPAQUE_TEXTUAL_POLICY_ID,
+  });
+  assert.deepEqual(classifyTextualArtifactPath("tasks/task-owner/artifacts/run.log"), {
+    kind: "opaque-textual",
+    mediaType: OPAQUE_TEXTUAL_MEDIA_TYPE,
+    policyId: OPAQUE_TEXTUAL_POLICY_ID,
+  });
+  assert.deepEqual(classifyTextualArtifactPath("context/architecture/architecture-manifest.json"), {
+    kind: "opaque-textual",
+    mediaType: "application/json",
+    policyId: OPAQUE_TEXTUAL_POLICY_ID,
+  });
+  assert.deepEqual(classifyTextualArtifactPath("tasks/task-owner/artifacts/report.md"), {
     kind: "opaque-textual",
     mediaType: "text/markdown",
     policyId: OPAQUE_TEXTUAL_POLICY_ID,
