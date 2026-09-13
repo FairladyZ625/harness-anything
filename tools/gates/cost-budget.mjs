@@ -18,6 +18,10 @@ function parseJsonFile(filePath) {
   }
 }
 
+export const G1_OPERATION_NAMES = Object.freeze(
+  Object.keys(parseJsonFile(new URL("./cost-budget.json", import.meta.url)).writeCostScaling.baseline),
+);
+
 function validateMetricMap(value, label) {
   if (value === null || typeof value !== "object" || Array.isArray(value))
     throw new Error(`${label} must be an object`);
