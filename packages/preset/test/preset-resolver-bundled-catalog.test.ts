@@ -17,6 +17,8 @@ test("bundled closeout reviewer is machine-independent and leaves instance model
   assert.equal(reviewer.runtime_type, "any");
   assert.equal(reviewer.instance, undefined);
   assert.equal(reviewer.model, undefined);
+  assert.match(reviewer.instructions, /artifact delivery does not require a Git commit or ancestry/u);
+  assert.match(reviewer.instructions, /only the completion gates declared by the task/u);
   assert.doesNotMatch(reviewer.instructions, /(?:\/Users\/|harness\/tasks\/|\\Users\\)/u);
   assert.equal(readBundledAgentDeclaration("not-bundled"), null);
 });

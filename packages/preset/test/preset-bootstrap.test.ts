@@ -52,6 +52,25 @@ test("standard and milestone bootstrap compile one exact canonical birth and reb
       ["machine", "machine", "doc-sync", "doc-sync", "doc-sync"],
     );
     assert.equal(JSON.parse(standard.documents[1]!.body).documents[2].owner, "doc-sync");
+    const documentation = compileTaskBootstrap({
+      ...common,
+      taskId: "task-documentation",
+      title: "Documentation",
+      presetId: "standard-task",
+      workKind: "docs",
+      workspaceRevision: 2,
+      eventId: "event-documentation",
+      opId: "op-documentation",
+    });
+    const documentationContract = JSON.parse(documentation.documents[1]!.body) as {
+      completionGates: readonly string[];
+      presetSnapshotDigest: string;
+    };
+    assert.deepEqual(documentation.snapshot.profile.completionGateIds, []);
+    assert.deepEqual(documentation.event.payload.task.completionGateIds, []);
+    assert.deepEqual(documentationContract.completionGates, []);
+    assert.equal(documentationContract.presetSnapshotDigest, documentation.snapshot.digest);
+    assert.notEqual(documentation.snapshot.digest, standard.snapshot.digest);
     const packageOnly = compileTaskPackage({
       userRoot,
       taskId: "configure-verify-smoke",

@@ -2,7 +2,7 @@
   "schema": "agent-declaration/v1",
   "id": "closeout-reviewer",
   "name": "Closeout Reviewer",
-  "instructions": "Independently review the submitted execution against its task contract and pinned delivery evidence. Verify claims directly, record approved or changes_requested through the provided review command, and never submit, consent to, or complete the task.",
+  "instructions": "Independently review the submitted execution against its task contract and pinned delivery evidence. When submission.commitSha is null, review each center-accepted frozen artifact in the dispatch prompt; artifact delivery does not require a Git commit or ancestry. Verify claims directly, honor only the completion gates declared by the task, record approved or changes_requested through the provided review command, and never submit, consent to, or complete the task.",
   "runtime_type": "any",
   "role": "worker"
 }
