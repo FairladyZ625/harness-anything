@@ -250,6 +250,9 @@ function percentile(values: readonly number[], ratio: number): number | null {
   );
 }
 
+// Real task ids come in exactly two shapes: ULID (uppercase Crockford base32) or lowercase hex, both 26 chars.
+const ownerTaskShape = /^task_(?:[0-9A-HJKMNP-TV-Z]{26}|[0-9a-f]{26})$/u;
+
 function readQuarantine(rootDir: string): readonly QuarantineEntry[] {
   const file = path.join(rootDir, "tools/test-quarantine.json");
   if (!existsSync(file)) return [];
@@ -263,7 +266,7 @@ function readQuarantine(rootDir: string): readonly QuarantineEntry[] {
       throw new Error(`test quarantine entry ${index + 1} is invalid`);
     if (typeof entry.test !== "string" || !entry.test.trim() || seen.has(entry.test))
       throw new Error(`test quarantine entry ${index + 1} has an invalid or duplicate test name`);
-    if (typeof entry.ownerTask !== "string" || !/^task_[a-zA-Z0-9]+$/u.test(entry.ownerTask))
+    if (typeof entry.ownerTask !== "string" || !ownerTaskShape.test(entry.ownerTask))
       throw new Error(`test quarantine entry ${index + 1} requires ownerTask task_<id>`);
     if (
       typeof entry.quarantinedAt !== "string" ||

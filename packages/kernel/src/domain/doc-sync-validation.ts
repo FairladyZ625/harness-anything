@@ -244,7 +244,7 @@ export function taskFromPath(value: PortableDocumentPath): string | null {
   const match = /^tasks\/([^/]+)\//u.exec(value);
   if (!match) return null;
   const folder = match[1]!;
-  return /^task_[0-9A-HJKMNP-TV-Z]{26}(?:-|$)/u.test(folder) ? folder.slice(0, 31) : folder;
+  return /^task_(?:[0-9A-HJKMNP-TV-Z]{26}|[0-9a-f]{26})(?:-|$)/u.test(folder) ? folder.slice(0, 31) : folder;
 }
 
 export function taskArtifactPath(value: PortableDocumentPath): boolean {

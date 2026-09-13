@@ -44,7 +44,6 @@ export interface HarnessLayout {
 }
 
 const crockfordBase32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
-const taskIdPattern = /^task_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26}$/u;
 const defaultAuthoredRoot = "harness";
 const defaultLocalRoot = ".harness";
 const layoutFileSystem = localLayoutFileSystem;
@@ -329,10 +328,6 @@ export function generateTaskId(now: Date = new Date()): TaskId {
   const timestamp = encodeBase32(now.getTime(), 10);
   const entropy = encodeRandomBase32(16);
   return `task_${timestamp}${entropy}`;
-}
-
-export function isGeneratedTaskId(value: string): boolean {
-  return taskIdPattern.test(value);
 }
 
 export function slugifyTaskTitle(title: string): string {
