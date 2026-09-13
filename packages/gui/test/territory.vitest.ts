@@ -140,6 +140,22 @@ describe("territory task partition", () => {
 });
 
 describe("territory decision partition", () => {
+  it("only decisions with no real relation belong in landing, including claim endpoints", () => {
+    const decisions = ["task-bound", "fact-bound", "adr-bound", "alone"].map((decisionId) => dec({ decisionId }));
+    const relations: RelationEdge[] = [
+      { from: "decision/task-bound/CH1", to: "task/t", kind: "derives", provenance: "local-document" },
+      { from: "decision/fact-bound/C1", to: "fact/F-1", kind: "evidenced-by", provenance: "local-document" },
+      { from: "adr/a", to: "decision/adr-bound", kind: "relates", provenance: "local-document" },
+    ];
+    const { zones, landing } = partitionDecisions(decisions, relations);
+    expect(landing.map((chip) => chip.navRef)).toEqual(["decision/alone"]);
+    expect(
+      zones
+        .flatMap((zone) => zone.chips)
+        .map((chip) => chip.navRef)
+        .sort(),
+    ).toEqual(["decision/adr-bound", "decision/fact-bound", "decision/task-bound"]);
+  });
   it("groups connected decisions into family zones", () => {
     const decisions = [
       dec({ decisionId: "dec_1" }),

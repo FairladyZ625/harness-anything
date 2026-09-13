@@ -2,7 +2,7 @@
 // @vitest-environment happy-dom
 import { describe, expect, it, vi } from "vitest";
 import type { RelationGraphSuccess } from "../src/renderer/api-client.ts";
-import { readRelationGraphPage } from "../src/renderer/triadic-data.ts";
+import { readCompleteRelationGraph } from "../src/renderer/triadic-data.ts";
 
 type Edge = RelationGraphSuccess["edges"][number];
 type Fact = RelationGraphSuccess["facts"][number];
@@ -29,7 +29,7 @@ const page = (
 });
 
 describe("关系图按界限读取", () => {
-  it("只读取首个有界页,保留 nextCursor 供显式后续读取", async () => {
+  it("读取后续页才能判定关系,并合并重复的关联实体", async () => {
     const calls: unknown[] = [];
     const first = page(
       {
@@ -40,18 +40,39 @@ describe("关系图按界限读取", () => {
       },
       "cursor-2",
     );
-    const graph = await readRelationGraphPage(async (payload) => {
+    const graph = await readCompleteRelationGraph(async (payload) => {
       calls.push(payload);
-      return first;
+      return calls.length === 1
+        ? first
+        : page(
+            {
+              edges: [edge("r3")],
+              facts: [fact("fact/F-1"), fact("fact/F-2")],
+              coverageRows: [coverage("decision/d1", "decision/d1/C1")],
+            },
+            null,
+            "cursor-2",
+          );
     });
-    expect(calls).toEqual([{ limit: 500 }]);
-    expect(graph).toEqual(first);
-    expect(graph.page?.nextCursor).toBe("cursor-2");
+    expect(calls).toEqual([{ limit: 500 }, { limit: 500, cursor: "cursor-2" }]);
+    expect(graph.edges.map((row) => row.relationId)).toEqual(["r1", "r2", "r3"]);
+    expect(graph.facts.map((row) => row.ref)).toEqual(["fact/F-1", "fact/F-2"]);
+    expect(graph.coverageRows).toHaveLength(1);
+    expect(graph.page?.nextCursor).toBeNull();
   });
 
+  it("rejects a failed later page instead of publishing partial relations", async () => {
+    let calls = 0;
+    await expect(
+      readCompleteRelationGraph(async () => {
+        if (++calls === 1) return page({ edges: [edge("r1")] }, "next");
+        throw new Error("unavailable");
+      }),
+    ).rejects.toThrow("unavailable");
+  });
   it("没有分页信息的回答只读一次", async () => {
     let reads = 0;
-    const graph = await readRelationGraphPage(async () => {
+    const graph = await readCompleteRelationGraph(async () => {
       reads += 1;
       const { page: _page, ...single } = page({ edges: [edge("r1")] }, null);
       return single;

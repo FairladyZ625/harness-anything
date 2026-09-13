@@ -2,7 +2,7 @@ import type { TaskRow, DecisionRow, FactRef, RelationEdge } from "../model/types
 import type { FactAnchorRow, RelationCoverageRow } from "../../api/renderer-dto";
 import { incomingRelations } from "../model/relation-direction.ts";
 import { resolveTaskModule, resolveFactModule, UNPROJECTED_MODULE } from "./moduleAssignment";
-import { buildGenealogyEdges } from "./genealogy";
+import { buildGenealogyEdges, decisionIdOf } from "./genealogy";
 import { clusterTasksByPrd, type ZoneProgress } from "./territoryProgress";
 import type { EntityKind } from "./endpoint";
 import { governedEntityLabel, governedEntitySub, type GovernedEntityRow } from "./governedEntities";
@@ -88,7 +88,7 @@ export function partitionTasks(tasks: ReadonlyArray<TaskRow>): TerritoryZone[] {
 
 /**
  * decision 分区:按谱系 family(连通分量)归 zone。
- * 孤立 decision(无谱系边)→ landing,不强制归 zone。
+ * 只有没有任何当前关系的 decision 才进入 landing。
  */
 export function partitionDecisions(
   decisions: ReadonlyArray<DecisionRow>,
@@ -97,6 +97,11 @@ export function partitionDecisions(
   const byId = new Map<string, DecisionRow>();
   for (const d of decisions) byId.set(d.decisionId, d);
   const genealogyEdges = buildGenealogyEdges(relations, byId);
+  const relatedIds = new Set(
+    relations.flatMap((edge) =>
+      [decisionIdOf(edge.from), decisionIdOf(edge.to)].filter((id): id is string => id !== null),
+    ),
+  );
 
   // 并查集算连通分量(family)。
   const parent = new Map<string, string>();
@@ -114,17 +119,16 @@ export function partitionDecisions(
   for (const edge of genealogyEdges) union(edge.from, edge.to);
 
   const familyMap = new Map<string, DecisionRow[]>();
-  const familydByDecision = new Map<string, string>();
   for (const d of decisions) {
     const root = find(d.decisionId);
     const arr = familyMap.get(root) ?? [];
     arr.push(d);
     familyMap.set(root, arr);
-    familydByDecision.set(d.decisionId, root);
   }
 
   const zones: TerritoryZone[] = [];
   const landing: TerritoryChip[] = [];
+  const related: TerritoryChip[] = [];
   let familyIdx = 0;
   for (const [, group] of [...familyMap.entries()].sort((a, b) =>
     (a[1][0]?.title ?? "").localeCompare(b[1][0]?.title ?? ""),
@@ -140,9 +144,11 @@ export function partitionDecisions(
         entity: "decision" as const,
         moduleId: zoneId,
       }));
-    if (group.length === 1) {
+    if (group.length === 1 && !relatedIds.has(group[0]!.decisionId)) {
       // 孤立 decision → landing(不进 zone,减少空 zone 噪音)。
       landing.push(chips[0]!);
+    } else if (group.length === 1) {
+      related.push({ ...chips[0]!, moduleId: "decision:related" });
     } else {
       zones.push({
         zoneId,
@@ -153,6 +159,14 @@ export function partitionDecisions(
       });
     }
   }
+  if (related.length)
+    zones.push({
+      zoneId: "decision:related",
+      title: "关联决策",
+      entity: "decision",
+      moduleId: "decision:related",
+      chips: related,
+    });
   return { zones, landing };
 }
 

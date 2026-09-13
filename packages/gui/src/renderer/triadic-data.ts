@@ -181,13 +181,64 @@ export function useRuntimePlaneQuery(repoId: string | null, options: { readonly 
 }
 
 /**
- * Read one bounded relation-graph page. The daemon page contract carries a cursor for
- * explicit follow-up reads, but the GUI must not drain a 10k+ ledger on every refresh.
+ * Read the complete relation set before classifying graph membership.
+ * A failed page rejects the whole read; partial edges cannot prove isolation.
  */
-export async function readRelationGraphPage(
+export async function readCompleteRelationGraph(
   read: (payload: { readonly limit: number; readonly cursor?: string }) => Promise<RelationGraphSuccess>,
 ): Promise<RelationGraphSuccess> {
-  return read({ limit: 500 });
+  const first = await read({ limit: 500 });
+  const pages = [first];
+  // 终止条件:服务端的 nextCursor 为空即最后一页(不是 cursor 本身为空)。
+  let cursor = first.page?.nextCursor;
+  while (cursor) {
+    const next = await read({ limit: 500, cursor });
+    pages.push(next);
+    cursor = next.page?.nextCursor;
+  }
+  const unique = <T>(rows: readonly T[], key: (row: T) => string): T[] => [
+    ...new Map(rows.map((row) => [key(row), row])).values(),
+  ];
+  return {
+    ...first,
+    edges: unique(
+      pages.flatMap((page) => page.edges),
+      (row) => row.relationId,
+    ),
+    facts: unique(
+      pages.flatMap((page) => page.facts),
+      (row) => row.ref,
+    ),
+    coverageRows: unique(
+      pages.flatMap((page) => page.coverageRows),
+      (row) => row.claimRef,
+    ),
+    factAnchors: unique(
+      pages.flatMap((page) => page.factAnchors),
+      (row) => JSON.stringify(row),
+    ),
+    warnings: unique(
+      pages.flatMap((page) => page.warnings),
+      (row) => JSON.stringify(row),
+    ),
+    ...(first.page ? { page: { ...first.page, nextCursor: null } } : {}),
+  };
+}
+
+/**
+ * 完整关系图的唯一读面:key、排空式 queryFn、新鲜度窗口都只此一份。
+ * 分类(孤立/族归属)只允许消费这份完整图,触发语义也就只能有一份——完整读发生在
+ * 首次进入视图与台账 cut 失效(invalidateLedgerDependents)时;staleTime 是会话级
+ * 窗口,任务详情切 tab / 离开重进的重挂载不得每次排空全量(CEO 裁决 2026-09-13)。
+ */
+const COMPLETE_GRAPH_STALE_MS = 300_000;
+export function useCompleteRelationGraphQuery(repoId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: triadicQueryKeys.graph(repoId),
+    queryFn: () => readCompleteRelationGraph((payload) => harnessClient.getRelationGraph({ repoId, ...payload })),
+    enabled,
+    staleTime: COMPLETE_GRAPH_STALE_MS,
+  });
 }
 
 /**
@@ -202,12 +253,7 @@ export function useTriadicProjectionQuery(
   const enabled = options.enabled !== false && repoId !== null;
   const graphEnabled = enabled && options.graphEnabled !== false;
   const decisionsEnabled = enabled && options.decisionsEnabled !== false;
-  const graph = useQuery({
-    queryKey: triadicQueryKeys.graph(repoId ?? "unselected"),
-    queryFn: () => readRelationGraphPage((payload) => harnessClient.getRelationGraph({ repoId: repoId!, ...payload })),
-    enabled: graphEnabled,
-    staleTime: 10_000,
-  });
+  const graph = useCompleteRelationGraphQuery(repoId ?? "unselected", graphEnabled);
   const decisions = useQuery({
     queryKey: triadicQueryKeys.decisions(repoId ?? "unselected"),
     queryFn: () => harnessClient.getDecisions({ repoId: repoId! }),
@@ -236,7 +282,6 @@ export function useTriadicProjectionQuery(
       isError,
       decisionError: decisionsEnabled ? decisions.error : null,
       graphAvailable,
-      relationPageNextCursor: graph.data?.page?.nextCursor ?? null,
       relationState: graph.isError
         ? ("error" as const)
         : graphEnabled && graph.isPending

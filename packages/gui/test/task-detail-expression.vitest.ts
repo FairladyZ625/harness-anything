@@ -6,7 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { TaskControlPanel } from "../src/renderer/components/TaskControlPanel.tsx";
 import { TaskDetailView } from "../src/renderer/views/TaskDetailView.tsx";
-import type { DecisionRow, RelationEdge, TaskRow } from "../src/renderer/model/types.ts";
+import type { DecisionRow, TaskRow } from "../src/renderer/model/types.ts";
 import { decisionProjectionFields } from "./decision-projection-fields.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import { projectedTaskFields } from "./task-projection-fields.ts";
@@ -197,19 +197,6 @@ const decision: DecisionRow = {
   claims: [],
   judgmentConsents: [],
 };
-const relations: RelationEdge[] = [
-  {
-    relationId: "rel-gui",
-    from: "decision/dec-gui",
-    to: "task/task-w3",
-    kind: "derives",
-    direction: "directed",
-    state: "active",
-    provenance: "local-document",
-    rationale: "UI boundary",
-  },
-];
-
 beforeAll(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   setActiveLocale("zh-CN");
@@ -322,9 +309,7 @@ describe("Task detail expression", () => {
 
     await clickTab("关系");
     expect(byTestId("task-relations-tab").textContent).toContain("PLT GUI UX");
-    expect(byTestId("task-relations-tab").textContent).toContain("GUI 只展示后端结构化结果");
     expect(byTestId("task-relations-tab").textContent).toContain("runtime-w3");
-
     await clickTab("收口");
     expect(bridge.getTaskCompletion).toHaveBeenCalledTimes(1);
     expect(bridge.getTaskCompletion).toHaveBeenCalledWith({ repoId: "repo-a", taskId: "task-w3" });
@@ -692,7 +677,7 @@ async function mount() {
         createElement(TaskDetailView, {
           task,
           tasks: [parent, task, child],
-          relations,
+          relations: [],
           decisions: [decision],
           onBack: () => undefined,
           onSelect: () => undefined,

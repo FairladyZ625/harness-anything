@@ -523,7 +523,7 @@ function AppShell() {
                   onFocusEntityChange={focusEntityInWorkspace}
                   recentRefs={recentRefs}
                   entries={paletteEntries}
-                  relationPageNextCursor={triadicQuery.relationPageNextCursor}
+                  relationState={triadicQuery.relationState}
                   onOpenPalette={() => setPaletteOpen(true)}
                 />
               ) : view === "decisionDetail" ? (

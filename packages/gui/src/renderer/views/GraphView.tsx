@@ -17,6 +17,7 @@ import { TerritoryZoneNode, TerritoryChipNode } from "../graph/nodes/TerritoryNo
 import { GraphFilterPanel, type EntityTypeOption, type GraphFilters } from "../components/GraphFilterPanel";
 import type { GovernedEntityRow } from "../graph/governedEntities";
 import { GraphLegend } from "../components/GraphLegend.tsx";
+import { GraphRelationBasis, GraphRelationReadGate } from "../components/GraphRelationState.tsx";
 import { FocusHistoryBar } from "../components/FocusHistoryBar";
 import { FocusSwitcher } from "../components/FocusSwitcher";
 import type { PaletteEntry } from "../components/CommandPalette.tsx";
@@ -43,11 +44,8 @@ import {
   readGraphTerritoryShowArchived,
   writeGraphTerritoryShowArchived,
 } from "../graph-territory-preferences";
-import {
-  graphDensityPreferenceStorage,
-  readGraphDensityFocusMode,
-  writeGraphDensityFocusMode,
-} from "../graph-density-preferences";
+import { graphDensityPreferenceStorage, readGraphDensityFocusMode } from "../graph-density-preferences";
+import { useGraphDensity } from "../graph/useGraphDensity.ts";
 
 export type ViewMode = "territory" | "spotlight";
 
@@ -78,7 +76,7 @@ export interface GraphViewProps {
   focusRef: string | null;
   viewMode: ViewMode;
   onViewModeChange: (mode: ViewMode) => void;
-  relationPageNextCursor?: string | null;
+  relationState?: "ready" | "loading" | "error";
 }
 
 /**
@@ -119,7 +117,7 @@ function GraphViewInner({
   focusRef,
   viewMode,
   onViewModeChange,
-  relationPageNextCursor = null,
+  relationState = "ready",
   recentRefs = [],
   entries = [],
   onOpenPalette = () => {},
@@ -205,10 +203,7 @@ function GraphViewInner({
   // 密度分层(重点模式,task_5ba031c2):默认开,判定本体在 model/taskFilters.ts
   // (isTaskGraphFocusSeed,与看板共用),localStorage 按视图记忆,坏值回落默认开。
   // 开关本体在 filters.density(筛选面板改它),这里只负责持久化与联动。
-  const density = filters.density;
-  useEffect(() => {
-    writeGraphDensityFocusMode(graphDensityPreferenceStorage(), density === "focus");
-  }, [density]);
+  const { density, setDensityFilters } = useGraphDensity(viewMode, skel, filters, setFilters);
   // 重点模式下被逐块展开(回到全量)的 zone 集;密度开关翻转时清空。
   const [revealedZones, setRevealedZones] = useState<Set<string>>(() => new Set());
   useEffect(() => {
@@ -397,6 +392,10 @@ function GraphViewInner({
     };
   }, [focusRef, spotlightStats.focusLabel]);
 
+  if (relationState !== "ready") {
+    return <GraphRelationReadGate state={relationState} />;
+  }
+
   if (tasks.length === 0 && decisions.length === 0 && facts.length === 0 && (factAnchors?.length ?? 0) === 0) {
     return (
       <div
@@ -414,12 +413,12 @@ function GraphViewInner({
 
   const filterPanel = (
     <GraphFilterPanel
-      filters={filters}
-      setFilters={setFilters}
+      filters={{ ...filters, density }}
+      setFilters={setDensityFilters}
       availableModules={availableModules}
       entityTypeOptions={entityKinds}
       showEntityTypes={viewMode === "spotlight" || skel === "unified"}
-      showDensity={viewMode === "spotlight" || skel === "unified"}
+      showDensity
       flowMode={flowMode}
       onFlowModeChange={setFlowMode}
     />
@@ -433,6 +432,7 @@ function GraphViewInner({
             ? `领地 · ${territory?.zones.length ?? 0} 块`
             : `聚光灯 · ${spotlightStats.nodes} 节点 · ${spotlightStats.edges} 边`}
         </span>
+        {viewMode === "territory" && <GraphRelationBasis count={relations.length} />}
         <GraphLegend showFulfillment={(coverageRows?.length ?? 0) > 0} entityKinds={entityKinds} />
         {viewMode === "spotlight" && <EgoHopsControl hops={hops} onHopsChange={setHops} />}
         {viewMode === "territory" && (
@@ -458,11 +458,6 @@ function GraphViewInner({
           >
             重点外 {territory.deferredCount}
             {focusSelection ? ` · 重点 ${focusSelection.seedCount} task` : ""}
-          </span>
-        )}
-        {relationPageNextCursor !== null && (
-          <span data-testid="triadic-graph-truncated" className="ui-micro text-stale">
-            仅显示前 500 条边，台账更大；使用重点模式或筛选查看其余
           </span>
         )}
         {territory && territory.unprojectedCount > 0 && (

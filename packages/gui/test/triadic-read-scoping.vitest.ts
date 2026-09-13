@@ -141,6 +141,9 @@ async function mountApp(options: { readonly view: string; readonly decisionResul
   readonly navigate: (label: string) => Promise<void>;
   readonly advanceLedger: () => Promise<void>;
   readonly mark: () => number;
+  /** 把缓存里完整关系图的 dataUpdatedAt 回拨 ageMs:模拟「挂了一会儿再回来」,
+   * 不用假时钟也能驱动 react-query 的挂载期新鲜度判定。 */
+  readonly backdateGraph: (ageMs: number) => void;
 }> {
   const calls: RecordedCall[] = [];
   let revision = 1;
@@ -281,6 +284,12 @@ async function mountApp(options: { readonly view: string; readonly decisionResul
     await flush();
   };
   const mark = () => calls.length;
+  const backdateGraph = (ageMs: number) => {
+    const query = client.getQueryCache().find({ queryKey: ["triadic", REPO_ID, "relation-graph"] });
+    if (!query) throw new Error("relation-graph query missing from cache");
+    // query-core 5.101 的 setState 只接受普通对象(函数会被静默展开成 no-op)。
+    query.setState({ ...query.state, dataUpdatedAt: query.state.dataUpdatedAt - ageMs });
+  };
   const navigate = async (label: string) => {
     await act(async () => {
       const target = [...container.querySelectorAll("button")].find(
@@ -291,7 +300,7 @@ async function mountApp(options: { readonly view: string; readonly decisionResul
     });
     await flush();
   };
-  return { calls: () => calls.slice(), container, navigate, advanceLedger, mark };
+  return { calls: () => calls.slice(), container, navigate, advanceLedger, mark, backdateGraph };
 }
 
 const mounted: { root: Root; container: HTMLElement }[] = [];
@@ -393,6 +402,20 @@ describe("三元读取按挂载域分层", () => {
     await advanceLedger();
     expect(relationGraphCalls(calls().slice(atGraph)).some(({ payload }) => payload?.facet === undefined)).toBe(true);
     expect(decisionCalls(calls().slice(atGraph)).some(({ payload }) => payload?.projection === undefined)).toBe(true);
+  });
+
+  it("会话窗口内重进图视图不重读完整图(切 tab 不因 10s 级 staleTime 每次排空)", async () => {
+    // 触发语义(CEO 裁决 2026-09-13):完整读只发生在进入视图与台账变化/显式刷新;
+    // 离开-重进、任务详情切 tab 的重挂载不得排空全量。把缓存图的 dataUpdatedAt
+    // 回拨 11s——对旧的 10s staleTime 它已过期(重挂载会重读,本测试红),对会话级
+    // 窗口它仍新鲜(重挂载用缓存,绿)。
+    const { calls, navigate, mark, backdateGraph } = await mountApp({ view: "graph" });
+    expect(relationGraphCalls(calls()).filter(({ payload }) => payload?.facet === undefined)).toHaveLength(1);
+    await navigate("看板");
+    backdateGraph(11_000);
+    const atBoard = mark();
+    await navigate("关系图");
+    expect(relationGraphCalls(calls().slice(atBoard)).some(({ payload }) => payload?.facet === undefined)).toBe(false);
   });
 
   it("⌘K 面板合着时不读事实切面", async () => {
