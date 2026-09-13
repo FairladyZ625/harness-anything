@@ -1,4 +1,9 @@
 import { setting, settingBlockValue } from "../layout/harness-settings.ts";
+import {
+  replaceDefaultedBlockScalar,
+  replaceDefaultedScalar,
+  replaceOptionalDefaultedScalar,
+} from "./settings-closeout.ts";
 import type { EntityDocumentJsonSchema } from "./entity-json-schema.ts";
 import { validateEntityJsonSchema } from "./entity-json-schema.ts";
 import {
@@ -538,48 +543,4 @@ function removeLegacyLocale(body: string): string {
 
 export function validateRepositorySettings(value: unknown): readonly string[] {
   return validateEntityJsonSchema(SETTINGS_REPOSITORY_V1_SCHEMA, value, "repository settings");
-}
-
-function replaceScalar(body: string, indent: string, key: string, value: string): string {
-  const line = new RegExp(`^(${indent}${key}:[^\\S\\r\\n]*)[^#\\r\\n]*?([^\\S\\r\\n]*(?:#[^\\r\\n]*)?)$`, "mu");
-  if (!line.test(body)) throw new Error(`Missing ${key} in harness.yaml settings facet.`);
-  return body.replace(line, `$1${value}$2`);
-}
-
-function replaceDefaultedScalar(body: string, indent: string, key: string, value: string, fallback: string): string {
-  if (setting(body, key) === undefined && value === fallback) return body;
-  return replaceScalar(body, indent, key, value);
-}
-
-function replaceOptionalDefaultedScalar(
-  body: string,
-  indent: string,
-  key: string,
-  value: string,
-  fallback: string,
-): string {
-  if (setting(body, key) !== undefined) return replaceScalar(body, indent, key, value);
-  if (value === fallback) return body;
-  const header = /^settings:[^\r\n]*(?:\r?\n|$)/mu;
-  if (!header.test(body)) throw new Error("Missing settings block in harness.yaml.");
-  return body.replace(header, (match) => `${match}${indent}${key}: ${value}\n`);
-}
-
-function replaceBlockScalar(body: string, block: string, key: string, value: string): string {
-  const section = new RegExp(`(^  ${block}:[^\\S\\r\\n]*(?:\\r?\\n))((?:    [^\\r\\n]*(?:\\r?\\n|$))*)`, "mu");
-  const match = section.exec(body);
-  if (!match) throw new Error(`Missing ${block} block in harness.yaml settings facet.`);
-  const replaced = replaceScalar(match[2]!, "    ", key, value);
-  return `${body.slice(0, match.index)}${match[1]}${replaced}${body.slice(match.index + match[0].length)}`;
-}
-
-function replaceDefaultedBlockScalar(
-  body: string,
-  block: string,
-  key: string,
-  value: string,
-  fallback: string,
-): string {
-  if (settingBlockValue(body, block, key) === undefined && value === fallback) return body;
-  return replaceBlockScalar(body, block, key, value);
 }

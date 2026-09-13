@@ -65,7 +65,6 @@ import {
   type DaemonDecisionListResult,
   type DaemonGuiReadResultMap,
   type DaemonRelationGraphFacetPayload,
-  type DaemonTaskDispatchesPayload,
   type CanonicalRoot,
 } from "./protocol/daemon-protocol.contract.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
@@ -101,6 +100,7 @@ import type { RepoBootstrapReceipt } from "./repo-bootstrap.ts";
 import { explainAuthenticationRequired, readTaskActionExplanation } from "./task-action-explanation-read.ts";
 import { commitRuntimeSessionAction } from "./runtime-session-action-runtime.ts";
 import { readTaskWipSnapshot, type TaskQueryCell } from "./repo-cell-task-query.ts";
+import { agendaQueryFromPayload, taskDispatchesPayloadFromCell } from "./repo-cell-read-payloads.ts";
 
 export interface RepoCellApiContext {
   readonly extracted: RepoCellOperationalContext;
@@ -575,7 +575,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
       });
     },
     "repo.agenda.read": (payload: Readonly<Record<string, unknown>>) =>
-      queryRead().agenda(agendaQueryFromPayload(payload)),
+      queryRead().agenda(agendaQueryFromPayload(context, payload)),
     "repo.triadic.relationGraph": (payload: Readonly<Record<string, unknown>>) => relationGraphFromPayload(payload),
     "repo.agent.entities.list": () =>
       readAgentEntityGuiProjection({
@@ -624,7 +624,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
       readTaskDispatches({
         rootDir: context.rootDir,
         projection: context.projection,
-        ...taskDispatchesPayloadFromCell(payload),
+        ...taskDispatchesPayloadFromCell(context, payload),
       }),
   } satisfies DaemonGuiReadHandlers;
   function decisionListFromPayload(payload: Readonly<Record<string, unknown>>): DaemonDecisionListResult {
@@ -700,22 +700,6 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
       ...(common.cursor ? { cursor: common.cursor } : {}),
     };
   }
-  function agendaQueryFromPayload(payload: Readonly<Record<string, unknown>>): {
-    readonly limit?: number;
-    readonly cursor?: string;
-  } {
-    if (
-      Object.keys(payload).some((field) => field !== "limit" && field !== "cursor") ||
-      (payload.limit !== undefined &&
-        (!Number.isSafeInteger(payload.limit) || Number(payload.limit) < 1 || Number(payload.limit) > 500)) ||
-      (payload.cursor !== undefined && (typeof payload.cursor !== "string" || !payload.cursor))
-    )
-      throw context.cellCodedError("invalid_command", "Agenda accepts --limit 1..500 and a non-empty cursor only.");
-    return {
-      ...(payload.limit === undefined ? {} : { limit: Number(payload.limit) }),
-      ...(typeof payload.cursor === "string" ? { cursor: payload.cursor } : {}),
-    };
-  }
   /**
    * The single serving point for every named use-case projection. Selector admission happens once,
    * in `admitUseCaseProjectionSelector`, so an unknown name, an inadmissible facet and a smuggled
@@ -750,27 +734,6 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
         ),
       };
     return { ...envelope, projection: context.runtimeReads.sessionGroups(selector) };
-  }
-  function taskDispatchesPayloadFromCell(payload: Readonly<Record<string, unknown>>): DaemonTaskDispatchesPayload {
-    if (!Array.isArray(payload.taskIds)) return { taskId: context.requiredCellText(payload.taskId, "taskId") };
-    const taskIds = payload.taskIds.map((taskId) => context.requiredCellText(taskId, "taskIds[]")),
-      limit = payload.limit === undefined ? undefined : Number(payload.limit),
-      cursor = payload.cursor === undefined ? undefined : context.requiredCellText(payload.cursor, "cursor");
-    if (
-      taskIds.length === 0 ||
-      taskIds.length > 500 ||
-      new Set(taskIds).size !== taskIds.length ||
-      (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 1 || limit > 500))
-    )
-      throw context.cellCodedError(
-        "invalid_command",
-        "Task dispatch batch requires 1..500 unique task ids and an optional limit of 1..500.",
-      );
-    return {
-      taskIds,
-      ...(limit === undefined ? {} : { limit }),
-      ...(cursor === undefined ? {} : { cursor }),
-    };
   }
   function taskListQueryFromAction(action: RepoTaskAction): TaskProjectionListQuery {
     return taskListQueryFromPayload(action);
