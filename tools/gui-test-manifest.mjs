@@ -51,6 +51,7 @@ export const guiVitestManifest = [
   "packages/gui/test/navigation-history.vitest.ts",
   "packages/gui/test/entity-detail-routes.vitest.ts",
   "packages/gui/test/entity-detail-view.vitest.ts",
+  "packages/gui/test/ego-camera-viewport.vitest.ts",
   "packages/gui/test/ego-neighborhood.vitest.ts",
   "packages/gui/test/graph-view-regression.vitest.ts",
   "packages/gui/test/graph-multi-entity.vitest.ts",
