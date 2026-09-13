@@ -16,7 +16,8 @@ import { taskExecutionProtocolCommands } from "./daemon-protocol-commands-task.t
 import { peopleProtocolCommands } from "./daemon-protocol-commands-people.ts";
 import { ciObservationProtocolCommands } from "./daemon-protocol-commands-ci.ts";
 import { relationProtocolCommands } from "./daemon-protocol-commands-relation.ts";
-import { daemonGuiActionMethods } from "./daemon-protocol-gui-actions.ts";
+import { daemonGuiActionMethods, daemonStreamFacets } from "./daemon-protocol-gui-actions.ts";
+import { daemonGuiReadMethods } from "./daemon-protocol-gui-reads.ts";
 import { DaemonProtocolContractError, type JsonObject } from "./json-rpc-types.ts";
 
 const settingsWriteTopology = {
@@ -213,3 +214,13 @@ const commandDescriptorByActionKind: ReadonlyMap<string, (typeof daemonProtocolC
   presetCommandByMethod: ReadonlyMap<string, (typeof presetCommands)[number]> = new Map(
     presetCommands.map((entry) => [entry.method, entry]),
   );
+
+// Method-name sets consumed by the RPC validation entry; built once beside the descriptor maps.
+export const daemonGuiReadMethodNames: ReadonlySet<string> = new Set(daemonGuiReadMethods.map((entry) => entry.method)),
+  daemonGuiActionMethodNames: ReadonlySet<string> = new Set(daemonGuiActionMethods.map((entry) => entry.method)),
+  daemonStreamMethodNames: ReadonlySet<string> = new Set(daemonStreamFacets.map((entry) => entry.method)),
+  decisionAdjudicationMethods: ReadonlySet<string> = new Set([
+    "repo.decision.accept",
+    "repo.decision.reject",
+    "repo.decision.defer",
+  ]);

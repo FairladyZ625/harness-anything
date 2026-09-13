@@ -1,5 +1,9 @@
-import { daemonGuiActionMethods, daemonStreamFacets } from "./daemon-protocol-gui-actions.ts";
-import { daemonGuiReadMethods } from "./daemon-protocol-gui-reads.ts";
+import {
+  daemonGuiActionMethodNames,
+  daemonGuiReadMethodNames,
+  daemonStreamMethodNames,
+  decisionAdjudicationMethods,
+} from "./daemon-protocol-commands.ts";
 import {
   admitUseCaseProjectionSelector,
   validateShape,
@@ -35,15 +39,6 @@ import {
 } from "./json-rpc-types.ts";
 
 export { DaemonProtocolContractError, validateSessionEnvironment };
-
-const daemonGuiReadMethodNames: ReadonlySet<string> = new Set(daemonGuiReadMethods.map((entry) => entry.method)),
-  daemonGuiActionMethodNames: ReadonlySet<string> = new Set(daemonGuiActionMethods.map((entry) => entry.method)),
-  daemonStreamMethodNames: ReadonlySet<string> = new Set(daemonStreamFacets.map((entry) => entry.method)),
-  decisionAdjudicationMethods: ReadonlySet<string> = new Set([
-    "repo.decision.accept",
-    "repo.decision.reject",
-    "repo.decision.defer",
-  ]);
 
 export function isDaemonGuiReadMethod(method: string): method is DaemonGuiRpcReadMethod {
   return daemonGuiReadMethodNames.has(method);
