@@ -114,16 +114,21 @@ export async function dispatchCompletionReview(
       });
     if (authorizationDecision.outcome !== "allowed")
       throw cell.cellCodedError("authorization_denied", authorizationDecision.nextActions.join(" "));
-    // Already inside the center queue. Only launch admission is awaited; provider completion is not.
+    // Already inside the center queue. Only launch admission is awaited; provider completion is not. A cell
+    // without a runtime route (no ready instance, no sealed daemon route) stops at the review gate like a
+    // missing reviewer would; it must not surface as an indeterminate publication.
     try {
       await cell.runtimeSpawner.spawn(payload, { ...binding, authorizationDecision });
     } catch (error) {
       if (
         !(error instanceof Error) ||
         !("code" in error) ||
-        !["agent_runtime_unavailable", "agent_model_unavailable", "runtime_model_not_ready"].includes(
-          String(error.code),
-        )
+        ![
+          "agent_runtime_unavailable",
+          "agent_model_unavailable",
+          "runtime_model_not_ready",
+          "runtime_preconditions_unavailable",
+        ].includes(String(error.code))
       )
         throw error;
       return {
