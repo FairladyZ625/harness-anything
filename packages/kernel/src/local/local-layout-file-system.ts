@@ -169,12 +169,16 @@ export const localContentObjectFileSystem = {
           closeSync(descriptor);
         }
       }
-      /* @gate-identity check-bypass-write-boundary/bypass-write-072 */
-      for (const object of temporaryObjects) renameSync(object.temporary, object.target);
+      for (const object of temporaryObjects) {
+        /* @gate-identity check-bypass-write-boundary/bypass-write-072 */
+        renameSync(object.temporary, object.target);
+      }
       syncDirectories([...directories]);
     } catch (error) {
-      /* @gate-identity check-bypass-write-boundary/bypass-write-110 */
-      for (const object of temporaryObjects) rmSync(object.temporary, { force: true });
+      for (const object of temporaryObjects) {
+        /* @gate-identity check-bypass-write-boundary/bypass-write-110 */
+        rmSync(object.temporary, { force: true });
+      }
       throw error;
     }
   },
