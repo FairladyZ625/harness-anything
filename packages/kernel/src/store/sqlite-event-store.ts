@@ -8,11 +8,14 @@ import {
 import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 import { resolveHarnessLayout, type HarnessLayoutInput } from "../layout/index.ts";
 import { localRuntimeStateFileSystem } from "../local/local-layout-file-system.ts";
-import { localContentObjectFileSystem } from "../local/local-layout-file-system.ts";
 import { replayClaim, replayRelease, replayRenew } from "../projection/rebuildable-task-projection-runtime.ts";
 import { TaskEventStoreError } from "./task-event-store-types.ts";
 import type { CanonicalContentBlob } from "./task-event-store-types.ts";
-import { contentClaims } from "./task-event-store-claims-layout.ts";
+import {
+  listContentObjectDigests,
+  prepareContentObjects,
+  readContentObject,
+} from "./task-event-store-claims-layout.ts";
 import { consumeKnownError } from "../error-consumption.ts";
 
 export const SQLITE_LEDGER_GENERATION = 1;
@@ -765,53 +768,25 @@ function readEventRows(query: SqliteQuery): readonly SqliteEventRow[] {
   );
 }
 
-function readOutcomes(db: DatabaseSync, query: SqliteQuery): readonly SqliteCommandOutcome[] {
-  return query("SELECT op_id FROM command_outcome ORDER BY rowid").map(
-    (row) => readOutcome(db, query, String(row.op_id))!,
-  );
-}
-
-function prepareContentObjects(
-  objectRoot: string,
-  events: readonly CanonicalEventV1[],
-  blobs: readonly CanonicalContentBlob[],
-): void {
-  const supplied = new Map(blobs.map((blob) => [blob.sha256, blob]));
-  for (const event of events) {
-    for (const claim of contentClaims(event)) {
-      const target = objectPath(objectRoot, claim.sha256);
-      if (localContentObjectFileSystem.exists(target)) continue;
-      const blob = supplied.get(claim.sha256),
-        bytes = blob === undefined ? null : typeof blob.body === "string" ? Buffer.from(blob.body) : blob.body;
-      if (!blob || !bytes || blob.size !== claim.size || bytes.byteLength !== claim.size)
-        throw new TaskEventStoreError("invalid_write_plan", `event content object ${claim.sha256} is missing`);
-      localContentObjectFileSystem.replace(target, bytes);
+function readOutcomes(_db: DatabaseSync, query: SqliteQuery): readonly SqliteCommandOutcome[] {
+  const rows = query(
+      "SELECT outcome.rowid AS outcome_rowid, outcome.*, event.op_id AS member_op_id " +
+        "FROM command_outcome outcome LEFT JOIN event " +
+        "ON event.revision BETWEEN outcome.first_revision AND outcome.last_revision " +
+        "ORDER BY outcome.rowid, event.revision",
+    ),
+    outcomes = new Map<number, SqliteCommandOutcome>();
+  for (const row of rows) {
+    const rowid = Number(row.outcome_rowid),
+      current = outcomes.get(rowid),
+      memberOpIds = row.member_op_id === null ? [] : [String(row.member_op_id)];
+    if (current) {
+      outcomes.set(rowid, { ...current, memberOpIds: [...current.memberOpIds, ...memberOpIds] });
+      continue;
     }
+    outcomes.set(rowid, outcomeFromRow(row, memberOpIds));
   }
-}
-
-function objectPath(objectRoot: string, sha256: string): string {
-  if (!/^[0-9a-f]{64}$/u.test(sha256)) throw new Error("content object hash is invalid");
-  return path.join(objectRoot, sha256.slice(0, 2), sha256.slice(2));
-}
-
-function readContentObject(objectRoot: string, sha256: string): Uint8Array | null {
-  const target = objectPath(objectRoot, sha256);
-  return localContentObjectFileSystem.exists(target) ? localContentObjectFileSystem.readBytes(target) : null;
-}
-
-function listContentObjectDigests(objectRoot: string): readonly string[] {
-  if (!localContentObjectFileSystem.exists(objectRoot)) return [];
-  return localContentObjectFileSystem
-    .readNames(objectRoot)
-    .filter((prefix) => /^[0-9a-f]{2}$/u.test(prefix))
-    .flatMap((prefix) =>
-      localContentObjectFileSystem
-        .readNames(path.join(objectRoot, prefix))
-        .filter((name) => /^[0-9a-f]{62}$/u.test(name))
-        .map((name) => `${prefix}${name}`),
-    )
-    .sort();
+  return [...outcomes.values()];
 }
 
 function readOutcome(db: DatabaseSync, query: SqliteQuery, opId: string): SqliteCommandOutcome | null {
@@ -823,6 +798,10 @@ function readOutcome(db: DatabaseSync, query: SqliteQuery, opId: string): Sqlite
     )
     .get(opId);
   if (!row) return null;
+  return outcomeFromRow(row, outcomeMemberOpIds(query, row));
+}
+
+function outcomeFromRow(row: Record<string, unknown>, memberOpIds: readonly string[]): SqliteCommandOutcome {
   return {
     opId: String(row.op_id),
     status: row.status as SqliteCommandOutcome["status"],
@@ -832,7 +811,7 @@ function readOutcome(db: DatabaseSync, query: SqliteQuery, opId: string): Sqlite
     summary: String(row.intent_summary),
     rejectionCode: row.rejection_code === null ? null : String(row.rejection_code),
     recordedAt: String(row.recorded_at),
-    memberOpIds: outcomeMemberOpIds(query, row),
+    memberOpIds,
   };
 }
 

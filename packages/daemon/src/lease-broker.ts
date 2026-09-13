@@ -12,14 +12,13 @@
 // Every grant decision and its domain write runs behind a per-task gate, so an
 // asynchronous domain probe can never act on a stale mirror snapshot and a
 // concurrent first-grab queues instead of racing the winner.
-import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { consumeKnownError, getExecutableEntityAction, sha256Text, stableStringify } from "../../kernel/src/index.ts";
 import type { DaemonHost } from "./daemon-host.ts";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
 import { FLEET_TASK_COMMAND_KINDS, type FleetFrameV1, type FleetTaskAction } from "./fleet/contract.ts";
 import type { FleetAssignmentRecord } from "./fleet/center.ts";
-import { writeFileDurably } from "./durable-file.ts";
+import { loadBrokerReceipts, loadBrokerState, writeBrokerFile } from "./lease-broker-state.ts";
 
 export interface FleetLeaseTimers {
   readonly orphanTimeoutMs: number;
@@ -77,7 +76,7 @@ export interface FleetLeaseBroker {
   readonly reapOnce: () => Promise<void>;
   readonly close: () => void;
 }
-type LeaseRow = {
+export type LeaseRow = {
   readonly assignment: FleetAssignmentRecord;
   readonly executionId: string | null;
   readonly expiresAt: string;
@@ -86,7 +85,7 @@ type LeaseRow = {
 // A queued command keeps the task-document bundle it arrived with, so a later
 // grant re-executes the same combined push (same opId digest) rather than a
 // bare transition that would silently drop the carried documents.
-type WaitItem = {
+export type WaitItem = {
   readonly opId: string;
   readonly seq: number;
   readonly assignment: FleetAssignmentRecord;
@@ -111,22 +110,22 @@ export interface FleetTaskDocs {
     | null;
   readonly mirrorBaseCut: { readonly revision: number; readonly headDigest: string } | null;
 }
-type BrokerState = {
+export type BrokerState = {
   seq: number;
   leases: Record<string, LeaseRow>;
   queue: Record<string, readonly WaitItem[]>;
-  receipts: Record<
-    string,
-    {
-      readonly digest: string;
-      readonly outcome: "applied" | "op_rejected";
-      readonly code: string | null;
-      readonly revision: number | null;
-      readonly receipt: Readonly<Record<string, unknown>> | null;
-      readonly at: string;
-    }
-  >;
 };
+export type BrokerReceipts = Record<
+  string,
+  {
+    readonly digest: string;
+    readonly outcome: "applied" | "op_rejected";
+    readonly code: string | null;
+    readonly revision: number | null;
+    readonly receipt: Readonly<Record<string, unknown>> | null;
+    readonly at: string;
+  }
+>;
 type DomainLease = {
   readonly executionId: string;
   readonly sourceJson: string;
@@ -157,7 +156,9 @@ export function openFleetLeaseBroker(options: {
 }): FleetLeaseBroker {
   const timers = fleetLeaseTimers(options.env),
     stateFile = path.join(options.stateRoot, "leases.json"),
-    state = loadBrokerState(stateFile);
+    receiptFile = path.join(options.stateRoot, "lease-receipts.json"),
+    state = loadBrokerState(stateFile),
+    receipts = loadBrokerReceipts(receiptFile);
   const parks = new Map<string, ParkRegistration>(),
     queuedByOpId = new Map<string, { readonly key: string; readonly item: WaitItem }>(),
     inFlight = new Set<string>(),
@@ -171,6 +172,7 @@ export function openFleetLeaseBroker(options: {
       return { repoId: key.slice(0, at), taskId: key.slice(at + 1) };
     };
   const persist = (): void => writeDurableJson(stateFile, state),
+    persistReceipts = (): void => writeDurableJson(receiptFile, { receipts }),
     auth =
       options.auth ??
       ((assignment: FleetAssignmentRecord) => ({ transportKind: "fleet-tls" as const, assignmentBinding: assignment }));
@@ -386,12 +388,9 @@ export function openFleetLeaseBroker(options: {
     revision: number | null,
     receipt: Readonly<Record<string, unknown>> | null,
   ): void {
-    state.receipts[opId] = { digest, outcome, code, revision, receipt, at: options.now() };
-    for (const stale of Object.keys(state.receipts).slice(
-      0,
-      Math.max(0, Object.keys(state.receipts).length - RECEIPT_RING),
-    ))
-      delete state.receipts[stale];
+    receipts[opId] = { digest, outcome, code, revision, receipt, at: options.now() };
+    for (const stale of Object.keys(receipts).slice(0, Math.max(0, Object.keys(receipts).length - RECEIPT_RING)))
+      delete receipts[stale];
   }
   function receiptPayload(receipt: Readonly<Record<string, unknown>> | null): Readonly<Record<string, unknown>> | null {
     if (!receipt) return null;
@@ -503,6 +502,7 @@ export function openFleetLeaseBroker(options: {
       fleetReceipt,
     );
     persist();
+    persistReceipts();
     return {
       outcome: applied ? "applied" : "op_rejected",
       opId,
@@ -569,7 +569,7 @@ export function openFleetLeaseBroker(options: {
         ? { docChanges: frame.docChanges, mirrorBaseCut: frame.mirrorBaseCut }
         : null;
     const digest = digestFor(assignment, action, docs);
-    const replay = state.receipts[frame.opId];
+    const replay = receipts[frame.opId];
     if (replay)
       return replay.digest === digest
         ? {
@@ -624,7 +624,7 @@ export function openFleetLeaseBroker(options: {
           persist();
         } else return { parked: parkOn(key, queuedElsewhere.item, clientGone) };
       }
-      const replayAfterLock = state.receipts[frame.opId];
+      const replayAfterLock = receipts[frame.opId];
       if (replayAfterLock)
         return {
           result:
@@ -878,22 +878,6 @@ function normalizeTaskAssignment(value: FleetAssignmentRecord | null): FleetAssi
       }
     : null;
 }
-function loadBrokerState(file: string): BrokerState {
-  if (!existsSync(file)) return { seq: 0, leases: {}, queue: {}, receipts: {} };
-  const value = JSON.parse(readFileSync(file, "utf8")) as BrokerState & Record<string, unknown>;
-  if (
-    value.schema !== "fleet-lease-state/v1" ||
-    typeof value.seq !== "number" ||
-    value.leases === null ||
-    typeof value.leases !== "object" ||
-    value.queue === null ||
-    typeof value.queue !== "object" ||
-    value.receipts === null ||
-    typeof value.receipts !== "object"
-  )
-    throw new Error("Fleet lease broker state contains an unrecognized shape");
-  return { seq: value.seq, leases: value.leases, queue: value.queue, receipts: value.receipts };
-}
 function writeDurableJson(file: string, value: unknown): void {
-  writeFileDurably(file, `${JSON.stringify({ schema: "fleet-lease-state/v1", ...(value as object) })}\n`);
+  writeBrokerFile(file, value as object);
 }

@@ -128,6 +128,7 @@ function offlineConverterFence(repoId: string) {
 
 function planConversion(source: SqliteEventStore) {
   const rows = source.eventRows(),
+    outcomes = source.outcomes(),
     events: CanonicalEventV1[] = [],
     mappings: GenerationConversionMapping[] = [],
     installations = new Map<string, string>();
@@ -213,7 +214,7 @@ function planConversion(source: SqliteEventStore) {
   const sourceSnapshot = {
     metadata: source.metadata(),
     rows,
-    outcomes: source.outcomes(),
+    outcomes,
     objects: source.contentObjectDigests(),
   };
   const sourceDigest = `sha256:${sha256Text(stableStringify(sourceSnapshot))}`;
@@ -232,7 +233,7 @@ function planConversion(source: SqliteEventStore) {
     ready: mappings.every((row) => row.disposition !== "unsupported"),
     mappings,
   };
-  assertOutcomeCoverage(source, rows);
+  assertOutcomeCoverage(outcomes, rows);
   return { plan, events, rows };
 }
 
@@ -305,9 +306,9 @@ function historicalContentClaims(event: CanonicalEventV1, source: SqliteEventSto
   return [...result.values()].sort((a, b) => a.sha256.localeCompare(b.sha256));
 }
 
-function assertOutcomeCoverage(source: SqliteEventStore, rows: readonly SqliteEventRow[]) {
+function assertOutcomeCoverage(outcomes: ReturnType<SqliteEventStore["outcomes"]>, rows: readonly SqliteEventRow[]) {
   const covered = new Set<number>();
-  for (const outcome of source.outcomes()) {
+  for (const outcome of outcomes) {
     if (outcome.firstRevision === null && outcome.lastRevision === null) continue;
     if (
       outcome.status !== "accepted_durable" ||
@@ -343,7 +344,8 @@ function convert(
     byOpId = new Map(plan.mappings.map((mapping) => [mapping.sourceOpId, mapping]));
   try {
     destination.claimWriter(fence);
-    for (const outcome of source.outcomes()) {
+    const outcomes = source.outcomes();
+    for (const outcome of outcomes) {
       const members = mappedMembers(byOpId, outcome.memberOpIds),
         converted = members.map((mapping) => events[mapping.destinationRevision! - 1]!),
         blobs = converted.flatMap((event, index) =>
@@ -395,6 +397,8 @@ function verify(
     retained = openSqliteEventStore({ repoId: plan.repoId, rootInput: root, generation: 1, readOnly: true }),
     byOpId = new Map(plan.mappings.map((mapping) => [mapping.sourceOpId, mapping]));
   try {
+    const sourceOutcomes = source.outcomes(),
+      destinationOutcomes = destination.outcomes();
     if (stableStringify(planConversion(retained).plan) !== stableStringify(plan))
       throw new Error("retained generation differs from immutable source");
     const report = JSON.parse(files.readText(`${sqliteLedgerPath(root, 2)}.conversion.json`));
@@ -420,8 +424,8 @@ function verify(
           throw new Error(`converted content closure differs: ${claim.sha256}`);
       }
     }
-    if (destination.outcomes().length !== source.outcomes().length) throw new Error("command outcome count differs");
-    for (const original of source.outcomes()) {
+    if (destinationOutcomes.length !== sourceOutcomes.length) throw new Error("command outcome count differs");
+    for (const original of sourceOutcomes) {
       const members = mappedMembers(byOpId, original.memberOpIds),
         result = destination.outcome(original.opId),
         expected = {
@@ -483,7 +487,7 @@ function verify(
       sourceEvents: rows.length,
       convertedEvents: actual.length,
       retainedEvents: plan.retainedEvents,
-      commandOutcomes: destination.outcomes().length,
+      commandOutcomes: destinationOutcomes.length,
       contentObjects: destination.contentObjectDigests().length,
       recordedAtPreserved: true as const,
     };
