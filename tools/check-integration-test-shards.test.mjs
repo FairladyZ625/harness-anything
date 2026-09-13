@@ -8,7 +8,7 @@ import test from "node:test";
 import {
   checkIntegrationTestShards,
   validateIntegrationShardRequiredContexts,
-  validateIntegrationShardWorkflowMatrix
+  validateIntegrationShardWorkflowMatrix,
 } from "./check-integration-test-shards.mjs";
 import { assignIntegrationTestShards, validateIntegrationTestShards } from "./integration-test-shards.mjs";
 
@@ -23,7 +23,7 @@ test("integration shard declaration is non-overlapping and complete", () => {
     "integration-shard (3)",
     "integration-shard (4)",
     "integration-shard (5)",
-    "integration-shard (6)"
+    "integration-shard (6)",
   ]);
   assert.equal(result.summaries.length, 6);
   assert.ok(result.summaries.every((summary) => summary.files > 0));
@@ -31,14 +31,19 @@ test("integration shard declaration is non-overlapping and complete", () => {
 
 test("new integration tests are assigned without manifest or shard registration", () => {
   const files = ["tools/z.test.mjs", "tools/a.test.mjs", "tools/new.test.mjs"];
-  const shards = assignIntegrationTestShards(files, {
-    "tools/a.test.mjs": 10,
-    "tools/z.test.mjs": 20
-  }, 2, 5);
+  const shards = assignIntegrationTestShards(
+    files,
+    {
+      "tools/a.test.mjs": 10,
+      "tools/z.test.mjs": 20,
+    },
+    2,
+    5,
+  );
 
   assert.deepEqual(shards, [
     { id: 1, files: ["tools/z.test.mjs"] },
-    { id: 2, files: ["tools/a.test.mjs", "tools/new.test.mjs"] }
+    { id: 2, files: ["tools/a.test.mjs", "tools/new.test.mjs"] },
   ]);
 });
 
@@ -54,7 +59,7 @@ test("a new inline-declared integration test is discovered without central regis
       repoRoot: root,
       weightOverrides: {},
       previousTestCount: 6,
-      deletionAllowlistText: deletionAllowlistText()
+      deletionAllowlistText: deletionAllowlistText(),
     });
     assert.equal(result.ok, true, result.errors.join("\n"));
     assert.equal(result.delta, 1);
@@ -73,15 +78,14 @@ test("default shard assignment is deterministic across discovery order", () => {
 });
 
 test("integration shard validation rejects duplicate inputs and stale weight overrides", () => {
-  const result = validateIntegrationTestShards(
-    ["tools/a.test.mjs", "tools/a.test.mjs"],
-    { "tools/missing.test.mjs": 10 }
-  );
+  const result = validateIntegrationTestShards(["tools/a.test.mjs", "tools/a.test.mjs"], {
+    "tools/missing.test.mjs": 10,
+  });
   assert.equal(result.ok, false);
   assert.deepEqual(result.errors, [
     "integration manifest contains duplicate files",
     "integration weight references non-integration file: tools/missing.test.mjs",
-    "derived integration shard is empty"
+    "derived integration shard is empty",
   ]);
 });
 
@@ -104,13 +108,16 @@ test("integration count ratchet rejects a real deleted test file from disk", () 
     unlinkSync(path.join(testRoot, "fixture-7.test.mjs"));
     const after = checkIntegrationTestShards({
       repoRoot: root,
-      weightOverrides: {}
+      weightOverrides: {},
     });
     assert.equal(after.ok, false);
     assert.equal(after.currentCount, 6);
     assert.equal(after.previousCount, 7);
     assert.equal(after.delta, -1);
-    assert.match(after.errors.join("\n"), /integration test count decreased without path confirmation: current=6 previous=7 delta=-1/u);
+    assert.match(
+      after.errors.join("\n"),
+      /integration test count decreased without path confirmation: current=6 previous=7 delta=-1/u,
+    );
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -133,20 +140,61 @@ test("integration count ratchet accepts an intentional deletion with a new exact
     git(root, ["commit", "-qm", "register integration tests"]);
 
     unlinkSync(path.join(testRoot, "fixture-7.test.mjs"));
-    writeDeletionAllowlist(root, [{
-      value: "tools/fixture-7.test.mjs",
-      ref: "task_01KX815CJ22WY13QCR0Q3HX4F9",
-      reason: "The fixture models an explicitly reviewed removal."
-    }]);
+    writeDeletionAllowlist(root, [
+      {
+        value: "tools/fixture-7.test.mjs",
+        ref: "task_01KX815CJ22WY13QCR0Q3HX4F9",
+        reason: "The fixture models an explicitly reviewed removal.",
+      },
+    ]);
     const after = checkIntegrationTestShards({
       repoRoot: root,
-      weightOverrides: {}
+      weightOverrides: {},
     });
 
     assert.equal(after.ok, true, after.errors.join("\n"));
     assert.equal(after.delta, -1);
     assert.deepEqual(after.deletedFiles, ["tools/fixture-7.test.mjs"]);
     assert.deepEqual(after.confirmedDeletions, ["tools/fixture-7.test.mjs"]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("integration deletion confirmations require exact real task ids", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-integration-task-ref-"));
+  try {
+    const testRoot = path.join(root, "tools");
+    mkdirSync(testRoot, { recursive: true });
+    for (let index = 1; index <= 7; index += 1) {
+      writeFileSync(path.join(testRoot, `fixture-${index}.test.mjs`), "// harness-test-tier: integration\n", "utf8");
+    }
+    writeDeletionAllowlist(root);
+    git(root, ["init", "-q"]);
+    git(root, ["config", "user.name", "Harness Test"]);
+    git(root, ["config", "user.email", "harness@example.test"]);
+    git(root, ["add", "tools"]);
+    git(root, ["commit", "-qm", "register integration tests"]);
+    unlinkSync(path.join(testRoot, "fixture-7.test.mjs"));
+
+    for (const ref of [
+      "task_P4_INT",
+      "task_2301",
+      "task_0123456789abcdef012345678",
+      "task_01KX815CJ22WY13QCR0Q3HX4F9",
+      "task_f7cc215a54a194898ad733c20a",
+    ]) {
+      writeDeletionAllowlist(root, [
+        {
+          value: "tools/fixture-7.test.mjs",
+          ref,
+          reason: "The fixture models an explicitly reviewed removal.",
+        },
+      ]);
+      const result = checkIntegrationTestShards({ repoRoot: root, weightOverrides: {} });
+      const expectedValid = ["task_01KX815CJ22WY13QCR0Q3HX4F9", "task_f7cc215a54a194898ad733c20a"].includes(ref);
+      assert.equal(result.ok, expectedValid, `${ref}: ${result.errors.join("\n")}`);
+    }
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -160,11 +208,13 @@ test("an already-merged deletion confirmation does not burden an unrelated later
     for (let index = 1; index <= 6; index += 1) {
       writeFileSync(path.join(testRoot, `fixture-${index}.test.mjs`), "// harness-test-tier: integration\n", "utf8");
     }
-    writeDeletionAllowlist(root, [{
-      value: "tools/fixture-7.test.mjs",
-      ref: "task_01KX815CJ22WY13QCR0Q3HX4F9",
-      reason: "The prior change intentionally removed this fixture."
-    }]);
+    writeDeletionAllowlist(root, [
+      {
+        value: "tools/fixture-7.test.mjs",
+        ref: "task_P4_INT",
+        reason: "The prior change intentionally removed this fixture.",
+      },
+    ]);
 
     git(root, ["init", "-q"]);
     git(root, ["config", "user.name", "Harness Test"]);
@@ -172,10 +222,17 @@ test("an already-merged deletion confirmation does not burden an unrelated later
     git(root, ["add", "tools"]);
     git(root, ["commit", "-qm", "baseline after intentional deletion"]);
 
+    writeDeletionAllowlist(root, [
+      {
+        value: "tools/fixture-7.test.mjs",
+        ref: "task_01KX815CJ22WY13QCR0Q3HX4F9",
+        reason: "The prior change intentionally removed this fixture.",
+      },
+    ]);
     writeFileSync(path.join(root, "tools/unrelated.txt"), "later change\n", "utf8");
     const result = checkIntegrationTestShards({
       repoRoot: root,
-      weightOverrides: {}
+      weightOverrides: {},
     });
     assert.equal(result.ok, true, result.errors.join("\n"));
     assert.equal(result.delta, 0);
@@ -192,11 +249,13 @@ test("a persisted deletion confirmation is rejected if its path reappears", () =
     for (let index = 1; index <= 6; index += 1) {
       writeFileSync(path.join(testRoot, `fixture-${index}.test.mjs`), "// harness-test-tier: integration\n", "utf8");
     }
-    writeDeletionAllowlist(root, [{
-      value: "tools/fixture-7.test.mjs",
-      ref: "task_01KX815CJ22WY13QCR0Q3HX4F9",
-      reason: "The prior change intentionally removed this fixture."
-    }]);
+    writeDeletionAllowlist(root, [
+      {
+        value: "tools/fixture-7.test.mjs",
+        ref: "task_01KX815CJ22WY13QCR0Q3HX4F9",
+        reason: "The prior change intentionally removed this fixture.",
+      },
+    ]);
 
     git(root, ["init", "-q"]);
     git(root, ["config", "user.name", "Harness Test"]);
@@ -207,10 +266,13 @@ test("a persisted deletion confirmation is rejected if its path reappears", () =
     writeFileSync(path.join(testRoot, "fixture-7.test.mjs"), "// harness-test-tier: integration\n", "utf8");
     const result = checkIntegrationTestShards({
       repoRoot: root,
-      weightOverrides: {}
+      weightOverrides: {},
     });
     assert.equal(result.ok, false);
-    assert.match(result.errors.join("\n"), /intentional test deletion path exists on disk: tools\/fixture-7\.test\.mjs/u);
+    assert.match(
+      result.errors.join("\n"),
+      /intentional test deletion path exists on disk: tools\/fixture-7\.test\.mjs/u,
+    );
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -225,12 +287,16 @@ test("integration count ratchet fails closed when the Git baseline is unavailabl
   try {
     mkdirSync(path.join(root, "tools"), { recursive: true });
     for (let index = 1; index <= 6; index += 1) {
-      writeFileSync(path.join(root, "tools", `fixture-${index}.test.mjs`), "// harness-test-tier: integration\n", "utf8");
+      writeFileSync(
+        path.join(root, "tools", `fixture-${index}.test.mjs`),
+        "// harness-test-tier: integration\n",
+        "utf8",
+      );
     }
     const result = checkIntegrationTestShards({
       repoRoot: root,
       weightOverrides: {},
-      deletionAllowlistText: deletionAllowlistText()
+      deletionAllowlistText: deletionAllowlistText(),
     });
     assert.equal(result.ok, false);
     assert.match(result.errors.join("\n"), /unable to resolve previous integration test count from Git baseline/u);
@@ -242,18 +308,14 @@ test("integration count ratchet fails closed when the Git baseline is unavailabl
 function writeDeletionAllowlist(root, entries = []) {
   const allowlistRoot = path.join(root, "tools/gate-allowlists");
   mkdirSync(allowlistRoot, { recursive: true });
-  writeFileSync(
-    path.join(allowlistRoot, "check-integration-test-shards.json"),
-    deletionAllowlistText(entries),
-    "utf8"
-  );
+  writeFileSync(path.join(allowlistRoot, "check-integration-test-shards.json"), deletionAllowlistText(entries), "utf8");
 }
 
 function deletionAllowlistText(entries = []) {
   return JSON.stringify({
     schema: "harness-anything/gate-allowlist/v1",
     gateId: "check-integration-test-shards",
-    entries: { intentionalTestDeletions: entries }
+    entries: { intentionalTestDeletions: entries },
   });
 }
 
@@ -265,12 +327,12 @@ test("integration shard checker rejects workflow matrix drift", () => {
     "      matrix:",
     "        shard: [1, 2, 3, 4]",
     "  integration:",
-    "    needs: [integration-shard]"
+    "    needs: [integration-shard]",
   ].join("\n");
 
   assert.deepEqual(validateIntegrationShardWorkflowMatrix(workflow, 6), {
     shards: [1, 2, 3, 4],
-    errors: ["integration-shard workflow matrix mismatch: expected [1, 2, 3, 4, 5, 6], got [1, 2, 3, 4]"]
+    errors: ["integration-shard workflow matrix mismatch: expected [1, 2, 3, 4, 5, 6], got [1, 2, 3, 4]"],
   });
 });
 
@@ -280,11 +342,11 @@ test("integration shard checker requires exact workflow matrix ordering", () => 
     "  integration-shard:",
     "    strategy:",
     "      matrix:",
-    "        shard: [1, 3, 2, 4, 5, 6]"
+    "        shard: [1, 3, 2, 4, 5, 6]",
   ].join("\n");
 
   assert.deepEqual(validateIntegrationShardWorkflowMatrix(workflow, 6).errors, [
-    "integration-shard workflow matrix mismatch: expected [1, 2, 3, 4, 5, 6], got [1, 3, 2, 4, 5, 6]"
+    "integration-shard workflow matrix mismatch: expected [1, 2, 3, 4, 5, 6], got [1, 3, 2, 4, 5, 6]",
   ]);
 });
 
@@ -299,8 +361,8 @@ test("integration shard checker rejects gate manifest required context drift", (
             "integration-shard (2)",
             "integration-shard (3)",
             "integration-shard (4)",
-            "integration-shard (5)"
-          ]
+            "integration-shard (5)",
+          ],
         },
         executionSurfaces: {
           branchProtection: {
@@ -309,12 +371,12 @@ test("integration shard checker rejects gate manifest required context drift", (
               "integration-shard (2)",
               "integration-shard (3)",
               "integration-shard (4)",
-              "integration-shard (5)"
-            ]
-          }
-        }
-      }
-    ]
+              "integration-shard (5)",
+            ],
+          },
+        },
+      },
+    ],
   });
 
   assert.deepEqual(validateIntegrationShardRequiredContexts(gateManifest, 6), {
@@ -323,11 +385,11 @@ test("integration shard checker rejects gate manifest required context drift", (
       "integration-shard (2)",
       "integration-shard (3)",
       "integration-shard (4)",
-      "integration-shard (5)"
+      "integration-shard (5)",
     ],
     errors: [
       "test-integration githubContext.requiredContexts mismatch: expected [integration-shard (1), integration-shard (2), integration-shard (3), integration-shard (4), integration-shard (5), integration-shard (6)], got [integration-shard (1), integration-shard (2), integration-shard (3), integration-shard (4), integration-shard (5)]",
-      "test-integration executionSurfaces.branchProtection.contexts mismatch: expected [integration-shard (1), integration-shard (2), integration-shard (3), integration-shard (4), integration-shard (5), integration-shard (6)], got [integration-shard (1), integration-shard (2), integration-shard (3), integration-shard (4), integration-shard (5)]"
-    ]
+      "test-integration executionSurfaces.branchProtection.contexts mismatch: expected [integration-shard (1), integration-shard (2), integration-shard (3), integration-shard (4), integration-shard (5), integration-shard (6)], got [integration-shard (1), integration-shard (2), integration-shard (3), integration-shard (4), integration-shard (5)]",
+    ],
   });
 });

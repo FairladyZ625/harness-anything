@@ -92,6 +92,22 @@ test("kernel dead-export check rejects missing, invalid, and expired until dates
   }
 });
 
+test("kernel dead-export check allowlists require an exact real task id when citing a task", () => {
+  const root = makeFixtureRoot();
+  const policyRoot = mkdtempSync(path.join(tmpdir(), "ha-f8a-policy-"));
+  try {
+    writeKernel(root, ["export { unusedValue } from './symbols.ts';"], ["export const unusedValue = false;"]);
+    writeAllowlist(policyRoot, [{ value: "unusedValue", ref: "task_P4_INT", until: "2099-12-31" }]);
+
+    const result = runChecker(root, { env: { HARNESS_GATE_ALLOWLIST_DIR: policyRoot } });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /must cite an ADR, decision, or task id/u);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(policyRoot, { recursive: true, force: true });
+  }
+});
+
 function makeFixtureRoot() {
   const root = mkdtempSync(path.join(tmpdir(), "ha-f8a-dead-exports-"));
   mkdirSync(path.join(root, "packages/kernel/src"), { recursive: true });
@@ -137,7 +153,10 @@ function writeAllowlist(policyRoot, names) {
         entries: {
           zeroConsumptionExports: names.map((entry) => ({
             value: typeof entry === "string" ? entry : entry.value,
-            ref: "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
+            ref:
+              typeof entry === "string"
+                ? "task_01KWWCBRSV0V3AWTCM3ZZ1J998"
+                : (entry.ref ?? "task_01KWWCBRSV0V3AWTCM3ZZ1J998"),
             reason: "fixture allowlist entry",
             until: typeof entry === "string" ? "2099-12-31" : entry.until,
           })),

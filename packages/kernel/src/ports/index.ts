@@ -9,5 +9,5 @@ export type { ArtifactDocument, TaskPackageRead } from "./artifact-store.ts";
 export { TemplateLibrary } from "./template-library.ts";
 export type { Locale, TemplateRef, TemplateDocument } from "./template-library.ts";
 
-export { VersionControlSystem, VcsCommandError } from "./version-control-system.ts";
+export { VcsCommandError } from "./version-control-system.ts";
 export type { VcsCommitAuthor, VersionControlSystem as VersionControlSystemPort } from "./version-control-system.ts";
