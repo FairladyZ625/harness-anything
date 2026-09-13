@@ -8,6 +8,7 @@ import { pathToFileURL } from "node:url";
 import {
   evaluateCostBudget,
   evaluateG1WriteCostScaling,
+  G1_OPERATION_NAMES,
   measureCosts,
   measureG1WriteCostScaling,
   readCostFixture,
@@ -279,4 +280,11 @@ test("G1 rejects a budget file missing an operation the measurement covers", asy
     evaluateG1WriteCostScaling({ rootDir, measured }),
     /writeCostScaling\.baseline is missing operation op-b/u,
   );
+});
+
+test("G1 operation names are exactly the committed baseline's operations, the list the PR body lint accepts", () => {
+  const committed = JSON.parse(readFileSync(new URL("../cost-budget.json", import.meta.url), "utf8"));
+  assert.deepEqual(G1_OPERATION_NAMES, Object.keys(committed.writeCostScaling.baseline));
+  assert.ok(G1_OPERATION_NAMES.includes("agenda"));
+  assert.ok(Object.isFrozen(G1_OPERATION_NAMES));
 });
