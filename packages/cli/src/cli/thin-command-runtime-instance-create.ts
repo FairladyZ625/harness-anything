@@ -1,5 +1,7 @@
-import { builtInRuntimeProviderInputDeclaration } from "../../../daemon/src/protocol/daemon-protocol-commands-runtime-config.ts";
-import type { SafePath } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
+import {
+  builtInRuntimeProviderInputDeclaration,
+  type SafePath,
+} from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { accepted, readFlags, rejected } from "./thin-command-flags.ts";
 import type { ProtocolCommand, ThinParseResult } from "./thin-command-types.ts";
 

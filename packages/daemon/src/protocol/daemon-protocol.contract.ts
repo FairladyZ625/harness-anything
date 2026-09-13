@@ -36,6 +36,7 @@ export {
   reviewVerdictWords,
   taskStatusWords,
 };
+export { builtInRuntimeProviderInputDeclaration } from "./daemon-protocol-commands-runtime-config.ts";
 
 export const currentDaemonProtocolVersion = Object.freeze({ major: 1, minor: 0 }) satisfies ContractVersion;
 
