@@ -159,7 +159,9 @@ export async function proofFor(
       key = dispatch?.payload.idempotencyKey;
     if (key?.startsWith("complete-review:") && execution?.submission) {
       const currentKey = completionReviewKey(command.taskId, execution);
-      if (key !== currentKey && !key.startsWith(`${currentKey}:fallback:`))
+      // The current key ends in the fixed-length submission digest, so no earlier cut's key can be
+      // a strict prefix; everything past the ":" is fallback or retry provenance of the same cut.
+      if (key !== currentKey && !key.startsWith(`${currentKey}:`))
         throw cellCodedError(
           "invalid_proof",
           "This reviewer dispatch belongs to an earlier submission cut; run task complete for the current cut.",

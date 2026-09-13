@@ -1,5 +1,6 @@
-// Shared fixture for the completion-review integration suites: repo cell, reviewer launches,
-// and the controlled review/settlement helpers the task-completion tests drive.
+/** Shared fixture for completion-review dispatch tests: repo cell, fake reviewer providers,
+ * settlement drivers, and outcome polling. `failProvider` true fails every launch; a number
+ * fails only that many first launches, then hangs. */
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -8,6 +9,7 @@ import path from "node:path";
 import { makeTaskEventReader, type AgentDefinitionSnapshot } from "../../kernel/src/index.ts";
 import type { RuntimeInstanceSummary } from "../src/agent-runtime-instances.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { appendRuntimeWorkerRecord } from "../src/dispatch-stream.ts";
 import type { RuntimeProcess } from "../src/runtime-spawn-types.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
@@ -60,7 +62,7 @@ function git(root: string, ...args: string[]): string {
   return execFileSync("git", ["-C", root, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 }
 export async function fixture(
-  failProvider = false,
+  failProvider: boolean | number = false,
   available = true,
   artifactDelivery = false,
   noInstances = false,
@@ -81,7 +83,9 @@ export async function fixture(
     output?: (chunk: string) => void;
     exit?: (code: number | null) => void;
   }[] = [];
-  let instancesAvailable = available;
+  let instancesAvailable = available,
+    remainingProviderFailures =
+      typeof failProvider === "number" ? failProvider : failProvider ? Number.POSITIVE_INFINITY : 0;
   const open = () =>
     openRepoCell({
       repoId,
@@ -120,16 +124,25 @@ export async function fixture(
         cwd: request.cwd,
         prompt: request.prompt,
       }),
-      runtimeLaunch: (prepared): RuntimeProcess => {
+      runtimeLaunch: (prepared, persistence): RuntimeProcess => {
         launches.push({
           prompt: prepared.prompt,
           instanceId: prepared.definition.instanceId,
           model: prepared.definition.model,
         });
+        // The real launcher records its worker pid; without the record, post-restart adoption treats
+        // a still-live reviewer as lost.
+        appendRuntimeWorkerRecord(persistence.rootDir, persistence.dispatchId, {
+          kind: "process_started",
+          occurredAt: new Date().toISOString(),
+          pid: process.pid,
+        });
         const pending: (typeof pendingProviders)[number] = {};
         pendingProviders.push(pending);
         return {
-          pid: 987650 + launches.length,
+          // The fake provider never exits, so it reports a genuinely live pid: after a reopen,
+          // adoption must keep the session live instead of settling it lost.
+          pid: process.pid,
           onOutput: (listener) => {
             pending.output = listener;
           },
@@ -137,7 +150,8 @@ export async function fixture(
           terminate: () => undefined,
           onExit: (listener) => {
             pending.exit = listener;
-            if (failProvider)
+            if (remainingProviderFailures > 0) {
+              remainingProviderFailures -= 1;
               setImmediate(() => {
                 pending.output?.(
                   JSON.stringify({
@@ -147,6 +161,7 @@ export async function fixture(
                 );
                 pending.exit?.(1);
               });
+            }
           },
         };
       },
@@ -204,6 +219,17 @@ export async function fixture(
   );
   assert.equal((await run({ kind: "task-submit", taskId, executionId })).outcome, "applied");
   const events = () => makeTaskEventReader({ repoId, rootDir: root }).read().events;
+  const awaitOutcome = async (runtimeSessionId: string) => {
+    for (let attempt = 0; attempt < 500; attempt += 1) {
+      const outcome = events().find(
+        (event) =>
+          event.type === "runtime_session_outcome_observed" && event.payload.runtimeSessionId === runtimeSessionId,
+      );
+      if (outcome?.type === "runtime_session_outcome_observed") return outcome.payload.outcome;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    throw new Error(`runtime session ${runtimeSessionId} did not settle`);
+  };
   return {
     root,
     packagePath,
@@ -283,6 +309,27 @@ export async function fixture(
     },
     reportPath: (dispatchId: string) =>
       path.join(root, "harness", packagePath, "artifacts", "reports", `${dispatchId}.md`),
+    cancel: (runtimeSessionId: string) => cell.cancelRuntime({ runtimeSessionId }, owner),
+    awaitOutcome,
+    failPending: () => {
+      const pending = pendingProviders.at(-1)!;
+      pending.output?.(
+        `${JSON.stringify({
+          type: "turn.failed",
+          error: { http_status: 429, code: "rate_limit", message: "HTTP 429 fixture capacity exhausted" },
+        })}\n`,
+      );
+      pending.exit?.(1);
+    },
+    bindPending: () => {
+      const pending = pendingProviders.at(-1)!;
+      pending.output?.(`${JSON.stringify({ type: "thread.started", thread_id: "review-provider-session" })}\n`);
+    },
+    waitForLaunches: async (count: number) => {
+      for (let attempt = 0; attempt < 500 && launches.length < count; attempt += 1)
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      assert.equal(launches.length >= count, true, `expected at least ${String(count)} reviewer launches`);
+    },
     settleReview: async (
       dispatchId: string,
       runtimeSessionId: string,
@@ -301,15 +348,7 @@ export async function fixture(
       );
       pending.output?.(`${JSON.stringify({ type: "turn.completed", usage: {} })}\n`);
       pending.exit?.(0);
-      for (let attempt = 0; attempt < 500; attempt += 1) {
-        const outcome = events().find(
-          (event) =>
-            event.type === "runtime_session_outcome_observed" && event.payload.runtimeSessionId === runtimeSessionId,
-        );
-        if (outcome?.type === "runtime_session_outcome_observed") return outcome.payload.outcome;
-        await new Promise((resolve) => setTimeout(resolve, 10));
-      }
-      throw new Error("reviewer runtime did not settle");
+      return awaitOutcome(runtimeSessionId);
     },
     close: async () => {
       await cell.close();

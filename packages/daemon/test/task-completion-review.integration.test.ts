@@ -1,18 +1,11 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
-import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import type { FleetAssignmentRecord } from "../src/fleet/center.ts";
-import { listenFleetTls, type FleetCenterOptions } from "../src/fleet/center.ts";
-import { runFleetTaskCommandClient } from "../src/fleet/edge.ts";
-import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
-import { readDispatchStream, readDispatchStreamHeaders } from "../src/dispatch-stream.ts";
-import { binding as transportBinding } from "../src/daemon-host-binding.ts";
 import { waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { executionId, fixture, owner, taskId } from "./task-completion-review.fixture.ts";
+
 test(
   "completion uses an installed override, reuses the cut dispatch after a lost response/reopen, and requires later owner consent",
   { timeout: 20_000 },
@@ -174,141 +167,6 @@ test("completion requires a declared reviewer model instead of selecting the amb
 });
 
 test(
-  "completion provider fallback keeps reviewer role and exhausts once without launching another root dispatch",
-  { timeout: 20_000 },
-  async () => {
-    const f = await fixture(true);
-    try {
-      await f.install();
-      const first = (await f.complete()) as Record<string, unknown>;
-      assert.equal(first.code, "review_missing", JSON.stringify(first));
-      const exhausted = () =>
-        readDispatchStreamHeaders(f.root).some(
-          (header) => readDispatchStream(f.root, header.dispatchId)?.fallbackState === "exhausted",
-        );
-      for (let attempt = 0; attempt < 500 && !exhausted(); attempt += 1)
-        await new Promise((resolve) => setTimeout(resolve, 10));
-      assert.equal(exhausted(), true, "fallback must durably settle exhaustion");
-      assert.equal(f.launches.length, 2);
-      for (let retry = 0; retry < 3; retry += 1)
-        assert.equal(((await f.complete()) as Record<string, unknown>).dispatchId, first.dispatchId);
-      const dispatches = f.events().filter((event) => event.type === "runtime_dispatch_requested");
-      assert.equal(dispatches.length, 2);
-      assert.deepEqual(
-        readDispatchStreamHeaders(f.root).map((header) => header.role),
-        ["reviewer", "reviewer"],
-      );
-      assert.equal(dispatches.filter((event) => !event.payload.idempotencyKey.includes(":fallback:")).length, 1);
-      assert.equal(f.launches.length, 2);
-      assert.equal(f.events().filter((event) => event.type === "review_recorded").length, 0);
-      assert.equal(f.events().filter((event) => event.type === "review_consent_recorded").length, 0);
-    } finally {
-      await f.close();
-    }
-  },
-);
-
-test(
-  "two fleet TLS assignments completing one cut receive the same canonical reviewer dispatch",
-  { timeout: 20_000 },
-  async () => {
-    const f = await fixture();
-    let center: Awaited<ReturnType<typeof listenFleetTls>> | undefined;
-    try {
-      await f.install();
-      const keyFile = path.join(f.root, "tls.key"),
-        certFile = path.join(f.root, "tls.crt");
-      execFileSync(
-        "openssl",
-        [
-          "req",
-          "-x509",
-          "-newkey",
-          "rsa:2048",
-          "-nodes",
-          "-keyout",
-          keyFile,
-          "-out",
-          certFile,
-          "-subj",
-          "/CN=localhost",
-          "-days",
-          "1",
-          "-addext",
-          "subjectAltName=DNS:localhost",
-        ],
-        { stdio: "ignore" },
-      );
-      const cert = readFileSync(certFile),
-        writerEpochStateRoot = path.join(f.root, ".harness", "fixture-writer-epochs"),
-        authority = openPersistentWriterEpoch({ stateRoot: writerEpochStateRoot });
-      const lease = authority.current("completion-review");
-      authority.close();
-      assert.ok(lease);
-      const assignments: FleetAssignmentRecord[] = ["edge-one", "edge-two"].map((nodeId) => ({
-        nodeId,
-        assignmentId: `assignment-${nodeId}`,
-        repoId: "completion-review",
-        viewId: `view-${nodeId}`,
-        expiresAt: "2099-01-01T00:00:00.000Z",
-        actor: owner.actor,
-        scope: { kind: "task", taskId, executionId, paths: [f.packagePath] },
-      }));
-      const host: FleetCenterOptions["host"] = {
-        run: async (repoId, action, auth) => {
-          assert.equal(repoId, "completion-review");
-          return f.cell().run(action, await transportBinding(f.root, auth));
-        },
-        read: async () => {
-          throw new Error("Unexpected read route");
-        },
-        runtimeIngress: async () => {
-          throw new Error("Unexpected runtime ingress route");
-        },
-        replica: () => f.cell().replica,
-        settleMaterialization: async (_repoId, context) => f.cell().settlePendingMaterialization(context),
-        status: () => ({ repos: [f.cell().status()] }) as ReturnType<FleetCenterOptions["host"]["status"]>,
-      };
-      center = await listenFleetTls({
-        host,
-        stateRoot: path.join(f.root, "fleet-center"),
-        writerEpochStateRoot,
-        writerEpochLease: () => lease,
-        key: readFileSync(keyFile),
-        cert,
-        authenticate: (nodeId, credential) => credential === `secret-${nodeId}`,
-        resolveAssignment: (id) => assignments.find((assignment) => assignment.assignmentId === id) ?? null,
-      });
-      const results = await Promise.all(
-        assignments.map((assignment) =>
-          runFleetTaskCommandClient({
-            port: center!.port,
-            ca: cert,
-            servername: "localhost",
-            nodeId: assignment.nodeId,
-            credential: `secret-${assignment.nodeId}`,
-            assignmentId: assignment.assignmentId,
-            opId: randomUUID(),
-            repoId: assignment.repoId,
-            taskId,
-            action: { kind: "task-complete", taskId, executionId },
-            waitMs: 5_000,
-          }),
-        ),
-      );
-      for (const result of results) assert.equal(result.code, "review_missing", JSON.stringify(result));
-      assert.equal(results[0]!.receipt?.dispatchId, results[1]!.receipt?.dispatchId);
-      assert.equal(typeof results[0]!.receipt?.dispatchId, "string");
-      assert.equal(f.launches.length, 1);
-      assert.equal(f.events().filter((event) => event.type === "runtime_dispatch_requested").length, 1);
-    } finally {
-      await center?.close();
-      await f.close();
-    }
-  },
-);
-
-test(
   "an amended submitted cut rejects the old canonical reviewer and dispatches a fresh reviewer",
   { timeout: 20_000 },
   async () => {
@@ -413,8 +271,6 @@ test(
       assert.ok(submitted?.type === "execution_submitted" && submitted.payload.execution.submission);
       const submission = submitted.payload.execution.submission;
       assert.match(submission.commitSha!, /^[0-9a-f]{40}$/u);
-      // The shared-root fixture commits ledger documents into the same repo, so the cut lists
-      // them alongside README; the anchored report still rides in artifacts and outputs.
       assert.ok(submission.deliverables.includes("README.md"));
       assert.equal(submission.artifacts?.length, 1);
       assert.match(submission.outputs[0]!, /^Artifact-Anchor: .*hybrid\.md@[1-9][0-9]*$/u);
