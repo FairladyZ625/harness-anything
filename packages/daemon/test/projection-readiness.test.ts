@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { tmpdir } from "node:os";
 import test from "node:test";
 import type { TaskProjection } from "../../kernel/src/index.ts";
+import { listProjectedTaskDocuments, readProjectedDocument } from "../src/doc-sync-reads.ts";
 import { requireCurrentTaskProjection } from "../src/projection-readiness.ts";
 import type { RepoCellOperationalContext } from "../src/repo-cell-action-context.ts";
 import { runFactAction } from "../src/repo-cell-fact-action.ts";
@@ -138,6 +139,88 @@ test("a projected task without a package is not ready", () => {
     (error: unknown) =>
       (error as { readonly code?: unknown }).code === "content_not_ready" &&
       /has a canonical event but no projected package for unit test/u.test(String((error as Error).message)),
+  );
+});
+
+function missingTaskRead(): TaskRead {
+  return {
+    ...readyTaskRead(),
+    snapshot: { revision: 0, task: null, lease: null, executions: [] },
+    packagePath: null,
+  } as unknown as TaskRead;
+}
+
+function guiDocumentReadContext(projection: Pick<TaskProjection, "read">) {
+  return {
+    rootDir: tmpdir(),
+    projection: projection as unknown as TaskProjection,
+    store: { readContentBlob: () => null },
+  };
+}
+
+// The GUI document read faces must settle absence the same way task show and dispatches do:
+// a lagging cut is not an answer about the task, a current cut without the task is a not-found
+// naming the id, and a task without a package is a not-ready — never a not-found for a task
+// that does exist.
+test("task document read settles lagging, absent, and unpackaged tasks via the shared judgment", () => {
+  assert.throws(
+    () =>
+      readProjectedDocument(
+        guiDocumentReadContext(
+          projectionOf({ ...readyTaskRead(), status: "pending", watermark: 1, sourceRevision: 2 }),
+        ),
+        { taskId: "task_ready", path: "task_plan.md" },
+      ),
+    (error: unknown) => (error as { readonly code?: unknown }).code === "content_not_ready",
+  );
+  assert.throws(
+    () =>
+      readProjectedDocument(guiDocumentReadContext(projectionOf(missingTaskRead())), {
+        taskId: "task_missing",
+        path: "task_plan.md",
+      }),
+    (error: unknown) => (error as { readonly code?: unknown }).code === "task_not_found",
+  );
+  assert.throws(
+    () =>
+      readProjectedDocument(guiDocumentReadContext(projectionOf({ ...readyTaskRead(), packagePath: null })), {
+        taskId: "task_ready",
+        path: "task_plan.md",
+      }),
+    (error: unknown) => (error as { readonly code?: unknown }).code === "content_not_ready",
+  );
+});
+
+test("task documents list settles lagging, absent, and unpackaged tasks via the shared judgment", () => {
+  assert.throws(
+    () =>
+      listProjectedTaskDocuments(
+        tmpdir(),
+        projectionOf({
+          ...readyTaskRead(),
+          status: "pending",
+          watermark: 1,
+          sourceRevision: 2,
+        }) as unknown as TaskProjection,
+        { taskId: "task_ready" },
+      ),
+    (error: unknown) => (error as { readonly code?: unknown }).code === "content_not_ready",
+  );
+  assert.throws(
+    () =>
+      listProjectedTaskDocuments(tmpdir(), projectionOf(missingTaskRead()) as unknown as TaskProjection, {
+        taskId: "task_missing",
+      }),
+    (error: unknown) => (error as { readonly code?: unknown }).code === "task_not_found",
+  );
+  assert.throws(
+    () =>
+      listProjectedTaskDocuments(
+        tmpdir(),
+        projectionOf({ ...readyTaskRead(), packagePath: null }) as unknown as TaskProjection,
+        { taskId: "task_ready" },
+      ),
+    (error: unknown) => (error as { readonly code?: unknown }).code === "content_not_ready",
   );
 });
 
