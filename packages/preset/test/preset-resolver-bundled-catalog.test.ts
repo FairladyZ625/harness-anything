@@ -5,12 +5,21 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { makeTaskEventStore, sha256Text } from "../../kernel/src/index.ts";
-import { compileTaskBootstrap } from "../src/index.ts";
+import { compileTaskBootstrap, readBundledAgentDeclaration } from "../src/index.ts";
 import { createRuntime, presetDocumentBody } from "../src/preset-resolver.ts";
 import { effectiveCatalog } from "../src/preset-catalog.ts";
 import { defaultBundled, key } from "../src/preset-resolver-common.ts";
 
 import { git } from "./preset-resolver.fixtures.ts";
+test("bundled closeout reviewer is machine-independent and leaves instance model selection open", () => {
+  const reviewer = readBundledAgentDeclaration("closeout-reviewer");
+  assert.ok(reviewer);
+  assert.equal(reviewer.runtime_type, "any");
+  assert.equal(reviewer.instance, undefined);
+  assert.equal(reviewer.model, undefined);
+  assert.doesNotMatch(reviewer.instructions, /(?:\/Users\/|harness\/tasks\/|\\Users\\)/u);
+  assert.equal(readBundledAgentDeclaration("not-bundled"), null);
+});
 test("bundled candidates are decoded once per process while user packages stay live", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-preset-catalog-cache-")),
     userRoot = path.join(root, "user");

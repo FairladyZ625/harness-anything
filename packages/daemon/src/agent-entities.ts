@@ -8,6 +8,9 @@ import {
   type EntityStore,
   type TaskProjection,
 } from "../../kernel/src/index.ts";
+import { readAgentDeclaration } from "./agent-declaration-resolution.ts";
+
+export { readAgentDeclaration, readAgentDeclarationResolution } from "./agent-declaration-resolution.ts";
 import {
   entitySlug,
   parseAgentDeclarationV1,
@@ -328,13 +331,6 @@ function readyEntityValue(
   const entity = projection.getEntity(kind, id);
   if (entity === null) throw entityError(`${kind}_not_found`, `${id} is not an installed ${kind}.`);
   return entity.value;
-}
-export function readAgentDeclaration(input: {
-  readonly rootDir: string;
-  readonly agentId: string;
-  readonly entityStore?: EntityStore;
-}): AgentDeclarationV1 {
-  return parseAgentDeclarationV1(readStoredDeclaration(input.rootDir, "agent", input.agentId, input.entityStore));
 }
 export function readSquadDeclaration(input: {
   readonly rootDir: string;

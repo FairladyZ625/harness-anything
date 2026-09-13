@@ -69,8 +69,9 @@ The first-run wizard uses three steps:
    acquired before Electron started.
 2. In **Provider**, add a detected Claude, Codex, or AGY installation and choose its model. You may continue and
    configure it later.
-3. In **Agent · Squad**, create an Agent declaration and set its runtime preferences. Choose **Finish setup** when the
-   GUI is ready for normal use.
+3. In **Agent · Squad**, optionally create repository-specific Agents and Squads. The closeout reviewer is bundled and
+   uses a compatible configured runtime instance and that instance's default model. Installing an Agent with the same
+   id pins a repository-local override. Choose **Finish setup** when the GUI is ready for normal use.
 
 Harness Anything writes daemon state under `~/.harness` by default. Repository ledger files stay in the selected
 repository. No application server is used.

@@ -66,7 +66,9 @@ canonical-only CLI autostart 路径取得 default daemon，再 detached 启动 E
 1. 选择 git 仓库，设置仓库 ID，并填写写入本地账本的 owner 身份。点击**初始化仓库**；应用会创建
    `harness/`，并把仓库注册到 CLI 在 Electron 启动前取得的 daemon。
 2. 在 **Provider** 工作区添加检测到的 Claude、Codex 或 AGY 安装并选择模型；也可以先继续，以后再设置。
-3. 在 **Agent · 含 Squad** 工作区创建 Agent 声明并设置 runtime 偏好。GUI 可正常使用后点击**完成设置**。
+3. 在 **Agent · 含 Squad** 工作区可选创建仓库专用的 Agent 与 Squad。收口评审 Agent 已随产品内置，会匹配
+   已配置的兼容运行时实例并使用该实例的默认模型；安装同 id Agent 可钉住仓库本地覆写。GUI 可正常使用后
+   点击**完成设置**。
 
 Harness Anything 默认把 daemon 状态写到 `~/.harness`。仓库账本留在所选仓库内；整个流程不使用应用服务器。
 
