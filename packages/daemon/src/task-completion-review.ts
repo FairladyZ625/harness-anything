@@ -8,7 +8,7 @@ import {
 } from "../../kernel/src/index.ts";
 import { readSubmissionArtifact } from "./submission-artifacts.ts";
 import { isRuntimeEvent } from "./runtime-spawn-errors.ts";
-import { readAgentDeclaration } from "./agent-entities.ts";
+import { readAgentDeclarationResolution } from "./agent-entities.ts";
 import { authorizeRepoCellAction } from "./repo-cell-authorization.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import type { RepoCellBinding, Snapshot } from "./repo-cell-types.ts";
@@ -53,24 +53,25 @@ export async function dispatchCompletionReview(
       `Review dispatch ${dispatchOpId} conflicts with another event.`,
     );
   if (!existing) {
-    // Installed declarations are canonical; a missing default never turns the executor into a reviewer.
+    // Repository-installed declarations shadow bundled product defaults; the executor never becomes the reviewer.
     const reviewerId = cell.settings.readRepository().defaultReviewer ?? "closeout-reviewer";
-    if (cell.projection.getEntity("agent", reviewerId) === null)
-      return stopped(
-        "ha agent install --source <closeout-reviewer-declaration-directory>",
-        `Install an independent Agent declaration with id ${reviewerId}, or select an installed reviewer with ` +
-          "ha settings update --default-reviewer <agent-id>, then retry completion.",
-      );
-    const agent = readAgentDeclaration({
+    const resolved = readAgentDeclarationResolution({
       rootDir: cell.rootDir,
       agentId: reviewerId,
       entityStore: createEntityStore(cell.store),
     });
-    if (!agent.model)
+    if (!resolved)
+      return stopped(
+        "ha agent install --source <closeout-reviewer-declaration-directory>",
+        `Reviewer ${reviewerId} is not bundled or installed. Install a repository override, or select an available ` +
+          "reviewer with ha settings update --default-reviewer <agent-id>, then retry completion.",
+      );
+    const { declaration: agent, layer } = resolved;
+    if (layer === "installed" && !agent.model)
       return stopped(
         "ha agent install --source <closeout-reviewer-declaration-directory>",
         `Declare an explicit model for reviewer ${reviewerId}, then retry completion. ` +
-          "Automatic review must not select an ambient instance's default model.",
+          "Installed reviewer overrides must not select an instance default model.",
       );
     const report = `${packagePath}/artifacts/reports/${dispatchId}.md`,
       packet = `${packagePath}/artifacts/reports/${dispatchId}.json`,
@@ -113,23 +114,31 @@ export async function dispatchCompletionReview(
       });
     if (authorizationDecision.outcome !== "allowed")
       throw cell.cellCodedError("authorization_denied", authorizationDecision.nextActions.join(" "));
-    // Already inside the center queue. Only launch admission is awaited; provider completion is not.
+    // Already inside the center queue. Only launch admission is awaited; provider completion is not. A cell
+    // without a runtime route (no ready instance, no sealed daemon route) stops at the review gate like a
+    // missing reviewer would; it must not surface as an indeterminate publication.
     try {
       await cell.runtimeSpawner.spawn(payload, { ...binding, authorizationDecision });
     } catch (error) {
       if (
         !(error instanceof Error) ||
         !("code" in error) ||
-        !["agent_runtime_unavailable", "agent_model_unavailable", "runtime_model_not_ready"].includes(
-          String(error.code),
-        )
+        ![
+          "agent_runtime_unavailable",
+          "agent_model_unavailable",
+          "runtime_model_not_ready",
+          "runtime_preconditions_unavailable",
+        ].includes(String(error.code))
       )
         throw error;
       return {
         ...stopped(
           "ha runtime instance list",
-          `Reviewer ${reviewerId} requires model ${agent.model}; configure a ready compatible instance, ` +
-            "then retry completion. The declared model is not replaced by an ambient default.",
+          layer === "bundled"
+            ? `Bundled reviewer ${reviewerId} needs a ready ${agent.runtime_type} runtime instance; configure one, ` +
+                "then retry completion. Its configured default model will be used."
+            : `Reviewer ${reviewerId} requires model ${agent.model}; configure a ready compatible instance, ` +
+                "then retry completion. The declared model is not replaced by an instance default.",
         ),
         diagnostic: { kind: "failure", code: String(error.code) },
         rejectionExplanation: error.message,

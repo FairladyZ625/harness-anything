@@ -70,8 +70,10 @@ test("REQ-CTX-01..10 empty init publishes the canonical scaffold, authority pari
     for (const kind of ["agent", "squad"]) {
       const catalog = JSON.parse(String(run(fixture.repo, fixture.userRoot, [kind, "list"]).evidence));
       assert.deepEqual(catalog[`${kind}s`], []);
-      assert.match(String(initialized.next), new RegExp(`${kind} install --source`));
     }
+    assert.match(String(initialized.next), /closeout-reviewer Agent is bundled/u);
+    assert.match(String(initialized.next), /agent install --source.*optional override/u);
+    assert.match(String(initialized.next), /squad install --source/u);
     const plan = initialized.plan as {
       digest: string;
       baseScaffoldDigest: string;

@@ -501,9 +501,9 @@ function jsonStringEnd(body: string, start: number): number {
 function initNext(rootDir: string, repoId: string, orphaned: boolean, maintenanceDegraded: string | null): string {
   return [
     `ha daemon repo register --repo-id ${repoId} --root ${JSON.stringify(rootDir)}; ha --root ${JSON.stringify(rootDir)} daemon status${orphaned ? " # Resolve orphaned scaffold documents through an explicit governance task; init will not delete or migrate them." : ""}${maintenanceDegraded ? ` # ${maintenanceDegraded}` : ""}`,
-    "Init does not install agents or squads. To populate an empty catalog:",
-    "Install Agent packages first, then a Squad package referencing those agents.",
-    `ha --root ${JSON.stringify(rootDir)} agent install --source <directory-containing-agent.json>`,
+    "The closeout-reviewer Agent is bundled. Configure a runtime instance to use automatic task completion review.",
+    "Agent install pins a repository-local override; install custom Agents before Squads that reference them.",
+    `ha --root ${JSON.stringify(rootDir)} agent install --source <directory-containing-agent.json> # optional override`,
     `ha --root ${JSON.stringify(rootDir)} squad install --source <directory-containing-squad.json>`,
   ].join("\n");
 }

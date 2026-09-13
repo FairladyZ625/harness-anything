@@ -65,7 +65,7 @@ function instance(instanceId: string): RuntimeInstanceSummary {
 function git(root: string, ...args: string[]): string {
   return execFileSync("git", ["-C", root, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 }
-async function fixture(failProvider = false, available = true, artifactDelivery = false) {
+async function fixture(failProvider = false, available = true, artifactDelivery = false, noInstances = false) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-completion-review-")),
     repoId = workspaceId("completion-review");
   git(root, "init", "-q");
@@ -76,7 +76,7 @@ async function fixture(failProvider = false, available = true, artifactDelivery 
   writeFileSync(path.join(root, "README.md"), "# Reviewed delivery\n");
   git(root, "add", "README.md");
   git(root, "commit", "-qm", "docs: fixture delivery");
-  const launches: { prompt: string; instanceId: string }[] = [];
+  const launches: { prompt: string; instanceId: string; model: string }[] = [];
   let instancesAvailable = available;
   const open = () =>
     openRepoCell({
@@ -88,10 +88,13 @@ async function fixture(failProvider = false, available = true, artifactDelivery 
         daemonId: "fixture",
         endpoint: path.join(root, "user.sock"),
       },
-      runtimeInstances: () => [
-        { ...instance("ambient-first"), models: ["flash-model"], defaultModel: "flash-model" },
-        ...(instancesAvailable ? [instance("review-first"), instance("review-second")] : []),
-      ],
+      runtimeInstances: () =>
+        noInstances
+          ? []
+          : [
+              { ...instance("ambient-first"), models: ["flash-model"], defaultModel: "flash-model" },
+              ...(instancesAvailable ? [instance("review-first"), instance("review-second")] : []),
+            ],
       prepareRuntimeLaunch: (instanceId, request) => ({
         definition: {
           schema: "agent-definition-snapshot/v1",
@@ -100,7 +103,7 @@ async function fixture(failProvider = false, available = true, artifactDelivery 
           installationId: installation.installationId,
           kindId: "codex",
           providerId: "openai",
-          model: "review-model",
+          model: request.model ?? (instanceId === "ambient-first" ? "flash-model" : "review-model"),
           reasoningEffort: null,
           fast: false,
           baseUrl: null,
@@ -114,7 +117,11 @@ async function fixture(failProvider = false, available = true, artifactDelivery 
         prompt: request.prompt,
       }),
       runtimeLaunch: (prepared): RuntimeProcess => {
-        launches.push({ prompt: prepared.prompt, instanceId: prepared.definition.instanceId });
+        launches.push({
+          prompt: prepared.prompt,
+          instanceId: prepared.definition.instanceId,
+          model: prepared.definition.model,
+        });
         let output: ((chunk: string) => void) | undefined;
         return {
           pid: 987650 + launches.length,
@@ -263,15 +270,11 @@ async function fixture(failProvider = false, available = true, artifactDelivery 
 }
 
 test(
-  "completion selects install guidance, reuses the cut dispatch after a lost response/reopen, and requires later owner consent",
+  "completion uses an installed override, reuses the cut dispatch after a lost response/reopen, and requires later owner consent",
   { timeout: 20_000 },
   async () => {
     const f = await fixture();
     try {
-      const missing = await f.complete(true);
-      assert.equal(missing.code, "review_missing", JSON.stringify(missing));
-      assert.match(JSON.stringify((missing as Record<string, unknown>).next), /ha agent install --source/u);
-      assert.equal(f.launches.length, 0);
       await f.install();
       const configured = await f.run({ kind: "settings-update", defaultReviewer: "selected-reviewer" });
       assert.equal(configured.outcome, "applied", JSON.stringify(configured));
@@ -328,6 +331,38 @@ test(
     }
   },
 );
+
+test("completion dispatches the bundled reviewer with no installed declaration and accepts its review", async () => {
+  const f = await fixture();
+  try {
+    const result = (await f.complete()) as Record<string, unknown>;
+    assert.equal(result.code, "review_missing", JSON.stringify(result));
+    assert.equal(f.launches.length, 1);
+    assert.equal(f.launches[0]!.instanceId, "ambient-first");
+    assert.equal(f.launches[0]!.model, "flash-model");
+    assert.match(f.launches[0]!.prompt, /Independently review the submitted execution/u);
+    const reviewed = await f.review(String(result.runtimeSessionId), "review-bundled");
+    assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
+    const completed = await f.complete(true);
+    assert.equal(completed.outcome, "applied", JSON.stringify(completed));
+  } finally {
+    await f.close();
+  }
+});
+
+test("bundled reviewer without a ready instance returns configuration guidance", async () => {
+  const f = await fixture(false, false, false, true);
+  try {
+    f.disableInstances();
+    const result = await f.complete();
+    assert.equal(result.code, "review_missing", JSON.stringify(result));
+    assert.match(JSON.stringify((result as Record<string, unknown>).next), /configured default model/u);
+    assert.deepEqual(result.diagnostic, { kind: "failure", code: "agent_runtime_unavailable" });
+    assert.equal(f.launches.length, 0);
+  } finally {
+    await f.close();
+  }
+});
 
 test("completion requires a declared reviewer model instead of selecting the ambient default", async () => {
   const f = await fixture();
