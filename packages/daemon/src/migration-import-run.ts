@@ -49,6 +49,7 @@ import {
   actorFor as actorForImpl,
   dropMap as dropMapImpl,
   existingSourceEntity as existingSourceEntityImpl,
+  migrationRelationIndexes,
   mappedIdentifier as mappedIdentifierImpl,
   prepareRelation as prepareRelationImpl,
   readMigrationOperationRestatements,
@@ -278,16 +279,15 @@ export async function runSingleMigrationImport(
     decisionGraph = input.projection.readDecisionGraph(),
     existingTasks = new Set(input.projection.list().rows.map(({ taskId }) => taskId)),
     existingDecisions = new Set(decisionGraph.decisionAnchors.map(({ decisionId }) => decisionId)),
-    existingFacts = new Set(input.projection.readFactGraph().facts.map(({ ref }) => ref)),
+    factGraph = input.projection.readFactGraph(),
+    existingFacts = new Set(factGraph.facts.map(({ ref }) => ref)),
     existingAgents = new Map(input.projection.listEntities("agent").map(({ id, value }) => [id, value])),
     existingSchedules = new Map(input.projection.listEntities("schedule").map(({ id, value }) => [id, value])),
     existingRuntimeSessions = new Map(
       input.projection.readRuntimeSessions().map((value) => [value.runtimeSessionId, value]),
     ),
     operationRestatements = readMigrationOperationRestatements(input.store),
-    existingRelations = new Set(
-      [...decisionGraph.edges, ...input.projection.readFactGraph().edges].map(({ relationId }) => relationId),
-    );
+    existingRelations = new Set([...decisionGraph.edges, ...factGraph.edges].map(({ relationId }) => relationId));
   const taskMap = new Map<string, string>(),
     decisionMap = new Map<string, string>(),
     factMap = new Map<string, string>(),
@@ -417,7 +417,7 @@ export async function runSingleMigrationImport(
     existingSchedules,
     existingRuntimeSessions,
     backfillRows,
-    relationMap,
+    ...migrationRelationIndexes(cold, relationMap),
   };
 
   for (const entry of taskRead.entries) addTask(entry);
@@ -460,7 +460,7 @@ export async function runSingleMigrationImport(
           contextTimestamp(source.fields.decided_at) ?? contextTimestamp(source.fields.proposed_at) ?? input.now(),
       });
   for (const source of oracle.facts.values())
-    if (!factMap.has(`fact/${source.factId}`) && ![...factMap.values()].includes(`fact/${source.factId}`))
+    if (!factMap.has(`fact/${source.factId}`) && !extracted.factTargets.has(`fact/${source.factId}`))
       scheduleArchivedEntity(extracted, {
         entityKind: "fact",
         entityId: source.factId,

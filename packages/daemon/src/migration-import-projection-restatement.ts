@@ -93,7 +93,7 @@ export function addOracleDecision(context: MigrationImportContext, source: Proje
 export function addOracleFact(context: MigrationImportContext, source: ProjectionOracleFact): boolean {
   const fields = source.fields,
     sourceRef = `fact/${source.factId}`;
-  if ([...context.factMap.values()].includes(sourceRef) || context.factMap.has(sourceRef)) return true;
+  if (context.factTargets.has(sourceRef) || context.factMap.has(sourceRef)) return true;
   const observedAt = context.timestamp(fields.observedAt),
     taskId = typeof fields.taskId === "string" ? fields.taskId : undefined,
     mappedTaskId = taskId === undefined ? undefined : context.taskMap.get(taskId);
@@ -119,10 +119,10 @@ export function addOracleFact(context: MigrationImportContext, source: Projectio
   });
   let targetFactId = source.factId,
     targetRef = `fact/${targetFactId}`;
-  if (context.existingFacts.has(targetRef) || [...context.factMap.values()].includes(targetRef)) {
+  if (context.existingFacts.has(targetRef) || context.factTargets.has(targetRef)) {
     targetFactId = `F-${sha256Text(`${context.sourceKey}\0${sourceRef}`).slice(0, 8).toUpperCase()}`;
     targetRef = `fact/${targetFactId}`;
-    if (context.existingFacts.has(targetRef) || [...context.factMap.values()].includes(targetRef))
+    if (context.existingFacts.has(targetRef) || context.factTargets.has(targetRef))
       throw context.idRemapConflict("fact", sourceRef, targetRef);
     context.remappings.push({
       entityType: "fact",
@@ -132,6 +132,7 @@ export function addOracleFact(context: MigrationImportContext, source: Projectio
     });
   }
   context.factMap.set(sourceRef, targetRef);
+  context.factTargets.add(targetRef);
   recordDerivation(context, "fact", source.factId, "entity", `projection:fact@${context.oracle.watermark}`);
   context.drafts.push({
     kind: "fact",

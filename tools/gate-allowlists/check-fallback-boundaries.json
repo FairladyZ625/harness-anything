@@ -291,12 +291,6 @@
     ],
     "fullHistoryScans": [
       {
-        "file": "packages/daemon/src/migration-import-relations.ts",
-        "function": "readMigrationOperationRestatements",
-        "task": "task_403e958e3fefd3496820e8843d",
-        "reason": "Existing request-path historical scan pending a bounded-read deletion task."
-      },
-      {
         "file": "packages/daemon/src/repo-cell-api.ts",
         "function": "\"repo.agentRuntime.events.read\"",
         "task": "task_403e958e3fefd3496820e8843d",
