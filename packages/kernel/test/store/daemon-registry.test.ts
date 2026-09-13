@@ -92,6 +92,11 @@ test("daemon registry persists explicit workspace modes and rejects rows that om
       persisted = JSON.parse(readFileSync(registryPath, "utf8")) as { repos: Record<string, unknown>[] };
     delete persisted.repos[0]!.mode;
     writeFileSync(registryPath, `${JSON.stringify(persisted)}\n`, "utf8");
+    // Coarse-clock filesystems (Linux keeps mtimes at kernel-tick granularity) can leave this
+    // rewrite on the same mtimeMs the read above cached, so the mtime-keyed read cache would
+    // serve the pre-rewrite registry; move the timestamp past it instead of waiting out the tick.
+    const bumped = new Date(statSync(registryPath).mtimeMs + 1_000);
+    utimesSync(registryPath, bumped, bumped);
     assert.equal(readDaemonRegistry({ userRoot }).repos.length, 0);
     assert.match(readDaemonRegistry({ userRoot }).invalidRepos[0]?.error ?? "", /missing or invalid mode/u);
     assert.throws(
