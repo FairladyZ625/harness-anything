@@ -923,8 +923,5 @@ export {
   validateDaemonTaskDispatches,
   validateDaemonTaskDocumentList,
 } from "./daemon-protocol-validate-results.ts";
-export {
-  isolateDaemonTaskSnapshotRows,
-  validateDaemonTaskSnapshotList,
-  validateDaemonWorkspaceSummary,
-} from "./daemon-protocol-validate-task.ts";
+export { isolateDaemonTaskSnapshotRows, validateDaemonTaskSnapshotList } from "./daemon-protocol-validate-task.ts";
+export { validateDaemonWorkspaceSummary } from "./daemon-protocol-validate-workspace.ts";

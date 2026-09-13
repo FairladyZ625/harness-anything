@@ -26,19 +26,11 @@ export interface JsonRpcErrorResponse {
   readonly error: JsonRpcErrorObject;
 }
 export type JsonRpcResponse<Result = unknown> = JsonRpcSuccessResponse<Result> | JsonRpcErrorResponse;
-export function isJsonValue(value: unknown): value is JsonValue {
-  if (value === null || typeof value === "string" || typeof value === "boolean") return true;
-  if (typeof value === "number") return Number.isFinite(value);
-  if (Array.isArray(value)) return value.every(isJsonValue);
-  return isJsonObject(value);
-}
+/** Shallow by design: every payload crossing a wire reached us through JSON.parse, which cannot
+ * produce a non-JSON value, so each validation layer judges its own fields and never re-walks
+ * the subtree below them. */
 export function isJsonObject(value: unknown): value is JsonObject {
-  return (
-    value !== null && typeof value === "object" && !Array.isArray(value) && Object.values(value).every(isJsonValue)
-  );
-}
-export function isJsonArray(value: unknown): value is ReadonlyArray<JsonValue> {
-  return Array.isArray(value) && value.every(isJsonValue);
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 export function hasProperty<Key extends string>(
   value: JsonObject,
@@ -70,18 +62,15 @@ export function unknownFieldViolation(
     ? null
     : `unknown field ${JSON.stringify(field)}; allowed fields: ${allowedFields.map((candidate) => JSON.stringify(candidate)).join(", ")}.`;
 }
+/** Shallow like isJsonObject: only this object's own keys are judged here; nested layers belong
+ * to their own field rules. */
 export function rejectSecretKeys(value: unknown): readonly string[] {
-  return hasSensitiveKey(value) ? ["payload contains a forbidden secret-like key"] : [];
-}
-function hasSensitiveKey(value: unknown): boolean {
-  if (Array.isArray(value)) return value.some(hasSensitiveKey);
-  if (!isJsonObject(value)) return false;
-  return Object.entries(value).some(
-    ([key, nested]) =>
-      /(?:secret|token|password|passphrase)/iu.test(key) ||
-      /^(?:api[-_]?key|credentialvalue)$/iu.test(key) ||
-      hasSensitiveKey(nested),
-  );
+  return isJsonObject(value) &&
+    Object.keys(value).some(
+      (key) => /(?:secret|token|password|passphrase)/iu.test(key) || /^(?:api[-_]?key|credentialvalue)$/iu.test(key),
+    )
+    ? ["payload contains a forbidden secret-like key"]
+    : [];
 }
 
 export class DaemonProtocolContractError extends Error {

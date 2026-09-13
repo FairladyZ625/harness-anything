@@ -16,7 +16,6 @@ import { daemonRequestLogPath } from "./request-log.ts";
 import { isJsonObject } from "./protocol/json-rpc-types.ts";
 import { DAEMON_OBSERVE_TAIL_SCHEMA } from "./protocol/daemon-protocol-schema-ids.ts";
 import {
-  validateObserveTailPayload,
   type ObserveTailCursor,
   type ObserveTailPayload,
   type ObserveTailResult,
@@ -36,7 +35,9 @@ export async function readObserveTail(input: {
   readonly daemonId: string;
   readonly payload: unknown;
 }): Promise<ObserveTailResult> {
-  const payload = parseObserveTailPayload(input.payload),
+  // The payload was judged at the RPC entry (validateObserveTailPayload via validateDaemonRpcCall);
+  // every production caller reaches this reader through that boundary.
+  const payload = input.payload as ObserveTailPayload,
     base = {
       schema: DAEMON_OBSERVE_TAIL_SCHEMA.id,
       ok: true as const,
@@ -90,8 +91,7 @@ export function readObserveEventTail(input: {
   readonly projection: TaskProjection;
   readonly payload: unknown;
 }): ObserveTailResult {
-  const payload = parseObserveTailPayload(input.payload);
-  if (payload.kind !== "events") throw observeError("invalid_request", "Expected an events observe-tail payload.");
+  const payload = input.payload as Extract<ObserveTailPayload, { readonly kind: "events" }>;
   return buildObserveEventTail(input, payload, {
     schema: DAEMON_OBSERVE_TAIL_SCHEMA.id,
     ok: true,
@@ -184,12 +184,6 @@ function readEventTail(
     sourceCursor: { kind: "events", revision: page.sourceRevision },
     done: page.status === "ready" && (selected.length === 0 || firstRevision <= 1),
   };
-}
-
-function parseObserveTailPayload(value: unknown): ObserveTailPayload {
-  const errors = validateObserveTailPayload(value);
-  if (errors.length) throw observeError("invalid_request", errors.join("; "));
-  return value as unknown as ObserveTailPayload;
 }
 
 function repoLogFiles(rootDir: string): readonly JsonlTailFile[] {

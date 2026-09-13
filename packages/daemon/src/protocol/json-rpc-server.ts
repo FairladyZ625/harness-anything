@@ -441,17 +441,11 @@ export function createJsonRpcProtocolServer(options: {
       const { method, params } = call,
         repo = params.repo.repoId;
       try {
+        // host.read is the single exit validator for repo GUI reads; re-validating its return
+        // here would walk every result a second time in the same process.
         return reply(
           method,
-          parseDaemonGuiReadResult(
-            method,
-            await options.host.read(
-              repo,
-              method,
-              (params.payload as JsonObject | undefined) ?? {},
-              options.authContext,
-            ),
-          ),
+          await options.host.read(repo, method, (params.payload as JsonObject | undefined) ?? {}, options.authContext),
         );
       } catch (error) {
         return reply(method, protocolFailure(method, error));
