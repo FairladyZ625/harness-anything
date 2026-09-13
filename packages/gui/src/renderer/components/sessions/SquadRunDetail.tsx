@@ -1,5 +1,6 @@
 import {
   isAvailableSquadRunDetail,
+  type SquadRunAttemptMetricsDto,
   type SquadRunLeaderTurnDto,
   type SquadRunReadResult,
   type SquadRunWorkerAttemptDto,
@@ -22,7 +23,9 @@ import { Badge, LiveDot } from "../runtime/parts.tsx";
  * 该轮派发的 worker attempt 挂在轮次下(attempt.leaderTurnId 是父子边);轮次行内
  * 可展开该轮 receipt 原文(leader 的原始输出——「为何收敛/为何失败」的第一证据);
  * 轮次/尝试行都直达 session/<id>,任务出口直达 task 详情——与单会话段共用同一组
- * 可寻址导航。
+ * 可寻址导航。P1.3 遥测:轮次与尝试行各自带 tokenUsage/toolCallCount/compacted
+ * (P1.2 暴露的 Attempt 度量,零值=未派工/未结算),详情页渲染 Token 开销看板、
+ * 每成员消耗占比与 compacted 负向约束丢失警示,供人工与 CEO 定位卡顿/死循环成员。
  */
 export function SquadRunDetail({
   detail,
@@ -55,6 +58,8 @@ export function SquadRunDetail({
         <Badge tip={run.projectionError.hint}>{t("agentRuntime.catalogInvalid")}</Badge>
       </div>
     );
+  // 单一把比例尺:全 run(leader 轮 ∪ worker attempt)最大单段 token 消耗,bar 之间才可比。
+  const tokenScale = Math.max(0, ...run.leaderTurns.map(totalTokens), ...run.workerAttempts.map(totalTokens));
   return (
     <div data-testid="squad-run-detail" className="flex flex-col gap-4 px-4 pt-3.5 pb-6">
       <header className="flex flex-col gap-1">
@@ -88,6 +93,7 @@ export function SquadRunDetail({
           </p>
         )}
       </header>
+      <TokenBoard turns={run.leaderTurns} attempts={run.workerAttempts} />
       <section>
         <h3 className="mb-1.5 font-mono ui-micro uppercase tracking-[0.07em] text-text-faint">
           {t("agentRuntime.squadRunLeaderTurnsSection", { count: run.leaderTurns.length })}
@@ -101,6 +107,7 @@ export function SquadRunDetail({
               turn={turn}
               attempts={run.workerAttempts.filter((attempt) => attempt.leaderTurnId === turn.turnId)}
               active={turn.runtimeSessionId === run.currentLeaderRuntimeSessionId}
+              tokenScale={tokenScale}
               onSelectEntity={onSelectEntity}
             />
           ))
@@ -110,15 +117,94 @@ export function SquadRunDetail({
   );
 }
 
+/** 总 Token 开销看板:Σ(leader 轮 ∪ worker attempt) 的入/出 token 与工具调用,
+ * 下方按成员(leader 轮合计 + 每个 workerId 合计)给占整轮消耗的百分比条。 */
+function TokenBoard({
+  turns,
+  attempts,
+}: {
+  readonly turns: readonly SquadRunLeaderTurnDto[];
+  readonly attempts: readonly SquadRunWorkerAttemptDto[];
+}) {
+  const input = [...turns, ...attempts].reduce((sum, m) => sum + m.tokenUsage.input, 0);
+  const output = [...turns, ...attempts].reduce((sum, m) => sum + m.tokenUsage.output, 0);
+  const tools = [...turns, ...attempts].reduce((sum, m) => sum + m.toolCallCount, 0);
+  const total = input + output;
+  const workers = new Map<string, { input: number; output: number; tokens: number }>();
+  for (const attempt of attempts) {
+    const agg = workers.get(attempt.workerId) ?? { input: 0, output: 0, tokens: 0 };
+    workers.set(attempt.workerId, {
+      input: agg.input + attempt.tokenUsage.input,
+      output: agg.output + attempt.tokenUsage.output,
+      tokens: agg.tokens + totalTokens(attempt),
+    });
+  }
+  const members = [
+    ...(turns.length > 0
+      ? [
+          {
+            key: "leader",
+            label: t("agentRuntime.squadRunTokensLeader"),
+            input: turns.reduce((sum, turn) => sum + turn.tokenUsage.input, 0),
+            output: turns.reduce((sum, turn) => sum + turn.tokenUsage.output, 0),
+            tokens: turns.reduce((sum, turn) => sum + totalTokens(turn), 0),
+          },
+        ]
+      : []),
+    ...[...workers.entries()].map(([key, agg]) => ({ key, label: key, ...agg })),
+  ];
+  return (
+    <section data-testid="squad-run-token-board">
+      <h3 className="mb-1.5 font-mono ui-micro uppercase tracking-[0.07em] text-text-faint">
+        {t("agentRuntime.squadRunTokensSection")}
+      </h3>
+      <p data-testid="squad-run-token-board-total" className="font-mono ui-micro text-text-muted">
+        {t("agentRuntime.squadRunTokensTotal", {
+          input: compactTokens(input),
+          output: compactTokens(output),
+          tools,
+        })}
+      </p>
+      <ul className="mt-1 flex flex-col gap-1">
+        {members.map((member) => {
+          const pct = sharePercent(member.tokens, total);
+          return (
+            <li
+              key={member.key}
+              data-testid={`squad-run-token-member-${member.key}`}
+              title={t("agentRuntime.squadRunTokensMemberShare", {
+                share: pct,
+                input: exactTokens(member.input),
+                output: exactTokens(member.output),
+              })}
+              className="flex items-center gap-2"
+            >
+              <span className="w-20 shrink-0 truncate font-mono ui-micro">{member.label}</span>
+              <span className="flex h-1.5 w-36 overflow-hidden rounded-full bg-surface-raised ring-1 ring-border">
+                {member.tokens > 0 && (
+                  <span style={{ width: `${barPercent(member.tokens, total)}%`, background: "var(--color-accent)" }} />
+                )}
+              </span>
+              <span className="font-mono ui-micro text-text-faint">{pct}%</span>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
 function TurnSection({
   turn,
   attempts,
   active,
+  tokenScale,
   onSelectEntity,
 }: {
   readonly turn: SquadRunLeaderTurnDto;
   readonly attempts: readonly SquadRunWorkerAttemptDto[];
   readonly active: boolean;
+  readonly tokenScale: number;
   readonly onSelectEntity: (ref: string) => void;
 }) {
   const frame = active ? "border-accent/40 bg-accent/[0.14]" : "border-border";
@@ -161,7 +247,12 @@ function TurnSection({
       {attempts.length > 0 && (
         <div className="mt-1 ml-3 flex flex-col gap-0.5 border-l border-border pl-2">
           {attempts.map((attempt) => (
-            <AttemptRow key={attempt.attemptId} attempt={attempt} onSelectEntity={onSelectEntity} />
+            <AttemptRow
+              key={attempt.attemptId}
+              attempt={attempt}
+              tokenScale={tokenScale}
+              onSelectEntity={onSelectEntity}
+            />
           ))}
         </div>
       )}
@@ -171,9 +262,11 @@ function TurnSection({
 
 function AttemptRow({
   attempt,
+  tokenScale,
   onSelectEntity,
 }: {
   readonly attempt: SquadRunWorkerAttemptDto;
+  readonly tokenScale: number;
   readonly onSelectEntity: (ref: string) => void;
 }) {
   return (
@@ -194,6 +287,38 @@ function AttemptRow({
           </span>
         )}
       </span>
+      <span data-testid={`squad-run-attempt-tools-${attempt.attemptId}`} className="shrink-0">
+        <Badge>{t("agentRuntime.squadRunToolsBadge", { count: attempt.toolCallCount })}</Badge>
+      </span>
+      <span
+        data-testid={`squad-run-attempt-tokens-${attempt.attemptId}`}
+        title={t("agentRuntime.squadRunTokensSplit", {
+          input: exactTokens(attempt.tokenUsage.input),
+          output: exactTokens(attempt.tokenUsage.output),
+        })}
+        className="flex h-1.5 w-16 shrink-0 overflow-hidden rounded-full bg-surface-raised ring-1 ring-border"
+      >
+        {attempt.tokenUsage.input > 0 && (
+          <span
+            style={{ width: `${barPercent(attempt.tokenUsage.input, tokenScale)}%`, background: "var(--color-accent)" }}
+          />
+        )}
+        {attempt.tokenUsage.output > 0 && (
+          <span
+            style={{
+              width: `${barPercent(attempt.tokenUsage.output, tokenScale)}%`,
+              background: "var(--color-status-done)",
+            }}
+          />
+        )}
+      </span>
+      {attempt.compacted && (
+        <span data-testid={`squad-run-attempt-compacted-${attempt.attemptId}`} className="shrink-0">
+          <Badge status="blocked" tip={t("agentRuntime.squadRunCompactedTip")}>
+            ⚠ {t("agentRuntime.squadRunCompacted")}
+          </Badge>
+        </span>
+      )}
       <span className="shrink-0 font-mono ui-micro text-text-faint">
         {attempt.startedAt === null ? "—" : (formatTime(attempt.startedAt, { style: "time" }) ?? "—")}
       </span>
@@ -239,3 +364,13 @@ function decisionLabel(decision: SquadRunLeaderTurnDto["decision"]): string {
     ? t("agentRuntime.squadRunDecisionConverged")
     : t("agentRuntime.squadRunDecisionPlan", { count: decision.dispatchCount });
 }
+
+const totalTokens = (metrics: SquadRunAttemptMetricsDto): number =>
+  metrics.tokenUsage.input + metrics.tokenUsage.output;
+/** 可见面用紧凑记数(1.3M/210K),精确值进 title;固定 en-US 保证两种界面语言下数字形态稳定。 */
+const compactTokens = (value: number): string => new Intl.NumberFormat("en-US", { notation: "compact" }).format(value);
+const exactTokens = (value: number): string => new Intl.NumberFormat("en-US").format(value);
+/** 条宽百分比(保留 1 位小数);分母为 0 时返回 0,不产 NaN。 */
+const barPercent = (value: number, scale: number): number => (scale > 0 ? Math.round((value / scale) * 1000) / 10 : 0);
+/** 占比整数标签;total 为 0 时诚实呈 0%。 */
+const sharePercent = (value: number, total: number): number => (total > 0 ? Math.round((value / total) * 100) : 0);

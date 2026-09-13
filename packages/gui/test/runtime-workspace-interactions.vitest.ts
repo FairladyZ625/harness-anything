@@ -23,6 +23,12 @@ import {
   runtimeInstanceCatalogQueryKey,
 } from "../src/renderer/runtime-instance-data.ts";
 import { squadRunsClient } from "../src/renderer/squad-run-client.ts";
+import {
+  emptySquadRuns,
+  squadRunDetailFixture,
+  squadRunsListFixture,
+  squadRunSummaryRow,
+} from "./squad-run-fixtures.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 
 const definition = {
@@ -131,76 +137,6 @@ const sessionGroups = {
       },
     },
   ],
-};
-const emptySquadRuns = {
-  ok: true as const,
-  status: "ready" as const,
-  runs: [],
-  totals: { runs: 0 },
-  truncated: false,
-  watermark: 1,
-  sourceRevision: 1,
-};
-const squadRunSummaryRow = {
-  squadRunId: "squad_" + "c".repeat(18),
-  squadId: "core-squad",
-  taskId: "task-bound",
-  mission: "Probe the orchestration flow",
-  phase: "converged" as const,
-  leaderTurnCount: 2,
-  workerAttemptCount: 1,
-  runningCount: 0,
-  latestActivityAt: "2026-08-23T02:00:00.000Z",
-};
-const squadRunsListFixture = {
-  ok: true as const,
-  status: "ready" as const,
-  runs: [squadRunSummaryRow],
-  totals: { runs: 1 },
-  truncated: false,
-  watermark: 1,
-  sourceRevision: 1,
-};
-const squadRunDetailFixture = {
-  ok: true as const,
-  status: "ready" as const,
-  run: {
-    squadRunId: squadRunSummaryRow.squadRunId,
-    squadId: "core-squad",
-    taskId: "task-bound",
-    mission: "Probe the orchestration flow",
-    phase: "converged" as const,
-    error: null,
-    currentLeaderRuntimeSessionId: null,
-    leaderTurns: [
-      {
-        turnId: "leader-1",
-        trigger: { kind: "worker_outcome", runtimeSessionId: "runtime-worker" },
-        dispatchId: "dispatch_000000000000000000000002",
-        runtimeSessionId: "runtime-sibling",
-        decision: { kind: "converged" },
-        resultText: '{"schema":"squad-decision/v1","action":"converged"}',
-        status: "succeeded" as const,
-        startedAt: "2026-08-23T01:30:00.000Z",
-        endedAt: "2026-08-23T01:40:00.000Z",
-      },
-    ],
-    workerAttempts: [
-      {
-        attemptId: "worker-1",
-        workerId: "terra",
-        leaderTurnId: "leader-1",
-        dispatchId: "dispatch_bbb",
-        runtimeSessionId: "runtime-bound",
-        rejection: null,
-        status: "running" as const,
-        startedAt: "2026-08-23T02:00:00.000Z",
-        endedAt: null,
-      },
-    ],
-  },
-  watermark: 1,
-  sourceRevision: 1,
 };
 const tasks = [{ taskId: "task-bound", title: "Bound task title" }] as const;
 const agents = [
