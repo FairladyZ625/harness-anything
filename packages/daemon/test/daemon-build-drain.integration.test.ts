@@ -94,6 +94,12 @@ test("a drifted daemon serves a command and reports its old build while a runtim
             dispatchId: "dispatch-still-live",
             pid: process.pid,
           });
+          input.recordLifecycle?.({
+            event: "runtime_spawn",
+            runtimeSessionId: "runtime-already-gone",
+            dispatchId: "dispatch-already-gone",
+            pid: 2_147_483_647,
+          });
           return cell;
         },
       }),

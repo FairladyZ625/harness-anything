@@ -2,8 +2,8 @@ import { createHash } from "node:crypto";
 import { unknownFieldViolation, type JsonObject } from "./protocol/json-rpc-types.ts";
 import { requiredRuntimeSpawnText, runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import { consumeDurableOutput } from "./runtime-spawn-provider-stream.ts";
-import { adoptRuntimes } from "./runtime-spawn-adoption.ts";
-import { readDispatchStreamHeaders } from "./dispatch-stream.ts";
+import { adoptRuntimes, ownedByRuntimeNode } from "./runtime-spawn-adoption.ts";
+import { readDispatchStreamHeaders, readDispatchStreamSummary } from "./dispatch-stream.ts";
 import type { RuntimeBinding } from "./runtime-spawn-types.ts";
 import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 
@@ -21,7 +21,14 @@ export async function cancelRuntime(
   const runtimeSessionId = requiredRuntimeSpawnText(payload.runtimeSessionId, "runtimeSessionId"),
     hash = createHash("sha256").update(`${context.input.repoId}\0${runtimeSessionId}`).digest("hex"),
     opId = `runtime-cancel-${hash.slice(0, 32)}`;
-  if (!context.processes.has(runtimeSessionId)) await adoptRuntimes(context);
+  const headers = readDispatchStreamHeaders(context.input.rootDir),
+    matchingHeader = headers.find((header) => header.runtimeSessionId === runtimeSessionId),
+    missingOwnedProcess =
+      matchingHeader !== undefined &&
+      matchingHeader.binding !== undefined &&
+      ownedByRuntimeNode(matchingHeader.binding, context.input.runtimeNodeId) &&
+      !readDispatchStreamSummary(context.input.rootDir, matchingHeader.dispatchId)?.process;
+  if (!context.processes.has(runtimeSessionId) && !missingOwnedProcess) await adoptRuntimes(context);
   const active = context.processes.get(runtimeSessionId);
   if (active) {
     active.cancelBinding = binding;
@@ -38,15 +45,14 @@ export async function cancelRuntime(
   }
   // A session with a dispatch record belongs to adoption above; only a session the projection
   // knows without any dispatch record is settled from the projection alone.
-  const recorded = readDispatchStreamHeaders(context.input.rootDir).some(
-      (header) => header.runtimeSessionId === runtimeSessionId,
-    ),
-    session = recorded
-      ? undefined
-      : (context.input.remote
-          ? await context.input.remote.readRuntimeSessions()
-          : context.requiredRuntimeProjection(context.input).readRuntimeSessions()
-        ).find((value) => value.runtimeSessionId === runtimeSessionId);
+  const recorded = headers.some((header) => header.runtimeSessionId === runtimeSessionId),
+    session =
+      recorded && !missingOwnedProcess
+        ? undefined
+        : (context.input.remote
+            ? await context.input.remote.readRuntimeSessions()
+            : context.requiredRuntimeProjection(context.input).readRuntimeSessions()
+          ).find((value) => value.runtimeSessionId === runtimeSessionId);
   if (session && session.liveness !== "exited" && session.outcome === null) {
     const terminalBinding = {
       ...binding,

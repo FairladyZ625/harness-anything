@@ -9,6 +9,7 @@ import { openDaemonRequestLog } from "./request-log.ts";
 import { openDaemonLifecycleLog } from "./lifecycle-log.ts";
 import { openDaemonConnLog } from "./conn-log.ts";
 import { daemonBuildStamp, observeDaemonBuild } from "./build-identity.ts";
+import { runtimePidIsAlive } from "./runtime-process-liveness.ts";
 import { createUnixSocketTransportServer } from "./transport/unix-socket.ts";
 import type { DaemonHostOpenInput } from "./daemon-host-open.ts";
 import type { DaemonLifecycleEntry, DaemonLifecycleRecorder } from "./lifecycle-log.ts";
@@ -71,11 +72,11 @@ export async function startDaemon(input: {
     buildSupersessionObserved = false,
     socketBound = false,
     stopping = false;
-  const liveRuntimeSessions = new Set<string>();
+  const runtimeProcessPids = new Map<string, number>();
   const buildDrainStatus = (): DaemonBuildDrainStatus => {
     const repos = host?.status().repos ?? [];
     return {
-      liveRuntimeSessions: liveRuntimeSessions.size,
+      liveRuntimeSessions: [...runtimeProcessPids.values()].filter(runtimePidIsAlive).length,
       pendingWrites: repos.reduce((total, repo) => total + (repo.queueDepth ?? 0), 0),
       attachingRepositories: repos.filter((repo) => repo.state === "warming").length,
     };
@@ -129,8 +130,9 @@ export async function startDaemon(input: {
   };
   const recordLifecycle: DaemonLifecycleRecorder = (entry: DaemonLifecycleEntry): void => {
     lifecycle.record(entry);
-    if (entry.event === "runtime_spawn" && entry.runtimeSessionId) liveRuntimeSessions.add(entry.runtimeSessionId);
-    if (entry.event === "runtime_exit" && entry.runtimeSessionId) liveRuntimeSessions.delete(entry.runtimeSessionId);
+    if (entry.event === "runtime_spawn" && entry.runtimeSessionId && entry.pid !== undefined)
+      runtimeProcessPids.set(entry.runtimeSessionId, entry.pid);
+    if (entry.event === "runtime_exit" && entry.runtimeSessionId) runtimeProcessPids.delete(entry.runtimeSessionId);
     if (entry.event === "runtime_exit" || entry.event === "attachments_settled") requestDrainCheck();
   };
   try {

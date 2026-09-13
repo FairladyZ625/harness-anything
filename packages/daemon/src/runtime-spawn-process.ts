@@ -17,6 +17,7 @@ import {
   type DispatchStreamWriter,
 } from "./dispatch-stream.ts";
 import { removeRuntimeCallbackRelay } from "./runtime-callback-relay.ts";
+import { runtimePidIsAlive } from "./runtime-process-liveness.ts";
 import { runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import { parseProviderFrame } from "./runtime-spawn-provider-frames.ts";
 import type { ResumeProcessEvent, ResumeProcessObservation, RuntimeProcess } from "./runtime-spawn-types.ts";
@@ -302,15 +303,6 @@ export async function terminateRuntimeTree(rootDir: string, dispatchId: string, 
       "runtime_cancel_failed",
       `Runtime cancel left descendant processes alive: ${survivors.join(", ")}.`,
     );
-}
-
-export function runtimePidIsAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return childProcessErrorCode(error) === "EPERM";
-  }
 }
 
 export function launchExitNotification(input: {

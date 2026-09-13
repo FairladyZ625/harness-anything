@@ -8,7 +8,8 @@ import {
 } from "./dispatch-stream.ts";
 import { removeRuntimeCallbackRelay } from "./runtime-callback-relay.ts";
 import { createActiveRuntime, attachActiveRuntime } from "./runtime-spawn-active.ts";
-import { adoptNativeProcess, runtimePidIsAlive } from "./runtime-spawn-process.ts";
+import { adoptNativeProcess } from "./runtime-spawn-process.ts";
+import { runtimePidIsAlive } from "./runtime-process-liveness.ts";
 import {
   consumeDurableOutput,
   durableOutputRecordCount,
@@ -45,14 +46,13 @@ export async function adoptRuntimes(context: RuntimeSpawnerContext): Promise<voi
     }
     const fullStream = readDispatchStream(context.input.rootDir, header.dispatchId),
       stream = fullStream ?? readDispatchStreamSummary(context.input.rootDir, header.dispatchId);
-    if (!stream?.process) {
-      removeRuntimeCallbackRelay(context.input.rootDir, header.dispatchId);
-      continue;
-    }
+    if (!stream) continue;
+    const processState = stream.process,
+      processPid = processState?.pid ?? 0;
     const runtimeProcess = adoptNativeProcess(
       context.input.rootDir,
       stream.header.dispatchId,
-      stream.process.pid,
+      processPid,
       durableOutputRecordCount(fullStream?.records ?? []),
     );
     if (!fullStream) runtimeProcess.release?.();
@@ -103,7 +103,9 @@ export async function adoptRuntimes(context: RuntimeSpawnerContext): Promise<voi
       event: "runtime_spawn",
       runtimeSessionId: active.runtimeSessionId,
       dispatchId: active.dispatchId,
-      pid: active.process.pid,
+      // A session adopted without a recorded process has no pid to report; the drain count follows
+      // live pids, so reporting a placeholder would keep counting a runtime that does not exist.
+      ...(processState ? { pid: processState.pid } : {}),
     });
     await restoreDurableOutputRecords(context, active, fullStream?.records ?? []);
     if (session.liveness !== "live") {
@@ -114,14 +116,15 @@ export async function adoptRuntimes(context: RuntimeSpawnerContext): Promise<voi
         active.binding,
       );
     }
-    const processState = stream.process;
-    if (processState.exited || !runtimePidIsAlive(processState.pid)) {
-      const reason = `runtime process ${String(processState.pid)} is no longer alive after daemon restart`;
-      active.lossReason = processState.exited ? null : reason;
-      active.lossExitCode = processState.exitCode ?? null;
-      active.lossSignal = processState.signal ?? null;
+    if (!processState || processState.exited || !runtimePidIsAlive(processState.pid)) {
+      const reason = processState
+        ? `runtime process ${String(processState.pid)} is no longer alive after daemon restart`
+        : "runtime process was never recorded before daemon restart";
+      active.lossReason = processState?.exited ? null : reason;
+      active.lossExitCode = processState?.exitCode ?? null;
+      active.lossSignal = processState?.signal ?? null;
       removeRuntimeCallbackRelay(context.input.rootDir, active.dispatchId);
-      if (!processState.exited)
+      if (!processState?.exited)
         appendRuntimeWorkerRecord(context.input.rootDir, active.dispatchId, {
           kind: "process_lost",
           occurredAt: context.input.now(),
@@ -137,7 +140,7 @@ export async function adoptRuntimes(context: RuntimeSpawnerContext): Promise<voi
   }
 }
 
-function ownedByRuntimeNode(binding: RuntimeBinding, runtimeNodeId: string | undefined): boolean {
+export function ownedByRuntimeNode(binding: RuntimeBinding, runtimeNodeId: string | undefined): boolean {
   if (runtimeNodeId === undefined) return true;
   const source: unknown = binding.source;
   if (source === null || typeof source !== "object" || Array.isArray(source)) return false;

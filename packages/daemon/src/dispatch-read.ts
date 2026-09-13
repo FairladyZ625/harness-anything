@@ -23,7 +23,7 @@ import type {
   TaskDispatchRow,
 } from "./protocol/daemon-protocol.contract.ts";
 import type { AgentRuntimeAttemptChainDto } from "./agent-runtime-contract.ts";
-import { runtimePidIsAlive } from "./runtime-spawn-process.ts";
+import { runtimePidIsAlive } from "./runtime-process-liveness.ts";
 import { projectedTaskNotFound } from "./projection-readiness.ts";
 
 type DispatchLiveIndexRow = ReturnType<typeof readDispatchLiveIndex>["entries"][number];
