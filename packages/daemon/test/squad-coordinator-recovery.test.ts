@@ -199,11 +199,7 @@ function makeRecoveryFixture(
         sessions.find((session) => session.runtimeSessionId === runtimeSessionId) ?? null,
     } as unknown as TaskProjection,
     store = {
-      read: () => ({
-        schema: "canonical-event-stream/v1",
-        revision: 0,
-        events: [],
-      }),
+      read: () => ({ schema: "canonical-event-stream/v1", revision: 0, events: [] }),
       readContentBlob: (sha256: string) => resultBodies.get(sha256) ?? null,
     } as CanonicalEventStore;
   return {
