@@ -191,11 +191,12 @@ export function serializeAgentDeclarationV1(value: unknown): string {
 export function serializeSquadDeclarationV1(value: unknown): string {
   return serialize(SQUAD_DECLARATION_V1_SCHEMA, value, "squad declaration");
 }
+const runtimeTypeIdentifierPattern = new RegExp(ENTITY_ID_PATTERN, "u");
 export function isRuntimeTypeIdentifier(value: string): boolean {
-  return new RegExp(ENTITY_ID_PATTERN, "u").test(value);
+  return runtimeTypeIdentifierPattern.test(value);
 }
 export function entitySlug(value: unknown): value is string {
-  return typeof value === "string" && new RegExp(ENTITY_ID_PATTERN, "u").test(value);
+  return typeof value === "string" && runtimeTypeIdentifierPattern.test(value);
 }
 export function entityNonEmpty(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;

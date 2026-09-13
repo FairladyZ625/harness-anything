@@ -6,7 +6,7 @@ import type {
   EntityKindSchemaVersion,
 } from "../schemas/vertical-definition.ts";
 import { artifactEntityIdPattern } from "./entity-ref.ts";
-import { parseEntityJsonSchema, type EntityDocumentJsonSchema } from "./entity-json-schema.ts";
+import { compiledPattern, parseEntityJsonSchema, type EntityDocumentJsonSchema } from "./entity-json-schema.ts";
 import {
   genericAuthoring,
   genericEntityStore,
@@ -143,7 +143,7 @@ export function mintArtifactEntityId(input: { readonly idPrefix: string; readonl
 export const ARTIFACT_ENTITY_ID_BYTES = 16;
 
 export function isArtifactEntityId(idPrefix: string, value: unknown): value is string {
-  return typeof value === "string" && new RegExp(artifactEntityIdPattern(idPrefix), "u").test(value);
+  return typeof value === "string" && compiledPattern(artifactEntityIdPattern(idPrefix)).test(value);
 }
 
 export function deriveArtifactContentVersion(witness: ArtifactContentWitness): string {

@@ -2,11 +2,21 @@ export interface FlowFrontmatterParseOptions {
   readonly tolerateInvalidArrays?: boolean;
 }
 
+const blockKeyPatterns = new Map<string, RegExp>();
+
 export function readBlockScalar(frontmatter: string, blockName: string, key: string): string {
-  return readIndentedBlock(frontmatter, blockName)
-    .find((line) => line.trimStart().startsWith(`${key}:`))
-    ?.replace(new RegExp(`^\\s*${key}:\\s*`, "u"), "")
-    .trim() ?? "[]";
+  const cacheKey = `${blockName}\0${key}`;
+  const cached = blockKeyPatterns.get(cacheKey);
+  // The key stays unescaped, exactly as the inline template built it: callers pass declared
+  // frontmatter keys, and escaping here would silently change what a dotted key matches.
+  const pattern = cached ?? new RegExp(`^\\s*${key}:\\s*`, "u");
+  if (!cached) blockKeyPatterns.set(cacheKey, pattern);
+  return (
+    readIndentedBlock(frontmatter, blockName)
+      .find((line) => line.trimStart().startsWith(`${key}:`))
+      ?.replace(pattern, "")
+      .trim() ?? "[]"
+  );
 }
 
 export function parseStringArray(value: string, options: FlowFrontmatterParseOptions = {}): string[] {
@@ -22,7 +32,7 @@ export function parseStringArray(value: string, options: FlowFrontmatterParseOpt
 export function parseObjectList(
   frontmatter: string,
   key: string,
-  options: FlowFrontmatterParseOptions = {}
+  options: FlowFrontmatterParseOptions = {},
 ): ReadonlyArray<Record<string, unknown>> {
   const items: Record<string, unknown>[] = [];
   let current: Record<string, unknown> | null = null;
@@ -45,7 +55,10 @@ export function parseObjectList(
 }
 
 export function parseFlowObject(value: string, options: FlowFrontmatterParseOptions = {}): Record<string, unknown> {
-  const body = value.trim().replace(/^\{\s*/u, "").replace(/\s*\}$/u, "");
+  const body = value
+    .trim()
+    .replace(/^\{\s*/u, "")
+    .replace(/\s*\}$/u, "");
   const result: Record<string, unknown> = {};
   for (const part of splitFlowFrontmatterTopLevel(body)) {
     const separator = part.indexOf(":");
@@ -59,7 +72,7 @@ export function parseFlowObject(value: string, options: FlowFrontmatterParseOpti
 export function unquote(value: string): string {
   const trimmed = value.trim();
   if (!trimmed) return "";
-  if (!trimmed.startsWith("\"")) return trimmed;
+  if (!trimmed.startsWith('"')) return trimmed;
   try {
     return String(JSON.parse(trimmed));
   } catch {
@@ -102,7 +115,7 @@ function splitFlowFrontmatterTopLevel(value: string): string[] {
   for (let index = 0; index < value.length; index += 1) {
     const char = value[index];
     const previous = value[index - 1];
-    if (char === "\"" && previous !== "\\") inString = !inString;
+    if (char === '"' && previous !== "\\") inString = !inString;
     if (!inString && (char === "{" || char === "[")) depth += 1;
     if (!inString && (char === "}" || char === "]")) depth -= 1;
     if (!inString && depth === 0 && char === ",") {

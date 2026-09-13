@@ -4,6 +4,7 @@ import {
   getEntityKindContract,
   type EntityActionContract,
   type EntityActionInputField,
+  type EntityKindContract,
 } from "./entity-kind-registry.ts";
 import { artifactEntityActionCatalog } from "./artifact-entity-actions.ts";
 import { isEntityActionUnmetCriterion, type EntityActionUnmetCriterionV1 } from "./receipt-domain-registry.ts";
@@ -360,15 +361,25 @@ function actionContract(value: unknown): EntityActionContract | null {
   return explanationCatalog(value.kind)?.actions.find(({ id }) => id === value.id) ?? null;
 }
 
+const entityKindRefPattern = new RegExp(`^${ENTITY_KIND_REF_PATTERN}$`, "u");
+
+// One catalog per declared artifact kind; explanation reads are hot and the catalog is a pure
+// function of the kind, so repeated catalog explanations reuse one compiled value.
+const artifactKindActionCatalogs = new Map<string, NonNullable<EntityKindContract["actionCatalog"]>>();
+
 function explanationCatalog(kind: string) {
   const registered = getEntityKindContract(kind)?.actionCatalog;
   if (registered) return registered;
-  if (!new RegExp(`^${ENTITY_KIND_REF_PATTERN}$`, "u").test(kind)) return null;
-  return artifactEntityActionCatalog(kind, {
+  if (!entityKindRefPattern.test(kind)) return null;
+  const cached = artifactKindActionCatalogs.get(kind);
+  if (cached) return cached;
+  const catalog = artifactEntityActionCatalog(kind, {
     field: "entityId",
     pattern: "^[A-Z][A-Z0-9]{0,15}-[a-f0-9]{16}$",
     refTemplate: `${kind}/{id}`,
   });
+  artifactKindActionCatalogs.set(kind, catalog);
+  return catalog;
 }
 
 function validateCriterion(value: unknown): readonly string[] {

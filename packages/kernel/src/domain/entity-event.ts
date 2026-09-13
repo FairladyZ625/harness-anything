@@ -13,7 +13,7 @@ import {
   type ArtifactEntityContractSnapshot,
   type ArtifactLocator,
 } from "./artifact-entity.ts";
-import { parseEntityJsonSchema } from "./entity-json-schema.ts";
+import { compiledPattern, parseEntityJsonSchema } from "./entity-json-schema.ts";
 import {
   createEntityOwnedContent,
   entityDirectoryFootprint,
@@ -510,7 +510,7 @@ function validateDeletedPayload(
   }
   if (
     typeof payload.entityId !== "string" ||
-    !new RegExp(contract.id.pattern, "u").test(payload.entityId) ||
+    !compiledPattern(contract.id.pattern).test(payload.entityId) ||
     typeof payload.reason !== "string" ||
     !payload.reason.trim()
   )
@@ -538,7 +538,7 @@ function validateArtifactPayload(payload: Record<string, unknown>, allowUnknownF
     historical = isRecord(snapshot) && !Object.hasOwn(snapshot, "kindVersion"),
     validEntityId = historical
       ? typeof payload.entityId === "string" &&
-        new RegExp(`^${snapshot.idPrefix}-[a-f0-9]{16}$`, "u").test(payload.entityId)
+        compiledPattern(`^${String(snapshot.idPrefix)}-[a-f0-9]{16}$`).test(payload.entityId)
       : isArtifactEntityId(snapshot.idPrefix, payload.entityId);
   try {
     if (canonicalArtifactSourceIdentity(String(payload.sourceIdentity)) !== payload.sourceIdentity)
@@ -592,7 +592,7 @@ function validateUpsertPayload(
   } catch {
     return ["entity event kind is not registered"];
   }
-  if (typeof payload.entityId !== "string" || !new RegExp(contract.id.pattern, "u").test(payload.entityId))
+  if (typeof payload.entityId !== "string" || !compiledPattern(contract.id.pattern).test(payload.entityId))
     return ["entity event kind and identity are invalid"];
   return validateClaim(payload, contract, hasFields, schema, allowUnknownFields);
 }
