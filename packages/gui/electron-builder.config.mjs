@@ -15,7 +15,7 @@ const config = {
   },
   extraMetadata: {
     name: "harness-anything-gui",
-    version: "0.0.1",
+    version: "0.1.0",
     main: "packages/gui/src/main/electron-main.ts",
   },
   files: [

@@ -37,7 +37,7 @@ test("package policy rejects GUI as an npm package", async () => {
     writeValidFixture(root);
     writeJson(root, "packages/gui/package.json", {
       name: "@harness-anything/gui",
-      version: "0.0.1",
+      version: "0.1.0",
       publishConfig: { access: "public" },
     });
 
@@ -68,7 +68,7 @@ test("package policy rejects an internal library made public", async () => {
     writeValidFixture(root);
     writeJson(root, "packages/kernel/package.json", {
       name: "@harness-anything/kernel",
-      version: "0.0.0",
+      version: "0.1.0",
     });
 
     const result = runCheck(root);
@@ -94,7 +94,7 @@ async function withFixtureRepo(fn) {
 function writeValidFixture(root) {
   writeJson(root, "package.json", {
     name: "harness-anything",
-    version: "0.0.1",
+    version: "0.1.0",
     private: true,
     workspaces: ["packages/*", "packages/adapters/*"],
   });
@@ -109,12 +109,12 @@ function writeValidFixture(root) {
   for (const [packagePath, name] of packages)
     writeJson(root, packagePath, {
       name,
-      version: packagePath === "packages/gui/package.json" ? "0.0.1" : "0.0.0",
+      version: "0.1.0",
       private: true,
     });
   writeJson(root, "packages/cli/package.json", {
     name: "@harness-anything/cli",
-    version: "0.0.1",
+    version: "0.1.0",
     publishConfig: { access: "public" },
     repository: { directory: "packages/cli" },
     engines: { node: ">=24" },
@@ -128,7 +128,7 @@ function writeValidFixture(root) {
 function makeDaemonPublicReady(root) {
   writeJson(root, "packages/daemon/package.json", {
     name: "@harness-anything/daemon",
-    version: "0.0.1",
+    version: "0.1.0",
     publishConfig: { access: "public" },
     repository: { directory: "packages/daemon" },
     engines: { node: ">=24" },

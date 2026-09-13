@@ -77,9 +77,9 @@ export interface ElectronUpgradeContract {
 
 export interface SupplyChainReleaseBoundaryContract {
   readonly packagesPrivateExceptPublicReady: true;
-  readonly internalWorkspaceVersion: "0.0.0";
-  readonly productVersion: "0.0.1";
-  readonly publicReadyPackageVersion: "0.0.1";
+  readonly internalWorkspaceVersion: "0.1.0";
+  readonly productVersion: "0.1.0";
+  readonly publicReadyPackageVersion: "0.1.0";
   readonly npmReleaseClaimed: false;
   readonly releaseArtifactsPublished: false;
   readonly signedInstallersShipped: false;
@@ -270,9 +270,9 @@ export const harnessSupplyChainReleaseReadiness: SupplyChainReleaseReadinessPoli
   },
   releaseBoundary: {
     packagesPrivateExceptPublicReady: true,
-    internalWorkspaceVersion: "0.0.0",
-    productVersion: "0.0.1",
-    publicReadyPackageVersion: "0.0.1",
+    internalWorkspaceVersion: "0.1.0",
+    productVersion: "0.1.0",
+    publicReadyPackageVersion: "0.1.0",
     npmReleaseClaimed: false,
     releaseArtifactsPublished: false,
     signedInstallersShipped: false,
@@ -384,9 +384,9 @@ export function validateSupplyChainReleaseReadiness(
   const boundary = policy.releaseBoundary;
   if (
     boundary.packagesPrivateExceptPublicReady !== true ||
-    boundary.internalWorkspaceVersion !== "0.0.0" ||
-    boundary.productVersion !== "0.0.1" ||
-    boundary.publicReadyPackageVersion !== "0.0.1" ||
+    boundary.internalWorkspaceVersion !== "0.1.0" ||
+    boundary.productVersion !== "0.1.0" ||
+    boundary.publicReadyPackageVersion !== "0.1.0" ||
     boundary.npmReleaseClaimed !== false ||
     boundary.releaseArtifactsPublished !== false ||
     boundary.signedInstallersShipped !== false ||

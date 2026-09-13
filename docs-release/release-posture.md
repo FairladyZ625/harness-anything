@@ -163,8 +163,8 @@ Current release boundaries are intentionally conservative:
   start --service` control UX and autostart orchestration, which must resolve and
   spawn that installed daemon executable instead of hosting the daemon itself.
 - The root product, CLI, daemon release candidate, and Electron GUI use one
-  lockstep version. The current candidate is `0.0.1`; internal workspace
-  libraries remain private at `0.0.0`.
+  lockstep version. The current candidate is `0.1.0`; internal workspace
+  libraries remain private at `0.1.0`.
 - `@harness-anything/gui`, kernel, application, and adapter workspaces are not in
   the approved npm publish set and remain private.
 - Every client must complete `protocol.hello` with the daemon's exact protocol

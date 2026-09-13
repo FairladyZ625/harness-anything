@@ -265,7 +265,7 @@ async function withFixtureRepo(fn) {
 function writeValidSupplyChainFixture(root, options = {}) {
   const packageJson = {
     name: "harness-anything",
-    version: "0.0.1",
+    version: "0.1.0",
     private: true,
     license: "AGPL-3.0-or-later",
     scripts: {
@@ -288,7 +288,7 @@ function writeValidSupplyChainFixture(root, options = {}) {
   ]) {
     workspacePackages[packagePath] = {
       name: packagePath,
-      version: "0.0.0",
+      version: "0.1.0",
       private: true,
       license: "AGPL-3.0-or-later",
     };
@@ -296,7 +296,7 @@ function writeValidSupplyChainFixture(root, options = {}) {
   workspacePackages["packages/cli/package.json"] = {
     ...workspacePackages["packages/cli/package.json"],
     name: "@harness-anything/cli",
-    version: "0.0.1",
+    version: "0.1.0",
     private: false,
     publishConfig: { access: "public" },
     repository: {
@@ -308,7 +308,7 @@ function writeValidSupplyChainFixture(root, options = {}) {
     bin: { "harness-anything": "dist/cli/src/index.js", ha: "dist/cli/src/index.js" },
     files: ["dist", "README.md", "package.json"],
   };
-  workspacePackages["packages/gui/package.json"].version = "0.0.1";
+  workspacePackages["packages/gui/package.json"].version = "0.1.0";
   options.packageMutator?.(workspacePackages);
   for (const [packagePath, packageJson] of Object.entries(workspacePackages)) {
     writeJson(root, packagePath, packageJson);
@@ -316,13 +316,13 @@ function writeValidSupplyChainFixture(root, options = {}) {
 
   const lock = {
     name: "harness-anything",
-    version: "0.0.1",
+    version: "0.1.0",
     lockfileVersion: 3,
     requires: true,
     packages: {
       "": {
         name: "harness-anything",
-        version: "0.0.1",
+        version: "0.1.0",
         license: "AGPL-3.0-or-later",
       },
       "node_modules/electron": {
@@ -353,7 +353,7 @@ function makeDaemonPublicReady(packages) {
   packages["packages/daemon/package.json"] = {
     ...packages["packages/daemon/package.json"],
     name: "@harness-anything/daemon",
-    version: "0.0.1",
+    version: "0.1.0",
     private: false,
     publishConfig: { access: "public" },
     repository: { directory: "packages/daemon" },

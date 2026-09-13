@@ -31,8 +31,8 @@ try {
       "install",
       "--no-audit",
       "--no-fund",
-      path.join(parent, "harness-anything-daemon-0.0.1.tgz"),
-      path.join(parent, "harness-anything-cli-0.0.1.tgz"),
+      path.join(parent, "harness-anything-daemon-0.1.0.tgz"),
+      path.join(parent, "harness-anything-cli-0.1.0.tgz"),
     ],
     consumer,
   );
