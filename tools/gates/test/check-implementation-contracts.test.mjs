@@ -42,6 +42,81 @@ test("implementation contracts remain on the required boundaries path", () => {
   );
 });
 
+test("renderer rule blocks credential token shapes and private paths but passes token usage telemetry", () => {
+  const fixture = mkdtempSync(path.join(os.tmpdir(), "implementation-contract-renderer-"));
+  try {
+    const files = globSync(["packages/**/*", "package.json", "package-lock.json", "tsconfig.json"], {
+      cwd: root,
+      withFileTypes: true,
+      exclude: ["**/node_modules/**", "**/dist/**"],
+    })
+      .filter((entry) => entry.isFile())
+      .map((entry) => path.relative(root, path.join(entry.parentPath, entry.name)));
+    for (const file of files) {
+      const destination = path.join(fixture, file);
+      mkdirSync(path.dirname(destination), { recursive: true });
+      copyFileSync(path.join(root, file), destination);
+    }
+    const runGate = () =>
+      spawnSync(process.execPath, [path.join(root, "tools/check-implementation-contracts.mjs")], {
+        cwd: fixture,
+        encoding: "utf8",
+      });
+    const rendererDir = path.join(fixture, "packages/gui/src/renderer");
+    const writeRenderer = (name, body) => writeFileSync(path.join(rendererDir, name), body);
+
+    // LLM usage telemetry (the squad-run token board shapes) is display data, not credential
+    // access: tokenUsage fields, totalTokens/exactTokens helpers, TokenBoard copy must all pass.
+    writeRenderer(
+      "TokenTelemetry.tsx",
+      [
+        'import { totalTokens, exactTokens, compactTokens } from "./metrics.ts";',
+        "export function TokenBoard({ turns, attempts }) {",
+        "  const tokenScale = Math.max(0, ...turns.map(totalTokens), ...attempts.map(totalTokens));",
+        "  const input = turns.reduce((sum, turn) => sum + turn.tokenUsage.input, 0);",
+        "  const output = attempts.reduce((sum, m) => sum + m.tokenUsage.output, 0);",
+        "  return (",
+        '    <p data-testid="squad-run-token-board-total">',
+        "      Token overhead · {compactTokens(input)} / {exactTokens(output)} · scale {tokenScale}",
+        "    </p>",
+        "  );",
+        "}",
+      ].join("\n"),
+    );
+    const telemetry = runGate();
+    assert.equal(telemetry.status, 0, telemetry.stderr);
+
+    // Each credential shape gets its own file so one violation message per file proves the
+    // pattern fires on that shape specifically, not just on the union of all of them.
+    const credentialShapes = {
+      "AccessTokenShape.tsx": "export const accessToken = session.accessToken;\n",
+      "EnvAuthTokenShape.tsx": 'export const authHeader = process.env.AUTH_TOKEN ?? "";\n',
+      "SessionTokenShape.tsx": "export const header = `X-Session-Token: ${sessionToken}`;\n",
+      "SessionTokensShape.tsx": "export const sessionTokens: readonly string[] = [];\n",
+      "RefreshTokenShape.tsx": "export const refreshToken = rotate(currentRefreshToken);\n",
+      "ApiTokenShape.tsx": "export const apiToken = provider.api_token;\n",
+      "ClientTokenShape.tsx": "export const clientToken = oauth.client_token;\n",
+      "OperatorTokenShape.tsx": "export const operatorToken = daemon.operator_token;\n",
+      "BearerHeaderShape.tsx": "export const header = `Authorization: Bearer ${opaqueValue}`;\n",
+      "HarnessPrivateShape.tsx": 'export const reviewPath = ".harness-private/review.md";\n',
+      "RawProjectPathsShape.tsx": "// raw project paths from the daemon stay in the main process.\n",
+    };
+    for (const [name, body] of Object.entries(credentialShapes)) writeRenderer(name, body);
+    const blocked = runGate();
+    assert.equal(blocked.status, 1, blocked.stdout);
+    for (const name of Object.keys(credentialShapes)) {
+      assert.ok(
+        blocked.stderr.includes(
+          `packages/gui/src/renderer/${name}: renderer must not directly access private paths, credentials, or raw project paths`,
+        ),
+        `expected renderer rule to flag ${name}\n${blocked.stderr}`,
+      );
+    }
+  } finally {
+    rmSync(fixture, { recursive: true, force: true });
+  }
+});
+
 test("real implementation gate accepts renamed titles and rejects each missing or misplaced contract marker", () => {
   const fixture = mkdtempSync(path.join(os.tmpdir(), "implementation-contract-"));
   try {

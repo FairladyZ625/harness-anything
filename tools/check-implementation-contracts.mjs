@@ -56,6 +56,18 @@ const multicaForbiddenVerbs = entryValues(allowlist.multicaForbiddenVerbs);
 const extensionRequiredSnippets = entryValues(allowlist.extensionRequiredSnippets);
 const extensionSchemaPaths = entryValues(allowlist.extensionSchemaPaths);
 const browserWindowRequiredPatterns = allowlist.browserWindowRequiredPatterns.map((entry) => new RegExp(entry.pattern));
+// Credential tokens are qualifier compounds (sessionToken, AUTH_TOKEN, api_token) plus bearer
+// material; bare "token" is LLM usage telemetry (tokenUsage, totalTokens, "Token" copy) and is
+// legitimate renderer content, so it must not match.
+const rendererCredentialPattern = new RegExp(
+  [
+    "\\.harness-private",
+    "raw project paths",
+    "bearer(?:[_-]?tokens?)?\\b",
+    "(?:access|auth|session|refresh|api|client|operator)[_-]?tokens?\\b",
+  ].join("|"),
+  "iu",
+);
 
 function record(message) {
   violations.push(message);
@@ -462,8 +474,8 @@ for (const file of files) {
     if (/\bfrom\s+["'](?:node:)?(?:fs|child_process|process|path|os|electron)["']/.test(text)) {
       record(`${rel}: renderer must not import Node/Electron privileged modules`);
     }
-    if (/\.harness-private|token|raw project paths/i.test(text)) {
-      record(`${rel}: renderer must not directly access private paths, tokens, or raw project paths`);
+    if (rendererCredentialPattern.test(text)) {
+      record(`${rel}: renderer must not directly access private paths, credentials, or raw project paths`);
     }
   }
 
