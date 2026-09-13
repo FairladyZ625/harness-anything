@@ -14,7 +14,7 @@ import {
   type TaskV2,
 } from "../../kernel/src/index.ts";
 import { readDispatchLiveIndex, readDispatchStreamSummary } from "./dispatch-stream.ts";
-import { runtimePidIsAlive } from "./runtime-spawn-process.ts";
+import { runtimePidIsAlive } from "./runtime-process-liveness.ts";
 import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 import type { RepoCellActionContext } from "./repo-cell-action-context.ts";
 

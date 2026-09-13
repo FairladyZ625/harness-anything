@@ -8,7 +8,8 @@ import {
 } from "./dispatch-stream.ts";
 import { removeRuntimeCallbackRelay } from "./runtime-callback-relay.ts";
 import { createActiveRuntime, attachActiveRuntime } from "./runtime-spawn-active.ts";
-import { adoptNativeProcess, runtimePidIsAlive } from "./runtime-spawn-process.ts";
+import { adoptNativeProcess } from "./runtime-spawn-process.ts";
+import { runtimePidIsAlive } from "./runtime-process-liveness.ts";
 import {
   consumeDurableOutput,
   durableOutputRecordCount,
