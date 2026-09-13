@@ -9,6 +9,7 @@ import {
 } from "./squad-control-result.ts";
 import type { RepoCellCore } from "./repo-cell.ts";
 import { readAcceptedCommandOutcome } from "../../kernel/src/index.ts";
+import { daemonSettingsRead } from "./protocol/daemon-settings-read-types.ts";
 import { settleWriteReceipt } from "./write-receipt-settlement.ts";
 import {
   assertCurrentWriter,
@@ -21,8 +22,6 @@ import {
   relationDirections,
   relationStates,
   relationTypes,
-  repositorySettings,
-  repositorySettingsActionValues,
   runtimeSessionActionIds,
   timestamp,
   type AuthorizationDecision,
@@ -526,16 +525,8 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
         projection: context.projection,
         ...(payload.window === undefined ? {} : { window: Number(payload.window) }),
       }),
-    "repo.settings.read": () => {
-      // settings 保持原样返回(含 locale 本地偏好);values 用归一化仓库视图拍平,键 = 动作契约字段。
-      const settings = context.settings.read();
-      return {
-        schema: "daemon.settings-read/v1" as const,
-        ok: true as const,
-        settings,
-        values: repositorySettingsActionValues(repositorySettings(settings)),
-      };
-    },
+    // settings 原样返回(含 locale);values 为 kernel 拍平的动作值面(键 = 契约字段)。
+    "repo.settings.read": () => daemonSettingsRead(context.settings.read()),
     "repo.tasks.list": (payload: Readonly<Record<string, unknown>>) =>
       queryRead().guiTasks(taskListQueryFromPayload(payload)),
     "repo.tasks.wip": () => readTaskWipSnapshot(context as unknown as TaskQueryCell),

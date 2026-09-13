@@ -277,7 +277,7 @@ export interface CatalogSnapshotSuccess {
   readonly verticals: ReadonlyArray<CatalogVerticalRow>;
   readonly templates: ReadonlyArray<CatalogTemplateRow>;
   readonly scaffolds: { readonly task: ReadonlyArray<string>; readonly repository: ReadonlyArray<string> };
-  /** settings 动作契约字段表:仓库设置表单的派生源。 */
+  /** settings 动作契约字段表(daemon 侧校验行 shape):仓库设置表单的派生源。 */
   readonly settingsFields: ReadonlyArray<{
     readonly field: string;
     readonly type: string;
@@ -845,14 +845,6 @@ function isCatalogSnapshotSuccess(value: unknown): value is CatalogSnapshotSucce
     Array.isArray(value.scaffolds.task) &&
     Array.isArray(value.scaffolds.repository) &&
     Array.isArray(value.settingsFields) &&
-    value.settingsFields.every(
-      (field) =>
-        isRendererRecord(field) &&
-        typeof field.field === "string" &&
-        typeof field.type === "string" &&
-        typeof field.required === "boolean" &&
-        (field.enum === undefined || (Array.isArray(field.enum) && field.enum.every((v) => typeof v === "string"))),
-    ) &&
     value.presets.every(
       (row) =>
         isRendererRecord(row) &&
