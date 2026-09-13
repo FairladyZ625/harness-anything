@@ -22,6 +22,7 @@ import {
   validateSquadEntityDetail,
 } from "./agent-entity-gui-contract.ts";
 import { validateDaemonTaskCompletion, validateObserveTailResult } from "./daemon-protocol-gui-types.ts";
+import { validateDaemonTaskSnapshotListServed } from "./daemon-protocol-validate-task.ts";
 import { validationError } from "./daemon-protocol-validate-entities.ts";
 import { validateArtifactsList } from "./artifacts-gui-contract.ts";
 import { validateDaemonUseCaseProjection } from "./daemon-protocol-use-case-projection.ts";
@@ -106,7 +107,7 @@ const resultValidators = {
   "daemon.gui.system.read": validateSystemStatus,
   "daemon.gui.control.receipt": validateDaemonControlReceipt,
   "observe.tail": validateObserveTailResult,
-  "repo.tasks.list": validateDaemonTaskSnapshotList,
+  "repo.tasks.list": validateDaemonTaskSnapshotListServed,
   "repo.tasks.completion.read": validateDaemonTaskCompletion,
   "repo.tasks.wip": validateDaemonTaskWip,
   "repo.projection.read": validateDaemonUseCaseProjection,
@@ -193,8 +194,14 @@ export function parseDaemonGuiReadResponse<M extends DaemonGuiRpcReadMethod>(
   method: M,
   value: unknown,
 ): DaemonGuiReadResultMap[M] | DaemonProtocolErrorResult {
+  // Client inbound: rows are re-judged here because they crossed a process boundary; the
+  // same-process exit (resultValidators) only re-checks the served shape.
   const errors =
-    isJsonObject(value) && value.ok === false ? validateDaemonProtocolError(value) : resultValidators[method](value);
+    isJsonObject(value) && value.ok === false
+      ? validateDaemonProtocolError(value)
+      : method === "repo.tasks.list"
+        ? validateDaemonTaskSnapshotList(value)
+        : resultValidators[method](value);
   if (errors.length) throw new DaemonProtocolContractError("invalid_result", errors.join("; "));
   return value as DaemonGuiReadResultMap[M] | DaemonProtocolErrorResult;
 }

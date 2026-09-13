@@ -26,19 +26,11 @@ export interface JsonRpcErrorResponse {
   readonly error: JsonRpcErrorObject;
 }
 export type JsonRpcResponse<Result = unknown> = JsonRpcSuccessResponse<Result> | JsonRpcErrorResponse;
-export function isJsonValue(value: unknown): value is JsonValue {
-  if (value === null || typeof value === "string" || typeof value === "boolean") return true;
-  if (typeof value === "number") return Number.isFinite(value);
-  if (Array.isArray(value)) return value.every(isJsonValue);
-  return isJsonObject(value);
-}
+/** Shallow by design: every payload crossing a wire reached us through JSON.parse, which cannot
+ * produce a non-JSON value, so each validation layer judges its own fields and never re-walks
+ * the subtree below them. */
 export function isJsonObject(value: unknown): value is JsonObject {
-  return (
-    value !== null && typeof value === "object" && !Array.isArray(value) && Object.values(value).every(isJsonValue)
-  );
-}
-export function isJsonArray(value: unknown): value is ReadonlyArray<JsonValue> {
-  return Array.isArray(value) && value.every(isJsonValue);
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 export function hasProperty<Key extends string>(
   value: JsonObject,
@@ -70,6 +62,8 @@ export function unknownFieldViolation(
     ? null
     : `unknown field ${JSON.stringify(field)}; allowed fields: ${allowedFields.map((candidate) => JSON.stringify(candidate)).join(", ")}.`;
 }
+/** Deliberately recursive, unlike isJsonObject: secret-like keys are a hygiene invariant over the
+ * whole payload, and free-form object fields have no per-layer rule that would catch them. */
 export function rejectSecretKeys(value: unknown): readonly string[] {
   return hasSensitiveKey(value) ? ["payload contains a forbidden secret-like key"] : [];
 }

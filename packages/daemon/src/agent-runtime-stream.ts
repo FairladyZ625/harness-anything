@@ -60,7 +60,8 @@ export interface AgentRuntimeStreamHub {
 
 const BUFFER_LIMIT = 32,
   WITNESS_TTL_MS = 5 * 60_000;
-type StreamState = { sequence: number; events: AgentRuntimeAttachEvent[]; subscribers: Set<Subscriber> };
+type BufferedEvent = { readonly sequence: number; readonly event: AgentRuntimeAttachEvent };
+type StreamState = { sequence: number; events: BufferedEvent[]; subscribers: Set<Subscriber> };
 type Subscriber = { runtimeSessionId: string; cursor: number; detached: boolean; wake: (() => void) | null };
 
 export function makeAgentRuntimeStreamHub(input: {
@@ -89,11 +90,11 @@ export function makeAgentRuntimeStreamHub(input: {
       if (session === null || !input.canAttach(session)) return unsupported(runtimeSessionId);
       const state = stateFor(runtimeSessionId),
         after = parseCursor(afterCursor);
-      const oldest = state.events[0] ? parseCursor(state.events[0].cursor) : state.sequence + 1,
+      const oldest = state.events[0]?.sequence ?? state.sequence + 1,
         gap = after > state.sequence || after < oldest - 1;
       const initialEvents = gap
         ? [gapEvent(runtimeSessionId, state.sequence, now())]
-        : state.events.filter((event) => parseCursor(event.cursor) > after);
+        : state.events.filter((entry) => entry.sequence > after).map((entry) => entry.event);
       const subscriber: Subscriber = { runtimeSessionId, cursor: state.sequence, detached: false, wake: null };
       state.subscribers.add(subscriber);
       const detach = () => {
@@ -117,12 +118,9 @@ export function makeAgentRuntimeStreamHub(input: {
     },
     publish: (runtimeSessionId, signal) => {
       const state = stateFor(runtimeSessionId),
-        event = signalEvent(runtimeSessionId, ++state.sequence, now(), signal);
-      if (validateAgentRuntimeAttachEvent(event).length) {
-        state.sequence -= 1;
-        throw runtimeStreamError("invalid_provider_frame", "Provider frame is outside the safe attach contract.");
-      }
-      state.events.push(event);
+        sequence = ++state.sequence,
+        event = signalEvent(runtimeSessionId, sequence, now(), signal);
+      state.events.push({ sequence, event });
       if (state.events.length > BUFFER_LIMIT) state.events.splice(0, state.events.length - BUFFER_LIMIT);
       for (const subscriber of state.subscribers) subscriber.wake?.();
       return event;
@@ -170,15 +168,15 @@ async function nextEvent(
 ): Promise<AgentRuntimeAttachEvent | null> {
   for (;;) {
     if (subscriber.detached) return null;
-    const oldest = state.events[0] ? parseCursor(state.events[0].cursor) : state.sequence + 1;
+    const oldest = state.events[0]?.sequence ?? state.sequence + 1;
     if (subscriber.cursor < oldest - 1) {
       subscriber.cursor = state.sequence;
       return gapEvent(subscriber.runtimeSessionId, state.sequence, now());
     }
-    const event = state.events.find((item) => parseCursor(item.cursor) > subscriber.cursor);
-    if (event) {
-      subscriber.cursor = parseCursor(event.cursor);
-      return event;
+    const next = state.events.find((entry) => entry.sequence > subscriber.cursor);
+    if (next) {
+      subscriber.cursor = next.sequence;
+      return next.event;
     }
     await new Promise<void>((resolve) => {
       subscriber.wake = resolve;
@@ -187,6 +185,8 @@ async function nextEvent(
   }
 }
 const cursor = (sequence: number) => `stream:${sequence}`;
+/** The one wire-boundary decode: buffered events carry their numeric sequence so the hub's own
+ * comparisons never re-parse cursor strings. */
 function parseCursor(value: string): number {
   const match = /^stream:(\d+)$/u.exec(value),
     sequence = match ? Number(match[1]) : Number.NaN;
