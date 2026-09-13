@@ -172,7 +172,11 @@ test("wide task reads keep byte-identical unparameterized results and serve narr
         blockingAssessment: { blockers: { targetTaskId: string }[] };
       }[];
     };
-    assert.equal(unparameterized.page, undefined, "unparameterized task list must not carry a page facet");
+    assert.deepEqual(
+      unparameterized.page,
+      { limit: 500, cursor: null, nextCursor: null },
+      "unparameterized task list keeps the default-bounded page",
+    );
     assert.deepEqual(
       unparameterized.rows
         .find(({ taskId }) => taskId === "task_real_Alpha")
@@ -217,7 +221,7 @@ test("wide task reads keep byte-identical unparameterized results and serve narr
       ["task_real_Beta", "task_real_Delta"],
     );
     assert.equal(active.rows.length, 2);
-    assert.equal(active.page, undefined);
+    assert.deepEqual(active.page, { limit: 500, cursor: null, nextCursor: null });
     const windowed = await cell.read("repo.tasks.list", {
       updatedAfter: "2026-08-15T00:00:00.000Z",
     });

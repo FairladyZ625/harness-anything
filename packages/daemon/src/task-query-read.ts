@@ -195,7 +195,7 @@ export function makeTaskQueryReadModel(input: {
     };
   }
   function guiTasks(query: TaskProjectionListQuery = {}): DaemonTaskSnapshotListResult {
-    const lifecycle = projection.list(query),
+    const lifecycle = projection.list({ ...query, limit: query.limit ?? 500 }),
       { dependencies, derives, taskStatuses, blockingByTaskId } = readBlockingAssessments(
         lifecycle.rows.map(({ taskId }) => taskId),
       ),
