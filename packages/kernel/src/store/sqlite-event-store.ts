@@ -11,7 +11,11 @@ import { localRuntimeStateFileSystem } from "../local/local-layout-file-system.t
 import { replayClaim, replayRelease, replayRenew } from "../projection/rebuildable-task-projection-runtime.ts";
 import { TaskEventStoreError } from "./task-event-store-types.ts";
 import type { CanonicalContentBlob } from "./task-event-store-types.ts";
-import { listContentObjectDigests, prepareContentObjects, readContentObject } from "./sqlite-content-object-store.ts";
+import {
+  listContentObjectDigests,
+  prepareContentObjects,
+  readContentObject,
+} from "./task-event-store-claims-layout.ts";
 import { consumeKnownError } from "../error-consumption.ts";
 
 export const SQLITE_LEDGER_GENERATION = 1;
