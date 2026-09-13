@@ -348,7 +348,6 @@ function AppShell() {
     onSearchActiveChange,
     facts: paletteFacts,
   } = useSearchIndex(activeRepoId, paletteOpen, projectTasks, chromeDecisions, governedEntities);
-
   useAppShortcuts({
     onTogglePalette: () => setPaletteOpen((open) => !open),
     // Ctrl+` = 终端页进出(PLT-TerminalWorkspace W0):不在终端页→压栈进入;
@@ -427,6 +426,7 @@ function AppShell() {
                   mutationFeedback={taskActions.feedback.get(selected.taskId)}
                   onProgress={(input) => taskActions.appendProgress(selected, input)}
                   onSubmit={() => taskActions.submitTask(selected)}
+                  onComplete={(consent) => taskActions.completeTask(selected, consent)}
                   onSetPin={handleSetPin}
                   onOpenTerminal={(task) => {
                     setTerminalLaunch({ requestId: crypto.randomUUID(), taskId: task.taskId, title: task.title });
