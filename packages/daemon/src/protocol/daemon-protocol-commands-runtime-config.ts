@@ -10,6 +10,39 @@ import { daemonRepoModeWords } from "./daemon-protocol-vocabulary.ts";
 const credentialReferenceRegex =
   "^credential:v1:[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$|^keychain:[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$";
 
+// The CLI's per-kind input summary, mirroring the runtime-inventory catalog entries: which auth modes
+// the create command accepts, the kind configuration field names (and which one is the
+// effort field), and whether the kind has a fast tier at all.
+export const builtInRuntimeProviderInputDeclaration = Object.freeze({
+  claude: Object.freeze({
+    authModes: ["subscription", "api-key"] as const,
+    fields: ["effort", "baseUrl"] as const,
+    effortField: "effort",
+    fast: false,
+  }),
+  codex: Object.freeze({
+    authModes: ["subscription", "api-key"] as const,
+    fields: [
+      "reasoningEffort",
+      "fast",
+      "baseUrl",
+      "allowInsecureHttp",
+      "wireApi",
+      "requiresOpenAiAuth",
+      "httpHeaders",
+      "credentialHeader",
+    ] as const,
+    effortField: "reasoningEffort",
+    fast: true,
+  }),
+  agy: Object.freeze({
+    authModes: ["subscription"] as const,
+    fields: ["effort"] as const,
+    effortField: "effort",
+    fast: false,
+  }),
+});
+
 export const runtimeConfigProtocolCommands = Object.freeze([
   defineCenterRepairWriteCommand({
     id: "daemon-projection-rebuild",

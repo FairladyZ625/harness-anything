@@ -70,39 +70,6 @@ const sharedCapabilities = {
   authentication: "supported",
 } as const;
 
-// The CLI's per-kind input summary, mirroring the catalog entries above: which auth modes
-// the create command accepts, the kind configuration field names (and which one is the
-// effort field), and whether the kind has a fast tier at all.
-export const builtInRuntimeProviderInputDeclaration = Object.freeze({
-  claude: Object.freeze({
-    authModes: ["subscription", "api-key"] as const,
-    fields: ["effort", "baseUrl"] as const,
-    effortField: "effort",
-    fast: false,
-  }),
-  codex: Object.freeze({
-    authModes: ["subscription", "api-key"] as const,
-    fields: [
-      "reasoningEffort",
-      "fast",
-      "baseUrl",
-      "allowInsecureHttp",
-      "wireApi",
-      "requiresOpenAiAuth",
-      "httpHeaders",
-      "credentialHeader",
-    ] as const,
-    effortField: "reasoningEffort",
-    fast: true,
-  }),
-  agy: Object.freeze({
-    authModes: ["subscription"] as const,
-    fields: ["effort"] as const,
-    effortField: "effort",
-    fast: false,
-  }),
-});
-
 export const runtimeKinds = [
   {
     kindId: "claude",
