@@ -374,8 +374,8 @@
       {
         "value": "bypass-write-110",
         "api": "rmSync",
-        "ref": "task_38bc061c5a6c7fb1946e9b5cc6; task_f821cb831f535a13d8cc857c3c",
-        "reason": "Local-only WAL removes only its own pid-named temporary replacement when the write or rename throws."
+        "ref": "task_f821cb831f535a13d8cc857c3c",
+        "reason": "Local-only WAL removes only its own pid-named temporary replacement when the write or rename throws; the settle temporary sweep is the sibling fix in task_38bc061c5a6c7fb1946e9b5cc6."
       },
       {
         "value": "bypass-write-075",
