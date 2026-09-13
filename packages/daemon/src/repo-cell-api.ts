@@ -687,8 +687,8 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
     return context.dispatchRead(readHandlers, method, payload) as DaemonGuiReadResultMap[typeof method];
   };
   const read: RepoCell["read"] = async (method, payload = {}, binding) => readNow(method, payload, binding);
-  // Narrow/paged query payloads for the two wide GUI reads: an empty payload keeps the
-  // unparameterized full result; any explicit facet takes the indexed narrow path.
+  // Narrow/paged query payload for the task list read: an empty payload keeps one default-bounded
+  // page (guiTasks applies TASK_LIST_PAGE_LIMIT); any explicit facet passes through as given.
   function taskListQueryFromPayload(payload: Readonly<Record<string, unknown>>): TaskProjectionListQuery {
     const common = queryPayloadFacets(payload, "repo.tasks.list");
     return {
@@ -1024,8 +1024,8 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
       return context.replica;
     },
     verifyReadiness: async () => {
-      const projected = await read("repo.tasks.list"),
-        ready = projected.status === "ready";
+      if (context.state !== "attached") throw context.cellCodedError("repo_unavailable", context.latched());
+      const ready = context.projection.readCut().status === "ready";
       if (!ready) throw context.cellCodedError("repo_unavailable", "RepoCell L2 projection is not ready.");
       return { cellState: "attached", l2State: "ready" };
     },

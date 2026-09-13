@@ -156,6 +156,22 @@ test("task control narrows graph, status, and decision reads to the selected lif
   assert.deepEqual(decisionCalls, [["dec_event"]]);
 });
 
+test("an unparameterized guiTasks read serves one default-bounded page, never the full ledger", () => {
+  const listCalls: TaskProjectionListQuery[] = [],
+    projection = projectionStub({
+      taskRows: Array.from({ length: 501 }, (_, index) =>
+        protocolTaskRow(`task_page_${String(index).padStart(4, "0")}`),
+      ),
+      listCalls,
+    });
+
+  const result = queryRead(process.cwd(), projection).guiTasks();
+
+  assert.deepEqual(listCalls, [{ limit: 500 }]);
+  assert.equal(result.rows.length, 500);
+  assert.deepEqual(result.page, { limit: 500, cursor: null, nextCursor: "task_page_0499" });
+});
+
 test("task snapshot list isolates an invalid row and continues serving valid rows", () => {
   const invalidWitness = {
       schema: "code-doc-witness/v1",
@@ -328,15 +344,22 @@ function projectionStub(
   return {
     list: (query: TaskProjectionListQuery = {}) => {
       options.listCalls?.push(query);
+      const selected = query.status
+        ? taskRows.filter((row) => (row as ReturnType<typeof protocolTaskRow>).snapshot.task.status === query.status)
+        : taskRows;
+      if (query.limit === undefined && query.cursor === undefined) return { ...cut, rows: selected, warnings: [] };
+      const limit = query.limit ?? 100,
+        visible = selected.slice(0, limit),
+        last = visible.at(-1) as { readonly taskId: string } | undefined;
       return {
         ...cut,
-        rows: query.status
-          ? taskRows.filter((row) => (row as ReturnType<typeof protocolTaskRow>).snapshot.task.status === query.status)
-          : taskRows,
+        rows: visible,
         warnings: [],
-        ...(query.limit === undefined
-          ? {}
-          : { page: { limit: query.limit, cursor: query.cursor ?? null, nextCursor: null } }),
+        page: {
+          limit,
+          cursor: query.cursor ?? null,
+          nextCursor: selected.length > limit && last ? last.taskId : null,
+        },
       };
     },
     read: () => ({ ...cut, packagePath: null }),
