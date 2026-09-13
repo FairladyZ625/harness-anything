@@ -102,7 +102,9 @@ export async function adoptRuntimes(context: RuntimeSpawnerContext): Promise<voi
       event: "runtime_spawn",
       runtimeSessionId: active.runtimeSessionId,
       dispatchId: active.dispatchId,
-      pid: active.process.pid,
+      // A session adopted without a recorded process has no pid to report; the drain count follows
+      // live pids, so reporting a placeholder would keep counting a runtime that does not exist.
+      ...(processState ? { pid: processState.pid } : {}),
     });
     await restoreDurableOutputRecords(context, active, fullStream?.records ?? []);
     if (session.liveness !== "live") {

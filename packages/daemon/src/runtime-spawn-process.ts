@@ -305,6 +305,10 @@ export async function terminateRuntimeTree(rootDir: string, dispatchId: string, 
 }
 
 export function runtimePidIsAlive(pid: number): boolean {
+  // POSIX kill(0, sig) addresses the caller's whole process group, and kill(negative, sig) a group by
+  // id, so either would answer "alive" for a runtime that has no process at all. A runtime pid is a
+  // single process or it is nothing.
+  if (!Number.isInteger(pid) || pid <= 0) return false;
   try {
     process.kill(pid, 0);
     return true;
