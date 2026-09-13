@@ -16,6 +16,7 @@ import {
   countBilingualSignals,
   eventMigrationCommandNames,
 } from "./check-pr-body-bilingual.mjs";
+import { G1_OPERATION_NAMES } from "./gates/cost-budget.mjs";
 
 const validEnglish = [
   "# English",
@@ -318,8 +319,10 @@ const g1Table = [
   "## Per-Write Cost",
   "| Operation | Metric | Before (200) | Before (2000) | After (200) | After (2000) |",
   "| --- | --- | --- | --- | --- | --- |",
-  ...["sqlRowsRead", "sha256Calls", "sha256Bytes", "gitProcesses", "fileReadBytes"].map(
-    (metric) => `| task-create | ${metric} | 0 | 0 | 0 | 0 |`,
+  ...G1_OPERATION_NAMES.flatMap((operation) =>
+    ["sqlRowsRead", "sha256Calls", "sha256Bytes", "gitProcesses", "fileReadBytes"].map(
+      (metric) => `| ${operation} | ${metric} | 0 | 0 | 0 | 0 |`,
+    ),
   ),
 ].join("\n");
 
@@ -351,7 +354,7 @@ test("G1 evidence rejects headings, placeholders, partial metrics, and hidden ta
     `<!--\n${g1Table}\n-->`,
     `\`\`\`markdown\n${g1Table}\n\`\`\``,
     g1Table.replace("## Per-Write Cost", "## Verification"),
-    g1Table.replace("| task-create | fileReadBytes", "| doc-submit | fileReadBytes"),
+    g1Table.replace("| task-create | fileReadBytes", "| not-measured | fileReadBytes"),
   ])
     assert.equal(checkWriteBody(table).ok, false, table);
 });

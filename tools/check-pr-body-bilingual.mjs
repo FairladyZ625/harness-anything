@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import process from "node:process";
 import { agentProtocolCommands } from "../packages/daemon/src/protocol/daemon-protocol-commands-agent.ts";
 import { clientLocalCommands } from "../packages/cli/src/cli/thin-command-help.ts";
-import { G1_MARGINS, G1_SCALES } from "./gates/cost-budget.mjs";
+import { G1_MARGINS, G1_OPERATION_NAMES, G1_SCALES } from "./gates/cost-budget.mjs";
 import { computeProductionDelta } from "./gates/production-delta.mjs";
 import { changedFiles, repoRoot } from "./gates/git.mjs";
 
@@ -258,7 +258,7 @@ export function checkPerWriteCost(body, files = []) {
     rows[1].every((cell) => /^:?-{3,}:?$/u.test(cell)) &&
     rows.slice(2).every(([operation, metric, ...counts]) => {
       if (
-        !/^[a-z]+(?:-[a-z]+)+$/u.test(operation ?? "") ||
+        !G1_OPERATION_NAMES.includes(operation ?? "") ||
         !metrics.includes(metric) ||
         counts.length !== 4 ||
         !counts.every((count) => /^\d+$/u.test(count) && Number.isSafeInteger(Number(count)))
