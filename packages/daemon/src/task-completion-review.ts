@@ -75,14 +75,14 @@ export async function dispatchCompletionReview(
       });
       if (!resolved)
         return stopped(
-          "ha agent install --source <closeout-reviewer-declaration-directory>",
+          "ha agent install --source <closeout-reviewer-declaration>",
           `Reviewer ${reviewerId} is not bundled or installed. Install a repository override, or select an available ` +
             "reviewer with ha settings update --default-reviewer <agent-id>, then retry completion.",
         );
       const { declaration: agent, layer } = resolved;
       if (layer === "installed" && !agent.model)
         return stopped(
-          "ha agent install --source <closeout-reviewer-declaration-directory>",
+          "ha agent install --source <closeout-reviewer-declaration>",
           `Declare an explicit model for reviewer ${reviewerId}, then retry completion. ` +
             "Installed reviewer overrides must not select an instance default model.",
         );

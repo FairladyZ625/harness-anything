@@ -585,9 +585,9 @@ function decodeSourcePackage(
 ):
   | { readonly declaration: AgentDeclarationV1 & SquadDeclarationV1 }
   | { readonly issues: readonly { readonly code: string; readonly message: string }[] } {
-  if (!existsSync(source) || !lstatSync(source).isDirectory() || lstatSync(source).isSymbolicLink())
-    return { issues: [{ code: "invalid_package", message: `Entity package ${source} is not a regular directory.` }] };
-  const manifest = path.join(source, manifestName[kind]);
+  if (!existsSync(source) || lstatSync(source).isSymbolicLink())
+    return { issues: [{ code: "invalid_package", message: `${source} is not a regular file or directory.` }] };
+  const manifest = lstatSync(source).isDirectory() ? path.join(source, manifestName[kind]) : source;
   if (!existsSync(manifest) || !lstatSync(manifest).isFile() || lstatSync(manifest).isSymbolicLink())
     return {
       issues: [
@@ -601,7 +601,7 @@ function decodeSourcePackage(
   try {
     value = JSON.parse(readFileSync(manifest, "utf8"));
   } catch {
-    return { issues: [{ code: "invalid_manifest", message: `${manifestName[kind]} is not valid JSON.` }] };
+    return { issues: [{ code: "invalid_manifest", message: `${path.basename(manifest)} is not valid JSON.` }] };
   }
   const issues = kind === "agent" ? validateAgentDeclarationV1(value) : validateSquadDeclarationV1(value);
   return issues.length

@@ -327,6 +327,49 @@ test("Agent install uses the executable catalog with CAS, replay, readiness, and
   }
 });
 
+test("Agent install accepts a single declaration file as the package source", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-agent-action-file-"));
+  initRepo(rootDir);
+  const cell = await openRepoCell({
+    repoId: workspaceId("agent-action-file"),
+    rootDir: canonicalRoot(rootDir),
+    ownerId: "agent-action-file-test",
+  });
+  try {
+    const packageSource = path.join(rootDir, "solo-agent.json");
+    writeFileSync(packageSource, `${JSON.stringify(declaration, null, 2)}\n`);
+    const preview = await cell.run(
+      {
+        kind: "agent-install",
+        packageSource,
+        dryRun: true,
+        expectedVersion: 0,
+        idempotencyKey: "agent-action-file-preview",
+      },
+      binding,
+    );
+    assert.equal(preview.outcome, "pending");
+    const created = await cell.run(
+      {
+        kind: "agent-install",
+        packageSource,
+        expectedVersion: 0,
+        idempotencyKey: "agent-action-file-install",
+      },
+      binding,
+    );
+    assert.equal(created.outcome, "applied", JSON.stringify(created));
+    const listed = await cell.run({ kind: "agent-list" }, binding);
+    assert.deepEqual(
+      JSON.parse(String(listed.evidence)).agents.map(({ id }: { id: string }) => id),
+      [declaration.id],
+    );
+  } finally {
+    await cell.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("owned-content objects preserve raw bytes and reject absent or oversized content", () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-entity-owned-content-")),
     repoId = workspaceId("entity-owned-content"),
