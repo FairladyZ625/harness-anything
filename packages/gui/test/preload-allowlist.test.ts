@@ -84,6 +84,31 @@ test("preload exposes only the approved API methods", () => {
     }),
     true,
   );
+  // The renderer pages the edges facet (task_249009a7a7978b203cfe7177fd): a page window travels
+  // with the facet exactly as the daemon's own validator admits it, and the daemon's closure still
+  // rejects legacy list fields or a page window on a facet that has none.
+  assert.equal(
+    assertPreloadPayload("getRelationGraph", {
+      repoId: "repo-a",
+      facet: "edges",
+      state: "active",
+      limit: 500,
+      cursor: "eAo",
+    }),
+    true,
+  );
+  assert.throws(
+    () => assertPreloadPayload("getRelationGraph", { repoId: "repo-a", facet: "edges", status: "active" }),
+    /query facets are invalid/u,
+  );
+  assert.throws(
+    () => assertPreloadPayload("getRelationGraph", { repoId: "repo-a", facet: "coverageRows", limit: 5 }),
+    /query facets are invalid/u,
+  );
+  assert.throws(
+    () => assertPreloadPayload("getRelationGraph", { repoId: "repo-a", facet: "edges", limit: 0 }),
+    /query facets are invalid/u,
+  );
   assert.equal(assertPreloadPayload("getTaskDispatches", { repoId: "repo-a", taskId: "task-a" }), true);
   assert.equal(
     assertPreloadPayload("getTaskDispatches", { repoId: "repo-a", taskIds: ["task-a", "task-b"], limit: 2 }),

@@ -1,7 +1,8 @@
 import { daemonGuiInvokeFacets, daemonGuiStreamFacets } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { admitUseCaseProjectionSelector } from "../../../daemon/src/protocol/daemon-protocol-gui-types.ts";
 import { isUtcTimestamp } from "../../../daemon/src/protocol/json-rpc-types.ts";
-import { relationDirections, relationStates } from "../../../kernel/src/index.ts";
+import { validateDaemonQueryPayload } from "../../../daemon/src/protocol/daemon-protocol-rpc-validation.ts";
+import { relationStates } from "../../../kernel/src/index.ts";
 import { containsSecretLikeKey } from "../api/entity-payload-hygiene.ts";
 import { isRuntimeKindId, runtimeKindForId, runtimeKindIds } from "../../../daemon/src/runtime-inventory.ts";
 export const HARNESS_PRELOAD_API = "harness";
@@ -102,19 +103,22 @@ export function assertPreloadPayload(method: string, payload: unknown): true {
     }
     if (emptyRepoMethods.has(method) && Object.keys(payload).some((key) => key !== "repoId"))
       throw new Error(`Preload ${method} fields are not allowed.`);
-    if (queryRepoMethods.has(method as PreloadApiMethod)) {
-      // A relation-graph facet selector is a different read, not a page window over the
-      // wide one: mirror the daemon's closure rule (facet + its own selectors, and never
-      // both a facet and a legacy status/time/page field) so the renderer is rejected here
-      // instead of at the daemon boundary.
+    if (method === "getRelationGraph" && payload.facet !== undefined) {
+      // A facet selector is admitted by the daemon's own query validator, which owns the facet
+      // vocabularies (edges: facet, relationType, state, direction, limit, cursor; facts: facet,
+      // limit, cursor; other facets: facet only) and rejects unknown fields. Restating that list
+      // here is what broke the paged edges read: the renderer paged with limit/cursor and the
+      // hand-copied list still forbade them, so the request never reached the daemon.
+      const { repoId: _repoId, ...selector } = payload;
+      const errors = validateDaemonQueryPayload("repo.triadic.relationGraph", selector);
+      if (errors.length > 0) throw new Error(`Preload ${method} query facets are invalid: ${errors[0]}`);
+    } else if (queryRepoMethods.has(method as PreloadApiMethod)) {
       const fields =
         method === "getAgenda"
           ? ["repoId", "limit", "cursor"]
           : method === "getTasks"
             ? ["repoId", "status", "changedAfterRevision", "updatedAfter", "updatedBefore", "limit", "cursor"]
-            : payload.facet === undefined
-              ? ["repoId", "status", "updatedAfter", "updatedBefore", "limit", "cursor"]
-              : ["repoId", "facet", "relationType", "state", "direction"];
+            : ["repoId", "status", "updatedAfter", "updatedBefore", "limit", "cursor"];
       if (!closed(payload, fields)) throw new Error(`Preload ${method} fields are not allowed.`);
       if (!validQueryPayload(method, payload)) throw new Error(`Preload ${method} query facets are invalid.`);
     }
@@ -356,20 +360,12 @@ function validQueryPayload(method: string, value: Record<string, unknown>): bool
   const after = value.updatedAfter,
     before = value.updatedBefore,
     changedAfterRevision = value.changedAfterRevision,
-    facet = value.facet,
     states =
       method === "getTasks" ? ["planned", "active", "blocked", "in_review", "done", "cancelled"] : relationStates,
     common =
       (value.limit === undefined ||
         (Number.isSafeInteger(value.limit) && Number(value.limit) >= 1 && Number(value.limit) <= 500)) &&
       (value.cursor === undefined || (typeof value.cursor === "string" && value.cursor.length > 0));
-  if (method === "getRelationGraph" && facet !== undefined)
-    return (
-      ["edges", "facts", "coverageRows", "factAnchors", "runtimeEdges"].includes(String(facet)) &&
-      (facet !== "edges" || validRelationEdgeFacetSelectors(value)) &&
-      (facet === "edges" ||
-        (value.relationType === undefined && value.state === undefined && value.direction === undefined))
-    );
   return method === "getAgenda"
     ? common
     : common &&
@@ -382,15 +378,6 @@ function validQueryPayload(method: string, value: Record<string, unknown>): bool
         !(typeof after === "string" && typeof before === "string" && after > before);
 }
 /** Selectors exist only on the edge facet, and `state` there shares the edge-state vocabulary. */
-function validRelationEdgeFacetSelectors(value: Record<string, unknown>): boolean {
-  return (
-    (value.relationType === undefined || typeof value.relationType === "string") &&
-    (value.state === undefined ||
-      (typeof value.state === "string" && relationStates.includes(value.state as (typeof relationStates)[number]))) &&
-    (value.direction === undefined ||
-      relationDirections.includes(String(value.direction) as (typeof relationDirections)[number]))
-  );
-}
 /** `repo.decisions.list` carries one selector: the summary projection the mounted chrome reads. */
 function validDecisionListPayload(value: Record<string, unknown>): boolean {
   if (!closed(value, ["repoId", "projection"])) return false;
