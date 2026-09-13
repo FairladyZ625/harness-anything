@@ -129,9 +129,9 @@ DMG application、签名、notarization、其他操作系统和 update feed 属�
 
 当前发布边界刻意保守：
 
-- root product、GUI 与可发布的 `@harness-anything/cli` 使用 version `0.0.1`；
+- root product、GUI 与可发布的 `@harness-anything/cli` 使用 version `0.1.0`；
   本任务中 CLI 仅执行 npm publish dry-run。
-- 内部 workspace package 仍为 private，版本仍为 `0.0.0`。
+- 内部 workspace package 仍为 private，版本仍为 `0.1.0`。
 - 不声明真实 npm package release。
 - signed installers、notarized builds、auto-update、release feeds、published artifacts 都未 ship。
 - Desktop 和 daemon 分发策略由本页治理。

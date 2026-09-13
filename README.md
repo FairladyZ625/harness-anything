@@ -160,7 +160,7 @@ repository gets the same compounding mechanism.
 
 ## Run the demo
 
-The 0.0.1 CLI candidate installs from a local npm tarball and requires Node.js
+The 0.1.0 CLI candidate installs from a local npm tarball and requires Node.js
 24+. From a checkout, run:
 
 ```bash
@@ -168,7 +168,7 @@ git clone https://github.com/FairladyZ625/harness-anything
 cd harness-anything
 npm ci
 npm pack --workspace @harness-anything/cli
-npm install --global ./harness-anything-cli-0.0.1.tgz
+npm install --global ./harness-anything-cli-0.1.0.tgz
 npm run quickstart:demo
 ```
 
