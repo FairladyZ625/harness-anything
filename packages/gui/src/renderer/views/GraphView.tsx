@@ -17,6 +17,7 @@ import { TerritoryZoneNode, TerritoryChipNode } from "../graph/nodes/TerritoryNo
 import { GraphFilterPanel, type EntityTypeOption, type GraphFilters } from "../components/GraphFilterPanel";
 import type { GovernedEntityRow } from "../graph/governedEntities";
 import { GraphLegend } from "../components/GraphLegend.tsx";
+import { GraphRelationBasis, GraphRelationReadGate } from "../components/GraphRelationState.tsx";
 import { FocusHistoryBar } from "../components/FocusHistoryBar";
 import { FocusSwitcher } from "../components/FocusSwitcher";
 import type { PaletteEntry } from "../components/CommandPalette.tsx";
@@ -43,11 +44,8 @@ import {
   readGraphTerritoryShowArchived,
   writeGraphTerritoryShowArchived,
 } from "../graph-territory-preferences";
-import {
-  graphDensityPreferenceStorage,
-  readGraphDensityFocusMode,
-  writeGraphDensityFocusMode,
-} from "../graph-density-preferences";
+import { graphDensityPreferenceStorage, readGraphDensityFocusMode } from "../graph-density-preferences";
+import { useGraphDensity } from "../graph/useGraphDensity.ts";
 
 export type ViewMode = "territory" | "spotlight";
 
@@ -205,12 +203,7 @@ function GraphViewInner({
   // 密度分层(重点模式,task_5ba031c2):默认开,判定本体在 model/taskFilters.ts
   // (isTaskGraphFocusSeed,与看板共用),localStorage 按视图记忆,坏值回落默认开。
   // 开关本体在 filters.density(筛选面板改它),这里只负责持久化与联动。
-  const [decisionDensity, setDecisionDensity] = useState<GraphFilters["density"]>("focus");
-  const decisionScope = viewMode === "territory" && skel === "decision";
-  const density = decisionScope ? decisionDensity : filters.density;
-  useEffect(() => {
-    writeGraphDensityFocusMode(graphDensityPreferenceStorage(), filters.density === "focus");
-  }, [filters.density]);
+  const { density, setDensityFilters } = useGraphDensity(viewMode, skel, filters, setFilters);
   // 重点模式下被逐块展开(回到全量)的 zone 集;密度开关翻转时清空。
   const [revealedZones, setRevealedZones] = useState<Set<string>>(() => new Set());
   useEffect(() => {
@@ -400,11 +393,7 @@ function GraphViewInner({
   }, [focusRef, spotlightStats.focusLabel]);
 
   if (relationState !== "ready") {
-    return (
-      <p role={relationState === "error" ? "alert" : "status"} className="p-6">
-        {relationState === "error" ? "关系读取失败，请刷新后重试。" : "正在加载完整关系…"}
-      </p>
-    );
+    return <GraphRelationReadGate state={relationState} />;
   }
 
   if (tasks.length === 0 && decisions.length === 0 && facts.length === 0 && (factAnchors?.length ?? 0) === 0) {
@@ -425,11 +414,7 @@ function GraphViewInner({
   const filterPanel = (
     <GraphFilterPanel
       filters={{ ...filters, density }}
-      setFilters={(update) => {
-        const next = typeof update === "function" ? update({ ...filters, density }) : update;
-        if (decisionScope) setDecisionDensity(next.density);
-        setFilters({ ...next, density: decisionScope ? filters.density : next.density });
-      }}
+      setFilters={setDensityFilters}
       availableModules={availableModules}
       entityTypeOptions={entityKinds}
       showEntityTypes={viewMode === "spotlight" || skel === "unified"}
@@ -447,14 +432,7 @@ function GraphViewInner({
             ? `领地 · ${territory?.zones.length ?? 0} 块`
             : `聚光灯 · ${spotlightStats.nodes} 节点 · ${spotlightStats.edges} 边`}
         </span>
-        {viewMode === "territory" && (
-          <span
-            data-testid="graph-relation-basis"
-            title="孤立/族归属按这份完整关系集判定;进入视图时读取,台账变化后重进或刷新时更新"
-          >
-            关系 · {relations.length} 条 · 完整
-          </span>
-        )}
+        {viewMode === "territory" && <GraphRelationBasis count={relations.length} />}
         <GraphLegend showFulfillment={(coverageRows?.length ?? 0) > 0} entityKinds={entityKinds} />
         {viewMode === "spotlight" && <EgoHopsControl hops={hops} onHopsChange={setHops} />}
         {viewMode === "territory" && (

@@ -19,9 +19,8 @@ import {
   TaskDispatchTab,
   TaskEvidenceTab,
   TaskOverviewTab,
-  TaskRelationsTab,
-  type TaskDecisionRef,
 } from "../components/taskDetail/TaskDetailSections.tsx";
+import { TaskRelationsTab, type TaskDecisionRef } from "../components/taskDetail/TaskRelationsTab.tsx";
 import { TaskDocumentSidebar, TaskFilesTab } from "../components/taskDetail/TaskFilesTab.tsx";
 import { PhaseSteps } from "../components/taskDetail/PhaseSteps.tsx";
 import type { RelationEdge, TaskRow } from "../model/types.ts";
