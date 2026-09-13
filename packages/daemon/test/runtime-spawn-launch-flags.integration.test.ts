@@ -97,6 +97,8 @@ test("daemon ingress passes Claude effort and Codex fast through to the witnesse
       expectedArgs = [
         "-p",
         "--verbose",
+        "--settings",
+        '{"attribution":{"commit":"","pr":"","sessionUrl":false}}',
         "--output-format",
         "stream-json",
         "--permission-mode",
