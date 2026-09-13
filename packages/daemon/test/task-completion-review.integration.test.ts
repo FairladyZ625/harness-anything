@@ -77,6 +77,10 @@ async function fixture(failProvider = false, available = true, artifactDelivery 
   git(root, "add", "README.md");
   git(root, "commit", "-qm", "docs: fixture delivery");
   const launches: { prompt: string; instanceId: string; model: string }[] = [];
+  const pendingProviders: {
+    output?: (chunk: string) => void;
+    exit?: (code: number | null) => void;
+  }[] = [];
   let instancesAvailable = available;
   const open = () =>
     openRepoCell({
@@ -122,24 +126,26 @@ async function fixture(failProvider = false, available = true, artifactDelivery 
           instanceId: prepared.definition.instanceId,
           model: prepared.definition.model,
         });
-        let output: ((chunk: string) => void) | undefined;
+        const pending: (typeof pendingProviders)[number] = {};
+        pendingProviders.push(pending);
         return {
           pid: 987650 + launches.length,
           onOutput: (listener) => {
-            output = listener;
+            pending.output = listener;
           },
           onErrorOutput: () => undefined,
           terminate: () => undefined,
           onExit: (listener) => {
+            pending.exit = listener;
             if (failProvider)
               setImmediate(() => {
-                output?.(
+                pending.output?.(
                   JSON.stringify({
                     type: "turn.failed",
                     error: { http_status: 429, code: "rate_limit", message: "HTTP 429 fixture capacity exhausted" },
                   }) + "\n",
                 );
-                listener(1);
+                pending.exit?.(1);
               });
           },
         };
@@ -262,6 +268,36 @@ async function fixture(failProvider = false, available = true, artifactDelivery 
         },
       );
     },
+    reportPath: (dispatchId: string) =>
+      path.join(root, "harness", packagePath, "artifacts", "reports", `${dispatchId}.md`),
+    settleReview: async (
+      dispatchId: string,
+      runtimeSessionId: string,
+      resultText: string,
+      reportText: string | null = null,
+    ) => {
+      if (reportText !== null) {
+        const report = path.join(root, "harness", packagePath, "artifacts", "reports", `${dispatchId}.md`);
+        mkdirSync(path.dirname(report), { recursive: true });
+        writeFileSync(report, reportText);
+      }
+      const pending = pendingProviders.at(-1)!;
+      pending.output?.(`${JSON.stringify({ type: "thread.started", thread_id: "review-provider-session" })}\n`);
+      pending.output?.(
+        `${JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: resultText } })}\n`,
+      );
+      pending.output?.(`${JSON.stringify({ type: "turn.completed", usage: {} })}\n`);
+      pending.exit?.(0);
+      for (let attempt = 0; attempt < 500; attempt += 1) {
+        const outcome = events().find(
+          (event) =>
+            event.type === "runtime_session_outcome_observed" && event.payload.runtimeSessionId === runtimeSessionId,
+        );
+        if (outcome?.type === "runtime_session_outcome_observed") return outcome.payload.outcome;
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      throw new Error("reviewer runtime did not settle");
+    },
     close: async () => {
       await cell.close();
       rmSync(root, { recursive: true, force: true });
@@ -345,6 +381,46 @@ test("completion dispatches the bundled reviewer with no installed declaration a
     assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
     const completed = await f.complete(true);
     assert.equal(completed.outcome, "applied", JSON.stringify(completed));
+  } finally {
+    await f.close();
+  }
+});
+
+test("completion reviewer settlement keeps the report the reviewer authored at the dispatch report path", async () => {
+  const f = await fixture();
+  try {
+    const result = (await f.complete()) as Record<string, unknown>;
+    assert.equal(result.code, "review_missing", JSON.stringify(result));
+    const dispatchId = String(result.dispatchId),
+      authored = "# Closeout review\n\n- verdict: `approved`\n\nThe authored report, not the final message.\n";
+    assert.equal(
+      await f.settleReview(
+        dispatchId,
+        String(result.runtimeSessionId),
+        "Independent review registered; report written to the dispatch report path.",
+        authored,
+      ),
+      "succeeded",
+    );
+    assert.equal(readFileSync(f.reportPath(dispatchId), "utf8"), authored);
+  } finally {
+    await f.close();
+  }
+});
+
+test("completion reviewer settlement archives the final message when no report was authored", async () => {
+  const f = await fixture();
+  try {
+    const result = (await f.complete()) as Record<string, unknown>;
+    assert.equal(result.code, "review_missing", JSON.stringify(result));
+    assert.equal(
+      await f.settleReview(
+        String(result.dispatchId),
+        String(result.runtimeSessionId),
+        "# Independent review\n\nApproved.\n",
+      ),
+      "succeeded",
+    );
   } finally {
     await f.close();
   }

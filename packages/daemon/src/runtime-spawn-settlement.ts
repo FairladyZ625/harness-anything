@@ -141,7 +141,9 @@ export async function publishExit(
         if (archived.outcome !== "applied")
           throw context.runtimeSpawnError(
             "runtime_archive_failed",
-            `Runtime archive ${active.dispatchId} was not applied.`,
+            `Runtime archive ${active.dispatchId} was not applied: ${archived.outcome}${
+              "code" in archived && typeof archived.code === "string" ? ` ${archived.code}` : ""
+            }${"detail" in archived && archived.detail ? ` ${JSON.stringify(archived.detail)}` : ""}`,
           );
       } catch (error) {
         consumeKnownError(error);
