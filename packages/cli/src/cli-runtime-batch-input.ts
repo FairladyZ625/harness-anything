@@ -48,7 +48,7 @@ export function parseRuntimeBatchEntry(value: unknown, index: number): RuntimeBa
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new Error(`Batch dispatch ${index} must be an object.`);
   const record = value as Record<string, unknown>,
-    allowed = runtimeBatchDeclarationFields(),
+    allowed = runtimeBatchDeclarationFields,
     unknownField = unknownFieldViolation(record, allowed);
   if (unknownField) throw new Error(`Batch dispatch ${index} contains an ${unknownField}`);
   const text = (field: string): string | undefined => {
@@ -74,7 +74,7 @@ export function parseRuntimeBatchEntry(value: unknown, index: number): RuntimeBa
   if (!prompt && !mission && !task) throw new Error(`Batch dispatch ${index} requires prompt, mission, or task.`);
   if (mission && !task) throw new Error(`Batch dispatch ${index} uses mission without task.`);
   if (to && !agent) throw new Error(`Batch dispatch ${index} uses to without agent.`);
-  if (effort && !runtimeRunEfforts().includes(effort))
+  if (effort && !runtimeRunEfforts.includes(effort))
     throw new Error(`Batch dispatch ${index} effort must be minimal, low, medium, high, xhigh, or max.`);
   if (fast !== undefined && typeof fast !== "boolean")
     throw new Error(`Batch dispatch ${index} field fast must be a boolean.`);

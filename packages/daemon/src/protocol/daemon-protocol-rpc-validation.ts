@@ -371,7 +371,7 @@ export function validateGuiActionPayload(method: DaemonGuiActionMethod, value: u
     )
       errors.push("decision proposal is invalid");
   }
-  if (daemonMethodNameSets.decisionAdjudication.has(method))
+  if (["repo.decision.accept", "repo.decision.reject", "repo.decision.defer"].includes(method))
     for (const field of [value.rationale, value.reason, value.judgmentOnlyRationale])
       if (field !== undefined && (typeof field !== "string" || [...field].length > 199))
         errors.push("decision rationale is invalid");

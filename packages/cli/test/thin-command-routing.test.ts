@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { daemonProtocolCommands, thinCliCommands } from "../../daemon/src/protocol/daemon-protocol.contract.ts";
-import { deriveCliCapabilities, parseThinCommand, renderThinHelp } from "../src/cli/thin-command.ts";
+import { cliCapabilities, parseThinCommand, renderThinHelp } from "../src/cli/thin-command.ts";
 import { main } from "../src/index.ts";
 
 test("top-level help renders a derived domain directory and domain help filters commands", () => {
@@ -64,7 +64,7 @@ test("an unknown command domain reports unknown with the available set instead o
   for (const line of errors) {
     assert.match(line, /code=unsupported_command/u);
     assert.match(line, /bananas is not a command domain/u);
-    for (const domain of Object.keys(deriveCliCapabilities())) assert.match(line, new RegExp(`\\b${domain}\\b`, "u"));
+    for (const domain of Object.keys(cliCapabilities)) assert.match(line, new RegExp(`\\b${domain}\\b`, "u"));
   }
   assert.equal(logs.length, 1);
   assert.match(logs[0] ?? "", /Commands for migrate:\n {2}ha migrate import/u);
@@ -279,7 +279,7 @@ test("retired mutation migrations are explicitly absent from the thin router", (
 });
 
 test("capabilities is an exact-set projection of the command contract", () => {
-  assert.deepEqual(deriveCliCapabilities(), {
+  assert.deepEqual(cliCapabilities, {
     agenda: ["agenda"],
     agent: [
       "agent-create",
