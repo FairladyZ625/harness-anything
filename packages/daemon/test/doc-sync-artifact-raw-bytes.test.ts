@@ -273,7 +273,7 @@ test("a raw publication that fails leaves no accepted artifact and no raw claim 
   }
 });
 
-test("doc status routes a new JSON task artifact to artifact add and accepts same-path takeover", async () => {
+test("doc status offers a new small JSON task artifact to doc sync like any textual document", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-artifact-json-route-"));
   initRepo(rootDir);
   const repoId = workspaceId("artifact-json-route"),
@@ -294,29 +294,7 @@ test("doc status routes a new JSON task artifact to artifact add and accepts sam
       rows = JSON.parse(String(status.evidence).slice("doc-scan:".length)) as {
         readonly rows: readonly { readonly state: string; readonly reason: string | null }[];
       };
-    assert.deepEqual(
-      [rows.rows[0]?.state, rows.rows[0]?.reason],
-      [
-        "inapplicable",
-        `task artifact is outside doc sync; publish it with ha task artifact add task-json ` +
-          `--source harness/${logical} --destination artifacts/report.json`,
-      ],
-    );
-    assert.match(
-      String((status.detail as { readonly nextAction?: string }).nextAction),
-      /^ha task artifact add task-json/u,
-    );
-    const added = (await cell.run(
-      {
-        kind: "task-artifact-add",
-        taskId: "task-json",
-        source: `harness/${logical}`,
-        destination: "artifacts/report.json",
-      },
-      binding,
-    )) as Record<string, unknown>;
-    assert.equal(added.outcome, "applied", JSON.stringify(added));
-    assert.deepEqual(readFileSync(target), bytes, "same-path takeover preserves the original bytes");
+    assert.deepEqual([rows.rows[0]?.state, rows.rows[0]?.reason], ["eligible", null], JSON.stringify(rows));
   } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });
@@ -398,9 +376,9 @@ test("doc status nextAction round-trips when the authored root is its own nested
       binding,
     )) as { readonly outcome: string; readonly packagePath: string };
     assert.equal(created.outcome, "applied", JSON.stringify(created));
-    const logical = `${created.packagePath}/artifacts/report.json`,
+    const logical = `${created.packagePath}/artifacts/report.pdf`,
       target = path.join(ledgerRoot, ...logical.split("/")),
-      bytes = Buffer.from('{"schema":"report/v1","nested":true}\n');
+      bytes = Buffer.concat([Buffer.from("%PDF-1.7\n"), Buffer.alloc(DOC_SYNC_INLINE_MAX_BYTES + 1, 0xff)]);
     mkdirSync(path.dirname(target), { recursive: true });
     writeFileSync(target, bytes);
     const status = (await cell.run({ kind: "doc-status", paths: [logical] }, binding)) as Record<string, unknown>,
@@ -409,7 +387,7 @@ test("doc status nextAction round-trips when the authored root is its own nested
       unquote = (token: string): string => token.replace(/^'(.*)'$/u, "$1");
     assert.ok(routed, nextAction);
     assert.equal(unquote(routed[2]!), `harness/${logical}`, nextAction);
-    assert.equal(unquote(routed[3]!), "artifacts/report.json", nextAction);
+    assert.equal(unquote(routed[3]!), "artifacts/report.pdf", nextAction);
     const added = (await cell.run(
       {
         kind: "task-artifact-add",

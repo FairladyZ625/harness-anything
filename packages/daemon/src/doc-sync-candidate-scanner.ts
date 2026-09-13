@@ -5,9 +5,8 @@ import {
 import { existsSync, lstatSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import {
-  classifyDocSyncCandidatePath,
-  classifyRawArtifactPath,
   classifyTextualArtifactPath,
+  classifyRawArtifactPath,
   decideDocWriteCriteria,
   DOC_SYNC_INLINE_MAX_BYTES,
   DOC_POLICY_ID,
@@ -35,7 +34,7 @@ import { blockedCandidateNextAction, formatShellCommand } from "./doc-sync-detai
 import { docSyncError } from "./doc-sync-files.ts";
 
 export type DocCandidateState = "clean" | "eligible" | "inapplicable" | "blocked" | "deletion" | "conflict";
-type TextualArtifactMediaType = NonNullable<ReturnType<typeof classifyDocSyncCandidatePath>>["mediaType"];
+type TextualArtifactMediaType = NonNullable<ReturnType<typeof classifyTextualArtifactPath>>["mediaType"];
 export interface DocCandidateRow {
   readonly path: string;
   readonly state: DocCandidateState;
@@ -158,14 +157,14 @@ export function scanDocCandidates(input: {
       conflicts = inventoried?.conflicts ?? candidateConflicts(input.rootDir, layout.authoredRoot, logical),
       safe = inventoried?.safe ?? directFile(layout.authoredRoot, logical),
       fileSize = inventoried ? inventoried.size : safe && existsSync(target) ? lstatSync(target).size : null,
-      classification = classifyDocSyncCandidatePath(logical),
+      classification = classifyTextualArtifactPath(logical),
       rawClassification = classifyRawArtifactPath(document),
-      rawTaskArtifactCandidate = rawClassification !== null && !/\.(?:jsonl|log)$/u.test(document),
+      rawTaskArtifactCandidate = rawClassification !== null,
       taskArtifactCandidate =
         claimingTaskId !== null &&
-        (classification === null
-          ? !/\.(?:jsonl|log)$/u.test(document)
-          : rawTaskArtifactCandidate && fileSize !== null && fileSize > DOC_SYNC_INLINE_MAX_BYTES) &&
+        rawTaskArtifactCandidate &&
+        fileSize !== null &&
+        fileSize > DOC_SYNC_INLINE_MAX_BYTES &&
         /^tasks\/[^/]+\/artifacts\//u.test(document) &&
         baseDocumentIsNew(projected),
       existingMediaType = classifyTextualArtifactPath(logical)?.mediaType ?? null,
@@ -417,7 +416,7 @@ export function scanAuthoredCandidateInventory(input: {
     baseLedgerSha,
     rows: paths.map((logical) => {
       const safe = directFile(layout.authoredRoot, logical),
-        classification = classifyDocSyncCandidatePath(logical),
+        classification = classifyTextualArtifactPath(logical),
         route = resolveDocRoute(documentPath(logical)),
         target = path.join(layout.authoredRoot, ...logical.split("/")),
         size = safe && existsSync(target) ? lstatSync(target).size : null,
@@ -466,7 +465,7 @@ export function intentFromScan(
         executionId: scan.executionId,
         baseLedgerSha: scan.baseLedgerSha,
         changes: eligible.map((row) => {
-          const classification = classifyDocSyncCandidatePath(row.path);
+          const classification = classifyTextualArtifactPath(row.path);
           if (classification === null || row.candidateBlobSha256 === null || row.size === null)
             throw new Error(`eligible scan row is not a textual artifact: ${row.path}`);
           return {

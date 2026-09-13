@@ -156,7 +156,6 @@ export {
   resolveDocRoute,
 } from "./domain/doc-sync.contract.ts";
 export {
-  classifyDocSyncCandidatePath,
   classifyRawArtifactPath,
   classifyTextualArtifactPath,
   DOC_SYNC_INLINE_MAX_BYTES,

@@ -56,7 +56,9 @@ const textualFileTypes: readonly {
  * directories, authored architecture models, and the walls manifest are opaque regardless of
  * their content type; prose semantics apply everywhere else only to Markdown
  * and plain-text documents. Other supported textual formats are whole-file
- * documents.
+ * documents. Task artifact add and doc sync share this one classification: the
+ * artifacts subtree admits every extension, with the bytes deciding text versus
+ * raw at write time.
  */
 export function classifyTextualArtifactPath(value: string): TextualArtifactClassification | null {
   if (artifactPath(value) || architectureModelPath(value) || value === "governance/walls/walls.json")
@@ -67,16 +69,6 @@ export function classifyTextualArtifactPath(value: string): TextualArtifactClass
   return mediaType === "text/markdown" || mediaType === "text/plain"
     ? { kind: "canonical-prose", mediaType, policyId: "markdown-body-replaceable/v1" }
     : { kind: "opaque-textual", mediaType, policyId: OPAQUE_TEXTUAL_POLICY_ID };
-}
-
-export function classifyDocSyncCandidatePath(value: string): TextualArtifactClassification | null {
-  const classification = classifyTextualArtifactPath(value),
-    extension = extensionOf(value);
-  return (artifactPath(value) && classification?.mediaType === "application/json") ||
-    extension === ".jsonl" ||
-    extension === ".log"
-    ? null
-    : classification;
 }
 
 /**
