@@ -29,6 +29,8 @@ interface Props {
   onFocus: (navRef: string) => void;
   /** 点击 ⌘K 徽标时打开全局面板(键盘老手入口)。 */
   onOpenPalette: () => void;
+  /** 输入框有/无搜索内容时上报;App 用它与 paletteOpen 共同启用事实索引同一条读面。 */
+  onSearchActiveChange?: (active: boolean) => void;
 }
 
 export function searchPaletteEntries(entries: ReadonlyArray<PaletteEntry>, query: string): PaletteEntry[] {
@@ -42,11 +44,17 @@ export function searchPaletteEntries(entries: ReadonlyArray<PaletteEntry>, query
   );
 }
 
-export function FocusSwitcher({ recentRefs, entries, focusRef, onFocus, onOpenPalette }: Props) {
+export function FocusSwitcher({ recentRefs, entries, focusRef, onFocus, onOpenPalette, onSearchActiveChange }: Props) {
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
   const trimmed = query.trim(),
     isSearching = trimmed.length > 0;
+
+  // 有输入才启用事实索引读取;卸载/清空时复位,离开图页不留后台读。
+  useEffect(() => {
+    onSearchActiveChange?.(isSearching);
+    return () => onSearchActiveChange?.(false);
+  }, [isSearching, onSearchActiveChange]);
 
   const byRef = useMemo(() => new Map(entries.map((entry) => [entry.ref, entry])), [entries]);
   // Recent 反解:索引外的 ref(已删除实体)自动过滤,顺序保持访问序。

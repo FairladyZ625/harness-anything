@@ -44,6 +44,8 @@ export interface EntityWorkspaceProps {
   entries?: ReadonlyArray<PaletteEntry>;
   /** 点击左栏 ⌘K 徽标打开全局面板。 */
   onOpenPalette?: () => void;
+  /** 左栏搜索有/无输入时上报,App 据此启用事实索引读取(与 ⌘K 打开同一条读面)。 */
+  onSearchActiveChange?: (active: boolean) => void;
   /** 可筛选的实体种类(已注册 kind 读面派生),透传给 GraphView。 */
   entityKinds?: readonly EntityTypeOption[];
   /** 声明实体行(vertical kind),透传给 GraphView。 */
@@ -71,6 +73,7 @@ export function EntityWorkspace({
   recentRefs,
   entries,
   onOpenPalette,
+  onSearchActiveChange,
   entityKinds,
   governedEntities,
   relationState,
@@ -145,6 +148,7 @@ export function EntityWorkspace({
             recentRefs={recentRefs}
             entries={entries}
             onOpenPalette={onOpenPalette}
+            onSearchActiveChange={onSearchActiveChange}
           />
         )}
       </div>
