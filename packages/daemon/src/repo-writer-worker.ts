@@ -32,6 +32,13 @@ const bootstrap = workerData as RepoWriterBootstrapV1;
 if (!isMainThread) void startRepoWriterWorker();
 
 async function startRepoWriterWorker(): Promise<void> {
+  // One buffer pair serves the worker's whole life: syncCapability blocks the thread in Atomics.wait
+  // until the supervisor answers, so rounds never overlap and the supervisor overwrites the shared
+  // bytes in place. The state cell is re-armed before each post so the next round waits for a fresh
+  // answer instead of reading the previous round's completion. Declared before the open so the hoisted
+  // syncCapability can be called from open-time capabilities (killpoint, fleetRoster) without a TDZ.
+  let syncState: SharedArrayBuffer | null = null,
+    syncBytes: SharedArrayBuffer | null = null;
   if (
     bootstrap?.schema !== "harness-repo-writer-bootstrap/v1" ||
     bootstrap.protocolVersion !== REPO_WRITER_PROTOCOL_VERSION ||
@@ -238,12 +245,6 @@ async function startRepoWriterWorker(): Promise<void> {
     }
   }
 
-  // One buffer pair serves the worker's whole life: syncCapability blocks the thread in Atomics.wait
-  // until the supervisor answers, so rounds never overlap and the supervisor overwrites the shared
-  // bytes in place. The state cell is re-armed before each post so the next round waits for a fresh
-  // answer instead of reading the previous round's completion.
-  let syncState: SharedArrayBuffer | null = null,
-    syncBytes: SharedArrayBuffer | null = null;
   function syncCapability<T>(capability: RepoWriterCapabilityCallV1["capability"], payload: unknown): T {
     syncState ??= new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT * 2);
     syncBytes ??= new SharedArrayBuffer(1024 * 1024);
