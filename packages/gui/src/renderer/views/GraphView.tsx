@@ -69,6 +69,8 @@ export interface GraphViewProps {
   entries?: ReadonlyArray<PaletteEntry>;
   /** 点击 ⌘K 徽标打开全局面板。 */
   onOpenPalette?: () => void;
+  /** 左栏搜索有/无输入时上报,App 据此启用事实索引读取。 */
+  onSearchActiveChange?: (active: boolean) => void;
   /** 可筛选的实体种类(已注册 kind 读面派生);空 = 读面尚未回来,此时按种类不筛。 */
   entityKinds?: readonly EntityTypeOption[];
   /** 声明实体行(vertical kind);缺省 = 本仓没有声明实体,图照常。 */
@@ -121,6 +123,7 @@ function GraphViewInner({
   recentRefs = [],
   entries = [],
   onOpenPalette = () => {},
+  onSearchActiveChange,
 }: GraphViewProps) {
   const colorMode = useColorMode();
   const { setViewport } = useReactFlow();
@@ -495,6 +498,7 @@ function GraphViewInner({
           focusRef={focusRef}
           onFocus={(ref) => (viewMode === "territory" ? enterSpotlight(ref) : openFocus(ref))}
           onOpenPalette={onOpenPalette}
+          onSearchActiveChange={onSearchActiveChange}
         />
         <div ref={canvasHostRef} className="flex min-h-0 min-w-0 flex-1 relative">
           {viewMode === "territory" && (

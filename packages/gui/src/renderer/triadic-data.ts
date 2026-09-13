@@ -18,7 +18,7 @@ import { activeProducesFactRefs } from "./model/triadic.ts";
  *     读的窄面;
  *   - `activeEdges` — 任务↔任务/决策↔决策边的窄面,只在预览抽屉、任务详情或会话页
  *     挂载时读;
- *   - `facts` — ⌘K 面板的事实条目,面板打开时才读;
+ *   - `facts` — ⌘K 面板与关系图左栏共用的事实条目,面板打开或左栏有搜索输入时才读;
  *   - `graph` / `decisions` — 完整投影,只有渲染它的视图挂载时读。
  * 全部共享 `["triadic", repoId]` 前缀,`invalidateLedgerDependents` 一次失效覆盖所有
  * 切面;未挂载的切面只标记 stale,不会被重取(react-query v5 默认 `refetchType:"active"`)。
@@ -83,7 +83,8 @@ export function useDecisionSummaryQuery(repoId: string | null, options: { readon
 }
 
 /**
- * ⌘K 面板打开时读取首个事实页;后续页由面板显式加载。
+ * 事实切面的唯一读面(⌘K 面板与关系图左栏搜索共用):`enabled` 由调用方决定
+ * (面板打开或左栏有搜索输入),首次启用读取第一个事实页;后续页由面板显式加载。
  */
 export function usePaletteFactsQuery(repoId: string | null, enabled: boolean) {
   const query = useInfiniteQuery({

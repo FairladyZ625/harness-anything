@@ -21,7 +21,7 @@ import { TaskDetailView } from "./views/TaskDetailView.tsx";
 import { TaskPreviewDrawer } from "./components/TaskPreviewDrawer.tsx";
 import { AppSidebar } from "./components/AppSidebar.tsx";
 import type { LedgerStatusBarInput } from "./components/sidebar/SystemStatusPanel.tsx";
-import { CommandPalette, buildPaletteIndex } from "./components/CommandPalette.tsx";
+import { CommandPalette } from "./components/CommandPalette.tsx";
 import { useEntityNavigation } from "./navigation/useEntityNavigation.ts";
 import { useAppShortcuts } from "./navigation/useAppShortcuts.ts";
 import { applyTaskFilters, type TaskFilters } from "./model/taskFilters.ts";
@@ -31,10 +31,10 @@ import { useAgendaQuery } from "./agenda-data.ts";
 import {
   useActiveEdgesQuery,
   useDecisionSummaryQuery,
-  usePaletteFactsQuery,
   useRuntimePlaneQuery,
   useTriadicProjectionQuery,
 } from "./triadic-data.ts";
+import { useSearchIndex } from "./search-index-data.ts";
 import { useFavorites } from "./model/favorites.ts";
 import { deriveRuntimeHealth } from "./model/runtime-health.ts";
 import type { LaneGroupBy } from "./views/SwimlaneBoard.tsx";
@@ -189,9 +189,10 @@ function AppShell() {
 
   // ----------------------------------------------------------------三元读取分层
   // 窄面也按真实消费者挂载:任务详情/⌘K 需要决策标题,其余页面不背景读它们。
-  // ⌘K 的事实切面与完整投影同样由当前界面决定(裁决 2026-08-29;fact
-  // F-9E166C6B:根级全量重取曾占 GUI 收到字节的 99.13%)。看板徽章不再读任何
-  // 三元切面:行内 placement.spawningDecisionIds 已是同一批 derives 边的结果。
+  // 事实切面由当前消费者决定启用(⌘K 打开或左栏有搜索输入,见 useSearchIndex);
+  // 完整投影同样由挂载的视图决定(裁决 2026-08-29;fact F-9E166C6B:根级全量重取
+  // 曾占 GUI 收到字节的 99.13%)。看板徽章不再读任何三元切面:行内
+  // placement.spawningDecisionIds 已是同一批 derives 边的结果。
   const fullProjectionMounted = FULL_TRIADIC_PROJECTION_VIEWS.has(view);
   const fullGraphProjectionMounted = fullProjectionMounted;
   // 完整投影视图已经包含 decisions,不再并发读窄面。总览只读它的摘要，抽屉打开
@@ -199,7 +200,6 @@ function AppShell() {
   const decisionSummary = useDecisionSummaryQuery(activeRepoId, {
     enabled: !fullProjectionMounted && (view === "overview" || selectedId !== null || paletteOpen),
   });
-  const paletteFacts = usePaletteFactsQuery(activeRepoId, paletteOpen);
   const triadicQuery = useTriadicProjectionQuery(activeRepoId, {
     enabled: fullProjectionMounted,
     graphEnabled: fullGraphProjectionMounted,
@@ -341,25 +341,13 @@ function AppShell() {
     declaredKinds,
   });
 
-  // ⌘K 命令面板(REQ-GUI-01):跨实体搜索 + 快速跳转。纯前端派生,不消费写 IPC。
-  // 决策条目来自常驻的摘要投影,事实条目来自面板打开时才读的事实切面——面板合上
-  // 时不持有任何三元投影。
-  // 声明实体一并进搜索范围:索引按行喂,加一个 kind 不改这里的形参。
-  const paletteEntries = useMemo(
-    () =>
-      buildPaletteIndex(
-        projectTasks,
-        chromeDecisions,
-        paletteFacts.facts,
-        governedEntities.map((entity) => ({
-          ref: entity.ref,
-          label: entity.title ?? entity.entityId,
-          ...(entity.locator ? { sub: entity.locator.value } : {}),
-          entity: entity.kind,
-        })),
-      ),
-    [projectTasks, chromeDecisions, paletteFacts.facts, governedEntities],
-  );
+  // ⌘K 命令面板(REQ-GUI-01)与关系图左栏共用统一实体索引(search-index-data):
+  // 事实条目在 ⌘K 打开或左栏有搜索输入时才读,声明实体一并进搜索范围。
+  const {
+    entries: paletteEntries,
+    onSearchActiveChange,
+    facts: paletteFacts,
+  } = useSearchIndex(activeRepoId, paletteOpen, projectTasks, chromeDecisions, governedEntities);
 
   useAppShortcuts({
     onTogglePalette: () => setPaletteOpen((open) => !open),
@@ -525,6 +513,7 @@ function AppShell() {
                   entries={paletteEntries}
                   relationState={triadicQuery.relationState}
                   onOpenPalette={() => setPaletteOpen(true)}
+                  onSearchActiveChange={onSearchActiveChange}
                 />
               ) : view === "decisionDetail" ? (
                 <DecisionDetailView

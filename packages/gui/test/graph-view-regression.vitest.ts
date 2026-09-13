@@ -3,7 +3,10 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { GraphView } from "../src/renderer/views/GraphView.tsx";
+import { useSearchIndex } from "../src/renderer/search-index-data.ts";
+import { harnessClient } from "../src/renderer/api-client.ts";
 import type { TaskRow, DecisionRow, RelationEdge } from "../src/renderer/model/types.ts";
 import { decisionProjectionFields } from "./decision-projection-fields.ts";
 import {
@@ -354,4 +357,79 @@ it("territory header states the complete relation set the classification is base
   expect(div.querySelector("[data-testid='graph-relation-basis']")?.textContent).toContain("关系 · 3 条 · 完整");
   await act(async () => root.unmount());
   div.remove();
+});
+
+/**
+ * 左栏 typeahead 搜得到 Fact(task_afb48191):事实索引的同一条读面在「⌘K 打开
+ * **或** 左栏有搜索输入」时启用(useSearchIndex)—— 没打开过 ⌘K 的会话,左栏输入
+ * Fact 陈述片段也要出 FACT 结果。App 不便整挂,harness 只补 QueryClientProvider,
+ * 索引装配、事实切面启用、左栏上报 → 结果回流整条链都是生产组件。
+ */
+describe("left rail typeahead finds facts without opening ⌘K", () => {
+  it("reads the facts facet on rail input only and renders FACT hits from it", async () => {
+    setActiveLocale("zh-CN");
+    window.localStorage.clear();
+    const statement = "posix_spawn 首次调用在沙盒内被拒绝";
+    const factsSpy = vi.spyOn(harnessClient, "getRelationFacts").mockImplementation(async () => ({
+      ok: true as const,
+      facet: "facts" as const,
+      facts: [{ anchor: "fact/F-RAILSEARCH1", text: statement, category: "finding" as const }],
+      domainTypes: [],
+      warnings: [],
+      page: { limit: 500, cursor: null, nextCursor: null },
+    }));
+    function RailSearchHarness() {
+      // ⌘K 从未打开:paletteOpen 恒 false,只有左栏输入能启用事实索引。
+      const { entries, onSearchActiveChange } = useSearchIndex("repo", false, fixtures.tasks, fixtures.decisions, []);
+      return createElement(GraphView, {
+        tasks: fixtures.tasks,
+        decisions: fixtures.decisions,
+        facts: [],
+        relations: fixtures.relations,
+        focusRef: null,
+        viewMode: "territory",
+        onViewModeChange: () => {},
+        entries,
+        onSearchActiveChange,
+      } as never);
+    }
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const div = document.createElement("div");
+    document.body.appendChild(div);
+    const root = createRoot(div);
+    const settle = () =>
+      act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      });
+    try {
+      await act(async () => {
+        root.render(createElement(QueryClientProvider, { client }, createElement(RailSearchHarness)));
+      });
+      await settle();
+      // 无人搜索、面板未开:事实索引不得被读(字节纪律,F-9E166C6B)。
+      expect(factsSpy).not.toHaveBeenCalled();
+
+      const input = div.querySelector<HTMLInputElement>("[data-testid='focus-switcher-input']")!;
+      await act(async () => {
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+        setter?.call(input, "posix_spawn");
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+
+      let row: Element | undefined;
+      for (let i = 0; i < 10 && row === undefined; i += 1) {
+        await settle();
+        row = [...div.querySelectorAll("[data-testid='focus-switcher-item']")].find((item) =>
+          item.textContent?.includes(statement),
+        );
+      }
+      expect(factsSpy).toHaveBeenCalledTimes(1);
+      expect(row?.textContent).toContain("fact");
+    } finally {
+      await act(async () => root.unmount());
+      client.clear();
+      div.remove();
+      vi.restoreAllMocks();
+    }
+  });
 });
