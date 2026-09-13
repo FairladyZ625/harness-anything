@@ -1,6 +1,9 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
+// Real task ids come in exactly two shapes: ULID (uppercase Crockford base32) or lowercase hex, both 26 chars.
+const ownerTaskShape = /^task_(?:[0-9A-HJKMNP-TV-Z]{26}|[0-9a-f]{26})$/u;
+
 export function validateTestQuarantine(value) {
   const errors = [];
   if (
@@ -23,7 +26,7 @@ export function validateTestQuarantine(value) {
     if (fields.some((field) => !["test", "ownerTask", "quarantinedAt"].includes(field)))
       errors.push(`${label} has unknown fields`);
     if (typeof entry.test !== "string" || !entry.test.trim()) errors.push(`${label} requires a non-empty test name`);
-    if (typeof entry.ownerTask !== "string" || !/^task_[a-zA-Z0-9]+$/u.test(entry.ownerTask))
+    if (typeof entry.ownerTask !== "string" || !ownerTaskShape.test(entry.ownerTask))
       errors.push(`${label} requires ownerTask task_<id>`);
     if (
       typeof entry.quarantinedAt !== "string" ||

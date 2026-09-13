@@ -22,7 +22,10 @@ const DEFAULT_ROOT = process.cwd();
 const DEFAULT_MANIFEST = "tools/gate-manifest.json";
 const GOVERNANCE_HEADING = /^##\s+(?:Governance Declaration|Governance 声明|治理声明)\s*$/imu;
 const NEXT_HEADING = /^##\s+/mu;
-const GOVERNANCE_REFERENCE = /\b(?:ADR-\d{4}|task_[0-9A-Z]+|dec_[A-Z0-9_]+|E\d+|decision)\b/iu;
+// Real task ids come in exactly two shapes: ULID (uppercase Crockford base32) or lowercase hex, both 26 chars.
+const TASK_ID_SHAPES = "task_[0-9A-HJKMNP-TV-Z]{26}|task_[0-9a-f]{26}";
+const GOVERNANCE_REFERENCE = new RegExp(`\\b(?:ADR-\\d{4}|${TASK_ID_SHAPES}|dec_[A-Z0-9_]+|E\\d+|decision)\\b`, "iu");
+const FOLLOW_UP_TASK_ID = new RegExp(`\\b(?:${TASK_ID_SHAPES})\\b`, "u");
 const BREAK_GLASS_YES = /\bbreak-glass\s*[:：]\s*(?:yes|true|required|needed|enabled|是|启用|需要)\b/iu;
 const FIELD_PLACEHOLDER = /^(?:n\/a|na|none|no|not applicable|tbd|todo|\[.*\]|待补|无|不适用)$/iu;
 
@@ -107,7 +110,7 @@ export function checkPrGovernance({ body, changedFiles, manifest }) {
       }
     }
     const followUp = readLabeledValue(sectionText, ["Follow-up governance task", "Follow-up task", "后续治理任务"]);
-    if (!followUp || !/\btask_[0-9A-Z]+\b/u.test(followUp)) {
+    if (!followUp || !FOLLOW_UP_TASK_ID.test(followUp)) {
       issues.push("Break-glass declaration must include a follow-up governance task id.");
     }
   }

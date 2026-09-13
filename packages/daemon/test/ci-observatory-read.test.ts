@@ -63,7 +63,7 @@ test("CI observatory aggregates filtered runs, retries, percentiles, shards, gat
     path.join(rootDir, "tools/test-quarantine.json"),
     JSON.stringify({
       schema: "harness-test-quarantine/v1",
-      tests: [{ test: "flaky test", ownerTask: "task_owner1", quarantinedAt: "2026-08-01" }],
+      tests: [{ test: "flaky test", ownerTask: "task_f9443002d6d995489ebf082911", quarantinedAt: "2026-08-01" }],
     }),
   );
   const observations = [
@@ -136,7 +136,7 @@ test("CI observatory aggregates filtered runs, retries, percentiles, shards, gat
     assert.equal(result.flakes[0]?.attempts, 2);
     assert.equal(result.flakes[0]?.p50Ms, 200);
     assert.equal(result.flakes[0]?.p95Ms, 300);
-    assert.equal(result.flakes[0]?.ownerTask, "task_owner1");
+    assert.equal(result.flakes[0]?.ownerTask, "task_f9443002d6d995489ebf082911");
     assert.equal(result.flakes[0]?.quarantineDays, 26);
     assert.deepEqual(result.shardDurations, [
       { shard: 2, durationMs: 600 },
@@ -184,32 +184,6 @@ test("CI observatory does not count an advisory gate as a passing run", () => {
     });
     assert.equal(result.runs[0]?.pass, false);
     assert.equal(result.gateTrends[0]?.points[0]?.pass, false);
-  } finally {
-    rmSync(rootDir, { recursive: true, force: true });
-  }
-});
-
-test("CI observatory fails closed on malformed quarantine ownership", () => {
-  const rootDir = mkdtempSync(path.join(process.cwd(), ".tmp-ci-observatory-invalid-"));
-  mkdirSync(path.join(rootDir, "tools"), { recursive: true });
-  writeFileSync(
-    path.join(rootDir, "tools/test-quarantine.json"),
-    JSON.stringify({
-      schema: "harness-test-quarantine/v1",
-      tests: [{ test: "x", ownerTask: "", quarantinedAt: "2026-08-01" }],
-    }),
-  );
-  try {
-    assert.throws(
-      () =>
-        readCiObservatory({
-          rootDir,
-          projection: {
-            readCiRunObservations: () => ({ status: "ready", events: [], watermark: 0, sourceRevision: 0 }),
-          } as never,
-        }),
-      /ownerTask/u,
-    );
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

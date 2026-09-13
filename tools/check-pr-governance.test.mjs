@@ -174,6 +174,60 @@ test("break-glass declaration passes with required exception fields", () => {
   assert.equal(result.ok, true);
 });
 
+test("break-glass follow-up accepts both real task id shapes", () => {
+  for (const followUpId of ["task_f7cc215a54a194898ad733c20a", "task_01KWVTPX3AH5TG8VK4RJYXE7EZ"]) {
+    const result = checkPrGovernance({
+      body: [
+        "# English",
+        "",
+        "## Governance Declaration",
+        "",
+        "- Authority: ADR-0023 D8",
+        "- Break-glass: yes",
+        "- Break-glass reason: restore main after an urgent CI outage",
+        "- Break-glass scope: pr-body-lint governance declaration only",
+        `- Follow-up governance task: ${followUpId}`,
+      ].join("\n"),
+      changedFiles: ["tools/gate-allowlists/check-import-boundaries.json"],
+      manifest: makeManifest(),
+    });
+
+    assert.equal(result.ok, true, `${followUpId}: ${result.issues.join("; ")}`);
+  }
+});
+
+test("break-glass follow-up rejects ids that are not one of the two real shapes", () => {
+  for (const followUpId of ["task_2301", "task_abc", "task_f7cc215a54a194898ad733c20"]) {
+    const result = checkPrGovernance({
+      body: [
+        "## Governance Declaration",
+        "",
+        "- Authority: ADR-0023 D8",
+        "- Break-glass: yes",
+        "- Break-glass reason: restore main after an urgent CI outage",
+        "- Break-glass scope: pr-body-lint governance declaration only",
+        `- Follow-up governance task: ${followUpId}`,
+      ].join("\n"),
+      changedFiles: ["tools/gate-allowlists/check-import-boundaries.json"],
+      manifest: makeManifest(),
+    });
+
+    assert.equal(result.ok, false, followUpId);
+    assert.match(result.issues.join("\n"), /follow-up governance task id/u);
+  }
+});
+
+test("governance citation does not count a task token outside the two real shapes", () => {
+  const result = checkPrGovernance({
+    body: "## Governance Declaration\n\n- Authority: task_2301",
+    changedFiles: ["package.json"],
+    manifest: makeManifest(),
+  });
+
+  assert.equal(result.ok, false);
+  assert.match(result.issues.join("\n"), /cite at least one ADR/u);
+});
+
 test("break-glass declaration rejects an empty reason before the scope line", () => {
   const result = checkPrGovernance({
     body: bodyWithGovernance({ breakGlass: true }).replace(
