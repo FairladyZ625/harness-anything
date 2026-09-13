@@ -688,7 +688,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
   };
   const read: RepoCell["read"] = async (method, payload = {}, binding) => readNow(method, payload, binding);
   // Narrow/paged query payload for the task list read: an empty payload keeps one default-bounded
-  // page (guiTasks applies TASK_LIST_PAGE_LIMIT); any explicit facet passes through as given.
+  // page (guiTasks defaults `limit` to 500, the GUI page width); any explicit facet passes through as given.
   function taskListQueryFromPayload(payload: Readonly<Record<string, unknown>>): TaskProjectionListQuery {
     const common = queryPayloadFacets(payload, "repo.tasks.list");
     return {
