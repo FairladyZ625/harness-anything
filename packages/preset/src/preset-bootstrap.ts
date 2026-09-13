@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import path from "node:path";
 import {
   REPLAY_TASK_GRAPH,
   classifyTextualArtifactPath,
@@ -378,7 +380,13 @@ export function compilePresetSnapshotUpgrade(input: CompilePresetSnapshotUpgrade
   // entities); the retired file stays on disk as committed prose. Only a slot the package does not have yet
   // would need materialization, so only additions are rejected.
   const knownPaths = new Set(documents.map((item) => (item as { path: string }).path)),
-    addedPaths = compiled.documents.map(({ relativePath }) => relativePath).filter((item) => !knownPaths.has(item));
+    packageRoot = input.projectRoot && path.join(input.projectRoot, contract.packagePath),
+    existingPaths = compiled.documents
+      .map(({ relativePath }) => relativePath)
+      .filter((relativePath) => packageRoot && existsSync(path.join(packageRoot, relativePath))),
+    addedPaths = compiled.documents
+      .map(({ relativePath }) => relativePath)
+      .filter((item) => !knownPaths.has(item) && !existingPaths.includes(item));
   if (addedPaths.length)
     throw bootstrapFailure(
       "upgrade_document_set_changed",
