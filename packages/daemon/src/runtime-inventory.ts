@@ -105,6 +105,10 @@ export const runtimeKinds = [
       argumentTemplate: [
         "-p",
         "--verbose",
+        // Harness-dispatched workers commit under the repository identity; Claude Code's
+        // default commit/PR attribution would violate that, so hide it via --settings.
+        "--settings",
+        '{"attribution":{"commit":"","pr":"","sessionUrl":false}}',
         "--output-format",
         "stream-json",
         "$permission",

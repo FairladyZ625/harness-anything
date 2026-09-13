@@ -595,6 +595,8 @@ test("subscription launch fails closed without provider-native readiness and nev
     assert.deepEqual(launch.args, [
       "-p",
       "--verbose",
+      "--settings",
+      '{"attribution":{"commit":"","pr":"","sessionUrl":false}}',
       "--output-format",
       "stream-json",
       "--permission-mode",
