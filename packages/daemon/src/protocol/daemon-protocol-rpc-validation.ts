@@ -1,9 +1,4 @@
-import {
-  daemonGuiActionMethodNames,
-  daemonGuiReadMethodNames,
-  daemonStreamMethodNames,
-  decisionAdjudicationMethods,
-} from "./daemon-protocol-commands.ts";
+import { daemonMethodNameSets } from "./daemon-protocol-commands.ts";
 import {
   admitUseCaseProjectionSelector,
   validateShape,
@@ -41,15 +36,15 @@ import {
 export { DaemonProtocolContractError, validateSessionEnvironment };
 
 export function isDaemonGuiReadMethod(method: string): method is DaemonGuiRpcReadMethod {
-  return daemonGuiReadMethodNames.has(method);
+  return daemonMethodNameSets.guiRead.has(method);
 }
 
 export function isDaemonGuiActionMethod(method: string): method is DaemonGuiActionMethod {
-  return daemonGuiActionMethodNames.has(method);
+  return daemonMethodNameSets.guiAction.has(method);
 }
 
 export function isDaemonStreamMethod(method: string): method is DaemonStreamMethod {
-  return daemonStreamMethodNames.has(method);
+  return daemonMethodNameSets.stream.has(method);
 }
 // The executor declaration surface, derived from the same shapes validateDaemonRpcCall enforces — never
 // a hand-copied method list. The task action methods accept the executor inside their open action envelope; every
@@ -376,7 +371,7 @@ export function validateGuiActionPayload(method: DaemonGuiActionMethod, value: u
     )
       errors.push("decision proposal is invalid");
   }
-  if (decisionAdjudicationMethods.has(method))
+  if (daemonMethodNameSets.decisionAdjudication.has(method))
     for (const field of [value.rationale, value.reason, value.judgmentOnlyRationale])
       if (field !== undefined && (typeof field !== "string" || [...field].length > 199))
         errors.push("decision rationale is invalid");

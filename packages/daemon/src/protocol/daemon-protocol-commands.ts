@@ -216,11 +216,14 @@ const commandDescriptorByActionKind: ReadonlyMap<string, (typeof daemonProtocolC
   );
 
 // Method-name sets consumed by the RPC validation entry; built once beside the descriptor maps.
-export const daemonGuiReadMethodNames: ReadonlySet<string> = new Set(daemonGuiReadMethods.map((entry) => entry.method)),
-  daemonGuiActionMethodNames: ReadonlySet<string> = new Set(daemonGuiActionMethods.map((entry) => entry.method)),
-  daemonStreamMethodNames: ReadonlySet<string> = new Set(daemonStreamFacets.map((entry) => entry.method)),
-  decisionAdjudicationMethods: ReadonlySet<string> = new Set([
-    "repo.decision.accept",
-    "repo.decision.reject",
-    "repo.decision.defer",
-  ]);
+export const daemonMethodNameSets: {
+  readonly guiRead: ReadonlySet<string>;
+  readonly guiAction: ReadonlySet<string>;
+  readonly stream: ReadonlySet<string>;
+  readonly decisionAdjudication: ReadonlySet<string>;
+} = {
+  guiRead: new Set(daemonGuiReadMethods.map((entry) => entry.method)),
+  guiAction: new Set(daemonGuiActionMethods.map((entry) => entry.method)),
+  stream: new Set(daemonStreamFacets.map((entry) => entry.method)),
+  decisionAdjudication: new Set(["repo.decision.accept", "repo.decision.reject", "repo.decision.defer"]),
+};
