@@ -163,10 +163,14 @@ test("task read-set derives one ordered projection per cut and never writes back
     assert.equal(isolated.blocked, false);
     assert.equal(isolated.taskRef, "task/task_read_set_isolated");
 
-    // Negative control: an unknown task id fails with the standard read command code.
-    const missing = await readSet("task_read_set_absent");
-    assert.equal(missing.outcome, "op_rejected", JSON.stringify(missing));
-    assert.equal(missing.code, "task_not_found", JSON.stringify(missing));
+    // Negative control: an unknown id and a short prefix of a real id are the same not-found
+    // answer from the shared judgment, naming the id that was asked for.
+    for (const absent of ["task_read_set_absent", "task_read_set_ho"]) {
+      const missing = await readSet(absent);
+      assert.equal(missing.outcome, "op_rejected", JSON.stringify(missing));
+      assert.equal(missing.code, "task_not_found", JSON.stringify(missing));
+      assert.match(String(missing.rejectionExplanation), new RegExp(`${absent} does not exist`, "u"));
+    }
   } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });

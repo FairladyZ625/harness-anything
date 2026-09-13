@@ -16,6 +16,7 @@ import {
   type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
 import { readTaskReadSet } from "../../application/src/index.ts";
+import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { requiredPackageDisposition, type TaskQueryReadModel } from "./task-query-read.ts";
 import { resolveTaskRootThreshold, resolveTaskWipLimit } from "./task-wip-settings.ts";
@@ -47,7 +48,6 @@ export interface TaskQueryCell {
   readonly requiredCellText: (value: unknown, name: string) => string;
   readonly wipSnapshotEntries: (activatingTaskId: string) => readonly TaskWipSnapshotEntryV1[];
   readonly legacyReviewLint: typeof import("./repo-cell-review-lint.ts").legacyReviewLint;
-  readonly projectionReady: (value: { readonly status: string }) => boolean;
   readonly now: () => string;
 }
 
@@ -341,13 +341,8 @@ export function listRelations(cell: TaskQueryCell, action: RepoTaskAction, bindi
  */
 export function taskReadSet(cell: TaskQueryCell, action: RepoTaskAction, binding: RepoCellBinding): WriteReceipt {
   const taskId = cell.requiredCellText(action.taskId, "taskId"),
-    current = cell.projection.read(taskId);
-  if (!cell.projectionReady(current) || !current.snapshot.task)
-    throw cell.cellCodedError(
-      "task_not_found",
-      `Run ha task list, choose an existing task id, then retry task read-set.`,
-    );
-  const derived = readTaskReadSet(cell.projection, taskId);
+    current = requireCurrentTaskProjection(cell.projection, taskId, "task read-set"),
+    derived = readTaskReadSet(cell.projection, taskId);
   return cell.readResult(
     cell.operationId(action, binding, cell.input.repoId, current.sourceRevision),
     derived,
@@ -359,12 +354,7 @@ export function taskReadSet(cell: TaskQueryCell, action: RepoTaskAction, binding
 
 export function reviewTask(cell: TaskQueryCell, action: RepoTaskAction, binding: RepoCellBinding): WriteReceipt {
   const taskId = cell.requiredCellText(action.taskId, "taskId"),
-    current = cell.projection.read(taskId);
-  if (!cell.projectionReady(current) || !current.snapshot.task || !current.packagePath)
-    throw cell.cellCodedError(
-      "task_not_found",
-      `Run ha task list, choose an existing task id, then retry task review.`,
-    );
+    current = requireCurrentTaskProjection(cell.projection, taskId, "task review");
   const document = cell.projection.readDocument(`${current.packagePath}/review.md`),
     report = document.document
       ? cell.legacyReviewLint(
