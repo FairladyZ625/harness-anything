@@ -19,7 +19,7 @@ export interface ArtifactDelivery {
   readonly blobSha256: string;
 }
 export type SubmissionDelivery =
-  | { readonly commitSha: string; readonly artifacts?: never }
+  | { readonly commitSha: string; readonly artifacts?: readonly ArtifactDelivery[] }
   | { readonly commitSha: null; readonly artifacts: readonly ArtifactDelivery[] };
 export type SubmissionV1 = SubmissionDelivery & {
   readonly completionClaim: string;
@@ -152,12 +152,11 @@ export function isNativeCommitSha(value: unknown): value is string {
 function stringArray(value: unknown): boolean {
   return Array.isArray(value) && value.every(isNonEmptyString);
 }
-export function validSubmissionDelivery(value: Record<string, unknown>): boolean {
-  if (value.commitSha !== null) return isNativeCommitSha(value.commitSha) && value.artifacts === undefined;
+function validArtifactAnchors(value: unknown): boolean {
   return (
-    Array.isArray(value.artifacts) &&
-    value.artifacts.length > 0 &&
-    value.artifacts.every(
+    Array.isArray(value) &&
+    value.length > 0 &&
+    value.every(
       (anchor) =>
         isRecord(anchor) &&
         hasOnlyFields(anchor, ["path", "revision", "blobSha256"]) &&
@@ -169,12 +168,19 @@ export function validSubmissionDelivery(value: Record<string, unknown>): boolean
     )
   );
 }
+export function validSubmissionDelivery(value: Record<string, unknown>): boolean {
+  if (value.commitSha !== null)
+    return (
+      isNativeCommitSha(value.commitSha) && (value.artifacts === undefined || validArtifactAnchors(value.artifacts))
+    );
+  return validArtifactAnchors(value.artifacts);
+}
 export function validateSubmissionV1(value: unknown, allowUnknownFields = false): readonly ContractValidationIssue[] {
   if (
     !isRecord(value) ||
     !(allowUnknownFields ? hasRequiredFields : hasOnlyFields)(value, [
       ...SUBMISSION_V1_SCHEMA.required,
-      ...(value.commitSha === null ? ["artifacts"] : []),
+      ...(value.commitSha === null || value.artifacts !== undefined ? ["artifacts"] : []),
     ]) ||
     !isNonEmptyString(value.completionClaim) ||
     !stringArray(value.deliverables) ||

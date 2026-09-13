@@ -5,6 +5,7 @@ import { mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
+import { sha256Bytes } from "../../kernel/src/index.ts";
 import { deriveCloseoutSubmission, submissionStopped } from "../src/repo-cell-submit.ts";
 import { openDispatchStream } from "../src/dispatch-stream.ts";
 import type { RepoCellBinding, RepoTaskAction, Snapshot } from "../src/repo-cell-types.ts";
@@ -53,7 +54,40 @@ function fixture(t: TestContext, sharedGit = false) {
   return { root, ledger, base };
 }
 
-function derive(rootDir: string, summary: string, missingPath?: string, gates: readonly string[] = ["ci"]) {
+function artifactStore() {
+  const artifactPath = `${packagePath}/artifacts/report.md`,
+    bytes = Buffer.from("Frozen report.\n"),
+    blobSha256 = sha256Bytes(bytes);
+  return {
+    blobSha256,
+    store: {
+      readBatch: (cursor: string) => ({
+        events:
+          Number(cursor) === 6
+            ? [
+                {
+                  schema: "doc-event/v1",
+                  workspaceRevision: 7,
+                  opId: "accepted-7",
+                  payload: { changes: [{ path: artifactPath, candidate: { sha256: blobSha256 } }] },
+                },
+              ]
+            : [],
+      }),
+      readContentBlob: () => bytes,
+    },
+  };
+}
+
+function derive(
+  rootDir: string,
+  summary: string,
+  missingPath?: string,
+  gates: readonly string[] = ["ci"],
+  store: Parameters<typeof deriveCloseoutSubmission>[0]["store"] = {} as Parameters<
+    typeof deriveCloseoutSubmission
+  >[0]["store"],
+) {
   const snapshot = { executions: [], task: { completionGateIds: gates } } as unknown as Parameters<
       typeof deriveCloseoutSubmission
     >[3],
@@ -79,7 +113,7 @@ function derive(rootDir: string, summary: string, missingPath?: string, gates: r
     {
       rootDir,
       projection,
-      store: {} as Parameters<typeof deriveCloseoutSubmission>[0]["store"],
+      store,
       cellCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),
     },
     "task-1",
@@ -110,6 +144,44 @@ test("explicit Summary commit derives mixed deletion evidence without a dispatch
   assert.deepEqual(packet.deliverables, ["src/live.ts"]);
   assert.deepEqual(packet.outputs, ["Deleted-Production-Paths: src/old.ts"]);
   assert.deepEqual(packet.knownGaps, ["已知缺口：publication pending.", "Sibling delivery remains unverified."]);
+});
+
+test("Summary commit plus artifact anchor derives one cut carrying both", (t) => {
+  const { root } = fixture(t),
+    { store, blobSha256 } = artifactStore(),
+    anchor = `artifact:${packagePath}/artifacts/report.md@7`;
+  put(root, "src/live.ts", "export const liveValue = 6;\n");
+  const sha = commit(root),
+    packet = derive(
+      root,
+      `Delivered ${sha} with ${anchor} attached.`,
+      undefined,
+      ["ci", "code-doc-reconciliation"],
+      store,
+    );
+  assert.equal(packet.commitSha, sha);
+  assert.deepEqual(packet.artifacts, [{ path: `${packagePath}/artifacts/report.md`, revision: 7, blobSha256 }]);
+  // Deliverables stay paths of the delivery commit; the anchored report rides in outputs.
+  assert.deepEqual(packet.deliverables, ["src/live.ts"]);
+  assert.deepEqual(packet.outputs, [`Artifact-Anchor: ${packagePath}/artifacts/report.md@7`]);
+});
+
+test("artifact anchors alone still deliver without a commit and reject duplicate paths", () => {
+  const { store } = artifactStore();
+  const packet = derive("/nonexistent", `artifact:${packagePath}/artifacts/report.md@7`, undefined, ["ci"], store);
+  assert.equal(packet.commitSha, null);
+  assert.deepEqual(packet.deliverables, [`${packagePath}/artifacts/report.md`]);
+  assert.throws(
+    () =>
+      derive(
+        "/nonexistent",
+        `artifact:${packagePath}/artifacts/report.md@7 artifact:${packagePath}/artifacts/report.md@7`,
+        undefined,
+        ["ci"],
+        store,
+      ),
+    /name each artifact path once/u,
+  );
 });
 
 test("pure deletion cut has no surviving anchor paths and keeps the deletion list", (t) => {

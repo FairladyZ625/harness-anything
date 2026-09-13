@@ -160,27 +160,25 @@ function validArtifactDelivery(value: unknown): boolean {
 }
 
 export function validateGuiSubmission(value: unknown): readonly string[] {
-  const fields = [
+  const arrayFields = ["deliverables", "outputs", "verificationNotes", "knownGaps", "residualRisks"] as const,
+    fields = [
       "completionClaim",
-      "deliverables",
-      "outputs",
-      "verificationNotes",
-      "knownGaps",
-      "residualRisks",
+      ...arrayFields,
       "commitSha",
-      ...(isJsonObject(value) && value.commitSha === null ? ["artifacts"] : []),
+      ...(isJsonObject(value) && (value.commitSha === null || "artifacts" in value) ? ["artifacts"] : []),
     ],
     entityId = validationEntityId(value, ["commitSha"], "submission:<unknown>"),
-    shapeError = recordShapeError(entityId, value, fields);
+    shapeError = recordShapeError(entityId, value, fields),
+    anchorsOk = isJsonObject(value) && (value.artifacts === undefined || validArtifactDelivery(value.artifacts));
   if (shapeError) return [shapeError];
   if (!isJsonObject(value)) return [];
   const errors: string[] = [];
   if (!nonEmpty(value.completionClaim))
     errors.push(validationError(entityId, "completionClaim", value.completionClaim, "must be a non-empty string"));
-  for (const field of ["deliverables", "outputs", "verificationNotes", "knownGaps", "residualRisks"] as const)
+  for (const field of arrayFields)
     if (!stringArray(value[field]))
       errors.push(validationError(entityId, field, value[field], "must be an array of non-empty strings"));
-  if (value.commitSha === null ? !validArtifactDelivery(value.artifacts) : !sha(value.commitSha))
+  if (value.commitSha === null ? !validArtifactDelivery(value.artifacts) : !sha(value.commitSha) || !anchorsOk)
     errors.push(
       validationError(entityId, "commitSha", value.commitSha, "must identify a commit or accepted artifact revisions"),
     );
