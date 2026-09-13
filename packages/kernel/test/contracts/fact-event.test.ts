@@ -467,10 +467,13 @@ test("#1546: a rejected Decision proposal names every field that is actually wro
     [{ body: 7 }, /^body must be a string$/u],
     [{ chosen: [] }, /^chosen must be a non-empty array$/u],
     [{ claims: "none" }, /^claims must be an array$/u],
-    [{ chosen: [{ id: "XX1", text: "Wrong prefix" }] }, /^every chosen entry needs a CH id/u],
-    [{ rejected: [{ id: "RJ1", text: "No reason given", whyNot: "" }] }, /^every rejected entry needs an RJ id/u],
-    [{ claims: [{ id: "C1", text: "Bad flag", loadBearing: "yes" }] }, /^every claim needs a C id/u],
-    [{ fulfillments: [{ claimId: "C1", mode: "wished" }] }, /^every fulfillment needs a claimId and a mode of/u],
+    [{ chosen: [{ id: "XX1", text: "Wrong prefix" }] }, /^chosen\[0\]\.id must be a CH id$/u],
+    [
+      { rejected: [{ id: "RJ1", text: "No reason given", whyNot: "" }] },
+      /^rejected\[0\]\.whyNot must be 1\.\.199 code points$/u,
+    ],
+    [{ claims: [{ id: "C1", text: "Bad flag", loadBearing: "yes" }] }, /^claims\[0\]\.loadBearing must be a boolean$/u],
+    [{ fulfillments: [{ claimId: "C1", mode: "wished" }] }, /^fulfillments\[0\]\.mode must be one of/u],
     [{ fulfillments: [{ claimId: "C9", mode: "evidenced" }] }, /^every fulfillment must name a distinct claim/u],
   ] as const) {
     const issues = validateDecisionEvent(event(next as Record<string, unknown>));
