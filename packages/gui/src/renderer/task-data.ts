@@ -145,6 +145,14 @@ export async function invalidateLedgerDependents(queryClient: QueryClient, repoI
     queryClient.invalidateQueries({ queryKey: workspaceSummaryQueryKeys.read(repoId), refetchType: "active" }),
     queryClient.invalidateQueries({ queryKey: runtimeQueryKeys.dispatchesAll(repoId), refetchType: "active" }),
     queryClient.invalidateQueries({ queryKey: runtimeQueryKeys.overviewAll(repoId), refetchType: "active" }),
+    // 会话页读面(session groups / squad runs / run 详情 / 选中 session / agent inspector 的
+    // 相关派工)骑同一台探针:runtime 会话生命周期事件是 canonical 事件,同样推进这里的
+    // cut,所以新派工与 running→succeeded 变化都由这次扇出带进挂载中的列表。
+    queryClient.invalidateQueries({ queryKey: runtimeQueryKeys.sessionAll(repoId), refetchType: "active" }),
+    queryClient.invalidateQueries({ queryKey: runtimeQueryKeys.sessionGroupsAll(repoId), refetchType: "active" }),
+    queryClient.invalidateQueries({ queryKey: runtimeQueryKeys.squadRunsAll(repoId), refetchType: "active" }),
+    queryClient.invalidateQueries({ queryKey: runtimeQueryKeys.squadRunDetailAll(repoId), refetchType: "active" }),
+    queryClient.invalidateQueries({ queryKey: runtimeQueryKeys.relatedDispatchesAll(repoId), refetchType: "active" }),
   ]);
 }
 
