@@ -83,9 +83,7 @@ test("CLI dispatch and nested receipt errors are handled by closed tagged branch
     }),
     {
       code: "squad_leader_failed",
-      hint:
-        "Leader dispatch rejected: code=lease_conflict hint=Inspect error code lease_conflict, " +
-        "correct the command input, and retry.",
+      hint: "Leader dispatch rejected: code=lease_conflict hint=release the holder",
     },
   );
 });

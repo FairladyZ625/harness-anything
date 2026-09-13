@@ -9,6 +9,7 @@ import { diagnosticForError, taskCreateGuidance } from "../../daemon/src/receipt
 import { workspacePathResolutionRule } from "../../preset/src/preset-command-contract.ts";
 import { humanError, renderReceiptGuidance } from "../src/cli/guidance-plane.ts";
 import { renderCliReceipt } from "../src/cli/receipt-render-registry.ts";
+import { daemonFailure } from "../src/daemon/control-support.ts";
 
 test("missing workspace packets identify the root used for relative paths", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-packet-root-"));
@@ -177,6 +178,25 @@ test("a rejected receipt's own explanation replaces the generic code-only hint",
       rejectionExplanation: "generic wrapper text",
     }).hint,
     "Validation failed for entity=task-a field=status; actual=weird; planned.",
+  );
+});
+
+test("a daemon control failure receipt's nextAction reaches the operator instead of the generic retry sentence", () => {
+  assert.deepEqual(renderCliReceipt(daemonFailure("daemon-repo-register", "missing_field", "Add --repo-id.")), {
+    stream: "stderr",
+    text: "error code=missing_field hint=Add --repo-id.",
+  });
+  // daemon_restarting receipts declare the same hint at both levels; the unified hint fallback
+  // renders it exactly as the former code-specific special case did.
+  const restartingHint = "daemon is restarting (old build -> new build); waited 1s but it is not ready";
+  assert.deepEqual(
+    renderCliReceipt({
+      ok: false,
+      code: "daemon_restarting",
+      error: { code: "daemon_restarting", hint: restartingHint },
+      hint: restartingHint,
+    }),
+    { stream: "stderr", text: `error code=daemon_restarting hint=${restartingHint}` },
   );
 });
 
