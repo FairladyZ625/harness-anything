@@ -137,13 +137,20 @@ test("settings writes reject catalog-inconsistent vertical, preset, and profile 
     assert.equal(unchanged.code, "no_changes");
     assert.equal(unchanged.origin, "daemon");
     assert.equal(flushApplied.outcome, "applied", JSON.stringify(flushApplied));
-    const settings = (await cell.read("repo.settings.read")) as { readonly settings: { readonly walFlush: unknown } };
+    const settings = (await cell.read("repo.settings.read")) as {
+      readonly settings: { readonly walFlush: unknown };
+      readonly values: Readonly<Record<string, unknown>>;
+    };
     assert.deepEqual(settings.settings.walFlush, {
       adaptive: false,
       events: 4096,
       bytes: 16_777_216,
       milliseconds: 30_000,
     });
+    // settings read 附带 kernel 拍平的 action 值面:键 = 动作契约字段,GUI 设置表单据此回填。
+    assert.equal(settings.values.walFlushAdaptive, false);
+    assert.equal(settings.values.walFlushMilliseconds, 30_000);
+    assert.equal(typeof settings.values.defaultVertical, "string");
     const flushed = await cell.run(
       { kind: "receipt-show", opId: flushApplied.opId, waitFor: ["worktree_visible"], timeoutMs: 5000 },
       binding,

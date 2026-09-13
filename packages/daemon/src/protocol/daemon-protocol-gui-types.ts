@@ -11,7 +11,6 @@ import type {
   RelationGraphEdgeRow,
   ReceiptDiagnostic,
   TaskProjection,
-  SettingsV1,
   EntityActionExplanationSetV1,
   EntityKindCatalogV1,
   VerticalDefinition,
@@ -343,11 +342,7 @@ export type DaemonGuiReadResultMap = {
   readonly "repo.entity.rows.read": import("../entity-rows-read.ts").EntityRowListV1;
   readonly "repo.entity.locator.read": import("../entity-locator-read.ts").EntityLocatorReadV1;
   readonly "repo.entity.content.read": import("../entity-content-read.ts").EntityContentReadV1;
-  readonly "repo.settings.read": {
-    readonly schema: "daemon.settings-read/v1";
-    readonly ok: true;
-    readonly settings: SettingsV1;
-  };
+  readonly "repo.settings.read": import("./daemon-settings-read-types.ts").DaemonSettingsRead;
   readonly "repo.ci.observatory.read": import("../ci-observatory-read.ts").CiObservatoryRead;
   readonly "repo.workspace.summary.read": DaemonWorkspaceSummaryResult;
   readonly "repo.agenda.read": DaemonAgendaResult;

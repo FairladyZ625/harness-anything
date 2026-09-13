@@ -73,6 +73,34 @@ const field = (
   values?: readonly string[],
 ): EntityActionInputField =>
   Object.freeze({ field: name, type, required, ...(values ? { enum: Object.freeze(values) } : {}) });
+
+/** Single source of the settings update field surface: the action catalog input and the daemon's
+ * GUI catalog facet both derive from this list, so a new field appears in every consumer with one
+ * edit here instead of per-surface hand-written field lists drifting apart. */
+export const settingsUpdateInputFields: readonly EntityActionInputField[] = Object.freeze([
+  field("defaultVertical"),
+  field("defaultPreset"),
+  field("defaultProfile"),
+  field("defaultReviewer"),
+  field("reviewIndependence", "string", false, reviewIndependenceLevels),
+  field("reviewReturnBudget", "number"),
+  field("locale", "string", false, settingsLocales),
+  field("taskScaffold"),
+  field("repositoryScaffold"),
+  field("walFlushAdaptive", "boolean"),
+  field("walFlushEvents", "number"),
+  field("walFlushBytes", "number"),
+  field("walFlushMilliseconds", "number"),
+  field("ciWorkflows", "string-array"),
+  field("closeoutProfile", "string", false, closeoutProfiles),
+  field("closeoutReview", "boolean"),
+  field("closeoutConsent", "boolean"),
+  field("closeoutFactDisposition", "boolean"),
+  field("closeoutCodeDoc", "boolean"),
+  field("restoreDrillRetention", "number"),
+  field("expectedVersion", "number"),
+  field("idempotencyKey"),
+]);
 const noLease = Object.freeze({ authority: "not-applicable" });
 const noOccurrence = Object.freeze({ authority: "not-applicable" });
 const settingsConcurrency: EntityActionContract["concurrency"] = Object.freeze({
@@ -130,30 +158,7 @@ export function createSettingsActionCatalog(
       }),
       Object.freeze({
         ...update,
-        input: input([
-          field("defaultVertical"),
-          field("defaultPreset"),
-          field("defaultProfile"),
-          field("defaultReviewer"),
-          field("reviewIndependence", "string", false, reviewIndependenceLevels),
-          field("reviewReturnBudget", "number"),
-          field("locale", "string", false, settingsLocales),
-          field("taskScaffold"),
-          field("repositoryScaffold"),
-          field("walFlushAdaptive", "boolean"),
-          field("walFlushEvents", "number"),
-          field("walFlushBytes", "number"),
-          field("walFlushMilliseconds", "number"),
-          field("ciWorkflows", "string-array"),
-          field("closeoutProfile", "string", false, closeoutProfiles),
-          field("closeoutReview", "boolean"),
-          field("closeoutConsent", "boolean"),
-          field("closeoutFactDisposition", "boolean"),
-          field("closeoutCodeDoc", "boolean"),
-          field("restoreDrillRetention", "number"),
-          field("expectedVersion", "number"),
-          field("idempotencyKey"),
-        ]),
+        input: input(settingsUpdateInputFields),
         policy: Object.freeze({ ref: "default@5", action: "settings-update" }),
         criteria: Object.freeze([
           Object.freeze({

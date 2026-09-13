@@ -285,7 +285,8 @@ export type { VerticalDeclarationDocumentV1, VerticalKindCommandResult } from ".
 export { decodeVerticalDefinition } from "../schemas/vertical-definition.ts";
 export type { VerticalDefinition } from "../schemas/vertical-definition.ts";
 export { buildVerticalDeclarationRead, validateVerticalDeclarationRead } from "./vertical-declaration.ts";
-export { settingsActionLocale } from "./settings-action-contract.ts";
+export { settingsActionLocale, settingsUpdateInputFields } from "./settings-action-contract.ts";
+export { repositorySettingsActionValues } from "./settings-action-values.ts";
 export type { SettingsActionDraft } from "./settings-action-contract.ts";
 export {
   applyPeopleRosterAction,

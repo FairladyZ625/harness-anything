@@ -1,24 +1,14 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { CloudSlash } from "@phosphor-icons/react";
 import { useTheme, type ThemeMode, type UiScale } from "../theme";
 import { t, useI18n, type MessageKey } from "../i18n/index.tsx";
 import { STATUS_META } from "../components/badges";
-import {
-  BTN,
-  Section,
-  Row,
-  Segmented,
-  Toggle,
-  Kbd,
-  SettingSelect,
-  type SelectorOption,
-} from "../components/ui/widgets";
+import { BTN, Section, Row, Segmented, Toggle, Kbd } from "../components/ui/widgets";
 import { readTimeZoneOverride, supportedTimeZones, systemTimeZone, writeTimeZoneOverride } from "../model/time.ts";
-import { useSettingsMutation, useSettingsQuery } from "../settings-data.ts";
-import { useCatalogSnapshot } from "../catalog-data.ts";
-import type { CatalogPresetRow, SettingsSuccess, SystemRepoRow } from "../api-client.ts";
-import { CloseoutRows } from "./settings/CloseoutRows.tsx";
+import { useSettingsMutation } from "../settings-data.ts";
+import type { SystemRepoRow } from "../api-client.ts";
 import { RepositoriesAndConnectionsView } from "./settings/RepositoriesAndConnectionsView.tsx";
+import { RepositorySettingsPanel } from "./settings/RepositorySettingsPanel.tsx";
 
 // i18n(task_bff1b8d6):设置页文案一律走 locales(同 task_9f39e256 的 tab 机制),
 // 模块级清单只留 id/key,文案键(labelKey/descKey)在渲染期经 t() 取。
@@ -48,11 +38,8 @@ type SettingsTab =
   | "shortcuts"
   | "notifications"
   | "data"
-  | "terminal"
   | "privacy"
   | "sync";
-type SettingsDraft = SettingsSuccess["settings"];
-
 const SETTINGS_TABS: { id: SettingsTab; labelKey: MessageKey; descKey: MessageKey }[] = [
   {
     id: "repositories",
@@ -69,7 +56,6 @@ const SETTINGS_TABS: { id: SettingsTab; labelKey: MessageKey; descKey: MessageKe
     descKey: "views.settingsView.tabNotificationsDesc",
   },
   { id: "data", labelKey: "views.settingsView.tabData", descKey: "views.settingsView.tabDataDesc" },
-  { id: "terminal", labelKey: "views.settingsView.tabTerminal", descKey: "views.settingsView.tabTerminalDesc" },
   { id: "privacy", labelKey: "views.settingsView.tabPrivacy", descKey: "views.settingsView.tabPrivacyDesc" },
   { id: "sync", labelKey: "views.settingsView.tabSync", descKey: "views.settingsView.tabSyncDesc" },
 ];
@@ -95,257 +81,13 @@ export function SettingsView({
   const [activeTab, setActiveTab] = useState<SettingsTab>(repoId === null ? "repositories" : "repository");
   const [notifyOnReady, setNotifyOnReady] = useState(true);
   const [timeZoneOverride, setTimeZoneOverride] = useState(() => readTimeZoneOverride() ?? "");
-  const settingsQuery = useSettingsQuery(repoId);
   const settingsMutation = useSettingsMutation(repoId);
-  const catalogQuery = useCatalogSnapshot(repoId);
-  const [draft, setDraft] = useState<SettingsDraft | null>(null);
-
-  useEffect(() => {
-    if (!settingsQuery.data) return;
-    setDraft(settingsQuery.data.settings);
-    setLocale(settingsQuery.data.settings.locale);
-  }, [settingsQuery.data, setLocale]);
-
-  const updateDraft = (
-    field: keyof Pick<SettingsDraft, "defaultVertical" | "defaultPreset" | "defaultProfile">,
-    value: string,
-  ) => setDraft((current) => (current ? { ...current, [field]: value } : current));
-
-  // 仓库设置的每个字段取值面都是可枚举的,枚举来源是 daemon 目录快照,不是手打字符串。
-  // 目录读不到时选择器停用(fail closed),不回退成自由文本输入。
-  const snapshot = catalogQuery.data,
-    catalogBlocked = catalogQuery.isPending || !!catalogQuery.error,
-    verticalOptions = selectorOptions(
-      (snapshot?.verticals ?? []).map((row) => ({
-        value: row.id,
-        label:
-          row.available && row.valid ? row.id : t("views.settingsView.catalogUnavailableOption", { value: row.id }),
-      })),
-      draft?.defaultVertical,
-    ),
-    presetOptions = selectorOptions(
-      (snapshot?.presets ?? [])
-        .filter((row) => row.verticalId === draft?.defaultVertical)
-        .map((row) => ({
-          value: row.id,
-          label: row.validity === "valid" ? `${row.id} · ${row.title}` : `${row.id} · ${row.validity}`,
-        })),
-      draft?.defaultPreset,
-    ),
-    selectedPreset = (snapshot?.presets ?? []).find(
-      (row) => row.id === draft?.defaultPreset && row.verticalId === draft?.defaultVertical,
-    ),
-    profileOptions = selectorOptions(
-      cataloguedProfiles(selectedPreset).map((profile) => ({
-        value: profile.id,
-        label: `${profile.id} · ${profile.title}`,
-      })),
-      draft?.defaultProfile,
-    ),
-    taskScaffoldOptions = selectorOptions(
-      (snapshot?.scaffolds.task ?? []).map((value) => ({ value })),
-      draft?.scaffolds.task,
-    ),
-    repositoryScaffoldOptions = selectorOptions(
-      (snapshot?.scaffolds.repository ?? []).map((value) => ({ value })),
-      draft?.scaffolds.repository,
-    );
-
-  const chooseVertical = (verticalId: string) =>
-    setDraft((current) => {
-      if (!current) return current;
-      const next = { ...current, defaultVertical: verticalId },
-        presets = (snapshot?.presets ?? []).filter((row) => row.verticalId === verticalId && row.validity === "valid"),
-        defaultPresetId = snapshot?.defaults.verticalId === verticalId ? snapshot.defaults.presetId : undefined,
-        row =
-          presets.find((candidate) => candidate.id === current.defaultPreset) ??
-          presets.find((candidate) => candidate.id === defaultPresetId) ??
-          presets[0];
-      return row ? selectPreset(next, row.id, row) : next;
-    });
-
-  const choosePreset = (presetId: string) =>
-    setDraft((current) => {
-      if (!current) return current;
-      const row = (snapshot?.presets ?? []).find(
-        (candidate) => candidate.id === presetId && candidate.verticalId === current.defaultVertical,
-      );
-      return selectPreset(current, presetId, row);
-    });
-
   const renderActivePanel = () => {
     switch (activeTab) {
       case "repositories":
         return <RepositoriesAndConnectionsView repos={repos} activeRepoId={repoId} onOpenProject={onOpenProject} />;
       case "repository":
-        if (repoId === null)
-          return (
-            <Section title={t("views.settingsView.sectionRepository")}>
-              <div className="p-4 ui-meta text-text-faint">{t("views.settingsView.repositoryTabNeedsRepo")}</div>
-            </Section>
-          );
-        if (settingsQuery.error)
-          return (
-            <Section title={t("views.settingsView.sectionRepository")}>
-              <div className="p-4 text-danger">{String(settingsQuery.error)}</div>
-            </Section>
-          );
-        if (settingsQuery.isPending || !draft)
-          return (
-            <Section title={t("views.settingsView.sectionRepository")}>
-              <div className="p-4 text-text-faint">{t("views.settingsView.readingSettings")}</div>
-            </Section>
-          );
-        return (
-          <Section
-            title={t("views.settingsView.sectionRepository")}
-            action={
-              <button
-                className={BTN}
-                disabled={settingsMutation.isPending}
-                onClick={() =>
-                  settingsMutation.mutate({
-                    defaultVertical: draft.defaultVertical,
-                    defaultPreset: draft.defaultPreset,
-                    defaultProfile: draft.defaultProfile,
-                    taskScaffold: draft.scaffolds.task,
-                    repositoryScaffold: draft.scaffolds.repository,
-                    walFlushAdaptive: draft.walFlush.adaptive,
-                    walFlushEvents: draft.walFlush.events,
-                    walFlushBytes: draft.walFlush.bytes,
-                    walFlushMilliseconds: draft.walFlush.milliseconds,
-                    closeoutProfile: draft.closeout.profile,
-                    closeoutReview: draft.closeout.overrides?.review ?? draft.closeout.profile === "strict",
-                    closeoutConsent: draft.closeout.overrides?.consent ?? draft.closeout.profile === "strict",
-                    closeoutFactDisposition:
-                      draft.closeout.overrides?.factDisposition ?? draft.closeout.profile === "strict",
-                    closeoutCodeDoc: draft.closeout.overrides?.codeDoc ?? draft.closeout.profile === "strict",
-                  })
-                }
-              >
-                {settingsMutation.isPending
-                  ? t("views.settingsView.submitPending")
-                  : t("views.settingsView.submitToRepository")}
-              </button>
-            }
-          >
-            <Row
-              label={t("views.settingsView.defaultVerticalLabel")}
-              desc={t("views.settingsView.verticalDescription")}
-            >
-              <SettingSelect
-                label={t("views.settingsView.defaultVerticalLabel")}
-                testId="settings-vertical-select"
-                value={draft.defaultVertical}
-                disabled={catalogBlocked}
-                options={verticalOptions}
-                onChange={chooseVertical}
-              />
-            </Row>
-            <Row label={t("views.settingsView.defaultPresetLabel")} desc={t("views.settingsView.presetDescription")}>
-              <SettingSelect
-                label={t("views.settingsView.defaultPresetLabel")}
-                testId="settings-preset-select"
-                value={draft.defaultPreset}
-                disabled={catalogBlocked}
-                options={presetOptions}
-                onChange={choosePreset}
-              />
-            </Row>
-            <Row label={t("views.settingsView.defaultProfileLabel")} desc={t("views.settingsView.profileDescription")}>
-              <SettingSelect
-                label={t("views.settingsView.defaultProfileLabel")}
-                testId="settings-profile-select"
-                value={draft.defaultProfile}
-                disabled={catalogBlocked}
-                options={profileOptions}
-                onChange={(value) => updateDraft("defaultProfile", value)}
-              />
-            </Row>
-            <CloseoutRows closeout={draft.closeout} onChange={(closeout) => setDraft({ ...draft, closeout })} />
-            <Row
-              label={t("views.settingsView.taskScaffoldLabel")}
-              desc={t("views.settingsView.taskScaffoldDescription")}
-            >
-              <SettingSelect
-                label={t("views.settingsView.taskScaffoldLabel")}
-                testId="settings-task-scaffold-select"
-                value={draft.scaffolds.task}
-                disabled={catalogBlocked}
-                options={taskScaffoldOptions}
-                onChange={(value) => setDraft({ ...draft, scaffolds: { ...draft.scaffolds, task: value } })}
-              />
-            </Row>
-            <Row
-              label={t("views.settingsView.repositoryScaffoldLabel")}
-              desc={t("views.settingsView.repositoryScaffoldDescription")}
-            >
-              <SettingSelect
-                label={t("views.settingsView.repositoryScaffoldLabel")}
-                testId="settings-repository-scaffold-select"
-                value={draft.scaffolds.repository}
-                disabled={catalogBlocked}
-                options={repositoryScaffoldOptions}
-                onChange={(value) => setDraft({ ...draft, scaffolds: { ...draft.scaffolds, repository: value } })}
-              />
-            </Row>
-            <Row
-              label={t("views.settingsView.walFlushAdaptiveLabel")}
-              desc={t("views.settingsView.walFlushAdaptiveDescription")}
-            >
-              <Toggle
-                checked={draft.walFlush.adaptive}
-                onChange={(adaptive) => setDraft({ ...draft, walFlush: { ...draft.walFlush, adaptive } })}
-              />
-            </Row>
-            <Row
-              label={t("views.settingsView.walFlushEventsLabel")}
-              desc={t("views.settingsView.walFlushEventsDescription")}
-            >
-              <SettingNumberInput
-                label={t("views.settingsView.walFlushEventsLabel")}
-                testId="settings-wal-flush-events"
-                value={draft.walFlush.events}
-                onChange={(events) => setDraft({ ...draft, walFlush: { ...draft.walFlush, events } })}
-              />
-            </Row>
-            <Row
-              label={t("views.settingsView.walFlushBytesLabel")}
-              desc={t("views.settingsView.walFlushBytesDescription")}
-            >
-              <SettingNumberInput
-                label={t("views.settingsView.walFlushBytesLabel")}
-                testId="settings-wal-flush-bytes"
-                value={draft.walFlush.bytes}
-                onChange={(bytes) => setDraft({ ...draft, walFlush: { ...draft.walFlush, bytes } })}
-              />
-            </Row>
-            <Row
-              label={t("views.settingsView.walFlushMillisecondsLabel")}
-              desc={t("views.settingsView.walFlushMillisecondsDescription")}
-            >
-              <SettingNumberInput
-                label={t("views.settingsView.walFlushMillisecondsLabel")}
-                testId="settings-wal-flush-milliseconds"
-                value={draft.walFlush.milliseconds}
-                onChange={(milliseconds) => setDraft({ ...draft, walFlush: { ...draft.walFlush, milliseconds } })}
-              />
-            </Row>
-            <Row label={t("views.settingsView.ownershipLabel")} desc={t("views.settingsView.ownershipDescription")}>
-              <span className="font-mono ui-meta text-text-muted">
-                settings/{draft.settingsId} · {draft.schema}
-              </span>
-            </Row>
-            {catalogQuery.error ? (
-              <div className="px-3 py-2 ui-meta text-danger">
-                {t("views.settingsView.catalogUnavailableHint", { error: String(catalogQuery.error) })}
-              </div>
-            ) : null}
-            {settingsMutation.error ? (
-              <div className="px-3 py-2 ui-meta text-danger">{String(settingsMutation.error)}</div>
-            ) : null}
-          </Section>
-        );
+        return <RepositorySettingsPanel repoId={repoId} onLocaleLoaded={setLocale} />;
       case "appearance":
         return (
           <Section title={t("views.settingsView.sectionAppearance")}>
@@ -411,7 +153,6 @@ export function SettingsView({
                 onChange={(event) => {
                   const next = event.currentTarget.value as "zh-CN" | "en-US";
                   setLocale(next);
-                  setDraft((current) => (current ? { ...current, locale: next } : current));
                   settingsMutation.mutate({ locale: next });
                 }}
               >
@@ -481,20 +222,6 @@ export function SettingsView({
               <button disabled title={t("views.settingsView.notSupportedYet")} className={BTN}>
                 {t("views.settingsView.exportAction")}
               </button>
-            </Row>
-          </Section>
-        );
-      case "terminal":
-        return (
-          <Section title={t("views.settingsView.sectionTerminal")}>
-            <Row label={t("views.settingsView.defaultShellLabel")}>
-              <span className="font-mono ui-body text-text-muted">/bin/zsh</span>
-            </Row>
-            <Row label={t("views.settingsView.fontLabel")}>
-              <span className="font-mono ui-body text-text-muted">Geist Mono</span>
-            </Row>
-            <Row label={t("views.settingsView.fontSizeLabel")}>
-              <span className="font-mono ui-body text-text-muted">15</span>
             </Row>
           </Section>
         );
@@ -572,70 +299,4 @@ export function SettingsView({
       </div>
     </div>
   );
-}
-
-function SettingNumberInput({
-  label,
-  testId,
-  value,
-  onChange,
-}: {
-  readonly label: string;
-  readonly testId: string;
-  readonly value: number;
-  readonly onChange: (value: number) => void;
-}) {
-  return (
-    <input
-      aria-label={label}
-      data-testid={testId}
-      type="number"
-      min={1}
-      step={1}
-      className="w-36 rounded border border-border bg-surface-raised px-2 py-1 font-mono ui-meta text-text"
-      value={value}
-      onChange={(event) => {
-        const next = Number(event.currentTarget.value);
-        if (Number.isSafeInteger(next) && next > 0) onChange(next);
-      }}
-    />
-  );
-}
-
-/** 目录取值面 + 当前值取并集:当前值不在目录里也照实显示并保留可提交,
- * 否则一个指向尚未创建文件/未登记 preset 的既有设置会凭空变成空选择。 */
-function selectorOptions(
-  catalogued: ReadonlyArray<{ readonly value: string; readonly label?: string }>,
-  current: string | undefined,
-): readonly SelectorOption[] {
-  const options = catalogued.map((row) => ({ value: row.value, label: row.label ?? row.value }));
-  if (current && !options.some((option) => option.value === current))
-    options.push({ value: current, label: t("views.settingsView.catalogMissingOption", { value: current }) });
-  return options;
-}
-
-/** preset/profile 一致性只在这里收敛:vertical 与 preset 两种切换都复用同一条联动。 */
-function selectPreset(current: SettingsDraft, presetId: string, row: CatalogPresetRow | undefined): SettingsDraft {
-  const profiles = cataloguedProfiles(row),
-    keepProfile = !row || profiles.length === 0 || profiles.some((profile) => profile.id === current.defaultProfile);
-  return {
-    ...current,
-    defaultPreset: presetId,
-    defaultProfile: keepProfile ? current.defaultProfile : (row.defaultProfile ?? current.defaultProfile),
-  };
-}
-
-/** preset 行的 profile 取值面;清单为空时退到该 preset 的 defaultProfile,
- * 两者都没有(目录行不可解析)则交由并集逻辑只保留当前值。 */
-function cataloguedProfiles(
-  row:
-    | {
-        readonly profiles: ReadonlyArray<{ readonly id: string; readonly title: string }>;
-        readonly defaultProfile: string | null;
-      }
-    | undefined,
-): ReadonlyArray<{ readonly id: string; readonly title: string }> {
-  if (!row) return [];
-  if (row.profiles.length > 0) return row.profiles;
-  return row.defaultProfile ? [{ id: row.defaultProfile, title: row.defaultProfile }] : [];
 }

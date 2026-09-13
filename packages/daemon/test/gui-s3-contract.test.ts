@@ -33,7 +33,17 @@ test("daemon Settings reads use the exact canonical Settings shape", () => {
     },
     walFlush: { adaptive: true, events: 256, bytes: 8_388_608, milliseconds: 3_600_000 },
   };
-  const valid = { schema: "daemon.settings-read/v1", ok: true, settings };
+  const valid = {
+    schema: "daemon.settings-read/v1",
+    ok: true,
+    settings,
+    values: {
+      defaultVertical: settings.defaultVertical,
+      walFlushAdaptive: settings.walFlush.adaptive,
+      ciWorkflows: [],
+      closeoutProfile: "standard",
+    },
+  };
   assert.equal(parseDaemonGuiReadResult("repo.settings.read", valid), valid);
   assert.throws(() =>
     parseDaemonGuiReadResult("repo.settings.read", {
