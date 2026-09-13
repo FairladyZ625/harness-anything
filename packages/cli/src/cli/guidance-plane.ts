@@ -202,10 +202,14 @@ export function humanError(receipt: Record<string, unknown>): { readonly code: s
     diagnosticHint = diagnostic ? renderDiagnostic(diagnostic) : null,
     explanationHint = typeof receipt.rejectionExplanation === "string" ? receipt.rejectionExplanation : null,
     declaredGuidance = renderReceiptGuidance(receipt),
+    // Receipts without the daemon's structured vocabulary (offline storage failures) declare their
+    // only detail as a top-level hint string; structured diagnostics keep priority over it.
+    receiptHint = typeof receipt.hint === "string" && receipt.hint.length > 0 ? receipt.hint : null,
     baseHint =
       diagnosticHint ??
       explanationHint ??
       (declaredGuidance.length > 0 ? declaredGuidance.join(" ") : null) ??
+      receiptHint ??
       renderTemplate("failure", "failure", { code }),
     criteria =
       diagnosticHint || explanationHint

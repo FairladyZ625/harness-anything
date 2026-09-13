@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { runOfflineStorageCommand } from "../src/cli-offline-storage.ts";
+import { renderCliReceipt } from "../src/cli/receipt-render-registry.ts";
 import { flatLedgerFixture } from "../../kernel/test/store/task-event-store.fixtures.ts";
 
 test("offline storage reports malformed invocations without daemon dispatch", () => {
@@ -15,6 +16,27 @@ test("offline storage reports malformed invocations without daemon dispatch", ()
     };
   assert.equal(runOfflineStorageCommand(["restore"], emit), 1);
   assert.equal(receipts[0]?.code, "offline_storage_failed");
+});
+
+test("backup failure receipts carry the missing source path and errno through human rendering", () => {
+  const missingRoot = path.join(os.tmpdir(), `ha-cli-missing-root-${process.pid}-${Date.now()}`),
+    backupDir = path.join(os.tmpdir(), `ha-cli-missing-backup-${process.pid}-${Date.now()}`),
+    receipts: Record<string, unknown>[] = [],
+    emit = (receipt: Record<string, unknown>): void => {
+      receipts.push(receipt);
+    };
+  try {
+    assert.equal(runOfflineStorageCommand(["backup", backupDir, "--root", missingRoot, "--json"], emit), 1);
+    const hint = String(receipts[0]?.hint);
+    assert.equal(receipts[0]?.code, "offline_storage_failed");
+    assert.ok(hint.includes(`${missingRoot}/harness`), hint);
+    assert.ok(hint.includes("No such file or directory"), hint);
+    const rendered = renderCliReceipt(receipts[0]!);
+    assert.equal(rendered.stream, "stderr");
+    assert.ok(rendered.text.includes(hint), rendered.text);
+  } finally {
+    rmSync(backupDir, { recursive: true, force: true });
+  }
 });
 
 test("offline CLI runs backup, restore drill and event tail without daemon dispatch", () => {
