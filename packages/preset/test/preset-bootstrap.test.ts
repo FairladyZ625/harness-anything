@@ -143,7 +143,10 @@ test("standard and milestone bootstrap compile one exact canonical birth and reb
       force: true,
     });
     const restored = store.materialize();
-    assert.deepEqual(restored.changed, []);
+    assert.deepEqual(
+      restored.settlements.map(({ path: settledPath, action }) => [settledPath, action]),
+      standard.documents.map(({ path: settledPath }) => [settledPath, "restore"]),
+    );
     assert.equal(store.read().revision, 1);
     for (const document of standard.documents)
       assert.equal(readFileSync(path.join(rootDir, "harness", document.path), "utf8"), document.body);

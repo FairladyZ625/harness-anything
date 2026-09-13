@@ -24,8 +24,8 @@ import { TaskEventStoreError } from "./task-event-store-types.ts";
 import { assertAuthorizedReplacements } from "./task-event-store-replacement-authorization.ts";
 import { finalizeRefs, prepareCommit } from "./task-event-store-git-refs.ts";
 import {
+  closureFiles,
   planFollowerSettlement,
-  previewMaterialization,
   recoverGeneratedWorktreeBaseline,
   restoreRequestedDocuments,
   settlementRows,
@@ -35,14 +35,12 @@ import {
   certifiedFollowerRevision,
   captureGitBaseline,
   followerDirectories,
-  followerFiles,
   legacyRetirements,
   ledgerWorktreeBaseline,
   physicalWorktreeRevision,
   settleWorktree,
   settleWorktreeDirectories,
   worktreeFingerprint,
-  readPendingEvents,
   type FollowerDirectorySettlement,
 } from "./sqlite-task-event-publication.ts";
 
@@ -234,14 +232,22 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
 
   /**
    * Publishes only what SQLite accepted since the followers last settled: Git on top of its certified parent, the
-   * worktree against what it last held. `restoreMissing` (materialize) settles the whole closure instead.
+   * worktree against what it last held. `restoreMissing` (materialize) settles the whole closure instead; `preview`
+   * runs that same whole-closure read and reports the plan without writing anything.
    */
-  const publishFollower = (restoreMissing = false): MaterializationReceipt => {
+  const publishFollower = (restoreMissing = false, preview = false): MaterializationReceipt => {
     const accepted = cut(),
       currentLedger = ledger(),
       currentRef = authoredRef(),
       parent = localGitObjectRefStore.resolveCommit(currentLedger.rootDir, currentRef);
     if (accepted.revision === 0) {
+      if (preview)
+        return {
+          status: "planned",
+          commitSha: ledgerCommitSha(options.repoId, parent),
+          settlements: [],
+          conflicts: [],
+        };
       follower = pendingFollower("No accepted ledger cut exists to publish");
       return {
         status: "visible",
@@ -273,14 +279,14 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
         conflicts: [],
       };
     }
-    const events = readPendingEvents(sqlite, from),
-      files = [...followerFiles(currentLedger, events, readContent, accepted, sqlite.metadata().generation), ...legacy],
+    const closure = closureFiles(materializeContext(), from),
+      files = [...closure.files, ...legacy],
       baseline = new Map(captureGitBaseline(currentLedger.rootDir, parent, files));
     if (restoreMissing || worktreeRevision !== verifiedRevision) {
       // The worktree last settled at another cut than Git's parent, so it may still hold what the ledger held then.
       const held = new Map([
         ...ledgerWorktreeBaseline(currentLedger, sqlite, worktreeRevision, files),
-        ...recoverGeneratedWorktreeBaseline(currentLedger, events),
+        ...recoverGeneratedWorktreeBaseline(currentLedger, closure.events),
       ]);
       for (const [target, previous] of held)
         if (
@@ -288,6 +294,23 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
           baseline.get(target)
         )
           baseline.set(target, previous);
+    }
+    if (preview) {
+      // The same whole-closure classification the settling pass below applies, reported without writing anything.
+      const plan = planFollowerSettlement(acceptedWorktree, currentLedger, files, baseline, restoreMissing);
+      return {
+        status: "planned",
+        commitSha: ledgerCommitSha(options.repoId, parent),
+        settlements: settlementRows(
+          currentLedger,
+          plan,
+          new Set(plan.eligible.map((file) => ("target" in file ? file.target : file.delete))),
+          new Map(),
+        ),
+        conflicts: [...new Set([...plan.conflicts, ...worktreeConflicts.keys()])]
+          .sort()
+          .map((target) => ledgerAuthoredPath(currentLedger, target)),
+      };
     }
     let commit = parent;
     if (verifiedRevision < accepted.revision) {
@@ -315,7 +338,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
       files,
       baseline,
       commit,
-      followerDirectories(currentLedger, events),
+      followerDirectories(currentLedger, closure.events),
       restoreMissing,
     );
     const skipped = new Set(settled.conflicts);
@@ -398,7 +421,6 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
     readContent,
     acceptedWorktree,
     worktreeConflicts,
-    settledWorktreeRevision: () => settledWorktreeRevision,
   });
 
   return {
@@ -422,7 +444,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
     append,
     materialize: (request?: MaterializationRequest) =>
       request?.preview === true
-        ? previewMaterialization(materializeContext())
+        ? publishFollower(true, true)
         : request?.paths
           ? restoreRequestedDocuments(materializeContext(), request.paths)
           : publishFollower(true),

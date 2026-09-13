@@ -251,7 +251,7 @@ function entityChain(f, reader, index) {
     for (let rebuild = 0; rebuild < 2; rebuild++) {
       const before = reader.readHead().revision;
       rmSync(path.join(f.root, "harness", contentRoot), { recursive: true });
-      f.invoke("entity.materialize", ["doc", "materialize"]);
+      f.invoke("entity.materialize", ["doc", "materialize", "--all"]);
       f.check("entity.recovery.no-new-events-and-exact-bytes", () => {
         assert.equal(reader.readHead().revision, before);
         assert.deepEqual(readFileSync(path.join(f.root, "harness", contentRoot, "README.md")), text);

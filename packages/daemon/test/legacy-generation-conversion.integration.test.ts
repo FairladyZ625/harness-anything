@@ -178,7 +178,7 @@ test("stopped legacy Git plus accepted WAL suffix converts with a certified cold
       assert.deepEqual(cold.materialize(), {
         status: "visible",
         commitSha: { repoId, sha: publishedHead },
-        changed: [],
+        settlements: [],
         conflicts: [],
       });
       assert.deepEqual(

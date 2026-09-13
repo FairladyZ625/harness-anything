@@ -5,11 +5,7 @@ import { ledgerAuthoredPath, ledgerGitPath, type LedgerGitLayout } from "./ledge
 import { localGitObjectRefStore, localGitWorktreeSettlement } from "./local-version-control-system.ts";
 import { openSqliteEventStore } from "./sqlite-event-store.ts";
 import {
-  captureGitBaseline,
   followerFiles,
-  legacyRetirements,
-  ledgerWorktreeBaseline,
-  physicalWorktreeRevision,
   publicationDigest,
   readPendingEvents,
   settleVisibleChange,
@@ -35,7 +31,6 @@ export interface MaterializeStoreContext {
   readonly readContent: (sha256: string) => Uint8Array | null;
   readonly acceptedWorktree: Map<string, { readonly fingerprint: string; readonly preserve: boolean }>;
   readonly worktreeConflicts: Map<string, string>;
-  readonly settledWorktreeRevision: () => number | null;
 }
 
 /**
@@ -114,52 +109,24 @@ export function settlementRows(
   });
 }
 
-/** What a whole-closure materialize would touch right now: the plan of the pass `--all` runs, without writing. */
-export function previewMaterialization(context: MaterializeStoreContext): MaterializationReceipt {
-  const accepted = context.cut(),
-    currentLedger = context.ledger(),
-    parent = localGitObjectRefStore.resolveCommit(currentLedger.rootDir, context.authoredRef());
-  if (accepted.revision === 0)
-    return {
-      status: "planned",
-      commitSha: ledgerCommitSha(context.repoId, parent),
-      settlements: [],
-      conflicts: [],
-    };
-  const worktreeRevision = context.settledWorktreeRevision() ?? physicalWorktreeRevision(currentLedger, context.sqlite),
-    // A generation converted before the index followed Git can still index pre-SQLite paths: the same
-    // retirements a whole-closure pass settles, so the preview does not drift from the pass it previews.
-    legacy = context.settledWorktreeRevision() === null ? legacyRetirements(currentLedger, null) : [],
-    events = readPendingEvents(context.sqlite, 0),
-    files = [
-      ...followerFiles(currentLedger, events, context.readContent, accepted, context.sqlite.metadata().generation),
-      ...legacy,
-    ],
-    baseline = new Map(captureGitBaseline(currentLedger.rootDir, parent, files));
-  // The same last-held patch a restore-missing pass applies, so the preview classifies the bytes the pass would.
-  const held = new Map([
-    ...ledgerWorktreeBaseline(currentLedger, context.sqlite, worktreeRevision, files),
-    ...recoverGeneratedWorktreeBaseline(currentLedger, events),
-  ]);
-  for (const [target, previous] of held)
-    if (
-      worktreeFingerprint(localGitWorktreeSettlement.readNode(`${currentLedger.rootDir}/${target}`)) !==
-      baseline.get(target)
-    )
-      baseline.set(target, previous);
-  const plan = planFollowerSettlement(context.acceptedWorktree, currentLedger, files, baseline, true);
+/**
+ * The closure file read every materialize mode shares — the whole-cut settling pass, its preview, and a
+ * named-path restore — so each operator-facing selection classifies the same files the pass would settle.
+ */
+export function closureFiles(
+  context: MaterializeStoreContext,
+  from: number,
+): { readonly events: readonly CanonicalEventV1[]; readonly files: readonly (PublicationWrite | PublicationDelete)[] } {
+  const events = readPendingEvents(context.sqlite, from);
   return {
-    status: "planned",
-    commitSha: ledgerCommitSha(context.repoId, parent),
-    settlements: settlementRows(
-      currentLedger,
-      plan,
-      new Set(plan.eligible.map((file) => ("target" in file ? file.target : file.delete))),
-      new Map(),
+    events,
+    files: followerFiles(
+      context.ledger(),
+      events,
+      context.readContent,
+      context.cut(),
+      context.sqlite.metadata().generation,
     ),
-    conflicts: [...new Set([...plan.conflicts, ...context.worktreeConflicts.keys()])]
-      .sort()
-      .map((target) => ledgerAuthoredPath(currentLedger, target)),
   };
 }
 
@@ -177,10 +144,11 @@ export function restoreRequestedDocuments(
     parent = localGitObjectRefStore.resolveCommit(currentLedger.rootDir, context.authoredRef());
   if (accepted.revision === 0)
     throw new TaskEventStoreError("invalid_store", "no accepted ledger cut exists to restore from");
-  const events = readPendingEvents(context.sqlite, 0),
-    canonical = new Map(
-      followerFiles(currentLedger, events, context.readContent, accepted, context.sqlite.metadata().generation).flatMap(
-        (file) => ("target" in file ? [[ledgerAuthoredPath(currentLedger, file.target), file] as const] : []),
+  // The named selection still reads the whole closure — the same start the whole-cut pass settles from —
+  // because any document in the cut may be named.
+  const canonical = new Map(
+      closureFiles(context, 0).files.flatMap((file) =>
+        "target" in file ? [[ledgerAuthoredPath(currentLedger, file.target), file] as const] : [],
       ),
     ),
     settlements: MaterializationSettlement[] = [],

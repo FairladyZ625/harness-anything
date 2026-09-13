@@ -369,8 +369,12 @@ for (const sample of [
         recursive: true,
         force: true,
       });
-      const accepted = store.read();
-      assert.deepEqual(store.materialize().changed, []);
+      const accepted = store.read(),
+        restored = store.materialize();
+      assert.deepEqual(
+        restored.settlements.map(({ path: settledPath, action }) => [settledPath, action]),
+        dryRunPaths.map((settledPath) => [settledPath, "restore"]),
+      );
       assert.deepEqual(store.read(), accepted);
       for (const document of preview.documents) {
         assert.equal(readFileSync(path.join(rootDir, "harness", document.path), "utf8"), document.body);
