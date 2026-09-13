@@ -21,6 +21,8 @@ import {
   relationDirections,
   relationStates,
   relationTypes,
+  repositorySettings,
+  repositorySettingsActionValues,
   runtimeSessionActionIds,
   timestamp,
   type AuthorizationDecision,
@@ -524,11 +526,16 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
         projection: context.projection,
         ...(payload.window === undefined ? {} : { window: Number(payload.window) }),
       }),
-    "repo.settings.read": () => ({
-      schema: "daemon.settings-read/v1" as const,
-      ok: true as const,
-      settings: context.settings.read(),
-    }),
+    "repo.settings.read": () => {
+      // settings 保持原样返回(含 locale 本地偏好);values 用归一化仓库视图拍平,键 = 动作契约字段。
+      const settings = context.settings.read();
+      return {
+        schema: "daemon.settings-read/v1" as const,
+        ok: true as const,
+        settings,
+        values: repositorySettingsActionValues(repositorySettings(settings)),
+      };
+    },
     "repo.tasks.list": (payload: Readonly<Record<string, unknown>>) =>
       queryRead().guiTasks(taskListQueryFromPayload(payload)),
     "repo.tasks.wip": () => readTaskWipSnapshot(context as unknown as TaskQueryCell),

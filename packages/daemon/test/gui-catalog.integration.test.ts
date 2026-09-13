@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { INITIAL_SETTINGS_V1 } from "../../kernel/src/index.ts";
+import { INITIAL_SETTINGS_V1, settingsUpdateInputFields } from "../../kernel/src/index.ts";
 import { openGuiCatalog } from "../src/gui-catalog.ts";
 import { validateCatalogPreset, validateCatalogRereadReceipt, validateCatalogSnapshot } from "../src/gui-s3-control.ts";
 
@@ -33,6 +33,25 @@ test("GUI catalog projection uses canonical inventory without source paths or pl
   assert.deepEqual(validateCatalogPreset(detail), []);
   assert.doesNotMatch(JSON.stringify(detail), /packageSource/u);
   assert.deepEqual(validateCatalogRereadReceipt(await catalog.reread({ expectedDigest: snapshot.catalogDigest })), []);
+});
+
+test("GUI catalog carries the settings field contract derived from the kernel single source", async () => {
+  const snapshot = await openCatalog().snapshot();
+  assert.deepEqual(validateCatalogSnapshot(snapshot), []);
+  // 与 kernel 动作目录同一单源:GUI 设置表单的派生面不是 daemon 手抄清单。
+  assert.deepEqual(
+    snapshot.settingsFields,
+    settingsUpdateInputFields.map(({ field, type, required, enum: values }) => ({
+      field,
+      type,
+      required,
+      ...(values ? { enum: [...values] } : {}),
+    })),
+  );
+  // 修复前的漂移四字段必须在契约面里。
+  const names = new Set(snapshot.settingsFields.map(({ field }) => field));
+  for (const expected of ["defaultReviewer", "reviewIndependence", "reviewReturnBudget", "ciWorkflows"])
+    assert.ok(names.has(expected), `${expected} missing from snapshot settingsFields`);
 });
 
 test("GUI catalog preset read carries resolver document bodies (route A: single read surface)", async () => {

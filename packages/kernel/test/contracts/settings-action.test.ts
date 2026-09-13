@@ -2,7 +2,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { explainEntityKind, getExecutableEntityAction } from "../../src/domain/entity-kind-registry.ts";
-import { SettingsActionError } from "../../src/domain/settings-action-contract.ts";
+import { SettingsActionError, settingsUpdateInputFields } from "../../src/domain/settings-action-contract.ts";
+import { repositorySettingsActionValues } from "../../src/domain/settings.ts";
 import { assertSettingsEventInputs } from "../../src/domain/settings-event.ts";
 import { effectiveCloseoutGates } from "../../src/domain/settings-closeout.ts";
 import { readSettingsFacet, repositorySettings } from "../../src/domain/settings.ts";
@@ -192,6 +193,59 @@ function compile(
     currentDocumentBody: base.currentDocumentBody,
   });
 }
+
+test("settings update field surface has one source: the catalog input is the exported field list", () => {
+  const update = getExecutableEntityAction("settings-update");
+  // input() 会重建外层数组,这里断言逐项相等(内层条目即单源里的同一批冻结对象)。
+  assert.deepEqual(update?.input.fields, settingsUpdateInputFields);
+  // 单源完整性:仓库字段(除 locale/expectedVersion/idempotencyKey 的机械项)都在清单里。
+  const names = settingsUpdateInputFields.map(({ field }) => field);
+  for (const expected of [
+    "defaultVertical",
+    "defaultPreset",
+    "defaultProfile",
+    "defaultReviewer",
+    "reviewIndependence",
+    "reviewReturnBudget",
+    "taskScaffold",
+    "repositoryScaffold",
+    "walFlushAdaptive",
+    "walFlushEvents",
+    "walFlushBytes",
+    "walFlushMilliseconds",
+    "ciWorkflows",
+    "closeoutProfile",
+    "closeoutReview",
+    "closeoutConsent",
+    "closeoutFactDisposition",
+    "closeoutCodeDoc",
+    "restoreDrillRetention",
+  ])
+    assert.ok(names.includes(expected), `${expected} missing from settingsUpdateInputFields`);
+});
+
+test("repositorySettingsActionValues covers every repository field for a fully populated settings", () => {
+  const populated = repositorySettings(
+    readSettingsFacet(
+      `${documentBody}  defaultReviewer: arch-reviewer\n  ci:\n    workflows: [ci]\n  restoreDrillRetention: 5\n`,
+    ),
+  );
+  const values = repositorySettingsActionValues(populated),
+    names = new Set(settingsUpdateInputFields.map(({ field }) => field));
+  for (const key of Object.keys(values)) assert.ok(names.has(key), `${key} is not an action field`);
+  const repositoryFields = settingsUpdateInputFields
+    .map(({ field }) => field)
+    .filter((field) => !["locale", "expectedVersion", "idempotencyKey"].includes(field));
+  for (const field of repositoryFields) assert.ok(Object.hasOwn(values, field), `${field} has no flat action value`);
+  // closeout 门布尔承载生效值:strict 基线即无覆写时的值。
+  assert.equal(repositorySettingsActionValues(current).closeoutReview, false);
+  assert.equal(repositorySettingsActionValues({ ...current, closeout: { profile: "strict" } }).closeoutConsent, true);
+  assert.equal(
+    repositorySettingsActionValues({ ...current, closeout: { profile: "strict", overrides: { consent: false } } })
+      .closeoutConsent,
+    false,
+  );
+});
 
 /** Clearing is only a change for a repository that already witnesses CI runs. */
 function witnessed(): { readonly currentEntity: unknown; readonly currentDocumentBody: string } {

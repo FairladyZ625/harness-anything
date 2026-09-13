@@ -16,8 +16,15 @@ import {
 import { readTimeZoneOverride, supportedTimeZones, systemTimeZone, writeTimeZoneOverride } from "../model/time.ts";
 import { useSettingsMutation, useSettingsQuery } from "../settings-data.ts";
 import { useCatalogSnapshot } from "../catalog-data.ts";
-import type { CatalogPresetRow, SettingsSuccess, SystemRepoRow } from "../api-client.ts";
-import { CloseoutRows } from "./settings/CloseoutRows.tsx";
+import type { CatalogPresetRow, SystemRepoRow } from "../api-client.ts";
+import {
+  formatStringArrayInput,
+  parseStringArrayInput,
+  settingsFormRows,
+  settingsPayloadFromDraft,
+  type SettingsDraft,
+  type SettingsFieldValue,
+} from "../settings-form.ts";
 import { RepositoriesAndConnectionsView } from "./settings/RepositoriesAndConnectionsView.tsx";
 
 // i18n(task_bff1b8d6):设置页文案一律走 locales(同 task_9f39e256 的 tab 机制),
@@ -48,11 +55,8 @@ type SettingsTab =
   | "shortcuts"
   | "notifications"
   | "data"
-  | "terminal"
   | "privacy"
   | "sync";
-type SettingsDraft = SettingsSuccess["settings"];
-
 const SETTINGS_TABS: { id: SettingsTab; labelKey: MessageKey; descKey: MessageKey }[] = [
   {
     id: "repositories",
@@ -69,7 +73,6 @@ const SETTINGS_TABS: { id: SettingsTab; labelKey: MessageKey; descKey: MessageKe
     descKey: "views.settingsView.tabNotificationsDesc",
   },
   { id: "data", labelKey: "views.settingsView.tabData", descKey: "views.settingsView.tabDataDesc" },
-  { id: "terminal", labelKey: "views.settingsView.tabTerminal", descKey: "views.settingsView.tabTerminalDesc" },
   { id: "privacy", labelKey: "views.settingsView.tabPrivacy", descKey: "views.settingsView.tabPrivacyDesc" },
   { id: "sync", labelKey: "views.settingsView.tabSync", descKey: "views.settingsView.tabSyncDesc" },
 ];
@@ -79,6 +82,88 @@ const SYNC_FEATURE_KEYS: readonly MessageKey[] = [
   "views.settingsView.syncFeatureRemoteAccess",
   "views.settingsView.syncFeatureMobileReview",
 ];
+
+// 字段文案注册表:只登记文案,不登记结构——字段集合、控件类型、取值面全部从
+// catalog snapshot 的 settingsFields(daemon 与 settings 动作目录同一单源)派生。
+// 未登记文案的字段回落显示字段名(mono),新字段零改动即可用。
+const FIELD_COPY: Readonly<Record<string, { readonly labelKey: MessageKey; readonly descKey: MessageKey }>> = {
+  defaultVertical: {
+    labelKey: "views.settingsView.defaultVerticalLabel",
+    descKey: "views.settingsView.verticalDescription",
+  },
+  defaultPreset: {
+    labelKey: "views.settingsView.defaultPresetLabel",
+    descKey: "views.settingsView.presetDescription",
+  },
+  defaultProfile: {
+    labelKey: "views.settingsView.defaultProfileLabel",
+    descKey: "views.settingsView.profileDescription",
+  },
+  defaultReviewer: {
+    labelKey: "views.settingsView.defaultReviewerLabel",
+    descKey: "views.settingsView.defaultReviewerDescription",
+  },
+  reviewIndependence: {
+    labelKey: "views.settingsView.reviewIndependenceLabel",
+    descKey: "views.settingsView.reviewIndependenceDescription",
+  },
+  reviewReturnBudget: {
+    labelKey: "views.settingsView.reviewReturnBudgetLabel",
+    descKey: "views.settingsView.reviewReturnBudgetDescription",
+  },
+  taskScaffold: {
+    labelKey: "views.settingsView.taskScaffoldLabel",
+    descKey: "views.settingsView.taskScaffoldDescription",
+  },
+  repositoryScaffold: {
+    labelKey: "views.settingsView.repositoryScaffoldLabel",
+    descKey: "views.settingsView.repositoryScaffoldDescription",
+  },
+  walFlushAdaptive: {
+    labelKey: "views.settingsView.walFlushAdaptiveLabel",
+    descKey: "views.settingsView.walFlushAdaptiveDescription",
+  },
+  walFlushEvents: {
+    labelKey: "views.settingsView.walFlushEventsLabel",
+    descKey: "views.settingsView.walFlushEventsDescription",
+  },
+  walFlushBytes: {
+    labelKey: "views.settingsView.walFlushBytesLabel",
+    descKey: "views.settingsView.walFlushBytesDescription",
+  },
+  walFlushMilliseconds: {
+    labelKey: "views.settingsView.walFlushMillisecondsLabel",
+    descKey: "views.settingsView.walFlushMillisecondsDescription",
+  },
+  ciWorkflows: {
+    labelKey: "views.settingsView.ciWorkflowsLabel",
+    descKey: "views.settingsView.ciWorkflowsDescription",
+  },
+  closeoutProfile: {
+    labelKey: "views.settingsView.closeoutProfileLabel",
+    descKey: "views.settingsView.closeoutProfileDescription",
+  },
+  closeoutReview: {
+    labelKey: "views.settingsView.closeoutReviewLabel",
+    descKey: "views.settingsView.closeoutGateDescription",
+  },
+  closeoutConsent: {
+    labelKey: "views.settingsView.closeoutConsentLabel",
+    descKey: "views.settingsView.closeoutGateDescription",
+  },
+  closeoutFactDisposition: {
+    labelKey: "views.settingsView.closeoutFactDispositionLabel",
+    descKey: "views.settingsView.closeoutGateDescription",
+  },
+  closeoutCodeDoc: {
+    labelKey: "views.settingsView.closeoutCodeDocLabel",
+    descKey: "views.settingsView.closeoutGateDescription",
+  },
+  restoreDrillRetention: {
+    labelKey: "views.settingsView.restoreDrillRetentionLabel",
+    descKey: "views.settingsView.restoreDrillRetentionDescription",
+  },
+};
 
 export function SettingsView({
   repoId,
@@ -98,62 +183,61 @@ export function SettingsView({
   const settingsQuery = useSettingsQuery(repoId);
   const settingsMutation = useSettingsMutation(repoId);
   const catalogQuery = useCatalogSnapshot(repoId);
-  const [draft, setDraft] = useState<SettingsDraft | null>(null);
+  const [draft, setDraft] = useState<SettingsDraft>({});
 
   useEffect(() => {
     if (!settingsQuery.data) return;
-    setDraft(settingsQuery.data.settings);
+    setDraft(settingsQuery.data.values);
     setLocale(settingsQuery.data.settings.locale);
   }, [settingsQuery.data, setLocale]);
 
-  const updateDraft = (
-    field: keyof Pick<SettingsDraft, "defaultVertical" | "defaultPreset" | "defaultProfile">,
-    value: string,
-  ) => setDraft((current) => (current ? { ...current, [field]: value } : current));
-
-  // 仓库设置的每个字段取值面都是可枚举的,枚举来源是 daemon 目录快照,不是手打字符串。
-  // 目录读不到时选择器停用(fail closed),不回退成自由文本输入。
+  // 仓库设置的字段面来自 settings 动作契约(目录快照的 settingsFields,daemon 与动作目录
+  // 同一单源);目录选择器(vertical/preset/profile/scaffold)的选项来自 daemon 目录快照。
+  // 两者都不是手打清单。目录读不到时选择器停用(fail closed),不回退成自由文本输入。
   const snapshot = catalogQuery.data,
     catalogBlocked = catalogQuery.isPending || !!catalogQuery.error,
+    rows = settingsFormRows(snapshot?.settingsFields ?? []),
     verticalOptions = selectorOptions(
       (snapshot?.verticals ?? []).map((row) => ({
         value: row.id,
         label:
           row.available && row.valid ? row.id : t("views.settingsView.catalogUnavailableOption", { value: row.id }),
       })),
-      draft?.defaultVertical,
+      typeof draft.defaultVertical === "string" ? draft.defaultVertical : undefined,
     ),
     presetOptions = selectorOptions(
       (snapshot?.presets ?? [])
-        .filter((row) => row.verticalId === draft?.defaultVertical)
+        .filter((row) => row.verticalId === draft.defaultVertical)
         .map((row) => ({
           value: row.id,
           label: row.validity === "valid" ? `${row.id} · ${row.title}` : `${row.id} · ${row.validity}`,
         })),
-      draft?.defaultPreset,
+      typeof draft.defaultPreset === "string" ? draft.defaultPreset : undefined,
     ),
     selectedPreset = (snapshot?.presets ?? []).find(
-      (row) => row.id === draft?.defaultPreset && row.verticalId === draft?.defaultVertical,
+      (row) => row.id === draft.defaultPreset && row.verticalId === draft.defaultVertical,
     ),
     profileOptions = selectorOptions(
       cataloguedProfiles(selectedPreset).map((profile) => ({
         value: profile.id,
         label: `${profile.id} · ${profile.title}`,
       })),
-      draft?.defaultProfile,
+      typeof draft.defaultProfile === "string" ? draft.defaultProfile : undefined,
     ),
     taskScaffoldOptions = selectorOptions(
       (snapshot?.scaffolds.task ?? []).map((value) => ({ value })),
-      draft?.scaffolds.task,
+      typeof draft.taskScaffold === "string" ? draft.taskScaffold : undefined,
     ),
     repositoryScaffoldOptions = selectorOptions(
       (snapshot?.scaffolds.repository ?? []).map((value) => ({ value })),
-      draft?.scaffolds.repository,
+      typeof draft.repositoryScaffold === "string" ? draft.repositoryScaffold : undefined,
     );
+
+  const updateDraft = (field: string, value: SettingsFieldValue | undefined) =>
+    setDraft((current) => ({ ...current, [field]: value }));
 
   const chooseVertical = (verticalId: string) =>
     setDraft((current) => {
-      if (!current) return current;
       const next = { ...current, defaultVertical: verticalId },
         presets = (snapshot?.presets ?? []).filter((row) => row.verticalId === verticalId && row.validity === "valid"),
         defaultPresetId = snapshot?.defaults.verticalId === verticalId ? snapshot.defaults.presetId : undefined,
@@ -166,7 +250,6 @@ export function SettingsView({
 
   const choosePreset = (presetId: string) =>
     setDraft((current) => {
-      if (!current) return current;
       const row = (snapshot?.presets ?? []).find(
         (candidate) => candidate.id === presetId && candidate.verticalId === current.defaultVertical,
       );
@@ -190,10 +273,10 @@ export function SettingsView({
               <div className="p-4 text-danger">{String(settingsQuery.error)}</div>
             </Section>
           );
-        if (settingsQuery.isPending || !draft)
+        if (settingsQuery.isPending)
           return (
             <Section title={t("views.settingsView.sectionRepository")}>
-              <div className="p-4 text-text-faint">{t("views.settingsView.readingSettings")}</div>
+              <div className="p-4 ui-meta text-text-faint">{t("views.settingsView.readingSettings")}</div>
             </Section>
           );
         return (
@@ -203,25 +286,7 @@ export function SettingsView({
               <button
                 className={BTN}
                 disabled={settingsMutation.isPending}
-                onClick={() =>
-                  settingsMutation.mutate({
-                    defaultVertical: draft.defaultVertical,
-                    defaultPreset: draft.defaultPreset,
-                    defaultProfile: draft.defaultProfile,
-                    taskScaffold: draft.scaffolds.task,
-                    repositoryScaffold: draft.scaffolds.repository,
-                    walFlushAdaptive: draft.walFlush.adaptive,
-                    walFlushEvents: draft.walFlush.events,
-                    walFlushBytes: draft.walFlush.bytes,
-                    walFlushMilliseconds: draft.walFlush.milliseconds,
-                    closeoutProfile: draft.closeout.profile,
-                    closeoutReview: draft.closeout.overrides?.review ?? draft.closeout.profile === "strict",
-                    closeoutConsent: draft.closeout.overrides?.consent ?? draft.closeout.profile === "strict",
-                    closeoutFactDisposition:
-                      draft.closeout.overrides?.factDisposition ?? draft.closeout.profile === "strict",
-                    closeoutCodeDoc: draft.closeout.overrides?.codeDoc ?? draft.closeout.profile === "strict",
-                  })
-                }
+                onClick={() => settingsMutation.mutate(settingsPayloadFromDraft(draft, snapshot?.settingsFields ?? []))}
               >
                 {settingsMutation.isPending
                   ? t("views.settingsView.submitPending")
@@ -229,111 +294,34 @@ export function SettingsView({
               </button>
             }
           >
-            <Row
-              label={t("views.settingsView.defaultVerticalLabel")}
-              desc={t("views.settingsView.verticalDescription")}
-            >
-              <SettingSelect
-                label={t("views.settingsView.defaultVerticalLabel")}
-                testId="settings-vertical-select"
-                value={draft.defaultVertical}
-                disabled={catalogBlocked}
-                options={verticalOptions}
-                onChange={chooseVertical}
-              />
-            </Row>
-            <Row label={t("views.settingsView.defaultPresetLabel")} desc={t("views.settingsView.presetDescription")}>
-              <SettingSelect
-                label={t("views.settingsView.defaultPresetLabel")}
-                testId="settings-preset-select"
-                value={draft.defaultPreset}
-                disabled={catalogBlocked}
-                options={presetOptions}
-                onChange={choosePreset}
-              />
-            </Row>
-            <Row label={t("views.settingsView.defaultProfileLabel")} desc={t("views.settingsView.profileDescription")}>
-              <SettingSelect
-                label={t("views.settingsView.defaultProfileLabel")}
-                testId="settings-profile-select"
-                value={draft.defaultProfile}
-                disabled={catalogBlocked}
-                options={profileOptions}
-                onChange={(value) => updateDraft("defaultProfile", value)}
-              />
-            </Row>
-            <CloseoutRows closeout={draft.closeout} onChange={(closeout) => setDraft({ ...draft, closeout })} />
-            <Row
-              label={t("views.settingsView.taskScaffoldLabel")}
-              desc={t("views.settingsView.taskScaffoldDescription")}
-            >
-              <SettingSelect
-                label={t("views.settingsView.taskScaffoldLabel")}
-                testId="settings-task-scaffold-select"
-                value={draft.scaffolds.task}
-                disabled={catalogBlocked}
-                options={taskScaffoldOptions}
-                onChange={(value) => setDraft({ ...draft, scaffolds: { ...draft.scaffolds, task: value } })}
-              />
-            </Row>
-            <Row
-              label={t("views.settingsView.repositoryScaffoldLabel")}
-              desc={t("views.settingsView.repositoryScaffoldDescription")}
-            >
-              <SettingSelect
-                label={t("views.settingsView.repositoryScaffoldLabel")}
-                testId="settings-repository-scaffold-select"
-                value={draft.scaffolds.repository}
-                disabled={catalogBlocked}
-                options={repositoryScaffoldOptions}
-                onChange={(value) => setDraft({ ...draft, scaffolds: { ...draft.scaffolds, repository: value } })}
-              />
-            </Row>
-            <Row
-              label={t("views.settingsView.walFlushAdaptiveLabel")}
-              desc={t("views.settingsView.walFlushAdaptiveDescription")}
-            >
-              <Toggle
-                checked={draft.walFlush.adaptive}
-                onChange={(adaptive) => setDraft({ ...draft, walFlush: { ...draft.walFlush, adaptive } })}
-              />
-            </Row>
-            <Row
-              label={t("views.settingsView.walFlushEventsLabel")}
-              desc={t("views.settingsView.walFlushEventsDescription")}
-            >
-              <SettingNumberInput
-                label={t("views.settingsView.walFlushEventsLabel")}
-                testId="settings-wal-flush-events"
-                value={draft.walFlush.events}
-                onChange={(events) => setDraft({ ...draft, walFlush: { ...draft.walFlush, events } })}
-              />
-            </Row>
-            <Row
-              label={t("views.settingsView.walFlushBytesLabel")}
-              desc={t("views.settingsView.walFlushBytesDescription")}
-            >
-              <SettingNumberInput
-                label={t("views.settingsView.walFlushBytesLabel")}
-                testId="settings-wal-flush-bytes"
-                value={draft.walFlush.bytes}
-                onChange={(bytes) => setDraft({ ...draft, walFlush: { ...draft.walFlush, bytes } })}
-              />
-            </Row>
-            <Row
-              label={t("views.settingsView.walFlushMillisecondsLabel")}
-              desc={t("views.settingsView.walFlushMillisecondsDescription")}
-            >
-              <SettingNumberInput
-                label={t("views.settingsView.walFlushMillisecondsLabel")}
-                testId="settings-wal-flush-milliseconds"
-                value={draft.walFlush.milliseconds}
-                onChange={(milliseconds) => setDraft({ ...draft, walFlush: { ...draft.walFlush, milliseconds } })}
-              />
-            </Row>
+            {rows.length === 0 ? (
+              <div className="p-4 ui-meta text-text-faint">{t("views.settingsView.readingSettings")}</div>
+            ) : (
+              rows.map((row) => {
+                const copy = FIELD_COPY[row.field],
+                  label = copy ? t(copy.labelKey) : row.field,
+                  description = copy ? t(copy.descKey) : undefined;
+                return (
+                  <Row key={row.field} label={label} desc={description}>
+                    {renderFieldControl(row, {
+                      draft,
+                      catalogBlocked,
+                      verticalOptions,
+                      presetOptions,
+                      profileOptions,
+                      taskScaffoldOptions,
+                      repositoryScaffoldOptions,
+                      chooseVertical,
+                      choosePreset,
+                      updateDraft,
+                    })}
+                  </Row>
+                );
+              })
+            )}
             <Row label={t("views.settingsView.ownershipLabel")} desc={t("views.settingsView.ownershipDescription")}>
               <span className="font-mono ui-meta text-text-muted">
-                settings/{draft.settingsId} · {draft.schema}
+                settings/{settingsQuery.data.settings.settingsId} · {settingsQuery.data.settings.schema}
               </span>
             </Row>
             {catalogQuery.error ? (
@@ -411,7 +399,6 @@ export function SettingsView({
                 onChange={(event) => {
                   const next = event.currentTarget.value as "zh-CN" | "en-US";
                   setLocale(next);
-                  setDraft((current) => (current ? { ...current, locale: next } : current));
                   settingsMutation.mutate({ locale: next });
                 }}
               >
@@ -481,20 +468,6 @@ export function SettingsView({
               <button disabled title={t("views.settingsView.notSupportedYet")} className={BTN}>
                 {t("views.settingsView.exportAction")}
               </button>
-            </Row>
-          </Section>
-        );
-      case "terminal":
-        return (
-          <Section title={t("views.settingsView.sectionTerminal")}>
-            <Row label={t("views.settingsView.defaultShellLabel")}>
-              <span className="font-mono ui-body text-text-muted">/bin/zsh</span>
-            </Row>
-            <Row label={t("views.settingsView.fontLabel")}>
-              <span className="font-mono ui-body text-text-muted">Geist Mono</span>
-            </Row>
-            <Row label={t("views.settingsView.fontSizeLabel")}>
-              <span className="font-mono ui-body text-text-muted">15</span>
             </Row>
           </Section>
         );
@@ -572,6 +545,128 @@ export function SettingsView({
       </div>
     </div>
   );
+}
+
+interface FieldControlProps {
+  readonly draft: SettingsDraft;
+  readonly catalogBlocked: boolean;
+  readonly verticalOptions: readonly SelectorOption[];
+  readonly presetOptions: readonly SelectorOption[];
+  readonly profileOptions: readonly SelectorOption[];
+  readonly taskScaffoldOptions: readonly SelectorOption[];
+  readonly repositoryScaffoldOptions: readonly SelectorOption[];
+  readonly chooseVertical: (verticalId: string) => void;
+  readonly choosePreset: (presetId: string) => void;
+  readonly updateDraft: (field: string, value: SettingsFieldValue | undefined) => void;
+}
+
+// 稳定 testId:测试与 e2e 探针引用的选择器/输入框沿用历史命名;未登记字段回落
+// settings-<field>-select / settings-<field>-input 的通用命名。
+const FIELD_TEST_IDS: Readonly<Record<string, string>> = {
+  defaultVertical: "settings-vertical-select",
+  defaultPreset: "settings-preset-select",
+  defaultProfile: "settings-profile-select",
+  taskScaffold: "settings-task-scaffold-select",
+  repositoryScaffold: "settings-repository-scaffold-select",
+  walFlushEvents: "settings-wal-flush-events",
+  walFlushBytes: "settings-wal-flush-bytes",
+  walFlushMilliseconds: "settings-wal-flush-milliseconds",
+};
+
+/** 单字段的控件:widget 由契约类型派生;目录选择器是五个字段的 GUI 特有联动。 */
+function renderFieldControl(
+  row: { readonly field: string; readonly widget: string; readonly options: readonly string[] | null },
+  props: FieldControlProps,
+) {
+  const { draft, catalogBlocked, updateDraft } = props,
+    testId = FIELD_TEST_IDS[row.field];
+  switch (row.widget) {
+    case "catalog-select": {
+      const selector = catalogSelector(row.field, props);
+      if (!selector) return <span className="ui-meta text-text-faint">{row.field}</span>;
+      return (
+        <SettingSelect
+          label={row.field}
+          testId={testId ?? `settings-${row.field}-select`}
+          value={typeof draft[row.field] === "string" ? (draft[row.field] as string) : ""}
+          disabled={catalogBlocked}
+          options={selector.options}
+          onChange={selector.onChange}
+        />
+      );
+    }
+    case "enum-select":
+      return (
+        <SettingSelect
+          label={row.field}
+          testId={testId ?? `settings-${row.field}-select`}
+          value={typeof draft[row.field] === "string" ? (draft[row.field] as string) : ""}
+          options={selectorOptions(
+            (row.options ?? []).map((value) => ({ value })),
+            typeof draft[row.field] === "string" ? (draft[row.field] as string) : undefined,
+          )}
+          onChange={(value) => updateDraft(row.field, value)}
+        />
+      );
+    case "toggle":
+      return <Toggle checked={draft[row.field] === true} onChange={(enabled) => updateDraft(row.field, enabled)} />;
+    case "number": {
+      const value = draft[row.field];
+      return (
+        <SettingNumberInput
+          label={row.field}
+          testId={testId ?? `settings-${row.field}-input`}
+          value={typeof value === "number" ? value : 1}
+          onChange={(next) => updateDraft(row.field, next)}
+        />
+      );
+    }
+    case "string-array":
+      return (
+        <input
+          aria-label={row.field}
+          data-testid={testId ?? `settings-${row.field}-input`}
+          type="text"
+          className="w-64 rounded border border-border bg-surface-raised px-2 py-1 font-mono ui-meta text-text"
+          value={formatStringArrayInput(draft[row.field])}
+          onChange={(event) => updateDraft(row.field, parseStringArrayInput(event.currentTarget.value))}
+        />
+      );
+    default: {
+      const value = draft[row.field];
+      return (
+        <input
+          aria-label={row.field}
+          data-testid={testId ?? `settings-${row.field}-input`}
+          type="text"
+          className="w-64 rounded border border-border bg-surface-raised px-2 py-1 font-mono ui-meta text-text"
+          value={typeof value === "string" ? value : ""}
+          onChange={(event) => updateDraft(row.field, event.currentTarget.value.trim())}
+        />
+      );
+    }
+  }
+}
+
+/** 目录选择器五个字段各自的选项与联动;字段不在注册表内时回落 nil(防御,正常不可达)。 */
+function catalogSelector(
+  field: string,
+  props: FieldControlProps,
+): { readonly options: readonly SelectorOption[]; readonly onChange: (value: string) => void } | null {
+  switch (field) {
+    case "defaultVertical":
+      return { options: props.verticalOptions, onChange: props.chooseVertical };
+    case "defaultPreset":
+      return { options: props.presetOptions, onChange: props.choosePreset };
+    case "defaultProfile":
+      return { options: props.profileOptions, onChange: (value) => props.updateDraft(field, value) };
+    case "taskScaffold":
+      return { options: props.taskScaffoldOptions, onChange: (value) => props.updateDraft(field, value) };
+    case "repositoryScaffold":
+      return { options: props.repositoryScaffoldOptions, onChange: (value) => props.updateDraft(field, value) };
+    default:
+      return null;
+  }
 }
 
 function SettingNumberInput({

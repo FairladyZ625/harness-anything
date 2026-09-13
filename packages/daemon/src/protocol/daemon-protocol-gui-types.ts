@@ -347,6 +347,9 @@ export type DaemonGuiReadResultMap = {
     readonly schema: "daemon.settings-read/v1";
     readonly ok: true;
     readonly settings: SettingsV1;
+    /** Flat action-input values (kernel `repositorySettingsActionValues`) so a derived settings form
+     * reads current values without a hand-written nested→flat mapping. */
+    readonly values: Readonly<Record<string, string | number | boolean | readonly string[]>>;
   };
   readonly "repo.ci.observatory.read": import("../ci-observatory-read.ts").CiObservatoryRead;
   readonly "repo.workspace.summary.read": DaemonWorkspaceSummaryResult;

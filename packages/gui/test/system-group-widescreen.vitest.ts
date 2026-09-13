@@ -11,6 +11,7 @@ import { PresetsView } from "../src/renderer/views/PresetsView.tsx";
 import { AdaptersView } from "../src/renderer/views/AdaptersView.tsx";
 import { SystemView } from "../src/renderer/views/SystemView.tsx";
 import { SettingsView } from "../src/renderer/views/SettingsView.tsx";
+import { settingsUpdateInputFields } from "../../kernel/src/index.ts";
 import { catalogQueryKeys } from "../src/renderer/catalog-data.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import { settingsQueryKeys } from "../src/renderer/settings-data.ts";
@@ -51,6 +52,26 @@ function seedQueries(client: QueryClient): void {
       scaffolds: { task: "governance/task-scaffold.json", repository: "governance/repository-scaffold.json" },
       walFlush: { adaptive: true, events: 256, bytes: 8_388_608, milliseconds: 3_600_000 },
     },
+    values: {
+      defaultVertical: "software/coding",
+      defaultPreset: "standard-task",
+      defaultProfile: "baseline",
+      reviewIndependence: "execution",
+      reviewReturnBudget: 3,
+      taskScaffold: "governance/task-scaffold.json",
+      repositoryScaffold: "governance/repository-scaffold.json",
+      walFlushAdaptive: true,
+      walFlushEvents: 256,
+      walFlushBytes: 8_388_608,
+      walFlushMilliseconds: 3_600_000,
+      ciWorkflows: [],
+      closeoutProfile: "standard",
+      closeoutReview: false,
+      closeoutConsent: false,
+      closeoutFactDisposition: false,
+      closeoutCodeDoc: false,
+      restoreDrillRetention: 3,
+    },
   });
   client.setQueryData(catalogQueryKeys.snapshot(REPO_ID), {
     schema: "gui-catalog-snapshot/v1",
@@ -59,6 +80,12 @@ function seedQueries(client: QueryClient): void {
     repoId: REPO_ID,
     observedAt: AT,
     catalogDigest: "g5-digest-g5-digest-g5-digest-",
+    settingsFields: settingsUpdateInputFields.map(({ field, type, required, enum: values }) => ({
+      field,
+      type,
+      required,
+      ...(values ? { enum: [...values] } : {}),
+    })),
     defaults: { verticalId: "g5", presetId: "preset-g5", profileId: null, locale: "zh-CN" },
     presets: [
       {
@@ -294,7 +321,27 @@ describe("Settings kind renderer consumes and updates the daemon-owned facet", (
         outcome: "applied",
         opId: String(payload.idempotencyKey),
       })),
-      getSettings = vi.fn(async () => ({ schema: "daemon.settings-read/v1", ok: true, settings }));
+      values = {
+        defaultVertical: settings.defaultVertical,
+        defaultPreset: settings.defaultPreset,
+        defaultProfile: settings.defaultProfile,
+        reviewIndependence: "execution",
+        reviewReturnBudget: 3,
+        taskScaffold: settings.scaffolds.task,
+        repositoryScaffold: settings.scaffolds.repository,
+        walFlushAdaptive: settings.walFlush.adaptive,
+        walFlushEvents: settings.walFlush.events,
+        walFlushBytes: settings.walFlush.bytes,
+        walFlushMilliseconds: settings.walFlush.milliseconds,
+        ciWorkflows: [],
+        closeoutProfile: "standard",
+        closeoutReview: false,
+        closeoutConsent: false,
+        closeoutFactDisposition: false,
+        closeoutCodeDoc: false,
+        restoreDrillRetention: 3,
+      },
+      getSettings = vi.fn(async () => ({ schema: "daemon.settings-read/v1", ok: true, settings, values }));
     Object.defineProperty(window, "harness", {
       configurable: true,
       value: { updateSettings, getSettings },

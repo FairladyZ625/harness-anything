@@ -77,6 +77,7 @@ type Rule =
   | "null-string"
   | "null-number"
   | "array"
+  | "optional-array"
   | "object"
   | "optional-object"
   | "nullable-object";
@@ -91,6 +92,7 @@ function closed(value: unknown, fields: Readonly<Record<string, Rule>>, label: s
     if (
       (rule === "optional-string" && (item === undefined || typeof item === "string")) ||
       (rule === "optional-object" && (item === undefined || record(item))) ||
+      (rule === "optional-array" && (item === undefined || Array.isArray(item))) ||
       (rule === "null-string" && (item === null || typeof item === "string")) ||
       (rule === "null-number" && (item === null || typeof item === "number")) ||
       (rule === "nullable-object" && (item === null || record(item)))
@@ -258,6 +260,7 @@ export function validateCatalogSnapshot(value: unknown): readonly string[] {
       verticals: "array",
       templates: "array",
       scaffolds: "object",
+      settingsFields: "array",
       adapters: "array",
     },
     "catalog snapshot",
@@ -269,6 +272,16 @@ export function validateCatalogSnapshot(value: unknown): readonly string[] {
     !digest(value.catalogDigest)
   )
     errors.push("catalog snapshot identity is invalid");
+  for (const field of Array.isArray(value.settingsFields) ? value.settingsFields : []) {
+    if (!record(field)) continue;
+    errors.push(
+      ...closed(
+        field,
+        { field: "string", type: "string", required: "boolean", enum: "optional-array" },
+        "catalog settings field",
+      ),
+    );
+  }
   if (record(value.defaults))
     errors.push(
       ...closed(

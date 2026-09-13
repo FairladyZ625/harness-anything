@@ -66,12 +66,19 @@ import {
   type DaemonProtocolErrorResult,
 } from "./daemon-protocol.contract.ts";
 type ResultValidator = (value: unknown) => readonly string[];
+const flatSettingsValue = (item: unknown): boolean =>
+  typeof item === "string" ||
+  typeof item === "number" ||
+  typeof item === "boolean" ||
+  (Array.isArray(item) && item.every((entry) => typeof entry === "string"));
 export const validateDaemonSettingsRead: ResultValidator = (value) =>
   isJsonObject(value) &&
-  Object.keys(value).length === 3 &&
+  Object.keys(value).length === 4 &&
   value.schema === "daemon.settings-read/v1" &&
   value.ok === true &&
-  validateSettingsV1(value.settings).length === 0
+  validateSettingsV1(value.settings).length === 0 &&
+  isJsonObject(value.values) &&
+  Object.values(value.values).every(flatSettingsValue)
     ? []
     : [
         validationError(
@@ -80,13 +87,17 @@ export const validateDaemonSettingsRead: ResultValidator = (value) =>
             ? "schema"
             : isJsonObject(value) && value.ok !== true
               ? "ok"
-              : "settings",
+              : isJsonObject(value) && validateSettingsV1(value.settings).length > 0
+                ? "settings"
+                : "values",
           isJsonObject(value)
             ? value.schema !== "daemon.settings-read/v1"
               ? value.schema
               : value.ok !== true
                 ? value.ok
-                : value.settings
+                : validateSettingsV1(value.settings).length > 0
+                  ? value.settings
+                  : value.values
             : value,
           "must be a valid daemon settings read",
         ),

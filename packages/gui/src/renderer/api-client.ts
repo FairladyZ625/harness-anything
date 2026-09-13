@@ -32,6 +32,7 @@ import {
   type FactDomainTypeSummaryRow,
 } from "./result-validation.ts";
 import { isSettingsSuccess } from "./settings-payload.ts";
+import type { SettingsFieldValue } from "./settings-form.ts";
 import { invoke } from "./api-client-invoke.ts";
 import { readGuiActionResult } from "./command-receipt.ts";
 import { daemonBridgeError } from "./daemon-startup.ts";
@@ -152,21 +153,9 @@ export interface RelationFactFacetSuccess {
 }
 export type WorkspaceSummarySuccess = WorkspaceSummaryRead;
 export type SettingsSuccess = SettingsRead;
+/** 键 = settings 动作契约字段名,值形状由 daemon 协议 shape 校验;不做 GUI 侧手写字段清单。 */
 export type SettingsUpdateInput = RepoScope &
-  Partial<{
-    defaultVertical: string;
-    defaultPreset: string;
-    defaultProfile: string;
-    locale: "en-US" | "zh-CN";
-    taskScaffold: string;
-    repositoryScaffold: string;
-    walFlushAdaptive: boolean;
-    walFlushEvents: number;
-    walFlushBytes: number;
-    walFlushMilliseconds: number;
-    closeoutProfile: "standard" | "strict";
-  }> &
-  Partial<{ [K in "closeoutReview" | "closeoutConsent" | "closeoutFactDisposition" | "closeoutCodeDoc"]: boolean }> & {
+  Readonly<Record<string, SettingsFieldValue | undefined>> & {
     readonly idempotencyKey: string;
   };
 
@@ -288,6 +277,13 @@ export interface CatalogSnapshotSuccess {
   readonly verticals: ReadonlyArray<CatalogVerticalRow>;
   readonly templates: ReadonlyArray<CatalogTemplateRow>;
   readonly scaffolds: { readonly task: ReadonlyArray<string>; readonly repository: ReadonlyArray<string> };
+  /** settings 动作契约字段表:仓库设置表单的派生源。 */
+  readonly settingsFields: ReadonlyArray<{
+    readonly field: string;
+    readonly type: string;
+    readonly required: boolean;
+    readonly enum?: readonly string[];
+  }>;
   readonly adapters: ReadonlyArray<CatalogAdapterRow>;
 }
 export interface CatalogPresetDocument {
@@ -848,6 +844,15 @@ function isCatalogSnapshotSuccess(value: unknown): value is CatalogSnapshotSucce
     isRendererRecord(value.scaffolds) &&
     Array.isArray(value.scaffolds.task) &&
     Array.isArray(value.scaffolds.repository) &&
+    Array.isArray(value.settingsFields) &&
+    value.settingsFields.every(
+      (field) =>
+        isRendererRecord(field) &&
+        typeof field.field === "string" &&
+        typeof field.type === "string" &&
+        typeof field.required === "boolean" &&
+        (field.enum === undefined || (Array.isArray(field.enum) && field.enum.every((v) => typeof v === "string"))),
+    ) &&
     value.presets.every(
       (row) =>
         isRendererRecord(row) &&

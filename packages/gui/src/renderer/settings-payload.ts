@@ -7,6 +7,14 @@ export function isSettingsSuccess(value: unknown): value is SettingsRead {
   return (
     value.schema === "daemon.settings-read/v1" &&
     value.ok === true &&
+    isRendererRecord(value.values) &&
+    Object.values(value.values).every(
+      (item) =>
+        typeof item === "string" ||
+        typeof item === "number" ||
+        typeof item === "boolean" ||
+        (Array.isArray(item) && item.every((entry) => typeof entry === "string")),
+    ) &&
     settings.schema === "settings/v1" &&
     settings.settingsId === "repository" &&
     [settings.defaultVertical, settings.defaultPreset, settings.defaultProfile].every(

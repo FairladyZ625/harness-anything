@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { localAdapterProviderMetadata } from "../../adapters/local/src/index.ts";
 import { multicaAdapterProviderMetadata } from "../../adapters/multica/src/index.ts";
-import type { SettingsV1 } from "../../kernel/src/index.ts";
+import { settingsUpdateInputFields, type SettingsV1 } from "../../kernel/src/index.ts";
 import { listGovernanceScaffoldOverlays, runPresetAction } from "../../preset/src/index.ts";
 import { presetRuntimeDefaults } from "../../preset/src/preset-system.ts";
 import {
@@ -91,6 +91,14 @@ export function openGuiCatalog(input: {
       templates,
       // 仓库设置选择器的取值面:governance 根下已存在的 overlay 文档,authored-root 相对路径。
       scaffolds: listGovernanceScaffoldOverlays(input.rootDir),
+      // 设置字段契约面:与 settings 动作目录同一单源派生,GUI 仓库设置表单据此渲染,
+      // kernel 加字段不再需要 GUI 手写字段清单。
+      settingsFields: settingsUpdateInputFields.map(({ field, type, required, enum: values }) => ({
+        field,
+        type,
+        required,
+        ...(values ? { enum: [...values] } : {}),
+      })),
       adapters: [localAdapterProviderMetadata, multicaAdapterProviderMetadata].map((adapter) => ({
         adapterId: adapter.id,
         registered: true,

@@ -1,9 +1,12 @@
 // harness-test-tier: integration
 // @vitest-environment happy-dom
-// Settings → 仓库:取值面可枚举的字段一律是选择器,枚举来源是 daemon 目录快照
-// (gui-catalog-snapshot/v1 的 verticals / presets[].profiles / scaffolds),不是手打字符串。
-// 覆盖:①五个字段都是 <select> 且选项来自目录;②当前值不在目录时并入选项、不静默丢值;
-// ③换 preset 时 profile 落到新 preset 的默认 profile;④目录读面失败时选择器停用(fail closed)。
+// Settings → 仓库:字段面由 settings 动作契约派生(catalog snapshot 的 settingsFields,与 kernel
+// 单源同源 import),取值面可枚举的字段是选择器,枚举来源是 daemon 目录快照
+// (verticals / presets[].profiles / scaffolds),不是手打字符串。
+// 覆盖:①字段集合 == 契约仓库字段(含 defaultReviewer/reviewIndependence/reviewReturnBudget/
+// ciWorkflows 四个历史缺失项);②五个目录字段都是 <select> 且选项来自目录;③当前值不在目录时
+// 并入选项、不静默丢值;④换 preset 时 profile 落到新 preset 的默认 profile;⑤目录读面失败时
+// 表单不渲染(fail closed),不回退成自由文本;⑥「终端」假面板已删除。
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -12,6 +15,7 @@ import { SettingsView } from "../src/renderer/views/SettingsView.tsx";
 import { catalogQueryKeys } from "../src/renderer/catalog-data.ts";
 import { settingsQueryKeys } from "../src/renderer/settings-data.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
+import { settingsUpdateInputFields } from "../../kernel/src/index.ts";
 
 const REPO_ID = "settings-selectors-probe";
 const AT = "2026-08-27T00:00:00.000Z";
@@ -27,6 +31,27 @@ const SETTINGS = {
   scaffolds: { task: "governance/task-scaffold.json", repository: "governance/repository-scaffold.json" },
   walFlush: { adaptive: true, events: 256, bytes: 8_388_608, milliseconds: 3_600_000 },
 };
+/** daemon settings read 的 values 面:kernel repositorySettingsActionValues 的扁平映射。 */
+const SETTINGS_VALUES = {
+  defaultVertical: "software/coding",
+  defaultPreset: "standard-task",
+  defaultProfile: "baseline",
+  reviewIndependence: "execution",
+  reviewReturnBudget: 3,
+  taskScaffold: "governance/task-scaffold.json",
+  repositoryScaffold: "governance/repository-scaffold.json",
+  walFlushAdaptive: true,
+  walFlushEvents: 256,
+  walFlushBytes: 8_388_608,
+  walFlushMilliseconds: 3_600_000,
+  ciWorkflows: [],
+  closeoutProfile: "standard",
+  closeoutReview: false,
+  closeoutConsent: false,
+  closeoutFactDisposition: false,
+  closeoutCodeDoc: false,
+  restoreDrillRetention: 3,
+};
 const SNAPSHOT = {
   schema: "gui-catalog-snapshot/v1" as const,
   ok: true as const,
@@ -35,6 +60,14 @@ const SNAPSHOT = {
   observedAt: AT,
   catalogDigest: "settings-selectors-digest--------------",
   defaults: { verticalId: "software/coding", presetId: "standard-task", profileId: "baseline", locale: "zh-CN" },
+  // settingsFields 与 daemon gui-catalog 同一映射,源直接 import kernel 单源——
+  // 断言的派生面因此是真实契约,不是测试里再抄一份。
+  settingsFields: settingsUpdateInputFields.map(({ field, type, required, enum: values }) => ({
+    field,
+    type,
+    required,
+    ...(values ? { enum: [...values] } : {}),
+  })),
   presets: [
     {
       id: "standard-task",
@@ -162,7 +195,12 @@ async function mountView(
     configurable: true,
     value: {
       updateSettings,
-      getSettings: async () => ({ schema: "daemon.settings-read/v1", ok: true, settings: SETTINGS }),
+      getSettings: async () => ({
+        schema: "daemon.settings-read/v1",
+        ok: true,
+        settings: SETTINGS,
+        values: SETTINGS_VALUES,
+      }),
       ...(options.catalogBridge ? { getCatalogSnapshot: options.catalogBridge } : {}),
     },
   });
@@ -171,6 +209,7 @@ async function mountView(
     schema: "daemon.settings-read/v1",
     ok: true,
     settings: SETTINGS,
+    values: SETTINGS_VALUES,
   });
   // 目录快照走缓存种子(与 preset-detail/system-group-widescreen 同一模式),桥只承担写面;
   // 显式传 null 表示「不种」,用于让目录读面真的失败。
@@ -238,9 +277,14 @@ function lastUpdatePayload(): Record<string, unknown> {
 }
 
 describe("Settings 仓库字段是目录喂的选择器", () => {
-  it("五个字段全部是 select,选项来自目录快照,且没有自由文本输入", async () => {
+  it("五个目录字段全部是 select,选项来自目录快照,且没有自由文本输入", async () => {
     const container = await mountView();
-    expect(container.querySelectorAll('input[aria-label^="默认"], input[aria-label*="脚手架"]').length).toBe(0);
+    // 目录选择器字段不得回退成自由文本。
+    expect(
+      container.querySelector(
+        'input[aria-label="默认垂直"], input[aria-label="默认预设"], input[aria-label="默认配置"], input[aria-label*="脚手架"]',
+      ),
+    ).toBeNull();
     expect(optionValues(select(container, "settings-vertical-select"))).toEqual(["software/coding", "other/vertical"]);
     // other/vertical 的 preset 不进 software/coding 的选项面。
     expect(optionValues(select(container, "settings-preset-select"))).toEqual([
@@ -259,6 +303,41 @@ describe("Settings 仓库字段是目录喂的选择器", () => {
     expect((container.querySelector('[data-testid="settings-wal-flush-events"]') as HTMLInputElement).value).toBe(
       "256",
     );
+  });
+
+  it("字段面从契约派生:历史缺失的四个字段全部出现且类型正确,提交时进 payload", async () => {
+    const container = await mountView();
+    const reviewer = container.querySelector('[data-testid="settings-defaultReviewer-input"]') as HTMLInputElement;
+    expect(reviewer, "默认验收人输入框未渲染").toBeTruthy();
+    expect(reviewer.value).toBe("");
+    expect(optionValues(select(container, "settings-reviewIndependence-select"))).toEqual(["execution", "principal"]);
+    expect(select(container, "settings-reviewIndependence-select").value).toBe("execution");
+    expect(
+      (container.querySelector('[data-testid="settings-reviewReturnBudget-input"]') as HTMLInputElement).value,
+    ).toBe("3");
+    expect((container.querySelector('[data-testid="settings-ciWorkflows-input"]') as HTMLInputElement).value).toBe("");
+    // closeout 档位与四个门也来自契约(此前由 CloseoutRows 硬编码渲染)。
+    expect(optionValues(select(container, "settings-closeoutProfile-select"))).toEqual(["standard", "strict"]);
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(reviewer, "arch-reviewer");
+      reviewer.dispatchEvent(new Event("change", { bubbles: true }));
+      saveButton(container).click();
+    });
+    expect(lastUpdatePayload()).toMatchObject({
+      defaultReviewer: "arch-reviewer",
+      reviewIndependence: "execution",
+      reviewReturnBudget: 3,
+      ciWorkflows: [],
+      closeoutProfile: "standard",
+      closeoutReview: false,
+      restoreDrillRetention: 3,
+    });
+  });
+
+  it("「终端」假面板已删除:tab 列表里没有终端项", async () => {
+    const container = await mountView();
+    expect([...container.querySelectorAll("nav button")].some((tab) => tab.textContent === "终端")).toBe(false);
+    expect(container.textContent).not.toContain("Geist Mono");
   });
 
   it("当前值不在目录里时并入选项并保留可提交,不静默丢值", async () => {
@@ -329,7 +408,7 @@ describe("Settings 仓库字段是目录喂的选择器", () => {
     expect(select(container, "settings-profile-select").value).toBe("strict");
   });
 
-  it("目录读面失败时五个选择器停用并显示错误,不回退成自由文本", async () => {
+  it("目录读面失败时表单不渲染并显示错误,不回退成自由文本(fail closed)", async () => {
     const container = await mountView({
       snapshot: null,
       catalogBridge: async () => {
@@ -337,6 +416,8 @@ describe("Settings 仓库字段是目录喂的选择器", () => {
       },
     });
     await vi.waitFor(() => expect(container.textContent).toContain("取值目录不可用"));
+    // 字段面来自目录快照:目录读不到就没有可派生的字段,五个选择器一律不存在,
+    // 也不出现任何冒充这些字段的自由文本输入。
     for (const testId of [
       "settings-vertical-select",
       "settings-preset-select",
@@ -344,8 +425,12 @@ describe("Settings 仓库字段是目录喂的选择器", () => {
       "settings-task-scaffold-select",
       "settings-repository-scaffold-select",
     ])
-      expect(select(container, testId).disabled, `${testId} 应停用`).toBe(true);
+      expect(container.querySelector(`[data-testid="${testId}"]`), `${testId} 不应渲染`).toBeNull();
     expect(container.textContent).toContain("catalog bridge down");
-    expect(container.querySelectorAll('input[aria-label^="默认"], input[aria-label*="脚手架"]').length).toBe(0);
+    expect(
+      container.querySelector(
+        'input[aria-label="默认垂直"], input[aria-label="默认预设"], input[aria-label="默认配置"], input[aria-label*="脚手架"]',
+      ),
+    ).toBeNull();
   });
 });
