@@ -8,6 +8,7 @@ import {
   reviewJsonFields,
 } from "../../daemon/src/protocol/daemon-protocol-commands-task.ts";
 import { validateDaemonRpcCall } from "../../daemon/src/protocol/daemon-protocol-rpc-validation.ts";
+import { workspacePathFormat } from "../../preset/src/preset-command-contract.ts";
 import { parseThinCommand } from "../src/cli/thin-command.ts";
 
 test("daemon lifecycle command inputs and thin CLI parameters are projections of Task Actions", () => {
@@ -37,6 +38,7 @@ test("daemon lifecycle command inputs and thin CLI parameters are projections of
                 required: field.required,
                 ...(field.enum ? { enum: field.enum } : {}),
                 ...(field.regex ? { regex: field.regex } : {}),
+                ...(field.field === "fromFile" ? { format: workspacePathFormat } : {}),
                 ...(field.cli.jsonSchema
                   ? {
                       jsonFields: field.cli.jsonSchema.fields

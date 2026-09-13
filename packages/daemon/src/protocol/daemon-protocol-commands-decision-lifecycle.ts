@@ -6,6 +6,7 @@ import {
   defineLedgerWriteCommand,
   defineLocalArbiterCommand,
   defineRepoReadCommand,
+  workspacePathFormat,
 } from "../../../preset/src/preset-command-contract.ts";
 
 export const decisionLifecycleProtocolCommands = Object.freeze([
@@ -74,6 +75,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
           jsonFields: decisionProposalRequiredJsonFields,
           jsonAllowedFields: decisionProposalJsonFields,
           jsonDefaultFields: decisionProposalDefaultJsonFields,
+          format: workspacePathFormat,
           conflictsWith: ["--json-input"],
         },
       ),
@@ -113,6 +115,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         },
         {
           requiresAny: ["--from-file", "--json-input"],
+          format: workspacePathFormat,
           conflictsWith: ["--body"],
         },
       ),
@@ -313,9 +316,15 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
       cliInput("--body", "single", false, {
         code: "invalid_field",
       }),
-      cliInput("--body-file", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--body-file",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { format: workspacePathFormat },
+      ),
       cliInput("--dry-run", "boolean", false, {
         code: "invalid_field",
       }),

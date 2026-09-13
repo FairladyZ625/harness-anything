@@ -5,6 +5,7 @@ import {
   defineHostAdminCommand,
   defineRepoReadCommand,
   defineRuntimeLocalWriteCommand,
+  workspacePathFormat,
 } from "../../../preset/src/preset-command-contract.ts";
 
 export const runtimeFleetProtocolCommands = Object.freeze([
@@ -273,7 +274,12 @@ const schedulePacketInputs = (requiredFields: readonly string[], allowedFields: 
     "single",
     false,
     { code: "invalid_field" },
-    { jsonFields: requiredFields, jsonAllowedFields: allowedFields, conflictsWith: ["--json-input"] },
+    {
+      jsonFields: requiredFields,
+      jsonAllowedFields: allowedFields,
+      format: workspacePathFormat,
+      conflictsWith: ["--json-input"],
+    },
   ),
   cliInput(
     "--json-input",

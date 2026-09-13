@@ -57,6 +57,12 @@ export function cliInput<const Extra extends Readonly<Record<string, unknown>> =
   >;
 }
 
+// The daemon's workspace file reads (readWorkspaceText) and every --from-file/--body-file help
+// facet must state this one rule; interpolating the constant keeps help and the runtime rejection
+// on the same source instead of two hand-copied sentences.
+export const workspacePathResolutionRule = "relative paths resolve from the workspace root, not the current directory";
+export const workspacePathFormat = `<path; ${workspacePathResolutionRule}>`;
+
 export function regexLength(regex: string | undefined): readonly [number, number] | undefined {
   const match = regex?.match(
     /^\^(?:\[(?:\\.|[^\]\\\r\n])*\]|\\(?:[dDsSwW]|[pP]\{[^}\r\n]+\})|\.)(?:\{(\d+)(?:,(\d+))?\})\$$/u,
@@ -219,6 +225,7 @@ const taskCreateCliInputs = Object.freeze(
         ...(field.enum ? { enum: field.enum } : {}),
         ...(field.regex ? { regex: field.regex } : {}),
         ...cli,
+        ...(cli.name === "--from-file" ? { format: workspacePathFormat } : {}),
       }),
     ];
   }),

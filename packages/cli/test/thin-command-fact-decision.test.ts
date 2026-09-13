@@ -1,7 +1,12 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { daemonProtocolCommands } from "../../daemon/src/protocol/daemon-protocol.contract.ts";
+import { readWorkspaceText } from "../../daemon/src/workspace-text-port.ts";
+import { workspacePathFormat, workspacePathResolutionRule } from "../../preset/src/preset-command-contract.ts";
 import { parseThinCommand } from "../src/cli/thin-command.ts";
 import { materializePacketStdin } from "../src/index.ts";
 
@@ -535,6 +540,36 @@ test("Decision F06 and distill leaf commands preserve their complete structured 
   assert.equal(parseThinCommand(["decision", "validate", "dec_1", "--all"]).ok, false);
   assert.equal(parseThinCommand(["decision", "transition", "retired", "dec_1", "--standing-policy"]).ok, false);
   assert.equal(parseThinCommand(["decision", "amend", "dec_1"]).ok, false);
+});
+
+test("Decision file-flag help and the workspace read rejection state one shared path rule", () => {
+  const fileFlagHelpLine = (commandId: string, flag: string) =>
+    daemonProtocolCommands
+      .find((command) => command.id === commandId)
+      ?.help.split("\n")
+      .find((line) => line.trim().startsWith(`${flag} —`));
+  for (const [commandId, flag] of [
+    ["decision-propose", "--from-file"],
+    ["decision-propose", "--body-file"],
+    ["decision-amend", "--body-file"],
+  ] as const) {
+    const line = fileFlagHelpLine(commandId, flag);
+    assert.ok(line, `${commandId}: ${flag} help line`);
+    assert.ok(line?.includes(`format: ${workspacePathFormat}`), line);
+  }
+  const root = mkdtempSync(path.join(tmpdir(), "ha-path-rule-"));
+  try {
+    assert.throws(
+      () => readWorkspaceText(root, "missing-relative-probe.json", "fromFile"),
+      (error: Error) => {
+        assert.ok(error.message.includes("fromFile"), error.message);
+        assert.ok(error.message.includes(workspacePathResolutionRule), error.message);
+        return true;
+      },
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("Decision human consent defaults absent consent-at and consent-channel at the CLI plane", () => {

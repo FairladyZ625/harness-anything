@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { readWorkspaceText } from "../../daemon/src/workspace-text-port.ts";
 import { diagnosticForError, taskCreateGuidance } from "../../daemon/src/receipt-guidance.ts";
+import { workspacePathResolutionRule } from "../../preset/src/preset-command-contract.ts";
 import { humanError, renderReceiptGuidance } from "../src/cli/guidance-plane.ts";
 import { renderCliReceipt } from "../src/cli/receipt-render-registry.ts";
 
@@ -21,7 +22,7 @@ test("missing workspace packets identify the root used for relative paths", () =
       (error: Error) => {
         const hint = humanError({ code: "invalid_command", rejectionExplanation: error.message }).hint;
         assert.ok(hint.includes(root), hint);
-        assert.match(hint, /relative paths are resolved from this root/u);
+        assert.ok(hint.includes(workspacePathResolutionRule), hint);
         return true;
       },
     );

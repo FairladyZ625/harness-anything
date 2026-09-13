@@ -8,6 +8,7 @@ import {
   generatedTaskActionProtocolDeclarations,
   generatedTaskCreateResultFields,
   generatedWriteReceiptFields,
+  workspacePathFormat,
   type GeneratedTaskActionProtocolDeclaration,
 } from "../../../preset/src/preset-command-contract.ts";
 export { generatedTaskActionProtocolDeclarations, generatedTaskCreateResultFields, generatedWriteReceiptFields };
@@ -37,6 +38,9 @@ function taskActionCliInputs(action: GeneratedTaskActionProtocolDeclaration) {
               }),
               ...(field.enum ? { enum: field.enum } : {}),
               ...(field.regex ? { regex: field.regex } : {}),
+              // The kernel contract carries the packet shape; the workspace-root path rule belongs
+              // to the daemon read layer, so it is added here where the CLI facet is assembled.
+              ...(field.field === "fromFile" ? { format: workspacePathFormat } : {}),
             }),
           ]
         : [],

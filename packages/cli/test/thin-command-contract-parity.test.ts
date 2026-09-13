@@ -8,6 +8,7 @@ import {
   validateDaemonRpcCall,
 } from "../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { unknownFieldViolation } from "../../daemon/src/protocol/json-rpc-types.ts";
+import { workspacePathFormat } from "../../preset/src/preset-command-contract.ts";
 import { deriveThinCliInputs, parseThinCommand } from "../src/cli/thin-command.ts";
 
 const frozenMutations = Object.freeze([
@@ -119,6 +120,7 @@ test("all public commands expose the canonical structured input facet", () => {
     assert.deepEqual(jsonInput.jsonFields, fromFile.jsonFields, `${id}: JSON required fields match`);
     assert.deepEqual(jsonInput.jsonAllowedFields, fromFile.jsonAllowedFields, `${id}: JSON allowed fields match`);
     assert.equal(jsonInput.format, "<json|@->", `${id}: stdin format`);
+    assert.equal(fromFile.format, workspacePathFormat, `${id}: workspace path rule`);
     assert.equal(fromFile.conflictsWith?.includes("--json-input"), true, `${id}: file conflict`);
     assert.equal(jsonInput.conflictsWith?.includes("--from-file"), true, `${id}: inline conflict`);
   }
