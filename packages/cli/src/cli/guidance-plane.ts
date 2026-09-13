@@ -193,7 +193,6 @@ export function humanError(receipt: Record<string, unknown>): { readonly code: s
             `Run ha fact type register <type> --source <source>, then retry this command.`
           : renderTemplate("failure", "fact-type-unregistered", {}),
     };
-  if (code === "daemon_restarting" && typeof outer.hint === "string") return { code, hint: outer.hint };
   const rawDiagnostic = record(receipt.diagnostic) ? receipt.diagnostic : null,
     // A bare {kind:"failure"} diagnostic is the code-only placeholder `rejected()` always attaches;
     // it renders to the same generic sentence as the final fallback, so treat it as no diagnostic
@@ -202,9 +201,15 @@ export function humanError(receipt: Record<string, unknown>): { readonly code: s
     diagnosticHint = diagnostic ? renderDiagnostic(diagnostic) : null,
     explanationHint = typeof receipt.rejectionExplanation === "string" ? receipt.rejectionExplanation : null,
     declaredGuidance = renderReceiptGuidance(receipt),
-    // Receipts without the daemon's structured vocabulary (offline storage failures) declare their
-    // only detail as a top-level hint string; structured diagnostics keep priority over it.
-    receiptHint = typeof receipt.hint === "string" && receipt.hint.length > 0 ? receipt.hint : null,
+    // Receipts without the daemon's structured vocabulary (daemon control failures, offline storage
+    // failures) declare their only actionable detail as a top-level or error-object hint string;
+    // structured diagnostics keep priority over both.
+    receiptHint =
+      typeof receipt.hint === "string" && receipt.hint.length > 0
+        ? receipt.hint
+        : typeof outer.hint === "string" && outer.hint.length > 0
+          ? outer.hint
+          : null,
     baseHint =
       diagnosticHint ??
       explanationHint ??
