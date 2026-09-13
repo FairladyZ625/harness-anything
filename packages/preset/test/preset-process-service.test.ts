@@ -161,7 +161,7 @@ test("bounded child protocol classifies every failure without a silent phase", a
 
 test("timeout forcibly reaps a child that ignores SIGTERM before publishing terminal receipt", async () => {
   const fixture = scriptedPackage(
-      'const { writeFileSync } = await import("node:fs"); process.on("SIGTERM", () => writeFileSync("term.seen", "yes")); writeFileSync("child.pid", String(process.pid)); setInterval(() => {}, 1_000);',
+      'const fs = await import("node:fs"); process.on("SIGTERM", () => fs.writeFileSync("term.seen", "yes")); const fd = fs.openSync("child.pid", "w"); setTimeout(() => { fs.writeSync(fd, String(process.pid)); fs.closeSync(fd); }, 50); setInterval(() => {}, 1_000);',
     ),
     service = createPresetProcessService({
       rootDir: fixture.rootDir,
@@ -183,8 +183,11 @@ test("timeout forcibly reaps a child that ignores SIGTERM before publishing term
       pidPath = path.join(staging, "child.pid"),
       termPath = path.join(staging, "term.seen"),
       termSeen = process.platform === "win32" ? null : observeFileAppearance(termPath);
-    await waitFor("child.pid file for timeout fixture", () => existsSync(pidPath), Boolean);
-    pid = Number(readFileSync(pidPath, "utf8"));
+    pid = await waitFor(
+      "child pid write for timeout fixture",
+      () => readChildPid(pidPath),
+      (value) => value !== undefined,
+    );
     if (termSeen) await termSeen;
     // On Windows kill(SIGTERM) terminates unconditionally, so the handler phase cannot be witnessed;
     // the reaped end state is asserted instead.
@@ -211,7 +214,7 @@ test("timeout forcibly reaps a child that ignores SIGTERM before publishing term
 
 test("close forcibly reaps a child that ignores SIGTERM within a fixed bound", async () => {
   const fixture = scriptedPackage(
-      'const { writeFileSync } = await import("node:fs"); process.on("SIGTERM", () => writeFileSync("term.seen", "yes")); writeFileSync("child.pid", String(process.pid)); setInterval(() => {}, 1_000);',
+      'const fs = await import("node:fs"); process.on("SIGTERM", () => fs.writeFileSync("term.seen", "yes")); const fd = fs.openSync("child.pid", "w"); setTimeout(() => { fs.writeSync(fd, String(process.pid)); fs.closeSync(fd); }, 50); setInterval(() => {}, 1_000);',
     ),
     service = createPresetProcessService({
       rootDir: fixture.rootDir,
@@ -233,8 +236,11 @@ test("close forcibly reaps a child that ignores SIGTERM within a fixed bound", a
       pidPath = path.join(staging, "child.pid"),
       termPath = path.join(staging, "term.seen"),
       termSeen = process.platform === "win32" ? null : observeFileAppearance(termPath);
-    await waitFor("child.pid file for close fixture", () => existsSync(pidPath), Boolean);
-    pid = Number(readFileSync(pidPath, "utf8"));
+    pid = await waitFor(
+      "child pid write for close fixture",
+      () => readChildPid(pidPath),
+      (value) => value !== undefined,
+    );
     const before = performance.now(),
       closing = service.close();
     if (process.platform === "win32") assert.equal(terminalOutcome(service.status(started.runId).outcome), false);
@@ -443,6 +449,17 @@ function scriptedPackage(script: string, entrypoint: Record<string, unknown> = {
 }
 function terminalOutcome(outcome: string): boolean {
   return ["applied", "op_rejected", "failed", "outcome_unknown"].includes(outcome);
+}
+// child.pid is visible (open) before its content lands (write); a read racing the
+// write parses "" as pid 0, and signaling pid 0 targets this test's own process
+// group, so ESRCH never arrives. Require the child's own observable write instead.
+function readChildPid(pidPath: string): number | undefined {
+  try {
+    const pid = Number(readFileSync(pidPath, "utf8"));
+    return Number.isInteger(pid) && pid > 0 ? pid : undefined;
+  } catch {
+    return undefined;
+  }
 }
 // close()/timeout resolve on a bounded best-effort kill, so the child can still be
 // alive or an unreaped zombie at that moment; ESRCH only becomes observable once
