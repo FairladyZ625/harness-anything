@@ -2,11 +2,8 @@ import type net from "node:net";
 import { readDaemonRegistry, type DaemonRegistryConnection } from "../../kernel/src/index.ts";
 import { connectSocket, JsonRpcLineClient } from "./client/local-json-rpc-client.ts";
 import { streamDaemonFacetAt } from "./client/local-json-rpc-stream.ts";
-import {
-  daemonStreamFacets,
-  type DaemonStreamMethod,
-  type DaemonStreamPayloadMap,
-} from "./protocol/daemon-protocol.contract.ts";
+import { daemonStreamFacetByMethod } from "./protocol/daemon-protocol-gui-actions.ts";
+import { type DaemonStreamMethod, type DaemonStreamPayloadMap } from "./protocol/daemon-protocol.contract.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { currentDaemonProtocolVersion } from "./protocol/version.ts";
 
@@ -257,5 +254,5 @@ function isJsonRecord(value: unknown): value is JsonObject {
 }
 
 export function remoteProxyEventMethod(method: DaemonStreamMethod): string {
-  return daemonStreamFacets.find((facet) => facet.method === method)!.eventMethod;
+  return daemonStreamFacetByMethod.get(method)!.eventMethod;
 }

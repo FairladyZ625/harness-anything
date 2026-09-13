@@ -36,16 +36,25 @@ import {
 
 export { DaemonProtocolContractError, validateSessionEnvironment };
 
+const daemonGuiReadMethodNames: ReadonlySet<string> = new Set(daemonGuiReadMethods.map((entry) => entry.method)),
+  daemonGuiActionMethodNames: ReadonlySet<string> = new Set(daemonGuiActionMethods.map((entry) => entry.method)),
+  daemonStreamMethodNames: ReadonlySet<string> = new Set(daemonStreamFacets.map((entry) => entry.method)),
+  decisionAdjudicationMethods: ReadonlySet<string> = new Set([
+    "repo.decision.accept",
+    "repo.decision.reject",
+    "repo.decision.defer",
+  ]);
+
 export function isDaemonGuiReadMethod(method: string): method is DaemonGuiRpcReadMethod {
-  return daemonGuiReadMethods.some((entry) => entry.method === method);
+  return daemonGuiReadMethodNames.has(method);
 }
 
 export function isDaemonGuiActionMethod(method: string): method is DaemonGuiActionMethod {
-  return daemonGuiActionMethods.some((entry) => entry.method === method);
+  return daemonGuiActionMethodNames.has(method);
 }
 
 export function isDaemonStreamMethod(method: string): method is DaemonStreamMethod {
-  return daemonStreamFacets.some((entry) => entry.method === method);
+  return daemonStreamMethodNames.has(method);
 }
 // The executor declaration surface, derived from the same shapes validateDaemonRpcCall enforces — never
 // a hand-copied method list. The task action methods accept the executor inside their open action envelope; every
@@ -372,7 +381,7 @@ export function validateGuiActionPayload(method: DaemonGuiActionMethod, value: u
     )
       errors.push("decision proposal is invalid");
   }
-  if (["repo.decision.accept", "repo.decision.reject", "repo.decision.defer"].includes(method))
+  if (decisionAdjudicationMethods.has(method))
     for (const field of [value.rationale, value.reason, value.judgmentOnlyRationale])
       if (field !== undefined && (typeof field !== "string" || [...field].length > 199))
         errors.push("decision rationale is invalid");

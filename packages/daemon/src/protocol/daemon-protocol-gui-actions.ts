@@ -449,3 +449,6 @@ type DaemonGuiStreamFacet = Extract<(typeof daemonStreamFacets)[number], { reado
 export const daemonGuiStreamFacets = Object.freeze(
   daemonStreamFacets.filter((facet): facet is DaemonGuiStreamFacet => "guiBridgeMethod" in facet),
 );
+export const daemonStreamFacetByMethod: ReadonlyMap<string, (typeof daemonStreamFacets)[number]> = new Map(
+  daemonStreamFacets.map((facet) => [facet.method, facet] as const),
+);
