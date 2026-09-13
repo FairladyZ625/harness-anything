@@ -20,15 +20,16 @@ export function createJsonLineFrameReader(): JsonLineFrameReader {
   return {
     push: (chunk) => {
       buffered += typeof chunk === "string" ? chunk : chunk.toString("utf8");
+      // Complete lines are frames regardless of how many arrived in one chunk; the cap bounds only the
+      // unterminated remainder, because buffering a newline-less writer forever would grow without bound.
+      const lines = buffered.split("\n");
+      buffered = lines.pop() ?? "";
       if (Buffer.byteLength(buffered) > JSON_LINE_FRAME_MAX_BYTES) {
-        // Drop the unterminated line and hand the caller an error it can fail the connection with;
-        // buffering a newline-less writer forever would grow without bound.
+        // Drop the unterminated line and hand the caller an error it can fail the connection with.
         const error = new Error(`JSON-RPC frame exceeds ${JSON_LINE_FRAME_MAX_BYTES} bytes`);
         buffered = "";
         return { frames: [], error };
       }
-      const lines = buffered.split("\n");
-      buffered = lines.pop() ?? "";
       return parseLines(lines);
     },
     flush: () => {

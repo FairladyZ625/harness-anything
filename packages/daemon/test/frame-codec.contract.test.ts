@@ -23,6 +23,23 @@ test("an unterminated frame larger than the transport cap fails the read instead
   assert.deepEqual(next.frames, [request]);
 });
 
+test("one chunk carrying many complete frames whose total exceeds the cap parses every frame", () => {
+  const reader = createJsonLineFrameReader();
+  // The cap bounds an unterminated line, not a batch: a peer that coalesces many small frames into one
+  // write must not be disconnected for it.
+  const line = encodeJsonLineFrame({ ...request, params: { body: "z".repeat(256 * 1024) } }),
+    count = Math.ceil(JSON_LINE_FRAME_MAX_BYTES / Buffer.byteLength(line)) + 2,
+    chunk = line.repeat(count);
+  assert.ok(Buffer.byteLength(chunk) > JSON_LINE_FRAME_MAX_BYTES, "fixture must exceed the cap in aggregate");
+  const batch = reader.push(chunk);
+  assert.equal(batch.error, undefined);
+  assert.equal(batch.frames.length, count);
+  // Complete frames followed by an over-cap unterminated tail: the frames are lost only with the tail.
+  const tail = reader.push(`${line}${"x".repeat(JSON_LINE_FRAME_MAX_BYTES + 1)}`);
+  assert.ok(tail.error, "an over-cap unterminated remainder must still surface an error");
+  assert.deepEqual(reader.push(`${JSON.stringify(request)}\n`).frames, [request]);
+});
+
 test("a frame just under the cap still parses across many chunks", () => {
   const reader = createJsonLineFrameReader();
   // A cap that rejected legitimate frames would break the largest payload the surface accepts today:
