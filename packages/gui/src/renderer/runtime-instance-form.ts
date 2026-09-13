@@ -8,7 +8,7 @@ import {
   type RuntimeAuthMode,
   type RuntimeKindId,
 } from "./runtime-provider-planes.ts";
-import { runtimeKindForId } from "../../../daemon/src/runtime-inventory.ts";
+import { runtimeEffortField, runtimeKindForId } from "../../../daemon/src/runtime-inventory.ts";
 
 export type CreateInstanceFormState = {
   readonly instanceId: string;
@@ -42,9 +42,10 @@ export type RuntimeInstanceEditFormState = {
   readonly fast: boolean;
   readonly initialFast: boolean;
   readonly fastEditable: boolean;
-  /** Claude effort preset; empty means the provider default. */
+  /** Reasoning effort preset (claude/agy `effort`, codex `reasoningEffort`); empty means the provider default. */
   readonly effort: string;
-  /** Claude-only: the effort update write path covers claude instances today. */
+  /** True for kinds whose catalog entry declares an effort field; the update write path
+   * keys off the same declaration. */
   readonly effortEditable: boolean;
 };
 
@@ -101,7 +102,7 @@ export function buildRuntimeInstanceCreatePayload(
 export function runtimeInstanceEditForm(instance: RuntimeInstanceSummary): RuntimeInstanceEditFormState {
   const editable = planeAllowsBaseUrl(instance.kindId, instance.authMode),
     fastEditable = "fast" in runtimeKindForId(instance.kindId).configuration.fields,
-    effortEditable = instance.kindId === "claude";
+    effortField = runtimeEffortField(instance.kindId);
   return {
     name: instance.name,
     installationId: instance.installationId,
@@ -113,8 +114,11 @@ export function runtimeInstanceEditForm(instance: RuntimeInstanceSummary): Runti
     fast: fastEditable && instance.configuration.fast === true,
     initialFast: fastEditable && instance.configuration.fast === true,
     fastEditable,
-    effortEditable,
-    effort: effortEditable && typeof instance.configuration.effort === "string" ? instance.configuration.effort : "",
+    effortEditable: effortField !== undefined,
+    effort:
+      effortField !== undefined && typeof instance.configuration[effortField] === "string"
+        ? (instance.configuration[effortField] as string)
+        : "",
   };
 }
 
@@ -171,8 +175,8 @@ export function buildRuntimeInstanceUpdatePayload(
     // Base URL rides the same update write path the other fields use; the empty field is
     // meaningful (back to the official endpoint), so it is sent whenever the plane has one.
     // A plane without an API mode has no base URL at all and the field is omitted there.
-    // Effort follows the same rule on the claude plane: empty means back to the provider
-    // default, so it is sent whenever the plane can set it.
+    // Effort follows the same rule on every plane that declares an effort field: empty
+    // means back to the provider default, so it is sent whenever the plane can set it.
     ...(form.baseUrlEditable ? { baseUrl: form.baseUrl.trim() } : {}),
     ...(form.effortEditable ? { effort: form.effort.trim() } : {}),
     ...(form.fastEditable && form.fast !== form.initialFast ? { fast: form.fast } : {}),

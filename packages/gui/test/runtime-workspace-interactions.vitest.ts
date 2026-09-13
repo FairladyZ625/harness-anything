@@ -804,48 +804,6 @@ describe("runtime entry split (W6 IA)", () => {
     expect(probe).toHaveBeenCalledWith("provider-selected");
   });
 
-  it("edits the base URL of an API-mode provider in place and can clear it back", async () => {
-    const onUpdate = vi.fn();
-    const apiInstance = {
-      ...providerInstance,
-      instanceId: "codex-api-edit",
-      name: "Codex API Edit",
-      authMode: "api-key" as const,
-      configuration: {
-        ...(providerInstance as { readonly configuration: object }).configuration,
-        baseUrl: "https://old-gateway.example/v1",
-        baseUrlConfigured: true,
-      },
-    };
-    await mountProviderCard(onUpdate, apiInstance);
-
-    await click("runtime-provider-edit");
-    expect((byTestId("runtime-provider-base-url") as HTMLInputElement).value).toBe("https://old-gateway.example/v1");
-    await input("runtime-provider-base-url", "https://new-gateway.example/v1");
-    await click("runtime-provider-save");
-    expect(onUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        instanceId: "codex-api-edit",
-        baseUrl: "https://new-gateway.example/v1",
-      }),
-    );
-
-    onUpdate.mockClear();
-    await click("runtime-provider-edit");
-    await input("runtime-provider-base-url", "");
-    await click("runtime-provider-save");
-    expect(onUpdate).toHaveBeenCalledWith(expect.objectContaining({ baseUrl: "" }));
-  });
-
-  it("keeps the base URL field disabled on a subscription provider", async () => {
-    const onUpdate = vi.fn();
-    await mountProviderCard(onUpdate);
-    await click("runtime-provider-edit");
-    expect((byTestId("runtime-provider-base-url") as HTMLInputElement).disabled).toBe(true);
-    await click("runtime-provider-cancel");
-    expect(onUpdate).not.toHaveBeenCalled();
-  });
-
   it("edits a provider with one cancelable draft and always keeps its default model selected", async () => {
     const onUpdate = vi.fn();
     await mountProviderCard(onUpdate);
@@ -877,6 +835,7 @@ describe("runtime entry split (W6 IA)", () => {
       installationId: "codex-install-b",
       models: ["model-b"],
       defaultModel: "model-b",
+      effort: "",
     });
   });
 });

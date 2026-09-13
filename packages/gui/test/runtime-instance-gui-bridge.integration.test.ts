@@ -41,13 +41,20 @@ test("GUI registry bridge lists, creates, updates, deletes, and probes a runtime
       executablePath,
       version: "2.1.260",
       observedAt: "2026-08-23T00:00:00.000Z",
+    },
+    agyInstallation: RuntimeInstallationWitness = {
+      installationId: "installation-gui-runtime-agy",
+      kindId: "agy",
+      executablePath,
+      version: "1.0.0",
+      observedAt: "2026-08-23T00:00:00.000Z",
     };
   const endpoint = localUserDaemonEndpoint(userRoot, daemonId),
     host = await openDaemonHost({
       daemonId,
       userRoot,
       endpoint,
-      runtimeDiscover: () => [installation, replacementInstallation, claudeInstallation],
+      runtimeDiscover: () => [installation, replacementInstallation, claudeInstallation, agyInstallation],
       runtimeEnv: { HOME: path.join(parent, "operator-home"), PATH: process.env.PATH ?? "" },
     });
   const transport = createUnixSocketTransportServer({
@@ -76,7 +83,7 @@ test("GUI registry bridge lists, creates, updates, deletes, and probes a runtime
       providerId: "openai",
       models: ["model-a", "model-b"],
       defaultModel: "model-a",
-      codex: {},
+      codex: { reasoningEffort: "high" },
       authMode: "subscription",
     })) as RuntimeReceipt;
     assert.equal(created.instance?.instanceId, "codex-gui", JSON.stringify(created));
@@ -158,6 +165,52 @@ test("GUI registry bridge lists, creates, updates, deletes, and probes a runtime
       instanceId: "claude-gui",
     })) as RuntimeReceipt;
     assert.equal(claudeDeleted.deletedInstanceId, "claude-gui", JSON.stringify(claudeDeleted));
+    // Codex and agy effort ride the same declaration-driven update write path under their
+    // own configuration keys, and an explicit empty value clears each back to its default.
+    const codexEffortUpdated = (await bridge.invoke("updateRuntimeInstance", {
+      instanceId: "codex-gui",
+      effort: "xhigh",
+    })) as RuntimeReceipt;
+    assert.equal(
+      codexEffortUpdated.instance?.configuration?.reasoningEffort,
+      "xhigh",
+      JSON.stringify(codexEffortUpdated),
+    );
+    const codexEffortCleared = (await bridge.invoke("updateRuntimeInstance", {
+      instanceId: "codex-gui",
+      effort: "",
+    })) as RuntimeReceipt;
+    assert.equal(
+      codexEffortCleared.instance?.configuration?.reasoningEffort ?? null,
+      null,
+      JSON.stringify(codexEffortCleared),
+    );
+    const agyCreated = (await bridge.invoke("createRuntimeInstance", {
+      instanceId: "agy-gui",
+      name: "AGY GUI",
+      kindId: "agy",
+      installationId: agyInstallation.installationId,
+      providerId: "google",
+      models: ["gemini-3.1-pro-low"],
+      defaultModel: "gemini-3.1-pro-low",
+      agy: { effort: "high" },
+      authMode: "subscription",
+    })) as RuntimeReceipt;
+    assert.equal(agyCreated.instance?.configuration?.effort, "high", JSON.stringify(agyCreated));
+    const agyEffortUpdated = (await bridge.invoke("updateRuntimeInstance", {
+      instanceId: "agy-gui",
+      effort: "low",
+    })) as RuntimeReceipt;
+    assert.equal(agyEffortUpdated.instance?.configuration?.effort, "low", JSON.stringify(agyEffortUpdated));
+    const agyEffortCleared = (await bridge.invoke("updateRuntimeInstance", {
+      instanceId: "agy-gui",
+      effort: "",
+    })) as RuntimeReceipt;
+    assert.equal(agyEffortCleared.instance?.configuration?.effort ?? null, null, JSON.stringify(agyEffortCleared));
+    const agyDeleted = (await bridge.invoke("deleteRuntimeInstance", {
+      instanceId: "agy-gui",
+    })) as RuntimeReceipt;
+    assert.equal(agyDeleted.deletedInstanceId, "agy-gui", JSON.stringify(agyDeleted));
     const probed = (await bridge.invoke("showRuntimeInstance", {
       instanceId: "codex-gui",
       probe: true,
@@ -168,7 +221,7 @@ test("GUI registry bridge lists, creates, updates, deletes, and probes a runtime
     const after = (await bridge.invoke("listRuntimeInstances", { all: true })) as RuntimeReceipt;
     assert.deepEqual(after.instances, []);
     console.info(
-      `GUI_RUNTIME_INSTANCE_BEHAVIOR ${JSON.stringify({ listed: true, created: created.instance?.instanceId, shown: shown.instance?.instanceId, updatedName: updated.instance?.name, updatedInstallation: updated.instance?.installationId, updatedModels: updated.instance?.models, updatedDefaultModel: updated.instance?.defaultModel, relisted: relisted.instances?.[0]?.name, claudeEffortCreated: claudeCreated.instance?.configuration?.effort, claudeEffortUpdated: claudeUpdated.instance?.configuration?.effort, claudeEffortCleared: claudeCleared.instance?.configuration?.effort ?? null, probed: probed.instance?.authReadiness?.status, deleted: deleted.deletedInstanceId })}`,
+      `GUI_RUNTIME_INSTANCE_BEHAVIOR ${JSON.stringify({ listed: true, created: created.instance?.instanceId, shown: shown.instance?.instanceId, updatedName: updated.instance?.name, updatedInstallation: updated.instance?.installationId, updatedModels: updated.instance?.models, updatedDefaultModel: updated.instance?.defaultModel, relisted: relisted.instances?.[0]?.name, claudeEffortCreated: claudeCreated.instance?.configuration?.effort, claudeEffortUpdated: claudeUpdated.instance?.configuration?.effort, claudeEffortCleared: claudeCleared.instance?.configuration?.effort ?? null, codexEffortUpdated: codexEffortUpdated.instance?.configuration?.reasoningEffort, codexEffortCleared: codexEffortCleared.instance?.configuration?.reasoningEffort ?? null, agyEffortCreated: agyCreated.instance?.configuration?.effort, agyEffortUpdated: agyEffortUpdated.instance?.configuration?.effort, agyEffortCleared: agyEffortCleared.instance?.configuration?.effort ?? null, probed: probed.instance?.authReadiness?.status, deleted: deleted.deletedInstanceId })}`,
     );
   } finally {
     await transport.stop();
@@ -194,7 +247,7 @@ interface RuntimeReceipt {
     readonly installationId?: string;
     readonly models?: readonly string[];
     readonly defaultModel?: string;
-    readonly configuration?: { readonly effort?: string | null };
+    readonly configuration?: { readonly effort?: string | null; readonly reasoningEffort?: string | null };
     readonly authReadiness?: { readonly status: string };
   };
   readonly deletedInstanceId?: string;

@@ -132,18 +132,40 @@ describe("provider edit form", () => {
     // An untouched effort survives an unrelated edit.
     expect(buildRuntimeInstanceUpdatePayload("claude-edit", form).effort).toBe("high");
   });
-  it("omits effort for kinds whose update write path does not carry it", () => {
+  it("seeds and edits codex and agy effort through the same update payload field", () => {
     const codex = runtimeInstanceEditForm(apiCodex);
-    expect(codex.effortEditable).toBe(false);
-    expect("effort" in buildRuntimeInstanceUpdatePayload("codex-edit", codex)).toBe(false);
+    expect(codex.effortEditable).toBe(true);
+    expect(codex.effort).toBe("");
+    expect(buildRuntimeInstanceUpdatePayload("codex-edit", { ...codex, effort: "xhigh" }).effort).toBe("xhigh");
+    // An explicit empty effort clears back to the provider default.
+    expect(buildRuntimeInstanceUpdatePayload("codex-edit", { ...codex, effort: "" }).effort).toBe("");
+    const codexConfigured = runtimeInstanceEditForm({
+      ...apiCodex,
+      configuration: { ...apiCodex.configuration, reasoningEffort: "high" },
+    });
+    expect(codexConfigured.effort).toBe("high");
+    // An untouched effort survives an unrelated edit.
+    expect(buildRuntimeInstanceUpdatePayload("codex-edit", codexConfigured).effort).toBe("high");
     const agy = runtimeInstanceEditForm({
       ...apiCodex,
       kindId: "agy",
       configuration: { effort: "high" },
       authMode: "subscription",
     });
-    expect(agy.effortEditable).toBe(false);
-    expect("effort" in buildRuntimeInstanceUpdatePayload("agy-edit", agy)).toBe(false);
+    expect(agy.effortEditable).toBe(true);
+    expect(agy.effort).toBe("high");
+    expect(buildRuntimeInstanceUpdatePayload("agy-edit", { ...agy, effort: "low" }).effort).toBe("low");
+    expect(buildRuntimeInstanceUpdatePayload("agy-edit", { ...agy, effort: "" }).effort).toBe("");
+  });
+  it("omits effort for kinds that declare no effort field", () => {
+    const zcode = runtimeInstanceEditForm({
+      ...apiCodex,
+      kindId: "zcode",
+      installationId: "zcode-install",
+      configuration: { baseUrl: null, baseUrlConfigured: false },
+    });
+    expect(zcode.effortEditable).toBe(false);
+    expect("effort" in buildRuntimeInstanceUpdatePayload("zcode-edit", zcode)).toBe(false);
   });
 });
 

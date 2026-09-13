@@ -398,8 +398,8 @@ export const runtimeConfigProtocolCommands = Object.freeze([
     path: ["runtime", "instance", "update", "<instance-id>"],
     positional: "instanceId",
     summary: [
-      "Update a runtime instance's installation, metadata, models, permissions, ",
-      "isolation, or enabled state without touching credentials.",
+      "Update a runtime instance's installation, metadata, models, permissions, isolation, ",
+      "reasoning effort, or enabled state without touching credentials.",
     ].join(""),
     method: "daemon.runtimeInstance.update",
     inputs: [

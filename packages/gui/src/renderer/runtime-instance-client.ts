@@ -21,8 +21,9 @@ export type RuntimeInstanceUpdateInput = {
   /** Non-empty replaces the endpoint (create-time validation applies); empty clears back
    * to the official endpoint; omitted leaves it untouched. claude/codex API mode only. */
   readonly baseUrl?: string;
-  /** Non-empty replaces the Claude effort preset (create-time validation applies); empty
-   * clears back to the provider default; omitted leaves it untouched. claude only. */
+  /** Non-empty replaces the effort preset under the kind's own configuration key
+   * (create-time validation applies); empty clears back to the provider default; omitted
+   * leaves it untouched. Available on kinds whose catalog entry declares an effort field. */
   readonly effort?: string;
   readonly enabled?: boolean;
   readonly permissionMode?: "bypass" | "workspace-write" | "read-only";
