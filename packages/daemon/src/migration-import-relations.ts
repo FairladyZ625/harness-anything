@@ -78,9 +78,11 @@ export function migrationRelationIndexes(source: ColdRebuildSource, relationMap:
   return {
     relationMap,
     factTargets: new Set<string>(),
-    legacyRelationIdsByCanonicalId: new Map(
-      [...source.legacyRelationIds].map(([legacyId, canonicalId]) => [canonicalId, legacyId]),
-    ),
+    // First legacy id per canonical id, matching the registry-order `find` this index replaces.
+    legacyRelationIdsByCanonicalId: [...source.legacyRelationIds].reduce((index, [legacyId, canonicalId]) => {
+      if (!index.has(canonicalId)) index.set(canonicalId, legacyId);
+      return index;
+    }, new Map<string, string>()),
   };
 }
 
