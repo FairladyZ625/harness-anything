@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { readWorkspaceText } from "../../daemon/src/workspace-text-port.ts";
@@ -12,7 +12,9 @@ import { renderCliReceipt } from "../src/cli/receipt-render-registry.ts";
 import { daemonFailure } from "../src/daemon/control-support.ts";
 
 test("missing workspace packets identify the root used for relative paths", () => {
-  const root = mkdtempSync(path.join(tmpdir(), "ha-packet-root-"));
+  const physicalRoot = mkdtempSync(path.join(realpathSync(tmpdir()), "ha-packet-root-")),
+    root = `${physicalRoot}-alias`;
+  symlinkSync(physicalRoot, root);
   try {
     mkdirSync(path.join(root, "harness"));
     writeFileSync(path.join(root, "harness/input.json"), "{}");
@@ -22,7 +24,7 @@ test("missing workspace packets identify the root used for relative paths", () =
       () => readWorkspaceText(root, "input.json", "fromFile"),
       (error: Error) => {
         const hint = humanError({ code: "invalid_command", rejectionExplanation: error.message }).hint;
-        assert.ok(hint.includes(root), hint);
+        assert.ok(hint.includes(physicalRoot), hint);
         assert.ok(hint.includes(workspacePathResolutionRule), hint);
         return true;
       },
@@ -31,7 +33,8 @@ test("missing workspace packets identify the root used for relative paths", () =
     assert.throws(() => readWorkspaceText(root, "invalid.json", "fromFile"), /readable UTF-8/u);
     assert.throws(() => readWorkspaceText(root, "../outside.json", "fromFile"), /outside the workspace boundary/u);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    rmSync(root, { force: true });
+    rmSync(physicalRoot, { recursive: true, force: true });
   }
 });
 
