@@ -7,7 +7,7 @@ export function requireCurrentTaskProjection(
   projection: Pick<TaskProjection, "read">,
   taskId: string,
   purpose: string,
-): ReturnType<TaskProjection["read"]> {
+): ReturnType<TaskProjection["read"]> & { readonly packagePath: string } {
   const read = projection.read(taskId);
   if (read.watermark < read.sourceRevision)
     throw projectionNotReady(
@@ -20,7 +20,7 @@ export function requireCurrentTaskProjection(
     });
   if (!read.packagePath)
     throw projectionNotReady(`Task ${taskId} has a canonical event but no projected package for ${purpose}`, read);
-  return read;
+  return read as ReturnType<TaskProjection["read"]> & { readonly packagePath: string };
 }
 
 // Serving read faces (task show, task dispatches) resolve one requested id against the applied

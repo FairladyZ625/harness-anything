@@ -28,6 +28,7 @@ import {
   requiredDocSyncText,
 } from "./doc-sync-files.ts";
 import { scanReceipt, scopeTouches } from "./doc-sync-settlement.ts";
+import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 
 export function readAction(input: Input): WriteReceipt {
   if (input.action.kind !== "doc-show") {
@@ -228,16 +229,18 @@ export function readProjectedDocument(
   const { rootDir, projection } = context,
     taskId = requiredDocSyncText(payload.taskId, "taskId"),
     requested = requiredDocSyncText(payload.path, "path"),
-    task = projection.read(taskId);
-  if (!task.packagePath) throw docSyncError("task_not_found", `Task ${taskId} has no projected package path.`);
-  const logical = documentPath(`${task.packagePath}/${requested}`),
+    // Absence settles through the same judgment as task show / dispatches / read-set: a lagging
+    // cut is not an answer about this task, and a current cut without it is a not-found naming it.
+    task = requireCurrentTaskProjection(projection, taskId, "task document read"),
+    packagePath = task.packagePath;
+  const logical = documentPath(`${packagePath}/${requested}`),
     read = projection.readDocument(logical),
     document = read.document,
     // What the accepted policy says this document is, and — before anything is accepted — what the
     // path itself claims. A reader must never have to infer "not text" from an empty body.
     binary =
       document === null ? classifyRawArtifactPath(logical) !== null : document.policyId === RAW_ARTIFACT_POLICY_ID,
-    packageRoot = taskPackageWorktreeRoot(rootDir, task.packagePath),
+    packageRoot = taskPackageWorktreeRoot(rootDir, packagePath),
     worktree = readWorktreeDocument(packageRoot, requested, binary),
     inline =
       binary && document !== null && Number(document.size) <= TASK_DOCUMENT_INLINE_BYTES_MAX
@@ -286,11 +289,13 @@ export function listProjectedTaskDocuments(
   payload: Readonly<Record<string, unknown>>,
 ): import("./protocol/daemon-protocol.contract.ts").DaemonTaskDocumentListResult {
   const taskId = requiredDocSyncText(payload.taskId, "taskId"),
-    task = projection.read(taskId);
-  if (!task.packagePath) throw docSyncError("task_not_found", `Task ${taskId} has no projected package path.`);
-  const prefix = `${task.packagePath}/`,
+    // Same shared judgment as the document read above: the list must not answer a lagging cut
+    // with stale rows, nor a current cut without the task with an empty success.
+    task = requireCurrentTaskProjection(projection, taskId, "task documents list"),
+    packagePath = task.packagePath;
+  const prefix = `${packagePath}/`,
     basis = projection.readReplicaBasis(null),
-    worktree = worktreeDocumentIndex(taskPackageWorktreeRoot(rootDir, task.packagePath), task.packagePath),
+    worktree = worktreeDocumentIndex(taskPackageWorktreeRoot(rootDir, packagePath), packagePath),
     worktreeByPath = new Map(worktree.map((row) => [row.path, row])),
     documents = [
       ...basis.documents

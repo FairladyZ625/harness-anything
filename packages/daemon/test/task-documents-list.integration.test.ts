@@ -79,6 +79,26 @@ test("repo.tasks.documents.list rejects an unknown task with task_not_found", as
   }
 });
 
+test("repo.tasks.document.read rejects an unknown task with task_not_found", async () => {
+  const repoId = "task-doc-read-missing";
+  const rootDir = mkdtempSync(path.join(tmpdir(), `ha-${repoId}-`));
+  initRepo(rootDir);
+  const cell = await openRepoCell({
+    repoId: workspaceId(repoId),
+    rootDir: canonicalRoot(rootDir),
+    ownerId: `daemon-${repoId}`,
+  });
+  try {
+    await assert.rejects(
+      () => cell.read("repo.tasks.document.read", { taskId: "task-missing", path: "task_plan.md" }),
+      (error: unknown) => (error as { code?: string }).code === "task_not_found",
+    );
+  } finally {
+    await cell.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 function initRepo(rootDir: string): void {
   git(rootDir, "init", "--quiet");
   git(rootDir, "config", "user.name", "Task Doc List Test");
