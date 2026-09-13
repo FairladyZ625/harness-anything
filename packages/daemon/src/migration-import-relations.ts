@@ -256,10 +256,13 @@ export function existingSourceEntity(
 
 export function readMigrationOperationRestatements(store: CanonicalEventStore): ReadonlyMap<string, string> {
   const mappings = new Map<string, string>();
-  let cursor: string | null = null;
-  do {
+  // readBatch signals exhaustion through `done`; its cursor stays non-null at the stream end.
+  let cursor: string | null = null,
+    done = false;
+  while (!done) {
     const batch = store.readBatch(cursor, 256);
     cursor = batch.cursor;
+    done = batch.done;
     for (const event of batch.events) {
       if (
         !isMigrationImportEvent(event) ||
@@ -305,7 +308,7 @@ export function readMigrationOperationRestatements(store: CanonicalEventStore): 
         }
       }
     }
-  } while (cursor !== null);
+  }
   return mappings;
 }
 
