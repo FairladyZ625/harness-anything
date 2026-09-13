@@ -189,6 +189,7 @@ export async function readCompleteRelationGraph(
 ): Promise<RelationGraphSuccess> {
   const first = await read({ limit: 500 });
   const pages = [first];
+  // 终止条件:服务端的 nextCursor 为空即最后一页(不是 cursor 本身为空)。
   let cursor = first.page?.nextCursor;
   while (cursor) {
     const next = await read({ limit: 500, cursor });
@@ -225,6 +226,22 @@ export async function readCompleteRelationGraph(
 }
 
 /**
+ * 完整关系图的唯一读面:key、排空式 queryFn、新鲜度窗口都只此一份。
+ * 分类(孤立/族归属)只允许消费这份完整图,触发语义也就只能有一份——完整读发生在
+ * 首次进入视图与台账 cut 失效(invalidateLedgerDependents)时;staleTime 是会话级
+ * 窗口,任务详情切 tab / 离开重进的重挂载不得每次排空全量(CEO 裁决 2026-09-13)。
+ */
+const COMPLETE_GRAPH_STALE_MS = 300_000;
+export function useCompleteRelationGraphQuery(repoId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: triadicQueryKeys.graph(repoId),
+    queryFn: () => readCompleteRelationGraph((payload) => harnessClient.getRelationGraph({ repoId, ...payload })),
+    enabled,
+    staleTime: COMPLETE_GRAPH_STALE_MS,
+  });
+}
+
+/**
  * 完整三元投影(图 + 决策)。**只有渲染它的视图挂载时才读**;
  * 总览只渲染决策流,因此调用方可单独关闭 graph。这里没有额外缓存层——
  * 省下的是"没人看的时候不请求",不是对同一个消费者降频。
@@ -236,13 +253,7 @@ export function useTriadicProjectionQuery(
   const enabled = options.enabled !== false && repoId !== null;
   const graphEnabled = enabled && options.graphEnabled !== false;
   const decisionsEnabled = enabled && options.decisionsEnabled !== false;
-  const graph = useQuery({
-    queryKey: triadicQueryKeys.graph(repoId ?? "unselected"),
-    queryFn: () =>
-      readCompleteRelationGraph((payload) => harnessClient.getRelationGraph({ repoId: repoId!, ...payload })),
-    enabled: graphEnabled,
-    staleTime: 10_000,
-  });
+  const graph = useCompleteRelationGraphQuery(repoId ?? "unselected", graphEnabled);
   const decisions = useQuery({
     queryKey: triadicQueryKeys.decisions(repoId ?? "unselected"),
     queryFn: () => harnessClient.getDecisions({ repoId: repoId! }),

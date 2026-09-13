@@ -447,6 +447,14 @@ function GraphViewInner({
             ? `领地 · ${territory?.zones.length ?? 0} 块`
             : `聚光灯 · ${spotlightStats.nodes} 节点 · ${spotlightStats.edges} 边`}
         </span>
+        {viewMode === "territory" && (
+          <span
+            data-testid="graph-relation-basis"
+            title="孤立/族归属按这份完整关系集判定;进入视图时读取,台账变化后重进或刷新时更新"
+          >
+            关系 · {relations.length} 条 · 完整
+          </span>
+        )}
         <GraphLegend showFulfillment={(coverageRows?.length ?? 0) > 0} entityKinds={entityKinds} />
         {viewMode === "spotlight" && <EgoHopsControl hops={hops} onHopsChange={setHops} />}
         {viewMode === "territory" && (

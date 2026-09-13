@@ -348,3 +348,10 @@ it("does not classify decisions while relations are loading or failed", async ()
   await act(async () => root.unmount());
   div.remove();
 });
+
+it("territory header states the complete relation set the classification is based on", async () => {
+  const { div, root } = await mountGraph({ viewMode: "territory", focusRef: null });
+  expect(div.querySelector("[data-testid='graph-relation-basis']")?.textContent).toContain("关系 · 3 条 · 完整");
+  await act(async () => root.unmount());
+  div.remove();
+});

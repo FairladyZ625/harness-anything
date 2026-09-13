@@ -20,7 +20,7 @@ import type { TaskMutationFeedback } from "../../task-actions.ts";
 import { useTaskCompletionQuery, useTaskDocumentQuery } from "../../task-data.ts";
 import {
   buildTriadicRendererData,
-  readCompleteRelationGraph,
+  useCompleteRelationGraphQuery,
   useTriadicProjectionQuery,
   triadicQueryKeys,
 } from "../../triadic-data.ts";
@@ -352,12 +352,7 @@ export function TaskEvidenceTab({
   readonly relations?: readonly RelationEdge[];
   readonly onNavigateEntity?: (ref: string) => void;
 }) {
-  const graph = useQuery({
-    queryKey: triadicQueryKeys.graph(task.projectId),
-    queryFn: () =>
-      readCompleteRelationGraph((payload) => harnessClient.getRelationGraph({ repoId: task.projectId, ...payload })),
-    staleTime: 10_000,
-  });
+  const graph = useCompleteRelationGraphQuery(task.projectId, true);
   const decisionRows = useQuery({
     queryKey: triadicQueryKeys.decisions(task.projectId),
     queryFn: () => harnessClient.getDecisions({ repoId: task.projectId }),

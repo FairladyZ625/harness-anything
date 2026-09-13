@@ -311,6 +311,15 @@ describe("Task detail expression", () => {
     expect(byTestId("task-relations-tab").textContent).toContain("PLT GUI UX");
     expect(byTestId("task-relations-tab").textContent).toContain("GUI 只展示后端结构化结果");
     expect(byTestId("task-relations-tab").textContent).toContain("runtime-w3");
+    // derives 边的 source 锚是 claim(decision/dec-gui/CH1),不是裸决策 id:
+    // 剥掉后缀归并到决策实体后,Decision 分组必须显示该绑定决策(CEO 裁决
+    // 2026-09-13:任务详情必须显示绑定的 Decision)。分到组里才叫绑定可见,
+    // 只在边行里出现 claim ref 不算。
+    const decisionGroup = [...byTestId("task-relations-tab").querySelectorAll("section")].find(
+      (section) => section.querySelector("h3")?.textContent === "Decision",
+    );
+    expect(decisionGroup?.textContent).toContain("dec-gui");
+    expect(decisionGroup?.textContent).toContain("in_effect");
 
     await clickTab("收口");
     expect(bridge.getTaskCompletion).toHaveBeenCalledTimes(1);
