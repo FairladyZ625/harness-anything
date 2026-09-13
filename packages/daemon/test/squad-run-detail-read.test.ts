@@ -101,6 +101,7 @@ function leaderArchive(): Record<string, unknown> {
 function projectionWith(archives: ReadonlyMap<string, Record<string, unknown>>): TaskProjection {
   const rows: { squadRunId: string; revision: number; state: unknown }[] = [];
   return {
+    read: (taskId: string) => ({ watermark: 1, sourceRevision: 1, snapshot: { task: { taskId } } }),
     readTaskStatuses: () => ({ status: "ready", rows: [], watermark: 1, sourceRevision: 1 }),
     readTaskRuntimeBatch: (query: { readonly taskIds: readonly string[] }) => ({
       status: "ready" as const,

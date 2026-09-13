@@ -156,6 +156,7 @@ function makeRecoveryFixture(
   });
 
   const projection = {
+      read: (taskId: string) => ({ watermark: 1, sourceRevision: 1, snapshot: { task: { taskId } } }),
       readTaskStatuses: () => ({ status: "ready", rows: [], watermark: 1, sourceRevision: 1 }),
       readTaskRuntimeBatch: (query: { readonly taskIds: readonly string[] }) => ({
         status: "ready",
