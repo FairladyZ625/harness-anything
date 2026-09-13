@@ -224,106 +224,17 @@ export interface DaemonControlReceipt {
   readonly error: BridgeError | null;
   readonly nextAction: string | null;
 }
-export interface CatalogPresetRow {
-  readonly id: string;
-  readonly title: string;
-  readonly description: string;
-  readonly verticalId: string;
-  readonly sourceKind: "bundled" | "user" | "user-shadow";
-  readonly validity: "valid" | "unavailable" | "blocked";
-  readonly version: string | null;
-  readonly kind: string | null;
-  readonly defaultProfile: string | null;
-  readonly profiles: ReadonlyArray<{ readonly id: string; readonly title: string }>;
-  readonly entrypoints: ReadonlyArray<string>;
-  readonly issues: ReadonlyArray<unknown>;
-  readonly shadows: { readonly layer: "bundled"; readonly title: string } | null;
-}
-export interface CatalogVerticalRow {
-  readonly id: string;
-  readonly title: string;
-  readonly version: string;
-  readonly source: "builtin";
-  readonly available: boolean;
-  readonly valid: boolean;
-  readonly issues: ReadonlyArray<unknown>;
-}
-export interface CatalogTemplateRow {
-  readonly templateRef: string;
-  readonly slot: string;
-  readonly materializeAs: string;
-  readonly locales: ReadonlyArray<string>;
-}
-export interface CatalogAdapterRow {
-  readonly adapterId: string;
-  readonly registered: true;
-  readonly capabilities: ReadonlyArray<string>;
-  readonly writability: "read-only" | "read-write" | "unknown";
-  readonly defaultProvider: boolean;
-  readonly unavailableReason: string | null;
-}
-export interface CatalogSnapshotSuccess {
-  readonly schema: "gui-catalog-snapshot/v1";
-  readonly ok: true;
-  readonly status: "ready" | "pending";
-  readonly repoId: string;
-  readonly observedAt: string;
-  readonly defaults: {
-    readonly verticalId: string;
-    readonly presetId: string;
-    readonly profileId: string | null;
-    readonly locale: string;
-  };
-  readonly presets: ReadonlyArray<CatalogPresetRow>;
-  readonly verticals: ReadonlyArray<CatalogVerticalRow>;
-  readonly templates: ReadonlyArray<CatalogTemplateRow>;
-  readonly scaffolds: { readonly task: ReadonlyArray<string>; readonly repository: ReadonlyArray<string> };
-  /** settings 动作契约字段表(daemon 侧校验行 shape):仓库设置表单的派生源。 */
-  readonly settingsFields: ReadonlyArray<{
-    readonly field: string;
-    readonly type: string;
-    readonly required: boolean;
-    readonly enum?: readonly string[];
-  }>;
-  readonly adapters: ReadonlyArray<CatalogAdapterRow>;
-}
-export interface CatalogPresetDocument {
-  readonly slot: string;
-  readonly path: string;
-  readonly body: string;
-  readonly mediaType: string;
-  readonly owner: string;
-  readonly templateRef: string;
-}
-export interface CatalogPresetSuccess {
-  readonly schema: "gui-catalog-preset/v1";
-  readonly ok: true;
-  readonly repoId: string;
-  readonly preset: {
-    readonly id: string;
-    readonly verticalId: string;
-    readonly version: string | null;
-    readonly extends: string | null;
-    readonly capabilityImports: ReadonlyArray<unknown>;
-  };
-  readonly resolved: {
-    readonly profile: Readonly<Record<string, unknown>>;
-    readonly templates: ReadonlyArray<unknown>;
-    readonly documents: ReadonlyArray<CatalogPresetDocument>;
-    readonly entrypoints: ReadonlyArray<unknown>;
-    readonly provenance: Readonly<Record<string, unknown>>;
-    readonly digest: string;
-  };
-}
-export interface CatalogRereadReceipt {
-  readonly schema: "catalog-reread-receipt/v1";
-  readonly ok: boolean;
-  readonly outcome: "applied" | "op_rejected";
-  readonly operationId: string;
-  readonly repoId: string;
-  readonly observedAt: string;
-  readonly error: BridgeError | null;
-}
+import type { CatalogPresetSuccess, CatalogRereadReceipt, CatalogSnapshotSuccess } from "./api-client-catalog.ts";
+export type {
+  CatalogAdapterRow,
+  CatalogPresetDocument,
+  CatalogPresetRow,
+  CatalogPresetSuccess,
+  CatalogRereadReceipt,
+  CatalogSnapshotSuccess,
+  CatalogTemplateRow,
+  CatalogVerticalRow,
+} from "./api-client-catalog.ts";
 
 export const harnessClient = {
   async getSystemStatus(): Promise<SystemStatusSuccess> {
@@ -458,6 +369,16 @@ export const harnessClient = {
     },
   ): Promise<GuiActionResult> {
     return readGuiActionResult(await invoke("repo.task.submit", payload, "submitTask"));
+  },
+  /** 收口销账的唯一 GUI 写通道:无 consent=请中心派发独立评审,true=记录一次人的同意。 */
+  async completeTask(
+    payload: RepoScope & {
+      readonly taskId: string;
+      readonly executionId?: string;
+      readonly consent?: boolean;
+    },
+  ): Promise<GuiActionResult> {
+    return readGuiActionResult(await invoke("repo.task.complete", payload, "completeTask"));
   },
   /** 台账 pin 的唯一 GUI 写通道:daemon 侧就是 `ha task pin` 的 pinned-only amend。 */
   async pinTask(payload: RepoScope & { readonly taskId: string }): Promise<GuiActionResult> {

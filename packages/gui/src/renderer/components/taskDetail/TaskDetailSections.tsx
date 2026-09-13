@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { ArrowSquareOut, CheckCircle, Circle, ClockCounterClockwise, FileText, XCircle } from "@phosphor-icons/react";
+import { ArrowSquareOut, Circle, FileText } from "@phosphor-icons/react";
 import type {
   AgentRuntimeEventsResult,
   AgentRuntimeSessionResult,
@@ -8,8 +8,7 @@ import type {
 import type { RelationFactRow, TaskDispatchProjectionRow } from "../../../api/renderer-dto.ts";
 import { agentRuntimeClient, runtimeQueryKeys } from "../../agent-runtime-client.ts";
 import { harnessClient } from "../../api-client.ts";
-import type { TaskMutationFeedback } from "../../task-actions.ts";
-import { useTaskCompletionQuery, useTaskDocumentQuery } from "../../task-data.ts";
+import { useTaskDocumentQuery } from "../../task-data.ts";
 import { buildTriadicRendererData, useCompleteRelationGraphQuery, triadicQueryKeys } from "../../triadic-data.ts";
 import { formatTime } from "../../model/time.ts";
 import type { RelationEdge, TaskRow } from "../../model/types.ts";
@@ -34,27 +33,8 @@ import { activeProducesFactRefs } from "../../model/triadic.ts";
 import { EntityRefLink } from "../EntityRefLink.tsx";
 import { buildFactTriage, SIGNAL_LABEL, type FactTriageItem } from "../../model/fact-triage.ts";
 import { buildFactTriageContext } from "../../model/copy-context.ts";
-import {
-  adaptTaskExecutions,
-  buildExecutionEvidenceContext,
-  checkerResultField,
-  field,
-  receiptField,
-  type ExecutionEvidenceRow,
-} from "../../model/execution-evidence.ts";
-import { CloseoutBadge } from "../badges.tsx";
 import { CopyContextButton } from "../CopyContextButton.tsx";
 import { DocReader } from "../DocReader.tsx";
-import { TaskControlPanel } from "../TaskControlPanel.tsx";
-
-interface TaskActionProps {
-  readonly mutationFeedback?: TaskMutationFeedback;
-  readonly onProgress?: (input: {
-    text: string;
-    evidence: ReadonlyArray<{ type: string; path: string; summary: string }>;
-  }) => Promise<unknown>;
-  readonly onSubmit?: () => Promise<unknown>;
-}
 
 export function TaskOverviewTab({ task }: { readonly task: TaskRow }) {
   const plan = useTaskDocumentQuery(task.projectId, task.taskId, "task_plan.md");
@@ -497,256 +477,6 @@ function FactRow({
   );
 }
 
-export function TaskCloseoutTab({
-  task,
-  mutationFeedback,
-  onProgress,
-  onSubmit,
-}: { readonly task: TaskRow } & TaskActionProps) {
-  const completion = useTaskCompletionQuery(task.projectId, task.taskId),
-    completionNext = completion.data?.completionNext,
-    reviews = task.reviews ?? [],
-    consents = task.consents ?? [],
-    codeDocs = task.codeDocWitnesses ?? [],
-    gateWitnesses = task.gateWitnesses ?? [];
-  // W5:执行证据页撤销后,execution 输出/回执并入收口——从投影行原样适配
-  // (model/execution-evidence),reviews/consents/gate 见证按 execution 对齐。
-  const executions = useMemo(
-    () =>
-      task.executions === undefined || task.executionEvidence === undefined
-        ? []
-        : adaptTaskExecutions({
-            taskId: task.taskId,
-            updatedAt: task.lastKnownAt,
-            snapshotAvailability: task.snapshotAvailability,
-            snapshot: {
-              task: { title: task.title },
-              executions: task.executions,
-              reviews: task.reviews ?? [],
-              consents: task.consents ?? [],
-              gateWitnesses: task.gateWitnesses ?? [],
-            },
-            executionEvidence: task.executionEvidence,
-          }),
-    [task],
-  );
-  return (
-    <section data-testid="task-closeout-tab">
-      <SectionHeading
-        eyebrow="CLOSEOUT"
-        title="收口与门"
-        description="后端 closeoutAssessment、snapshot witness 与 execution 输出回执的原样展示"
-      />
-      <div className="mt-7 grid gap-8 xl:grid-cols-[minmax(0,1fr)_22rem]">
-        <div className="grid content-start gap-8">
-          <div className="flex flex-wrap items-center gap-3 border-y border-border py-4">
-            <CloseoutBadge value={task.closeoutReadiness} />
-            {completion.isError ? <ReadError text={String(completion.error)} /> : null}
-            {completionNext ? (
-              <div data-testid="task-completion-next">
-                <p>{completionNext.reason}</p>
-                <p>{completionNext.action}</p>
-                <p>{completionNext.authority}</p>
-              </div>
-            ) : null}
-            {task.snapshotAvailability ? (
-              <span className="ml-auto font-mono ui-micro text-text-faint">
-                availability · consent {task.snapshotAvailability.consents} · code/doc{" "}
-                {task.snapshotAvailability.codeDocWitnesses} · gates {task.snapshotAvailability.gateWitnesses}
-              </span>
-            ) : null}
-          </div>
-          <AuditGroup title="Review" count={reviews.length}>
-            {reviews.map((review) => (
-              <AuditRow
-                key={review.reviewId}
-                id={review.reviewId}
-                state={review.verdict}
-                summary={review.reason}
-                at={review.reviewedAt}
-              />
-            ))}
-          </AuditGroup>
-          <AuditGroup title="Consent" count={consents.length}>
-            {consents.map((consent) => (
-              <AuditRow
-                key={consent.consentId}
-                id={consent.consentId}
-                state="recorded"
-                summary={`review ${consent.reviewId}`}
-                at={consent.consentedAt}
-              />
-            ))}
-          </AuditGroup>
-          <AuditGroup title="Code / doc witness" count={codeDocs.length}>
-            {codeDocs.map((witness) => (
-              <AuditRow
-                key={witness.schema === "code-doc-witness/v1" ? witness.witnessId : witness.recordId}
-                id={witness.schema === "code-doc-witness/v1" ? witness.witnessId : witness.recordId}
-                state={
-                  witness.schema === "code-doc-witness/v1" || witness.paths.length > 0 ? "reconciled" : "known-invalid"
-                }
-                summary={witness.paths.join(", ")}
-                at={witness.schema === "code-doc-witness/v1" ? witness.reconciledAt : witness.repointedAt}
-              />
-            ))}
-          </AuditGroup>
-          <AuditGroup title="Gate witness" count={gateWitnesses.length}>
-            {gateWitnesses.map((witness) => (
-              <AuditRow
-                key={witness.witnessId}
-                id={witness.gateId}
-                state={witness.result}
-                summary={`${witness.checkerId} · ${witness.receiptId}`}
-                at={witness.verifiedAt}
-              />
-            ))}
-          </AuditGroup>
-          <ExecutionOutputsGroup executions={executions} />
-        </div>
-
-        <aside className="grid content-start gap-7 border-t border-border pt-6 xl:border-t-0 xl:border-l xl:pt-0 xl:pl-6">
-          <div>
-            <h3 className="ui-body font-semibold text-text">Gate assessment</h3>
-            {task.gates.length === 0 ? (
-              <p className="mt-3 ui-meta text-text-faint">没有 completion gate。</p>
-            ) : (
-              <div className="mt-3 grid gap-2">
-                {task.gates.map((gate) => (
-                  <div key={gate.name} className="grid grid-cols-[1rem_minmax(0,1fr)] gap-2 ui-micro">
-                    {gate.ok === true ? (
-                      <CheckCircle weight="bold" className="mt-0.5 text-status-done" />
-                    ) : gate.ok === false ? (
-                      <XCircle weight="bold" className="mt-0.5 text-danger" />
-                    ) : (
-                      <ClockCounterClockwise weight="bold" className="mt-0.5 text-stale" />
-                    )}
-                    <div>
-                      <p className="font-mono text-text-muted">{gate.name}</p>
-                      {gate.detail ? <p className="mt-0.5 leading-5 text-text-faint">{gate.detail}</p> : null}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-          <TaskControlPanel task={task} feedback={mutationFeedback} onProgress={onProgress} onSubmit={onSubmit} />
-        </aside>
-      </div>
-    </section>
-  );
-}
-
-function AuditGroup({
-  title,
-  count,
-  children,
-}: {
-  readonly title: string;
-  readonly count: number;
-  readonly children: React.ReactNode;
-}) {
-  return (
-    <section>
-      <div className="mb-2 flex items-center gap-2">
-        <h3 className="ui-body font-semibold text-text">{title}</h3>
-        <span className="font-mono ui-micro text-text-faint">{count}</span>
-      </div>
-      {count === 0 ? (
-        <p className="border-t border-border py-3 ui-meta text-text-faint">暂无记录。</p>
-      ) : (
-        <div className="divide-y divide-border border-y border-border">{children}</div>
-      )}
-    </section>
-  );
-}
-
-// Execution 输出与回执(原「执行证据」页的 per-task 内容):每个 execution 一块,
-// 输出按 evidenceId/substrate/locator/receipt/result 逐条展示,回执判定着色。
-function ExecutionOutputsGroup({ executions }: { readonly executions: readonly ExecutionEvidenceRow[] }) {
-  return (
-    <AuditGroup title="Execution 输出" count={executions.length}>
-      {executions.map((execution) => (
-        <article
-          key={execution.executionId}
-          data-testid={`task-execution-${execution.executionId}`}
-          className="grid gap-3 py-3"
-        >
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono ui-micro">
-            <span className="font-semibold text-text">{execution.executionId}</span>
-            <span className="rounded border border-border px-1.5 py-0.5 text-text-muted">{field(execution.state)}</span>
-            {execution.origin && (
-              <span className="rounded border border-border px-1.5 py-0.5 text-text-faint">{execution.origin}</span>
-            )}
-            <span className="text-text-faint">
-              iteration {field(execution.iteration)} · commit{" "}
-              {field(execution.commitSha && execution.commitSha.slice(0, 10))}
-            </span>
-            <span className="ml-auto text-text-faint">
-              {execution.outputs.length} outputs ·{" "}
-              {execution.outputs.filter(({ isPassingReceipt }) => isPassingReceipt).length} passing
-            </span>
-          </div>
-          {execution.outputs.length === 0 ? (
-            <p className="ui-meta text-text-faint">该 execution 没有输出记录。</p>
-          ) : (
-            <div className="grid gap-1">
-              {execution.outputs.map((output, index) => (
-                <div
-                  key={`${output.evidenceId ?? "unknown"}-${index}`}
-                  className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded border border-border/70 bg-surface-raised/35 px-2 py-1.5 font-mono ui-micro"
-                >
-                  <span className="min-w-0 truncate text-text">{field(output.evidenceId)}</span>
-                  <span className="min-w-0 truncate text-text-muted">
-                    {field(output.substrate)} · {field(output.locator)}
-                  </span>
-                  <span
-                    className={
-                      output.isPassingReceipt
-                        ? "text-status-done"
-                        : output.checkerReceiptRef === null
-                          ? "text-stale"
-                          : "text-status-unknown"
-                    }
-                  >
-                    {receiptField(output.checkerReceiptRef)} · {checkerResultField(output.checkerResult)}
-                  </span>
-                  <span className="ml-auto">
-                    <CopyContextButton compact buildText={() => buildExecutionEvidenceContext(execution, output)} />
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </article>
-      ))}
-    </AuditGroup>
-  );
-}
-
-function AuditRow({
-  id,
-  state,
-  summary,
-  at,
-}: {
-  readonly id: string;
-  readonly state: string;
-  readonly summary: string;
-  readonly at: string;
-}) {
-  return (
-    <div className="grid gap-2 py-3 sm:grid-cols-[11rem_minmax(0,1fr)_9rem]">
-      <div>
-        <p className="font-mono ui-micro text-text-muted">{id}</p>
-        <p className="mt-0.5 font-mono ui-micro text-text-faint">{state}</p>
-      </div>
-      <p className="min-w-0 break-words ui-meta leading-5 text-text">{summary}</p>
-      <Timestamp value={at} />
-    </div>
-  );
-}
-
 function ChainStep({
   index,
   title,
@@ -812,7 +542,7 @@ function StatusDot({ status }: { readonly status: TaskDispatchProjectionRow["sta
 
 // 信息密度(task_9f39e256):分区标题从三行(eyebrow/标题/描述)压成单行 inline 条——
 // eyebrow + 标题 + 描述同行基线对齐,描述截断;信息一条不少,高度从 ~67px 降到 ~20px。
-function SectionHeading({
+export function SectionHeading({
   eyebrow,
   title,
   description,
@@ -833,7 +563,7 @@ function SectionHeading({
   );
 }
 
-function Timestamp({ value }: { readonly value: string }) {
+export function Timestamp({ value }: { readonly value: string }) {
   return (
     <time dateTime={value} title={value} className="font-mono ui-micro text-text-faint">
       {formatTime(value, { style: "date-time-seconds" }) ?? value}
@@ -845,7 +575,7 @@ function Pending({ text }: { readonly text: string }) {
   return <p className="animate-pulse ui-meta text-text-faint">{text}</p>;
 }
 
-function ReadError({ text }: { readonly text: string }) {
+export function ReadError({ text }: { readonly text: string }) {
   return <p className="ui-meta leading-5 text-danger">{text}</p>;
 }
 

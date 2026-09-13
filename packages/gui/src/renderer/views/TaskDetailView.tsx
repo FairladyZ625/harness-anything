@@ -14,12 +14,8 @@ import {
 import { EngineBadge, FreshnessTag, StatusBadge } from "../components/badges.tsx";
 import { EntityRefLink } from "../components/EntityRefLink.tsx";
 import { ViewInGraphButton } from "../components/ViewInGraphButton.tsx";
-import {
-  TaskCloseoutTab,
-  TaskDispatchTab,
-  TaskEvidenceTab,
-  TaskOverviewTab,
-} from "../components/taskDetail/TaskDetailSections.tsx";
+import { TaskDispatchTab, TaskEvidenceTab, TaskOverviewTab } from "../components/taskDetail/TaskDetailSections.tsx";
+import { TaskCloseoutTab } from "../components/taskDetail/TaskCloseoutTab.tsx";
 import { TaskRelationsTab, type TaskDecisionRef } from "../components/taskDetail/TaskRelationsTab.tsx";
 import { TaskDocumentSidebar, TaskFilesTab } from "../components/taskDetail/TaskFilesTab.tsx";
 import { PhaseSteps } from "../components/taskDetail/PhaseSteps.tsx";
@@ -56,6 +52,7 @@ export function TaskDetailView({
   mutationFeedback,
   onProgress,
   onSubmit,
+  onComplete,
   onSetPin,
   onFocusGraph,
 }: {
@@ -79,6 +76,8 @@ export function TaskDetailView({
     evidence: ReadonlyArray<{ type: string; path: string; summary: string }>;
   }) => Promise<unknown>;
   onSubmit?: () => Promise<unknown>;
+  /** 收口销账写通道(`ha task complete` 同一动作);缺省时完成面板只读。 */
+  onComplete?: (consent: boolean) => Promise<unknown>;
   /** 台账 pin 写通道(`ha task pin` 同一动作);缺省时只显示 📌 状态。 */
   onSetPin?: (task: TaskRow, pinned: boolean) => void;
   /** 统一「在关系图中查看」入口(task_89d324b5);缺省不渲染。 */
@@ -359,6 +358,7 @@ export function TaskDetailView({
                 mutationFeedback={mutationFeedback}
                 onProgress={onProgress}
                 onSubmit={onSubmit}
+                onComplete={onComplete}
               />
             ) : (
               <TaskFilesTab task={task} activeDoc={activeDoc} onOpenDoc={openDocument} />

@@ -10,7 +10,7 @@ import { GraphView } from "../src/renderer/views/GraphView.tsx";
 import { PhaseSteps } from "../src/renderer/components/taskDetail/PhaseSteps.tsx";
 import { DecisionPoolView } from "../src/renderer/views/DecisionPoolView.tsx";
 import { TaskDetailView } from "../src/renderer/views/TaskDetailView.tsx";
-import { TaskCloseoutTab } from "../src/renderer/components/taskDetail/TaskDetailSections.tsx";
+import { TaskCloseoutTab } from "../src/renderer/components/taskDetail/TaskCloseoutTab.tsx";
 import { DecisionJudgmentPanel } from "../src/renderer/components/DecisionJudgmentPanel.tsx";
 import { DecisionProposalForm } from "../src/renderer/components/DecisionProposalForm.tsx";
 import { taskDocumentQuery } from "../src/renderer/task-data.ts";

@@ -67,7 +67,7 @@ export function createGuiExecutionId(randomUUID: () => string = () => crypto.ran
 
 export interface TaskMutationFeedback {
   readonly state: "pending" | "success" | "error";
-  readonly kind: "start" | "progress" | "submit" | "pin";
+  readonly kind: "start" | "progress" | "submit" | "complete" | "pin";
   readonly opId: string;
   readonly code?: string;
   readonly hint: string;
@@ -224,6 +224,25 @@ export function useTaskActions(repoId: string) {
       }),
     [once, reread],
   );
+  // 收口销账与 `ha task complete` 同一条 daemon 动作:无 consent 时中心在 review 门
+  // 派发独立评审(回执按 review_missing 落定为 op_rejected,属正常停门不是失败);
+  // consent=true 记录一次人的同意并完成。评审是否批准只由读面回答,这里不推导。
+  const completeTask = useCallback(
+    (task: TaskRow, consent: boolean): Promise<TaskMutationFeedback> =>
+      once(`complete:${task.taskId}:${consent}`, task.taskId, async () => {
+        publish(task.taskId, {
+          state: "pending",
+          kind: "complete",
+          opId: "awaiting-receipt",
+          hint: consent ? "正在同意完成…" : "正在提交完成(派发独立评审)…",
+        });
+        const settlement = settleTaskReceipt(
+          await harnessClient.completeTask({ repoId, taskId: task.taskId, ...(consent ? { consent: true } : {}) }),
+        );
+        return reread(task.taskId, "complete", settlement);
+      }),
+    [once, reread],
+  );
   // 台账 pin 的 GUI 写通道:与 `ha task pin/unpin` 完全同一条 daemon 动作
   // (pinned-only `task-amend`),不另造写路。pinned 与 coordinationStatus 正交,
   // 所以可见性判据只看 `snapshot.task.pinned` 这一件事。
@@ -243,5 +262,5 @@ export function useTaskActions(repoId: string) {
       }),
     [once, reread],
   );
-  return { feedback, startTask, appendProgress, submitTask, setTaskPin };
+  return { feedback, startTask, appendProgress, submitTask, completeTask, setTaskPin };
 }

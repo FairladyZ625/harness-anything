@@ -70,6 +70,18 @@ export const daemonGuiActionMethods = Object.freeze([
     "/api/tasks/:taskId/submit",
     "repo-write",
   ),
+  // Pure passthrough of the fleet `task-complete` action: consent=false asks the center to
+  // dispatch the independent reviewer, consent=true records the one human consent. The GUI
+  // adds no verdict, CI, or business judgment of its own.
+  guiAction(
+    "task.complete",
+    "repo.task.complete",
+    "task-complete",
+    shape({ taskId: "string", executionId: "string?", consent: "boolean?" }),
+    "completeTask",
+    "/api/tasks/:taskId/complete",
+    "repo-write",
+  ),
   // Pin/unpin is a named ingress onto task-amend, not a second path; its closed payload keeps the write canonical.
   guiAction(
     "task.pin",
