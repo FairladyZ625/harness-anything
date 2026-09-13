@@ -964,6 +964,7 @@ test("Codex API-key bearer remains confined to the private provider config", asy
       version: "1.0.0",
       observedAt: "2026-08-19T00:00:00.000Z",
     } as RuntimeInstallationWitness;
+  let exit: ((code: number | null) => void) | undefined;
   try {
     mkdirSync(root);
     git(root, "init", "-q");
@@ -1011,7 +1012,7 @@ test("Codex API-key bearer remains confined to the private provider config", asy
           },
           onErrorOutput: () => undefined,
           onExit: (listener) => {
-            queueMicrotask(() => listener(0));
+            exit = listener;
           },
           terminate: () => undefined,
         };
@@ -1031,11 +1032,18 @@ test("Codex API-key bearer remains confined to the private provider config", asy
             source: "local",
           },
         ),
-        read = await eventuallyValue(async () => {
-          const value = await cell.read("repo.agentRuntime.sessions.read", {
-            runtimeSessionId: receipt.runtimeSessionId,
-          });
-          return value.result ? value : null;
+        attached = await cell.attach(String(receipt.runtimeSessionId), "stream:0");
+      assert.equal(attached.initial.ok, true, JSON.stringify(attached.initial));
+      assert.ok(exit, "runtime exit listener must be attached before the provider exits");
+      exit(0);
+      // The exit frame is published only after the outcome event commits and projects.
+      for (;;) {
+        const event = await attached.next();
+        assert.notEqual(event, null, "runtime attach stream closed before the exit signal arrived");
+        if (event?.type === "exit") break;
+      }
+      const read = await cell.read("repo.agentRuntime.sessions.read", {
+          runtimeSessionId: receipt.runtimeSessionId,
         }),
         events = makeTaskEventStore({
           repoId: "runtime-bearer-confidentiality",
@@ -1050,6 +1058,7 @@ test("Codex API-key bearer remains confined to the private provider config", asy
           "utf8",
         );
       assert.match(config, new RegExp(`experimental_bearer_token = ${JSON.stringify(secret)}`, "u"));
+      assert.ok(read.result, "the terminal outcome must be projected before the exit signal is published");
       for (const value of [receipt, read, events, stream])
         assert.doesNotMatch(JSON.stringify(value), new RegExp(secret, "u"));
     } finally {
@@ -1107,15 +1116,6 @@ async function rpc(
   } finally {
     server.close();
   }
-}
-
-async function eventuallyValue<T>(read: () => T | null | Promise<T | null>): Promise<T> {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
-    const value = await read();
-    if (value !== null) return value;
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-  throw new Error("runtime provider event did not arrive");
 }
 
 function git(root: string, ...args: string[]): void {
