@@ -97,16 +97,18 @@ export function openDaemonLifecycleLog(input: {
     keptFiles = input.keptFiles ?? defaultKeptFiles,
     now = input.now ?? (() => new Date()),
     pid = input.pid ?? process.pid;
-  let prepared = false,
+  let preparedDirectory = false,
     reportedFailure = false;
   return {
     record: (entry) => {
       try {
-        if (!prepared) {
+        if (!preparedDirectory) {
           mkdirSync(path.dirname(logPath), { recursive: true });
-          rotateLifecycleLog(logPath, maxBytes, keptFiles);
-          prepared = true;
+          preparedDirectory = true;
         }
+        // One recorder serves the daemon's whole life, so the size cap is rechecked before every
+        // append: rotateLifecycleLog early-returns on a single statSync when the file is under it.
+        rotateLifecycleLog(logPath, maxBytes, keptFiles);
         appendFileSync(
           logPath,
           `${JSON.stringify({ schema: DAEMON_LIFECYCLE_LOG_SCHEMA.id, at: now().toISOString(), daemonId: input.daemonId, pid, ...entry } satisfies DaemonLifecycleRecord)}\n`,
