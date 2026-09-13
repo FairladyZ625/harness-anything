@@ -93,7 +93,7 @@ function validateEntry(gateId, entry, label) {
   if (typeof entry.ref !== "string" || entry.ref.trim() === "") {
     fail(gateId, `${label} must include a non-empty ref`);
   }
-  if (!/^(?:ADR-\d{4}|dec_[A-Za-z0-9_]+|task_[A-Za-z0-9]+)/u.test(entry.ref)) {
+  if (!/^(?:task_(?:[0-9A-HJKMNP-TV-Z]{26}|[0-9a-f]{26})$|ADR-\d{4}|dec_[A-Za-z0-9_]+)/u.test(entry.ref)) {
     fail(gateId, `${label}.ref must cite an ADR, decision, or task id`);
   }
   if (typeof entry.reason !== "string" || entry.reason.trim() === "") {

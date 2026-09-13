@@ -235,7 +235,6 @@ export type {
 } from "./layout/index.ts";
 export * from "./markdown/frontmatter.ts";
 export * from "./ports/index.ts";
-export { detectRelationGraphCycles } from "./projection/relation-graph-projection.ts";
 export type {
   FactAnchorRow,
   RelationCoverageRow,

@@ -219,6 +219,7 @@ function validateIntentionalTestDeletions({ repoRoot, testFiles, integrationFile
       : parseDeletionAllowlist(
           readBaselineDeletionAllowlist(repoRoot, baseline.ref),
           `${baseline.ref}:${deletionAllowlistRelativePath}`,
+          { validateRefs: false },
         );
   const errors = [...current.errors, ...previous.errors];
   const previousPaths = new Set(previous.paths);
@@ -276,7 +277,7 @@ function readBaselineDeletionAllowlist(repoRoot, ref) {
   }
 }
 
-function parseDeletionAllowlist(text, displayPath) {
+function parseDeletionAllowlist(text, displayPath, { validateRefs = true } = {}) {
   let parsed;
   try {
     parsed = JSON.parse(text);
@@ -301,7 +302,11 @@ function parseDeletionAllowlist(text, displayPath) {
       errors.push(`${label}.value must be an exact repository test file path`);
       continue;
     }
-    if (typeof entry.ref !== "string" || !/^(?:ADR-\d{4}|dec_[A-Za-z0-9_]+|task_[A-Za-z0-9]+)/u.test(entry.ref)) {
+    if (
+      validateRefs &&
+      (typeof entry.ref !== "string" ||
+        !/^(?:task_(?:[0-9A-HJKMNP-TV-Z]{26}|[0-9a-f]{26})$|ADR-\d{4}|dec_[A-Za-z0-9_]+)/u.test(entry.ref))
+    ) {
       errors.push(`${label}.ref must cite an ADR, decision, or task id`);
     }
     if (typeof entry.reason !== "string" || entry.reason.trim() === "")

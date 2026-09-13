@@ -130,12 +130,6 @@
         "until": "2026-09-30"
       },
       {
-        "value": "detectRelationGraphCycles",
-        "ref": "task_P4_INT",
-        "reason": "The dynamically loaded decision-conformance preset consumes the canonical relation-cycle detector through the kernel public surface.",
-        "until": "2026-09-30"
-      },
-      {
         "value": "DocsReleasePromotionBundle",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
         "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
@@ -664,12 +658,6 @@
         "until": "2026-09-30"
       },
       {
-        "value": "ReviewVerdict",
-        "ref": "task_P4_INT",
-        "reason": "W1 RecordReviewCommand exposes ReviewVerdict as part of the replay/v1 public contract.",
-        "until": "2026-09-30"
-      },
-      {
         "value": "Sha256Fingerprint",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
         "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
@@ -895,12 +883,6 @@
         "value": "VcsCommitAuthor",
         "ref": "task_01KWXKR6JQ9Y91KNWW8FBMTBTB",
         "reason": "PLT-Bedrock W2 intentionally exposes the VersionControlSystem port contract as public kernel surface for composition roots and downstream port wiring.",
-        "until": "2026-09-30"
-      },
-      {
-        "value": "VersionControlSystem",
-        "ref": "task_P4_INT",
-        "reason": "VersionControlSystem is the canonical public port used by composition roots and externally supplied implementations.",
         "until": "2026-09-30"
       },
       {
