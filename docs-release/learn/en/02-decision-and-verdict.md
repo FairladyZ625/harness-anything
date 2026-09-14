@@ -63,9 +63,9 @@ propose ──▶ accept / reject / defer
 
 The evidence handoff is executable in the
 [first closed-loop recipe](../../start/en/02-first-loop.md). The current path
-uses first-class `relation relate` edges and `decision transition in_effect`
-with explicit human approval; the deprecated `decision accept` alias is not a
-second workflow.
+uses first-class `relation relate` edges and `decision accept` with explicit
+human approval; `decision transition` only performs the bookkeeping moves
+(`superseded`, `outcome_retired`) on an already-adjudicated decision.
 
 ## Evidence is edges, not embedded arrays
 

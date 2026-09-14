@@ -402,17 +402,21 @@ test("Decision F06 and distill leaf commands preserve their complete structured 
     repin = parseThinCommand(["decision", "repin", "--all", "--migration-evidence", "task/task-1/audit-2026"]),
     active = parseThinCommand([
       "decision",
+      "accept",
+      "dec_1",
+      "--rationale",
+      "Reviewed independently",
+      "--judgment-only",
+      "Reviewed independently",
+    ]),
+    superseded = parseThinCommand([
+      "decision",
       "transition",
-      "in_effect",
+      "superseded",
       "dec_1",
       "--decided-at",
       "2026-08-15T00:00:00.000Z",
-      "--judgment-only",
-      "Reviewed independently",
-      "--fulfillment",
-      "C1:delivered",
     ]),
-    superseded = parseThinCommand(["decision", "transition", "superseded", "dec_1"]),
     alias = parseThinCommand(["decision", "supersede", "dec_1", "--reason", "Replaced by a newer Decision"]),
     amend = parseThinCommand([
       "decision",
@@ -474,13 +478,17 @@ test("Decision F06 and distill leaf commands preserve their complete structured 
     });
   if (active.ok)
     assert.deepEqual(active.command.action, {
+      kind: "decision-accept",
+      decisionId: "dec_1",
+      rationale: "Reviewed independently",
+      judgmentOnlyRationale: "Reviewed independently",
+    });
+  if (superseded.ok)
+    assert.deepEqual(superseded.command.action, {
       kind: "decision-transition",
       decisionId: "dec_1",
-      targetState: "in_effect",
+      targetState: "superseded",
       decidedAt: "2026-08-15T00:00:00.000Z",
-      judgmentOnlyRationale: "Reviewed independently",
-      standingPolicy: false,
-      fulfillments: [{ claimId: "C1", mode: "delivered" }],
       dryRun: false,
     });
   if (amend.ok)
@@ -538,7 +546,10 @@ test("Decision F06 and distill leaf commands preserve their complete structured 
     });
   assert.equal(parseThinCommand(["distill", "commit"]).ok, false);
   assert.equal(parseThinCommand(["decision", "validate", "dec_1", "--all"]).ok, false);
-  assert.equal(parseThinCommand(["decision", "transition", "retired", "dec_1", "--standing-policy"]).ok, false);
+  assert.equal(parseThinCommand(["decision", "transition", "superseded", "dec_1", "--standing-policy"]).ok, false);
+  for (const targetState of ["in_effect", "rejected", "deferred"])
+    assert.equal(parseThinCommand(["decision", "transition", targetState, "dec_1"]).ok, false, targetState);
+  assert.equal(parseThinCommand(["decision", "transition", "superseded", "dec_1", "--consent-by", "p1"]).ok, false);
   assert.equal(parseThinCommand(["decision", "amend", "dec_1"]).ok, false);
 });
 
@@ -573,7 +584,7 @@ test("Decision file-flag help and the workspace read rejection state one shared 
 });
 
 test("Decision human consent defaults absent consent-at and consent-channel at the CLI plane", () => {
-  const base = ["decision", "transition", "in_effect", "dec_TEST"],
+  const base = ["decision", "accept", "dec_TEST", "--rationale", "approved"],
     consentOf = (args: readonly string[]) => {
       const parsed = parseThinCommand(args);
       assert.equal(parsed.ok, true, JSON.stringify(args));
@@ -616,7 +627,8 @@ test("Decision human consent defaults absent consent-at and consent-channel at t
     [...base, "--consent-at", "2026-09-12T01:02:03Z"],
     [...base, "--consent-by", "person-test", "--consent-channel", "email"],
     [...base, "--consent-by", "person-test", "--consent-at"],
-    ["decision", "transition", "deferred", "dec_TEST", "--consent-by", "person-test"],
+    ["decision", "defer", "dec_TEST", "--rationale", "r", "--consent-by", "person-test"],
+    ["decision", "transition", "superseded", "dec_TEST", "--consent-by", "person-test"],
   ])
     assert.equal(parseThinCommand(args).ok, false, JSON.stringify(args));
 });

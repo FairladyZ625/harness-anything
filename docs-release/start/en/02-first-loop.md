@@ -53,14 +53,15 @@ Expected: `ok=true command=relation-relate relationId=rel_...`. Point to claim
 explicit judgment-only rationale.
 
 ```bash
-ha decision transition in_effect dec_... --consent-by owner --consent-at 2026-09-12T08:00:00Z --consent-channel cli
+ha decision accept dec_... --rationale "Durable facts preserve handoff reasons" --consent-by owner --consent-at 2026-09-12T08:00:00Z --consent-channel cli
 ```
 
-Expected: `ok=true command=decision-transition state=in_effect consentId=djc_...`.
+Expected: `ok=true command=decision-accept state=in_effect consentId=djc_...`.
 The two independent conditions are now visible: claim evidence and explicit
 human approval. All three consent flags are one atomic input, and `--consent-by`
-must name the authenticated principal. The old `ha decision accept` spelling is
-a deprecated alias, not a second workflow.
+must name the authenticated principal. `ha decision transition` only performs
+the bookkeeping moves (`superseded`, `outcome_retired`); adjudication always
+goes through `decision accept/reject/defer`.
 
 ## 4. Create the derived task
 

@@ -86,19 +86,33 @@ test("Human approval preserves the proposing executor and survives a cold read",
     consentAt = "2026-09-12T01:02:03.000Z";
   const eventIds: string[] = [];
   try {
-    for (const targetState of ["in_effect", "rejected"] as const) {
-      const proposal = await cell.run({ ...decisionProposal(), body: realizedDecisionBody(targetState) }, proposer),
+    for (const [variant, adjudication] of [
+      [
+        "accept",
+        (decisionId: string) =>
+          ({
+            kind: "decision-accept",
+            decisionId,
+            rationale: "The principal explicitly approved this outcome in chat.",
+            judgmentOnlyRationale: "The principal explicitly approved this outcome in chat.",
+          }) as const,
+      ] as const,
+      [
+        "reject",
+        (decisionId: string) =>
+          ({ kind: "decision-reject", decisionId, reason: "The principal explicitly rejected this outcome." }) as const,
+      ] as const,
+    ]) {
+      // The body varies per variant so each iteration proposes a distinct Decision instead of
+      // replaying the identical prior action digest onto the already-adjudicated document.
+      const proposal = await cell.run(
+          { ...decisionProposal(), body: realizedDecisionBody(`Human consent ${variant}`) },
+          proposer,
+        ),
         decisionId = receiptJson(proposal).decisionId as string,
-        transition = {
-          kind: "decision-transition",
-          decisionId,
-          targetState,
-          judgmentOnlyRationale: "The principal explicitly approved this outcome in chat.",
-          fulfillments: [],
-          standingPolicy: false,
-        },
+        action = adjudication(decisionId),
         approval = { consentBy: proposer.actor.principal.personId, consentAt, consentChannel: "chat" };
-      const denied = await cell.run(transition, binding);
+      const denied = await cell.run(action, binding);
       assert.equal(denied.code, "actor_unauthorized", JSON.stringify(denied));
       for (const invalid of [
         { ...approval, consentBy: "another-person" },
@@ -107,10 +121,10 @@ test("Human approval preserves the proposing executor and survives a cold read",
         { ...approval, consentChannel: "email" },
         { consentBy: approval.consentBy },
       ]) {
-        const result = await cell.run({ ...transition, ...invalid }, binding);
+        const result = await cell.run({ ...action, ...invalid }, binding);
         assert.equal(result.outcome, "op_rejected", JSON.stringify(result));
       }
-      const accepted = await cell.run({ ...transition, ...approval }, binding);
+      const accepted = await cell.run({ ...action, ...approval }, binding);
       assert.equal(accepted.outcome, "applied", JSON.stringify(accepted));
       eventIds.push(accepted.opId);
       const event = makeTaskEventReader({ repoId: "human-consent", rootDir }).readEvent(accepted.opId);
@@ -132,12 +146,19 @@ test("Human approval preserves the proposing executor and survives a cold read",
             payload: { ...event.payload, judgmentConsent: { ...consent, ...patch } },
           }),
         );
-      const again = await cell.run({ ...transition, ...approval }, binding);
+      const again = await cell.run({ ...action, ...approval }, binding);
       assert.equal(again.outcome, "applied", JSON.stringify(again));
       assert.equal(again.opId, accepted.opId);
       assert.equal(again.revision, accepted.revision);
       const conflicting = await cell.run(
-        { ...transition, ...approval, targetState: targetState === "in_effect" ? "rejected" : "in_effect" },
+        action.kind === "decision-accept"
+          ? { kind: "decision-reject", decisionId, reason: "The opposite adjudication must not land." }
+          : {
+              kind: "decision-accept",
+              decisionId,
+              rationale: "The opposite adjudication must not land.",
+              judgmentOnlyRationale: "The opposite adjudication must not land.",
+            },
         binding,
       );
       assert.equal(conflicting.outcome, "op_rejected", JSON.stringify(conflicting));

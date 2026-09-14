@@ -1,8 +1,9 @@
 // harness-test-tier: integration
-// Evidence only (task_d437aea6d5e724195c5d65e6ec stage 1): walks the real CLI parser and the
-// GUI daemon-side action synthesis into the real RepoCell queue authorization → executor →
-// canonical acceptance chain, under a repo-write-only declared binding and an arbiter binding.
-// No production behavior is asserted as correct; this file documents the current divergence.
+// Regression (task_d437aea6d5e724195c5d65e6ec stage 2, CEO ruling: transition narrowed to
+// bookkeeping): decision accept/reject/defer are the only adjudication entries and CLI and GUI
+// share one Policy qualification for them; decision transition compiles only superseded and
+// outcome_retired, so judgment targets are parameter errors at the CLI parser and at the kernel
+// compiler — never authorization verdicts — while the bookkeeping targets stay repo-write work.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -20,41 +21,45 @@ import { realizedDecisionBody } from "../../../tools/fixtures/task-plan.mjs";
 
 const repoWriteJudgeId = "person_r2_repo_write",
   arbiterJudgeId = "person_r2_arbiter",
-  dualJudgeId = "person_r2_dual",
   proposerAgent: ActorIdentity = {
     principal: { personId: "person_r2_proposer" },
     executor: { kind: "agent", id: "r2-proposer-agent" },
   };
 
-test("decision adjudication entries through the real chain: entry × binding matrix", async () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-r2-decision-auth-"));
+test("adjudication entries share one qualification and transition judgment targets are parameter errors", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-decision-entry-parity-"));
   initRepo(rootDir);
   writePeopleRoster(rootDir);
   const cell = await openRepoCell({
-    repoId: workspaceId("r2-decision-auth"),
+    repoId: workspaceId("decision-entry-parity"),
     rootDir: canonicalRoot(rootDir),
-    ownerId: "r2-decision-auth-test",
+    ownerId: "decision-entry-parity-test",
   });
-  const reader = makeTaskEventReader({ repoId: "r2-decision-auth", rootDir });
+  const reader = makeTaskEventReader({ repoId: "decision-entry-parity", rootDir });
   try {
     const proposerBinding = declaredBinding(rootDir, proposerAgent),
       repoWriteBinding = declaredBinding(rootDir, { principal: { personId: repoWriteJudgeId }, executor: null }),
       arbiterBinding = declaredBinding(rootDir, { principal: { personId: arbiterJudgeId }, executor: null });
 
-    // Structural receipt: the two same-semantics entries sit in different command classes.
+    // The two families keep their ruling tiers: adjudication is arbiter work, bookkeeping is
+    // repo-write work. This tier split is the load-bearing decision the entry parity builds on.
     assert.deepEqual(
-      { accept: commandClassForAction("decision-accept"), transition: commandClassForAction("decision-transition") },
-      { accept: "arbiter", transition: "repo-write" },
+      {
+        accept: commandClassForAction("decision-accept"),
+        reject: commandClassForAction("decision-reject"),
+        defer: commandClassForAction("decision-defer"),
+        transition: commandClassForAction("decision-transition"),
+      },
+      { accept: "arbiter", reject: "arbiter", defer: "arbiter", transition: "repo-write" },
     );
 
-    const d1 = await propose(cell, reader, proposerBinding, "R2 matrix cli accept"),
-      d2 = await propose(cell, reader, proposerBinding, "R2 matrix gui accept"),
-      d3 = await propose(cell, reader, proposerBinding, "R2 matrix transition"),
-      d4 = await propose(cell, reader, proposerBinding, "R2 matrix reject pair"),
-      d5 = await propose(cell, reader, proposerBinding, "R2 matrix arbiter accept"),
-      d6 = await propose(cell, reader, proposerBinding, "R2 matrix arbiter transition");
+    const d1 = await propose(cell, reader, proposerBinding, "parity cli accept under repo-write"),
+      d2 = await propose(cell, reader, proposerBinding, "parity gui accept under repo-write"),
+      d3 = await propose(cell, reader, proposerBinding, "parity cli accept under arbiter"),
+      d4 = await propose(cell, reader, proposerBinding, "parity gui accept under arbiter"),
+      d5 = await propose(cell, reader, proposerBinding, "parity transition targets");
 
-    // 1. CLI `decision accept` under a repo-write-only declared binding: denied.
+    // 1. Same repo-write binding, both adjudication entries: one denial shape.
     const cliAccept = cliAction([
       "decision",
       "accept",
@@ -62,61 +67,71 @@ test("decision adjudication entries through the real chain: entry × binding mat
       "--rationale",
       "repo-write only judge",
       "--judgment-only",
-      "matrix evidence",
+      "parity regression",
     ]);
     assert.equal(cliAccept.kind, "decision-accept");
     assertDeniedBeforeAcceptance("cli accept / repo-write", await cell.run(cliAccept, repoWriteBinding), reader);
-
-    // 2. GUI `decision.accept` (daemon-side synthesis) under the same binding: same denial.
     const guiAccept = actionForDaemonMethod("repo.decision.accept", {
       decisionId: d2.decisionId,
       rationale: "repo-write only judge",
-      judgmentOnlyRationale: "matrix evidence",
+      judgmentOnlyRationale: "parity regression",
     });
     assert.equal(guiAccept.kind, "decision-accept");
     assertDeniedBeforeAcceptance("gui accept / repo-write", await cell.run(guiAccept, repoWriteBinding), reader);
 
-    // Accepted writes take revisions strictly in sequence: the first judgment after the six
-    // proposals sits at d6.revision + 1, and each later judgment adds exactly one. The denied
-    // attempts in between therefore provably consumed no canonical revision.
-    let nextRevision = d6.revision + 1;
-    const judgeAt = (label: string, receipt: { readonly opId: string } & Record<string, unknown>) => {
-      const event = acceptedEventOf(label, receipt, reader, nextRevision);
-      nextRevision += 1;
-      return event;
-    };
-
-    // 3. CLI `decision transition in_effect` under the same binding: accepted, and it compiles
-    //    the same adjudication event type the two denied entries above were trying to produce.
-    const transition = cliAction([
-      "decision",
-      "transition",
-      "in_effect",
-      d3.decisionId,
-      "--judgment-only",
-      "matrix evidence",
-    ]);
-    assert.equal(transition.kind, "decision-transition");
-    assert.deepEqual(judgeAt("transition in_effect / repo-write", await cell.run(transition, repoWriteBinding)), {
+    // 2. Same arbiter binding, both entries: one acceptance shape, same event type.
+    const arbiterCli = await cell.run(
+      cliAction([
+        "decision",
+        "accept",
+        d3.decisionId,
+        "--rationale",
+        "arbiter judge",
+        "--judgment-only",
+        "parity regression",
+      ]),
+      arbiterBinding,
+    );
+    assert.deepEqual(acceptedEventOf("cli accept / arbiter", arbiterCli, reader), {
+      schema: "decision-event/v1",
+      type: "decision_accepted",
+    });
+    const arbiterGui = await cell.run(
+      actionForDaemonMethod("repo.decision.accept", {
+        decisionId: d4.decisionId,
+        rationale: "arbiter judge",
+        judgmentOnlyRationale: "parity regression",
+      }),
+      arbiterBinding,
+    );
+    assert.deepEqual(acceptedEventOf("gui accept / arbiter", arbiterGui, reader), {
       schema: "decision-event/v1",
       type: "decision_accepted",
     });
 
-    // 4. Same decision, same binding: the reject alias is denied, the transition is accepted.
-    const cliReject = cliAction(["decision", "reject", d4.decisionId, "--rationale", "repo-write only judge"]);
-    assert.equal(cliReject.kind, "decision-reject");
-    assertDeniedBeforeAcceptance("cli reject / repo-write", await cell.run(cliReject, repoWriteBinding), reader);
-    const transitionRejected = await cell.run(
-      cliAction(["decision", "transition", "rejected", d4.decisionId]),
-      repoWriteBinding,
-    );
-    assert.deepEqual(judgeAt("transition rejected / repo-write", transitionRejected), {
-      schema: "decision-event/v1",
-      type: "decision_rejected",
-    });
+    // 3. Transition judgment targets are parameter errors at the CLI parser…
+    for (const targetState of ["in_effect", "rejected", "deferred"]) {
+      const parsed = parseThinCommand(["decision", "transition", targetState, d5.decisionId]);
+      assert.equal(parsed.ok, false, targetState);
+      if (!parsed.ok) assert.equal(parsed.code, "invalid_field", targetState);
+    }
+    // …and at the daemon layer: a binding that is fully authorized for transition work still
+    // gets op_rejected/invalid_command — the rejection is the target, not the qualification.
+    for (const targetState of ["in_effect", "rejected", "deferred"]) {
+      const attempted = await cell.run(
+        { kind: "decision-transition", decisionId: d5.decisionId, targetState },
+        repoWriteBinding,
+      );
+      assert.deepEqual(
+        { outcome: attempted.outcome, code: attempted.code, canonicalEvent: reader.readEvent(attempted.opId) },
+        { outcome: "op_rejected", code: "invalid_command", canonicalEvent: null },
+        `transition ${targetState} / repo-write: expected a compile-level parameter rejection`,
+      );
+    }
 
-    // 5. Arbiter-qualified binding: the accept alias succeeds…
-    const arbiterAccept = await cell.run(
+    // 4. The bookkeeping targets remain repo-write work end to end: adjudicate with the arbiter
+    // entry, then supersede with the repo-write-only binding.
+    const accepted = await cell.run(
       cliAction([
         "decision",
         "accept",
@@ -124,41 +139,18 @@ test("decision adjudication entries through the real chain: entry × binding mat
         "--rationale",
         "arbiter judge",
         "--judgment-only",
-        "matrix evidence",
+        "parity regression",
       ]),
       arbiterBinding,
     );
-    assert.deepEqual(judgeAt("cli accept / arbiter", arbiterAccept), {
-      schema: "decision-event/v1",
-      type: "decision_accepted",
-    });
-    // 6. …but the same arbiter-only binding cannot run the canonical transition command at all:
-    //    decision-transition sits in the repo-write rule, so the divergence is bidirectional.
-    const arbiterTransition = await cell.run(
-      cliAction(["decision", "transition", "in_effect", d6.decisionId, "--judgment-only", "matrix evidence"]),
-      arbiterBinding,
+    assert.equal(accepted.outcome, "applied", JSON.stringify(accepted));
+    const superseded = await cell.run(
+      { kind: "decision-transition", decisionId: d5.decisionId, targetState: "superseded" },
+      repoWriteBinding,
     );
-    assertDeniedBeforeAcceptance("transition in_effect / arbiter", arbiterTransition, reader);
-
-    // 7. A dual-role binding (the production owner shape: repo-write + arbiter) runs both entries.
-    const dualBinding = declaredBinding(rootDir, { principal: { personId: dualJudgeId }, executor: null }),
-      d7 = await propose(cell, reader, proposerBinding, "R2 matrix dual judge");
-    nextRevision = d7.revision + 1;
-    const dualAccept = await cell.run(
-      cliAction([
-        "decision",
-        "accept",
-        d7.decisionId,
-        "--rationale",
-        "dual-role judge",
-        "--judgment-only",
-        "matrix evidence",
-      ]),
-      dualBinding,
-    );
-    assert.deepEqual(judgeAt("cli accept / dual role", dualAccept), {
+    assert.deepEqual(acceptedEventOf("transition superseded / repo-write", superseded, reader), {
       schema: "decision-event/v1",
-      type: "decision_accepted",
+      type: "decision_superseded",
     });
   } finally {
     await cell.close();
@@ -250,18 +242,10 @@ function acceptedEventOf(
   label: string,
   receipt: { readonly opId: string } & Record<string, unknown>,
   reader: ReturnType<typeof makeTaskEventReader>,
-  expectedRevision: number,
 ): { readonly schema: string; readonly type: string } {
   assert.equal(receipt.outcome, "applied", `${label}: ${JSON.stringify(receipt)}`);
   const event = reader.readEvent(receipt.opId);
   assert.ok(event, `${label}: accepted op ${receipt.opId} has no canonical event`);
-  // The caller hands the next expected revision; a denied attempt never reaches here, so any
-  // gap would mean a denial was accepted canonically or an acceptance consumed two revisions.
-  assert.equal(
-    event.workspaceRevision,
-    expectedRevision,
-    `${label}: expected the judgment at revision ${expectedRevision}`,
-  );
   return { schema: event.schema, type: event.type };
 }
 
@@ -274,27 +258,21 @@ function writePeopleRoster(rootDir: string): void {
         people: [
           {
             personId: proposerAgent.principal.personId,
-            displayName: "R2 Proposer",
+            displayName: "Parity Proposer",
             roles: ["contributor"],
-            credentials: [{ kind: "unix-socket-owner-boundary", issuer: "host:r2-evidence", subject: "1" }],
+            credentials: [{ kind: "unix-socket-owner-boundary", issuer: "host:entry-parity", subject: "1" }],
           },
           {
             personId: repoWriteJudgeId,
-            displayName: "R2 Repo Write Judge",
+            displayName: "Parity Repo Write Judge",
             roles: ["contributor"],
-            credentials: [{ kind: "unix-socket-owner-boundary", issuer: "host:r2-evidence", subject: "2" }],
+            credentials: [{ kind: "unix-socket-owner-boundary", issuer: "host:entry-parity", subject: "2" }],
           },
           {
             personId: arbiterJudgeId,
-            displayName: "R2 Arbiter Judge",
+            displayName: "Parity Arbiter Judge",
             roles: ["judge"],
-            credentials: [{ kind: "unix-socket-owner-boundary", issuer: "host:r2-evidence", subject: "3" }],
-          },
-          {
-            personId: dualJudgeId,
-            displayName: "R2 Dual Role Judge",
-            roles: ["contributor", "judge"],
-            credentials: [{ kind: "unix-socket-owner-boundary", issuer: "host:r2-evidence", subject: "4" }],
+            credentials: [{ kind: "unix-socket-owner-boundary", issuer: "host:entry-parity", subject: "3" }],
           },
         ],
         roles: [
@@ -310,8 +288,8 @@ function writePeopleRoster(rootDir: string): void {
 
 function initRepo(rootDir: string): void {
   execFileSync("git", ["-C", rootDir, "init", "-q"]);
-  execFileSync("git", ["-C", rootDir, "config", "user.name", "R2 Decision Auth Evidence"]);
-  execFileSync("git", ["-C", rootDir, "config", "user.email", "r2-evidence@example.invalid"]);
+  execFileSync("git", ["-C", rootDir, "config", "user.name", "Decision Entry Parity Test"]);
+  execFileSync("git", ["-C", rootDir, "config", "user.email", "entry-parity@example.invalid"]);
   mkdirSync(path.join(rootDir, "harness"), { recursive: true });
   writeFileSync(
     path.join(rootDir, "harness/harness.yaml"),

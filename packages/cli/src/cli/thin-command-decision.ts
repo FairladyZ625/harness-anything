@@ -4,6 +4,7 @@ import {
   parseDecisionRepin,
   parseDecisionTransition,
   parseDecisionValidation,
+  withDefaultConsent,
 } from "./thin-command-decision-lifecycle.ts";
 import { parseDecisionRead } from "./thin-command-decision-read.ts";
 import { accepted, nonEmpty, readFlags, rejectInput, rejected } from "./thin-command-flags.ts";
@@ -31,7 +32,7 @@ export function parseDecision(
   if (["decision-accept", "decision-reject", "decision-defer"].includes(id))
     return parseProjected(
       id,
-      args.slice(3),
+      withDefaultConsent(args.slice(3)),
       rootDir,
       repoId,
       json,
