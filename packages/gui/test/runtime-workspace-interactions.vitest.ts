@@ -139,9 +139,7 @@ const sessionGroups = {
   ],
 };
 const tasks = [{ taskId: "task-bound", title: "Bound task title" }] as const;
-const agents = [
-  { id: "terra", name: "terra", runtimeType: "codex", role: "worker", layer: "user", validity: "valid", issues: [] },
-] as const;
+const agents = [{ id: "terra", name: "terra", runtimeType: "codex", role: "worker", layer: "user" }] as const;
 const squads = [
   {
     id: "core-squad",
@@ -149,8 +147,6 @@ const squads = [
     leader: "terra",
     workers: ["terra"],
     layer: "user",
-    validity: "valid",
-    issues: [],
   },
 ] as const;
 const providerInstallations = [

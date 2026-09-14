@@ -49,8 +49,6 @@ const agentRow = (id: string): AgentEntityGuiRow => ({
   runtimeType: "codex",
   role: "worker",
   layer: "identity",
-  validity: "valid",
-  issues: [],
 });
 
 const scheduleRow = (scheduleId: string, agentId: string | null): ScheduleGuiRowDto =>

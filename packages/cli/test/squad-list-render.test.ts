@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { renderCliReceipt } from "../src/cli/receipt-render-registry.ts";
 
-test("Squad list renders healthy and degraded rows with state and error columns", () => {
+test("Squad list renders healthy rows as ids and degraded rows with state and error columns", () => {
   const rendered = renderCliReceipt({
     ok: true,
     command: "squad-list",
@@ -19,8 +19,6 @@ test("Squad list renders healthy and degraded rows with state and error columns"
           leaderTurnBudget: 4,
           layer: "user",
           source: "squads/core-squad.json",
-          validity: "valid",
-          issues: [],
         },
         {
           id: "broken-squad",
@@ -38,7 +36,7 @@ test("Squad list renders healthy and degraded rows with state and error columns"
   assert.deepEqual(rendered, {
     stream: "stdout",
     text: [
-      "core-squad\tvalid\tnone",
+      "core-squad",
       'broken-squad\tinvalid\tinvalid_entity_contract: squad declaration is missing required field "leader".',
     ].join("\n"),
   });

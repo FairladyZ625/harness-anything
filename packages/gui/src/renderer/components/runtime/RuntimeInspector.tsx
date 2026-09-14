@@ -242,13 +242,7 @@ function AgentFacts({
           <KVRow name="role">{agent.role}</KVRow>
           <KVRow name="runtime_type">{agent.runtimeType || "—"}</KVRow>
           <KVRow name="layer">{agent.layer}</KVRow>
-          <KVRow name="validity">{agent.validity}</KVRow>
         </KV>
-        {agent.issues.map((issue) => (
-          <p key={issue.code} className="mt-1 ui-micro text-status-blocked">
-            {issue.code}: {issue.message}
-          </p>
-        ))}
       </Section>
       <Section title={t("agentRuntime.inspectorReferencedBy", { count: referencing.length })}>
         {referencing.length === 0 ? (

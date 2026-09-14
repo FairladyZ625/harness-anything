@@ -62,10 +62,6 @@ function agentFallbackErrors(value: unknown): readonly string[] {
 // GUI read envelopes for the identity layers. This module has no runtime imports so the
 // schema-closure gate can import it from a checkout with no installed dependencies.
 const entityWireSecretKeys = /(?:^|[-_])(?:api[-_]?key|credential|passphrase|password|secret|token)(?:$|[-_])/iu;
-const entityIssueRow = (value: unknown): readonly string[] =>
-  isEntityRecord(value) && entityNonEmpty(value.code) && entityNonEmpty(value.message)
-    ? []
-    : ["issues entries must carry non-empty code and message strings."];
 function entityReadEnvelopeErrors(value: unknown, schema: string, fields: readonly string[]): readonly string[] {
   if (!isEntityRecord(value)) return [`${schema} must be a JSON object.`];
   const errors: string[] = [];
@@ -98,10 +94,8 @@ const agentCatalogRowFields = Object.freeze([
     "permissionMode",
     "role",
     "layer",
-    "validity",
-    "issues",
   ]),
-  squadCatalogRowFields = Object.freeze(["id", "name", "leader", "workers", "layer", "validity", "issues"]),
+  squadCatalogRowFields = Object.freeze(["id", "name", "leader", "workers", "layer"]),
   degradedCatalogRowFields = Object.freeze(["id", "layer", "state", "error"]),
   agentDetailFields = Object.freeze([
     "id",
@@ -152,13 +146,7 @@ function catalogRowErrors(
       errors.push(`${prefix} degraded rows need an exact non-empty error {code, hint}.`);
     return errors;
   }
-  return [
-    ...entityReadRowErrors(row, rowFields, prefix),
-    ...(isEntityRecord(row) ? rowChecks(row) : []),
-    ...(isEntityRecord(row) && Array.isArray(row.issues)
-      ? row.issues.flatMap(entityIssueRow)
-      : [`${prefix} field "issues" must be an array.`]),
-  ];
+  return [...entityReadRowErrors(row, rowFields, prefix), ...(isEntityRecord(row) ? rowChecks(row) : [])];
 }
 function detailErrors(
   value: unknown,
@@ -177,12 +165,7 @@ function detailErrors(
   ];
 }
 const catalogRowChecks = (row: Record<string, unknown>): readonly string[] =>
-  [
-    !(entityNonEmpty(row.id) && entityNonEmpty(row.name)) ? ["catalog rows need non-empty id and name."] : [],
-    row.validity !== undefined && !["valid", "blocked"].includes(String(row.validity))
-      ? ["catalog row validity must be valid or blocked."]
-      : [],
-  ].flat();
+  !(entityNonEmpty(row.id) && entityNonEmpty(row.name)) ? ["catalog rows need non-empty id and name."] : [];
 const agentCatalogRowChecks = (row: Record<string, unknown>): readonly string[] =>
   [
     ...catalogRowChecks(row),

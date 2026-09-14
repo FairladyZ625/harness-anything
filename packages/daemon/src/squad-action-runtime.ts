@@ -61,8 +61,6 @@ function listAgents(cell: RepoCellRuntimeContext): object {
         ...row,
         layer: "user" as const,
         source: `agents/${id}.json`,
-        validity: "valid" as const,
-        issues: [] as const,
       };
     } catch (error) {
       if ((error as { readonly code?: unknown })?.code !== "invalid_entity_contract") throw error;
@@ -97,8 +95,6 @@ type SquadListRow =
   | (Omit<SquadDeclarationV1, "roster"> & {
       readonly layer: "user";
       readonly source: string;
-      readonly validity: "valid";
-      readonly issues: readonly [];
     })
   | {
       readonly id: string;
@@ -119,8 +115,6 @@ function listSquads(cell: RepoCellRuntimeContext): {
         ...row,
         layer: "user" as const,
         source: `squads/${id}.json`,
-        validity: "valid" as const,
-        issues: [] as const,
       };
     } catch (error) {
       if ((error as { readonly code?: unknown })?.code !== "invalid_entity_contract") throw error;

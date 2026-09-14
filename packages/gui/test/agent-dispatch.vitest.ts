@@ -335,42 +335,37 @@ describe("agent dispatch flow", () => {
     expect(markup).toContain('data-testid="dispatch-submit"');
     expect(submitted).toEqual([]);
   });
-  it("exposes the dispatch entry on a valid agent card but not on a blocked declaration", () => {
-    const card = (validity: "valid" | "blocked") =>
-      renderToStaticMarkup(
-        createElement(AgentCard, {
-          detail: {
-            id: "terra",
-            name: "terra",
-            runtimeType: "codex",
-            role: "worker",
-            instructions: "Work the mission.",
-            model: null,
-            skills: [],
-            prompts: [],
-            preset: null,
-          },
-          row: {
-            id: "terra",
-            name: "terra",
-            runtimeType: "codex",
-            role: "worker",
-            layer: "user",
-            validity,
-            issues: [],
-          },
-          squads: [],
-          instances: [codexInstance],
-          busy: false,
-          onSave: () => undefined,
-          onDispatch: () => undefined,
-          onSelectSquad: () => undefined,
-          onSelectRuntime: () => undefined,
-        }),
-      );
-    expect(card("valid")).toContain('data-testid="dispatch-entry-terra"');
-    expect(card("blocked")).not.toContain('data-testid="dispatch-entry-terra"');
-    expect(card("blocked")).toContain("declaration is blocked");
+  it("exposes the dispatch entry on an available agent card", () => {
+    const markup = renderToStaticMarkup(
+      createElement(AgentCard, {
+        detail: {
+          id: "terra",
+          name: "terra",
+          runtimeType: "codex",
+          role: "worker",
+          instructions: "Work the mission.",
+          model: null,
+          skills: [],
+          prompts: [],
+          preset: null,
+        },
+        row: {
+          id: "terra",
+          name: "terra",
+          runtimeType: "codex",
+          role: "worker",
+          layer: "user",
+        },
+        squads: [],
+        instances: [codexInstance],
+        busy: false,
+        onSave: () => undefined,
+        onDispatch: () => undefined,
+        onSelectSquad: () => undefined,
+        onSelectRuntime: () => undefined,
+      }),
+    );
+    expect(markup).toContain('data-testid="dispatch-entry-terra"');
   });
   it("renders the terminal dispatch states as distinct round rows inside the expanded task group", () => {
     const group: SessionGroup = {

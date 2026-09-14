@@ -90,8 +90,6 @@ test("Squad Action catalog owns install, read surfaces, and exact rejected crite
             leaderTurnBudget: squad.leaderTurnBudget,
             layer: "user",
             source: "squads/catalog-squad.json",
-            validity: "valid",
-            issues: [],
           },
         ],
         status: "ready",
@@ -216,7 +214,6 @@ test("Squad list retains one invalid declaration projection beside healthy rows"
       },
     );
     const healthy = rows.find(({ id }) => id === squad.id);
-    assert.equal(healthy?.validity, "valid");
     assert.equal(Object.hasOwn(healthy ?? {}, "state"), false);
   } finally {
     await cell?.close();

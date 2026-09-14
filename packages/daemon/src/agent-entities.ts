@@ -22,18 +22,6 @@ import {
   type SquadDeclarationV1,
 } from "../../kernel/src/index.ts";
 
-export type AgentCatalogRow = Omit<AgentDeclarationV1, "instructions"> & {
-  readonly layer: "user";
-  readonly source: string;
-  readonly validity: "valid" | "blocked";
-  readonly issues: readonly { readonly code: string; readonly message: string }[];
-};
-export type SquadCatalogRow = Omit<SquadDeclarationV1, "roster"> & {
-  readonly layer: "user";
-  readonly source: string;
-  readonly validity: "valid" | "blocked";
-  readonly issues: readonly { readonly code: string; readonly message: string }[];
-};
 export interface AgentEntityGuiAvailableRow {
   readonly id: string;
   readonly name: string;
@@ -42,8 +30,6 @@ export interface AgentEntityGuiAvailableRow {
   readonly permissionMode: AgentDeclarationV1["permissionMode"] | null;
   readonly role: "worker" | "commander";
   readonly layer: string;
-  readonly validity: "valid" | "blocked";
-  readonly issues: readonly { readonly code: string; readonly message: string }[];
 }
 export interface SquadEntityGuiAvailableRow {
   readonly id: string;
@@ -51,8 +37,6 @@ export interface SquadEntityGuiAvailableRow {
   readonly leader: string;
   readonly workers: readonly string[];
   readonly layer: string;
-  readonly validity: "valid" | "blocked";
-  readonly issues: readonly { readonly code: string; readonly message: string }[];
 }
 export interface AgentEntityGuiDegradedRow {
   readonly id: string;
@@ -278,8 +262,6 @@ function agentEntityCatalogRow(row: AgentEntityProjectionRow): AgentEntityGuiRow
       permissionMode: agent.permissionMode ?? null,
       role: agent.role ?? "worker",
       layer: "user",
-      validity: "valid",
-      issues: [],
     };
   } catch (error) {
     return invalidEntityCatalogRow(row, error);
@@ -314,8 +296,6 @@ function squadEntityCatalogRow(
       leader: squad.leader,
       workers: squad.workers,
       layer: "user",
-      validity: "valid",
-      issues: [],
     };
   } catch (error) {
     return invalidEntityCatalogRow(row, error);

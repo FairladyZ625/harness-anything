@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { SquadDeclarationV1 } from "../../../../../daemon/src/protocol/daemon-protocol-gui-types.ts";
-import type { AgentEntityAvailableRow, SquadEntityAvailableRow, SquadEntityDetail } from "../../agent-entity-client.ts";
+import type { AgentEntityAvailableRow, SquadEntityDetail } from "../../agent-entity-client.ts";
 import { t } from "../../i18n/index.tsx";
 import { EntityRefLink } from "../EntityRefLink.tsx";
 import {
@@ -63,14 +63,13 @@ export function squadChartLayout(workers: number): {
 
 type Props = {
   readonly detail: SquadEntityDetail;
-  readonly row: SquadEntityAvailableRow | null;
   readonly agents: readonly AgentEntityAvailableRow[];
   readonly busy: boolean;
   readonly onSave: (declaration: SquadDeclarationV1) => void;
   readonly onSelectAgent: (agentId: string) => void;
   readonly onSelectSquad: (squadId: string) => void;
 };
-export function SquadCard({ detail, row, agents, busy, onSave, onSelectAgent, onSelectSquad }: Props) {
+export function SquadCard({ detail, agents, busy, onSave, onSelectAgent, onSelectSquad }: Props) {
   const [draft, setDraft] = useState<SquadDraft>(() => squadDraftFrom(detail)),
     [slot, setSlot] = useState<SquadSlot | null>(null);
   useEffect(() => {
@@ -109,7 +108,6 @@ export function SquadCard({ detail, row, agents, busy, onSave, onSelectAgent, on
               className="text-text-muted hover:text-accent hover:underline"
             />
           </Badge>
-          {row?.validity === "blocked" && <Badge status="blocked">{t("agentRuntime.declarationBlocked")}</Badge>}
           <Right>
             <input
               aria-label={t("agentRuntime.squadName")}

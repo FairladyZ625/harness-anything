@@ -167,7 +167,6 @@ export function AgentCard({
                 className="font-mono ui-micro text-text-faint hover:text-accent hover:underline"
               />
               {row && <Badge tip={t("agentRuntime.layerTip", { layer: row.layer })}>{row.layer}</Badge>}
-              {row?.validity === "blocked" && <Badge status="blocked">{t("agentRuntime.declarationBlocked")}</Badge>}
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <SegCtl
@@ -445,16 +444,10 @@ export function AgentCard({
 
         <Sect title={t("agentRuntime.actions")}>
           <div className="flex flex-wrap items-center gap-2">
-            {row?.validity === "blocked" ? (
-              <Hint>{t("agentRuntime.dispatchBlocked")}</Hint>
-            ) : (
-              <>
-                <Btn variant="primary" testId={`dispatch-entry-${detail.id}`} onClick={() => onDispatch("")}>
-                  {t("agentRuntime.dispatch")}
-                </Btn>
-                <Hint>{t("agentRuntime.dispatchHint")}</Hint>
-              </>
-            )}
+            <Btn variant="primary" testId={`dispatch-entry-${detail.id}`} onClick={() => onDispatch("")}>
+              {t("agentRuntime.dispatch")}
+            </Btn>
+            <Hint>{t("agentRuntime.dispatchHint")}</Hint>
             <span className="flex-1" />
             <Btn
               variant="primary"
