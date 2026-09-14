@@ -1,7 +1,7 @@
 import type { TaskRow, DecisionRow, FactRef, RelationEdge } from "../model/types";
 import type { FactAnchorRow, RelationCoverageRow } from "../../api/renderer-dto";
 import { incomingRelations } from "../model/relation-direction.ts";
-import { resolveTaskModule, resolveFactModule, UNPROJECTED_MODULE, isModuleUnprojected } from "./moduleAssignment";
+import { resolveFactModule, UNPROJECTED_MODULE, isModuleUnprojected } from "./moduleAssignment";
 import { buildGenealogyEdges, decisionIdOf } from "./genealogy";
 import { clusterTasksByPrd, type ZoneProgress } from "./territoryProgress";
 import type { EntityKind } from "./endpoint";
