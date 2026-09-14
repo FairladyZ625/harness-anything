@@ -65,9 +65,8 @@ export function compatibleScheduleInstances(
   agent: Extract<ScheduleGuiAgentOptionDto, { readonly name: string }> | null,
   instances: ScheduleGuiOptionsDto["instances"],
 ): ScheduleGuiOptionsDto["instances"] {
-  return agent === null
-    ? instances
-    : instances.filter((instance) => runtimeTypeMatchesKind(agent.runtimeType, instance.kindId));
+  if (agent === null) return instances;
+  return instances.filter((instance) => runtimeTypeMatchesKind(agent.runtimeType, instance.kindId));
 }
 
 /**
