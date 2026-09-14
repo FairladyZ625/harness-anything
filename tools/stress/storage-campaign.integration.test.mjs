@@ -26,119 +26,124 @@ test("S2 denominator retains the accepting SQLite COMMIT boundary", async () => 
   assert.ok(coverage.hit.length > 0, "the observed accepting COMMIT must map to a source boundary");
 });
 
-test("S2 injects the accepting SQLite boundary and keeps Git failure post-accept", { timeout: 300_000 }, async () => {
-  assert.equal(process.platform, "linux", "requires Linux strace fault injection");
-  const scratch = mkdtempSync(path.join(tmpdir(), "ha-stress-s2-"));
-  try {
-    const positiveControl = await nativeInjectionControl(scratch),
-      baselineRoot = path.join(scratch, "baseline");
-    prepareRoot(baselineRoot);
-    const baseline = await tracedCommand(baselineRoot, path.join(scratch, "baseline.strace")),
-      baselineFrame = frame(baseline.stdout),
-      writes = syscallOccurrences(baseline.trace, {
-        syscall: "pwrite64",
-        pathIncludes: path.join("store", "generations", "1", "ledger.sqlite-wal"),
-      });
-    assert.equal(baseline.code, 0, baseline.stderr);
-    assert.equal(baselineFrame.outcome.status, "accepted_durable");
-    assert.ok(writes.length > 0, "accepting SQLite WAL emitted no injectable pwrite64 boundary");
-    const traceLines = baseline.trace.split(/\r?\n/u),
-      receiptLine = traceLines.findIndex((line) => /write\(1[,<]/u.test(line) && line.includes("accepted_durable")),
-      finalWalWrite = traceLines.indexOf(writes.at(-1).line),
-      durableSyncs = traceLines
-        .slice(finalWalWrite + 1, receiptLine)
-        .filter(
-          (line) => /(?:fsync|fdatasync)\(/u.test(line) && line.includes("ledger.sqlite-wal") && / = 0\s*$/u.test(line),
-        );
-    assert.ok(receiptLine > finalWalWrite, "accepted receipt must follow the accepting WAL writes");
-    assert.ok(durableSyncs.length > 0, "accepting WAL must successfully sync before the accepted receipt");
-    const cases = [
-      {
-        id: "F01/sqlite-accept-sync-before-receipt",
-        boundaryHits: durableSyncs.map((line) => line.trim()),
-        faults: [],
-        observations: { syncCalls: durableSyncs.length, finalWalWrite, receiptLine },
-        oracles: { nativeSyncBeforeAcceptedReceipt: "PASS" },
-        verdict: "PASS",
-      },
-    ];
-    for (const [index, write] of writes.entries()) {
-      const root = path.join(scratch, `fault-${index + 1}`),
-        tracePath = path.join(scratch, `fault-${index + 1}.strace`);
-      prepareRoot(root);
-      const result = await tracedCommand(root, tracePath, `pwrite64:error=EIO:when=${write.ordinal}`),
-        observed = frame(result.stdout),
-        databasePath = ledgerPath(root),
-        reopened = openSqliteEventStore({ repoId, databasePath }),
-        outcome = reopened.readCommandOutcome(opId),
-        events = reopened.events();
-      reopened.close();
-      const injected = result.trace.split(/\r?\n/u).find((line) => line.includes("EIO") && line.includes("INJECTED"));
-      assert.ok(injected, `pwrite64 occurrence ${index + 1} was not injected`);
-      assert.equal(events.length === 0 || (events.length === 1 && outcome?.status === "accepted_durable"), true);
-      assert.equal(events.length === 0, outcome === null, "event and outcome must commit atomically");
-      assert.equal(observed.outcome?.status === "accepted_durable", outcome?.status === "accepted_durable");
-      cases.push({
-        id: `F01/sqlite-accept-pwrite64-EIO/n=${index + 1}`,
-        boundaryHits: [{ syscall: "pwrite64", ordinal: write.ordinal }],
-        faults: [{ kind: "one-shot-io", errno: "EIO", trace: injected.trim() }],
-        observations: {
-          acceptedReceipt: observed.outcome?.status === "accepted_durable",
-          reopenedOutcome: outcome?.status ?? "unknown",
-          reopenedEvents: events.length,
+test(
+  "S2 injects the accepting SQLite boundary and keeps Git failure post-accept",
+  { timeout: 300_000, skip: process.platform !== "linux" ? "requires Linux strace fault injection" : false },
+  async () => {
+    const scratch = mkdtempSync(path.join(tmpdir(), "ha-stress-s2-"));
+    try {
+      const positiveControl = await nativeInjectionControl(scratch),
+        baselineRoot = path.join(scratch, "baseline");
+      prepareRoot(baselineRoot);
+      const baseline = await tracedCommand(baselineRoot, path.join(scratch, "baseline.strace")),
+        baselineFrame = frame(baseline.stdout),
+        writes = syscallOccurrences(baseline.trace, {
+          syscall: "pwrite64",
+          pathIncludes: path.join("store", "generations", "1", "ledger.sqlite-wal"),
+        });
+      assert.equal(baseline.code, 0, baseline.stderr);
+      assert.equal(baselineFrame.outcome.status, "accepted_durable");
+      assert.ok(writes.length > 0, "accepting SQLite WAL emitted no injectable pwrite64 boundary");
+      const traceLines = baseline.trace.split(/\r?\n/u),
+        receiptLine = traceLines.findIndex((line) => /write\(1[,<]/u.test(line) && line.includes("accepted_durable")),
+        finalWalWrite = traceLines.indexOf(writes.at(-1).line),
+        durableSyncs = traceLines
+          .slice(finalWalWrite + 1, receiptLine)
+          .filter(
+            (line) =>
+              /(?:fsync|fdatasync)\(/u.test(line) && line.includes("ledger.sqlite-wal") && / = 0\s*$/u.test(line),
+          );
+      assert.ok(receiptLine > finalWalWrite, "accepted receipt must follow the accepting WAL writes");
+      assert.ok(durableSyncs.length > 0, "accepting WAL must successfully sync before the accepted receipt");
+      const cases = [
+        {
+          id: "F01/sqlite-accept-sync-before-receipt",
+          boundaryHits: durableSyncs.map((line) => line.trim()),
+          faults: [],
+          observations: { syncCalls: durableSyncs.length, finalWalWrite, receiptLine },
+          oracles: { nativeSyncBeforeAcceptedReceipt: "PASS" },
+          verdict: "PASS",
         },
-        oracles: { atomicEventOutcome: "PASS", reopenOpIdResolution: "PASS", honestReceipt: "PASS" },
-        verdict: "PASS",
+      ];
+      for (const [index, write] of writes.entries()) {
+        const root = path.join(scratch, `fault-${index + 1}`),
+          tracePath = path.join(scratch, `fault-${index + 1}.strace`);
+        prepareRoot(root);
+        const result = await tracedCommand(root, tracePath, `pwrite64:error=EIO:when=${write.ordinal}`),
+          observed = frame(result.stdout),
+          databasePath = ledgerPath(root),
+          reopened = openSqliteEventStore({ repoId, databasePath }),
+          outcome = reopened.readCommandOutcome(opId),
+          events = reopened.events();
+        reopened.close();
+        const injected = result.trace.split(/\r?\n/u).find((line) => line.includes("EIO") && line.includes("INJECTED"));
+        assert.ok(injected, `pwrite64 occurrence ${index + 1} was not injected`);
+        assert.equal(events.length === 0 || (events.length === 1 && outcome?.status === "accepted_durable"), true);
+        assert.equal(events.length === 0, outcome === null, "event and outcome must commit atomically");
+        assert.equal(observed.outcome?.status === "accepted_durable", outcome?.status === "accepted_durable");
+        cases.push({
+          id: `F01/sqlite-accept-pwrite64-EIO/n=${index + 1}`,
+          boundaryHits: [{ syscall: "pwrite64", ordinal: write.ordinal }],
+          faults: [{ kind: "one-shot-io", errno: "EIO", trace: injected.trim() }],
+          observations: {
+            acceptedReceipt: observed.outcome?.status === "accepted_durable",
+            reopenedOutcome: outcome?.status ?? "unknown",
+            reopenedEvents: events.length,
+          },
+          oracles: { atomicEventOutcome: "PASS", reopenOpIdResolution: "PASS", honestReceipt: "PASS" },
+          verdict: "PASS",
+        });
+      }
+      const f08 = await gitFailureAfterAcceptance(path.join(scratch, "git-failure"));
+      cases.push(f08);
+      const acceptedMissing = oracleO2(acceptedButMissingInput());
+      assert.equal(acceptedMissing.verdict, "FAIL");
+      const denominators = await storageDenominators();
+      const negativeControls = [
+        { id: "injector/pwrite64-EIO", observed: positiveControl.code, passed: true },
+        {
+          id: "F01/accepted-but-missing",
+          observed: acceptedMissing.verdict,
+          passed: acceptedMissing.verdict === "FAIL",
+          violations: acceptedMissing.violations,
+        },
+      ];
+      const report = buildStressReport({
+        campaignComplete: false,
+        source: { head: process.env.HARNESS_BUILD_COMMIT ?? null, base: null, loadedBuild: "source", dirty: null },
+        environment: {
+          node: process.version,
+          sqlite: baselineFrame.sqliteVersion ?? null,
+          os: `${process.platform}-${process.arch}`,
+          filesystem: "isolated Ubuntu temporary filesystem",
+          capabilities: ["strace pwrite64 injection", "fresh SQLite reopen", "Git follower failure"],
+        },
+        seed,
+        topology: "external controller + SQLite accepting transaction + post-accept Git follower",
+        generation: 1,
+        counts: { acceptedEvents: 1, uniqueBlobs: 0, maxConcurrentClients: 1 },
+        coverage: {
+          denominatorSchema: denominators.schema,
+          denominatorDigest: denominators.digest,
+          required: denominators.required,
+          hit: denominators.hit,
+          missing: denominators.missing,
+          unmapped: denominators.missing,
+          negativeControls,
+        },
+        calibration: { pwrite64Occurrences: writes.length, acceptingWalSyncCalls: durableSyncs.length },
+        cases,
+        replayCommand:
+          "node tools/dispatch-isolated-test.mjs --file tools/stress/storage-campaign.integration.test.mjs",
+        residualRisks: [],
       });
+      assert.equal(report.verdict, "INCOMPLETE");
+      emitStressReport(report);
+    } finally {
+      rmSync(scratch, { recursive: true, force: true });
     }
-    const f08 = await gitFailureAfterAcceptance(path.join(scratch, "git-failure"));
-    cases.push(f08);
-    const acceptedMissing = oracleO2(acceptedButMissingInput());
-    assert.equal(acceptedMissing.verdict, "FAIL");
-    const denominators = await storageDenominators();
-    const negativeControls = [
-      { id: "injector/pwrite64-EIO", observed: positiveControl.code, passed: true },
-      {
-        id: "F01/accepted-but-missing",
-        observed: acceptedMissing.verdict,
-        passed: acceptedMissing.verdict === "FAIL",
-        violations: acceptedMissing.violations,
-      },
-    ];
-    const report = buildStressReport({
-      campaignComplete: false,
-      source: { head: process.env.HARNESS_BUILD_COMMIT ?? null, base: null, loadedBuild: "source", dirty: null },
-      environment: {
-        node: process.version,
-        sqlite: baselineFrame.sqliteVersion ?? null,
-        os: `${process.platform}-${process.arch}`,
-        filesystem: "isolated Ubuntu temporary filesystem",
-        capabilities: ["strace pwrite64 injection", "fresh SQLite reopen", "Git follower failure"],
-      },
-      seed,
-      topology: "external controller + SQLite accepting transaction + post-accept Git follower",
-      generation: 1,
-      counts: { acceptedEvents: 1, uniqueBlobs: 0, maxConcurrentClients: 1 },
-      coverage: {
-        denominatorSchema: denominators.schema,
-        denominatorDigest: denominators.digest,
-        required: denominators.required,
-        hit: denominators.hit,
-        missing: denominators.missing,
-        unmapped: denominators.missing,
-        negativeControls,
-      },
-      calibration: { pwrite64Occurrences: writes.length, acceptingWalSyncCalls: durableSyncs.length },
-      cases,
-      replayCommand: "node tools/dispatch-isolated-test.mjs --file tools/stress/storage-campaign.integration.test.mjs",
-      residualRisks: [],
-    });
-    assert.equal(report.verdict, "INCOMPLETE");
-    emitStressReport(report);
-  } finally {
-    rmSync(scratch, { recursive: true, force: true });
-  }
-});
+  },
+);
 
 async function tracedCommand(root, tracePath, injection) {
   return runUnderStrace({

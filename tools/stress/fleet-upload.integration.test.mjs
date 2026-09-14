@@ -12,9 +12,12 @@ const repoRoot = path.resolve(import.meta.dirname, "../..");
 
 test(
   "staged fleet upload survives kill windows, isolates concurrent edges, and fences stale generation claims",
-  { concurrency: false, timeout: 180_000 },
+  {
+    concurrency: false,
+    timeout: 180_000,
+    skip: process.platform !== "linux" ? "requires Linux POSIX SIGKILL semantics in the isolated VM" : false,
+  },
   async () => {
-    assert.equal(process.platform, "linux", "requires Linux POSIX SIGKILL semantics in the isolated VM");
     const result = await runFleetUploadBoundaryCampaign(),
       denominators = await uploadDenominators(),
       report = buildStressReport({
