@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import {
+  completionGateIds,
   completionGuidance,
   createEntityStore,
   submissionDigest,
@@ -30,6 +31,7 @@ export async function dispatchCompletionReview(
   steps: readonly WriteReceiptDraft[],
 ): Promise<WriteReceiptDraft> {
   const taskId = snapshot.task!.taskId,
+    gates = completionGateIds(snapshot.task!.completionGateIds, execution.submission!.commitSha),
     baseKey = completionReviewKey(taskId, execution),
     dispatchIdsFor = (idempotencyKey: string) => {
       const hash = createHash("sha256").update(`${cell.input.repoId}\0${idempotencyKey}`).digest("hex");
@@ -105,7 +107,11 @@ export async function dispatchCompletionReview(
               ),
             ),
             "For artifact anchors, review the center-accepted frozen contents above against the contract; " +
-              "do not substitute local files or require Git ancestry for them. Honor every gate declared by the task.",
+              "do not substitute local files or require Git ancestry for them.",
+            `Effective completion gates: ${gates.length ? gates.join(", ") : "none"}.`,
+            ...(execution.submission!.commitSha === null
+              ? ["This is an artifact-only submission; ci and code-doc-reconciliation do not apply."]
+              : []),
             "Read the task plan, closeout, and submitted delivery yourself. " +
               "Record approved or changes_requested through RecordReview; never infer approval from provider success.",
             `Write this execution's review report to harness/${report} and review input to harness/${packet}. ` +

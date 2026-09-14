@@ -1,4 +1,5 @@
 import {
+  completionGateIds,
   completionEvidenceBasis,
   completionEvidenceResults,
   localGitObjectRefStore,
@@ -9,6 +10,10 @@ import {
   type CompletionEvidenceResult,
   type CompletionEvidenceV1,
 } from "../../kernel/src/index.ts";
+
+export function ciGateApplies(taskGateIds: readonly string[], commitSha: string | null | undefined): boolean {
+  return completionGateIds(taskGateIds, commitSha).includes("ci");
+}
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import type { Snapshot } from "./repo-cell-types.ts";
 
@@ -72,4 +77,12 @@ export function readLatestCiEvidence(
     };
   }
   return null;
+}
+
+export function readApplicableCiEvidence(
+  cell: RepoCellOperationalContext,
+  execution: Snapshot["executions"][number] | undefined,
+  taskGateIds: readonly string[],
+): CompletionEvidenceV1 | null {
+  return ciGateApplies(taskGateIds, execution?.submission?.commitSha) ? readLatestCiEvidence(cell, execution) : null;
 }

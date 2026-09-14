@@ -1,6 +1,7 @@
 import { readTaskCompletion } from "./task-completion-read.ts";
 import { createHash } from "node:crypto";
 import {
+  completionGateIds,
   compileCompletionGateWitness,
   judgeCompletionEvidence,
   type CompletionEvidenceJudgment,
@@ -138,6 +139,9 @@ export function taskShowFromProjection(
   // fast path, which has no write-queue settlement.
   if (notFound !== null) return failed(`read:${taskId}`, notFound);
   const task = read.snapshot.task,
+    execution = read.snapshot.executions.find(
+      (candidate) => candidate.iteration === task?.iteration && candidate.submission !== null,
+    ),
     rootAssessment = task
       ? deriveTaskRoot(
           {
@@ -159,6 +163,12 @@ export function taskShowFromProjection(
       : null,
     payload = {
       ...read.snapshot,
+      task: task
+        ? {
+            ...task,
+            completionGateIds: completionGateIds(task.completionGateIds, execution?.submission?.commitSha),
+          }
+        : null,
       packagePath: read.packagePath,
       rootAssessment,
       completionNext: readTaskCompletion(projection, taskId).completionNext,

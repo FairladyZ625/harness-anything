@@ -233,7 +233,14 @@ test(
       assert.equal(dispatched.code, "review_missing", JSON.stringify(dispatched));
       assert.equal(f.launches.length, 1);
       assert.match(f.launches[0]!.prompt, /Frozen artifact evidence/u);
+      assert.match(f.launches[0]!.prompt, /Effective completion gates: none/u);
+      assert.match(f.launches[0]!.prompt, /artifact-only.*ci.*code-doc-reconciliation.*do not apply/u);
+      assert.doesNotMatch(f.launches[0]!.prompt, /Honor every gate declared by the task/u);
       assert.doesNotMatch(f.launches[0]!.prompt, /Latest replacement must not be reviewed/u);
+      const submittedShow = JSON.parse(String((await f.run({ kind: "task-show", taskId })).evidence)) as {
+        task: { completionGateIds: string[] };
+      };
+      assert.deepEqual(submittedShow.task.completionGateIds, []);
       const session = String((dispatched as unknown as Record<string, unknown>).runtimeSessionId);
       const reviewed = await f.review(session, "artifact-reviewed");
       if (reviewed.outcome === "pending") await waitForFixturePublication(f.cell(), reviewed.opId, owner);
@@ -275,6 +282,11 @@ test(
       assert.equal(submission.artifacts?.length, 1);
       assert.match(submission.outputs[0]!, /^Artifact-Anchor: .*hybrid\.md@[1-9][0-9]*$/u);
       assert.match(f.launches[0]!.prompt, /Frozen hybrid evidence/u);
+      assert.match(f.launches[0]!.prompt, /Effective completion gates: code-doc-reconciliation/u);
+      const shown = JSON.parse(String((await f.run({ kind: "task-show", taskId })).evidence)) as {
+        task: { completionGateIds: string[] };
+      };
+      assert.deepEqual(shown.task.completionGateIds, ["code-doc-reconciliation"]);
       const reviewed = await f.review(String(dispatched.runtimeSessionId), "hybrid-reviewed");
       if (reviewed.outcome === "pending") await waitForFixturePublication(f.cell(), reviewed.opId, owner);
       else assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));

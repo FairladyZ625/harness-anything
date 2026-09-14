@@ -3,7 +3,7 @@ import { artifactImportSourceResolution, prepareArtifactEntityImportSource } fro
 import { fetchCiObservations, ingestCiObservations } from "./ci-observation-actions.ts";
 import type { RepoCellApiContext } from "./repo-cell-api.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
-import { readLatestCiEvidence } from "./repo-cell-ci-evidence.ts";
+import { ciGateApplies, readLatestCiEvidence } from "./repo-cell-ci-evidence.ts";
 
 type QueuedPublication = (
   action: RepoTaskAction,
@@ -41,7 +41,7 @@ export function readBeforeWriteQueue(
       );
     if (execution && context.projection.readTaskCompletion(action.taskId, execution.executionId)) return null;
     if (
-      snapshot.task?.completionGateIds.includes("ci") &&
+      ciGateApplies(snapshot.task?.completionGateIds ?? [], execution?.submission?.commitSha) &&
       (!execution || readLatestCiEvidence(context.extracted, execution) === null)
     )
       return fetchCiObservations(context.extracted, { kind: "ci-observe-pull" }).then(

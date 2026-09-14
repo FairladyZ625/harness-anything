@@ -175,7 +175,12 @@ export async function fixture(
   );
   let cell = await open();
   const run = (action: Parameters<typeof cell.run>[0]) => cell.run(action, owner);
-  const created = await run({ kind: "task-create", taskId, title: "Completion Review", presetId: "docs-task" });
+  const created = await run({
+    kind: "task-create",
+    taskId,
+    title: "Completion Review",
+    presetId: artifactDelivery || hybridDelivery ? "standard-task" : "docs-task",
+  });
   assert.equal(created.outcome, "applied", JSON.stringify(created));
   await waitForFixturePublication(cell, created.opId, owner);
   const packagePath = String((created as Record<string, unknown>).packagePath);

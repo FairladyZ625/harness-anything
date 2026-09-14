@@ -36,7 +36,7 @@ import { readCompletionContext, completionBlockersForAction } from "./task-compl
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 
 import { dispatchCompletionReview } from "./task-completion-review.ts";
-import { readLatestCiEvidence } from "./repo-cell-ci-evidence.ts";
+import { readApplicableCiEvidence, readLatestCiEvidence } from "./repo-cell-ci-evidence.ts";
 
 /** Attach only existing evidence to the submitted cut; document sync belongs to its original holder. */
 export async function prepareSubmissionEvidence(
@@ -249,9 +249,7 @@ export async function completeTask(
       [],
     );
   }
-  const ciEvidence = initial.snapshot.task?.completionGateIds.includes("ci")
-    ? readLatestCiEvidence(cell, submittedExecution)
-    : null;
+  const ciEvidence = readApplicableCiEvidence(cell, submittedExecution, initial.snapshot.task?.completionGateIds ?? []);
   if (ciEvidence?.result === "fail")
     throw cell.cellCodedError("invalid_proof", `CI receipt ${ciEvidence.provenance.rawResult} reported fail.`);
   const steps: WriteReceipt[] = [],
