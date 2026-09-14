@@ -1,10 +1,10 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { LOCAL_DOC_READ_CHANNEL } from "../src/api/local-doc-contract.ts";
+import { LOCAL_DOC_READ_CHANNEL, LOCAL_DOC_WRITE_CHANNEL } from "../src/api/local-doc-contract.ts";
 import {
   classifyLocalDocFsError,
   expandHomePath,
@@ -13,12 +13,15 @@ import {
   readLocalDocument,
   registerLocalDocIpc,
   validateLocalDocReadInput,
+  validateLocalDocWriteInput,
+  writeLocalDocument,
 } from "../src/main/local-doc-ipc.ts";
 
 /**
  * 「GUI 内读本机文档」的信任边界与只读语义(task_89d324b5):渲染进程只能送
  * `{path}` 形状;主进程只读解析(realpath → 常规文件 → utf-8),失败 typed 返回。
  * 负向面(不存在/目录/二进制/超大/符号链接真身展示/请求形状)是主防面。
+ * 写回通道(task_5dfe382f)同款收紧:目录伪装拒绝、父目录必须存在、超限 typed 拒绝。
  */
 
 const trustedEvent = {
@@ -40,10 +43,10 @@ test.after(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
-test("only the local-doc channel is registered, once", () => {
+test("only the local-doc read and write channels are registered, once each", () => {
   const channels: string[] = [];
   registerLocalDocIpc({ handle: (channel) => channels.push(channel) }, { homeDir: () => "/home" }, trustedPolicy);
-  assert.deepEqual(channels, [LOCAL_DOC_READ_CHANNEL]);
+  assert.deepEqual(channels, [LOCAL_DOC_READ_CHANNEL, LOCAL_DOC_WRITE_CHANNEL]);
 });
 
 test("an untrusted renderer cannot reach the channel", async () => {
@@ -170,4 +173,89 @@ test("relative and non-owner-tilde paths are rejected typed at read time", async
     { ok: foreignTilde.ok, code: foreignTilde.ok ? null : foreignTilde.code },
     { ok: false, code: "request_rejected" },
   );
+});
+
+test("write request shape is closed to {path, content}", () => {
+  assert.deepEqual(validateLocalDocWriteInput({ path: "/repo/skills/a/SKILL.md", content: "# a" }), {
+    path: "/repo/skills/a/SKILL.md",
+    content: "# a",
+  });
+  assert.throws(() => validateLocalDocWriteInput({ path: "/a", content: "x", extra: 1 }), /does not accept field/u);
+  assert.throws(() => validateLocalDocWriteInput({ path: "/a" }), /requires a content string/u);
+  assert.throws(() => validateLocalDocWriteInput({ content: "x" }), /requires a path string/u);
+  assert.throws(() => validateLocalDocWriteInput({ path: "/a/b\u0007c", content: "x" }), /unsupported characters/u);
+  if (process.platform !== "win32")
+    assert.throws(
+      () => validateLocalDocWriteInput({ path: String.raw`C:\repo\SKILL.md`, content: "x" }),
+      /unsupported separator/u,
+    );
+});
+
+test("writes overwrite an existing skill manifest and report the real path and size", async () => {
+  const skillDir = path.join(root, "review-skill");
+  mkdirSync(skillDir);
+  writeFileSync(path.join(skillDir, "SKILL.md"), "---\nname: review\n---\nold body\n", "utf8");
+  const file = realpathSync(path.join(skillDir, "SKILL.md"));
+  const result = await writeLocalDocument(file, "---\nname: review\n---\nnew body\n", { homeDir: () => "/home/ce" });
+  assert.deepEqual(result, {
+    ok: true,
+    path: file,
+    sizeBytes: Buffer.byteLength("---\nname: review\n---\nnew body\n", "utf8"),
+  });
+  assert.equal(readFileSync(file, "utf8"), "---\nname: review\n---\nnew body\n");
+});
+
+test("a write through a symlink lands on the real target file", async () => {
+  const realDir = path.join(root, "real-skills");
+  const linkDir = path.join(root, "link-skills");
+  mkdirSync(realDir);
+  writeFileSync(path.join(realDir, "SKILL.md"), "old", "utf8");
+  symlinkSync(realDir, linkDir);
+  const result = await writeLocalDocument(path.join(linkDir, "SKILL.md"), "new", { homeDir: () => "/home/ce" });
+  assert.equal(result.ok, true);
+  if (result.ok) {
+    assert.equal(result.path, realpathSync(path.join(realDir, "SKILL.md")));
+    assert.equal(readFileSync(path.join(realDir, "SKILL.md"), "utf8"), "new");
+  }
+});
+
+test("a write may create a new file only inside an existing directory", async () => {
+  mkdirSync(path.join(root, "fresh-skill"));
+  const created = await writeLocalDocument(path.join(root, "fresh-skill", "SKILL.md"), "body", {
+    homeDir: () => "/home/ce",
+  });
+  assert.deepEqual({ ok: created.ok, code: created.ok ? null : created.code }, { ok: true, code: null });
+  if (created.ok) {
+    assert.equal(readFileSync(created.path, "utf8"), "body");
+    assert.equal(path.dirname(created.path), realpathSync(path.join(root, "fresh-skill")));
+  }
+});
+
+test("directory targets, missing parents, relative paths and oversize content fail typed", async () => {
+  const directory = await writeLocalDocument(root, "body", { homeDir: () => "/home/ce" });
+  assert.deepEqual(
+    { ok: directory.ok, code: directory.ok ? null : directory.code },
+    { ok: false, code: "not_a_regular_file" },
+  );
+
+  const missingParent = await writeLocalDocument(path.join(root, "no-such-dir", "SKILL.md"), "body", {
+    homeDir: () => "/home/ce",
+  });
+  assert.deepEqual(
+    { ok: missingParent.ok, code: missingParent.ok ? null : missingParent.code },
+    { ok: false, code: "not_found" },
+  );
+
+  const relative = await writeLocalDocument("skills/review/SKILL.md", "body", { homeDir: () => "/home/ce" });
+  assert.deepEqual(
+    { ok: relative.ok, code: relative.ok ? null : relative.code },
+    { ok: false, code: "request_rejected" },
+  );
+
+  const tooLarge = await writeLocalDocument(path.join(root, "big.md"), "x".repeat(65), {
+    homeDir: () => "/home/ce",
+    maxBytes: 64,
+  });
+  assert.deepEqual({ ok: tooLarge.ok, code: tooLarge.ok ? null : tooLarge.code }, { ok: false, code: "too_large" });
+  assert.equal(LOCAL_DOC_MAX_BYTES, 2 * 1024 * 1024);
 });

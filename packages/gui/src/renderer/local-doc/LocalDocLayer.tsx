@@ -143,7 +143,7 @@ function LocalDocOverlay({
   );
 }
 
-function LocalDocError({
+export function LocalDocError({
   result,
 }: {
   readonly result: { readonly ok: false; readonly code: string; readonly path: string; readonly message: string };

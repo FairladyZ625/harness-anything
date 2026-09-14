@@ -10,7 +10,7 @@ import { agentRuntimePreloadApi } from "./agent-runtime-preload.ts";
 import { daemonGuiStreamFacets } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { FIRST_RUN_BOOTSTRAP_CHANNEL, FIRST_RUN_CHOOSE_CHANNEL, type FirstRunApi } from "../api/first-run-contract.ts";
 import { ARTIFACT_OPEN_EXTERNAL_CHANNEL, type ArtifactOpenApi } from "../api/artifact-open-contract.ts";
-import { LOCAL_DOC_READ_CHANNEL, type LocalDocApi } from "../api/local-doc-contract.ts";
+import { LOCAL_DOC_READ_CHANNEL, LOCAL_DOC_WRITE_CHANNEL, type LocalDocApi } from "../api/local-doc-contract.ts";
 import {
   CONNECTION_PROBE_CHANNEL,
   CONNECTION_REGISTER_CHANNEL,
@@ -50,9 +50,10 @@ const exposedHarnessApi = {
   artifacts: {
     openExternal: (input) => ipcRenderer.invoke(ARTIFACT_OPEN_EXTERNAL_CHANNEL, input),
   } satisfies ArtifactOpenApi,
-  // GUI 内读本机文档(task_89d324b5):只读通道,主进程收窄见 main/local-doc-ipc.ts。
+  // GUI 内读本机文档(task_89d324b5)与写回 SKILL.md(task_5dfe382f):主进程收窄见 main/local-doc-ipc.ts。
   localDoc: {
     read: (input) => ipcRenderer.invoke(LOCAL_DOC_READ_CHANNEL, input),
+    write: (input) => ipcRenderer.invoke(LOCAL_DOC_WRITE_CHANNEL, input),
   } satisfies LocalDocApi,
   // Settings → 仓库与连接(PLT-EdgeGUI-W3):连接/仓库 admin,主进程收窄见 main/connection-admin-ipc.ts。
   connections: {

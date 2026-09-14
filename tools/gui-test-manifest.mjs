@@ -106,4 +106,5 @@ export const guiVitestManifest = [
   "packages/gui/test/local-doc-reader.vitest.tsx",
   "packages/gui/test/markdown-links.vitest.ts",
   "packages/gui/test/system-observe.vitest.ts",
+  "packages/gui/test/skill-editor-modal.vitest.tsx",
 ];
