@@ -299,7 +299,7 @@ export function assembleScheduledMission(input: {
 }
 
 export function validateMissionCommands(mission: string, workerRoot: string, source: string): void {
-  for (const block of mission.matchAll(/```(?:sh|bash|zsh|shell)[^\n]*\n([\s\S]*?)```/giu))
+  for (const block of mission.matchAll(/(?:^|\r?\n)```(?:sh|bash|zsh|shell)[^\r\n]*\r?\n([\s\S]*?)(?:^|\r?\n)```/giu))
     for (const line of (block[1] ?? "").split(/\r?\n/u))
       for (const tokens of shellSegments(line)) {
         const command = path.basename(tokens[0] ?? ""),
