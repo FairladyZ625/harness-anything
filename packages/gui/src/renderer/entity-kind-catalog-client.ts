@@ -1,5 +1,6 @@
 import { isRendererRecord, rendererErrorHint } from "./result-validation.ts";
 import type { GovernedEntityRow } from "./graph/governedEntities.ts";
+import { guiHostBridge } from "./gui-transport.ts";
 
 /**
  * GUI 里**唯一**的实体 kind 来源(task_0df76ed3fb 设计页 §1)。
@@ -74,7 +75,7 @@ type EntityKindBridge = {
 };
 
 const bridge = (): EntityKindBridge => {
-  const value = window.harness as unknown as Partial<EntityKindBridge> | undefined;
+  const value = guiHostBridge() as unknown as Partial<EntityKindBridge> | undefined;
   if (!value?.readEntityKinds) throw new Error("Entity kind catalog bridge is unavailable.");
   return value as EntityKindBridge;
 };
@@ -129,7 +130,7 @@ type EntityRowBridge = {
 
 /** 声明实体的行读面。内建 kind 各有自己的读,这条只服务 vertical 声明出来的 kind。 */
 export async function readGovernedEntityRows(repoId: string): Promise<readonly GovernedEntityRow[]> {
-  const value = window.harness as unknown as Partial<EntityRowBridge> | undefined;
+  const value = guiHostBridge() as unknown as Partial<EntityRowBridge> | undefined;
   if (!value?.readEntityRows) throw new Error("Entity row bridge is unavailable.");
   const result = await value.readEntityRows({ repoId });
   if (!isRendererRecord(result) || result.schema !== "entity-row-list/v1" || !Array.isArray(result.rows))

@@ -77,7 +77,12 @@ test("ordinary Chromium reaches the task shell through authenticated browser RPC
       });
       await page.goto(broker.url);
       await page.getByTestId("app-sidebar").waitFor({ timeout: 30_000 });
-      await page.getByText("Browser E2E task", { exact: true }).waitFor();
+      await page.getByTestId("browser-capability-notice").waitFor();
+      const taskRow = page.getByText("Browser E2E task", { exact: true });
+      await taskRow.waitFor();
+      await taskRow.click();
+      await page.getByTestId("task-preview-backdrop").locator("footer button").first().click();
+      await page.getByTestId("task-detail-view").waitFor();
       assert.ok(rpcStatuses.includes(200), `expected a 200 POST /rpc, saw ${rpcStatuses.join(",")}`);
     } finally {
       await browser.close();

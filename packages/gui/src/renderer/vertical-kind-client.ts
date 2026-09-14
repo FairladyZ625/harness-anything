@@ -1,5 +1,6 @@
 import type { GuiActionResult } from "../api/renderer-dto.ts";
 import { isRendererRecord, rendererErrorHint } from "./result-validation.ts";
+import { guiHostBridge } from "./gui-transport.ts";
 
 /**
  * A declared Artifact kind row as `repo.vertical.declaration.read` serves it. Accepted rows carry
@@ -37,7 +38,7 @@ type VerticalBridge = {
   readonly retireVerticalKind: (payload: object) => Promise<unknown>;
 };
 
-const bridge = (): Partial<VerticalBridge> => (window.harness as unknown as Partial<VerticalBridge> | undefined) ?? {};
+const bridge = (): Partial<VerticalBridge> => (guiHostBridge() as unknown as Partial<VerticalBridge> | undefined) ?? {};
 
 export async function readVerticalDeclaration(repoId: string): Promise<VerticalDeclarationRead> {
   const channel = bridge().readVerticalDeclaration;

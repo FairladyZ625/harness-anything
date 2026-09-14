@@ -65,6 +65,9 @@ export function guiTransport(): GuiTransport {
   history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
   return (transport = createBrowserGuiTransport(token));
 }
+export function guiHostBridge(): GuiBridge | undefined {
+  return window.harness;
+}
 export function resetGuiTransportForTest(): void {
   transport = undefined;
 }

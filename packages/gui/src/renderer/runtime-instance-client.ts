@@ -1,5 +1,6 @@
 import type { RuntimeInstanceSummary } from "../../../daemon/src/agent-runtime-instances.ts";
 import type { TerminalControlReceipt } from "../../../daemon/src/gui-s3-control.ts";
+import { guiHostBridge } from "./gui-transport.ts";
 export interface RuntimeInstallationRow {
   readonly installationId: string;
   readonly kindId: string;
@@ -60,7 +61,7 @@ type Bridge = {
 };
 type AuthInput = { readonly repoId: string; readonly instanceId: string; readonly idempotencyKey: string };
 const bridge = (): Bridge => {
-  const value = window.harness as unknown as Partial<Bridge> | undefined,
+  const value = guiHostBridge() as unknown as Partial<Bridge> | undefined,
     required = [
       "listRuntimeInstances",
       "showRuntimeInstance",

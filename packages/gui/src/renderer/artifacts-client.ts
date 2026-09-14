@@ -1,5 +1,6 @@
 import type { ArtifactGuiKind, ArtifactsListResult } from "../../../daemon/src/protocol/artifacts-gui-contract.ts";
 import { isRendererRecord, rendererErrorHint } from "./result-validation.ts";
+import { guiHostBridge } from "./gui-transport.ts";
 
 // Renderer client for the artifacts timeline: one `repo.artifacts.list` read returns
 // the complete joined DTO — file inventory, task attribution and the time source are
@@ -9,7 +10,7 @@ type ArtifactsBridge = {
 };
 
 const bridge = (): ArtifactsBridge => {
-  const value = window.harness as unknown as Partial<ArtifactsBridge> | undefined;
+  const value = guiHostBridge() as unknown as Partial<ArtifactsBridge> | undefined;
   if (!value?.listArtifacts) throw new Error("Artifacts bridge is unavailable.");
   return value as ArtifactsBridge;
 };

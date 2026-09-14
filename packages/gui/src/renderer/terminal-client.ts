@@ -2,6 +2,7 @@ import type { TerminalControlReceipt, TerminalSessionRow } from "../../../daemon
 import type { DaemonStreamPayloadMap } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { isRendererRecord, rendererErrorHint } from "./result-validation.ts";
 import type { TerminalStreamFrame } from "./terminal-model.ts";
+import { guiHostBridge } from "./gui-transport.ts";
 
 export interface TerminalSessionList {
   readonly schema: "terminal-session-list/v1";
@@ -52,7 +53,7 @@ type TerminalBridge = {
 };
 
 const bridge = (): TerminalBridge => {
-  const value = window.harness as unknown as Partial<TerminalBridge> | undefined;
+  const value = guiHostBridge() as unknown as Partial<TerminalBridge> | undefined;
   const required = [
     "listTerminalSessions",
     "spawnTerminal",

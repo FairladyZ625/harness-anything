@@ -1,4 +1,5 @@
 import { isRendererRecord, rendererErrorHint } from "./result-validation.ts";
+import { guiHostBridge } from "./gui-transport.ts";
 
 /**
  * 实体**自己收管的内容**的读(`repo.entity.content.read`)。
@@ -61,7 +62,7 @@ export async function readEntityOwnedContent(
   entityId: string,
   path = "",
 ): Promise<EntityContentRead> {
-  const channel = (window.harness as unknown as Partial<ContentBridge> | undefined)?.readEntityContent;
+  const channel = (guiHostBridge() as unknown as Partial<ContentBridge> | undefined)?.readEntityContent;
   if (!channel) throw new Error("Entity content bridge is unavailable.");
   const value = await channel({ repoId, entityKind, entityId, ...(path === "" ? {} : { path }) });
   if (!isRendererRecord(value) || value.schema !== "entity-content-read/v1" || typeof value.outcome !== "string")

@@ -1,5 +1,6 @@
 import type { RuntimeSpawnInput } from "./runtime-control.ts";
 import { isRendererRecord, rendererErrorHint } from "./result-validation.ts";
+import { guiHostBridge } from "./gui-transport.ts";
 
 type RuntimeCommandBridge = {
   readonly spawnAgentRuntime: (payload: { readonly repoId: string } & RuntimeSpawnInput) => Promise<unknown>;
@@ -10,7 +11,7 @@ type RuntimeCommandBridge = {
   readonly showReceipt: (payload: { readonly repoId: string; readonly opId: string }) => Promise<unknown>;
 };
 const bridge = (): Partial<RuntimeCommandBridge> | undefined =>
-  window.harness as unknown as Partial<RuntimeCommandBridge> | undefined;
+  guiHostBridge() as unknown as Partial<RuntimeCommandBridge> | undefined;
 const spawnBridge = (): RuntimeCommandBridge["spawnAgentRuntime"] => {
   const value = bridge()?.spawnAgentRuntime;
   if (!value) throw new Error("Runtime command bridge method unavailable: spawnAgentRuntime.");

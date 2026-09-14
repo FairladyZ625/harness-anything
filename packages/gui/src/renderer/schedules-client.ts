@@ -10,6 +10,7 @@ import type {
 } from "../../../daemon/src/protocol/schedule-runs-contract.ts";
 import { isRendererRecord, rendererErrorHint } from "./result-validation.ts";
 import { readUseCaseProjection } from "./use-case-projection-client.ts";
+import { guiHostBridge } from "./gui-transport.ts";
 
 // Renderer client for the Schedule plane (S4). The `schedule-plane` use-case projection returns
 // the complete joined DTO — cadence/timezone/nextRun/mode/availability are daemon
@@ -24,7 +25,7 @@ type SchedulesBridge = {
   readonly runScheduleNow: (payload: unknown) => Promise<unknown>;
 };
 const bridge = (): SchedulesBridge => {
-  const value = window.harness as unknown as Partial<SchedulesBridge> | undefined;
+  const value = guiHostBridge() as unknown as Partial<SchedulesBridge> | undefined;
   if (
     !value?.createSchedule ||
     !value.updateSchedule ||

@@ -66,6 +66,7 @@ import { FirstRunGuide } from "./components/FirstRunGuide.tsx";
 import { LocalDocLayer } from "./local-doc/LocalDocLayer.tsx";
 import { useLocalDocOpener } from "./local-doc/local-doc-context.ts";
 import { useEntityKindOptions, useGovernedEntityRows } from "./entity-kind-data.ts";
+import { guiTransport } from "./gui-transport.ts";
 
 /**
  * 渲染全量决策行的视图。总览只读决策摘要;其他集合内视图同时渲染图 + 决策。
@@ -82,6 +83,7 @@ const FULL_TRIADIC_PROJECTION_VIEWS: ReadonlySet<ViewId> = new Set([
 ]);
 
 function AppShell() {
+  const desktopOnly = guiTransport().capabilities().terminal?.status === "unavailable";
   const [activeRepoId, setActiveRepoId] = useState<string | null>(null);
   const queryClient = useQueryClient();
   const systemQuery = useSystemStatusQuery();
@@ -410,6 +412,14 @@ function AppShell() {
           onOpenSystem={() => goto("system")}
         />
         <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          {desktopOnly ? (
+            <div
+              data-testid="browser-capability-notice"
+              className="border-b border-border px-3 py-1 ui-meta text-text-muted"
+            >
+              写操作、实时流、终端和本机文件仅桌面版可用。
+            </div>
+          ) : null}
           <NavigationHistoryBar canBack={canBack} canForward={canForward} onBack={back} onForward={forward} />
           <div key={projectId} className="flex min-h-0 min-w-0 flex-1 flex-row overflow-hidden">
             <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">

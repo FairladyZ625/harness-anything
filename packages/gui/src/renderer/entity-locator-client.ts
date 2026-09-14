@@ -1,6 +1,7 @@
 import type { GuiActionResult } from "../api/renderer-dto.ts";
 import { isRendererRecord, rendererErrorHint } from "./result-validation.ts";
 import type { EntityLocator, EntityLocatorReadOutcome } from "./entity-locator-renderer.ts";
+import { guiHostBridge } from "./gui-transport.ts";
 
 /**
  * 实体 locator 的内容读 + 声明实体的新建写。
@@ -60,7 +61,7 @@ type LocatorBridge = {
   }) => Promise<unknown>;
 };
 
-const bridge = (): Partial<LocatorBridge> => (window.harness as unknown as Partial<LocatorBridge> | undefined) ?? {};
+const bridge = (): Partial<LocatorBridge> => (guiHostBridge() as unknown as Partial<LocatorBridge> | undefined) ?? {};
 
 /**
  * locator 正文读的 query 声明。渲染面与深链接预取共用同一份 key / 读函数 / 新鲜度 /

@@ -8,6 +8,7 @@ import { inspectWorkspace } from "../../connection-admin-client.ts";
 import { useRepoAdminMutations } from "../../connection-data.ts";
 import { BTN, Row, Section } from "../../components/ui/widgets.tsx";
 import { RepoModeBadge } from "../../components/RepoModeBadge.tsx";
+import { guiHostBridge } from "../../gui-transport.ts";
 
 /**
  * 本机连接详情面(设计稿 §3.2「本机连接」列):其下仓库列表 + 「添加本机仓库」。
@@ -231,7 +232,7 @@ export function AddLocalRepositoryPanel({
 }
 
 function firstRunApi(): FirstRunApi {
-  const api = window.harness?.firstRun;
+  const api = guiHostBridge()?.firstRun;
   if (!api) throw new Error("First-run preload bridge is unavailable.");
   return api;
 }
