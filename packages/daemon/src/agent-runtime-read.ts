@@ -11,7 +11,7 @@ import {
   type RuntimeSession,
   type TaskProjection,
 } from "../../kernel/src/index.ts";
-import type { AgentRuntimeAttemptChainDto } from "./dispatch-read.ts";
+import type { AgentRuntimeAttemptChainDto } from "./runtime-attempt-contract.ts";
 import {
   agentRuntimeSessionGroupStatusWords,
   coded,
