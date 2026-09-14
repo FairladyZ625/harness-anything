@@ -231,17 +231,31 @@ test(
         assert.equal(running.actions.runNow.available, false);
         assert.equal(running.actions.runNow.code, "schedule_single_flight_active");
 
-        // Wait for the spawner to subscribe the stub's listeners, then replay a
-        // completed transcript and a clean exit so settlement records "succeeded".
+        // Wait for the spawner to subscribe the stub's listeners, then observe
+        // the transcript through the same runtime attach surface exposed to clients.
         const emit = await eventually(() => Promise.resolve(output !== null && exit !== null));
         assert.equal(emit, true, "the scheduled spawn never subscribed its output listener");
-        output?.(
-          `${JSON.stringify({ type: "thread.started", thread_id: "provider-schedules" })}\n` +
-            `${JSON.stringify({ type: "item.completed", item: { id: "write", type: "file_change", status: "completed" } })}\n` +
-            `${JSON.stringify({ type: "item.completed", item: { id: "message", type: "agent_message", text: "done" } })}\n` +
-            `${JSON.stringify({ type: "turn.completed" })}\n`,
-        );
-        await new Promise((resolve) => setTimeout(resolve, 100));
+        const runtimeSessionId = running.activeRun!.runtimeSessionId;
+        assert.notEqual(runtimeSessionId, null);
+        const attached = await cell.attach(runtimeSessionId!, "stream:0");
+        try {
+          assert.equal(attached.initial.ok, true, JSON.stringify(attached.initial));
+          output?.(
+            `${JSON.stringify({ type: "thread.started", thread_id: "provider-schedules" })}\n` +
+              `${JSON.stringify({ type: "item.completed", item: { id: "write", type: "file_change", status: "completed" } })}\n` +
+              `${JSON.stringify({ type: "item.completed", item: { id: "message", type: "agent_message", text: "done" } })}\n` +
+              `${JSON.stringify({ type: "turn.completed" })}\n`,
+          );
+          const pending = attached.initial.ok ? [...attached.initial.events] : [];
+          for (;;) {
+            const event = pending.shift() ?? (await attached.next());
+            assert.notEqual(event, null, "runtime attach stream closed before provider activity arrived");
+            assert.notEqual(event?.type, "exit", "runtime exited before provider activity was consumed");
+            if (event?.type === "activity" && event.activity === "message" && event.content === "done") break;
+          }
+        } finally {
+          attached.detach();
+        }
         exit?.(0);
         const settled = await eventually(async () => {
           const read = await list();

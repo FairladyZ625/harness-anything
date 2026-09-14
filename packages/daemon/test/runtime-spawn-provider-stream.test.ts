@@ -14,7 +14,7 @@ import {
 import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/dispatch-stream.ts";
 import { parseProviderFrame } from "../src/runtime-spawn-provider-frames.ts";
 
-function active(kindId = "codex") {
+function active(kindId = "codex", process = {} as never) {
   return createActiveRuntime({
     runtimeSessionId: "runtime_aaaaaaaaaaaaaaaaaaaaaaaa",
     dispatchId: "dispatch_aaaaaaaaaaaaaaaaaaaaaaaa",
@@ -28,7 +28,7 @@ function active(kindId = "codex") {
     prompt: "metrics fixture",
     startedAt: "2026-09-11T00:00:00.000Z",
     binding: {} as never,
-    process: {} as never,
+    process,
     stream: { appendProviderEvent: () => undefined } as never,
   } as never);
 }
@@ -75,6 +75,47 @@ test("resume observation preserves durable provider output provenance", async ()
   await Promise.all(scheduled);
 
   assert.deepEqual(consumed, [{ chunk: frame, persisted: true }]);
+});
+
+test("runtime callbacks enqueue output before a subsequently observed exit", async () => {
+  const listeners: {
+      output?: (chunk: string) => void;
+      exit?: (code: number | null) => void;
+    } = {},
+    runtime = active("codex", {
+      onOutput: (listener: (chunk: string) => void) => {
+        listeners.output = listener;
+      },
+      onErrorOutput: () => undefined,
+      onExit: (listener: (code: number | null) => void) => {
+        listeners.exit = listener;
+      },
+    } as never),
+    scheduled: Array<() => Promise<void>> = [],
+    observed: string[] = [],
+    orderedContext = {
+      ...context(),
+      input: {
+        ...context().input,
+        schedule: (effect: () => Promise<void>) => scheduled.push(effect),
+      },
+      consumeChunk: async (_active: unknown, chunk: string, flush: boolean) => {
+        observed.push(flush ? "flush" : `output:${chunk}`);
+      },
+      captureErrorOutput: () => undefined,
+      publishExit: async (_active: unknown, code: number | null) => {
+        observed.push(`exit:${String(code)}`);
+      },
+    } as never;
+  orderedContext.processes.set(runtime.runtimeSessionId, runtime);
+
+  attachActiveRuntime(orderedContext, runtime);
+  listeners.output?.("last-frame");
+  listeners.exit?.(0);
+
+  assert.equal(scheduled.length, 2);
+  for (const effect of scheduled) await effect();
+  assert.deepEqual(observed, ["output:last-frame", "flush", "exit:0"]);
 });
 
 test("Codex stream normalizes usage, ten tool calls, compaction, and preserves raw usage", async () => {
