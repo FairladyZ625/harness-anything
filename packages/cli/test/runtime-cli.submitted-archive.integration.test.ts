@@ -60,11 +60,13 @@ test("Runtime report is archived after the worker submits its execution", async 
       "--no-stream",
     ]),
     submittedDispatchId = String((submittedRuntime.spawn as Record<string, unknown>).dispatchId),
-    submittedReportPath = `${submittedPackagePath}/artifacts/reports/${submittedDispatchId}.md`,
-    submittedDispatch = (
-      run(root, env, ["task", "dispatches", submittedTaskId]).dispatches as Array<Record<string, unknown>>
-    ).find((row) => row.dispatchId === submittedDispatchId);
+    submittedReportPath = `${submittedPackagePath}/artifacts/reports/${submittedDispatchId}.md`;
+  // The report is archived by a doc-sync publication after the runtime settles, and the dispatch
+  // read derives reportPath from the archived file, so the row is read only after the file exists.
   await eventuallyFile(path.join(root, "harness", submittedReportPath));
   assert.equal(existsSync(path.join(root, "harness", submittedReportPath)), true);
+  const submittedDispatch = (
+    run(root, env, ["task", "dispatches", submittedTaskId]).dispatches as Array<Record<string, unknown>>
+  ).find((row) => row.dispatchId === submittedDispatchId);
   assert.equal(submittedDispatch?.reportPath, submittedReportPath);
 });
