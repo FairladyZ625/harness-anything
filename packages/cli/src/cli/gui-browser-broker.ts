@@ -78,13 +78,35 @@ async function handleRpc(
     if (typeof value.method !== "string" || !isDaemonGuiReadMethod(value.method) || !record(value.params))
       return reject(response, 400);
     const repo = record(value.params.repo) ? value.params.repo : undefined;
-    const result = await requestLocalDaemonJsonRpc(rootDir, value.method, value.params as never, 75, {
+    return requestLocalDaemonJsonRpc(rootDir, value.method, value.params as never, 75, {
       ...(typeof repo?.repoId === "string" ? { repoIdOverride: repo.repoId } : {}),
-    });
-    response.statusCode = 200;
-    response.setHeader("Content-Type", "application/json");
-    response.end(JSON.stringify(result));
+    }).then(
+      (result) => {
+        response.statusCode = 200;
+        response.setHeader("Content-Type", "application/json");
+        response.end(JSON.stringify(result));
+      },
+      (error: unknown) => {
+        const rawCode =
+            error instanceof Error && typeof (error as { readonly code?: unknown }).code === "string"
+              ? (error as Error & { readonly code: string }).code
+              : null,
+          code =
+            (error instanceof Error && error.message === "daemon_unavailable") || isDaemonUnavailableCode(rawCode)
+              ? "daemon_unavailable"
+              : (rawCode ?? "browser_broker_failed");
+        response.statusCode = 502;
+        response.setHeader("Content-Type", "application/json");
+        response.end(
+          JSON.stringify({
+            ok: false,
+            error: { code, hint: error instanceof Error ? error.message : String(error) },
+          }),
+        );
+      },
+    );
   } catch (error) {
+    consumeKnownError(error);
     response.statusCode = 502;
     response.setHeader("Content-Type", "application/json");
     response.end(
@@ -94,6 +116,12 @@ async function handleRpc(
       }),
     );
   }
+}
+function consumeKnownError(error: unknown): void {
+  void error;
+}
+function isDaemonUnavailableCode(code: string | null): boolean {
+  return code === "ENOENT" || code === "ECONNREFUSED" || code === "ENOTSOCK" || code === "EACCES";
 }
 function authorized(header: string | undefined, token: string): boolean {
   if (!header?.startsWith("Bearer ")) return false;

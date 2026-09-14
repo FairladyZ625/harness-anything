@@ -78,12 +78,29 @@ test("ordinary Chromium reaches the task shell through authenticated browser RPC
       await page.goto(broker.url);
       await page.getByTestId("app-sidebar").waitFor({ timeout: 30_000 });
       await page.getByTestId("browser-capability-notice").waitFor();
+      await page.reload();
+      await page.getByTestId("app-sidebar").waitFor({ timeout: 30_000 });
       const taskRow = page.getByText("Browser E2E task", { exact: true });
       await taskRow.waitFor();
       await taskRow.click();
       await page.getByTestId("task-preview-backdrop").locator("footer button").first().click();
       await page.getByTestId("task-detail-view").waitFor();
       assert.ok(rpcStatuses.includes(200), `expected a 200 POST /rpc, saw ${rpcStatuses.join(",")}`);
+
+      const unavailableResponse = page.waitForResponse(
+        (response) => new URL(response.url()).pathname === "/rpc" && response.status() === 502,
+        { timeout: 30_000 },
+      );
+      run(root, userRoot, ["daemon", "stop"]);
+      const unavailableBody = (await unavailableResponse).json();
+      assert.equal((await unavailableBody).error.code, "daemon_unavailable");
+      const recoveredResponse = page.waitForResponse(
+        (response) => new URL(response.url()).pathname === "/rpc" && response.status() === 200,
+        { timeout: 30_000 },
+      );
+      startDaemon(root, userRoot);
+      await recoveredResponse;
+      await page.getByTestId("app-sidebar").waitFor({ timeout: 30_000 });
     } finally {
       await browser.close();
     }
@@ -144,27 +161,36 @@ function call(
   pathname: string,
   options: { method?: string; token?: string; origin?: string; host?: string } = {},
 ) {
-  return new Promise<{ status: number; headers: Record<string, string | string[] | undefined> }>((resolve, reject) => {
-    const body = JSON.stringify({ method: "repo.tasks.list", params: { repo: { repoId: "canonical" } } });
-    const outgoing = request(
-      {
-        hostname: url.hostname,
-        port: url.port,
-        path: pathname,
-        method: options.method ?? "GET",
-        headers: {
-          Host: options.host ?? url.host,
-          ...(options.origin ? { Origin: options.origin } : {}),
-          ...(options.token ? { Authorization: `Bearer ${options.token}`, "Content-Type": "application/json" } : {}),
+  return new Promise<{ status: number; headers: Record<string, string | string[] | undefined>; body: string }>(
+    (resolve, reject) => {
+      const body = JSON.stringify({ method: "repo.tasks.list", params: { repo: { repoId: "canonical" } } });
+      const outgoing = request(
+        {
+          hostname: url.hostname,
+          port: url.port,
+          path: pathname,
+          method: options.method ?? "GET",
+          headers: {
+            Host: options.host ?? url.host,
+            ...(options.origin ? { Origin: options.origin } : {}),
+            ...(options.token ? { Authorization: `Bearer ${options.token}`, "Content-Type": "application/json" } : {}),
+          },
         },
-      },
-      (response) => {
-        response.resume();
-        response.on("end", () => resolve({ status: response.statusCode!, headers: response.headers }));
-      },
-    );
-    outgoing.on("error", reject);
-    if (options.method === "POST") outgoing.write(body);
-    outgoing.end();
-  });
+        (response) => {
+          const chunks: Buffer[] = [];
+          response.on("data", (chunk: Buffer) => chunks.push(chunk));
+          response.on("end", () =>
+            resolve({
+              status: response.statusCode!,
+              headers: response.headers,
+              body: Buffer.concat(chunks).toString("utf8"),
+            }),
+          );
+        },
+      );
+      outgoing.on("error", reject);
+      if (options.method === "POST") outgoing.write(body);
+      outgoing.end();
+    },
+  );
 }

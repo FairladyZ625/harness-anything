@@ -1,8 +1,19 @@
 // harness-test-tier: fast
+// @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createBrowserGuiTransport, createElectronGuiTransport } from "../src/renderer/gui-transport.ts";
+import {
+  createBrowserGuiTransport,
+  createElectronGuiTransport,
+  guiTransport,
+  resetGuiTransportForTest,
+} from "../src/renderer/gui-transport.ts";
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  resetGuiTransportForTest();
+  window.sessionStorage.clear();
+  window.history.replaceState(null, "", "/");
+  vi.unstubAllGlobals();
+});
 
 describe("GUI transport adapters", () => {
   it("drives Electron and browser adapters with the same canonical request", async () => {
@@ -29,6 +40,37 @@ describe("GUI transport adapters", () => {
       terminal: { status: "unavailable" },
       nativeFiles: { status: "unavailable" },
       writes: { status: "unavailable" },
+    });
+  });
+
+  it("retains browser credentials across a same-tab reload after clearing the fragment", async () => {
+    window.history.replaceState(null, "", "/#access_token=reload-secret");
+    guiTransport();
+    expect(window.location.hash).toBe("");
+
+    resetGuiTransportForTest();
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    vi.stubGlobal("fetch", fetch);
+    await guiTransport().request("system.status.read", {});
+    expect(fetch).toHaveBeenCalledWith(
+      "/rpc",
+      expect.objectContaining({ headers: expect.objectContaining({ Authorization: "Bearer reload-secret" }) }),
+    );
+  });
+
+  it("preserves broker error codes from non-success HTTP responses", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ ok: false, error: { code: "daemon_unavailable", hint: "socket absent" } }), {
+            status: 502,
+          }),
+      ),
+    );
+    await expect(createBrowserGuiTransport("secret").request("system.status.read", {})).rejects.toMatchObject({
+      code: "daemon_unavailable",
+      message: "socket absent",
     });
   });
 });
