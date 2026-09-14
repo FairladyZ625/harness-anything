@@ -1,15 +1,14 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
 import { existsSync, mkdtempSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
 import { Worker } from "node:worker_threads";
 import test from "node:test";
+import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
 import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
-import { endpointIdentity } from "../src/protocol/daemon-protocol.contract.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
 import { createUnixSocketTransportServer } from "../src/transport/unix-socket.ts";
 import { initIngressRepo } from "./fixtures/runtime-ingress.ts";
@@ -23,7 +22,7 @@ test("runtime discovery write load keeps independent read clients within the sto
     daemonId = "read-stopgap-perf",
     repoId = "read-stopgap-perf",
     uid = process.getuid?.() ?? 0,
-    endpoint = shortSocketEndpoint(),
+    endpoint = localUserDaemonEndpoint(userRoot, daemonId),
     executablePath = writeProviderExecutable(
       path.join(parent, "codex-stub"),
       `if (process.argv.slice(2).join(" ") === "login status") process.exit(0); process.exit(0);\n`,
@@ -147,7 +146,7 @@ test("WAL Git materialization leaves an independent socket client within the iso
     daemonId = "read-materialization-perf",
     repoId = "read-materialization-perf",
     uid = process.getuid?.() ?? 0,
-    endpoint = shortSocketEndpoint(),
+    endpoint = localUserDaemonEndpoint(userRoot, daemonId),
     priorFlushEvents = process.env.HARNESS_WAL_FLUSH_EVENTS,
     priorFlushMs = process.env.HARNESS_WAL_FLUSH_MS,
     priorAdaptive = process.env.HARNESS_WAL_FLUSH_ADAPTIVE;
@@ -210,7 +209,7 @@ test("sustained RepoWriterCell writes keep completed-cut reads within strict CH3
     daemonId = "read-sustained-write-perf",
     repoId = "read-sustained-write-perf",
     uid = process.getuid?.() ?? 0,
-    endpoint = shortSocketEndpoint(),
+    endpoint = localUserDaemonEndpoint(userRoot, daemonId),
     priorFlushEvents = process.env.HARNESS_WAL_FLUSH_EVENTS,
     priorFlushMs = process.env.HARNESS_WAL_FLUSH_MS,
     priorAdaptive = process.env.HARNESS_WAL_FLUSH_ADAPTIVE;
@@ -339,8 +338,4 @@ function socketProbe(
 function restoreEnv(name: string, value: string | undefined): void {
   if (value === undefined) delete process.env[name];
   else process.env[name] = value;
-}
-
-function shortSocketEndpoint(): ReturnType<typeof endpointIdentity> {
-  return endpointIdentity(path.join("/tmp", `ha-rs-${process.pid}-${randomUUID().slice(0, 8)}.sock`));
 }

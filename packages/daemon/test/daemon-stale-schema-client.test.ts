@@ -1,19 +1,16 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import net from "node:net";
-import { randomBytes } from "node:crypto";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
 import { requestLocalDaemonJsonRpcForTarget } from "../src/client/local-json-rpc-client.ts";
 
 test("a schema-sensitive request stops at a stale-build handshake with a named field", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-stale-schema-client-")),
-    socketPath =
-      process.platform === "win32"
-        ? `\\\\.\\pipe\\ha-stale-schema-client-${randomBytes(6).toString("hex")}`
-        : path.join(parent, "client.sock"),
+    socketPath = localUserDaemonEndpoint(parent, "stale-schema-client"),
     methods: string[] = [],
     server = net.createServer((socket) => {
       socket.on("data", (chunk: Buffer) => {
@@ -39,6 +36,7 @@ test("a schema-sensitive request stops at a stale-build handshake with a named f
         }
       });
     });
+  mkdirSync(path.dirname(socketPath), { recursive: true, mode: 0o700 });
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
     server.listen(socketPath, resolve);

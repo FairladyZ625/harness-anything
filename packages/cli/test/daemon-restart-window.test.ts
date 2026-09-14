@@ -1,11 +1,11 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { randomBytes } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { localUserDaemonEndpoint } from "../../daemon/src/client/local-daemon-target.ts";
 import { daemonPidPath } from "../../daemon/src/daemon-singleton.ts";
 import type { DaemonLaunchSpec } from "../../daemon/src/client/daemon-autostart.ts";
 import { withAutostart } from "../src/daemon/with-autostart.ts";
@@ -13,12 +13,9 @@ import { withAutostart } from "../src/daemon/with-autostart.ts";
 const unusedLaunch = (): DaemonLaunchSpec => ({ command: process.execPath, args: [], env: {} });
 
 test("daemon_stopping waits for the replacement generation and resends exactly once", async () => {
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-restart-ready-")),
-    socketPath =
-      process.platform === "win32"
-        ? `\\\\.\\pipe\\ha-restart-ready-${randomBytes(6).toString("hex")}`
-        : path.join(parent, "daemon.sock"),
-    daemonId = "restart-ready",
+  const daemonId = "restart-ready",
+    parent = mkdtempSync(path.join(tmpdir(), "ha-restart-ready-")),
+    socketPath = localUserDaemonEndpoint(parent, daemonId),
     pidPath = daemonPidPath(parent, daemonId),
     server = createServer(),
     receipts = [
@@ -26,6 +23,7 @@ test("daemon_stopping waits for the replacement generation and resends exactly o
       { ok: true, outcome: "applied" },
     ],
     request = async () => receipts.shift()!;
+  mkdirSync(path.dirname(socketPath), { recursive: true, mode: 0o700 });
   writeFileSync(pidPath, "111\n");
   const replace = setTimeout(() => {
     writeFileSync(pidPath, "222\n");

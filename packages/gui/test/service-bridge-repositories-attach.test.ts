@@ -1,12 +1,12 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
 import { once } from "node:events";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { localUserDaemonEndpoint } from "../../daemon/src/client/local-daemon-target.ts";
 import { requestDaemonJsonRpcAt } from "../../daemon/src/client/local-json-rpc-client.ts";
 import { parseDaemonGuiReadResult } from "../../daemon/src/protocol/gui-result-validation.ts";
 import { createLocalGuiServiceBridge } from "../src/index.ts";
@@ -132,10 +132,7 @@ test("GUI bridge switches between two enabled RepoCells without leaking task row
 
 test("daemon runtime stream reconnects after transport loss from the last delivered cursor and accepts restart gap", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-daemon-runtime-reconnect-")),
-    socketPath =
-      process.platform === "win32"
-        ? `\\\\.\\pipe\\ha-daemon-runtime-reconnect-${randomUUID()}`
-        : path.join(parent, "daemon.sock"),
+    socketPath = localUserDaemonEndpoint(parent, "runtime-reconnect"),
     attempts: string[] = [],
     values: unknown[] = [];
   let resolveGap!: () => void;
@@ -178,6 +175,7 @@ test("daemon runtime stream reconnects after transport loss from the last delive
       });
     });
   try {
+    mkdirSync(path.dirname(socketPath), { recursive: true, mode: 0o700 });
     server.listen(socketPath);
     await once(server, "listening");
     const detach = await streamAgentRuntimeAt({

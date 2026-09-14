@@ -1,11 +1,11 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { randomBytes } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
 import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
 
 type Request = { readonly id: number; readonly method: string };
@@ -75,9 +75,7 @@ async function rpcServer(
     | { readonly error: { readonly code: number; readonly message: string } },
 ): Promise<{ readonly socketPath: string; readonly close: () => Promise<void> }> {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-method-handshake-")),
-    socketPath = process.platform === "win32"
-      ? `\\\\.\\pipe\\ha-method-handshake-${randomBytes(6).toString("hex")}`
-      : path.join(parent, "daemon.sock"),
+    socketPath = localUserDaemonEndpoint(parent, "method-handshake"),
     server = net.createServer((socket) => {
       socket.on("data", (chunk: Buffer) => {
         for (const line of chunk.toString("utf8").split("\n").filter(Boolean)) {
@@ -86,7 +84,11 @@ async function rpcServer(
         }
       });
     });
-  await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(socketPath, resolve); });
+  mkdirSync(path.dirname(socketPath), { recursive: true, mode: 0o700 });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(socketPath, resolve);
+  });
   return {
     socketPath,
     close: async () => {
