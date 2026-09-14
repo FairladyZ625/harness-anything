@@ -28,7 +28,7 @@ test(
   {
     concurrency: false,
     timeout: 120_000,
-    skip: process.platform === "win32" ? "requires POSIX process SIGKILL semantics" : false,
+    skip: process.platform === "win32" && "requires POSIX process SIGKILL semantics",
   },
   async () => {
     const scratch = mkdtempSync(path.join(tmpdir(), "ha-stress-s1-"));
