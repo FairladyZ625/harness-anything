@@ -3,6 +3,7 @@ import type { RuntimeInstanceCreateInput, RuntimeInstanceUpdateInput } from "./r
 import {
   planeAllowsBaseUrl,
   planeAllowsEffort,
+  planeAllowsIsolation,
   planeAuthMode,
   runtimeProviderPlane,
   type RuntimeAuthMode,
@@ -94,7 +95,7 @@ export function buildRuntimeInstanceCreatePayload(
     ...auth,
     kindId: form.kindId,
     ...(declaration.permissions.available ? { permissionMode: form.permissionMode } : {}),
-    ...(declaration.isolation.states.length === 1 ? {} : { isolationState: form.isolation }),
+    ...(planeAllowsIsolation(form.kindId) ? { isolationState: form.isolation } : {}),
     [form.kindId]: configuration,
   };
 }

@@ -759,7 +759,7 @@ describe("agent runtime renderer", () => {
       }),
     );
     expect(codex).toContain('data-testid="runtime-instance-permission-mode"');
-    expect(codex).not.toContain('data-testid="runtime-instance-isolation"');
+    expect(codex).toContain('data-testid="runtime-instance-isolation"');
     expect(claude).toContain('data-testid="runtime-instance-permission-mode"');
     expect(claude).toContain('data-testid="runtime-instance-isolation"');
     expect(agy).toContain('data-testid="runtime-instance-permissions"');

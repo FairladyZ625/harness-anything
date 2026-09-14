@@ -21,6 +21,7 @@ import {
 } from "../../runtime-instance-form.ts";
 import {
   planeAllowsBaseUrl,
+  planeAllowsIsolation,
   planeAllowsPermissions,
   planeUsesApiOverride,
   runtimeProviderPlane,
@@ -542,7 +543,10 @@ function PermissionsEditor({
   const [isolationState, setIsolationState] = useState(() =>
     runtimeIsolationState(instance.isolationState, runtimeKindForId(instance.kindId).kindId),
   );
-  const supported = planeAllowsPermissions(instance.kindId);
+  const supported = planeAllowsPermissions(instance.kindId),
+    // The isolation choice exists wherever the runtime declaration offers more than one
+    // state; single-state kinds (agy) have nothing to edit.
+    isolationEditable = planeAllowsIsolation(instance.kindId);
   return (
     <form
       data-testid="runtime-instance-permissions"
@@ -552,7 +556,7 @@ function PermissionsEditor({
         onUpdate({
           instanceId: instance.instanceId,
           permissionMode,
-          ...(instance.kindId === "claude" ? { isolationState } : {}),
+          ...(isolationEditable ? { isolationState } : {}),
         });
       }}
     >
@@ -570,7 +574,7 @@ function PermissionsEditor({
           <option value="read-only">{t("agentRuntime.permissionReadOnly")}</option>
         </select>
       </CfgRow>
-      {instance.kindId === "claude" && (
+      {isolationEditable && (
         <CfgRow label={t("agentRuntime.isolation")}>
           <select
             data-testid="runtime-instance-isolation"

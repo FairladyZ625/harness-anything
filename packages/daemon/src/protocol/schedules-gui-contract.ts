@@ -1,3 +1,4 @@
+import { runtimeTypeMatchesKind } from "../agent-runtime-contract.ts";
 import { SCHEDULE_MIN_EVERY_MS } from "./daemon-protocol-vocabulary.ts";
 import { isJsonObject, rejectSecretKeys } from "./json-rpc-types.ts";
 
@@ -57,6 +58,15 @@ export interface ScheduleGuiOptionsDto {
     readonly models: readonly string[];
     readonly efforts: readonly string[];
   }[];
+}
+
+/** An agent runs only on instances whose kind its runtime type accepts; no agent means every instance. */
+export function compatibleScheduleInstances(
+  agent: Extract<ScheduleGuiAgentOptionDto, { readonly name: string }> | null,
+  instances: ScheduleGuiOptionsDto["instances"],
+): ScheduleGuiOptionsDto["instances"] {
+  if (agent === null) return instances;
+  return instances.filter((instance) => runtimeTypeMatchesKind(agent.runtimeType, instance.kindId));
 }
 
 /**

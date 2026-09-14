@@ -7,6 +7,7 @@ import {
   type ScheduleDurationUnit,
 } from "../../../../daemon/src/protocol/daemon-protocol-vocabulary.ts";
 import {
+  compatibleScheduleInstances,
   isAvailableScheduleGuiAgentOption,
   type ScheduleGuiAgentOptionDto,
   ScheduleGuiOptionsDto,
@@ -116,10 +117,7 @@ export function ScheduleForm({
     });
   const agent = availableAgents.find((candidate) => candidate.agentId === agentId) ?? null,
     compatibleInstances = useMemo(
-      () =>
-        options.instances.filter(
-          (instance) => agent === null || agent.runtimeType === "any" || agent.runtimeType === instance.kindId,
-        ),
+      () => compatibleScheduleInstances(agent, options.instances),
       [agent, options.instances],
     ),
     instance =
