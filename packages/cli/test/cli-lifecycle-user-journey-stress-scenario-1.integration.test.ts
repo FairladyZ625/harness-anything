@@ -25,6 +25,7 @@ const {
   facetState,
   docScanRows,
   waitForMaterializationFailure,
+  parseCliReceipt,
   expectApplied,
   published,
   runResult,
@@ -367,7 +368,7 @@ test("CLI writes stay accepted while a stale authored ref lock keeps Git publica
         ["receipt", "show", String(pending.opId), "--wait", "git_verified", "--timeout-ms", "0"],
         environment,
       ),
-      shownReceipt = JSON.parse(shown.stdout) as Record<string, unknown>;
+      shownReceipt = parseCliReceipt(shown, "receipt show");
     assert.equal(shownReceipt.status, "accepted_durable", shown.stdout);
     assert.equal(facetState(shownReceipt, "git"), "pending", shown.stdout);
     assert.deepEqual(shownReceipt.wait, { state: "timed_out", unsatisfied: ["git_verified"] }, shown.stdout);
