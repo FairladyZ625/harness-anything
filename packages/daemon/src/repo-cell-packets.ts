@@ -206,7 +206,7 @@ export function lifecycleReceipt(
         : snapshot.task?.status === "active" && executionId
           ? `ha task submit ${event.taskId}`
           : snapshot.task?.status === "active"
-            ? `ha task start ${event.taskId} --execution-id <id>`
+            ? `ha task start ${event.taskId}`
             : snapshot.task?.status !== "in_review"
               ? null
               : !approved.length && !approvedHistory.length
