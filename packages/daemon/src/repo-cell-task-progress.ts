@@ -10,7 +10,7 @@ import {
   taskCompletionNext,
   completionGuidance,
   completionEvidenceBasis,
-  completionEvidenceResults,
+  completionGateIds,
   effectiveCloseoutGates,
   currentCodeDocWitness,
   judgeCompletionEvidence,
@@ -83,7 +83,6 @@ export function readLatestCiEvidence(
       );
     if (verification.conclusion === "cancelled" || verification.conclusion === "skipped") continue;
     const result: CompletionEvidenceResult = verification.conclusion === "success" ? "pass" : "fail";
-    if (!completionEvidenceResults.includes(result)) return null;
     const basis: CompletionEvidenceBasis = {
         ...completionEvidenceBasis(execution),
         ledgerCut: event.workspaceRevision,
@@ -122,7 +121,7 @@ export async function prepareSubmissionEvidence(
   if (!execution?.submission)
     throw cell.cellCodedError("invalid_transition", "Evidence preparation requires a submitted execution.");
   const steps: WriteReceipt[] = [],
-    gates = snapshot.task?.completionGateIds ?? [],
+    gates = completionGateIds(snapshot.task?.completionGateIds ?? [], execution.submission.commitSha),
     ci = gates.includes("ci") ? readLatestCiEvidence(cell, execution) : null,
     witness = currentCodeDocWitness(snapshot.codeDocWitnesses, executionId);
   if (ci?.result === "fail")

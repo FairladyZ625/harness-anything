@@ -8,7 +8,7 @@ import { judgeCompletionEvidence } from "./completion-evidence.ts";
 import { TaskLifecycleContractError } from "./task-lifecycle-event.ts";
 import type { TaskEventV1, TaskLifecycleErrorCode } from "./task-lifecycle-event.ts";
 import { isSameExecution, isSamePerson } from "./actor-domain-services.ts";
-import { currentSubmittedExecutions, gateResults } from "./closeout-readiness.ts";
+import { completionGateIds, currentSubmittedExecutions, gateResults } from "./closeout-readiness.ts";
 import type {
   CompleteTaskProof,
   TaskLifecycleCommand,
@@ -136,7 +136,7 @@ export function canonicalGateReceipts(
       .filter(({ status }) => status === "passed")
       .map(({ gateId }) => gateId),
   );
-  return (snapshot.task?.completionGateIds ?? []).flatMap((gateId) => {
+  return completionGateIds(snapshot.task?.completionGateIds ?? [], current.submission.commitSha).flatMap((gateId) => {
     if (!passed.has(gateId)) return [];
     const codeDoc =
       gateId === "code-doc-reconciliation"
@@ -175,8 +175,8 @@ export function canonicalGateReceipts(
   });
 }
 
-export function requiredGateWitnessCount(snapshot: TaskLifecycleSnapshot, _current: ExecutionV1): number {
-  return snapshot.task?.completionGateIds.length ?? 0;
+export function requiredGateWitnessCount(snapshot: TaskLifecycleSnapshot, current: ExecutionV1): number {
+  return completionGateIds(snapshot.task?.completionGateIds ?? [], current.submission?.commitSha).length;
 }
 export { reviewDigest } from "./review.ts";
 export function canonicalDocumentPaths(value: unknown): value is readonly string[] {

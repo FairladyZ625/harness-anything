@@ -1,6 +1,7 @@
 import { type TaskLifecycleServiceProof } from "../../application/src/task-lifecycle-service.ts";
 import {
   canonicalGateReceipts,
+  completionGateIds,
   codeDocRecordId,
   consumeKnownError,
   consentedApprovedReviewForExecution,
@@ -508,7 +509,7 @@ export function gateChecks(snapshot: Snapshot, executionId: string) {
   const execution = snapshot.executions.find(
     (value) => value.executionId === executionId && value.iteration === snapshot.task?.iteration,
   );
-  const gates = snapshot.task?.completionGateIds ?? [];
+  const gates = completionGateIds(snapshot.task?.completionGateIds ?? [], execution?.submission?.commitSha);
   if (gates.length === 0) return [{ gate: "none", status: "pass", witnessRef: null }];
   return gates.map((gate) => {
     const candidate =
