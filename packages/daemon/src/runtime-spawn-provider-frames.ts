@@ -4,7 +4,7 @@ import type { RuntimeInstanceKind } from "./agent-runtime-instances.ts";
 import type { AgentRuntimeNativeSignal } from "./agent-runtime-stream.ts";
 import { runtimeKindForId, runtimeKindIds } from "./runtime-inventory.ts";
 import { sessionIdentityResolverFor } from "./session-identity/index.ts";
-import type { ProviderEventIdentity, ProviderFrame } from "./runtime-spawn-types.ts";
+import type { ProviderFrame } from "./runtime-spawn-types.ts";
 import { providerFaultFromFrame } from "./runtime-provider-fault.ts";
 
 export function parseProviderFrame(kindId: RuntimeInstanceKind, value: unknown): ProviderFrame {
@@ -32,14 +32,6 @@ export const providerFrameParsers: Record<
 };
 if (!runtimeKindIds.every((kindId) => Object.hasOwn(providerFrameParsers, kindId)))
   throw new Error("provider frame parser registry is incomplete");
-
-export function providerEventIdentity(
-  kindId: RuntimeInstanceKind,
-  value: Record<string, unknown>,
-): ProviderEventIdentity | null {
-  if (kindId !== "zcode" || typeof value.eventId !== "string" || !value.eventId) return null;
-  return { eventId: value.eventId, replayBoundary: value.type === "session.resumed" };
-}
 
 export function isStructuredSuccessResult(value: string): boolean {
   try {

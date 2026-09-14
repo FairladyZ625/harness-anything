@@ -189,8 +189,7 @@ export type ActiveRuntime = {
   nonEmptyAgentOutputObserved: boolean;
   providerUsageEmpty: boolean;
   providerFault: RuntimeProviderFault | null;
-  readonly providerEventIds: Set<string>;
-  providerReplayFaulted: boolean;
+  readonly providerEventFingerprints: Set<string>;
   inputTokens: number;
   cacheReadTokens: number;
   outputTokens: number;
@@ -211,11 +210,6 @@ export type ProviderFrame = {
   readonly toolCallObserved?: boolean;
   readonly providerUsageEmpty?: boolean;
   readonly providerFault?: RuntimeProviderFault;
-};
-
-export type ProviderEventIdentity = {
-  readonly eventId: string;
-  readonly replayBoundary: boolean;
 };
 
 export type ResumeProcessEvent =

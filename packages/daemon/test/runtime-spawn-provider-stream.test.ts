@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -13,13 +13,13 @@ import {
 import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/dispatch-stream.ts";
 import { parseProviderFrame } from "../src/runtime-spawn-provider-frames.ts";
 
-function active() {
+function active(kindId = "codex") {
   return createActiveRuntime({
     runtimeSessionId: "runtime_aaaaaaaaaaaaaaaaaaaaaaaa",
     dispatchId: "dispatch_aaaaaaaaaaaaaaaaaaaaaaaa",
     dispatchOpId: "dispatch-op-metrics",
     instanceId: "instance-1",
-    kindId: "codex",
+    kindId,
     model: null,
     reasoningEffort: null,
     fast: false,
@@ -107,70 +107,32 @@ test("Claude stream normalizes message usage including cache creation and preser
   });
 });
 
-test("ZCode provider event identities deduplicate writes and repeated resume boundaries terminate the provider", async () => {
-  const appended: unknown[] = [],
-    signals: unknown[] = [];
-  let terminated = 0;
-  const runtime = createActiveRuntime({
-      runtimeSessionId: "runtime_replayaaaaaaaaaaaaaaaaa",
-      dispatchId: "dispatch_replayaaaaaaaaaaaaaaaa",
-      dispatchOpId: "dispatch-op-replay",
-      instanceId: "zcode-1",
-      kindId: "zcode",
-      model: null,
-      reasoningEffort: null,
-      fast: false,
-      cwd: "/tmp",
-      prompt: "replay fixture",
-      startedAt: "2026-09-14T00:00:00.000Z",
-      binding: {} as never,
-      process: { terminate: () => (terminated += 1) } as never,
-      stream: { appendProviderEvent: (value: unknown) => appended.push(value) } as never,
-      resumeProviderSessionId: "session-zcode",
-    } as never),
-    replayContext = {
-      ...context(),
-      input: {
-        ...context().input,
-        stream: { publish: (_runtimeSessionId: string, signal: unknown) => signals.push(signal) },
-      },
-      parseProviderFrame,
-    } as never;
-  const resumed = {
-      type: "session.resumed",
-      eventId: "event-resumed",
-      sessionId: "session-zcode",
-      messageCount: 202,
-    },
-    started = {
-      type: "turn.started",
-      eventId: "event-turn-started",
-      sessionId: "session-zcode",
-      turnId: "turn-24",
-    },
-    model = {
-      type: "model.streaming",
-      eventId: "event-model-streaming",
-      sessionId: "session-zcode",
-      turnId: "turn-24",
-      payload: { kind: "text_delta", delta: "history" },
-    };
-
-  for (const frame of [resumed, started, model, resumed, started, model])
-    await consumeProviderLine(replayContext, runtime, JSON.stringify(frame));
-
-  assert.deepEqual(appended, [resumed, started, model]);
-  assert.equal(terminated, 1);
-  assert.equal(runtime.providerOutcome, "failed");
-  assert.match(runtime.providerFault?.reason ?? "", /replay loop.*event-resumed/u);
-  assert.deepEqual(signals, [{ type: "activity", activity: "message", content: "history" }]);
+test("resume replay fixture consumes each Codex and AGY provider frame once", async () => {
+  const fixture = readFileSync(new URL("./fixtures/runtime/provider-resume-replay.jsonl", import.meta.url), "utf8")
+      .trim()
+      .split(/\r?\n/u)
+      .map((line) => JSON.parse(line) as { kind: "codex" | "agy"; event: Record<string, unknown> }),
+    appended = new Map<"codex" | "agy", unknown[]>([
+      ["codex", []],
+      ["agy", []],
+    ]);
+  for (const kindId of ["codex", "agy"] as const) {
+    const runtime = active(kindId);
+    runtime.stream = { appendProviderEvent: (value: unknown) => appended.get(kindId)!.push(value) } as never;
+    for (const frame of fixture.filter((candidate) => candidate.kind === kindId))
+      await consumeProviderLine({ ...context(), parseProviderFrame } as never, runtime, JSON.stringify(frame.event));
+    assert.equal(appended.get(kindId)?.length, kindId === "codex" ? 3 : 2);
+  }
 });
 
-test("provider frames without an event identity retain every write and signal", async () => {
+test("distinct provider frames retain every write and signal", async () => {
   const appended: unknown[] = [],
     signals: unknown[] = [],
     runtime = active(),
-    frame = { type: "item.completed", item: { id: "message-1", type: "agent_message", text: "done" } },
+    frames = [
+      { type: "item.completed", item: { id: "message-1", type: "agent_message", text: "done" } },
+      { type: "item.completed", item: { id: "message-2", type: "agent_message", text: "next" } },
+    ],
     passthroughContext = {
       ...context(),
       input: {
@@ -181,11 +143,10 @@ test("provider frames without an event identity retain every write and signal", 
     } as never;
   runtime.stream = { appendProviderEvent: (value: unknown) => appended.push(value) } as never;
 
-  await consumeProviderLine(passthroughContext, runtime, JSON.stringify(frame));
-  await consumeProviderLine(passthroughContext, runtime, JSON.stringify(frame));
+  for (const frame of frames) await consumeProviderLine(passthroughContext, runtime, JSON.stringify(frame));
 
-  assert.deepEqual(appended, [frame, frame]);
-  assert.equal(runtime.finalText, "done");
+  assert.deepEqual(appended, frames);
+  assert.equal(runtime.finalText, "next");
   assert.equal(signals.length, 2);
 });
 

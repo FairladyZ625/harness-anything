@@ -1,4 +1,5 @@
 import { setTimeout as delay } from "node:timers/promises";
+import { createHash } from "node:crypto";
 import { globSync, readFileSync } from "node:fs";
 import { StringDecoder } from "node:string_decoder";
 import path from "node:path";
@@ -8,7 +9,6 @@ import { dispatchStreamPath, parseRecord, readDispatchStreamIncrement, scrubProv
 import type { ActiveRuntime, ProviderFrame, RuntimeBinding } from "./runtime-spawn-types.ts";
 import { transcriptRefForSessionIdentity } from "./session-identity/index.ts";
 import { observeProviderFault } from "./runtime-provider-fault.ts";
-import { providerEventIdentity } from "./runtime-spawn-provider-frames.ts";
 import {
   runtimeEventHasType,
   type RuntimeEventOf,
@@ -86,25 +86,12 @@ export async function consumeProviderLine(
   let value: unknown;
   try {
     value = JSON.parse(line);
-    const identity = providerRecord(value) ? providerEventIdentity(active.kindId, value) : null;
-    if (identity) {
-      const duplicate = active.providerEventIds.has(identity.eventId);
-      if (!duplicate) active.providerEventIds.add(identity.eventId);
-      else {
-        if (persisted) active.durableOutputCount += 1;
-        if (identity.replayBoundary && !active.providerReplayFaulted) {
-          active.providerReplayFaulted = true;
-          active.providerOutcome = "failed";
-          active.providerFault = {
-            code: "provider_disconnected",
-            reason: `Provider replay loop repeated session.resumed event ${identity.eventId}.`,
-          };
-          if (active.process.terminateTree) await active.process.terminateTree();
-          else active.process.terminate();
-        }
-        return;
-      }
+    const fingerprint = createHash("sha256").update(line).digest("hex");
+    if (active.providerEventFingerprints.has(fingerprint)) {
+      if (persisted) active.durableOutputCount += 1;
+      return;
     }
+    active.providerEventFingerprints.add(fingerprint);
     if (!persisted) active.stream.appendProviderEvent(value, context.input.now());
     active.durableOutputCount += 1;
   } catch (error) {
