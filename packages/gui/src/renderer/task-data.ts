@@ -2,9 +2,9 @@ import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-quer
 import { harnessClient, type TaskListSuccess, type TaskQueryFacets } from "./api-client.ts";
 import { agendaQueryKeys } from "./agenda-data.ts";
 import { runtimeQueryKeys } from "./agent-runtime-client.ts";
+import { LEDGER_PROBE_FOCUS_REFETCH, QUERY_PACING_MS } from "./query-pacing.ts";
 import { workspaceSummaryQueryKeys } from "./workspace-summary-data.ts";
 
-export const LEDGER_REFRESH_INTERVAL_MS = 2_000;
 export const TASK_LIST_PAGE_LIMIT = 500;
 
 export const taskQueryKeys = {
@@ -30,11 +30,11 @@ export function taskListQuery(repoId: string) {
     queryKey: taskQueryKeys.list(repoId),
     queryFn: () => readTaskList(repoId),
     staleTime: 10_000,
-    refetchInterval: LEDGER_REFRESH_INTERVAL_MS,
+    refetchInterval: QUERY_PACING_MS.ledgerProbe,
     // This list is the one ledger probe: its interval and an immediate re-probe on focus are what
     // advance the cut, and a changed cut fans out to every dependent read (invalidateLedgerDependents).
-    // Dependent reads therefore need neither their own timer nor an unconditional focus refetch.
-    refetchOnWindowFocus: "always" as const,
+    // Dependent reads therefore need neither their own timer nor their own focus refetch.
+    refetchOnWindowFocus: LEDGER_PROBE_FOCUS_REFETCH,
   };
 }
 

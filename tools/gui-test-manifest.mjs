@@ -92,6 +92,7 @@ export const guiVitestManifest = [
   "packages/gui/test/gui-w6-truncation-visibility.vitest.ts",
   "packages/gui/test/system-group-widescreen.vitest.ts",
   "packages/gui/test/ledger-invalidation-scope.vitest.ts",
+  "packages/gui/test/query-pacing.vitest.ts",
   "packages/gui/test/sessions-list-refresh.vitest.ts",
   "packages/gui/test/sessions-list-windowing.vitest.ts",
   "packages/gui/test/view-in-graph-button.vitest.tsx",

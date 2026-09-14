@@ -15,13 +15,13 @@ import {
 import type { DaemonControlReceipt, SystemRepoRow, TaskListSuccess } from "../src/renderer/api-client.ts";
 import {
   invalidateLedgerDependents,
-  LEDGER_REFRESH_INTERVAL_MS,
   readTaskList,
   TASK_LIST_PAGE_LIMIT,
   taskDocumentQuery,
   taskListQuery,
   taskQueryKeys,
 } from "../src/renderer/task-data.ts";
+import { QUERY_PACING_MS } from "../src/renderer/query-pacing.ts";
 import { triadicQueryKeys } from "../src/renderer/triadic-data.ts";
 import { favoritesStorageKey } from "../src/renderer/model/favorites.ts";
 import { workspaceSummaryQuery, workspaceSummaryQueryKeys } from "../src/renderer/workspace-summary-data.ts";
@@ -50,7 +50,7 @@ describe("GUI S3 R1 repository isolation", () => {
     expect(favoritesStorageKey("repo-a")).not.toBe(favoritesStorageKey("repo-b"));
   });
 
-  it("refreshes workspace census from ledger invalidation or focus, not a wall-clock loop", async () => {
+  it("refreshes workspace census from ledger invalidation, not a wall-clock loop or its own focus refetch", async () => {
     vi.useFakeTimers();
     const read = vi.fn(async () => ({ sourceRevision: 42 })),
       client = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
@@ -61,9 +61,10 @@ describe("GUI S3 R1 repository isolation", () => {
       await observer.refetch();
       await vi.advanceTimersByTimeAsync(20_000);
       expect(read).toHaveBeenCalledTimes(1);
-      // Focus refetches past staleTime only; an immediate refresh on focus comes through the ledger
-      // probe (taskListQuery is "always") advancing the cut, not from every read re-probing itself.
-      expect(options.refetchOnWindowFocus).toBe(true);
+      // No focus refetch of its own: the census is a ledger-dependent read, so any focus
+      // refresh arrives through the ledger probe (taskListQuery is "always") advancing the
+      // cut, never from every dependent re-probing itself.
+      expect(options.refetchOnWindowFocus).toBeUndefined();
     } finally {
       unsubscribe();
       client.clear();
@@ -96,7 +97,7 @@ describe("GUI S3 R1 repository isolation", () => {
       await observer.refetch();
       expect(observer.getCurrentResult().data?.sourceRevision).toBe(41);
       revision = 42;
-      await vi.advanceTimersByTimeAsync(LEDGER_REFRESH_INTERVAL_MS + 1);
+      await vi.advanceTimersByTimeAsync(QUERY_PACING_MS.ledgerProbe + 1);
       expect(observer.getCurrentResult().data?.sourceRevision).toBe(42);
     } finally {
       unsubscribe();

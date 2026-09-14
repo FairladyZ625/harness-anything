@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { harnessClient, type DaemonControlReceipt, type SystemRepoRow } from "./api-client.ts";
 import { daemonRetryDelay, isRetryableDaemonError } from "./daemon-startup.ts";
+import { QUERY_PACING_MS } from "./query-pacing.ts";
 
 export const systemQueryKeys = {
   status: () => ["system", "global", "status"] as const,
@@ -13,15 +14,20 @@ export function selectActiveRepoId(repos: ReadonlyArray<SystemRepoRow>, current:
   return enabled.find((repo) => repo.cellState === "attached")?.repoId ?? enabled[0]?.repoId ?? null;
 }
 
-export function useSystemStatusQuery() {
-  return useQuery({
+/** daemon 级状态读:台账 cut 覆盖不到,自持低频轮询是它唯一的周期刷新来源。 */
+export function systemStatusQuery() {
+  return {
     queryKey: systemQueryKeys.status(),
     queryFn: () => harnessClient.getSystemStatus(),
     staleTime: 3_000,
-    refetchInterval: 10_000,
-    retry: (failureCount, error) => failureCount < 16 && isRetryableDaemonError(error),
+    refetchInterval: QUERY_PACING_MS.systemStatus,
+    retry: (failureCount: number, error: unknown) => failureCount < 16 && isRetryableDaemonError(error),
     retryDelay: daemonRetryDelay,
-  });
+  };
+}
+
+export function useSystemStatusQuery() {
+  return useQuery(systemStatusQuery());
 }
 
 /** 单仓行(共享 system status 缓存):需要模式/端点信息的局部视图用,不另立读路。 */

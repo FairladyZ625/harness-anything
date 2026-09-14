@@ -1,8 +1,8 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { harnessClient, type AgendaSuccess } from "./api-client.ts";
 import type { AgendaAwaitingRow, AgendaTaskRow } from "../api/renderer-dto.ts";
+import { QUERY_PACING_MS } from "./query-pacing.ts";
 
-export const AGENDA_REFRESH_INTERVAL_MS = 5_000;
 /** 每个 agenda source 的一页上限(daemon 上限 500;GUI 用默认页大小,不放大读面)。 */
 export const AGENDA_PAGE_LIMIT = 100;
 
@@ -16,10 +16,9 @@ export function agendaQuery(repoId: string) {
     queryFn: () => readAgenda(repoId),
     staleTime: 10_000,
     // The interval only carries an unfinished cursor read to completion; a settled agenda is
-    // refetched by the ledger cut (invalidateLedgerDependents), not by its own timer.
+    // refetched by the ledger cut (invalidateLedgerDependents), not by its own timer or focus.
     refetchInterval: (query: { readonly state: { readonly data?: AgendaSuccess } }) =>
-      query.state.data?.page?.nextCursor ? AGENDA_REFRESH_INTERVAL_MS : false,
-    refetchOnWindowFocus: true,
+      query.state.data?.page?.nextCursor ? QUERY_PACING_MS.agendaCatchUp : false,
   };
 }
 
