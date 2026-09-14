@@ -208,40 +208,78 @@ function copyWorkingTree(rootDir: string, authoredRoot: string, payloadRoot: str
   for (const source of workingTreeSources(authoredRoot)) {
     for (let candidate = source; !included.has(candidate); candidate = path.dirname(candidate)) included.add(candidate);
   }
-  fileSystem.copy(authoredRoot, path.join(payloadRoot, path.relative(rootDir, authoredRoot)), {
-    recursive: true,
-    errorOnExist: true,
-    verbatimSymlinks: true,
-    filter: (candidate) =>
-      candidate === authoredRoot || (included.has(candidate) && !vanishedAfterEnumeration(candidate)),
-  });
-}
-
-function copySource(rootDir: string, sourcePath: string, payloadRoot: string): void {
-  const relative = path.relative(rootDir, sourcePath);
-  if (relative === ".." || relative.startsWith(`..${path.sep}`))
-    throw new Error("backup source escaped repository root");
-  fileSystem.copy(sourcePath, path.join(payloadRoot, relative), {
-    recursive: true,
-    errorOnExist: true,
-    verbatimSymlinks: true,
-    filter: (candidate) => candidate === sourcePath || !skippedFromSource(candidate),
-  });
-}
-
-// An entry that vanishes between its enumeration and this stat — Git's transient
-// gc/maintenance locks under .git/, a write path replacing a temp file — no longer needs
-// backing up. Tolerating only the missing-entry case is not a retry: every other stat
-// error still fails the backup.
-function vanishedAfterEnumeration(candidate: string): boolean {
-  return fileSystem.lstat(candidate, { throwIfNoEntry: false }) === undefined;
+  copyVanishingTree(authoredRoot, path.join(payloadRoot, path.relative(rootDir, authoredRoot)), (candidate) =>
+    included.has(candidate),
+  );
 }
 
 // A repository nested inside a source (a tool worktree under .claude/, a checkout someone
 // left in the tree) is tool state, not ledger content, and is skipped like a vanished entry.
-function skippedFromSource(candidate: string): boolean {
-  const stat = fileSystem.lstat(candidate, { throwIfNoEntry: false });
-  return stat === undefined || (stat.isDirectory() && fileSystem.exists(path.join(candidate, ".git")));
+function copySource(rootDir: string, sourcePath: string, payloadRoot: string): void {
+  const relative = path.relative(rootDir, sourcePath);
+  if (relative === ".." || relative.startsWith(`..${path.sep}`))
+    throw new Error("backup source escaped repository root");
+  copyVanishingTree(
+    sourcePath,
+    path.join(payloadRoot, relative),
+    (candidate, directory) =>
+      candidate === sourcePath || !(directory && fileSystem.exists(path.join(candidate, ".git"))),
+  );
+}
+
+// An entry may vanish at any point after its enumeration — Git's transient gc/maintenance
+// locks under .git/, a write path replacing a temp file (#2543, #2652). Tolerance sits on
+// the copy action itself, because a filter decides before the copy opens the file and
+// leaves a window between the two: an entry reported missing at its stat, at its directory
+// listing, or at its copy returns false as an explicit skip signal. Only the missing-entry
+// case is tolerated, with no retry — every other error still fails the backup.
+function copyVanishingTree(
+  source: string,
+  destination: string,
+  keep: (candidate: string, directory: boolean) => boolean,
+): boolean {
+  const stat = fileSystem.lstat(source, { throwIfNoEntry: false });
+  if (stat === undefined || !keep(source, stat.isDirectory())) return false;
+  if (!stat.isDirectory()) {
+    fileSystem.mkdir(path.dirname(destination), { recursive: true });
+    try {
+      if (stat.isSymbolicLink()) {
+        // Single-entry cpSync lstats through a dangling link and fails, so a link is
+        // recreated from its target; an existing destination is replaced like cpSync's
+        // default force does for every other entry.
+        if (fileSystem.exists(destination)) fileSystem.remove(destination);
+        fileSystem.symlink(fileSystem.readLink(source), destination);
+      } else {
+        fileSystem.copy(source, destination);
+      }
+      return true;
+    } catch (error) {
+      if (!vanishedDuringCopy(error, source)) throw error;
+      return false;
+    }
+  }
+  let names: readonly string[];
+  try {
+    names = fileSystem.readDirectory(source);
+  } catch (error) {
+    if (!vanishedDuringCopy(error, source)) throw error;
+    return false;
+  }
+  fileSystem.mkdir(destination, { recursive: true });
+  for (const name of names) copyVanishingTree(path.join(source, name), path.join(destination, name), keep);
+  return true;
+}
+
+// The re-stat distinguishes an entry that just vanished from an ENOENT raised on the
+// payload side: only a source that is gone at re-check time is skipped.
+function vanishedDuringCopy(error: unknown, source: string): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "ENOENT" &&
+    fileSystem.lstat(source, { throwIfNoEntry: false }) === undefined
+  );
 }
 
 function vacuumSqlite(rootDir: string, databasePath: string, payloadRoot: string): void {

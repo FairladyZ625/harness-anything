@@ -14,6 +14,7 @@ import {
   renameSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
   writeSync,
 } from "node:fs";
@@ -42,6 +43,7 @@ export const localLedgerBackupFileSystem = {
   readDirectory: readdirSync,
   readLink: readlinkSync,
   stat: statSync,
+  symlink: symlinkSync,
   write: writeFileSync,
   remove: (inputPath: string) =>
     /* @gate-identity check-bypass-write-boundary/bypass-write-135 */
