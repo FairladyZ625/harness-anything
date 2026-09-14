@@ -8,7 +8,7 @@ import test from "node:test";
 import type { CiRunObservationEventV3 } from "../../kernel/src/index.ts";
 import type { RepoCellOperationalContext } from "../src/repo-cell-action-context.ts";
 import { fetchCiObservations, ingestCiObservations } from "../src/ci-observation-actions.ts";
-import { readLatestCiEvidence } from "../src/repo-cell-task-progress.ts";
+import { readLatestCiEvidence } from "../src/repo-cell-ci-evidence.ts";
 import { projectionReady } from "../src/repo-cell-settlement.ts";
 
 const actor = { principal: { personId: "person-synthesis" }, executor: null } as const;

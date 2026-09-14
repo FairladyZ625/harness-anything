@@ -3,7 +3,7 @@ import { artifactImportSourceResolution, prepareArtifactEntityImportSource } fro
 import { fetchCiObservations, ingestCiObservations } from "./ci-observation-actions.ts";
 import type { RepoCellApiContext } from "./repo-cell-api.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
-import { readLatestCiEvidence } from "./repo-cell-task-progress.ts";
+import { readLatestCiEvidence } from "./repo-cell-ci-evidence.ts";
 
 type QueuedPublication = (
   action: RepoTaskAction,

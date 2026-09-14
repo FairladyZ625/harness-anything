@@ -16,7 +16,8 @@ import {
 import { compileRepoTaskPackage } from "../../preset/src/index.ts";
 import type { RepoCellOperationalContext } from "../src/repo-cell-action-context.ts";
 import type { RepoCellBinding, Snapshot } from "../src/repo-cell-types.ts";
-import { completeTask, prepareSubmissionEvidence, readLatestCiEvidence } from "../src/repo-cell-task-progress.ts";
+import { completeTask, prepareSubmissionEvidence } from "../src/repo-cell-task-progress.ts";
+import { readLatestCiEvidence } from "../src/repo-cell-ci-evidence.ts";
 import { completionSettlement, completionStopped, projectionReady } from "../src/repo-cell-settlement.ts";
 import { deriveActionResult } from "../src/entity-action-catalog-executor.ts";
 
