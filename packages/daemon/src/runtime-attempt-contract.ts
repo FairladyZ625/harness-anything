@@ -1,3 +1,5 @@
+import { isJsonObject as isRecord } from "./protocol/json-rpc-types.ts";
+
 export interface AgentRuntimeAttemptChainDto {
   readonly attemptGroupId: string;
   readonly attempts: readonly {
@@ -75,7 +77,4 @@ function chainFields(
     required.every((field) => Object.hasOwn(value, field)) &&
     Object.keys(value).every((field) => required.includes(field) || optional.includes(field))
   );
-}
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
