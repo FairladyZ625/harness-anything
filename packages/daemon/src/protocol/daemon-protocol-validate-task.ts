@@ -23,7 +23,6 @@ import {
   validationEntityId,
   validationError,
   validationValueAtPath,
-  validationValueSummary,
   warningArray,
   recordShapeError,
 } from "./daemon-protocol-validate-entities.ts";
@@ -40,7 +39,7 @@ import {
   relationStrengthWords,
   taskStatusWords,
 } from "./daemon-protocol-vocabulary.ts";
-import { isJsonObject, type JsonObject } from "./json-rpc-types.ts";
+import { isJsonObject, type JsonObject, validationValueSummary } from "./json-rpc-types.ts";
 import type { DaemonTaskSnapshotInvalidRow } from "./daemon-protocol-gui-types.ts";
 
 export const availabilityFields = ["consents", "codeDocWitnesses", "gateWitnesses"] as const,
