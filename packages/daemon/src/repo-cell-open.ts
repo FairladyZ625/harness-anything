@@ -418,7 +418,11 @@ export async function openRepoWriterCell(
     queueDepth += 1;
     const pending = chainRepoCellWrite(tail, async () => {
       queueDepth -= 1;
-      if (state === "attached") await (binding ? withWriterEpochBinding(binding, work) : work());
+      // Runtime terminal work (exit publication, Schedule settlement) queued here must survive the
+      // latched window: the durable SQLite ledger still accepts appends while Git publication and
+      // projection recovery run behind them, and the writer-epoch fence rejects appends whose epoch
+      // a replacement already superseded. Only a closed cell skips the work entirely.
+      if (state !== "closed") await (binding ? withWriterEpochBinding(binding, work) : work());
     });
     tail = pending.catch(() => undefined);
     void pending.then(
