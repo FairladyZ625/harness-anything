@@ -61,6 +61,14 @@ function validateDispatchTestFile(value) {
   toolOption(dispatchIsolatedTestCommand, "--file").validate(value);
 }
 
+export function untrackedSelectionError(file, files) {
+  if (file === undefined || files.includes(file)) return undefined;
+  return (
+    `${file} is not tracked by git. Isolated dispatch only syncs git-tracked files, so the isolated target ` +
+    `never receives it. Run "git add ${file}" (or commit it) first, then dispatch again.`
+  );
+}
+
 export function sourceArchiveArgs(platform = process.platform, sourceRoot = repoRoot) {
   return [...(platform === "darwin" ? ["--no-xattrs"] : []), "-cf", "-", "-C", sourceRoot, "--null", "-T", "-"];
 }
@@ -152,12 +160,18 @@ export async function main(argv = process.argv.slice(2)) {
   let exitCode;
   try {
     const files = prepareSource(repoRoot, snapshotRoot);
-    exitCode =
-      options.target === "ubuntu"
-        ? await runUbuntu(options, runId, snapshotRoot, files)
-        : options.target === "docker"
-          ? await runDocker(options, runId, snapshotRoot, files)
-          : await runWindows(options, runId, snapshotRoot, files);
+    const selectionError = untrackedSelectionError(options.file, files);
+    if (selectionError !== undefined) {
+      console.error(`dispatch-isolated-test: ${selectionError}`);
+      exitCode = 2;
+    } else {
+      exitCode =
+        options.target === "ubuntu"
+          ? await runUbuntu(options, runId, snapshotRoot, files)
+          : options.target === "docker"
+            ? await runDocker(options, runId, snapshotRoot, files)
+            : await runWindows(options, runId, snapshotRoot, files);
+    }
   } finally {
     rmSync(snapshotRoot, { recursive: true, force: true });
   }

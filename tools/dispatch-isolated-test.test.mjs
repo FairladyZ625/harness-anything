@@ -14,6 +14,7 @@ import {
   prepareSource,
   sourceRsyncArgs,
   testRunnerArgs,
+  untrackedSelectionError,
 } from "./dispatch-isolated-test.mjs";
 
 const rsyncSkip = (() => {
@@ -81,6 +82,15 @@ test("dispatcher rejects unregistered GUI files", () => {
     () => testRunnerArgs({ tier: undefined, file: "packages/gui/test/unregistered.vitest.ts" }),
     /unknown GUI test file/u,
   );
+});
+
+test("dispatcher explains untracked --file selections instead of dispatching them", () => {
+  const error = untrackedSelectionError("tools/untracked.test.mjs", ["packages/kept.ts", "tools/kept.txt"]);
+  assert.match(error, /tools\/untracked\.test\.mjs is not tracked by git/u);
+  assert.match(error, /only syncs git-tracked files/u);
+  assert.match(error, /git add tools\/untracked\.test\.mjs/u);
+  assert.equal(untrackedSelectionError("tools/kept.txt", ["packages/kept.txt", "tools/kept.txt"]), undefined);
+  assert.equal(untrackedSelectionError(undefined, []), undefined);
 });
 
 test("GUI routing preserves native tests and accepts registered TSX", () => {
