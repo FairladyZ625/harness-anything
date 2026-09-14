@@ -38,7 +38,6 @@ import {
 import { selectGraphFocusSet } from "../graph/focusSet";
 import type { AgentNodeRow, ScheduleNodeRow } from "../graph/runtimeEntities";
 import { focusHistoryReducer, EMPTY_HISTORY, canBack, canForward } from "../navigation/focusHistory";
-import { activeProducesFactRefs } from "../model/triadic";
 import { isTaskArchiveNoise } from "../model/taskFilters";
 import {
   graphTerritoryPreferenceStorage,
@@ -302,21 +301,9 @@ function GraphViewInner({
     const visibleTasks = tasks.filter(taskVisible);
     const visibleTaskIds = new Set(visibleTasks.map((task) => task.taskId));
     const allTaskIds = new Set(tasks.map((task) => task.taskId));
-    const moduleByTaskId = new Map(tasks.map((task) => [task.taskId, task.module] as const));
-    // fact 跟随宿主 task 的可见性;宿主被归档/状态过滤隐藏时随宿主隐藏,不降级成未投影;无宿主 fact 保持可见。
-    const isFactRefVisible = (ref: string) => {
-      if (!typeOn("fact")) return false;
-      const canonicalRef = ref.startsWith("fact/") ? ref : `fact/${ref}`;
-      if (!isFactVisibleWithHost(canonicalRef, visibleTaskIds, allTaskIds, relations)) return false;
-      const ownerTaskId = activeProducesFactRefs(relations)
-        .find((edge) => edge.targetRef === canonicalRef)
-        ?.sourceRef.slice("task/".length);
-      if (ownerTaskId && allTaskIds.has(ownerTaskId)) {
-        const ownerModule = moduleByTaskId.get(ownerTaskId);
-        if (ownerModule !== undefined && !filters.modules.has(ownerModule)) return false;
-      }
-      return true;
-    };
+    // fact 跟随宿主 task 的可见性(宿主可见性已含模块/状态/归档筛选);无宿主 fact 保持可见。
+    const isFactRefVisible = (ref: string) =>
+      typeOn("fact") && isFactVisibleWithHost(ref, visibleTaskIds, allTaskIds, relations);
     const visibleFacts = facts.filter((f) => isFactRefVisible(f.anchor));
     const visibleFactAnchors = (factAnchors ?? []).filter((a) => isFactRefVisible(a.factRef));
     const partition = partitionForSkel(
