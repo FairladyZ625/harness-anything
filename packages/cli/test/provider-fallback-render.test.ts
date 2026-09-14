@@ -75,6 +75,20 @@ test("CLI dispatch and nested receipt errors are handled by closed tagged branch
     code: "daemon_response_timeout",
     hint: "Local daemon request failed. Cause: deadline",
   });
+  assert.deepEqual(
+    cliDispatchError({
+      error: new TypeError("Guidance argument ledgerPackagePath is missing"),
+      directCode: null,
+      timeoutCode: null,
+      returnedReceipt: { ok: true, outcome: "applied", opId: "op-create", taskId: "task-created" },
+    }),
+    {
+      code: "cli_render_failed",
+      hint:
+        "Daemon returned a receipt (outcome=applied, opId=op-create, taskId=task-created), but local receipt rendering failed. " +
+        "Cause: Guidance argument ledgerPackagePath is missing",
+    },
+  );
   assert.deepEqual(humanError({ code: "top", nextAction: "repair" }), {
     code: "top",
     hint: "repair",

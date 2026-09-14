@@ -6,6 +6,7 @@ import { renderCliGuidance } from "./cli/guidance-plane.ts";
 type CliDispatchFailure =
   | { readonly _tag: "DirectDaemonFailure"; readonly errorCode: string; readonly message: string }
   | { readonly _tag: "DaemonResponseTimeout"; readonly errorCode: string; readonly message: string }
+  | { readonly _tag: "ReceiptRenderFailure"; readonly message: string; readonly receipt: Record<string, unknown> }
   | { readonly _tag: "DaemonUnavailable"; readonly errorCode: string; readonly message: string };
 export { humanError } from "./cli/guidance-plane.ts";
 
@@ -13,12 +14,14 @@ export function cliDispatchError(input: {
   readonly error: unknown;
   readonly directCode: string | null;
   readonly timeoutCode: "daemon_response_timeout" | null;
+  readonly returnedReceipt?: Record<string, unknown>;
 }): { readonly code: string; readonly hint: string } {
   const message = cliErrorMessage(input.error);
   let failure: CliDispatchFailure;
   if (input.directCode !== null) failure = { _tag: "DirectDaemonFailure", errorCode: input.directCode, message };
   else if (input.timeoutCode !== null)
     failure = { _tag: "DaemonResponseTimeout", errorCode: input.timeoutCode, message };
+  else if (input.returnedReceipt) failure = { _tag: "ReceiptRenderFailure", message, receipt: input.returnedReceipt };
   else failure = { _tag: "DaemonUnavailable", errorCode: "daemon_unavailable", message };
   switch (failure._tag) {
     case "DirectDaemonFailure": {
@@ -31,6 +34,11 @@ export function cliDispatchError(input: {
               : renderCliGuidance("direct-daemon-failure", { message: failure.message });
       return { code: failure.errorCode, hint };
     }
+    case "ReceiptRenderFailure":
+      return {
+        code: "cli_render_failed",
+        hint: `Daemon returned a receipt (${receiptIdentity(failure.receipt)}), but local receipt rendering failed. Cause: ${failure.message}`,
+      };
     case "DaemonResponseTimeout":
     case "DaemonUnavailable":
       return {
@@ -38,6 +46,13 @@ export function cliDispatchError(input: {
         hint: renderCliGuidance("daemon-connection-failure", { message: failure.message }),
       };
   }
+}
+
+function receiptIdentity(receipt: Record<string, unknown>): string {
+  const fields = ["outcome", "opId", "taskId", "decisionId", "factId", "runtimeSessionId", "dispatchId"]
+    .filter((field) => typeof receipt[field] === "string" && receipt[field] !== "")
+    .map((field) => `${field}=${String(receipt[field])}`);
+  return fields.length > 0 ? fields.join(", ") : `command=${String(receipt.command ?? "unknown")}`;
 }
 
 function errorParams(error: unknown): Readonly<Record<string, unknown>> | null {

@@ -8,7 +8,7 @@ import test from "node:test";
 import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
 import { requestLocalDaemonJsonRpcForTarget } from "../src/client/local-json-rpc-client.ts";
 
-test("a schema-sensitive request stops at a stale-build handshake with a named field", async () => {
+test("a request reaches a draining stale daemon and carries its build warning", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-stale-schema-client-")),
     socketPath = localUserDaemonEndpoint(parent, "stale-schema-client"),
     methods: string[] = [],
@@ -43,22 +43,15 @@ test("a schema-sensitive request stops at a stale-build handshake with a named f
   });
   try {
     const receipt = await requestLocalDaemonJsonRpcForTarget(
-      { socketPath, reportStaleBuild: true, rejectStaleBuildField: "agentId" },
+      { socketPath, reportStaleBuild: true },
       "repo.agentRuntime.spawn",
       { repo: { repoId: "alpha" }, payload: { agentId: "reviewer" } },
       2_000,
       5_000,
     );
-    assert.equal(receipt.code, "daemon_build_stale");
-    assert.deepEqual(receipt.diagnostic, {
-      kind: "validation",
-      entity: "repo.agentRuntime.spawn",
-      field: "agentId",
-      actual: "loaded build build-a",
-      expectation:
-        "Daemon build must match disk build build-b before sending this field; wait for the stale daemon to drain, then retry",
-    });
-    assert.deepEqual(methods, ["protocol.hello"], "the incompatible payload must not reach the stale daemon");
+    assert.equal(receipt.ok, true);
+    assert.equal((receipt.daemonBuild as Record<string, unknown>).code, "daemon_build_stale");
+    assert.deepEqual(methods, ["protocol.hello", "repo.agentRuntime.spawn"]);
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
     rmSync(parent, { recursive: true, force: true });
