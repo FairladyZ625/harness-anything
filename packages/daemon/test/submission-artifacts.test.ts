@@ -117,6 +117,24 @@ test("invalid artifact anchors explain the copyable form and revision source", (
     });
 });
 
+test("the guidance's package-relative anchor form resolves and stores the full task-package path", () => {
+  const { cell, blobSha256 } = fixture();
+  const submitted = derive("artifact:artifacts/report.md");
+  assert.equal(submitted.commitSha, null);
+  assert.deepEqual(submitted.artifacts, [{ path, revision: 7, blobSha256 }]);
+  assert.deepEqual(submitted.deliverables, [path]);
+  assert.deepEqual(validateGuiSubmission(submitted), []);
+  assert.deepEqual(readSubmissionArtifact(cell, packagePath, "artifacts/report.md", 7).anchor, {
+    path,
+    revision: 7,
+    blobSha256,
+  });
+  for (const target of ["artifacts/../closeout.md", "tasks/other/artifacts/report.md", "closeout.md"])
+    assert.throws(() => readSubmissionArtifact(cell, packagePath, target, 7), { code: "invalid_submission" });
+  // Both spellings name the same path, so naming both is the duplicate-path rejection.
+  assert.throws(() => derive(`artifact:artifacts/report.md artifact:${path}`), /name each artifact path once/u);
+});
+
 test("only this task's accepted revision and portable artifact path resolve", () => {
   const { cell } = fixture();
   assert.equal(readSubmissionArtifact(cell, packagePath, path, 7).body, "Frozen evidence.\n");

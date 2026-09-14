@@ -14,7 +14,12 @@ import {
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 import { assertCurrentSubmittedExecution } from "./repo-cell-execution-selection.ts";
-import { artifactAnchorGuidance, artifactAnchors, readSubmissionArtifact } from "./submission-artifacts.ts";
+import {
+  artifactAnchorGuidance,
+  artifactAnchors,
+  readSubmissionArtifact,
+  submissionArtifactPath,
+} from "./submission-artifacts.ts";
 import { readDispatchStreamHeaders } from "./dispatch-stream.ts";
 import { runDocAction } from "./doc-sync-actions.ts";
 import { makeGitReadinessSource, runProcessText } from "./process-port.ts";
@@ -55,13 +60,14 @@ export function deriveCloseoutSubmission(
         artifactAnchorGuidance,
     );
   const artifacts = anchors.map(({ path, revision }) => {
-    const acceptedRevision = revision ?? cell.projection.readDocument(path).document?.workspaceRevision;
+    const artifact = submissionArtifactPath(document.packagePath, path);
+    const acceptedRevision = revision ?? cell.projection.readDocument(artifact).document?.workspaceRevision;
     if (acceptedRevision === undefined)
       throw cell.cellCodedError(
         "invalid_submission",
-        `Artifact ${path}: no center-accepted revision exists. ${artifactAnchorGuidance}`,
+        `Artifact ${artifact}: no center-accepted revision exists. ${artifactAnchorGuidance}`,
       );
-    return readSubmissionArtifact(cell, document.packagePath, path, acceptedRevision).anchor;
+    return readSubmissionArtifact(cell, document.packagePath, artifact, acceptedRevision).anchor;
   });
   if (new Set(artifacts.map((anchor) => anchor.path)).size !== artifacts.length)
     throw cell.cellCodedError(
