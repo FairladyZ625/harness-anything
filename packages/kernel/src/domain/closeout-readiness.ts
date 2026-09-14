@@ -92,7 +92,8 @@ export function closeoutReadiness(
     return { readiness: "incomplete", executionId: execution.executionId, blocker: "projection_unknown", gates };
   const approved = approvedReviewsForExecution(snapshot.reviews, execution),
     consented = consentedApprovedReviewForExecution(snapshot.reviews, snapshot.consents, execution);
-  if (effectiveGates?.review !== false && !approved.length)
+  // An amended cut needs a fresh approval, unless the owner explicitly consented to a review for this cut.
+  if (effectiveGates?.review !== false && !approved.length && !consented)
     return { readiness: "incomplete", executionId: execution.executionId, blocker: "review", gates };
   if (effectiveGates?.consent !== false && !consented)
     return { readiness: "incomplete", executionId: execution.executionId, blocker: "consent", gates };

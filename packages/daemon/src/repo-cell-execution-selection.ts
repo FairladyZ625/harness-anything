@@ -1,4 +1,8 @@
-import { approvedReviewsForExecution, currentSubmittedExecutions, submissionDigest } from "../../kernel/src/index.ts";
+import {
+  approvedReviewHistoryForExecution,
+  currentSubmittedExecutions,
+  submissionDigest,
+} from "../../kernel/src/index.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
 import { requiredCellText } from "./repo-cell-settlement.ts";
 import type { RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
@@ -165,7 +169,7 @@ export function reviewConsentSelection(
     candidates = executions.flatMap((execution) =>
       execution.submission === null
         ? []
-        : approvedReviewsForExecution(snapshot.reviews, execution)
+        : approvedReviewHistoryForExecution(snapshot.reviews, execution)
             .filter((review) => reviewId === undefined || review.reviewId === reviewId)
             .map((review) => ({
               executionId: execution.executionId,
