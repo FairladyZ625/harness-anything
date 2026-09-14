@@ -52,7 +52,7 @@ test("a post-initialize open failure releases the workspace lock for the next at
   }
 });
 
-test("repeated init reports the registered repo id while its RepoCell is open", async () => {
+test("repeated bare init reuses the registered repo id while its RepoCell is open", async () => {
   const parent = realpathSync(mkdtempSync(path.join(tmpdir(), "ha-repeated-init-"))),
     rootDir = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
@@ -66,15 +66,20 @@ test("repeated init reports the registered repo id while its RepoCell is open", 
     host = await openDaemonHost({ daemonId: "repeated-init-second", userRoot });
     await host.attachmentsSettled();
 
+    const repeated = await host.bootstrap({ rootDir, personId: "owner", displayName: "Owner" }, auth);
+    assert.equal(repeated.ok, true);
+    assert.equal(repeated.repoId, "registered-id");
+    assert.equal(repeated.summary, "This repository is already registered as registered-id and is initialized.");
+
     await assert.rejects(
-      host.bootstrap({ ...request, repoId: "inferred-directory-name" }, auth),
+      host.bootstrap({ ...request, repoId: "conflicting-id" }, auth),
       (error: unknown) =>
         error instanceof Error &&
         "code" in error &&
         error.code === "repository_already_registered" &&
-        /ha init --repo-id registered-id/u.test(error.message) &&
-        "diagnostic" in error &&
-        (error.diagnostic as { kind?: string }).kind === "invalid-enum",
+        error.message ===
+          "This repository is already registered as registered-id; " +
+            "rerun without --repo-id or with --repo-id registered-id.",
     );
   } finally {
     await host.close();

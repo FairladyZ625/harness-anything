@@ -18,7 +18,11 @@ import {
 } from "../../preset/src/index.ts";
 import { repoReadCommandTopology } from "../../preset/src/preset-command-contract.ts";
 import type { DaemonHost } from "./daemon-host.ts";
-import { commandDescriptorForAction, type DaemonGuiRpcReadMethod } from "./protocol/daemon-protocol.contract.ts";
+import {
+  canonicalRoot,
+  commandDescriptorForAction,
+  type DaemonGuiRpcReadMethod,
+} from "./protocol/daemon-protocol.contract.ts";
 import { parseDaemonGuiReadResult } from "./protocol/gui-result-validation.ts";
 import { isJsonObject } from "./protocol/json-rpc-types.ts";
 import { resolveRepoBootstrap, type RepoBootstrapReceipt } from "./repo-bootstrap.ts";
@@ -46,26 +50,31 @@ export function createDaemonHostRepositoryApi(
 ): Pick<DaemonHost, "bootstrap" | "admin" | "run" | "replica" | "settleMaterialization" | "presetRun" | "read"> {
   return {
     bootstrap: async (request, auth) => {
-      const prepared = resolveRepoBootstrap(request, auth),
+      const requestedRoot = canonicalRoot(request.rootDir, true),
         registeredRoot = readDaemonRegistry({ userRoot: context.input.userRoot }).repos.find(
-          (repo) =>
-            repo.state === "enabled" &&
-            repo.mode === "local" &&
-            repo.canonicalRoot === prepared.rootDir &&
-            repo.repoId !== prepared.repoId,
-        );
-      if (registeredRoot)
+          (repo) => repo.state === "enabled" && repo.mode === "local" && repo.canonicalRoot === requestedRoot,
+        ),
+        reusedRegistration = request.repoId === undefined && registeredRoot !== undefined;
+      if (request.repoId !== undefined && registeredRoot && registeredRoot.repoId !== request.repoId)
         throw context.hostCodedError(
           "repository_already_registered",
           `This repository is already registered as ${registeredRoot.repoId}; ` +
-            `run ha init --repo-id ${registeredRoot.repoId}.`,
-          {
-            kind: "invalid-enum",
-            field: "--repo-id",
-            actual: prepared.repoId,
-            allowedValues: [registeredRoot.repoId],
-          },
+            `rerun without --repo-id or with --repo-id ${registeredRoot.repoId}.`,
         );
+      const registeredPersonId =
+        reusedRegistration && request.personId === undefined
+          ? (await context.binding(requestedRoot, auth)).actor.principal.personId
+          : undefined;
+      const prepared = resolveRepoBootstrap(
+        reusedRegistration
+          ? {
+              ...request,
+              repoId: registeredRoot.repoId,
+              ...(registeredPersonId ? { personId: registeredPersonId } : {}),
+            }
+          : request,
+        auth,
+      );
       await context.waitForWarming(prepared.repoId);
       if (context.warming.has(prepared.repoId))
         throw context.hostCodedError("repo_warming", context.warmingMessage(prepared.repoId));
@@ -116,7 +125,13 @@ export function createDaemonHostRepositoryApi(
         await cell.close();
         throw error;
       }
-      const receipt = cell.bootstrapReceipt!;
+      const receipt = cell.bootstrapReceipt!,
+        reportedReceipt = reusedRegistration
+          ? {
+              ...receipt,
+              summary: `This repository is already registered as ${prepared.repoId} and is initialized.`,
+            }
+          : receipt;
       if (!receipt.publication.ok)
         return {
           schema: "command-receipt/v2",
@@ -125,7 +140,7 @@ export function createDaemonHostRepositoryApi(
           repoId: registered.repo.repoId,
           rootDir: prepared.rootDir,
           registryChanged: registered.changed,
-          ...receipt,
+          ...reportedReceipt,
         };
       const steps = ["publication-readback"];
       try {
@@ -160,7 +175,7 @@ export function createDaemonHostRepositoryApi(
           repoId: registered.repo.repoId,
           rootDir: prepared.rootDir,
           registryChanged: registered.changed,
-          ...receipt,
+          ...reportedReceipt,
           configureVerify: {
             ok: true,
             steps,

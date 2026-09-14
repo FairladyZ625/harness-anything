@@ -37,10 +37,9 @@ export function rejectPresetRun(runId: string, code: string, rejectionExplanatio
   };
 }
 
-export function hostCodedError(errorCode: string, text: string, diagnostic?: ReceiptDiagnostic): Error {
-  const error = new Error(text) as Error & { code: string; diagnostic?: ReceiptDiagnostic };
+export function hostCodedError(errorCode: string, text: string): Error {
+  const error = new Error(text) as Error & { code: string };
   error.code = errorCode;
-  if (diagnostic) error.diagnostic = diagnostic;
   return error;
 }
 

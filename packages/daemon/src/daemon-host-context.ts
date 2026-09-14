@@ -58,7 +58,7 @@ export interface DaemonHostAdmissionContext {
     command: CommandTopology,
     auth: DaemonAuthenticationContext,
   ) => RepoModeAdmission;
-  readonly hostCodedError: typeof import("./daemon-host-errors.ts").hostCodedError;
+  readonly hostCodedError: (code: string, message: string, data?: JsonObject) => Error;
   readonly point: () => DaemonPoint;
   readonly code: (error: unknown) => string;
   readonly daemonErrorMessage: (error: unknown) => string;

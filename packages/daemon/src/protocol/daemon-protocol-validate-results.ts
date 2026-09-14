@@ -617,10 +617,10 @@ export function daemonProtocolError(
     origin: "daemon",
     code,
     evidence: `rejection:${code}`,
+    rejectionExplanation: hint,
     error: { code, ...sqliteError },
-
     ...(diagnostic ? { diagnostic } : {}),
-  };
+  } as DaemonProtocolErrorResult;
 }
 
 function sqliteErrorDetails(error: unknown): { readonly errcode?: number; readonly errstr?: string } {
