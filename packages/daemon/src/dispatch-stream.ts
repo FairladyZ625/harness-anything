@@ -329,7 +329,7 @@ export function readDispatchStreamSummary(rootDir: string, dispatchId: string): 
     records: DispatchStreamRecord[] = [];
   const seenOffsets = new Set<number>();
   for (const chunk of chunks) {
-    for (const line of completeLines(chunk.text, chunk.offset, stat.size)) {
+    for (const line of completeLines(chunk.text, chunk.offset)) {
       if (line.offset === 0 || seenOffsets.has(line.offset)) continue;
       seenOffsets.add(line.offset);
       const kind = lineKind(line.value);
@@ -699,7 +699,7 @@ function firstLineEndOffset(target: string, size: number): number {
   }
 }
 
-function completeLines(text: string, offset: number, size: number): readonly { offset: number; value: string }[] {
+function completeLines(text: string, offset: number): readonly { offset: number; value: string }[] {
   const lines = text.split(/\r?\n/u),
     result: { offset: number; value: string }[] = [];
   let cursor = offset;
@@ -710,7 +710,7 @@ function completeLines(text: string, offset: number, size: number): readonly { o
       cursor = end;
       continue;
     }
-    if (end > size && index === lines.length - 1) break;
+    if (index === lines.length - 1) break;
     if (value.trim()) result.push({ offset: cursor, value });
     cursor = end;
   }
