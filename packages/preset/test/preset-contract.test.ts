@@ -264,7 +264,7 @@ test("generated task CLI projection accepts closeout submission without packet o
   assert.deepEqual(submit.input.exactlyOneOf, []);
   assert.deepEqual(
     submit.input.fields.flatMap(({ cli }) => (cli ? [cli.name] : [])),
-    ["--execution-id", "--amend"],
+    ["--execution-id", "--amend", "--as-owner"],
   );
   assert.ok(!complete.input.fields.some(({ cli }) => cli?.name === "--ci" || cli?.name === "--path"));
 });

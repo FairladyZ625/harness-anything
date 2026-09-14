@@ -5,9 +5,11 @@ import type {
   CommandAdmissionRoute,
   CommandTopology,
   GeneratedTaskActionProtocolProjection,
+  GeneratedTaskCreateProjection,
   RpcShape,
 } from "./preset-command-contract-support.ts";
 import { taskActionDescriptorProjection } from "./task-action-projection.generated.ts";
+import { taskCreateDescriptorProjection } from "./task-create-projection.generated.ts";
 
 export type {
   CliInputError,
@@ -191,9 +193,8 @@ export const decisionProposalJsonFields = Object.freeze([
 ] as const);
 
 const taskActionProtocolProjection: GeneratedTaskActionProtocolProjection = taskActionDescriptorProjection,
-  allTaskActionProtocolDeclarations = taskActionProtocolProjection.actions,
-  taskCreateAction = allTaskActionProtocolDeclarations.find(({ id }) => id === "create");
-if (!taskCreateAction) throw new Error("task.create action projection is missing.");
+  taskCreateProjection: GeneratedTaskCreateProjection = taskCreateDescriptorProjection,
+  taskCreateAction = taskCreateProjection.action;
 export function taskCreateEnum(field: string): readonly string[] {
   const values = taskCreateAction?.input.fields.find((candidate) => candidate.field === field)?.enum;
   if (!values) throw new Error(`task.create ${field} enum projection is missing.`);
@@ -206,12 +207,10 @@ const taskCreatePacketFields = taskCreateAction.input.fields.filter(({ field }) 
   taskCreatePacketFieldNames.includes(field),
 );
 export const taskCreateJsonFields = Object.freeze([...taskCreatePacketFieldNames]);
-export const generatedTaskActionProtocolDeclarations = Object.freeze(
-  allTaskActionProtocolDeclarations.filter(({ id }) => id !== "create"),
-);
+export const generatedTaskActionProtocolDeclarations = Object.freeze([...taskActionProtocolProjection.actions]);
 export const generatedWriteReceiptFields = Object.freeze([...taskActionProtocolProjection.writeReceiptFields]);
 export const generatedTaskCreateResultFields = Object.freeze(
-  taskActionProtocolProjection.taskCreateResultFields.filter((field) => !generatedWriteReceiptFields.includes(field)),
+  taskCreateProjection.taskCreateResultFields.filter((field) => !generatedWriteReceiptFields.includes(field)),
 );
 
 const taskCreateCliInputs = Object.freeze(

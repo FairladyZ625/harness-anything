@@ -65,6 +65,10 @@ export interface GeneratedTaskActionProtocolDeclaration {
 }
 export interface GeneratedTaskActionProtocolProjection {
   readonly writeReceiptFields: readonly string[];
-  readonly taskCreateResultFields: readonly string[];
   readonly actions: readonly GeneratedTaskActionProtocolDeclaration[];
+}
+
+export interface GeneratedTaskCreateProjection {
+  readonly taskCreateResultFields: readonly string[];
+  readonly action: GeneratedTaskActionProtocolDeclaration;
 }
