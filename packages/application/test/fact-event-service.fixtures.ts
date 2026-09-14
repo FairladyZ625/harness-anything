@@ -17,6 +17,7 @@ import {
   type DecisionEventDraftV1,
   type FactEventDraftV1,
   type FactEventV1,
+  type SupersededFactDocumentSource,
   type TaskProjection,
 } from "../../kernel/src/index.ts";
 import { makeDecisionService, makeFactService } from "../src/index.ts";
@@ -227,10 +228,28 @@ export function factEvent(
     },
   };
 }
-export function compile(projection: Pick<TaskProjection, "searchFacts">, draft: FactEventDraftV1) {
+export function compile(projection: Pick<TaskProjection, "readFact" | "searchFacts">, draft: FactEventDraftV1) {
   return compileFactWrite({
     event: draft,
+    supersededFact: supersededFactSource(projection, draft),
   });
+}
+function supersededFactSource(
+  projection: Pick<TaskProjection, "readFact">,
+  draft: FactEventDraftV1,
+): SupersededFactDocumentSource | null {
+  const factId = /^fact\/(F-[0-9A-HJKMNP-TV-Z]{8})$/u.exec(draft.payload.supersedes?.factRef ?? "")?.[1];
+  if (!factId) return null;
+  const fact = projection.readFact(factId).fact;
+  if (fact === null) return null;
+  return {
+    factId: fact.factId,
+    statement: fact.statement,
+    evidenceSource: fact.evidenceSource,
+    observedAt: fact.observedAt,
+    confidence: fact.confidence,
+    workspaceRevision: fact.workspaceRevision,
+  };
 }
 export function recordFact(
   service: ReturnType<typeof makeFactService>,

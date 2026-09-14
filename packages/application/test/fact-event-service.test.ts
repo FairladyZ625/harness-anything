@@ -199,6 +199,10 @@ test("Fact identity is global and supersedes only a known live Fact", () => {
     );
     assert.equal(service.show("F-ABCDEFGH").fact.state, "superseded_fact");
     assert.equal(correction.fact.state, "standing");
+    const supersededDocument = projection.readDocument("facts/F-ABCDEFGH.md").document;
+    assert.match(supersededDocument?.body ?? "", /^- State: superseded_fact$/mu);
+    assert.match(supersededDocument?.body ?? "", /^- Superseded by: fact\/F-CDEFGHJK$/mu);
+    assert.match(projection.readDocument("facts/F-CDEFGHJK.md").document?.body ?? "", /^- State: standing$/mu);
     assert.throws(
       () =>
         recordFact(
@@ -219,6 +223,7 @@ test("Fact identity is global and supersedes only a known live Fact", () => {
       before = {
         facts: service.search({ taskId: "task-a" }).facts,
         document: projection.readDocument(factsPath).document,
+        supersededDocument: projection.readDocument("facts/F-ABCDEFGH.md").document,
       };
     projection.close();
     rmSync(projection.path, { force: true });
@@ -227,6 +232,7 @@ test("Fact identity is global and supersedes only a known live Fact", () => {
       {
         facts: service.search({ taskId: "task-a" }).facts,
         document: projection.readDocument(factsPath).document,
+        supersededDocument: projection.readDocument("facts/F-ABCDEFGH.md").document,
       },
       before,
     );

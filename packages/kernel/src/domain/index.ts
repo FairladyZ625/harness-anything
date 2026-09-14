@@ -163,7 +163,15 @@ export type {
 } from "./decision-event.ts";
 export { compileFactWrite, factConfidenceLevels, factMemoryClasses, factWritePlan, isFactId } from "./fact-event.ts";
 export { validDomainType } from "./fact-event.ts";
-export type { FactConfidence, FactDomainType, FactEventV1, FactMemoryClass } from "./fact-event.ts";
+export type {
+  FactConfidence,
+  FactContentBlob,
+  FactDomainType,
+  FactEventDraftV1,
+  FactEventV1,
+  FactMemoryClass,
+  SupersededFactDocumentSource,
+} from "./fact-event.ts";
 
 export { CONTRACT_VERSION_1_0, isContractVersion, isContractVersionCompatible } from "./contract-version.ts";
 export type { ContractVersion } from "./contract-version.ts";

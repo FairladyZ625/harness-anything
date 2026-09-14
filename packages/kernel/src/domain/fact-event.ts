@@ -51,6 +51,8 @@ export interface FactDocumentRecord {
   readonly observedAt: string;
   readonly confidence: FactConfidence;
   readonly state: FactLiveness;
+  /** Canonical ref of the retiring Fact; present only on superseded rewrites. */
+  readonly supersededBy?: string;
   readonly workspaceRevision: number;
 }
 export interface FactContentBlob {
@@ -73,6 +75,12 @@ export interface FactEventPayload {
   readonly provenance: readonly SessionProvenanceV1[];
   readonly supersedes?: { readonly factRef: string; readonly rationale: string };
   readonly factsDocumentClaim: FactsDocumentClaim;
+  /**
+   * The rewritten document of the Fact this event supersedes: its liveness only changes through this edge,
+   * so the same event that retires it must carry the superseded body, or the disk projection keeps claiming
+   * `standing`. Absent when the supersedes ref points at no recorded Fact (the dangling-ref audit flow).
+   */
+  readonly supersededFactsDocumentClaim?: FactsDocumentClaim;
 }
 
 export type FactEventV1 = EventEnvelope<
@@ -91,12 +99,25 @@ export type FactEventDraftV1 = Omit<FactEventV1, "payload"> & {
 export interface CompiledFactWrite {
   readonly event: FactEventV1;
   readonly plan: FrozenWritePlan<"FactRecord">;
-  readonly blobs: readonly [FactContentBlob];
+  readonly blobs: readonly FactContentBlob[];
   readonly path: string;
   readonly body: string;
 }
 
-export function compileFactWrite(input: { readonly event: FactEventDraftV1 }): CompiledFactWrite {
+/** The projected Fact fields a supersede rewrite needs to re-render the superseded document. */
+export interface SupersededFactDocumentSource {
+  readonly factId: string;
+  readonly statement: string;
+  readonly evidenceSource: string;
+  readonly observedAt: string;
+  readonly confidence: FactConfidence;
+  readonly workspaceRevision: number;
+}
+
+export function compileFactWrite(input: {
+  readonly event: FactEventDraftV1;
+  readonly supersededFact?: SupersededFactDocumentSource | null;
+}): CompiledFactWrite {
   const path = `facts/${input.event.factId}.md`;
   try {
     if (normalizeRelativeDocumentPath(path) !== path) throw new Error();
@@ -120,26 +141,77 @@ export function compileFactWrite(input: { readonly event: FactEventDraftV1 }): C
       mediaType: "text/markdown",
       policyId: FACT_DOCUMENT_POLICY_ID,
     },
-    event: FactEventV1 = { ...input.event, payload: { ...input.event.payload, factsDocumentClaim: claim } };
+    superseded = supersededDocument(input, claim),
+    event: FactEventV1 = {
+      ...input.event,
+      payload: {
+        ...input.event.payload,
+        factsDocumentClaim: claim,
+        ...(superseded ? { supersededFactsDocumentClaim: superseded.claim } : {}),
+      },
+    };
   return {
     event,
     plan: factWritePlan(event),
-    blobs: [{ sha256: claim.sha256, size: claim.size, mediaType: claim.mediaType, body }],
+    blobs: [
+      { sha256: claim.sha256, size: claim.size, mediaType: claim.mediaType, body },
+      ...(superseded ? [superseded.blob] : []),
+    ],
     path,
     body,
+  };
+}
+
+function supersededDocument(
+  input: { readonly event: FactEventDraftV1; readonly supersededFact?: SupersededFactDocumentSource | null },
+  ownClaim: FactsDocumentClaim,
+): { readonly claim: FactsDocumentClaim; readonly blob: FactContentBlob } | null {
+  const supersedes = input.event.payload.supersedes;
+  if (!supersedes || !input.supersededFact) return null;
+  const factId = /^fact\/(F-[0-9A-HJKMNP-TV-Z]{8})$/u.exec(supersedes.factRef)?.[1];
+  if (!factId || input.supersededFact.factId !== factId)
+    throw new Error("superseded fact record must match the supersedes ref");
+  const record: FactDocumentRecord = {
+      factId,
+      statement: input.supersededFact.statement,
+      evidenceSource: input.supersededFact.evidenceSource,
+      observedAt: input.supersededFact.observedAt,
+      confidence: input.supersededFact.confidence,
+      state: "superseded_fact",
+      supersededBy: factRef(input.event.factId),
+      workspaceRevision: input.event.workspaceRevision,
+    },
+    path = `facts/${factId}.md`;
+  if (path === ownClaim.path) throw new Error("a Fact cannot supersede itself");
+  const body = renderFactsDocument([record]),
+    sha256 = sha256Text(body),
+    size = Buffer.byteLength(body);
+  return {
+    claim: { path, sha256, size, mediaType: "text/markdown", policyId: FACT_DOCUMENT_POLICY_ID },
+    blob: { sha256, size, mediaType: "text/markdown", body },
   };
 }
 export function renderFactsDocument(records: readonly FactDocumentRecord[]): string {
   return `# Facts\n\nManaged by \`ha fact record\`; hand edits are rejected.\n\n## Records\n\n${[...records]
     .sort((left, right) => left.workspaceRevision - right.workspaceRevision || left.factId.localeCompare(right.factId))
-    .map(
-      (fact) =>
-        `### ${fact.factId}\n\n- Statement: ${escapeFactDocumentScalar(fact.statement)}\n- Evidence source: ${escapeFactDocumentScalar(fact.evidenceSource)}\n- Observed at: ${fact.observedAt}\n- Confidence: ${fact.confidence}\n- State: ${fact.state}\n\n`,
-    )
+    .map((fact) => {
+      const record = [
+        `### ${fact.factId}`,
+        "",
+        `- Statement: ${escapeFactDocumentScalar(fact.statement)}`,
+        `- Evidence source: ${escapeFactDocumentScalar(fact.evidenceSource)}`,
+        `- Observed at: ${fact.observedAt}`,
+        `- Confidence: ${fact.confidence}`,
+        `- State: ${fact.state}`,
+        ...(fact.supersededBy ? [`- Superseded by: ${fact.supersededBy}`] : []),
+      ].join("\n");
+      return `${record}\n\n`;
+    })
     .join("")}`;
 }
 export function factWritePlan(event: FactEventV1): FrozenWritePlan<"FactRecord"> {
   const claim = event.payload.factsDocumentClaim,
+    supersededClaim = event.payload.supersededFactsDocumentClaim,
     targets: WriteTarget[] = [
       { kind: "event_file", path: eventObjectTarget(event.opId), operation: "create" },
       { kind: "event_head", path: "harness/events/head.json", operation: "replace" },
@@ -151,9 +223,34 @@ export function factWritePlan(event: FactEventV1): FrozenWritePlan<"FactRecord">
         size: claim.size,
         mediaType: claim.mediaType,
       },
+      ...(supersededClaim
+        ? [
+            {
+              kind: "authored_file",
+              path: supersededClaim.path,
+              operation: "replace",
+              sha256: supersededClaim.sha256,
+              size: supersededClaim.size,
+              mediaType: supersededClaim.mediaType,
+            } as const,
+          ]
+        : []),
       { kind: "content_blob", sha256: claim.sha256, size: claim.size, mediaType: claim.mediaType },
+      ...(supersededClaim
+        ? [
+            {
+              kind: "content_blob",
+              sha256: supersededClaim.sha256,
+              size: supersededClaim.size,
+              mediaType: supersededClaim.mediaType,
+            } as const,
+          ]
+        : []),
       { kind: "projection_invalidation", projection: "fact/v1", key: event.factId },
       { kind: "projection_invalidation", projection: "document/v1", key: claim.path },
+      ...(supersededClaim
+        ? [{ kind: "projection_invalidation", projection: "document/v1", key: supersededClaim.path } as const]
+        : []),
     ];
   return freezeDeclaredWritePlan({ commandType: "FactRecord", targets }, ["FactRecord"]);
 }
@@ -200,7 +297,7 @@ function validateFactEventFields(value: unknown, allowUnknownFields: boolean): r
         "provenance",
         "factsDocumentClaim",
       ],
-      ["domainTypes", "registersDomainType", "supersedes", "reclassificationRationale"],
+      ["domainTypes", "registersDomainType", "supersedes", "supersededFactsDocumentClaim", "reclassificationRationale"],
       allowUnknownFields,
     )
   )
@@ -228,6 +325,7 @@ function validateFactEventFields(value: unknown, allowUnknownFields: boolean): r
     payload.provenance.some((entry) => !provenance(entry, allowUnknownFields)) ||
     !uniqueProvenance(payload.provenance) ||
     (payload.supersedes !== undefined && !supersedes(payload.supersedes, allowUnknownFields)) ||
+    !validSupersededFactsClaim(payload, value.type, allowUnknownFields) ||
     (value.type === "fact_reclassified" &&
       (payload.domainTypes === undefined ||
         payload.registersDomainType !== undefined ||
@@ -292,6 +390,21 @@ function validFactsClaim(
   } catch {
     return false;
   }
+}
+
+/** The superseded rewrite is only valid on a recorded supersedes edge, and must claim that endpoint's document. */
+function validSupersededFactsClaim(
+  payload: Record<string, unknown>,
+  type: unknown,
+  allowUnknownFields: boolean,
+): boolean {
+  const claim = payload.supersededFactsDocumentClaim;
+  if (claim === undefined) return true;
+  const factRefValue = isRecord(payload.supersedes) ? payload.supersedes.factRef : undefined,
+    factId = /^fact\/(F-[0-9A-HJKMNP-TV-Z]{8})$/u.test(String(factRefValue))
+      ? String(factRefValue).slice("fact/".length)
+      : null;
+  return type === "fact_recorded" && factId !== null && validFactsClaim(claim, factId, undefined, allowUnknownFields);
 }
 
 function escapeFactDocumentScalar(value: string): string {

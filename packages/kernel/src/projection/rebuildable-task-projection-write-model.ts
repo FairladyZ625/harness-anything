@@ -147,6 +147,22 @@ export function projectFact(
     eventJson,
   );
   runSql(db, UPSERT_DOCUMENT_SQL, claim.path, event.workspaceRevision, canonicalJson(document));
+  const supersededClaim = event.payload.supersededFactsDocumentClaim;
+  if (!supersededClaim) return;
+  const supersededBytes = readBlob(supersededClaim.sha256);
+  if (supersededBytes === null || supersededBytes.byteLength !== supersededClaim.size)
+    throw new Error(`superseded fact document blob ${supersededClaim.sha256} is unavailable`);
+  const supersededBody = new TextDecoder("utf-8", { fatal: true }).decode(supersededBytes),
+    supersededDocument: DocumentState = {
+      path: supersededClaim.path as DocumentState["path"],
+      blobSha256: supersededClaim.sha256,
+      body: supersededBody,
+      size: docByteLength(supersededClaim.size),
+      mediaType: supersededClaim.mediaType,
+      policyId: supersededClaim.policyId,
+      workspaceRevision: event.workspaceRevision,
+    };
+  runSql(db, UPSERT_DOCUMENT_SQL, supersededClaim.path, event.workspaceRevision, canonicalJson(supersededDocument));
 }
 
 export function projectDecision(

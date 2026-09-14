@@ -51,11 +51,7 @@ const draft: FactEventDraftV1 = {
       ],
     },
   },
-  event = compileFactWrite({
-    event: draft,
-    packagePath: "tasks/task-contract-contract",
-    currentFacts: [],
-  }).event;
+  event = compileFactWrite({ event: draft }).event;
 
 test("Fact event reader ignores unknown fields while the current writer stays strict", () => {
   assert.deepEqual(validateFactEvent(event), []);
@@ -130,11 +126,7 @@ test("Fact event reader ignores unknown fields while the current writer stays st
 });
 
 test("Fact compiler renders one exact machine-owned document per fact", () => {
-  const first = compileFactWrite({
-    event: draft,
-    packagePath: "tasks/task-contract-contract",
-    currentFacts: [],
-  });
+  const first = compileFactWrite({ event: draft });
   assert.equal(
     first.body,
     "# Facts\n\nManaged by `ha fact record`; hand edits are rejected.\n\n## Records\n\n### F-ABCDEFGH\n\n- Statement: Closed Fact payload\n- Evidence source: contract fixture\n- Observed at: 2026-08-13T00:00:00.000Z\n- Confidence: high\n- State: standing\n\n",
@@ -154,23 +146,69 @@ test("Fact compiler renders one exact machine-owned document per fact", () => {
         },
       },
     },
-    second = compileFactWrite({
-      event: secondDraft,
-      packagePath: "tasks/task-contract-contract",
-      currentFacts: [
-        {
-          factId: draft.factId,
-          statement: draft.payload.statement,
-          evidenceSource: draft.payload.evidenceSource,
-          observedAt: draft.payload.observedAt,
-          confidence: draft.payload.confidence,
-          state: "standing",
-          workspaceRevision: draft.workspaceRevision,
-        },
-      ],
-    });
+    supersededFact = {
+      factId: draft.factId,
+      statement: draft.payload.statement,
+      evidenceSource: draft.payload.evidenceSource,
+      observedAt: draft.payload.observedAt,
+      confidence: draft.payload.confidence,
+      workspaceRevision: draft.workspaceRevision,
+    },
+    second = compileFactWrite({ event: secondDraft, supersededFact });
   assert.doesNotMatch(second.body, /### F-ABCDEFGH/u);
   assert.match(second.body, /### F-BCDEFGHJ[\s\S]*State: standing/u);
+  const supersededClaim = second.event.payload.supersededFactsDocumentClaim;
+  assert.equal(supersededClaim?.path, "facts/F-ABCDEFGH.md");
+  assert.equal(second.blobs.length, 2);
+  assert.match(
+    second.blobs[1]?.body ?? "",
+    /### F-ABCDEFGH\n\n- Statement: Closed Fact payload\n- Evidence source: contract fixture\n- Observed at: 2026-08-13T00:00:00\.000Z\n- Confidence: high\n- State: superseded_fact\n- Superseded by: fact\/F-BCDEFGHJ\n\n$/u,
+  );
+  assert.equal(supersededClaim?.sha256, second.blobs[1]?.sha256);
+  assert.deepEqual(
+    second.plan.targets.map(({ kind }) => kind),
+    [
+      "event_file",
+      "event_head",
+      "authored_file",
+      "authored_file",
+      "content_blob",
+      "content_blob",
+      "projection_invalidation",
+      "projection_invalidation",
+      "projection_invalidation",
+    ],
+  );
+  assert.deepEqual(validateFactEvent(second.event), []);
+  assert.deepEqual(validateCurrentFactEvent(second.event), []);
+  const dangling = compileFactWrite({ event: secondDraft });
+  assert.equal(dangling.event.payload.supersededFactsDocumentClaim, undefined);
+  assert.equal(dangling.blobs.length, 1);
+  assert.throws(
+    () =>
+      compileFactWrite({
+        event: { ...secondDraft, factId: draft.factId },
+        supersededFact: { ...supersededFact, factId: "F-BCDEFGHJ" },
+      }),
+    /superseded fact record must match the supersedes ref/u,
+  );
+  const { supersedes: _supersedes, ...payloadWithoutEdge } = second.event.payload;
+  assert.notDeepEqual(
+    validateFactEvent({ ...second.event, payload: payloadWithoutEdge }),
+    [],
+    "a superseded document claim without its supersedes edge is invalid",
+  );
+  assert.notDeepEqual(
+    validateFactEvent({
+      ...second.event,
+      payload: {
+        ...second.event.payload,
+        supersededFactsDocumentClaim: { ...supersededClaim!, path: "facts/F-12345678.md" },
+      },
+    }),
+    [],
+    "a superseded document claim must name the superseded endpoint's document",
+  );
 });
 
 const initialRelationIdentity = {

@@ -2,6 +2,7 @@ import path from "node:path";
 import { localContentObjectFileSystem } from "../local/local-layout-file-system.ts";
 import { TaskEventStoreError, type CanonicalContentBlob } from "./task-event-store-types.ts";
 import { isAgentRuntimeEvent, runtimeEventContentClaims } from "../domain/agent-runtime.ts";
+import type { FactEventV1 } from "../domain/fact-event.ts";
 import { isEntityDeclarationEvent, isEntityEvent, ownedContentForDeclarationEvent } from "../domain/entity-event.ts";
 import {
   entityOwnedContentClaims,
@@ -66,7 +67,7 @@ export function canonicalDocumentClaims(event: PersistedCanonicalEventV1): reado
                 })),
               ]
             : isFactEvent(event)
-              ? [event.payload.factsDocumentClaim]
+              ? factEventDocumentClaims(event)
               : isDecisionEvent(event)
                 ? [event.payload.decisionDocumentClaim]
                 : isMigrationImportEvent(event)
@@ -161,7 +162,7 @@ export function contentClaims(event: CanonicalEventV1): readonly {
                   ...(event.payload.carriedDocumentClaims ?? []).map((change) => change.candidate),
                 ]
               : isFactEvent(event)
-                ? [event.payload.factsDocumentClaim]
+                ? factEventDocumentClaims(event)
                 : isDecisionEvent(event)
                   ? [event.payload.decisionDocumentClaim]
                   : isMigrationImportEvent(event)
@@ -170,6 +171,19 @@ export function contentClaims(event: CanonicalEventV1): readonly {
                       ? runtimeEventContentClaims(event)
                       : [];
   return [...new Map(claims.map((claim) => [claim.sha256, claim])).values()];
+}
+
+/** A Fact event claims its own document and, when it retires a live Fact, that endpoint's rewritten document. */
+function factEventDocumentClaims(event: FactEventV1): readonly {
+  readonly path: string;
+  readonly sha256: string;
+  readonly size: number;
+  readonly mediaType: string;
+}[] {
+  const { factsDocumentClaim, supersededFactsDocumentClaim } = event.payload;
+  return supersededFactsDocumentClaim === undefined
+    ? [factsDocumentClaim]
+    : [factsDocumentClaim, supersededFactsDocumentClaim];
 }
 
 // Claimed content objects live under objectRoot/<2>/<62>; every claim is validated before any object is
