@@ -390,12 +390,17 @@ test("a repository whose open never settles is bounded by an attach budget while
   registerDaemonRepo({ canonicalRoot: hung, repoId: "aaa-hung", userRoot, createConvenienceLinks: false });
   registerDaemonRepo({ canonicalRoot: live, repoId: "zzz-live", userRoot, createConvenienceLinks: false });
   const hungOpens: Array<(cell: Awaited<ReturnType<typeof openRepoCell>>) => void> = [];
+  const liveCell = await openRepoCell({
+    repoId: workspaceId("zzz-live"),
+    rootDir: canonicalRoot(live),
+    ownerId: "attach-budget",
+  });
   const openCell: typeof openRepoCell = async (cellInput) =>
     cellInput.repoId === workspaceId("aaa-hung")
       ? new Promise((resolve) => {
           hungOpens.push(resolve);
         })
-      : openRepoCell(cellInput);
+      : liveCell;
   const host = await openDaemonHost({
     daemonId: "attach-budget",
     userRoot,
