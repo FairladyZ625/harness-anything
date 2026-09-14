@@ -25,11 +25,7 @@ const seed = "stress-s1-seed-20260905";
 
 test(
   "S1 drives real store and RepoCell paths, rejects every oracle corruption, and emits a report",
-  {
-    concurrency: false,
-    timeout: 120_000,
-    skip: process.platform === "win32" && "requires POSIX process SIGKILL semantics",
-  },
+  { concurrency: false, timeout: 120_000, skip: process.platform === "win32" && "requires POSIX SIGKILL" },
   async () => {
     const scratch = mkdtempSync(path.join(tmpdir(), "ha-stress-s1-"));
     const targetRoot = path.join(scratch, "target");
