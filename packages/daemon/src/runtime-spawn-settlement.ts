@@ -256,7 +256,7 @@ export async function publishExit(
       exitCode: active.lossExitCode ?? (cancelled ? null : code),
       signal: active.lossSignal,
       outcome: active.lossReason ? "lost" : outcome,
-      reason: active.lossReason,
+      reason: active.lossReason ?? (outcome === "succeeded" ? null : attemptOutcome.reason),
     });
     context.input.stream.publish(active.runtimeSessionId, { type: "exit", outcome });
     const onExitCommand = active.onExitCommand;

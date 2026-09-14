@@ -129,6 +129,7 @@ export function makeAgentRuntimeReadModel(input: {
         resultRef: observedSession.resultRef,
         missingEvidence: runtimeSessionMissingOutcomeEvidence(observedSession),
         ...(observedSession.reasonCode ? { reasonCode: observedSession.reasonCode } : {}),
+        ...(observedSession.cancelledBy ? { cancelledBy: observedSession.cancelledBy } : {}),
       },
     };
   };

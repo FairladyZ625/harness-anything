@@ -45,6 +45,9 @@ export function renderRuntimeStatus(value: JsonObject): string {
   if (value.session && typeof value.session === "object") {
     const session = value.session as Record<string, unknown>,
       activity = session.activity as Record<string, unknown>,
+      cancelledBy = activity.cancelledBy as Record<string, unknown> | undefined,
+      cancelPrincipal = cancelledBy?.principal as Record<string, unknown> | undefined,
+      cancelExecutor = cancelledBy?.executor as Record<string, unknown> | null | undefined,
       attemptChain = session.attemptChain as Record<string, unknown> | undefined,
       attempts = Array.isArray(attemptChain?.attempts) ? (attemptChain.attempts as Record<string, unknown>[]) : [];
     return [
@@ -54,6 +57,12 @@ export function renderRuntimeStatus(value: JsonObject): string {
       `liveness: ${session.liveness}`,
       `outcome: ${activity.outcome ?? "-"}`,
       `result: ${activity.resultRef ?? "-"}`,
+      ...(cancelledBy
+        ? [
+            `cancelled-by-principal: ${String(cancelPrincipal?.personId ?? "-")}`,
+            `cancelled-by-executor: ${String(cancelExecutor?.id ?? "-")}`,
+          ]
+        : []),
       ...(attempts.length
         ? [
             `attempt-group: ${String(attemptChain?.attemptGroupId)}`,

@@ -136,6 +136,7 @@ export interface RuntimeSession {
   readonly exitCode: number | null;
   readonly resultRef: string | null;
   readonly reasonCode?: string;
+  readonly cancelledBy?: ActorIdentity;
   readonly lastObservedAt: string;
 }
 export type RuntimeInstallationState = "present" | "missing";
@@ -626,6 +627,7 @@ export function reduceRuntimeSession(
       attachable: false,
       outcome: "cancelled",
       exitCode: null,
+      cancelledBy: event.actor,
       lastObservedAt: event.occurredAt,
     };
   if (event.type === "runtime_session_exited")
