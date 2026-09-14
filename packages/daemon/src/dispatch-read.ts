@@ -11,7 +11,6 @@ import {
 import {
   readDispatchLiveIndex,
   readDispatchStream,
-  readDispatchStreamHeader,
   readDispatchStreamSummary,
   readDispatchStreamHeaders,
   removeDispatchLiveIndexEntries,
@@ -26,7 +25,7 @@ import type {
 import { runtimePidIsAlive } from "./runtime-process-liveness.ts";
 import { projectedTaskNotFound } from "./projection-readiness.ts";
 import type { AgentRuntimeAttemptChainDto } from "./runtime-attempt-contract.ts";
-import { resumableRuntimeDispatch } from "./runtime-resume-admission.ts";
+import { resumedDispatchesBySource, runtimeResumeAdmission } from "./runtime-resume-admission.ts";
 
 type DispatchLiveIndexRow = ReturnType<typeof readDispatchLiveIndex>["entries"][number];
 
@@ -79,9 +78,10 @@ export function readTaskDispatches(
     throw Object.assign(new Error(`Task ${singleTaskId} has no projected package path.`), {
       code: "task_not_found",
     });
-  const sessions = new Map(
-    batch.rows.flatMap((task) => task.sessions.map((session) => [session.runtimeSessionId, session] as const)),
-  );
+  const resumedDispatches = resumedDispatchesBySource(readDispatchStreamHeaders(input.rootDir)),
+    sessions = new Map(
+      batch.rows.flatMap((task) => task.sessions.map((session) => [session.runtimeSessionId, session] as const)),
+    );
   const candidates = new Map<string, DispatchCandidate>();
   for (const task of batch.rows)
     for (const session of task.sessions) {
@@ -122,7 +122,7 @@ export function readTaskDispatches(
         archiveRow(
           archive,
           stream,
-          input.rootDir,
+          resumedDispatches,
           candidate.session,
           target.packagePath,
           existingReportPath(input.rootDir, target.packagePath, dispatchId),
@@ -143,8 +143,8 @@ export function readTaskDispatches(
       liveRow(
         stream.header,
         stream,
-        input.rootDir,
         stream.providerSessionId,
+        resumedDispatches,
         candidate.session,
         live,
         candidate.taskPackages[0]?.packagePath ?? null,
@@ -221,12 +221,15 @@ export function readSessionGroupDispatches(input: {
   readonly sessions: readonly RuntimeSession[];
   readonly events: readonly Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }>[];
 }): readonly TaskDispatchRow[] {
-  const sessions = new Map(input.sessions.map((session) => [session.runtimeSessionId, session]));
+  const headers = readDispatchStreamHeaders(input.rootDir),
+    headersByDispatchId = new Map(headers.map((header) => [header.dispatchId, header])),
+    resumedDispatches = resumedDispatchesBySource(headers),
+    sessions = new Map(input.sessions.map((session) => [session.runtimeSessionId, session]));
   return input.events.flatMap((event) => {
     const session = sessions.get(event.payload.runtimeSessionId);
     if (!session) return [];
     const dispatchId = event.payload.dispatchId,
-      header = readDispatchStreamHeader(input.rootDir, dispatchId),
+      header = headersByDispatchId.get(dispatchId),
       binding = session.taskBindings[0],
       sourceHeader: DispatchStreamHeader = header ?? {
         schema: "runtime-dispatch-stream/v1",
@@ -239,7 +242,9 @@ export function readSessionGroupDispatches(input: {
         startedAt: event.occurredAt,
         eventStreamRef: `file:.harness/runtime/dispatches/${dispatchId}.jsonl`,
       };
-    return [liveRow(sourceHeader, null, input.rootDir, session.providerSessionId, session, false, null, null, false)];
+    return [
+      liveRow(sourceHeader, null, session.providerSessionId, resumedDispatches, session, false, null, null, false),
+    ];
   });
 }
 
@@ -248,6 +253,7 @@ export function readRuntimeAttemptChain(
   runtimeSessionId: string,
 ): AgentRuntimeAttemptChainDto | undefined {
   const headers = readDispatchStreamHeaders(rootDir),
+    resumedDispatches = resumedDispatchesBySource(headers),
     targetHeader = headers.find((header) => header.runtimeSessionId === runtimeSessionId);
   if (!targetHeader) return undefined;
   const target = readDispatchStreamSummary(rootDir, targetHeader.dispatchId);
@@ -274,7 +280,12 @@ export function readRuntimeAttemptChain(
         reason: stream.attemptOutcome?.reason ?? null,
         ...(stream.attemptOutcome?.faultClass ? { faultClass: stream.attemptOutcome.faultClass } : {}),
         ...(stream.attemptOutcome?.resetAt ? { resetAt: stream.attemptOutcome.resetAt } : {}),
-        ...(resumeDispatch(stream.header, rootDir, stream.attemptOutcome?.classification ?? null) ?? {}),
+        ...(resumeDispatch(
+          stream.header,
+          stream.providerSessionId,
+          resumedDispatches,
+          stream.attemptOutcome?.classification ?? null,
+        ) ?? {}),
         fallbackState: stream.fallbackState,
         nextDispatchId: stream.nextDispatchId,
       }))
@@ -329,7 +340,7 @@ function dispatchMetrics(stream: ReturnType<typeof readDispatchStreamSummary>): 
 function archiveRow(
   value: Record<string, unknown>,
   stream: ReturnType<typeof readDispatchStream>,
-  rootDir: string,
+  resumedDispatches: ReadonlyMap<string, string>,
   session: RuntimeSession | undefined,
   packagePath: string,
   reportPath: string | null,
@@ -384,7 +395,9 @@ function archiveRow(
     reason,
     ...(attemptOutcome?.faultClass ? { faultClass: attemptOutcome.faultClass } : {}),
     ...(attemptOutcome?.resetAt ? { resetAt: attemptOutcome.resetAt } : {}),
-    ...(stream ? (resumeDispatch(stream.header, rootDir, classification) ?? {}) : {}),
+    ...(stream
+      ? (resumeDispatch(stream.header, stream.providerSessionId, resumedDispatches, classification) ?? {})
+      : {}),
     fallbackState: stream?.fallbackState ?? null,
     nextDispatchId: stream?.nextDispatchId ?? null,
     ...(metrics ? { metrics } : {}),
@@ -418,8 +431,8 @@ function archiveRow(
 function liveRow(
   header: DispatchStreamHeader,
   stream: ReturnType<typeof readDispatchStream>,
-  rootDir: string,
   providerSessionId: string | null,
+  resumedDispatches: ReadonlyMap<string, string>,
   session: RuntimeSession | undefined,
   processRunning: boolean,
   packagePath: string | null,
@@ -445,7 +458,8 @@ function liveRow(
     reason: stream?.attemptOutcome?.reason ?? null,
     ...(stream?.attemptOutcome?.faultClass ? { faultClass: stream.attemptOutcome.faultClass } : {}),
     ...(stream?.attemptOutcome?.resetAt ? { resetAt: stream.attemptOutcome.resetAt } : {}),
-    ...(resumeDispatch(header, rootDir, stream?.attemptOutcome?.classification ?? null) ?? {}),
+    ...(resumeDispatch(header, providerSessionId, resumedDispatches, stream?.attemptOutcome?.classification ?? null) ??
+      {}),
     fallbackState: stream?.fallbackState ?? null,
     nextDispatchId: stream?.nextDispatchId ?? null,
     ...(metrics ? { metrics } : {}),
@@ -483,11 +497,18 @@ function existingReportPath(rootDir: string, packagePath: string | null, dispatc
 }
 function resumeDispatch(
   header: DispatchStreamHeader,
-  rootDir: string,
+  providerSessionId: string | null,
+  resumedDispatches: ReadonlyMap<string, string>,
   classification: TaskDispatchRow["classification"],
 ): Pick<TaskDispatchRow, "resume" | "nextAction"> | undefined {
-  const resume = resumableRuntimeDispatch(rootDir, header.dispatchId);
-  if (!resume) return undefined;
+  const admission = runtimeResumeAdmission({
+    dispatchId: header.dispatchId,
+    agentId: header.agentId ?? null,
+    providerSessionId,
+    resumedDispatches,
+  });
+  if (!admission.resumable) return undefined;
+  const resume = { dispatchId: admission.dispatchId, agentId: admission.agentId };
   return {
     resume,
     ...(classification === "provider_quota" ? { nextAction: resumeDispatchAction(resume) } : {}),

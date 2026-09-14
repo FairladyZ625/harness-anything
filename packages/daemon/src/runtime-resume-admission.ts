@@ -4,25 +4,30 @@ import { resolveRuntimeCwd } from "./runtime-spawn-mission.ts";
 
 export function admitRuntimeResume(rootDir: string, dispatchId: string | undefined) {
   const resumed = dispatchId ? readDispatchStream(rootDir, dispatchId) : null;
-  if (dispatchId && !resumed?.providerSessionId)
+  if (!dispatchId) return resumed;
+  const admission = runtimeResumeAdmission({
+    dispatchId,
+    agentId: resumed?.header.agentId ?? null,
+    providerSessionId: resumed?.providerSessionId ?? null,
+    resumedDispatches: resumedDispatchesBySource(readDispatchStreamHeaders(rootDir)),
+  });
+  if (!admission.resumable && admission.reason === "missing_provider_session")
     throw runtimeSpawnError(
       "runtime_dispatch_not_resumable",
       `Dispatch ${dispatchId} has no provider session to resume.`,
     );
-  const priorResume = dispatchId
-    ? readDispatchStreamHeaders(rootDir).find((header) => header.resumedFromDispatchId === dispatchId)
-    : undefined;
-  if (priorResume)
+  if (!admission.resumable && admission.reason === "already_resumed")
     throw runtimeSpawnError(
       "runtime_dispatch_already_resumed",
-      `Dispatch ${dispatchId} was already resumed as ${priorResume.dispatchId}.`,
+      `Dispatch ${dispatchId} was already resumed as ${admission.resumedDispatchId}.`,
       {
         kind: "validation",
-        entity: dispatchId!,
+        entity: dispatchId,
         field: "dispatchId",
-        actual: priorResume.dispatchId,
+        actual: admission.resumedDispatchId,
         expectation:
-          `Resume the existing dispatch ${priorResume.dispatchId}; ` + "the source dispatch can only be resumed once.",
+          `Resume the existing dispatch ${admission.resumedDispatchId}; ` +
+          "the source dispatch can only be resumed once.",
       },
     );
   return resumed;
@@ -41,17 +46,32 @@ export function requestedResumeDispatchId(payload: {
   return value;
 }
 
-/** Read-side counterpart to resume admission. Keep this predicate aligned with the write
- * admission above so callers do not reconstruct resumability from projection fragments. */
-export function resumableRuntimeDispatch(
-  rootDir: string,
-  dispatchId: string,
-): { readonly dispatchId: string; readonly agentId: string | null } | undefined {
-  const resumed = readDispatchStream(rootDir, dispatchId);
-  if (!resumed?.providerSessionId) return undefined;
-  if (readDispatchStreamHeaders(rootDir).some((header) => header.resumedFromDispatchId === dispatchId))
-    return undefined;
-  return { dispatchId, agentId: resumed.header.agentId ?? null };
+export type RuntimeResumeAdmission =
+  | { readonly resumable: true; readonly dispatchId: string; readonly agentId: string | null }
+  | { readonly resumable: false; readonly reason: "missing_provider_session" }
+  | { readonly resumable: false; readonly reason: "already_resumed"; readonly resumedDispatchId: string };
+
+export function resumedDispatchesBySource(
+  headers: readonly { readonly dispatchId: string; readonly resumedFromDispatchId?: string }[],
+): ReadonlyMap<string, string> {
+  return new Map(
+    headers.flatMap((header) =>
+      header.resumedFromDispatchId === undefined ? [] : [[header.resumedFromDispatchId, header.dispatchId] as const],
+    ),
+  );
+}
+
+/** The only resume decision point. Read paths supply already-read data and do not reopen streams. */
+export function runtimeResumeAdmission(input: {
+  readonly dispatchId: string;
+  readonly agentId: string | null;
+  readonly providerSessionId: string | null;
+  readonly resumedDispatches: ReadonlyMap<string, string>;
+}): RuntimeResumeAdmission {
+  if (!input.providerSessionId) return { resumable: false, reason: "missing_provider_session" };
+  const resumedDispatchId = input.resumedDispatches.get(input.dispatchId);
+  if (resumedDispatchId) return { resumable: false, reason: "already_resumed", resumedDispatchId };
+  return { resumable: true, dispatchId: input.dispatchId, agentId: input.agentId };
 }
 
 export function assertResumeAgent(
