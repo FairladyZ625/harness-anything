@@ -921,6 +921,8 @@ test("agy uses the operator environment, OAuth-only auth, and a closed effort en
       "Reply with exactly AGY-OK",
       "--output-format",
       "stream-json",
+      "--print-timeout",
+      "30m",
       "--model",
       "gemini-3.1-pro-low",
       "--dangerously-skip-permissions",

@@ -714,6 +714,8 @@ test("agy consumes only its closed stream-json event protocol", async () => {
           unknown ? "Unknown event" : "Structured result",
           "--output-format",
           "stream-json",
+          "--print-timeout",
+          "30m",
           "--model",
           "gemini-3.1-pro-low",
           "--dangerously-skip-permissions",
