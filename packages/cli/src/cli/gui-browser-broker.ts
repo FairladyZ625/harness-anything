@@ -4,6 +4,8 @@ import { createReadStream, existsSync, statSync } from "node:fs";
 import path from "node:path";
 import { isDaemonGuiReadMethod } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { requestLocalDaemonJsonRpc } from "../../../daemon/src/client/local-json-rpc-client.ts";
+import { isJsonObject } from "../../../daemon/src/protocol/json-rpc-types.ts";
+import { consumeKnownError } from "../daemon/client.ts";
 
 const MAX_BODY_BYTES = 1024 * 1024;
 const CSP =
@@ -75,9 +77,9 @@ async function handleRpc(
   try {
     const body = await readBody(request),
       value = JSON.parse(body) as JsonObject;
-    if (typeof value.method !== "string" || !isDaemonGuiReadMethod(value.method) || !record(value.params))
+    if (typeof value.method !== "string" || !isDaemonGuiReadMethod(value.method) || !isJsonObject(value.params))
       return reject(response, 400);
-    const repo = record(value.params.repo) ? value.params.repo : undefined;
+    const repo = isJsonObject(value.params.repo) ? value.params.repo : undefined;
     return requestLocalDaemonJsonRpc(rootDir, value.method, value.params as never, 75, {
       ...(typeof repo?.repoId === "string" ? { repoIdOverride: repo.repoId } : {}),
     }).then(
@@ -106,6 +108,7 @@ async function handleRpc(
       },
     );
   } catch (error) {
+    consumeKnownError(error);
     response.statusCode = 502;
     response.setHeader("Content-Type", "application/json");
     response.end(
@@ -141,9 +144,6 @@ function readBody(request: IncomingMessage): Promise<string> {
 function reject(response: ServerResponse, status: number): void {
   response.statusCode = status;
   response.end();
-}
-function record(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 function contentType(file: string): string {
   if (file.endsWith(".html")) return "text/html; charset=utf-8";

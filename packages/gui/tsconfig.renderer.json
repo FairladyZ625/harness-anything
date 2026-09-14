@@ -22,6 +22,7 @@
   },
   "include": [
     "src/renderer/**/*.ts",
+    "src/browser/**/*.ts",
     "src/renderer/**/*.tsx",
     "src/renderer/**/*.json",
     "src/api/entity-payload-hygiene.ts",

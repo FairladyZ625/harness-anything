@@ -1,4 +1,3 @@
-import type { GuiBridgeMethod } from "../api/renderer-dto.ts";
 import type { DaemonRpcMethodMap, DaemonRpcResult } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { guiTransport } from "./gui-transport.ts";
 
