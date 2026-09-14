@@ -338,6 +338,17 @@ test("RepoCell rejects completion on snapshot drift and preset upgrade publishes
 
 // prettier-ignore
 
+test("RepoCell completion recognizes the frozen snapshot of a docs task", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-docs-snapshot-cell-")), taskId = "task-docs-snapshot"; let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("docs-snapshot"), rootDir: canonicalRoot(rootDir), ownerId: "docs-snapshot" });
+    const created = await cell.run({ kind: "task-create", taskId, title: "Docs snapshot", workKind: "docs" }, repoWriteBinding); assert.equal(created.outcome, "applied");
+    const blocked = await cell.run({ kind: "task-complete", taskId, executionId: "execution-missing" }, repoWriteBinding); assert.notEqual(blocked.code, "preset_snapshot_mismatch", String(blocked.code));
+  } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
+});
+
+// prettier-ignore
+
 test("RepoCell serializes identical lifecycle intents into one accepted SQLite outcome", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-repo-cell-"));
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
