@@ -30,6 +30,7 @@ export interface TaskActionCapabilityInvocation {
   readonly executionId?: string;
   readonly reviewId?: string;
   readonly amend?: boolean;
+  readonly asOwner?: boolean;
   readonly runtimeTaskBound?: boolean;
 }
 
@@ -72,9 +73,13 @@ const taskCapabilityEvaluators = Object.freeze(
     [key("submit", "task-lifecycle-command-transitions/submit.validate"), submitValidation],
     [
       key("submit", "repo-cell-proof/proofFor.SubmitExecution"),
-      ({ snapshot, actor }) =>
+      ({ snapshot, actor, invocation }) =>
         heldLeaseForExecutionActor(snapshot, undefined, actor) ||
-        currentSubmittedExecutions(snapshot).some((execution) => isSameExecution(execution.actor, actor))
+        currentSubmittedExecutions(snapshot).some(
+          (execution) =>
+            isSameExecution(execution.actor, actor) ||
+            (invocation?.asOwner === true && snapshot.task !== null && isSamePerson(snapshot.task.createdBy, actor)),
+        )
           ? "met"
           : "unmet",
     ],

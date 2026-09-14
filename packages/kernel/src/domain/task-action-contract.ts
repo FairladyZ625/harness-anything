@@ -15,7 +15,6 @@ type FieldType = NonNullable<EntityActionInputField["type"]>;
 type FieldValue = NonNullable<EntityActionInputField["value"]>;
 type Cli = NonNullable<EntityActionInputField["cli"]>;
 type CliExtra = Omit<Cli, "name" | "kind" | "error"> & Pick<EntityActionInputField, "enum" | "regex">;
-
 function value(type: FieldType, enumRef?: readonly string[], regex?: string): FieldValue {
   if (type === "number" || type === "boolean") return { kind: type };
   if (type === "json-object") return { kind: "object", fields: [] };
@@ -452,6 +451,7 @@ const declarations: readonly Declaration[] = Object.freeze([
       expectedVersion,
       cli("executionId", "string", false, "--execution-id"),
       cli("amend", "boolean", false, "--amend", "boolean"),
+      cli("asOwner", "boolean", false, "--as-owner", "boolean"),
       ...optionalPacketFields(submissionFields),
     ]),
     criteria: Object.freeze([
@@ -463,7 +463,7 @@ const declarations: readonly Declaration[] = Object.freeze([
       criterion(
         "repo-cell-proof/proofFor.SubmitExecution",
         "lease_required",
-        "The authenticated actor owns the active lease or the submitted execution being amended.",
+        "The authenticated actor owns the active lease, submitted execution, or task owner principal for --as-owner amendments.",
       ),
     ]),
     concurrency: taskConcurrency(
