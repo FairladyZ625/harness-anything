@@ -1,9 +1,5 @@
 import type { ExecutionV1 } from "./execution.ts";
-import {
-  approvedReviewHistoryForExecution,
-  consentedApprovedReviewForExecution,
-  reviewsForExecution,
-} from "./review.ts";
+import { approvedReviewsForExecution, consentedApprovedReviewForExecution, reviewsForExecution } from "./review.ts";
 import type { ReviewConsentV1, ReviewV1 } from "./review.ts";
 import type { LifecycleDocumentClaim, TaskEventV1 } from "./task-lifecycle-event.ts";
 import type { TaskLifecycleSnapshot } from "./task-lifecycle.contract.ts";
@@ -265,7 +261,7 @@ function renderIndex(event: TaskEventV1, snapshot: TaskLifecycleSnapshot, path: 
         ? event.payload.execution
         : snapshot.executions.find((value) => value.iteration === task.iteration && value.state === "submitted"),
     executionId = current?.executionId ?? "",
-    approved = current?.submission ? approvedReviewHistoryForExecution(snapshot.reviews, current) : [],
+    approved = current?.submission ? approvedReviewsForExecution(snapshot.reviews, current) : [],
     selected = current?.submission
       ? consentedApprovedReviewForExecution(snapshot.reviews, snapshot.consents, current)
       : undefined,
