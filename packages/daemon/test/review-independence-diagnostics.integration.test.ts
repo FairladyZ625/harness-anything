@@ -1,7 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { after, before } from "node:test";
@@ -10,6 +9,14 @@ import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.cont
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
+import {
+  git,
+  initRepo,
+  runtimeEvent,
+  submissionOutcome,
+  writeCloseout,
+  writeSettingsFixture,
+} from "./review-independence.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 const ciBin = mkdtempSync(path.join(tmpdir(), "ha-review-ci-bin-"));
@@ -26,35 +33,6 @@ after(() => {
   else process.env.PATH = originalPath;
   rmSync(ciBin, { recursive: true, force: true });
 });
-
-const git = (rootDir: string, ...args: readonly string[]): string =>
-  execFileSync("git", args, { cwd: rootDir, encoding: "utf8", windowsHide: true }).trim();
-
-function initRepo(rootDir: string): void {
-  git(rootDir, "init", "--quiet");
-  git(rootDir, "config", "user.name", "RepoCell Test");
-  git(rootDir, "config", "user.email", "repo-cell@example.invalid");
-  git(rootDir, "config", "gc.auto", "0");
-  git(rootDir, "config", "maintenance.auto", "false");
-  git(rootDir, "commit", "--allow-empty", "--quiet", "-m", "fixture base");
-  writeFileSync(path.join(rootDir, "README.md"), "# Review fixture delivery\n");
-  git(rootDir, "add", "README.md");
-  git(rootDir, "commit", "--quiet", "-m", "fixture delivery");
-}
-
-function submissionOutcome<T extends { outcome: string }>(receipt: T): string {
-  assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
-  return receipt.outcome;
-}
-
-function writeCloseout(rootDir: string, packagePath: unknown): void {
-  writeFileSync(
-    path.join(rootDir, "harness", String(packagePath), "closeout.md"),
-    `# Closeout\n\n## Summary\n\nReview fixture delivered at ${git(rootDir, "rev-parse", "HEAD")}.\n\n` +
-      "## Verification\n\nReview independence integration assertions.\n\n" +
-      "## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nShared review authorization.\n",
-  );
-}
 
 // #1541 was filed as "execution review is structurally unreachable on Windows" because one sentence
 // covered every refusal. The transport principal is shared on that platform, but independence is
@@ -197,29 +175,6 @@ test("principal review independence rejects a different executor owned by the su
   }
 });
 
-function writeSettingsFixture(rootDir: string): void {
-  mkdirSync(path.join(rootDir, "harness"), { recursive: true });
-  writeFileSync(
-    path.join(rootDir, "harness/harness.yaml"),
-    [
-      "schema: harness-anything/v1",
-      "layout:",
-      "  authoredRoot: harness",
-      "  localRoot: .harness",
-      "settings:",
-      "  defaultVertical: software/coding",
-      "  defaultPreset: standard-task",
-      "  defaultProfile: baseline",
-      "  scaffolds:",
-      "    task: governance/task-scaffold.json",
-      "    repository: governance/repository-scaffold.json",
-      "",
-    ].join("\n"),
-  );
-  git(rootDir, "add", "harness/harness.yaml");
-  git(rootDir, "commit", "--quiet", "-m", "settings fixture");
-}
-
 // The complementary half: when the execution declared no executor, the same principal genuinely cannot
 // review it until an agent executor accepts that attribution through its own audited lifecycle event.
 test("a child bare-invocation execution can recover from its parent Task dispatch", async () => {
@@ -227,6 +182,7 @@ test("a child bare-invocation execution can recover from its parent Task dispatc
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     initRepo(rootDir);
+    const threadStarted = Promise.withResolvers<void>();
     cell = await openRepoCell({
       repoId: workspaceId("review-bare"),
       rootDir: canonicalRoot(rootDir),
@@ -261,9 +217,10 @@ test("a child bare-invocation execution can recover from its parent Task dispatc
       runtimeLaunch: () => ({
         pid: 1_001,
         onOutput: (listener) => {
-          queueMicrotask(() =>
-            listener(`${JSON.stringify({ type: "thread.started", thread_id: "provider-review-bare" })}\n`),
-          );
+          queueMicrotask(() => {
+            listener(`${JSON.stringify({ type: "thread.started", thread_id: "provider-review-bare" })}\n`);
+            threadStarted.resolve();
+          });
         },
         onErrorOutput: () => undefined,
         onExit: () => undefined,
@@ -321,6 +278,8 @@ test("a child bare-invocation execution can recover from its parent Task dispatc
       bare,
     );
     await runtimeEvent(
+      cell,
+      threadStarted.promise,
       rootDir,
       "review-bare",
       (event) =>
@@ -698,7 +657,10 @@ test("review binding permits independent runtimes but still rejects the executio
     initRepo(rootDir);
     const workerRoot = path.join(rootDir, ".worktrees", "implementer");
     git(rootDir, "worktree", "add", "--quiet", "--detach", workerRoot);
-    const processes: { exit: ((code: number | null) => void) | null }[] = [];
+    const processes: {
+      exit: ((code: number | null) => void) | null;
+      threadStarted: Promise<void>;
+    }[] = [];
     let providerSequence = 0;
     cell = await openRepoCell({
       repoId: workspaceId("review-runtime-bound"),
@@ -735,15 +697,20 @@ test("review binding permits independent runtimes but still rejects the executio
         };
       },
       runtimeLaunch: (prepared) => {
-        const process = { exit: null as ((code: number | null) => void) | null },
-          providerSessionId = prepared.args[0]!;
+        const providerSessionId = prepared.args[0]!,
+          threadStarted = Promise.withResolvers<void>(),
+          process: { exit: ((code: number | null) => void) | null; threadStarted: Promise<void> } = {
+            exit: null,
+            threadStarted: threadStarted.promise,
+          };
         processes.push(process);
         return {
           pid: 1_001 + processes.length,
           onOutput: (listener) => {
-            queueMicrotask(() =>
-              listener(`${JSON.stringify({ type: "thread.started", thread_id: providerSessionId })}\n`),
-            );
+            queueMicrotask(() => {
+              listener(`${JSON.stringify({ type: "thread.started", thread_id: providerSessionId })}\n`);
+              threadStarted.resolve();
+            });
           },
           onErrorOutput: () => undefined,
           onExit: (listener) => {
@@ -789,6 +756,8 @@ test("review binding permits independent runtimes but still rejects the executio
       implementer,
     );
     await runtimeEvent(
+      cell,
+      processes[0]!.threadStarted,
       rootDir,
       "review-runtime-bound",
       (event) =>
@@ -802,7 +771,10 @@ test("review binding permits independent runtimes but still rejects the executio
     started.close();
     assert.ok(executionId, "planned runtime dispatch must create and hold an execution lease");
     processes[0]!.exit?.(0);
+    // The exit listener above chained its publication synchronously; only the queue drain remains.
     await runtimeEvent(
+      cell,
+      Promise.resolve(),
       rootDir,
       "review-runtime-bound",
       (event) =>
@@ -820,6 +792,8 @@ test("review binding permits independent runtimes but still rejects the executio
       implementer,
     );
     await runtimeEvent(
+      cell,
+      processes[1]!.threadStarted,
       rootDir,
       "review-runtime-bound",
       (event) =>
@@ -889,6 +863,8 @@ test("review binding permits independent runtimes but still rejects the executio
       implementer,
     );
     await runtimeEvent(
+      cell,
+      processes[2]!.threadStarted,
       rootDir,
       "review-runtime-bound",
       (event) =>
@@ -966,15 +942,3 @@ test("review binding permits independent runtimes but still rejects the executio
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
-
-async function runtimeEvent(
-  rootDir: string,
-  repoId: string,
-  matches: (event: ReturnType<ReturnType<typeof makeTaskEventStore>["read"]>["events"][number]) => boolean,
-): Promise<void> {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
-    if (makeTaskEventReader({ repoId, rootDir }).read().events.some(matches)) return;
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-  throw new Error("runtime event did not arrive");
-}
