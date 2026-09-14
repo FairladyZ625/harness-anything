@@ -14,6 +14,7 @@ import {
   type TaskV2,
 } from "../../kernel/src/index.ts";
 import { readDispatchLiveIndex, readDispatchStreamSummary } from "./dispatch-stream.ts";
+import { isProviderFailureClassification } from "./runtime-fallback-contract.ts";
 import { runtimePidIsAlive } from "./runtime-process-liveness.ts";
 import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 import type { RepoCellActionContext } from "./repo-cell-action-context.ts";
@@ -360,7 +361,7 @@ function dispatchReachedTerminalAttempt(stream: NonNullable<ReturnType<typeof re
   return (
     stream.attemptOutcome !== null &&
     stream.attemptOutcome !== undefined &&
-    (stream.attemptOutcome.classification !== "provider_fault" ||
+    (!isProviderFailureClassification(stream.attemptOutcome.classification) ||
       stream.header.fallbackAttempt === undefined ||
       stream.fallbackState === "exhausted")
   );

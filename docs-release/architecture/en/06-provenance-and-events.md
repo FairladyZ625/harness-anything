@@ -140,6 +140,11 @@ provider environment values never become stream content. `ha task dispatches
 the terminal dispatch artifact retains the stream reference plus provider
 session identifier. Thus `ha runtime run --resume-dispatch <dispatch-id>
 --prompt "…"` resumes without exposing or requiring a provider session id.
+Resume inherits the recorded agent, working directory, permission mode, and
+model. Task workers can use `ha agent run <agent-id> --resume-dispatch
+<dispatch-id>`; a different agent and a second resume of the same source
+dispatch are rejected. Quota exits appear as `provider_quota`, with a reset
+time when the provider supplies one and a resume command in `nextAction`.
 When a leader supplies `--agent <leader-id> --to <worker-id>`, the same
 dispatch artifact records `squadId`, worker `agentId`, and
 `delegatedByAgentId`; the target must be that leader's roster member and its

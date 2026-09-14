@@ -52,6 +52,14 @@ test("Provider failures preserve reasons, redact secrets and publish failed task
     String(quotaFailure.receipt.reason),
     /faultClass=quota_exhausted; resetAt=2026-09-06T05:06:07\.000Z;.*credit balance exhausted/u,
   );
+  const quotaAttempt = (
+    (quotaFailure.receipt.session as Record<string, unknown>).attemptChain as {
+      attempts: Array<Record<string, unknown>>;
+    }
+  ).attempts[0]!;
+  assert.equal(quotaAttempt.classification, "provider_quota");
+  assert.equal(quotaAttempt.resetAt, "2026-09-06T05:06:07.000Z");
+  assert.match(String(quotaAttempt.nextAction), /ha runtime run --resume-dispatch/u);
   writeFileSync(
     path.join(root, "failure-batch.json"),
     JSON.stringify({
@@ -71,7 +79,7 @@ test("Provider failures preserve reasons, redact secrets and publish failed task
     "run",
     "terra",
     "--prompt",
-    "failure:structured",
+    "failure:429",
     "--task",
     taskId,
     "--detach",
@@ -84,6 +92,9 @@ test("Provider failures preserve reasons, redact secrets and publish failed task
     (row) => row.dispatchId === detachedFailure.dispatchId,
   );
   assert.equal(failedRow?.status, "failed");
+  assert.equal(failedRow?.classification, "provider_quota");
+  assert.equal(failedRow?.resetAt, "2026-09-06T05:06:07.000Z");
+  assert.equal(failedRow?.nextAction, `ha agent run terra --resume-dispatch ${String(detachedFailure.dispatchId)}`);
   assert.equal(failedRow?.exitCode, 1);
   assert.equal(failedRow?.dispatchPath, `${packagePath}/artifacts/dispatches/${detachedFailure.dispatchId}.json`);
   await eventuallyFile(path.join(artifactRoot, "reports", `${detachedFailure.dispatchId}.md`));

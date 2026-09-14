@@ -76,7 +76,7 @@ export function classifyRuntimeExit(
   if (active.cancelRequested) return classified("worker_stop", "Worker stop was requested.");
   if (attemptFailed && providerFault)
     return {
-      ...classified("provider_fault", providerFault.reason),
+      ...classified(providerFault.faultClass ? "provider_quota" : "provider_fault", providerFault.reason),
       ...(providerFault.faultClass ? { faultClass: providerFault.faultClass } : {}),
       ...(providerFault.resetAt ? { resetAt: providerFault.resetAt } : {}),
     };

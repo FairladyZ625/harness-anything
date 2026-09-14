@@ -89,6 +89,10 @@ session 与本地流引用，后续 JSONL 在需要查看时才解析。每条�
 artifact；终态 dispatch artifact 保留流引用和 provider session id。因此
 `ha runtime run --resume-dispatch <dispatch-id> --prompt "…"` 可以续跑，不必暴露或手工查找
 provider session id。
+续跑默认继承已记录的 agent、工作目录、permission mode 与 model。task worker 可用
+`ha agent run <agent-id> --resume-dispatch <dispatch-id>`；换 agent 或再次续跑同一来源 dispatch
+都会被拒绝。额度中断显示为 `provider_quota`；provider 给出重置时间时同时显示该时间，并在
+`nextAction` 提供续跑命令。
 leader 使用 `--agent <leader-id> --to <worker-id>` 时，同一条 dispatch artifact 还会记录声明的
 `squadId`、worker `agentId` 与 `delegatedByAgentId`；目标必须属于该 leader 的 roster，且开放的
 `runtime_type` 必须与封闭的实例 kind 一致。

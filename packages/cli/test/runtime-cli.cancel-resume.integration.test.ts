@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { readFileSync, readdirSync, realpathSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, realpathSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { writeProviderExecutable } from "../../daemon/test/fixtures/runtime-stub.ts";
@@ -20,8 +20,11 @@ test("Cancellation is idempotent, notifies once and resumes the archived provide
   installIdentities(fixture.parent, fixture.root, fixture.env);
   const { parent, root, env, userRoot, daemonId } = fixture;
   const { taskId, executionId, packagePath, artifactRoot } = seedTask(root, env, "cancel-resume");
+  const workerRelative = ".worktrees/resume-worker",
+    workerRoot = path.join(root, workerRelative);
+  mkdirSync(workerRoot, { recursive: true });
   run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
-  const notificationOnce = path.join(root, ".notify-once");
+  const notificationOnce = path.join(workerRoot, ".notify-once");
   const onceNotifier = writeProviderExecutable(
     path.join(parent, "notify-once"),
     'const fs = require("node:fs"); fs.readFileSync(0, "utf8"); fs.appendFileSync(".notify-once", "once\\n");\n',
@@ -34,6 +37,8 @@ test("Cancellation is idempotent, notifies once and resumes the archived provide
       "hold",
       "--task",
       taskId,
+      "--cwd",
+      workerRelative,
       "--detach",
       "--on-exit",
       onceNotifier,
@@ -66,7 +71,7 @@ test("Cancellation is idempotent, notifies once and resumes the archived provide
     repoId: "runtime-cli",
     taskId,
     canonicalRoot: realpathSync(root),
-    workerRoot: realpathSync(root),
+    workerRoot: realpathSync(workerRoot),
     taskPackageRoot: path.join(realpathSync(root), "harness", packagePath),
     daemonUserRoot: userRoot,
     daemonId,
@@ -104,15 +109,29 @@ test("Cancellation is idempotent, notifies once and resumes the archived provide
       "--detach",
     ]);
   assert.equal(rejectedResume.status, 1);
-  assert.equal(rejectedResume.receipt.code, "runtime_resume_failed");
+  assert.equal(rejectedResume.receipt.code, "runtime_resume_failed", JSON.stringify(rejectedResume.receipt));
   assert.deepEqual(readdirSync(streamRoot).sort(), streamsBeforeRejectedResume);
   assert.equal(
     (run(root, env, ["runtime", "status"]).sessions as Array<Record<string, unknown>>).length,
     sessionsBeforeRejectedResume,
   );
+  const originalHeader = readDispatchRecords(root, detachedDispatchId)[0]!;
+  const mismatchedAgent = runMaybe(root, env, [
+    "agent",
+    "run",
+    "astra",
+    "--resume-dispatch",
+    detachedDispatchId,
+    "--prompt",
+    "follow up",
+    "--no-stream",
+  ]);
+  assert.equal(mismatchedAgent.status, 1);
+  assert.equal(mismatchedAgent.receipt.code, "runtime_resume_agent_mismatch");
   const resumedDispatch = run(root, env, [
-      "runtime",
+      "agent",
       "run",
+      "terra",
       "--resume-dispatch",
       detachedDispatchId,
       "--prompt",
@@ -126,7 +145,7 @@ test("Cancellation is idempotent, notifies once and resumes the archived provide
     repoId: "runtime-cli",
     taskId,
     canonicalRoot: realpathSync(root),
-    workerRoot: realpathSync(root),
+    workerRoot: realpathSync(workerRoot),
     taskPackageRoot: path.join(realpathSync(root), "harness", packagePath),
     daemonUserRoot: userRoot,
     daemonId,
@@ -137,6 +156,25 @@ test("Cancellation is idempotent, notifies once and resumes the archived provide
     (row) => row.dispatchId === resumedDispatchId,
   );
   assert.equal(resumedRow?.status, "succeeded");
+  const resumedHeader = readDispatchRecords(root, resumedDispatchId)[0];
+  assert.equal(resumedHeader?.agentId, "terra");
+  assert.equal(resumedHeader?.cwd, realpathSync(workerRoot));
+  assert.equal(resumedHeader?.model, originalHeader.model);
+  assert.equal(resumedHeader?.permissionMode, originalHeader.permissionMode);
+  assert.equal(resumedHeader?.resumedFromDispatchId, detachedDispatchId);
+  const duplicateResume = runMaybe(root, env, [
+    "agent",
+    "run",
+    "terra",
+    "--resume-dispatch",
+    detachedDispatchId,
+    "--prompt",
+    "again",
+    "--no-stream",
+  ]);
+  assert.equal(duplicateResume.status, 1);
+  assert.equal(duplicateResume.receipt.code, "runtime_dispatch_already_resumed");
+  assert.equal((duplicateResume.receipt.diagnostic as Record<string, unknown>).actual, resumedDispatchId);
   assert.equal(
     (
       JSON.parse(

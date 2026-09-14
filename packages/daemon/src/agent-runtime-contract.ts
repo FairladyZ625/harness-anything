@@ -4,6 +4,8 @@ import type {
   RuntimeInstallationState,
   RuntimeSessionSemanticState,
 } from "../../kernel/src/index.ts";
+import type { AgentRuntimeAttemptChainDto } from "./runtime-attempt-contract.ts";
+export type { AgentRuntimeAttemptChainDto } from "./runtime-attempt-contract.ts";
 export type { RuntimeInstallationState } from "../../kernel/src/index.ts";
 export interface AgentRuntimeInstallationDto {
   readonly installationId: string;
@@ -42,21 +44,6 @@ export interface AgentRuntimeAssociationDto {
   readonly executionId: string;
   readonly holder: { readonly personId: string; readonly executorId: string | null } | null;
   readonly lease: { readonly phase: "reserving" | "held" | "released" | "orphaned"; readonly expiresAt: string } | null;
-}
-export interface AgentRuntimeAttemptChainDto {
-  readonly attemptGroupId: string;
-  readonly attempts: readonly {
-    readonly dispatchId: string;
-    readonly runtimeSessionId: string;
-    readonly attemptIndex: number;
-    readonly provider: { readonly instance: string; readonly model: string | null };
-    readonly classification: "provider_fault" | "worker_stop" | "gate_red" | null;
-    readonly reason: string | null;
-    readonly faultClass?: "quota_exhausted" | "rate_limited";
-    readonly resetAt?: string;
-    readonly fallbackState: "scheduled" | "dispatched" | "exhausted" | null;
-    readonly nextDispatchId: string | null;
-  }[];
 }
 export interface AgentRuntimeInstallationErrorDto {
   readonly code: "runtime_installation_not_found";
@@ -177,7 +164,7 @@ export interface AgentRuntimeSessionGroupRoundDto {
   readonly agentName: string | null;
   readonly instanceId: string;
   readonly status: AgentRuntimeSessionGroupStatus;
-  readonly classification?: "provider_fault" | "worker_stop" | "gate_red" | null;
+  readonly classification?: "provider_fault" | "provider_quota" | "worker_stop" | "gate_red" | null;
   readonly reason?: string | null;
   readonly startedAt: string;
 }
@@ -479,7 +466,7 @@ function validAttemptChain(value: unknown): value is AgentRuntimeAttemptChainDto
             "fallbackState",
             "nextDispatchId",
           ],
-          ["faultClass", "resetAt"],
+          ["faultClass", "resetAt", "nextAction"],
         ) &&
         typeof attempt.dispatchId === "string" &&
         typeof attempt.runtimeSessionId === "string" &&
@@ -490,12 +477,14 @@ function validAttemptChain(value: unknown): value is AgentRuntimeAttemptChainDto
         typeof attempt.provider.instance === "string" &&
         (attempt.provider.model === null || typeof attempt.provider.model === "string") &&
         (attempt.classification === null ||
-          ["provider_fault", "worker_stop", "gate_red"].includes(String(attempt.classification))) &&
+          ["provider_fault", "provider_quota", "worker_stop", "gate_red"].includes(String(attempt.classification))) &&
         (attempt.reason === null || typeof attempt.reason === "string") &&
         (attempt.faultClass === undefined ||
           ["quota_exhausted", "rate_limited"].includes(String(attempt.faultClass))) &&
         (attempt.resetAt === undefined ||
           (!Number.isNaN(Date.parse(String(attempt.resetAt))) && typeof attempt.resetAt === "string")) &&
+        (attempt.nextAction === undefined ||
+          (typeof attempt.nextAction === "string" && attempt.nextAction.length > 0)) &&
         (attempt.fallbackState === null ||
           ["scheduled", "dispatched", "exhausted"].includes(String(attempt.fallbackState))) &&
         (attempt.nextDispatchId === null || typeof attempt.nextDispatchId === "string"),
@@ -675,7 +664,7 @@ function validSessionGroupRound(value: unknown): value is AgentRuntimeSessionGro
     sessionGroupStatuses.includes(value.status as AgentRuntimeSessionGroupStatus) &&
     (value.classification === undefined ||
       value.classification === null ||
-      ["provider_fault", "worker_stop", "gate_red"].includes(String(value.classification))) &&
+      ["provider_fault", "provider_quota", "worker_stop", "gate_red"].includes(String(value.classification))) &&
     (value.reason === undefined || value.reason === null || sessionGroupText(value.reason)) &&
     sessionGroupIso(value.startedAt)
   );

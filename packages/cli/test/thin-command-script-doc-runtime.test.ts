@@ -319,8 +319,6 @@ test("runtime work commands parse into closed daemon facade actions", () => {
       kind: "runtime-run",
       dispatchId: "dispatch_0123456789abcdef01234567",
       prompt: "Continue",
-      cwd: { scope: "repo-root" },
-      taskId: null,
     });
   if (dispatches.ok)
     assert.deepEqual(
