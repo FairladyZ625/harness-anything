@@ -1444,9 +1444,9 @@
       },
       "deterministic": true,
       "positiveControl": {
-        "status": "documented-gap",
+        "status": "covered",
         "evidence": [
-          "No dedicated positive-control fixture is registered for check-file-complexity."
+          "tools/check-file-complexity.test.mjs"
         ]
       }
     },
