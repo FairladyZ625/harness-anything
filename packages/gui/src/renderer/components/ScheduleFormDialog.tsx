@@ -7,12 +7,12 @@ import {
   type ScheduleDurationUnit,
 } from "../../../../daemon/src/protocol/daemon-protocol-vocabulary.ts";
 import {
+  compatibleScheduleInstances,
   isAvailableScheduleGuiAgentOption,
   type ScheduleGuiAgentOptionDto,
   ScheduleGuiOptionsDto,
   ScheduleGuiRowDto,
 } from "../../../../daemon/src/protocol/schedules-gui-contract.ts";
-import { runtimeTypeMatchesKind } from "../../../../daemon/src/agent-runtime-contract.ts";
 import type { ScheduleDefinitionInput, ScheduleModeWord } from "../schedules-client.ts";
 import { t, type MessageKey } from "../i18n/index.tsx";
 import { Badge, Btn, Chip, Hint, Modal, PlannedBox, TextInput, Toggle, WarnBar } from "./runtime/parts.tsx";
@@ -117,10 +117,7 @@ export function ScheduleForm({
     });
   const agent = availableAgents.find((candidate) => candidate.agentId === agentId) ?? null,
     compatibleInstances = useMemo(
-      () =>
-        options.instances.filter(
-          (instance) => agent === null || runtimeTypeMatchesKind(agent.runtimeType, instance.kindId),
-        ),
+      () => compatibleScheduleInstances(agent, options.instances),
       [agent, options.instances],
     ),
     instance =
