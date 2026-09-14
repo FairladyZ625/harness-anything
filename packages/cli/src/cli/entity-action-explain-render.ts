@@ -3,18 +3,22 @@ import { renderCliGuidance } from "./guidance-plane.ts";
 
 export type EntityActionExplanationRenderInput = DaemonGuiReadResultMap["repo.entity.actions.explain"];
 
-export function renderEntityActionExplanation(value: EntityActionExplanationRenderInput): string {
+export function renderEntityActionExplanation(
+  value: EntityActionExplanationRenderInput,
+  requestRefs?: readonly string[],
+): string {
   assertRenderableExplanation(value);
   const heading =
       value.mode === "catalog"
         ? `${title(value.subjects[0]?.kind)} actions (catalog; availability is not evaluated without an object):`
         : `Entity action explanation at ${String(value.evaluatedAtCut)}:`,
-    subjects = value.subjects.flatMap((subject) => {
+    subjects = value.subjects.flatMap((subject, index) => {
       if (subject.failure)
         return [
-          `${subject.ref ?? "invalid ref"}: ${subject.failure.code}`,
+          `${subject.ref ?? requestRefAt(requestRefs, index)}: ${subject.failure.code}`,
+          `  message: ${subject.failure.message}`,
           `  evaluated cut: ${String(value.evaluatedAtCut)}`,
-          `  next: ${renderCliGuidance("explain-subject-remedy", { ref: subject.ref ?? "invalid ref" })}`,
+          ...subject.failure.nextActions.map((action) => `  next: ${action}`),
         ];
       const subjectHeading = subject.ref
           ? `${subject.ref} @ revision ${String(subject.revision)}`
@@ -53,6 +57,15 @@ export function renderEntityActionExplanation(value: EntityActionExplanationRend
 
 function title(value: string | null | undefined): string {
   return value ? `${value[0]!.toUpperCase()}${value.slice(1)}` : "Entity";
+}
+
+// Failure subjects for invalid refs carry ref: null by contract, so their label must come from the
+// positionally aligned explain request; without it the user's input would be unrenderable.
+function requestRefAt(requestRefs: readonly string[] | undefined, index: number): string {
+  const ref = requestRefs?.[index];
+  if (typeof ref !== "string" || ref.length === 0)
+    throw new TypeError("Entity Action explanation failure subject is missing its request-side ref.");
+  return ref;
 }
 
 function assertRenderableExplanation(value: EntityActionExplanationRenderInput): void {

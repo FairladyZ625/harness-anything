@@ -67,12 +67,20 @@ test("ha explain and Task help overlay share one typed read, renderer, cut, and 
     );
     assert.equal(batch.evaluatedAtCut, explained.evaluatedAtCut);
 
-    const failures = requireSuccess(
-      runJson(root, userRoot, ["explain", "not-a-ref", "fact/F-ABCDEFGH", "task/task-missing"]),
-    );
+    const failures = runJson(root, userRoot, ["explain", "not-a-ref", "fact/F-ABCDEFGH", "task/task-missing"]);
+    assert.equal(failures.status, 1, `${failures.stderr}\n${JSON.stringify(failures.value)}`);
+    assert.equal(failures.value.schema, "entity-action-explanation/v1");
     assert.deepEqual(
-      failures.subjects.map(({ failure }) => failure?.code),
+      (failures.value as unknown as Explanation).subjects.map(({ failure }) => failure?.code),
       ["invalid_entity_ref", "unsupported_explain_target", "entity_not_found"],
+    );
+    const failureHuman = runText(root, userRoot, ["explain", "not-a-ref"]);
+    assert.equal(failureHuman.status, 1, failureHuman.stderr);
+    assert.match(failureHuman.stdout, /^not-a-ref: invalid_entity_ref$/mu);
+    assert.match(failureHuman.stdout, /^ {2}message: Entity ref not-a-ref is invalid\.$/mu);
+    assert.match(
+      failureHuman.stdout,
+      /^ {2}next: Use a registered EntityRef such as task\/<task-id>, person\/<person-id>, or squad\/<squad-id>\.$/mu,
     );
     const overMaximum = runJson(root, userRoot, ["explain", ...refs, "task/task-over-maximum"]);
     assert.equal(overMaximum.status, 2);

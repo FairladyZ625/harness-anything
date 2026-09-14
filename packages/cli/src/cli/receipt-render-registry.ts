@@ -12,12 +12,13 @@ export interface RenderedCliReceipt {
   readonly text: string;
 }
 
-type ReceiptRenderer = (receipt: Record<string, unknown>) => string;
+type ReceiptRenderer = (receipt: Record<string, unknown>, explainRequestRefs?: readonly string[]) => string;
 
 const schemaRenderers = new Map<string, ReceiptRenderer>([
   [
     "entity-action-explanation/v1",
-    (receipt) => renderEntityActionExplanation(receipt as unknown as EntityActionExplanationRenderInput),
+    (receipt, explainRequestRefs) =>
+      renderEntityActionExplanation(receipt as unknown as EntityActionExplanationRenderInput, explainRequestRefs),
   ],
 ]);
 
@@ -39,8 +40,11 @@ const commandRenderers = new Map<string, ReceiptRenderer>([
 
 const preOutcomeCommandRenderers = new Map<string, ReceiptRenderer>([["runtime-batch", renderRuntimeBatchReceipt]]);
 
-export function renderCliReceipt(receipt: Record<string, unknown>): RenderedCliReceipt {
-  const base = renderCliReceiptBase(receipt),
+export function renderCliReceipt(
+  receipt: Record<string, unknown>,
+  explainRequestRefs?: readonly string[],
+): RenderedCliReceipt {
+  const base = renderCliReceiptBase(receipt, explainRequestRefs),
     rendered =
       receipt.status === "accepted_durable"
         ? {
@@ -62,11 +66,14 @@ export function renderCliReceipt(receipt: Record<string, unknown>): RenderedCliR
     : rendered;
 }
 
-function renderCliReceiptBase(receipt: Record<string, unknown>): RenderedCliReceipt {
+function renderCliReceiptBase(
+  receipt: Record<string, unknown>,
+  explainRequestRefs?: readonly string[],
+): RenderedCliReceipt {
   if (receipt.schema === "squad-control-result/v1")
     return { stream: receipt.ok === true ? "stdout" : "stderr", text: String(receipt.summary) };
   const schemaRenderer = typeof receipt.schema === "string" ? schemaRenderers.get(receipt.schema) : undefined;
-  if (schemaRenderer) return { stream: "stdout", text: schemaRenderer(receipt) };
+  if (schemaRenderer) return { stream: "stdout", text: schemaRenderer(receipt, explainRequestRefs) };
   const preOutcomeRenderer =
     typeof receipt.command === "string" ? preOutcomeCommandRenderers.get(receipt.command) : undefined;
   if (preOutcomeRenderer) return { stream: "stdout", text: preOutcomeRenderer(receipt) };

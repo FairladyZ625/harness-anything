@@ -4,7 +4,9 @@ import test from "node:test";
 import { makeTaskActionExplanationService } from "../../application/src/task-action-explanation-service.ts";
 import { taskActionCommandUsage } from "../../daemon/src/protocol/daemon-protocol-commands.ts";
 import { renderEntityActionExplanation } from "../src/cli/entity-action-explain-render.ts";
+import { renderCliReceipt } from "../src/cli/receipt-render-registry.ts";
 import { parseThinCommand } from "../src/cli/thin-command.ts";
+import { receiptExitCode } from "../src/index.ts";
 
 test("explain parser selects catalog/object mode without duplicating EntityRef validation", () => {
   const catalog = parseThinCommand(["explain", "task", "--json"]),
@@ -146,6 +148,77 @@ test("human renderer exposes availability, reasons, registry guidance, and the e
   );
   assert.doesNotMatch(renderedObject, /Move the Task to planned\./u);
   assert.match(renderedObject, /evaluated cut: canonical:8/u);
+});
+
+test("explain failure subjects render the daemon message and nextActions under the request-side ref", () => {
+  const failureSet = {
+    schema: "entity-action-explanation/v1",
+    mode: "failure",
+    evaluatedAtCut: "canonical:4",
+    subjects: [
+      {
+        kind: null,
+        ref: null,
+        revision: null,
+        actions: [],
+        failure: {
+          code: "invalid_entity_ref",
+          message: "Entity ref hook is invalid.",
+          nextActions: ["Use a registered EntityRef such as task/<task-id>, person/<person-id>, or squad/<squad-id>."],
+        },
+      },
+      { kind: "task", ref: "task/task-one", revision: 4, failure: null, actions: [] },
+    ],
+  };
+  const rendered = renderEntityActionExplanation(failureSet, ["hook", "task/task-one"]);
+
+  assert.match(rendered, /^hook: invalid_entity_ref$/mu);
+  assert.match(rendered, /^ {2}message: Entity ref hook is invalid\.$/mu);
+  assert.match(
+    rendered,
+    /^ {2}next: Use a registered EntityRef such as task\/<task-id>, person\/<person-id>, or squad\/<squad-id>\.$/mu,
+  );
+  assert.match(rendered, /^task\/task-one @ revision 4$/mu);
+  assert.doesNotMatch(rendered, /invalid ref/u);
+
+  const receipt = renderCliReceipt(failureSet, ["hook", "task/task-one"]);
+  assert.equal(receipt.stream, "stdout");
+  assert.match(receipt.text, /^hook: invalid_entity_ref$/mu);
+});
+
+test("an invalid-ref failure without its request-side ref fails closed instead of relabeling", () => {
+  assert.throws(
+    () =>
+      renderEntityActionExplanation({
+        schema: "entity-action-explanation/v1",
+        mode: "failure",
+        evaluatedAtCut: "canonical:4",
+        subjects: [
+          {
+            kind: null,
+            ref: null,
+            revision: null,
+            actions: [],
+            failure: {
+              code: "invalid_entity_ref",
+              message: "Entity ref hook is invalid.",
+              nextActions: ["Retry with a registered EntityRef."],
+            },
+          },
+        ],
+      }),
+    /missing its request-side ref/u,
+  );
+});
+
+test("explain receipts exit non-zero exactly when the explanation mode is failure", () => {
+  assert.equal(receiptExitCode({ schema: "entity-action-explanation/v1", mode: "failure" }), 1);
+  assert.equal(receiptExitCode({ schema: "entity-action-explanation/v1", mode: "object" }), 0);
+  assert.equal(receiptExitCode({ schema: "entity-action-explanation/v1", mode: "catalog" }), 0);
+  assert.equal(receiptExitCode({ ok: true }), 0);
+  assert.equal(receiptExitCode({ code: "missing_field" }), 2);
+  assert.equal(receiptExitCode({}), 1);
+  assert.equal(receiptExitCode({ exitCode: 3 }), 3);
 });
 
 test("human renderer fails closed when a typed action row is incomplete", () => {

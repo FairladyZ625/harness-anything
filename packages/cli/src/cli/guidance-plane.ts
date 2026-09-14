@@ -139,10 +139,6 @@ const guidanceTemplates = new Map<string, GuidanceTemplate>([
   ],
   ["cli:task-explain-overlay", () => "Use ha task --help --explain task/<task-id> with exactly one Task ref."],
   [
-    "cli:explain-subject-remedy",
-    (args) => `Use a valid EntityRef in place of ${textArg(args, "ref")}, then rerun ha explain.`,
-  ],
-  [
     "cli:explain-action-remedy",
     (args) => `Resolve the listed criteria or authorization decision, then retry ${textArg(args, "usage")}.`,
   ],
