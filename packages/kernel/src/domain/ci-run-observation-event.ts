@@ -55,6 +55,7 @@ export type CiWorkflowVerification = {
   readonly attempt: number;
   readonly headSha: string;
   readonly conclusion: string;
+  readonly event?: string;
 };
 
 export type CiRunObservationEventV2 = EventEnvelope<
@@ -134,7 +135,7 @@ function validateFields(
     !isRecord(value.payload) ||
     !hasContractFields(value.payload, ["run", "tests", "gates", "verification"], allowUnknownFields) ||
     !validRun(value.payload.run, allowUnknownFields) ||
-    !validVerification(value.payload.verification, value.payload.run) ||
+    !validVerification(value.payload.verification, value.payload.run, allowUnknownFields) ||
     !Array.isArray(value.payload.tests) ||
     value.payload.tests.some((test) => !validTest(test, allowUnknownFields)) ||
     !Array.isArray(value.payload.gates) ||
@@ -146,7 +147,7 @@ function validateFields(
     : [];
 }
 
-function validVerification(value: unknown, run: unknown): boolean {
+function validVerification(value: unknown, run: unknown, allowUnknownFields: boolean): boolean {
   if (value === null) return true;
   if (
     isRecord(value) &&
@@ -166,7 +167,11 @@ function validVerification(value: unknown, run: unknown): boolean {
   return (
     isRecord(value) &&
     isRecord(run) &&
-    hasContractFields(value, ["source", "workflow", "runId", "attempt", "headSha", "conclusion"], false) &&
+    hasContractFields(
+      value,
+      ["source", "workflow", "runId", "attempt", "headSha", "conclusion", ...(allowUnknownFields ? [] : ["event"])],
+      allowUnknownFields,
+    ) &&
     value.source === "github-actions" &&
     nonEmpty(value.workflow) &&
     typeof value.runId === "string" &&
@@ -175,6 +180,7 @@ function validVerification(value: unknown, run: unknown): boolean {
     Number(value.attempt) > 0 &&
     nonEmpty(value.headSha) &&
     nonEmpty(value.conclusion) &&
+    (allowUnknownFields || nonEmpty(value.event)) &&
     run.runId === `${value.runId}.${value.attempt}` &&
     run.sha === value.headSha &&
     run.branch === "main"

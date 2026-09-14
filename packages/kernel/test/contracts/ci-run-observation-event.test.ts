@@ -87,12 +87,17 @@ const verified = {
       attempt: 2,
       headSha: "tested-sha",
       conclusion: "success",
+      event: "push",
     },
   },
 };
 
 test("v3 requires matching workflow verification when present", () => {
   assert.deepEqual(validateCurrentCiRunObservationEvent(verified), []);
+  const legacy = structuredClone(verified);
+  delete legacy.payload.verification.event;
+  assert.deepEqual(validateCiRunObservationEvent(legacy), []);
+  assert.notDeepEqual(validateCurrentCiRunObservationEvent(legacy), []);
   for (const candidate of [
     { ...verified, schema: "ci-run-observation/v1" },
     {
@@ -104,6 +109,10 @@ test("v3 requires matching workflow verification when present", () => {
       },
     },
     { ...verified, payload: { ...verified.payload, verification: { ...verified.payload.verification, attempt: 3 } } },
+    {
+      ...verified,
+      payload: { ...verified.payload, verification: { ...verified.payload.verification, event: undefined } },
+    },
     {
       ...verified,
       payload: { ...verified.payload, verification: { ...verified.payload.verification, headSha: "other" } },

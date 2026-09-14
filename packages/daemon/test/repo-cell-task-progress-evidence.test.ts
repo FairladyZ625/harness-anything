@@ -74,6 +74,7 @@ function observation(
   conclusion: string | null = "success",
   workflow = "rewrite-ci",
   branch = "main",
+  trigger: "push" | "schedule" = "push",
 ): CiRunObservationEventV3 {
   return {
     schema: "ci-run-observation/v3",
@@ -96,12 +97,30 @@ function observation(
               attempt: 1,
               headSha: sha,
               conclusion,
+              event: trigger,
             },
       tests: [],
       gates: [],
     },
   };
 }
+
+test("scheduled failures do not override push delivery evidence, while push failures still reject", () => {
+  const current = execution(publicSha),
+    legacy = observation(publicSha, 3, "failure"),
+    scheduledAfterPush = fixture(publicRoot, current, [
+      observation(publicSha, 2, "failure", "rewrite-ci", "main", "schedule"),
+      observation(publicSha, 1, "success"),
+    ]),
+    failedPush = fixture(publicRoot, current, [observation(publicSha, 3, "failure")]);
+  delete legacy.payload.verification?.event;
+  assert.equal(readLatestCiEvidence(scheduledAfterPush.cell, current)?.result, "pass");
+  assert.equal(
+    readLatestCiEvidence(fixture(publicRoot, current, [legacy, observation(publicSha)]).cell, current)?.result,
+    "pass",
+  );
+  assert.equal(readLatestCiEvidence(failedPush.cell, current)?.result, "fail");
+});
 function fixture(
   rootDir: string,
   submitted: Snapshot["executions"][number],
