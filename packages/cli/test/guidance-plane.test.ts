@@ -5,7 +5,13 @@ import { mkdtempSync, mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { readWorkspaceText } from "../../daemon/src/workspace-text-port.ts";
-import { diagnosticForError, taskCreateGuidance } from "../../daemon/src/receipt-guidance.ts";
+import {
+  diagnosticForError,
+  receiptLayoutRoots,
+  taskCreateGuidance,
+  workspaceRelativePath,
+} from "../../daemon/src/receipt-guidance.ts";
+import { resolveHarnessLayout, type CanonicalEventStore } from "../../kernel/src/index.ts";
 import { workspacePathResolutionRule } from "../../preset/src/preset-command-contract.ts";
 import { humanError, renderReceiptGuidance } from "../src/cli/guidance-plane.ts";
 import { renderCliReceipt } from "../src/cli/receipt-render-registry.ts";
@@ -54,47 +60,123 @@ test("successful Decision proposals point to the canonical action explanation", 
 });
 
 test("guidance plane renders all seven descriptor-derived task-create messages exactly", () => {
-  const values = {
-      taskId: "task-a",
-      packagePath: "tasks/task-a",
-      outputShape: "repository-diff",
-      dryRun: true,
-      opId: "op-a",
-      canonicalVisible: false,
-    },
-    guidance = taskCreateGuidance(values),
-    receipt = (dryRun: boolean, canonicalVisible: boolean) => ({
+  const physicalRoot = mkdtempSync(path.join(realpathSync(tmpdir()), "ha-guidance-golden-"));
+  try {
+    mkdirSync(path.join(physicalRoot, "harness"));
+    writeFileSync(path.join(physicalRoot, "harness/harness.yaml"), "");
+    const values = {
+        taskId: "task-a",
+        packagePath: "tasks/task-a",
+        outputShape: "repository-diff",
+        dryRun: true,
+        opId: "op-a",
+        canonicalVisible: false,
+      },
+      guidance = taskCreateGuidance(resolveHarnessLayout(physicalRoot), values),
+      receipt = (dryRun: boolean, canonicalVisible: boolean) => ({
+        command: "task-create",
+        dryRun,
+        outputShape: "repository-diff",
+        proof: { canonicalVisible },
+        guidance,
+      }),
+      shared = [
+        "contract: repository-diff requires a committable public-repository diff, real CI, and a code-doc reconciliation witness. For a task-package-only report or decision, use the task-package-artifact preset docs-task.",
+        "plan: write the concrete plan at harness/tasks/task-a/task_plan.md; required sections: Brief, Goal, " +
+          "Context, Required Reading, Entry Conditions, Dependencies, Execution Surface, Constraints, Checkpoint, " +
+          "CI/Gate Authority Stop Condition, Implementation Plan, Deliverable Contract, Evidence Protocol, " +
+          "Verification",
+        "agenda: use ha task pin task-a to pin it to the CEO agenda",
+        "ledger: INDEX.md and closeout.md are coordinator-managed; update them through ha doc sync",
+      ];
+    assert.equal(guidance.length, 7);
+    assert.deepEqual(renderReceiptGuidance(receipt(true, false)), [
+      shared[0],
+      "next: remove --dry-run to publish this exact resolved scaffold",
+      ...shared.slice(1),
+    ]);
+    assert.deepEqual(renderReceiptGuidance(receipt(false, true)), [
+      shared[0],
+      "next: edit harness/tasks/task-a/task_plan.md, then run ha task start task-a --execution-id <id>",
+      ...shared.slice(1),
+    ]);
+    assert.deepEqual(renderReceiptGuidance(receipt(false, false)), [
+      shared[0],
+      "next: ha receipt show op-a",
+      ...shared.slice(1),
+    ]);
+  } finally {
+    rmSync(physicalRoot, { recursive: true, force: true });
+  }
+});
+
+test("task-create receipt points next and plan at one workspace-openable package path", () => {
+  const physicalRoot = mkdtempSync(path.join(realpathSync(tmpdir()), "ha-receipt-path-"));
+  try {
+    mkdirSync(path.join(physicalRoot, "harness"));
+    writeFileSync(path.join(physicalRoot, "harness/harness.yaml"), "");
+    const values = {
+        taskId: "task-a",
+        packagePath: "tasks/task-a",
+        outputShape: "task-package-artifact",
+        dryRun: false,
+        opId: "op-a",
+        canonicalVisible: true,
+      },
+      lines = renderReceiptGuidance({
+        command: "task-create",
+        dryRun: false,
+        outputShape: "task-package-artifact",
+        proof: { canonicalVisible: true },
+        guidance: taskCreateGuidance(resolveHarnessLayout(physicalRoot), values),
+      }),
+      nextPath = /next: edit (\S+)\/task_plan\.md/u.exec(lines.find((line) => line.startsWith("next: edit ")) ?? ""),
+      planPath = /plan: write the concrete plan at (\S+)\/task_plan\.md/u.exec(
+        lines.find((line) => line.startsWith("plan: ")) ?? "",
+      );
+    assert.ok(nextPath, lines.join("\n"));
+    assert.ok(planPath, lines.join("\n"));
+    assert.equal(nextPath[1], planPath[1]);
+    assert.equal(nextPath[1], "harness/tasks/task-a");
+    // A configured layout.authoredRoot reaches the receipt paths instead of the default harness/.
+    writeFileSync(path.join(physicalRoot, "harness/harness.yaml"), "layout:\n  authoredRoot: workbench\n");
+    const customLines = renderReceiptGuidance({
       command: "task-create",
-      dryRun,
-      outputShape: "repository-diff",
-      proof: { canonicalVisible },
-      guidance,
-    }),
-    shared = [
-      "contract: repository-diff requires a committable public-repository diff, real CI, and a code-doc reconciliation witness. For a task-package-only report or decision, use the task-package-artifact preset docs-task.",
-      "plan: write the concrete plan at harness/tasks/task-a/task_plan.md; required sections: Brief, Goal, " +
-        "Context, Required Reading, Entry Conditions, Dependencies, Execution Surface, Constraints, Checkpoint, " +
-        "CI/Gate Authority Stop Condition, Implementation Plan, Deliverable Contract, Evidence Protocol, " +
-        "Verification",
-      "agenda: use ha task pin task-a to pin it to the CEO agenda",
-      "ledger: INDEX.md and closeout.md are coordinator-managed; update them through ha doc sync",
-    ];
-  assert.equal(guidance.length, 7);
-  assert.deepEqual(renderReceiptGuidance(receipt(true, false)), [
-    shared[0],
-    "next: remove --dry-run to publish this exact resolved scaffold",
-    ...shared.slice(1),
-  ]);
-  assert.deepEqual(renderReceiptGuidance(receipt(false, true)), [
-    shared[0],
-    "next: edit tasks/task-a/task_plan.md, then run ha task start task-a --execution-id <id>",
-    ...shared.slice(1),
-  ]);
-  assert.deepEqual(renderReceiptGuidance(receipt(false, false)), [
-    shared[0],
-    "next: ha receipt show op-a",
-    ...shared.slice(1),
-  ]);
+      dryRun: false,
+      outputShape: "task-package-artifact",
+      proof: { canonicalVisible: true },
+      guidance: taskCreateGuidance(resolveHarnessLayout(physicalRoot), values),
+    });
+    assert.ok(
+      customLines.some(
+        (line) =>
+          line === "next: edit workbench/tasks/task-a/task_plan.md, then run ha task start task-a --execution-id <id>",
+      ),
+      customLines.join("\n"),
+    );
+  } finally {
+    rmSync(physicalRoot, { recursive: true, force: true });
+  }
+});
+
+test("receipt layout roots prefer the store's append-resolved layout and fall back to resolving", () => {
+  const physicalRoot = mkdtempSync(path.join(realpathSync(tmpdir()), "ha-receipt-roots-"));
+  try {
+    mkdirSync(path.join(physicalRoot, "harness"));
+    writeFileSync(path.join(physicalRoot, "harness/harness.yaml"), "");
+    const resolved = resolveHarnessLayout(physicalRoot),
+      fromStore = { rootDir: "/workspace", authoredRoot: "/workspace/bench" },
+      store = (layout: unknown) => ({ lastAppendLayout: () => layout }) as unknown as CanonicalEventStore;
+    assert.equal(receiptLayoutRoots(store(fromStore), physicalRoot), fromStore);
+    for (const fallback of [store(null), {} as CanonicalEventStore]) {
+      const roots = receiptLayoutRoots(fallback, physicalRoot);
+      assert.equal(roots.rootDir, resolved.rootDir);
+      assert.equal(roots.authoredRoot, resolved.authoredRoot);
+    }
+    assert.equal(workspaceRelativePath(fromStore, "tasks/t/progress.md"), "bench/tasks/t/progress.md");
+  } finally {
+    rmSync(physicalRoot, { recursive: true, force: true });
+  }
 });
 
 test("failure guidance renders structured missing-section, validator, and workspace diagnostics", () => {

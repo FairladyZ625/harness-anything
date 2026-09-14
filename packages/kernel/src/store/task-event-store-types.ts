@@ -174,6 +174,13 @@ export interface CanonicalEventStore {
   readonly readContentBlob: (sha256: string) => Uint8Array | null;
   readonly layout: () => LedgerLayoutState;
   readonly append: (bundle: CanonicalWriteBundle) => CanonicalEventAppendReceipt;
+  /**
+   * Layout roots the most recent accepted append resolved, so receipt prose reuses the write's own
+   * view of the workspace instead of re-reading harness.yaml per rendered path. Null until this
+   * store accepts an append in the current process; in-memory fakes may omit it and callers fall
+   * back to resolving the layout themselves.
+   */
+  readonly lastAppendLayout?: () => { readonly rootDir: string; readonly authoredRoot: string } | null;
   readonly materialize: (request?: MaterializationRequest) => MaterializationReceipt;
   /** Read-only health of the WAL to Git materialization owned by this store. */
   readonly materializationHealth: () => MaterializationHealth;

@@ -20,7 +20,7 @@ const guidanceTemplates = new Map<string, GuidanceTemplate>([
   [
     "task-create:edit-plan",
     (args) =>
-      `plan: write the concrete plan at harness/${textArg(args, "packagePath")}/task_plan.md; required sections: ` +
+      `plan: write the concrete plan at ${textArg(args, "packagePath")}/task_plan.md; required sections: ` +
       "Brief, Goal, Context, Required Reading, Entry Conditions, Dependencies, Execution Surface, Constraints, " +
       "Checkpoint, CI/Gate Authority Stop Condition, Implementation Plan, Deliverable Contract, Evidence Protocol, " +
       "Verification",

@@ -1,10 +1,12 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import path from "node:path";
 import test from "node:test";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { daemonProtocolCommands } from "../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { taskCreateGuidance } from "../../daemon/src/receipt-guidance.ts";
+import { resolveHarnessLayout } from "../../kernel/src/index.ts";
 import { parseThinCommand, renderThinHelp } from "../src/cli/thin-command.ts";
 import { emit, resolveCliVersion } from "../src/index.ts";
 
@@ -87,64 +89,71 @@ test("human preset and task receipts print resolved completion contracts byte-fo
     ].join("\n");
   assert.deepEqual(Buffer.from(presetOutput), Buffer.from(expectedPreset));
 
-  const taskOutput = captureStdout(() =>
+  const receiptRoot = mkdtempSync(path.join(realpathSync(tmpdir()), "ha-receipt-golden-"));
+  try {
+    mkdirSync(path.join(receiptRoot, "harness"));
+    writeFileSync(path.join(receiptRoot, "harness/harness.yaml"), "");
+    const taskOutput = captureStdout(() =>
+        emit(
+          {
+            ok: true,
+            command: "task-create",
+            summary: "created task task-one at harness/tasks/task-one",
+            taskId: "task-one",
+            packagePath: "tasks/task-one",
+            presetId: "standard-task",
+            profileId: "baseline",
+            outputShape: "repository-diff",
+            completionGates: ["ci", "code-doc-reconciliation"],
+            dryRun: false,
+            proof: { canonicalVisible: true },
+            guidance: taskCreateGuidance(resolveHarnessLayout(receiptRoot), {
+              taskId: "task-one",
+              packagePath: "tasks/task-one",
+              outputShape: "repository-diff",
+              dryRun: false,
+              opId: "op-one",
+              canonicalVisible: true,
+            }),
+          },
+          false,
+        ),
+      ),
+      expectedContract = [
+        "contract: repository-diff requires a committable public-repository diff, ",
+        "real CI, and a code-doc reconciliation witness. ",
+        "For a task-package-only report or decision, use the task-package-artifact preset docs-task.",
+      ].join(""),
+      expectedTask = [
+        "created task task-one at harness/tasks/task-one",
+        "preset: standard-task/baseline",
+        "outputShape: repository-diff",
+        'completionGates: ["ci","code-doc-reconciliation"]',
+        expectedContract,
+        "next: edit harness/tasks/task-one/task_plan.md, then run ha task start task-one --execution-id <id>",
+        "plan: write the concrete plan at harness/tasks/task-one/task_plan.md; required sections: Brief, Goal, " +
+          "Context, Required Reading, Entry Conditions, Dependencies, Execution Surface, Constraints, Checkpoint, " +
+          "CI/Gate Authority Stop Condition, Implementation Plan, Deliverable Contract, Evidence Protocol, " +
+          "Verification",
+        "agenda: use ha task pin task-one to pin it to the CEO agenda",
+        "ledger: INDEX.md and closeout.md are coordinator-managed; update them through ha doc sync",
+      ].join("\n");
+    assert.deepEqual(Buffer.from(taskOutput), Buffer.from(expectedTask));
+
+    const replayOutput = captureStdout(() =>
       emit(
         {
           ok: true,
           command: "task-create",
-          summary: "created task task-one at tasks/task-one",
-          taskId: "task-one",
-          packagePath: "tasks/task-one",
-          presetId: "standard-task",
-          profileId: "baseline",
-          outputShape: "repository-diff",
-          completionGates: ["ci", "code-doc-reconciliation"],
-          dryRun: false,
-          proof: { canonicalVisible: true },
-          guidance: taskCreateGuidance({
-            taskId: "task-one",
-            packagePath: "tasks/task-one",
-            outputShape: "repository-diff",
-            dryRun: false,
-            opId: "op-one",
-            canonicalVisible: true,
-          }),
+          summary: "reused task task-one for the supplied idempotency key",
         },
         false,
       ),
-    ),
-    expectedContract = [
-      "contract: repository-diff requires a committable public-repository diff, ",
-      "real CI, and a code-doc reconciliation witness. ",
-      "For a task-package-only report or decision, use the task-package-artifact preset docs-task.",
-    ].join(""),
-    expectedTask = [
-      "created task task-one at tasks/task-one",
-      "preset: standard-task/baseline",
-      "outputShape: repository-diff",
-      'completionGates: ["ci","code-doc-reconciliation"]',
-      expectedContract,
-      "next: edit tasks/task-one/task_plan.md, then run ha task start task-one --execution-id <id>",
-      "plan: write the concrete plan at harness/tasks/task-one/task_plan.md; required sections: Brief, Goal, " +
-        "Context, Required Reading, Entry Conditions, Dependencies, Execution Surface, Constraints, Checkpoint, " +
-        "CI/Gate Authority Stop Condition, Implementation Plan, Deliverable Contract, Evidence Protocol, " +
-        "Verification",
-      "agenda: use ha task pin task-one to pin it to the CEO agenda",
-      "ledger: INDEX.md and closeout.md are coordinator-managed; update them through ha doc sync",
-    ].join("\n");
-  assert.deepEqual(Buffer.from(taskOutput), Buffer.from(expectedTask));
-
-  const replayOutput = captureStdout(() =>
-    emit(
-      {
-        ok: true,
-        command: "task-create",
-        summary: "reused task task-one for the supplied idempotency key",
-      },
-      false,
-    ),
-  );
-  assert.equal(replayOutput, "reused task task-one for the supplied idempotency key");
+    );
+    assert.equal(replayOutput, "reused task task-one for the supplied idempotency key");
+  } finally {
+    rmSync(receiptRoot, { recursive: true, force: true });
+  }
 });
 
 test("thin parser derives closed preset and task-create payloads from descriptors", () => {
