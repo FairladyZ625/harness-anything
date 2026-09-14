@@ -2,6 +2,7 @@ import type { GuiActionResult } from "../api/renderer-dto.ts";
 import { isRendererRecord, rendererErrorHint } from "./result-validation.ts";
 import type { EntityLocator, EntityLocatorReadOutcome } from "./entity-locator-renderer.ts";
 import { guiHostBridge } from "./gui-transport.ts";
+import { invoke } from "./api-client-invoke.ts";
 
 /**
  * 实体 locator 的内容读 + 声明实体的新建写。
@@ -26,38 +27,6 @@ type LocatorBridge = {
     readonly repoId: string;
     readonly locatorKind: string;
     readonly locatorValue: string;
-  }) => Promise<unknown>;
-  readonly importEntity: (payload: {
-    readonly repoId: string;
-    readonly entityKind: string;
-    readonly locator: string;
-    readonly expectedVersion: number;
-    readonly title?: string;
-    readonly attributes?: Readonly<Record<string, unknown>>;
-  }) => Promise<unknown>;
-  readonly updateEntity: (payload: {
-    readonly repoId: string;
-    readonly entityKind: string;
-    readonly entityId: string;
-    readonly expectedVersion: number;
-    readonly title?: string;
-    readonly locator?: string;
-    readonly contentVersion?: string;
-    readonly attributes?: Readonly<Record<string, unknown>>;
-  }) => Promise<unknown>;
-  readonly archiveEntity: (payload: {
-    readonly repoId: string;
-    readonly entityKind: string;
-    readonly entityId: string;
-    readonly expectedVersion: number;
-    readonly reason: string;
-  }) => Promise<unknown>;
-  readonly deleteEntity: (payload: {
-    readonly repoId: string;
-    readonly entityKind: string;
-    readonly entityId: string;
-    readonly expectedVersion: number;
-    readonly reason: string;
   }) => Promise<unknown>;
 };
 
@@ -117,27 +86,18 @@ export interface EntityImportInput {
  * GUI 如实显示这个结果,不重试、不改写 expectedVersion。
  */
 export async function importEntity(input: EntityImportInput): Promise<GuiActionResult> {
-  const channel = bridge().importEntity;
-  if (!channel) throw new Error("Entity import bridge is unavailable.");
-  const value = await channel({
-    repoId: input.repoId,
-    entityKind: input.entityKind,
-    locator: input.locator,
-    expectedVersion: 0,
-    ...(input.title ? { title: input.title } : {}),
-    ...(input.attributes ? { attributes: input.attributes } : {}),
-  });
-  if (!isRendererRecord(value) || value.schema !== "command-receipt/v2" || typeof value.outcome !== "string")
-    throw new Error(rendererErrorHint(value, "Entity import bridge returned an invalid result."));
-  return value as unknown as GuiActionResult;
-}
-
-async function mutationResult(channel: ((payload: never) => Promise<unknown>) | undefined, payload: object) {
-  if (!channel) throw new Error("Entity mutation bridge is unavailable.");
-  const value = await channel(payload as never);
-  if (!isRendererRecord(value) || value.schema !== "command-receipt/v2" || typeof value.outcome !== "string")
-    throw new Error(rendererErrorHint(value, "Entity mutation bridge returned an invalid result."));
-  return value as unknown as GuiActionResult;
+  return (await invoke(
+    "repo.entity.import",
+    {
+      repoId: input.repoId,
+      entityKind: input.entityKind,
+      locator: input.locator,
+      expectedVersion: 0,
+      ...(input.title ? { title: input.title } : {}),
+      ...(input.attributes ? { attributes: input.attributes } : {}),
+    } as { readonly repoId: string } & object,
+    "importEntity",
+  )) as GuiActionResult;
 }
 
 /**
@@ -155,7 +115,11 @@ export function updateEntity(input: {
   readonly contentVersion?: string;
   readonly attributes?: Readonly<Record<string, unknown>>;
 }): Promise<GuiActionResult> {
-  return mutationResult(bridge().updateEntity as ((payload: never) => Promise<unknown>) | undefined, input);
+  return invoke(
+    "repo.entity.update",
+    input as { readonly repoId: string } & object,
+    "updateEntity",
+  ) as Promise<GuiActionResult>;
 }
 
 export function archiveEntity(input: {
@@ -165,7 +129,11 @@ export function archiveEntity(input: {
   readonly expectedVersion: number;
   readonly reason: string;
 }): Promise<GuiActionResult> {
-  return mutationResult(bridge().archiveEntity as ((payload: never) => Promise<unknown>) | undefined, input);
+  return invoke(
+    "repo.entity.archive",
+    input as { readonly repoId: string } & object,
+    "archiveEntity",
+  ) as Promise<GuiActionResult>;
 }
 
 /**
@@ -182,7 +150,11 @@ export function deleteEntity(input: {
   readonly expectedVersion: number;
   readonly reason: string;
 }): Promise<GuiActionResult> {
-  return mutationResult(bridge().deleteEntity as ((payload: never) => Promise<unknown>) | undefined, input);
+  return invoke(
+    "repo.entity.delete",
+    input as { readonly repoId: string } & object,
+    "deleteEntity",
+  ) as Promise<GuiActionResult>;
 }
 
 /** 回执不是 applied/no_changes 时的人话:优先中心给的 rejectionExplanation,否则报 outcome+code。 */

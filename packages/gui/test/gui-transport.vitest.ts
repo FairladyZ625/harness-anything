@@ -29,13 +29,33 @@ describe("GUI transport adapters", () => {
         body: JSON.stringify({ method: "repo.tasks.list", params: canonical }),
       }),
     );
+
+    const write = {
+      repo: { repoId: "canonical" },
+      payload: { locale: "zh-CN", idempotencyKey: "shared-write-fixture" },
+    } as const;
+    await createElectronGuiTransport({ request: electronRequest }).request(
+      "repo.settings.update",
+      write,
+      "updateSettings",
+    );
+    expect(electronRequest).toHaveBeenLastCalledWith("updateSettings", {
+      repoId: "canonical",
+      locale: "zh-CN",
+      idempotencyKey: "shared-write-fixture",
+    });
+    await createBrowserGuiTransport("secret").request("repo.settings.update", write);
+    expect(fetch).toHaveBeenLastCalledWith(
+      "/rpc",
+      expect.objectContaining({ body: JSON.stringify({ method: "repo.settings.update", params: write }) }),
+    );
   });
 
-  it("makes unsupported browser capabilities explicit", () => {
+  it("enables canonical writes and makes native browser gaps explicit", () => {
     expect(createBrowserGuiTransport("secret").capabilities()).toMatchObject({
       terminal: { status: "unavailable" },
       nativeFiles: { status: "unavailable" },
-      writes: { status: "unavailable" },
+      writes: { status: "available" },
     });
   });
 

@@ -2,9 +2,13 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { createReadStream, existsSync, statSync } from "node:fs";
 import path from "node:path";
-import { isDaemonGuiReadMethod } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
+import {
+  isDaemonGuiActionMethod,
+  isDaemonGuiReadMethod,
+} from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { requestLocalDaemonJsonRpc } from "../../../daemon/src/client/local-json-rpc-client.ts";
 import { isJsonObject } from "../../../daemon/src/protocol/json-rpc-types.ts";
+import { parseDaemonGuiActionResponse } from "../../../daemon/src/protocol/gui-result-validation.ts";
 
 const MAX_BODY_BYTES = 1024 * 1024;
 const CSP =
@@ -78,38 +82,41 @@ async function handleRpc(
   if (
     value === null ||
     typeof value.method !== "string" ||
-    !isDaemonGuiReadMethod(value.method) ||
+    (!isDaemonGuiReadMethod(value.method) && !isDaemonGuiActionMethod(value.method)) ||
     !isJsonObject(value.params)
   )
     return reject(response, 400);
+  const method = value.method;
   const repo = isJsonObject(value.params.repo) ? value.params.repo : undefined;
-  return requestLocalDaemonJsonRpc(rootDir, value.method, value.params as never, 75, {
+  return requestLocalDaemonJsonRpc(rootDir, method, value.params as never, 75, {
     ...(typeof repo?.repoId === "string" ? { repoIdOverride: repo.repoId } : {}),
-  }).then(
-    (result) => {
-      response.statusCode = 200;
-      response.setHeader("Content-Type", "application/json");
-      response.end(JSON.stringify(result));
-    },
-    (error: unknown) => {
-      const rawCode =
-          error instanceof Error && typeof (error as { readonly code?: unknown }).code === "string"
-            ? (error as Error & { readonly code: string }).code
-            : null,
-        code =
-          (error instanceof Error && error.message === "daemon_unavailable") || isDaemonUnavailableCode(rawCode)
-            ? "daemon_unavailable"
-            : (rawCode ?? "browser_broker_failed");
-      response.statusCode = 502;
-      response.setHeader("Content-Type", "application/json");
-      response.end(
-        JSON.stringify({
-          ok: false,
-          error: { code, hint: error instanceof Error ? error.message : String(error) },
-        }),
-      );
-    },
-  );
+  })
+    .then((result) => (isDaemonGuiActionMethod(method) ? parseDaemonGuiActionResponse(method, result) : result))
+    .then(
+      (result) => {
+        response.statusCode = 200;
+        response.setHeader("Content-Type", "application/json");
+        response.end(JSON.stringify(result));
+      },
+      (error: unknown) => {
+        const rawCode =
+            error instanceof Error && typeof (error as { readonly code?: unknown }).code === "string"
+              ? (error as Error & { readonly code: string }).code
+              : null,
+          code =
+            (error instanceof Error && error.message === "daemon_unavailable") || isDaemonUnavailableCode(rawCode)
+              ? "daemon_unavailable"
+              : (rawCode ?? "browser_broker_failed");
+        response.statusCode = 502;
+        response.setHeader("Content-Type", "application/json");
+        response.end(
+          JSON.stringify({
+            ok: false,
+            error: { code, hint: error instanceof Error ? error.message : String(error) },
+          }),
+        );
+      },
+    );
 }
 function isDaemonUnavailableCode(code: string | null): boolean {
   return code === "ENOENT" || code === "ECONNREFUSED" || code === "ENOTSOCK" || code === "EACCES";

@@ -417,7 +417,7 @@ function AppShell() {
               data-testid="browser-capability-notice"
               className="border-b border-border px-3 py-1 ui-meta text-text-muted"
             >
-              写操作、实时流、终端和本机文件仅桌面版可用。
+              实时流、终端和本机文件仅桌面版可用。
             </div>
           ) : null}
           <NavigationHistoryBar canBack={canBack} canForward={canForward} onBack={back} onForward={forward} />
