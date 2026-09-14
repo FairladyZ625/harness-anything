@@ -90,6 +90,10 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
   });
   let resolvedLedger: ReturnType<typeof resolveLedgerGitLayout> | null = null;
   const ledger = () => (resolvedLedger ??= resolveLedgerGitLayout(input));
+  // The layout every append resolves for its worktree baseline is kept so receipt prose reuses the
+  // write's own view of the workspace; it refreshes on each accepted append, matching the append
+  // path's own freshness rather than caching settings across writes.
+  let latestAppendLayout: ReturnType<typeof resolveHarnessLayout> | null = null;
   const authoredRef = () => {
     const current = ledger(),
       branch = options.authoredBranch ?? localGitObjectRefStore.currentBranch(current.rootDir);
@@ -117,8 +121,10 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
       appended = members.map((member) => member.event),
       blobs = members.flatMap((member) => member.blobs),
       revisionBeforeAcceptance = sqlite.revision(),
-      authoredRoot = resolveHarnessLayout(input).authoredRoot,
+      appendLayout = resolveHarnessLayout(input),
+      authoredRoot = appendLayout.authoredRoot,
       acceptedBaseline = new Map<string, { fingerprint: string; preserve: boolean }>();
+    latestAppendLayout = appendLayout;
     assertAuthorizedReplacements(sqlite, input, members);
     for (const event of appended) {
       const task = isTaskEvent(event);
@@ -442,6 +448,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
     readContentBlob: readContent,
     layout: () => "sharded-sha256-2/v1",
     append,
+    lastAppendLayout: () => latestAppendLayout,
     materialize: (request?: MaterializationRequest) =>
       request?.preview === true
         ? publishFollower(true, true)

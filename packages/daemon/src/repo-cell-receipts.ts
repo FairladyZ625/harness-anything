@@ -8,7 +8,7 @@ import {
 } from "../../kernel/src/index.ts";
 import { readDocReceipt } from "./doc-sync-actions.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
-import { workspaceRelativePath } from "./receipt-guidance.ts";
+import { receiptLayoutRoots, workspaceRelativePath } from "./receipt-guidance.ts";
 import type { PublicPublication, RepoCellBinding, TaskProgressReceipt } from "./repo-cell-types.ts";
 import type { RepoCellActionContext } from "./repo-cell-action-context.ts";
 
@@ -202,7 +202,8 @@ export function progressReceipt(
   publication: PublicPublication,
 ): TaskProgressReceipt {
   const applied = cell.projection.readOperation(event.opId),
-    visible = !!applied && applied.watermark >= event.workspaceRevision;
+    visible = !!applied && applied.watermark >= event.workspaceRevision,
+    roots = receiptLayoutRoots(cell.store, cell.rootDir);
   return {
     outcome: visible ? "applied" : "pending",
     opId: event.opId,
@@ -217,7 +218,7 @@ export function progressReceipt(
       worktreeVisible: true,
     },
     summary: `appended progress for ${event.payload.taskId} at ${workspaceRelativePath(
-      cell.rootDir,
+      roots,
       event.payload.resultDocumentClaim.path,
     )}`,
     taskId: event.payload.taskId,

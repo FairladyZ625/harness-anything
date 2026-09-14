@@ -5,7 +5,13 @@ import { mkdtempSync, mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { readWorkspaceText } from "../../daemon/src/workspace-text-port.ts";
-import { diagnosticForError, taskCreateGuidance } from "../../daemon/src/receipt-guidance.ts";
+import {
+  diagnosticForError,
+  receiptLayoutRoots,
+  taskCreateGuidance,
+  workspaceRelativePath,
+} from "../../daemon/src/receipt-guidance.ts";
+import { resolveHarnessLayout, type CanonicalEventStore } from "../../kernel/src/index.ts";
 import { workspacePathResolutionRule } from "../../preset/src/preset-command-contract.ts";
 import { humanError, renderReceiptGuidance } from "../src/cli/guidance-plane.ts";
 import { renderCliReceipt } from "../src/cli/receipt-render-registry.ts";
@@ -66,7 +72,7 @@ test("guidance plane renders all seven descriptor-derived task-create messages e
         opId: "op-a",
         canonicalVisible: false,
       },
-      guidance = taskCreateGuidance(physicalRoot, values),
+      guidance = taskCreateGuidance(resolveHarnessLayout(physicalRoot), values),
       receipt = (dryRun: boolean, canonicalVisible: boolean) => ({
         command: "task-create",
         dryRun,
@@ -122,7 +128,7 @@ test("task-create receipt points next and plan at one workspace-openable package
         dryRun: false,
         outputShape: "task-package-artifact",
         proof: { canonicalVisible: true },
-        guidance: taskCreateGuidance(physicalRoot, values),
+        guidance: taskCreateGuidance(resolveHarnessLayout(physicalRoot), values),
       }),
       nextPath = /next: edit (\S+)\/task_plan\.md/u.exec(lines.find((line) => line.startsWith("next: edit ")) ?? ""),
       planPath = /plan: write the concrete plan at (\S+)\/task_plan\.md/u.exec(
@@ -139,7 +145,7 @@ test("task-create receipt points next and plan at one workspace-openable package
       dryRun: false,
       outputShape: "task-package-artifact",
       proof: { canonicalVisible: true },
-      guidance: taskCreateGuidance(physicalRoot, values),
+      guidance: taskCreateGuidance(resolveHarnessLayout(physicalRoot), values),
     });
     assert.ok(
       customLines.some(
@@ -148,6 +154,26 @@ test("task-create receipt points next and plan at one workspace-openable package
       ),
       customLines.join("\n"),
     );
+  } finally {
+    rmSync(physicalRoot, { recursive: true, force: true });
+  }
+});
+
+test("receipt layout roots prefer the store's append-resolved layout and fall back to resolving", () => {
+  const physicalRoot = mkdtempSync(path.join(realpathSync(tmpdir()), "ha-receipt-roots-"));
+  try {
+    mkdirSync(path.join(physicalRoot, "harness"));
+    writeFileSync(path.join(physicalRoot, "harness/harness.yaml"), "");
+    const resolved = resolveHarnessLayout(physicalRoot),
+      fromStore = { rootDir: "/workspace", authoredRoot: "/workspace/bench" },
+      store = (layout: unknown) => ({ lastAppendLayout: () => layout }) as unknown as CanonicalEventStore;
+    assert.equal(receiptLayoutRoots(store(fromStore), physicalRoot), fromStore);
+    for (const fallback of [store(null), {} as CanonicalEventStore]) {
+      const roots = receiptLayoutRoots(fallback, physicalRoot);
+      assert.equal(roots.rootDir, resolved.rootDir);
+      assert.equal(roots.authoredRoot, resolved.authoredRoot);
+    }
+    assert.equal(workspaceRelativePath(fromStore, "tasks/t/progress.md"), "bench/tasks/t/progress.md");
   } finally {
     rmSync(physicalRoot, { recursive: true, force: true });
   }

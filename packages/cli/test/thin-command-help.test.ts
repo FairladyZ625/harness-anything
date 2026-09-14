@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { daemonProtocolCommands } from "../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { taskCreateGuidance } from "../../daemon/src/receipt-guidance.ts";
+import { resolveHarnessLayout } from "../../kernel/src/index.ts";
 import { parseThinCommand, renderThinHelp } from "../src/cli/thin-command.ts";
 import { emit, resolveCliVersion } from "../src/index.ts";
 
@@ -106,7 +107,7 @@ test("human preset and task receipts print resolved completion contracts byte-fo
             completionGates: ["ci", "code-doc-reconciliation"],
             dryRun: false,
             proof: { canonicalVisible: true },
-            guidance: taskCreateGuidance(receiptRoot, {
+            guidance: taskCreateGuidance(resolveHarnessLayout(receiptRoot), {
               taskId: "task-one",
               packagePath: "tasks/task-one",
               outputShape: "repository-diff",

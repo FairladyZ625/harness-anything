@@ -4,29 +4,45 @@ import {
   deriveActionReturnsContract,
   getExecutableEntityAction,
   resolveHarnessLayout,
+  type CanonicalEventStore,
   type ReceiptGuidanceArgument,
   type ReceiptGuidanceContractEntry,
   type ReceiptDiagnostic,
 } from "../../kernel/src/index.ts";
 
-/**
- * Receipt prose shows file locations, so ledger paths (relative to the authored root) must carry
- * the workspace prefix a human can open from the repository root. The prefix comes from the
- * resolved layout, never from a hardcoded `harness/` in a render template.
- */
-export function workspaceRelativePath(rootDir: string, ledgerPath: string): string {
-  const layout = resolveHarnessLayout(rootDir),
-    authoredRoot = path.relative(layout.rootDir, layout.authoredRoot).split(path.sep).join("/");
-  return `${authoredRoot}/${ledgerPath}`;
+/** The two layout roots receipt prose needs: where the workspace starts and where the ledger lives. */
+export interface WorkspaceLayoutRoots {
+  readonly rootDir: string;
+  readonly authoredRoot: string;
 }
 
-export function taskCreateGuidance(rootDir: string, values: Readonly<Record<string, string | number | boolean>>) {
+/**
+ * Receipt prose shows file locations, so ledger paths (relative to the authored root) must carry
+ * the workspace prefix a human can open from the repository root. The prefix comes from the layout
+ * the write itself already resolved — the store's last accepted append — so rendering adds no
+ * harness.yaml read to a write; a store that has not appended in this process (dry-run previews,
+ * replay before any write) resolves the layout now. The prefix never comes from a hardcoded
+ * `harness/` in a render template.
+ */
+export function receiptLayoutRoots(store: CanonicalEventStore, rootDir: string): WorkspaceLayoutRoots {
+  return store.lastAppendLayout?.() ?? resolveHarnessLayout(rootDir);
+}
+
+export function workspaceRelativePath(roots: WorkspaceLayoutRoots, ledgerPath: string): string {
+  const prefix = path.relative(roots.rootDir, roots.authoredRoot).split(path.sep).join("/");
+  return `${prefix}/${ledgerPath}`;
+}
+
+export function taskCreateGuidance(
+  roots: WorkspaceLayoutRoots,
+  values: Readonly<Record<string, string | number | boolean>>,
+) {
   const action = getExecutableEntityAction("task-create");
   if (!action) throw new Error("task.create has no declared return contract.");
   const returns = deriveActionReturnsContract(action),
     scopedValues =
       typeof values.packagePath === "string"
-        ? { ...values, packagePath: workspaceRelativePath(rootDir, values.packagePath) }
+        ? { ...values, packagePath: workspaceRelativePath(roots, values.packagePath) }
         : values;
   return Object.freeze(returns.guidance.map((entry) => resolveGuidanceEntry(entry, scopedValues)));
 }
