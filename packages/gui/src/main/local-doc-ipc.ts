@@ -8,6 +8,7 @@ import {
   type LocalDocReadResult,
   type LocalDocWriteInput,
   type LocalDocWriteResult,
+  type LocalDocWriteFailure,
 } from "../api/local-doc-contract.ts";
 import { assertTrustedIpcSender } from "./ipc-handlers.ts";
 import type { IpcWebContentsTrustPolicy } from "./security-policy.ts";
@@ -284,7 +285,7 @@ function writeFailure(
   code: Extract<LocalDocWriteResult, { readonly ok: false }>["code"],
   pathValue: string,
   cause: unknown,
-): LocalDocWriteResult {
+): LocalDocWriteFailure {
   const detail = cause instanceof Error ? cause.message : String(cause);
   return { ok: false, code, path: pathValue, message: detail };
 }
