@@ -37,10 +37,10 @@ function fixture(t) {
 }
 
 for (const [file, limit] of [
-  ["packages/demo/src/file.ts", 600],
-  ["packages/demo/test/file.ts", 700],
-  ["packages/demo/src/file.test.ts", 700],
-  ["tools/example.mjs", 650],
+  ["packages/demo/src/file.ts", 1000],
+  ["packages/demo/test/file.ts", 1200],
+  ["packages/demo/src/file.test.ts", 1200],
+  ["tools/example.mjs", 1000],
 ]) {
   test(`new ${file} respects the standard boundary`, (t) => {
     const f = fixture(t);
@@ -52,91 +52,92 @@ for (const [file, limit] of [
   });
 }
 
-test("existing oversized files can shrink or stay equal but cannot grow below the stage ceiling", (t) => {
+test("existing source files may grow freely within the stage ceiling (no shrink-only ratchet)", (t) => {
   const f = fixture(t);
   const file = "packages/demo/src/file.ts";
-  f.write(file, 800);
+  f.write(file, 1000);
   f.base();
   f.check(0);
-  f.write(file, 799);
+  f.write(file, 1050);
   f.check(0);
-  f.write(file, 801);
-  f.check(1, /801 lines exceeds max 800/);
+  f.write(file, 1100);
+  f.check(0);
+  f.write(file, 1101);
+  f.check(1, /1101 lines exceeds max 1100/);
 });
 
-test("existing compliant files may grow to the standard but never cross it", (t) => {
+test("existing test files may grow within the test stage ceiling", (t) => {
   const f = fixture(t);
-  const file = "packages/demo/src/file.ts";
-  f.write(file, 500);
+  const file = "packages/demo/test/big.test.ts";
+  f.write(file, 1200);
   f.base();
-  f.write(file, 600);
   f.check(0);
-  f.write(file, 601);
-  f.check(1);
+  f.write(file, 1500);
+  f.check(0);
+  f.write(file, 1901);
+  f.check(1, /1901 lines exceeds max 1900/);
 });
 
-test("the current stage still rejects 1101 source, 1901 test, and 701 tool lines", (t) => {
+test("the current stage still rejects 1101 source, 1901 test, and 1101 tool lines", (t) => {
   const f = fixture(t);
   for (const [file, lines] of [
     ["packages/demo/src/file.ts", 1101],
     ["packages/demo/test/file.ts", 1901],
-    ["tools/example.mjs", 701],
+    ["tools/example.mjs", 1101],
   ])
     f.write(file, lines);
   f.base();
   f.check(1, /1101 lines exceeds max 1100/);
   f.check(1, /1901 lines exceeds max 1900/);
-  f.check(1, /701 lines exceeds max 700/);
 });
 
 test("uses merge-base even when origin/main advanced independently", (t) => {
   const f = fixture(t);
   const file = "packages/demo/src/file.ts";
-  f.write(file, 800);
   f.base();
   const base = f.git("rev-parse", "HEAD");
-  f.write(file, 900);
+  f.write(file, 1090);
   f.commit();
   f.git("update-ref", "refs/remotes/origin/main", "HEAD");
   f.git("checkout", "--quiet", "--detach", base);
-  f.write(file, 801);
+  f.write(file, 1050);
   f.commit();
-  f.check(1, /801 lines exceeds max 800/);
+  f.check(1, /file.ts: 1050 lines exceeds max 1000/);
 });
 
 test("committed additions do not acquire a historical allowance", (t) => {
   const f = fixture(t);
   f.base();
-  f.write("packages/demo/src/fresh.ts", 800);
+  f.write("packages/demo/src/fresh.ts", 1050);
   f.commit();
-  f.check(1, /fresh.ts: 800 lines exceeds max 600/);
+  f.check(1, /fresh.ts: 1050 lines exceeds max 1000/);
 });
 
-test("renamed paths inherit the merge-base allowance of their source and still cannot grow", (t) => {
+test("renamed paths inherit merge-base existence and keep the stage ceiling", (t) => {
   const f = fixture(t);
-  f.write("packages/demo/src/old.ts", 800);
+  f.write("packages/demo/src/old.ts", 1050);
   f.base();
   f.git("mv", "packages/demo/src/old.ts", "packages/demo/src/new name.ts");
   f.commit();
   f.check(0);
-  f.write("packages/demo/src/new name.ts", 801);
-  f.check(1, /new name.ts: 801 lines exceeds max 800/);
+  f.write("packages/demo/src/new name.ts", 1101);
+  f.check(1, /new name.ts: 1101 lines exceeds max 1100/);
 });
 
 test("retains empty, CRLF, trailing newline and excluded-directory counting behavior", (t) => {
   const f = fixture(t);
   f.base();
   f.write("packages/demo/src/empty.ts", 0);
-  f.write("packages/demo/src/file.ts", 600, "\r\n");
+  f.write("packages/demo/src/file.ts", 1000, "\r\n");
   f.write("packages/demo/dist/generated.ts", 2000);
   f.write("packages/demo/src/types.d.ts", 2000);
   f.check(0);
   const file = path.join(f.root, "packages/demo/src/file.ts");
   writeFileSync(file, readFileSync(file, "utf8") + "\r\n");
-  f.check(1, /601 lines exceeds max 600/);
+  f.check(1, /1001 lines exceeds max 1000/);
 });
 
-test("missing origin/main fails instead of disabling the ratchet", (t) => {
+test("missing origin/main fails instead of disabling the base comparison", (t) => {
   const f = fixture(t);
   f.commit();
   f.check(1, /origin\/main/);

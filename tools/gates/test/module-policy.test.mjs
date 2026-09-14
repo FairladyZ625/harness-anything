@@ -45,7 +45,7 @@ test("module-policy keeps its ordered budget catalog and tooling policy", () => 
   assert.equal(classifyModule("packages/daemon/src/agent-runtime-registry.ts"), "agent-runtime");
   assert.equal(classifyModule("packages/kernel/src/domain/decision-event.ts"), "decision");
   assert.equal(classifyModule("packages/kernel/src/domain/fact-event.ts"), "fact");
-  assert.equal(classifyModule("tools/gates/line-budget.mjs"), "tooling");
+  assert.equal(classifyModule("tools/gates/cost-budget.mjs"), "tooling");
 });
 
 test("production and test classification are disjoint", () => {
@@ -56,9 +56,9 @@ test("production and test classification are disjoint", () => {
   assert.deepEqual(classifyPath("README.md"), { module: null, kind: "other" });
 });
 
-test("tool source is production but explicitly outside the line-budget scope", () => {
-  assert.deepEqual(classifyPath("tools/gates/line-budget.mjs"), { module: "tooling", kind: "production" });
-  assert.equal(isBudgetedProductionPath("tools/gates/line-budget.mjs"), false);
+test("tool source is production but explicitly outside the budgeted production scope", () => {
+  assert.deepEqual(classifyPath("tools/gates/cost-budget.mjs"), { module: "tooling", kind: "production" });
+  assert.equal(isBudgetedProductionPath("tools/gates/cost-budget.mjs"), false);
   assert.equal(isBudgetedProductionPath("packages/kernel/src/domain/task.ts"), true);
 });
 

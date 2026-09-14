@@ -15,7 +15,8 @@ interface WorkerInput {
   readonly rootDir: string;
   readonly projectionPath: string;
   readonly start: SharedArrayBuffer;
-  readonly stop: SharedArrayBuffer;
+  readonly readerStop: SharedArrayBuffer;
+  readonly writerClose: SharedArrayBuffer;
   readonly rows: number;
   readonly payloadBytes: number;
 }
@@ -29,7 +30,8 @@ interface SQLiteFailure {
 
 const input = workerData as WorkerInput,
   start = new Int32Array(input.start),
-  stop = new Int32Array(input.stop);
+  readerStop = new Int32Array(input.readerStop),
+  writerClose = new Int32Array(input.writerClose);
 
 try {
   if (input.role === "writer") runWriter();
@@ -57,7 +59,7 @@ function runWriter(): void {
     parentPort!.postMessage({ closing: true, role: "writer" });
   });
   parentPort!.postMessage({ written: true, role: "writer" });
-  Atomics.wait(stop, 0, 0);
+  Atomics.wait(writerClose, 0, 0);
   closeDatabase(input.projectionPath, readHead);
   parentPort!.postMessage({ ok: true, role: "writer" });
 }
@@ -68,13 +70,13 @@ function runReader(): void {
   parentPort!.postMessage({ ready: true, role: "reader" });
   try {
     Atomics.wait(start, 0, 0);
-    while (Atomics.load(stop, 0) === 0) {
+    while (Atomics.load(readerStop, 0) === 0) {
       const cut = reader.withSession((queries) => queries.list({ limit: 1 }));
       if (cut.watermark !== 0 || cut.sourceRevision !== 0)
         throw new Error(`reader left the completed projection cut: ${JSON.stringify(cut)}`);
       samples += 1;
       if (samples === 1) parentPort!.postMessage({ sampled: true, role: "reader" });
-      Atomics.wait(stop, 0, 0, 1);
+      Atomics.wait(readerStop, 0, 0, 1);
     }
     parentPort!.postMessage({ ok: true, role: "reader", samples });
   } catch (error) {
