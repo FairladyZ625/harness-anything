@@ -9,6 +9,7 @@ import { cliErrorMessage } from "../cli-error.ts";
 import { cliFailure } from "../cli-meta.ts";
 import { consumeKnownError } from "../daemon/client.ts";
 import { ensureCliDaemonRunning } from "../daemon/autostart.ts";
+import { startBrowserGuiBroker, type BrowserGuiBroker } from "./gui-browser-broker.ts";
 
 type ReceiptEmitter = (receipt: Record<string, unknown>, json: boolean) => void;
 interface GuiBundlePreparation {
@@ -21,6 +22,8 @@ export interface GuiLaunchDependencies {
   readonly prepareBundles?: (workspaceRoot: string) => Promise<GuiBundlePreparation>;
   readonly ensureDaemon?: (invokingRoot: string) => Promise<DaemonAutostartResult>;
   readonly workspaceRoot?: string;
+  readonly startBrowserBroker?: (workspaceRoot: string, rootDir: string) => Promise<BrowserGuiBroker>;
+  readonly waitForBrowserClose?: (broker: BrowserGuiBroker) => Promise<void>;
 }
 
 export async function runGuiLaunch(
@@ -50,14 +53,17 @@ export async function runGuiLaunch(
       "gui_unavailable",
       "Run `ha gui` from a harness-anything source workspace that contains the GUI package.",
     );
-  const electronBinary = (dependencies.resolveElectronBinary ?? guiElectronBinary)(workspaceRoot);
-  if (!electronBinary)
+  const browser = launch.browser;
+  const electronBinary = browser ? undefined : (dependencies.resolveElectronBinary ?? guiElectronBinary)(workspaceRoot);
+  if (!browser && !electronBinary)
     return reject(
       "electron_unavailable",
       "Run `node node_modules/electron/install.js` in the harness-anything workspace, then retry `ha gui`.",
     );
   try {
-    const prepared = await (dependencies.prepareBundles ?? prepareGuiBundles)(workspaceRoot);
+    const prepared = dependencies.prepareBundles
+      ? await dependencies.prepareBundles(workspaceRoot)
+      : await prepareGuiBundles(workspaceRoot, browser);
     if (!prepared.ok)
       return reject(
         "gui_build_failed",
@@ -65,7 +71,7 @@ export async function runGuiLaunch(
       );
     if (!existsSync(path.join(workspaceRoot, "packages/gui/dist/index.html")))
       return reject("gui_build_failed", "The GUI renderer build completed without producing dist/index.html.");
-    if (!existsSync(path.join(workspaceRoot, "packages/gui/dist-electron/electron-preload.cjs")))
+    if (!browser && !existsSync(path.join(workspaceRoot, "packages/gui/dist-electron/electron-preload.cjs")))
       return reject(
         "gui_build_failed",
         "The GUI preload build completed without producing dist-electron/electron-preload.cjs.",
@@ -76,8 +82,17 @@ export async function runGuiLaunch(
         daemon.code ?? "daemon_start_failed",
         daemon.hint || "The default daemon could not be acquired through the CLI autostart path.",
       );
+    if (browser) {
+      const broker = await (dependencies.startBrowserBroker ?? startBrowserGuiBroker)(workspaceRoot, launch.rootDir);
+      finish(
+        { ok: true, command: "gui", url: broker.url, summary: `Harness Anything GUI available at ${broker.url}` },
+        0,
+      );
+      await (dependencies.waitForBrowserClose ?? waitForBrowserClose)(broker);
+      return 0;
+    }
     const child = (dependencies.spawnProcess ?? spawn)(
-      electronBinary,
+      electronBinary!,
       [path.join(workspaceRoot, "packages/gui/src/main/electron-main.ts")],
       { cwd: workspaceRoot, ...detachedProcessOptions, env: guiLaunchEnvironment(launch.rootDir) },
     );
@@ -110,7 +125,7 @@ async function prepareGuiDaemon(invokingRoot: string): Promise<DaemonAutostartRe
     onProgress: (progress) => process.stderr.write(`${progress.message}\n`),
   });
 }
-async function prepareGuiBundles(workspaceRoot: string): Promise<GuiBundlePreparation> {
+async function prepareGuiBundles(workspaceRoot: string, browser = false): Promise<GuiBundlePreparation> {
   let viteBin: string;
   try {
     const guiRequire = createRequire(path.join(workspaceRoot, "packages/gui/package.json")),
@@ -124,7 +139,7 @@ async function prepareGuiBundles(workspaceRoot: string): Promise<GuiBundlePrepar
   const guiRoot = path.join(workspaceRoot, "packages/gui");
   for (const args of [
     [viteBin, "build"],
-    [viteBin, "build", "--config", "vite.preload.config.ts"],
+    ...(browser ? [] : [[viteBin, "build", "--config", "vite.preload.config.ts"]]),
   ]) {
     const result = await runGuiBuild(process.execPath, args, guiRoot);
     if (!result.ok) return result;
@@ -208,12 +223,17 @@ function guiCliEntry(workspaceRoot: string): string {
 function parseGuiLaunch(
   argv: readonly string[],
 ):
-  | { readonly ok: true; readonly rootDir: string }
+  | { readonly ok: true; readonly rootDir: string; readonly browser: boolean }
   | { readonly ok: false; readonly code: string; readonly hint: string } {
-  let root: string | undefined;
+  let root: string | undefined,
+    browser = false;
   for (let index = 0; index < argv.length; index += 1) {
     const value = argv[index];
     if (value === "gui" || value === "--json") continue;
+    if (value === "--browser") {
+      browser = true;
+      continue;
+    }
     if (value === "--root") {
       const supplied = argv[index + 1];
       if (!supplied || supplied.startsWith("-"))
@@ -226,10 +246,18 @@ function parseGuiLaunch(
     return {
       ok: false,
       code: "unsupported_command",
-      hint: "Use `ha gui [--root <path>]`; the production launcher has no additional modes.",
+      hint: "Use `ha gui [--browser] [--root <path>]`.",
     };
   }
-  return { ok: true, rootDir: path.resolve(root ?? process.cwd()) };
+  return { ok: true, rootDir: path.resolve(root ?? process.cwd()), browser };
+}
+
+function waitForBrowserClose(broker: BrowserGuiBroker): Promise<void> {
+  return new Promise((resolve) => {
+    const close = () => void broker.close().finally(resolve);
+    process.once("SIGINT", close);
+    process.once("SIGTERM", close);
+  });
 }
 function guiLaunchEnvironment(rootDir: string): NodeJS.ProcessEnv {
   const environment: NodeJS.ProcessEnv = { ...process.env, HARNESS_GUI_ROOT: rootDir };

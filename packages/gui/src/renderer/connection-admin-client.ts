@@ -1,5 +1,6 @@
 import type { AdminConnectionRow, AdminReceipt, ConnectionProbeSuccess } from "../api/connection-admin-contract.ts";
 import { isRendererRecord } from "./result-validation.ts";
+import { guiHostBridge } from "./gui-transport.ts";
 
 /**
  * Settings → 仓库与连接 的 renderer 客户端(PLT-EdgeGUI-W3)。
@@ -25,13 +26,13 @@ type RepoAdminBridge = {
 };
 
 function connectionsBridge(): ConnectionsBridge {
-  const bridge = window.harness as unknown as { readonly connections?: ConnectionsBridge } | undefined;
+  const bridge = guiHostBridge() as unknown as { readonly connections?: ConnectionsBridge } | undefined;
   if (!bridge?.connections) throw new Error("Connection admin bridge is unavailable.");
   return bridge.connections;
 }
 
 function repoAdminBridge(): RepoAdminBridge {
-  const bridge = window.harness as unknown as { readonly repoAdmin?: RepoAdminBridge } | undefined;
+  const bridge = guiHostBridge() as unknown as { readonly repoAdmin?: RepoAdminBridge } | undefined;
   if (!bridge?.repoAdmin) throw new Error("Repository admin bridge is unavailable.");
   return bridge.repoAdmin;
 }

@@ -1,5 +1,6 @@
 import type { LocalDocReadErrorCode, LocalDocReadResult } from "../../api/local-doc-contract.ts";
 import { isRendererRecord } from "../result-validation.ts";
+import { guiHostBridge } from "../gui-transport.ts";
 
 /**
  * renderer 侧「GUI 内读本机文档」客户端:把链接里的路径交给 preload 通道
@@ -12,7 +13,7 @@ type LocalDocBridge = {
 };
 
 const bridge = (): LocalDocBridge | null => {
-  const value = window.harness as unknown as { readonly localDoc?: LocalDocBridge } | undefined;
+  const value = guiHostBridge() as unknown as { readonly localDoc?: LocalDocBridge } | undefined;
   return value?.localDoc ?? null;
 };
 

@@ -10,6 +10,7 @@ import type {
   SquadEntityGuiRow as SquadEntityRow,
 } from "../../../daemon/src/agent-entities.ts";
 import { containsSecretLikeKey, entityRecord } from "../api/entity-payload-hygiene.ts";
+import { guiHostBridge } from "./gui-transport.ts";
 export type {
   AgentEntityAvailableRow,
   AgentEntityDetail,
@@ -55,7 +56,7 @@ type Bridge = {
   }) => Promise<unknown>;
 };
 const bridge = (): Bridge => {
-  const value = window.harness as unknown as Partial<Bridge> | undefined,
+  const value = guiHostBridge() as unknown as Partial<Bridge> | undefined,
     required = [
       "listAgents",
       "showAgent",

@@ -5,6 +5,7 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { PassThrough, Writable } from "node:stream";
 import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
 import { connectSocket, JsonRpcLineClient } from "../src/client/local-json-rpc-client.ts";
 
@@ -85,7 +86,7 @@ test("a reused connection keeps its socket listener counts flat across read roun
       await new Promise((resolve) => setTimeout(resolve, 25));
       assert.deepEqual(
         { data: socket.listenerCount("data"), end: socket.listenerCount("end"), error: socket.listenerCount("error") },
-        { data: 0, end: flat.end - 1, error: flat.error - 1 },
+        { data: 0, end: flat.end - 1, error: flat.error - 2 },
         "close must detach the reader's listener set",
       );
     } finally {
@@ -171,6 +172,23 @@ test("a daemon that closes mid-exchange rejects the pending request instead of h
   } finally {
     await closeServer(server);
     rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("a socket write failure rejects the request as daemon unavailable", async () => {
+  const input = new PassThrough(),
+    failure = Object.assign(new Error("write EPIPE"), { code: "EPIPE" }),
+    output = new Writable({ write: (_chunk, _encoding, callback) => callback(failure) }),
+    client = new JsonRpcLineClient(input, output);
+  try {
+    await assert.rejects(
+      () => client.request("protocol.hello", { protocolVersion: { major: 1, minor: 0 } }, 5_000),
+      (error: unknown) =>
+        (error as { readonly code?: string }).code === "daemon_unavailable" &&
+        (error as { readonly cause?: unknown }).cause === failure,
+    );
+  } finally {
+    clientClose(client);
   }
 });
 

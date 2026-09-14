@@ -1,5 +1,6 @@
 import type { ArtifactOpenExternalInput, ArtifactOpenExternalResult } from "../api/artifact-open-contract.ts";
 import { isRendererRecord } from "./result-validation.ts";
+import { guiHostBridge } from "./gui-transport.ts";
 
 /**
  * renderer 侧的「在默认浏览器打开」客户端:只把 repo 相对产物路径交给 preload
@@ -12,7 +13,7 @@ type ArtifactOpenBridge = {
 };
 
 const bridge = (): ArtifactOpenBridge | null => {
-  const value = window.harness as unknown as { readonly artifacts?: ArtifactOpenBridge } | undefined;
+  const value = guiHostBridge() as unknown as { readonly artifacts?: ArtifactOpenBridge } | undefined;
   return value?.artifacts ?? null;
 };
 

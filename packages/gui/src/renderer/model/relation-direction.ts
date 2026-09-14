@@ -4,7 +4,7 @@ import type { RelationEdge, RelationKind } from "./types";
  * Bridge-bounded mirror of the kernel reverse query
  * (packages/kernel/src/domain/relation-direction.ts#incomingRelations).
  *
- * The renderer must not import kernel runtime values (window.harness bridge only),
+ * The renderer must not import kernel runtime values (host transport only),
  * so the one reverse-direction query is mirrored here for the renderer's model
  * layer. Both implementations must answer identically; the canonical-direction
  * ratchet gate (tools/check-relation-canonical-direction.mjs) asserts their
