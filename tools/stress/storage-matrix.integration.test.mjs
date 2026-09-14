@@ -27,9 +27,12 @@ const seed = "stress-s2-matrix-20260905";
 
 test(
   "S2 F02/F03/F06/F07/F08 exercises storage candidates and rejects one red model per family",
-  { concurrency: false, timeout: 180_000 },
+  {
+    concurrency: false,
+    timeout: 180_000,
+    skip: process.platform !== "linux" ? "requires Linux strace and POSIX SIGKILL semantics" : false,
+  },
   async () => {
-    assert.equal(process.platform, "linux", "requires Linux strace and POSIX SIGKILL semantics");
     const scratch = mkdtempSync(path.join(tmpdir(), "ha-stress-s2-matrix-"));
     try {
       const f03 = await runWholeCommandIdentity(path.join(scratch, "f03"));
