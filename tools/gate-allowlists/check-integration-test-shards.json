@@ -447,6 +447,16 @@
         "value": "packages/cli/test/task-closeout.integration.test.ts",
         "ref": "dec_13FF6AEF3598AF34DC8F4A0558",
         "reason": "One-path slice 4 retired the task closeout packet protocol; closeout.md-derived submit, automatic review dispatch, and complete --consent are covered by json-rpc-protocol and completion tests."
+      },
+      {
+        "value": "packages/daemon/test/doc-sync-slice-a-task-plan-titles.test.ts",
+        "ref": "task_b79a4d997e73987b0a42c62433",
+        "reason": "Consolidated into packages/daemon/test/doc-sync-slice-a-artifacts-upgrades.test.ts under relaxed file complexity limits (1,200 lines); all 5 test assertions preserved verbatim."
+      },
+      {
+        "value": "packages/daemon/test/task-surface-status-archive.integration.test.ts",
+        "ref": "task_b79a4d997e73987b0a42c62433",
+        "reason": "Consolidated into packages/daemon/test/task-surface.integration.test.ts under relaxed file complexity limits (1,200 lines); all 4 test assertions preserved verbatim."
       }
     ]
   }
