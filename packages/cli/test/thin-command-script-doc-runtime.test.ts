@@ -359,9 +359,29 @@ test("runtime work commands parse into closed daemon facade actions", () => {
   assert.equal(parseThinCommand(["runtime", "run", "worker"]).ok, false);
   assert.equal(parseThinCommand(["runtime", "batch"]).ok, false);
   assert.equal(parseThinCommand(["runtime", "batch", "dispatches.json", "--detach"]).ok, false);
-  assert.equal(
-    parseThinCommand(["runtime", "run", "worker", "--prompt", "Inspect", "--on-exit", "./notify.sh"]).ok,
-    false,
+  assert.deepEqual(parseThinCommand(["runtime", "run", "worker", "--prompt", "Inspect", "--on-exit", "./notify.sh"]), {
+    ok: false,
+    code: "invalid_field",
+    nextAction: "--on-exit requires --detach.",
+    json: false,
+  });
+  assert.deepEqual(
+    parseThinCommand([
+      "runtime",
+      "run",
+      "--resume-dispatch",
+      "dispatch_0123456789abcdef01234567",
+      "--prompt",
+      "Continue",
+      "--on-exit",
+      "./notify.sh",
+    ]),
+    {
+      ok: false,
+      code: "invalid_field",
+      nextAction: "--on-exit requires --detach.",
+      json: false,
+    },
   );
   assert.equal(
     parseThinCommand(["runtime", "run", "worker", "--squad", "runtime-squad", "--prompt", "Inspect"]).ok,
@@ -408,8 +428,28 @@ test("runtime work commands parse into closed daemon facade actions", () => {
       wait: true,
       noStream: true,
     });
-  assert.equal(parseThinCommand(["runtime", "status", "--wait"]).ok, false);
-  assert.equal(parseThinCommand(["runtime", "status", "runtime-1", "--no-stream"]).ok, false);
+  assert.deepEqual(parseThinCommand(["runtime", "status", "--wait"]), {
+    ok: false,
+    code: "invalid_field",
+    nextAction: "Use --wait with a runtime session id or --task <task-id>.",
+    json: false,
+  });
+  const noStream = parseThinCommand(["runtime", "status", "runtime-1", "--no-stream"]);
+  assert.equal(noStream.ok, true, JSON.stringify(noStream));
+  if (noStream.ok)
+    assert.deepEqual(noStream.command.action, {
+      kind: "runtime-status",
+      runtimeSessionId: "runtime-1",
+      noStream: true,
+    });
+  const taskNoStream = parseThinCommand(["runtime", "status", "--task", "task-1", "--no-stream"]);
+  assert.equal(taskNoStream.ok, true, JSON.stringify(taskNoStream));
+  if (taskNoStream.ok)
+    assert.deepEqual(taskNoStream.command.action, {
+      kind: "runtime-status",
+      taskId: "task-1",
+      noStream: true,
+    });
   assert.equal(parseThinCommand(["runtime", "wait", "runtime-1"]).ok, false);
 });
 

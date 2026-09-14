@@ -101,9 +101,15 @@ export const runtimeFleetProtocolCommands = Object.freeze([
       cliInput("--detach", "boolean", false, {
         code: "invalid_field",
       }),
-      cliInput("--on-exit", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--on-exit",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { requires: ["--detach"] },
+      ),
       cliInput("--no-stream", "boolean", false, {
         code: "invalid_field",
       }),

@@ -19,7 +19,7 @@ export function parseRuntime(
   if (!optional && !nonEmpty(id))
     return rejected("missing_field", `Run ha runtime ${kind.slice(8)} <${runtimeTarget(kind)}>.`, json);
   if (kind === "runtime-batch") return accepted(rootDir, repoId, json, { kind, batchFile: id }, route.method);
-  if (kind === "runtime-status") return parseRuntimeStatus(route, rootDir, repoId, json, id, f, inputs);
+  if (kind === "runtime-status") return parseRuntimeStatus(route, rootDir, repoId, json, id, f);
   if (kind === "runtime-cancel") return accepted(rootDir, repoId, json, { kind, runtimeSessionId: id }, route.method);
   const prompt = promptInput(f.one),
     taskId = f.one.get("--task"),
@@ -30,7 +30,6 @@ export function parseRuntime(
   if (taskId || f.one.has("--agent") || f.one.has("--role") || f.one.has("--to") || f.one.has("--squad"))
     return rejected("invalid_field", "Use ha agent run <agent-id> --task <task-id> for task-bound work.", json);
   if (!prompt && (promptFlagPresent || !taskId)) return rejectInput(inputs, kind, "--prompt", json);
-  if (onExitCommand && !detach) return rejectInput(inputs, kind, "--on-exit", json);
   const cwd = f.one.get("--cwd"),
     agentId = f.one.get("--agent"),
     targetAgentId = f.one.get("--to"),
@@ -89,7 +88,6 @@ export function parseResumeDispatch(
     detach = f.booleans.has("--detach"),
     onExitCommand = f.one.get("--on-exit");
   if (!prompt) return rejectInput(inputs, "runtime-run", "--prompt", json);
-  if (onExitCommand && !detach) return rejectInput(inputs, "runtime-run", "--on-exit", json);
   const cwd = f.one.get("--cwd"),
     agentId = f.one.get("--agent"),
     targetAgentId = f.one.get("--to"),
