@@ -98,7 +98,7 @@ test("guidance plane renders all seven descriptor-derived task-create messages e
     assert.deepEqual(renderReceiptGuidance(receipt(false, true)), [
       shared[0],
       "next: edit harness/tasks/task-a/task_plan.md, then run ha doc sync --submit --path " +
-        "tasks/task-a/task_plan.md, then run ha task start task-a --execution-id <id>",
+        "tasks/task-a/task_plan.md, then run ha task start task-a",
       ...shared.slice(1),
     ]);
     assert.deepEqual(renderReceiptGuidance(receipt(false, false)), [
@@ -153,7 +153,7 @@ test("task-create receipt points next and plan at one workspace-openable package
         (line) =>
           line ===
           "next: edit workbench/tasks/task-a/task_plan.md, then run ha doc sync --submit --path " +
-            "tasks/task-a/task_plan.md, then run ha task start task-a --execution-id <id>",
+            "tasks/task-a/task_plan.md, then run ha task start task-a",
       ),
       customLines.join("\n"),
     );
