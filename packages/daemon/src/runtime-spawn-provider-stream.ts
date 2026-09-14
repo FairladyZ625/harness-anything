@@ -8,7 +8,7 @@ import { dispatchStreamPath, parseRecord, readDispatchStreamIncrement, scrubProv
 import type { ActiveRuntime, ProviderFrame, RuntimeBinding } from "./runtime-spawn-types.ts";
 import { transcriptRefForSessionIdentity } from "./session-identity/index.ts";
 import { observeProviderFault } from "./runtime-provider-fault.ts";
-import { providerEventIdentity } from "./runtime-spawn-provider-frames.ts";
+import { providerReplayBoundary } from "./runtime-spawn-provider-frames.ts";
 import {
   runtimeEventHasType,
   type RuntimeEventOf,
@@ -86,18 +86,22 @@ export async function consumeProviderLine(
   let value: unknown;
   try {
     value = JSON.parse(line);
-    const identity = providerRecord(value) ? providerEventIdentity(active.kindId, value) : null;
-    if (identity) {
-      const duplicate = active.providerEventIds.has(identity.eventId);
-      if (!duplicate) active.providerEventIds.add(identity.eventId);
-      else {
+    if (active.providerReplayFaulted) {
+      if (persisted) active.durableOutputCount += 1;
+      return;
+    }
+    const boundary = providerRecord(value) ? providerReplayBoundary(active.kindId, value) : null;
+    if (boundary) {
+      const duplicate = active.providerReplayBoundaries.has(boundary.providerSessionId);
+      active.providerReplayBoundaries.add(boundary.providerSessionId);
+      if (duplicate) {
         if (persisted) active.durableOutputCount += 1;
-        if (identity.replayBoundary && !active.providerReplayFaulted) {
+        if (!active.providerReplayFaulted) {
           active.providerReplayFaulted = true;
           active.providerOutcome = "failed";
           active.providerFault = {
             code: "provider_disconnected",
-            reason: `Provider replay loop repeated session.resumed event ${identity.eventId}.`,
+            reason: `Provider replay loop repeated ${boundary.description}.`,
           };
           if (active.process.terminateTree) await active.process.terminateTree();
           else active.process.terminate();

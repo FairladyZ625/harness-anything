@@ -28,7 +28,7 @@ type ActiveRuntimeBase = Omit<
   | "nonEmptyAgentOutputObserved"
   | "providerUsageEmpty"
   | "providerFault"
-  | "providerEventIds"
+  | "providerReplayBoundaries"
   | "providerReplayFaulted"
   | "inputTokens"
   | "cacheReadTokens"
@@ -68,7 +68,7 @@ export function createActiveRuntime(base: ActiveRuntimeBase): ActiveRuntime {
     nonEmptyAgentOutputObserved: false,
     providerUsageEmpty: false,
     providerFault: null,
-    providerEventIds: new Set(),
+    providerReplayBoundaries: new Set(),
     providerReplayFaulted: false,
     inputTokens: 0,
     cacheReadTokens: 0,
