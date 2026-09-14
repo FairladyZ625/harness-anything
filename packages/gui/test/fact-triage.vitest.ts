@@ -241,6 +241,15 @@ describe("fact-triage signal computation", () => {
     expect(item.citingDecisionIds).toEqual(["dec_1"]);
   });
 
+  it("does not flag an orphan when fact has a produces relation from a host task", () => {
+    const fact = baseFact({ anchor: "fact/F-produced" });
+    const relations = [edge("task/task_1", fact.anchor, "produces")];
+
+    const item = computeFactTriageSignals(fact, relations, [], [anchor(fact)]);
+
+    expect(item.signals.map((signal) => signal.kind)).not.toContain("ORPHAN");
+  });
+
   it("flags low confidence from the fact projection field", () => {
     const fact = baseFact({ confidence: "low" });
 

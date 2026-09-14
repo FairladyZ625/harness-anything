@@ -279,6 +279,14 @@ describe("fact anomaly classification (TERRITORY-001)", () => {
     ];
     expect(classifyFactAnomaly(f.anchor, f, relations, new Set())).toBe("normal");
   });
+
+  it("classifies a fact with a host task produces relation as normal", () => {
+    const f = fact({ anchor: "fact/F-produced" });
+    const relations: RelationEdge[] = [
+      { from: "task/task_1", to: f.anchor, kind: "produces", provenance: "local-document" },
+    ];
+    expect(classifyFactAnomaly(f.anchor, f, relations, new Set())).toBe("normal");
+  });
 });
 
 describe("fact anomaly partition (partitionFactsByAnomaly)", () => {
