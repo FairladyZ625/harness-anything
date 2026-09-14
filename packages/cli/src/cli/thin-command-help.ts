@@ -1,5 +1,5 @@
 import { daemonProtocolCommands, thinCliCommands } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
-import { generationMigrationCommand } from "../../../daemon/src/offline-storage.contract.ts";
+import { generationMigrationCommand } from "../../../daemon/src/offline-storage-command.ts";
 import { renderCliGuidance } from "./guidance-plane.ts";
 
 export type ThinHelpCatalogEntry = {

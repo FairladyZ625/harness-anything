@@ -6,7 +6,7 @@ const root = process.cwd();
 const violations = [];
 const cliFiles = listTsFilesRecursive("packages/cli/src");
 const allowedStaticGraph = new Set([
-  "packages/daemon/src/offline-storage.contract.ts",
+  "packages/daemon/src/offline-storage-command.ts",
   "packages/daemon/src/client/local-daemon-target.ts",
   "packages/daemon/src/protocol/daemon-protocol.contract.ts",
   "packages/daemon/src/protocol/daemon-protocol-commands.ts",

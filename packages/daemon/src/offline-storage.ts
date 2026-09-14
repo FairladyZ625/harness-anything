@@ -7,7 +7,7 @@ import {
   resolveActiveGeneration,
   runGenerationTwoConversion,
 } from "../../kernel/src/index.ts";
-import { generationMigrationCommand } from "./offline-storage.contract.ts";
+import { generationMigrationCommand } from "./offline-storage-command.ts";
 
 export function runOfflineStorageCommand(argv: readonly string[]): number {
   try {
