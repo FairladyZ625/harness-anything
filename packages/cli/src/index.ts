@@ -117,7 +117,7 @@ async function runThinCli(argv: readonly string[]): Promise<number> {
   // window a second time when the throw came from the renderer rather than the dispatcher.
   const dispatchStartedAt = cliPhaseStart();
   let dispatchMeasured = false;
-  let acceptedReceipt: Record<string, unknown> | undefined;
+  let returnedReceipt: Record<string, unknown> | undefined;
   try {
     const receipt = isVerticalKindFacadeCommand(typedCommand)
       ? await runVerticalKindFacadeCommand(typedCommand)
@@ -129,7 +129,7 @@ async function runThinCli(argv: readonly string[]): Promise<number> {
             undefined,
             daemonRequestTimer,
           );
-    acceptedReceipt = receipt;
+    returnedReceipt = receipt;
     dispatchMeasured = true;
     cliPhaseEnd("dispatch", dispatchStartedAt);
     const renderStartedAt = cliPhaseStart();
@@ -145,7 +145,7 @@ async function runThinCli(argv: readonly string[]): Promise<number> {
       targetCode = daemonTargetFailureCode(error),
       entryCode = cliEntryFailureCode(error),
       direct = autostartCode ?? targetCode ?? entryCode;
-    const failure = cliDispatchError({ error, directCode: direct, timeoutCode, acceptedReceipt });
+    const failure = cliDispatchError({ error, directCode: direct, timeoutCode, returnedReceipt });
     emit(cliFailure(parsed.command.action.kind, failure.code, failure.hint), parsed.command.json);
     return 1;
   }

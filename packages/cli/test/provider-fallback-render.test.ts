@@ -80,12 +80,12 @@ test("CLI dispatch and nested receipt errors are handled by closed tagged branch
       error: new TypeError("Guidance argument ledgerPackagePath is missing"),
       directCode: null,
       timeoutCode: null,
-      acceptedReceipt: { ok: true, opId: "op-create", taskId: "task-created" },
+      returnedReceipt: { ok: true, outcome: "applied", opId: "op-create", taskId: "task-created" },
     }),
     {
       code: "cli_render_failed",
       hint:
-        "Daemon accepted the command (opId=op-create, taskId=task-created), but local receipt rendering failed. " +
+        "Daemon returned a receipt (outcome=applied, opId=op-create, taskId=task-created), but local receipt rendering failed. " +
         "Cause: Guidance argument ledgerPackagePath is missing",
     },
   );

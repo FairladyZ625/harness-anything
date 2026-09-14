@@ -14,14 +14,14 @@ export function cliDispatchError(input: {
   readonly error: unknown;
   readonly directCode: string | null;
   readonly timeoutCode: "daemon_response_timeout" | null;
-  readonly acceptedReceipt?: Record<string, unknown>;
+  readonly returnedReceipt?: Record<string, unknown>;
 }): { readonly code: string; readonly hint: string } {
   const message = cliErrorMessage(input.error);
   let failure: CliDispatchFailure;
   if (input.directCode !== null) failure = { _tag: "DirectDaemonFailure", errorCode: input.directCode, message };
   else if (input.timeoutCode !== null)
     failure = { _tag: "DaemonResponseTimeout", errorCode: input.timeoutCode, message };
-  else if (input.acceptedReceipt) failure = { _tag: "ReceiptRenderFailure", message, receipt: input.acceptedReceipt };
+  else if (input.returnedReceipt) failure = { _tag: "ReceiptRenderFailure", message, receipt: input.returnedReceipt };
   else failure = { _tag: "DaemonUnavailable", errorCode: "daemon_unavailable", message };
   switch (failure._tag) {
     case "DirectDaemonFailure": {
@@ -37,7 +37,7 @@ export function cliDispatchError(input: {
     case "ReceiptRenderFailure":
       return {
         code: "cli_render_failed",
-        hint: `Daemon accepted the command (${receiptIdentity(failure.receipt)}), but local receipt rendering failed. Cause: ${failure.message}`,
+        hint: `Daemon returned a receipt (${receiptIdentity(failure.receipt)}), but local receipt rendering failed. Cause: ${failure.message}`,
       };
     case "DaemonResponseTimeout":
     case "DaemonUnavailable":
@@ -49,7 +49,7 @@ export function cliDispatchError(input: {
 }
 
 function receiptIdentity(receipt: Record<string, unknown>): string {
-  const fields = ["opId", "taskId", "decisionId", "factId", "runtimeSessionId", "dispatchId"]
+  const fields = ["outcome", "opId", "taskId", "decisionId", "factId", "runtimeSessionId", "dispatchId"]
     .filter((field) => typeof receipt[field] === "string" && receipt[field] !== "")
     .map((field) => `${field}=${String(receipt[field])}`);
   return fields.length > 0 ? fields.join(", ") : `command=${String(receipt.command ?? "unknown")}`;
