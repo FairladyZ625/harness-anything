@@ -1,5 +1,4 @@
 import { setTimeout as delay } from "node:timers/promises";
-import { createHash } from "node:crypto";
 import { globSync, readFileSync } from "node:fs";
 import { StringDecoder } from "node:string_decoder";
 import path from "node:path";
@@ -9,6 +8,7 @@ import { dispatchStreamPath, parseRecord, readDispatchStreamIncrement, scrubProv
 import type { ActiveRuntime, ProviderFrame, RuntimeBinding } from "./runtime-spawn-types.ts";
 import { transcriptRefForSessionIdentity } from "./session-identity/index.ts";
 import { observeProviderFault } from "./runtime-provider-fault.ts";
+import { providerReplayBoundary } from "./runtime-spawn-provider-frames.ts";
 import {
   runtimeEventHasType,
   type RuntimeEventOf,
@@ -86,12 +86,29 @@ export async function consumeProviderLine(
   let value: unknown;
   try {
     value = JSON.parse(line);
-    const fingerprint = createHash("sha256").update(line).digest("hex");
-    if (active.providerEventFingerprints.has(fingerprint)) {
+    if (active.providerReplayFaulted) {
       if (persisted) active.durableOutputCount += 1;
       return;
     }
-    active.providerEventFingerprints.add(fingerprint);
+    const boundary = providerRecord(value) ? providerReplayBoundary(active.kindId, value) : null;
+    if (boundary) {
+      const duplicate = active.providerReplayBoundaries.has(boundary.providerSessionId);
+      active.providerReplayBoundaries.add(boundary.providerSessionId);
+      if (duplicate) {
+        if (persisted) active.durableOutputCount += 1;
+        if (!active.providerReplayFaulted) {
+          active.providerReplayFaulted = true;
+          active.providerOutcome = "failed";
+          active.providerFault = {
+            code: "provider_disconnected",
+            reason: `Provider replay loop repeated ${boundary.description}.`,
+          };
+          if (active.process.terminateTree) await active.process.terminateTree();
+          else active.process.terminate();
+        }
+        return;
+      }
+    }
     if (!persisted) active.stream.appendProviderEvent(value, context.input.now());
     active.durableOutputCount += 1;
   } catch (error) {
