@@ -37,7 +37,7 @@ export type { DaemonLaunchSpec } from "../../../daemon/src/client/daemon-autosta
 
 // These values belong to the invoking runtime worker or its provider launch,
 // not to the resident daemon that owns the shared socket.
-const daemonRuntimeScopedEnvironmentKeys = [
+export const daemonRuntimeScopedEnvironmentKeys = [
   "CODEX_HOME",
   "CLAUDE_CONFIG_DIR",
   "ANTHROPIC_API_KEY",
