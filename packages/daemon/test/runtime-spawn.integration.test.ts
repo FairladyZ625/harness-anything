@@ -534,7 +534,7 @@ test("runtime spawn resolves command model, Agent model, then instance default w
     assert.match(launched?.prompt ?? "", /AGENT_INSTRUCTIONS_WITNESS/u);
     assert.match(
       launched?.prompt ?? "",
-      /# Harness Execution Discipline.*configured commit identity.*conventional type prefix.*do not mention AI.*Do not push, open a PR, merge.*# Worker Role.*bounded implementation.*local commit.*residual risks/su,
+      /# Harness Execution Discipline.*configured commit identity.*conventional type prefix.*do not mention AI.*Do not push, open a PR, merge.*share one `git stash` stack.*temporary WIP commit.*never a stack position.*# Worker Role.*bounded implementation.*local commit.*residual risks/su,
     );
     assert.match(launched?.prompt ?? "", /# Standard Task/u);
     assert.ok(

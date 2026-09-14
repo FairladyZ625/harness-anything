@@ -14,6 +14,12 @@ const frameworkExecutionDiscipline = [
     "- When the runtime injects a canonical repository root, ",
     "treat it as read-only and make code changes only in the worker repository root.",
   ].join(""),
+  [
+    "- All worktrees of a repository share one `git stash` stack, so `git stash pop` can take ",
+    "another session's changes. Park uncommitted work with a temporary WIP commit instead of ",
+    "`git stash`; if stashing is unavoidable, use `git stash push -m <unique-label>` and apply ",
+    "by sha, never a stack position.",
+  ].join(""),
   "- Before handoff, rebase onto the latest origin/main and rerun the evidence commands.",
   [
     "- Submit receipts only through ",
