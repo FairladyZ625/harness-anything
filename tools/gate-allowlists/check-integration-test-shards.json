@@ -457,6 +457,11 @@
         "value": "packages/daemon/test/task-surface-status-archive.integration.test.ts",
         "ref": "task_b79a4d997e73987b0a42c62433",
         "reason": "Consolidated into packages/daemon/test/task-surface.integration.test.ts under relaxed file complexity limits (1,200 lines); all 4 test assertions preserved verbatim."
+      },
+      {
+        "value": "packages/daemon/test/daemon-host-binding.integration.test.ts",
+        "ref": "task_e3d34df53e78784cdd51048c5e",
+        "reason": "Consolidated into packages/daemon/test/daemon-host-recovery.test.ts under relaxed file complexity limits (1,200 lines); assertions preserved verbatim."
       }
     ]
   }

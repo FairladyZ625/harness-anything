@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { appendFileSync, mkdtempSync, rmSync, statSync, truncateSync, utimesSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, rmSync, statSync, truncateSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -9,8 +9,10 @@ import {
   dispatchLiveIndexPath,
   dispatchStreamPath,
   openDispatchStream,
+  openDispatchStreamAppender,
   readDispatchLiveIndex,
   readDispatchStream,
+  readDispatchStreamIncrement,
   readDispatchStreamSummary,
 } from "../src/dispatch-stream.ts";
 import { adoptRuntimes } from "../src/runtime-spawn-adoption.ts";
@@ -128,6 +130,42 @@ test("dispatch summaries skip provider bodies and refresh when lifecycle records
       exited?.records.map((record) => record.kind),
       ["process_started", "process_exit"],
     );
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("dispatch summaries keep a lifecycle record that straddles the head window edge", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-dispatch-summary-straddle-"));
+  try {
+    const dispatchId = "dispatch_555555555555555555555555",
+      stream = openDispatchStream(rootDir, {
+        dispatchId,
+        taskId: "task-5",
+        executionId: "execution-5",
+        runtimeSessionId: "runtime_555555555555555555555555",
+        instanceId: "instance-1",
+        startedAt: "2026-09-14T00:00:00.000Z",
+        prompt: "p",
+      }),
+      target = dispatchStreamPath(rootDir, dispatchId),
+      headWindowBytes = 16 * 1024,
+      beforeFiller = statSync(target).size;
+    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "provider_event", event: { text: "" } });
+    const fillerOverhead = statSync(target).size - beforeFiller;
+    truncateSync(target, beforeFiller);
+    appendRuntimeWorkerRecord(rootDir, dispatchId, {
+      kind: "provider_event",
+      event: { text: "f".repeat(headWindowBytes - 20 - beforeFiller - fillerOverhead) },
+    });
+    const bindingOffset = statSync(target).size;
+    stream.appendProviderBinding("provider-session-straddle", "2026-09-14T00:00:01.000Z");
+    assert.ok(bindingOffset < headWindowBytes && statSync(target).size > headWindowBytes);
+    appendRuntimeWorkerRecord(rootDir, dispatchId, {
+      kind: "provider_event",
+      event: { text: "x".repeat(512 * 1024) },
+    });
+    assert.equal(readDispatchStreamSummary(rootDir, dispatchId)?.providerSessionId, "provider-session-straddle");
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
@@ -684,4 +722,60 @@ test("portable runtime binding retains the assignment scope required by the exis
     () => prepare(contract, { ...action, taskId: "other-task" }, portable),
     (error: unknown) => (error as { code?: string }).code === "assignment_scope_mismatch",
   );
+});
+
+test("incremental stream reads return only the bytes past the caller-held offset", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-dispatch-increment-"));
+  try {
+    const target = dispatchStreamPath(rootDir, "dispatch_c1d2e3f4a5b60718293a4b5c");
+    mkdirSync(path.dirname(target), { recursive: true });
+    appendFileSync(target, "line-one\n");
+    const first = readDispatchStreamIncrement(target, 0);
+    assert.ok(first);
+    assert.equal(first.bytes.toString(), "line-one\n");
+    assert.equal(first.size, "line-one\n".length);
+    const caughtUp = readDispatchStreamIncrement(target, first.bytes.length);
+    assert.ok(caughtUp);
+    assert.equal(caughtUp.bytes.length, 0);
+    appendFileSync(target, "line-two\n");
+    const next = readDispatchStreamIncrement(target, first.bytes.length);
+    assert.ok(next);
+    assert.equal(next.bytes.toString(), "line-two\n");
+    assert.equal(readDispatchStreamIncrement(path.join(rootDir, "missing.jsonl"), 0), null);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("a held-descriptor appender lands schema-tagged records and reopens after close", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-dispatch-appender-"));
+  try {
+    const dispatchId = "dispatch_d1e2f3a4b5c60718293a4b5c",
+      target = dispatchStreamPath(rootDir, dispatchId);
+    openDispatchStream(rootDir, {
+      dispatchId,
+      taskId: null,
+      executionId: null,
+      runtimeSessionId: "runtime-appender",
+      instanceId: "instance-1",
+      startedAt: "2026-09-12T00:00:00.000Z",
+    });
+    const appender = openDispatchStreamAppender(target);
+    appender.append({ kind: "provider_event", event: { seq: 1 } });
+    appender.append({ kind: "provider_event", event: { seq: 2 } });
+    appender.close();
+    appender.append({ kind: "process_exit", exitCode: 0, signal: null });
+    appender.close();
+    const stream = readDispatchStream(rootDir, dispatchId);
+    assert.deepEqual(
+      stream?.records.map((record) => record.kind),
+      ["provider_event", "provider_event", "process_exit"],
+    );
+    assert.deepEqual(
+      stream?.records.map((record) => record.schema),
+      ["runtime-dispatch-stream/v1", "runtime-dispatch-stream/v1", "runtime-dispatch-stream/v1"],
+    );
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
 });
