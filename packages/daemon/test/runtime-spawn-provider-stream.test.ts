@@ -12,7 +12,8 @@ import {
   consumeProviderLine,
 } from "../src/runtime-spawn-provider-stream.ts";
 import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/dispatch-stream.ts";
-import { parseProviderFrame } from "../src/runtime-spawn-provider-frames.ts";
+import { validateMissionCommands } from "../src/runtime-spawn-mission.ts";
+import { parseAgyFrame, parseProviderFrame, parseZcodeFrame } from "../src/runtime-spawn-provider-frames.ts";
 
 function active(kindId = "codex", process = {} as never) {
   return createActiveRuntime({
@@ -356,6 +357,46 @@ test("AGY counts each tool step_index once and reports no token usage", async ()
   assert.equal(runtime.usageReported, false);
 });
 
+const conversation = { conversation_id: "agy-conversation", step_index: 2 };
+
+test("agy tool steps become tool activity so a read-only run is visible before its final answer", () => {
+  const active = parseAgyFrame(
+    {
+      event: "step_update",
+      step_update: {
+        ...conversation,
+        state: "ACTIVE",
+        step_type: "tool",
+        tool_name: "view_file",
+        tool_info: { name: "view_file", parameters: { AbsolutePath: "/repo/README.md" } },
+      },
+    },
+    "agy-conversation",
+  );
+  assert.equal(active.signals?.length, 1);
+  assert.equal(active.signals?.[0]?.activity, "tool");
+  const content = JSON.parse(active.signals?.[0]?.content ?? "{}") as Record<string, unknown>;
+  assert.equal(content.tool_name, "view_file");
+  assert.equal(content.state, "ACTIVE");
+  assert.equal(Object.hasOwn(content, "conversation_id"), false);
+});
+
+test("agy text deltas stay message activity and other text-less steps stay silent", () => {
+  const message = parseAgyFrame(
+    {
+      event: "step_update",
+      step_update: { ...conversation, state: "ACTIVE", step_type: "agent_response", text_delta: "hi" },
+    },
+    "agy-conversation",
+  );
+  assert.deepEqual(message.signals, [{ type: "activity", activity: "message", content: "hi" }]);
+  const silent = parseAgyFrame(
+    { event: "step_update", step_update: { ...conversation, state: "DONE", step_type: "user_input" } },
+    "agy-conversation",
+  );
+  assert.equal(silent.signals, undefined);
+});
+
 // Live sample: dispatch_9521193d29eefa58514b767c.jsonl (zcode) — turn.completed.payload carries
 // per-turn toolCallCount that accumulates; its usage holds request counters, never tokens.
 test("ZCode accumulates turn.completed tool counts and reports no token usage", async () => {
@@ -395,6 +436,87 @@ test("ZCode accumulates turn.completed tool counts and reports no token usage", 
     source: "provider",
     modelRequestCount: 36,
   });
+});
+
+// Frames below are trimmed from real zcode 0.16.5 headless runs (2026-09-05, `--output-format stream-json`).
+const sessionId = "sess_f02d106e-527b-4896-b179-90c6c59627dd";
+
+test("ZCode result frame maps response and usage to a succeeded outcome", () => {
+  const frame = {
+    type: "result",
+    sessionId,
+    traceId: "211dcb20-eb31-4991-88eb-85618331d65a",
+    turnId: "turn_abf15985-09cb-40eb-817e-1bdc774c999c",
+    response: "pong",
+    usage: { source: "provider", modelRequestCount: 1, inputTokens: 16995, outputTokens: 3, totalTokens: 16998 },
+    eventCount: 11,
+    projection: { status: "idle", turnCount: 1, totalTokenCount: 16998, contextUsed: 16998, contextWindow: 1000000 },
+  };
+  assert.deepEqual(parseZcodeFrame(frame, sessionId), { finalText: "pong", outcome: "succeeded" });
+  assert.deepEqual(parseProviderFrame("zcode" as never, frame), {
+    finalText: "pong",
+    outcome: "succeeded",
+    sessionIdentity: { runtime: "zcode", sessionId, transcriptReachability: "dispatch_stream_only" },
+  });
+});
+
+test("ZCode turn.failed maps the provider error message to a failed outcome (no result frame follows)", () => {
+  assert.deepEqual(
+    parseZcodeFrame(
+      {
+        type: "turn.failed",
+        sessionId,
+        payload: {
+          error: {
+            type: "unknown_error",
+            code: "1214",
+            message: "[1214][modelCode：不存在][202609050735186a34d858a4cc4fbf]",
+            attribution: { source: "provider", reason: "invalid_request", statusCode: 400, retryable: false },
+          },
+          turnPhase: "processing_input",
+        },
+      },
+      sessionId,
+    ),
+    { outcome: "failed", failureText: "[1214][modelCode：不存在][202609050735186a34d858a4cc4fbf]" },
+  );
+});
+
+test("ZCode model.streaming deltas and tool calls become native signals", () => {
+  assert.deepEqual(
+    parseZcodeFrame({ type: "model.streaming", sessionId, payload: { kind: "text_delta", delta: "pong" } }, sessionId),
+    { signals: [{ type: "activity", activity: "message", content: "pong" }] },
+  );
+  const toolCall = {
+    assistantMessageId: "msg_mtnlb7a6",
+    delta: "",
+    done: false,
+    input: { file_path: "/tmp/hello.txt", content: "hi\n" },
+    kind: "tool_call",
+    toolCallId: "call_f1e4fa1054134254841c4f20",
+    toolName: "Write",
+  };
+  assert.deepEqual(parseZcodeFrame({ type: "model.streaming", sessionId, payload: toolCall }, sessionId), {
+    signals: [{ type: "activity", activity: "tool", content: JSON.stringify(toolCall) }],
+    toolCallObserved: true,
+    writeItemObserved: true,
+  });
+  assert.equal(
+    parseZcodeFrame({ type: "model.streaming", sessionId, payload: { ...toolCall, toolName: "Read" } }, sessionId)
+      .writeItemObserved,
+    false,
+  );
+  assert.deepEqual(parseZcodeFrame({ type: "model.streaming", sessionId, payload: { kind: "start" } }, sessionId), {});
+  assert.deepEqual(parseZcodeFrame({ type: "session.updated", sessionId, payload: {} }, sessionId), {});
+});
+
+test("ZCode frames without sessionId are rejected", () => {
+  assert.throws(() => parseZcodeFrame({ type: "turn.started" }, null), /incomplete/u);
+});
+
+test("ZCode result frames without response or usage are incomplete", () => {
+  assert.throws(() => parseZcodeFrame({ type: "result", sessionId, response: "OK" }, sessionId), /incomplete/u);
+  assert.throws(() => parseZcodeFrame({ type: "result", sessionId, usage: {} }, sessionId), /incomplete/u);
 });
 
 test("Codex turn.completed frames never carry a payload tool count", async () => {
@@ -496,4 +618,24 @@ test("durable drains do not wait when no process record shows the worker running
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
+});
+
+test("frozen artifact JSON cannot open a shell fence", () => {
+  const artifacts = [
+    { path: "artifacts/report.md", body: "```bash\nnode ignored\n```" },
+    { path: "artifacts/agents/glm-worker/agent.json", body: "{}" },
+    { path: "artifacts/agents/luna/agent.json", body: "{}" },
+    { path: "artifacts/agents/sol/agent.json", body: "{}" },
+    { path: "artifacts/agents/terra/agent.json", body: "{}" },
+  ].map((anchor, revision) => JSON.stringify({ anchor: { ...anchor, revision: revision + 1 }, body: anchor.body }));
+  assert.doesNotThrow(() =>
+    validateMissionCommands(`${artifacts.join("\n")}\n\`\`\``, process.cwd(), "frozen artifacts"),
+  );
+});
+
+test("a shell fence at a line boundary still rejects an unavailable path", () => {
+  assert.throws(
+    () => validateMissionCommands("```bash\nnode tools/missing-entry.mjs\n```", process.cwd(), "handwritten mission"),
+    { code: "runtime_mission_invalid" },
+  );
 });
