@@ -8,6 +8,8 @@ import type { DaemonSessionEnvironment } from "./daemon-protocol-identifiers.ts"
 import { optionalEnum, shape, type RpcEnumRule, type RpcShape } from "./daemon-protocol-gui-types.ts";
 import type { JsonObject, JsonValue } from "./json-rpc-types.ts";
 import { daemonGuiActionSchemas, daemonGuiReadSchemas } from "./daemon-protocol-schema-registry.ts";
+import type { DaemonStatusResult } from "./daemon-status-contract.ts";
+export type { DaemonRepoAttachProgress, DaemonStatusResult } from "./daemon-status-contract.ts";
 import {
   daemonRepoModeWords,
   daemonRepoModeWordsAreExact,
@@ -566,57 +568,6 @@ export interface DaemonStopResult {
   readonly ok: true;
   readonly command: "daemon-stop";
   readonly pid: number;
-}
-
-export interface DaemonRepoAttachProgress {
-  readonly phase: "opening" | "recovering" | "catching-up";
-  readonly applied: number | null;
-  readonly total: number | null;
-  readonly watermark: number | null;
-}
-
-export interface DaemonStatusResult {
-  readonly ok: true;
-  readonly daemonId: string;
-  readonly pid: number;
-  readonly startedAt: string;
-  readonly entry: "source" | "dist";
-  readonly build: {
-    readonly version: string;
-    readonly commit: string | null;
-    readonly loadedBuildId: string | null;
-    readonly diskBuildId: string | null;
-    readonly drifted: boolean;
-  };
-  readonly connections: readonly {
-    readonly id: string;
-    readonly kind: "local" | "remote-endpoint" | "fleet-center";
-    readonly displayName: string;
-    readonly state: "enabled" | "disabled";
-    readonly endpoint?: string;
-  }[];
-  readonly repos: readonly {
-    readonly repoId: string;
-    readonly rootDir: string;
-    readonly mode: "local" | "remote-proxy" | "remote-center" | "remote-edge" | null;
-    readonly state: "warming" | "attached" | "unavailable" | "closed";
-    readonly generation: number | null;
-    readonly queueDepth: number | null;
-    readonly lastError: string | null;
-    readonly causeClass: "data-shape" | "infrastructure" | "projection" | null;
-    readonly recoveryMs: number | null;
-    readonly materialization: {
-      readonly state: (typeof materializationStateWords)[number];
-      readonly lastCheckpointRevision: number;
-      readonly lastCheckpointAt: string | null;
-      readonly pendingWalEvents: number;
-      readonly retryElapsedMs?: number;
-      readonly reason?: "git_diverged" | "deterministic_failure" | "retry_budget_exhausted";
-      readonly lastError?: string;
-    } | null;
-    readonly attach?: DaemonRepoAttachProgress;
-  }[];
-  readonly summary: string;
 }
 
 type DaemonRpcSuccessResult<Method extends DaemonRpcMethod> =

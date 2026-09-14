@@ -330,6 +330,13 @@ export async function openRepoCellProxy(
     },
     runtime,
     status: supervisor.status,
+    statusCuts: () => {
+      if (closed || supervisor.status().state !== "attached") return null;
+      return {
+        projectionWatermark: reader.withSession((projection) => projection.readCut().watermark),
+        ledgerRevision: readCurrentLedger((store) => store.readHead()?.revision ?? 0),
+      };
+    },
     settlePendingMaterialization: (context) => supervisor.request("settlePendingMaterialization", context),
     close: async () => {
       if (closed) return;
