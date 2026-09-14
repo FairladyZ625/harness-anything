@@ -6,8 +6,7 @@ import {
   reviewVerdictWords,
   taskStatusWords,
 } from "./daemon-protocol-vocabulary.ts";
-import { isJsonObject, type JsonObject } from "./json-rpc-types.ts";
-import { validationValueSummary } from "./daemon-protocol-value-summary.ts";
+import { isJsonObject, type JsonObject, validationValueSummary } from "./json-rpc-types.ts";
 
 export const recordWith = (value: unknown, fields: readonly string[]): value is JsonObject =>
     isJsonObject(value) && fields.every((field) => Object.hasOwn(value, field)),

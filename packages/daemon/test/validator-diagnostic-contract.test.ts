@@ -21,7 +21,7 @@ import {
   validateCatalogActionPayload,
   validateSessionEnvironment,
 } from "../src/protocol/daemon-protocol-validate-task.ts";
-import { validationValueSummary } from "../src/protocol/daemon-protocol-value-summary.ts";
+import { validationValueSummary } from "../src/protocol/json-rpc-types.ts";
 import { writeReceipt } from "../src/protocol/daemon-protocol-validate-results.ts";
 import type { JsonObject } from "../src/protocol/json-rpc-types.ts";
 
