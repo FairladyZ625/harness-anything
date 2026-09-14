@@ -13,9 +13,9 @@ import {
 } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { createRequire } from "node:module";
 import { consumeKnownError } from "../error-consumption.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
-import { makeLocalVersionControlSystem, resolveLedgerGitLayout } from "../composition/index.ts";
 import { daemonRepoModes, type DaemonRepoMode } from "./repo-mode.ts";
 
 export { daemonRepoModes } from "./repo-mode.ts";
@@ -861,8 +861,9 @@ function daemonConnectionEquals(left: DaemonRegistryConnection, right: DaemonReg
 }
 
 function defaultAuthoredBranch(canonicalRoot: string): string {
-  const vcs = makeLocalVersionControlSystem(),
-    repoRoot = resolveLedgerGitLayout(canonicalRoot).rootDir,
+  const { makeLocalVersionControlSystem } = createRequire(import.meta.url)("../store/local-version-control-system.ts"),
+    vcs = makeLocalVersionControlSystem(),
+    repoRoot = vcs.topLevel(resolveHarnessLayout(canonicalRoot).authoredRoot),
     branch = vcs.originHeadBranch(repoRoot) ?? vcs.currentBranch(repoRoot);
   if (!branch || !validBranch(branch))
     throw new Error(`canonicalRoot must have an attached default Git branch: ${repoRoot}`);

@@ -13,6 +13,8 @@ const restrictedKernelPattern = "**/kernel/src/**/*";
 const publicBarrelException = "!**/kernel/src/index.ts";
 const domainParentException = "!**/kernel/src/domain";
 const contractVersionException = "!**/kernel/src/domain/contract-version.ts";
+const daemonParentException = "!**/kernel/src/daemon";
+const daemonRegistryException = "!**/kernel/src/daemon/registry.ts";
 
 function daemonKernelDeepImportGroup() {
   const daemonOverrides = eslintConfig.filter((entry) => entry.files?.includes(daemonFilesPattern));
@@ -24,7 +26,7 @@ function daemonKernelDeepImportGroup() {
   return kernelPatterns[0].group;
 }
 
-test("daemon kernel deep-import allowlist contains only the effect-free contract version module", () => {
+test("daemon kernel deep-import allowlist contains only the approved narrow modules", () => {
   const group = daemonKernelDeepImportGroup();
 
   // `no-restricted-imports` uses gitignore semantics: the parent directory must be
@@ -35,19 +37,28 @@ test("daemon kernel deep-import allowlist contains only the effect-free contract
     publicBarrelException,
     domainParentException,
     contractVersionException,
+    daemonParentException,
+    daemonRegistryException,
   ]);
   const daemonDeepImportAllowlist = group
-    .filter((pattern) => pattern.startsWith("!") && ![publicBarrelException, domainParentException].includes(pattern))
+    .filter(
+      (pattern) =>
+        pattern.startsWith("!") &&
+        ![publicBarrelException, domainParentException, daemonParentException].includes(pattern),
+    )
     .map((pattern) => pattern.slice(1));
-  assert.deepEqual(daemonDeepImportAllowlist, ["**/kernel/src/domain/contract-version.ts"]);
+  assert.deepEqual(daemonDeepImportAllowlist, [
+    "**/kernel/src/domain/contract-version.ts",
+    daemonRegistryException.slice(1),
+  ]);
 });
 
-test("the daemon deep-import exception targets an import-free kernel module", async () => {
+test("the effect-free daemon deep-import exception targets an import-free kernel module", async () => {
   const source = await readFile(path.join(repoRoot, "packages/kernel/src/domain/contract-version.ts"), "utf8");
   assert.doesNotMatch(source, /(?:^\s*import\s|(?:\bimport|\brequire)\s*\()/mu);
 });
 
-test("ESLint allows contract-version but rejects another daemon kernel deep import", async () => {
+test("ESLint allows the approved daemon kernel deep imports but rejects another one", async () => {
   const eslint = new ESLint({ cwd: repoRoot });
   const [allowed] = await eslint.lintText(
     'import { contractVersion } from "../../../kernel/src/domain/contract-version.ts";\nvoid contractVersion;\n',
@@ -55,6 +66,15 @@ test("ESLint allows contract-version but rejects another daemon kernel deep impo
   );
   assert.deepEqual(
     allowed.messages.filter(({ ruleId }) => ruleId === "no-restricted-imports"),
+    [],
+  );
+
+  const [registry] = await eslint.lintText(
+    'import { readDaemonRegistry } from "../../../kernel/src/daemon/registry.ts";\nvoid readDaemonRegistry;\n',
+    { filePath: "packages/daemon/src/kernel-registry-probe.ts" },
+  );
+  assert.deepEqual(
+    registry.messages.filter(({ ruleId }) => ruleId === "no-restricted-imports"),
     [],
   );
 
