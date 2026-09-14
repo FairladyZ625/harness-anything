@@ -142,6 +142,9 @@ export const DAEMON_AGENT_RUNTIME_OVERVIEW_SCHEMA = Object.freeze({
   DAEMON_AGENT_RUNTIME_SESSION_SCHEMA = Object.freeze({
     id: "daemon.agent-runtime-session/v1",
   }),
+  DAEMON_AGENT_RUNTIME_TOKEN_USAGE_SCHEMA = Object.freeze({
+    id: "daemon.agent-runtime-token-usage/v1",
+  }),
   DAEMON_AGENT_RUNTIME_EVENTS_SCHEMA = Object.freeze({
     id: "daemon.agent-runtime-events/v1",
   }),

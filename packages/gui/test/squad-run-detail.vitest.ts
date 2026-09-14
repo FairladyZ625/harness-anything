@@ -322,64 +322,25 @@ const emptyMetricsDetail: SquadRunReadResult = {
 const telemetryView = (detail: SquadRunReadResult = telemetryDetail) => detailView({ detail });
 
 describe("squad run detail: attempt telemetry (P1.3)", () => {
-  it("badges each attempt with its tool call count, including zero-cost attempts", () => {
+  it("keeps the orchestration tree and drops the retired token-board form", () => {
     const markup = telemetryView();
-    expect(markup).toContain('data-testid="squad-run-attempt-tools-wa-terra"');
-    expect(markup).toContain("Tools: 32");
-    expect(markup).toContain("Tools: 12");
-    // 被拒 attempt 度量为零,诚实呈 0 而不是隐藏徽标。
-    expect(markup).toContain('data-testid="squad-run-attempt-tools-wa-luna"');
-    expect(markup).toContain("Tools: 0");
-  });
-
-  it("draws input/output token bars scaled against the run-wide max attempt", () => {
-    const markup = telemetryView();
-    expect(markup).toContain('data-testid="squad-run-attempt-tokens-wa-terra"');
-    // 精确数字进 title(tooltip),可见面只放比例条:terra 是全 run 最大消耗(1.02M),两段合成满宽。
-    expect(markup).toContain('title="in 900,000 / out 120,000"');
-    expect(markup).toContain('title="in 300,000 / out 60,000"');
-    expect(markup).toMatch(/squad-run-attempt-tokens-wa-terra"[^>]*>.*?width:88\.2%/u);
-    expect(markup).toMatch(/squad-run-attempt-tokens-wa-terra"[\s\S]*?width:11\.8%/u);
-    // sol(360K)按同一比例尺落在 terra(1.02M)的 35.3%。
-    expect(markup).toMatch(/squad-run-attempt-tokens-wa-sol"[\s\S]*?width:29\.4%/u);
-    expect(markup).toMatch(/squad-run-attempt-tokens-wa-sol"[\s\S]*?width:5\.9%/u);
-    // 零消耗 attempt 不画假条:track 开标签后紧跟闭合,没有带 width 的子段。
-    expect(markup).toContain('data-testid="squad-run-attempt-tokens-wa-luna"');
-    expect(markup).not.toMatch(/squad-run-attempt-tokens-wa-luna"[^>]*><span [^>]*width:/u);
-  });
-
-  it("flags compacted attempts with a yellow warning and the loss-of-constraints tooltip", () => {
-    const markup = telemetryView();
-    expect(markup).toContain('data-testid="squad-run-attempt-compacted-wa-terra"');
-    expect(markup).toContain('data-tip="Context compaction triggered; beware of losing negative constraints."');
-    // 只有 compacted===true 的 attempt 出警示,未压缩的不挂标。
-    expect(markup.match(/squad-run-attempt-compacted-/gu)).toHaveLength(1);
-    expect(markup).toContain("compacted");
-  });
-
-  it("boards the run-wide token overhead and each member's share of it", () => {
-    const markup = telemetryView();
-    expect(markup).toContain('data-testid="squad-run-token-board"');
-    // 总开销 = leader 轮 + 全部 worker attempt:in 1,320,000 / out 210,000 / 52 次工具调用。
-    expect(markup).toContain('data-testid="squad-run-token-board-total"');
-    expect(markup).toContain("total in 1.3M · out 210K · 52 tool calls");
-    // 成员占比行:leader 150K/1.53M≈10%、terra 1.02M/1.53M≈67%、sol 360K/1.53M≈24%、luna 0%。
-    expect(markup).toContain('data-testid="squad-run-token-member-leader"');
-    expect(markup).toContain('data-testid="squad-run-token-member-terra"');
-    expect(markup).toContain('data-testid="squad-run-token-member-sol"');
-    expect(markup).toContain('data-testid="squad-run-token-member-luna"');
-    expect(markup).toMatch(/squad-run-token-member-terra"[\s\S]*?width:66\.7%/u);
-    expect(markup).toMatch(/squad-run-token-member-terra"[\s\S]*?>67%</u);
-    expect(markup).toMatch(/squad-run-token-member-leader"[\s\S]*?>10%</u);
-    expect(markup).toMatch(/squad-run-token-member-sol"[\s\S]*?>24%</u);
-    expect(markup).toMatch(/squad-run-token-member-luna"[\s\S]*?>0%</u);
+    // 编排扇出树仍在:轮次与 attempt 行照常渲染(含被拒 attempt 的零度量行)。
+    expect(markup).toContain('data-testid="squad-run-attempt-wa-terra"');
+    expect(markup).toContain('data-testid="squad-run-attempt-wa-luna"');
+    expect(markup).toContain("terra");
+    expect(markup).toContain("sol");
+    // Token 消耗视图已收敛到系统 Tab「Token 消耗」页与会话详情消耗面板(泽宇 2026-09-14):
+    // 本页不再渲染 token 看板、attempt 徽标/比例条与 compacted 警示。
+    expect(markup).not.toContain("squad-run-token-board");
+    expect(markup).not.toContain("squad-run-attempt-tools-");
+    expect(markup).not.toContain("squad-run-attempt-tokens-");
+    expect(markup).not.toContain("squad-run-attempt-compacted-");
   });
 
   it("renders without crashing when every metric is zero", () => {
     const markup = telemetryView(emptyMetricsDetail);
     expect(markup).not.toContain("NaN");
     expect(markup).not.toContain("Infinity");
-    expect(markup).toContain("total in 0 · out 0 · 0 tool calls");
-    expect(markup).toContain("Tools: 0");
+    expect(markup).toContain('data-testid="squad-run-attempt-wa-terra"');
   });
 });

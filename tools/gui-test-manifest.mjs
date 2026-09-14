@@ -15,6 +15,7 @@ export const guiVitestManifest = [
   "packages/gui/test/squad-cockpit.vitest.ts",
   "packages/gui/test/squad-run-detail.vitest.ts",
   "packages/gui/test/squad-run-client.vitest.ts",
+  "packages/gui/test/token-usage-view.vitest.ts",
   "packages/gui/test/runtime-provider-planes.vitest.ts",
   "packages/gui/test/runtime-provider-effort-edit.vitest.ts",
   "packages/gui/test/runtime-effort-enum.vitest.ts",

@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { daemonProtocolCommands } from "../src/protocol/daemon-protocol-commands.ts";
-import { observeTailReadMethod } from "../src/protocol/daemon-protocol-gui-reads.ts";
+import { observeTailReadMethod } from "../src/protocol/daemon-protocol-observe-tail-read.ts";
 import { daemonRepoModeWords } from "../src/protocol/daemon-protocol-vocabulary.ts";
 import { admitRepoMode, entityActionCommandTopology } from "../src/repo-mode.ts";
 

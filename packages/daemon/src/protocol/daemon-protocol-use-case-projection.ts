@@ -8,7 +8,7 @@ import {
   isUseCaseProjectionName,
   useCaseProjectionFacets,
   useCaseProjectionSchemaId,
-  type DaemonUseCaseProjectionResult,
+  type UseCaseProjectionFacet,
 } from "./daemon-protocol-gui-types.ts";
 import { validateSchedulesList } from "./schedules-gui-contract.ts";
 
@@ -30,6 +30,31 @@ const innerValidators: Readonly<Record<string, ProjectionValidator>> = Object.fr
   "schedule-run-history/runs": validateScheduleRuns,
   "runtime-session-groups/groups": validateAgentRuntimeSessionGroups,
 });
+
+export interface DaemonUseCaseProjectionResult {
+  readonly schema: typeof useCaseProjectionSchemaId;
+  readonly ok: true;
+  readonly name: UseCaseProjectionName;
+  readonly facet: UseCaseProjectionFacet;
+  readonly version: number;
+  /** Derived from `entityKindContracts` at read time, never restated on the wire declaration. */
+  readonly inputs: { readonly entityKinds: readonly string[]; readonly relationTypes: readonly string[] };
+  readonly projection: unknown;
+}
+
+export interface DaemonUseCaseProjectionPayload {
+  readonly name: UseCaseProjectionName;
+  readonly facet?: UseCaseProjectionFacet;
+  readonly scheduleId?: string;
+  readonly groupBy?: "task" | "squad" | "agent" | "day";
+  readonly agentId?: string;
+  readonly squadId?: string;
+  readonly since?: string;
+  readonly query?: string;
+  /** Session status words the group read narrows to; the daemon owns the vocabulary. */
+  readonly status?: readonly string[];
+  readonly limit?: number;
+}
 
 export function validateDaemonUseCaseProjection(value: unknown): readonly string[] {
   if (!isJsonObject(value)) return [validationError("use-case-projection", "result", value, "must be an object")];

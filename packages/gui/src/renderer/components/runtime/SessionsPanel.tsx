@@ -7,6 +7,7 @@ import { consumeKnownError } from "../../../api/error-consumption.ts";
 import { agentRuntimeClient } from "../../agent-runtime-client.ts";
 import { sessionInstallationBadge, type SessionRow, shortRef } from "../../sessions-model.ts";
 import { t } from "../../i18n/index.tsx";
+import { exactTokens } from "../../token-format.ts";
 import { EntityRefLink } from "../EntityRefLink.tsx";
 import { SessionTranscript } from "../sessions/SessionTranscript.tsx";
 import {
@@ -142,6 +143,44 @@ export function SessionsPanel({
         />
       )}
     </>
+  );
+}
+
+/** 会话消耗面板:该会话派工的输入/缓存读取/输出/总 Token、工具调用与 compaction 标记。 */
+function SessionMetricsCard({ metrics }: { readonly metrics: AgentRuntimeSessionDto["metrics"] | null }) {
+  return (
+    <Card>
+      <CardHead>
+        <CardTitle>{t("agentRuntime.sessionMetricsTitle")}</CardTitle>
+        {metrics?.compacted === true && (
+          <span data-testid="session-metrics-compacted">
+            <Badge status="blocked" tip={t("agentRuntime.sessionMetricsCompactedTip")}>
+              ⚠ {t("agentRuntime.sessionMetricsCompacted")}
+            </Badge>
+          </span>
+        )}
+      </CardHead>
+      <CardBody>
+        {metrics == null ? (
+          <div
+            data-testid="session-metrics-none"
+            className="rounded border border-dashed border-text-faint/55 px-2.5 py-2 ui-micro text-text-faint"
+          >
+            {t("agentRuntime.sessionMetricsNone")}
+          </div>
+        ) : (
+          <div data-testid="session-metrics">
+            <KV>
+              <KVRow name={t("agentRuntime.sessionMetricsInput")}>{exactTokens(metrics.inputTokens)}</KVRow>
+              <KVRow name={t("agentRuntime.sessionMetricsCacheRead")}>{exactTokens(metrics.cacheReadTokens)}</KVRow>
+              <KVRow name={t("agentRuntime.sessionMetricsOutput")}>{exactTokens(metrics.outputTokens)}</KVRow>
+              <KVRow name={t("agentRuntime.sessionMetricsTotal")}>{exactTokens(metrics.totalTokens)}</KVRow>
+              <KVRow name={t("agentRuntime.sessionMetricsTools")}>{metrics.toolCallCount}</KVRow>
+            </KV>
+          </div>
+        )}
+      </CardBody>
+    </Card>
   );
 }
 
@@ -307,6 +346,9 @@ export function SessionDetailView({
           )}
         </CardBody>
       </Card>
+      {/* 单次会话消耗面板(P1.3):数据随会话读的 metrics 字段下发——与 liveness 同一份
+          dispatch stream summary。固定占位:未上报时如实说明,不隐藏区域。 */}
+      <SessionMetricsCard metrics={session.metrics ?? null} />
       <Card>
         <CardHead>
           <CardTitle>{t("agentRuntime.resultText")}</CardTitle>

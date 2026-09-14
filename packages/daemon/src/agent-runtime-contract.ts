@@ -4,7 +4,7 @@ import type {
   RuntimeInstallationState,
   RuntimeSessionSemanticState,
 } from "../../kernel/src/index.ts";
-import type { AgentRuntimeAttemptChainDto } from "./runtime-attempt-contract.ts";
+import { validAgentRuntimeAttemptChain, type AgentRuntimeAttemptChainDto } from "./runtime-attempt-contract.ts";
 export type { AgentRuntimeAttemptChainDto } from "./runtime-attempt-contract.ts";
 export type { RuntimeInstallationState } from "../../kernel/src/index.ts";
 export interface AgentRuntimeInstallationDto {
@@ -51,6 +51,14 @@ export interface AgentRuntimeInstallationErrorDto {
 }
 export const runtimeTypeMatchesKind = (runtimeType: string, kindId: AgentRuntimeInstanceDto["kindId"]): boolean =>
   runtimeType === "any" || runtimeType === kindId;
+export interface AgentRuntimeSessionMetricsDto {
+  readonly inputTokens: number;
+  readonly cacheReadTokens: number;
+  readonly outputTokens: number;
+  readonly totalTokens: number;
+  readonly toolCallCount: number;
+  readonly compacted: boolean;
+}
 export interface AgentRuntimeSessionDto {
   readonly runtimeSessionId: string;
   readonly providerSessionId: string | null;
@@ -60,6 +68,8 @@ export interface AgentRuntimeSessionDto {
   /** Omitted while the referenced installation is still witnessed, preserving the established DTO bytes. */
   readonly installationState?: Exclude<RuntimeInstallationState, "present">;
   readonly installationError?: AgentRuntimeInstallationErrorDto;
+  /** Latest dispatch-stream consumption metrics; omitted until the worker emits them. */
+  readonly metrics?: AgentRuntimeSessionMetricsDto;
   readonly definitionSnapshotRef: string;
   readonly definitionSnapshot: AgentDefinitionSnapshot | null;
   readonly definitionSnapshotPersisted: boolean;
@@ -391,7 +401,7 @@ function validSession(value: unknown): value is AgentRuntimeSessionDto {
         "associations",
         "activity",
       ],
-      ["installationState", "installationError", "semanticState", "attemptChain"],
+      ["installationState", "installationError", "semanticState", "attemptChain", "metrics"],
     ) &&
     typeof value.runtimeSessionId === "string" &&
     (value.providerSessionId === null || typeof value.providerSessionId === "string") &&
@@ -401,6 +411,7 @@ function validSession(value: unknown): value is AgentRuntimeSessionDto {
     typeof value.kindId === "string" &&
     value.kindId.length > 0 &&
     validInstallationState(value.installationState, value.installationError) &&
+    (value.metrics === undefined || validSessionMetrics(value.metrics)) &&
     typeof value.definitionSnapshotPersisted === "boolean" &&
     (value.definitionSnapshot === null ||
       (isAgentDefinitionSnapshot(value.definitionSnapshot) &&
@@ -413,7 +424,7 @@ function validSession(value: unknown): value is AgentRuntimeSessionDto {
     /^stream:\d+$/u.test(String(value.streamCursor)) &&
     Array.isArray(value.associations) &&
     value.associations.every(validAssociation) &&
-    (value.attemptChain === undefined || validAttemptChain(value.attemptChain)) &&
+    (value.attemptChain === undefined || validAgentRuntimeAttemptChain(value.attemptChain)) &&
     isAgentRuntimeContractRecord(value.activity) &&
     hasAgentRuntimeContractFields(
       value.activity,
@@ -432,6 +443,24 @@ function validSession(value: unknown): value is AgentRuntimeSessionDto {
       (typeof value.activity.reasonCode === "string" && value.activity.reasonCode.length > 0))
   );
 }
+function validSessionMetrics(value: unknown): value is AgentRuntimeSessionMetricsDto {
+  return (
+    isAgentRuntimeContractRecord(value) &&
+    hasExactAgentRuntimeContractFields(value, [
+      "inputTokens",
+      "cacheReadTokens",
+      "outputTokens",
+      "totalTokens",
+      "toolCallCount",
+      "compacted",
+    ]) &&
+    ["inputTokens", "cacheReadTokens", "outputTokens", "totalTokens", "toolCallCount"].every(
+      (field) => Number.isSafeInteger(value[field]) && Number(value[field]) >= 0,
+    ) &&
+    typeof value.compacted === "boolean"
+  );
+}
+
 function validInstallationState(state: unknown, error: unknown): boolean {
   if (state === undefined && error === undefined) return true;
   return (
@@ -443,54 +472,7 @@ function validInstallationState(state: unknown, error: unknown): boolean {
     error.hint.length > 0
   );
 }
-function validAttemptChain(value: unknown): value is AgentRuntimeAttemptChainDto {
-  return (
-    isAgentRuntimeContractRecord(value) &&
-    hasExactAgentRuntimeContractFields(value, ["attemptGroupId", "attempts"]) &&
-    typeof value.attemptGroupId === "string" &&
-    value.attemptGroupId.length > 0 &&
-    Array.isArray(value.attempts) &&
-    value.attempts.length > 0 &&
-    value.attempts.every(
-      (attempt) =>
-        isAgentRuntimeContractRecord(attempt) &&
-        hasAgentRuntimeContractFields(
-          attempt,
-          [
-            "dispatchId",
-            "runtimeSessionId",
-            "attemptIndex",
-            "provider",
-            "classification",
-            "reason",
-            "fallbackState",
-            "nextDispatchId",
-          ],
-          ["faultClass", "resetAt", "nextAction"],
-        ) &&
-        typeof attempt.dispatchId === "string" &&
-        typeof attempt.runtimeSessionId === "string" &&
-        Number.isInteger(attempt.attemptIndex) &&
-        (attempt.attemptIndex as number) >= 0 &&
-        isAgentRuntimeContractRecord(attempt.provider) &&
-        hasExactAgentRuntimeContractFields(attempt.provider, ["instance", "model"]) &&
-        typeof attempt.provider.instance === "string" &&
-        (attempt.provider.model === null || typeof attempt.provider.model === "string") &&
-        (attempt.classification === null ||
-          ["provider_fault", "provider_quota", "worker_stop", "gate_red"].includes(String(attempt.classification))) &&
-        (attempt.reason === null || typeof attempt.reason === "string") &&
-        (attempt.faultClass === undefined ||
-          ["quota_exhausted", "rate_limited"].includes(String(attempt.faultClass))) &&
-        (attempt.resetAt === undefined ||
-          (!Number.isNaN(Date.parse(String(attempt.resetAt))) && typeof attempt.resetAt === "string")) &&
-        (attempt.nextAction === undefined ||
-          (typeof attempt.nextAction === "string" && attempt.nextAction.length > 0)) &&
-        (attempt.fallbackState === null ||
-          ["scheduled", "dispatched", "exhausted"].includes(String(attempt.fallbackState))) &&
-        (attempt.nextDispatchId === null || typeof attempt.nextDispatchId === "string"),
-    )
-  );
-}
+
 function validPage(value: unknown): boolean {
   return (
     isAgentRuntimeContractRecord(value) &&

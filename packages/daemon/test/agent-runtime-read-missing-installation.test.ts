@@ -17,6 +17,7 @@ import { validateAgentRuntimeOverview, validateAgentRuntimeSession } from "../sr
 import { makeAgentRuntimeReadModel } from "../src/agent-runtime-read.ts";
 import { makeAgentRuntimeStreamHub } from "../src/agent-runtime-stream.ts";
 import { readRuntimeSessionActivityEvidence } from "../src/dispatch-read.ts";
+import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/dispatch-stream.ts";
 
 const actor = { principal: { personId: "person-runtime" }, executor: null } as const;
 
@@ -125,6 +126,51 @@ test("runtime overview remains available without a local dispatch stream", () =>
     assert.equal(overview.sessions[0]?.runtimeSessionId, "runtime-historical");
   }));
 
+test("session reads carry the dispatch stream's latest runtime metrics", () =>
+  withRuntime(true, ({ rootDir, store, projection, stream }) => {
+    openDispatchStream(rootDir, {
+      dispatchId: "dispatch_000000000000000000000001",
+      taskId: null,
+      executionId: null,
+      runtimeSessionId: "runtime-historical",
+      instanceId: "instance-historical",
+      startedAt: "2026-09-03T00:00:00.000Z",
+    });
+    appendRuntimeWorkerRecord(rootDir, "dispatch_000000000000000000000001", {
+      kind: "runtime_metrics",
+      inputTokens: 1_200,
+      cacheReadTokens: 340,
+      outputTokens: 260,
+      totalTokens: 1_800,
+      toolCallCount: 17,
+      compacted: true,
+      raw: { input_tokens: 1_200, output_tokens: 260 },
+    });
+    const reads = makeAgentRuntimeReadModel({
+      readActivityEvidence: (dispatchId) => readRuntimeSessionActivityEvidence(rootDir, dispatchId),
+      store,
+      projection,
+      stream,
+    });
+    const single = reads.session({ runtimeSessionId: "runtime-historical" });
+    assert.deepEqual(single.session.metrics, {
+      inputTokens: 1_200,
+      cacheReadTokens: 340,
+      outputTokens: 260,
+      totalTokens: 1_800,
+      toolCallCount: 17,
+      compacted: true,
+    });
+    assert.deepEqual(validateAgentRuntimeSession(single), []);
+    assert.notEqual(
+      validateAgentRuntimeSession({
+        ...single,
+        session: { ...single.session, metrics: { ...single.session.metrics!, inputTokens: -1 } },
+      }).length,
+      0,
+    );
+  }));
+
 function withRuntime(
   installationPresent: boolean,
   use: (fixture: {
@@ -179,7 +225,7 @@ function events(installationId: string): readonly AgentRuntimeEventV1[] {
     event(
       "runtime_dispatch_requested",
       {
-        dispatchId: "dispatch-historical",
+        dispatchId: "dispatch_000000000000000000000001",
         runtimeSessionId: "runtime-historical",
         instanceId: snapshot.instanceId,
         installationId,

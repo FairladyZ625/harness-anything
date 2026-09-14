@@ -48,8 +48,9 @@ import { readBeforeWriteQueue } from "./write-queue-external-reads.ts";
 import { readDeclaredEntityRows } from "./entity-rows-read.ts";
 import { readEntityContent, type EntityContentSource } from "./entity-content-read.ts";
 import { readEntityLocator } from "./entity-locator-read.ts";
-import { discoverAgentSkills } from "./agent-skills.ts";
+import { readAgentSkillsGui } from "./agent-skills.ts";
 import { readTaskDispatches } from "./dispatch-read.ts";
+import { agentRuntimeTokenUsageHandler } from "./agent-runtime-token-usage.ts";
 import {
   admitUseCaseProjectionSelector,
   type DaemonUseCaseProjectionResult,
@@ -588,11 +589,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
         entityId: context.requiredCellText(payload.agentId, "agentId"),
         projection: context.projection,
       }),
-    "repo.agent.skills.list": () => ({
-      schema: "agent-skill-catalog/v1" as const,
-      ok: true as const,
-      skills: discoverAgentSkills({ rootDir: context.rootDir }),
-    }),
+    "repo.agent.skills.list": () => readAgentSkillsGui(context.rootDir),
     "repo.squad.entities.list": () =>
       readAgentEntityGuiProjection({
         kind: "squad-list",
@@ -620,6 +617,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
     "repo.agentRuntime.overview": (payload) => context.runtimeReads.overview(payload),
     "repo.agentRuntime.sessions.read": (payload) => context.runtimeReads.session(payload),
     "repo.agentRuntime.events.read": (payload) => context.runtimeReads.events(payload),
+    "repo.agentRuntime.tokenUsage": () => agentRuntimeTokenUsageHandler(context),
     "repo.task.dispatches": (payload: Readonly<Record<string, unknown>>) =>
       readTaskDispatches({
         rootDir: context.rootDir,

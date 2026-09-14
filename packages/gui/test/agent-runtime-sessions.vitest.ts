@@ -206,6 +206,43 @@ const detailView = (overrides: Partial<Parameters<typeof SessionDetailView>[0]> 
     } as never),
   );
 
+describe("session consumption panel (P1.3)", () => {
+  const metrics = {
+    inputTokens: 1_200,
+    cacheReadTokens: 340,
+    outputTokens: 260,
+    totalTokens: 1_800,
+    toolCallCount: 17,
+    compacted: false,
+  } as const;
+
+  it("renders the session's dispatch consumption counters", () => {
+    const markup = detailView({ session: { ...sessionDto, metrics } as typeof sessionDto });
+    expect(markup).toContain('data-testid="session-metrics"');
+    expect(markup).toContain("1,200");
+    expect(markup).toContain("340");
+    expect(markup).toContain("260");
+    expect(markup).toContain("1,800");
+    expect(markup).toContain("17");
+    expect(markup).not.toContain('data-testid="session-metrics-compacted"');
+  });
+
+  it("flags compaction with the loss-of-constraints warning", () => {
+    const markup = detailView({
+      session: { ...sessionDto, metrics: { ...metrics, compacted: true } } as typeof sessionDto,
+    });
+    expect(markup).toContain('data-testid="session-metrics-compacted"');
+    expect(markup).toContain("Compacted");
+  });
+
+  it("keeps the panel present and honest when the dispatch has not reported consumption", () => {
+    const markup = detailView();
+    expect(markup).toContain('data-testid="session-metrics-none"');
+    // 撇号在 static markup 里会被转义,断言避开它。
+    expect(markup).toContain("not reported consumption yet.");
+  });
+});
+
 describe("session transcript replay", () => {
   const records = [
     {
