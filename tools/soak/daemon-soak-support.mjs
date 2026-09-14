@@ -29,9 +29,13 @@ export function timelineFor({ userRoot, daemonId }) {
   return buildTimeline(loadConnLogRecords(files));
 }
 
-export async function waitForAttachedRepo({ child, endpoint, repoId, timeoutMs }) {
+export async function waitForAttachedRepo({ child, endpoint, repoId, timeoutMs, describeDaemonOutput }) {
   for (const deadline = Date.now() + timeoutMs; Date.now() < deadline; ) {
-    if (child.exitCode !== null) throw new Error(`daemon exited during startup with code ${child.exitCode}`);
+    if (child.exitCode !== null) {
+      await settleDaemonStreams(child);
+      const reason = describeDaemonOutput ? describeDaemonOutput() : "";
+      throw new Error(`daemon exited during startup with code ${child.exitCode}${reason ? `\n${reason}` : ""}`);
+    }
     try {
       const status = await requestDaemonJsonRpcAt(endpoint, "daemon.status", {}, 500, 2_000);
       const repo = status.repos?.find?.((candidate) => candidate.repoId === repoId);
@@ -43,6 +47,19 @@ export async function waitForAttachedRepo({ child, endpoint, repoId, timeoutMs }
     await delay(100);
   }
   throw new Error(`daemon did not attach ${repoId} within ${timeoutMs}ms`);
+}
+
+// The exit event can be observed while the final stdout/stderr chunks are still in flight; all
+// data events precede the stream's readableEnded flip, so waiting for that flag (bounded) means
+// the reported exit reason includes every byte the daemon actually emitted.
+async function settleDaemonStreams(child, timeoutMs = 2_000) {
+  const flowing = (stream) => stream !== null && stream !== undefined && stream.readableEnded === false;
+  for (
+    const deadline = Date.now() + timeoutMs;
+    (flowing(child.stdout) || flowing(child.stderr)) && Date.now() < deadline;
+
+  )
+    await delay(25);
 }
 
 export function readConfig(env = process.env) {

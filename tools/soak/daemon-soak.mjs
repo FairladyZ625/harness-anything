@@ -16,6 +16,13 @@ import {
   sha256Text,
 } from "../../packages/kernel/src/index.ts";
 import {
+  convertLegacyGeneration,
+  createImmutableLegacyGenerationSnapshotFromStoppedRepository,
+  legacyGenerationSnapshotPath,
+  preflightConvertedGenerationActivation,
+} from "../../packages/kernel/src/store/legacy-generation-conversion.ts";
+import { daemonRuntimeScopedEnvironmentKeys } from "../../packages/cli/src/daemon/client.ts";
+import {
   JsonRpcLineClient,
   connectSocket,
   requestDaemonJsonRpcAt,
@@ -41,8 +48,22 @@ import {
 import { renderTimeline } from "../logs/log-timeline.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "../..");
-const cliEntry = path.join(repoRoot, "packages/cli/src/index.ts");
+const daemonHostEntry = path.join(repoRoot, "packages/daemon/src/bin.ts");
 const workloadFailureEvidenceLimit = 20;
+
+// The published `harness-anything-daemon` bin is the only daemon host entry; from a source
+// checkout that entry is packages/daemon/src/bin.ts. The launch mirrors the product autostart
+// (cliDaemonServeLaunch): explicit --user-root/--daemon-id argv plus the same runtime-scoped
+// environment keys stripped, so the fixture daemon never inherits the invoking worker's routing.
+export function daemonServeLaunch({ userRoot, daemonId, home, env = process.env }) {
+  const childEnv = { ...env, HOME: home, USERPROFILE: home, GIT_CONFIG_GLOBAL: "/dev/null" };
+  for (const key of daemonRuntimeScopedEnvironmentKeys) delete childEnv[key];
+  return {
+    command: process.execPath,
+    args: [daemonHostEntry, "serve", "--user-root", userRoot, "--daemon-id", daemonId],
+    env: childEnv,
+  };
+}
 
 const soakActor = Object.freeze({ principal: { personId: "person-soak" }, executor: null });
 const runtimeDefinition = Object.freeze({
@@ -109,6 +130,7 @@ export function createSoakEvents({ taskCount, eventCount }) {
         surfaces: ["packages/daemon"],
         fromLegacyId: null,
       },
+      packageDisposition: "active",
     };
     tasks.push(task);
     append("task-event/v1", "task_created", { task }, taskId);
@@ -276,31 +298,24 @@ async function runSoak(config = readConfig()) {
     console.log(`[soak] hermetic user-root=${userRoot} daemon-id=${daemonId}`);
     const fixtureStarted = performance.now(),
       events = createSoakEvents(config);
-    initializeFixture({ rootDir, userRoot, repoId, events });
+    const conversion = initializeFixture({ rootDir, userRoot, repoId, events });
     console.log(
-      `[soak] fixture tasks=${config.taskCount} events=${events.length} generated=${Math.round(performance.now() - fixtureStarted)}ms (deterministic canonical event snapshot)`,
+      `[soak] fixture tasks=${config.taskCount} events=${events.length} generated+converted=${Math.round(performance.now() - fixtureStarted)}ms ` +
+        `(legacy snapshot -> operator conversion -> activated generation ${conversion.generation}, revision ${conversion.revision})`,
     );
 
-    child = spawn(
-      process.execPath,
-      [cliEntry, "daemon", "serve", "--user-root", userRoot, "--daemon-id", daemonId, "--json"],
-      {
-        cwd: repoRoot,
-        env: {
-          ...process.env,
-          HOME: home,
-          USERPROFILE: home,
-          GIT_CONFIG_GLOBAL: "/dev/null",
-          HARNESS_DAEMON_USER_ROOT: userRoot,
-          HARNESS_DAEMON_ID: daemonId,
-        },
-        stdio: ["ignore", "pipe", "pipe"],
-      },
-    );
+    const launch = daemonServeLaunch({ userRoot, daemonId, home });
+    child = spawn(launch.command, launch.args, { cwd: repoRoot, env: launch.env, stdio: ["ignore", "pipe", "pipe"] });
     for (const stream of [child.stdout, child.stderr])
       stream.on("data", (chunk) => daemonOutput.push(chunk.toString("utf8")));
     const readyStarted = performance.now();
-    await waitForAttachedRepo({ child, endpoint, repoId, timeoutMs: config.startupTimeoutMs });
+    await waitForAttachedRepo({
+      child,
+      endpoint,
+      repoId,
+      timeoutMs: config.startupTimeoutMs,
+      describeDaemonOutput: () => renderDaemonOutput(daemonOutput),
+    });
     console.log(
       `[soak] daemon pid=${child.pid} attached scale ledger in ${Math.round(performance.now() - readyStarted)}ms`,
     );
@@ -399,7 +414,7 @@ async function runSoak(config = readConfig()) {
       fixture: {
         tasks: config.taskCount,
         events: config.eventCount,
-        method: "deterministic canonical event generator committed as the fixture's initial Git snapshot",
+        method: "deterministic legacy event snapshot converted through the operator generation conversion",
       },
       workload,
       assertions,
@@ -461,7 +476,17 @@ function initializeFixture({ rootDir, userRoot, repoId, events }) {
   git(rootDir, "config", "user.email", "soak@example.test");
   git(rootDir, "add", "README.md", "harness");
   git(rootDir, "commit", "--quiet", "-m", "nightly soak fixture");
+  // The deterministic snapshot is generation-0 legacy history. The daemon refuses to attach
+  // unconverted legacy history by design, so the fixture goes through the same operator
+  // conversion any stopped legacy repository must take: immutable snapshot -> generation-1
+  // SQLite conversion -> activation certificate. No soak-specific activation shortcut exists.
+  git(rootDir, "update-ref", "refs/ha/canonical", "HEAD");
+  const snapshotPath = legacyGenerationSnapshotPath(rootDir);
+  createImmutableLegacyGenerationSnapshotFromStoppedRepository({ repoId, rootInput: rootDir });
+  const converted = convertLegacyGeneration({ rootDir, snapshotPath });
+  preflightConvertedGenerationActivation({ repoId, rootDir, snapshotPath });
   registerDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
+  return { generation: converted.destinationGeneration, revision: converted.destinationRevision };
 }
 
 async function runLoadPhase({
