@@ -82,8 +82,9 @@ function reviewIssues(
     issues.push(
       lifecycleContractIssue(
         "manual_intervention_required",
-        "return budget exhausted; use `ha task submit --amend` to update the current submitted execution " +
-          "before requesting review again",
+        "return budget exhausted: a changes_requested verdict cannot be recorded for this cut. Amend the " +
+          "submitted packet with `ha task submit --amend` so the reviewer can approve, or raise the budget " +
+          "with `ha settings update --review-return-budget <n>`",
       ),
     );
   return issues;

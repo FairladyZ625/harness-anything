@@ -250,7 +250,7 @@ test(
       assert.notEqual(second.dispatchId, first.dispatchId);
       assert.notEqual(second.runtimeSessionId, first.runtimeSessionId);
       assert.equal(f.launches.length, 2);
-      // The replacement now owns the cut: retrying completion must not dispatch yet another reviewer.
+      // The replacement stays pending (failure budget spent): completion is idempotent against it.
       const third = (await f.complete()) as Record<string, unknown>;
       assert.equal(third.dispatchId, second.dispatchId);
       assert.equal(f.launches.length, 2);
@@ -258,6 +258,98 @@ test(
       const reviewed = await f.review(String(second.runtimeSessionId), "review-replacement");
       assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
       const completed = await f.complete(true);
+      assert.equal(completed.outcome, "applied", JSON.stringify(completed));
+      assert.equal(f.events().filter((event) => event.type === "task_completed").length, 1);
+    } finally {
+      await f.close();
+    }
+  },
+);
+
+test(
+  "a spent return budget is named in the receipt; raising it or approving still moves the task",
+  { timeout: 20_000 },
+  async () => {
+    const f = await fixture();
+    const reviewExecution = (
+      sessionId: string,
+      execution: string,
+      reviewId: string,
+      verdict: "changes_requested" | "approved",
+    ) => {
+      const packet = `${f.packagePath}/artifacts/reports/${reviewId}.json`;
+      mkdirSync(path.dirname(path.join(f.root, "harness", packet)), { recursive: true });
+      writeFileSync(
+        path.join(f.root, "harness", packet),
+        JSON.stringify({
+          verdict,
+          reason: verdict === "changes_requested" ? "Another pass is required." : "Cut approved.",
+          evidenceChecked: ["closeout.md"],
+        }),
+      );
+      return f.cell().run(
+        { kind: "task-review-execution", taskId, executionId: execution, reviewId, fromFile: `harness/${packet}` },
+        {
+          actor: {
+            principal: owner.actor.principal,
+            executor: { kind: "agent", id: `runtime-session:${sessionId}` },
+          },
+          source: "local",
+        },
+      );
+    };
+    try {
+      await f.install();
+      assert.equal((await f.run({ kind: "settings-update", reviewReturnBudget: 1 })).outcome, "applied");
+      const first = (await f.complete()) as Record<string, unknown>;
+      assert.equal(first.code, "review_missing", JSON.stringify(first));
+      assert.doesNotMatch(JSON.stringify(first.next), /return budget/u);
+      assert.equal(
+        (await reviewExecution(String(first.runtimeSessionId), executionId, "review-budget-one", "changes_requested"))
+          .outcome,
+        "applied",
+      );
+      const roundTwo = "execution-budget-two";
+      assert.equal((await f.run({ kind: "task-start", taskId, executionId: roundTwo })).outcome, "applied");
+      assert.equal((await f.run({ kind: "task-submit", taskId, executionId: roundTwo })).outcome, "applied");
+      const second = (await f.run({ kind: "task-complete", taskId, executionId: roundTwo })) as Record<string, unknown>;
+      assert.equal(second.code, "review_missing", JSON.stringify(second));
+      assert.match(JSON.stringify(second.next), /Return budget 1 is spent at iteration 1/u);
+      assert.match(JSON.stringify(second.next), /--review-return-budget/u);
+      const refused = await reviewExecution(
+        String(second.runtimeSessionId),
+        roundTwo,
+        "review-budget-two",
+        "changes_requested",
+      );
+      assert.equal(refused.outcome, "op_rejected");
+      assert.equal(refused.code, "manual_intervention_required");
+      assert.match(refused.rejectionExplanation ?? "", /return budget exhausted/u);
+      // The receipt's own exit is executable: raising the live budget unblocks the same verdict.
+      assert.equal((await f.run({ kind: "settings-update", reviewReturnBudget: 2 })).outcome, "applied");
+      const raised = (await f.run({ kind: "task-complete", taskId, executionId: roundTwo })) as Record<string, unknown>;
+      assert.equal(raised.code, "review_missing", JSON.stringify(raised));
+      assert.doesNotMatch(JSON.stringify(raised.next), /return budget/u);
+      assert.equal(
+        (await reviewExecution(String(second.runtimeSessionId), roundTwo, "review-budget-three", "changes_requested"))
+          .outcome,
+        "applied",
+      );
+      const roundThree = "execution-budget-three";
+      assert.equal((await f.run({ kind: "task-start", taskId, executionId: roundThree })).outcome, "applied");
+      assert.equal((await f.run({ kind: "task-submit", taskId, executionId: roundThree })).outcome, "applied");
+      const third = (await f.run({ kind: "task-complete", taskId, executionId: roundThree })) as Record<
+        string,
+        unknown
+      >;
+      assert.equal(third.code, "review_missing", JSON.stringify(third));
+      assert.match(JSON.stringify(third.next), /Return budget 2 is spent at iteration 2/u);
+      assert.equal(
+        (await reviewExecution(String(third.runtimeSessionId), roundThree, "review-budget-approved", "approved"))
+          .outcome,
+        "applied",
+      );
+      const completed = await f.run({ kind: "task-complete", taskId, executionId: roundThree, consent: true });
       assert.equal(completed.outcome, "applied", JSON.stringify(completed));
       assert.equal(f.events().filter((event) => event.type === "task_completed").length, 1);
     } finally {
