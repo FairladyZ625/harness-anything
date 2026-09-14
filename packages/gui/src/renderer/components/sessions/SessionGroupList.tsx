@@ -296,7 +296,17 @@ const GroupSection = memo(function GroupSection({
 /** 检索词对轮次行的展示过滤:与 daemon 组成员过滤同口径(多检索词 AND、子串)。 */
 function roundMatchesQuery(row: SessionRound, terms: readonly string[]): boolean {
   if (terms.length === 0) return true;
-  const haystack = [row.dispatchId, row.agentId, row.agentName, row.instanceId, row.status, row.taskId, row.taskTitle]
+  const haystack = [
+    row.dispatchId,
+    row.agentId,
+    row.agentName,
+    row.instanceId,
+    row.status,
+    row.classification,
+    row.nextAction,
+    row.taskId,
+    row.taskTitle,
+  ]
     .filter((value): value is string => typeof value === "string")
     .join("\n")
     .toLocaleLowerCase();
@@ -326,10 +336,21 @@ function RoundRow({
         {t("agentRuntime.sessionsRoundIndex", { index: row.roundIndex })}
       </span>
       <LiveDot state={sessionStatusDot[row.status]} tip={t(sessionStatusKey[row.status] as never)} />
-      <span className="min-w-0 flex-1 truncate ui-micro">
-        {row.agentName ?? row.instanceId}
-        <span className="ml-1.5 font-mono ui-micro text-text-faint">{shortRef(row.instanceId, 14)}</span>
-        {row.delegation && <span className="ml-1.5 ui-micro text-text-muted">{row.delegation}</span>}
+      <span className="min-w-0 flex-1 ui-micro">
+        <span className="block truncate">
+          {row.agentName ?? row.instanceId}
+          <span className="ml-1.5 font-mono ui-micro text-text-faint">{shortRef(row.instanceId, 14)}</span>
+          {row.delegation && <span className="ml-1.5 ui-micro text-text-muted">{row.delegation}</span>}
+        </span>
+        {row.classification !== null && (
+          <span
+            data-testid={`runtime-classification-${row.runtimeSessionId}`}
+            className="block truncate font-mono ui-micro text-status-blocked"
+          >
+            {row.classification}
+            {row.nextAction && ` · ${row.nextAction}`}
+          </span>
+        )}
       </span>
       <span className="shrink-0 font-mono ui-micro text-text-faint">
         {formatTime(row.startedAt, { style: "time" }) ?? row.startedAt}
