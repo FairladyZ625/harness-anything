@@ -14,6 +14,7 @@ export const thinCliLocalErrorCodes = Object.freeze([
   "runtime_settlement_failed",
   "unknown_field",
   "unsupported_command",
+  "cli_render_failed",
 ]);
 
 export { cliCapabilities } from "./thin-command-help.ts";
