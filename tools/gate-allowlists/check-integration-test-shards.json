@@ -462,6 +462,21 @@
         "value": "packages/daemon/test/daemon-host-binding.integration.test.ts",
         "ref": "task_e3d34df53e78784cdd51048c5e",
         "reason": "Consolidated into packages/daemon/test/daemon-host-recovery.test.ts under relaxed file complexity limits (1,200 lines); assertions preserved verbatim."
+      },
+      {
+        "value": "packages/daemon/test/doc-sync-slice-a-materialization.test.ts",
+        "ref": "task_03cb7a92053c5b072005256d57",
+        "reason": "Consolidated into packages/daemon/test/doc-sync-slice-a.test.ts under relaxed file complexity limits (1,200 lines); assertions preserved verbatim."
+      },
+      {
+        "value": "packages/daemon/test/doc-sync-reviewer-artifacts.test.ts",
+        "ref": "task_03cb7a92053c5b072005256d57",
+        "reason": "Consolidated into packages/daemon/test/doc-sync-slice-b.test.ts under relaxed file complexity limits (1,200 lines); assertions preserved verbatim."
+      },
+      {
+        "value": "packages/daemon/test/doc-sync-governance.test.ts",
+        "ref": "task_03cb7a92053c5b072005256d57",
+        "reason": "Consolidated into packages/daemon/test/doc-sync-slice-b.test.ts under relaxed file complexity limits (1,200 lines); assertions preserved verbatim."
       }
     ]
   }
