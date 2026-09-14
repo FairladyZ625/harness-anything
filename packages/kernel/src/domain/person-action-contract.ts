@@ -185,7 +185,6 @@ export function createPersonActionCatalog(
         return Object.freeze({
           ...declared,
           input: actionInputs[id],
-          policy: Object.freeze({ ref: "default@5", action: personActionIngress(id) }),
           criteria: Object.freeze([
             Object.freeze({
               ref: personActionCriterionRef(id, "input"),

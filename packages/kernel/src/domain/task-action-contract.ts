@@ -337,7 +337,6 @@ interface Declaration {
   readonly proof: LifecycleSpec["proof"] | readonly [];
   readonly targetIdField: string;
   readonly input: EntityActionInputContract;
-  readonly policyAction: string;
   readonly criteria: EntityActionContract["criteria"];
   readonly concurrency: EntityActionContract["concurrency"];
   readonly explain: string;
@@ -353,7 +352,6 @@ const lifecycle = (
     id,
     ...spec,
     targetIdField: "taskId",
-    policyAction: spec.ingress,
   });
 };
 const mutation = (
@@ -376,7 +374,6 @@ const mutation = (
     proof: Object.freeze([] as const),
     targetIdField,
     input: actionInput,
-    policyAction: `task-${id}`,
     criteria: Object.freeze([criterion(`repo-cell-task-mutation/${id}`, failureCode, criterionExplain)]),
     concurrency: mutationConcurrency,
     explain,
@@ -918,7 +915,6 @@ export function createTaskActionCatalog(baseAction: (id: string) => EntityAction
               ],
               declaration.input.exactlyOneOf,
             ),
-            policy: Object.freeze({ ref: "default@5", action: declaration.policyAction }),
             criteria: Object.freeze([
               ...(declaration.transitionId
                 ? [

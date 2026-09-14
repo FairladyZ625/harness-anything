@@ -342,7 +342,6 @@ export function createScheduleActionCatalog(
           Object.freeze({
             ...baseAction(declaration.id),
             input: declaration.input,
-            policy: Object.freeze({ ref: "default@5", action: declaration.read ? null : declaration.ingress }),
             criteria: declaration.criteria,
             concurrency: declaration.concurrency,
             effects: declaration.effects,

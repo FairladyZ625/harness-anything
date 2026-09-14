@@ -1,12 +1,78 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
+import { actionDeclarations, getEntityKindContract } from "../../kernel/src/index.ts";
 import {
   actionForDaemonMethod,
   commandClassForAction,
+  daemonGuiActionMethods,
   daemonProtocolCommands,
   parseDaemonRpcParams,
 } from "../src/protocol/daemon-protocol.contract.ts";
+
+test("non-read protocol, Policy, receipt, residency, and entity catalogs close over Action declarations", () => {
+  const protocol = new Map(
+      [...daemonProtocolCommands, ...daemonGuiActionMethods]
+        .filter(({ commandClass }) => commandClass !== "repo-read")
+        .map((descriptor) => [descriptor.actionKind ?? descriptor.id, descriptor]),
+    ),
+    declaredKinds = new Set(actionDeclarations.map(({ kind }) => kind)),
+    protocolKinds = new Set(protocol.keys());
+  assert.equal(actionDeclarations.length, 119);
+  assert.deepEqual([...protocolKinds].sort(), [...declaredKinds].sort());
+  for (const [kind, descriptor] of protocol) {
+    const declaration = actionDeclarations.find((candidate) => candidate.kind === kind);
+    assert.ok(declaration, kind);
+    assert.equal(descriptor.commandClass, declaration.executionClass, kind);
+    assert.deepEqual(Object.keys(declaration).sort(), [
+      "catalogId",
+      "executionClass",
+      "kind",
+      "policyAction",
+      "receiptSettlement",
+      "residency",
+    ]);
+  }
+
+  const catalogActions = new Map(
+    [
+      ...new Set(actionDeclarations.flatMap(({ catalogId }) => (catalogId === null ? [] : [catalogId.split("/")[0]!]))),
+    ].flatMap((kind) => {
+      const contract = getEntityKindContract(kind);
+      return (contract?.actionCatalog?.actions ?? []).map((action) => [`${kind}/${action.id}`, action] as const);
+    }),
+  );
+  for (const declaration of actionDeclarations) {
+    if (declaration.catalogId === null) continue;
+    const action = catalogActions.get(declaration.catalogId);
+    assert.ok(action?.execution, declaration.catalogId);
+    assert.equal(action.execution.ingress, declaration.kind, declaration.catalogId);
+    assert.equal(action.policy.action, declaration.policyAction, declaration.catalogId);
+  }
+  for (const kind of ["fact", "decision", "relation"])
+    for (const action of getEntityKindContract(kind)?.actionCatalog?.actions ?? [])
+      if (action.execution?.read === false) assert.notEqual(action.policy.action, null, `${kind}/${action.id}`);
+
+  const localResidency = Object.fromEntries(
+    actionDeclarations
+      .filter(({ policyAction }) => policyAction === null)
+      .map(({ kind, residency }) => [kind, residency.scope]),
+  );
+  assert.deepEqual(localResidency, {
+    "agent-run": "runtime-local",
+    "daemon-connection-add": "host-local",
+    "daemon-connection-probe": "host-local",
+    "daemon-connection-remove": "host-local",
+    "daemon-connection-update": "host-local",
+    "daemon-repo-update": "host-local",
+  });
+  assert.equal(
+    actionDeclarations.find(({ kind }) => kind === "fact-record")?.receiptSettlement,
+    "canonical-acceptance",
+  );
+  for (const kind of ["agent-run", "ci-observe-pull", "doc-materialize", "projection-rebuild"])
+    assert.equal(actionDeclarations.find((candidate) => candidate.kind === kind)?.receiptSettlement, "none", kind);
+});
 
 test("protocol descriptors preserve topology metadata without authorizing actions", () => {
   const expected = {

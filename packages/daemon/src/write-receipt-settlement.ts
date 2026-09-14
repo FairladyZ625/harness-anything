@@ -1,12 +1,18 @@
 import {
+  actionDeclarations,
   attachReceiptAcceptance,
-  durablePolicyActions,
   waitForReceiptAcceptance,
   type CanonicalEventStore,
   type TaskProjection,
   type WriteReceipt,
 } from "../../kernel/src/index.ts";
 import type { RepoTaskAction } from "./repo-cell-types.ts";
+
+const canonicalSettlementActions = new Set(
+  actionDeclarations
+    .filter(({ receiptSettlement }) => receiptSettlement === "canonical-acceptance")
+    .map(({ kind }) => kind),
+);
 
 /**
  * Settlement tail of RepoCell.run: attach SQLite acceptance to durable write receipts, honor
@@ -25,16 +31,7 @@ export async function settleWriteReceipt(
     receipt.effects[0] === "settings-local/locale_changed"
   )
     return receipt;
-  if (
-    action.kind === "projection-rebuild" ||
-    action.kind === "doc-materialize" ||
-    // ci-observe-pull mints a synthetic opId over a batch of separately-opId'd imports; that
-    // opId is never itself an accepted command outcome, so acceptance lookup would mislabel
-    // its own already-correct applied/pending outcome as acceptance_unknown.
-    action.kind === "ci-observe-pull" ||
-    (!(durablePolicyActions as readonly string[]).includes(action.kind) && action.kind !== "receipt-show")
-  )
-    return receipt;
+  if (!canonicalSettlementActions.has(action.kind) && action.kind !== "receipt-show") return receipt;
   const read = () => attachReceiptAcceptance(receipt, context.store, context.projection);
   if (action.kind === "task-create" && receipt.proof?.durable === true) return settleTaskCreateScaffold(context, read);
   return action.kind === "receipt-show" && action.waitFor !== undefined
