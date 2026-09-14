@@ -9,6 +9,7 @@ import {
   updateConnection,
   updateRepo,
 } from "./connection-admin-client.ts";
+import { QUERY_PACING_MS } from "./query-pacing.ts";
 import { systemQueryKeys } from "./system-data.ts";
 
 /** 连接/仓库 admin 的读键:与 systemQueryKeys 同级,改动后两者都失效。 */
@@ -17,13 +18,18 @@ export const connectionQueryKeys = {
   probe: (endpoint: string) => ["connections", "probe", endpoint] as const,
 };
 
-export function useConnectionsQuery() {
-  return useQuery({
+/** admin 连接状态读:台账 cut 覆盖不到,自持低频轮询,admin 写后再统一失效。 */
+export function connectionsQuery() {
+  return {
     queryKey: connectionQueryKeys.status(),
     queryFn: () => fetchConnectionStatus(),
     staleTime: 10_000,
-    refetchInterval: 30_000,
-  });
+    refetchInterval: QUERY_PACING_MS.connectionStatus,
+  };
+}
+
+export function useConnectionsQuery() {
+  return useQuery(connectionsQuery());
 }
 
 /** admin 写后的统一失效:连接面与仓库面(gui-system-status)一起刷新。 */

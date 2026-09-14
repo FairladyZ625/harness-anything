@@ -10,7 +10,6 @@ export function workspaceSummaryQuery(repoId: string) {
     queryKey: workspaceSummaryQueryKeys.read(repoId),
     queryFn: () => harnessClient.getWorkspaceSummary({ repoId }),
     staleTime: 10_000,
-    refetchOnWindowFocus: true,
   };
 }
 
