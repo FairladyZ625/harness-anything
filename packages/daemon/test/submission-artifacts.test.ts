@@ -50,6 +50,7 @@ function derive(summary: string) {
       watermark: 7,
       sourceRevision: 7,
       document: {
+        workspaceRevision: target === path ? 7 : undefined,
         body: target.endsWith("task-contract.json")
           ? JSON.stringify({ documents: [{ slot: "task.closeout", path: "closeout.md" }] })
           : body,
@@ -65,11 +66,12 @@ function derive(summary: string) {
 }
 
 test("artifact submission pins accepted bytes and both validators accept the same union", () => {
-  const submitted = derive(`artifact:${path}@7`);
+  const submitted = derive(`artifact:${path}`);
   const multiple = derive(`artifact:${path}@7 artifact:${path}.other@8`);
   assert.equal(multiple.artifacts?.length, 2);
   assert.deepEqual(multiple.deliverables, [path, `${path}.other`]);
   assert.equal(submitted.commitSha, null);
+  assert.equal(submitted.artifacts?.[0]?.revision, 7);
   assert.deepEqual(submitted.deliverables, [path]);
   assert.deepEqual(validateGuiSubmission(submitted), []);
   const changed = { ...submitted, artifacts: [{ ...submitted.artifacts![0]!, revision: 8 }] };
@@ -100,6 +102,7 @@ test("Summary may pair one commit with artifact anchors but never omits both", (
     { path, revision: 7 },
     { path: `${path}.other`, revision: 9 },
   ]);
+  assert.deepEqual(artifactAnchors(`artifact:${path}`), [{ path }]);
 });
 
 test("invalid artifact anchors explain the copyable form and revision source", () => {
@@ -110,7 +113,7 @@ test("invalid artifact anchors explain the copyable form and revision source", (
   ])
     assert.throws(action, {
       code: "invalid_submission",
-      message: /artifact:artifacts\/report\.md@3.*ha doc sync --submit.*ha doc status/u,
+      message: /artifact:artifacts\/report\.md.*pins the current center-accepted revision/u,
     });
 });
 

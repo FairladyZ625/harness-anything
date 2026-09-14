@@ -62,7 +62,7 @@ test("closeout submit preserves holder authority and resumes one cut after a dis
     assert.equal(artifactReceipt.outcome, "applied", JSON.stringify(artifactReceipt));
     const completeBody = completeBodyTemplate.replace(
       "Delivered the private report.",
-      `Delivered the private report. artifact:${packagePath}/artifacts/report.md@${artifactReceipt.revision}`,
+      `Delivered the private report. artifact:${packagePath}/artifacts/report.md`,
     );
     writeFileSync(closeoutPath, completeBody.replace(/## Verification\n[\s\S]*?(?=## Residual Risk)/u, ""));
     const submit = async () => {
@@ -101,6 +101,7 @@ test("closeout submit preserves holder authority and resumes one cut after a dis
     ]);
     assert.deepEqual(packet.verificationNotes, ["- Targeted test passed.\n- Real publication observed."]);
     assert.ok(packet.deliverables.some((item) => item.endsWith("/artifacts/report.md")));
+    assert.equal(packet.artifacts?.[0]?.revision, artifactReceipt.revision);
     const originalCut = packet.commitSha;
     git(rootDir, "commit", "--allow-empty", "-qm", "test: move public head after delivery");
     git(ledger, "commit", "--allow-empty", "-qm", "test: move ledger head after delivery");

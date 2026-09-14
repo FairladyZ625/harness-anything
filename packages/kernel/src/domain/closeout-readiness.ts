@@ -141,7 +141,7 @@ export function gateResults(
   commitSha?: string | null,
   iteration?: number,
 ): readonly CloseoutGateResult[] {
-  return (snapshot.task?.completionGateIds ?? []).map((gateId) => {
+  return completionGateIds(snapshot.task?.completionGateIds ?? [], commitSha).map((gateId) => {
     const codeDoc = gateId === "code-doc-reconciliation",
       known = !availability || (codeDoc ? availability.codeDocWitnesses : availability.gateWitnesses) === "known";
     if (!executionId || !commitSha || iteration === undefined)
@@ -185,6 +185,16 @@ export function gateResults(
         ? gateResult(gateId, "failed", judgment?.reason ?? "current execution cut did not pass")
         : gateResult(gateId, "missing", judgment?.reason ?? "current execution cut has no gate witness");
   });
+}
+
+/** Gates tied to a public code cut do not apply to an artifact-only submission. */
+export function completionGateIds(
+  taskGateIds: readonly string[],
+  commitSha: string | null | undefined,
+): readonly string[] {
+  return commitSha === null
+    ? taskGateIds.filter((gateId) => gateId !== "ci" && gateId !== "code-doc-reconciliation")
+    : taskGateIds;
 }
 
 export function closeoutGateOk(status: CloseoutGateStatus): boolean | null {

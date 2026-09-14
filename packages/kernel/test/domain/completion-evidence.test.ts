@@ -87,7 +87,7 @@ test("a receipt with an unsupported provenance source cannot become a verified f
   assert.match(judgment.reason ?? "", /provenance source/u);
 });
 
-test("artifact evidence binds ledger revisions and never passes code gates", async () => {
+test("artifact evidence binds ledger revisions and only commit cuts carry code gates", async () => {
   const { gateResults } = await import("../../src/domain/closeout-readiness.ts");
   const { validateSubmissionV1 } = await import("../../src/domain/execution.ts");
   const artifactExecution: ExecutionV1 = {
@@ -113,7 +113,9 @@ test("artifact evidence binds ledger revisions and never passes code gates", asy
     gateWitnesses: [],
     codeDocWitnesses: [],
   } as unknown as Parameters<typeof gateResults>[0];
-  const results = gateResults(snapshot, undefined, artifactExecution.executionId, null, 0);
-  assert.equal(results.length, 2);
-  assert.ok(results.every((gate) => gate.status !== "passed"));
+  // An artifact-only cut has no public commit, so the code gates do not apply to it at all.
+  assert.equal(gateResults(snapshot, undefined, artifactExecution.executionId, null, 0).length, 0);
+  const commitResults = gateResults(snapshot, undefined, artifactExecution.executionId, "a".repeat(40), 0);
+  assert.equal(commitResults.length, 2);
+  assert.ok(commitResults.every((gate) => gate.status !== "passed"));
 });

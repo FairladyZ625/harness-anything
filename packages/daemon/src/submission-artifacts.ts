@@ -8,7 +8,7 @@ import {
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 
 export const artifactAnchorGuidance =
-  "Use artifact:artifacts/report.md@3; take the revision from the ha doc sync --submit or ha doc status receipt.";
+  "Use artifact:artifacts/report.md; submit pins the current center-accepted revision.";
 
 /** Resolve only center-accepted bytes; current workspace files are never evidence for a historical cut. */
 export function readSubmissionArtifact(
@@ -49,9 +49,9 @@ export function readSubmissionArtifact(
   return { anchor: { path, revision, blobSha256 }, body, acceptance: event.opId };
 }
 
-export function artifactAnchors(summary: string): readonly { readonly path: string; readonly revision: number }[] {
-  return [...summary.matchAll(/artifact:([^\s`<>]+)@([1-9][0-9]*)(?=$|[\s`<>])/gu)].map((match) => ({
+export function artifactAnchors(summary: string): readonly { readonly path: string; readonly revision?: number }[] {
+  return [...summary.matchAll(/artifact:([^\s`<>@]+)(?:@([1-9][0-9]*))?(?=$|[\s`<>])/gu)].map((match) => ({
     path: match[1]!,
-    revision: Number(match[2]),
+    ...(match[2] === undefined ? {} : { revision: Number(match[2]) }),
   }));
 }

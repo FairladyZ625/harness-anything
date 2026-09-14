@@ -54,9 +54,15 @@ export function deriveCloseoutSubmission(
       `Summary must explicitly name one delivery commit, optionally with artifact:path@revision anchors. ` +
         artifactAnchorGuidance,
     );
-  const artifacts = anchors.map(
-    ({ path, revision }) => readSubmissionArtifact(cell, document.packagePath, path, revision).anchor,
-  );
+  const artifacts = anchors.map(({ path, revision }) => {
+    const acceptedRevision = revision ?? cell.projection.readDocument(path).document?.workspaceRevision;
+    if (acceptedRevision === undefined)
+      throw cell.cellCodedError(
+        "invalid_submission",
+        `Artifact ${path}: no center-accepted revision exists. ${artifactAnchorGuidance}`,
+      );
+    return readSubmissionArtifact(cell, document.packagePath, path, acceptedRevision).anchor;
+  });
   if (new Set(artifacts.map((anchor) => anchor.path)).size !== artifacts.length)
     throw cell.cellCodedError(
       "invalid_submission",
