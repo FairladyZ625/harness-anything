@@ -52,6 +52,7 @@ export function SessionsPanel({
   decisionRefs,
   busy,
   onCancel,
+  onResume,
   onOpenTask,
   onNavigateEntity,
 }: {
@@ -64,6 +65,7 @@ export function SessionsPanel({
   readonly decisionRefs: readonly string[];
   readonly busy: boolean;
   readonly onCancel: (runtimeSessionId: string) => void;
+  readonly onResume: (dispatchId: string) => Promise<void>;
   readonly onOpenTask: (taskId: string) => void;
   readonly onNavigateEntity: (ref: string) => void;
 }) {
@@ -138,6 +140,7 @@ export function SessionsPanel({
           }
           busy={busy}
           onCancel={onCancel}
+          onResume={onResume}
           onOpenTask={onOpenTask}
           onNavigateEntity={onNavigateEntity}
         />
@@ -195,6 +198,7 @@ export function SessionDetailView({
   transcript,
   busy,
   onCancel,
+  onResume,
   onOpenTask,
   onNavigateEntity,
 }: {
@@ -206,6 +210,7 @@ export function SessionDetailView({
   readonly transcript: ReactNode;
   readonly busy: boolean;
   readonly onCancel: (runtimeSessionId: string) => void;
+  readonly onResume: (dispatchId: string) => Promise<void>;
   readonly onOpenTask: (taskId: string) => void;
   readonly onNavigateEntity: (ref: string) => void;
 }) {
@@ -222,7 +227,9 @@ export function SessionDetailView({
     agentName = row?.kind === "round" ? row.agentName : null,
     squadId = row?.kind === "round" ? row.squadId : null,
     squadName = squadId === null ? null : (squadNames.get(squadId) ?? squadId),
-    installationBadge = sessionInstallationBadge(session);
+    installationBadge = sessionInstallationBadge(session),
+    resume = row?.kind === "round" ? row.resume : null;
+  const [confirmResume, setConfirmResume] = useState(false);
   return (
     <div data-testid="session-detail">
       <Card>
@@ -253,10 +260,43 @@ export function SessionDetailView({
                 {t("agentRuntime.cancelSession")}
               </Btn>
             )}
+            {resume && (
+              <Btn size="sm" testId="agent-runtime-resume" disabled={busy} onClick={() => setConfirmResume(true)}>
+                {t("agentRuntime.resumeSession")}
+              </Btn>
+            )}
             <Hint>{t("agentRuntime.livenessFromChild")}</Hint>
           </Right>
         </CardHead>
         <CardBody>
+          {confirmResume && resume && (
+            <div
+              role="alertdialog"
+              aria-label={t("agentRuntime.resumeConfirmTitle")}
+              className="mb-3 rounded border border-accent/50 bg-accent/[0.06] p-3"
+            >
+              <p className="ui-body font-semibold">{t("agentRuntime.resumeConfirmTitle")}</p>
+              <p className="mt-1 ui-micro text-text-muted">
+                {t("agentRuntime.resumeConfirmDetails", {
+                  agent: resume.agentId ?? t("agentRuntime.notBound"),
+                  task: target?.taskId ?? t("agentRuntime.noTask"),
+                })}
+              </p>
+              <div className="mt-2 flex gap-2">
+                <Btn
+                  size="sm"
+                  testId="agent-runtime-resume-confirm"
+                  disabled={busy}
+                  onClick={() => void onResume(resume.dispatchId)}
+                >
+                  {t("agentRuntime.resumeConfirm")}
+                </Btn>
+                <Btn size="sm" variant="ghost" disabled={busy} onClick={() => setConfirmResume(false)}>
+                  {t("agentRuntime.resumeCancel")}
+                </Btn>
+              </div>
+            </div>
+          )}
           <div className="mb-2 flex flex-wrap items-center gap-2">
             <Avatar id={agentName ?? session.instanceId} />
             <b className="ui-body font-[650]">

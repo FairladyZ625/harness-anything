@@ -91,12 +91,10 @@ import type { RuntimeEventOf, RuntimeEventType, RuntimeSpawnerContext } from "./
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import { continuationMission, initialFallbackAttempt, requiredRuntimeFast } from "./runtime-spawn-fallback.ts";
 import { admitRuntimeResume, assertResumeAgent, resolveResumeCwd } from "./runtime-resume-admission.ts";
-
 export const resultMediaType = "text/plain; charset=utf-8" as const,
   providerErrorLimit = 64 * 1024,
   resumeAdmissionTimeoutMs = 30_000,
   exitNotificationTimeoutMs = 30_000;
-
 export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
   const processes = new Map<string, ActiveRuntime>(),
     exiting = new Set<string>(),
@@ -137,7 +135,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     settleFallback,
     reconcileFallback,
   };
-
   const spawnAttempt = async (
     payload: JsonObject,
     binding: RuntimeBinding,
@@ -882,7 +879,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     active.stream.appendFallbackState({ state: "scheduled", delayMs, notBeforeAt, nextProvider: next }, input.now());
     reconcileFallback(readDispatchStream(input.rootDir, active.dispatchId));
   }
-
   function reconcileFallback(stream: ReturnType<typeof readDispatchStream>): void {
     if (
       fallbackClosed ||

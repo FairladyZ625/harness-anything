@@ -1,10 +1,6 @@
 import type { SquadControlResult } from "../squad-control-result.ts";
 import { daemonGuiActionMethods } from "./daemon-protocol-gui-actions.ts";
-import {
-  invalidRuntimeAttempt,
-  validateObserveTailResult,
-  type DaemonProtocolErrorResult,
-} from "./daemon-protocol-gui-types.ts";
+import { validateObserveTailResult, type DaemonProtocolErrorResult } from "./daemon-protocol-gui-types.ts";
 import { DaemonProtocolContractError } from "./json-rpc-types.ts";
 import {
   DAEMON_DOCUMENT_READ_SCHEMA,
@@ -31,11 +27,10 @@ import {
   validateDaemonRelationGraph,
 } from "./daemon-protocol-validate-projections.ts";
 import { queryPageRow, validateDaemonTaskSnapshotList } from "./daemon-protocol-validate-task.ts";
-import { validateDaemonWorkspaceSummary } from "./daemon-protocol-validate-relation-query.ts";
+import { validateDaemonWorkspaceSummary, validTaskDispatchRow } from "./daemon-protocol-validate-relation-query.ts";
 import { receiptOutcomeWords } from "./daemon-protocol-vocabulary.ts";
 import { generatedTaskCreateResultFields, generatedWriteReceiptFields } from "./daemon-protocol-commands-task.ts";
 import { isJsonObject, type JsonObject } from "./json-rpc-types.ts";
-
 export type ValidScheduleListRow = {
   readonly scheduleId: string;
   readonly state: "armed" | "paused";
@@ -56,16 +51,13 @@ export type ValidScheduleListRow = {
   readonly definitionRevision: number;
   readonly nextRunAt: string | null;
 };
-
 export type InvalidScheduleListRow = {
   readonly scheduleId: string;
   readonly state: "invalid";
   readonly invalidReason: string;
   readonly definitionRevision: number;
 };
-
 export type ScheduleListRow = ValidScheduleListRow | InvalidScheduleListRow;
-
 export function parseScheduleListReceipt(
   receipt: Readonly<Record<string, unknown>>,
 ): readonly ScheduleListRow[] | null {
@@ -343,38 +335,7 @@ export function validateDaemonTaskDispatches(value: unknown): readonly string[] 
       ),
     ];
   if (!Array.isArray(value.dispatches)) return [];
-  const invalidIndex = value.dispatches.findIndex(
-    (row) =>
-      !isJsonObject(row) ||
-      !nonEmpty(row.dispatchId) ||
-      !nonEmpty(row.taskId) ||
-      !nonEmpty(row.executionId) ||
-      !nonEmpty(row.runtimeSessionId) ||
-      !nonEmpty(row.instanceId) ||
-      !nonEmpty(row.attemptGroupId) ||
-      !integer(row.attemptIndex) ||
-      Number(row.attemptIndex) < 0 ||
-      !isJsonObject(row.provider) ||
-      !nonEmpty(row.provider.instance) ||
-      (row.provider.model !== null && !nonEmpty(row.provider.model)) ||
-      invalidRuntimeAttempt(row) ||
-      (row.agentId !== undefined && !nonEmpty(row.agentId)) ||
-      (row.agentName !== undefined && !nonEmpty(row.agentName)) ||
-      (row.delegatedByAgentId !== undefined && !nonEmpty(row.delegatedByAgentId)) ||
-      (row.delegatedByAgentName !== undefined && !nonEmpty(row.delegatedByAgentName)) ||
-      (row.squadId !== undefined && !nonEmpty(row.squadId)) ||
-      (row.parentRuntimeSessionId !== undefined && !nonEmpty(row.parentRuntimeSessionId)) ||
-      (row.providerSessionId !== null && !nonEmpty(row.providerSessionId)) ||
-      (row.eventStreamRef !== null && !nonEmpty(row.eventStreamRef)) ||
-      !nonEmpty(row.startedAt) ||
-      (row.endedAt !== null && !nonEmpty(row.endedAt)) ||
-      ![null, "succeeded", "failed", "unknown", "cancelled"].includes(row.outcome as never) ||
-      !["running", "succeeded", "failed", "unknown", "cancelled", "lost"].includes(String(row.status)) ||
-      (row.resultRef !== undefined && row.resultRef !== null && !nonEmpty(row.resultRef)) ||
-      (row.exitCode !== undefined && row.exitCode !== null && (!integer(row.exitCode) || Number(row.exitCode) < 0)) ||
-      (row.dispatchPath !== undefined && row.dispatchPath !== null && !nonEmpty(row.dispatchPath)) ||
-      (row.reportPath !== undefined && row.reportPath !== null && !nonEmpty(row.reportPath)),
-  );
+  const invalidIndex = value.dispatches.findIndex((row) => !validTaskDispatchRow(row));
   return invalidIndex >= 0
     ? [
         validationError(

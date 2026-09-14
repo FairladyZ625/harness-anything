@@ -11,7 +11,7 @@ import { agentRuntimeClient, runtimeQueryKeys } from "../../agent-runtime-client
 import { harnessClient } from "../../api-client.ts";
 import { buildDispatchSpawnInput, type DispatchRequest } from "../../dispatch-flow.ts";
 import { runtimeCommandClient } from "../../runtime-command-client.ts";
-import { submitRuntimeSpawn, type RuntimeSpawnSettlement } from "../../runtime-control.ts";
+import { resumeRuntimeSpawnInput, submitRuntimeSpawn, type RuntimeSpawnSettlement } from "../../runtime-control.ts";
 import {
   runtimeInstanceClient,
   type RuntimeInstanceCreateInput,
@@ -23,10 +23,8 @@ import { createGuiExecutionId } from "../../task-actions.ts";
 import { squadRunsClient } from "../../squad-run-client.ts";
 import { sessionDelegation, type SessionGroupBy, type SessionStatus } from "../../sessions-model.ts";
 import { t } from "../../i18n/index.tsx";
-
 export type RuntimeSelection = { readonly type: "runtime" | "agent" | "squad" | "session"; readonly id: string };
 const message = (value: unknown): string => (value instanceof Error ? value.message : String(value));
-
 /** Agent 页 inspector 的相关会话行。归属由 daemon 精确筛选,任务组对应的
  * task.dispatches 批量读再保留真实 agentId/squadId,不把选中者 id 盖到行上。 */
 export type RuntimeDockRow = {
@@ -237,6 +235,8 @@ export function useSessionsWorkspace(
     feedback: channel.feedback,
     error: channel.error,
     clearFeedback: channel.clearFeedback,
+    resumeDispatch: (dispatchId: string) =>
+      channel.spawn(resumeRuntimeSpawnInput(dispatchId, `gui-resume-${crypto.randomUUID()}`)),
     cancelSession: (runtimeSessionId: string) =>
       channel.run(t("agentRuntime.opSessionCancelled"), () => runtimeCommandClient.cancel(repoId, runtimeSessionId)),
   };
@@ -641,7 +641,7 @@ async function leaseAwareSpawn(
   input: Parameters<typeof runtimeCommandClient.spawn>[1],
 ): Promise<unknown> {
   const first = await runtimeCommandClient.spawn(repoId, input);
-  if (input.taskId === null || !rejectedWith(first, "runtime_task_lease_required")) return first;
+  if (input.taskId == null || !rejectedWith(first, "runtime_task_lease_required")) return first;
   const started = await harnessClient.startTask({ repoId, taskId: input.taskId, executionId: createGuiExecutionId() });
   return started.outcome === "applied" || started.outcome === "pending"
     ? runtimeCommandClient.spawn(repoId, input)

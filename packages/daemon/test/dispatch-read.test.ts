@@ -84,6 +84,37 @@ test("a dispatch whose session has exited reports unknown, not running", () => {
   assert.equal(statusFor(session("stale", null)), "unknown");
 });
 
+test("dispatch rows expose daemon resume admission and withdraw it after a successful resume", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-dispatch-read-resume-"));
+  try {
+    const writer = openDispatchStream(rootDir, {
+      dispatchId,
+      taskId,
+      executionId: "execution-1",
+      runtimeSessionId,
+      instanceId: "instance-1",
+      agentId: "terra",
+      startedAt: "2026-08-23T00:00:00.000Z",
+    });
+    writer.appendProviderBinding("provider-session", "2026-08-23T00:00:01.000Z");
+    const first = readTaskDispatches({ rootDir, projection: projectionFor(session("exited", "failed")), taskId });
+    assert.deepEqual(first.dispatches[0]?.resume, { dispatchId, agentId: "terra" });
+    openDispatchStream(rootDir, {
+      dispatchId: "dispatch_fedcba987654321001234567",
+      taskId,
+      executionId: "execution-1",
+      runtimeSessionId: "runtime-resumed",
+      instanceId: "instance-1",
+      resumedFromDispatchId: dispatchId,
+      startedAt: "2026-08-23T00:01:00.000Z",
+    });
+    const repeated = readTaskDispatches({ rootDir, projection: projectionFor(session("exited", "failed")), taskId });
+    assert.equal(repeated.dispatches[0]?.resume, undefined);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 // A read that resolves one taskId answers from the projection: an id the projection does not
 // hold is a not-found answer naming that id, never a bare untyped throw that callers must
 // guess at (bootstrap_failed downstream).

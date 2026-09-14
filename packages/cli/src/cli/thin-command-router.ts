@@ -108,8 +108,8 @@ function parseAgentRun(
     f = readFlags(route.id, args.slice(3), inputs);
   if (!nonEmpty(agentId)) return rejected("missing_field", "Use ha agent run <agent-id> --task <task-id>.", json);
   if (!f.ok) return rejected(f.code, f.nextAction, json);
-  const resumeDispatchId = f.one.get("--resume-dispatch");
-  if (!f.one.get("--task") && !resumeDispatchId)
+  const resumeDispatch = f.one.get("--resume-dispatch");
+  if (!f.one.get("--task") && !resumeDispatch)
     return rejected("missing_field", "Use --task <task-id> or --resume-dispatch <dispatch-id>.", json);
   const cwd = f.one.get("--cwd"),
     missionName = f.one.get("--mission"),
@@ -123,7 +123,7 @@ function parseAgentRun(
     {
       kind: "runtime-run",
       agentId,
-      ...(resumeDispatchId ? { dispatchId: resumeDispatchId } : {}),
+      ...(resumeDispatch ? { dispatchId: resumeDispatch } : {}),
       ...(f.one.get("--to") ? { targetAgentId: f.one.get("--to") } : {}),
       taskId: f.one.get("--task"),
       ...(f.one.get("--instance") ? { runtimeInstanceId: f.one.get("--instance") } : {}),
@@ -136,7 +136,7 @@ function parseAgentRun(
       ...(f.booleans.has("--fast") ? { fast: true } : {}),
       ...(cwd
         ? { cwd: cwd !== "." ? { scope: "repo-relative", path: cwd } : { scope: "repo-root" } }
-        : resumeDispatchId
+        : resumeDispatch
           ? {}
           : { cwd: { scope: "repo-root" } }),
       ...(!noStream ? { detach: true } : {}),

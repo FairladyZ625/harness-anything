@@ -1,4 +1,10 @@
+export type TaskDispatchResume = {
+  readonly dispatchId: string;
+  readonly agentId: string | null;
+};
+
 export interface TaskDispatchRow {
+  readonly resume?: TaskDispatchResume;
   readonly metrics?: {
     readonly inputTokens: number;
     readonly cacheReadTokens: number;
@@ -39,3 +45,19 @@ export interface TaskDispatchRow {
   readonly dispatchPath?: string | null;
   readonly reportPath?: string | null;
 }
+
+export type TaskDispatchAttempt = Pick<
+  TaskDispatchRow,
+  | "resume"
+  | "dispatchId"
+  | "runtimeSessionId"
+  | "attemptIndex"
+  | "provider"
+  | "classification"
+  | "reason"
+  | "faultClass"
+  | "resetAt"
+  | "nextAction"
+  | "fallbackState"
+  | "nextDispatchId"
+>;
