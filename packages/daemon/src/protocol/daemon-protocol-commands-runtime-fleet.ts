@@ -8,6 +8,39 @@ import {
   workspacePathFormat,
 } from "../../../preset/src/preset-command-contract.ts";
 
+export const agentRunProtocolCommand = defineRuntimeLocalWriteCommand({
+  id: "agent-run",
+  phase: "Runtime-B",
+  path: ["agent", "run", "<id>"],
+  summary: "Dispatch task-bound work or resume its dispatch with the same Agent identity and working directory.",
+  method: "repo.agentRuntime.spawn",
+  positional: "agentId",
+  inputs: [
+    cliInput("--task", "single", false, { code: "missing_field" }),
+    cliInput("--resume-dispatch", "single", false, { code: "invalid_field" }),
+    cliInput("--instance", "single", false, { code: "invalid_field" }),
+    cliInput("--cwd", "single", false, { code: "invalid_field" }),
+    cliInput("--role", "single", false, { code: "invalid_field" }, { enum: ["reviewer"] }),
+    cliInput("--to", "single", false, { code: "invalid_field" }),
+    cliInput("--prompt", "single", false, { code: "invalid_field" }, { conflictsWith: ["--mission", "--prompt-file"] }),
+    cliInput("--prompt-file", "single", false, { code: "invalid_field" }, { conflictsWith: ["--mission", "--prompt"] }),
+    cliInput("--mission", "single", false, { code: "invalid_field" }, { conflictsWith: ["--prompt", "--prompt-file"] }),
+    cliInput(
+      "--effort",
+      "single",
+      false,
+      { code: "invalid_runtime_effort" },
+      {
+        enum: ["minimal", "low", "medium", "high", "xhigh", "max"],
+      },
+    ),
+    cliInput("--fast", "boolean", false, { code: "invalid_runtime_fast" }),
+    cliInput("--detach", "boolean", false, { code: "invalid_field" }, { conflictsWith: ["--no-stream"] }),
+    cliInput("--on-exit", "single", false, { code: "invalid_field" }, { requires: ["--detach"] }),
+    cliInput("--no-stream", "boolean", false, { code: "invalid_field" }, { conflictsWith: ["--detach"] }),
+  ],
+});
+
 export const runtimeFleetProtocolCommands = Object.freeze([
   defineRuntimeLocalWriteCommand({
     id: "runtime-run",

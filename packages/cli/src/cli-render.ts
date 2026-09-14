@@ -84,11 +84,17 @@ export function renderDispatchRow(value: unknown): string {
     `squad:${String(row.squadId ?? "-")}`,
     `code:${String(row.code ?? "-")}`,
     `reason:${String(row.reason ?? "-")}`,
+    `reset:${renderOptional(row.resetAt)}`,
+    `next:${renderOptional(row.nextAction)}`,
     `exit:${String(row.exitCode ?? "-")}`,
     `result:${String(row.resultRef ?? "-")}`,
     `dispatch:${String(row.dispatchPath ?? "-")}`,
     `report:${String(row.reportPath ?? "-")}`,
   ].join("\t");
+}
+
+function renderOptional(value: unknown): string {
+  return String(value ?? "-");
 }
 
 export function contractMigrationDryRunSummary(receipt: Record<string, unknown>): string | undefined {

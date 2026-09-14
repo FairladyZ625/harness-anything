@@ -98,7 +98,10 @@ function runtimeResultReceipt(
     attempt = result.session.attemptChain?.attempts.find(
       (candidate) => candidate.runtimeSessionId === runtimeSessionId,
     ),
-    providerFaultClass = attempt?.classification === "provider_fault" ? attempt.faultClass : undefined,
+    providerFaultClass =
+      attempt?.classification === "provider_fault" || attempt?.classification === "provider_quota"
+        ? attempt.faultClass
+        : undefined,
     failureCode = settlementFailed
       ? "runtime_settlement_failed"
       : providerFaultClass

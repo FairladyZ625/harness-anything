@@ -1,6 +1,10 @@
 import type { SquadControlResult } from "../squad-control-result.ts";
 import { daemonGuiActionMethods } from "./daemon-protocol-gui-actions.ts";
-import { validateObserveTailResult, type DaemonProtocolErrorResult } from "./daemon-protocol-gui-types.ts";
+import {
+  invalidRuntimeAttempt,
+  validateObserveTailResult,
+  type DaemonProtocolErrorResult,
+} from "./daemon-protocol-gui-types.ts";
 import { DaemonProtocolContractError } from "./json-rpc-types.ts";
 import {
   DAEMON_DOCUMENT_READ_SCHEMA,
@@ -353,11 +357,7 @@ export function validateDaemonTaskDispatches(value: unknown): readonly string[] 
       !isJsonObject(row.provider) ||
       !nonEmpty(row.provider.instance) ||
       (row.provider.model !== null && !nonEmpty(row.provider.model)) ||
-      (row.classification !== null &&
-        !["provider_fault", "worker_stop", "gate_red"].includes(String(row.classification))) ||
-      (row.reason !== null && !nonEmpty(row.reason)) ||
-      (row.fallbackState !== null && !["scheduled", "dispatched", "exhausted"].includes(String(row.fallbackState))) ||
-      (row.nextDispatchId !== null && !nonEmpty(row.nextDispatchId)) ||
+      invalidRuntimeAttempt(row) ||
       (row.agentId !== undefined && !nonEmpty(row.agentId)) ||
       (row.agentName !== undefined && !nonEmpty(row.agentName)) ||
       (row.delegatedByAgentId !== undefined && !nonEmpty(row.delegatedByAgentId)) ||

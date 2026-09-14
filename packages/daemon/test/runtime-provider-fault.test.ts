@@ -212,7 +212,7 @@ test("observed provider fault takes precedence over a later runtime loss", () =>
   );
 
   assert.equal(result.outcome, "unknown");
-  assert.equal(result.classification, "provider_fault");
+  assert.equal(result.classification, "provider_quota");
   assert.equal(result.faultClass, "quota_exhausted");
   assert.equal(result.resetAt, "2026-09-06T05:06:07.000Z");
   assert.equal(result.reason, "HTTP 429: insufficient_quota credit balance exhausted");

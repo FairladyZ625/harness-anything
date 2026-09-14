@@ -48,7 +48,6 @@ import {
   assembleTaskMission,
   deriveTaskMission,
   dispatchMissionForPermission,
-  resolveRuntimeCwd,
   resolveRuntimeInstanceId,
   runtimeMissionName,
   validateMissionCommands,
@@ -90,6 +89,7 @@ import type { RuntimeAttemptOutcome, RuntimeFallbackAttempt } from "./runtime-fa
 import type { RuntimeEventOf, RuntimeEventType, RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import { continuationMission, initialFallbackAttempt, requiredRuntimeFast } from "./runtime-spawn-fallback.ts";
+import { admitRuntimeResume, assertResumeAgent, resolveResumeCwd } from "./runtime-resume-admission.ts";
 
 export const resultMediaType = "text/plain; charset=utf-8" as const,
   providerErrorLimit = 64 * 1024,
@@ -170,19 +170,15 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       throw runtimeSpawnError("invalid_runtime_spawn", `Runtime spawn payload contains an ${unknownField}`);
     const requestedDispatchId =
         payload.dispatchId === undefined ? undefined : requiredRuntimeSpawnText(payload.dispatchId, "dispatchId"),
-      resumed = requestedDispatchId ? readDispatchStream(input.rootDir, requestedDispatchId) : null;
-    if (requestedDispatchId && !resumed?.providerSessionId)
-      throw runtimeSpawnError(
-        "runtime_dispatch_not_resumable",
-        `Dispatch ${requestedDispatchId} has no provider session to resume.`,
-      );
+      resumed = admitRuntimeResume(input.rootDir, requestedDispatchId);
     const explicitRuntimeInstanceId =
         payload.runtimeInstanceId === undefined
           ? resumed?.header.instanceId
           : requiredRuntimeSpawnText(payload.runtimeInstanceId, "runtimeInstanceId"),
       explicitMission = payload.prompt === undefined ? undefined : requiredRuntimeSpawnText(payload.prompt, "prompt"),
       missionName = payload.missionName === undefined ? undefined : runtimeMissionName(payload.missionName),
-      agentId = payload.agentId === undefined ? undefined : requiredRuntimeSpawnText(payload.agentId, "agentId"),
+      agentId =
+        payload.agentId === undefined ? resumed?.header.agentId : requiredRuntimeSpawnText(payload.agentId, "agentId"),
       targetAgentId =
         payload.targetAgentId === undefined
           ? undefined
@@ -191,12 +187,12 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       role = payload.role === undefined ? undefined : requiredRuntimeSpawnText(payload.role, "role"),
       // Delegation provenance: which already-running runtime session invoked this spawn.
       parentRuntimeSessionId = runtimeSessionIdFromActor(binding.actor),
-      model = payload.model === undefined ? undefined : requiredRuntimeSpawnText(payload.model, "model"),
+      model = payload.model === undefined ? resumed?.header.model : requiredRuntimeSpawnText(payload.model, "model"),
       effort = payload.effort === undefined ? undefined : requiredRuntimeSpawnText(payload.effort, "effort"),
       fast = payload.fast === undefined ? undefined : requiredRuntimeFast(payload.fast),
       permissionMode =
         payload.permissionMode === undefined
-          ? undefined
+          ? (resumed?.header.permissionMode ?? undefined)
           : requiredRuntimeSpawnText(payload.permissionMode, "permissionMode"),
       promptSource =
         payload.promptSource === undefined ? undefined : requiredRuntimeSpawnText(payload.promptSource, "promptSource"),
@@ -213,6 +209,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         typeof payload.providerSessionId === "string"
           ? requiredRuntimeSpawnText(payload.providerSessionId, "providerSessionId")
           : resumed?.providerSessionId;
+    assertResumeAgent(requestedDispatchId, resumed?.header.agentId, payload.agentId, agentId);
     if (missionName && !taskId)
       throw runtimeSpawnError("invalid_runtime_mission", "Use --mission <name> only with --task <task-id>.");
     if (missionName && explicitMission)
@@ -221,7 +218,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       throw runtimeSpawnError("squad_leader_required", "Targeted squad dispatch requires --agent <leader-id>.");
     if (squadId !== undefined && agentId === undefined)
       throw runtimeSpawnError("squad_leader_required", "Squad attribution requires --agent <leader-id>.");
-    const cwd = resolveRuntimeCwd(input.rootDir, payload.cwd),
+    const cwd = resolveResumeCwd(input.rootDir, payload.cwd, resumed?.header.cwd),
       store = input.remote ? null : requiredRuntimeStore(input),
       projection = input.remote ? null : requiredRuntimeProjection(input),
       remoteTask = taskId && input.remote ? await input.remote.taskContext(taskId, missionName) : null;
@@ -565,6 +562,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         reasoningEffort: definition.reasoningEffort,
         fast: definition.fast ?? false,
         resumeProviderSessionId: providerSessionId ?? null,
+        ...(requestedDispatchId ? { resumedFromDispatchId: requestedDispatchId } : {}),
         ...(onExitCommand ? { onExitCommand } : {}),
         ...(role ? { role } : {}),
         ...(agent ? { agentId: agent.id, agentName: agent.name } : {}),

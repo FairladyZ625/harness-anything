@@ -29,6 +29,7 @@ import {
 } from "../../kernel/src/index.ts";
 import type { RuntimePermissionMode } from "./runtime-permissions.ts";
 import type { RuntimeAttemptOutcome, RuntimeFallbackAttempt } from "./runtime-fallback-contract.ts";
+import type { RuntimeResumeHeader } from "./runtime-resume-contract.ts";
 
 const liveIndexSchema = "runtime-dispatch-live-index/v1" as const;
 const forbiddenKey =
@@ -38,7 +39,7 @@ const knownToken = /\b(?:sk|rk|ghp|github_pat|xox[baprs])[-_A-Za-z0-9]{8,}\b/giu
 const sensitiveAssignment =
   /\b(?:authorization|cookie|credential(?:Ref)?|executablePath|api[-_ ]?key|accessToken|apiToken|password|private[-_ ]?key|secret|token)\s*[:=]\s*[^\s,;}]+/giu;
 
-export interface DispatchStreamHeader {
+export interface DispatchStreamHeader extends RuntimeResumeHeader {
   readonly schema: typeof streamSchema;
   readonly kind: "dispatch";
   readonly dispatchId: string;
@@ -78,7 +79,6 @@ export interface DispatchStreamHeader {
   readonly model?: string;
   readonly reasoningEffort?: string | null;
   readonly fast?: boolean;
-  readonly resumeProviderSessionId?: string | null;
   readonly mission?: string;
   readonly fallbackAttempt?: RuntimeFallbackAttempt;
 }
@@ -773,7 +773,7 @@ function isRuntimeAttemptOutcome(
 ): value is Record<string, unknown> & RuntimeAttemptOutcome {
   const provider = value.provider;
   return (
-    ["provider_fault", "worker_stop", "gate_red"].includes(String(value.classification)) &&
+    ["provider_fault", "provider_quota", "worker_stop", "gate_red"].includes(String(value.classification)) &&
     typeof value.reason === "string" &&
     typeof value.attemptGroupId === "string" &&
     Number.isSafeInteger(value.attemptIndex) &&

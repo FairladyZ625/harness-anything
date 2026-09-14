@@ -267,6 +267,9 @@ export function readRuntimeAttemptChain(
         reason: stream.attemptOutcome?.reason ?? null,
         ...(stream.attemptOutcome?.faultClass ? { faultClass: stream.attemptOutcome.faultClass } : {}),
         ...(stream.attemptOutcome?.resetAt ? { resetAt: stream.attemptOutcome.resetAt } : {}),
+        ...(stream.attemptOutcome?.classification === "provider_quota"
+          ? { nextAction: resumeDispatchAction(stream.header) }
+          : {}),
         fallbackState: stream.fallbackState,
         nextDispatchId: stream.nextDispatchId,
       }))
@@ -357,6 +360,9 @@ function archiveRow(
     },
     classification,
     reason,
+    ...(attemptOutcome?.faultClass ? { faultClass: attemptOutcome.faultClass } : {}),
+    ...(attemptOutcome?.resetAt ? { resetAt: attemptOutcome.resetAt } : {}),
+    ...(classification === "provider_quota" && stream ? { nextAction: resumeDispatchAction(stream.header) } : {}),
     fallbackState: stream?.fallbackState ?? null,
     nextDispatchId: stream?.nextDispatchId ?? null,
     ...(stream?.runtimeMetrics
@@ -424,6 +430,11 @@ function liveRow(
     },
     classification: stream?.attemptOutcome?.classification ?? null,
     reason: stream?.attemptOutcome?.reason ?? null,
+    ...(stream?.attemptOutcome?.faultClass ? { faultClass: stream.attemptOutcome.faultClass } : {}),
+    ...(stream?.attemptOutcome?.resetAt ? { resetAt: stream.attemptOutcome.resetAt } : {}),
+    ...(stream?.attemptOutcome?.classification === "provider_quota"
+      ? { nextAction: resumeDispatchAction(header) }
+      : {}),
     fallbackState: stream?.fallbackState ?? null,
     nextDispatchId: stream?.nextDispatchId ?? null,
     ...(stream?.runtimeMetrics
@@ -470,6 +481,11 @@ function existingReportPath(rootDir: string, packagePath: string | null, dispatc
     absolute = path.join(resolveHarnessLayout(rootDir).authoredRoot, ...reportPath.split("/"));
   return existsSync(absolute) ? reportPath : null;
 }
+function resumeDispatchAction(header: DispatchStreamHeader): string {
+  return header.agentId
+    ? `ha agent run ${header.agentId} --resume-dispatch ${header.dispatchId}`
+    : `ha runtime run --resume-dispatch ${header.dispatchId} --prompt <follow-up>`;
+}
 function parseArchive(body: string): Record<string, unknown> | null {
   try {
     const value: unknown = JSON.parse(body);
@@ -486,5 +502,5 @@ function isOutcome(value: unknown): value is NonNullable<TaskDispatchRow["outcom
   return value === "succeeded" || value === "failed" || value === "unknown" || value === "cancelled";
 }
 function isClassification(value: unknown): value is NonNullable<TaskDispatchRow["classification"]> {
-  return value === "provider_fault" || value === "worker_stop" || value === "gate_red";
+  return value === "provider_fault" || value === "provider_quota" || value === "worker_stop" || value === "gate_red";
 }
