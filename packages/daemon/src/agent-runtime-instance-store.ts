@@ -52,7 +52,7 @@ import {
   providerSubscriptionReadiness,
 } from "./agent-runtime-launch-config.ts";
 import { runtimePermissionMode, type RuntimeIsolationState } from "./runtime-permissions.ts";
-import { runtimeEffortField, runtimeKindIds } from "./runtime-inventory.ts";
+import { runtimeEffortField, runtimeEffortRidesProviderConfig, runtimeKindIds } from "./runtime-inventory.ts";
 
 export function openRuntimeInstanceStore(input: {
   readonly userRoot: string;
@@ -257,7 +257,7 @@ export function openRuntimeInstanceStore(input: {
         model,
         request.prompt,
         request.providerSessionId,
-        config.kindId === "claude" ? effort : request.effort === undefined ? null : effort,
+        request.effort === undefined && runtimeEffortRidesProviderConfig(config.kindId) ? null : effort,
         permissionMode,
         fast,
       ),
