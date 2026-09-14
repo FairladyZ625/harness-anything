@@ -12,6 +12,7 @@ import {
   ScheduleGuiOptionsDto,
   ScheduleGuiRowDto,
 } from "../../../../daemon/src/protocol/schedules-gui-contract.ts";
+import { runtimeTypeMatchesKind } from "../../../../daemon/src/agent-runtime-contract.ts";
 import type { ScheduleDefinitionInput, ScheduleModeWord } from "../schedules-client.ts";
 import { t, type MessageKey } from "../i18n/index.tsx";
 import { Badge, Btn, Chip, Hint, Modal, PlannedBox, TextInput, Toggle, WarnBar } from "./runtime/parts.tsx";
@@ -118,7 +119,7 @@ export function ScheduleForm({
     compatibleInstances = useMemo(
       () =>
         options.instances.filter(
-          (instance) => agent === null || agent.runtimeType === "any" || agent.runtimeType === instance.kindId,
+          (instance) => agent === null || runtimeTypeMatchesKind(agent.runtimeType, instance.kindId),
         ),
       [agent, options.instances],
     ),

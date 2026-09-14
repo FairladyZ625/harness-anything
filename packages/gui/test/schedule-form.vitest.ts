@@ -234,6 +234,51 @@ describe("segmented guided form (M5)", () => {
       } satisfies Partial<ScheduleDefinitionInput>),
     );
   });
+  it("offers only the instances the selected agent's runtime type can run", async () => {
+    const mixed: ScheduleGuiOptionsDto = {
+      ...options,
+      agents: [...options.agents, { agentId: "any-agent", name: "Any Agent", runtimeType: "any" }],
+      instances: [
+        ...options.instances,
+        {
+          instanceId: "claude-schedule",
+          name: "Schedule Claude",
+          kindId: "claude",
+          models: ["claude-fable-5"],
+          efforts: ["low", "medium", "high"],
+        },
+      ],
+    };
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(
+        createElement(ScheduleFormDialog, {
+          options: mixed,
+          scheduleIds: [],
+          initial: null,
+          busy: false,
+          error: null,
+          onCancel: () => undefined,
+          onSubmit: () => undefined,
+        }),
+      );
+    });
+    mounted.push({ root, container });
+    const instanceOptions = () =>
+      [...container.querySelectorAll<HTMLSelectElement>('[data-testid="schedule-form-instance"] option')].map(
+        (option) => option.value,
+      );
+    // probe-agent declares runtimeType codex, so the claude instance is not offered.
+    expect(instanceOptions()).toEqual(["codex-schedule"]);
+    const agent = container.querySelector<HTMLSelectElement>('[data-testid="schedule-form-agent"]');
+    await act(async () => {
+      agent!.value = "any-agent";
+      agent!.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(instanceOptions()).toEqual(["codex-schedule", "claude-schedule"]);
+  });
 });
 
 describe("interval round-trip (schedule duration vocabulary)", () => {

@@ -9,6 +9,7 @@ import {
   type TaskProjection,
 } from "../../kernel/src/index.ts";
 import { readAgentDeclaration } from "./agent-declaration-resolution.ts";
+import { runtimeTypeMatchesKind } from "./agent-runtime-contract.ts";
 
 export { readAgentDeclaration, readAgentDeclarationResolution } from "./agent-declaration-resolution.ts";
 import {
@@ -645,10 +646,9 @@ function agentRuntimeSelectionIssue(
 ): { readonly code: string; readonly message: string } | null {
   if (runtimeInstances === undefined) return null;
   const available = (runtimeInstances ?? []).filter((instance) => instance.enabled),
-    compatible = available.filter(
-      (instance) =>
-        (agent.runtime_type === "any" || instance.kindId === agent.runtime_type) &&
-        (agent.model === undefined || instance.models.includes(agent.model)),
+    kindCompatible = available.filter((instance) => runtimeTypeMatchesKind(agent.runtime_type, instance.kindId)),
+    compatible = kindCompatible.filter(
+      (instance) => agent.model === undefined || instance.models.includes(agent.model),
     );
   if (agent.instance !== undefined) {
     const selected = available.find((instance) => instance.instanceId === agent.instance);
@@ -667,10 +667,7 @@ function agentRuntimeSelectionIssue(
     return null;
   }
   if (compatible.length === 1) return null;
-  if (
-    compatible.length === 0 &&
-    !available.some((instance) => agent.runtime_type === "any" || instance.kindId === agent.runtime_type)
-  )
+  if (compatible.length === 0 && kindCompatible.length === 0)
     return {
       code: "agent_runtime_type_unavailable",
       message:

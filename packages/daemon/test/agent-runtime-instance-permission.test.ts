@@ -241,6 +241,90 @@ test("agy defaults to bypass and distinguishes persisted restrictions from a dis
   }
 });
 
+test("codex isolation edits persist and read back through the same projection the GUI reads", () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-isolation-"));
+  try {
+    const store = openRuntimeInstanceStore({
+      userRoot,
+      discover: () => [observed],
+      subscriptionReady: () => ({ status: "ready", code: null, hint: null }),
+    });
+    store.create({
+      schemaVersion: 2,
+      instanceId: "codex-isolated",
+      name: "Codex Isolated",
+      kindId: "codex",
+      installationId: observed.installationId,
+      providerId: "openai",
+      models: ["gpt-5.6-sol"],
+      defaultModel: "gpt-5.6-sol",
+      enabled: true,
+      codex: {},
+      auth: { mode: "subscription" },
+    });
+    const readIsolation = () =>
+      (
+        store.command({ kind: "runtime-instance-show", instanceId: "codex-isolated" }).instance as {
+          readonly isolationState: string;
+        }
+      ).isolationState;
+    assert.equal(readIsolation(), "enforced");
+    store.command({
+      kind: "runtime-instance-update",
+      instanceId: "codex-isolated",
+      isolationState: "operator-environment",
+    });
+    assert.equal(readIsolation(), "operator-environment");
+    store.command({
+      kind: "runtime-instance-update",
+      instanceId: "codex-isolated",
+      isolationState: "enforced",
+    });
+    assert.equal(readIsolation(), "enforced");
+    assert.equal(store.read("codex-isolated")?.isolationState, "enforced");
+  } finally {
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
+test("a kind declaring a single isolation state rejects edits to any other value", () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-agy-isolation-")),
+    agy = {
+      installationId: "agy-isolation",
+      kindId: "agy" as const,
+      executablePath: "/opt/runtime-test/agy",
+      version: "1.1.22",
+      observedAt: "2026-08-29T00:00:00.000Z",
+    };
+  try {
+    const store = openRuntimeInstanceStore({
+      userRoot,
+      discover: () => [agy],
+      subscriptionReady: () => ({ status: "ready", code: null, hint: null }),
+    });
+    store.command({
+      kind: "runtime-instance-create",
+      instanceId: "agy-isolated",
+      name: "Agy Isolated",
+      kindId: "agy",
+      providerId: "google",
+      models: ["gemini-3.1-pro-low"],
+      authMode: "subscription",
+    });
+    assert.throws(
+      () =>
+        store.command({
+          kind: "runtime-instance-update",
+          instanceId: "agy-isolated",
+          isolationState: "enforced",
+        }),
+      (error: unknown) => codedAs(error, "invalid_runtime_isolation"),
+    );
+  } finally {
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
 function codedAs(error: unknown, code: string): boolean {
   return error instanceof Error && "code" in error && error.code === code;
 }
