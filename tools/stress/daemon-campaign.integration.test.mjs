@@ -23,9 +23,12 @@ const repoRoot = path.resolve(import.meta.dirname, "../.."),
 
 test(
   "S3 daemon recovery campaign exercises changeover, fences, projection owners, mixed history, and runtime adoption",
-  { concurrency: false, timeout: 600_000 },
+  {
+    concurrency: false,
+    timeout: 600_000,
+    skip: process.platform !== "linux" ? "requires Linux POSIX SIGKILL and isolated daemon processes" : false,
+  },
   async () => {
-    assert.equal(process.platform, "linux", "requires Linux POSIX SIGKILL and isolated daemon processes");
     const scratch = mkdtempSync(path.join(tmpdir(), "ha-stress-s3-daemon-")),
       targetRoots = Object.fromEntries(armIds.map((id) => [id, path.join(scratch, "targets", id)])),
       receiptFile = path.join(scratch, "controller", "receipts.jsonl"),
