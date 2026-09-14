@@ -24,6 +24,8 @@ export const useCaseProjectionNames = Object.freeze([
   "runtime-session-groups",
   "task-board-rows",
   "decision-pool-rows",
+  "agent-identity-rows",
+  "squad-identity-rows",
 ] as const);
 
 export type UseCaseProjectionName = (typeof useCaseProjectionNames)[number];
@@ -98,6 +100,39 @@ export const useCaseProjectionCatalog: readonly UseCaseProjectionDefinition[] = 
     outputSchemaId: "daemon.use-case-projection/v1",
     version: 1,
     consumers: ["views/DecisionPoolView.tsx", "views/DecisionsView.tsx"],
+  },
+  {
+    // The Agent identity layer as a declared use-case view (task_dff257ae, judgment: register).
+    // Its rows carry judgments the generic entity read cannot state declaratively: `validity` and
+    // the available/degraded split come from parsing the agent declaration (`parseAgentDeclarationV1`)
+    // plus projection freshness, and `layer` is an identity-domain concept. Folding them into
+    // entity-row-list would mean registering a per-kind declaration decoder inside the generic read —
+    // the per-kind branching the entity-generic line deleted. Rows and detail ride the identity
+    // reads (`repo.agent.entities.list` / `repo.agent.entity.read`, transport truth in the daemon
+    // vocabulary). Full consumer surface: AgentSquadView (owned by runtime-session-groups under the
+    // one-projection-per-view ratchet), EntitiesView and the triadic palette (owned by
+    // schedule-plane), RuntimeInspector and NewEntityDialog; `consumers` lists the files that render
+    // this projection's distinctive judgment fields.
+    name: "agent-identity-rows",
+    entityKinds: ["agent"],
+    outputSchemaId: "daemon.use-case-projection/v1",
+    version: 1,
+    consumers: ["components/runtime/RuntimeRail.tsx", "components/runtime/AgentCard.tsx"],
+  },
+  {
+    // The Squad organization layer as a declared use-case view (task_dff257ae, judgment: register).
+    // Beyond declaration decode, a squad row's usability is a cross-entity judgment: the roster must
+    // resolve against the live agent rows (`squad_agent_not_found`), which entity-row-list has no
+    // mechanism to express. Rows and detail ride `repo.squad.entities.list` /
+    // `repo.squad.entity.read`. Full consumer surface: AgentSquadView and SessionsView (owned by
+    // runtime-session-groups), EntitiesView (owned by schedule-plane), the RuntimeRail squad segment
+    // (that file is claimed by agent-identity-rows — one file, one projection, per the ratchet),
+    // RuntimeInspector and NewEntityDialog; `consumers` lists the squad declaration surfaces.
+    name: "squad-identity-rows",
+    entityKinds: ["squad"],
+    outputSchemaId: "daemon.use-case-projection/v1",
+    version: 1,
+    consumers: ["components/runtime/SquadCard.tsx", "components/runtime/SquadCockpit.tsx"],
   },
 ] as const satisfies readonly UseCaseProjectionDefinition[]);
 

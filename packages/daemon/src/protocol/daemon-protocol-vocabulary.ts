@@ -238,6 +238,11 @@ export const useCaseProjectionNameWords = Object.freeze([
 export const rowDeliveredUseCaseProjections = Object.freeze({
   "task-board-rows": "repo.tasks.list",
   "decision-pool-rows": "repo.decisions.list:full",
+  // The identity reads of task_dff257ae (judgment: register): their validity/layer/roster judgments
+  // ride on the identity catalog rows; the detail halves (repo.agent.entity.read /
+  // repo.squad.entity.read) belong to the same use-case views.
+  "agent-identity-rows": "repo.agent.entities.list",
+  "squad-identity-rows": "repo.squad.entities.list",
 } as const satisfies Readonly<Record<string, string>>);
 
 /**
