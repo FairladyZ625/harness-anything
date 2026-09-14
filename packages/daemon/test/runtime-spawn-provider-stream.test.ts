@@ -4,7 +4,8 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { createActiveRuntime } from "../src/runtime-spawn-active.ts";
+import { attachActiveRuntime, createActiveRuntime } from "../src/runtime-spawn-active.ts";
+import { observeResumeProcess } from "../src/runtime-spawn-process.ts";
 import {
   consumeDurableOutput,
   consumeProviderChunk,
@@ -42,6 +43,39 @@ function context() {
     processes: new Map(),
   } as never;
 }
+
+test("resume observation preserves durable provider output provenance", async () => {
+  const frame = `${JSON.stringify({ type: "thread.started", thread_id: "codex-resume-session" })}\n`,
+    process = {
+      onOutput: (listener: (chunk: string, persisted?: boolean) => void) => listener(frame, true),
+      onErrorOutput: () => undefined,
+      onExit: () => undefined,
+      terminate: () => undefined,
+    },
+    observation = observeResumeProcess(process as never, "codex", "codex-resume-session"),
+    runtime = active(),
+    consumed: { readonly chunk: string; readonly persisted: boolean }[] = [],
+    scheduled: Promise<unknown>[] = [],
+    resumeContext = {
+      ...context(),
+      input: {
+        ...context().input,
+        schedule: (effect: () => Promise<unknown>) => scheduled.push(effect()),
+      },
+      consumeChunk: async (_active: unknown, chunk: string, _flush: boolean, persisted: boolean) => {
+        consumed.push({ chunk, persisted });
+      },
+      captureErrorOutput: () => undefined,
+      publishExit: async () => undefined,
+    } as never;
+  resumeContext.processes.set(runtime.runtimeSessionId, runtime);
+
+  await observation.ready;
+  attachActiveRuntime(resumeContext, runtime, observation);
+  await Promise.all(scheduled);
+
+  assert.deepEqual(consumed, [{ chunk: frame, persisted: true }]);
+});
 
 test("Codex stream normalizes usage, ten tool calls, compaction, and preserves raw usage", async () => {
   const runtime = active();
