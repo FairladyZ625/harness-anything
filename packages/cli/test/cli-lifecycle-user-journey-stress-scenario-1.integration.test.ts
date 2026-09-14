@@ -25,6 +25,7 @@ const {
   facetState,
   docScanRows,
   waitForMaterializationFailure,
+  parseCliReceipt,
   expectApplied,
   published,
   runResult,
@@ -367,7 +368,7 @@ test("CLI writes stay accepted while a stale authored ref lock keeps Git publica
         ["receipt", "show", String(pending.opId), "--wait", "git_verified", "--timeout-ms", "0"],
         environment,
       ),
-      shownReceipt = JSON.parse(shown.stdout) as Record<string, unknown>;
+      shownReceipt = parseCliReceipt(shown, "receipt show");
     assert.equal(shownReceipt.status, "accepted_durable", shown.stdout);
     assert.equal(facetState(shownReceipt, "git"), "pending", shown.stdout);
     assert.deepEqual(shownReceipt.wait, { state: "timed_out", unsatisfied: ["git_verified"] }, shown.stdout);
@@ -419,6 +420,12 @@ test("CLI writes stay accepted while a stale authored ref lock keeps Git publica
         materializationReason: diagnostic?.reason ?? null,
       }),
     );
+  } catch (error) {
+    // The spec reporter defers assertion details to the end-of-run recap, and a killed or truncated
+    // CI log tail drops exactly that recap (see the drain note in tools/run-node-tests.mjs): echo the
+    // failing message inline so a red lane still shows what broke.
+    context.diagnostic(`cli-lifecycle-git-pending inline failure: ${error instanceof Error ? error.message : error}`);
+    throw error;
   } finally {
     await stopClient(fixture);
     rmSync(fixture.parent, { recursive: true, force: true });

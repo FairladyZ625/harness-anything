@@ -199,10 +199,8 @@ async function waitForAttached(fixture: Fixture): Promise<void> {
   for (let attempt = 0; attempt < 100; attempt += 1) {
     const status = await runResult(fixture, ["daemon", "status"], actorEnvironment(fixture, 0, null));
     lastStatus = status.stdout;
-    const receipt = JSON.parse(status.stdout) as {
-      readonly repos?: ReadonlyArray<{ readonly repoId?: string; readonly state?: string }>;
-    };
-    if (receipt.repos?.some((repo) => repo.repoId === fixture.repoId && repo.state === "attached")) return;
+    const receipt = parseCliReceipt(status, "daemon status");
+    if (repoRows(receipt).some((repo) => repo.repoId === fixture.repoId && repo.state === "attached")) return;
     await delay(50);
   }
   throw new Error(`repository ${fixture.repoId} did not attach: ${lastStatus}`);
@@ -321,15 +319,49 @@ function docScanRows(evidence: unknown): readonly { readonly path: string; reado
 async function waitForMaterializationFailure(
   fixture: Fixture,
 ): Promise<{ readonly status: number | null; readonly stdout: string; readonly receipt: Record<string, unknown> }> {
-  let last = "";
+  const observed: string[] = [];
+  let last = "",
+    lastState = "";
   for (let attempt = 0; attempt < 100; attempt += 1) {
     const result = await runResult(fixture, ["daemon", "status"], actorEnvironment(fixture, 0, null));
     last = result.stdout;
-    const receipt = JSON.parse(result.stdout) as Record<string, unknown>;
+    const receipt = parseCliReceipt(result, "daemon status"),
+      state = materializationState(receipt);
+    if (lastState !== state) {
+      observed.push(`attempt ${attempt}: ${state}`);
+      lastState = state;
+    }
     if (receipt.code === "materialization_failed") return { status: result.status, stdout: result.stdout, receipt };
     await delay(50);
   }
-  throw new Error(`daemon status never reported a failed materialization: ${last}`);
+  throw new Error(
+    `daemon status never reported a failed materialization; observed [${observed.join(", ")}]; last: ${last}`,
+  );
+}
+
+// A poll iteration whose CLI died without printing a receipt must fail naming the command, exit
+// status, and stderr — a bare JSON SyntaxError from JSON.parse names none of them.
+function parseCliReceipt(result: RunResult, command: string): Record<string, unknown> {
+  try {
+    return JSON.parse(result.stdout) as Record<string, unknown>;
+  } catch {
+    throw new Error(`${command} produced no receipt (exit ${result.status ?? "signal"}): ${result.stderr}`);
+  }
+}
+
+type RepoStatusRow = {
+  readonly repoId?: string;
+  readonly state?: string;
+  readonly materialization?: { readonly state?: string };
+};
+
+function repoRows(receipt: Record<string, unknown>): readonly RepoStatusRow[] {
+  return Array.isArray(receipt.repos) ? (receipt.repos as readonly RepoStatusRow[]) : [];
+}
+
+function materializationState(receipt: Record<string, unknown>): string {
+  const states = repoRows(receipt).map((repo) => repo.materialization?.state ?? "none");
+  return states.length > 0 ? states.join("/") : "no-repos";
 }
 
 async function expectApplied(
@@ -432,6 +464,7 @@ export {
   facetState,
   docScanRows,
   waitForMaterializationFailure,
+  parseCliReceipt,
   expectApplied,
   published,
   expectNoop,
