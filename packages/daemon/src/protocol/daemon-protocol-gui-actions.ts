@@ -237,7 +237,6 @@ export const daemonGuiActionMethods = Object.freeze([
     shape({
       runtimeInstanceId: "string?",
       dispatchId: "string?",
-      resumeDispatchId: "string?",
       agentId: "string?",
       targetAgentId: "string?",
       squadId: "string?",

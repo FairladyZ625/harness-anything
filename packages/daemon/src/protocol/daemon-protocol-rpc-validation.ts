@@ -383,14 +383,9 @@ export function validateGuiActionPayload(method: DaemonGuiActionMethod, value: u
     errors.push("daemon control request is invalid");
   if (
     method === "repo.agentRuntime.spawn" &&
-    ((value.dispatchId === undefined && value.resumeDispatchId === undefined && !Object.hasOwn(value, "taskId")) ||
-      (value.dispatchId === undefined &&
-        value.resumeDispatchId === undefined &&
-        !nonEmpty(value.runtimeInstanceId) &&
-        !nonEmpty(value.agentId)) ||
+    ((value.dispatchId === undefined && !Object.hasOwn(value, "taskId")) ||
+      (value.dispatchId === undefined && !nonEmpty(value.runtimeInstanceId) && !nonEmpty(value.agentId)) ||
       (value.dispatchId !== undefined && !nonEmpty(value.dispatchId)) ||
-      (value.resumeDispatchId !== undefined && !nonEmpty(value.resumeDispatchId)) ||
-      (value.dispatchId !== undefined && value.resumeDispatchId !== undefined) ||
       (value.agentId !== undefined && !nonEmpty(value.agentId)) ||
       (value.targetAgentId !== undefined && !nonEmpty(value.targetAgentId)) ||
       (value.squadId !== undefined && !nonEmpty(value.squadId)) ||
@@ -400,14 +395,9 @@ export function validateGuiActionPayload(method: DaemonGuiActionMethod, value: u
       (value.fast !== undefined && typeof value.fast !== "boolean") ||
       (value.permissionMode !== undefined && !nonEmpty(value.permissionMode)) ||
       (value.prompt !== undefined && !nonEmpty(value.prompt)) ||
-      (value.prompt === undefined &&
-        value.dispatchId === undefined &&
-        value.resumeDispatchId === undefined &&
-        !nonEmpty(value.taskId)) ||
+      (value.prompt === undefined && value.dispatchId === undefined && !nonEmpty(value.taskId)) ||
       (value.onExitCommand !== undefined && !nonEmpty(value.onExitCommand)) ||
-      (value.cwd === undefined
-        ? value.dispatchId === undefined && value.resumeDispatchId === undefined
-        : !exactCwd(value.cwd)) ||
+      (value.cwd === undefined ? value.dispatchId === undefined : !exactCwd(value.cwd)) ||
       (value.taskId !== undefined && value.taskId !== null && !nonEmpty(value.taskId)) ||
       (value.providerSessionId !== undefined && !nonEmpty(value.providerSessionId)))
   )

@@ -4,7 +4,7 @@ import { isRendererRecord, rendererErrorHint } from "./result-validation.ts";
 
 export interface RuntimeSpawnInput {
   readonly runtimeInstanceId?: string;
-  readonly resumeDispatchId?: string;
+  readonly dispatchId?: string;
   readonly agentId?: string;
   readonly squadId?: string;
   readonly model?: string;
@@ -34,8 +34,8 @@ export interface RuntimeSpawnSettlement {
   readonly hint: string;
 }
 
-export function resumeRuntimeSpawnInput(resumeDispatchId: string, idempotencyKey: string): RuntimeSpawnInput {
-  return { resumeDispatchId, idempotencyKey };
+export function resumeRuntimeSpawnInput(dispatchId: string, idempotencyKey: string): RuntimeSpawnInput {
+  return { dispatchId, idempotencyKey };
 }
 
 export async function submitRuntimeSpawn(

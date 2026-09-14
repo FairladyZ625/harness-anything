@@ -33,19 +33,6 @@ export function admitRuntimeResume(rootDir: string, dispatchId: string | undefin
   return resumed;
 }
 
-export function requestedResumeDispatchId(payload: {
-  readonly dispatchId?: unknown;
-  readonly resumeDispatchId?: unknown;
-}) {
-  if (payload.dispatchId !== undefined && payload.resumeDispatchId !== undefined)
-    throw runtimeSpawnError("invalid_runtime_spawn", "Runtime spawn accepts one resume dispatch id.");
-  const value = payload.resumeDispatchId ?? payload.dispatchId;
-  if (value === undefined) return undefined;
-  if (typeof value !== "string" || value.length === 0)
-    throw runtimeSpawnError("invalid_runtime_spawn", "resumeDispatchId is required.");
-  return value;
-}
-
 export type RuntimeResumeAdmission =
   | { readonly resumable: true; readonly dispatchId: string; readonly agentId: string | null }
   | { readonly resumable: false; readonly reason: "missing_provider_session" }
