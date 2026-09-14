@@ -620,6 +620,7 @@ function currentPresetSnapshotDigest(
         profileId: contract.profileId,
         locale: contract.locale,
         taskClass: contract.taskClass,
+        workKind: (contract.metadata as Record<string, unknown> | undefined)?.workKind,
       },
     });
   return current.snapshot.digest;

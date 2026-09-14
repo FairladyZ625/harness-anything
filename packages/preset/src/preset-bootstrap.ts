@@ -370,6 +370,7 @@ export function compilePresetSnapshotUpgrade(input: CompilePresetSnapshotUpgrade
       taskClass: input.task.taskClass,
       slug: input.task.metadata?.slug,
       moduleKey: input.task.metadata?.moduleKey ?? undefined,
+      workKind: input.task.metadata?.workKind ?? undefined,
       verticalId,
       profileId: input.toPresetId && input.toPresetId !== presetId ? undefined : profileId,
       locale,

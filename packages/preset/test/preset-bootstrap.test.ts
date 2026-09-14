@@ -11,7 +11,7 @@ import {
   makeTaskProjection,
   type TaskEventV1,
 } from "../../kernel/src/index.ts";
-import { compileTaskBootstrap, compileTaskPackage } from "../src/index.ts";
+import { compilePresetSnapshotUpgrade, compileTaskBootstrap, compileTaskPackage } from "../src/index.ts";
 
 test("standard and milestone bootstrap compile one exact canonical birth and rebuild from L1", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-preset-bootstrap-")),
@@ -74,6 +74,24 @@ test("standard and milestone bootstrap compile one exact canonical birth and reb
     assert.deepEqual(documentationContract.completionGates, []);
     assert.equal(documentationContract.presetSnapshotDigest, documentation.snapshot.digest);
     assert.notEqual(documentation.snapshot.digest, standard.snapshot.digest);
+    // Upgrade recompiles the current preset for the task; a docs task on the current preset must stay current
+    // instead of being recompiled as ordinary work and regaining the CI and code-doc gates.
+    assert.throws(
+      () =>
+        compilePresetSnapshotUpgrade({
+          userRoot,
+          task: documentation.event.payload.task,
+          taskContractBody: documentation.documents[1]!.body,
+          documentExists: () => true,
+          actor: common.actor,
+          source: common.source,
+          workspaceRevision: 3,
+          eventId: "event-documentation-upgrade",
+          opId: "op-documentation-upgrade",
+          occurredAt: common.occurredAt,
+        }),
+      (error: unknown) => (error as { code?: string }).code === "snapshot_current",
+    );
     const packageOnly = compileTaskPackage({
       userRoot,
       taskId: "configure-verify-smoke",
