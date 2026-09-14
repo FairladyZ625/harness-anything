@@ -20,7 +20,7 @@ export function runOfflineStorageCommand(argv: readonly string[]): number {
     const commandIndex = firstCommandIndex(argv);
     if (argv[commandIndex] === "migrate" && argv[commandIndex + 1] === "ledger") {
       if (argv.includes("--help")) {
-        emit({ ok: true, usage: generationMigrationCommand.usage, hint: generationMigrationCommand.help });
+        emitReceipt({ ok: true, usage: generationMigrationCommand.usage, hint: generationMigrationCommand.help });
         return 0;
       }
       const flags = migrationFlags(argv.slice(commandIndex + 2));
@@ -30,20 +30,20 @@ export function runOfflineStorageCommand(argv: readonly string[]): number {
         ...(flags.destination ? { destinationRoot: flags.destination } : {}),
       });
       const exitCode = result.plan.ready ? 0 : 1;
-      emit({ ok: result.plan.ready, exitCode, schema: "generation-conversion-receipt/v1", ...result });
+      emitReceipt({ ok: result.plan.ready, exitCode, schema: "generation-conversion-receipt/v1", ...result });
       return exitCode;
     }
     if (argv[0] === "backup") {
       const backupDir = positional(argv, 1, "backup requires an absolute destination directory"),
         manifest = createLedgerBackup({ rootInput, backupDir, generation });
-      emit({ ok: true, schema: "ledger-backup-receipt/v1", exitCode: 0, backupDir, manifest });
+      emitReceipt({ ok: true, schema: "ledger-backup-receipt/v1", exitCode: 0, backupDir, manifest });
       return 0;
     }
     if (argv[0] === "restore" && argv[1] === "--drill") {
       const backupDir = positional(argv, 2, "restore --drill requires a backup directory"),
         shadowParent = option(argv, "--shadow-parent") ?? path.join(rootInput, ".harness", "restore-drills"),
         result = drillLedgerBackup({ backupDir, shadowParent, retention: restoreDrillRetentionFor(rootInput) });
-      emit({ ok: true, schema: "ledger-restore-drill-receipt/v1", exitCode: 0, ...result });
+      emitReceipt({ ok: true, schema: "ledger-restore-drill-receipt/v1", exitCode: 0, ...result });
       return 0;
     }
     if (argv[0] === "events" && argv[1] === "tail") {
@@ -56,12 +56,12 @@ export function runOfflineStorageCommand(argv: readonly string[]): number {
           ...(since !== undefined && !Number.isSafeInteger(numeric) ? { sinceTime: since } : {}),
           ...(option(argv, "--grep") ? { grep: option(argv, "--grep") } : {}),
         });
-      emit({ ok: true, schema: "offline-ledger-events/v1", exitCode: 0, events });
+      emitReceipt({ ok: true, schema: "offline-ledger-events/v1", exitCode: 0, events });
       return 0;
     }
     throw new Error("use ha backup <absolute-dir>, ha restore --drill <backup>, or ha events tail");
   } catch (error) {
-    emit({
+    emitReceipt({
       ok: false,
       schema: "offline-storage-failure/v1",
       exitCode: 1,
@@ -72,7 +72,7 @@ export function runOfflineStorageCommand(argv: readonly string[]): number {
   }
 }
 
-function emit(receipt: Record<string, unknown>): void {
+function emitReceipt(receipt: Record<string, unknown>): void {
   console.log(JSON.stringify(receipt));
 }
 function option(argv: readonly string[], name: string): string | undefined {
