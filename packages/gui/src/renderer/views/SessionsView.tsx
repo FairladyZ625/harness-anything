@@ -478,6 +478,11 @@ export function SessionsView({
                 decisionRefs={selectedTaskId === null ? [] : sessionDecisionRefs(relations, selectedTaskId)}
                 busy={workspace.busy}
                 onCancel={(runtimeSessionId) => void workspace.cancelSession(runtimeSessionId)}
+                onResume={async (dispatchId) => {
+                  const settled = await workspace.resumeDispatch(dispatchId);
+                  if (settled?.state === "applied" && settled.runtimeSessionId)
+                    onSelectEntity(`session/${settled.runtimeSessionId}`);
+                }}
                 onOpenTask={onOpenTask}
                 onNavigateEntity={onSelectEntity}
               />

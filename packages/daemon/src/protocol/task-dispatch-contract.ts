@@ -1,4 +1,5 @@
 export interface TaskDispatchRow {
+  readonly resume?: { readonly dispatchId: string; readonly agentId: string | null };
   readonly metrics?: {
     readonly inputTokens: number;
     readonly cacheReadTokens: number;

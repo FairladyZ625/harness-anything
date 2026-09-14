@@ -4,14 +4,15 @@ import { isRendererRecord, rendererErrorHint } from "./result-validation.ts";
 
 export interface RuntimeSpawnInput {
   readonly runtimeInstanceId?: string;
+  readonly resumeDispatchId?: string;
   readonly agentId?: string;
   readonly squadId?: string;
   readonly model?: string;
   readonly effort?: string;
   readonly permissionMode?: string;
-  readonly cwd: { readonly scope: "repo-root" } | { readonly scope: "repo-relative"; readonly path: string };
-  readonly prompt: string;
-  readonly taskId: string | null;
+  readonly cwd?: { readonly scope: "repo-root" } | { readonly scope: "repo-relative"; readonly path: string };
+  readonly prompt?: string;
+  readonly taskId?: string | null;
   readonly idempotencyKey: string;
 }
 
@@ -31,6 +32,10 @@ export interface RuntimeSpawnSettlement {
   readonly dispatchId: string | null;
   readonly code?: string;
   readonly hint: string;
+}
+
+export function resumeRuntimeSpawnInput(resumeDispatchId: string, idempotencyKey: string): RuntimeSpawnInput {
+  return { resumeDispatchId, idempotencyKey };
 }
 
 export async function submitRuntimeSpawn(

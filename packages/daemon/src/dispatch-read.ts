@@ -26,6 +26,7 @@ import type {
 import { runtimePidIsAlive } from "./runtime-process-liveness.ts";
 import { projectedTaskNotFound } from "./projection-readiness.ts";
 import type { AgentRuntimeAttemptChainDto } from "./runtime-attempt-contract.ts";
+import { resumableRuntimeDispatch } from "./runtime-resume-admission.ts";
 
 type DispatchLiveIndexRow = ReturnType<typeof readDispatchLiveIndex>["entries"][number];
 
@@ -121,6 +122,7 @@ export function readTaskDispatches(
         archiveRow(
           archive,
           stream,
+          input.rootDir,
           candidate.session,
           target.packagePath,
           existingReportPath(input.rootDir, target.packagePath, dispatchId),
@@ -141,6 +143,7 @@ export function readTaskDispatches(
       liveRow(
         stream.header,
         stream,
+        input.rootDir,
         stream.providerSessionId,
         candidate.session,
         live,
@@ -236,7 +239,7 @@ export function readSessionGroupDispatches(input: {
         startedAt: event.occurredAt,
         eventStreamRef: `file:.harness/runtime/dispatches/${dispatchId}.jsonl`,
       };
-    return [liveRow(sourceHeader, null, session.providerSessionId, session, false, null, null, false)];
+    return [liveRow(sourceHeader, null, input.rootDir, session.providerSessionId, session, false, null, null, false)];
   });
 }
 
@@ -271,9 +274,7 @@ export function readRuntimeAttemptChain(
         reason: stream.attemptOutcome?.reason ?? null,
         ...(stream.attemptOutcome?.faultClass ? { faultClass: stream.attemptOutcome.faultClass } : {}),
         ...(stream.attemptOutcome?.resetAt ? { resetAt: stream.attemptOutcome.resetAt } : {}),
-        ...(stream.attemptOutcome?.classification === "provider_quota"
-          ? { nextAction: resumeDispatchAction(stream.header) }
-          : {}),
+        ...(resumeDispatch(stream.header, rootDir, stream.attemptOutcome?.classification ?? null) ?? {}),
         fallbackState: stream.fallbackState,
         nextDispatchId: stream.nextDispatchId,
       }))
@@ -328,6 +329,7 @@ function dispatchMetrics(stream: ReturnType<typeof readDispatchStreamSummary>): 
 function archiveRow(
   value: Record<string, unknown>,
   stream: ReturnType<typeof readDispatchStream>,
+  rootDir: string,
   session: RuntimeSession | undefined,
   packagePath: string,
   reportPath: string | null,
@@ -382,7 +384,7 @@ function archiveRow(
     reason,
     ...(attemptOutcome?.faultClass ? { faultClass: attemptOutcome.faultClass } : {}),
     ...(attemptOutcome?.resetAt ? { resetAt: attemptOutcome.resetAt } : {}),
-    ...(classification === "provider_quota" && stream ? { nextAction: resumeDispatchAction(stream.header) } : {}),
+    ...(stream ? (resumeDispatch(stream.header, rootDir, classification) ?? {}) : {}),
     fallbackState: stream?.fallbackState ?? null,
     nextDispatchId: stream?.nextDispatchId ?? null,
     ...(metrics ? { metrics } : {}),
@@ -416,6 +418,7 @@ function archiveRow(
 function liveRow(
   header: DispatchStreamHeader,
   stream: ReturnType<typeof readDispatchStream>,
+  rootDir: string,
   providerSessionId: string | null,
   session: RuntimeSession | undefined,
   processRunning: boolean,
@@ -442,9 +445,7 @@ function liveRow(
     reason: stream?.attemptOutcome?.reason ?? null,
     ...(stream?.attemptOutcome?.faultClass ? { faultClass: stream.attemptOutcome.faultClass } : {}),
     ...(stream?.attemptOutcome?.resetAt ? { resetAt: stream.attemptOutcome.resetAt } : {}),
-    ...(stream?.attemptOutcome?.classification === "provider_quota"
-      ? { nextAction: resumeDispatchAction(header) }
-      : {}),
+    ...(resumeDispatch(header, rootDir, stream?.attemptOutcome?.classification ?? null) ?? {}),
     fallbackState: stream?.fallbackState ?? null,
     nextDispatchId: stream?.nextDispatchId ?? null,
     ...(metrics ? { metrics } : {}),
@@ -480,10 +481,22 @@ function existingReportPath(rootDir: string, packagePath: string | null, dispatc
     absolute = path.join(resolveHarnessLayout(rootDir).authoredRoot, ...reportPath.split("/"));
   return existsSync(absolute) ? reportPath : null;
 }
-function resumeDispatchAction(header: DispatchStreamHeader): string {
-  return header.agentId
-    ? `ha agent run ${header.agentId} --resume-dispatch ${header.dispatchId}`
-    : `ha runtime run --resume-dispatch ${header.dispatchId} --prompt <follow-up>`;
+function resumeDispatch(
+  header: DispatchStreamHeader,
+  rootDir: string,
+  classification: TaskDispatchRow["classification"],
+): Pick<TaskDispatchRow, "resume" | "nextAction"> | undefined {
+  const resume = resumableRuntimeDispatch(rootDir, header.dispatchId);
+  if (!resume) return undefined;
+  return {
+    resume,
+    ...(classification === "provider_quota" ? { nextAction: resumeDispatchAction(resume) } : {}),
+  };
+}
+function resumeDispatchAction(resume: NonNullable<TaskDispatchRow["resume"]>): string {
+  return resume.agentId
+    ? `ha agent run ${resume.agentId} --resume-dispatch ${resume.dispatchId}`
+    : `ha runtime run --resume-dispatch ${resume.dispatchId} --prompt <follow-up>`;
 }
 function parseArchive(body: string): Record<string, unknown> | null {
   try {

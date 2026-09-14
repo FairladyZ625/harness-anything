@@ -89,6 +89,7 @@ export type SessionRound = {
   readonly startedAt: string;
   readonly status: SessionStatus;
   readonly classification: TaskDispatchProjectionRow["classification"];
+  readonly resume: TaskDispatchProjectionRow["resume"] | null;
   readonly nextAction: string | null;
   readonly delegation: string | null;
 };
@@ -133,6 +134,7 @@ export function sessionRounds(
     startedAt: row.startedAt,
     status: row.status,
     classification: row.classification,
+    resume: row.resume ?? null,
     nextAction: row.nextAction ?? null,
     delegation: sessionDelegation(row),
   }));

@@ -35,7 +35,6 @@ import { validateDaemonWorkspaceSummary } from "./daemon-protocol-validate-relat
 import { receiptOutcomeWords } from "./daemon-protocol-vocabulary.ts";
 import { generatedTaskCreateResultFields, generatedWriteReceiptFields } from "./daemon-protocol-commands-task.ts";
 import { isJsonObject, type JsonObject } from "./json-rpc-types.ts";
-
 export type ValidScheduleListRow = {
   readonly scheduleId: string;
   readonly state: "armed" | "paused";
@@ -56,16 +55,13 @@ export type ValidScheduleListRow = {
   readonly definitionRevision: number;
   readonly nextRunAt: string | null;
 };
-
 export type InvalidScheduleListRow = {
   readonly scheduleId: string;
   readonly state: "invalid";
   readonly invalidReason: string;
   readonly definitionRevision: number;
 };
-
 export type ScheduleListRow = ValidScheduleListRow | InvalidScheduleListRow;
-
 export function parseScheduleListReceipt(
   receipt: Readonly<Record<string, unknown>>,
 ): readonly ScheduleListRow[] | null {
@@ -358,6 +354,10 @@ export function validateDaemonTaskDispatches(value: unknown): readonly string[] 
       !nonEmpty(row.provider.instance) ||
       (row.provider.model !== null && !nonEmpty(row.provider.model)) ||
       invalidRuntimeAttempt(row) ||
+      (row.resume !== undefined &&
+        (!isJsonObject(row.resume) ||
+          !nonEmpty(row.resume.dispatchId) ||
+          (row.resume.agentId !== null && !nonEmpty(row.resume.agentId)))) ||
       (row.agentId !== undefined && !nonEmpty(row.agentId)) ||
       (row.agentName !== undefined && !nonEmpty(row.agentName)) ||
       (row.delegatedByAgentId !== undefined && !nonEmpty(row.delegatedByAgentId)) ||
