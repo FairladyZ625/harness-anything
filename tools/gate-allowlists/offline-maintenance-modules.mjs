@@ -153,6 +153,7 @@ export const offlineMaintenanceModules = new Set([
   "packages/kernel/src/domain/settings.ts",
   "packages/kernel/src/domain/squad-action-contract.ts",
   "packages/kernel/src/domain/task-action-contract.ts",
+  "packages/kernel/src/domain/task-action-state-transition.ts",
   "packages/kernel/src/domain/task-bootstrap-event.ts",
   "packages/kernel/src/domain/task-bound-runtime-authority.ts",
   "packages/kernel/src/domain/task-graph.ts",
