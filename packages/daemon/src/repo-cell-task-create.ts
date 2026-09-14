@@ -8,7 +8,7 @@ import { compileRepoPresetSnapshotUpgrade, compileRepoTaskBootstrap } from "../.
 import type { PublicPublication, RepoCellBinding, RepoTaskAction, TaskCreateReceipt } from "./repo-cell-types.ts";
 import { resolveWriteSessionIdentity } from "./session-identity/index.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
-import { taskCreateGuidance } from "./receipt-guidance.ts";
+import { taskCreateGuidance, workspaceRelativePath } from "./receipt-guidance.ts";
 
 export function readResult(
   cell: RepoCellOperationalContext,
@@ -235,7 +235,7 @@ export function prepareTaskCreateAt(
         worktreeVisible: false,
       },
       ...common,
-      guidance: taskCreateGuidance({
+      guidance: taskCreateGuidance(cell.rootDir, {
         taskId,
         packagePath: compiled.packagePath,
         outputShape: compiled.snapshot.profile.outputShape,
@@ -244,7 +244,7 @@ export function prepareTaskCreateAt(
         canonicalVisible: false,
       }),
       commitSha: null,
-      summary: `would create task ${taskId} at ${compiled.packagePath}`,
+      summary: `would create task ${taskId} at ${workspaceRelativePath(cell.rootDir, compiled.packagePath)}`,
     };
     return preview;
   }
@@ -271,7 +271,7 @@ export function preparedTaskCreateReceipt(
     visibility: "center",
     proof,
     ...fields,
-    guidance: taskCreateGuidance({
+    guidance: taskCreateGuidance(cell.rootDir, {
       taskId: fields.taskId,
       packagePath: compiled.packagePath,
       outputShape: compiled.snapshot.profile.outputShape,
@@ -282,7 +282,7 @@ export function preparedTaskCreateReceipt(
     commitSha: publication.commitSha,
     cut: publication.cut,
     summary: proof.canonicalVisible
-      ? `created task ${fields.taskId} at ${compiled.packagePath}`
+      ? `created task ${fields.taskId} at ${workspaceRelativePath(cell.rootDir, compiled.packagePath)}`
       : `task ${fields.taskId} is awaiting exact canonical settlement`,
   };
   return receipt;

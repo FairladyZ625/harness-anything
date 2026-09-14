@@ -1,17 +1,34 @@
+import path from "node:path";
 import {
   isReceiptDiagnostic,
   deriveActionReturnsContract,
   getExecutableEntityAction,
+  resolveHarnessLayout,
   type ReceiptGuidanceArgument,
   type ReceiptGuidanceContractEntry,
   type ReceiptDiagnostic,
 } from "../../kernel/src/index.ts";
 
-export function taskCreateGuidance(values: Readonly<Record<string, string | number | boolean>>) {
+/**
+ * Receipt prose shows file locations, so ledger paths (relative to the authored root) must carry
+ * the workspace prefix a human can open from the repository root. The prefix comes from the
+ * resolved layout, never from a hardcoded `harness/` in a render template.
+ */
+export function workspaceRelativePath(rootDir: string, ledgerPath: string): string {
+  const layout = resolveHarnessLayout(rootDir),
+    authoredRoot = path.relative(layout.rootDir, layout.authoredRoot).split(path.sep).join("/");
+  return `${authoredRoot}/${ledgerPath}`;
+}
+
+export function taskCreateGuidance(rootDir: string, values: Readonly<Record<string, string | number | boolean>>) {
   const action = getExecutableEntityAction("task-create");
   if (!action) throw new Error("task.create has no declared return contract.");
-  const returns = deriveActionReturnsContract(action);
-  return Object.freeze(returns.guidance.map((entry) => resolveGuidanceEntry(entry, values)));
+  const returns = deriveActionReturnsContract(action),
+    scopedValues =
+      typeof values.packagePath === "string"
+        ? { ...values, packagePath: workspaceRelativePath(rootDir, values.packagePath) }
+        : values;
+  return Object.freeze(returns.guidance.map((entry) => resolveGuidanceEntry(entry, scopedValues)));
 }
 
 export function diagnosticForError(error: unknown): ReceiptDiagnostic | undefined {

@@ -96,7 +96,7 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
     assert.equal(
       textPreview.stdout.trim(),
       [
-        "would create task task-alpha at tasks/task-alpha-alpha",
+        "would create task task-alpha at harness/tasks/task-alpha-alpha",
         "preset: standard-task/baseline",
         "outputShape: repository-diff",
         'completionGates: ["code-doc-reconciliation"]',
@@ -132,6 +132,7 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
     ]);
     assert.equal(alpha.outcome, "applied", JSON.stringify(alpha));
     assert.equal(beta.outcome, "applied", JSON.stringify(beta));
+    assert.equal(alpha.summary, "created task task-alpha at harness/tasks/task-alpha-alpha");
     settleFollower(fixture.alpha, fixture.userRoot, alpha);
     const alphaPlan = `${String(alpha.packagePath)}/task_plan.md`;
     writeFileSync(path.join(fixture.alpha, "harness", alphaPlan), realizedTaskPlan("Alpha"));
@@ -292,6 +293,7 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
       "test:reports/cli.txt:passed",
     ]);
     assert.equal(progress.progressPath, "tasks/task-alpha-alpha/progress.md");
+    assert.equal(progress.summary, "appended progress for task-alpha at harness/tasks/task-alpha-alpha/progress.md");
     assert.match(String(settleFollower(fixture.alpha, fixture.userRoot, progress).commitSha), /^[0-9a-f]{40}$/u);
     assert.ok(progress.cut);
     assert.match(String(progress.evidence), /file:tasks\/task-alpha-alpha\/progress\.md/u);

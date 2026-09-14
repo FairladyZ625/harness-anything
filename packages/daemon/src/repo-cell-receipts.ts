@@ -8,6 +8,7 @@ import {
 } from "../../kernel/src/index.ts";
 import { readDocReceipt } from "./doc-sync-actions.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
+import { workspaceRelativePath } from "./receipt-guidance.ts";
 import type { PublicPublication, RepoCellBinding, TaskProgressReceipt } from "./repo-cell-types.ts";
 import type { RepoCellActionContext } from "./repo-cell-action-context.ts";
 
@@ -215,7 +216,10 @@ export function progressReceipt(
       canonicalVisible: visible,
       worktreeVisible: true,
     },
-    summary: `appended progress for ${event.payload.taskId} at ${event.payload.resultDocumentClaim.path}`,
+    summary: `appended progress for ${event.payload.taskId} at ${workspaceRelativePath(
+      cell.rootDir,
+      event.payload.resultDocumentClaim.path,
+    )}`,
     taskId: event.payload.taskId,
     executionId: event.payload.executionId,
     progressPath: event.payload.resultDocumentClaim.path,
