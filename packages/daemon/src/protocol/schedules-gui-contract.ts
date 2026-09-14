@@ -60,7 +60,7 @@ export interface ScheduleGuiOptionsDto {
   }[];
 }
 
-/** An agent can run on an instance only when its runtime type accepts the instance kind; no agent means every instance. */
+/** An agent runs only on instances whose kind its runtime type accepts; no agent means every instance. */
 export function compatibleScheduleInstances(
   agent: Extract<ScheduleGuiAgentOptionDto, { readonly name: string }> | null,
   instances: ScheduleGuiOptionsDto["instances"],
