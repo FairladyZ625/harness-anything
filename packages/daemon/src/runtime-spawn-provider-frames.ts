@@ -4,7 +4,7 @@ import type { RuntimeInstanceKind } from "./agent-runtime-instances.ts";
 import type { AgentRuntimeNativeSignal } from "./agent-runtime-stream.ts";
 import { runtimeKindForId, runtimeKindIds } from "./runtime-inventory.ts";
 import { sessionIdentityResolverFor } from "./session-identity/index.ts";
-import type { ProviderFrame, ProviderReplayBoundary } from "./runtime-spawn-types.ts";
+import type { ProviderFrame } from "./runtime-spawn-types.ts";
 import { providerFaultFromFrame } from "./runtime-provider-fault.ts";
 
 export function parseProviderFrame(kindId: RuntimeInstanceKind, value: unknown): ProviderFrame {
@@ -32,19 +32,6 @@ export const providerFrameParsers: Record<
 };
 if (!runtimeKindIds.every((kindId) => Object.hasOwn(providerFrameParsers, kindId)))
   throw new Error("provider frame parser registry is incomplete");
-
-export function providerReplayBoundary(
-  kindId: RuntimeInstanceKind,
-  value: Record<string, unknown>,
-): ProviderReplayBoundary | null {
-  if (kindId === "codex" && value.type === "thread.started" && typeof value.thread_id === "string" && value.thread_id)
-    return { providerSessionId: value.thread_id, description: `thread.started ${value.thread_id}` };
-  if (kindId === "agy" && value.event === "init" && typeof value.conversation_id === "string" && value.conversation_id)
-    return { providerSessionId: value.conversation_id, description: `init ${value.conversation_id}` };
-  if (kindId === "zcode" && value.type === "session.resumed" && typeof value.eventId === "string" && value.eventId)
-    return { providerSessionId: value.eventId, description: `session.resumed ${value.eventId}` };
-  return null;
-}
 
 export function isStructuredSuccessResult(value: string): boolean {
   try {
