@@ -14,6 +14,7 @@ import { readEffectiveCloseoutGates } from "./repo-cell-settings-state.ts";
 import { assertCurrentSubmittedExecution } from "./repo-cell-execution-selection.ts";
 import { leaseTtlMs, type RepoCellBinding, type RepoTaskAction, type Snapshot } from "./repo-cell-types.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
+import { reviewerArtifactsForReview } from "./reviewer-artifact-publication.ts";
 
 const REVISION_CRITERION = "task-lifecycle-contract-support/revisionIssues";
 const START_CRITERION = "task-lifecycle-command-transitions/canStartExecution";
@@ -237,7 +238,11 @@ export async function runTaskActionCatalogRuntime(
   }
   let result: Awaited<ReturnType<RepoCellOperationalContext["service"]["execute"]>>;
   try {
-    result = await cell.service.execute(command, authorityProof);
+    const reviewerArtifacts =
+      action.kind === "task-review-execution" ? reviewerArtifactsForReview(cell, action, binding) : null;
+    result = reviewerArtifacts
+      ? await cell.service.executeWithDocuments(command, authorityProof, reviewerArtifacts)
+      : await cell.service.execute(command, authorityProof);
   } catch (error) {
     if (!isTaskLifecycleContractError(error) || !contract) throw error;
     const rejection = taskActionFailure(

@@ -307,6 +307,40 @@ export async function fixture(
         },
       );
     },
+    reviewDispatchedArtifacts: async (runtimeSessionId: string, dispatchId: string) => {
+      const report = `${packagePath}/artifacts/reports/${dispatchId}.md`,
+        packet = `${packagePath}/artifacts/reports/${dispatchId}.json`;
+      mkdirSync(path.dirname(path.join(root, "harness", packet)), { recursive: true });
+      writeFileSync(
+        path.join(root, "harness", report),
+        "# Closeout review\n\nApproved from the dispatched reviewer.\n",
+      );
+      writeFileSync(
+        path.join(root, "harness", packet),
+        JSON.stringify({
+          verdict: "approved",
+          reason: "Inspected the submitted execution and its declared evidence.",
+          evidenceChecked: ["submitted execution", "task contract"],
+        }),
+      );
+      return cell.run(
+        {
+          kind: "task-review-execution",
+          taskId,
+          executionId,
+          reviewId: `review-${dispatchId}`,
+          fromFile: `harness/${packet}`,
+        },
+        {
+          actor: {
+            principal: owner.actor.principal,
+            executor: { kind: "agent", id: `runtime-session:${runtimeSessionId}` },
+          },
+          source: "local",
+        },
+      );
+    },
+    harnessStatus: () => git(root, "status", "--porcelain", "--", "harness"),
     reportPath: (dispatchId: string) =>
       path.join(root, "harness", packagePath, "artifacts", "reports", `${dispatchId}.md`),
     cancel: (runtimeSessionId: string) => cell.cancelRuntime({ runtimeSessionId }, owner),
