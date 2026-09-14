@@ -420,12 +420,6 @@ test("CLI writes stay accepted while a stale authored ref lock keeps Git publica
         materializationReason: diagnostic?.reason ?? null,
       }),
     );
-  } catch (error) {
-    // The spec reporter defers assertion details to the end-of-run recap, and a killed or truncated
-    // CI log tail drops exactly that recap (see the drain note in tools/run-node-tests.mjs): echo the
-    // failing message inline so a red lane still shows what broke.
-    context.diagnostic(`cli-lifecycle-git-pending inline failure: ${error instanceof Error ? error.message : error}`);
-    throw error;
   } finally {
     await stopClient(fixture);
     rmSync(fixture.parent, { recursive: true, force: true });
