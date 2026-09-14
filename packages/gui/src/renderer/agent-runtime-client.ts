@@ -9,33 +9,9 @@ import type { AgentRuntimeTokenUsageResult } from "../../../daemon/src/agent-run
 import type { DaemonGuiReadPayloadMap } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { isRendererRecord, rendererErrorHint } from "./result-validation.ts";
 import { readUseCaseProjection } from "./use-case-projection-client.ts";
+import { invoke } from "./api-client-invoke.ts";
 
-type RuntimeBridge = {
-  readonly getAgentRuntimeOverview: (
-    payload: DaemonGuiReadPayloadMap["repo.agentRuntime.overview"],
-  ) => Promise<unknown>;
-  readonly getAgentRuntimeSession: (
-    payload: DaemonGuiReadPayloadMap["repo.agentRuntime.sessions.read"],
-  ) => Promise<unknown>;
-  readonly getAgentRuntimeEvents: (
-    payload: DaemonGuiReadPayloadMap["repo.agentRuntime.events.read"],
-  ) => Promise<unknown>;
-  readonly getAgentRuntimeTokenUsage: (
-    payload: DaemonGuiReadPayloadMap["repo.agentRuntime.tokenUsage"],
-  ) => Promise<unknown>;
-};
 type RepoScope = { readonly repoId: string };
-const bridge = (): RuntimeBridge => {
-  const value = window.harness as unknown as Partial<RuntimeBridge> | undefined;
-  if (
-    !value?.getAgentRuntimeOverview ||
-    !value.getAgentRuntimeSession ||
-    !value.getAgentRuntimeEvents ||
-    !value.getAgentRuntimeTokenUsage
-  )
-    throw new Error("Agent runtime contract bridge is unavailable.");
-  return value as RuntimeBridge;
-};
 /** The `runtime-session-groups` projection selector: grouping, range and text query are daemon-side. */
 export type SessionGroupsQuery = {
   readonly groupBy?: "task" | "squad" | "agent" | "day";
@@ -76,11 +52,15 @@ export const agentRuntimeClient = {
     page?: { readonly limit: number; readonly cursor?: string },
   ): Promise<AgentRuntimeOverviewResult> =>
     checked(
-      await bridge().getAgentRuntimeOverview({
-        repoId,
-        ...(taskId ? { taskId } : {}),
-        ...page,
-      } as DaemonGuiReadPayloadMap["repo.agentRuntime.overview"] & RepoScope),
+      await invoke(
+        "repo.agentRuntime.overview",
+        {
+          repoId,
+          ...(taskId ? { taskId } : {}),
+          ...page,
+        } as DaemonGuiReadPayloadMap["repo.agentRuntime.overview"] & RepoScope,
+        "getAgentRuntimeOverview",
+      ),
       "installations",
     ) as AgentRuntimeOverviewResult,
   sessionGroups: async (repoId: string, query: SessionGroupsQuery = {}): Promise<AgentRuntimeSessionGroupsResult> =>
@@ -89,10 +69,14 @@ export const agentRuntimeClient = {
     ) as AgentRuntimeSessionGroupsResult,
   session: async (repoId: string, runtimeSessionId: string): Promise<AgentRuntimeSessionResult> =>
     checked(
-      await bridge().getAgentRuntimeSession({
-        repoId,
-        runtimeSessionId,
-      } as DaemonGuiReadPayloadMap["repo.agentRuntime.sessions.read"] & RepoScope),
+      await invoke(
+        "repo.agentRuntime.sessions.read",
+        {
+          repoId,
+          runtimeSessionId,
+        } as DaemonGuiReadPayloadMap["repo.agentRuntime.sessions.read"] & RepoScope,
+        "getAgentRuntimeSession",
+      ),
       "session",
     ) as AgentRuntimeSessionResult,
   events: async (
@@ -101,18 +85,26 @@ export const agentRuntimeClient = {
     afterCursor = "lifecycle:0",
   ): Promise<AgentRuntimeEventsResult> =>
     checked(
-      await bridge().getAgentRuntimeEvents({
-        repoId,
-        runtimeSessionId,
-        afterCursor,
-      } as DaemonGuiReadPayloadMap["repo.agentRuntime.events.read"] & RepoScope),
+      await invoke(
+        "repo.agentRuntime.events.read",
+        {
+          repoId,
+          runtimeSessionId,
+          afterCursor,
+        } as DaemonGuiReadPayloadMap["repo.agentRuntime.events.read"] & RepoScope,
+        "getAgentRuntimeEvents",
+      ),
       "events",
     ) as AgentRuntimeEventsResult,
   tokenUsage: async (repoId: string): Promise<AgentRuntimeTokenUsageResult> =>
     checked(
-      await bridge().getAgentRuntimeTokenUsage({
-        repoId,
-      } as DaemonGuiReadPayloadMap["repo.agentRuntime.tokenUsage"] & RepoScope),
+      await invoke(
+        "repo.agentRuntime.tokenUsage",
+        {
+          repoId,
+        } as DaemonGuiReadPayloadMap["repo.agentRuntime.tokenUsage"] & RepoScope,
+        "getAgentRuntimeTokenUsage",
+      ),
       "agents",
     ) as AgentRuntimeTokenUsageResult,
 };

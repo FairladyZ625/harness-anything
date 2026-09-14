@@ -1,4 +1,5 @@
 export const guiVitestManifest = [
+  "packages/gui/test/gui-transport.vitest.ts",
   "packages/gui/test/agent-runtime-renderer.vitest.ts",
   "packages/gui/test/runtime-resume.vitest.ts",
   "packages/gui/test/terminal-task-tree.vitest.ts",

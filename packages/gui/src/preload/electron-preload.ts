@@ -37,6 +37,10 @@ const exposedApi = Object.fromEntries(
     ]),
 ) as Record<PreloadApiMethod, (payload?: unknown) => Promise<unknown>>;
 const exposedHarnessApi = {
+  request: (method: string, payload: unknown = null) => {
+    assertPreloadPayload(method, payload);
+    return ipcRenderer.invoke(`harness:${method}`, payload);
+  },
   ...exposedApi,
   ...agentRuntimePreloadApi(ipcRenderer),
   firstRun: {

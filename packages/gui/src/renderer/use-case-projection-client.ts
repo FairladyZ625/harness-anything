@@ -1,5 +1,6 @@
 import type { DaemonGuiReadPayloadMap } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { isRendererRecord, rendererErrorHint } from "./result-validation.ts";
+import { invoke } from "./api-client-invoke.ts";
 
 /**
  * The renderer's only door to a named use-case projection (dec_5B135F46 CH4 layer two).
@@ -11,19 +12,9 @@ import { isRendererRecord, rendererErrorHint } from "./result-validation.ts";
  * field renaming.
  */
 
-type ProjectionBridge = {
-  readonly readUseCaseProjection: (payload: DaemonGuiReadPayloadMap["repo.projection.read"]) => Promise<unknown>;
-};
-
 type RepoScope = { readonly repoId: string };
 
 export type UseCaseProjectionRequest = DaemonGuiReadPayloadMap["repo.projection.read"] & RepoScope;
-
-const bridge = (): ProjectionBridge => {
-  const value = window.harness as unknown as Partial<ProjectionBridge> | undefined;
-  if (!value?.readUseCaseProjection) throw new Error("Use-case projection bridge is unavailable.");
-  return value as ProjectionBridge;
-};
 
 /**
  * Read one projection and return its inner value. The envelope is checked here — a response that
@@ -31,7 +22,7 @@ const bridge = (): ProjectionBridge => {
  * so it fails loudly instead of painting another view's data.
  */
 export async function readUseCaseProjection(request: UseCaseProjectionRequest): Promise<unknown> {
-  const value = await bridge().readUseCaseProjection(request);
+  const value = await invoke("repo.projection.read", request, "readUseCaseProjection");
   if (!isRendererRecord(value) || value.ok !== true || value.schema !== "daemon.use-case-projection/v1")
     throw new Error(rendererErrorHint(value, "Use-case projection bridge returned an invalid result."));
   if (value.name !== request.name)

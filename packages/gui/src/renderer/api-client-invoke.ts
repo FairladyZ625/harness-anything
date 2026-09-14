@@ -1,8 +1,6 @@
 import type { GuiBridgeMethod } from "../api/renderer-dto.ts";
-import type { FirstRunApi } from "../api/first-run-contract.ts";
-import type { ArtifactOpenApi } from "../api/artifact-open-contract.ts";
-import type { ConnectionAdminApi, RepoAdminApi } from "../api/connection-admin-contract.ts";
 import type { DaemonRpcMethodMap, DaemonRpcResult } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
+import { guiTransport } from "./gui-transport.ts";
 
 type GuiInvokeFacet =
   (typeof import("../../../daemon/src/protocol/daemon-protocol.contract.ts").daemonGuiInvokeFacets)[number];
@@ -32,27 +30,20 @@ type GuiBridgeParams<Method extends GuiRpcMethod> = DaemonRpcMethodMap[Method]["
       ? GuiInput<Payload>
       : GuiInput<DaemonRpcMethodMap[Method]["params"]>;
 
-type HarnessBridge = Record<GuiBridgeMethod, (payload?: object | null) => Promise<unknown>> & {
-  readonly capabilities?: unknown;
-  readonly firstRun?: FirstRunApi;
-  readonly artifacts?: ArtifactOpenApi;
-  readonly connections?: ConnectionAdminApi;
-  readonly repoAdmin?: RepoAdminApi;
-};
-
-declare global {
-  interface Window {
-    readonly harness?: HarnessBridge;
-  }
-}
-
 export async function invoke<Method extends keyof DaemonRpcMethodMap>(
   method: Method & GuiRpcMethod,
   params: GuiBridgeParams<Method & GuiRpcMethod>,
   bridgeMethod: GuiBridgeMethodFor<Method & GuiRpcMethod>,
 ): Promise<DaemonRpcResult<Method>> {
-  const bridge = window.harness;
-  if (!bridge || typeof bridge[bridgeMethod] !== "function")
-    throw new Error(`Harness preload bridge is unavailable for ${method} (${bridgeMethod}).`);
-  return bridge[bridgeMethod](params) as Promise<DaemonRpcResult<Method>>;
+  if (!("repoId" in params))
+    return guiTransport().request(method, params as DaemonRpcMethodMap[Method]["params"], bridgeMethod);
+  const { repoId, ...payload } = params as { readonly repoId: string; readonly [key: string]: unknown };
+  return guiTransport().request(
+    method,
+    {
+      repo: { repoId },
+      ...(Object.keys(payload).length > 0 ? { payload } : {}),
+    } as DaemonRpcMethodMap[Method]["params"],
+    bridgeMethod,
+  );
 }
