@@ -115,7 +115,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
     assertAttemptChain(succeeded, ["provider-rate-first", "provider-success-second"]);
     assert.deepEqual(
       succeeded.map(({ classification }) => classification),
-      ["provider_fault", "worker_stop"],
+      ["provider_quota", "worker_stop"],
     );
     assert.match(succeeded[0]?.reason ?? "", /HTTP 429/u);
     assert.match(succeeded[1]?.reason ?? "", /successfully/u);
@@ -136,7 +136,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
         classification,
       })),
       [
-        { attemptIndex: 0, provider: "provider-rate-first", classification: "provider_fault" },
+        { attemptIndex: 0, provider: "provider-rate-first", classification: "provider_quota" },
         { attemptIndex: 1, provider: "provider-success-second", classification: "worker_stop" },
       ],
     );
@@ -171,7 +171,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
     assert.equal(exhausted.rows.filter(({ status }) => status === "running").length, 0);
     assert.deepEqual(
       exhausted.rows.map(({ classification }) => classification),
-      ["provider_fault", "provider_fault"],
+      ["provider_quota", "provider_quota"],
     );
     assert.equal(exhausted.rows[1]?.fallbackState, "exhausted");
     const exhaustionEvents = makeTaskEventStore({ repoId: "provider-fallback", rootDir: root })

@@ -85,6 +85,7 @@ import type {
   TrustedScheduleRuntime,
   TrustedScheduleSpawn,
 } from "./runtime-spawn-types.ts";
+import { isProviderFailureClassification } from "./runtime-fallback-contract.ts";
 import type { RuntimeAttemptOutcome, RuntimeFallbackAttempt } from "./runtime-fallback-contract.ts";
 import type { RuntimeEventOf, RuntimeEventType, RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
@@ -853,7 +854,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     terminal: RuntimeAttemptTerminal,
   ): Promise<void> {
     const fallback = active.fallbackAttempt;
-    if (outcome.classification !== "provider_fault" || !fallback) {
+    if (!isProviderFailureClassification(outcome.classification) || !fallback) {
       await input.onAttemptTerminal?.(terminal);
       return;
     }

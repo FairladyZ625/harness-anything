@@ -2,6 +2,10 @@ import type { RuntimeInstanceKind } from "./agent-runtime-instances.ts";
 
 export type DispatchExitClassification = "provider_fault" | "provider_quota" | "worker_stop" | "gate_red";
 
+export function isProviderFailureClassification(classification: DispatchExitClassification): boolean {
+  return classification === "provider_fault" || classification === "provider_quota";
+}
+
 export type RuntimeProviderFault = {
   readonly code:
     | "rate_limited"
