@@ -118,7 +118,6 @@ export {
   WRITE_RECEIPT_SCHEMA,
   sameWriteSource,
   isRecord,
-  validateActorIdentity,
 } from "./domain/write-chain.contract.ts";
 export type {
   ActorIdentity,
