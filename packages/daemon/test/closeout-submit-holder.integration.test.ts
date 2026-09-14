@@ -83,6 +83,9 @@ test("closeout submit preserves holder authority and resumes one cut after a dis
     writeFileSync(closeoutPath, completeBody);
     const submitted = await submit();
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+    // Success says success: the affirmation names the execution instead of dumping closeout duties.
+    assert.match(String(submitted.summary), new RegExp(`task-submit: submitted \\(execution: ${executionId}\\)`, "u"));
+    assert.doesNotMatch(String(submitted.summary), /Worker must|closeout\.md/u);
     await waitForFixturePublication(cell, submitted.opId, holder);
     const events = () =>
         makeTaskEventReader({ repoId, rootDir })

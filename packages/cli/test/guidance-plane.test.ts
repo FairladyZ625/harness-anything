@@ -59,6 +59,58 @@ test("successful Decision proposals point to the canonical action explanation", 
   assert.equal(renderCliReceipt({ ...receipt, command: "decision-show" }).text, "Decision proposed");
 });
 
+test("accepted_durable receipts affirm success, attribute the git outbox, and separate next steps", () => {
+  const commitSha = "a".repeat(40);
+  assert.deepEqual(
+    renderCliReceipt({
+      ok: true,
+      command: "task-submit",
+      status: "accepted_durable",
+      outcome: "applied",
+      summary: "task-submit: submitted (execution: exe_example)",
+      git: { state: "verified", cut: null, commitSha },
+      projection: { state: "verified", cut: null },
+      next: [{ command: "ha receipt show op_example" }],
+    }),
+    {
+      stream: "stdout",
+      text:
+        "task-submit: submitted (execution: exe_example)\n" +
+        "acceptance: accepted_durable; git(harness-outbox): committed aaaaaaa; projection: verified\n" +
+        "next: ha receipt show op_example",
+    },
+  );
+  // A pending git facet names the outbox publication queue, never the caller's own working tree.
+  assert.equal(
+    renderCliReceipt({
+      ok: true,
+      command: "task-submit",
+      status: "accepted_durable",
+      outcome: "pending",
+      summary:
+        "task-submit: amended; prior Review and consent pins are stale until reviewed or explicitly " +
+        "consented again.",
+      git: { state: "pending", cut: null, commitSha: null },
+      projection: { state: "pending", cut: null },
+      wait: { state: "timed_out", unsatisfied: ["git_verified"] },
+      next: [
+        {
+          command: "ha task declare-executor task_a --execution-id exe_example --reason <auditable-recovery-reason>",
+          reason:
+            "This Execution declared no executor; record an auditable executor declaration before " +
+            "same-person review.",
+        },
+      ],
+    }).text,
+    [
+      "task-submit: amended; prior Review and consent pins are stale until reviewed or explicitly consented again.",
+      "acceptance: accepted_durable; git(harness-outbox): pending; projection: pending; wait: timed_out",
+      "next: ha task declare-executor task_a --execution-id exe_example --reason <auditable-recovery-reason> " +
+        "(This Execution declared no executor; record an auditable executor declaration before same-person review.)",
+    ].join("\n"),
+  );
+});
+
 test("guidance plane renders all seven descriptor-derived task-create messages exactly", () => {
   const physicalRoot = mkdtempSync(path.join(realpathSync(tmpdir()), "ha-guidance-golden-"));
   try {

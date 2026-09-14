@@ -260,12 +260,7 @@ test("a child bare-invocation execution can recover from its parent Task dispatc
       unknown
     >;
     assert.equal(started.outcome, "applied");
-    assert.deepEqual(started.next, [
-      {
-        command: `ha task submit ${taskId}`,
-        reason: "Run the canonical next command for this lifecycle state.",
-      },
-    ]);
+    assert.deepEqual(started.next, [{ command: `ha task submit ${taskId}` }]);
     assert.doesNotMatch(JSON.stringify(started), /declare-executor/u);
     const worker = await cell.spawnRuntime(
       {

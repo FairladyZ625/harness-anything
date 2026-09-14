@@ -50,11 +50,14 @@ export function renderCliReceipt(
         ? {
             ...base,
             text: [
-              `${base.text}\nacceptance: accepted_durable`,
-              `git: ${isRecord(receipt.git) ? String(receipt.git.state) : "pending"}`,
-              `projection: ${isRecord(receipt.projection) ? String(receipt.projection.state) : "pending"}`,
-              ...(isRecord(receipt.wait) ? [`wait: ${String(receipt.wait.state)}`] : []),
-            ].join("; "),
+              `${base.text}\n${[
+                "acceptance: accepted_durable",
+                gitFacetText(receipt.git),
+                `projection: ${isRecord(receipt.projection) ? String(receipt.projection.state) : "pending"}`,
+                ...(isRecord(receipt.wait) ? [`wait: ${String(receipt.wait.state)}`] : []),
+              ].join("; ")}`,
+              ...renderReceiptNext(receipt.next),
+            ].join("\n"),
           }
         : base,
     daemonBuild =
@@ -209,6 +212,28 @@ function squadListColumns(value: unknown): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+// The git facet is the daemon's ledger-to-git publication channel (the harness outbox commits),
+// not the caller's own working tree; it lags the durable SQLite acceptance, so "pending" here
+// names only that publication queue.
+function gitFacetText(git: unknown): string {
+  if (!isRecord(git)) return "git(harness-outbox): pending";
+  const commitSha = typeof git.commitSha === "string" && /^[0-9a-f]{40}$/u.test(git.commitSha) ? git.commitSha : null;
+  return commitSha === null
+    ? `git(harness-outbox): ${String(git.state ?? "pending")}`
+    : `git(harness-outbox): committed ${commitSha.slice(0, 7)}`;
+}
+
+function renderReceiptNext(next: unknown): readonly string[] {
+  if (!Array.isArray(next)) return [];
+  return next.map((entry) => {
+    if (!isRecord(entry) || typeof entry.command !== "string" || entry.command.length === 0)
+      throw new TypeError("Successful receipt next entries must carry a command.");
+    return typeof entry.reason === "string" && entry.reason.length > 0
+      ? `next: ${entry.command} (${entry.reason})`
+      : `next: ${entry.command}`;
+  });
 }
 
 function renderInitReceipt(receipt: Record<string, unknown>): string {

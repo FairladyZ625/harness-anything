@@ -234,22 +234,26 @@ export function lifecycleReceipt(
       ? [
           {
             command: nextCommand,
-            reason: declarationNeeded
-              ? [
-                  "This Execution declared no executor; record an auditable executor ",
-                  "declaration before same-person review.",
-                ].join("")
-              : "Run the canonical next command for this lifecycle state.",
+            // A reason rides only when the command alone would mislead; the canonical next command
+            // for a lifecycle state is its own explanation.
+            ...(declarationNeeded
+              ? {
+                  reason: [
+                    "This Execution declared no executor; record an auditable executor ",
+                    "declaration before same-person review.",
+                  ].join(""),
+                }
+              : {}),
           },
         ]
       : [],
     changedPaths = (event.payload.documentClaims ?? []).map((claim) => claim.path),
     summary =
       event.type === "execution_submitted" && event.payload.supersedesSubmissionId !== undefined
-        ? "Submission amended; prior Review and consent pins are stale until reviewed or explicitly consented again."
+        ? "task-submit: amended; prior Review and consent pins are stale until reviewed or explicitly " +
+          "consented again."
         : event.type === "execution_submitted"
-          ? "Worker must draft closeout.md before completion with Summary, Verification, Residual Risk, and " +
-            "Same Mechanism Elsewhere; the reviewer verifies and finalizes it against ground truth."
+          ? `task-submit: submitted (execution: ${executionId})`
           : undefined;
   return {
     outcome: "applied",
