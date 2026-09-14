@@ -46,7 +46,15 @@ test("catalog entries carry no transport dimension", () => {
 test("the catalog names exactly the shipped projections", () => {
   assert.deepEqual(
     useCaseProjectionCatalog.map((entry) => entry.name),
-    ["schedule-plane", "schedule-run-history", "runtime-session-groups", "task-board-rows", "decision-pool-rows"],
+    [
+      "schedule-plane",
+      "schedule-run-history",
+      "runtime-session-groups",
+      "task-board-rows",
+      "decision-pool-rows",
+      "agent-identity-rows",
+      "squad-identity-rows",
+    ],
   );
   assert.deepEqual([...useCaseProjectionNames].sort(), useCaseProjectionCatalog.map((entry) => entry.name).sort());
   for (const entry of useCaseProjectionCatalog) {
@@ -92,6 +100,12 @@ test("inputs are derived from the registry, not restated", () => {
   const decisions = deriveUseCaseProjectionInputs("decision-pool-rows");
   assert.deepEqual(decisions.entityKinds, ["decision"]);
   assert.deepEqual(decisions.relationTypes, derivedRelationTypesFor(["decision"]));
+  const agents = deriveUseCaseProjectionInputs("agent-identity-rows");
+  assert.deepEqual(agents.entityKinds, ["agent"]);
+  assert.deepEqual(agents.relationTypes, derivedRelationTypesFor(["agent"]));
+  const squads = deriveUseCaseProjectionInputs("squad-identity-rows");
+  assert.deepEqual(squads.entityKinds, ["squad"]);
+  assert.deepEqual(squads.relationTypes, derivedRelationTypesFor(["squad"]));
 });
 
 test("getUseCaseProjection resolves every declared name and rejects anything else", () => {

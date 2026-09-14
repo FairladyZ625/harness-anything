@@ -27,6 +27,8 @@ test("the transport name mirror equals the kernel catalog", () => {
   assert.deepEqual(rowDeliveredUseCaseProjections, {
     "task-board-rows": "repo.tasks.list",
     "decision-pool-rows": "repo.decisions.list:full",
+    "agent-identity-rows": "repo.agent.entities.list",
+    "squad-identity-rows": "repo.squad.entities.list",
   });
   for (const name of Object.keys(rowDeliveredUseCaseProjections))
     assert.equal((useCaseProjectionNameWords as readonly string[]).includes(name), false);
