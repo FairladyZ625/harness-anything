@@ -106,7 +106,6 @@ async function handleRpc(
       },
     );
   } catch (error) {
-    consumeKnownError(error);
     response.statusCode = 502;
     response.setHeader("Content-Type", "application/json");
     response.end(
@@ -116,9 +115,6 @@ async function handleRpc(
       }),
     );
   }
-}
-function consumeKnownError(error: unknown): void {
-  void error;
 }
 function isDaemonUnavailableCode(code: string | null): boolean {
   return code === "ENOENT" || code === "ECONNREFUSED" || code === "ENOTSOCK" || code === "EACCES";
