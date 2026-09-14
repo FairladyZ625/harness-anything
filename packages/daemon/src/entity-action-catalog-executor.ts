@@ -686,10 +686,7 @@ function decisionAuthorization(
   const authorizationDecision = binding.authorizationDecision;
   if (!authorizationDecision || authorizationDecision.outcome !== "allowed")
     reject("actor_unauthorized", "Catalog execution requires the center AuthorizationPort decision.");
-  const judgment =
-    ["decision-accept", "decision-reject", "decision-defer"].includes(action.kind) ||
-    (action.kind === "decision-transition" &&
-      ["in_effect", "rejected", "deferred"].includes(String(action.targetState)));
+  const judgment = ["decision-accept", "decision-reject", "decision-defer"].includes(action.kind);
   if (!judgment) return authorizationDecision;
   const decisionId = requiredCommandText(action.decisionId, "decisionId"),
     proposalActor = input.projection.readDecision(decisionId).decision?.proposer ?? null;
@@ -703,8 +700,7 @@ function decisionAuthorization(
     reject(
       "actor_unauthorized",
       "An agent cannot judge its own Decision proposal; use an independent reviewer " +
-        "or record explicit human approval with decision transition " +
-        "--consent-by, --consent-at, and --consent-channel.",
+        "or record explicit human approval with decision accept --consent-by, --consent-at, and --consent-channel.",
     );
   return authorizationDecision;
 }
@@ -715,8 +711,8 @@ function decisionApproval(
 ): Parameters<typeof compileDecisionWrite>[0]["approval"] {
   if ([action.consentBy, action.consentAt, action.consentChannel].every((value) => value === undefined))
     return undefined;
-  if (action.kind !== "decision-transition" || !["in_effect", "rejected"].includes(String(action.targetState)))
-    reject("invalid_command", "Human consent is only valid for in_effect or rejected transitions.");
+  if (action.kind !== "decision-accept" && action.kind !== "decision-reject")
+    reject("invalid_command", "Human consent is only valid for decision accept or decision reject.");
   if (action.consentBy !== binding.actor.principal.personId)
     reject("actor_unauthorized", "Human consent must name the authenticated principal person.");
   if (

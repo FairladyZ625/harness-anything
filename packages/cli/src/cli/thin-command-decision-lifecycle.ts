@@ -40,7 +40,7 @@ export function parseDecisionRepin(
 
 // The flag catalog keeps --consent-at/--consent-channel as required peers of --consent-by, but
 // human approval at the CLI is one flag: absent peers default to the command moment and "cli".
-function withDefaultConsent(tokens: readonly string[]): readonly string[] {
+export function withDefaultConsent(tokens: readonly string[]): readonly string[] {
   const present = (name: string) => tokens.some((token) => token === name || token.startsWith(`${name}=`));
   if (!present("--consent-by")) return tokens;
   const defaults: string[] = [];
@@ -58,44 +58,15 @@ export function parseDecisionTransition(
 ): ThinParseResult {
   const targetState = args[2],
     decisionId = args[3];
-  if (
-    !nonEmpty(decisionId) ||
-    !["in_effect", "rejected", "deferred", "superseded", "outcome_retired"].includes(targetState ?? "")
-  )
-    return rejected(
-      "invalid_field",
-      "Use decision transition <in_effect|rejected|deferred|superseded|outcome_retired> <id>.",
-      json,
-    );
-  const f = readFlags("decision-transition", withDefaultConsent(args.slice(4)), inputs);
+  if (!nonEmpty(decisionId) || !["superseded", "outcome_retired"].includes(targetState ?? ""))
+    return rejected("invalid_field", "Use decision transition <superseded|outcome_retired> <id>.", json);
+  const f = readFlags("decision-transition", args.slice(4), inputs);
   if (!f.ok) return rejected(f.code, f.nextAction, json);
-  if (f.one.has("--consent-by") && !["in_effect", "rejected"].includes(targetState ?? ""))
-    return rejected("invalid_field", "Human consent is only valid for in_effect or rejected.", json);
-  const acceptOnly =
-    f.booleans.has("--standing-policy") ||
-    f.one.has("--judgment-only") ||
-    (f.many.get("--fulfillment")?.length ?? 0) > 0;
-  if (targetState !== "in_effect" && acceptOnly)
-    return rejected(
-      "invalid_field",
-      "Judgment, standing policy, and fulfillment options are only valid for the in_effect transition.",
-      json,
-    );
   return accepted(rootDir, repoId, json, {
     kind: "decision-transition",
     decisionId,
     targetState,
     ...(f.one.get("--decided-at") ? { decidedAt: f.one.get("--decided-at") } : {}),
-    ...(f.one.has("--consent-by")
-      ? {
-          consentBy: f.one.get("--consent-by"),
-          consentAt: f.one.get("--consent-at"),
-          consentChannel: f.one.get("--consent-channel"),
-        }
-      : {}),
-    judgmentOnlyRationale: f.one.get("--judgment-only") ?? null,
-    standingPolicy: f.booleans.has("--standing-policy"),
-    fulfillments: parseFulfillments(f.many.get("--fulfillment") ?? []),
     dryRun: f.booleans.has("--dry-run"),
   });
 }

@@ -459,33 +459,19 @@ function transitionEvent(
   input: EntityActionCompileInput,
   base: Omit<DecisionEventDraftV1, "type" | "payload">,
 ): DecisionEventDraftV1 {
+  // Adjudication targets (proposed → in_effect/rejected/deferred) compile only through the
+  // accept/reject/defer action family; transition is the in_effect → superseded/outcome_retired
+  // bookkeeping family, so its targetState choice is the non-proposed half of the definitions.
   const action = input.action,
     state = choice(
       input,
       action.targetState,
-      decisionTransitionDefinitions.map(({ targetState }) => targetState),
+      decisionTransitionDefinitions
+        .filter(({ sourceState }) => sourceState !== "proposed")
+        .map(({ targetState }) => targetState),
       "targetState",
     ),
     reason = `Transitioned to ${state} via the canonical Decision lifecycle command.`;
-  if (state === "in_effect")
-    return {
-      ...base,
-      type: "decision_accepted",
-      payload: {
-        rationale:
-          typeof action.judgmentOnlyRationale === "string"
-            ? short(input, action.judgmentOnlyRationale, "judgmentOnlyRationale")
-            : reason,
-        judgmentOnlyRationale:
-          typeof action.judgmentOnlyRationale === "string"
-            ? short(input, action.judgmentOnlyRationale, "judgmentOnlyRationale")
-            : null,
-        fulfillments: array(input, action.fulfillments, "fulfillments") as never,
-        standingPolicy: action.standingPolicy === true,
-      },
-    };
-  if (state === "rejected") return { ...base, type: "decision_rejected", payload: { reason } };
-  if (state === "deferred") return { ...base, type: "decision_deferred", payload: { reason } };
   return state === "superseded"
     ? { ...base, type: "decision_superseded", payload: { reason } }
     : { ...base, type: "decision_retired", payload: { reason } };
@@ -557,10 +543,6 @@ function short(input: EntityActionCompileInput, value: unknown, field: string): 
   const text = requiredText(input, value, field);
   if ([...text].length <= 199) return text;
   invalid(input, `${field} must contain at most 199 characters.`);
-}
-function array(input: EntityActionCompileInput, value: unknown, field: string): readonly unknown[] {
-  if (Array.isArray(value)) return value;
-  invalid(input, `${field} must be an array.`);
 }
 function object(input: EntityActionCompileInput, value: unknown, field: string): Readonly<Record<string, unknown>> {
   if (plainRecordValue(value)) return value;

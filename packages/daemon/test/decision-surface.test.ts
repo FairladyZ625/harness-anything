@@ -156,12 +156,10 @@ test("Decision F06 surface preserves amend, transition, relation, repin, validat
     assert.deepEqual(validation.rows[0]?.warnings, []);
     const accepted = await cell.run(
       {
-        kind: "decision-transition",
-        targetState: "in_effect",
+        kind: "decision-accept",
         decisionId,
+        rationale: "Independent judgment after reviewing the proposal.",
         judgmentOnlyRationale: "Independent judgment after reviewing the proposal.",
-        standingPolicy: false,
-        fulfillments: [{ claimId: "C1", mode: "delivered" }],
       },
       arbiter,
     );
@@ -202,9 +200,6 @@ test("Decision F06 surface preserves amend, transition, relation, repin, validat
         kind: "decision-transition",
         targetState: "superseded",
         decisionId,
-        judgmentOnlyRationale: null,
-        standingPolicy: false,
-        fulfillments: [],
       },
       proposer,
     );
@@ -215,9 +210,6 @@ test("Decision F06 surface preserves amend, transition, relation, repin, validat
         kind: "decision-transition",
         targetState: "outcome_retired",
         decisionId,
-        judgmentOnlyRationale: null,
-        standingPolicy: false,
-        fulfillments: [],
       },
       proposer,
     );
@@ -323,12 +315,10 @@ test("decision accept rejects a heading-only proposal body", async () => {
       decisionId = String(receiptJson(proposed).decisionId),
       accepted = await cell.run(
         {
-          kind: "decision-transition",
-          targetState: "in_effect",
+          kind: "decision-accept",
           decisionId,
+          rationale: "The arbiter reviewed the proposal.",
           judgmentOnlyRationale: "The arbiter reviewed the proposal.",
-          standingPolicy: false,
-          fulfillments: [{ claimId: "C1", mode: "delivered" }],
         },
         arbiter,
       );
@@ -340,7 +330,7 @@ test("decision accept rejects a heading-only proposal body", async () => {
   }
 });
 
-test("decision transition accepts repeated matching proposal fulfillments and dry-run uses admission", async () => {
+test("decision accept preserves the proposal fulfillments and dry-run uses admission", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-decision-fulfillments-"));
   initRepo(rootDir);
   const cell = await openRepoCell({
@@ -379,35 +369,22 @@ test("decision transition accepts repeated matching proposal fulfillments and dr
       ),
       decisionId = String(receiptJson(proposed).decisionId),
       before = makeTaskEventReader({ repoId: "decision-fulfillments", rootDir }).read().revision,
-      transition = {
-        kind: "decision-transition",
-        targetState: "in_effect",
+      adjudication = {
+        kind: "decision-accept",
         decisionId,
+        rationale: "The arbiter verified both claims and accepts the recorded evidence.",
         judgmentOnlyRationale: "The arbiter verified both claims and accepts the recorded evidence.",
-        standingPolicy: false,
-        fulfillments: [
-          { claimId: "C1", mode: "evidenced" },
-          { claimId: "C2", mode: "evidenced" },
-        ],
       } as const,
-      conflictingPreview = await cell.run(
-        {
-          ...transition,
-          fulfillments: [
-            { claimId: "C1", mode: "delivered" },
-            { claimId: "C2", mode: "evidenced" },
-          ],
-          dryRun: true,
-        },
-        arbiter,
-      ),
-      preview = await cell.run({ ...transition, dryRun: true }, arbiter);
-    assert.equal(conflictingPreview.outcome, "op_rejected", JSON.stringify(conflictingPreview));
-    assert.equal(conflictingPreview.code, "invalid_transition");
+      preview = await cell.run({ ...adjudication, dryRun: true }, arbiter);
     assert.equal(preview.outcome, "pending", JSON.stringify(preview));
     assert.equal(makeTaskEventReader({ repoId: "decision-fulfillments", rootDir }).read().revision, before);
-    const accepted = await cell.run(transition, arbiter);
+    const accepted = await cell.run(adjudication, arbiter);
     assert.equal(accepted.outcome, "applied", JSON.stringify(accepted));
+    await cell.settlePendingMaterialization("read accepted decision document");
+    assert.match(
+      readFileSync(path.join(rootDir, "harness", `decisions/decision-${decisionId}/decision.md`), "utf8"),
+      /"fulfillment":"evidenced"/u,
+    );
 
     const unevidenced = await cell.run(
         { ...proposal("Unevidenced preview"), body: "# Unevidenced preview\n\nComplete prose without evidence.\n" },
@@ -416,12 +393,9 @@ test("decision transition accepts repeated matching proposal fulfillments and dr
       unevidencedId = String(receiptJson(unevidenced).decisionId),
       rejectedPreview = await cell.run(
         {
-          kind: "decision-transition",
-          targetState: "in_effect",
+          kind: "decision-accept",
           decisionId: unevidencedId,
-          judgmentOnlyRationale: null,
-          standingPolicy: false,
-          fulfillments: [],
+          rationale: "The arbiter accepts without evidence.",
           dryRun: true,
         },
         arbiter,

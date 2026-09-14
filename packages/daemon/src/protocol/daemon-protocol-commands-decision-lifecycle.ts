@@ -124,54 +124,13 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
   defineLedgerWriteCommand({
     id: "decision-transition",
     phase: "DecisionFact-B",
-    path: ["decision", "transition", "<in_effect|rejected|deferred|superseded|outcome_retired>", "<id>"],
-    summary: "Canonical lifecycle transition; terminal states cannot transition again.",
+    path: ["decision", "transition", "<superseded|outcome_retired>", "<id>"],
+    summary: "Bookkeeping transition of an in_effect Decision; adjudication uses decision accept/reject/defer.",
     method: "repo.task.run",
     inputs: [
-      cliInput(
-        "--consent-by",
-        "single",
-        false,
-        { code: "invalid_field" },
-        {
-          requires: ["--consent-at", "--consent-channel"],
-        },
-      ),
-      cliInput("--consent-at", "single", false, { code: "invalid_field" }, { requires: ["--consent-by"] }),
-      cliInput(
-        "--consent-channel",
-        "single",
-        false,
-        { code: "invalid_field" },
-        {
-          requires: ["--consent-by"],
-          regex: "^(chat|cli|gui)$",
-        },
-      ),
       cliInput("--decided-at", "single", false, {
         code: "invalid_field",
       }),
-      cliInput(
-        "--judgment-only",
-        "single",
-        false,
-        {
-          code: "invalid_field",
-        },
-        { regex: "^[\\s\\S]{1,199}$" },
-      ),
-      cliInput("--standing-policy", "boolean", false, {
-        code: "invalid_field",
-      }),
-      cliInput(
-        "--fulfillment",
-        "repeated",
-        false,
-        {
-          code: "invalid_field",
-        },
-        { regex: "^C[A-Za-z0-9_-]+:(?:evidenced|delivered|standing_policy)$" },
-      ),
       cliInput("--dry-run", "boolean", false, {
         code: "invalid_field",
       }),
@@ -181,7 +140,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
     id: "decision-accept",
     phase: "DecisionFact-B",
     path: ["decision", "accept", "<id>"],
-    summary: "Deprecated alias for decision transition in_effect.",
+    summary: "Adjudicate a proposed Decision as in_effect; carries explicit human consent when given.",
     method: "repo.task.run",
     inputs: [
       cliInput(
@@ -205,13 +164,33 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         },
         { requires: ["--rationale"], regex: "^[\\s\\S]{1,199}$" },
       ),
+      cliInput(
+        "--consent-by",
+        "single",
+        false,
+        { code: "invalid_field" },
+        {
+          requires: ["--consent-at", "--consent-channel"],
+        },
+      ),
+      cliInput("--consent-at", "single", false, { code: "invalid_field" }, { requires: ["--consent-by"] }),
+      cliInput(
+        "--consent-channel",
+        "single",
+        false,
+        { code: "invalid_field" },
+        {
+          requires: ["--consent-by"],
+          regex: "^(chat|cli|gui)$",
+        },
+      ),
     ],
   }),
   defineLocalArbiterCommand({
     id: "decision-reject",
     phase: "DecisionFact-B",
     path: ["decision", "reject", "<id>"],
-    summary: "Deprecated alias for decision transition rejected.",
+    summary: "Adjudicate a proposed Decision as rejected; carries explicit human consent when given.",
     method: "repo.task.run",
     inputs: [
       cliInput(
@@ -223,13 +202,33 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         },
         { regex: "^[\\s\\S]{1,199}$" },
       ),
+      cliInput(
+        "--consent-by",
+        "single",
+        false,
+        { code: "invalid_field" },
+        {
+          requires: ["--consent-at", "--consent-channel"],
+        },
+      ),
+      cliInput("--consent-at", "single", false, { code: "invalid_field" }, { requires: ["--consent-by"] }),
+      cliInput(
+        "--consent-channel",
+        "single",
+        false,
+        { code: "invalid_field" },
+        {
+          requires: ["--consent-by"],
+          regex: "^(chat|cli|gui)$",
+        },
+      ),
     ],
   }),
   defineLocalArbiterCommand({
     id: "decision-defer",
     phase: "DecisionFact-B",
     path: ["decision", "defer", "<id>"],
-    summary: "Deprecated alias for decision transition deferred.",
+    summary: "Adjudicate a proposed Decision as deferred.",
     method: "repo.task.run",
     inputs: [
       cliInput(

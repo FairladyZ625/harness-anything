@@ -43,8 +43,8 @@ propose ──▶ accept / reject / defer
 ## Fact 到 decision 的交接
 
 证据交接的可执行版本位于[第一个完整闭环](../../start/zh/02-first-loop.md)。当前路径使用
-一等 `relation relate` 边，以及带明确人类批准的 `decision transition in_effect`；弃用的
-`decision accept` alias 不再作为第二条工作流。
+一等 `relation relate` 边，以及带明确人类批准的 `decision accept`；`decision transition`
+只对已裁决的 decision 做簿记迁移（`superseded`、`outcome_retired`）。
 
 ## 证据是边,不是嵌入的数组
 

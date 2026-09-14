@@ -248,7 +248,7 @@ export const commandTable = [
     "decision-claim-fulfill",
     (c, s) => ["decision", "claim", "fulfill", c.id("decision-propose", s), "--id", "C1", "--mode", "delivered"],
   ],
-  ["decision-transition", (c, s) => ["decision", "transition", "deferred", c.decision(s), "--dry-run"]],
+  ["decision-transition", (c, s) => ["decision", "transition", "superseded", c.decision(s), "--dry-run"]],
   ["decision-defer", (c, s) => ["decision", "defer", c.decision(s + 10), "--rationale", "bench"]],
   ["decision-reject", (c, s) => ["decision", "reject", c.decision(s + 20), "--rationale", "bench"]],
   [

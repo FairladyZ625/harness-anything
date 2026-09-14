@@ -48,13 +48,13 @@ ha relation relate --source-ref decision/dec_.../C1 --target-ref fact/F-3C9EB45C
 chosen option `CH1`；接受 decision 需要这条证据边，或明确的 judgment-only 理由。
 
 ```bash
-ha decision transition in_effect dec_... --consent-by owner --consent-at 2026-09-12T08:00:00Z --consent-channel cli
+ha decision accept dec_... --rationale "Durable facts preserve handoff reasons" --consent-by owner --consent-at 2026-09-12T08:00:00Z --consent-channel cli
 ```
 
-预期：`ok=true command=decision-transition state=in_effect consentId=djc_...`。两个独立
+预期：`ok=true command=decision-accept state=in_effect consentId=djc_...`。两个独立
 条件已经可见：claim 证据和明确的人类批准。三个 consent flags 是一次原子输入，且
-`--consent-by` 必须是已认证 principal。旧的 `ha decision accept` 是弃用 alias，不是
-第二条工作流。
+`--consent-by` 必须是已认证 principal。`ha decision transition` 只做簿记迁移
+（`superseded`、`outcome_retired`）；裁决一律走 `decision accept/reject/defer`。
 
 ## 4. 创建由 decision 派生的 task
 
