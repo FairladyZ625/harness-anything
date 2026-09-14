@@ -165,7 +165,7 @@ export function readDaemonRegistry(options: DaemonRegistryOptions = {}): DaemonR
   return registry;
 }
 
-export function registerDaemonRepo(
+export function writeDaemonRegistryRepo(
   input: DaemonRegistryRegisterInput,
 ): DaemonRegistryMutationResult<DaemonRegistryRepo> {
   const paths = daemonRegistryPaths(input);

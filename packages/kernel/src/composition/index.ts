@@ -1,6 +1,6 @@
 import {
   canonicalDaemonRegistryRoot,
-  registerDaemonRepo as writeDaemonRegistryRepo,
+  writeDaemonRegistryRepo,
   type DaemonRegistryRegisterInput,
 } from "../daemon/registry.ts";
 import { resolveLedgerGitLayout } from "../store/ledger-git-layout.ts";
