@@ -114,6 +114,10 @@ test("closeout submit preserves holder authority and resumes one cut after a dis
       closeoutPath,
       completeBody.replace("Delivered the private report.", "Delivered the amended private report."),
     );
+    const bareChanged = await submit();
+    assert.equal(bareChanged.outcome, "op_rejected", JSON.stringify(bareChanged));
+    assert.match(JSON.stringify(bareChanged.next), new RegExp(`task submit --amend ${taskId}`, "u"));
+    assert.deepEqual(events(), before, "a changed bare retry must not reuse the prior applied receipt");
     let amended = await cell.run({ kind: "task-submit", taskId, executionId, amend: true }, holder);
     for (let attempt = 0; amended.outcome === "pending" && attempt < 4; attempt += 1) {
       await waitForFixturePublication(cell, amended.opId, holder);
