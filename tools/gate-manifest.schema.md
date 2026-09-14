@@ -169,26 +169,26 @@ Release-policy gate sample:
 
 The registry records:
 
-- 51 gates: 42 deterministic and 9 non-deterministic/composite.
-- 36 `harness:*` leaf gates from `package.json`; 34 are in `check`, 32 are in
-  `check:pr`, and 35 execute in pull-request workflow jobs. The only
+- 68 gates: 57 deterministic and 11 non-deterministic/composite.
+- 44 `harness:*` leaf gates from `package.json`; 41 are in `check`, 38 are in
+  `check:pr`, and 43 execute in pull-request workflow jobs. The only
   `harness:*` gate outside the PR workflow is the non-deterministic,
   schedule-only `check-enforcement-debt-sunset`.
-- 11 formerly main-only deterministic gates added to the existing `boundaries`
+- 10 formerly main-only deterministic gates added to the existing `boundaries`
   required context: `check-cli-help-contract`, `check-cli-error-codes`,
-  `check-error-classification`, `check-duplicate-definitions`,
-  `check-integrity-single-source`, `check-docs-release-map`,
-  `check-template-command-surface`, `check-service-mappability`,
-  `check-api-contract-registry`, `check-schema-field-coverage`,
-  and `smoke-legacy-intake`.
+  `check-error-classification`, `check-integrity-single-source`,
+  `check-docs-release-map`, `check-template-command-surface`,
+  `check-service-mappability`, `check-api-contract-registry`,
+  `check-schema-field-coverage`, and `smoke-legacy-intake`.
+  (`check-duplicate-definitions` was retired 2026-09-14; exported-name
+  collisions remain covered by `npm run typecheck`.)
 - `check-gate-manifest-invariants` executes locally, in `boundaries`, and in
   non-PR `full-check` confirmation runs.
-- 14 GitHub branch-protection required contexts:
+- 17 GitHub branch-protection required contexts:
   `boundaries`, `package-policy`, `typecheck (24)`, `fast-contract`,
-  `integration-shard (1)`, `integration-shard (2)`,
-  `integration-shard (3)`, `integration-shard (4)`,
-  `integration-shard (5)`, `integration-shard (6)`, `supply-chain`,
-  `gui-build`, `node26-compatibility`, and `pr-body-lint`.
+  `integration-shard (1)` through `integration-shard (6)`, `supply-chain`,
+  `gui-build`, `node26-compatibility`, `pr-body-lint`, `crlf-checkout`,
+  `windows-first-run (ubuntu-latest)`, and `windows-first-run (windows-latest)`.
 - 2 PR-body meta-governance commands under the `pr-body-lint` required
   context: bilingual body structure and protected-surface governance
   declaration shape. That job and the manifest-registered `production-delta`

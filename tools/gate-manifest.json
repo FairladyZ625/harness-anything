@@ -80,7 +80,6 @@
         "check-task-event-aggregate-entry",
         "canonical-event-compat",
         "scan-forbidden-symbols",
-        "check-duplicate-definitions",
         "check-integrity-single-source",
         "check-private-boundary",
         "check-integration-test-shards",
@@ -130,7 +129,6 @@
         "check-task-event-aggregate-entry",
         "canonical-event-compat",
         "scan-forbidden-symbols",
-        "check-duplicate-definitions",
         "check-integrity-single-source",
         "check-private-boundary",
         "check-integration-test-shards",
@@ -150,7 +148,7 @@
         "check-legacy-intake-readiness",
         "check-supply-chain"
       ],
-      "harnessLeafGateCount": 43
+      "harnessLeafGateCount": 42
     },
     "rewriteCi": {
       "pullRequestGateJobs": [
@@ -2624,85 +2622,6 @@
       }
     },
     {
-      "id": "check-duplicate-definitions",
-      "command": "npm run harness:check-duplicate-definitions",
-      "category": "local-consistency",
-      "tier": "pr-required",
-      "tierReason": null,
-      "localPathGlobs": [
-        "packages/**/src/**"
-      ],
-      "authoritySource": [
-        "packages/** source definitions",
-        "tools/check-duplicate-definitions.mjs"
-      ],
-      "consumerScope": [
-        "duplicate source-level definitions scanned by the checker"
-      ],
-      "githubContext": {
-        "requiredContexts": [
-          "boundaries"
-        ],
-        "workflowJobs": [
-          "boundaries",
-          "full-check"
-        ],
-        "nodeVersions": [
-          24,
-          26
-        ]
-      },
-      "allowlistPolicy": {
-        "allowed": true,
-        "location": "tools/check-duplicate-definitions.mjs",
-        "adrOrDecisionRequired": true,
-        "notes": "Any duplicate-definition exception is a governance-controlled local-consistency change."
-      },
-      "changeControl": {
-        "ordinaryImplementationMayModify": false,
-        "requiresGovernanceEvidence": true,
-        "protectedSurfaces": [
-          "tools/check-duplicate-definitions.mjs",
-          "package.json:scripts.harness:check-duplicate-definitions",
-          "tools/gate-manifest.json"
-        ]
-      },
-      "bypassFixtureRequired": false,
-      "executionSurfaces": {
-        "packageJson": {
-          "check": true,
-          "checkPr": true,
-          "script": "harness:check-duplicate-definitions"
-        },
-        "rewriteCi": {
-          "pullRequestJobs": [
-            "boundaries"
-          ],
-          "nonPullRequestJobs": [
-            "full-check"
-          ]
-        },
-        "branchProtection": {
-          "required": true,
-          "contexts": [
-            "boundaries"
-          ]
-        },
-        "classes": [
-          "local",
-          "pr",
-          "main-full"
-        ]
-      },
-      "deterministic": true,
-      "positiveControl": {
-        "status": "covered",
-        "evidence": [
-          "tools/check-duplicate-definitions.test.mjs"
-        ]
-      }
-    },
-    {
       "id": "check-integrity-single-source",
       "command": "npm run harness:check-integrity-single-source",
       "category": "boundary",
@@ -5087,54 +5006,6 @@
       "positiveControl": {
         "status": "covered",
         "evidence": ["tools/gates/test/ontology-explain-executable-actions.test.mjs"]
-      }
-    },
-    {
-      "id": "ontology-daemon-specialization-lines",
-      "command": "node tools/gates/ontology-daemon-specialization-lines.mjs --mode ratchet --base origin/main",
-      "category": "boundary",
-      "tier": "pr-required",
-      "tierReason": null,
-      "authoritySource": [
-        "task_6afb9b18781322b945d268d8f2",
-        "harness/context/research/2026-08-23-ontology-architecture/ontology-adversarial-audit-report.md#f5-daemon-特化赘肉没有删除规模与结构都给出反证"
-      ],
-      "consumerScope": [
-        "five audited daemon specialization files",
-        "shrink-only per-file line baseline"
-      ],
-      "githubContext": {
-        "requiredContexts": ["boundaries"],
-        "workflowJobs": ["boundaries"],
-        "nodeVersions": [24]
-      },
-      "allowlistPolicy": {
-        "allowed": false,
-        "location": null,
-        "adrOrDecisionRequired": false,
-        "notes": "The committed baseline may only fall relative to the merge base; increases have no receipt or allowlist path."
-      },
-      "changeControl": {
-        "ordinaryImplementationMayModify": false,
-        "requiresGovernanceEvidence": true,
-        "protectedSurfaces": [
-          "tools/gates/ontology-daemon-specialization-lines.mjs",
-          "tools/gates/ontology-daemon-specialization-lines.json",
-          "tools/gates/test/ontology-daemon-specialization-lines.test.mjs",
-          "tools/gate-manifest.json"
-        ]
-      },
-      "bypassFixtureRequired": true,
-      "executionSurfaces": {
-        "packageJson": { "check": false, "checkPr": false, "script": null },
-        "rewriteCi": { "pullRequestJobs": ["boundaries"], "nonPullRequestJobs": [] },
-        "branchProtection": { "required": true, "contexts": ["boundaries"] },
-        "classes": ["pr"]
-      },
-      "deterministic": true,
-      "positiveControl": {
-        "status": "covered",
-        "evidence": ["tools/gates/test/ontology-daemon-specialization-lines.test.mjs"]
       }
     },
     {

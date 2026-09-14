@@ -57,7 +57,6 @@
     "harness:check-poll-spin-boundary": "node tools/check-poll-spin-boundary.mjs",
     "harness:check-fallback-boundaries": "node tools/check-fallback-boundaries.mjs",
     "harness:scan-forbidden-symbols": "node tools/scan-forbidden-symbols.mjs",
-    "harness:check-duplicate-definitions": "node tools/check-duplicate-definitions.mjs",
     "harness:check-integrity-single-source": "node tools/check-integrity-single-source.mjs",
     "harness:check-private-boundary": "node tools/check-private-boundary.mjs",
     "harness:check-integration-test-shards": "node tools/check-integration-test-shards.mjs",
