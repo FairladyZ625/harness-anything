@@ -46,7 +46,26 @@ export function createDaemonHostRepositoryApi(
 ): Pick<DaemonHost, "bootstrap" | "admin" | "run" | "replica" | "settleMaterialization" | "presetRun" | "read"> {
   return {
     bootstrap: async (request, auth) => {
-      const prepared = resolveRepoBootstrap(request, auth);
+      const prepared = resolveRepoBootstrap(request, auth),
+        registeredRoot = readDaemonRegistry({ userRoot: context.input.userRoot }).repos.find(
+          (repo) =>
+            repo.state === "enabled" &&
+            repo.mode === "local" &&
+            repo.canonicalRoot === prepared.rootDir &&
+            repo.repoId !== prepared.repoId,
+        );
+      if (registeredRoot)
+        throw context.hostCodedError(
+          "repository_already_registered",
+          `This repository is already registered as ${registeredRoot.repoId}; ` +
+            `run ha init --repo-id ${registeredRoot.repoId}.`,
+          {
+            kind: "invalid-enum",
+            field: "--repo-id",
+            actual: prepared.repoId,
+            allowedValues: [registeredRoot.repoId],
+          },
+        );
       await context.waitForWarming(prepared.repoId);
       if (context.warming.has(prepared.repoId))
         throw context.hostCodedError("repo_warming", context.warmingMessage(prepared.repoId));

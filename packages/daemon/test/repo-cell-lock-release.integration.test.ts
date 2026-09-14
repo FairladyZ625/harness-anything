@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { openDaemonHost } from "../src/daemon-host.ts";
 import { resolveRepoBootstrap } from "../src/repo-bootstrap.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
 import type { DaemonAuthenticationContext } from "../src/transport/auth-context.ts";
@@ -48,5 +49,35 @@ test("a post-initialize open failure releases the workspace lock for the next at
     await reopened.close();
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("repeated init reports the registered repo id while its RepoCell is open", async () => {
+  const parent = realpathSync(mkdtempSync(path.join(tmpdir(), "ha-repeated-init-"))),
+    rootDir = path.join(parent, "repo"),
+    userRoot = path.join(parent, "user"),
+    request = { rootDir, repoId: "registered-id", personId: "owner", displayName: "Owner" };
+  let host = await openDaemonHost({ daemonId: "repeated-init-first", userRoot });
+  try {
+    execFileSync("git", ["init", "-q", rootDir]);
+    const initialized = await host.bootstrap(request, auth);
+    assert.equal(initialized.outcome, "applied");
+    await host.close();
+    host = await openDaemonHost({ daemonId: "repeated-init-second", userRoot });
+    await host.attachmentsSettled();
+
+    await assert.rejects(
+      host.bootstrap({ ...request, repoId: "inferred-directory-name" }, auth),
+      (error: unknown) =>
+        error instanceof Error &&
+        "code" in error &&
+        error.code === "repository_already_registered" &&
+        /ha init --repo-id registered-id/u.test(error.message) &&
+        "diagnostic" in error &&
+        (error.diagnostic as { kind?: string }).kind === "invalid-enum",
+    );
+  } finally {
+    await host.close();
+    rmSync(parent, { recursive: true, force: true });
   }
 });

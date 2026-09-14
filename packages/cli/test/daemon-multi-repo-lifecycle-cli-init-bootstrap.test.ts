@@ -267,6 +267,22 @@ test("REQ-CTX-01..10 empty init publishes the canonical scaffold, authority pari
     assert.match(textReceipt.stdout, /daemon status/u);
     assert.match(textReceipt.stdout, /agent install --source/u);
     assert.match(textReceipt.stdout, /squad install --source/u);
+    git(fixture.repo, "config", "user.name", "Owner");
+    const inferredIdReceipt = spawnSync(process.execPath, [cli, "init"], {
+      cwd: fixture.repo,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        HOME: path.join(fixture.repo, ".home"),
+        GIT_CONFIG_GLOBAL: "/dev/null",
+        HARNESS_DAEMON_USER_ROOT: fixture.userRoot,
+      },
+    });
+    assert.equal(inferredIdReceipt.status, 1);
+    assert.equal(
+      inferredIdReceipt.stderr.trim(),
+      "error code=repository_already_registered hint=--repo-id must be one of fresh; received repo.",
+    );
     assert.equal(
       run(fixture.repo, fixture.userRoot, ["task", "create", "--id", "task-first", "--admin", "--title", "First task"])
         .outcome,
