@@ -88,6 +88,8 @@ export type SessionRound = {
   readonly taskTitle: string | null;
   readonly startedAt: string;
   readonly status: SessionStatus;
+  readonly classification: TaskDispatchProjectionRow["classification"];
+  readonly nextAction: string | null;
   readonly delegation: string | null;
 };
 /** 组展开行之二:绑定了任务但没有派工记录的会话(「无派工记录」小节)。 */
@@ -130,6 +132,8 @@ export function sessionRounds(
     taskTitle,
     startedAt: row.startedAt,
     status: row.status,
+    classification: row.classification,
+    nextAction: row.nextAction ?? null,
     delegation: sessionDelegation(row),
   }));
 }

@@ -93,6 +93,10 @@ const dispatchRow = (index: number, overrides: Partial<Parameters<typeof session
   endedAt: null,
   outcome: null,
   status: "running" as const,
+  classification: null,
+  reason: null,
+  fallbackState: null,
+  nextDispatchId: null,
   ...overrides,
 });
 const taskGroup: SessionGroup = {
@@ -464,6 +468,22 @@ describe("session transcript replay", () => {
 });
 
 describe("sessions page: single-session groups", () => {
+  it("keeps the daemon's quota classification and resume guidance on an expanded round", () => {
+    const quotaRounds = sessionRounds("task_1994d52c", "GUI 会话页重构", [
+        dispatchRow(3, {
+          status: "failed" as never,
+          classification: "provider_quota",
+          nextAction: "ha runtime resume dispatch_000000000000000000000003",
+        }),
+      ]),
+      markup = groupList({
+        rowsByGroup: new Map([["task_1994d52c", { rounds: quotaRounds, orphans: [], pending: false, error: null }]]),
+      });
+    expect(markup).toContain('data-testid="runtime-classification-runtime-3"');
+    expect(markup).toContain("provider_quota");
+    expect(markup).toContain("ha runtime resume dispatch_000000000000000000000003");
+  });
+
   it("renders group headers from the daemon read: title, short task id, status, rounds, activity", () => {
     const markup = groupList({ expandedKeys: new Set() });
     expect(markup).toContain("GUI 会话页重构");
