@@ -275,6 +275,7 @@ const relationGraph = {
           origin: "daemon",
           code: "invalid_result",
           evidence: "validation failed",
+          rejectionExplanation: "invalid result",
           error: { code: "invalid_result", hint: "" },
         }),
     },

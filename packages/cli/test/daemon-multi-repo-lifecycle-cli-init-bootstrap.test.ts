@@ -267,6 +267,38 @@ test("REQ-CTX-01..10 empty init publishes the canonical scaffold, authority pari
     assert.match(textReceipt.stdout, /daemon status/u);
     assert.match(textReceipt.stdout, /agent install --source/u);
     assert.match(textReceipt.stdout, /squad install --source/u);
+    git(fixture.repo, "config", "user.name", "Owner");
+    const inferredIdReceipt = spawnSync(process.execPath, [cli, "init"], {
+      cwd: fixture.repo,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        HOME: path.join(fixture.repo, ".home"),
+        GIT_CONFIG_GLOBAL: "/dev/null",
+        HARNESS_DAEMON_USER_ROOT: fixture.userRoot,
+      },
+    });
+    assert.equal(inferredIdReceipt.status, 0, inferredIdReceipt.stderr);
+    assert.match(
+      inferredIdReceipt.stdout,
+      /^This repository is already registered as fresh and is initialized\.\noutcome: noop/u,
+    );
+    const conflictingIdReceipt = spawnSync(process.execPath, [cli, "init", "--repo-id", "conflict"], {
+      cwd: fixture.repo,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        HOME: path.join(fixture.repo, ".home"),
+        GIT_CONFIG_GLOBAL: "/dev/null",
+        HARNESS_DAEMON_USER_ROOT: fixture.userRoot,
+      },
+    });
+    assert.equal(conflictingIdReceipt.status, 1);
+    assert.equal(
+      conflictingIdReceipt.stderr.trim(),
+      "error code=repository_already_registered hint=This repository is already registered as fresh; " +
+        "rerun without --repo-id or with --repo-id fresh.",
+    );
     assert.equal(
       run(fixture.repo, fixture.userRoot, ["task", "create", "--id", "task-first", "--admin", "--title", "First task"])
         .outcome,
