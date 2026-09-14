@@ -18,7 +18,7 @@ test("resident daemon CLI write p50 includes process startup through parsed rece
       shell: process.platform === "win32",
     });
     assert.equal(run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"], builtCli).ok, true);
-    register(fixture.alpha, fixture.userRoot, "alpha", builtCli);
+    await register(fixture.alpha, fixture.userRoot, "alpha", builtCli);
     // Warm two short rounds before measuring. GitHub's runner has a cold page/cache
     // penalty that is absent on the developer machine; one measured sample reached
     // 357ms while load stayed at 0.33. Warmup absorbs that one-time penalty, while

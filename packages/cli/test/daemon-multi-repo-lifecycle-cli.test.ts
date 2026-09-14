@@ -8,6 +8,22 @@ import { requestLocalDaemonJsonRpc } from "../../daemon/src/client/local-json-rp
 import { makeTaskEventReader } from "../../kernel/src/index.ts";
 import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
 
+// Windows teardown: rmSync below cannot remove a ledger file while one of this process's readers
+// still holds it open (nightly EPERM), so every reader opened in a test is drained before cleanup.
+const trackLedgerReaders = () => {
+  const readers: Array<ReturnType<typeof makeTaskEventReader>> = [];
+  return {
+    open: (rootDir: string, repoId: string) => {
+      const reader = makeTaskEventReader({ rootDir, repoId });
+      readers.push(reader);
+      return reader;
+    },
+    drain: async () => {
+      await Promise.all(readers.map((reader) => reader.drain()));
+    },
+  };
+};
+
 import {
   cli,
   git,
@@ -19,7 +35,8 @@ import {
   stop,
 } from "./daemon-multi-repo-lifecycle-cli.fixtures.ts";
 test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite before Git follower verification", async () => {
-  const fixture = setup();
+  const fixture = setup(),
+    ledgerReaders = trackLedgerReaders();
   try {
     const noDaemon = runMaybe(fixture.alpha, fixture.userRoot, [
       "daemon",
@@ -35,8 +52,8 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
     assert.equal((noDaemon.receipt.error as { code?: string }).code, "daemon_unavailable");
     assert.equal(existsSync(path.join(fixture.userRoot, "registry.json")), false);
     assert.equal(run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"]).ok, true);
-    register(fixture.alpha, fixture.userRoot, "alpha");
-    register(fixture.beta, fixture.userRoot, "beta");
+    await register(fixture.alpha, fixture.userRoot, "alpha");
+    await register(fixture.beta, fixture.userRoot, "beta");
     const alphaPreview = run(fixture.alpha, fixture.userRoot, [
       "task",
       "create",
@@ -201,10 +218,7 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
       run(fixture.alpha, fixture.userRoot, ["doc", "sync", "--submit", "--path", decisionPath]).outcome,
       "applied",
     );
-    const beforeAccepted = makeTaskEventReader({
-      rootDir: fixture.alpha,
-      repoId: "alpha",
-    }).readHead()!.revision;
+    const beforeAccepted = ledgerReaders.open(fixture.alpha, "alpha").readHead()!.revision;
     const acceptedDecision = run(fixture.alpha, fixture.userRoot, [
       "decision",
       "accept",
@@ -216,10 +230,7 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
     ]);
     assert.equal(acceptedDecision.outcome, "applied");
     assert.match(String(acceptedDecision.consentId), /^djc_[0-9a-f]{26}$/u);
-    assert.equal(
-      makeTaskEventReader({ rootDir: fixture.alpha, repoId: "alpha" }).readHead()?.revision,
-      beforeAccepted + 1,
-    );
+    assert.equal(ledgerReaders.open(fixture.alpha, "alpha").readHead()?.revision, beforeAccepted + 1);
     const decisionList = JSON.parse(
       String(run(fixture.alpha, fixture.userRoot, ["decision", "list", "--search", "Canonical Decision"]).evidence),
     ) as { decisions: readonly { decisionId: string }[] };
@@ -254,10 +265,7 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
     };
     assert.match(reckonFact.evidenceSource, new RegExp(`^decision/${decision.decisionId}@\\d+$`, "u"));
     assert.match(reckonFact.statement, /no load-bearing claims/u);
-    const canonicalEvents = makeTaskEventReader({
-      rootDir: fixture.alpha,
-      repoId: "alpha",
-    }).read().events;
+    const canonicalEvents = ledgerReaders.open(fixture.alpha, "alpha").read().events;
     assert.equal(
       canonicalEvents.some((event) => event.schema === "decision-event/v1" && event.decisionId === decision.decisionId),
       true,
@@ -297,7 +305,7 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
     mkdirSync(path.dirname(authored), { recursive: true });
     writeFileSync(authored, docBody);
     assert.equal(run(fixture.alpha, fixture.userRoot, ["doc", "status", "--path", docPath]).outcome, "applied");
-    const reader = makeTaskEventReader({ rootDir: fixture.alpha, repoId: "alpha" });
+    const reader = ledgerReaders.open(fixture.alpha, "alpha");
     const beforeFlush = reader.read().events.filter((event) => event.type === "documents_written");
     const flushTrigger = run(fixture.alpha, fixture.userRoot, [
       "task",
@@ -376,8 +384,8 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
     assert.equal(spoof.ok, false);
     assert.equal((spoof.error as { code?: string }).code, "unknown_field");
     const logicalRevisions = new Map([
-      [fixture.alpha, makeTaskEventReader({ rootDir: fixture.alpha, repoId: "alpha" }).read().revision],
-      [fixture.beta, makeTaskEventReader({ rootDir: fixture.beta, repoId: "beta" }).read().revision],
+      [fixture.alpha, ledgerReaders.open(fixture.alpha, "alpha").read().revision],
+      [fixture.beta, ledgerReaders.open(fixture.beta, "beta").read().revision],
     ]);
     stop(fixture.alpha, fixture.userRoot); // Drain the event-derived follower before independent Git read-back.
     for (const root of [fixture.alpha, fixture.beta]) {
@@ -397,22 +405,25 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
       assert.equal(existsSync(path.join(root, ".harness/write-journal")), false);
     }
     assert.equal(
-      makeTaskEventReader({ rootDir: fixture.alpha, repoId: "alpha" })
+      ledgerReaders
+        .open(fixture.alpha, "alpha")
         .read()
         .events.some((event) => event.schema === "fact-event/v1"),
       true,
     );
   } finally {
     stop(fixture.alpha, fixture.userRoot);
+    await ledgerReaders.drain();
     rmSync(fixture.root, { recursive: true, force: true });
   }
 });
 
-test("real CLI creates module and subtask-expansion packages through their declared providers", () => {
-  const fixture = setup();
+test("real CLI creates module and subtask-expansion packages through their declared providers", async () => {
+  const fixture = setup(),
+    ledgerReaders = trackLedgerReaders();
   try {
     assert.equal(run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"]).ok, true);
-    register(fixture.alpha, fixture.userRoot, "alpha");
+    await register(fixture.alpha, fixture.userRoot, "alpha");
     const catalog = JSON.parse(String(run(fixture.alpha, fixture.userRoot, ["preset", "list"]).evidence)) as Array<{
       id: string;
       validity: string;
@@ -479,10 +490,8 @@ test("real CLI creates module and subtask-expansion packages through their decla
       "task-parent",
     ]);
     assert.equal(child.outcome, "applied", JSON.stringify(child));
-    const childEvent = makeTaskEventReader({
-      rootDir: fixture.alpha,
-      repoId: "alpha",
-    })
+    const childEvent = ledgerReaders
+      .open(fixture.alpha, "alpha")
       .read()
       .events.find((event) => event.schema === "task-bootstrap-event/v1" && event.taskId === "task-child");
     assert.equal(
@@ -498,6 +507,7 @@ test("real CLI creates module and subtask-expansion packages through their decla
     );
   } finally {
     stop(fixture.alpha, fixture.userRoot);
+    await ledgerReaders.drain();
     rmSync(fixture.root, { recursive: true, force: true });
   }
 });

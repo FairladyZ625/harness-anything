@@ -342,7 +342,9 @@ export async function openRepoCellProxy(
         replica.close();
         reader.close();
         // A replaced center can still answer receipts after close; its next read reopens.
-        void ledgerReader?.drain();
+        // The drain is awaited like the writer drain above it: a caller that removes the
+        // repository after cell close must not race the reader's still-open ledger handle.
+        await ledgerReader?.drain();
         ledgerReader = null;
         await lock.close();
       }

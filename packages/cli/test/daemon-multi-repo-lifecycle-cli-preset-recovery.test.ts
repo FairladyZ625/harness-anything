@@ -21,12 +21,12 @@ import {
   stop,
   waitForRun,
 } from "./daemon-multi-repo-lifecycle-cli.fixtures.ts";
-test("real CLI dogfoods a user-layer v3 preset through daemon phases and RepoCell produce", () => {
+test("real CLI dogfoods a user-layer v3 preset through daemon phases and RepoCell produce", async () => {
   const fixture = setup(),
     source = makeCanary(fixture.root);
   try {
     assert.equal(run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"]).ok, true);
-    register(fixture.alpha, fixture.userRoot, "alpha");
+    await register(fixture.alpha, fixture.userRoot, "alpha");
     const installed = run(fixture.alpha, fixture.userRoot, ["preset", "install", "--source", source]);
     assert.equal(installed.outcome, "pending");
     assert.equal(installed.status, "unknown");
@@ -131,7 +131,7 @@ test("hard daemon crash projects an admitted child to outcome_unknown without re
     source = makeCanary(fixture.root, "setTimeout(() => process.exit(0), 2_000);", []);
   try {
     run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"]);
-    register(fixture.alpha, fixture.userRoot, "alpha");
+    await register(fixture.alpha, fixture.userRoot, "alpha");
     run(fixture.alpha, fixture.userRoot, ["preset", "install", "--source", source]);
     const params = {
         repo: { repoId: "alpha" },
@@ -177,8 +177,8 @@ test("one RepoCell lock failure closes only that repo admission", async () => {
       ownerId: "external-writer",
     });
     run(fixture.beta, fixture.userRoot, ["daemon", "start", "--service"]);
-    register(fixture.alpha, fixture.userRoot, "alpha");
-    register(fixture.beta, fixture.userRoot, "beta");
+    await register(fixture.alpha, fixture.userRoot, "alpha");
+    await register(fixture.beta, fixture.userRoot, "beta");
     const status = run(fixture.beta, fixture.userRoot, ["daemon", "status"]);
     const repos = status.repos as Array<{ repoId: string; state: string }>;
     assert.deepEqual(
@@ -215,8 +215,8 @@ test("one invalid registry entry stays visible and removable without blocking he
   const fixture = setup();
   try {
     run(fixture.beta, fixture.userRoot, ["daemon", "start", "--service"]);
-    register(fixture.alpha, fixture.userRoot, "alpha");
-    register(fixture.beta, fixture.userRoot, "beta");
+    await register(fixture.alpha, fixture.userRoot, "alpha");
+    await register(fixture.beta, fixture.userRoot, "beta");
     run(fixture.beta, fixture.userRoot, ["daemon", "stop"]);
     await new Promise((resolve) => setTimeout(resolve, 50));
     const registryPath = path.join(fixture.userRoot, "registry.json"),
