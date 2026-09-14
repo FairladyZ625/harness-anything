@@ -10,12 +10,12 @@ import {
   type CompletionEvidenceResult,
   type CompletionEvidenceV1,
 } from "../../kernel/src/index.ts";
+import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
+import type { Snapshot } from "./repo-cell-types.ts";
 
 export function ciGateApplies(taskGateIds: readonly string[], commitSha: string | null | undefined): boolean {
   return completionGateIds(taskGateIds, commitSha).includes("ci");
 }
-import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
-import type { Snapshot } from "./repo-cell-types.ts";
 
 function relatedCiObservation(root: string, event: CiRunObservationEventV3, submitted: string): boolean {
   return (
