@@ -401,13 +401,11 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
         runtimeType: agentCatalog.agents[0].runtimeType,
         role: agentCatalog.agents[0].role,
         layer: agentCatalog.agents[0].layer,
-        validity: agentCatalog.agents[0].validity,
       },
       {
         runtimeType: "codex",
         role: "worker",
         layer: "user",
-        validity: "valid",
       },
     );
     const agentDetail = parseDaemonGuiReadResult("repo.agent.entity.read", results.get("repo.agent.entity.read"));
