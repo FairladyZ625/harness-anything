@@ -1,6 +1,7 @@
 import { memo, useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { AgentRuntimeUnattributedGroupKey } from "../../../../../daemon/src/agent-runtime-contract.ts";
+import { agentRuntimeSearchMatches } from "../../../../../daemon/src/agent-runtime-search.ts";
 import {
   relativeTime,
   sessionStatusDot,
@@ -22,7 +23,7 @@ import { KindDot, LiveDot } from "../runtime/parts.tsx";
  * 活动),组内行整组渲染不分批——单组轮数典型 ≤30。数据由页级持有并传入:组头来自
  * sessionGroups,展开任务组的轮次来自 task.dispatches,「无派工记录」小节来自
  * overview { taskId } 的绑定会话。检索词在展示层对轮次行做同口径过滤(daemon 已对
- * 组成员过滤,这里让轮次行与命中口径一致)。
+ * 组成员过滤,这里复用同一匹配函数让轮次行与命中口径一致)。
  */
 export type SessionGroupRows = {
   readonly rounds: readonly SessionRound[];
@@ -157,16 +158,8 @@ const GroupSection = memo(function GroupSection({
     // 检索命中时轮次行按同一词表过滤;无检索词时整组渲染。
     terms = query.trim() === "" ? [] : query.trim().toLocaleLowerCase().split(/\s+/u),
     visibleRounds = (rows?.rounds ?? []).filter((row) => roundMatchesQuery(row, terms)),
-    visibleOrphans = (rows?.orphans ?? []).filter(
-      (row) =>
-        terms.length === 0 ||
-        terms.every((term) =>
-          [row.runtimeSessionId, row.instanceId, row.taskId, row.taskTitle, row.status]
-            .filter((value): value is string => typeof value === "string")
-            .join("\n")
-            .toLocaleLowerCase()
-            .includes(term),
-        ),
+    visibleOrphans = (rows?.orphans ?? []).filter((row) =>
+      agentRuntimeSearchMatches([row.runtimeSessionId, row.instanceId, row.taskId, row.taskTitle, row.status], terms),
     );
   // 展开是 Task 组的能力(一次 task.dispatches 拿全部轮次,设计稿 §6.5 预算);
   // Squad/Agent/时间组没有单次往返的成员读面,头部按静态行呈现,不提供假展开。
@@ -293,24 +286,24 @@ const GroupSection = memo(function GroupSection({
   );
 });
 
-/** 检索词对轮次行的展示过滤:与 daemon 组成员过滤同口径(多检索词 AND、子串)。 */
+/** 检索词对轮次行的展示过滤:与 daemon 组成员过滤同一匹配函数、同一字段表
+ * (agent-runtime-session-groups.ts 的 commonSearch)——检索词为会话 id 时 daemon
+ * 命中该组,轮次行也必须可见,否则组展开为空、续跑按钮不可达。 */
 function roundMatchesQuery(row: SessionRound, terms: readonly string[]): boolean {
-  if (terms.length === 0) return true;
-  const haystack = [
-    row.dispatchId,
-    row.agentId,
-    row.agentName,
-    row.instanceId,
-    row.status,
-    row.classification,
-    row.nextAction,
-    row.taskId,
-    row.taskTitle,
-  ]
-    .filter((value): value is string => typeof value === "string")
-    .join("\n")
-    .toLocaleLowerCase();
-  return terms.every((term) => haystack.includes(term));
+  return agentRuntimeSearchMatches(
+    [
+      row.runtimeSessionId,
+      row.instanceId,
+      row.dispatchId,
+      row.agentId,
+      row.agentName,
+      row.squadId,
+      row.status,
+      row.taskId,
+      row.taskTitle,
+    ],
+    terms,
+  );
 }
 
 function RoundRow({

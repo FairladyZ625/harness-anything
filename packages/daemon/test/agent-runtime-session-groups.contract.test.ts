@@ -117,12 +117,23 @@ test("session groups default to active plus 24h and group/filter/limit before re
   );
   assert.deepEqual(searched.totals, { groups: 1, sessions: 1 });
 
+  // 会话 id 检索:GUI 面包屑显示的 id 必须命中该会话归属的组,前端轮次行过滤与
+  // 这里共用 agentRuntimeSearchMatches 与同一字段表(commonSearch)。
+  const bySessionId = reads.sessionGroups({ groupBy: "agent", query: "runtime-a" });
+  assert.deepEqual(
+    bySessionId.groups.map(({ key }) => key),
+    ["sol"],
+  );
+  assert.deepEqual(bySessionId.totals, { groups: 1, sessions: 1 });
+
   const all = reads.sessionGroups({ since: "2026-08-01T00:00:00.000Z", limit: 1 });
   assert.equal(all.groups.length, 1);
   assert.deepEqual(all.totals, { groups: 4, sessions: 4 });
   assert.equal(all.truncated, true);
   assert.deepEqual(dispatchReads, [
     ["task-a", "task-c"],
+    ["task-a", "task-c"],
+    // bySessionId 那次检索也走同一派工读面。
     ["task-a", "task-c"],
     ["task-a", "task-b", "task-c"],
   ]);
