@@ -6,6 +6,7 @@ import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { ensureLocalDaemonRunning, type DaemonLaunchSpec } from "../src/client/daemon-autostart.ts";
+import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
 import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
 import { readDaemonLifecycleRecords, type DaemonLifecycleRecorder } from "../src/lifecycle-log.ts";
 import { daemonSingletonLockPath } from "../src/daemon-singleton.ts";
@@ -28,7 +29,7 @@ test("the daemon binds and serves status and queued commands before repository a
       await startDaemon({
         daemonId: repoId,
         userRoot,
-        endpoint: testEndpoint(repoId),
+        endpoint: localUserDaemonEndpoint(userRoot, repoId),
         openCell: async (input) => {
           attachmentStarted.resolve();
           await attachmentGate.promise;
@@ -83,7 +84,7 @@ test("a drifted daemon serves a command and reports its old build while a runtim
       await startDaemon({
         daemonId: repoId,
         userRoot,
-        endpoint: testEndpoint(repoId),
+        endpoint: localUserDaemonEndpoint(userRoot, repoId),
         runtimeFile,
         openCell: async (input) => {
           const cell = await openBootstrappedRepoCell(input);
@@ -165,7 +166,9 @@ test("a drained superseded daemon exits and the next autostart loads the disk bu
     replacement: RunningDaemon | undefined,
     spawns = 0;
   try {
-    daemon = runningDaemon(await startDaemon({ daemonId, userRoot, runtimeFile, endpoint: testEndpoint(daemonId) }));
+    daemon = runningDaemon(
+      await startDaemon({ daemonId, userRoot, runtimeFile, endpoint: localUserDaemonEndpoint(userRoot, daemonId) }),
+    );
     writeFileSync(buildIdPath, "build-b\n", "utf8");
     const staleStatus = await requestDaemonJsonRpcAt(
       daemon.endpoint,
@@ -192,7 +195,7 @@ test("a drained superseded daemon exits and the next autostart loads the disk bu
       spawnDetached: async () => {
         spawns += 1;
         replacement = runningDaemon(
-          await startDaemon({ daemonId, userRoot, runtimeFile, endpoint: testEndpoint(daemonId) }),
+          await startDaemon({ daemonId, userRoot, runtimeFile, endpoint: localUserDaemonEndpoint(userRoot, daemonId) }),
         );
       },
     });
@@ -226,7 +229,7 @@ test("autostart readiness is independent of a simulated 32 second canonical repo
   rosterRepo(rootDir, repoId);
   registerBootstrappedDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
   try {
-    const endpoint = testEndpoint(repoId),
+    const endpoint = localUserDaemonEndpoint(userRoot, repoId),
       started = await ensureLocalDaemonRunning({
         socketPath: endpoint,
         invokingRoot: rootDir,
@@ -282,7 +285,7 @@ test("a drain that rejects still releases the pid file and the singleton lock", 
       await startDaemon({
         daemonId: repoId,
         userRoot,
-        endpoint: testEndpoint(repoId),
+        endpoint: localUserDaemonEndpoint(userRoot, repoId),
         openCell: async (input) => {
           const cell = await openBootstrappedRepoCell(input);
           realCell = cell;
@@ -308,7 +311,7 @@ test("a drain that rejects still releases the pid file and the singleton lock", 
 
     assert.equal(existsSync(lockPath), false, "stop exit must release the singleton lock");
     assert.equal(readDaemonPid(userRoot, repoId), null, "stop exit must remove the pid file");
-    assert.equal(existsSync(testEndpoint(repoId)), false, "stop exit must remove the socket");
+    assert.equal(existsSync(localUserDaemonEndpoint(userRoot, repoId)), false, "stop exit must remove the socket");
     daemon = undefined;
   } finally {
     await daemon?.stop().catch(() => undefined);
@@ -330,7 +333,9 @@ test("a pid file that cannot be removed still releases the singleton lock", asyn
   rosterRepo(rootDir, repoId);
   registerBootstrappedDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
   try {
-    daemon = runningDaemon(await startDaemon({ daemonId: repoId, userRoot, endpoint: testEndpoint(repoId) }));
+    daemon = runningDaemon(
+      await startDaemon({ daemonId: repoId, userRoot, endpoint: localUserDaemonEndpoint(userRoot, repoId) }),
+    );
     assert.equal(existsSync(lockPath), true, "the running daemon holds the singleton lock");
     // A non-empty directory in the pid file's place makes the non-recursive rmSync throw.
     rmSync(pidPath, { force: true });
@@ -339,7 +344,7 @@ test("a pid file that cannot be removed still releases the singleton lock", asyn
     await daemon.stop();
 
     assert.equal(existsSync(lockPath), false, "stop exit must release the singleton lock");
-    assert.equal(existsSync(testEndpoint(repoId)), false, "stop exit must remove the socket");
+    assert.equal(existsSync(localUserDaemonEndpoint(userRoot, repoId)), false, "stop exit must remove the socket");
     daemon = undefined;
   } finally {
     await daemon?.stop().catch(() => undefined);
@@ -358,12 +363,6 @@ function launchSpec(userRoot: string, daemonId: string): DaemonLaunchSpec {
     args: ["index.js", "serve", "--user-root", userRoot, "--daemon-id", daemonId],
     env: {},
   };
-}
-
-function testEndpoint(daemonId: string): string {
-  return process.platform === "win32"
-    ? `\\\\.\\pipe\\ha-daemon-build-drain-${daemonId}-${String(process.pid)}`
-    : `/tmp/ha-daemon-build-drain-${daemonId}-${String(process.pid)}.sock`;
 }
 
 function builtRuntime(runtimeRoot: string, buildId: string): string {

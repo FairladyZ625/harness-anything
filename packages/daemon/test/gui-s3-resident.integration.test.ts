@@ -17,11 +17,12 @@ import {
   registerBootstrappedDaemonRepo as registerDaemonRepo,
 } from "./repo-settings.fixture.ts";
 import { createUnixSocketTransportServer } from "../src/transport/unix-socket.ts";
+import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 
 test("a caller that names a response deadline gets a classified failure instead of an open-ended silent socket", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "daemon-response-deadline-")),
-    endpoint = localEndpoint(root, "quiet.sock");
+    endpoint = localUserDaemonEndpoint(root, "response-deadline");
   const server = net.createServer((socket) => {
     socket.on("data", (chunk) => {
       for (const line of String(chunk).split("\n").filter(Boolean)) {
@@ -31,6 +32,7 @@ test("a caller that names a response deadline gets a classified failure instead 
       }
     });
   });
+  mkdirSync(path.dirname(endpoint), { recursive: true, mode: 0o700 });
   await new Promise<void>((resolve) => server.listen(endpoint, resolve));
   try {
     const started = Date.now();
@@ -60,10 +62,11 @@ test("a caller that names a response deadline gets a classified failure instead 
 
 test("a silent protocol.hello is reported as a startup wedge, never as a long write holding the queue", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "daemon-hello-deadline-")),
-    endpoint = path.join(root, "silent.sock");
+    endpoint = localUserDaemonEndpoint(root, "hello-deadline");
   const server = net.createServer(() => {
     /* accepts connections but never answers */
   });
+  mkdirSync(path.dirname(endpoint), { recursive: true, mode: 0o700 });
   await new Promise<void>((resolve) => server.listen(endpoint, resolve));
   try {
     await assert.rejects(
@@ -87,7 +90,7 @@ test("GUI S3 resident daemon bridge serves two RepoCells, catalog/runtime/contro
     userRoot = path.join(parent, "user"),
     alpha = path.join(parent, "alpha"),
     beta = path.join(parent, "beta"),
-    endpoint = localEndpoint(parent, "daemon.sock"),
+    endpoint = localUserDaemonEndpoint(userRoot, "gui-s3"),
     executablePath = writeProviderExecutable(
       path.join(parent, "runtime-stub.mjs"),
       `if (process.argv[2] === "--version") console.log("resident-runtime-stub 1.0.0");\nprocess.exit(0);\n`,
@@ -350,11 +353,6 @@ function terminalOutput(frames: readonly Record<string, unknown>[]): string {
     .filter((frame) => frame.kind === "output" && typeof frame.utf8 === "string")
     .map((frame) => frame.utf8)
     .join("");
-}
-function localEndpoint(parent: string, name: string): string {
-  return process.platform === "win32"
-    ? `\\\\.\\pipe\\harness-anything-${process.pid}-${Date.now()}-${name}`
-    : path.join(parent, name);
 }
 function initRepo(root: string, repoId: string, uid: number): void {
   mkdirSync(path.join(root, "harness"), { recursive: true });
