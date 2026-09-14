@@ -199,29 +199,6 @@ export async function submitTask(
     return cell.lifecycleAction(action, binding);
   const executionId = selected.executionId;
   if (action.amend === true) assertCurrentSubmittedExecution(current.snapshot, taskId, executionId);
-  // A lost response resumes the stored cut. Never re-read HEAD or amend a completed submission implicitly.
-  if (selected.submission && action.amend !== true) {
-    const opId = cell.projection.readTaskSubmissionOperation(taskId, executionId),
-      event = opId === null ? null : cell.store.readEvent(opId);
-    if (
-      !event ||
-      !isTaskEvent(event) ||
-      event.type !== "execution_submitted" ||
-      event.taskId !== taskId ||
-      event.payload.execution.executionId !== executionId ||
-      submissionDigest(event.payload.execution.submission!) !== submissionDigest(selected.submission) ||
-      !isSameExecution(event.actor, binding.actor) ||
-      event.source !== binding.source
-    )
-      throw cell.cellCodedError("lease_required", "Only the original submission holder may resume this cut.");
-    const receipt = cell.receiptForOperation(event.opId, binding);
-    if (receipt.outcome !== "applied") return receipt;
-    const steps = await prepareSubmissionEvidence(cell, taskId, executionId, binding);
-    return {
-      ...(steps.find((step) => !["applied", "no_changes"].includes(step.outcome)) ?? receipt),
-      steps,
-    } as WriteReceiptDraft;
-  }
   if (!selected.submission && (!held || current.snapshot.lease?.source !== binding.source))
     return cell.lifecycleAction(action, binding);
   const synced = await runDocAction({
@@ -245,13 +222,53 @@ export async function submitTask(
         ),
       ],
     } as WriteReceiptDraft;
-  const fresh = await cell.service.read(taskId);
-  const derived = readCloseoutSubmission(cell, taskId, executionId, fresh.snapshot);
+  const fresh = await cell.service.read(taskId),
+    derived = readCloseoutSubmission(cell, taskId, executionId, fresh.snapshot);
   if (!derived.ok)
     return submissionStopped(cell, action, binding, fresh.snapshot, executionId, fresh.packagePath, derived.error, [
       synced,
     ]);
   const submission = derived.submission;
+  // A lost response resumes the stored cut only when the synchronized closeout still derives the same submission.
+  if (selected.submission && action.amend !== true) {
+    const opId = cell.projection.readTaskSubmissionOperation(taskId, executionId),
+      event = opId === null ? null : cell.store.readEvent(opId);
+    if (
+      !event ||
+      !isTaskEvent(event) ||
+      event.type !== "execution_submitted" ||
+      event.taskId !== taskId ||
+      event.payload.execution.executionId !== executionId ||
+      submissionDigest(event.payload.execution.submission!) !== submissionDigest(selected.submission) ||
+      !isSameExecution(event.actor, binding.actor) ||
+      event.source !== binding.source
+    )
+      throw cell.cellCodedError("lease_required", "Only the original submission holder may resume this cut.");
+    if (submissionDigest(selected.submission) !== submissionDigest(submission))
+      return {
+        ...cell.rejected(
+          cell.operationId(action, binding, cell.input.repoId, fresh.snapshot.revision),
+          "invalid_transition",
+        ),
+        rejectionExplanation: "The closeout or anchored artifacts differ from the submitted cut.",
+        next: [
+          completionGuidance(
+            fresh.snapshot,
+            executionId,
+            `ha task submit --amend ${taskId}`,
+            "Amend the submitted cut explicitly before review.",
+          ),
+        ],
+        steps: [synced],
+      } as WriteReceiptDraft;
+    const receipt = cell.receiptForOperation(event.opId, binding);
+    if (receipt.outcome !== "applied") return receipt;
+    const steps = await prepareSubmissionEvidence(cell, taskId, executionId, binding);
+    return {
+      ...(steps.find((step) => !["applied", "no_changes"].includes(step.outcome)) ?? receipt),
+      steps,
+    } as WriteReceiptDraft;
+  }
   if (selected.submission && submissionDigest(selected.submission) === submissionDigest(submission))
     return submitTask(cell, { ...action, amend: false }, binding);
   const receipt = await cell.lifecycleAction({ ...action, executionId, submission }, binding);

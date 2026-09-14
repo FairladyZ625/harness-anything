@@ -200,6 +200,8 @@ test(
       await f.install();
       const first = (await f.complete()) as Record<string, unknown>;
       assert.equal(first.code, "review_missing", JSON.stringify(first));
+      const approved = await f.review(String(first.runtimeSessionId), "review-old-cut");
+      assert.equal(approved.outcome, "applied", JSON.stringify(approved));
       const closeoutPath = path.join(f.root, "harness", f.packagePath, "closeout.md");
       writeFileSync(
         closeoutPath,
@@ -211,14 +213,12 @@ test(
         amended = await f.run({ kind: "task-submit", taskId, executionId, amend: true });
       }
       assert.equal(amended.outcome, "applied", JSON.stringify(amended));
-      const stale = await f.review(String(first.runtimeSessionId), "review-stale");
-      assert.equal(stale.code, "invalid_proof", JSON.stringify(stale));
-      assert.match(stale.rejectionExplanation ?? "", /earlier submission cut/u);
-      const second = (await f.complete()) as Record<string, unknown>;
+      const second = (await f.complete(true)) as Record<string, unknown>;
       assert.equal(second.code, "review_missing", JSON.stringify(second));
       assert.notEqual(second.dispatchId, first.dispatchId);
       assert.equal(f.launches.length, 2);
-      assert.equal(f.events().filter((event) => event.type === "review_recorded").length, 0);
+      assert.equal(f.events().filter((event) => event.type === "review_recorded").length, 1);
+      assert.equal(f.events().filter((event) => event.type === "review_consent_recorded").length, 0);
     } finally {
       await f.close();
     }
