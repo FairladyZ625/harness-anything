@@ -154,6 +154,7 @@ export interface RepoCell {
   readonly attach: (runtimeSessionId: string, afterCursor: string) => Promise<AgentRuntimeAttachSubscription>;
   readonly runtime: Pick<AgentRuntimeStreamHub, "publish" | "issueWitnessToken" | "bindWitness">;
   readonly status: () => RepoCellStatus;
+  readonly statusCuts: () => Pick<RepoCellStatus, "projectionWatermark" | "ledgerRevision"> | null;
   /** Waits for the event-derived Git follower while the caller's writer epoch is current. */
   readonly settlePendingMaterialization: (context: string) => Promise<void>;
   readonly close: () => Promise<void>;

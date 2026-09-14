@@ -8,13 +8,11 @@ export function repoCellStatus(context: {
   readonly state: RepoCellStatus["state"];
   readonly generation: number;
   readonly queueDepth: number;
-  readonly projection: TaskProjection;
   readonly store: CanonicalEventStore;
   readonly lastError: string | null;
   readonly causeClass: RepoCellStatus["causeClass"];
   readonly recovery: { readonly elapsedMs: number };
 }): RepoCellStatus {
-  const cut = context.projection.readCut();
   return {
     repoId: context.input.repoId,
     rootDir: context.rootDir,
@@ -22,11 +20,21 @@ export function repoCellStatus(context: {
     state: context.state,
     generation: context.generation,
     queueDepth: context.queueDepth,
-    projectionWatermark: cut.watermark,
-    ledgerRevision: context.store.readHead()?.revision ?? 0,
     lastError: context.lastError,
     causeClass: context.causeClass,
     recoveryMs: context.recovery.elapsedMs,
     materialization: context.store.materializationHealth(),
+  };
+}
+
+export function repoCellStatusCuts(context: {
+  readonly state: RepoCellStatus["state"];
+  readonly projection: TaskProjection;
+  readonly store: CanonicalEventStore;
+}): Pick<RepoCellStatus, "projectionWatermark" | "ledgerRevision"> | null {
+  if (context.state !== "attached") return null;
+  return {
+    projectionWatermark: context.projection.readCut().watermark,
+    ledgerRevision: context.store.readHead()?.revision ?? 0,
   };
 }

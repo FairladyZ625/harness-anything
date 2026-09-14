@@ -11,7 +11,7 @@ import type { RepoCellCore } from "./repo-cell.ts";
 import { readAcceptedCommandOutcome } from "../../kernel/src/index.ts";
 import { daemonSettingsRead } from "./protocol/daemon-settings-read-types.ts";
 import { settleWriteReceipt } from "./write-receipt-settlement.ts";
-import { repoCellStatus } from "./repo-cell-status.ts";
+import { repoCellStatus, repoCellStatusCuts } from "./repo-cell-status.ts";
 import {
   assertCurrentWriter,
   buildVerticalDeclarationRead,
@@ -998,6 +998,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
     },
     runtime: context.runtimeStream,
     status: () => repoCellStatus(context),
+    statusCuts: () => repoCellStatusCuts(context),
     settlePendingMaterialization: async (settlementContext) => {
       await context.tail;
       if (context.state !== "attached") return;

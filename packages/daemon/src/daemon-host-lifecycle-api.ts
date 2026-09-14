@@ -62,7 +62,10 @@ export function createDaemonHostLifecycleApi(
         build,
         connections: registry.connections,
         repos: [
-          ...[...context.cells.values()].map((cell) => cell.status()),
+          ...[...context.cells.values()].map((cell) => {
+            const status = cell.status();
+            return status.state === "attached" ? { ...status, ...(cell.statusCuts() ?? {}) } : status;
+          }),
           ...context.warming.values(),
           ...context.unavailable.values(),
           ...proxyRepos,
