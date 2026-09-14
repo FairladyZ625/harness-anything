@@ -262,8 +262,6 @@ export const FIXTURE_AGENT_ROW: AgentEntityRow = {
   runtimeType: "codex",
   role: "commander",
   layer: "user",
-  validity: "valid",
-  issues: [],
 };
 export const FIXTURE_SQUAD_ROW: SquadEntityRow = {
   id: SQUAD_ID,
@@ -271,8 +269,6 @@ export const FIXTURE_SQUAD_ROW: SquadEntityRow = {
   leader: AGENT_ID,
   workers: [AGENT_ID],
   layer: "user",
-  validity: "valid",
-  issues: [],
 };
 export const FIXTURE_AGENT_DETAIL: AgentEntityDetail = {
   id: AGENT_ID,

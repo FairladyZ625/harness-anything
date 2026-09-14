@@ -85,8 +85,6 @@ function catalogRow(value: unknown, omitted: "instructions" | "roster"): object 
     ...row,
     layer: "user",
     source: omitted === "instructions" ? `agents/${String(row.id)}.json` : `squads/${String(row.id)}.json`,
-    validity: "valid",
-    issues: [],
   };
 }
 

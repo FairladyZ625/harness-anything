@@ -194,8 +194,6 @@ test("Agent install uses the executable catalog with CAS, replay, readiness, and
           runtime_type: declaration.runtime_type,
           layer: "user",
           source: "agents/unified-agent.json",
-          validity: "valid",
-          issues: [],
         },
       ],
       status: "ready",

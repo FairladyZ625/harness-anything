@@ -245,7 +245,6 @@ export function AgentSquadView({
               />
               <SquadCard
                 detail={squadDetail.data}
-                row={squads.find((squad) => squad.id === current.id) ?? null}
                 agents={agents}
                 busy={workspace.busy}
                 onSave={(declaration) => void workspace.saveSquad(declaration)}

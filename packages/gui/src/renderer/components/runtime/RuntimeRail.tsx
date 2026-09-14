@@ -152,7 +152,6 @@ export function IdentityRail({
               >
                 {agent.layer}
               </span>
-              {agent.validity === "blocked" && <LiveDot state="failed" tip={t("agentRuntime.declarationBlocked")} />}
             </Row>
           );
         })}

@@ -192,9 +192,7 @@ function squadListColumns(value: unknown): string {
       throw new TypeError("Degraded Squad list row is missing its structured error.");
     return [value.id, value.state, `${value.error.code}: ${value.error.hint}`].join("\t");
   }
-  if (value.validity !== "valid" && value.validity !== "blocked")
-    throw new TypeError("Available Squad list row is missing its validity.");
-  return [value.id, value.validity, "none"].join("\t");
+  return value.id;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

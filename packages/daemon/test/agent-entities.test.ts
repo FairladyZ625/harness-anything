@@ -53,18 +53,18 @@ test("Agent and Squad entities prepare, list, inspect, and replace declarations 
     assert.deepEqual(
       (
         run({ rootDir, kind: "agent-list" }) as {
-          agents: Array<{ id: string; runtime_type: string; layer: string; validity: string }>;
+          agents: Array<{ id: string; runtime_type: string; layer: string }>;
         }
-      ).agents.map(({ id, runtime_type, layer, validity }) => ({ id, runtime_type, layer, validity })),
-      [{ id: "terra", runtime_type: "codex", layer: "user", validity: "valid" }],
+      ).agents.map(({ id, runtime_type, layer }) => ({ id, runtime_type, layer })),
+      [{ id: "terra", runtime_type: "codex", layer: "user" }],
     );
     assert.deepEqual(
       (
         run({ rootDir, kind: "squad-list" }) as {
-          squads: Array<{ id: string; leader: string; workers: string[]; validity: string }>;
+          squads: Array<{ id: string; leader: string; workers: string[] }>;
         }
-      ).squads.map(({ id, leader, workers, validity }) => ({ id, leader, workers, validity })),
-      [{ id: "core-squad", leader: "terra", workers: ["terra"], validity: "valid" }],
+      ).squads.map(({ id, leader, workers }) => ({ id, leader, workers })),
+      [{ id: "core-squad", leader: "terra", workers: ["terra"] }],
     );
     assert.deepEqual((run({ rootDir, kind: "agent-inspect", agentId: "terra" }) as { agent: unknown }).agent, agent);
     assert.equal(
@@ -532,25 +532,22 @@ test("the GUI entity projection lists closed rows and reads closed declarations"
     assert.equal(agentRows.schema, "agent-entity-catalog/v1");
     assert.equal(agentRows.ok, true);
     assert.deepEqual(
-      agentRows.agents.map(({ id, runtimeType, role, layer, validity }) => ({
+      agentRows.agents.map(({ id, runtimeType, role, layer }) => ({
         id,
         runtimeType,
         role,
         layer,
-        validity,
       })),
-      [{ id: "terra", runtimeType: "codex", role: "worker", layer: "user", validity: "valid" }],
+      [{ id: "terra", runtimeType: "codex", role: "worker", layer: "user" }],
     );
     assert.deepEqual(Object.keys(agentRows.agents[0]!).sort(), [
       "id",
       "instance",
-      "issues",
       "layer",
       "name",
       "permissionMode",
       "role",
       "runtimeType",
-      "validity",
     ]);
     assert.equal(squadRows.schema, "squad-entity-catalog/v1");
     assert.equal(squadRows.ok, true);
@@ -656,8 +653,6 @@ test("GUI Agent and Squad catalogs isolate invalid and missing projection rows",
     permissionMode: null,
     role: "worker",
     layer: "user",
-    validity: "valid",
-    issues: [],
   });
   assert.deepEqual(agents.agents[1], {
     id: "broken-agent",

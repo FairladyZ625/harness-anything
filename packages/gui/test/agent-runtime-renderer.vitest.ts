@@ -121,12 +121,10 @@ const agentRows = [
     runtimeType: "claude",
     role: "commander",
     layer: "user",
-    validity: "valid",
-    issues: [],
   },
-  { id: "luna", name: "luna", runtimeType: "codex", role: "worker", layer: "user", validity: "valid", issues: [] },
-  { id: "sol", name: "sol", runtimeType: "codex", role: "worker", layer: "user", validity: "valid", issues: [] },
-  { id: "terra", name: "terra", runtimeType: "codex", role: "worker", layer: "user", validity: "valid", issues: [] },
+  { id: "luna", name: "luna", runtimeType: "codex", role: "worker", layer: "user" },
+  { id: "sol", name: "sol", runtimeType: "codex", role: "worker", layer: "user" },
+  { id: "terra", name: "terra", runtimeType: "codex", role: "worker", layer: "user" },
 ] as const;
 const squadRows = [
   {
@@ -135,8 +133,6 @@ const squadRows = [
     leader: "fable",
     workers: ["luna", "sol", "terra"],
     layer: "user",
-    validity: "valid",
-    issues: [],
   },
 ] as const;
 const agentDetail = {
@@ -621,7 +617,6 @@ describe("agent runtime renderer", () => {
     const squad = renderToStaticMarkup(
       createElement(SquadCard, {
         detail: squadDetail,
-        row: squadRows[0] as never,
         agents: agentRows as never,
         busy: false,
         onSave: noop,
