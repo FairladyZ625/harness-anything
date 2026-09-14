@@ -142,9 +142,12 @@ test("a daemon that closes mid-exchange rejects the pending request instead of h
         if (request.method === "protocol.hello") {
           seenHello = true;
           socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { ok: true } })}\n`);
+        } else if (seenHello) {
+          // The first request after the handshake is torn down before any response is written.
+          socket.destroy();
+          return;
         }
       }
-      if (seenHello) setTimeout(() => socket.destroy(), 20);
     });
     socket.on("error", () => undefined);
   });
