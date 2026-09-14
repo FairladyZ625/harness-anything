@@ -1,15 +1,12 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import ts from "typescript";
-import {
-  offlineMaintenanceExternalEdges,
-  offlineMaintenanceModules,
-} from "./gate-allowlists/offline-maintenance-modules.mjs";
 
 const root = process.cwd();
 const violations = [];
 const cliFiles = listTsFilesRecursive("packages/cli/src");
 const allowedStaticGraph = new Set([
+  "packages/daemon/src/offline-storage.contract.ts",
   "packages/daemon/src/client/local-daemon-target.ts",
   "packages/daemon/src/protocol/daemon-protocol.contract.ts",
   "packages/daemon/src/protocol/daemon-protocol-commands.ts",
@@ -49,7 +46,6 @@ checkFileLines(cliFiles, 700, "CLI source file");
 checkFunctions(cliFiles, { maxLines: 220, maxBranches: 40 });
 checkThinCliSurface();
 checkDistStaticImportGraph();
-checkOfflineMaintenanceImportGraph();
 checkDaemonTransportImportGraph();
 
 if (violations.length > 0) {
@@ -79,11 +75,9 @@ function checkThinCliSurface() {
     violations.push("packages/cli/src/index.ts: thin entry must own the render function emit");
   }
   const dynamic = imports.dynamic.map((candidate) => candidate.specifier).sort();
-  const expectedDynamic = ["./cli-offline-storage.ts", "./daemon/control.ts"];
+  const expectedDynamic = ["./daemon/control.ts"];
   if (JSON.stringify(dynamic) !== JSON.stringify(expectedDynamic)) {
-    violations.push(
-      "packages/cli/src/index.ts: daemon control and offline storage must be the only dynamic entry modules",
-    );
+    violations.push("packages/cli/src/index.ts: daemon control must be the only dynamic entry module");
   }
 }
 
@@ -120,43 +114,6 @@ function checkDistStaticImportGraph() {
 
 function isCliProductionFile(file) {
   return file.startsWith("packages/cli/src/");
-}
-
-function checkOfflineMaintenanceImportGraph() {
-  const entry = "packages/cli/src/cli-offline-storage.ts";
-  // Reduced gate fixtures omit the production entry; the repository invocation always checks it.
-  if (!existsSync(path.join(root, entry))) return;
-  const pending = [entry],
-    visited = new Set(),
-    externalEdges = new Set();
-  while (pending.length > 0) {
-    const file = pending.shift();
-    if (!file || visited.has(file)) continue;
-    visited.add(file);
-    for (const candidate of runtimeImports(parseTypeScript(file)).static) {
-      if (candidate.specifier.startsWith("node:")) continue;
-      if (!candidate.specifier.startsWith(".")) {
-        externalEdges.add(`${file} -> ${candidate.specifier}`);
-        continue;
-      }
-      const resolved = resolveSourceImport(file, candidate.specifier);
-      if (resolved === null)
-        violations.push(`offline-maintenance import graph cannot resolve ${candidate.specifier} from ${file}`);
-      else pending.push(resolved);
-    }
-  }
-  visited.delete(entry);
-  compareExactClosure("module", visited, offlineMaintenanceModules);
-  compareExactClosure("external edge", externalEdges, offlineMaintenanceExternalEdges);
-}
-
-function compareExactClosure(label, actual, expected) {
-  const added = [...actual].filter((value) => !expected.has(value)).sort(),
-    missing = [...expected].filter((value) => !actual.has(value)).sort();
-  if (added.length > 0)
-    violations.push(`offline-maintenance ${label} closure has unapproved entries: ${added.join(", ")}`);
-  if (missing.length > 0)
-    violations.push(`offline-maintenance ${label} closure is missing pinned entries: ${missing.join(", ")}`);
 }
 
 // The line client is the one daemon transport module the thin entry reaches by dynamic import on

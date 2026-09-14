@@ -1,7 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import ts from "typescript";
-import { offlineMaintenanceModules } from "./gate-allowlists/offline-maintenance-modules.mjs";
 import {
   callName,
   exactSync,
@@ -21,6 +20,14 @@ const excluded = new Set(["tools/gates/syntax-boundary-utils.mjs", "tools/check-
 const consume = new Set();
 const scans = new Set();
 const substitutions = new Set();
+const offlineMaintenanceFullHistoryReaders = new Set([
+  "packages/kernel/src/projection/rebuildable-task-projection-catch-up.ts#catchUpRound",
+  "packages/kernel/src/store/ledger-backup.ts#readSqliteEvents",
+  "packages/kernel/src/store/sqlite-event-store.ts#migrateEventsToSqlite",
+  "packages/kernel/src/store/sqlite-task-event-publication.ts#publishConvertedGeneration",
+  "packages/kernel/src/store/sqlite-task-event-publication.ts#readCertifiedGitFollower",
+  "packages/kernel/src/store/sqlite-task-event-publication.ts#ledgerWorktreeBaseline",
+]);
 
 function isStartArgument(node) {
   return !node || node.kind === ts.SyntaxKind.NullKeyword || (ts.isNumericLiteral(node) && node.text === "0");
@@ -51,7 +58,8 @@ for (const entry of await productionSourceFiles(root, excluded)) {
   visit(source, (node) => {
     if (ts.isCallExpression(node)) {
       if (callName(node.expression) === "consumeKnownError") consume.add(key(relative, node));
-      if (isFullHistoryCall(node) && !offlineMaintenanceModules.has(relative)) scans.add(key(relative, node));
+      if (isFullHistoryCall(node) && !offlineMaintenanceFullHistoryReaders.has(key(relative, node)))
+        scans.add(key(relative, node));
     }
     if (!ts.isCatchClause(node)) return;
     visitCatchBody(node.block, (child) => {

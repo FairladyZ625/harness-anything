@@ -25,6 +25,7 @@ import {
   consumeKnownError,
   runCommandThroughDaemon,
 } from "./daemon/client.ts";
+import { runOfflineCommandThroughDaemonBin } from "./daemon/offline-command.ts";
 import { readFileSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 export { resolveCliVersion } from "./cli-meta.ts";
@@ -53,8 +54,7 @@ async function runThinCli(argv: readonly string[]): Promise<number> {
     command === "events" ||
     (command === "migrate" && argv[firstCliCommandIndex(argv) + 1] === "ledger")
   ) {
-    const { runOfflineStorageCommand } = await import("./cli-offline-storage.ts");
-    return runOfflineStorageCommand(argv, emit);
+    return runOfflineCommandThroughDaemonBin(argv, emit);
   }
   if (isRetiredEntityExplain(argv)) {
     emit(

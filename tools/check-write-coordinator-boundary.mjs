@@ -3,15 +3,18 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const legacyProductionPath = /^(?:packages\/kernel\/src\/(?:ports\/(?:artifact-store-writer|current-session-probe|lifecycle-engine|lock-registry|write-coordinator)\.ts|store\/(?:content-addressed-blob-store|daemon-runtime(?:-queue)?|ledger-materializer|local-lock-registry|write-journal[^/]*)\.ts|write-coordination\/)|packages\/cli\/src\/daemon\/(?:command-service|doc-sync-service|queued-write-coordinator)\.ts|packages\/application\/src\/(?:current-session-probe|decision-write-service|doc-sync|fact-write-service|provenance-binding|provenance-session-exporter|runtime-event-ledger-service|runtime-session-logs|session-entity-reader|task-write-route-policy)\.ts)$/u;
+const legacyProductionPath =
+  /^(?:packages\/kernel\/src\/(?:ports\/(?:artifact-store-writer|current-session-probe|lifecycle-engine|lock-registry|write-coordinator)\.ts|store\/(?:content-addressed-blob-store|daemon-runtime(?:-queue)?|ledger-materializer|local-lock-registry|write-journal[^/]*)\.ts|write-coordination\/)|packages\/cli\/src\/daemon\/(?:command-service|doc-sync-service|queued-write-coordinator)\.ts|packages\/application\/src\/(?:current-session-probe|decision-write-service|doc-sync|fact-write-service|provenance-binding|provenance-session-exporter|runtime-event-ledger-service|runtime-session-logs|session-entity-reader|task-write-route-policy)\.ts)$/u;
 const coordinatedCommitAuthorities = Object.freeze([
   Object.freeze({ functionName: "prepareCommit", primitive: "gitObjects.importCommit(" }),
-  Object.freeze({ functionName: "finalizeRefs", primitive: "gitObjects.updateRefs(" })
+  Object.freeze({ functionName: "finalizeRefs", primitive: "gitObjects.updateRefs(" }),
 ]);
 
 export function findW3WriteAuthorityViolations(rootDir = process.cwd()) {
-  const violations = [], files = walk(path.join(rootDir, "packages"), rootDir);
-  for (const file of files.filter((candidate) => legacyProductionPath.test(candidate))) violations.push(`${file}: W3-retired production write path must not exist`);
+  const violations = [],
+    files = walk(path.join(rootDir, "packages"), rootDir);
+  for (const file of files.filter((candidate) => legacyProductionPath.test(candidate)))
+    violations.push(`${file}: W3-retired production write path must not exist`);
   const cellPath = "packages/daemon/src/repo-cell.ts",
     storePath = "packages/kernel/src/store/task-event-store.ts",
     publisherPath = "packages/kernel/src/store/task-event-store-git-refs.ts",
@@ -22,17 +25,19 @@ export function findW3WriteAuthorityViolations(rootDir = process.cwd()) {
   const publisherExists = existsSync(path.join(rootDir, publisherPath)),
     publisher = publisherExists ? source(rootDir, publisherPath, violations) : "",
     splitPublisherLayout = publisherExists || store.includes("Public compatibility façade");
-  for (const token of ["makeTaskEventStore", "makeTaskLifecycleService", "eventStore: store", "tail.then"]) if (!cell.includes(token)) violations.push(`${cellPath}: missing RepoCell authority token ${token}`);
-  if (!store.includes("CANONICAL_EVENT_REF")) violations.push(`${storePath}: missing object/ref publication token CANONICAL_EVENT_REF`);
+  for (const token of ["makeTaskEventStore", "makeTaskLifecycleService", "eventStore: store", "tail.then"])
+    if (!cell.includes(token)) violations.push(`${cellPath}: missing RepoCell authority token ${token}`);
+  if (!store.includes("CANONICAL_EVENT_REF"))
+    violations.push(`${storePath}: missing object/ref publication token CANONICAL_EVENT_REF`);
   if (splitPublisherLayout) {
     if (!publisherExists) violations.push(`${publisherPath}: required W3 authority file is missing`);
     for (const authority of coordinatedCommitAuthorities) {
-      const declarations = files.filter((file) => file.endsWith(".ts") && declaresFunction(
-        source(rootDir, file, []), authority.functionName
-      ));
+      const declarations = files.filter(
+        (file) => file.endsWith(".ts") && declaresFunction(source(rootDir, file, []), authority.functionName),
+      );
       if (declarations.length !== 1 || declarations[0] !== publisherPath) {
         violations.push(
-          `${authority.functionName} coordinated-commit authority must be declared exactly in ${publisherPath}; found ${declarations.join(", ") || "none"}`
+          `${authority.functionName} coordinated-commit authority must be declared exactly in ${publisherPath}; found ${declarations.join(", ") || "none"}`,
         );
         continue;
       }
@@ -40,14 +45,16 @@ export function findW3WriteAuthorityViolations(rootDir = process.cwd()) {
       if (body === null || occurrences(body, authority.primitive) !== 1) {
         violations.push(`${publisherPath}: ${authority.functionName} must execute ${authority.primitive} exactly once`);
       }
-      const primitiveFiles = files.filter((file) => file.endsWith(".ts") && source(rootDir, file, []).includes(authority.primitive));
+      const primitiveFiles = files.filter(
+        (file) => file.endsWith(".ts") && source(rootDir, file, []).includes(authority.primitive),
+      );
       const totalPrimitiveCalls = primitiveFiles.reduce(
         (total, file) => total + occurrences(source(rootDir, file, []), authority.primitive),
-        0
+        0,
       );
       if (primitiveFiles.length !== 1 || primitiveFiles[0] !== publisherPath || totalPrimitiveCalls !== 1) {
         violations.push(
-          `${authority.primitive} coordinated-commit primitive must belong only to ${authority.functionName} in ${publisherPath}`
+          `${authority.primitive} coordinated-commit primitive must belong only to ${authority.functionName} in ${publisherPath}`,
         );
       }
     }
@@ -63,20 +70,29 @@ export function findW3WriteAuthorityViolations(rootDir = process.cwd()) {
   }
   const publisherSurface = splitPublisherLayout ? publisher : store,
     publisherSurfacePath = splitPublisherLayout ? publisherPath : storePath;
-  for (const token of ["update-index", "checkout", "reset", "restore"]) if (publisherSurface.includes(token)) violations.push(`${publisherSurfacePath}: object/ref publisher must not expose ${token}`);
-  if (!service.includes("eventStore.append")) violations.push(`${servicePath}: lifecycle service must publish only through its eventStore port`);
-  const consumers = files.filter((file) => file.endsWith(".ts") && !file.includes("/test/")).filter((file) => {
-    const body = readFileSync(path.join(rootDir, file), "utf8"); return /(?<!function\s)\bmakeTaskEventStore\s*\(/u.test(body);
-  });
-  if (consumers.length !== 1 || consumers[0] !== cellPath) violations.push(`makeTaskEventStore production consumers must be exactly ${cellPath}; found ${consumers.join(", ") || "none"}`);
-  // dec_4944EEC7EE3618CEFDD210DC6B/CH1: the daemon-less offline-maintenance entry is the one thin CLI
-  // file allowed to reach the kernel store (read-only backup/restore drill/events); its exact closure is
-  // pinned by check-cli-structure and it must still never write locally.
-  const offlineMaintenanceEntry = "packages/cli/src/cli-offline-storage.ts";
-  for (const file of files.filter((candidate) => candidate.startsWith("packages/cli/src/") && candidate.endsWith(".ts"))) {
+  for (const token of ["update-index", "checkout", "reset", "restore"])
+    if (publisherSurface.includes(token))
+      violations.push(`${publisherSurfacePath}: object/ref publisher must not expose ${token}`);
+  if (!service.includes("eventStore.append"))
+    violations.push(`${servicePath}: lifecycle service must publish only through its eventStore port`);
+  const consumers = files
+    .filter((file) => file.endsWith(".ts") && !file.includes("/test/"))
+    .filter((file) => {
+      const body = readFileSync(path.join(rootDir, file), "utf8");
+      return /(?<!function\s)\bmakeTaskEventStore\s*\(/u.test(body);
+    });
+  if (consumers.length !== 1 || consumers[0] !== cellPath)
+    violations.push(
+      `makeTaskEventStore production consumers must be exactly ${cellPath}; found ${consumers.join(", ") || "none"}`,
+    );
+  for (const file of files.filter(
+    (candidate) => candidate.startsWith("packages/cli/src/") && candidate.endsWith(".ts"),
+  )) {
     const body = readFileSync(path.join(rootDir, file), "utf8");
-    if (file !== offlineMaintenanceEntry && /from\s+["'][^"']*(?:kernel|application)\/src/u.test(body)) violations.push(`${file}: thin CLI must not import kernel/application domain modules`);
-    if (/\b(?:writeFile|writeFileSync|appendFile|appendFileSync|renameSync|mkdirSync)\s*\(/u.test(body)) violations.push(`${file}: thin CLI must not perform local writes`);
+    if (/from\s+["'][^"']*(?:kernel|application)\/src/u.test(body))
+      violations.push(`${file}: thin CLI must not import kernel/application domain modules`);
+    if (/\b(?:writeFile|writeFileSync|appendFile|appendFileSync|renameSync|mkdirSync)\s*\(/u.test(body))
+      violations.push(`${file}: thin CLI must not perform local writes`);
   }
   return violations;
 }
@@ -99,10 +115,31 @@ function functionBody(body, functionName) {
 function occurrences(body, token) {
   return body.split(token).length - 1;
 }
-function source(rootDir, relative, violations) { const file = path.join(rootDir, relative); if (!existsSync(file)) { violations.push(`${relative}: required W3 authority file is missing`); return ""; } return readFileSync(file, "utf8"); }
-function walk(directory, rootDir) { if (!existsSync(directory)) return []; const files = [];
-  for (const entry of readdirSync(directory, { withFileTypes: true })) { const absolute = path.join(directory, entry.name);
-    if (entry.isDirectory()) files.push(...walk(absolute, rootDir)); else files.push(path.relative(rootDir, absolute).split(path.sep).join("/")); } return files; }
-function main() { const violations = findW3WriteAuthorityViolations(); if (violations.length > 0) { console.error("W3 write authority boundary check failed:"); for (const violation of violations) console.error(`- ${violation}`); process.exitCode = 1; }
-  else console.log("W3 write authority boundary check passed: RepoCell -> event store is the sole production write road."); }
+function source(rootDir, relative, violations) {
+  const file = path.join(rootDir, relative);
+  if (!existsSync(file)) {
+    violations.push(`${relative}: required W3 authority file is missing`);
+    return "";
+  }
+  return readFileSync(file, "utf8");
+}
+function walk(directory, rootDir) {
+  if (!existsSync(directory)) return [];
+  const files = [];
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const absolute = path.join(directory, entry.name);
+    if (entry.isDirectory()) files.push(...walk(absolute, rootDir));
+    else files.push(path.relative(rootDir, absolute).split(path.sep).join("/"));
+  }
+  return files;
+}
+function main() {
+  const violations = findW3WriteAuthorityViolations();
+  if (violations.length > 0) {
+    console.error("W3 write authority boundary check failed:");
+    for (const violation of violations) console.error(`- ${violation}`);
+    process.exitCode = 1;
+  } else
+    console.log("W3 write authority boundary check passed: RepoCell -> event store is the sole production write road.");
+}
 if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) main();
