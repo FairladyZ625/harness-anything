@@ -42,6 +42,9 @@ test("standard and milestone bootstrap compile one exact canonical birth and reb
     assert.equal(standard.event.payload.task.taskClass, "standard");
     assert.equal(standard.event.payload.initialDocumentClaims.length, 5);
     assert.equal(standard.packagePath, "tasks/task-standard-standard");
+    assert.ok(
+      standard.documents[0]!.body.endsWith("## Next\n\nEdit `task_plan.md`, then run `ha task start task-standard`.\n"),
+    );
     assert.deepEqual(
       standard.documents.map(({ relativePath }) => relativePath),
       ["INDEX.md", "task-contract.json", "task_plan.md", "closeout.md", "artifacts/.gitkeep"],

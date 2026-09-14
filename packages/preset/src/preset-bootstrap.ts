@@ -510,9 +510,7 @@ function renderIndex(
     input.title
   }\n\nPreset: ${input.presetId}/${metadata.profileId}\n\n## Documents\n\n${documents
     .map((document) => `- \`${document.path}\` — ${document.owner}`)
-    .join("\n")}\n\n## Next\n\nEdit \`task_plan.md\`, then run \`ha task start ${
-    input.taskId
-  } --execution-id <id>\`.\n`;
+    .join("\n")}\n\n## Next\n\nEdit \`task_plan.md\`, then run \`ha task start ${input.taskId}\`.\n`;
 }
 function bootstrapFailure(code: string, message: string): Error & { readonly code: string } {
   return Object.assign(new Error(message), { code });

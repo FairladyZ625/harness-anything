@@ -131,7 +131,7 @@ test("human preset and task receipts print resolved completion contracts byte-fo
         'completionGates: ["ci","code-doc-reconciliation"]',
         expectedContract,
         "next: edit harness/tasks/task-one/task_plan.md, then run ha doc sync --submit --path " +
-          "tasks/task-one/task_plan.md, then run ha task start task-one --execution-id <id>",
+          "tasks/task-one/task_plan.md, then run ha task start task-one",
         "plan: write the concrete plan at harness/tasks/task-one/task_plan.md; required sections: Brief, Goal, " +
           "Context, Required Reading, Entry Conditions, Dependencies, Execution Surface, Constraints, Checkpoint, " +
           "CI/Gate Authority Stop Condition, Implementation Plan, Deliverable Contract, Evidence Protocol, " +

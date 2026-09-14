@@ -14,8 +14,7 @@ const guidanceTemplates = new Map<string, GuidanceTemplate>([
     "task-create:task-create-start",
     (args) =>
       `next: edit ${textArg(args, "packagePath")}/task_plan.md, then run ha doc sync --submit --path ` +
-      `${textArg(args, "ledgerPackagePath")}/task_plan.md, then run ha task start ${textArg(args, "taskId")} ` +
-      "--execution-id <id>",
+      `${textArg(args, "ledgerPackagePath")}/task_plan.md, then run ha task start ${textArg(args, "taskId")}`,
   ],
   ["task-create:receipt-query", (args) => `next: ha receipt show ${textArg(args, "opId")}`],
   [

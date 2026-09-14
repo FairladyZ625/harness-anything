@@ -45,7 +45,9 @@ test("progress compiler rejects invalid evidence, lease mismatches, and stale ba
   );
   assert.throws(
     () => compileTaskProgress({ ...fixture, activeLease: null }),
-    (error: unknown) => code(error) === "progress_lease_required",
+    (error: unknown) =>
+      code(error) === "progress_lease_required" &&
+      (error as Error).message === "progress append requires an active lease; run ha task start task-progress",
   );
   assert.throws(
     () => compileTaskProgress({ ...fixture, executionId: "other" }),

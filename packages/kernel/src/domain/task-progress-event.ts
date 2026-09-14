@@ -75,7 +75,7 @@ function progressLeaseRequiredMessage(taskId: string, lease: LeaseV1 | null, sta
     "task start cannot re-enter the current lifecycle state, so progress append has no recovery in this state";
   if (lease === null)
     return startRecoveryAvailable
-      ? `progress append requires an active lease; run ha task start ${taskId} --execution-id <id>`
+      ? `progress append requires an active lease; run ha task start ${taskId}`
       : `progress append requires an active lease; ${unavailable}`;
   if (lease.phase === "orphaned")
     return startRecoveryAvailable
