@@ -175,7 +175,7 @@ export type FactAnomaly = "contradictory" | "orphan" | "low-confidence" | "super
 
 export const ANOMALY_LABEL: Record<FactAnomaly, string> = {
   contradictory: "矛盾 / 已失效",
-  orphan: "悬空(无 decision 引用)",
+  orphan: "悬空(无宿主且无引用)",
   "low-confidence": "低置信",
   superseded: "被取代",
   normal: "正常",
@@ -200,9 +200,10 @@ export function classifyFactAnomaly(
   if (incomingRelations(factRef, "supersedes-fact", relations).length > 0) return "superseded";
   // low-confidence。
   if (fact?.confidence === "low") return "low-confidence";
-  // orphan:无 decision 引用(不在 coveredRefs 且无 evidenced-by 边指向它)。
+  // orphan:无宿主 produces 边且无 decision 引用(不在 coveredRefs 且无 evidenced-by 边指向它)。
+  const hasHostTask = incomingRelations(factRef, "produces", relations).length > 0;
   const hasEvidence = incomingRelations(factRef, "evidenced-by", relations).length > 0;
-  if (!coveredRefs.has(factRef) && !hasEvidence) return "orphan";
+  if (!hasHostTask && !coveredRefs.has(factRef) && !hasEvidence) return "orphan";
   return "normal";
 }
 

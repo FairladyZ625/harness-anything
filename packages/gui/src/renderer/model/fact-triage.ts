@@ -79,11 +79,12 @@ function computeFactTriageSignalsWithIndex(fact: FactRef, index: FactTriageIndex
     if (decisionId) citingDecisionIdSet.add(decisionId);
   }
   const citingDecisionIds = [...citingDecisionIdSet].sort();
+  const hasHostTask = incoming(index, factRef, "produces").length > 0;
   const isKnownFact = index.anchoredFactRefs.has(factRef);
-  if (isKnownFact && citingDecisionIds.length === 0) {
+  if (isKnownFact && !hasHostTask && citingDecisionIds.length === 0) {
     signals.push({
       kind: "ORPHAN",
-      detail: "factAnchors 中存在，但没有 coverageRows claim 由它承重",
+      detail: "既无 task produces 宿主边，也没有 decision claim 引用",
     });
   }
 

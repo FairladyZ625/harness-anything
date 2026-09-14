@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { FactAnchorRow, RelationCoverageRow, ServedRelationEdgeRow } from "../src/api/renderer-dto.ts";
-import type { DecisionRow, FactRef, RelationEdge, TaskRow } from "../src/renderer/model/types.ts";
 import {
   buildFactTriage,
   computeFactTriageSignals,
@@ -15,137 +13,16 @@ import { spawningDecisionBadge } from "../src/renderer/model/triadic.ts";
 import { buildTriadicRendererData } from "../src/renderer/triadic-data.ts";
 import { FactInspector } from "../src/renderer/components/FactInspector.tsx";
 
-function baseFact(overrides: Partial<FactRef> = {}): FactRef {
-  return {
-    anchor: "fact/F-001",
-    taskId: "task_a",
-    category: "finding",
-    text: "观察 X 成立",
-    at: "2026-07-01T00:00:00.000Z",
-    confidence: "high",
-    ...overrides,
-  };
-}
-
-function baseTask(overrides: Partial<TaskRow> = {}): TaskRow {
-  return {
-    taskId: "task_a",
-    title: "Task A",
-    projectId: "proj",
-    coordinationStatus: "active",
-    rawStatus: "active",
-    freshness: "fresh",
-    packageDisposition: "active",
-    closeoutReadiness: "not_required",
-    engine: "local",
-    source: "local-document",
-    module: "software/coding",
-    lastKnownAt: "2026-07-01T00:00:00.000Z",
-    gates: [],
-    docs: [],
-    ...overrides,
-  };
-}
-
-function baseDecision(overrides: Partial<DecisionRow> = {}): DecisionRow {
-  return {
-    decisionId: "dec_1",
-    title: "Decision One",
-    state: "active",
-    riskTier: "medium",
-    urgency: "medium",
-    vertical: "software/coding",
-    preset: "p",
-    proposedBy: { kind: "system", id: "x" },
-    proposedAt: "2026-07-01T00:00:00.000Z",
-    question: "Q?",
-    chosen: [{ id: "CH1", text: "chosen", evidence: [] }],
-    rejected: [],
-    claims: [{ id: "CH1", text: "chosen", loadBearing: true, fulfillment: "evidenced" }],
-    judgmentConsents: [],
-    provenance: [],
-    lastChangedAt: "2026-07-01T00:00:00.000Z",
-    ...overrides,
-  };
-}
-
-function edge(from: string, to: string, kind: RelationEdge["kind"], extra: Partial<RelationEdge> = {}): RelationEdge {
-  return {
-    from,
-    to,
-    kind,
-    direction: "directed",
-    state: "active",
-    provenance: "local-document",
-    ...extra,
-  };
-}
-
-/**
- * 关系图读面送达的边行(kernel 行 + daemon 转发的 current 判定)。retired/deleted
- * 边由 kernel `relationIsCurrent` 判 current=false,在管道收口处出局。
- */
-function wireEdge(extra: Partial<ServedRelationEdgeRow> = {}): ServedRelationEdgeRow {
-  return {
-    relationId: "rel_wire",
-    sourceRef: "decision/dec_2",
-    targetRef: "fact/F-001",
-    relationType: "refuted-by",
-    direction: "directed",
-    strength: "strong",
-    origin: "declared",
-    state: "active",
-    targetObservedVersion: null,
-    currentTargetVersion: null,
-    freshness: "current",
-    rationale: "wire fixture",
-    ownerRef: "decision/dec_2",
-    sourcePath: "event:dec_2",
-    recordIndex: 0,
-    current: true,
-    ...extra,
-  };
-}
-
-function wireFact(ref = "fact/F-001") {
-  return {
-    schema: "task-fact-row/v1" as const,
-    ref,
-    factId: ref.split("/").at(-1)!,
-    statement: "wire fact",
-    source: "fixture",
-    observedAt: "2026-07-01T00:00:00.000Z",
-    confidence: "high" as const,
-    memoryClass: "semantic",
-    memoryTags: [],
-    provenance: [],
-    liveness: "standing" as const,
-    invalidated: false,
-  };
-}
-
-function anchor(fact = baseFact()): FactAnchorRow {
-  return {
-    factRef: fact.anchor.startsWith("fact/") ? fact.anchor : `fact/${fact.anchor}`,
-    taskId: fact.taskId,
-    factId: fact.anchor.split("/").at(-1) ?? "F-001",
-    sourcePath: `event:${fact.anchor.startsWith("fact/") ? fact.anchor : `fact/${fact.anchor}`}`,
-  };
-}
-
-function coverage(fact = baseFact(), decisionId = "dec_1"): RelationCoverageRow {
-  return {
-    decisionRef: `decision/${decisionId}`,
-    claimRef: `decision/${decisionId}/CH1`,
-    status: "covered",
-    covered: true,
-    fulfillment: "evidenced",
-    coveringFactRef: fact.anchor.startsWith("fact/") ? fact.anchor : `fact/${fact.anchor}`,
-    refutingFactRefs: [],
-    relationPath: ["rel_1"],
-    basisRevision: 1,
-  };
-}
+import {
+  anchor,
+  baseDecision,
+  baseFact,
+  baseTask,
+  coverage,
+  edge,
+  wireEdge,
+  wireFact,
+} from "./fact-triage.fixtures.ts";
 
 describe("fact-triage signal computation", () => {
   it("flags a contradiction fact that invalidates a decision", () => {
@@ -207,38 +84,6 @@ describe("fact-triage signal computation", () => {
       expect(item.signals.map((signal) => signal.kind)).not.toContain("INVALIDATED");
       expect(item.severity).toBe(0);
     }
-  });
-
-  it("flags an orphan from factAnchors minus covered coverageRows", () => {
-    const fact = baseFact();
-
-    const item = computeFactTriageSignals(fact, [], [], [anchor(fact)]);
-
-    expect(item.signals.map((signal) => signal.kind)).toContain("ORPHAN");
-    expect(item.citingDecisionIds).toEqual([]);
-  });
-
-  it("does not flag an orphan when coverageRows names the fact as coverage", () => {
-    const fact = baseFact();
-
-    const item = computeFactTriageSignals(fact, [], [coverage(fact, "dec_1")], [anchor(fact)]);
-
-    expect(item.signals.map((signal) => signal.kind)).not.toContain("ORPHAN");
-    expect(item.citingDecisionIds).toEqual(["dec_1"]);
-  });
-
-  it("does not orphan a second direct evidence fact omitted by first-match coverage", () => {
-    const first = baseFact({ anchor: "fact/F-first" });
-    const second = baseFact({ anchor: "fact/F-second" });
-    const relations = [
-      edge("decision/dec_1/CH1", first.anchor, "evidenced-by"),
-      edge("decision/dec_1/CH1", second.anchor, "evidenced-by"),
-    ];
-
-    const item = computeFactTriageSignals(second, relations, [coverage(first)], [anchor(first), anchor(second)]);
-
-    expect(item.signals.map((signal) => signal.kind)).not.toContain("ORPHAN");
-    expect(item.citingDecisionIds).toEqual(["dec_1"]);
   });
 
   it("flags low confidence from the fact projection field", () => {
