@@ -61,7 +61,6 @@ export function createAgentActionCatalog(
           ],
           [["packageSource", "declaration"]],
         ),
-        policy: Object.freeze({ ref: "default@5", action: "agent-install" }),
         criteria: Object.freeze([
           {
             ref: "agent/declaration-schema",
@@ -140,7 +139,6 @@ export function createAgentActionCatalog(
           { field: "expectedVersion", type: "number", required: true },
           { field: "idempotencyKey", type: "string", required: false },
         ]),
-        policy: Object.freeze({ ref: "default@5", action: "agent-delete" }),
         criteria: Object.freeze([
           {
             ref: "agent/entity-present",

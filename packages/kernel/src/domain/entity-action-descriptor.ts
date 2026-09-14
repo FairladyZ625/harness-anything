@@ -1,5 +1,48 @@
-import type { EntityActionContract, EntityActionInputField } from "./entity-kind-registry.ts";
+import type { EntityActionContract, EntityActionInputField, EntityKindContract } from "./entity-kind-registry.ts";
+import { getActionDeclarationByCatalogId } from "./action-declaration.ts";
+import type { EntityActionCompileHook, EntityActionExecutionContract } from "./entity-action-execution.ts";
 import { consumeKnownError } from "../error-consumption.ts";
+
+export const noActionCatalog = (ref: string, reason: string) =>
+  Object.freeze({ ref, actions: Object.freeze([]), reason });
+
+export const executionContract = (
+  ingress: string,
+  compile: EntityActionCompileHook | null,
+  read: boolean,
+): EntityActionExecutionContract =>
+  Object.freeze({ ingress, compile, read, implementation: compile || read ? "compiled-event" : "declared-only" });
+
+const bindActionDeclaration = (kind: string, action: EntityActionContract): EntityActionContract => {
+  const declaration = getActionDeclarationByCatalogId(`${kind}/${action.id}`);
+  if (!declaration) return action;
+  if (action.execution === null)
+    throw new Error(`${kind}/${action.id} has no execution contract for its Action declaration.`);
+  if (action.execution.read || declaration.policyAction === null)
+    throw new Error(`${kind}/${action.id} cannot bind its write Action declaration.`);
+  return Object.freeze({
+    ...action,
+    policy: Object.freeze({ ...action.policy, action: declaration.policyAction }),
+    execution: Object.freeze({ ...action.execution, ingress: declaration.kind }),
+  });
+};
+
+export const withDeclaredEntityActions = <T extends readonly EntityKindContract[]>(contracts: T): T =>
+  Object.freeze(
+    contracts.map((contract) =>
+      contract.actionCatalog === null
+        ? contract
+        : Object.freeze({
+            ...contract,
+            actionCatalog: Object.freeze({
+              ...contract.actionCatalog,
+              actions: Object.freeze(
+                contract.actionCatalog.actions.map((action) => bindActionDeclaration(contract.kind, action)),
+              ),
+            }),
+          }),
+    ),
+  ) as unknown as T;
 
 export const RECEIPT_GUIDANCE_KINDS = [
   "repository-diff-contract",

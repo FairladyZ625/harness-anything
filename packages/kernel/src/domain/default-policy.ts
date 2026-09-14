@@ -1,132 +1,12 @@
 import type { PolicyActionRule, PolicyDeclarationV1 } from "./policy.ts";
+import { actionDeclarations, type ActionDeclaration } from "./action-declaration.ts";
 
-const repositoryWriteActions = Object.freeze([
-  "agent-create",
-  "agent-delete",
-  "agent-install",
-  "ci-observe-pull",
-  "decision-amend",
-  "decision-claim-add",
-  "decision-claim-fulfill",
-  "decision-propose",
-  "decision-reckon",
-  "relation-reconfirm",
-  "relation-relate",
-  "relation-unrelate",
-  "decision-repin",
-  "decision-retire",
-  "decision-supersede",
-  "decision-transition",
-  "distill-candidate",
-  "distill-promote",
-  "doc-conflict-discard-local",
-  "doc-conflict-overwrite-center",
-  "doc-conflict-resolve",
-  "doc-materialize",
-  "doc-retire",
-  "doc-submit",
-  "entity-import",
-  "entity-update",
-  "entity-archive",
-  "entity-delete",
-  "fact-reclassify",
-  "fact-record",
-  "fact-type-register",
-  "migrate-import",
-  "preset-install",
-  "preset-run-start",
-  "preset-seed",
-  "preset-uninstall",
-  "preset-upgrade",
-  "projection-rebuild",
-  "runtime-batch",
-  "runtime-cancel",
-  "runtime-instance-login",
-  "runtime-instance-logout",
-  "runtime-run",
-  "runtime-spawn",
-  "schedule-claim",
-  "schedule-create",
-  "schedule-delete",
-  "schedule-disable",
-  "schedule-dispatch-link",
-  "schedule-enable",
-  "schedule-missed",
-  "schedule-run-now",
-  "schedule-settle",
-  "schedule-update",
-  "script-run",
-  "settings-update",
-  "squad-cancel",
-  "squad-delete",
-  "squad-install",
-  "squad-run",
-  "task-amend",
-  "task-archive",
-  "task-artifact-add",
-  "task-code-doc-reconcile",
-  "task-code-doc-repoint",
-  "task-complete",
-  "task-contract-migrate",
-  "task-create",
-  "task-declare-executor",
-  "task-delete",
-  "task-pin",
-  "task-progress-append",
-  "task-release",
-  "task-reopen",
-  "task-review-consent",
-  "task-start",
-  "task-submit",
-  "task-supersede",
-  "task-transition",
-  "task-unpin",
-  "terminal-input",
-  "terminal-resize",
-  "terminal-spawn",
-  "terminal-terminate",
-  "vertical-declaration-migrate",
-  "vertical-kind-publish-schema",
-  "vertical-kind-retire",
-  "vertical-kind-upsert",
-] as const);
+const policyActionDeclarations = actionDeclarations.filter(
+  (declaration): declaration is ActionDeclaration & { readonly policyAction: string } =>
+    declaration.policyAction !== null,
+);
 
-const arbiterActions = Object.freeze([
-  "decision-accept",
-  "decision-defer",
-  "decision-reject",
-  "task-review-execution",
-] as const);
-
-const administrationActions = Object.freeze([
-  "daemon-control-request",
-  "daemon-fleet-center-start",
-  "daemon-fleet-edge-sync",
-  "daemon-repo-register",
-  "daemon-repo-unregister",
-  "daemon-start",
-  "daemon-stop",
-  "people-add",
-  "people-bind",
-  "people-delegate",
-  "people-remove",
-  "people-revoke-delegation",
-  "people-set-role",
-  "repo-bootstrap",
-  "runtime-instance-create",
-  "runtime-instance-delete",
-  "runtime-instance-github-credential-set",
-  "runtime-instance-github-credential-unset",
-  "runtime-instance-list",
-  "runtime-instance-show",
-  "runtime-instance-update",
-] as const);
-
-export const durablePolicyActions = Object.freeze([
-  ...repositoryWriteActions,
-  ...arbiterActions,
-  ...administrationActions,
-] as const);
+export const durablePolicyActions = Object.freeze(policyActionDeclarations.map(({ policyAction }) => policyAction));
 
 const roleRule = (
   action: string,
@@ -143,6 +23,12 @@ const roleRule = (
   ],
 });
 
+const ruleForDeclaration = (declaration: (typeof policyActionDeclarations)[number]): PolicyActionRule => {
+  if (declaration.executionClass === "repo-write") return roleRule(declaration.policyAction, "repo-write", true, true);
+  if (declaration.executionClass === "arbiter") return roleRule(declaration.policyAction, "arbiter", true, false);
+  return roleRule(declaration.policyAction, "admin", true, false);
+};
+
 /** The single built-in policy package consumed by the kernel AuthorizationPort. */
 const defaultPolicyDeclaration = {
   schema: "policy/v1",
@@ -157,11 +43,7 @@ const defaultPolicyDeclaration = {
     { predicate: "hasAssignmentBinding" },
   ]),
   actions: durablePolicyActions,
-  rules: Object.freeze([
-    ...repositoryWriteActions.map((action) => roleRule(action, "repo-write", true, true)),
-    ...arbiterActions.map((action) => roleRule(action, "arbiter", true, false)),
-    ...administrationActions.map((action) => roleRule(action, "admin", true, false)),
-  ]),
+  rules: Object.freeze(policyActionDeclarations.map(ruleForDeclaration)),
 } satisfies PolicyDeclarationV1;
 
 export const DEFAULT_POLICY: PolicyDeclarationV1 = Object.freeze(defaultPolicyDeclaration);

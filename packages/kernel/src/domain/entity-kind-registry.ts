@@ -53,6 +53,9 @@ import { createSquadActionCatalog } from "./squad-action-contract.ts";
 import {
   DEFAULT_ENTITY_ACTION_RESULT_CONTRACT,
   DEFAULT_ENTITY_ACTION_RETURNS_CONTRACT,
+  executionContract,
+  noActionCatalog,
+  withDeclaredEntityActions,
   withDerivedActionReturns,
   type ActionReturnsContract,
   type EntityActionDescriptorFacets,
@@ -348,14 +351,6 @@ export const entityAction = (
   };
   return withDerivedActionReturns(descriptor);
 };
-const noActionCatalog = (ref: string, reason: string) => Object.freeze({ ref, actions: Object.freeze([]), reason });
-
-const executionContract = (
-  ingress: string,
-  compile: EntityActionCompileHook | null,
-  read: boolean,
-): EntityActionExecutionContract =>
-  Object.freeze({ ingress, compile, read, implementation: compile || read ? "compiled-event" : "declared-only" });
 const emptyActionInput: EntityActionInputContract = Object.freeze({
   schema: "entity-action-input/v1",
   fields: Object.freeze([]),
@@ -632,7 +627,7 @@ const relationActionCatalog = Object.freeze({
   ]),
 });
 
-export const entityKindContracts = Object.freeze([
+export const entityKindContracts = withDeclaredEntityActions([
   {
     kind: "task",
     ...entityTypeContractFields("task"),

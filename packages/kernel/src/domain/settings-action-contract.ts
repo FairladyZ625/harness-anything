@@ -159,7 +159,6 @@ export function createSettingsActionCatalog(
       Object.freeze({
         ...update,
         input: input(settingsUpdateInputFields),
-        policy: Object.freeze({ ref: "default@5", action: "settings-update" }),
         criteria: Object.freeze([
           Object.freeze({
             ref: "settings/singleton-revision",
