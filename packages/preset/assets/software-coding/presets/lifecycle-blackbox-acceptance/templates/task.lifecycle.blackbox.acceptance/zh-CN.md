@@ -21,10 +21,16 @@ harness 文档（`task_plan.md`、`closeout.md` 与该 Task `artifacts/` 目录�
 
 ## Hooks Negative Case
 
-在 happy path 前，只用获准的发现表面判断：已声明的 hook 是否能挂接到 runtime
-dispatch 并在运行时到达。原样记录发现命令与输出。预期观察是：hook 可以存在于
-声明面，但公开 runtime 工作流没有可到达的 hook 桥。不得绕过这一缺口，也不得
-通过修改配置或源码制造桥。
+在 happy path 前，只用获准的发现表面检查公开 CLI 是否提供 hook 的声明、挂接或
+运行时桥。至少原样记录 `ha --help`、`ha runtime --help`、`ha agent --help` 与
+`ha explain hook` 的命令、输出和退出码。
+
+0.0.1 的预期观察是：这些发现表面里没有 hook 声明面，没有把 hook 挂到 runtime
+dispatch 的选项，`ha explain hook` 也不把 hook 当作已注册的实体类型。观察到这一
+结果即反例通过：记录后继续 Lifecycle Scenario，不把它当作 CLI 表面缺陷。
+
+只有发现表面确实出现了 hook 声明或挂接入口，才继续判断它能否在运行时到达，并如实
+记录结果。不得绕过这一缺口，也不得通过修改配置或源码制造桥。
 
 ## Lifecycle Scenario
 

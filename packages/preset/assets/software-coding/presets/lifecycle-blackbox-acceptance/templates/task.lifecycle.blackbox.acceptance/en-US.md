@@ -25,12 +25,21 @@ this CLI acceptance scenario.
 
 ## Hooks Negative Case
 
-Before the happy path, use only the allowed discovery surfaces to determine
-whether a declared hook can be attached to and reached by a runtime dispatch.
-Record the exact discovery commands and outputs. The expected observation is
-that hooks may exist on a declaration surface but the public runtime workflow
-does not expose a reachable hook bridge. Do not work around that absence and do
-not edit configuration or source to manufacture a bridge.
+Before the happy path, use only the allowed discovery surfaces to check whether
+the public CLI offers a hook declaration, a hook attachment, or a runtime hook
+bridge. At minimum, record the exact commands, outputs, and exit codes of
+`ha --help`, `ha runtime --help`, `ha agent --help`, and `ha explain hook`.
+
+The expected 0.0.1 observation is that these surfaces show no hook declaration,
+no option to attach a hook to a runtime dispatch, and that `ha explain hook`
+does not treat hook as a registered entity kind. Observing this is the negative
+case passing: record it and continue with the Lifecycle Scenario; do not report
+it as a CLI surface defect.
+
+Only if a discovery surface does show a hook declaration or attachment entry,
+go on to determine whether it is reachable at runtime and record the result as
+observed. Do not work around the absence and do not edit configuration or
+source to manufacture a bridge.
 
 ## Lifecycle Scenario
 
