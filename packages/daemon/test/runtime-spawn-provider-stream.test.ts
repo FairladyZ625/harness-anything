@@ -11,6 +11,7 @@ import {
   consumeProviderLine,
 } from "../src/runtime-spawn-provider-stream.ts";
 import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/dispatch-stream.ts";
+import { parseProviderFrame } from "../src/runtime-spawn-provider-frames.ts";
 
 function active() {
   return createActiveRuntime({
@@ -104,6 +105,88 @@ test("Claude stream normalizes message usage including cache creation and preser
     cache_creation_input_tokens: 10,
     output_tokens: 25,
   });
+});
+
+test("ZCode provider event identities deduplicate writes and repeated resume boundaries terminate the provider", async () => {
+  const appended: unknown[] = [],
+    signals: unknown[] = [];
+  let terminated = 0;
+  const runtime = createActiveRuntime({
+      runtimeSessionId: "runtime_replayaaaaaaaaaaaaaaaaa",
+      dispatchId: "dispatch_replayaaaaaaaaaaaaaaaa",
+      dispatchOpId: "dispatch-op-replay",
+      instanceId: "zcode-1",
+      kindId: "zcode",
+      model: null,
+      reasoningEffort: null,
+      fast: false,
+      cwd: "/tmp",
+      prompt: "replay fixture",
+      startedAt: "2026-09-14T00:00:00.000Z",
+      binding: {} as never,
+      process: { terminate: () => (terminated += 1) } as never,
+      stream: { appendProviderEvent: (value: unknown) => appended.push(value) } as never,
+      resumeProviderSessionId: "session-zcode",
+    } as never),
+    replayContext = {
+      ...context(),
+      input: {
+        ...context().input,
+        stream: { publish: (_runtimeSessionId: string, signal: unknown) => signals.push(signal) },
+      },
+      parseProviderFrame,
+    } as never;
+  const resumed = {
+      type: "session.resumed",
+      eventId: "event-resumed",
+      sessionId: "session-zcode",
+      messageCount: 202,
+    },
+    started = {
+      type: "turn.started",
+      eventId: "event-turn-started",
+      sessionId: "session-zcode",
+      turnId: "turn-24",
+    },
+    model = {
+      type: "model.streaming",
+      eventId: "event-model-streaming",
+      sessionId: "session-zcode",
+      turnId: "turn-24",
+      payload: { kind: "text_delta", delta: "history" },
+    };
+
+  for (const frame of [resumed, started, model, resumed, started, model])
+    await consumeProviderLine(replayContext, runtime, JSON.stringify(frame));
+
+  assert.deepEqual(appended, [resumed, started, model]);
+  assert.equal(terminated, 1);
+  assert.equal(runtime.providerOutcome, "failed");
+  assert.match(runtime.providerFault?.reason ?? "", /replay loop.*event-resumed/u);
+  assert.deepEqual(signals, [{ type: "activity", activity: "message", content: "history" }]);
+});
+
+test("provider frames without an event identity retain every write and signal", async () => {
+  const appended: unknown[] = [],
+    signals: unknown[] = [],
+    runtime = active(),
+    frame = { type: "item.completed", item: { id: "message-1", type: "agent_message", text: "done" } },
+    passthroughContext = {
+      ...context(),
+      input: {
+        ...context().input,
+        stream: { publish: (_runtimeSessionId: string, signal: unknown) => signals.push(signal) },
+      },
+      parseProviderFrame,
+    } as never;
+  runtime.stream = { appendProviderEvent: (value: unknown) => appended.push(value) } as never;
+
+  await consumeProviderLine(passthroughContext, runtime, JSON.stringify(frame));
+  await consumeProviderLine(passthroughContext, runtime, JSON.stringify(frame));
+
+  assert.deepEqual(appended, [frame, frame]);
+  assert.equal(runtime.finalText, "done");
+  assert.equal(signals.length, 2);
 });
 
 test("Codex empty turn usage is replaced by the matching session turn token count", async () => {

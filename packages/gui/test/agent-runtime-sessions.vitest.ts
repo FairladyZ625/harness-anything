@@ -386,6 +386,32 @@ describe("session transcript replay", () => {
     ]);
   });
 
+  it("renders one ZCode turn when duplicate provider eventIds were removed before persistence", () => {
+    const persisted = [
+      {
+        kind: "provider_event",
+        event: {
+          type: "turn.started",
+          eventId: "event-turn-started",
+          sessionId: "session-zcode",
+          turnId: "turn-24",
+        },
+      },
+      {
+        kind: "provider_event",
+        event: {
+          type: "model.streaming",
+          eventId: "event-model-streaming",
+          sessionId: "session-zcode",
+          turnId: "turn-24",
+          payload: { kind: "text_delta", delta: "done" },
+        },
+      },
+    ];
+
+    expect(sessionTranscriptTurns(persisted)).toHaveLength(1);
+  });
+
   it("states explicitly that a session without a dispatch has no replay record", () => {
     const markup = renderToStaticMarkup(
       createElement(SessionTranscript, {
