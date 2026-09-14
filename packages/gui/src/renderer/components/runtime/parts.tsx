@@ -135,14 +135,45 @@ export function Chip({
   tip,
   tone = "plain",
   onClick,
+  onRemove,
+  removeLabel = "Remove",
   children,
 }: {
   readonly tip?: string;
   readonly tone?: "plain" | "link" | "mono";
   readonly onClick?: () => void;
+  /** 存在时 Chip 拆成「点击主体 + 独立删除热区」两个交互面(task_5dfe382f)。 */
+  readonly onRemove?: () => void;
+  /** 删除热区的无障碍名;调用方传本地化文案。 */
+  readonly removeLabel?: string;
   readonly children: ReactNode;
 }) {
   const base = `inline-flex items-center gap-1.5 rounded border border-border-strong bg-surface px-[7px] py-0.5 ui-micro ${tone === "mono" ? "font-mono ui-micro" : ""}`;
+  // onRemove 形态:外层必须是 span —— button 嵌 button 是非法 DOM,点击会紊乱。
+  if (onRemove !== undefined)
+    return (
+      <span data-tip={tip} className={`${base} ${onClick !== undefined ? "hover:border-accent" : ""}`}>
+        {onClick !== undefined ? (
+          <button type="button" onClick={onClick} className="text-left hover:text-accent">
+            {children}
+          </button>
+        ) : (
+          <span>{children}</span>
+        )}
+        <button
+          type="button"
+          aria-label={removeLabel}
+          data-tip={removeLabel}
+          onClick={(event) => {
+            event.stopPropagation();
+            onRemove();
+          }}
+          className="text-text-faint hover:text-danger"
+        >
+          ✕
+        </button>
+      </span>
+    );
   return onClick ? (
     <button type="button" data-tip={tip} onClick={onClick} className={`${base} hover:border-accent`}>
       {children}
