@@ -167,7 +167,10 @@ test("Summary commit plus artifact anchor derives one cut carrying both", (t) =>
 });
 
 test("artifact anchors alone still deliver without a commit and reject duplicate paths", () => {
-  const { store } = artifactStore();
+  const { store, blobSha256 } = artifactStore();
+  const guided = derive("/nonexistent", "artifact:artifacts/report.md@7", undefined, ["ci"], store);
+  assert.deepEqual(guided.artifacts, [{ path: `${packagePath}/artifacts/report.md`, revision: 7, blobSha256 }]);
+  assert.deepEqual(guided.deliverables, [`${packagePath}/artifacts/report.md`]);
   const packet = derive("/nonexistent", `artifact:${packagePath}/artifacts/report.md@7`, undefined, ["ci"], store);
   assert.equal(packet.commitSha, null);
   assert.deepEqual(packet.deliverables, [`${packagePath}/artifacts/report.md`]);

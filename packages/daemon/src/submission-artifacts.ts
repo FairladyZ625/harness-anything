@@ -10,6 +10,11 @@ import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 export const artifactAnchorGuidance =
   "Use artifact:artifacts/report.md; submit pins the current center-accepted revision.";
 
+/** Anchors name this task's artifacts package-relative; the frozen cut stores the full task-package path. */
+export function submissionArtifactPath(packagePath: string, path: string): string {
+  return path.startsWith("artifacts/") ? `${packagePath}/${path}` : path;
+}
+
 /** Resolve only center-accepted bytes; current workspace files are never evidence for a historical cut. */
 export function readSubmissionArtifact(
   cell: Pick<RepoCellOperationalContext, "store" | "cellCodedError">,
@@ -32,13 +37,14 @@ export function readSubmissionArtifact(
       code: "invalid_submission",
     });
   }
-  if (normalized !== path || !path.startsWith(`${packagePath}/artifacts/`))
+  const artifact = submissionArtifactPath(packagePath, normalized);
+  if (normalized !== path || !artifact.startsWith(`${packagePath}/artifacts/`))
     return invalid("path must belong to this task's artifacts");
   if (!Number.isSafeInteger(revision) || revision < 1) invalid("revision must be a positive safe integer");
   const event = cell.store.readBatch(String(revision - 1), 1).events[0];
   if (!event || event.workspaceRevision !== revision || !isDocEvent(event))
     return invalid("revision is not a document acceptance");
-  const change = event.payload.changes.find((candidate) => candidate.path === path);
+  const change = event.payload.changes.find((candidate) => candidate.path === artifact);
   if (!change?.candidate) return invalid("revision did not accept this path");
   const blobSha256 = change.candidate.sha256,
     bytes = cell.store.readContentBlob(blobSha256);
@@ -46,7 +52,7 @@ export function readSubmissionArtifact(
     return invalid("accepted content is unavailable or does not match its frozen identity");
   if (!isUtf8(bytes)) return invalid("review delivery must be UTF-8 text");
   const body = new TextDecoder().decode(bytes);
-  return { anchor: { path, revision, blobSha256 }, body, acceptance: event.opId };
+  return { anchor: { path: artifact, revision, blobSha256 }, body, acceptance: event.opId };
 }
 
 export function artifactAnchors(summary: string): readonly { readonly path: string; readonly revision?: number }[] {
