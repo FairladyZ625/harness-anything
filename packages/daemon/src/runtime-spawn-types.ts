@@ -219,14 +219,14 @@ export type ProviderReplayBoundary = {
 };
 
 export type ResumeProcessEvent =
-  | { readonly kind: "output"; readonly chunk: string }
+  | { readonly kind: "output"; readonly chunk: string; readonly persisted: boolean }
   | { readonly kind: "error"; readonly chunk: string }
   | { readonly kind: "exit"; readonly code: number | null };
 
 export type ResumeProcessObservation = {
   readonly ready: Promise<void>;
   readonly activate: (handlers: {
-    readonly output: (chunk: string) => void;
+    readonly output: (chunk: string, persisted?: boolean) => void;
     readonly error: (chunk: string) => void;
     readonly exit: (code: number | null) => void;
   }) => void;

@@ -78,8 +78,8 @@ export function observeResumeProcess(
       ),
     );
   };
-  process.onOutput((chunk) => {
-    emit({ kind: "output", chunk });
+  process.onOutput((chunk, persisted = false) => {
+    emit({ kind: "output", chunk, persisted });
     if (settled) return;
     buffer += chunk;
     if (Buffer.byteLength(buffer) > providerErrorLimit) {
@@ -127,7 +127,7 @@ export function observeResumeProcess(
     ready,
     activate: (handlers) => {
       sink = (event) => {
-        if (event.kind === "output") handlers.output(event.chunk);
+        if (event.kind === "output") handlers.output(event.chunk, event.persisted);
         else if (event.kind === "error") handlers.error(event.chunk);
         else handlers.exit(event.code);
       };
