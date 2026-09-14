@@ -28,8 +28,10 @@ export function resolveTaskModule(module: string | undefined | null): string {
 }
 
 /**
- * fact 的模块:从宿主 task 的 module 派生。
- * host task 不在投影里 → UNPROJECTED(不猜)。
+ * fact 的模块:从宿主 task 派生。
+ * 宿主 task 在场且有真实模块 → 该模块;
+ * 宿主 task 在场且已聚簇进 PRD 块 → 随宿主归属 PRD 根(以 task chip 的 rootId 语义为准);
+ * 宿主 task 不在或未投影 → UNPROJECTED。
  */
 export function resolveFactModule(
   factRef: string,
@@ -37,12 +39,46 @@ export function resolveFactModule(
   relations: ReadonlyArray<RelationEdge> = [],
 ): string {
   // Fact ownership is supplied by the produces edge; standalone facts are unprojected.
+  const canonicalRef = factRef.startsWith("fact/") ? factRef : `fact/${factRef}`;
   const taskId = relations
-    .find((edge) => edge.kind === "produces" && edge.to === factRef && edge.from.startsWith("task/"))
+    .find((edge) => edge.kind === "produces" && edge.to === canonicalRef && edge.from.startsWith("task/"))
     ?.from.slice("task/".length);
+  if (!taskId) return UNPROJECTED_MODULE;
   const task = tasks.find((t) => t.taskId === taskId);
   if (!task) return UNPROJECTED_MODULE;
-  return resolveTaskModule(task.module);
+  if (!isModuleUnprojected(task.module)) return task.module;
+
+  // 宿主无模块但已聚簇进 PRD 块:跟随宿主落点,与 task chip 的 rootId 语义一致
+  let current: TaskRow | undefined = task;
+  const seen = new Set<string>();
+  while (current) {
+    if (current.rootTaskId) return current.rootTaskId;
+    if (!current.parentTaskId) return current.taskId;
+    if (seen.has(current.taskId)) break;
+    seen.add(current.taskId);
+    current = tasks.find((t) => t.taskId === current!.parentTaskId);
+  }
+  return UNPROJECTED_MODULE;
+}
+
+/**
+ * 判定 Fact 在领地视图中是否可见:
+ * 宿主 task 被归档/状态过滤隐藏时随宿主一起隐藏, 不降级成未投影;
+ * 没有宿主 task 的 fact 仍保持可见(计入未投影)。
+ */
+export function isFactVisibleWithHost(
+  factRef: string,
+  visibleTaskIds: ReadonlySet<string>,
+  allTaskIds: ReadonlySet<string>,
+  relations: ReadonlyArray<RelationEdge>,
+): boolean {
+  const canonicalRef = factRef.startsWith("fact/") ? factRef : `fact/${factRef}`;
+  const ownerTaskId = relations
+    .find((edge) => edge.kind === "produces" && edge.to === canonicalRef && edge.from.startsWith("task/"))
+    ?.from.slice("task/".length);
+  if (!ownerTaskId) return true; // 无宿主 fact 保持可见
+  if (!allTaskIds.has(ownerTaskId)) return true; // 宿主不在台账任务全集中的独立 fact 保持可见
+  return visibleTaskIds.has(ownerTaskId); // 宿主在台账中: 随宿主可见性
 }
 
 /** 渲染文案:哨兵 → 「未投影」,真实模块原样。 */

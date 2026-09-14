@@ -27,6 +27,7 @@ import { EgoNeighborhood } from "../graph/EgoNeighborhood";
 import { EgoHopsControl } from "../graph/EgoHopsControl";
 import type { EgoHopBudget } from "../graph/egoCanvas";
 import { applyTerritoryDensity, partitionForSkel } from "../graph/territory";
+import { isFactVisibleWithHost } from "../graph/moduleAssignment";
 import { layoutTerritory } from "../graph/territoryLayout";
 import { defaultKindFilter, defaultAxisFilter, type FlowAnimMode } from "../graph/relationVisual";
 import {
@@ -37,7 +38,6 @@ import {
 import { selectGraphFocusSet } from "../graph/focusSet";
 import type { AgentNodeRow, ScheduleNodeRow } from "../graph/runtimeEntities";
 import { focusHistoryReducer, EMPTY_HISTORY, canBack, canForward } from "../navigation/focusHistory";
-import { activeProducesFactRefs } from "../model/triadic";
 import { isTaskArchiveNoise } from "../model/taskFilters";
 import {
   graphTerritoryPreferenceStorage,
@@ -299,27 +299,21 @@ function GraphViewInner({
       taskPassesStatusFilter(task, filters.entityStatus) &&
       (showArchived || !isTaskArchiveNoise(task));
     const visibleTasks = tasks.filter(taskVisible);
-    const moduleByTaskId = new Map(tasks.map((task) => [task.taskId, task.module] as const));
-    // fact 跟随宿主 task 的 module 可见性;无宿主(未知/外部)不因 module 筛选隐藏。
-    const ownerTaskForFact = (fact: FactRef) => {
-      const ref = fact.anchor.startsWith("fact/") ? fact.anchor : `fact/${fact.anchor}`;
-      return activeProducesFactRefs(relations)
-        .find((edge) => edge.targetRef === ref)
-        ?.sourceRef.slice("task/".length);
-    };
-    const factVisible = (fact: FactRef) => {
-      const ownerTaskId = ownerTaskForFact(fact),
-        ownerModule = ownerTaskId ? moduleByTaskId.get(ownerTaskId) : undefined;
-      return typeOn("fact") && (ownerModule === undefined || filters.modules.has(ownerModule));
-    };
+    const visibleTaskIds = new Set(visibleTasks.map((task) => task.taskId));
+    const allTaskIds = new Set(tasks.map((task) => task.taskId));
+    // fact 跟随宿主 task 的可见性(宿主可见性已含模块/状态/归档筛选);无宿主 fact 保持可见。
+    const isFactRefVisible = (ref: string) =>
+      typeOn("fact") && isFactVisibleWithHost(ref, visibleTaskIds, allTaskIds, relations);
+    const visibleFacts = facts.filter((f) => isFactRefVisible(f.anchor));
+    const visibleFactAnchors = (factAnchors ?? []).filter((a) => isFactRefVisible(a.factRef));
     const partition = partitionForSkel(
       skel,
       visibleTasks,
       typeOn("decision")
         ? decisions.filter((decision) => decisionPassesStateFilter(decision, filters.entityStatus))
         : [],
-      facts.filter(factVisible),
-      factAnchors ?? [],
+      visibleFacts,
+      visibleFactAnchors,
       relations,
       coverageRows ?? [],
       typeOn("agent") ? agents : [],
