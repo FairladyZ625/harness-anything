@@ -1,4 +1,5 @@
-import { validTaskDispatchAttempt, type TaskDispatchAttempt } from "./protocol/task-dispatch-contract.ts";
+import type { TaskDispatchAttempt } from "./protocol/task-dispatch-contract.ts";
+import { validTaskDispatchAttempt } from "./protocol/daemon-protocol-validate-relation-query.ts";
 import { isJsonObject as isRecord } from "./protocol/json-rpc-types.ts";
 
 export interface AgentRuntimeAttemptChainDto {

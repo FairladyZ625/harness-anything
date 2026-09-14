@@ -1,7 +1,6 @@
 import type { SquadControlResult } from "../squad-control-result.ts";
 import { daemonGuiActionMethods } from "./daemon-protocol-gui-actions.ts";
 import { validateObserveTailResult, type DaemonProtocolErrorResult } from "./daemon-protocol-gui-types.ts";
-import { validTaskDispatchRow } from "./task-dispatch-contract.ts";
 import { DaemonProtocolContractError } from "./json-rpc-types.ts";
 import {
   DAEMON_DOCUMENT_READ_SCHEMA,
@@ -28,7 +27,7 @@ import {
   validateDaemonRelationGraph,
 } from "./daemon-protocol-validate-projections.ts";
 import { queryPageRow, validateDaemonTaskSnapshotList } from "./daemon-protocol-validate-task.ts";
-import { validateDaemonWorkspaceSummary } from "./daemon-protocol-validate-relation-query.ts";
+import { validateDaemonWorkspaceSummary, validTaskDispatchRow } from "./daemon-protocol-validate-relation-query.ts";
 import { receiptOutcomeWords } from "./daemon-protocol-vocabulary.ts";
 import { generatedTaskCreateResultFields, generatedWriteReceiptFields } from "./daemon-protocol-commands-task.ts";
 import { isJsonObject, type JsonObject } from "./json-rpc-types.ts";

@@ -11,6 +11,7 @@ import {
 import { relationStateWords, decisionStateWords, taskStatusWords } from "./daemon-protocol-vocabulary.ts";
 import { isJsonObject, unknownFieldViolation, type JsonObject } from "./json-rpc-types.ts";
 import { DAEMON_WORKSPACE_SUMMARY_SCHEMA } from "./daemon-protocol-schema-ids.ts";
+import type { TaskDispatchAttempt, TaskDispatchResume, TaskDispatchRow } from "./task-dispatch-contract.ts";
 export function validateRelationNeighborhoodPayload(value: JsonObject): string[] {
   const allowed = ["entity", "hops", "status"],
     unknown = unknownFieldViolation(value, allowed);
@@ -156,4 +157,96 @@ export function validateDaemonWorkspaceSummary(value: unknown): readonly string[
       validationError(entityId, "decisions.total", decisions.total, "must match unique grouped decisions and inbox"),
     ];
   return [];
+}
+
+const dispatchAttemptRequired = [
+    "dispatchId",
+    "runtimeSessionId",
+    "attemptIndex",
+    "provider",
+    "classification",
+    "reason",
+    "fallbackState",
+    "nextDispatchId",
+  ] as const,
+  dispatchAttemptOptional = ["resume", "faultClass", "resetAt", "nextAction"] as const;
+
+export function validTaskDispatchAttempt(value: unknown): value is TaskDispatchAttempt {
+  return (
+    isJsonObject(value) &&
+    dispatchFields(value, dispatchAttemptRequired, dispatchAttemptOptional) &&
+    validTaskDispatchAttemptValues(value)
+  );
+}
+
+export function validTaskDispatchRow(value: unknown): value is TaskDispatchRow {
+  return (
+    isJsonObject(value) &&
+    [
+      value.dispatchId,
+      value.taskId,
+      value.executionId,
+      value.runtimeSessionId,
+      value.instanceId,
+      value.attemptGroupId,
+    ].every(dispatchText) &&
+    validTaskDispatchAttemptValues(value) &&
+    ["agentId", "agentName", "delegatedByAgentId", "delegatedByAgentName", "squadId", "parentRuntimeSessionId"].every(
+      (field) => value[field] === undefined || dispatchText(value[field]),
+    ) &&
+    dispatchNullableText(value.providerSessionId) &&
+    dispatchNullableText(value.eventStreamRef) &&
+    dispatchText(value.startedAt) &&
+    dispatchNullableText(value.endedAt) &&
+    [null, "succeeded", "failed", "unknown", "cancelled"].includes(value.outcome as never) &&
+    ["running", "succeeded", "failed", "unknown", "cancelled", "lost"].includes(String(value.status)) &&
+    [value.resultRef, value.dispatchPath, value.reportPath].every(
+      (field) => field === undefined || dispatchNullableText(field),
+    ) &&
+    (value.exitCode === undefined || value.exitCode === null || dispatchInteger(value.exitCode))
+  );
+}
+
+function validTaskDispatchAttemptValues(value: Record<string, unknown>): boolean {
+  return (
+    dispatchText(value.dispatchId) &&
+    dispatchText(value.runtimeSessionId) &&
+    dispatchInteger(value.attemptIndex) &&
+    isJsonObject(value.provider) &&
+    dispatchText(value.provider.instance) &&
+    (value.provider.model === null || dispatchText(value.provider.model)) &&
+    (value.classification === null ||
+      ["provider_fault", "provider_quota", "worker_stop", "gate_red"].includes(String(value.classification))) &&
+    (value.reason === null || dispatchText(value.reason)) &&
+    (value.resume === undefined || validTaskDispatchResume(value.resume)) &&
+    (value.faultClass === undefined || ["quota_exhausted", "rate_limited"].includes(String(value.faultClass))) &&
+    (value.resetAt === undefined || (typeof value.resetAt === "string" && !Number.isNaN(Date.parse(value.resetAt)))) &&
+    (value.nextAction === undefined || dispatchText(value.nextAction)) &&
+    (value.fallbackState === null || ["scheduled", "dispatched", "exhausted"].includes(String(value.fallbackState))) &&
+    (value.nextDispatchId === null || dispatchText(value.nextDispatchId))
+  );
+}
+
+function validTaskDispatchResume(value: unknown): value is TaskDispatchResume {
+  return (
+    isJsonObject(value) &&
+    dispatchFields(value, ["dispatchId", "agentId"], []) &&
+    dispatchText(value.dispatchId) &&
+    (value.agentId === null || dispatchText(value.agentId))
+  );
+}
+function dispatchFields(value: Record<string, unknown>, required: readonly string[], optional: readonly string[]) {
+  return (
+    required.every((field) => Object.hasOwn(value, field)) &&
+    Object.keys(value).every((field) => required.includes(field) || optional.includes(field))
+  );
+}
+function dispatchNullableText(value: unknown): boolean {
+  return value === null || dispatchText(value);
+}
+function dispatchText(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0;
+}
+function dispatchInteger(value: unknown): value is number {
+  return Number.isInteger(value) && Number(value) >= 0;
 }
