@@ -20,7 +20,7 @@ export type { EntityActionUnmetCriterionV1 } from "./receipt-domain-registry.ts"
 export type { DecisionCapabilityId, DecisionCapabilityReason } from "./decision-board-projection.ts";
 export { deriveActionReturnsContract } from "./entity-action-descriptor.ts";
 export type { ReceiptGuidanceArgument, ReceiptGuidanceContractEntry } from "./entity-action-descriptor.ts";
-export { evaluateTaskActionCapability, taskActionUsage } from "./task-action-capability.ts";
+export { evaluateTaskActionCapability } from "./task-action-capability.ts";
 export { actionDeclarations } from "./action-declaration.ts";
 export { DEFAULT_POLICY, durablePolicyActions } from "./default-policy.ts";
 export type {

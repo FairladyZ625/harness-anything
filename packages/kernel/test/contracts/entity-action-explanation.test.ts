@@ -4,7 +4,6 @@ import test from "node:test";
 import {
   ENTITY_ACTION_EXPLANATION_SCHEMA,
   getEntityKindContract,
-  taskActionUsage,
   validateEntityActionExplainRequest,
   validateEntityActionExplanationSet,
   type ActorIdentity,
@@ -12,6 +11,7 @@ import {
   type EntityActionExplanationSetV1,
   type EntityActionExplanationV1,
 } from "../../src/index.ts";
+import { taskActionUsage } from "../../src/domain/task-action-capability.ts";
 import { serializeEntityActionExplanationSet } from "../../src/domain/entity-action-explanation.ts";
 
 const actor: ActorIdentity = { principal: { personId: "person-explain" }, executor: null };
