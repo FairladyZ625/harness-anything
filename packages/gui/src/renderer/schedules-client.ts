@@ -10,34 +10,12 @@ import type {
 } from "../../../daemon/src/protocol/schedule-runs-contract.ts";
 import { isRendererRecord, rendererErrorHint } from "./result-validation.ts";
 import { readUseCaseProjection } from "./use-case-projection-client.ts";
-import { guiHostBridge } from "./gui-transport.ts";
+import { invoke } from "./api-client-invoke.ts";
 
 // Renderer client for the Schedule plane (S4). The `schedule-plane` use-case projection returns
 // the complete joined DTO — cadence/timezone/nextRun/mode/availability are daemon
 // facts, and this file never recomputes them. The three actions return command
 // receipts; enablement comes from the DTO facets, not from local mode branching.
-type SchedulesBridge = {
-  readonly createSchedule: (payload: unknown) => Promise<unknown>;
-  readonly updateSchedule: (payload: unknown) => Promise<unknown>;
-  readonly deleteSchedule: (payload: unknown) => Promise<unknown>;
-  readonly enableSchedule: (payload: unknown) => Promise<unknown>;
-  readonly disableSchedule: (payload: unknown) => Promise<unknown>;
-  readonly runScheduleNow: (payload: unknown) => Promise<unknown>;
-};
-const bridge = (): SchedulesBridge => {
-  const value = guiHostBridge() as unknown as Partial<SchedulesBridge> | undefined;
-  if (
-    !value?.createSchedule ||
-    !value.updateSchedule ||
-    !value.deleteSchedule ||
-    !value.enableSchedule ||
-    !value.disableSchedule ||
-    !value.runScheduleNow
-  )
-    throw new Error("Schedules bridge is unavailable.");
-  return value as SchedulesBridge;
-};
-
 // ---------------------------------------------------------------------------
 // Read-projection contract(design.html §6):`schedule-run-history` 读已落地,列表行
 // 带 mode/target/健康度 rollup——这里只复述 daemon 形状,不再保留「后端未投影」的
@@ -187,33 +165,35 @@ async function invokeSchedule(
     | "runScheduleNow",
   payload: Readonly<Record<string, unknown>>,
 ): Promise<ScheduleActionReceipt> {
-  const value = await bridge()[method](payload);
-  if (
-    !isRendererRecord(value) ||
-    typeof value.command !== "string" ||
-    typeof value.outcome !== "string" ||
-    typeof value.opId !== "string"
-  )
-    throw new Error(rendererErrorHint(value, "Schedule action bridge returned an invalid receipt."));
-  const error = isRendererRecord(value.error) ? value.error : null;
+  const methods = {
+      createSchedule: "repo.schedule.create",
+      updateSchedule: "repo.schedule.update",
+      deleteSchedule: "repo.schedule.delete",
+      enableSchedule: "repo.schedule.enable",
+      disableSchedule: "repo.schedule.disable",
+      runScheduleNow: "repo.schedule.runNow",
+    } as const,
+    value = await invoke(methods[method], payload as { readonly repoId: string }, method),
+    receipt = value as Readonly<Record<string, unknown>>;
+  const error = isRendererRecord(receipt.error) ? receipt.error : null;
   return {
-    ok: value.ok === true,
-    command: value.command,
-    outcome: value.outcome,
-    opId: value.opId,
+    ok: receipt.ok === true,
+    command: String(receipt.command),
+    outcome: String(receipt.outcome),
+    opId: String(receipt.opId),
     code:
-      typeof value.code === "string"
-        ? value.code
+      typeof receipt.code === "string"
+        ? receipt.code
         : error !== null && typeof error.code === "string"
           ? error.code
           : null,
     nextAction:
-      typeof value.nextAction === "string"
-        ? value.nextAction
+      typeof receipt.nextAction === "string"
+        ? receipt.nextAction
         : error !== null && typeof error.hint === "string"
           ? error.hint
           : null,
-    scheduleId: typeof value.scheduleId === "string" ? value.scheduleId : null,
+    scheduleId: typeof receipt.scheduleId === "string" ? receipt.scheduleId : null,
   };
 }
 

@@ -11,6 +11,7 @@ import type {
 } from "../../../daemon/src/agent-entities.ts";
 import { containsSecretLikeKey, entityRecord } from "../api/entity-payload-hygiene.ts";
 import { guiHostBridge } from "./gui-transport.ts";
+import { invoke } from "./api-client-invoke.ts";
 export type {
   AgentEntityAvailableRow,
   AgentEntityDetail,
@@ -46,26 +47,10 @@ type Bridge = {
   readonly listAgentSkills: (payload: { readonly repoId: string }) => Promise<unknown>;
   readonly listSquads: (payload: { readonly repoId: string }) => Promise<unknown>;
   readonly showSquad: (payload: { readonly repoId: string; readonly squadId: string }) => Promise<unknown>;
-  readonly saveAgent: (payload: {
-    readonly repoId: string;
-    readonly declaration: AgentDeclarationV1;
-  }) => Promise<unknown>;
-  readonly saveSquad: (payload: {
-    readonly repoId: string;
-    readonly declaration: SquadDeclarationV1;
-  }) => Promise<unknown>;
 };
 const bridge = (): Bridge => {
   const value = guiHostBridge() as unknown as Partial<Bridge> | undefined,
-    required = [
-      "listAgents",
-      "showAgent",
-      "listAgentSkills",
-      "listSquads",
-      "showSquad",
-      "saveAgent",
-      "saveSquad",
-    ] as const;
+    required = ["listAgents", "showAgent", "listAgentSkills", "listSquads", "showSquad"] as const;
   if (!value || required.some((method) => typeof value[method] !== "function"))
     throw new Error("Agent entity bridge is unavailable.");
   return value as Bridge;
@@ -82,9 +67,21 @@ export const agentEntityClient = {
   showSquad: async (repoId: string, squadId: string): Promise<SquadEntityDetail> =>
     detail(await bridge().showSquad({ repoId, squadId }), "squad-entity-detail/v1", "squad") as SquadEntityDetail,
   saveAgent: async (repoId: string, declaration: AgentDeclarationV1): Promise<EntitySaveResult> =>
-    save(await bridge().saveAgent({ repoId, declaration })),
+    save(
+      await invoke(
+        "repo.agent.entity.write",
+        { repoId, declaration } as { readonly repoId: string } & object,
+        "saveAgent",
+      ),
+    ),
   saveSquad: async (repoId: string, declaration: SquadDeclarationV1): Promise<EntitySaveResult> =>
-    save(await bridge().saveSquad({ repoId, declaration })),
+    save(
+      await invoke(
+        "repo.squad.entity.write",
+        { repoId, declaration } as { readonly repoId: string } & object,
+        "saveSquad",
+      ),
+    ),
 };
 function catalog(value: unknown, schema: string, field: string): readonly unknown[] {
   const row = entityRecord(value);

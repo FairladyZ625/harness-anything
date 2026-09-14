@@ -36,7 +36,12 @@ export function createBrowserGuiTransport(token: string): GuiTransport {
       }
       return (await response.json()) as DaemonRpcResult<Method>;
     },
-    capabilities: () => ({ stream: unavailable, terminal: unavailable, nativeFiles: unavailable, writes: unavailable }),
+    capabilities: () => ({
+      stream: unavailable,
+      terminal: unavailable,
+      nativeFiles: unavailable,
+      writes: { status: "available" },
+    }),
   };
 }
 

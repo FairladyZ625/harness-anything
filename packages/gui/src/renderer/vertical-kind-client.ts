@@ -1,6 +1,7 @@
 import type { GuiActionResult } from "../api/renderer-dto.ts";
 import { isRendererRecord, rendererErrorHint } from "./result-validation.ts";
 import { guiHostBridge } from "./gui-transport.ts";
+import { invoke } from "./api-client-invoke.ts";
 
 /**
  * A declared Artifact kind row as `repo.vertical.declaration.read` serves it. Accepted rows carry
@@ -33,9 +34,6 @@ export interface VerticalDeclarationRead {
 
 type VerticalBridge = {
   readonly readVerticalDeclaration: (payload: { readonly repoId: string }) => Promise<unknown>;
-  readonly upsertVerticalKind: (payload: object) => Promise<unknown>;
-  readonly publishVerticalKindSchema: (payload: object) => Promise<unknown>;
-  readonly retireVerticalKind: (payload: object) => Promise<unknown>;
 };
 
 const bridge = (): Partial<VerticalBridge> => (guiHostBridge() as unknown as Partial<VerticalBridge> | undefined) ?? {};
@@ -89,16 +87,16 @@ export async function upsertVerticalKind(
     throw new Error("idPrefix 不可修改：既有实体 ID 依赖这个前缀。");
   if (existing && existing.store.pathTemplate !== declaration.store.pathTemplate)
     throw new Error("store.pathTemplate 不可修改：既有实体文档依赖这个路径。");
-  const channel = bridge().upsertVerticalKind;
-  if (!channel) throw new Error("Vertical kind upsert bridge is unavailable.");
-  return verticalKindMutationResult(
-    channel({
+  return invoke(
+    "repo.vertical.kind.upsert",
+    {
       repoId,
       kindId,
       declaration,
       expectedVersion: verticalKindFence(read, kindId),
-    }),
-  );
+    } as { readonly repoId: string } & object,
+    "upsertVerticalKind",
+  ) as Promise<GuiActionResult>;
 }
 
 /**
@@ -111,11 +109,13 @@ export async function publishVerticalKindSchema(
   kindId: string,
   attributes: Readonly<Record<string, unknown>>,
 ): Promise<GuiActionResult> {
-  const channel = bridge().publishVerticalKindSchema;
-  if (!channel) throw new Error("Vertical kind schema publish bridge is unavailable.");
-  return verticalKindMutationResult(
-    channel({ repoId, kindId, attributes, expectedVersion: verticalKindFence(read, kindId) }),
-  );
+  return invoke(
+    "repo.vertical.kind.publishSchema",
+    { repoId, kindId, attributes, expectedVersion: verticalKindFence(read, kindId) } as {
+      readonly repoId: string;
+    } & object,
+    "publishVerticalKindSchema",
+  ) as Promise<GuiActionResult>;
 }
 
 export async function retireVerticalKind(
@@ -124,18 +124,13 @@ export async function retireVerticalKind(
   kindId: string,
   reason: string,
 ): Promise<GuiActionResult> {
-  const channel = bridge().retireVerticalKind;
-  if (!channel) throw new Error("Vertical kind retire bridge is unavailable.");
-  return verticalKindMutationResult(
-    channel({ repoId, kindId, reason, expectedVersion: verticalKindFence(read, kindId) }),
-  );
-}
-
-async function verticalKindMutationResult(request: Promise<unknown>): Promise<GuiActionResult> {
-  const value = await request;
-  if (!isRendererRecord(value) || value.schema !== "command-receipt/v2" || typeof value.outcome !== "string")
-    throw new Error(rendererErrorHint(value, "Vertical kind mutation returned an invalid result."));
-  return value as unknown as GuiActionResult;
+  return invoke(
+    "repo.vertical.kind.retire",
+    { repoId, kindId, reason, expectedVersion: verticalKindFence(read, kindId) } as {
+      readonly repoId: string;
+    } & object,
+    "retireVerticalKind",
+  ) as Promise<GuiActionResult>;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

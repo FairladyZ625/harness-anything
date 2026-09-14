@@ -30,14 +30,32 @@ test("browser GUI broker opens on exact loopback and rejects cross-origin RPC", 
     assert.equal(Buffer.from(token!, "base64url").length, 32);
     assert.equal((await call(url, "/")).headers["content-security-policy"]?.includes("default-src 'self'"), true);
     assert.equal((await call(url, "/rpc", { method: "POST" })).status, 403);
+    const writeBody = JSON.stringify({
+      method: "repo.settings.update",
+      params: {
+        repo: { repoId: "canonical" },
+        payload: { locale: "zh-CN", idempotencyKey: "browser-security-write" },
+      },
+    });
+    assert.equal((await call(url, "/rpc", { method: "POST", body: writeBody })).status, 403);
+    assert.equal((await call(url, "/rpc", { method: "POST", body: writeBody, cookie: "access_token=x" })).status, 403);
+    assert.equal(
+      (await call(url, "/rpc", { method: "POST", body: writeBody, token: "wrong", origin: url.origin })).status,
+      403,
+    );
     assert.equal(
       (await call(url, "/rpc", { method: "POST", token: token!, origin: "http://example.test" })).status,
+      403,
+    );
+    assert.equal(
+      (await call(url, "/rpc", { method: "POST", body: writeBody, token: token!, origin: "null" })).status,
       403,
     );
     assert.equal(
       (await call(url, "/rpc", { method: "POST", token: token!, host: `localhost:${url.port}` })).status,
       403,
     );
+    assert.equal((await call(url, "/rpc", { method: "OPTIONS", token: token!, origin: url.origin })).status, 405);
     assert.equal(
       (await call(url, "/rpc", { method: "POST", token: token!, origin: url.origin, body: "{" })).status,
       400,
@@ -55,6 +73,14 @@ test("browser GUI broker opens on exact loopback and rejects cross-origin RPC", 
     );
     const admitted = await call(url, "/rpc", { method: "POST", token: token!, origin: url.origin });
     assert.equal(admitted.status, 502, "valid auth reaches the isolated missing-daemon boundary");
+    const admittedWrite = await call(url, "/rpc", {
+      method: "POST",
+      token: token!,
+      origin: url.origin,
+      body: writeBody,
+    });
+    assert.equal(admittedWrite.status, 502, "authenticated canonical write reaches the daemon boundary");
+    assert.equal(admittedWrite.headers["access-control-allow-origin"], undefined);
   } finally {
     await broker.close();
     rmSync(root, { recursive: true, force: true });
@@ -132,6 +158,126 @@ test("ordinary Chromium reaches the task shell through authenticated browser RPC
   }
 });
 
+test("browser writes preserve RepoCell idempotency, revision fences, and repository scope", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-browser-writes-")),
+    firstRoot = path.join(parent, "first"),
+    secondRoot = path.join(parent, "second"),
+    userRoot = path.join(parent, "user"),
+    previousUserRoot = process.env.HARNESS_DAEMON_USER_ROOT,
+    previousDaemonId = process.env.HARNESS_DAEMON_ID;
+  let broker: Awaited<ReturnType<typeof startBrowserGuiBroker>> | undefined;
+  try {
+    initializeSettingsRepo(firstRoot);
+    initializeSettingsRepo(secondRoot);
+    const firstStore = seedSettingsEvent({ rootDir: firstRoot, repoId: "browser-write-first" }),
+      secondStore = seedSettingsEvent({ rootDir: secondRoot, repoId: "browser-write-second" });
+    assert.ok(firstStore && secondStore);
+    const initialRevision = firstStore.read().revision;
+    startDaemon(firstRoot, userRoot);
+    run(firstRoot, userRoot, [
+      "daemon",
+      "repo",
+      "register",
+      "--repo-id",
+      "browser-write-first",
+      "--root",
+      firstRoot,
+      "--no-link",
+    ]);
+    run(secondRoot, userRoot, [
+      "daemon",
+      "repo",
+      "register",
+      "--repo-id",
+      "browser-write-second",
+      "--root",
+      secondRoot,
+      "--no-link",
+    ]);
+    process.env.HARNESS_DAEMON_USER_ROOT = userRoot;
+    process.env.HARNESS_DAEMON_ID = daemonId;
+    broker = await startBrowserGuiBroker(path.resolve("."), firstRoot);
+    const url = new URL(broker.url),
+      token = new URLSearchParams(url.hash.slice(1)).get("access_token")!;
+    const sameWrite = settingsWrite("browser-write-first", "same-key", undefined, 1024),
+      [first, replay] = await Promise.all([browserRpc(url, token, sameWrite), browserRpc(url, token, sameWrite)]);
+    assert.equal(first.status, 200, first.body);
+    assert.equal(replay.status, 200, replay.body);
+    const firstReceipt = JSON.parse(first.body) as { readonly opId: string; readonly outcome: string },
+      replayReceipt = JSON.parse(replay.body) as { readonly opId: string; readonly outcome: string };
+    assert.equal(firstReceipt.outcome, "applied", JSON.stringify({ firstReceipt, replayReceipt }));
+    assert.equal(replayReceipt.opId, firstReceipt.opId);
+    await settleBrowserWrite(url, token, "browser-write-first", firstReceipt.opId);
+
+    const stale = await browserRpc(
+      url,
+      token,
+      settingsWrite("browser-write-first", "stale-key", initialRevision, 2048),
+    );
+    assert.equal(stale.status, 200, stale.body);
+    assert.equal((JSON.parse(stale.body) as { readonly code: string }).code, "revision_conflict");
+
+    const second = await browserRpc(url, token, settingsWrite("browser-write-second", "same-key", undefined, 4096));
+    assert.equal(second.status, 200, second.body);
+    const secondReceipt = JSON.parse(second.body) as { readonly opId: string; readonly outcome: string };
+    assert.equal(secondReceipt.outcome, "applied");
+    assert.notEqual(secondReceipt.opId, firstReceipt.opId);
+    await settleBrowserWrite(url, token, "browser-write-second", secondReceipt.opId);
+    assert.match(readFileSync(path.join(firstRoot, "harness/harness.yaml"), "utf8"), /events: 1024/u);
+    assert.match(readFileSync(path.join(secondRoot, "harness/harness.yaml"), "utf8"), /events: 4096/u);
+  } finally {
+    if (broker) await broker.close();
+    runMaybe(firstRoot, userRoot, ["daemon", "stop"]);
+    if (previousUserRoot === undefined) delete process.env.HARNESS_DAEMON_USER_ROOT;
+    else process.env.HARNESS_DAEMON_USER_ROOT = previousUserRoot;
+    if (previousDaemonId === undefined) delete process.env.HARNESS_DAEMON_ID;
+    else process.env.HARNESS_DAEMON_ID = previousDaemonId;
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+function settingsWrite(
+  repoId: string,
+  idempotencyKey: string,
+  expectedVersion: number | undefined,
+  walFlushEvents: number,
+) {
+  return JSON.stringify({
+    method: "repo.settings.update",
+    params: {
+      repo: { repoId },
+      payload: { idempotencyKey, ...(expectedVersion === undefined ? {} : { expectedVersion }), walFlushEvents },
+    },
+  });
+}
+
+function initializeSettingsRepo(root: string): void {
+  initialize(root);
+  writeFileSync(
+    path.join(root, "harness/harness.yaml"),
+    "layout:\n  authoredRoot: harness\nsettings:\n  walFlush:\n    events: 256\n",
+  );
+  execFileSync("git", ["-C", root, "add", "harness/harness.yaml"]);
+  execFileSync("git", ["-C", root, "commit", "--quiet", "-m", "settings fixture"]);
+}
+
+function browserRpc(url: URL, token: string, body: string) {
+  return call(url, "/rpc", { method: "POST", token, origin: url.origin, body });
+}
+
+async function settleBrowserWrite(url: URL, token: string, repoId: string, opId: string): Promise<void> {
+  const settled = await browserRpc(
+    url,
+    token,
+    JSON.stringify({
+      method: "repo.receipt.show",
+      params: { repo: { repoId }, payload: { opId, waitFor: ["worktree_visible"], timeoutMs: 20_000 } },
+    }),
+  );
+  assert.equal(settled.status, 200, settled.body);
+  assert.equal((JSON.parse(settled.body) as { readonly wait?: { readonly state?: string } }).wait?.state, "satisfied");
+}
+
 function chromiumExecutable(parent: string): string {
   const configured = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
     candidates = [configured, "/usr/bin/chromium", "/usr/bin/chromium-browser", "/usr/bin/google-chrome"];
@@ -174,7 +320,7 @@ function rendererSourceFiles(root: string): string[] {
 function call(
   url: URL,
   pathname: string,
-  options: { method?: string; token?: string; origin?: string; host?: string; body?: string } = {},
+  options: { method?: string; token?: string; origin?: string; host?: string; body?: string; cookie?: string } = {},
 ) {
   return new Promise<{ status: number; headers: Record<string, string | string[] | undefined>; body: string }>(
     (resolve, reject) => {
@@ -189,6 +335,7 @@ function call(
             Host: options.host ?? url.host,
             ...(options.origin ? { Origin: options.origin } : {}),
             ...(options.token ? { Authorization: `Bearer ${options.token}`, "Content-Type": "application/json" } : {}),
+            ...(options.cookie ? { Cookie: options.cookie } : {}),
           },
         },
         (response) => {
