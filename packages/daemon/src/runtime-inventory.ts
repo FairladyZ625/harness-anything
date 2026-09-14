@@ -307,6 +307,8 @@ export const runtimeKinds = [
         "$prompt",
         "--output-format",
         "stream-json",
+        "--print-timeout",
+        "30m",
         "--model",
         "$model",
         "$permission",

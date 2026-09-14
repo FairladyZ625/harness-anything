@@ -51,6 +51,11 @@ export function providerFaultFromStderr(kindId: RuntimeInstanceKind, stderr: str
     if (tagged === "unrecognized_model") return fault("unrecognized_model", normalized);
     if (tagged && /auth|unauthor|forbidden/iu.test(tagged)) return fault("auth_failed", normalized);
   }
+  if (
+    kindId === "agy" &&
+    /^\[agy\] print timeout after [^\r\n]+ with turn in progress; returning partial output$/imu.test(normalized)
+  )
+    return fault("pre_tool_exit", normalized);
   return null;
 }
 
@@ -58,13 +63,17 @@ export function classifyRuntimeExit(
   active: ActiveRuntime,
   exitCode: number | null,
 ): RuntimeAttemptOutcome & { readonly outcome: RuntimeExitOutcome } {
-  const outcome = runtimeExitOutcome(active, exitCode),
+  const providerFault =
+      active.providerFault ?? providerFaultFromStderr(active.kindId, active.errorOverflowed ? "" : active.errorBuffer),
+    outcome = runtimeExitOutcome(active, exitCode, providerFault),
     provider = { instance: active.instanceId, model: active.model, kind: active.kindId },
     attemptGroupId = active.fallbackAttempt?.attemptGroupId ?? active.dispatchId,
     attemptIndex = active.fallbackAttempt?.attemptIndex ?? 0,
-    attemptFailed = exitCode === null || exitCode !== 0 || active.providerOutcome === "failed",
-    providerFault =
-      active.providerFault ?? providerFaultFromStderr(active.kindId, active.errorOverflowed ? "" : active.errorBuffer),
+    attemptFailed =
+      exitCode === null ||
+      exitCode !== 0 ||
+      active.providerOutcome === "failed" ||
+      providerFault?.code === "pre_tool_exit",
     classified = (classification: RuntimeAttemptOutcome["classification"], reason: string) => ({
       outcome,
       classification,
@@ -111,11 +120,16 @@ export function classifyRuntimeExit(
 
 export type RuntimeExitOutcome = "succeeded" | "failed" | "unknown" | "cancelled";
 
-function runtimeExitOutcome(active: ActiveRuntime, exitCode: number | null): RuntimeExitOutcome {
+function runtimeExitOutcome(
+  active: ActiveRuntime,
+  exitCode: number | null,
+  providerFault: RuntimeProviderFault | null,
+): RuntimeExitOutcome {
   if (active.cancelRequested) return "cancelled";
   if (exitCode === null) return "unknown";
   if (exitCode !== 0) return "failed";
   if (active.providerOutcome === "failed") return "failed";
+  if (providerFault?.code === "pre_tool_exit") return "failed";
   return active.descendantsAlive || active.worktreeDirty ? "unknown" : "succeeded";
 }
 

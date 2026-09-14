@@ -222,6 +222,8 @@ test("agy defaults to bypass and distinguishes persisted restrictions from a dis
       "Default",
       "--output-format",
       "stream-json",
+      "--print-timeout",
+      "30m",
       "--model",
       "gemini-3.1-pro-low",
       "--dangerously-skip-permissions",

@@ -2,7 +2,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ActiveRuntime } from "../src/runtime-spawn-types.ts";
-import { classifyRuntimeExit, observeProviderFault, providerFaultFromFrame } from "../src/runtime-provider-fault.ts";
+import {
+  classifyRuntimeExit,
+  observeProviderFault,
+  providerFaultFromFrame,
+  providerFaultFromStderr,
+} from "../src/runtime-provider-fault.ts";
 import { parseCodexFrame } from "../src/runtime-spawn-provider-frames.ts";
 
 test("structured provider errors classify rate limits, server faults, quota, model, and auth failures", () => {
@@ -162,6 +167,23 @@ test("attempt-bound classification falls back only before tools or for recognize
   observeProviderFault(recovered, { toolCallObserved: true });
   assert.equal(recovered.providerFault, null);
   assert.equal(classifyRuntimeExit(recovered, 1).classification, "gate_red");
+});
+
+test("agy print timeout makes an exit-zero partial turn a provider fault", () => {
+  const stderr = "[agy] print timeout after 5m0s with turn in progress; returning partial output\n",
+    runtime = active({
+      kindId: "agy",
+      providerOutcome: "succeeded",
+      toolCallObserved: true,
+      errorBuffer: stderr,
+    }),
+    fault = providerFaultFromStderr("agy", stderr),
+    result = classifyRuntimeExit(runtime, 0);
+  assert.equal(fault?.code, "pre_tool_exit");
+  assert.equal(fault?.reason, stderr.trim());
+  assert.equal(result.outcome, "failed");
+  assert.equal(result.classification, "provider_fault");
+  assert.equal(result.reason, stderr.trim());
 });
 
 test("blank successful Codex turns classify as provider faults", () => {
