@@ -94,6 +94,8 @@ export interface RepoCellStatus {
   readonly state: "warming" | "attached" | "unavailable" | "closed";
   readonly generation: number | null;
   readonly queueDepth: number | null;
+  readonly projectionWatermark?: number;
+  readonly ledgerRevision?: number;
   readonly lastError: string | null;
   readonly causeClass: "data-shape" | "infrastructure" | "projection" | null;
   readonly recoveryMs: number | null;
