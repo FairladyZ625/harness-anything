@@ -4,7 +4,7 @@ import type {
   ArtifactEntityKindDefinition,
   EntityAttributeDeclaration,
   EntityKindSchemaVersion,
-} from "../schemas/vertical-definition.ts";
+} from "./vertical-definition.ts";
 import { artifactEntityIdPattern } from "./entity-ref.ts";
 import { compiledPattern, parseEntityJsonSchema, type EntityDocumentJsonSchema } from "./entity-json-schema.ts";
 import {

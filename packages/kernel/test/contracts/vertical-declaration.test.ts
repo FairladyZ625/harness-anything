@@ -4,12 +4,12 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
   compileVerticalDeclarationEvent,
-  parseVerticalDeclarationDocument,
   validateVerticalDeclarationEvent,
 } from "../../src/domain/vertical-declaration.ts";
+import { decodeVerticalDefinition, parseVerticalDeclarationDocument } from "../../src/schemas/vertical-definition.ts";
 
-const definition = JSON.parse(
-  readFileSync(new URL("../../fixtures/schemas/vertical-definition/valid.json", import.meta.url), "utf8"),
+const definition = decodeVerticalDefinition(
+  JSON.parse(readFileSync(new URL("../../fixtures/schemas/vertical-definition/valid.json", import.meta.url), "utf8")),
 );
 
 test("vertical declaration event owns one repository declaration and exact authored write plan", () => {

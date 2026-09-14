@@ -26,8 +26,8 @@ import {
   type EntityContentRetirement,
   type EntityOwnedContentV1,
 } from "./entity-owned-content.ts";
+import { ENTITY_DOCUMENT_POLICY_ID } from "./base-entity.ts";
 import {
-  ENTITY_DOCUMENT_POLICY_ID,
   entityContentPath,
   entityContentRoot,
   entityDocumentPath,

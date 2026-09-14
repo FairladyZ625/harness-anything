@@ -16,8 +16,6 @@ import {
   type WriterGeneration,
 } from "../../kernel/src/index.ts";
 import { createPresetProcessService, presetUserRoot } from "../../preset/src/index.ts";
-import { defaultAssets } from "../../preset/src/preset-resolver-common.ts";
-import { readFileSync } from "node:fs";
 import { ledgerWriteCommandTopology } from "../../preset/src/preset-command-contract.ts";
 import {
   prepareAgentEntityDelete,
@@ -34,6 +32,7 @@ import {
 import { readRuntimeSessionActivityEvidence } from "./dispatch-read.ts";
 import { openGuiCatalog } from "./gui-catalog.ts";
 import type { FleetRoster } from "./fleet-center-admission.ts";
+import { readDefaultVerticalDefinition } from "./vertical-declaration-action.ts";
 import { type CanonicalRoot, type WorkspaceId } from "./protocol/daemon-protocol.contract.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { makeRecoveryProbe } from "./recovery-state.ts";
@@ -859,7 +858,7 @@ export async function openRepoWriterCell(
     const verticalRevision = (store.readHead()?.revision ?? 0) + 1,
       verticalBundle = compileVerticalDeclarationEvent({
         type: "vertical_declared",
-        definition: JSON.parse(readFileSync(`${defaultAssets}/vertical.json`, "utf8")),
+        definition: readDefaultVerticalDefinition(),
         eventId: `event-vertical-declaration-${verticalRevision}`,
         opId: `vertical-declaration-initialize-${verticalRevision}`,
         workspaceRevision: verticalRevision,

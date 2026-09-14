@@ -6,10 +6,14 @@ import test from "node:test";
 import { Schema } from "effect";
 import {
   compileVerticalContract,
+  decodeVerticalDefinition,
   TemplateCatalogSchema,
   type TemplateCatalog,
   type VerticalDefinition,
 } from "../../kernel/src/index.ts";
+
+/** Mirrors the preset boundary: decode at the edge, then compile the pure value. */
+const compileVerticalSource = (source: unknown) => compileVerticalContract(decodeVerticalDefinition(source));
 import {
   planTemplateMaterialization,
   validateExtensionInputShape,
@@ -23,7 +27,7 @@ const verticalDefinitionUrl = new URL("../../kernel/fixtures/schemas/vertical-de
 
 test("vertical and template schemas decode clean-room extension fixtures", async () => {
   const catalog = Schema.decodeUnknownSync(TemplateCatalogSchema)(await readFixture(templateCatalogUrl));
-  const vertical = compileVerticalContract(await readFixture(verticalDefinitionUrl)).definition;
+  const vertical = compileVerticalSource(await readFixture(verticalDefinitionUrl)).definition;
 
   assert.equal(validateTemplateCatalog(catalog, { resolveBody: resolveFixtureTemplateBody }).ok, true);
   assert.equal(validateVerticalDefinition(vertical).ok, true);
@@ -33,7 +37,7 @@ test("repository scaffold accepts the optional AGENTS.md composite slot", async 
   const base = (await readFixture(verticalDefinitionUrl)) as { readonly repositoryScaffold: Record<string, unknown> };
 
   // Backward compatible: the slot is optional and older verticals still decode.
-  const withoutEntry = compileVerticalContract(base).definition;
+  const withoutEntry = compileVerticalSource(base).definition;
   assert.equal(withoutEntry.repositoryScaffold.agentsEntry, undefined);
 
   const withEntry = {
@@ -49,7 +53,7 @@ test("repository scaffold accepts the optional AGENTS.md composite slot", async 
       },
     },
   };
-  const decoded = compileVerticalContract(withEntry).definition;
+  const decoded = compileVerticalSource(withEntry).definition;
   assert.equal(decoded.repositoryScaffold.agentsEntry?.baseRef, "template://repository/agent-base@1");
   assert.equal(decoded.repositoryScaffold.agentsEntry?.overlayRef, "template://repository/agent-overlay@1");
   assert.equal(validateExtensionInputShape("vertical-definition", withEntry).ok, true);
@@ -135,7 +139,7 @@ test("template materialization plans locale fallback without writing documents",
 });
 
 test("vertical validation rejects lifecycle status mapping ownership", async () => {
-  const vertical = compileVerticalContract(await readFixture(verticalDefinitionUrl)).definition;
+  const vertical = compileVerticalSource(await readFixture(verticalDefinitionUrl)).definition;
   const contaminated: VerticalDefinition = {
     ...vertical,
     checkerProfile: `status${"Mapping"}`,
@@ -150,7 +154,7 @@ test("vertical validation rejects lifecycle status mapping ownership", async () 
 });
 
 test("vertical validation accepts decision lifecycle and fact schema entity kinds", async () => {
-  const vertical = compileVerticalContract(await readFixture(verticalDefinitionUrl)).definition;
+  const vertical = compileVerticalSource(await readFixture(verticalDefinitionUrl)).definition;
   const byId = new Map(vertical.entityKinds.map((entity) => [entity.id, entity]));
 
   assert.deepEqual([...byId.keys()], ["task", "decision", "fact"]);
@@ -161,7 +165,7 @@ test("vertical validation accepts decision lifecycle and fact schema entity kind
 });
 
 test("vertical schema rejects composite entity kinds in M3", async () => {
-  const vertical = compileVerticalContract(await readFixture(verticalDefinitionUrl)).definition;
+  const vertical = compileVerticalSource(await readFixture(verticalDefinitionUrl)).definition;
   const contaminated = {
     ...vertical,
     entityKinds: [
@@ -174,11 +178,11 @@ test("vertical schema rejects composite entity kinds in M3", async () => {
     ],
   };
 
-  assert.throws(() => compileVerticalContract(contaminated).definition);
+  assert.throws(() => compileVerticalSource(contaminated));
 });
 
 test("vertical validation rejects schema entity package scaffolds", async () => {
-  const vertical = compileVerticalContract(await readFixture(verticalDefinitionUrl)).definition;
+  const vertical = compileVerticalSource(await readFixture(verticalDefinitionUrl)).definition;
   const contaminated: VerticalDefinition = {
     ...vertical,
     packageScaffolds: [
@@ -199,7 +203,7 @@ test("vertical validation rejects schema entity package scaffolds", async () => 
 });
 
 test("vertical validation rejects schema entity repository roots", async () => {
-  const vertical = compileVerticalContract(await readFixture(verticalDefinitionUrl)).definition;
+  const vertical = compileVerticalSource(await readFixture(verticalDefinitionUrl)).definition;
   const contaminated: VerticalDefinition = {
     ...vertical,
     repositoryScaffold: {
@@ -224,7 +228,7 @@ test("vertical validation rejects schema entity repository roots", async () => {
 });
 
 test("vertical validation rejects lifecycle entities without package scaffolds", async () => {
-  const vertical = compileVerticalContract(await readFixture(verticalDefinitionUrl)).definition;
+  const vertical = compileVerticalSource(await readFixture(verticalDefinitionUrl)).definition;
   const contaminated: VerticalDefinition = {
     ...vertical,
     packageScaffolds: vertical.packageScaffolds.filter((scaffold) => scaffold.entityKind !== "decision"),
@@ -239,7 +243,7 @@ test("vertical validation rejects lifecycle entities without package scaffolds",
 });
 
 test("vertical validation rejects lifecycle entities without repository roots", async () => {
-  const vertical = compileVerticalContract(await readFixture(verticalDefinitionUrl)).definition;
+  const vertical = compileVerticalSource(await readFixture(verticalDefinitionUrl)).definition;
   const contaminated: VerticalDefinition = {
     ...vertical,
     repositoryScaffold: {
@@ -257,7 +261,7 @@ test("vertical validation rejects lifecycle entities without repository roots", 
 });
 
 test("vertical validation rejects contract entity declarations that are not contract-bearing", async () => {
-  const vertical = compileVerticalContract(await readFixture(verticalDefinitionUrl)).definition;
+  const vertical = compileVerticalSource(await readFixture(verticalDefinitionUrl)).definition;
   const contaminated: VerticalDefinition = {
     ...vertical,
     entityKinds: vertical.entityKinds.map((entity) =>

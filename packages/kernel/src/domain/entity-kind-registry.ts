@@ -3,6 +3,7 @@ import { createAgentActionCatalog } from "./agent-action-contract.ts";
 import { runtimeSessionEntityV1Schema } from "./agent-runtime.ts";
 import { decisionEventTypes, decisionStates, decisionTransitionDefinitions } from "./decision-event-types.ts";
 import {
+  ENTITY_DOCUMENT_POLICY_ID,
   requireEntityTypeContract,
   type BaseEntity,
   type EntityKind,
@@ -56,7 +57,6 @@ import {
   type ActionReturnsContract,
   type EntityActionDescriptorFacets,
 } from "./entity-action-descriptor.ts";
-export const ENTITY_DOCUMENT_POLICY_ID = "typed-entity/v1";
 
 export type EntityStorageForm =
   | "lifecycle"

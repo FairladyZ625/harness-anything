@@ -1,6 +1,6 @@
 import { entityTypeContracts } from "./base-entity.ts";
 import type { CanonicalRelationDirection } from "./relation-direction.ts";
-import type { ArtifactEntityKindDefinition, ArtifactRelationDefinition } from "../schemas/vertical-definition.ts";
+import type { ArtifactEntityKindDefinition, ArtifactRelationDefinition } from "./vertical-definition.ts";
 
 export interface GovernedRelationDecision {
   readonly decisionId: string;

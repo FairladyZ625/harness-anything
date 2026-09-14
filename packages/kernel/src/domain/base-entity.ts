@@ -6,6 +6,8 @@ import { entityFreshnesses, type EntityFreshness } from "./entity-freshness.ts";
 import { compiledPattern } from "./entity-json-schema.ts";
 
 export const ENTITY_ID_PATTERN = "^[a-z0-9][a-z0-9-]{0,63}$";
+/** Policy id every typed entity document is written under; shared below the kind registry assembly. */
+export const ENTITY_DOCUMENT_POLICY_ID = "typed-entity/v1";
 export const entityDispositions = packageDispositions;
 export type EntityDisposition = PackageDisposition;
 export type EntityResidency = "ledger" | "runtime-local" | "projection";

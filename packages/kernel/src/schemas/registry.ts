@@ -29,7 +29,7 @@ export {
   RelationStrengthSchema,
   RelationTypeSchema,
 } from "./entity-relations.ts";
-export type { VerticalDefinition } from "./vertical-definition.ts";
+export type { VerticalDefinition } from "../domain/vertical-definition.ts";
 
 export const DomainStatusSchema = Schema.Literal(...domainStatuses);
 

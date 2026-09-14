@@ -3,7 +3,7 @@ import {
   validateTemplateCatalog,
   validateVerticalDefinition,
 } from "./preset-extension-model.ts";
-import { compileVerticalContract, TemplateCatalogSchema } from "../../kernel/src/index.ts";
+import { compileVerticalContract, decodeVerticalDefinition, TemplateCatalogSchema } from "../../kernel/src/index.ts";
 import type { CompiledVerticalContract, TemplateCatalog } from "../../kernel/src/index.ts";
 import { requiredRegularFile, safeTemplatePath } from "./preset-materialization.ts";
 import { parsePresetJson } from "./preset-package.ts";
@@ -41,7 +41,7 @@ function loadCanonicalAssetsUncached(resolvedSource: string): CanonicalAssets {
     catalog = decodeCatalog(catalogBody, root);
   let compiledVertical: CompiledVerticalContract;
   try {
-    compiledVertical = compileVerticalContract(verticalRaw);
+    compiledVertical = compileVerticalContract(decodeVerticalDefinition(verticalRaw));
   } catch (error) {
     throw presetFailure("invalid_vertical", error instanceof Error ? error.message : "Vertical contract is invalid.");
   }
