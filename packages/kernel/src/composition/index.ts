@@ -21,7 +21,6 @@ export {
   resolveActiveGeneration,
   sqliteLedgerPath,
 } from "../store/sqlite-event-store.ts";
-export { closeSqliteEventStoresUnder } from "../store/sqlite-ledger-connections.ts";
 export { reconcileSqliteEvents } from "../store/sqlite-ledger-reconcile.ts";
 export {
   createLedgerBackup,

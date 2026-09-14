@@ -371,7 +371,7 @@ test("center registration keeps an external ledger repository readable and writa
     );
     await store.drain();
     assert.equal(run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"]).ok, true);
-    register(fixture.alpha, fixture.userRoot, "center");
+    await register(fixture.alpha, fixture.userRoot, "center");
     const before = git(fixture.alpha, "rev-parse", "HEAD"),
       written = run(fixture.alpha, fixture.userRoot, [
         "task",

@@ -109,12 +109,15 @@ export function median(values: readonly number[]): number {
   return ordered[Math.floor(ordered.length / 2)]!;
 }
 
-export function register(root: string, userRoot: string, repoId: string, entry = cli): void {
+export async function register(root: string, userRoot: string, repoId: string, entry = cli): Promise<void> {
   const stateRoot = path.join(userRoot, "fleet"),
     authority = openPersistentWriterEpoch({ stateRoot, holderId: "cli-fixture" });
+  // The seed store holds this process's ledger connection open until drained; Windows teardown
+  // cannot remove the temporary repository while it is open (nightly EPERM).
+  let seeded: ReturnType<typeof seedSettingsEvent>;
   try {
     const lease = authority.acquire(repoId);
-    seedSettingsEvent({
+    seeded = seedSettingsEvent({
       rootDir: root,
       repoId,
       writerEpochFence: {
@@ -128,6 +131,7 @@ export function register(root: string, userRoot: string, repoId: string, entry =
   } finally {
     authority.close();
   }
+  await seeded?.drain();
 
   assert.equal(
     run(root, userRoot, ["daemon", "repo", "register", "--repo-id", repoId, "--root", root, "--no-link"], entry).ok,
