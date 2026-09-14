@@ -1,34 +1,39 @@
 # Harness Agent Entry
 
-本文件只保存稳定的仓库运行规则。当前 milestone 状态与任务专属上下文应放在 active task package 中。
+本文件定义本软件仓库的运行规则与系统本体。在这个项目中，Harness 是一套帮助你与人类协作者保持认知对齐、记录演进轨迹的认知台账系统。代码与测试是客观现实，Harness 记录其背后的因果演进。
 
 ## Context Loading
 
-- 读取 `harness/harness.yaml`。
-- 已分配 task 时，先读其 `task_plan.md`，再读其中明确列出的文件。
-- 从 task 路由到最小必要的 context 或 standard 文档，不要预载整个 authored tree。
+- 运行时按需加载，不盲目预载整个代码库或知识树。
+- 启动时读取 `harness/harness.yaml` 作为治理基准。
+- 承接任务时，只读取当前 `task_plan.md` 及其明确引用的代码与上下文文件，保持上下文轻量精准。
 
 ## Worktree Discipline
 
-- 实现工作使用隔离 worktree 与任务分支。
-- 保留每个 checkout 中的无关改动，只 stage 本任务拥有的路径。
-- 遵守任务声明的 base、merge、cleanup 与 publication 指令。
+- 保持工作区隔离：实现工作推荐在独立分支或 worktree 中推进，避免未完成的改动污染主干环境。
+- 只提交当前任务所拥有的路径，保护无关文件的既有修改与未提交改动。
+- 严格遵循任务声明的 base 分支、合并与清理要求。
 
 ## Kernel Workflow
 
-- task 是工作单元与状态时间线。
-- fact 是对承重观察的显式、append-only 晋升；默认 `code-doc-reconciliation` 完成门至少需要一条 fact，缺失时以 `fact_missing` 拒绝。
-- decision 保存承重 why：选择、推翻、长期边界与派生后续工作的判断。
-- prose 提及不能替代 canonical fact、decision 或 relation。
+- **单一真源与只读投影（SSoT vs Read Projections）**：Daemon 单写队列与事件流是台账权威真源（由 SQLite Outbox 保证一致性），磁盘上的 `harness/` 文档是只读视图。操作走 `ha` 语义命令，严禁直接手改机读元数据。
+- **软件工程中的三元语因果螺旋（The Triad Causal Loop）**：
+  - **Fact（事实/测量）**：客观世界的真实观测。软件工程中“没有测量的改动是瞎猜”：修 Bug 前的测试报错堆栈、性能瓶颈的 benchmark 读数、环境与接口的真实输出都是 Fact。承重推断必有事实作锚；默认完成门要求至少一条真实 Fact。
+  - **Decision（技术决策）**：不可逆的技术选型与架构取舍（为什么选方案 A 弃方案 B、为什么引入某依赖、边界划分）。承重声明必须有 Fact 支撑（`evidenced-by`），拒绝拍脑袋。
+  - **Task（工程交付切片）**：由 Decision 派生的最小受控工作单元。遵循红绿验证，交付终点必须沉淀出新的 Fact（如新增的通过测试、优化后的指标），闭合因果链。
+  - **因果螺旋**：实测观测形成 **Fact** → Fact 支撑 **Decision** 裁定 → Decision 派生 **Task** 实现 → Task 产出新 **Fact** 闭环验证。
+- 散落的文字提及不能替代正式的 Fact、Decision 或 Relation。
 
 ## Relation Rules
 
-- relation 写入使用 canonical ID。
-- decision 直接派生 task 时用 `derives`，后来发现关联时用 `relates`。
-- `refines` 只用于 decision 到 decision 的修订。
+- 使用规范的 ID 建立因果边：
+  - `derives`：Decision 派生 Task；
+  - `evidenced-by`：Fact 作为证据支撑 Decision 的 Claim；
+  - `relates`：任务间或工件间的关联；
+  - `refines`：决策的演进与修订。
 
 ## Write Coordination
 
-- 机读字段、生命周期变化与 relation 使用 Harness 命令写入。
-- 已登记的 authored prose 按仓库 doc-sync policy 处理；`ha doc sync --submit --path` 的路径以 configured authored root（通常是 `harness/`）为基准，误加仓库根前缀会以 `document_not_found` 拒绝。
-- `.harness/` 下的 generated state 仅本地有效，不得提交。
+- 状态转移、租约获取与关系建立必须经由 `ha` 命令写入。
+- 项目长效文档通过 doc-sync 机制同步，路径相对 `harness/`。
+- `.harness/` 目录下的临时状态仅本地有效，不纳入版本控制。
