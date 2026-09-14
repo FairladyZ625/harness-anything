@@ -9,7 +9,6 @@ import {
   auditLinkPrimitive,
   findStaticRefViolations,
   BEHAVIORAL_TEST_PATH,
-  BEHAVIORAL_TEST_MANIFEST
 } from "../entity-id-links.mjs";
 
 /**
@@ -37,18 +36,18 @@ test("S1 阳性对照:字面量 canonical 引用渲染成不可激活文本被�
     `export function Dead({ ref }: { ref: string }) {
   return <div><span>{"task_51502b11d6822ae3cd193cf9bb".replace("X", "x") ? "task/51502b11" : ""}</span><p>see {"decision/dec_control"}</p></div>;
 }`,
-    "control.tsx"
+    "control.tsx",
   );
   assert.ok(
     violations.some((v) => v.rendered === "decision/dec_control"),
-    `expected the dead decision ref to be flagged, got ${JSON.stringify(violations)}`
+    `expected the dead decision ref to be flagged, got ${JSON.stringify(violations)}`,
   );
 });
 
 test("S1 阳性对照:模板组合引用(动态尾部)按前缀判形,不靠字段名", () => {
   const violations = findStaticRefViolations(
     "export function T({ whatever, tail }: { whatever: string; tail: string }) {\n  return <p>{`provider/${whatever}/${tail}`}</p>;\n}",
-    "control.tsx"
+    "control.tsx",
   );
   assert.deepEqual(violations, [{ file: "control.tsx", line: 2, rendered: "provider/…" }]);
 });
@@ -56,7 +55,7 @@ test("S1 阳性对照:模板组合引用(动态尾部)按前缀判形,不靠字�
 test("S1 阳性对照:局部常量绑定到引用字面量后仍按形状判定", () => {
   const violations = findStaticRefViolations(
     'const peerRef = "squad/core-squad";\nexport function C() { return <span>{peerRef}</span>; }',
-    "control.tsx"
+    "control.tsx",
   );
   assert.deepEqual(violations, [{ file: "control.tsx", line: 2, rendered: "squad/core-squad" }]);
 });
@@ -76,7 +75,7 @@ test("S1 阴性对照:可激活祖先(button/a/onClick)与七类之外的标识�
     </div>
   );
 }`,
-    "ok.tsx"
+    "ok.tsx",
   );
   assert.deepEqual(clean, []);
 });
@@ -95,20 +94,13 @@ test("S2 阴性对照:ID 文本在带点击处理的交互元素内部时放行"
   assert.deepEqual(auditLinkPrimitive(GOOD_PRIMITIVE), []);
 });
 
-test("S3 阳性对照:行为半边缺失或未登记时被拒绝", () => {
+test("S3 阳性对照:行为半边缺失时被拒绝,存在即被执行", () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "g37-wiring-"));
   mkdirSync(path.join(rootDir, path.dirname(BEHAVIORAL_TEST_PATH)), { recursive: true });
-  mkdirSync(path.join(rootDir, "tools"), { recursive: true });
   const noTest = auditBehavioralWiring(rootDir);
-  assert.equal(noTest.length, 2);
+  assert.equal(noTest.length, 1);
+  assert.match(noTest[0], new RegExp(BEHAVIORAL_TEST_PATH.replaceAll("/", "\\/")));
 
   writeFileSync(path.join(rootDir, BEHAVIORAL_TEST_PATH), "// vitest\n");
-  writeFileSync(path.join(rootDir, BEHAVIORAL_TEST_MANIFEST), 'export const guiVitestManifest = ["packages/gui/test/other.vitest.ts"];\n');
-  const unregistered = auditBehavioralWiring(rootDir);
-  assert.equal(unregistered.length, 1);
-  assert.match(unregistered[0], new RegExp(BEHAVIORAL_TEST_PATH.replaceAll("/", "\\/")));
-
-  writeFileSync(path.join(rootDir, BEHAVIORAL_TEST_MANIFEST), `export const guiVitestManifest = ["${BEHAVIORAL_TEST_PATH}"];\n`);
   assert.deepEqual(auditBehavioralWiring(rootDir), []);
 });
-

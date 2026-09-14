@@ -433,7 +433,7 @@ function writeResumeCheckpoint(resume) {
 }
 
 function canonicalGateId(id) {
-  return { "line-budget": "G32", "production-delta": "G33", "entity-id-links": "G37" }[id] ?? id;
+  return { "production-delta": "G33", "entity-id-links": "G37" }[id] ?? id;
 }
 
 function writeObservation(gateResults) {

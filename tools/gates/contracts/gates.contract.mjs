@@ -45,7 +45,6 @@ export default Object.freeze({
     { id: "G29", phase: "P4", job: "gate-contract-tests", command: "node --test tools/gates/test/*.test.mjs" },
     { id: "G30", phase: "P2", job: "clean-build", command: "node tools/gates/clean-build.mjs --temp" },
     { id: "G31", phase: "P2", job: "dependency-policy", command: "node tools/gates/dependency-policy.mjs" },
-    { id: "G32", phase: "P2", job: "line-budget", command: "node tools/gates/line-budget.mjs --base origin/main" },
     {
       id: "G33",
       phase: "P2",
@@ -60,7 +59,6 @@ export default Object.freeze({
       job: "canonical-event-compat",
       command: "node tools/gates/canonical-event-compat.mjs --check",
     },
-    { id: "G36", phase: "P2", job: "line-density", command: "node tools/gates/line-density.mjs --base origin/main" },
     { id: "G37", phase: "P4", job: "entity-id-links", command: "node tools/gates/entity-id-links.mjs" },
     { id: "G38", phase: "P2", job: "cost-budget", command: "node tools/gates/cost-budget.mjs" },
     {

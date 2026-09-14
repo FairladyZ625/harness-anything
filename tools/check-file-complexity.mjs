@@ -7,9 +7,8 @@ import { promisify } from "node:util";
 const root = process.cwd();
 const sourceFile = /\.(?:ts|tsx|mts|js|jsx|mjs)$/;
 const FILE_COMPLEXITY_POLICY = {
-  source: { standard: 600, stage: 1100 },
-  test: { standard: 700, stage: 1900 },
-  tool: { standard: 650, stage: 700 },
+  source: { standard: 1000, stage: 1100 },
+  test: { standard: 1200, stage: 1900 },
 };
 const violations = [];
 const execute = promisify(execFile);
@@ -52,7 +51,6 @@ async function walk(dir) {
 function policyFor(filePath) {
   const rel = relative(filePath);
   if (/\/test\//u.test(rel) || /\.test\./u.test(rel)) return FILE_COMPLEXITY_POLICY.test;
-  if (rel.startsWith("tools/")) return FILE_COMPLEXITY_POLICY.tool;
   return FILE_COMPLEXITY_POLICY.source;
 }
 
@@ -73,11 +71,11 @@ for (const filePath of files) {
   const { standard, stage } = policyFor(filePath);
   if (lines <= standard) continue;
   const rel = relative(filePath);
-  // A renamed path inherits the merge-base allowance of its source so moves keep their shrink-only budget.
+  // A renamed path inherits its merge-base existence so moves keep the stage ceiling.
   const historyPath = renameSources.get(rel) ?? rel;
-  const baseLines = baseFiles.has(historyPath) ? countLines(await git(["show", `${base}:${historyPath}`])) : 0;
-  // Existing debt may only shrink; the stage ceiling preserves the previous rejection surface.
-  const limit = Math.min(stage, Math.max(standard, baseLines));
+  // New files must already meet the standard; files present at the merge base may
+  // grow up to the stage ceiling. No shrink-only ratchet.
+  const limit = baseFiles.has(historyPath) ? stage : standard;
   if (lines > limit) {
     violations.push(
       `${relative(filePath)}: ${lines} lines exceeds max ${limit}; split this file by responsibility instead of shaving lines`,

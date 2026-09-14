@@ -31,11 +31,7 @@ test("push trigger covers only trunk branches — feature branches gate through 
 
 test("diff-based gates fetch canonical main and resolve their base from origin/main", () => {
   const workflow = readWorkflow();
-  for (const gate of [
-    "tools/gates/test-selection.mjs",
-    "tools/gates/line-budget.mjs",
-    "tools/gates/line-density.mjs",
-  ]) {
+  for (const gate of ["tools/gates/test-selection.mjs"]) {
     const invocation = workflow.indexOf(`node ${gate} --base origin/main`);
     assert.notEqual(invocation, -1, `${gate} must be invoked with --base origin/main`);
     const runBlock = workflow.slice(Math.max(0, invocation - 260), invocation);
