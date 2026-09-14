@@ -90,6 +90,7 @@ import { makeSquadCoordinator } from "./squad-coordinator.ts";
 import { makeAgentActionRuntime, makeSquadActionRuntime } from "./squad-action-runtime.ts";
 import type { DaemonLifecycleRecorder } from "./lifecycle-log.ts";
 import { withWriterEpochFenceDescriptor } from "./writer-epoch.ts";
+import { repoCellLatchedMessage } from "./repo-cell-latched-message.ts";
 
 export function publicPublication(value: Pick<CanonicalEventAppendReceipt, "commitSha" | "cut">): PublicPublication {
   return { commitSha: value.commitSha?.sha ?? null, cut: value.cut };
@@ -286,33 +287,7 @@ export async function openRepoWriterCell(
       ? null
       : causeClassOf(cellCodedError(recovery.errorCode ?? "publication_indeterminate", lastError!));
   const recoveryProbe = makeRecoveryProbe(latchReprobeThrottleMs);
-  const latched = (): string =>
-    causeClass === "infrastructure"
-      ? [
-          "this workspace stays latched until its Git or lock infrastructure ",
-          "recovers: repair the infrastructure cause below, then rerun the command; ",
-          "the next attempt re-probes the workspace and re-attaches automatically ",
-          "once it verifies. Cause: ",
-          `${lastError ?? "RepoCell is unavailable."}`,
-          "",
-        ].join("")
-      : causeClass === "projection"
-        ? [
-            "this workspace stays latched until its projection verifies: run ha ",
-            "daemon projection rebuild to repair the projection cause below; this ",
-            "command remains available while latched and re-attaches automatically ",
-            "once the projection verifies. Cause: ",
-            `${lastError ?? "RepoCell is unavailable."}`,
-            "",
-          ].join("")
-        : [
-            "this workspace stays latched until its ledger data verifies: repair the ",
-            "data-shape cause below, then rerun the command; the next attempt ",
-            "re-probes the ledger and re-attaches automatically once the data ",
-            "verifies. Cause: ",
-            `${lastError ?? "RepoCell is unavailable."}`,
-            "",
-          ].join("");
+  const latched = (): string => repoCellLatchedMessage(causeClass, lastError);
   const latchWith = (error: unknown): void => {
     state = "unavailable";
     lastError = cellErrorMessage(error);
@@ -418,7 +393,11 @@ export async function openRepoWriterCell(
     queueDepth += 1;
     const pending = chainRepoCellWrite(tail, async () => {
       queueDepth -= 1;
-      if (state === "attached") await (binding ? withWriterEpochBinding(binding, work) : work());
+      // Runtime terminal work (exit publication, Schedule settlement) queued here must survive the
+      // latched window: the durable SQLite ledger still accepts appends while Git publication and
+      // projection recovery run behind them, and the writer-epoch fence rejects appends whose epoch
+      // a replacement already superseded. Only a closed cell skips the work entirely.
+      if (state !== "closed") await (binding ? withWriterEpochBinding(binding, work) : work());
     });
     tail = pending.catch(() => undefined);
     void pending.then(
