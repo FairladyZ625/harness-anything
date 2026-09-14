@@ -424,5 +424,7 @@
   "agentRuntime.sessionMetricsTools": "工具调用",
   "agentRuntime.sessionMetricsCompacted": "已压缩",
   "agentRuntime.sessionMetricsCompactedTip": "上下文已触发压缩，请警惕负向约束丢失",
-  "agentRuntime.sessionMetricsNone": "该会话的派工还没有上报消耗数据。"
+  "agentRuntime.sessionMetricsNone": "该会话的派工还没有上报消耗数据。",
+  "agentRuntime.sessionMetricsTokens": "Token 用量",
+  "agentRuntime.sessionMetricsUnavailable": "不可用（provider 不上报 token）"
 }

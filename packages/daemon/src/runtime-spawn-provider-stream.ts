@@ -130,12 +130,16 @@ function observeRuntimeMetrics(active: ActiveRuntime, value: unknown): void {
         : null;
   if (usage) {
     active.rawUsage = { ...active.rawUsage, ...usage };
-    const input = numberValue(usage.input_tokens) ?? numberValue(usage.inputTokens) ?? 0;
-    const cacheRead = numberValue(usage.cached_input_tokens) ?? numberValue(usage.cache_read_input_tokens) ?? 0;
-    const cacheCreation = numberValue(usage.cache_creation_input_tokens) ?? 0;
-    active.inputTokens += input + (numberValue(usage.cache_read_input_tokens) !== null ? cacheRead + cacheCreation : 0);
-    active.cacheReadTokens += cacheRead;
-    active.outputTokens += numberValue(usage.output_tokens) ?? numberValue(usage.outputTokens) ?? 0;
+    const input = numberValue(usage.input_tokens) ?? numberValue(usage.inputTokens),
+      cacheRead = numberValue(usage.cached_input_tokens) ?? numberValue(usage.cache_read_input_tokens),
+      cacheCreation = numberValue(usage.cache_creation_input_tokens),
+      output = numberValue(usage.output_tokens) ?? numberValue(usage.outputTokens);
+    if (input !== null || cacheRead !== null || cacheCreation !== null || output !== null) active.usageReported = true;
+    active.inputTokens +=
+      (input ?? 0) +
+      (numberValue(usage.cache_read_input_tokens) !== null ? (cacheRead ?? 0) + (cacheCreation ?? 0) : 0);
+    active.cacheReadTokens += cacheRead ?? 0;
+    active.outputTokens += output ?? 0;
   }
   const type = String(frame.type ?? frame.event ?? "").toLowerCase();
   if (type.includes("compaction") || type.includes("context_truncated") || frame.compacted === true)
@@ -161,6 +165,22 @@ function observeRuntimeMetrics(active: ActiveRuntime, value: unknown): void {
       )
     )
       active.toolCallCount += 1;
+  }
+  // AGY reports each tool step twice (ACTIVE then DONE); step_index is the stable step identity.
+  if (type === "step_update" && providerRecord(frame.step_update)) {
+    const update = frame.step_update;
+    if (update.step_type === "tool" && Number.isInteger(update.step_index)) {
+      const key = `${String(update.conversation_id ?? "")}:${String(update.step_index)}`;
+      if (!active.providerToolSteps.has(key)) {
+        active.providerToolSteps.add(key);
+        active.toolCallCount += 1;
+      }
+    }
+  }
+  // ZCode settles each turn's tool count in turn.completed.payload; per-turn values accumulate.
+  if (type === "turn.completed" && providerRecord(frame.payload)) {
+    const turnToolCalls = numberValue(frame.payload.toolCallCount);
+    if (turnToolCalls !== null) active.toolCallCount += turnToolCalls;
   }
 }
 
@@ -199,6 +219,7 @@ function observeCodexSessionMetrics(context: RuntimeSpawnerContext, active: Acti
     active.cacheReadTokens = cached;
     active.outputTokens = output;
     active.rawUsage = { ...usage };
+    active.usageReported = true;
     return;
   }
 }

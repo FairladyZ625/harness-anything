@@ -174,10 +174,18 @@ function SessionMetricsCard({ metrics }: { readonly metrics: AgentRuntimeSession
         ) : (
           <div data-testid="session-metrics">
             <KV>
-              <KVRow name={t("agentRuntime.sessionMetricsInput")}>{exactTokens(metrics.inputTokens)}</KVRow>
-              <KVRow name={t("agentRuntime.sessionMetricsCacheRead")}>{exactTokens(metrics.cacheReadTokens)}</KVRow>
-              <KVRow name={t("agentRuntime.sessionMetricsOutput")}>{exactTokens(metrics.outputTokens)}</KVRow>
-              <KVRow name={t("agentRuntime.sessionMetricsTotal")}>{exactTokens(metrics.totalTokens)}</KVRow>
+              {metrics.usageUnavailable === true ? (
+                <KVRow name={t("agentRuntime.sessionMetricsTokens")}>
+                  <span data-testid="session-metrics-unavailable">{t("agentRuntime.sessionMetricsUnavailable")}</span>
+                </KVRow>
+              ) : (
+                <>
+                  <KVRow name={t("agentRuntime.sessionMetricsInput")}>{exactTokens(metrics.inputTokens)}</KVRow>
+                  <KVRow name={t("agentRuntime.sessionMetricsCacheRead")}>{exactTokens(metrics.cacheReadTokens)}</KVRow>
+                  <KVRow name={t("agentRuntime.sessionMetricsOutput")}>{exactTokens(metrics.outputTokens)}</KVRow>
+                  <KVRow name={t("agentRuntime.sessionMetricsTotal")}>{exactTokens(metrics.totalTokens)}</KVRow>
+                </>
+              )}
               <KVRow name={t("agentRuntime.sessionMetricsTools")}>{metrics.toolCallCount}</KVRow>
             </KV>
           </div>

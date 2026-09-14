@@ -211,9 +211,187 @@ test("Codex empty turn usage is replaced by the matching session turn token coun
       { inputTokens: 62284, cacheReadTokens: 60672, outputTokens: 2046 },
     );
     assert.deepEqual(runtime.rawUsage, { input_tokens: 62284, cached_input_tokens: 60672, output_tokens: 2046 });
+    assert.equal(runtime.usageReported, true);
   } finally {
     rmSync(userRoot, { recursive: true, force: true });
   }
+});
+
+// Live sample: dispatch_1b5ff88e064cff106424764a.jsonl (agy, gemini-3.8-flash-high) — the CLI
+// reports each tool step as ACTIVE then DONE under one step_index, and usage stays `{}`.
+test("AGY counts each tool step_index once and reports no token usage", async () => {
+  const runtime = active("agy");
+  for (const frame of [
+    {
+      event: "init",
+      conversation_id: "60edfe99-9a15-4467-843d-b9f7acd50f21",
+      init: { model: "gemini-3.8-flash-high" },
+    },
+    {
+      event: "step_update",
+      step_update: {
+        conversation_id: "60edfe99-9a15-4467-843d-b9f7acd50f21",
+        step_index: 0,
+        state: "DONE",
+        step_type: "user_input",
+      },
+    },
+    {
+      event: "step_update",
+      step_update: {
+        conversation_id: "60edfe99-9a15-4467-843d-b9f7acd50f21",
+        step_index: 1,
+        state: "DONE",
+        step_type: "agent_response",
+        duration_seconds: 0.120258,
+        usage: {},
+      },
+    },
+    {
+      event: "step_update",
+      step_update: {
+        conversation_id: "60edfe99-9a15-4467-843d-b9f7acd50f21",
+        step_index: 2,
+        state: "ACTIVE",
+        step_type: "tool",
+        tool_name: "view_file",
+        tool_info: { name: "view_file", parameters: { AbsolutePath: "task_plan.md" } },
+      },
+    },
+    {
+      event: "step_update",
+      step_update: {
+        conversation_id: "60edfe99-9a15-4467-843d-b9f7acd50f21",
+        step_index: 2,
+        state: "DONE",
+        step_type: "tool",
+        tool_name: "view_file",
+        duration_seconds: 0.034432,
+        tool_info: { name: "view_file", parameters: { AbsolutePath: "task_plan.md" }, output: "78 lines, 5003 bytes" },
+      },
+    },
+    {
+      event: "step_update",
+      step_update: {
+        conversation_id: "60edfe99-9a15-4467-843d-b9f7acd50f21",
+        step_index: 3,
+        state: "ACTIVE",
+        step_type: "tool",
+        tool_name: "run_command",
+      },
+    },
+    {
+      event: "step_update",
+      step_update: {
+        conversation_id: "60edfe99-9a15-4467-843d-b9f7acd50f21",
+        step_index: 3,
+        state: "DONE",
+        step_type: "tool",
+        tool_name: "run_command",
+      },
+    },
+    {
+      event: "result",
+      result: {
+        conversation_id: "60edfe99-9a15-4467-843d-b9f7acd50f21",
+        status: "SUCCESS",
+        response: "Scanning dispatches for non-zero token metrics.",
+        num_turns: 1,
+        usage: {},
+      },
+    },
+  ])
+    await consumeProviderLine(context(), runtime, JSON.stringify(frame));
+
+  assert.equal(runtime.toolCallCount, 2);
+  assert.deepEqual(
+    {
+      inputTokens: runtime.inputTokens,
+      cacheReadTokens: runtime.cacheReadTokens,
+      outputTokens: runtime.outputTokens,
+    },
+    { inputTokens: 0, cacheReadTokens: 0, outputTokens: 0 },
+  );
+  assert.equal(runtime.usageReported, false);
+});
+
+// Live sample: dispatch_9521193d29eefa58514b767c.jsonl (zcode) — turn.completed.payload carries
+// per-turn toolCallCount that accumulates; its usage holds request counters, never tokens.
+test("ZCode accumulates turn.completed tool counts and reports no token usage", async () => {
+  const runtime = active("zcode");
+  for (const frame of [
+    { type: "session.resumed", eventId: "zcode-live-resume", sessionId: "sess_fixture" },
+    { type: "model.streaming", payload: { kind: "text_delta", delta: "Scanning dispatches." } },
+    {
+      type: "turn.completed",
+      payload: {
+        usage: { source: "provider", modelRequestCount: 27, webFetchRequests: 0, webSearchRequests: 0 },
+        toolCallCount: 33,
+        historyRoundCount: 27,
+        duration: 313948,
+        resultType: "success",
+      },
+    },
+    {
+      type: "turn.completed",
+      payload: {
+        usage: { source: "provider", modelRequestCount: 9, webFetchRequests: 0, webSearchRequests: 0 },
+        toolCallCount: 12,
+        resultType: "success",
+      },
+    },
+    {
+      type: "result",
+      response: "Implemented the bounded fix.",
+      usage: { source: "provider", modelRequestCount: 36 },
+    },
+  ])
+    await consumeProviderLine(context(), runtime, JSON.stringify(frame));
+
+  assert.equal(runtime.toolCallCount, 45);
+  assert.equal(runtime.usageReported, false);
+  assert.deepEqual(runtime.rawUsage, {
+    source: "provider",
+    modelRequestCount: 36,
+  });
+});
+
+test("Codex turn.completed frames never carry a payload tool count", async () => {
+  const runtime = active();
+  for (const frame of [
+    { type: "thread.started", thread_id: "codex-no-payload" },
+    { type: "turn.completed", usage: {} },
+  ])
+    await consumeProviderLine(context(), runtime, JSON.stringify(frame));
+
+  assert.equal(runtime.toolCallCount, 0);
+  assert.equal(runtime.usageReported, false);
+});
+
+// Live sample: dispatch_26b190cd3a86af6ebff0d15a.jsonl (claude, claude-opus-5) — every
+// assistant.message.usage holds only tier metadata, no integer token field.
+test("Claude usage without token integers stays unreported", async () => {
+  const runtime = active("claude");
+  for (const frame of [
+    {
+      type: "assistant",
+      message: {
+        id: "msg_011CewUnyD992wJFh3v36MbZ",
+        content: [{ type: "tool_use", id: "tool-1", name: "Bash", input: {} }],
+        usage: { cache_creation: {}, service_tier: "standard", inference_geo: "not_available" },
+      },
+    },
+    {
+      type: "result",
+      subtype: "success",
+      result: "Done.",
+      usage: { server_tool_use: { web_search_requests: 0 }, service_tier: "standard", cache_creation: {} },
+    },
+  ])
+    await consumeProviderLine(context(), runtime, JSON.stringify(frame));
+
+  assert.equal(runtime.toolCallCount, 1);
+  assert.equal(runtime.usageReported, false);
 });
 
 test("durable drains wait for the first record while the worker runs, then consume it once", async () => {

@@ -32,6 +32,8 @@ type ActiveRuntimeBase = Omit<
   | "cacheReadTokens"
   | "outputTokens"
   | "toolCallCount"
+  | "usageReported"
+  | "providerToolSteps"
   | "compacted"
   | "rawUsage"
   | "fallbackAttempt"
@@ -70,6 +72,8 @@ export function createActiveRuntime(base: ActiveRuntimeBase): ActiveRuntime {
     cacheReadTokens: 0,
     outputTokens: 0,
     toolCallCount: 0,
+    usageReported: false,
+    providerToolSteps: new Set(),
     compacted: false,
     rawUsage: {},
   };

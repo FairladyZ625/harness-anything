@@ -204,13 +204,43 @@ export function sessionTranscriptTurns(
         current.endedAt = at;
         continue;
       }
-      if (event.event === "step_update" || event.event === "result") {
+      if (event.event === "step_update") {
+        const update = recordOf(event.step_update);
+        if (!update) continue;
         current ??= turn("agy:1", at);
-        add(current, event.event === "result" ? "text" : "thinking", String(event.event), contentOf(event), at);
-        if (event.event === "result") {
-          current.status = "completed";
-          current.endedAt = at;
+        if (current.status === "unknown") current.status = "running";
+        const delta = stringOf(update.text_delta);
+        if (delta) {
+          add(current, "text", "text", delta, at, true);
+          continue;
         }
+        if (update.step_type === "tool") {
+          const label = stringOf(update.tool_name) ?? "tool",
+            info = recordOf(update.tool_info),
+            output = info === null ? null : stringOf(info.output);
+          // ACTIVE carries the parameters, DONE carries the same parameters plus the output.
+          if (output !== null) add(current, "tool_result", label, output, at);
+          else if (info !== null) add(current, "tool_call", label, contentOf(info.parameters ?? info), at);
+        }
+        continue;
+      }
+      if (event.event === "result") {
+        const result = recordOf(event.result),
+          response = result === null ? null : stringOf(result.response),
+          prior = current?.items.at(-1);
+        current ??= turn("agy:1", at);
+        if (response && prior?.type === "text" && prior.label === "text")
+          current.items[current.items.length - 1] = {
+            ...prior,
+            label: "result",
+            summary: summaryOf(response),
+            detail: clip(response, DETAIL_LIMIT),
+            occurredAt: at ?? prior.occurredAt,
+          };
+        else if (response && prior?.detail !== response) add(current, "text", "result", response, at);
+        current.status = result !== null && result.status === "SUCCESS" ? "completed" : "failed";
+        current.endedAt = at;
+        continue;
       }
       continue;
     }

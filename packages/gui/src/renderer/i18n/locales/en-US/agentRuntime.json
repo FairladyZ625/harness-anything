@@ -424,5 +424,7 @@
   "agentRuntime.sessionMetricsTools": "Tool calls",
   "agentRuntime.sessionMetricsCompacted": "Compacted",
   "agentRuntime.sessionMetricsCompactedTip": "Context compaction fired; watch for lost negative constraints",
-  "agentRuntime.sessionMetricsNone": "This session's dispatch has not reported consumption yet."
+  "agentRuntime.sessionMetricsNone": "This session's dispatch has not reported consumption yet.",
+  "agentRuntime.sessionMetricsTokens": "Token usage",
+  "agentRuntime.sessionMetricsUnavailable": "Unavailable (provider reports no tokens)"
 }

@@ -193,6 +193,8 @@ export type ActiveRuntime = {
   cacheReadTokens: number;
   outputTokens: number;
   toolCallCount: number;
+  usageReported: boolean;
+  providerToolSteps: Set<string>;
   compacted: boolean;
   rawUsage: Record<string, unknown>;
 };
