@@ -1,3 +1,10 @@
+import {
+  canonicalDaemonRegistryRoot,
+  registerDaemonRepo as writeDaemonRegistryRepo,
+  type DaemonRegistryRegisterInput,
+} from "../daemon/registry.ts";
+import { resolveLedgerGitLayout } from "../store/ledger-git-layout.ts";
+import { makeLocalVersionControlSystem } from "../store/local-version-control-system.ts";
 export {
   canonicalDocumentClaims,
   canonicalDocumentRetirements,
@@ -80,10 +87,3 @@ export {
 } from "../store/legacy-generation-conversion.ts";
 export { sqliteContentObjectPath } from "../store/sqlite-event-store.ts";
 export { assertNoPendingHistoricalRewrites, planLegacyGenerationConversion } from "../store/event-shape-migration.ts";
-import {
-  canonicalDaemonRegistryRoot,
-  registerDaemonRepo as writeDaemonRegistryRepo,
-  type DaemonRegistryRegisterInput,
-} from "../daemon/registry.ts";
-import { resolveLedgerGitLayout } from "../store/ledger-git-layout.ts";
-import { makeLocalVersionControlSystem } from "../store/local-version-control-system.ts";
