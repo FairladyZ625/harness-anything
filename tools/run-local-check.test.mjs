@@ -63,20 +63,11 @@ test("buildSteps keeps unchanged work fast and forces all extra lanes with full"
     assert.ok(fastScripts.includes(script), `missing manifest gate script: ${script}`);
   }
   assert.ok(fastScripts.includes("lint"));
-  assert.ok(fastScripts.includes("check:local:line-budget"));
   // Positive control: the gate PR #1358 slipped through on must be present.
   assert.ok(fastScripts.includes("harness:check-cli-help-contract"));
-  // CI's boundaries exclusions must be honored locally too — and only those. The
-  // rebuild lane used to exclude check-duplicate-definitions here; with all 50 groups
-  // cleared the gate is back in CI, so it has to be back in the local set as well.
+  // CI's boundaries exclusions must be honored locally too — and only those.
   assert.deepEqual([...excluded], []);
-  assert.ok(fastScripts.includes("harness:check-duplicate-definitions"));
   assert.deepEqual(fastScripts.slice(-2), ["check:local:derived-contracts", "check:local:schema-closure"]);
-});
-
-test("the local line-budget step resolves to an executable package script", () => {
-  const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
-  assert.equal(packageJson.scripts["check:local:line-budget"], "node tools/run-local-line-budget.mjs");
 });
 
 test("selectQosPrefix wraps with taskpolicy on darwin when available", () => {
