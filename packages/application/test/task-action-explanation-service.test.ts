@@ -199,6 +199,9 @@ function explain(
       nextActions: outcome === "allowed" ? [] : ["Ask a repository owner to grant a matching RoleBinding."],
       evaluatedAtCut,
     }),
+    // This suite locks lifecycle semantics, not catalog usage; the daemon wiring
+    // is locked by the CLI catalog-consistency test.
+    usage: ({ id }) => `ha task ${id} <task-id>`,
   }).object({ entity, snapshot: snapshotValue, evaluatedAtCut: cut });
 }
 

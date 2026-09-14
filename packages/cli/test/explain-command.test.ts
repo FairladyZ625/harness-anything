@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { makeTaskActionExplanationService } from "../../application/src/task-action-explanation-service.ts";
+import { taskActionCommandUsage } from "../../daemon/src/protocol/daemon-protocol-commands.ts";
 import { renderEntityActionExplanation } from "../src/cli/entity-action-explain-render.ts";
 import { parseThinCommand } from "../src/cli/thin-command.ts";
 
@@ -80,6 +81,7 @@ test("human renderer exposes availability, reasons, registry guidance, and the e
       authorize: () => {
         throw new Error("catalog rendering must not evaluate authorization");
       },
+      usage: taskActionCommandUsage,
     }).catalog(),
     renderedCatalog = renderEntityActionExplanation(catalog),
     start = catalog.subjects[0]!.actions.find(({ action }) => action.id === "start");
@@ -152,6 +154,7 @@ test("human renderer fails closed when a typed action row is incomplete", () => 
       authorize: () => {
         throw new Error("catalog rendering must not evaluate authorization");
       },
+      usage: taskActionCommandUsage,
     }).catalog(),
     row = catalog.subjects[0]!.actions[0]!,
     { evaluatedAtCut: _missing, ...incompleteRow } = row;

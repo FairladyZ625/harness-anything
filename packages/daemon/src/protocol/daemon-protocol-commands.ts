@@ -5,6 +5,7 @@ import {
   presetCommands,
   presetMethods,
 } from "../../../preset/src/preset-command-contract.ts";
+import type { EntityActionContract } from "../../../kernel/src/index.ts";
 import { agentProtocolCommands } from "./daemon-protocol-commands-agent.ts";
 import { decisionLifecycleProtocolCommands } from "./daemon-protocol-commands-decision-lifecycle.ts";
 import { decisionRelationProtocolCommands } from "./daemon-protocol-commands-decision-relations.ts";
@@ -161,6 +162,17 @@ export function resolveThinCliCommand(args: readonly string[]): (typeof daemonPr
         ? new RegExp(entry.positionalRegex, "u").test(target)
         : true,
   );
+}
+
+// The Task Action explain catalog must quote the command the router actually
+// accepts, so usage comes from the protocol declaration, never a second
+// synthesis of the ingress name.
+export function taskActionCommandUsage(action: EntityActionContract): string {
+  const ingress = action.execution?.ingress;
+  if (!ingress) throw new Error(`Task Action ${action.id} has no Task command ingress.`);
+  const command = daemonProtocolCommands.find((entry) => entry.id === ingress);
+  if (!command) throw new Error(`Task Action ${action.id} ingress ${ingress} has no protocol command.`);
+  return command.usage;
 }
 
 export function commandDescriptorForAction(kind: string) {

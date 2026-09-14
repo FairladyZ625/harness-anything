@@ -11,6 +11,7 @@ import {
   type BaseEntity,
 } from "../../kernel/src/index.ts";
 import { taskActionHelpRows } from "../../daemon/src/protocol/daemon-protocol-commands-task.ts";
+import { taskActionCommandUsage } from "../../daemon/src/protocol/daemon-protocol-commands.ts";
 
 test("help, object explain, and rejected ActionResult preserve one Task Action row", async () => {
   const harness = lifecycleHarness();
@@ -44,6 +45,7 @@ test("help, object explain, and rejected ActionResult preserve one Task Action r
           nextActions: [],
           evaluatedAtCut,
         }),
+        usage: taskActionCommandUsage,
       }).object({ entity, snapshot, evaluatedAtCut: cut }),
       row = explanation.subjects[0]?.actions.find(({ action }) => action.id === "start"),
       contract = getExecutableEntityAction("task-start"),
