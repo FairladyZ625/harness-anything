@@ -36,8 +36,7 @@ export {
 export type { DaemonLaunchSpec } from "../../../daemon/src/client/daemon-autostart.ts";
 
 // These values belong to the invoking runtime worker or its provider launch,
-// not to the resident daemon that owns the shared socket. Exported so callers
-// that must spawn the daemon host entry themselves (tools/soak) strip the same set.
+// not to the resident daemon that owns the shared socket.
 export const daemonRuntimeScopedEnvironmentKeys = [
   "CODEX_HOME",
   "CLAUDE_CONFIG_DIR",

@@ -8,11 +8,10 @@ import {
   assessRssTrend,
   assessWorkload,
   createSoakEvents,
-  daemonServeLaunch,
   recordLoadFailure,
   renderDaemonOutput,
 } from "./daemon-soak.mjs";
-import { waitForAttachedRepo } from "./daemon-soak-support.mjs";
+import { daemonServeLaunch, waitForAttachedRepo } from "./daemon-soak-support.mjs";
 
 test("scale ledger generator emits the requested valid event and task counts", () => {
   const events = createSoakEvents({ taskCount: 3, eventCount: 12 });

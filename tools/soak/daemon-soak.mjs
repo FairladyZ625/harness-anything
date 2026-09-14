@@ -21,7 +21,6 @@ import {
   legacyGenerationSnapshotPath,
   preflightConvertedGenerationActivation,
 } from "../../packages/kernel/src/store/legacy-generation-conversion.ts";
-import { daemonRuntimeScopedEnvironmentKeys } from "../../packages/cli/src/daemon/client.ts";
 import {
   JsonRpcLineClient,
   connectSocket,
@@ -44,26 +43,12 @@ import {
   waitForAttachedRepo,
   waitForChildExit,
   waitForMissing,
+  daemonServeLaunch,
 } from "./daemon-soak-support.mjs";
 import { renderTimeline } from "../logs/log-timeline.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "../..");
-const daemonHostEntry = path.join(repoRoot, "packages/daemon/src/bin.ts");
 const workloadFailureEvidenceLimit = 20;
-
-// The published `harness-anything-daemon` bin is the only daemon host entry; from a source
-// checkout that entry is packages/daemon/src/bin.ts. The launch mirrors the product autostart
-// (cliDaemonServeLaunch): explicit --user-root/--daemon-id argv plus the same runtime-scoped
-// environment keys stripped, so the fixture daemon never inherits the invoking worker's routing.
-export function daemonServeLaunch({ userRoot, daemonId, home, env = process.env }) {
-  const childEnv = { ...env, HOME: home, USERPROFILE: home, GIT_CONFIG_GLOBAL: "/dev/null" };
-  for (const key of daemonRuntimeScopedEnvironmentKeys) delete childEnv[key];
-  return {
-    command: process.execPath,
-    args: [daemonHostEntry, "serve", "--user-root", userRoot, "--daemon-id", daemonId],
-    env: childEnv,
-  };
-}
 
 const soakActor = Object.freeze({ principal: { personId: "person-soak" }, executor: null });
 const runtimeDefinition = Object.freeze({
