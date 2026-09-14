@@ -123,9 +123,11 @@ export {
   hasCloseoutEvidence,
   isExecutionWipTask,
   parseTaskWipLimit,
+  serializeTaskWipRootRow,
   taskWipOccupyingStatuses,
+  taskWipRootRowFields,
 } from "./task-wip-policy.ts";
-export type { TaskWipSnapshotEntryV1 } from "./task-wip-policy.ts";
+export type { TaskWipRootRow, TaskWipSnapshotEntryV1 } from "./task-wip-policy.ts";
 
 export { parseEntityRef } from "./entity-ref.ts";
 export type { EntityRef, EntityRefKind, ParsedEntityRef } from "./entity-ref.ts";

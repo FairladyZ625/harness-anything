@@ -27,6 +27,7 @@ import type {
   RelationGraphEdgeRow,
   ReceiptDiagnostic,
   TaskProjection,
+  TaskWipRootRow,
   EntityActionExplanationSetV1,
   EntityKindCatalogV1,
   VerticalDefinition,
@@ -751,12 +752,7 @@ export type DaemonTaskWipResult = {
     readonly status: "active" | "blocked" | "in_review";
     readonly title: string;
   }[];
-  readonly roots: readonly {
-    readonly taskId: string;
-    readonly reason: "declared" | "derived";
-    readonly directChildCount: number;
-    readonly threshold: number;
-  }[];
+  readonly roots: readonly TaskWipRootRow[];
   readonly threshold: number;
 };
 

@@ -61,6 +61,36 @@ export function deriveTaskRoot(
   return { isRoot: false, reason: "none", directChildCount, threshold };
 }
 
+/**
+ * One serialized root row of the task WIP snapshot. The daemon producer emits exactly these
+ * fields and the daemon protocol validator requires exactly these fields; both are derived
+ * from this single declaration so the wire shape cannot drift between the two ends.
+ */
+export interface TaskWipRootRow {
+  readonly taskId: string;
+  readonly reason: "declared" | "derived";
+  readonly directChildCount: number;
+  readonly threshold: number;
+}
+
+export const taskWipRootRowFields = Object.freeze([
+  "taskId",
+  "reason",
+  "directChildCount",
+  "threshold",
+] as const satisfies readonly (keyof TaskWipRootRow)[]);
+
+/** Serializes a root assessment for the wire, or null when the task is not a root. */
+export function serializeTaskWipRootRow(taskId: string, assessment: TaskRootDerivation): TaskWipRootRow | null {
+  if (!assessment.isRoot) return null;
+  return {
+    taskId,
+    reason: assessment.reason,
+    directChildCount: assessment.directChildCount,
+    threshold: assessment.threshold,
+  };
+}
+
 export function hasCloseoutEvidence(executions: readonly ProjectedExecution[]): boolean {
   return executions.some((execution) =>
     execution.schema === "execution/v1"
