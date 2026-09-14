@@ -1,16 +1,17 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
 import test from "node:test";
+import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
 import { relayDaemonTerminal } from "../src/client/terminal-relay.ts";
 
 test("terminal relay shares one control connection for resize, input, and exit lookup", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-terminal-relay-")),
-    socketPath = path.join(parent, "daemon.sock"),
+    socketPath = localUserDaemonEndpoint(parent, "terminal-relay"),
     stdin = new PassThrough() as PassThrough & { setRawMode: (mode: boolean) => void };
   let connections = 0,
     hellos = 0,
@@ -57,6 +58,7 @@ test("terminal relay shares one control connection for resize, input, and exit l
   try {
     await new Promise<void>((resolve, reject) => {
       server.once("error", reject);
+      mkdirSync(path.dirname(socketPath), { recursive: true, mode: 0o700 });
       server.listen(socketPath, resolve);
     });
     const relay = relayDaemonTerminal({
