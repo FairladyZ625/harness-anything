@@ -7,10 +7,15 @@ import {
   generateTaskActionProtocolProjection,
   projectTaskActions,
   renderTaskActionProtocolProjection,
+  renderTaskCreateProjection,
 } from "./generate-task-action-protocol.mjs";
 
 const generatedSource = readFileSync(
     new URL("../packages/preset/src/task-action-projection.generated.ts", import.meta.url),
+    "utf8",
+  ),
+  generatedCreateSource = readFileSync(
+    new URL("../packages/preset/src/task-create-projection.generated.ts", import.meta.url),
     "utf8",
   ),
   presetCommandContractSource = readFileSync(
@@ -21,6 +26,7 @@ const generatedSource = readFileSync(
 test("Task Action transport has one current build-time projection", async () => {
   await assert.doesNotReject(() => generateTaskActionProtocolProjection(true));
   assert.equal(await renderTaskActionProtocolProjection(), normalizeProjectionLineEndings(generatedSource));
+  assert.equal(await renderTaskCreateProjection(), normalizeProjectionLineEndings(generatedCreateSource));
   assert.match(presetCommandContractSource, /from "\.\/task-action-projection\.generated\.ts"/u);
   assert.doesNotMatch(presetCommandContractSource, /task-action-projection:generated/u);
   assert.deepEqual(
@@ -30,8 +36,9 @@ test("Task Action transport has one current build-time projection", async () => 
 });
 
 test("Task Action transport projection is readable source without compression or elision", async () => {
-  const rendered = await renderTaskActionProtocolProjection();
+  const rendered = [await renderTaskActionProtocolProjection(), await renderTaskCreateProjection()].join("\n");
   assert.match(rendered, /export const taskActionDescriptorProjection = \{\n/u);
+  assert.match(rendered, /export const taskCreateDescriptorProjection = \{\n/u);
   assert.doesNotMatch(rendered, /zlib|brotli|base64/iu);
   for (const field of projectTaskActions().actions.flatMap((action) => action.input.fields)) {
     assert.ok(Object.hasOwn(field, "type"), `${field.field} must project type`);

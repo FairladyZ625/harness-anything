@@ -62,6 +62,7 @@ export interface SubmitExecutionIntent extends Intent<"SubmitExecution"> {
   readonly executionId: string;
   readonly submission: SubmissionV1;
   readonly amend?: true;
+  readonly asOwner?: true;
 }
 export interface RecordReviewIntent extends Intent<"RecordReview"> {
   readonly executionId: string;

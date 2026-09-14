@@ -3,6 +3,7 @@ import {
   currentExecutionCuts,
   heldLeaseForExecutionActor,
   isSameExecution,
+  isSamePerson,
   isTaskEvent,
   ledgerGitPath,
   resolveLedgerGitLayout,
@@ -189,7 +190,13 @@ export async function submitTask(
           : cuts.length === 1
             ? cuts[0]
             : undefined;
-  if (!selected || !isSameExecution(selected.actor, binding.actor)) return cell.lifecycleAction(action, binding);
+  const ownerAmendment =
+    action.amend === true &&
+    action.asOwner === true &&
+    current.snapshot.task !== null &&
+    isSamePerson(current.snapshot.task.createdBy, binding.actor);
+  if (!selected || (!isSameExecution(selected.actor, binding.actor) && !ownerAmendment))
+    return cell.lifecycleAction(action, binding);
   const executionId = selected.executionId;
   if (action.amend === true) assertCurrentSubmittedExecution(current.snapshot, taskId, executionId);
   // A lost response resumes the stored cut. Never re-read HEAD or amend a completed submission implicitly.

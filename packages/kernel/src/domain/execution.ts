@@ -67,6 +67,8 @@ export interface ExecutionV1 {
   readonly submittedAt: string | null;
   readonly closedAt: string | null;
   readonly submission: SubmissionV1 | null;
+  /** Actor that last replaced the submitted packet when it differs from the execution actor. */
+  readonly amendedBy?: ActorAxes;
 }
 export interface ArchivedExecutionOutputV0 {
   readonly migratedFrom: string;
@@ -197,7 +199,10 @@ export function validateSubmissionV1(value: unknown, allowUnknownFields = false)
 export function validateExecutionV1(value: unknown, allowUnknownFields = false): readonly ContractValidationIssue[] {
   if (
     !isRecord(value) ||
-    !(allowUnknownFields ? hasRequiredFields : hasOnlyFields)(value, EXECUTION_V1_SCHEMA.required)
+    !(allowUnknownFields
+      ? hasRequiredFields(value, EXECUTION_V1_SCHEMA.required)
+      : hasRequiredFields(value, EXECUTION_V1_SCHEMA.required) &&
+        Object.keys(value).every((field) => [...EXECUTION_V1_SCHEMA.required, "amendedBy"].includes(field)))
   )
     return [{ code: "invalid_execution", message: "Execution/v1 fields are incomplete or unknown" }];
   const issues: ContractValidationIssue[] = [];
@@ -216,6 +221,7 @@ export function validateExecutionV1(value: unknown, allowUnknownFields = false):
   )
     issues.push({ code: "invalid_execution", message: "execution timestamps are invalid" });
   issues.push(...validateActorAxes(value.actor, allowUnknownFields));
+  if (value.amendedBy !== undefined) issues.push(...validateActorAxes(value.amendedBy, allowUnknownFields));
   if (value.submission !== null) issues.push(...validateSubmissionV1(value.submission, allowUnknownFields));
   return issues;
 }

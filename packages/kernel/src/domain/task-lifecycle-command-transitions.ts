@@ -11,7 +11,7 @@ import type {
   TaskCreatedEvent,
   TaskMutationEvent,
 } from "./task-lifecycle-event.ts";
-import { isSameExecution } from "./actor-domain-services.ts";
+import { isSameExecution, isSamePerson } from "./actor-domain-services.ts";
 import { timestamp } from "./timestamp.ts";
 import { explainStatusTransition, reinstateTaskTargets } from "./lifecycle-status.ts";
 import type { DomainStatus } from "./lifecycle-status.ts";
@@ -356,7 +356,8 @@ export const submit: Transition = {
       task = snapshot.task,
       current = execution(snapshot, command.executionId),
       lease = snapshot.lease,
-      amendment = command.amend === true;
+      amendment = command.amend === true,
+      ownerAmendment = command.asOwner === true && task !== null && isSamePerson(task.createdBy, command.actor);
     if (amendment) {
       if (
         !task ||
@@ -374,7 +375,7 @@ export const submit: Transition = {
         lease !== null ||
         !proof.actorBinding ||
         !isSameExecution(proof.actorBinding, command.actor) ||
-        (current !== undefined && !isSameExecution(current.actor, command.actor)) ||
+        (current !== undefined && !isSameExecution(current.actor, command.actor) && !ownerAmendment) ||
         proof.leaseVersion !== null ||
         !["complete", "partial", "unavailable"].includes(String(proof.sessionDisposition))
       )
@@ -411,6 +412,7 @@ export const submit: Transition = {
         state: "submitted",
         submittedAt: command.occurredAt,
         submission: command.submission,
+        ...(amendment && !isSameExecution(current.actor, command.actor) ? { amendedBy: command.actor } : {}),
       },
       task: TaskV2 = amendment
         ? (snapshot.task as TaskV2)

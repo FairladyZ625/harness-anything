@@ -116,6 +116,7 @@ export function buildCommand(
   }
   if (lifecycleAction?.commandType === "SubmitExecution") {
     const amendment = action.amend === true,
+      ownerAmendment = action.asOwner === true,
       held = heldLeaseForExecutionActor(snapshot, undefined, binding.actor),
       flags = `${amendment ? " --amend" : ""}`,
       requestedExecutionId = explicitExecutionId(action),
@@ -139,6 +140,7 @@ export function buildCommand(
       executionId,
       submission: submissionPacket(action),
       ...(amendment ? { amend: true as const } : {}),
+      ...(ownerAmendment ? { asOwner: true as const } : {}),
     });
   }
   if (lifecycleAction?.commandType === "RecordReview") {

@@ -1,6 +1,7 @@
 import taskFrontmatterJsonSchema from "../../schemas/json/task-frontmatter.schema.json" with { type: "json" };
 import decisionPackageJsonSchema from "../../schemas/json/decision-package.schema.json" with { type: "json" };
 import factEventJsonSchema from "../../schemas/json/fact-event.schema.json" with { type: "json" };
+import { REVIEW_V1_SCHEMA } from "./review.ts";
 import { requireEntityTypeContract } from "./base-entity.ts";
 import {
   type EntityDocumentJsonSchema,
@@ -86,6 +87,7 @@ export const executionSchema: EntityDocumentJsonSchema = {
     submittedAt: { type: "string", minLength: 1, "x-nullable": true },
     closedAt: { type: "string", minLength: 1, "x-nullable": true },
     submission: nullableOpaqueObject(),
+    amendedBy: opaqueObject(),
   },
   required: [
     "schema",
@@ -122,20 +124,6 @@ export const reviewSchema: EntityDocumentJsonSchema = {
     submissionDigest: { type: "string", pattern: "^sha256:[0-9a-f]{64}$" },
     reviewedAt: { type: "string", minLength: 1 },
   },
-  required: [
-    "schema",
-    "reviewId",
-    "taskId",
-    "executionId",
-    "verdict",
-    "actor",
-    "capabilityRef",
-    "reason",
-    "evidenceChecked",
-    "commitSha",
-    "iteration",
-    "contentDigest",
-    "reviewedAt",
-  ],
+  required: REVIEW_V1_SCHEMA.required,
   additionalProperties: false,
 };

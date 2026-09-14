@@ -370,6 +370,7 @@ function assertReplay(snapshot: TaskLifecycleSnapshot, event: TaskEventV1, next:
               state: "submitted" as const,
               submittedAt: event.occurredAt,
               submission: event.payload.execution.submission,
+              ...(!isSameExecution(current.actor, event.actor) ? { amendedBy: event.actor } : {}),
             }
           : null;
       if (
@@ -383,7 +384,7 @@ function assertReplay(snapshot: TaskLifecycleSnapshot, event: TaskEventV1, next:
         submissionId(current.submission) === submissionId(event.payload.execution.submission) ||
         !sameReplayTask(event.payload.task, snapshot.task) ||
         stableStringify(event.payload.execution) !== stableStringify(expected) ||
-        !isSameExecution(current.actor, event.actor) ||
+        (!isSameExecution(current.actor, event.actor) && !isSamePerson(snapshot.task.createdBy, event.actor)) ||
         event.payload.edge !== undefined ||
         next.lease !== null
       )

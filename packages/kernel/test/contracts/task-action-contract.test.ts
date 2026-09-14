@@ -302,7 +302,7 @@ test("Agent-readable input and CLI facets share the same field declarations", ()
   assert.deepEqual(submit.input.exactlyOneOf, []);
   assert.deepEqual(
     submit.input.fields.flatMap(({ cli }) => (cli ? [cli.name] : [])),
-    ["--execution-id", "--amend"],
+    ["--execution-id", "--amend", "--as-owner"],
   );
   assert.ok(submit.input.fields.some(({ field, cli }) => field === "completionClaim" && cli === undefined));
   assert.ok(!complete.input.fields.some(({ cli }) => cli?.name === "--ci" || cli?.name === "--path"));

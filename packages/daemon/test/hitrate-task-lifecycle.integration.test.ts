@@ -31,6 +31,13 @@ test("task start, closeout submit, and code-doc reconcile reuse daemon-known lif
       },
       source: "local" as const,
     };
+  const owner = {
+    actor: {
+      principal: { personId: "person-owner" },
+      executor: { kind: "agent" as const, id: "worker-ceo" },
+    },
+    source: "local" as const,
+  };
   mkdirSync(rootDir, { recursive: true });
   initRepo(rootDir);
   writeFileSync(path.join(rootDir, "README.md"), "# Lifecycle fixture\n");
@@ -190,6 +197,29 @@ test("task start, closeout submit, and code-doc reconcile reuse daemon-known lif
       `submission:${submissionDigest(initialSubmission.payload.execution.submission)}`,
     );
 
+    writeCloseout("Owner-corrected lifecycle cut.");
+    const ownerAmend = (await cell.run(
+      { kind: "task-submit", taskId, executionId, amend: true, asOwner: true },
+      owner,
+    )) as Record<string, unknown>;
+    assert.ok(["applied", "pending"].includes(String(ownerAmend.outcome)), JSON.stringify(ownerAmend));
+    const ownerAmendVisible = await cell.run(
+      {
+        kind: "receipt-show",
+        opId: String(ownerAmend.opId),
+        waitFor: ["accepted_durable", "projection_visible", "git_verified", "worktree_visible"],
+        timeoutMs: 5_000,
+      },
+      owner,
+    );
+    assert.equal(ownerAmendVisible.wait?.state, "satisfied", JSON.stringify(ownerAmendVisible));
+    const ownerAmendedEvent = events().at(-1);
+    if (ownerAmendedEvent?.type !== "execution_submitted") throw new Error("owner amendment event missing");
+    assert.equal(ownerAmendedEvent.payload.execution.actor.executor?.id, "worker-owner");
+    assert.deepEqual(ownerAmendedEvent.payload.execution.amendedBy, owner.actor);
+    const ownerAmendedPacket = ownerAmendedEvent.payload.execution.submission;
+    assert.ok(ownerAmendedPacket);
+
     const obsolete = (await cell.run(
       {
         kind: "task-code-doc-reconcile",
@@ -262,7 +292,7 @@ test("task start, closeout submit, and code-doc reconcile reuse daemon-known lif
     const consentEvent = makeTaskEventReader({ repoId, rootDir }).readEvent(String(consented.opId));
     assert.equal(
       consentEvent?.type === "review_consent_recorded" ? consentEvent.payload.consent.submissionDigest : null,
-      submissionDigest(amendedPacket),
+      submissionDigest(ownerAmendedPacket),
     );
     const completed = await cell.run({ kind: "task-complete", taskId }, holder);
     assert.equal(completed.outcome, "applied", JSON.stringify(completed));

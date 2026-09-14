@@ -75,6 +75,7 @@ export const offlineMaintenanceModules = new Set([
   "packages/kernel/src/store/task-event-store-validation.ts",
   "packages/preset/src/preset-command-contract.ts",
   "packages/preset/src/task-action-projection.generated.ts",
+  "packages/preset/src/task-create-projection.generated.ts",
 
   "packages/kernel/schemas/json/decision-package.schema.json",
   "packages/kernel/schemas/json/fact-event.schema.json",
@@ -153,6 +154,7 @@ export const offlineMaintenanceModules = new Set([
   "packages/kernel/src/domain/settings.ts",
   "packages/kernel/src/domain/squad-action-contract.ts",
   "packages/kernel/src/domain/task-action-contract.ts",
+  "packages/kernel/src/domain/task-action-state-transition.ts",
   "packages/kernel/src/domain/task-bootstrap-event.ts",
   "packages/kernel/src/domain/task-bound-runtime-authority.ts",
   "packages/kernel/src/domain/task-graph.ts",

@@ -44,6 +44,7 @@ export async function runTaskActionCatalogRuntime(
               taskId,
               ...(typeof action.executionId === "string" ? { executionId: action.executionId } : {}),
               ...(typeof action.reviewId === "string" ? { reviewId: action.reviewId } : {}),
+              ...(action.asOwner === true ? { asOwner: true } : {}),
               ...(action.kind === "task-submit" ? { amend: action.amend === true } : {}),
             },
           })
