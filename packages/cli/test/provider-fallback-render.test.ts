@@ -44,6 +44,28 @@ test("task dispatch and runtime status renders expose provider attempt chains", 
   );
 });
 
+test("runtime status renders the actor that requested cancellation", () => {
+  assert.match(
+    renderRuntimeStatus({
+      session: {
+        runtimeSessionId: "runtime-cancelled",
+        instanceId: "provider-a",
+        providerSessionId: "thread-a",
+        liveness: "exited",
+        activity: {
+          outcome: "cancelled",
+          resultRef: "artifact:result",
+          cancelledBy: {
+            principal: { personId: "person-operator" },
+            executor: { kind: "agent", id: "operator-session" },
+          },
+        },
+      },
+    }),
+    /cancelled-by-principal: person-operator\ncancelled-by-executor: operator-session/u,
+  );
+});
+
 test("CLI dispatch and nested receipt errors are handled by closed tagged branches", () => {
   assert.deepEqual(
     cliDispatchError({ error: new Error("start failed"), directCode: "daemon_start_failed", timeoutCode: null }),

@@ -1,8 +1,9 @@
-import type {
-  AgentDefinitionSnapshot,
-  AgentRuntimeEventV1,
-  RuntimeInstallationState,
-  RuntimeSessionSemanticState,
+import {
+  type ActorIdentity,
+  type AgentDefinitionSnapshot,
+  type AgentRuntimeEventV1,
+  type RuntimeInstallationState,
+  type RuntimeSessionSemanticState,
 } from "../../kernel/src/index.ts";
 import { validAgentRuntimeAttemptChain, type AgentRuntimeAttemptChainDto } from "./runtime-attempt-contract.ts";
 export type { AgentRuntimeAttemptChainDto } from "./runtime-attempt-contract.ts";
@@ -88,6 +89,7 @@ export interface AgentRuntimeSessionDto {
     readonly resultRef: string | null;
     readonly missingEvidence: "exit-code-and-result" | "exit-code" | "result" | null;
     readonly reasonCode?: string;
+    readonly cancelledBy?: ActorIdentity;
   };
 }
 export function agentRuntimeInstallationState(
@@ -431,7 +433,7 @@ function validSession(value: unknown): value is AgentRuntimeSessionDto {
     hasAgentRuntimeContractFields(
       value.activity,
       ["lastObservedAt", "outcome", "exitCode", "resultRef", "missingEvidence"],
-      ["reasonCode"],
+      ["reasonCode", "cancelledBy"],
     ) &&
     typeof value.activity.lastObservedAt === "string" &&
     (value.activity.outcome === null ||
@@ -442,7 +444,27 @@ function validSession(value: unknown): value is AgentRuntimeSessionDto {
     (value.activity.missingEvidence === null ||
       ["exit-code-and-result", "exit-code", "result"].includes(String(value.activity.missingEvidence))) &&
     (value.activity.reasonCode === undefined ||
-      (typeof value.activity.reasonCode === "string" && value.activity.reasonCode.length > 0))
+      (typeof value.activity.reasonCode === "string" && value.activity.reasonCode.length > 0)) &&
+    (value.activity.cancelledBy === undefined || validCancellationActor(value.activity.cancelledBy))
+  );
+}
+
+function validCancellationActor(value: unknown): value is ActorIdentity {
+  if (!isAgentRuntimeContractRecord(value) || !hasAgentRuntimeContractFields(value, ["principal", "executor"], []))
+    return false;
+  const principal = value.principal,
+    executor = value.executor;
+  return (
+    isAgentRuntimeContractRecord(principal) &&
+    hasAgentRuntimeContractFields(principal, ["personId"], []) &&
+    typeof principal.personId === "string" &&
+    principal.personId.length > 0 &&
+    (executor === null ||
+      (isAgentRuntimeContractRecord(executor) &&
+        hasAgentRuntimeContractFields(executor, ["kind", "id"], []) &&
+        executor.kind === "agent" &&
+        typeof executor.id === "string" &&
+        executor.id.length > 0))
   );
 }
 const sessionMetricsCounters = ["inputTokens", "cacheReadTokens", "outputTokens", "totalTokens", "toolCallCount"];

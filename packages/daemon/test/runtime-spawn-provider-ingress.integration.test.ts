@@ -6,6 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { makeTaskEventReader } from "../../kernel/src/index.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
+import type { DaemonLifecycleEntry } from "../src/lifecycle-log.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import {
   initIngressRepo,
@@ -567,7 +568,8 @@ test("daemon ingress cancellation is explicit and idempotent for an active runti
     userRoot = path.join(parent, "user"),
     executablePath = path.join(parent, "cancel-stub.mjs"),
     repoId = "runtime-cancel",
-    uid = 4304;
+    uid = 4304,
+    lifecycle: DaemonLifecycleEntry[] = [];
   initIngressRepo(root, uid);
   registerDaemonRepo({
     canonicalRoot: root,
@@ -594,6 +596,7 @@ test("daemon ingress cancellation is explicit and idempotent for an active runti
         onExit: () => undefined,
         terminate: () => undefined,
       }),
+      recordLifecycle: (entry) => lifecycle.push(entry),
     });
   try {
     const definition = {
@@ -640,22 +643,38 @@ test("daemon ingress cancellation is explicit and idempotent for an active runti
           ((read.session as Record<string, unknown>).activity as Record<string, unknown>).outcome,
         "cancelled",
       );
+      assert.deepEqual(((read.session as Record<string, unknown>).activity as Record<string, unknown>).cancelledBy, {
+        principal: { personId: "owner" },
+        executor: null,
+      });
+      assert.equal(lifecycle.find((entry) => entry.event === "runtime_exit")?.reason, "Worker stop was requested.");
       await eventually(() => frames.some((frame) => frame.type === "exit" && frame.outcome === "cancelled"));
       const events = makeTaskEventReader({ repoId, rootDir: root })
         .read()
         .events.filter(
           (event) => "runtimeSessionId" in event.payload && event.payload.runtimeSessionId === spawned.runtimeSessionId,
         );
-      assert.equal(
-        events.some((event) => event.type === "runtime_session_cancelled"),
-        true,
-      );
+      const cancellationEvents = events.filter((event) => event.type === "runtime_session_cancelled");
+      assert.equal(cancellationEvents.length, 1);
+      assert.deepEqual(cancellationEvents[0]?.actor, {
+        principal: { personId: "owner" },
+        executor: null,
+      });
       const repeat = await rpc(host, auth, "repo.agentRuntime.cancel", {
         repo: { repoId },
         payload: { runtimeSessionId: spawned.runtimeSessionId },
       });
       assert.equal(repeat.outcome, "applied");
       assert.equal(repeat.detail, "already-exited");
+      assert.equal(
+        makeTaskEventReader({ repoId, rootDir: root })
+          .read()
+          .events.filter(
+            (event) =>
+              event.type === "runtime_session_cancelled" && event.payload.runtimeSessionId === spawned.runtimeSessionId,
+          ).length,
+        1,
+      );
       const missing = await rpc(host, auth, "repo.agentRuntime.cancel", {
         repo: { repoId },
         payload: { runtimeSessionId: "runtime_missing" },
