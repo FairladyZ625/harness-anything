@@ -71,7 +71,12 @@ const guidanceTemplates = new Map<string, GuidanceTemplate>([
       `${textArg(args, "field")} must be one of ${stringListArg(args, "allowedValues").join(", ")}; ` +
       `received ${textArg(args, "actual")}.`,
   ],
-  ["failure:failure", (args) => `Inspect error code ${textArg(args, "code")}, correct the command input, and retry.`],
+  [
+    "failure:failure",
+    () =>
+      "No remediation was recorded for this rejection; rerun the command with --json to read the full " +
+      "receipt, then correct the command input and retry.",
+  ],
   [
     "failure:unmet-criteria",
     (args) =>
@@ -202,20 +207,23 @@ export function humanError(receipt: Record<string, unknown>): { readonly code: s
     explanationHint = typeof receipt.rejectionExplanation === "string" ? receipt.rejectionExplanation : null,
     declaredGuidance = renderReceiptGuidance(receipt),
     // Receipts without the daemon's structured vocabulary (daemon control failures, offline storage
-    // failures) declare their only actionable detail as a top-level or error-object hint string;
-    // structured diagnostics keep priority over both.
+    // failures) declare their only actionable detail as a top-level or error-object hint string; a
+    // receipt-authored nextAction is the same single-source remediation and rides the same slot.
+    // Structured diagnostics keep priority over both.
     receiptHint =
       typeof receipt.hint === "string" && receipt.hint.length > 0
         ? receipt.hint
         : typeof outer.hint === "string" && outer.hint.length > 0
           ? outer.hint
-          : null,
+          : typeof receipt.nextAction === "string" && receipt.nextAction.length > 0
+            ? receipt.nextAction
+            : null,
     baseHint =
       diagnosticHint ??
       explanationHint ??
       (declaredGuidance.length > 0 ? declaredGuidance.join(" ") : null) ??
       receiptHint ??
-      renderTemplate("failure", "failure", { code }),
+      renderTemplate("failure", "failure", {}),
     criteria =
       diagnosticHint || explanationHint
         ? []
@@ -247,7 +255,6 @@ function renderDiagnostic(diagnostic: Record<string, unknown>): string | null {
   if (diagnostic.kind === "materialization-retrying")
     return renderTemplate("failure", "materialization-retrying", diagnostic);
   if (diagnostic.kind === "invalid-enum") return renderTemplate("failure", "invalid-enum", diagnostic);
-  if (diagnostic.kind === "failure") return renderTemplate("failure", "failure", diagnostic);
   return null;
 }
 

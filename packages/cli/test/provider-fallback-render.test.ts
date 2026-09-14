@@ -55,7 +55,7 @@ test("CLI dispatch and nested receipt errors are handled by closed tagged branch
   });
   assert.deepEqual(humanError({ code: "top", nextAction: "repair" }), {
     code: "top",
-    hint: "Inspect error code top, correct the command input, and retry.",
+    hint: "repair",
   });
   assert.deepEqual(
     humanError({
@@ -71,9 +71,7 @@ test("CLI dispatch and nested receipt errors are handled by closed tagged branch
     }),
     {
       code: "invalid_transition",
-      hint:
-        "Inspect error code invalid_transition, correct the command input, and retry. " +
-        "Unmet criteria: task-lifecycle-contract-support/revisionIssues — Expected revision must match.",
+      hint: "refresh and retry Unmet criteria: task-lifecycle-contract-support/revisionIssues — Expected revision must match.",
     },
   );
   assert.deepEqual(

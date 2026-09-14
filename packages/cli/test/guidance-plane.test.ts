@@ -215,10 +215,42 @@ test("a failure receipt's own top-level hint reaches the operator instead of the
     }),
     { stream: "stderr", text: `error code=offline_storage_failed hint=${hint}` },
   );
-  // An empty hint is no hint: the generic guidance still applies.
-  assert.match(
-    humanError({ ok: false, code: "offline_storage_failed", hint: "" }).hint,
-    /Inspect error code offline_storage_failed/u,
+  // An empty hint is no hint: the generic guidance still applies, and it names only capabilities
+  // the public CLI actually has — --json prints the full receipt, error-code lookup does not exist.
+  const generic = humanError({ ok: false, code: "offline_storage_failed", hint: "" }).hint;
+  assert.match(generic, /rerun the command with --json/u);
+  assert.ok(!generic.includes("Inspect error code"), generic);
+});
+
+test("a code-only rejection points at a real CLI capability instead of error-code inspection", () => {
+  const rendered = renderCliReceipt({
+    schema: "command-receipt/v2",
+    ok: false,
+    command: "init",
+    outcome: "op_rejected",
+    code: "writer_rejected",
+    error: { code: "writer_rejected" },
+  });
+  assert.equal(rendered.stream, "stderr");
+  assert.ok(!rendered.text.includes("Inspect error code"), rendered.text);
+  assert.match(rendered.text, /--json/u);
+});
+
+test("a rejected receipt's own nextAction reaches the operator instead of the generic sentence", () => {
+  assert.deepEqual(
+    renderCliReceipt({
+      schema: "command-receipt/v2",
+      ok: false,
+      command: "vertical-kind-upsert",
+      outcome: "op_rejected",
+      code: "invalid_field",
+      nextAction: "--from-file must contain one complete Artifact kind declaration.",
+      exitCode: 1,
+    }),
+    {
+      stream: "stderr",
+      text: "error code=invalid_field hint=--from-file must contain one complete Artifact kind declaration.",
+    },
   );
 });
 
