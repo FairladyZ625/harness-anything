@@ -12,6 +12,7 @@ import {
   type AgentRuntimeSessionGroupsResult,
   type AgentRuntimeSessionGroupStatus,
 } from "./agent-runtime-contract.ts";
+import { agentRuntimeSearchMatches } from "./agent-runtime-search.ts";
 import type { TaskDispatchRow } from "./protocol/daemon-protocol.contract.ts";
 
 interface AgentRuntimeSessionGroupsQuery {
@@ -65,7 +66,7 @@ export function buildAgentRuntimeSessionGroups(input: {
     filtered = members.filter(
       (member) =>
         (input.query.status.length === 0 || input.query.status.includes(member.status)) &&
-        input.query.tokens.every((token) => member.searchable.includes(token)),
+        agentRuntimeSearchMatches(member.searchFields, input.query.tokens),
     ),
     accumulators = new Map<string, GroupAccumulator>();
   for (const member of filtered) addMember(accumulators, member);
@@ -92,7 +93,7 @@ type GroupMember = {
   readonly status: AgentRuntimeSessionGroupStatus;
   readonly startedAt: string;
   readonly agentName: string | null;
-  readonly searchable: string;
+  readonly searchFields: readonly unknown[];
 };
 type GroupAccumulator = {
   readonly identity: GroupIdentity;
@@ -204,7 +205,7 @@ function member(
   status: AgentRuntimeSessionGroupStatus,
   startedAt: string,
   agentName: string | null,
-  searchable: readonly unknown[],
+  searchFields: readonly unknown[],
 ): GroupMember {
   return {
     identity,
@@ -213,10 +214,7 @@ function member(
     status,
     startedAt,
     agentName,
-    searchable: searchable
-      .filter((value): value is string => typeof value === "string")
-      .join("\n")
-      .toLocaleLowerCase(),
+    searchFields,
   };
 }
 

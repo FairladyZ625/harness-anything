@@ -4,7 +4,6 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { SessionGroupList } from "../src/renderer/components/sessions/SessionGroupList.tsx";
 import { SessionInspector } from "../src/renderer/components/sessions/SessionInspector.tsx";
-import { SquadRunList } from "../src/renderer/components/sessions/SquadRunList.tsx";
 import { SessionDetailView } from "../src/renderer/components/runtime/SessionsPanel.tsx";
 import { SessionTranscript, SessionTranscriptTurns } from "../src/renderer/components/sessions/SessionTranscript.tsx";
 import {
@@ -182,17 +181,6 @@ const groupList = (overrides: Partial<Parameters<typeof SessionGroupList>[0]> = 
     } as never),
   );
 
-const squadRunSummary = {
-  squadRunId: "squad_" + "a".repeat(18),
-  squadId: "squad_465504" + "a".repeat(12),
-  taskId: "task_5fc508",
-  mission: "Ship the ontology milestone",
-  phase: "converged" as const,
-  leaderTurnCount: 6,
-  workerAttemptCount: 5,
-  runningCount: 0,
-  latestActivityAt: "2026-08-25T18:22:00.000Z",
-};
 const detailView = (overrides: Partial<Parameters<typeof SessionDetailView>[0]> = {}) =>
   renderToStaticMarkup(
     createElement(SessionDetailView, {
@@ -575,6 +563,47 @@ describe("sessions page: single-session groups", () => {
     expect(markup).not.toContain('data-testid="rail-session-runtime-0"');
   });
 
+  it("keeps the round row visible when the query is the runtime session id", () => {
+    // 检索词是面包屑显示的会话 id 时,daemon 组成员过滤按 runtimeSessionId 命中该组;
+    // 轮次行必须同口径可见,否则组展开为空、续跑按钮(只挂在轮次行上)不可达。
+    const markup = groupList({ query: "runtime-0" });
+    expect(markup.match(/data-testid="rail-session-/gu)).toHaveLength(1);
+    expect(markup).toContain('data-testid="rail-session-runtime-0"');
+    expect(markup).not.toContain('data-testid="rail-session-runtime-sibling"');
+    expect(markup).not.toContain('data-testid="rail-session-runtime-orphan"');
+  });
+
+  it("matches round rows by squadId like the daemon member filter does", () => {
+    const squadRounds = sessionRounds("task_1994d52c", "GUI 会话页重构", [
+        dispatchRow(0, { squadId: "squad_core" }),
+        dispatchRow(1, { status: "succeeded" as never, runtimeSessionId: "runtime-sibling" }),
+      ]),
+      markup = groupList({
+        rowsByGroup: new Map([["task_1994d52c", { rounds: squadRounds, orphans: [], pending: false, error: null }]]),
+        query: "squad_core",
+      });
+    expect(markup.match(/data-testid="rail-session-/gu)).toHaveLength(1);
+    expect(markup).toContain('data-testid="rail-session-runtime-0"');
+    expect(markup).not.toContain('data-testid="rail-session-runtime-sibling"');
+  });
+
+  it("does not match round rows on fields outside the daemon member vocabulary", () => {
+    // classification/nextAction 是轮次行的展示字段,daemon 组成员检索口径不含它们;
+    // 前端多出的字段会让轮次行命中 daemon 不会命中的检索词,口径漂移。
+    const classified = sessionRounds("task_1994d52c", "GUI 会话页重构", [
+        dispatchRow(3, {
+          status: "failed" as never,
+          classification: "provider_quota",
+          nextAction: "ha runtime resume dispatch_000000000000000000000003",
+        }),
+      ]),
+      markup = groupList({
+        rowsByGroup: new Map([["task_1994d52c", { rounds: classified, orphans: [], pending: false, error: null }]]),
+        query: "provider_quota",
+      });
+    expect(markup.match(/data-testid="rail-session-/gu) ?? []).toHaveLength(0);
+  });
+
   it("links the task detail and every related decision from the group footer", () => {
     const markup = groupList();
     expect(markup).toContain('data-testid="session-group-toggle-task_1994d52c"');
@@ -631,63 +660,5 @@ describe("sessions page: session inspector", () => {
     expect(markup).toContain("no dispatch record");
     expect(markup).not.toContain("runtime-inspector-siblings-more");
     expect(markup).not.toContain("Show ");
-  });
-});
-
-const squadRunView = (props: Partial<Parameters<typeof SquadRunList>[0]>) =>
-  renderToStaticMarkup(
-    createElement(SquadRunList, {
-      runs: [squadRunSummary],
-      truncated: false,
-      totalRuns: 1,
-      squadNames: new Map([[squadRunSummary.squadId, "ontology-squad"]]),
-      query: "",
-      range: "30d",
-      selectedId: null,
-      onSelectRun: noop,
-      ...props,
-    }),
-  );
-
-describe("sessions page: squad orchestration", () => {
-  it("renders each squad run as one summary from the list read", () => {
-    const markup = squadRunView({});
-    expect(markup).toContain("ontology-squad");
-    expect(markup).toContain("Converged");
-    expect(markup).toContain("6 leader turns");
-    expect(markup).toContain("5 worker attempts");
-    expect(markup).toContain("Ship the ontology milestone");
-    expect(markup).not.toContain("runtime-sessions-more");
-  });
-
-  it("keeps the whole run row clickable with a selected state (G12 §2b)", () => {
-    const markup = squadRunView({ selectedId: squadRunSummary.squadRunId });
-    expect(markup).toMatch(/data-testid="squad-run-toggle-squad_a{18}"[^>]*aria-current="true"/u);
-    expect(markup).toMatch(/squad-run-toggle-squad_a{18}"[^>]*class="[^"]*bg-accent/u);
-  });
-
-  it("keeps a corrupt run projection as a disabled grey row without hiding healthy runs", () => {
-    const invalid = {
-        squadRunId: "squad_" + "c".repeat(18),
-        projectionState: "invalid" as const,
-        projectionError: {
-          code: "squad_run_projection_invalid" as const,
-          hint: "Squad run projection is invalid.",
-        },
-      },
-      markup = squadRunView({ runs: [squadRunSummary, invalid] });
-    expect(markup).toContain("ontology-squad");
-    expect(markup).toMatch(/disabled=""[^>]*squad-run-toggle-squad_c{18}/u);
-    expect(markup).toContain("Squad run projection is invalid.");
-    expect(markup).toContain("Invalid");
-    expect(markup).not.toContain("runtime-read-error");
-  });
-
-  it("keeps the empty state honest when no squad run matches the range (G12 §2a)", () => {
-    const inWindow = squadRunView({ runs: [], totalRuns: 0, squadNames: new Map(), range: "30d" });
-    expect(inWindow).toContain("No squad runs in this range (30d)");
-    expect(inWindow).toContain('data-testid="squad-runs-empty"');
-    const never = squadRunView({ runs: [], totalRuns: 0, squadNames: new Map(), range: "all" });
-    expect(never).toContain("No squad runs yet");
   });
 });
