@@ -329,11 +329,11 @@ test("task show renders lifecycle status before the secondary graph cursor", () 
   const rendered = renderCliReceipt({
     ok: true,
     command: "task-show",
-    evidence: JSON.stringify({ task: { status: "done", currentNode: "review" } }),
+    evidence: JSON.stringify({ task: { status: "done", currentNode: "review", completionGateIds: [] } }),
     summary: "task: status=done currentNode=review",
   });
   assert.equal(rendered.stream, "stdout");
-  assert.deepEqual(rendered.text.split("\n").slice(0, 2), ["status: done", "graph cursor: review"]);
+  assert.deepEqual(rendered.text.split("\n"), ["status: done", "graph cursor: review", "completion gates: none"]);
 });
 
 test("relation rejection renders structured triples and preserves them through diagnostic validation", () => {

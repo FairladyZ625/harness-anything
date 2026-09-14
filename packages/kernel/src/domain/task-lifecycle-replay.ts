@@ -11,6 +11,7 @@ import { TaskLifecycleContractError, validateTaskEvent } from "./task-lifecycle-
 import type { ExecutionExecutorDeclaredEvent, TaskEventV1 } from "./task-lifecycle-event.ts";
 import { isSameExecution, isSamePerson } from "./actor-domain-services.ts";
 import { codeDocRecordId, currentCodeDocRecord, currentCodeDocWitness } from "./code-doc-witness.ts";
+import { completionGateIds } from "./closeout-readiness.ts";
 import type {
   ProofFor,
   TaskLifecycleCommand,
@@ -509,7 +510,7 @@ function acceptedCompletionWitnesses(
       !consentedApprovedReviewForExecution(snapshot.reviews, snapshot.consents, current))
   )
     return false;
-  return snapshot.task.completionGateIds.every((gateId) => {
+  return completionGateIds(snapshot.task.completionGateIds, current.submission.commitSha).every((gateId) => {
     if (gateId === "code-doc-reconciliation") {
       const witness = currentCodeDocWitness(snapshot.codeDocWitnesses, executionId);
       return (

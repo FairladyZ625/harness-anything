@@ -19,6 +19,7 @@ import { normalizeRelativeDocumentPath } from "../layout/portable-path.ts";
 import { eventObjectTarget } from "../layout/ledger-object-layout.ts";
 import { currentTaskForWrite } from "./task.ts";
 import { codeDocRecordId, currentCodeDocRecord, currentCodeDocWitness } from "./code-doc-witness.ts";
+import { completionGateIds } from "./closeout-readiness.ts";
 export interface LifecycleDocumentState {
   readonly path: string;
   readonly body: string;
@@ -285,7 +286,8 @@ function renderIndex(event: TaskEventV1, snapshot: TaskLifecycleSnapshot, path: 
           value.iteration === current.iteration,
       );
     },
-    missingGate = task.completionGateIds.find((gateId) => !gateStatus(gateId)),
+    gatesForCut = completionGateIds(task.completionGateIds, current?.submission?.commitSha),
+    missingGate = gatesForCut.find((gateId) => !gateStatus(gateId)),
     next =
       task.status === "active"
         ? `Run \`ha task submit ${task.taskId}\`.`
@@ -300,8 +302,8 @@ function renderIndex(event: TaskEventV1, snapshot: TaskLifecycleSnapshot, path: 
                 : task.status === "cancelled"
                   ? "Task cancelled; create follow-up work with `ha task supersede`."
                   : `Run \`ha task complete ${task.taskId}\`.`,
-    gates = task.completionGateIds.length
-      ? task.completionGateIds.map((gateId) => `- ${gateId}: ${gateStatus(gateId) ? "pass" : "blocked"}`).join("\n")
+    gates = gatesForCut.length
+      ? gatesForCut.map((gateId) => `- ${gateId}: ${gateStatus(gateId) ? "pass" : "blocked"}`).join("\n")
       : "- none",
     metadata = task.metadata;
   let initial =
