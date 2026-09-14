@@ -146,7 +146,7 @@ export async function readRegisteredRepos(
   userRoot: string,
 ): Promise<ReadonlyArray<DaemonRegistryRepo & { readonly canonicalRoot: string }>> {
   if (!existsSync(path.join(userRoot, "registry.json"))) return [];
-  const { readDaemonRegistry } = await import("../../../kernel/src/index.ts");
+  const { readDaemonRegistry } = await import("../../../kernel/src/daemon/registry.ts");
   return readDaemonRegistry({ userRoot }).repos.filter(
     (repo): repo is DaemonRegistryRepo & { readonly canonicalRoot: string } => repo.canonicalRoot !== null,
   );

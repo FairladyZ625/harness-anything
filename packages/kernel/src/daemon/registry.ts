@@ -15,7 +15,6 @@ import os from "node:os";
 import path from "node:path";
 import { consumeKnownError } from "../error-consumption.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
-import { makeLocalVersionControlSystem, resolveLedgerGitLayout } from "../composition/index.ts";
 import { daemonRepoModes, type DaemonRepoMode } from "./repo-mode.ts";
 
 export { daemonRepoModes } from "./repo-mode.ts";
@@ -90,6 +89,8 @@ const daemonRegistryCache = new Map<string, CachedDaemonRegistry>();
 
 export interface DaemonRegistryRegisterInput extends DaemonRegistryOptions {
   readonly canonicalRoot?: string;
+  /** Derived by the composition layer, which owns VCS access. */
+  readonly authoredBranch?: string;
   readonly repoId?: string;
   readonly displayName?: string;
   readonly mode?: DaemonRepoMode;
@@ -164,14 +165,14 @@ export function readDaemonRegistry(options: DaemonRegistryOptions = {}): DaemonR
   return registry;
 }
 
-export function registerDaemonRepo(
+export function writeDaemonRegistryRepo(
   input: DaemonRegistryRegisterInput,
 ): DaemonRegistryMutationResult<DaemonRegistryRepo> {
   const paths = daemonRegistryPaths(input);
   let registry = readDaemonRegistry(input);
   const requestedMode = normalizeRepoMode(input.mode ?? "local"),
     remoteProxy = requestedMode === "remote-proxy",
-    canonicalRoot = remoteProxy ? null : canonicalHarnessRoot(requiredCanonicalRoot(input.canonicalRoot)),
+    canonicalRoot = remoteProxy ? null : canonicalDaemonRegistryRoot(requiredCanonicalRoot(input.canonicalRoot)),
     displayName = input.displayName ?? (canonicalRoot === null ? input.repoId : path.basename(canonicalRoot));
   if (!displayName) throw new Error("displayName is required when registering a remote-proxy repository");
   const explicitRepoId = input.repoId ? normalizeExplicitRepoId(input.repoId) : undefined;
@@ -247,7 +248,7 @@ export function registerDaemonRepo(
     repoId,
     canonicalRoot,
     displayName,
-    authoredBranch: canonicalRoot === null ? null : defaultAuthoredBranch(canonicalRoot),
+    authoredBranch: canonicalRoot === null ? null : requiredAuthoredBranch(input.authoredBranch),
     mode: requestedMode,
     connectionId: connection.connection.id,
     state: "enabled",
@@ -412,7 +413,7 @@ export function resolveDaemonRepoByRoot(
   rootDir: string,
   options: DaemonRegistryOptions = {},
 ): DaemonRegistryRepo | undefined {
-  const canonicalRoot = canonicalHarnessRoot(rootDir);
+  const canonicalRoot = canonicalDaemonRegistryRoot(rootDir);
   return readDaemonRegistry(options).repos.find((repo) => repo.canonicalRoot === canonicalRoot);
 }
 
@@ -609,7 +610,7 @@ function writeDaemonRegistry(registry: DaemonRegistry, options: DaemonRegistryOp
   }
 }
 
-function canonicalHarnessRoot(rootDir: string): string {
+export function canonicalDaemonRegistryRoot(rootDir: string): string {
   const realRoot = existsSync(path.resolve(rootDir))
     ? realpathSync.native(path.resolve(rootDir))
     : invalidCanonicalRoot(rootDir);
@@ -860,12 +861,9 @@ function daemonConnectionEquals(left: DaemonRegistryConnection, right: DaemonReg
   );
 }
 
-function defaultAuthoredBranch(canonicalRoot: string): string {
-  const vcs = makeLocalVersionControlSystem(),
-    repoRoot = resolveLedgerGitLayout(canonicalRoot).rootDir,
-    branch = vcs.originHeadBranch(repoRoot) ?? vcs.currentBranch(repoRoot);
+function requiredAuthoredBranch(branch: string | undefined): string {
   if (!branch || !validBranch(branch))
-    throw new Error(`canonicalRoot must have an attached default Git branch: ${repoRoot}`);
+    throw new Error("local daemon registry registration requires a valid authored branch");
   return branch;
 }
 function validBranch(value: string): boolean {

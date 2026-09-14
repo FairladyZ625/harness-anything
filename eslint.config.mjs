@@ -292,7 +292,19 @@ export default tseslint.config(
     rules: {
       // schema-closure/derived-contracts 门在无依赖上下文加载 daemon parser 图，不得触到 effect；根 barrel 经 disposition→sqlite-task-projection→session 触到 effect，故此纯模块单独放行。
       "no-restricted-imports": [
-        ...noRestrictedKernelImports(["!**/kernel/src/domain", "!**/kernel/src/domain/contract-version.ts"]),
+        ...noRestrictedKernelImports([
+          "!**/kernel/src/domain",
+          "!**/kernel/src/domain/contract-version.ts",
+          "!**/kernel/src/daemon",
+          "!**/kernel/src/daemon/registry.ts",
+        ]),
+      ],
+      "no-restricted-syntax": [
+        "error",
+        ...kernelDeepImportSyntaxRestrictions([
+          "packages/kernel/src/domain/contract-version.ts",
+          "packages/kernel/src/daemon/registry.ts",
+        ]),
       ],
     },
   },

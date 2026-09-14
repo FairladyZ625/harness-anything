@@ -23,13 +23,13 @@ import {
   normalizeRemoteEndpoint,
   readDaemonRegistry,
   registerDaemonConnection,
-  registerDaemonRepo,
   removeDaemonConnection,
   resolveDaemonRepoByRoot,
   unregisterDaemonRepo,
   updateDaemonConnection,
   updateDaemonRepo,
 } from "../../src/daemon/registry.ts";
+import { registerDaemonRepo } from "../../src/composition/index.ts";
 
 const localConnection = { id: "local", kind: "local", displayName: "This device", state: "enabled" } as const;
 
