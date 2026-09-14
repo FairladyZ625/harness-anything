@@ -27,6 +27,7 @@ import { EgoNeighborhood } from "../graph/EgoNeighborhood";
 import { EgoHopsControl } from "../graph/EgoHopsControl";
 import type { EgoHopBudget } from "../graph/egoCanvas";
 import { applyTerritoryDensity, partitionForSkel } from "../graph/territory";
+import { isFactVisibleWithHost } from "../graph/moduleAssignment";
 import { layoutTerritory } from "../graph/territoryLayout";
 import { defaultKindFilter, defaultAxisFilter, type FlowAnimMode } from "../graph/relationVisual";
 import {
@@ -299,27 +300,33 @@ function GraphViewInner({
       taskPassesStatusFilter(task, filters.entityStatus) &&
       (showArchived || !isTaskArchiveNoise(task));
     const visibleTasks = tasks.filter(taskVisible);
+    const visibleTaskIds = new Set(visibleTasks.map((task) => task.taskId));
+    const allTaskIds = new Set(tasks.map((task) => task.taskId));
     const moduleByTaskId = new Map(tasks.map((task) => [task.taskId, task.module] as const));
-    // fact 跟随宿主 task 的 module 可见性;无宿主(未知/外部)不因 module 筛选隐藏。
-    const ownerTaskForFact = (fact: FactRef) => {
-      const ref = fact.anchor.startsWith("fact/") ? fact.anchor : `fact/${fact.anchor}`;
-      return activeProducesFactRefs(relations)
-        .find((edge) => edge.targetRef === ref)
+    // fact 跟随宿主 task 的可见性;宿主被归档/状态过滤隐藏时随宿主隐藏,不降级成未投影;无宿主 fact 保持可见。
+    const isFactRefVisible = (ref: string) => {
+      if (!typeOn("fact")) return false;
+      const canonicalRef = ref.startsWith("fact/") ? ref : `fact/${ref}`;
+      if (!isFactVisibleWithHost(canonicalRef, visibleTaskIds, allTaskIds, relations)) return false;
+      const ownerTaskId = activeProducesFactRefs(relations)
+        .find((edge) => edge.targetRef === canonicalRef)
         ?.sourceRef.slice("task/".length);
+      if (ownerTaskId && allTaskIds.has(ownerTaskId)) {
+        const ownerModule = moduleByTaskId.get(ownerTaskId);
+        if (ownerModule !== undefined && !filters.modules.has(ownerModule)) return false;
+      }
+      return true;
     };
-    const factVisible = (fact: FactRef) => {
-      const ownerTaskId = ownerTaskForFact(fact),
-        ownerModule = ownerTaskId ? moduleByTaskId.get(ownerTaskId) : undefined;
-      return typeOn("fact") && (ownerModule === undefined || filters.modules.has(ownerModule));
-    };
+    const visibleFacts = facts.filter((f) => isFactRefVisible(f.anchor));
+    const visibleFactAnchors = (factAnchors ?? []).filter((a) => isFactRefVisible(a.factRef));
     const partition = partitionForSkel(
       skel,
       visibleTasks,
       typeOn("decision")
         ? decisions.filter((decision) => decisionPassesStateFilter(decision, filters.entityStatus))
         : [],
-      facts.filter(factVisible),
-      factAnchors ?? [],
+      visibleFacts,
+      visibleFactAnchors,
       relations,
       coverageRows ?? [],
       typeOn("agent") ? agents : [],

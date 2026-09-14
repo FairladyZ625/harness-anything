@@ -1,7 +1,7 @@
 import type { TaskRow, DecisionRow, FactRef, RelationEdge } from "../model/types";
 import type { FactAnchorRow, RelationCoverageRow } from "../../api/renderer-dto";
 import { incomingRelations } from "../model/relation-direction.ts";
-import { resolveTaskModule, resolveFactModule, UNPROJECTED_MODULE } from "./moduleAssignment";
+import { resolveTaskModule, resolveFactModule, UNPROJECTED_MODULE, isModuleUnprojected } from "./moduleAssignment";
 import { buildGenealogyEdges, decisionIdOf } from "./genealogy";
 import { clusterTasksByPrd, type ZoneProgress } from "./territoryProgress";
 import type { EntityKind } from "./endpoint";
@@ -79,7 +79,11 @@ export function partitionTasks(tasks: ReadonlyArray<TaskRow>): TerritoryZone[] {
       label: task.title,
       sub: task.coordinationStatus,
       entity: "task" as const,
-      moduleId: resolveTaskModule(task.module),
+      moduleId: cluster.progress.unprojected
+        ? UNPROJECTED_MODULE
+        : isModuleUnprojected(task.module)
+          ? cluster.rootId
+          : task.module,
       ...(task.pinned === true ? { pinned: true } : {}),
     })),
     progress: cluster.progress,
@@ -355,14 +359,14 @@ export function partitionFactsByAnomaly(
 }
 
 /**
- * 未投影计数走 **chip 级真相**。task 分区改按 PRD 根聚簇后,module 不再是分组轴,
- * 只数「整块未投影」会把散落在真实 PRD 块里的缺字段 task 漏报成已投影。
+ * 未投影计数:只统计真正落进未投影块的实体(CEO 裁决 2026-09-14)。
+ * 已按 PRD 根聚簇的 task 不计未投影,fact 跟随宿主落点。
  */
 function countUnprojectedChips(zones: ReadonlyArray<TerritoryZone>): number {
   let count = 0;
   for (const zone of zones) {
-    for (const chip of zone.chips) {
-      if (chip.moduleId === UNPROJECTED_MODULE) count += 1;
+    if (zone.moduleId === UNPROJECTED_MODULE) {
+      count += zone.chips.length;
     }
   }
   return count;
