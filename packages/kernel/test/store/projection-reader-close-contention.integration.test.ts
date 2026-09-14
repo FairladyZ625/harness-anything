@@ -40,12 +40,14 @@ test("a persistent writer owner keeps query-only readers on the completed cut af
       },
       projection = makeTaskProjection({ rootDir, eventStore }),
       start = new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT),
-      stop = new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT),
+      readerStop = new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT),
+      writerClose = new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT),
       common = {
         rootDir,
         projectionPath: projection.path,
         start,
-        stop,
+        readerStop,
+        writerClose,
         rows: 1024,
         payloadBytes: 1024 * 1024,
       };
@@ -59,9 +61,12 @@ test("a persistent writer owner keeps query-only readers on the completed cut af
     Atomics.store(new Int32Array(start), 0, 1);
     Atomics.notify(new Int32Array(start), 0);
     await Promise.all([writer.written, ...readers.map(({ firstSettled }) => firstSettled)]);
-    Atomics.store(new Int32Array(stop), 0, 1);
-    Atomics.notify(new Int32Array(stop), 0);
-    const [writerResult, ...readerResults] = await Promise.all([writer.result, ...readers.map(({ result }) => result)]);
+    Atomics.store(new Int32Array(readerStop), 0, 1);
+    Atomics.notify(new Int32Array(readerStop), 0);
+    const readerResults = await Promise.all(readers.map(({ result }) => result));
+    Atomics.store(new Int32Array(writerClose), 0, 1);
+    Atomics.notify(new Int32Array(writerClose), 0);
+    const writerResult = await writer.result;
     assert.equal(writerResult.ok, true, JSON.stringify(writerResult));
     assert.ok(
       readerResults.every(({ samples }) => (samples ?? 0) > 0),
@@ -82,7 +87,8 @@ test("a warm writer owner cannot starve rebuild and reopens after the database i
       rootDir,
       projectionPath: path.join(rootDir, ".harness/cache/task.sqlite"),
       start: new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT),
-      stop: new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT),
+      readerStop: new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT),
+      writerClose: new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT),
       rows: 0,
       payloadBytes: 0,
     }).result;
