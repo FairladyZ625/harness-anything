@@ -1,10 +1,6 @@
 import type { SafePath } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
-import { accepted, readFlags, rejectInput } from "./thin-command-flags.ts";
-import type {
-  ProtocolCommand,
-  ThinCliInputDirectory,
-  ThinParseResult,
-} from "./thin-command-types.ts";
+import { accepted, readFlags, rejected } from "./thin-command-flags.ts";
+import type { ProtocolCommand, ThinParseResult } from "./thin-command-types.ts";
 
 type ParsedFlags = Extract<ReturnType<typeof readFlags>, { readonly ok: true }>;
 
@@ -15,16 +11,13 @@ export function parseRuntimeStatus(
   json: boolean,
   runtimeSessionId: string | undefined,
   flags: ParsedFlags,
-  inputs: ThinCliInputDirectory,
 ): ThinParseResult {
   const wait = flags.booleans.has("--wait"),
     noStream = flags.booleans.has("--no-stream");
   if (runtimeSessionId && flags.one.has("--task"))
-    return rejectInput(inputs, route.id, "--task", json);
+    return rejected("invalid_field", "Use either <runtime-session-id> or --task <task-id>, not both.", json);
   if (!runtimeSessionId && !flags.one.has("--task") && wait)
-    return rejectInput(inputs, route.id, "--wait", json);
-  if (!wait && noStream)
-    return rejectInput(inputs, route.id, "--no-stream", json);
+    return rejected("invalid_field", "Use --wait with a runtime session id or --task <task-id>.", json);
   return accepted(
     rootDir,
     repoId,
