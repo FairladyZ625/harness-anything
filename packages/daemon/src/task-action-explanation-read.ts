@@ -29,6 +29,7 @@ import {
   type TaskProjection,
 } from "../../kernel/src/index.ts";
 import { authorizeRepoCellAction } from "./repo-cell-authorization.ts";
+import { taskActionCommandUsage } from "./protocol/daemon-protocol-commands.ts";
 import { compiledArtifactKinds } from "./artifact-entity-action.ts";
 import { readEffectiveCloseoutGates } from "./repo-cell-settings-state.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
@@ -96,6 +97,7 @@ export function readTaskActionExplanation(
       actor: binding.actor,
       authorize: ({ action, target, evaluatedAtCut }) =>
         explainAuthorization(action, target, evaluatedAtCut, "task", binding, headRevision, evaluatedAt),
+      usage: taskActionCommandUsage,
     }),
     squadService = makeSquadActionExplanationService({
       actor: binding.actor,
@@ -335,6 +337,7 @@ function catalogExplanation(
     authorize: () => {
       throw new Error("Catalog explanations do not evaluate authorization.");
     },
+    usage: taskActionCommandUsage,
   };
   if (kind === "task") return makeTaskActionExplanationService(dependencies).catalog();
   if (kind === "person") return makePersonActionExplanationService(dependencies).catalog();

@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { makeTaskActionExplanationService } from "../../application/src/task-action-explanation-service.ts";
+import { taskActionCommandUsage } from "../../daemon/src/protocol/daemon-protocol-commands.ts";
 import {
   generatedTaskActionProtocolDeclarations,
   taskActionHelpRows,
@@ -50,6 +51,7 @@ test("human explain output labels catalog availability as not evaluated", () => 
       authorize: () => {
         throw new Error("catalog rendering must not evaluate authorization");
       },
+      usage: taskActionCommandUsage,
     }).catalog(),
     rendered = renderEntityActionExplanation(catalog);
   assert.match(rendered, /Task actions \(catalog; availability is not evaluated without an object\)/u);

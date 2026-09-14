@@ -2,7 +2,6 @@ import {
   ENTITY_ACTION_EXPLANATION_SCHEMA,
   evaluateTaskActionCapability,
   getEntityKindContract,
-  taskActionUsage,
   validateEntityActionExplanationSet,
   type ActorIdentity,
   type AuthorizationDecision,
@@ -25,6 +24,8 @@ export interface TaskActionExplanationAuthorizationInput {
 export interface TaskActionExplanationServiceDependencies {
   readonly actor: ActorIdentity;
   readonly authorize: (input: TaskActionExplanationAuthorizationInput) => AuthorizationDecision;
+  /** Quotes the command the router accepts; the daemon supplies it from the protocol declarations. */
+  readonly usage: (action: EntityActionContract) => string;
 }
 
 export interface TaskActionExplanationObjectInput {
@@ -53,7 +54,7 @@ export function makeTaskActionExplanationService(
             kind: "task",
             ref: null,
             revision: null,
-            actions: catalog.actions.map((action) => catalogRow(catalog.ref, action)),
+            actions: catalog.actions.map((action) => catalogRow(catalog.ref, action, dependencies.usage)),
             failure: null,
           },
         ],
@@ -89,7 +90,11 @@ function taskActionCatalog(): { readonly ref: string; readonly actions: readonly
   return catalog;
 }
 
-function descriptor(catalogRef: string, action: EntityActionContract): EntityActionExplanationV1["action"] {
+function descriptor(
+  catalogRef: string,
+  action: EntityActionContract,
+  usage: (action: EntityActionContract) => string,
+): EntityActionExplanationV1["action"] {
   return Object.freeze({
     kind: "task" as const,
     id: action.id,
@@ -97,15 +102,19 @@ function descriptor(catalogRef: string, action: EntityActionContract): EntityAct
     contractVersion: `${action.version.major}.${action.version.minor}`,
     explain: action.explain,
     syntax: Object.freeze({
-      usage: taskActionUsage(action),
+      usage: usage(action),
       inputs: action.input.fields,
     }),
   });
 }
 
-function catalogRow(catalogRef: string, action: EntityActionContract): EntityActionExplanationV1 {
+function catalogRow(
+  catalogRef: string,
+  action: EntityActionContract,
+  usage: (action: EntityActionContract) => string,
+): EntityActionExplanationV1 {
   return Object.freeze({
-    action: descriptor(catalogRef, action),
+    action: descriptor(catalogRef, action, usage),
     target: null,
     available: null,
     criteria: Object.freeze(
@@ -160,7 +169,7 @@ function objectRow(
   )
     throw new Error("Task Action authorization decision does not match the actor, target, and canonical cut.");
   return Object.freeze({
-    action: descriptor(catalogRef, action),
+    action: descriptor(catalogRef, action, dependencies.usage),
     target: Object.freeze({ ref: target, revision: input.entity.revision }),
     available: authorizationDecision.outcome === "allowed" && unmetCriteria.length === 0,
     criteria,
