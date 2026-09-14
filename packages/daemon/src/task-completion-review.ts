@@ -53,6 +53,15 @@ export async function dispatchCompletionReview(
       },
       steps,
     );
+  // Once the return budget is spent the ledger refuses a changes_requested RecordReview; the cut can
+  // still be approved. The receipt must say both instead of promising a verdict that cannot land.
+  const returnBudget = cell.settings.readRepository().reviewReturnBudget,
+    budgetNote =
+      snapshot.task!.iteration >= returnBudget
+        ? ` Return budget ${String(returnBudget)} is spent at iteration ${String(snapshot.task!.iteration)}: a ` +
+          "changes_requested RecordReview will be refused. Raise it with `ha settings update " +
+          "--review-return-budget <n>`, or amend the submission so the reviewer can approve."
+        : "";
   // Attempt 0 keeps the historical key; each retry appends ":retry<N>". The deterministic opId per
   // key stays the claim fence that makes concurrent completions share one dispatch per attempt.
   let replaced: { readonly dispatchId: string; readonly outcome: string } | null = null;
@@ -179,9 +188,11 @@ export async function dispatchCompletionReview(
           replaced
             ? `Reviewer dispatch ${replaced.dispatchId} ended ${replaced.outcome} without recording a review; ` +
                 `replacement dispatch ${ids.dispatchId} owns this submitted cut. Wait for its independent ` +
-                "RecordReview, then retry completion."
+                "RecordReview, then retry completion." +
+                budgetNote
             : `Reviewer dispatch ${ids.dispatchId} owns this submitted cut. Wait for its independent ` +
-                "RecordReview, then retry completion.",
+                "RecordReview, then retry completion." +
+                budgetNote,
         ),
         dispatchId: ids.dispatchId,
         runtimeSessionId: ids.runtimeSessionId,
