@@ -27,6 +27,7 @@
   "shell.nav.browser": "浏览器",
   "shell.nav.agentSquad": "Agent · 含 Squad",
   "shell.nav.providers": "Provider",
+  "shell.nav.tokenUsage": "Token 消耗",
   "shell.nav.schedules": "定时计划",
   "shell.nav.artifacts": "产物"
 }

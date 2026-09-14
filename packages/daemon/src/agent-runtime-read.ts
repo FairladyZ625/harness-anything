@@ -11,13 +11,13 @@ import {
   type RuntimeSession,
   type TaskProjection,
 } from "../../kernel/src/index.ts";
+import type { AgentRuntimeAttemptChainDto } from "./runtime-attempt-contract.ts";
 import {
   agentRuntimeSessionGroupStatusWords,
   coded,
   type AgentRuntimeEventsResult,
   type AgentRuntimeInstallationDto,
   type AgentRuntimeOverviewResult,
-  type AgentRuntimeAttemptChainDto,
   type AgentRuntimeSessionDto,
   type AgentRuntimeSessionGroupsResult,
   type AgentRuntimeSessionGroupStatus,
@@ -87,6 +87,19 @@ export function makeAgentRuntimeReadModel(input: {
         ? runtimeKindForInstallation(installation).kindId
         : historicalRuntimeKindId(session, definition.snapshot),
       ...(installationError ? { installationState: "missing" as const, installationError } : {}),
+      // 消耗面板的数据面:与 liveness 同一份 dispatch stream summary,零额外读。
+      ...(evidence?.runtimeMetrics
+        ? {
+            metrics: {
+              inputTokens: evidence.runtimeMetrics.inputTokens,
+              cacheReadTokens: evidence.runtimeMetrics.cacheReadTokens,
+              outputTokens: evidence.runtimeMetrics.outputTokens,
+              totalTokens: evidence.runtimeMetrics.totalTokens,
+              toolCallCount: evidence.runtimeMetrics.toolCallCount,
+              compacted: evidence.runtimeMetrics.compacted,
+            },
+          }
+        : {}),
       definitionSnapshotRef: session.definitionSnapshotRef,
       definitionSnapshot: definition.snapshot,
       definitionSnapshotPersisted: definition.persisted,

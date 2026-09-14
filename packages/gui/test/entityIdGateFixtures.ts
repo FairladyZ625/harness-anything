@@ -1,11 +1,12 @@
 import type { DecisionRow, FactRef, RelationEdge, TaskRow, Project, EventEntry } from "../src/renderer/model/types.ts";
 import { decisionProjectionFields } from "./decision-projection-fields.ts";
-import type { WorkspaceSummaryRead } from "../src/api/renderer-dto.ts";
+import type { RelationCoverageRow, WorkspaceSummaryRead } from "../src/api/renderer-dto.ts";
 import type {
   AgentRuntimeSessionDto,
   AgentRuntimeInstanceDto,
   AgentRuntimeOverviewResult,
 } from "../../daemon/src/agent-runtime-contract.ts";
+import type { AgentRuntimeTokenUsageResult } from "../../daemon/src/agent-runtime-token-usage.ts";
 import type {
   AgentEntityDetail,
   AgentEntityRow,
@@ -53,7 +54,7 @@ export const ENTITY_ID_NEEDLES: readonly string[] = [
   SESSION_ID,
 ].sort((a, b) => b.length - a.length);
 
-const AT = "2026-08-20T00:00:00.000Z";
+export const AT = "2026-08-20T00:00:00.000Z";
 
 export function fixtureTaskRow(taskId: string, title: string): TaskRow {
   return {
@@ -336,4 +337,51 @@ export const FIXTURE_DOCK_ROW: RuntimeDockRow = {
   status: "running",
   squad: null,
   delegation: null,
+};
+
+/**
+ * 风化视图的 coverage 夹具:fixture 决策 dec_g10alpha 的承重 claim CH1 处于
+ * uncovered(被活事实反驳),让 it.each 的死 ID 扫描覆盖到反驳事实链接的渲染面。
+ * uncovered 行的成因由夹具直接以 freshnessReason 提供(daemon 读面附带、kernel
+ * `freshnessReasonOf` 判定)——测试不重算成因,与 renderer 同为纯消费者。
+ */
+export function freshnessCoverage(patch: Partial<RelationCoverageRow> = {}): RelationCoverageRow {
+  const row = {
+    decisionRef: `decision/${DECISION_ID}`,
+    claimRef: `decision/${DECISION_ID}/CH1`,
+    status: "covered",
+    fulfillment: "standing-policy",
+    refutingFactRefs: [] as readonly string[],
+    relationPath: [] as readonly string[],
+    basisRevision: 1,
+    ...patch,
+  };
+  // covered 布尔与 status 同一判定(kernel coverageIsCovered),fixture 按终值补齐。
+  return { ...row, covered: row.status === "covered" };
+}
+export const FRESHNESS_COVERAGE_ROWS: readonly RelationCoverageRow[] = [
+  freshnessCoverage({ status: "uncovered", refutingFactRefs: [FACT_REF], freshnessReason: "refuted" }),
+  freshnessCoverage({ claimRef: `decision/${DECISION_ID}/CH2`, status: "covered" }),
+];
+
+/** Token 消耗页的聚合读夹具:行 id 是归因文本(非实体链接),刻意避开针表 id。 */
+export const TOKEN_USAGE_READ: AgentRuntimeTokenUsageResult = {
+  ok: true,
+  status: "ready",
+  since: AT,
+  agents: [
+    {
+      agentId: "usage-worker",
+      agentName: "Usage Worker",
+      sessionCount: 1,
+      inputTokens: 100,
+      cacheReadTokens: 0,
+      outputTokens: 20,
+      totalTokens: 120,
+      toolCallCount: 2,
+    },
+  ],
+  squads: [],
+  watermark: 1,
+  sourceRevision: 1,
 };

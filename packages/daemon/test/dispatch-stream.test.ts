@@ -173,7 +173,11 @@ test("ZCode provider writes and its live worker host form current session activi
       summary?.records.map((record) => record.kind),
       ["process_started"],
     );
-    assert.deepEqual(evidence, { lastObservedAt: "2026-09-06T00:00:05.000Z", workerHostAlive: true });
+    assert.deepEqual(evidence, {
+      lastObservedAt: "2026-09-06T00:00:05.000Z",
+      workerHostAlive: true,
+      runtimeMetrics: null,
+    });
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

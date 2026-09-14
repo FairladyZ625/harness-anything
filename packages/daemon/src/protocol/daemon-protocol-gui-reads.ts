@@ -1,6 +1,5 @@
-import type { EntityResidencyFacets } from "../../../kernel/src/index.ts";
-import { repoReadCommandTopology } from "../../../preset/src/preset-command-contract.ts";
-import { observeTailKinds, shape, type DaemonGuiRpcReadMethod } from "./daemon-protocol-gui-types.ts";
+import { shape, type DaemonGuiRpcReadMethod } from "./daemon-protocol-gui-types.ts";
+import { observeTailReadMethod } from "./daemon-protocol-observe-tail-read.ts";
 import {
   DAEMON_AGENDA_SCHEMA,
   DAEMON_ARTIFACTS_LIST_SCHEMA,
@@ -10,6 +9,7 @@ import {
   DAEMON_AGENT_RUNTIME_EVENTS_SCHEMA,
   DAEMON_AGENT_RUNTIME_OVERVIEW_SCHEMA,
   DAEMON_AGENT_RUNTIME_SESSION_SCHEMA,
+  DAEMON_AGENT_RUNTIME_TOKEN_USAGE_SCHEMA,
   DAEMON_AGENT_SKILL_CATALOG_SCHEMA,
   DAEMON_CONTROL_RECEIPT_SCHEMA,
   DAEMON_DECISION_LIST_SCHEMA,
@@ -20,7 +20,6 @@ import {
   DAEMON_ENTITY_ROW_LIST_SCHEMA,
   DAEMON_ENTITY_CONTENT_READ_SCHEMA,
   DAEMON_ENTITY_LOCATOR_READ_SCHEMA,
-  DAEMON_OBSERVE_TAIL_SCHEMA,
   DAEMON_PROTOCOL_ERROR_SCHEMA,
   DAEMON_USE_CASE_PROJECTION_SCHEMA,
   DAEMON_RELATION_GRAPH_SCHEMA,
@@ -47,38 +46,6 @@ import {
   TERMINAL_SESSION_LIST_SCHEMA,
   ENTITY_ACTION_EXPLAIN_REQUEST_SCHEMA,
 } from "./daemon-protocol-schema-ids.ts";
-
-export const observeTailReadMethod = Object.freeze({
-  id: "observe.tail",
-  phase: "G8",
-  method: "observe.tail",
-  requiresRepo: true,
-  params: shape({
-    repo: shape({ repoId: "string" }),
-    payload: shape({
-      kind: { values: observeTailKinds, optional: false },
-      direction: { values: ["history", "follow"], optional: false },
-      cursor: "json?",
-      dispatchId: "string?",
-    }),
-  }),
-  guiBridgeMethod: "tailObservability",
-  httpMethod: "POST",
-  path: "/api/observe/tail",
-  inputSchemaId: "gui.observe-tail/v3",
-  outputSchemaId: DAEMON_OBSERVE_TAIL_SCHEMA.id,
-  errorSchemaId: DAEMON_PROTOCOL_ERROR_SCHEMA.id,
-  serviceMethod: "tailObservability",
-  auth: "local-session-token",
-  ...repoReadCommandTopology,
-  residency: Object.freeze({
-    events: "projection",
-    "repo-log": "runtime-local",
-    "daemon-log": "runtime-local",
-    lifecycle: "runtime-local",
-    dispatch: "runtime-local",
-  } satisfies EntityResidencyFacets),
-} as const);
 
 export const daemonGuiReadMethods = Object.freeze([
   {
@@ -516,6 +483,24 @@ export const daemonGuiReadMethods = Object.freeze([
     outputSchemaId: DAEMON_AGENT_RUNTIME_EVENTS_SCHEMA.id,
     errorSchemaId: DAEMON_PROTOCOL_ERROR_SCHEMA.id,
     serviceMethod: "readAgentRuntimeEvents",
+    auth: "local-session-token",
+    commandClass: "repo-read",
+  },
+  {
+    // Today's per-agent (and per-squad) consumption aggregate over dispatch stream metrics;
+    // the daemon owns the window (local midnight), so the payload stays empty.
+    id: "agentRuntime.tokenUsage",
+    phase: "Runtime-B",
+    method: "repo.agentRuntime.tokenUsage",
+    requiresRepo: true,
+    params: shape({ repo: shape({ repoId: "string" }) }),
+    guiBridgeMethod: "getAgentRuntimeTokenUsage",
+    httpMethod: "GET",
+    path: "/api/agent-runtime/token-usage",
+    inputSchemaId: "gui.empty/v1",
+    outputSchemaId: DAEMON_AGENT_RUNTIME_TOKEN_USAGE_SCHEMA.id,
+    errorSchemaId: DAEMON_PROTOCOL_ERROR_SCHEMA.id,
+    serviceMethod: "readAgentRuntimeTokenUsage",
     auth: "local-session-token",
     commandClass: "repo-read",
   },

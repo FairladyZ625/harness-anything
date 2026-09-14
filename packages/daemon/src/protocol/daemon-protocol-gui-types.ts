@@ -38,6 +38,11 @@ import type {
   AgentRuntimeOverviewResult,
   AgentRuntimeSessionResult,
 } from "../agent-runtime-contract.ts";
+import type { AgentRuntimeTokenUsageResult } from "../agent-runtime-token-usage.ts";
+import type {
+  DaemonUseCaseProjectionPayload,
+  DaemonUseCaseProjectionResult,
+} from "./daemon-protocol-use-case-projection.ts";
 import type { AgentRuntimeAttachResult } from "../agent-runtime-stream.ts";
 import type { SquadRunReadResult, SquadRunsListResult } from "../squad-run-contract.ts";
 import type { ArtifactsListResult } from "./artifacts-gui-contract.ts";
@@ -395,6 +400,7 @@ export type DaemonGuiReadResultMap = {
   readonly "repo.agentRuntime.overview": AgentRuntimeOverviewResult;
   readonly "repo.agentRuntime.sessions.read": AgentRuntimeSessionResult;
   readonly "repo.agentRuntime.events.read": AgentRuntimeEventsResult;
+  readonly "repo.agentRuntime.tokenUsage": AgentRuntimeTokenUsageResult;
   readonly "repo.task.dispatches": DaemonTaskDispatchesResult;
   readonly "repo.agent.entities.list": Extract<AgentEntityGuiRead, { readonly schema: "agent-entity-catalog/v1" }>;
   readonly "repo.agent.entity.read": Extract<AgentEntityGuiRead, { readonly schema: "agent-entity-detail/v1" }>;
@@ -463,6 +469,7 @@ export type DaemonGuiReadPayloadMap = {
     readonly runtimeSessionId: string;
     readonly afterCursor: string;
   };
+  readonly "repo.agentRuntime.tokenUsage": Readonly<Record<string, never>>;
   readonly "repo.task.dispatches": DaemonTaskDispatchesPayload;
   readonly "repo.agent.entities.list": Readonly<Record<string, never>>;
   readonly "repo.agent.entity.read": { readonly agentId: string };
@@ -936,27 +943,4 @@ export function admitUseCaseProjectionSelector(
   return { name, facet };
 }
 
-export interface DaemonUseCaseProjectionResult {
-  readonly schema: typeof useCaseProjectionSchemaId;
-  readonly ok: true;
-  readonly name: UseCaseProjectionName;
-  readonly facet: UseCaseProjectionFacet;
-  readonly version: number;
-  /** Derived from `entityKindContracts` at read time, never restated on the wire declaration. */
-  readonly inputs: { readonly entityKinds: readonly string[]; readonly relationTypes: readonly string[] };
-  readonly projection: unknown;
-}
-
-export interface DaemonUseCaseProjectionPayload {
-  readonly name: UseCaseProjectionName;
-  readonly facet?: UseCaseProjectionFacet;
-  readonly scheduleId?: string;
-  readonly groupBy?: "task" | "squad" | "agent" | "day";
-  readonly agentId?: string;
-  readonly squadId?: string;
-  readonly since?: string;
-  readonly query?: string;
-  /** Session status words the group read narrows to; the daemon owns the vocabulary. */
-  readonly status?: readonly string[];
-  readonly limit?: number;
-}
+export type { DaemonUseCaseProjectionPayload, DaemonUseCaseProjectionResult };

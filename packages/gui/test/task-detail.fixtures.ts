@@ -421,6 +421,15 @@ export function installBridge({
       sourceCursor: "lifecycle:7",
       done: true,
     })),
+    getAgentRuntimeTokenUsage: vi.fn(async () => ({
+      ok: true,
+      status: "ready",
+      since: "2026-08-23T00:00:00.000Z",
+      agents: [],
+      squads: [],
+      watermark: 7,
+      sourceRevision: 7,
+    })),
   };
   vi.stubGlobal("window", { harness: bridge, addEventListener: () => undefined, removeEventListener: () => undefined });
   return bridge;

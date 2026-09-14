@@ -28,6 +28,7 @@ import { validationError } from "./daemon-protocol-validate-entities.ts";
 import { validateArtifactsList } from "./artifacts-gui-contract.ts";
 import { validateDaemonUseCaseProjection } from "./daemon-protocol-use-case-projection.ts";
 import { validateEntityRowList } from "../entity-rows-read.ts";
+import { validateAgentRuntimeTokenUsage } from "../agent-runtime-token-usage.ts";
 import { validateEntityContentRead } from "../entity-content-read.ts";
 import { validateEntityLocatorRead } from "../entity-locator-read.ts";
 import { isJsonObject } from "./json-rpc-types.ts";
@@ -130,6 +131,7 @@ const resultValidators = {
   "repo.agentRuntime.overview": validateAgentRuntimeOverview,
   "repo.agentRuntime.sessions.read": validateAgentRuntimeSession,
   "repo.agentRuntime.events.read": validateAgentRuntimeEvents,
+  "repo.agentRuntime.tokenUsage": validateAgentRuntimeTokenUsage,
   "repo.task.dispatches": validateDaemonTaskDispatches,
   "repo.agent.entities.list": validateAgentEntityCatalog,
   "repo.agent.entity.read": validateAgentEntityDetail,

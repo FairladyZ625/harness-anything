@@ -43,13 +43,15 @@ import { SchedulesView } from "./views/SchedulesView.tsx";
 import { ArtifactsView } from "./views/ArtifactsView.tsx";
 import { AgentSquadView } from "./views/AgentSquadView.tsx";
 import { ProvidersView } from "./views/ProvidersView.tsx";
+import { TokenUsageView } from "./views/TokenUsageView.tsx";
 import { useTaskActions } from "./task-actions.ts";
 import { useDecisionActions } from "./decision-actions.ts";
 import { selectActiveRepoId, useSystemStatusQuery } from "./system-data.ts";
 import { daemonErrorCode, daemonStartupPhase, isRetryableDaemonError } from "./daemon-startup.ts";
 import { useCatalogSnapshot } from "./catalog-data.ts";
 import { adaptRepoProject } from "./model/project-adapter.ts";
-import { TerminalView, type TerminalLaunchTask } from "./views/TerminalView.tsx";
+import { TerminalRoute } from "./views/TerminalRoute.tsx";
+import type { TerminalLaunchTask } from "./views/TerminalView.tsx";
 import { BrowserView } from "./views/BrowserView.tsx";
 import { NavigationHistoryBar } from "./components/NavigationHistoryBar.tsx";
 import { useViewHistory } from "./navigation/useViewHistory.ts";
@@ -664,30 +666,18 @@ function AppShell() {
                   focusedEntityRef={focusedEntityRef}
                   onSelectEntity={selectRuntimeEntity}
                 />
+              ) : view === "tokenUsage" ? (
+                <TokenUsageView repoId={projectId} />
               ) : view === "terminal" ? (
-                <TerminalView
+                <TerminalRoute
                   repoId={projectId}
                   daemonGeneration={activeRepo?.generation ?? null}
-                  tasks={projectTasks.map(({ taskId, title, parentTaskId, coordinationStatus, createdAt }) => ({
-                    taskId,
-                    title,
-                    parentTaskId,
-                    status: coordinationStatus,
-                    createdAt,
-                  }))}
+                  tasks={projectTasks}
                   launchTask={terminalLaunch}
                   repoRoot={activeRepo?.canonicalRoot ?? null}
+                  navigate={navigate}
                   onNavigateEntity={navigateToEntity}
                   onOpenDocument={openLocalDocument}
-                  openUrl={(uri) =>
-                    navigate({
-                      view: "browser",
-                      browserUrl: uri,
-                      focusedEntityRef: null,
-                      selectedId: null,
-                      previewId: null,
-                    })
-                  }
                 />
               ) : view === "browser" ? (
                 <BrowserView initialUrl={location.browserUrl} />

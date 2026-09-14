@@ -16,15 +16,16 @@ import {
   readDispatchStreamHeaders,
   removeDispatchLiveIndexEntries,
   type DispatchStreamHeader,
+  type RuntimeMetrics,
 } from "./dispatch-stream.ts";
 import type {
   DaemonTaskDispatchesPayload,
   DaemonTaskDispatchesResult,
   TaskDispatchRow,
 } from "./protocol/daemon-protocol.contract.ts";
-import type { AgentRuntimeAttemptChainDto } from "./agent-runtime-contract.ts";
 import { runtimePidIsAlive } from "./runtime-process-liveness.ts";
 import { projectedTaskNotFound } from "./projection-readiness.ts";
+import type { AgentRuntimeAttemptChainDto } from "./runtime-attempt-contract.ts";
 
 type DispatchLiveIndexRow = ReturnType<typeof readDispatchLiveIndex>["entries"][number];
 
@@ -37,6 +38,8 @@ type DispatchCandidate = {
 export interface RuntimeSessionActivityEvidence {
   readonly lastObservedAt: string;
   readonly workerHostAlive: boolean;
+  /** Latest dispatch-stream metrics for the session's dispatch; null until the worker emits them. */
+  readonly runtimeMetrics: RuntimeMetrics | null;
 }
 
 export function readRuntimeSessionActivityEvidence(
@@ -49,6 +52,7 @@ export function readRuntimeSessionActivityEvidence(
   return {
     lastObservedAt: stream.lastObservedAt,
     workerHostAlive: stream.process?.exited === false && runtimePidIsAlive(stream.process.pid),
+    runtimeMetrics: stream.runtimeMetrics,
   };
 }
 
@@ -306,6 +310,21 @@ function addCandidate(
   });
 }
 
+/** The wire metrics object of a dispatch row: the stream's latest runtime_metrics, minus `raw`. */
+function dispatchMetrics(stream: ReturnType<typeof readDispatchStreamSummary>): TaskDispatchRow["metrics"] | undefined {
+  const metrics = stream?.runtimeMetrics;
+  return metrics
+    ? {
+        inputTokens: metrics.inputTokens,
+        cacheReadTokens: metrics.cacheReadTokens,
+        outputTokens: metrics.outputTokens,
+        totalTokens: metrics.totalTokens,
+        toolCallCount: metrics.toolCallCount,
+        compacted: metrics.compacted,
+      }
+    : undefined;
+}
+
 function archiveRow(
   value: Record<string, unknown>,
   stream: ReturnType<typeof readDispatchStream>,
@@ -334,7 +353,8 @@ function archiveRow(
       exitCode,
       resultRef,
       ...(session?.reasonCode ? { reasonCode: session.reasonCode } : {}),
-    });
+    }),
+    metrics = dispatchMetrics(stream);
   return {
     dispatchId: String(value.dispatchId),
     taskId: String(value.taskId),
@@ -365,18 +385,7 @@ function archiveRow(
     ...(classification === "provider_quota" && stream ? { nextAction: resumeDispatchAction(stream.header) } : {}),
     fallbackState: stream?.fallbackState ?? null,
     nextDispatchId: stream?.nextDispatchId ?? null,
-    ...(stream?.runtimeMetrics
-      ? {
-          metrics: {
-            inputTokens: stream.runtimeMetrics.inputTokens,
-            cacheReadTokens: stream.runtimeMetrics.cacheReadTokens,
-            outputTokens: stream.runtimeMetrics.outputTokens,
-            totalTokens: stream.runtimeMetrics.totalTokens,
-            toolCallCount: stream.runtimeMetrics.toolCallCount,
-            compacted: stream.runtimeMetrics.compacted,
-          },
-        }
-      : {}),
+    ...(metrics ? { metrics } : {}),
     ...(typeof value.agentId === "string"
       ? { agentId: value.agentId, agentName: typeof value.agentName === "string" ? value.agentName : value.agentId }
       : {}),
@@ -414,7 +423,8 @@ function liveRow(
   reportPath: string | null,
   lost: boolean,
 ): TaskDispatchRow {
-  const outcome = session ? runtimeSessionOutcomeFromEvidence(session) : null;
+  const outcome = session ? runtimeSessionOutcomeFromEvidence(session) : null,
+    metrics = dispatchMetrics(stream);
   return {
     dispatchId: header.dispatchId,
     taskId: header.taskId!,
@@ -437,18 +447,7 @@ function liveRow(
       : {}),
     fallbackState: stream?.fallbackState ?? null,
     nextDispatchId: stream?.nextDispatchId ?? null,
-    ...(stream?.runtimeMetrics
-      ? {
-          metrics: {
-            inputTokens: stream.runtimeMetrics.inputTokens,
-            cacheReadTokens: stream.runtimeMetrics.cacheReadTokens,
-            outputTokens: stream.runtimeMetrics.outputTokens,
-            totalTokens: stream.runtimeMetrics.totalTokens,
-            toolCallCount: stream.runtimeMetrics.toolCallCount,
-            compacted: stream.runtimeMetrics.compacted,
-          },
-        }
-      : {}),
+    ...(metrics ? { metrics } : {}),
     ...(header.agentId ? { agentId: header.agentId, agentName: header.agentName ?? header.agentId } : {}),
     ...(header.delegatedByAgentId
       ? {

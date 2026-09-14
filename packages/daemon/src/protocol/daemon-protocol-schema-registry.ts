@@ -10,6 +10,7 @@ import {
   DAEMON_AGENT_RUNTIME_OVERVIEW_SCHEMA,
   DAEMON_AGENT_RUNTIME_SESSION_GROUPS_SCHEMA,
   DAEMON_AGENT_RUNTIME_SESSION_SCHEMA,
+  DAEMON_AGENT_RUNTIME_TOKEN_USAGE_SCHEMA,
   DAEMON_AGENT_SKILL_CATALOG_SCHEMA,
   DAEMON_CONTROL_RECEIPT_SCHEMA,
   DAEMON_CI_OBSERVATORY_SCHEMA,
@@ -280,6 +281,17 @@ export const daemonGuiReadSchemas = Object.freeze([
     writer: "packages/daemon/src/agent-runtime-contract.ts#serializeAgentRuntimeSession",
     error: "packages/daemon/src/protocol/daemon-protocol.contract.ts#DaemonProtocolContractError",
     negativeFixtures: Object.freeze(["packages/daemon/fixtures/contracts/daemon-agent-runtime-session-invalid.json"]),
+  },
+  {
+    id: DAEMON_AGENT_RUNTIME_TOKEN_USAGE_SCHEMA.id,
+    // 锚定定义处(schema-ids.ts):contract.ts 的再导出面已在其行数 ratchet 上。
+    schema: "packages/daemon/src/protocol/daemon-protocol-schema-ids.ts#DAEMON_AGENT_RUNTIME_TOKEN_USAGE_SCHEMA",
+    parser: "packages/daemon/src/agent-runtime-token-usage.ts#validateAgentRuntimeTokenUsage",
+    writer: "packages/daemon/src/agent-runtime-token-usage.ts#serializeAgentRuntimeTokenUsage",
+    error: "packages/daemon/src/protocol/daemon-protocol.contract.ts#DaemonProtocolContractError",
+    negativeFixtures: Object.freeze([
+      "packages/daemon/fixtures/contracts/daemon-agent-runtime-token-usage-invalid.json",
+    ]),
   },
   {
     id: DAEMON_AGENT_RUNTIME_EVENTS_SCHEMA.id,

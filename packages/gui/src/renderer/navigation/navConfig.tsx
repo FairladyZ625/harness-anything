@@ -14,6 +14,7 @@ import {
   FileHtml,
   BookOpen,
   TerminalWindow,
+  ChartLine,
 } from "@phosphor-icons/react";
 import { t, type MessageKey } from "../i18n/index.tsx";
 import type { ViewId } from "./viewHistory.ts";
@@ -43,6 +44,7 @@ const NAV_LABEL_KEY: Record<ViewId, MessageKey> = {
   artifacts: "shell.nav.artifacts",
   agentSquad: "shell.nav.agentSquad",
   providers: "shell.nav.providers",
+  tokenUsage: "shell.nav.tokenUsage",
   terminal: "shell.nav.terminal",
   browser: "shell.nav.browser",
   system: "shell.nav.system",
@@ -96,6 +98,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       { id: "entities", icon: <BookOpen weight="duotone" /> },
       { id: "presets", icon: <Stack weight="duotone" /> },
       { id: "adapters", icon: <PlugsConnected weight="duotone" /> },
+      { id: "tokenUsage", icon: <ChartLine weight="duotone" /> },
       { id: "system", icon: <GearSix weight="duotone" /> },
       { id: "settings", icon: <GearSix weight="duotone" /> },
     ],

@@ -5,6 +5,7 @@ import type {
   AgentRuntimeSessionGroupStatus,
   AgentRuntimeSessionResult,
 } from "../../../daemon/src/agent-runtime-contract.ts";
+import type { AgentRuntimeTokenUsageResult } from "../../../daemon/src/agent-runtime-token-usage.ts";
 import type { DaemonGuiReadPayloadMap } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { isRendererRecord, rendererErrorHint } from "./result-validation.ts";
 import { readUseCaseProjection } from "./use-case-projection-client.ts";
@@ -19,11 +20,19 @@ type RuntimeBridge = {
   readonly getAgentRuntimeEvents: (
     payload: DaemonGuiReadPayloadMap["repo.agentRuntime.events.read"],
   ) => Promise<unknown>;
+  readonly getAgentRuntimeTokenUsage: (
+    payload: DaemonGuiReadPayloadMap["repo.agentRuntime.tokenUsage"],
+  ) => Promise<unknown>;
 };
 type RepoScope = { readonly repoId: string };
 const bridge = (): RuntimeBridge => {
   const value = window.harness as unknown as Partial<RuntimeBridge> | undefined;
-  if (!value?.getAgentRuntimeOverview || !value.getAgentRuntimeSession || !value.getAgentRuntimeEvents)
+  if (
+    !value?.getAgentRuntimeOverview ||
+    !value.getAgentRuntimeSession ||
+    !value.getAgentRuntimeEvents ||
+    !value.getAgentRuntimeTokenUsage
+  )
     throw new Error("Agent runtime contract bridge is unavailable.");
   return value as RuntimeBridge;
 };
@@ -57,6 +66,7 @@ export const runtimeQueryKeys = {
   squadRunsAll: (repoId: string) => ["squad-runs", repoId] as const,
   squadRunDetailAll: (repoId: string) => ["squad-run-detail", repoId] as const,
   relatedDispatchesAll: (repoId: string) => ["related-dispatches", repoId] as const,
+  tokenUsageAll: (repoId: string) => ["runtime-token-usage", repoId] as const,
 };
 
 export const agentRuntimeClient = {
@@ -98,6 +108,13 @@ export const agentRuntimeClient = {
       } as DaemonGuiReadPayloadMap["repo.agentRuntime.events.read"] & RepoScope),
       "events",
     ) as AgentRuntimeEventsResult,
+  tokenUsage: async (repoId: string): Promise<AgentRuntimeTokenUsageResult> =>
+    checked(
+      await bridge().getAgentRuntimeTokenUsage({
+        repoId,
+      } as DaemonGuiReadPayloadMap["repo.agentRuntime.tokenUsage"] & RepoScope),
+      "agents",
+    ) as AgentRuntimeTokenUsageResult,
 };
 function checked(value: unknown, field: string): Record<string, unknown> {
   if (!isRendererRecord(value) || value.ok !== true || !Object.hasOwn(value, field))

@@ -20,6 +20,7 @@ import { EntityWorkspace } from "../src/renderer/components/EntityWorkspace.tsx"
 import { PresetsView } from "../src/renderer/views/PresetsView.tsx";
 import { AdaptersView } from "../src/renderer/views/AdaptersView.tsx";
 import { SessionsView } from "../src/renderer/views/SessionsView.tsx";
+import { TokenUsageView } from "../src/renderer/views/TokenUsageView.tsx";
 import { AgentSquadView } from "../src/renderer/views/AgentSquadView.tsx";
 import { ProvidersView } from "../src/renderer/views/ProvidersView.tsx";
 import { TerminalView } from "../src/renderer/views/TerminalView.tsx";
@@ -45,7 +46,6 @@ import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import { NAV_GROUPS } from "../src/renderer/navigation/navConfig.tsx";
 import type { ViewId } from "../src/renderer/navigation/viewHistory.ts";
 import type { SystemRepoRow } from "../src/renderer/api-client.ts";
-import type { RelationCoverageRow } from "../src/renderer/api/renderer-dto.ts";
 import {
   REPO_ID,
   TASK_A_ID,
@@ -73,6 +73,9 @@ import {
   FIXTURE_DOCK_ROW,
   FIXTURE_SESSION_GROUPS,
   ENTITY_ID_NEEDLES,
+  freshnessCoverage,
+  FRESHNESS_COVERAGE_ROWS,
+  TOKEN_USAGE_READ,
 } from "./entityIdGateFixtures.ts";
 import { scanDeadEntityIds } from "./entityIdScan.ts";
 
@@ -251,6 +254,7 @@ async function mountSurface(element: ReturnType<typeof createElement>, { seed = 
   vi.spyOn(agentRuntimeClient, "overview").mockImplementation(async (_repoId, taskId?: string) =>
     taskId === TASK_A_ID ? FIXTURE_RUNTIME_OVERVIEW : { ...FIXTURE_RUNTIME_OVERVIEW, sessions: [] },
   );
+  vi.spyOn(agentRuntimeClient, "tokenUsage").mockResolvedValue(TOKEN_USAGE_READ);
   vi.spyOn(harnessClient, "getTaskDispatches").mockImplementation(async (payload) => {
     const requested =
         "taskId" in payload ? [payload.taskId as string] : [...(payload as { readonly taskIds: string[] }).taskIds],
@@ -694,6 +698,9 @@ const VIEW_RENDERERS = {
       onOpenTask: noop,
     }),
   artifacts: () => createElement(ArtifactsView, { repoId: REPO_ID, onNavigateTask: noop }),
+  // Token 消耗页:行 id 是 daemon 聚合行的归因文本(非可导航实体链接),fixture 用
+  // 非 needle id,死 ID 扫描按文本处理。
+  tokenUsage: () => createElement(TokenUsageView, { repoId: REPO_ID }),
   entities: () =>
     createElement(EntitiesView, {
       repoId: REPO_ID,
@@ -749,29 +756,10 @@ const navViewIds: readonly ViewId[] = NAV_GROUPS.flatMap((group: { items: readon
 );
 
 /**
- * 风化视图的 coverage 夹具:fixture 决策 dec_g10alpha 的承重 claim CH1 处于
- * uncovered(被活事实反驳),让 it.each 的死 ID 扫描覆盖到反驳事实链接的渲染面。
- * uncovered 行的成因由夹具直接以 freshnessReason 提供(daemon 读面附带、kernel
- * `freshnessReasonOf` 判定)——本测试不重算成因,与 renderer 同为纯消费者。
+ * 风化视图的 coverage 夹具(freshnessCoverage / FRESHNESS_COVERAGE_ROWS)与 Token
+ * 消耗页聚合读夹具(TOKEN_USAGE_READ)都在 entityIdGateFixtures.ts,与本文件其余
+ * fixture 宇宙同处。
  */
-function freshnessCoverage(patch: Partial<RelationCoverageRow> = {}): RelationCoverageRow {
-  const row = {
-    decisionRef: `decision/${DECISION_ID}`,
-    claimRef: `decision/${DECISION_ID}/CH1`,
-    status: "covered",
-    fulfillment: "standing-policy",
-    refutingFactRefs: [] as readonly string[],
-    relationPath: [] as readonly string[],
-    basisRevision: 1,
-    ...patch,
-  };
-  // covered 布尔与 status 同一判定(kernel coverageIsCovered),fixture 按终值补齐。
-  return { ...row, covered: row.status === "covered" };
-}
-const FRESHNESS_COVERAGE_ROWS: readonly RelationCoverageRow[] = [
-  freshnessCoverage({ status: "uncovered", refutingFactRefs: [FACT_REF], freshnessReason: "refuted" }),
-  freshnessCoverage({ claimRef: `decision/${DECISION_ID}/CH2`, status: "covered" }),
-];
 
 describe("G10 entity-id-links 行为判据:视图渲染出的实体 ID 必须可激活", () => {
   it("ViewId 全集都有渲染入口,且与导航面一致(覆盖完备性)", () => {

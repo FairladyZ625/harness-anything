@@ -18,6 +18,15 @@ export interface AgentSkillCatalogRow {
 export function resolveAgentSkillRoot(rootDir: string): string {
   return resolveHarnessLayout(rootDir).authoredRoot;
 }
+
+/** The `repo.agent.skills.list` result: discovery and its GUI envelope live in one place. */
+export function readAgentSkillsGui(rootDir: string): {
+  readonly schema: "agent-skill-catalog/v1";
+  readonly ok: true;
+  readonly skills: readonly AgentSkillCatalogRow[];
+} {
+  return { schema: "agent-skill-catalog/v1", ok: true, skills: discoverAgentSkills({ rootDir }) };
+}
 export function discoverAgentSkills(input: {
   readonly rootDir: string;
   readonly userHome?: string;
