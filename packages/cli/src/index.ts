@@ -133,15 +133,9 @@ async function runThinCli(argv: readonly string[]): Promise<number> {
     const renderStartedAt = cliPhaseStart();
     if (typedCommand.action.kind === "template-render" && typedCommand.action.raw === true && receipt.ok === true)
       process.stdout.write(rawTemplateBody(receipt));
-    else emit(receipt, typedCommand.json);
+    else emit(receipt, typedCommand.json, explainRequestRefs(typedCommand));
     cliPhaseEnd("render", renderStartedAt);
-    return Number.isInteger(receipt.exitCode)
-      ? Number(receipt.exitCode)
-      : receipt.ok === true || receipt.schema === "entity-action-explanation/v1"
-        ? 0
-        : receipt.code === "missing_field"
-          ? 2
-          : 1;
+    return receiptExitCode(receipt);
   } catch (error) {
     if (!dispatchMeasured) cliPhaseEnd("dispatch", dispatchStartedAt);
     const autostartCode = daemonAutostartFailureCode(error),
@@ -176,12 +170,29 @@ export function materializePacketStdin(
   };
 }
 
-export function emit(receipt: Record<string, unknown>, json: boolean): void {
+export function emit(receipt: Record<string, unknown>, json: boolean, explainRefs?: readonly string[]): void {
   if (json) console.log(JSON.stringify(receipt));
   else {
-    const rendered = renderCliReceipt(receipt);
+    const rendered = renderCliReceipt(receipt, explainRefs);
     console[rendered.stream === "stderr" ? "error" : "log"](rendered.text);
   }
+}
+
+// Failure subjects for invalid refs carry ref: null by contract, so the renderer needs the refs the
+// user actually typed, positionally aligned with the subjects the daemon returned.
+function explainRequestRefs(command: ThinCommand): readonly string[] | undefined {
+  if (command.action.kind !== "entity-action-explain") return undefined;
+  const refs: unknown = command.action.refs;
+  return Array.isArray(refs) && refs.every((ref) => typeof ref === "string") ? refs : undefined;
+}
+
+export function receiptExitCode(receipt: Record<string, unknown>): number {
+  if (Number.isInteger(receipt.exitCode)) return Number(receipt.exitCode);
+  if (receipt.ok === true) return 0;
+  // Explanation sets are read receipts without an ok flag; their schema-validated mode "failure"
+  // means at least one subject failed, which the JSON door must report through the exit code too.
+  if (receipt.schema === "entity-action-explanation/v1") return receipt.mode === "failure" ? 1 : 0;
+  return receipt.code === "missing_field" ? 2 : 1;
 }
 
 export function rawTemplateBody(receipt: Record<string, unknown>): string {
