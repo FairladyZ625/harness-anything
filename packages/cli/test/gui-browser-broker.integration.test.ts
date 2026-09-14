@@ -38,6 +38,21 @@ test("browser GUI broker opens on exact loopback and rejects cross-origin RPC", 
       (await call(url, "/rpc", { method: "POST", token: token!, host: `localhost:${url.port}` })).status,
       403,
     );
+    assert.equal(
+      (await call(url, "/rpc", { method: "POST", token: token!, origin: url.origin, body: "{" })).status,
+      400,
+    );
+    assert.equal(
+      (
+        await call(url, "/rpc", {
+          method: "POST",
+          token: token!,
+          origin: url.origin,
+          body: JSON.stringify({ method: "repo.tasks.list", params: { padding: "x".repeat(1024 * 1024) } }),
+        })
+      ).status,
+      400,
+    );
     const admitted = await call(url, "/rpc", { method: "POST", token: token!, origin: url.origin });
     assert.equal(admitted.status, 502, "valid auth reaches the isolated missing-daemon boundary");
   } finally {
@@ -159,7 +174,7 @@ function rendererSourceFiles(root: string): string[] {
 function call(
   url: URL,
   pathname: string,
-  options: { method?: string; token?: string; origin?: string; host?: string } = {},
+  options: { method?: string; token?: string; origin?: string; host?: string; body?: string } = {},
 ) {
   return new Promise<{ status: number; headers: Record<string, string | string[] | undefined>; body: string }>(
     (resolve, reject) => {
@@ -189,7 +204,7 @@ function call(
         },
       );
       outgoing.on("error", reject);
-      if (options.method === "POST") outgoing.write(body);
+      if (options.method === "POST") outgoing.write(options.body ?? body);
       outgoing.end();
     },
   );

@@ -5,7 +5,6 @@ import path from "node:path";
 import { isDaemonGuiReadMethod } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { requestLocalDaemonJsonRpc } from "../../../daemon/src/client/local-json-rpc-client.ts";
 import { isJsonObject } from "../../../daemon/src/protocol/json-rpc-types.ts";
-import { consumeKnownError } from "../daemon/client.ts";
 
 const MAX_BODY_BYTES = 1024 * 1024;
 const CSP =
@@ -74,50 +73,43 @@ async function handleRpc(
   if (request.method !== "POST") return reject(response, 405);
   if (request.headers.origin !== `http://${host}` || !authorized(request.headers.authorization, token))
     return reject(response, 403);
-  try {
-    const body = await readBody(request),
-      value = JSON.parse(body) as JsonObject;
-    if (typeof value.method !== "string" || !isDaemonGuiReadMethod(value.method) || !isJsonObject(value.params))
-      return reject(response, 400);
-    const repo = isJsonObject(value.params.repo) ? value.params.repo : undefined;
-    return requestLocalDaemonJsonRpc(rootDir, value.method, value.params as never, 75, {
-      ...(typeof repo?.repoId === "string" ? { repoIdOverride: repo.repoId } : {}),
-    }).then(
-      (result) => {
-        response.statusCode = 200;
-        response.setHeader("Content-Type", "application/json");
-        response.end(JSON.stringify(result));
-      },
-      (error: unknown) => {
-        const rawCode =
-            error instanceof Error && typeof (error as { readonly code?: unknown }).code === "string"
-              ? (error as Error & { readonly code: string }).code
-              : null,
-          code =
-            (error instanceof Error && error.message === "daemon_unavailable") || isDaemonUnavailableCode(rawCode)
-              ? "daemon_unavailable"
-              : (rawCode ?? "browser_broker_failed");
-        response.statusCode = 502;
-        response.setHeader("Content-Type", "application/json");
-        response.end(
-          JSON.stringify({
-            ok: false,
-            error: { code, hint: error instanceof Error ? error.message : String(error) },
-          }),
-        );
-      },
-    );
-  } catch (error) {
-    consumeKnownError(error);
-    response.statusCode = 502;
-    response.setHeader("Content-Type", "application/json");
-    response.end(
-      JSON.stringify({
-        ok: false,
-        error: { code: "browser_broker_failed", hint: error instanceof Error ? error.message : String(error) },
-      }),
-    );
-  }
+  const body = await readBody(request).catch(() => null),
+    value = body === null ? null : await parseJsonObject(body);
+  if (
+    value === null ||
+    typeof value.method !== "string" ||
+    !isDaemonGuiReadMethod(value.method) ||
+    !isJsonObject(value.params)
+  )
+    return reject(response, 400);
+  const repo = isJsonObject(value.params.repo) ? value.params.repo : undefined;
+  return requestLocalDaemonJsonRpc(rootDir, value.method, value.params as never, 75, {
+    ...(typeof repo?.repoId === "string" ? { repoIdOverride: repo.repoId } : {}),
+  }).then(
+    (result) => {
+      response.statusCode = 200;
+      response.setHeader("Content-Type", "application/json");
+      response.end(JSON.stringify(result));
+    },
+    (error: unknown) => {
+      const rawCode =
+          error instanceof Error && typeof (error as { readonly code?: unknown }).code === "string"
+            ? (error as Error & { readonly code: string }).code
+            : null,
+        code =
+          (error instanceof Error && error.message === "daemon_unavailable") || isDaemonUnavailableCode(rawCode)
+            ? "daemon_unavailable"
+            : (rawCode ?? "browser_broker_failed");
+      response.statusCode = 502;
+      response.setHeader("Content-Type", "application/json");
+      response.end(
+        JSON.stringify({
+          ok: false,
+          error: { code, hint: error instanceof Error ? error.message : String(error) },
+        }),
+      );
+    },
+  );
 }
 function isDaemonUnavailableCode(code: string | null): boolean {
   return code === "ENOENT" || code === "ECONNREFUSED" || code === "ENOTSOCK" || code === "EACCES";
@@ -131,15 +123,27 @@ function authorized(header: string | undefined, token: string): boolean {
 function readBody(request: IncomingMessage): Promise<string> {
   return new Promise((resolve, rejectPromise) => {
     const chunks: Buffer[] = [];
-    let size = 0;
+    let size = 0,
+      exceeded = false;
     request.on("data", (chunk: Buffer) => {
       size += chunk.length;
-      if (size > MAX_BODY_BYTES) request.destroy(new Error("Browser RPC body exceeds 1 MiB."));
+      if (size > MAX_BODY_BYTES) exceeded = true;
       else chunks.push(chunk);
     });
-    request.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+    request.on("end", () => {
+      if (exceeded) rejectPromise(new Error("Browser RPC body exceeds 1 MiB."));
+      else resolve(Buffer.concat(chunks).toString("utf8"));
+    });
     request.on("error", rejectPromise);
   });
+}
+function parseJsonObject(body: string): Promise<JsonObject | null> {
+  return Promise.resolve()
+    .then((): unknown => JSON.parse(body))
+    .then(
+      (value) => (isJsonObject(value) ? value : null),
+      () => null,
+    );
 }
 function reject(response: ServerResponse, status: number): void {
   response.statusCode = status;

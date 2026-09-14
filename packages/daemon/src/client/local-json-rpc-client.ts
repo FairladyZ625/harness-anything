@@ -163,16 +163,25 @@ export class JsonRpcLineClient {
   private readonly lines: ReadlineInterface;
   private readonly waiters: ResponseWaiter[] = [];
   private closed = false;
+  private failure: Error | null = null;
+  private readonly handleOutputError = (error: Error) => this.onOutputError(error);
   constructor(input: Readable, output: Writable) {
     this.output = output;
     this.lines = createInterface({ input });
     this.lines.on("line", (line) => this.onLine(line));
     this.lines.on("close", () => this.onClosed());
+    this.output.on("error", this.handleOutputError);
+    this.output.once("close", () => this.output.off("error", this.handleOutputError));
   }
   async request(method: string, params: JsonObject, responseTimeoutMs?: number): Promise<JsonObject> {
     const id = this.nextId++,
       responsePromise = this.readResponse(id);
-    this.output.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params } satisfies JsonRpcRequest)}\n`);
+    this.output.write(
+      `${JSON.stringify({ jsonrpc: "2.0", id, method, params } satisfies JsonRpcRequest)}\n`,
+      (error) => {
+        if (error) this.onOutputError(error);
+      },
+    );
     const response =
       responseTimeoutMs === undefined
         ? await responsePromise
@@ -191,7 +200,7 @@ export class JsonRpcLineClient {
   }
   private readResponse(id: number): Promise<JsonRpcResponse> {
     return new Promise((resolve, reject) => {
-      if (this.closed) reject(daemonClosedError(id));
+      if (this.closed) reject(this.failure ?? daemonClosedError(id));
       else this.waiters.push({ id, resolve, reject });
     });
   }
@@ -216,6 +225,15 @@ export class JsonRpcLineClient {
   private onClosed(): void {
     this.closed = true;
     for (const waiter of this.waiters.splice(0)) waiter.reject(daemonClosedError(waiter.id));
+  }
+  private onOutputError(error: Error): void {
+    this.closed = true;
+    const unavailable = Object.assign(new Error(`daemon connection failed: ${error.message}`), {
+      code: "daemon_unavailable",
+      cause: error,
+    });
+    this.failure = unavailable;
+    for (const waiter of this.waiters.splice(0)) waiter.reject(unavailable);
   }
 }
 
