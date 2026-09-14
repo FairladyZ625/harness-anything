@@ -1,12 +1,8 @@
 // harness-test-tier: fast
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  createBrowserGuiTransport,
-  createElectronGuiTransport,
-  guiTransport,
-  resetGuiTransportForTest,
-} from "../src/renderer/gui-transport.ts";
+import { createElectronGuiTransport, guiTransport, resetGuiTransportForTest } from "../src/renderer/gui-transport.ts";
+import { createBrowserGuiTransport } from "../src/browser/browser-gui-transport.ts";
 
 afterEach(() => {
   resetGuiTransportForTest();
