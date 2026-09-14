@@ -1,5 +1,12 @@
 import { Schema } from "effect";
 import { RelationTypeSchema } from "./entity-relations.ts";
+import { isRecord } from "../domain/write-chain.contract.ts";
+import type { VerticalDeclarationDocumentV1 } from "../domain/vertical-declaration.ts";
+import {
+  artifactLocatorKinds,
+  type ArtifactEntityKindDefinition,
+  type VerticalDefinition,
+} from "../domain/vertical-definition.ts";
 
 const LocaleSchema = Schema.Literal("zh-CN", "en-US");
 const StringArray = Schema.Array(Schema.String);
@@ -114,7 +121,7 @@ const EntityFieldExtensionSchema = Schema.Struct({
   reason: Schema.String,
 });
 
-export const artifactLocatorKinds = Object.freeze(["repository-path", "url", "external-key"] as const);
+export { artifactLocatorKinds };
 
 const ArtifactRelationSchema = Schema.Struct({
   type: RelationTypeSchema,
@@ -225,11 +232,16 @@ export const VerticalDefinitionSchema = Schema.Struct({
   ),
 });
 
-export type VerticalDefinition = Schema.Schema.Type<typeof VerticalDefinitionSchema>;
-export type ArtifactEntityKindDefinition = Extract<
-  VerticalDefinition["entityKinds"][number],
+// Compile-time anchor: the decoded schema shape and the domain's pure VerticalDefinition type must
+// stay mutually assignable. Field drift fails the type check here, not in a runtime alignment test.
+type MutuallyAssignable<A, B> = [A] extends [B] ? ([B] extends [A] ? true : never) : never;
+type VerticalDefinitionDecoded = Schema.Schema.Type<typeof VerticalDefinitionSchema>;
+true satisfies MutuallyAssignable<VerticalDefinitionDecoded, VerticalDefinition>;
+type ArtifactEntityKindDecoded = Extract<
+  VerticalDefinitionDecoded["entityKinds"][number],
   { readonly entityType: "artifact" }
 >;
+true satisfies MutuallyAssignable<ArtifactEntityKindDecoded, ArtifactEntityKindDefinition>;
 export type ArtifactRelationDefinition = NonNullable<ArtifactEntityKindDefinition["relations"]>[number];
 export type EntityKindSchemaVersion = ArtifactEntityKindDefinition["schemaVersions"][number];
 export type EntityAttributeDeclaration = EntityKindSchemaVersion["attributes"][string];
@@ -239,6 +251,36 @@ export function decodeVerticalDefinition(input: unknown): VerticalDefinition {
   return Schema.decodeUnknownSync(VerticalDefinitionSchema, { onExcessProperty: "error" })(input);
 }
 
-export function decodeForwardCompatibleVerticalDefinition(input: unknown): VerticalDefinition {
-  return Schema.decodeUnknownSync(VerticalDefinitionSchema, { onExcessProperty: "ignore" })(input);
+/** Parse an authored `harness/vertical.json` materialization back into its decoded document shape. */
+export function parseVerticalDeclarationDocument(value: unknown): VerticalDeclarationDocumentV1 {
+  if (
+    !isRecord(value) ||
+    value.schema !== "repository-vertical-declaration/v1" ||
+    !Number.isSafeInteger(value.revision) ||
+    Number(value.revision) < 1
+  )
+    throw new Error("repository vertical declaration is invalid");
+  return {
+    schema: value.schema,
+    revision: Number(value.revision),
+    definition: decodeVerticalDefinition(value.definition),
+  };
+}
+
+export function validateVerticalDeclarationRead(value: unknown): readonly string[] {
+  if (
+    !isRecord(value) ||
+    Object.keys(value).length !== 3 ||
+    value.schema !== "repository-vertical-declaration-read/v1" ||
+    !Number.isSafeInteger(value.declarationRevision) ||
+    Number(value.declarationRevision) < 1
+  )
+    return ["repository vertical declaration read envelope is invalid"];
+  try {
+    decodeVerticalDefinition(value.declaration);
+    return [];
+  } catch (error) {
+    void error;
+    return ["repository vertical declaration read declaration is invalid"];
+  }
 }

@@ -1,5 +1,18 @@
 import type { SubmissionV1 } from "./execution.ts";
-import { getTaskActionForTransition } from "./entity-kind-registry.ts";
+import { declarations, descriptorFacets } from "./task-action-contract.ts";
+
+/**
+ * The managed-document slot a `task.*` transition must have ready before it runs. Derived from the
+ * same declarations the catalog is assembled from, so readiness checks below the registry cannot
+ * depend on the registry's assembled index.
+ */
+function taskActionReadinessDocumentSlot(transitionId: string): string | undefined {
+  if (!transitionId.startsWith("task.")) return undefined;
+  const declaration = declarations.find(({ id }) => `task.${id}` === transitionId);
+  return declaration
+    ? descriptorFacets(declaration.id).managedDocuments.find((document) => document.readinessRequired)?.slot
+    : undefined;
+}
 
 type TransitionDocumentKind = "task.plan" | "task.closeout" | "decision.body" | "agent.instructions" | "squad.roster";
 type TransitionDocumentPlaceholderCode =
@@ -150,11 +163,8 @@ export function assessTransitionDocument(kind: TransitionDocumentKind, body: str
 }
 
 export function requireTransitionDocumentKind(transition: string): TransitionDocumentKind {
-  if (transition.startsWith("task.")) {
-    const action = getTaskActionForTransition(transition),
-      document = action?.managedDocuments.find((candidate) => candidate.readinessRequired);
-    if (document) return document.slot as TransitionDocumentKind;
-  }
+  const readinessSlot = taskActionReadinessDocumentSlot(transition);
+  if (readinessSlot) return readinessSlot as TransitionDocumentKind;
   const binding = transitionDocumentBindings.find((candidate) => candidate.transition === transition);
   if (!binding) throw new Error(`Transition ${transition} has no canonical document binding.`);
   return binding.documentKind;

@@ -280,13 +280,11 @@ export { compileSettingsChangedEvent, isSettingsEvent } from "./settings-event.t
 export {
   applyVerticalKindCommand,
   compileVerticalDeclarationEvent,
-  parseVerticalDeclarationDocument,
   VERTICAL_DECLARATION_PATH,
 } from "./vertical-declaration.ts";
 export type { VerticalDeclarationDocumentV1, VerticalKindCommandResult } from "./vertical-declaration.ts";
-export { decodeVerticalDefinition } from "../schemas/vertical-definition.ts";
-export type { VerticalDefinition } from "../schemas/vertical-definition.ts";
-export { buildVerticalDeclarationRead, validateVerticalDeclarationRead } from "./vertical-declaration.ts";
+export { buildVerticalDeclarationRead } from "./vertical-declaration.ts";
+export type { VerticalDefinition } from "./vertical-definition.ts";
 export { settingsActionLocale, settingsUpdateInputFields } from "./settings-action-contract.ts";
 export { repositorySettingsActionValues } from "./settings-action-values.ts";
 export type { SettingsActionDraft } from "./settings-action-contract.ts";

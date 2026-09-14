@@ -1,11 +1,6 @@
 import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 import { eventObjectTarget } from "../layout/ledger-object-layout.ts";
-import {
-  decodeForwardCompatibleVerticalDefinition,
-  decodeVerticalDefinition,
-  type ArtifactEntityKindDefinition,
-  type VerticalDefinition,
-} from "../schemas/vertical-definition.ts";
+import type { ArtifactEntityKindDefinition, VerticalDefinition } from "./vertical-definition.ts";
 import { ENTITY_KIND_ID_PATTERN, entityKindRef } from "./entity-ref.ts";
 import {
   freezeDeclaredWritePlan,
@@ -173,10 +168,7 @@ export function applyVerticalKindCommand(input: {
       revision: input.acceptedRevision,
       schemaVersions: [{ version: 1, attributes: attributeDeclarations(attributes) }],
     } as unknown as ArtifactEntityKindDefinition;
-    return kindResult(
-      decodeVerticalDefinition({ ...input.definition, entityKinds: [...input.definition.entityKinds, created] }),
-      created,
-    );
+    return kindResult({ ...input.definition, entityKinds: [...input.definition.entityKinds, created] }, created);
   }
   if (declaredKindId !== undefined && declaredKindId !== artifact.kindId)
     verticalError("destructive_kind_change", "A vertical kind keeps the opaque identity it was minted with.");
@@ -249,6 +241,7 @@ function matchesKind(candidate: VerticalDefinition["entityKinds"][number], reque
   return candidate.kindId === requested || entityKindRef(candidate.kindId) === requested || candidate.id === requested;
 }
 
+/** The kind command's result is validated by the schema layer at the calling boundary before acceptance. */
 function replaceKind(
   definition: VerticalDefinition,
   index: number,
@@ -256,7 +249,7 @@ function replaceKind(
 ): VerticalDefinition {
   const entityKinds = [...definition.entityKinds];
   entityKinds[index] = next;
-  return decodeVerticalDefinition({ ...definition, entityKinds });
+  return { ...definition, entityKinds };
 }
 
 function kindResult(definition: VerticalDefinition, artifact: ArtifactEntityKindDefinition): VerticalKindCommandResult {
@@ -269,7 +262,7 @@ function latest(artifact: ArtifactEntityKindDefinition): ArtifactEntityKindDefin
 
 /**
  * Attribute declarations are accepted as a plain map so a caller declares values, never behaviour.
- * Unsupported constructs are refused here rather than at the caller's first import.
+ * Unsupported constructs are refused when the boundary decodes the command result, never at import.
  */
 function attributeDeclarations(value: unknown): Record<string, unknown> {
   if (value === undefined) return {};
@@ -283,7 +276,8 @@ function verticalError(code: string, message: string): never {
 
 export function compileVerticalDeclarationEvent(input: {
   readonly type: VerticalDeclarationEventType;
-  readonly definition: unknown;
+  /** Already decoded by the schema layer at the calling boundary. */
+  readonly definition: VerticalDefinition;
   readonly kindId?: string;
   readonly reason?: string;
   readonly eventId: string;
@@ -293,7 +287,7 @@ export function compileVerticalDeclarationEvent(input: {
   readonly source: WriteSource;
   readonly occurredAt: string;
 }): VerticalDeclarationBundle {
-  const definition = stampAcceptedRevisions(decodeVerticalDefinition(input.definition), input.workspaceRevision),
+  const definition = stampAcceptedRevisions(input.definition, input.workspaceRevision),
     declaration: VerticalDeclarationDocumentV1 = {
       schema: "repository-vertical-declaration/v1",
       revision: input.workspaceRevision,
@@ -345,19 +339,17 @@ function stampAcceptedRevisions(definition: VerticalDefinition, workspaceRevisio
   };
 }
 
-export function parseVerticalDeclarationDocument(value: unknown): VerticalDeclarationDocumentV1 {
+/** Envelope view of an embedded declaration snapshot; the definition body is decoded at the boundary. */
+function declarationSnapshotEnvelope(
+  value: unknown,
+): Pick<VerticalDeclarationDocumentV1, "schema" | "revision"> & { readonly definition: unknown } {
   if (
     !isRecord(value) ||
     value.schema !== "repository-vertical-declaration/v1" ||
-    !Number.isSafeInteger(value.revision) ||
-    Number(value.revision) < 1
+    !Number.isSafeInteger(value.revision)
   )
     throw new Error("repository vertical declaration is invalid");
-  return {
-    schema: value.schema,
-    revision: Number(value.revision),
-    definition: decodeVerticalDefinition(value.definition),
-  };
+  return { schema: value.schema, revision: Number(value.revision), definition: value.definition };
 }
 
 export function buildVerticalDeclarationRead(document: VerticalDeclarationDocumentV1): VerticalDeclarationReadV1 {
@@ -366,24 +358,6 @@ export function buildVerticalDeclarationRead(document: VerticalDeclarationDocume
     declarationRevision: document.revision,
     declaration: document.definition,
   };
-}
-
-export function validateVerticalDeclarationRead(value: unknown): readonly string[] {
-  if (
-    !isRecord(value) ||
-    Object.keys(value).length !== 3 ||
-    value.schema !== "repository-vertical-declaration-read/v1" ||
-    !Number.isSafeInteger(value.declarationRevision) ||
-    Number(value.declarationRevision) < 1
-  )
-    return ["repository vertical declaration read envelope is invalid"];
-  try {
-    decodeVerticalDefinition(value.declaration);
-    return [];
-  } catch (error) {
-    void error;
-    return ["repository vertical declaration read declaration is invalid"];
-  }
 }
 
 export function validateVerticalDeclarationEvent(value: unknown): readonly string[] {
@@ -412,7 +386,7 @@ function validateVerticalDeclarationEventFields(value: unknown, allowUnknownFiel
   )
     return ["vertical declaration event envelope or payload is invalid"];
   try {
-    const declaration = parseVerticalDeclarationDocumentForValidation(value.payload.declaration, allowUnknownFields),
+    const declaration = declarationSnapshotEnvelope(value.payload.declaration),
       claim = value.payload.declarationDocumentClaim;
     if (
       declaration.revision !== value.workspaceRevision ||
@@ -438,25 +412,6 @@ function validateVerticalDeclarationEventFields(value: unknown, allowUnknownFiel
   return validateEventEnvelopeIdentity(value, allowUnknownFields).length
     ? ["vertical declaration event identity is invalid"]
     : [];
-}
-
-function parseVerticalDeclarationDocumentForValidation(
-  value: unknown,
-  allowUnknownFields: boolean,
-): VerticalDeclarationDocumentV1 {
-  if (
-    !isRecord(value) ||
-    value.schema !== "repository-vertical-declaration/v1" ||
-    !Number.isSafeInteger(value.revision)
-  )
-    throw new Error("repository vertical declaration is invalid");
-  return {
-    schema: value.schema,
-    revision: Number(value.revision),
-    definition: allowUnknownFields
-      ? decodeForwardCompatibleVerticalDefinition(value.definition)
-      : decodeVerticalDefinition(value.definition),
-  };
 }
 
 export function isVerticalDeclarationEvent(event: { readonly schema: string }): event is VerticalDeclarationEventV1 {
@@ -510,7 +465,7 @@ export function assertVerticalDeclarationEventInputs(
   const claim = event.payload.declarationDocumentClaim,
     blob = blobs.find((candidate) => candidate.sha256 === claim.sha256);
   if (!blob) throw new Error("vertical declaration blob must be exact");
-  const parsed = parseVerticalDeclarationDocument(JSON.parse(blob.body));
+  const parsed = declarationSnapshotEnvelope(JSON.parse(blob.body));
   if (stableStringify(parsed) !== stableStringify(event.payload.declaration))
     throw new Error("vertical declaration blob does not match event snapshot");
 }

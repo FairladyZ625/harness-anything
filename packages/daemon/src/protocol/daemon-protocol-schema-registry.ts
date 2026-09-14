@@ -62,7 +62,7 @@ export const daemonGuiReadSchemas = Object.freeze([
   {
     id: DAEMON_VERTICAL_DECLARATION_READ_SCHEMA.id,
     schema: "packages/kernel/src/domain/vertical-declaration.ts#VERTICAL_DECLARATION_READ_SCHEMA",
-    parser: "packages/kernel/src/domain/vertical-declaration.ts#validateVerticalDeclarationRead",
+    parser: "packages/kernel/src/schemas/vertical-definition.ts#validateVerticalDeclarationRead",
     writer: "packages/kernel/src/domain/vertical-declaration.ts#buildVerticalDeclarationRead",
     error: "packages/kernel/src/domain/vertical-declaration.ts#VerticalDeclarationReadContractError",
     negativeFixtures: Object.freeze([

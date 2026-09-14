@@ -275,6 +275,11 @@ export type {
 export * from "./schemas/registry.ts";
 export * from "./schemas/common.ts";
 export {
+  decodeVerticalDefinition,
+  parseVerticalDeclarationDocument,
+  validateVerticalDeclarationRead,
+} from "./schemas/vertical-definition.ts";
+export {
   canonicalDocumentClaims,
   canonicalEventCut,
   canonicalEventWritePlan,

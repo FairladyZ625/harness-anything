@@ -1,10 +1,9 @@
 import { normalizeRelativeDocumentPath } from "../layout/portable-path.ts";
-import {
-  decodeVerticalDefinition,
-  type ArtifactEntityKindDefinition,
-  type ArtifactRelationDefinition,
-  type VerticalDefinition,
-} from "../schemas/vertical-definition.ts";
+import type {
+  ArtifactEntityKindDefinition,
+  ArtifactRelationDefinition,
+  VerticalDefinition,
+} from "./vertical-definition.ts";
 import { baseEntityTypeContract, entityTypeContracts, type EntityTypeContract } from "./base-entity.ts";
 import { artifactEntityIdPattern, entityKindRef } from "./entity-ref.ts";
 import { artifactDescriptorSchema, deepFreeze } from "./artifact-entity.ts";
@@ -71,22 +70,14 @@ export class VerticalContractError extends Error {
 }
 
 /**
- * Pure five-stage compiler: strict decode, uniqueness/portability checks, entity contracts,
- * relation-request decoding, then one deeply immutable value for every consumer.
+ * Pure four-stage compiler over an already-decoded definition: uniqueness/portability checks,
+ * entity contracts, relation-request decoding, then one deeply immutable value for every consumer.
+ * External input is decoded by the schema layer before it reaches this compiler.
  */
 export function compileVerticalContract(
-  source: unknown,
+  definition: VerticalDefinition,
   authority?: GovernedRelationCompilationAuthority,
 ): CompiledVerticalContract {
-  let definition: VerticalDefinition;
-  try {
-    definition = decodeVerticalDefinition(source);
-  } catch (error) {
-    throw new VerticalContractError(
-      `Vertical definition decode failed: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
-
   const artifacts = definition.entityKinds.filter(
       (candidate): candidate is ArtifactEntityKindDefinition => candidate.entityType === "artifact",
     ),
@@ -217,7 +208,8 @@ export function compiledRelationDirections(
 export function acceptVerticalRegistryCandidate(input: {
   readonly current: CompiledVerticalRegistry;
   readonly expectedRevision: number;
-  readonly source: unknown;
+  /** Already decoded by the schema layer at the calling boundary. */
+  readonly definition: VerticalDefinition;
   readonly decisionAuthority?: GovernedRelationCompilationAuthority;
 }): CompiledVerticalRegistry {
   if (input.expectedRevision !== input.current.revision) {
@@ -228,7 +220,7 @@ export function acceptVerticalRegistryCandidate(input: {
       { code: "stale_vertical_registry_revision" },
     );
   }
-  const accepted = compileVerticalContract(input.source, input.decisionAuthority),
+  const accepted = compileVerticalContract(input.definition, input.decisionAuthority),
     verticals = input.current.verticals
       .filter(({ definition }) => definition.id !== accepted.definition.id)
       .concat(accepted)

@@ -6,6 +6,7 @@ import {
   activateEmptyCanonicalGeneration,
   compileSettingsChangedEvent,
   compileVerticalDeclarationEvent,
+  decodeVerticalDefinition,
   makeTaskEventStore,
   readSettingsFacet,
   registerDaemonRepo as registerProductDaemonRepo,
@@ -189,7 +190,7 @@ async function settleSettingsEvent(input: {
     store.append(
       compileVerticalDeclarationEvent({
         type: "vertical_declared",
-        definition: JSON.parse(readFileSync(`${defaultAssets}/vertical.json`, "utf8")),
+        definition: decodeVerticalDefinition(JSON.parse(readFileSync(`${defaultAssets}/vertical.json`, "utf8"))),
         eventId: `event-vertical-declaration-fixture-${workspaceRevision}`,
         opId: `vertical-declaration-fixture-${workspaceRevision}`,
         workspaceRevision,

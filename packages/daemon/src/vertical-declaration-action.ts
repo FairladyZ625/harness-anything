@@ -113,6 +113,11 @@ function mintKindId(): string {
   return `KND-${randomBytes(16).toString("hex")}`;
 }
 
+/** The install seed every repository initializes its vertical declaration from. */
+export function readDefaultVerticalDefinition() {
+  return decodeVerticalDefinition(JSON.parse(readFileSync(path.join(defaultAssets, "vertical.json"), "utf8")));
+}
+
 function candidate(
   action: RepoTaskAction,
   current: VerticalDeclarationDocumentV1 | null,
@@ -128,10 +133,9 @@ function candidate(
   readonly reason: string | null;
 } {
   if (action.kind === "vertical-declaration-migrate") {
-    const seed = JSON.parse(readFileSync(path.join(defaultAssets, "vertical.json"), "utf8"));
     return {
       type: "vertical_declared",
-      definition: decodeVerticalDefinition(seed),
+      definition: readDefaultVerticalDefinition(),
       kindId: null,
       kindRef: null,
       kindVersion: null,
@@ -153,9 +157,11 @@ function candidate(
       ...(action.kind === "vertical-kind-upsert" ? { declaration: action.declaration } : {}),
       ...(action.kind === "vertical-kind-publish-schema" ? { attributes: action.attributes } : {}),
     });
+  // Fail-closed revalidation of the command's constructed kind rows before acceptance.
+  const definition = decodeVerticalDefinition(command.definition);
   return {
     type: retire ? "vertical_kind_retired" : "vertical_kind_upserted",
-    definition: command.definition,
+    definition,
     kindId,
     kindRef: command.kindRef,
     kindVersion: command.kindVersion,

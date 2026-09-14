@@ -2,7 +2,7 @@ import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 import { serializeEntityJsonSchema } from "./entity-json-schema.ts";
 import { eventObjectTarget } from "../layout/ledger-object-layout.ts";
 import { normalizeRelativeDocumentPath } from "../layout/portable-path.ts";
-import { ENTITY_DOCUMENT_POLICY_ID } from "./entity-kind-registry.ts";
+import { ENTITY_DOCUMENT_POLICY_ID } from "./base-entity.ts";
 import type { EntityDeclarationClaim } from "./entity-event.ts";
 import { timestamp } from "./timestamp.ts";
 import {

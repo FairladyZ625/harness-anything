@@ -15,6 +15,7 @@ import {
   compileVerticalContract,
   emptyCompiledVerticalRegistry,
 } from "../../src/domain/vertical-contract.ts";
+import { decodeVerticalDefinition } from "../../src/schemas/vertical-definition.ts";
 
 const baseVertical = JSON.parse(
     readFileSync(new URL("../../fixtures/schemas/vertical-definition/valid.json", import.meta.url), "utf8"),
@@ -24,7 +25,7 @@ const baseVertical = JSON.parse(
   artifactType = `entity-kind/${adrKindId}`;
 
 test("governed triples compile into the one canonical runtime registry", () => {
-  const compiled = compileVerticalContract(verticalWith(artifact({ relations: [relation()] }))),
+  const compiled = compileVerticalContract(decodedVertical(artifact({ relations: [relation()] }))),
     rows = compiledRelationDirections(compiled);
   assert.deepEqual(rows, [
     {
@@ -44,7 +45,7 @@ test("governed triples compile into the one canonical runtime registry", () => {
   const accepted = acceptVerticalRegistryCandidate({
     current: emptyCompiledVerticalRegistry(),
     expectedRevision: 0,
-    source: verticalWith(artifact({ relations: [relation()] })),
+    definition: decodedVertical(artifact({ relations: [relation()] })),
   });
   assert.equal(isAllowedRelationKindTriple(artifactType, "relates", "decision"), false);
   assert.equal(isAllowedRelationKindTriple(artifactType, "relates", "decision", accepted.relationDirections), true);
@@ -77,7 +78,7 @@ test("an artifact entity is a relation endpoint for its declared triple only", (
   const accepted = acceptVerticalRegistryCandidate({
       current: emptyCompiledVerticalRegistry(),
       expectedRevision: 0,
-      source: verticalWith(artifact({ relations: [relation()] })),
+      definition: decodedVertical(artifact({ relations: [relation()] })),
     }),
     artifactRef = `${artifactType}/ADR-0123456789abcdef0123456789abcdef`,
     declared = { source: artifactRef, target: "decision/dec_29CCC98CD0241D0C9806AC1CF1", type: "relates" } as const;
@@ -180,7 +181,7 @@ for (const counterexample of [
 ] as const) {
   test(`the whole vertical fails closed on ${counterexample.name}`, () => {
     assert.throws(
-      () => compileVerticalContract(counterexample.source(), counterexample.authority),
+      () => compileVerticalContract(decodeVerticalDefinition(counterexample.source()), counterexample.authority),
       counterexample.message,
     );
   });
@@ -188,7 +189,7 @@ for (const counterexample of [
 
 test("identical duplicate triples fold into one row", () => {
   const declaration = relation(),
-    compiled = compileVerticalContract(verticalWith(artifact({ relations: [declaration, { ...declaration }] })));
+    compiled = compileVerticalContract(decodedVertical(artifact({ relations: [declaration, { ...declaration }] })));
   assert.equal(compiledRelationDirections(compiled).length, 1);
 });
 
@@ -201,11 +202,12 @@ test("same-kind supersedes may be strong only with a rationale", () => {
     rationale: "The replacement was explicitly reviewed by the vertical owner.",
   });
   assert.equal(
-    compiledRelationDirections(compileVerticalContract(verticalWith(artifact({ relations: [strong] }))))[0]?.strength,
+    compiledRelationDirections(compileVerticalContract(decodedVertical(artifact({ relations: [strong] }))))[0]
+      ?.strength,
     "strong",
   );
   assert.throws(
-    () => compileVerticalContract(verticalWith(artifact({ relations: [{ ...strong, rationale: undefined }] }))),
+    () => compileVerticalContract(decodedVertical(artifact({ relations: [{ ...strong, rationale: undefined }] }))),
     /require a non-blank rationale/is,
   );
 });
@@ -214,14 +216,14 @@ test("the governed vocabulary stays narrowed to relates and same-kind supersedes
   assert.throws(
     () =>
       compileVerticalContract(
-        verticalWith(artifact({ relations: [relation({ type: "relates", strength: "strong" })] })),
+        decodedVertical(artifact({ relations: [relation({ type: "relates", strength: "strong" })] })),
       ),
     /relates rows must have strength weak/is,
   );
   assert.throws(
     () =>
       compileVerticalContract(
-        verticalWith(
+        decodedVertical(
           artifact({
             relations: [
               relation({
@@ -236,8 +238,8 @@ test("the governed vocabulary stays narrowed to relates and same-kind supersedes
     /supersedes rows must have the same source and target kind/is,
   );
   assert.throws(
-    () => compileVerticalContract(verticalWith(artifact({ relations: [relation({ type: "references" })] }))),
-    /vertical definition decode failed/is,
+    () => decodeVerticalDefinition(verticalWith(artifact({ relations: [relation({ type: "references" })] }))),
+    /references/is,
   );
 });
 
@@ -245,7 +247,7 @@ test("decision approval must resolve the exact decision anchor", () => {
   assert.throws(
     () =>
       compileVerticalContract(
-        verticalWith(
+        decodedVertical(
           artifact({
             relations: [
               relation({
@@ -263,7 +265,7 @@ test("configuration removal denies new writes without mutating an existing activ
   const first = acceptVerticalRegistryCandidate({
       current: emptyCompiledVerticalRegistry(),
       expectedRevision: 0,
-      source: verticalWith(artifact({ relations: [relation()] })),
+      definition: decodedVertical(artifact({ relations: [relation()] })),
     }),
     existingEdge = Object.freeze({
       type: "relates" as const,
@@ -274,7 +276,7 @@ test("configuration removal denies new writes without mutating an existing activ
     removed = acceptVerticalRegistryCandidate({
       current: first,
       expectedRevision: 1,
-      source: verticalWith(artifact({ relations: [] })),
+      definition: decodedVertical(artifact({ relations: [] })),
     });
   assert.equal(isAllowedRelationRecord(existingEdge, artifactType, "decision", first.relationDirections), true);
   assert.equal(isAllowedRelationRecord(existingEdge, artifactType, "decision", removed.relationDirections), false);
@@ -292,8 +294,8 @@ test("configuration removal denies new writes without mutating an existing activ
 
 test("the center serializes competing edge candidates on the registry revision fence", () => {
   const initial = emptyCompiledVerticalRegistry(),
-    edgeOne = verticalWith(artifact({ relations: [relation()] })),
-    edgeTwo = verticalWith(
+    edgeOne = decodedVertical(artifact({ relations: [relation()] })),
+    edgeTwo = decodedVertical(
       artifact({
         relations: [
           relation({
@@ -304,9 +306,9 @@ test("the center serializes competing edge candidates on the registry revision f
         ],
       }),
     ),
-    accepted = acceptVerticalRegistryCandidate({ current: initial, expectedRevision: 0, source: edgeOne });
+    accepted = acceptVerticalRegistryCandidate({ current: initial, expectedRevision: 0, definition: edgeOne });
   assert.throws(
-    () => acceptVerticalRegistryCandidate({ current: accepted, expectedRevision: 0, source: edgeTwo }),
+    () => acceptVerticalRegistryCandidate({ current: accepted, expectedRevision: 0, definition: edgeTwo }),
     (error: unknown) => (error as { code?: string }).code === "stale_vertical_registry_revision",
   );
   assert.equal(isAllowedRelationKindTriple(artifactType, "relates", "decision", accepted.relationDirections), true);
@@ -343,6 +345,10 @@ function verticalWith(...artifacts: readonly unknown[]): Record<string, unknown>
       { id: "artifact-descriptor", schemaRef: "schema://artifact-descriptor" },
     ],
   };
+}
+
+function decodedVertical(...artifacts: readonly unknown[]): ReturnType<typeof decodeVerticalDefinition> {
+  return decodeVerticalDefinition(verticalWith(...artifacts));
 }
 
 function artifact(overrides: Record<string, unknown> = {}): Record<string, unknown> {

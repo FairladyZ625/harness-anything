@@ -382,7 +382,7 @@ const mutation = (
     explain,
   });
 
-const declarations: readonly Declaration[] = Object.freeze([
+export const declarations: readonly Declaration[] = Object.freeze([
   lifecycle("create", {
     input: createInput,
     criteria: Object.freeze([
@@ -823,7 +823,7 @@ const document = (
   scaffoldRequired: boolean,
 ) => Object.freeze({ slot, pathTemplate, authority, directEdit, readinessRequired, scaffoldRequired });
 
-function descriptorFacets(id: string) {
+export function descriptorFacets(id: string) {
   const create = id === "create";
   return {
     stateTransition: stateTransition(id),
