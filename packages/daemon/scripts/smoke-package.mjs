@@ -23,7 +23,19 @@ function run(command, args, cwd = repository) {
 try {
   mkdirSync(consumer);
   writeFileSync(path.join(consumer, "package.json"), '{"private":true,"type":"module"}\n');
-  run(npm, ["pack", "-w", "@harness-anything/daemon", "--pack-destination", parent]);
+  // pack's prepare rebuilds the daemon workspace dist and writes a fresh random build-id, which
+  // drifts every resident daemon serving that dist in a parallel test file out from under its
+  // socket (they exit build_superseded mid-test). npm ci's prepare already built this exact
+  // commit's daemon dist, so its tarball packs without running scripts. The CLI keeps its pack
+  // scripts: it has no prepare, so its dist only exists once prepack builds it, and no daemon
+  // serves from packages/cli/dist.
+  const daemonDistBuildId = readFileSync(path.join(repository, "packages/daemon/dist/build-id.txt"), "utf8");
+  run(npm, ["pack", "--ignore-scripts", "-w", "@harness-anything/daemon", "--pack-destination", parent]);
+  assert.equal(
+    readFileSync(path.join(repository, "packages/daemon/dist/build-id.txt"), "utf8"),
+    daemonDistBuildId,
+    "packing must not rewrite the daemon dist build-id mid-run",
+  );
   run(npm, ["pack", "-w", "@harness-anything/cli", "--pack-destination", parent]);
   run(
     npm,
