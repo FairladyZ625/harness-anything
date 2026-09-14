@@ -17,6 +17,7 @@ import {
   readContentObject,
 } from "./task-event-store-claims-layout.ts";
 import { consumeKnownError } from "../error-consumption.ts";
+import { isSqliteBusy, registerLedgerClose } from "./sqlite-ledger-connections.ts";
 
 export const SQLITE_LEDGER_GENERATION = 1;
 
@@ -336,8 +337,7 @@ export function sqliteContentObjectPath(
   );
 }
 
-const SQLITE_BUSY = 5,
-  OPEN_BUSY_BUDGET_MS = 5000,
+const OPEN_BUSY_BUDGET_MS = 5000,
   OPEN_BUSY_BACKOFF_MS = 10;
 
 // busy_timeout goes first so every later lock wait is honoured. The WAL switch is the exception:
@@ -365,12 +365,6 @@ function configureLedgerConnection(db: DatabaseSync, readOnly = false): void {
       if (Date.now() >= deadline) throw error;
     }
   }
-}
-
-function isSqliteBusy(error: unknown): boolean {
-  return (
-    typeof error === "object" && error !== null && (error as { readonly errcode?: unknown }).errcode === SQLITE_BUSY
-  );
 }
 
 export function openSqliteEventStore(options: {
@@ -606,7 +600,7 @@ export function openSqliteEventStore(options: {
       query("SELECT event_json FROM event WHERE revision>? ORDER BY revision LIMIT ?", [revision, limit]).map(
         (row) => JSON.parse(String(row.event_json)) as CanonicalEventV1,
       ),
-    close: () => db.close(),
+    close: registerLedgerClose(databasePath, db),
   };
 }
 

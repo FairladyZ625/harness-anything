@@ -291,6 +291,7 @@ export {
   makeTaskEventStore,
   makeTaskProjection,
   openSqliteEventStore,
+  closeSqliteEventStoresUnder,
   readOfflineLedgerEvents,
   resolveActiveGeneration,
   restoreDrillRetentionFor,

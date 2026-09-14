@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import path from "node:path";
 import test from "node:test";
 import { requestLocalDaemonJsonRpc } from "../../daemon/src/client/local-json-rpc-client.ts";
-import { makeTaskEventReader } from "../../kernel/src/index.ts";
+import { closeSqliteEventStoresUnder, makeTaskEventReader } from "../../kernel/src/index.ts";
 import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
 
 import {
@@ -404,6 +404,7 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
     );
   } finally {
     stop(fixture.alpha, fixture.userRoot);
+    closeSqliteEventStoresUnder(fixture.root);
     rmSync(fixture.root, { recursive: true, force: true });
   }
 });
@@ -498,6 +499,7 @@ test("real CLI creates module and subtask-expansion packages through their decla
     );
   } finally {
     stop(fixture.alpha, fixture.userRoot);
+    closeSqliteEventStoresUnder(fixture.root);
     rmSync(fixture.root, { recursive: true, force: true });
   }
 });

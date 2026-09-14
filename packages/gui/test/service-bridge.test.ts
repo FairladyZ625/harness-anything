@@ -8,13 +8,11 @@ import path from "node:path";
 import test, { after, before } from "node:test";
 import { writeProviderExecutable } from "../../daemon/test/fixtures/runtime-stub.ts";
 import { requestDaemonJsonRpcAt } from "../../daemon/src/client/local-json-rpc-client.ts";
-import { appendRuntimeWorkerRecord, openDispatchStream } from "../../daemon/src/dispatch-stream.ts";
 import {
   compileScheduleDefinitionEvent,
   createScheduleV1,
   deriveUseCaseProjectionInputs,
   makeTaskEventStore,
-  makeTaskProjection,
 } from "../../kernel/src/index.ts";
 import {
   daemonGuiReadMethods,
@@ -36,7 +34,12 @@ import { writeTriadicLedger } from "../test-support/triadic-ledger.mjs";
 import type { Failure } from "./service-bridge.fixtures.ts";
 import { restoreEnv } from "./service-bridge.fixtures.ts";
 
-import { seedEntityDeclarations, seedRuntime } from "./service-bridge.fixtures.ts";
+import {
+  SEEDED_SQUAD_RUN_ID,
+  seedEntityDeclarations,
+  seedRuntime,
+  seedSquadRunState,
+} from "./service-bridge.fixtures.ts";
 const ciBin = mkdtempSync(path.join(tmpdir(), "ha-gui-submit-ci-"));
 const originalPath = process.env.PATH;
 before(() => {
@@ -50,7 +53,6 @@ after(() => {
   restoreEnv("PATH", originalPath);
   rmSync(ciBin, { recursive: true, force: true });
 });
-const SEEDED_SQUAD_RUN_ID = "squad_aabbccddeeff001122334455";
 
 test("GUI main reports every isolated task snapshot row with field-level context", () => {
   const messages: string[] = [];
@@ -87,7 +89,7 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
     beforeRestart: async (rootDir: string, repoId: string, writerFence: WriterEpochFenceDescriptor) => {
       await seedRuntime(rootDir, repoId, writerFence);
       await seedSchedule(rootDir, repoId, writerFence);
-      seedSquadRunState(rootDir, repoId);
+      await seedSquadRunState(rootDir, repoId);
     },
   });
   const previous = {
@@ -718,80 +720,6 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
     restoreEnv("HARNESS_DAEMON_REPO_ID", previous.repoId);
   }
 });
-
-/** 种一个已收敛的 squad run 状态(G12 §2c):与 `ha squad run` 的持久化路径同构 ——
- * 派工流头部 + squad_run_state 记录;worker 派工刻意不落流,断言读面以 null 呈现。 */
-function seedSquadRunState(rootDir: string, repoId: string): string {
-  const squadRunId = SEEDED_SQUAD_RUN_ID,
-    leaderDispatchId = "dispatch_0000000000000000000000a1",
-    workerDispatchId = "dispatch_0000000000000000000000b2";
-  openDispatchStream(rootDir, {
-    dispatchId: leaderDispatchId,
-    taskId: "task-gui-smoke",
-    executionId: "execution-gui",
-    runtimeSessionId: "runtime-squad-leader",
-    instanceId: "codex-gui",
-    startedAt: "2026-08-13T00:05:00.000Z",
-    agentId: "terra",
-    agentName: "terra",
-  });
-  appendRuntimeWorkerRecord(rootDir, leaderDispatchId, {
-    kind: "squad_run_state",
-    squadRunId,
-    revision: 3,
-    state: {
-      schema: "squad-run/v1",
-      squadRunId,
-      stateDispatchId: leaderDispatchId,
-      squadId: "core-squad",
-      taskId: "task-gui-smoke",
-      runtimeInstanceId: "codex-gui",
-      cwd: rootDir,
-      mission: "Resident GUI squad run",
-      model: null,
-      effort: null,
-      leaderAgentId: "terra",
-      roster: "terra » terra",
-      workers: ["terra"],
-      leaderTurnBudget: 8,
-      binding: { actor: { principal: { personId: "person-gui" }, executor: null }, source: "local" },
-      leaderTurns: [
-        {
-          turnId: "leader-1",
-          trigger: { kind: "initial" },
-          dispatchId: leaderDispatchId,
-          runtimeSessionId: "runtime-squad-leader",
-          decision: { kind: "converged" },
-        },
-      ],
-      leaderProviderSessionId: null,
-      currentLeaderRuntimeSessionId: null,
-      workerAttempts: [
-        {
-          attemptId: "worker-1",
-          workerId: "terra",
-          leaderTurnId: "leader-1",
-          dispatchId: workerDispatchId,
-          runtimeSessionId: "runtime-squad-worker",
-          rejection: null,
-        },
-      ],
-      observedWorkerRuntimeSessionIds: [],
-      workerWaits: [],
-      pendingLeaderTriggers: [],
-      phase: "converged",
-      revision: 3,
-      error: null,
-    },
-  });
-  // 首次 daemon 已把「无 squad run」的缓存标成 ready;fixture 直接落流绕过了
-  // production writeState 的 upsert,因此在重启前显式标脏,让 resident daemon
-  // 按真实 recovery 路径从 squad_run_state 重放。
-  const projection = makeTaskProjection({ rootDir, eventStore: makeTaskEventStore({ rootDir, repoId }) });
-  projection.markSquadRunProjectionDirty();
-  projection.close();
-  return squadRunId;
-}
 
 async function seedSchedule(rootDir: string, repoId: string, writerFence: WriterEpochFenceDescriptor): Promise<void> {
   const store = makeTaskEventStore({ rootDir, repoId, writerFence: () => writerFence }),
