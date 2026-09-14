@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Eye } from "@phosphor-icons/react";
 import type { AgentDeclarationV1 } from "../../../../../daemon/src/protocol/daemon-protocol-gui-types.ts";
 import type { RuntimeInstanceSummary } from "../../../../../daemon/src/agent-runtime-instances.ts";
 import { runtimeTypeMatchesKind } from "../../../../../daemon/src/agent-runtime-contract.ts";
@@ -12,6 +13,7 @@ import { t } from "../../i18n/index.tsx";
 import { RUNTIME_KIND_IDS } from "../../runtime-provider-planes.ts";
 import { EntityRefLink } from "../EntityRefLink.tsx";
 import { ViewInGraphButton } from "../ViewInGraphButton.tsx";
+import { SkillEditorModal, type ViewingSkill } from "./SkillEditorModal.tsx";
 import {
   AddChip,
   Avatar,
@@ -106,7 +108,8 @@ export function AgentCard({
     [runtimeListOpen, setRuntimeListOpen] = useState(false),
     [skillSearch, setSkillSearch] = useState(""),
     [presetSearch, setPresetSearch] = useState(""),
-    [customModelOpen, setCustomModelOpen] = useState(false);
+    [customModelOpen, setCustomModelOpen] = useState(false),
+    [viewingSkill, setViewingSkill] = useState<ViewingSkill | null>(null);
   useEffect(() => {
     setDraft(agentDraftFrom(detail));
   }, [detail]);
@@ -220,16 +223,24 @@ export function AgentCard({
         <Sect title={t("agentRuntime.skills")} desc={t("agentRuntime.skillsDesc")}>
           <ChipZone>
             {draft.skills.length ? (
-              draft.skills.map((skill) => (
-                <Chip
-                  key={skill.path}
-                  tone="mono"
-                  tip={skill.path}
-                  onClick={() => patch({ skills: draft.skills.filter((selected) => selected.path !== skill.path) })}
-                >
-                  {skill.id} ×
-                </Chip>
-              ))
+              draft.skills.map((skill) => {
+                // 查看与删除解耦(task_5dfe382f):点药丸正文打开详情浮层,只有 × 热区删除。
+                const matching = availableSkills.find(
+                  (available) => available.path === skill.path || available.id === skill.id,
+                );
+                return (
+                  <Chip
+                    key={skill.path}
+                    tone="mono"
+                    tip={skill.path}
+                    onClick={() => setViewingSkill({ id: skill.id, path: skill.path, source: matching?.source })}
+                    onRemove={() => patch({ skills: draft.skills.filter((selected) => selected.path !== skill.path) })}
+                    removeLabel={t("agentRuntime.skillModal.removeSkill")}
+                  >
+                    {skill.id}
+                  </Chip>
+                );
+              })
             ) : (
               <Empty>{t("agentRuntime.noSkills")}</Empty>
             )}
@@ -247,19 +258,33 @@ export function AgentCard({
               <div className="max-h-36 overflow-y-auto rounded border border-border bg-surface p-1">
                 {filteredSkills.length ? (
                   filteredSkills.map((skill) => (
-                    <button
+                    <div
                       key={skill.path}
-                      type="button"
-                      onClick={() => {
-                        patch({ skills: [...draft.skills, { id: skill.id, path: skill.path }] });
-                        setSkillSearch("");
-                      }}
-                      className="flex w-full items-center gap-2 rounded px-2 py-1 text-left hover:bg-surface-raised"
+                      className="flex w-full items-center gap-1 rounded px-2 py-1 hover:bg-surface-raised"
                     >
-                      <b className="font-mono ui-micro">{skill.id}</b>
-                      <Badge>{skill.source}</Badge>
-                      <span className="min-w-0 truncate font-mono ui-micro text-text-faint">{skill.path}</span>
-                    </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          patch({ skills: [...draft.skills, { id: skill.id, path: skill.path }] });
+                          setSkillSearch("");
+                        }}
+                        className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                      >
+                        <b className="font-mono ui-micro">{skill.id}</b>
+                        <Badge>{skill.source}</Badge>
+                        <span className="min-w-0 truncate font-mono ui-micro text-text-faint">{skill.path}</span>
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={t("agentRuntime.skillModal.inspectSkill")}
+                        data-tip={t("agentRuntime.skillModal.inspectSkill")}
+                        data-testid="agent-skill-inspect"
+                        onClick={() => setViewingSkill({ id: skill.id, path: skill.path, source: skill.source })}
+                        className="grid size-6 shrink-0 place-items-center rounded text-text-faint hover:text-accent"
+                      >
+                        <Eye weight="bold" />
+                      </button>
+                    </div>
                   ))
                 ) : (
                   <Empty>{t("agentRuntime.noSkillMatches")}</Empty>
@@ -460,6 +485,13 @@ export function AgentCard({
           </div>
         </Sect>
       </Card>
+      {viewingSkill !== null && (
+        <SkillEditorModal
+          skill={viewingSkill}
+          availableSkills={availableSkills}
+          onClose={() => setViewingSkill(null)}
+        />
+      )}
     </div>
   );
 }
