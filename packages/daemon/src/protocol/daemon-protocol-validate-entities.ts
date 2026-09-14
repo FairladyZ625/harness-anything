@@ -1,4 +1,3 @@
-import { inspect } from "node:util";
 import {
   executionStateWords,
   executionV1StateWords,
@@ -8,6 +7,7 @@ import {
   taskStatusWords,
 } from "./daemon-protocol-vocabulary.ts";
 import { isJsonObject, type JsonObject } from "./json-rpc-types.ts";
+import { validationValueSummary } from "./daemon-protocol-value-summary.ts";
 
 export const recordWith = (value: unknown, fields: readonly string[]): value is JsonObject =>
     isJsonObject(value) && fields.every((field) => Object.hasOwn(value, field)),
@@ -36,22 +36,6 @@ export const sha = (value: unknown): boolean => typeof value === "string" && /^[
 
 export const statusWord = (vocabulary: readonly string[], value: unknown): boolean =>
   vocabulary.includes(String(value));
-
-const validationValueLimit = 120;
-
-export function validationValueSummary(value: unknown): string {
-  const rendered = inspect(value, {
-    breakLength: Infinity,
-    compact: true,
-    depth: 3,
-    maxArrayLength: 20,
-    maxStringLength: 100,
-  });
-  const characters = [...rendered];
-  return characters.length <= validationValueLimit
-    ? rendered
-    : `${characters.slice(0, validationValueLimit - 1).join("")}…`;
-}
 
 export function validationError(entityId: string, field: string, actual: unknown, expectation: string): string {
   return (

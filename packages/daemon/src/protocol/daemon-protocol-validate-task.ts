@@ -23,10 +23,10 @@ import {
   validationEntityId,
   validationError,
   validationValueAtPath,
-  validationValueSummary,
   warningArray,
   recordShapeError,
 } from "./daemon-protocol-validate-entities.ts";
+import { validationValueSummary } from "./daemon-protocol-value-summary.ts";
 import {
   blockingLabelWords,
   packageDispositionWords,

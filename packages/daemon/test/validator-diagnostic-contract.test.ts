@@ -21,6 +21,7 @@ import {
   validateCatalogActionPayload,
   validateSessionEnvironment,
 } from "../src/protocol/daemon-protocol-validate-task.ts";
+import { validationValueSummary } from "../src/protocol/daemon-protocol-value-summary.ts";
 import { writeReceipt } from "../src/protocol/daemon-protocol-validate-results.ts";
 import type { JsonObject } from "../src/protocol/json-rpc-types.ts";
 
@@ -382,6 +383,30 @@ test("task snapshot isolated-row diagnostics require an actual-value summary", (
     warnings: [],
   });
   assert.match(errors[0]!, /task-isolated-contract.*field=invalidRows\[0\].*actual=/u);
+});
+
+test("validationValueSummary renders inspect-style portable value summaries with bounded length", () => {
+  assert.equal(validationValueSummary([{ kind: "text" }]), "[ { kind: 'text' } ]");
+  assert.equal(validationValueSummary([1]), "[ 1 ]");
+  assert.equal(validationValueSummary("not-a-sha"), "'not-a-sha'");
+  assert.equal(validationValueSummary(undefined), "undefined");
+  assert.equal(validationValueSummary({ witnessId: "" }), "{ witnessId: '' }");
+  assert.equal(validationValueSummary("it's"), '"it\'s"');
+  assert.equal(validationValueSummary('say "hi"'), "'say \"hi\"'");
+  assert.equal(validationValueSummary("both\"'q"), "`both\"'q`");
+  assert.equal(validationValueSummary([null, true, false]), "[ null, true, false ]");
+  assert.equal(validationValueSummary({ "kebab-key": 1, x1: 2 }), "{ 'kebab-key': 1, x1: 2 }");
+  assert.equal(validationValueSummary({ deep: [[[["leaf"]]]] }), "{ deep: [ [ [ [Array] ] ] ] }");
+  assert.equal(validationValueSummary({ a: { b: { c: { d: { e: 1 } } } } }), "{ a: { b: { c: { d: [Object] } } } }");
+  assert.equal(
+    validationValueSummary(Array.from({ length: 25 }, (_, index) => index)),
+    "[ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, ... 5 more items ]",
+  );
+  assert.equal(validationValueSummary("a".repeat(150)), `'${"a".repeat(100)}'... 50 more chara…`);
+  assert.equal(validationValueSummary("x".repeat(500)), `'${"x".repeat(100)}'... 400 more char…`);
+  const capped = validationValueSummary({ wide: Array.from({ length: 20 }, () => "y".repeat(130)) });
+  assert.equal([...capped].length, 120);
+  assert.ok(capped.endsWith("…"), capped);
 });
 
 test("protocol validation failures preserve entity, field, and actual as structured diagnostics", () => {
