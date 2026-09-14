@@ -87,6 +87,31 @@ test("completion dispatches the bundled reviewer with no installed declaration a
   }
 });
 
+test("review execution publishes its dispatch-specific report and input in the review event", async () => {
+  const f = await fixture();
+  try {
+    const dispatched = (await f.complete()) as Record<string, unknown>,
+      dispatchId = String(dispatched.dispatchId),
+      reviewed = await f.reviewDispatchedArtifacts(String(dispatched.runtimeSessionId), dispatchId);
+    assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
+    await waitForFixturePublication(f.cell(), reviewed.opId, owner);
+    const event = f
+      .events()
+      .find(
+        (candidate) =>
+          candidate.type === "review_recorded" && candidate.payload.review.reviewId === `review-${dispatchId}`,
+      );
+    assert.ok(event?.type === "review_recorded");
+    assert.deepEqual(
+      event.payload.carriedDocumentClaims?.map(({ path: candidate }) => candidate),
+      [`${f.packagePath}/artifacts/reports/${dispatchId}.json`, `${f.packagePath}/artifacts/reports/${dispatchId}.md`],
+    );
+    assert.equal(f.harnessStatus(), "");
+  } finally {
+    await f.close();
+  }
+});
+
 test("completion reviewer settlement keeps the report the reviewer authored at the dispatch report path", async () => {
   const f = await fixture();
   try {
