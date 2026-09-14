@@ -23,6 +23,13 @@ export {
 } from "../store/sqlite-event-store.ts";
 export { reconcileSqliteEvents } from "../store/sqlite-ledger-reconcile.ts";
 export {
+  createLedgerBackup,
+  drillLedgerBackup,
+  readOfflineLedgerEvents,
+  restoreDrillRetentionFor,
+  runGenerationTwoConversion,
+} from "../store/ledger-backup.ts";
+export {
   activateEmptyCanonicalGeneration,
   createImmutableLegacyGenerationSnapshotFromStoppedRepository,
 } from "../store/legacy-generation-conversion.ts";

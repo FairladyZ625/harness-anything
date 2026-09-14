@@ -8,8 +8,14 @@ async function main(argv: readonly string[]): Promise<number> {
     await runRuntimeWorkerHost();
     return 0;
   }
+  if (argv[0] === "offline") {
+    const { runOfflineStorageCommand } = await import("./offline-storage.ts");
+    return runOfflineStorageCommand(argv.slice(1));
+  }
   if (!(argv[0] === "serve" || argv[0] === "--service")) {
-    process.stderr.write("Usage: harness-anything-daemon serve|--service [--user-root <path>] [--daemon-id <id>]\n");
+    process.stderr.write(
+      "Usage: harness-anything-daemon serve|--service [--user-root <path>] [--daemon-id <id>] | offline <command>\n",
+    );
     return 2;
   }
   const option = (name: string): string | undefined => {
