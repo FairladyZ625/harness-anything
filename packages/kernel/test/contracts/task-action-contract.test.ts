@@ -222,7 +222,7 @@ test("task creation result and all seven guidance entries derive from its descri
     { kind: "task-create-publish", args: {}, when: { dryRun: true } },
     {
       kind: "task-create-start",
-      args: { packagePath: "{packagePath}", taskId: "{taskId}" },
+      args: { packagePath: "{packagePath}", ledgerPackagePath: "{ledgerPackagePath}", taskId: "{taskId}" },
       when: { dryRun: false, "proof.canonicalVisible": true },
     },
     {

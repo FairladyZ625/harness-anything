@@ -42,7 +42,11 @@ export function taskCreateGuidance(
   const returns = deriveActionReturnsContract(action),
     scopedValues =
       typeof values.packagePath === "string"
-        ? { ...values, packagePath: workspaceRelativePath(roots, values.packagePath) }
+        ? {
+            ...values,
+            packagePath: workspaceRelativePath(roots, values.packagePath),
+            ledgerPackagePath: values.packagePath,
+          }
         : values;
   return Object.freeze(returns.guidance.map((entry) => resolveGuidanceEntry(entry, scopedValues)));
 }

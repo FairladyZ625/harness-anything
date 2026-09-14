@@ -882,6 +882,7 @@ export function descriptorFacets(id: string) {
             when: all(equals("result.dryRun", false), equals("result.proof.canonicalVisible", true)),
             args: Object.freeze({
               packagePath: Object.freeze({ resultPath: "result.packagePath" }),
+              ledgerPackagePath: "{ledgerPackagePath}",
               taskId: Object.freeze({ resultPath: "result.taskId" }),
             }),
           }),
