@@ -2,7 +2,7 @@
 
 import { randomUUID } from "node:crypto";
 import { execFileSync, spawn } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -13,7 +13,7 @@ import {
   toolOption,
   toolValue,
 } from "./tool-command-contract.mjs";
-import { guiVitestManifest } from "./gui-test-manifest.mjs";
+import { guiVitestFilePattern } from "./gui-test-runner-lib.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
 const dispatchCommand = Object.freeze({
@@ -37,7 +37,7 @@ export function parseDispatchArgs(argv) {
 
 export function testRunnerArgs(options) {
   if (options.file !== undefined) validateDispatchTestFile(options.file);
-  if (guiVitestManifest.includes(options.file)) {
+  if (isGuiVitestFile(options.file)) {
     return [
       "npm",
       "run",
@@ -55,8 +55,17 @@ export function testRunnerArgs(options) {
   ];
 }
 
+// GUI vitest files are routed to the vitest lane by shape; the runner discovers
+// them dynamically, so the only registry is the file system itself.
+function isGuiVitestFile(value) {
+  return value !== undefined && value.startsWith("packages/gui/test/") && guiVitestFilePattern.test(value);
+}
+
 function validateDispatchTestFile(value) {
-  if (guiVitestManifest.includes(value)) return;
+  if (isGuiVitestFile(value)) {
+    if (existsSync(path.join(repoRoot, value))) return;
+    throw new Error(`unknown GUI test file: ${value}`);
+  }
   if (value.includes(".vitest.")) throw new Error(`unknown GUI test file: ${value}`);
   toolOption(dispatchIsolatedTestCommand, "--file").validate(value);
 }

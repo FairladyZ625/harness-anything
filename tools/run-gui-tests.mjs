@@ -3,8 +3,7 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
-import { collectGuiVitestFiles, validateGuiVitestManifest } from "./gui-test-runner-lib.mjs";
-import { guiVitestManifest } from "./gui-test-manifest.mjs";
+import { collectGuiVitestFiles } from "./gui-test-runner-lib.mjs";
 import { readTestQuarantine } from "./test-quarantine.mjs";
 
 const repoRoot = resolve(import.meta.dirname, "..");
@@ -18,22 +17,15 @@ if (unknownArgs.length > 0) {
 }
 
 const testFiles = await collectGuiVitestFiles(repoRoot);
-const validation = validateGuiVitestManifest(testFiles, guiVitestManifest);
-if (validation.errors.length > 0) {
-  for (const error of validation.errors) {
-    console.error(error);
-  }
-  process.exit(1);
-}
 
 if (listOnly) {
-  for (const file of guiVitestManifest) {
+  for (const file of testFiles) {
     console.log(file);
   }
   process.exit(0);
 }
 
-if (guiVitestManifest.length === 0) {
+if (testFiles.length === 0) {
   console.log("No GUI Vitest files found.");
   process.exit(0);
 }

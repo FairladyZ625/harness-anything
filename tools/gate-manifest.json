@@ -1169,12 +1169,12 @@
       "tier": "pr-required",
       "tierReason": null,
       "authoritySource": [
-        "tools/gui-test-manifest.mjs",
         "tools/run-gui-tests.mjs",
+        "tools/gui-test-runner-lib.mjs",
         "package.json:scripts.test:gui"
       ],
       "consumerScope": [
-        "GUI tests registered by the GUI test runner"
+        "GUI tests dynamically discovered under packages/gui/test by the GUI test runner"
       ],
       "githubContext": {
         "requiredContexts": [
@@ -1189,16 +1189,17 @@
         "pathFiltered": true
       },
       "allowlistPolicy": {
-        "allowed": true,
-        "location": "tools/gui-test-manifest.mjs",
+        "allowed": false,
+        "location": null,
         "adrOrDecisionRequired": false,
-        "notes": "GUI lane no-ops expensive steps when path filtering reports no GUI/shared-root changes."
+        "notes": "Discovery is dynamic glob scanning of packages/gui/test; there is no registration allowlist to grow. The lane no-ops expensive steps when path filtering reports no GUI/shared-root changes."
       },
       "changeControl": {
         "ordinaryImplementationMayModify": false,
         "requiresGovernanceEvidence": true,
         "protectedSurfaces": [
-          "tools/gui-test-manifest.mjs",
+          "tools/run-gui-tests.mjs",
+          "tools/gui-test-runner-lib.mjs",
           "package.json:scripts.test:gui"
         ]
       },

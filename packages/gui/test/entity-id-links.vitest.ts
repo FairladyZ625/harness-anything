@@ -916,9 +916,9 @@ describe("G10 entity-id-links 行为判据:视图渲染出的实体 ID 必须可
 
 // ============ 风化视图(O-08)============
 // 风化列表渲染的决策 ID / 反驳事实 ID 正是 G10 判据的对象,故视图契约测试落在本
-// 文件(它也是 ViewId 渲染完备性的机制性维护点)。独立文件需要登记
-// tools/gui-test-manifest.mjs——该文件在本任务禁区(tools/**)——故并档于此;
-// 若登记 manifest,可原样拆出 freshness-view.vitest.ts。
+// 文件(它也是 ViewId 渲染完备性的机制性维护点)。test:gui 已动态扫描
+// packages/gui/test,独立文件无需登记;如需拆分可原样拆出
+// freshness-view.vitest.ts。
 describe("风化视图(O-08):uncovered 承重论点的聚合与跳转", () => {
   function mountFreshness(
     props: Partial<Parameters<typeof FreshnessView>[0]> = {},

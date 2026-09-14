@@ -14,8 +14,9 @@
  *   S2  原语纪律:被批准的渲染原语 EntityRefLink 自身必须把 ID 文本渲染在
  *       带 onClick 的 button/a 里。原语退化为死文本时,全库的「合法出口」
  *       就变成了漏斗,所以原语本体每次都被审计。
- *   S3  接线纪律:行为半边测试文件存在且登记在 tools/gui-test-manifest.mjs。
- *       删测试或除名 = 静态半边同时变红,两半不许单独拆掉。
+ *   S3  接线纪律:行为半边测试文件必须存在。test:gui 动态扫描
+ *       packages/gui/test 下的全部 vitest 文件,文件在即被执行 —— 删测试 =
+ *       静态半边同时变红,两半不许单独拆掉。
  *
  * 实体种类 = entityRoutes 可寻址的七类(task/decision/fact/agent/squad/
  * provider/session)。executionId、dispatchId、personId 等非路由标识符不在
@@ -35,7 +36,6 @@ export const RENDERER_ROOT = "packages/gui/src/renderer";
 export const LINK_PRIMITIVE_PATH = "packages/gui/src/renderer/components/EntityRefLink.tsx";
 export const LINK_PRIMITIVE_NAME = "EntityRefLink";
 export const BEHAVIORAL_TEST_PATH = "packages/gui/test/entity-id-links.vitest.ts";
-export const BEHAVIORAL_TEST_MANIFEST = "tools/gui-test-manifest.mjs";
 
 /** 被批准的「可激活」JSX 祖先:原生交互元素、带点击处理的元素、或链接原语。 */
 const ACTIVATABLE_INTRINSICS = new Set(["button", "a"]);
@@ -216,17 +216,12 @@ export function auditLinkPrimitive(sourceText, fileName = LINK_PRIMITIVE_PATH) {
   return problems;
 }
 
-/** S3:行为半边必须存在且登记 —— 两半不许被单独拆掉。 */
+/** S3:行为半边必须存在 —— 两半不许被单独拆掉。test:gui 动态发现
+ * packages/gui/test 下的全部 vitest 文件,文件在即被执行,无需登记。 */
 export function auditBehavioralWiring(rootDir) {
   const problems = [];
   if (!existsSync(path.join(rootDir, BEHAVIORAL_TEST_PATH))) {
     problems.push(`${BEHAVIORAL_TEST_PATH}: 行为半边测试不存在(DOM 扫描是本不变量的主判据)`);
-  }
-  const manifestPath = path.join(rootDir, BEHAVIORAL_TEST_MANIFEST);
-  if (!existsSync(manifestPath)) {
-    problems.push(`${BEHAVIORAL_TEST_MANIFEST}: 测试登记清单不存在(test:gui 无法执行任何行为半边)`);
-  } else if (!readFileSync(manifestPath, "utf8").includes(BEHAVIORAL_TEST_PATH)) {
-    problems.push(`${BEHAVIORAL_TEST_MANIFEST}: 未登记 ${BEHAVIORAL_TEST_PATH}(test:gui 不会执行它)`);
   }
   return problems;
 }
