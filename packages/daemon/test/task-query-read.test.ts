@@ -277,6 +277,37 @@ test("task WIP read returns daemon-counted leaves and root assessments", (t) => 
   assert.equal(result.limitLabel, "settings.tasks.wipLimit");
 });
 
+test("the real WIP producer output passes the protocol validator, with or without roots", (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "task-wip-contract-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  const wipOf = (taskRows: readonly unknown[]) =>
+    readTaskWipSnapshot({
+      rootDir,
+      projection: projectionStub({ taskRows, childCounts: { task_leaf: 0, task_milestone: 2 } }),
+    } as unknown as TaskQueryCell);
+
+  // Contrast 1 — no root: a leaf-only worktable validates.
+  const noRoots = wipOf([protocolTaskRow("task_leaf", [], { status: "active" })]);
+  assert.deepEqual(noRoots.roots, []);
+  assert.deepEqual(parseDaemonGuiReadResult("repo.tasks.wip", noRoots), noRoots);
+
+  // Contrast 2 — legit root: the producer's four-field root row validates through the same
+  // parser the GUI client uses. This is the row the old exact-key-count check rejected.
+  const withRoots = wipOf([
+    protocolTaskRow("task_leaf", [], { status: "active" }),
+    protocolTaskRow("task_milestone", [], { status: "blocked", taskClass: "milestone" }),
+  ]);
+  assert.deepEqual(withRoots.roots, [
+    { taskId: "task_milestone", reason: "declared", directChildCount: 2, threshold: 3 },
+  ]);
+  assert.deepEqual(parseDaemonGuiReadResult("repo.tasks.wip", withRoots), withRoots);
+
+  // Contrast 3 — undeclared field: a root row carrying anything beyond the declared fields is
+  // refused. The old length-only check accepted exactly this row (five keys, four checked).
+  const drifted = { ...withRoots, roots: [{ ...withRoots.roots[0]!, undeclared: true }] };
+  assert.throws(() => parseDaemonGuiReadResult("repo.tasks.wip", drifted), /must be a valid task WIP snapshot/u);
+});
+
 test("relation graph validator accepts the canonical cut and rejects invented fields", () => {
   const result = queryRead(process.cwd(), projectionStub()).relationGraphNeighborhood(neighborhoodQuery());
   assert.deepEqual(validateDaemonRelationGraph(result), []);

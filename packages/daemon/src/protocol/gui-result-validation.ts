@@ -9,6 +9,7 @@ import {
   validateAgentRuntimeSession,
 } from "../agent-runtime-contract.ts";
 import {
+  taskWipRootRowFields,
   validateEntityActionExplanationSet,
   validateEntityKindCatalog,
   validateSettingsV1,
@@ -166,7 +167,8 @@ export function validateDaemonTaskWip(value: unknown): readonly string[] {
       value.roots.every(
         (row) =>
           isJsonObject(row) &&
-          Object.keys(row).length === 5 &&
+          Object.keys(row).length === taskWipRootRowFields.length &&
+          taskWipRootRowFields.every((field) => Object.hasOwn(row, field)) &&
           typeof row.taskId === "string" &&
           row.taskId.length > 0 &&
           ["declared", "derived"].includes(String(row.reason)) &&

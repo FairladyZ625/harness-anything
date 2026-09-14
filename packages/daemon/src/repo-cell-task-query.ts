@@ -6,6 +6,7 @@ import {
   hasCloseoutEvidence,
   isDomainStatus,
   isExecutionWipTask,
+  serializeTaskWipRootRow,
   taskWipOccupyingStatuses,
   type DomainStatus,
   type ReceiptDiagnostic,
@@ -272,17 +273,8 @@ export function readTaskWipSnapshot(cell: TaskQueryCell) {
         title,
       })),
     roots: entries.flatMap((entry) => {
-      const assessment = deriveTaskRoot(entry, rootSetting.threshold);
-      return assessment.isRoot
-        ? [
-            {
-              taskId: entry.taskId,
-              reason: assessment.reason,
-              directChildCount: assessment.directChildCount,
-              threshold: assessment.threshold,
-            },
-          ]
-        : [];
+      const row = serializeTaskWipRootRow(entry.taskId, deriveTaskRoot(entry, rootSetting.threshold));
+      return row === null ? [] : [row];
     }),
     threshold: rootSetting.threshold,
   } as const;
