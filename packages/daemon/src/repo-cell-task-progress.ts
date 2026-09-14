@@ -10,6 +10,7 @@ import {
   taskCompletionNext,
   completionGuidance,
   completionEvidenceBasis,
+  completionEvidenceResults,
   completionGateIds,
   effectiveCloseoutGates,
   currentCodeDocWitness,
@@ -83,6 +84,7 @@ export function readLatestCiEvidence(
       );
     if (verification.conclusion === "cancelled" || verification.conclusion === "skipped") continue;
     const result: CompletionEvidenceResult = verification.conclusion === "success" ? "pass" : "fail";
+    if (!completionEvidenceResults.includes(result)) return null;
     const basis: CompletionEvidenceBasis = {
         ...completionEvidenceBasis(execution),
         ledgerCut: event.workspaceRevision,
