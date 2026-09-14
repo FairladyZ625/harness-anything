@@ -1,20 +1,6 @@
 import type { DaemonTaskCompletionResult } from "./daemon-protocol-task-completion.ts";
 import type { TaskDispatchRow } from "./task-dispatch-contract.ts";
 export type { TaskDispatchRow } from "./task-dispatch-contract.ts";
-
-export function invalidRuntimeAttempt(row: JsonObject): boolean {
-  const text = (value: unknown) => typeof value === "string" && value.length > 0;
-  return (
-    (row.classification !== null &&
-      !["provider_fault", "provider_quota", "worker_stop", "gate_red"].includes(String(row.classification))) ||
-    (row.reason !== null && !text(row.reason)) ||
-    (row.faultClass !== undefined && !["quota_exhausted", "rate_limited"].includes(String(row.faultClass))) ||
-    (row.resetAt !== undefined && (typeof row.resetAt !== "string" || Number.isNaN(Date.parse(row.resetAt)))) ||
-    (row.nextAction !== undefined && !text(row.nextAction)) ||
-    (row.fallbackState !== null && !["scheduled", "dispatched", "exhausted"].includes(String(row.fallbackState))) ||
-    (row.nextDispatchId !== null && !text(row.nextDispatchId))
-  );
-}
 import type {
   CanonicalEventV1,
   DaemonRepoMode,
