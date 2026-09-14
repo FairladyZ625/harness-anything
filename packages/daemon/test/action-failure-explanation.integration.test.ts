@@ -81,7 +81,7 @@ test("Task execution rejects with the exact Action criterion and performs no rej
       expectation:
         "The actor owns the active lease or the submitted execution being amended, or owns the task with --as-owner. " +
         "Then retry " +
-        `ha task submit ${taskId} [--execution-id <execution-id>] [--amend].`,
+        `ha task submit ${taskId} [--execution-id <execution-id>] [--amend] [--as-owner].`,
     });
     context.diagnostic(`submit proof rejection=${JSON.stringify(leaseRejected)}`);
     await assertRejectedWithoutMutation(
