@@ -436,3 +436,15 @@ export function runtimeEffortField(kindId: string): string | undefined {
     ([, shape]) => shape === "effort" || shape === "agy-effort",
   )?.[0];
 }
+
+/** Whether this kind delivers effort through its provider config system (a
+ * $effort-config launch token) rather than a launch flag. Such kinds materialize the
+ * stored effort into the provider config file at launch (writeCodexConfig writes
+ * model_reasoning_effort), so their launch args carry only a request-level effort;
+ * flag kinds have no other consumption channel and must re-deliver the stored value
+ * on every launch. */
+export function runtimeEffortRidesProviderConfig(kindId: string): boolean {
+  // some() rather than includes(): the catalog's argument templates are literal tuples,
+  // and includes() would type its parameter as one kind's token union only.
+  return runtimeKindForId(kindId).launch.argumentTemplate.some((token) => token === "$effort-config");
+}

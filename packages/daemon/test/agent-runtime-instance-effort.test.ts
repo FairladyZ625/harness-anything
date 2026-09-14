@@ -1,6 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -159,6 +159,82 @@ test("effort rides the create and update write paths for every kind that declare
       () => store.command({ kind: "runtime-instance-update", instanceId: "zcode-effort", effort: "high" }),
       (error: unknown) => codedAs(error, "invalid_runtime_effort"),
     );
+  } finally {
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
+test("stored effort reaches launch flags for agy and config.toml for codex when dispatch sends none", async () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-effort-launch-"));
+  try {
+    const store = openRuntimeInstanceStore({
+      userRoot,
+      env: { HOME: "/operator/home", PATH: "/bin" },
+      discover: () => [installationWitness("codex"), installationWitness("agy")],
+      resolveCredential: () => "instance-secret",
+      subscriptionReady: () => ({ status: "ready", code: null, hint: null }),
+    });
+    store.command({
+      kind: "runtime-instance-create",
+      instanceId: "agy-stored-effort",
+      name: "AGY Stored Effort",
+      kindId: "agy",
+      installationId: "agy-installation-test",
+      providerId: "google",
+      models: ["gemini-3.1-pro-low"],
+      agy: { effort: "high" },
+      authMode: "subscription",
+    });
+    // The launch flag is the stored value's only consumption channel, so it rides
+    // every launch even when the dispatch sends no effort of its own.
+    const stored = await store.prepareLaunch("agy-stored-effort", {
+      cwd: "/workspace/repo",
+      prompt: "Stored",
+    });
+    assert.deepEqual(stored.args, [
+      "-p",
+      "Stored",
+      "--output-format",
+      "stream-json",
+      "--model",
+      "gemini-3.1-pro-low",
+      "--dangerously-skip-permissions",
+      "--effort",
+      "high",
+    ]);
+    assert.equal(stored.definition.reasoningEffort, "high");
+    // A request-level effort still wins over the stored one.
+    const overridden = await store.prepareLaunch("agy-stored-effort", {
+      cwd: "/workspace/repo",
+      prompt: "Override",
+      effort: "low",
+    });
+    assert.equal(overridden.args[overridden.args.indexOf("--effort") + 1], "low");
+    assert.equal(store.read("agy-stored-effort")?.agy.effort, "high");
+    store.command({
+      kind: "runtime-instance-create",
+      instanceId: "codex-stored-effort",
+      name: "Codex Stored Effort",
+      kindId: "codex",
+      installationId: "codex-installation-test",
+      providerId: "openai",
+      models: ["gpt-5.6-sol"],
+      codex: { reasoningEffort: "high" },
+      authMode: "api-key",
+      credentialRef: "credential:v1:codex-stored-effort",
+    });
+    // codex materializes the stored effort into config.toml instead, so launch args
+    // carry no effort of their own when the dispatch sends none.
+    const codexLaunch = await store.prepareLaunch("codex-stored-effort", {
+      cwd: "/workspace/repo",
+      prompt: "Config only",
+    });
+    assert.equal(codexLaunch.args.includes("model_reasoning_effort"), false);
+    assert.match(
+      readFileSync(path.join(codexLaunch.env.CODEX_HOME!, "config.toml"), "utf8"),
+      /model_reasoning_effort = "high"/u,
+    );
+    assert.equal(codexLaunch.definition.reasoningEffort, "high");
   } finally {
     rmSync(userRoot, { recursive: true, force: true });
   }
