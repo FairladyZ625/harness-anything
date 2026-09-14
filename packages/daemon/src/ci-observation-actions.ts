@@ -30,6 +30,7 @@ type CiRunSummary = {
   readonly status: string;
   readonly conclusion: string;
   readonly attempt: number;
+  readonly event: string;
 };
 type RunGh = (command: string, args: readonly string[], options: { readonly cwd: string }) => Promise<string>;
 type FetchedCiRun = {
@@ -100,7 +101,7 @@ export async function fetchCiObservations(
                 "view",
                 String(run.databaseId),
                 "--json",
-                "workflowName,headSha,headBranch,status,conclusion,attempt",
+                "workflowName,headSha,headBranch,status,conclusion,attempt,event",
               ],
               { cwd: cell.rootDir },
             ),
@@ -184,6 +185,7 @@ export async function fetchCiObservations(
               status: "completed",
               conclusion: "success",
               attempt: 1,
+              event: "push",
             },
             artifacts: [
               {
@@ -265,6 +267,7 @@ export function ingestCiObservations(
                       attempt: summary.attempt,
                       headSha: summary.headSha,
                       conclusion: summary.conclusion,
+                      event: summary.event,
                     }
                   : null,
           },

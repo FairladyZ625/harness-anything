@@ -280,6 +280,7 @@ test("CI observation pull writes canonical events once per run and job", async (
         status: "completed",
         conclusion: "success",
         attempt: 1,
+        event: args[2] === "101" ? "schedule" : "push",
       });
     const runId = String(args[2]),
       outputDir = String(args[args.indexOf("--dir") + 1]);
@@ -344,7 +345,26 @@ test("CI observation pull writes canonical events once per run and job", async (
       attempt: 1,
       headSha: "sha-101",
       conclusion: "success",
+      event: "schedule",
     });
+    assert.equal(
+      observed.find((event) => event.payload.run.runId === "101.1")?.payload.verification?.event,
+      "schedule",
+    );
+    assert.equal(
+      readCiObservatory({
+        rootDir,
+        projection: {
+          readCiRunObservations: () => ({
+            status: "ready",
+            events: observed,
+            watermark: 2,
+            sourceRevision: 2,
+          }),
+        } as never,
+      }).runs.length,
+      2,
+    );
     assert.equal(
       observed.find((event) => event.payload.run.runId === "102.1")?.payload.verification?.workflow,
       "rebuild-gates",
@@ -378,6 +398,7 @@ test("CI observation pull collects selected GitHub runs concurrently in selectio
         status: "completed",
         conclusion: "success",
         attempt: 1,
+        event: "push",
       });
     }
     const outputDir = String(args[args.indexOf("--dir") + 1]);
@@ -490,6 +511,7 @@ test("CI observation pull imports named main runs without listing recent runs", 
         status: "completed",
         conclusion: "success",
         attempt: 1,
+        event: "push",
       });
     assert.equal(args[1], "download");
     const output = String(args[args.indexOf("--dir") + 1]);
@@ -647,6 +669,7 @@ test("CI completion verdict comes from the completed matching workflow run, not 
               status: scenario.status,
               conclusion: scenario.conclusion,
               attempt: scenario.attempt,
+              event: "push",
               headSha: scenario.sha,
               headBranch: "main",
             });

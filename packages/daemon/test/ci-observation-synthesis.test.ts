@@ -60,6 +60,7 @@ const noArtifactRunGh = (delivered: string) =>
         status: "completed",
         conclusion: "success",
         attempt: 1,
+        event: "push",
       });
     assert.equal(args[1], "download");
     // A workflow that uploads no ci-observation-* artifacts fails the pattern download.
@@ -89,6 +90,7 @@ test("an artifact-less green main run synthesizes a passing observation from its
       attempt: 1,
       headSha: delivered,
       conclusion: "success",
+      event: "push",
     });
     const submitted = {
       schema: "execution/v1",

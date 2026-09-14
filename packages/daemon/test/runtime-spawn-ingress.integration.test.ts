@@ -738,7 +738,10 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
         import path from "node:path";
         const command = process.argv[3], sha = "f".repeat(40);
         if (command === "list") console.log(JSON.stringify([{ databaseId: 901, headBranch: "main", createdAt: "2026-01-01T00:00:00Z" }]));
-        else if (command === "view") console.log(JSON.stringify({ workflowName: "rewrite-ci", headSha: sha, headBranch: "main", status: "completed", conclusion: "failure", attempt: 1 }));
+        else if (command === "view") console.log(JSON.stringify({
+          workflowName: "rewrite-ci", headSha: sha, headBranch: "main", status: "completed",
+          conclusion: "failure", attempt: 1, event: "push"
+        }));
         else if (command === "download") {
           const dir = process.argv[process.argv.indexOf("--dir") + 1];
           mkdirSync(dir, { recursive: true });

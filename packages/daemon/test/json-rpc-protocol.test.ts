@@ -1580,6 +1580,7 @@ async function publishCiObservation(
           status: "completed",
           conclusion: "success",
           attempt: 1,
+          event: "push",
         });
       assert.equal(args[1], "download");
       const output = String(args[args.indexOf("--dir") + 1]);
