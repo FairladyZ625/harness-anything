@@ -63,6 +63,7 @@ export async function publishExit(
         toolCallCount: active.toolCallCount,
         compacted: active.compacted,
         raw: active.rawUsage,
+        usageUnavailable: !active.usageReported,
       },
       context.input.now(),
     );

@@ -621,6 +621,31 @@ test("runtime metrics persist in the dispatch stream and read back without chang
       startedAt: "2026-09-11T00:00:00.000Z",
     });
     assert.equal(readDispatchStream(rootDir, legacyId)?.runtimeMetrics, null);
+
+    const unavailableId = "dispatch_cccccccccccccccccccccccc";
+    openDispatchStream(rootDir, {
+      dispatchId: unavailableId,
+      taskId: "task-metrics",
+      executionId: "execution-metrics",
+      runtimeSessionId: "runtime_cccccccccccccccccccccccc",
+      instanceId: "instance-1",
+      startedAt: "2026-09-11T00:00:00.000Z",
+    }).appendRuntimeMetrics?.(
+      {
+        inputTokens: 0,
+        cacheReadTokens: 0,
+        outputTokens: 0,
+        totalTokens: 0,
+        toolCallCount: 160,
+        compacted: false,
+        raw: {},
+        usageUnavailable: true,
+      },
+      "2026-09-11T00:01:00.000Z",
+    );
+    const unavailable = readDispatchStream(rootDir, unavailableId)?.runtimeMetrics;
+    assert.equal(unavailable?.usageUnavailable, true);
+    assert.equal(unavailable?.toolCallCount, 160);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

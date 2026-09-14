@@ -58,6 +58,8 @@ export interface AgentRuntimeSessionMetricsDto {
   readonly totalTokens: number;
   readonly toolCallCount: number;
   readonly compacted: boolean;
+  /** True when the provider reports no token usage, so the counters mean absence, not consumption. */
+  readonly usageUnavailable: boolean;
 }
 export interface AgentRuntimeSessionDto {
   readonly runtimeSessionId: string;
@@ -443,21 +445,14 @@ function validSession(value: unknown): value is AgentRuntimeSessionDto {
       (typeof value.activity.reasonCode === "string" && value.activity.reasonCode.length > 0))
   );
 }
+const sessionMetricsCounters = ["inputTokens", "cacheReadTokens", "outputTokens", "totalTokens", "toolCallCount"];
+
 function validSessionMetrics(value: unknown): value is AgentRuntimeSessionMetricsDto {
   return (
     isAgentRuntimeContractRecord(value) &&
-    hasExactAgentRuntimeContractFields(value, [
-      "inputTokens",
-      "cacheReadTokens",
-      "outputTokens",
-      "totalTokens",
-      "toolCallCount",
-      "compacted",
-    ]) &&
-    ["inputTokens", "cacheReadTokens", "outputTokens", "totalTokens", "toolCallCount"].every(
-      (field) => Number.isSafeInteger(value[field]) && Number(value[field]) >= 0,
-    ) &&
-    typeof value.compacted === "boolean"
+    hasExactAgentRuntimeContractFields(value, [...sessionMetricsCounters, "compacted", "usageUnavailable"]) &&
+    sessionMetricsCounters.every((field) => Number.isSafeInteger(value[field]) && Number(value[field]) >= 0) &&
+    ["compacted", "usageUnavailable"].every((field) => typeof value[field] === "boolean")
   );
 }
 

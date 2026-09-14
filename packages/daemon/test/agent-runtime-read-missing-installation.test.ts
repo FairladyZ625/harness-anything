@@ -160,6 +160,7 @@ test("session reads carry the dispatch stream's latest runtime metrics", () =>
       totalTokens: 1_800,
       toolCallCount: 17,
       compacted: true,
+      usageUnavailable: false,
     });
     assert.deepEqual(validateAgentRuntimeSession(single), []);
     assert.notEqual(

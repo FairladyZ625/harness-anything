@@ -97,6 +97,7 @@ export function makeAgentRuntimeReadModel(input: {
               totalTokens: evidence.runtimeMetrics.totalTokens,
               toolCallCount: evidence.runtimeMetrics.toolCallCount,
               compacted: evidence.runtimeMetrics.compacted,
+              usageUnavailable: evidence.runtimeMetrics.usageUnavailable === true,
             },
           }
         : {}),

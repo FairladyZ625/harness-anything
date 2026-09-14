@@ -28,6 +28,7 @@ import {
   type WriteSource,
 } from "../../kernel/src/index.ts";
 import type { RuntimePermissionMode } from "./runtime-permissions.ts";
+import type { RuntimeMetrics } from "./runtime-metrics.ts";
 import type { RuntimeAttemptOutcome, RuntimeFallbackAttempt } from "./runtime-fallback-contract.ts";
 import type { RuntimeResumeHeader } from "./runtime-resume-contract.ts";
 
@@ -84,15 +85,7 @@ export interface DispatchStreamHeader extends RuntimeResumeHeader {
 }
 
 export type DispatchStreamRecord = Record<string, unknown>;
-export type RuntimeMetrics = {
-  readonly inputTokens: number;
-  readonly cacheReadTokens: number;
-  readonly outputTokens: number;
-  readonly totalTokens: number;
-  readonly toolCallCount: number;
-  readonly compacted: boolean;
-  readonly raw: Record<string, unknown>;
-};
+export type { RuntimeMetrics };
 export type DispatchProcessState = {
   readonly pid: number;
   readonly exitCode: number | null;
