@@ -63,14 +63,22 @@ export function runOfflineStorageCommand(argv: readonly string[]): number {
             }
           : {}),
       });
-      emitReceipt({ ok: true, schema: "ledger-backup-receipt/v1", exitCode: 0, backupDir, manifest });
+      emitReceipt({ ok: true, schema: "ledger-backup-receipt/v1", exitCode: 0, ...backupReceipt(backupDir, manifest) });
       return 0;
     }
     if (argv[0] === "restore" && argv[1] === "--drill") {
       const backupDir = positional(argv, 2, "restore --drill requires a backup directory"),
         shadowParent = option(argv, "--shadow-parent") ?? path.join(rootInput, ".harness", "restore-drills"),
         result = drillLedgerBackup({ backupDir, shadowParent, retention: restoreDrillRetentionFor(rootInput) });
-      emitReceipt({ ok: true, schema: "ledger-restore-drill-receipt/v1", exitCode: 0, ...result });
+      emitReceipt({
+        ok: true,
+        schema: "ledger-restore-drill-receipt/v1",
+        exitCode: 0,
+        ...backupReceipt(backupDir, result.manifest),
+        shadowRoot: result.shadowRoot,
+        removedShadowRoots: result.removedShadowRoots,
+        warnings: result.warnings,
+      });
       return 0;
     }
     if (argv[0] === "restore") {
@@ -86,7 +94,8 @@ export function runOfflineStorageCommand(argv: readonly string[]): number {
         ok: true,
         schema: "ledger-restore-receipt/v1",
         exitCode: 0,
-        ...result,
+        ...backupReceipt(backupDir, result.manifest),
+        restoredRoot: result.restoredRoot,
         registration,
         writerEpoch,
         next:
@@ -143,6 +152,17 @@ function advanceWriterEpoch(userRoot: string, repoId: string, minimum: number): 
 
 function emitReceipt(receipt: Record<string, unknown>): void {
   console.log(JSON.stringify(receipt));
+}
+function backupReceipt(backupDir: string, manifest: ReturnType<typeof createLedgerBackup>): Record<string, unknown> {
+  return {
+    backupDir,
+    manifestPath: path.join(backupDir, "manifest.json"),
+    fileCount: manifest.files.length,
+    totalBytes: manifest.files.reduce((total, file) => total + file.size, 0),
+    sqlite: manifest.sqlite,
+    accepted: manifest.accepted,
+    registration: manifest.registration,
+  };
 }
 function option(argv: readonly string[], name: string): string | undefined {
   const index = argv.indexOf(name);
