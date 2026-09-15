@@ -128,7 +128,7 @@ function withFixture(run) {
             },
             {
               id: "workspace.bootstrap",
-              actions: ["repo-bootstrap", "daemon-repo-register", "daemon-repo-unregister"],
+              actions: ["repo-bootstrap", "daemon-repo-register", "repo-unbind", "repo-purge"],
               authority: "packages/daemon/src/daemon-host.ts",
               evidence: ["packages/daemon/src/daemon-host.ts"],
             },

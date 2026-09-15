@@ -62,6 +62,7 @@ import { makeGitReadinessSource } from "./process-port.ts";
 import { readObserveTail } from "./observe-tail.ts";
 import { readSchedulesGui } from "./schedules-gui-read.ts";
 import { readScheduleRuns } from "./schedule-runs-read.ts";
+import { readRepoInFlightWork } from "./repo-in-flight-work.ts";
 import {
   commandDescriptorForAction,
   type DaemonDecisionListResult,
@@ -1012,6 +1013,13 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
     runtime: context.runtimeStream,
     status: () => repoCellStatus(context),
     statusCuts: () => repoCellStatusCuts(context),
+    inFlightWork: () =>
+      readRepoInFlightWork({
+        projection: context.projection,
+        fleetRoster: context.fleetRoster,
+        repoId: context.input.repoId,
+        queueDepth: context.queueDepth,
+      }),
     settlePendingMaterialization: async (settlementContext) => {
       await context.tail;
       if (context.state !== "attached") return;

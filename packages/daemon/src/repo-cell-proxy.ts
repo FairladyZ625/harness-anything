@@ -29,6 +29,7 @@ import { operationId } from "./repo-cell-proof.ts";
 import { renderEvidencePayload } from "./repo-cell-evidence.ts";
 import { admitRepoMode } from "./repo-mode.ts";
 import { requiredCellText } from "./repo-cell-settlement.ts";
+import { readRepoInFlightWork } from "./repo-in-flight-work.ts";
 import { makeRepoCellSettingsState } from "./repo-cell-settings-state.ts";
 import { listTasks, type TaskQueryCell } from "./repo-cell-task-query.ts";
 import type { RepoCell, RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
@@ -337,6 +338,15 @@ export async function openRepoCellProxy(
         ledgerRevision: readCurrentLedger((store) => store.readHead()?.revision ?? 0),
       };
     },
+    inFlightWork: () =>
+      query((projection) =>
+        readRepoInFlightWork({
+          projection,
+          fleetRoster: input.fleetRoster?.() ?? null,
+          repoId: input.repoId,
+          queueDepth: supervisor.status().queueDepth ?? 0,
+        }),
+      ),
     settlePendingMaterialization: (context) => supervisor.request("settlePendingMaterialization", context),
     close: async () => {
       if (closed) return;

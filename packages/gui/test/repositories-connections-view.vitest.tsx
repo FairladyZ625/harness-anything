@@ -145,7 +145,7 @@ async function mountView(
       unregister: vi.fn(async () => ({
         schema: "command-receipt/v2",
         ok: true,
-        command: "daemon-repo-unregister",
+        command: "repo-unbind",
         outcome: "applied",
       })),
       inspectWorkspace: vi.fn(async () => ({ ok: true, hasWorkspace: false, suggestedRepoId: "picked" })),

@@ -116,7 +116,7 @@ test("admin IPC forwards closed params to the daemon RPC shapes", async () => {
         params: { repoId: "proxy-repo", mode: "remote-proxy", connectionId: "server-b" },
       },
       { method: "daemon.repo.update", params: { repoId: "proxy-repo", displayName: "Proxy", state: "enabled" } },
-      { method: "daemon.repo.unregister", params: { repoId: "proxy-repo" } },
+      { method: "daemon.repo.unbind", params: { repoId: "proxy-repo" } },
     ]),
   );
 });

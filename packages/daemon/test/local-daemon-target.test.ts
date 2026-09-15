@@ -115,7 +115,7 @@ test("local daemon target rejects a disabled nested workspace instead of falling
 
     await assert.rejects(
       () => resolveLocalDaemonTarget({ rootDir: nestedRoot, userRoot, env: {} }),
-      /workspace is blocked by disabled repoId "inner" at .*ha daemon repo unregister --repo-id inner twice/u,
+      /workspace is blocked by disabled repoId "inner" at .*ha repo unbind inner to remove it/u,
     );
   } finally {
     rmSync(fixtureRoot, { recursive: true, force: true });

@@ -222,11 +222,23 @@ export function createJsonRpcProtocolServer(options: {
         } catch (error) {
           return reply(call.method, protocolFailure(call.method, error));
         }
-      case "daemon.repo.unregister":
+      case "daemon.repo.unbind":
         try {
           return reply(
             call.method,
-            await options.host.admin({ kind: "unregister", repoId: call.params.repoId }, options.authContext),
+            await options.host.admin({ kind: "unbind", repoId: call.params.repoId }, options.authContext),
+          );
+        } catch (error) {
+          return reply(call.method, protocolFailure(call.method, error));
+        }
+      case "daemon.repo.purge":
+        try {
+          return reply(
+            call.method,
+            await options.host.admin(
+              { kind: "purge", repoId: call.params.repoId, scope: call.params.scope },
+              options.authContext,
+            ),
           );
         } catch (error) {
           return reply(call.method, protocolFailure(call.method, error));

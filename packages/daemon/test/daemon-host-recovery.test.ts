@@ -1,13 +1,14 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
   makeTaskEventReader,
+  makeTaskEventStore,
   makeTaskProjection,
   readDaemonRegistry,
   registerDaemonRepo as registerProductDaemonRepo,
@@ -133,10 +134,11 @@ test("startup retires a registered root that no longer exists and records the at
     const registry = readDaemonRegistry({ userRoot }),
       row = registry.repos.find((repo) => repo.repoId === "lifecycle-dead");
     assert.equal(row?.state, "disabled");
-    assert.equal(
-      host.status().repos.some((repo) => repo.repoId === "lifecycle-dead"),
-      false,
-    );
+    const disabled = host.status().repos.find((repo) => repo.repoId === "lifecycle-dead");
+    assert.equal(disabled?.registrationState, "disabled");
+    assert.equal(disabled?.state, "closed");
+    assert.equal(disabled?.nextAction, "ha repo unbind lifecycle-dead");
+    assert.match(String(disabled?.lastError), /canonical root does not exist/u);
   } finally {
     await host.close();
     rmSync(parent, { recursive: true, force: true });
@@ -350,7 +352,7 @@ test("a request parked behind a non-settling initial attachment times out as rep
   }
 });
 
-test("a dead warming repository can be unregistered through daemon-level local authority", async () => {
+test("a missing-root repository can be unbound through daemon-level local authority", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-host-unregister-warming-")),
     rootDir = path.join(parent, "repo"),
     userRoot = path.join(parent, "user");
@@ -364,13 +366,114 @@ test("a dead warming repository can be unregistered through daemon-level local a
   rmSync(rootDir, { recursive: true, force: true });
   const host = await openDaemonHost({ daemonId: "host-unregister-warming", userRoot });
   try {
-    const receipt = await host.admin({ kind: "unregister", repoId: "host-unregister-warming" }, auth);
+    const receipt = await host.admin({ kind: "unbind", repoId: "host-unregister-warming" }, auth);
     assert.equal(receipt.outcome, "applied");
+    assert.equal(readDaemonRegistry({ userRoot }).repos.length, 0);
     await host.attachmentsSettled();
     assert.equal(
       host.status().repos.some((repo) => repo.repoId === "host-unregister-warming"),
       false,
     );
+  } finally {
+    await host.close();
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("cache purge removes only derived local state and unbinds the repository", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-host-cache-purge-")),
+    rootDir = path.join(parent, "repo"),
+    userRoot = path.join(parent, "user"),
+    repoId = "host-cache-purge";
+  rosterRepo(rootDir, repoId);
+  registerDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
+  const host = await openDaemonHost({ daemonId: repoId, userRoot });
+  await host.attachmentsSettled();
+  const derived = ["cache", "adopt-claims", "runtime/dispatches", "presets"];
+  for (const relative of derived) {
+    const directory = path.join(rootDir, ".harness", relative);
+    mkdirSync(directory, { recursive: true });
+    writeFileSync(path.join(directory, "fixture"), "derived\n");
+  }
+  try {
+    const receipt = await host.admin({ kind: "purge", repoId, scope: "cache" }, auth);
+    assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+    assert.deepEqual(receipt.removed, derived.map((relative) => `.harness/${relative}`).sort());
+    assert.deepEqual(receipt.preserved, [
+      ".harness/store",
+      ".harness/wal",
+      ".harness/store/imports",
+      "harness",
+      ".worktrees",
+      ".gitignore",
+    ]);
+    assert.equal(readDaemonRegistry({ userRoot }).repos.length, 0);
+    for (const relative of derived) assert.equal(existsSync(path.join(rootDir, ".harness", relative)), false);
+    assert.equal(existsSync(path.join(rootDir, ".harness/store")), true);
+    assert.equal(existsSync(path.join(rootDir, "harness")), true);
+  } finally {
+    await host.close();
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("unbind rejects an active task lease without changing registry or repository files", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-host-unbind-lease-")),
+    rootDir = path.join(parent, "repo"),
+    userRoot = path.join(parent, "user"),
+    repoId = "host-unbind-lease";
+  rosterRepo(rootDir, repoId);
+  const prepared = await openRepoCell({
+    repoId: workspaceId(repoId),
+    rootDir: canonicalRoot(rootDir),
+    ownerId: "prepare",
+  });
+  await prepared.close();
+  const store = makeTaskEventStore({ repoId: workspaceId(repoId), rootDir });
+  for (const [index, fixtureEvent] of lifecycleFixture({ taskId: "task-live", executionId: "execution-live" })
+    .events.slice(0, 2)
+    .entries()) {
+    const event =
+      fixtureEvent.type === "execution_started"
+        ? {
+            ...fixtureEvent,
+            workspaceRevision: index + 3,
+            payload: {
+              ...fixtureEvent.payload,
+              lease: { ...fixtureEvent.payload.lease, expiresAt: "2027-09-15T00:00:00.000Z" },
+              leaseExpiresAt: "2027-09-15T00:00:00.000Z",
+            },
+          }
+        : { ...fixtureEvent, workspaceRevision: index + 3 };
+    store.append({ event, plan: taskLifecycleWritePlan(event), blobs: [] });
+  }
+  await store.drain();
+  registerDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
+  const host = await openDaemonHost({ daemonId: repoId, userRoot });
+  await host.attachmentsSettled();
+  try {
+    assert.equal(host.status().repos.find((repo) => repo.repoId === repoId)?.state, "attached");
+    const projection = makeTaskProjection({
+      rootDir,
+      eventStore: makeTaskEventReader({ repoId: workspaceId(repoId), rootDir }),
+    });
+    assert.equal(projection.list().rows.find((row) => row.taskId === "task-live")?.snapshot.lease?.phase, "held");
+    projection.close();
+    const registryBefore = readFileSync(path.join(userRoot, "registry.json")),
+      ledgerBefore = readFileSync(path.join(rootDir, "harness/harness.yaml")),
+      receipt = await host.admin({ kind: "unbind", repoId }, auth);
+    assert.equal(receipt.outcome, "rejected");
+    assert.equal(receipt.code, "repo_in_flight");
+    assert.equal(
+      receipt.blockingWork?.some((item) => item.kind === "task-lease" && item.taskId === "task-live"),
+      true,
+    );
+    assert.deepEqual(
+      (receipt as { next?: readonly { command: string }[] }).next?.map((entry) => entry.command),
+      ["ha task release task-live"],
+    );
+    assert.deepEqual(readFileSync(path.join(userRoot, "registry.json")), registryBefore);
+    assert.deepEqual(readFileSync(path.join(rootDir, "harness/harness.yaml")), ledgerBefore);
   } finally {
     await host.close();
     rmSync(parent, { recursive: true, force: true });

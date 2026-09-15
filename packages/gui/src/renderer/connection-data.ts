@@ -5,7 +5,7 @@ import {
   registerConnection,
   registerRepo,
   unregisterConnection,
-  unregisterRepo,
+  unbindRepo,
   updateConnection,
   updateRepo,
 } from "./connection-admin-client.ts";
@@ -73,7 +73,7 @@ export function useRepoAdminMutations() {
     onSuccess: invalidate,
   });
   const unregister = useMutation({
-    mutationFn: (repoId: string) => unregisterRepo(repoId),
+    mutationFn: (repoId: string) => unbindRepo(repoId),
     onSuccess: invalidate,
   });
   return { register, update, unregister };

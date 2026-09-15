@@ -26,6 +26,7 @@ import { fleetEdgeRegistration, fleetScheduleRoute } from "./fleet-command-route
 import { openDaemonStatusReader } from "./status-reader.ts";
 import { withAutostart } from "./with-autostart.ts";
 import { assertCanonicalCliEntry, cliEntryNotCanonicalCode } from "./cli-entry-guard.ts";
+import { runRepoAdminCommand } from "./repo-admin-route.ts";
 export {
   daemonIdFromEnv,
   daemonUserRoot,
@@ -78,13 +79,11 @@ export function cliDaemonServeLaunch(
   };
 }
 export function daemonAutostartFailureCode(error: unknown): string | null {
-  const code =
-    error instanceof Error &&
+  return error instanceof Error &&
     error.name === "DaemonAutostartError" &&
     typeof (error as Error & { readonly code?: unknown }).code === "string"
-      ? (error as Error & { readonly code: string }).code
-      : null;
-  return code;
+    ? (error as Error & { readonly code: string }).code
+    : null;
 }
 // daemon_response_timeout proves one connection went unanswered within its deadline; the daemon being absent is a
 // different, checkable claim. Flattening the deadline into daemon_unavailable once sent a degraded waiting client
@@ -186,6 +185,15 @@ export async function runCommandThroughDaemon(
       daemonAutostartOptions(command, autostart, env, userRoot, daemonId),
     );
   }
+  if (command.method === "daemon.repo.unbind" || command.method === "daemon.repo.purge")
+    return runRepoAdminCommand({
+      command,
+      env,
+      request: (target, method, params) => requestLocalDaemonJsonRpcForTarget(target, method, params, 75),
+      launch: (target) => cliDaemonServeLaunch(target.userRoot, target.daemonId),
+      autostartOptions: (target) =>
+        daemonAutostartOptions(command, autostart, env, target.userRoot, target.daemonId, "operation"),
+    });
   const fleetTask =
     (await fleetScheduleRoute(command, env)) ??
     (await fleetRuntimeRoute(command, env)) ??

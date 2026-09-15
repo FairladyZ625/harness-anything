@@ -783,7 +783,7 @@ directory you are about to move. Release it first, with `HARNESS_DAEMON_USER_ROO
 **unset** so the commands reach that daemon rather than the migration one:
 
 ```bash
-env -u HARNESS_DAEMON_USER_ROOT command ha daemon repo unregister --repo-id <existing-repo-id>
+env -u HARNESS_DAEMON_USER_ROOT command ha repo unbind <existing-repo-id>
 ```
 
 The daemon keeps running and keeps serving its other repositories; only this

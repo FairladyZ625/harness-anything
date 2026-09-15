@@ -6,7 +6,7 @@ import { findW3WriteAuthorityViolations } from "./check-write-coordinator-bounda
 
 const requiredRows = Object.freeze({
   "lifecycle.event-publication": ["task-create", "task-submit", "task-review-execution", "task-complete"],
-  "workspace.bootstrap": ["repo-bootstrap", "daemon-repo-register", "daemon-repo-unregister"],
+  "workspace.bootstrap": ["repo-bootstrap", "daemon-repo-register", "repo-unbind", "repo-purge"],
   "daemon.runtime-control": ["daemon-start", "daemon-stop"],
   "projection.sqlite": [],
 });

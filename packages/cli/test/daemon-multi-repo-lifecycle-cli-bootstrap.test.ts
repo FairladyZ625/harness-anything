@@ -793,15 +793,13 @@ test("one invalid registry entry stays visible and removable without blocking he
       ).find((repo) => repo.repoId === "alpha");
     assert.equal(guiInvalid?.cellState, "unavailable");
     assert.match(guiInvalid?.unavailableReason ?? "", /authoredBranch/u);
-    const unregistered = run(fixture.beta, fixture.userRoot, ["daemon", "repo", "unregister", "--repo-id", "alpha"]);
-    assert.equal(unregistered.ok, true);
-    assert.equal((unregistered.repo as { state: string }).state, "disabled");
+    const unbound = run(fixture.beta, fixture.userRoot, ["repo", "unbind", "alpha"]);
+    assert.equal(unbound.ok, true);
     const persisted = JSON.parse(readFileSync(registryPath, "utf8")) as {
         repos: Array<Record<string, unknown>>;
       },
-      disabled = persisted.repos.find((repo) => repo.repoId === "alpha");
-    assert.equal(disabled?.state, "disabled");
-    assert.equal(Object.hasOwn(disabled ?? {}, "authoredBranch"), false);
+      removed = persisted.repos.find((repo) => repo.repoId === "alpha");
+    assert.equal(removed, undefined);
   } finally {
     stop(fixture.beta, fixture.userRoot);
     rmSync(fixture.root, { recursive: true, force: true });

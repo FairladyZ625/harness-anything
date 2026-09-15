@@ -138,8 +138,8 @@ export async function updateRepo(input: {
   return readReceipt(await repoAdminBridge().update(input as Record<string, unknown>), "Repo update");
 }
 
-export async function unregisterRepo(repoId: string): Promise<AdminReceipt> {
-  return readReceipt(await repoAdminBridge().unregister({ repoId }), "Repo unregister");
+export async function unbindRepo(repoId: string): Promise<AdminReceipt> {
+  return readReceipt(await repoAdminBridge().unregister({ repoId }), "Repo unbind");
 }
 
 export async function inspectWorkspace(
