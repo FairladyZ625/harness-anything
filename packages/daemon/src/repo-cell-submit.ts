@@ -389,6 +389,7 @@ export async function settleTask(
   // the ordinary start path rejoins the active round execution or starts a fresh one and
   // rejects with its own guidance when admission is impossible.
   if (!held && !alreadySubmitted) {
+    cell.assertTaskWipCapacity(taskId, "active");
     const started = await cell.lifecycleAction({ kind: "task-start", taskId }, binding);
     steps.push(started);
     if (!["applied", "no_changes"].includes(started.outcome)) return { ...started, steps } as WriteReceiptDraft;

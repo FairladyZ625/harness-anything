@@ -91,6 +91,9 @@ test("the execution WIP gate hard-rejects at the limit and never holds closeout 
     );
     assert.equal(preview.outcome, "op_rejected");
     assert.equal(preview.code, "task_wip_limit_reached");
+    const settledFresh = await cell.run({ kind: "task-settle", taskId: "task_FRESH" }, binding);
+    assert.equal(settledFresh.outcome, "op_rejected");
+    assert.equal(settledFresh.code, "task_wip_limit_reached", "settle must reuse task-start admission");
     // The same transition surface cannot bypass the gate.
     const sideways = await cell.run(
       { kind: "task-transition", taskId: "task_FRESH", status: "active", reason: "Bypass" },
