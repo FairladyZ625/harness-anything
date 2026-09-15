@@ -47,9 +47,9 @@
       "fact-record": {
         "sqlRowsRead": 246,
         "sha256Calls": 31,
-        "sha256Bytes": 7961,
+        "sha256Bytes": 8128,
         "gitProcesses": 6,
-        "fileReadBytes": 1133
+        "fileReadBytes": 1185
       },
       "decision-propose": {
         "sqlRowsRead": 469,
@@ -75,9 +75,9 @@
       "decision-reckon": {
         "sqlRowsRead": 219,
         "sha256Calls": 29,
-        "sha256Bytes": 8902,
+        "sha256Bytes": 9087,
         "gitProcesses": 6,
-        "fileReadBytes": 1373
+        "fileReadBytes": 1429
       },
       "receipt-show": {
         "sqlRowsRead": 38,
@@ -147,9 +147,9 @@
       "fact-record": {
         "sqlRowsRead": 246,
         "sha256Calls": 31,
-        "sha256Bytes": 7961,
+        "sha256Bytes": 8128,
         "gitProcesses": 6,
-        "fileReadBytes": 1133
+        "fileReadBytes": 1185
       },
       "decision-propose": {
         "sqlRowsRead": 469,
@@ -175,9 +175,9 @@
       "decision-reckon": {
         "sqlRowsRead": 219,
         "sha256Calls": 29,
-        "sha256Bytes": 8902,
+        "sha256Bytes": 9087,
         "gitProcesses": 6,
-        "fileReadBytes": 1373
+        "fileReadBytes": 1429
       },
       "receipt-show": {
         "sqlRowsRead": 38,
