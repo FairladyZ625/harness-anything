@@ -5,7 +5,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { extractDoctorCommands, runDoctor } from "../src/cli/thin-command-doctor.ts";
+import { doctorInvocation, extractDoctorCommands, runDoctor } from "../src/cli/thin-command-doctor.ts";
 import { main } from "../src/index.ts";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -114,16 +114,32 @@ test("doctor skips placeholder templates and shell substitutions instead of misp
   }
 });
 
-test("ha doctor exits 0 with the ok line on a clean fixture and 1 with findings", async () => {
+test("ha doctor defaults to health mode and keeps commands mode explicit", () => {
+  const bare = doctorInvocation(["doctor"]),
+    health = doctorInvocation(["doctor", "health", "--json", "--root", "/tmp"]),
+    commands = doctorInvocation(["doctor", "commands", "--root", "/tmp"]);
+  assert.ok(bare.ok);
+  if (bare.ok) assert.equal(bare.mode, "health");
+  assert.ok(health.ok);
+  if (health.ok) {
+    assert.equal(health.mode, "health");
+    assert.equal(health.rootDir, "/tmp");
+  }
+  assert.ok(commands.ok);
+  if (commands.ok) assert.equal(commands.mode, "commands");
+  assert.equal(doctorInvocation(["doctor", "bogus"]).ok, false);
+});
+
+test("ha doctor commands exits 0 with the ok line on a clean fixture and 1 with findings", async () => {
   const clean = fixtureRepo({
       "harness/governance/rules.md": "Use `ha task list` and `ha decision list`.\n",
     }),
     stale = fixtureRepo({ "docs-release/old.md": "Run `ha status` first.\n" });
   try {
-    const ok = await captureConsole(() => main(["doctor", "--root", clean]));
+    const ok = await captureConsole(() => main(["doctor", "commands", "--root", clean]));
     assert.equal(ok.exit, 0);
     assert.deepEqual(ok.lines, ["doctor: ok (2 commands checked)"]);
-    const bad = await captureConsole(() => main(["doctor", "--root", stale]));
+    const bad = await captureConsole(() => main(["doctor", "commands", "--root", stale]));
     assert.equal(bad.exit, 1);
     assert.match(bad.lines[0] ?? "", /^docs-release\/old\.md:1 — ha status — command_not_found:/u);
     assert.match(bad.lines[1] ?? "", /^doctor: 1 stale command reference\(s\) \(1 commands checked\)$/u);
@@ -137,11 +153,11 @@ test("ha doctor rejects unexpected arguments as a usage failure", async () => {
   const { exit, lines } = await captureConsole(() => main(["doctor", "bogus", "--root", repoRoot]));
   assert.equal(exit, 2);
   assert.match(lines[0] ?? "", /code=invalid_field/u);
-  assert.match(lines[0] ?? "", /ha doctor \[commands\]/u);
+  assert.match(lines[0] ?? "", /ha doctor \[commands\|health\]/u);
 });
 
 test("ha doctor smoke-runs against the repository's own authored docs", async () => {
-  const { exit, lines } = await captureConsole(() => main(["doctor", "--root", repoRoot]));
+  const { exit, lines } = await captureConsole(() => main(["doctor", "commands", "--root", repoRoot]));
   assert.ok(exit === 0 || exit === 1, `unexpected exit ${exit}`);
   const summary = lines.at(-1) ?? "";
   assert.match(summary, /^doctor: (ok|[0-9]+ stale command reference\(s\)) \([0-9]+ commands checked\)$/u);

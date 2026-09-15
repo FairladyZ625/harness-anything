@@ -158,8 +158,17 @@ export const start: Transition = {
       rejoin = snapshot.executions.find((value) => value.executionId === command.executionId) as
         | ExecutionV1
         | undefined,
+      // The recorded executor belongs to the execution, not to the caller. A same-person rejoin
+      // that arrives executor-less (e.g. the owning principal from a terminal) keeps the runtime
+      // that actually executed the work; a declared executor — the real handoff — replaces it.
       execution: ExecutionV1 = rejoin
-        ? { ...rejoin, actor: command.actor }
+        ? {
+            ...rejoin,
+            actor:
+              command.actor.executor === null && isSamePerson(rejoin.actor, command.actor)
+                ? { ...command.actor, executor: rejoin.actor.executor }
+                : command.actor,
+          }
         : {
             schema: "execution/v1",
             executionId: command.executionId,

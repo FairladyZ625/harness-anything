@@ -1,5 +1,6 @@
 import { prepareSubmissionEvidence } from "./repo-cell-task-progress.ts";
-import { submitTask } from "./repo-cell-submit.ts";
+import { settleTask, submitTask } from "./repo-cell-submit.ts";
+import { doctorHealth } from "./repo-cell-doctor.ts";
 import { createHash } from "node:crypto";
 import {
   compileExecutionAnnotation,
@@ -371,6 +372,8 @@ export async function executeAction(
   )
     return cell.runTaskCommandWithDocs(action as TaskCommandWithDocsAction, binding);
   if (action.kind === "task-submit") return submitTask(cell, action, binding);
+  if (action.kind === "task-settle") return settleTask(cell, action, binding);
+  if (action.kind === "doctor-health") return doctorHealth(cell, action, binding);
   if (action.kind === "task-progress-append") return cell.appendProgress(action, binding);
   if (action.kind === "task-annotate") return cell.annotateExecution(action, binding);
   if (action.kind === "task-declare-executor") return cell.declareExecutionExecutor(action, binding);

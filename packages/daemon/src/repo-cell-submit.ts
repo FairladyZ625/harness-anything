@@ -26,7 +26,7 @@ import { readDispatchStreamHeaders } from "./dispatch-stream.ts";
 import { runDocAction } from "./doc-sync-actions.ts";
 import { makeGitReadinessSource, runProcessText } from "./process-port.ts";
 import { readTaskTransitionDocument } from "./transition-document-access.ts";
-import { prepareSubmissionEvidence } from "./repo-cell-task-progress.ts";
+import { isPresetSnapshotCurrent, prepareSubmissionEvidence } from "./repo-cell-task-progress.ts";
 
 /** Summary selects one public delivery commit, center-accepted artifacts, or both. */
 export function deriveCloseoutSubmission(
@@ -225,7 +225,18 @@ export async function submitTask(
     action.asOwner === true &&
     current.snapshot.task !== null &&
     isSamePerson(current.snapshot.task.createdBy, binding.actor);
-  if (!selected || (!isSameExecution(selected.actor, binding.actor) && !ownerAmendment))
+  // An owning principal who rejoined from a terminal holds the lease without an executor
+  // descriptor; the execution still records the runtime that did the work. First submission
+  // through that held lease is admitted on person identity alone — the ordinary lease, source,
+  // version, and CAS checks below still gate it.
+  const ownerSubmission =
+    action.amend !== true &&
+    selected !== undefined &&
+    selected.submission === null &&
+    current.snapshot.task !== null &&
+    isSamePerson(current.snapshot.task.createdBy, binding.actor) &&
+    isSamePerson(selected.actor, binding.actor);
+  if (!selected || (!isSameExecution(selected.actor, binding.actor) && !ownerAmendment && !ownerSubmission))
     return cell.lifecycleAction(action, binding);
   const executionId = selected.executionId;
   if (action.amend === true) assertCurrentSubmittedExecution(current.snapshot, taskId, executionId);
@@ -310,6 +321,64 @@ export async function submitTask(
     ...(anchorDriftWarnings.length ? { warnings: anchorDriftWarnings } : {}),
     steps: [synced, ...steps],
   } as WriteReceiptDraft;
+}
+
+/**
+ * `ha task settle`: the deterministic half of post-delivery work, assembled once. Lease
+ * admission rides the ordinary task-start catalog entry; the delivery itself is exactly one
+ * `submitTask` call — no second doc-submit or evidence-preparation pipeline exists here.
+ * Anything needing judgment (missing closeout prose, a foreign holder, a cut that differs
+ * from what is stored, a preset that moved) stops on the step that rejected it.
+ */
+export async function settleTask(
+  cell: RepoCellOperationalContext,
+  action: RepoTaskAction,
+  binding: RepoCellBinding,
+): Promise<WriteReceiptDraft> {
+  const taskId = cell.requiredCellText(action.taskId, "taskId"),
+    current = await cell.service.read(taskId);
+  if (!current.snapshot.task) throw cell.cellCodedError("entity_not_found", `Task ${taskId} does not exist.`);
+  const held = heldLeaseForExecutionActor(current.snapshot, undefined, binding.actor),
+    alreadySubmitted = currentExecutionCuts(current.snapshot).some((execution) => execution.state === "submitted"),
+    steps: WriteReceiptDraft[] = [];
+  // A submitted current round needs no lease — the holder checks inside submitTask decide
+  // whether this caller may resume or amend that cut. Everything else needs a held lease;
+  // the ordinary start path rejoins the active round execution or starts a fresh one and
+  // rejects with its own guidance when admission is impossible.
+  if (!held && !alreadySubmitted) {
+    const started = await cell.lifecycleAction({ kind: "task-start", taskId }, binding);
+    steps.push(started);
+    if (!["applied", "no_changes"].includes(started.outcome)) return { ...started, steps } as WriteReceiptDraft;
+  }
+  const submitted = await submitTask(cell, { kind: "task-submit", taskId }, binding),
+    mergedSteps = [...steps, ...((submitted as { readonly steps?: readonly WriteReceiptDraft[] }).steps ?? [])];
+  if (submitted.outcome !== "applied") return { ...submitted, steps: mergedSteps } as WriteReceiptDraft;
+  const fresh = await cell.service.read(taskId),
+    submittedExecutionId =
+      currentExecutionCuts(fresh.snapshot).find((execution) => execution.state === "submitted")?.executionId ??
+      String(action.executionId ?? "");
+  if (
+    fresh.snapshot.task?.presetSnapshotDigest &&
+    !isPresetSnapshotCurrent(cell, taskId, fresh.snapshot, fresh.packagePath, `ha task settle ${taskId}`)
+  )
+    return {
+      ...cell.rejected(
+        cell.operationId(action, binding, cell.input.repoId, fresh.snapshot.revision),
+        "preset_snapshot_mismatch",
+      ),
+      rejectionExplanation:
+        "The submitted cut is recorded, but the task contract was written against an older preset snapshot.",
+      next: [
+        completionGuidance(
+          fresh.snapshot,
+          submittedExecutionId,
+          `ha preset upgrade ${taskId}`,
+          "Upgrade the task contract preset, then continue review and completion.",
+        ),
+      ],
+      steps: mergedSteps,
+    } as WriteReceiptDraft;
+  return { ...submitted, steps: mergedSteps } as WriteReceiptDraft;
 }
 
 export function submissionStopped(

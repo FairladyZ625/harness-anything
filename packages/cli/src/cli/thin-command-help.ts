@@ -33,8 +33,10 @@ export const clientLocalCommands = [
   {
     id: "doctor",
     path: ["doctor"],
-    usage: "ha doctor [commands] [--root <path>]",
-    summary: "Validate ha command invocations in authored Markdown docs against the live command catalog.",
+    usage: "ha doctor [commands|health] [--root <path>] [--json]",
+    summary:
+      "Report repository health (default), or validate ha command references in authored Markdown docs " +
+      "with `ha doctor commands`.",
     help: [
       "    Scans harness/context, harness/governance, AGENTS.md, CLAUDE.md, .agents/, and docs-release/ for",
       "    ha commands in code fences and inline code spans, then parses each through the same descriptor",

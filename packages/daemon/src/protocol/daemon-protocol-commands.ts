@@ -137,8 +137,23 @@ const settingsWriteTopology = {
     }),
   ]);
 
+const doctorProtocolCommands = Object.freeze([
+  defineRepoReadCommand({
+    id: "doctor-health",
+    actionKind: "doctor-health",
+    phase: "Ops",
+    path: ["doctor", "health"],
+    summary:
+      "Run the read-only repository health checks behind ha doctor: delivered cuts, executor " +
+      "attribution, orphan leases, WIP pressure, caller-visible doc debt, and build drift.",
+    method: "repo.task.read",
+    inputs: [],
+  }),
+]);
+
 export const daemonOwnedProtocolCommands = Object.freeze([
   ...taskSurfaceProtocolCommands,
+  ...doctorProtocolCommands,
   ...agentProtocolCommands,
   ...taskExecutionProtocolCommands,
   ...docFactProtocolCommands,

@@ -291,6 +291,8 @@ export function authorizeDurableRepoCellAction(
       return authorizeRepoCellAction(input);
     case "task-review-execution":
       return authorizeRepoCellAction(input);
+    case "task-settle":
+      return authorizeRepoCellAction(input);
     case "task-start":
       return authorizeRepoCellAction(input);
     case "task-submit":
