@@ -74,19 +74,12 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
       installationId: "installation-claude",
       kindId: "claude" as const,
     };
-  let launchedEnv: NodeJS.ProcessEnv | null = null,
-    launchedPrompt = "",
-    launchedPersistence: { readonly callbackRelay?: { readonly endpoint: string; readonly path: string } } | null =
-      null,
-    launchCount = 0;
+  let launchCount = 0;
   const host = await openDaemonHost({
     daemonId: "runtime-spawn-ingress",
     userRoot,
     runtimeDiscover: () => [ingressInstallation, claudeInstallation],
-    runtimeLaunch: (prepared, persistence) => {
-      launchedEnv = prepared.env;
-      launchedPrompt = prepared.prompt;
-      launchedPersistence = persistence;
+    runtimeLaunch: () => {
       launchCount += 1;
       return {
         pid: 4310,
@@ -137,13 +130,11 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
       projection.close();
     }
   };
-  let transportConnections = 0;
   const endpoint = localUserDaemonEndpoint(userRoot, "runtime-spawn-ingress"),
     transport = createUnixSocketTransportServer({
       daemonId: "runtime-spawn-ingress",
       socketPath: endpoint,
       createProtocolServer: (authContext, emit) => {
-        transportConnections += 1;
         return createJsonRpcProtocolServer({
           host,
           build: { commit: null },

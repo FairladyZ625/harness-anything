@@ -122,23 +122,6 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
       appendix,
     );
   };
-  const writeCloseout = (taskId: string, summary: string): void => {
-    const projection = makeTaskProjection({
-      rootDir: root,
-      eventStore: makeTaskEventReader({ repoId, rootDir: root }),
-    });
-    try {
-      writeFileSync(
-        path.join(root, "harness", projection.read(taskId).packagePath!, "closeout.md"),
-        `## Summary\n${summary} Commit ${deliveryCommit}.\n` +
-          "## Verification\nRuntime dispatch and holder assertions exercised by this integration fixture.\n" +
-          "## Residual Risk\nNo remaining runtime fixture gaps.\n" +
-          "## Same Mechanism Elsewhere\nRuntime review and continuation paths are covered in this file.\n",
-      );
-    } finally {
-      projection.close();
-    }
-  };
   let transportConnections = 0;
   const endpoint = localUserDaemonEndpoint(userRoot, "runtime-spawn-ingress"),
     transport = createUnixSocketTransportServer({
