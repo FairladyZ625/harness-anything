@@ -5,6 +5,7 @@ import {
   planeAllowsEffort,
   planeAllowsIsolation,
   planeAuthMode,
+  planeRequiresBaseUrl,
   runtimeProviderPlane,
   type RuntimeAuthMode,
   type RuntimeKindId,
@@ -235,7 +236,8 @@ export function runtimeInstanceFormReady(
     form.instanceId.trim() !== "" &&
     form.name.trim() !== "" &&
     (selectedModels.length > 0 || (Boolean(detected.defaultModel) && Boolean(detected.models?.length))) &&
-    (form.authMode !== "api-key" || form.apiKey.trim() !== "")
+    (form.authMode !== "api-key" || form.apiKey.trim() !== "") &&
+    (!planeRequiresBaseUrl(form.kindId, form.authMode) || form.baseUrl.trim() !== "")
   );
 }
 export function runtimeInstanceIdAvailable(instanceId: string, existingInstanceIds: readonly string[]): boolean {
