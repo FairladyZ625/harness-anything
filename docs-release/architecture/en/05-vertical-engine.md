@@ -9,11 +9,13 @@ entity kinds, materialized documents, and a scaffolded repository.
 
 ## The artifact: one JSON, one schema
 
-A vertical is a single `vertical.json` file. Before the engine acts on it, the
-file is validated against `VerticalDefinitionSchema` in
-`packages/kernel/src/schemas/vertical-definition.ts`. The schema is written with
-effect-Schema, so validation is total: a malformed vertical is rejected before
-any directory is touched, not discovered halfway through a scaffold.
+A vertical is a single `vertical.json` file — the bundled coding vertical lives
+at `packages/preset/assets/software-coding/vertical.json`, with localized
+bodies in the sibling `template-catalog.json`. Before the engine acts on it,
+the file is validated against `VerticalDefinitionSchema` in
+`packages/kernel/src/schemas/vertical-definition.ts`. The schema is written
+with effect-Schema, so validation is total: a malformed vertical is rejected
+before any directory is touched, not discovered halfway through a scaffold.
 
 The top-level shape a vertical must declare is fixed. Every field below is a
 required member of the struct (except where noted):
@@ -38,18 +40,18 @@ template selections, the repository scaffold, and the agents entry.
 ## Preset profiles declare completion gates
 
 The vertical defines the domain; the selected preset/profile defines which
-deterministic completion gates apply to one Task. In `preset-manifest/v2`, every
-profile must carry `completionGates`, including an explicit empty array. The
-kernel validates portable non-empty gate-ID syntax, while the application owns
-the implemented IDs and rejects unknown or duplicate gates. Bundled coding
-profiles declare `ci` and `code-doc-reconciliation`; another profile can declare
-neither, so `--ci` is required by the coding contract rather than by the CLI
-globally (ADR-0027 D7).
+deterministic completion gates apply to one Task. In `preset-manifest/v3`
+(`packages/preset/src/preset.contract.ts`), every profile carries
+`completionGates` — portable gate ids such as `ci` and
+`code-doc-reconciliation`, or an explicit empty array. The kernel validates
+non-empty gate-ID syntax, and the daemon executes the implemented gates on the
+completion path via `completion-readiness.ts`, rejecting unknown or duplicate
+gates. So `--ci`-style requirements come from the coding contract, not from the
+CLI globally (ADR-0027 D7).
 
-Completion fails closed when a real Task preset/profile cannot resolve or a v1
-preset is asked to supply a completion contract. The documented legacy metadata
-fallback preserves old tasks, but new v2 manifests must state the contract
-instead of relying on that fallback (ADR-0027 D7).
+Completion fails closed when a real Task's preset/profile cannot resolve;
+`task-contract.json` pins the `presetSnapshotDigest` at creation so the
+contract cannot silently drift as the preset evolves.
 
 ## Entity kinds: lifecycle vs. schema
 
@@ -57,18 +59,20 @@ instead of relying on that fallback (ADR-0027 D7).
 the `entityType` field picks which:
 
 - A **lifecycle** kind declares `packageKind` — the frontmatter contract its
-  document package is written against (`task-package/v2`, `decision-package/v1`).
-  Lifecycle kinds get a full document package.
+  document package is written against (`task-package/v2`,
+  `decision-package/v1`). Lifecycle kinds get a full document package.
 - A **schema** kind declares `schemaRef` — a pointer to a field schema
-  (`schema://fact-record`) and nothing more. A schema kind constrains fields; it
+  (`schema://fact-event`) and nothing more. A schema kind constrains fields; it
   gets no document template.
 
-Both carry `contractEntity: true` when the kind is load-bearing. In the real
-`software/coding` vertical the union resolves to exactly three entries: `task`
-and `decision` are lifecycle kinds, `fact` is a schema kind, and all three are
-listed again in `contractEntityKinds`. That mapping — lifecycle gets a package,
-schema gets only fields — is the same split [learn/04](../../learn/en/04-verticals-and-extension.md)
-describes, expressed as two branches of one schema union.
+In the real `software/coding` vertical, `entityKinds` has six entries: `task`
+and `decision` are lifecycle kinds, while `fact`,
+`architecture-decision-record`, `external-issue`, and `research` are schema
+kinds; `contractEntityKinds` still lists only task, decision, and fact — the
+three that carry a full contract-entity lifecycle. That mapping — lifecycle
+gets a package, schema gets only fields — is the same split
+[learn/04](../../learn/en/04-verticals-and-extension.md) describes, expressed
+as two branches of one schema union.
 
 ## Template selections: slot to document
 
@@ -88,19 +92,20 @@ requiredWhen    optional key/value guard on selection
 preference — and `fallback` is a literal `zh-CN` or `en-US`, the body it drops
 to when the preferred locale is missing. The template bodies themselves live in
 the vertical's `template-catalog.json`; each catalog document lists a `zh-CN`
-and an `en-US` locale with its own `bodyPath`. So a selection names the slot and
-the policy; the catalog holds the actual localized text. If the preferred locale
-has no body, the fallback is materialized rather than a broken document.
+and an `en-US` locale with its own `bodyPath`. So a selection names the slot
+and the policy; the catalog holds the actual localized text. If the preferred
+locale has no body, the fallback is materialized rather than a broken document.
 
-In the `software/coding` vertical, the `task` package scaffold lists six
-selections — `task_plan.md`, `progress.md`, `review.md`,
-`closeout.md`, and a `.gitkeep` slot for the `artifacts/` directory — each
-preferring the project locale and falling back to `en-US`. References are
-opt-in: the `reference-task` preset adds the existing localized
-`references/INDEX.md` template only when a task needs a durable input snapshot.
-The `decision` package lists an empty selection array: a decision materializes
-its `INDEX.md` from its package contract, so the vertical adds no extra body
-documents to it.
+In the `software/coding` vertical, the `task` package scaffold lists three
+selections — `task_plan.md`, `closeout.md`, and a `.gitkeep` slot for the
+`artifacts/` directory — each preferring the project locale and falling back
+to `en-US`; narrative documents such as `progress` and `review` are produced by
+lifecycle events when needed rather than by scaffold selections. Facts are
+recorded as standalone `facts/F-<id>.md` documents. The `decision` package
+lists an empty selection array: a decision materializes its entity document
+from its package contract, so the vertical adds no extra body documents to it.
+Each preset can also ship its own localized templates under
+`presets/<preset-id>/template-catalog.json`.
 
 ## The repository scaffold
 
@@ -114,13 +119,14 @@ project adopts the vertical. It has four parts:
   `software/coding`, the task root is `init` and the decision root is `lazy` —
   tasks exist from the start, decisions arrive on demand.
 - **`dirs[]`** — plain directories with the same `init`|`lazy` create mode, for
-  layout that is not an entity root (a directory for supporting documents, a
-  context tree, a place records accumulate).
-- **`seededDocs[]`** — documents dropped in at scaffold time. Each is a
-  `RepositorySeededDoc`: the same `slot`/`templateRef`/`materializeAs`/`localePolicy`
-  fields as a template selection, plus an optional `overwrite` boolean that
-  decides whether an existing file is replaced. Seeded docs are how a fresh repo
-  arrives with its README files and starter documents already in place.
+  layout that is not an entity root (`standards/`, `context/`, `milestones/`,
+  `sessions/`, and the like).
+- **`seededDocs[]`** — documents dropped in at scaffold time (software/coding
+  ships 13). Each is a `RepositorySeededDoc`: the same
+  `slot`/`templateRef`/`materializeAs`/`localePolicy` fields as a template
+  selection, plus an optional `overwrite` boolean that decides whether an
+  existing file is replaced. Seeded docs are how a fresh repo arrives with its
+  README files and starter documents already in place.
 - **`agentsEntry`** — an optional composite, described next.
 
 `create: init | lazy` is the whole of the eager-vs-deferred policy: the engine
@@ -129,8 +135,8 @@ either lays a directory down immediately or waits for the first occupant.
 ## The agents entry: a layered composite
 
 `agentsEntry` is the one materialization that is not a straight
-template-to-file copy. It is a composite of three layers assembled into a single
-file. `AgentsEntrySchema` declares:
+template-to-file copy. It is a composite of three layers assembled into a
+single file. `AgentsEntrySchema` declares:
 
 ```text
 materializeAs         the file it becomes            ("AGENTS.md")
@@ -143,12 +149,12 @@ overwrite             optional
 
 The engine composes `baseRef` (a base layer) and `overlayRef` (a vertical
 overlay) into one document. The `repoSpecificsAnchor` names a heading — in
-`software/coding` it is `"## Repository Specifics"` — below which repository-local
-material is appended without rewriting the two composed layers above it. So the
-base and overlay are regenerated from templates, while anything a project writes
-under the anchor is preserved across regeneration. This is the only place the
-vertical schema describes stacking one body on top of another; everywhere else a
-template maps one-to-one to a file.
+`software/coding` it is `"## Repository Specifics"` — below which
+repository-local material is appended without rewriting the two composed
+layers above it. So the base and overlay are regenerated from templates, while
+anything a project writes under the anchor is preserved across regeneration.
+This is the only place the vertical schema describes stacking one body on top
+of another; everywhere else a template maps one-to-one to a file.
 
 ## Scripts and projection schemas
 
@@ -165,8 +171,9 @@ writes, and produces; it does not embed the script's logic.
 
 `projectionSchemas[]` names the frontmatter schemas the projection validates
 against — `schema://task-frontmatter`, `schema://decision-frontmatter`,
-`schema://fact-record` — tying the vertical's entity kinds to the schemas the
-[projection](03-projection.md) checks each row against.
+`schema://fact-event`, `schema://artifact-descriptor` — tying the vertical's
+entity kinds to the schemas the [projection](03-projection.md) checks each row
+against.
 
 ## Convention over declaration, in the schema
 
@@ -182,12 +189,13 @@ and fails closed when the structure is illegal — a malformed `vertical.json`
 never validates, and a seeded doc whose template body is missing surfaces an
 error rather than writing an empty file.
 
-**Declared — intent.** What no filesystem reveals must be stated, and only that:
-whether a kind is a load-bearing `contractEntity`, which `checkerProfile` guards
-the vertical, how to degrade when a locale is missing (`localePolicy.fallback`),
-whether a directory is created eagerly or lazily (`create`), and how the agents
-entry layers (`baseRef`, `overlayRef`, `repoSpecificsAnchor`). These are handfuls
-of fields, not paragraphs of configuration.
+**Declared — intent.** What no filesystem reveals must be stated, and only
+that: whether a kind is a load-bearing `contractEntity`, which `checkerProfile`
+guards the vertical, how to degrade when a locale is missing
+(`localePolicy.fallback`), whether a directory is created eagerly or lazily
+(`create`), and how the agents entry layers (`baseRef`, `overlayRef`,
+`repoSpecificsAnchor`). These are handfuls of fields, not paragraphs of
+configuration.
 
 The engine is a declaration parser working over convention: it validates the
 JSON, resolves the path templates, reads the localized bodies from the catalog,

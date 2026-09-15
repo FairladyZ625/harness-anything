@@ -4,7 +4,12 @@
 
 ## 工件:一个 JSON,一个 schema
 
-一个场景合同就是单个 `vertical.json` 文件。引擎动手之前,这份文件会先经过 `packages/kernel/src/schemas/vertical-definition.ts` 里的 `VerticalDefinitionSchema` 校验。这个 schema 用 effect-Schema 写成,所以校验是完全的:一份不合法的场景合同,会在任何目录被碰到之前就被拒绝,而不是搭到一半才暴露出来。
+一个场景合同就是单个 `vertical.json` 文件——内置 coding 垂直的那份在
+`packages/preset/assets/software-coding/vertical.json`,本地化正文在同目录的
+`template-catalog.json`。引擎动手之前,这份文件会先经过
+`packages/kernel/src/schemas/vertical-definition.ts` 里的 `VerticalDefinitionSchema`
+校验。这个 schema 用 effect-Schema 写成,所以校验是完全的:一份不合法的场景合同,会在任何目录
+被碰到之前就被拒绝,而不是搭到一半才暴露出来。
 
 场景合同必须声明的顶层形状是固定的。下面每个字段都是这个结构体的必需成员(标注除外):
 
@@ -26,23 +31,27 @@
 ## Preset profile 声明 completion gates
 
 vertical 定义领域；选中的 preset/profile 定义某个 Task 适用哪些确定性 completion gate。
-`preset-manifest/v2` 的每个 profile 都必须携带 `completionGates`，即使它是显式空数组。
-kernel 只校验可移植的非空 gate-ID 语法；application 拥有已实现 ID，并拒绝未知或重复 gate。
-内置 coding profile 声明 `ci` 与 `code-doc-reconciliation`；其他 profile 可以两者都不声明，
-所以 `--ci` 是 coding 契约的要求，不是 CLI 的全局要求（ADR-0027 D7）。
+`preset-manifest/v3`(`packages/preset/src/preset.contract.ts`)的每个 profile 都携带
+`completionGates`——`ci`、`code-doc-reconciliation` 这类可移植 gate id,也可以是显式空数组。
+kernel 校验非空 gate-ID 语法,daemon 在完成路径上按 `completion-readiness.ts` 执行已实现的门,
+拒绝未知或重复 gate。所以 `--ci` 类要求是 coding 契约的要求,不是 CLI 的全局要求（ADR-0027 D7）。
 
-真实 Task 的 preset/profile 无法解析，或用 v1 preset 提供 completion contract 时，完成路径会
-fail closed。文档化的 legacy metadata fallback 保留旧 task 行为，但新的 v2 manifest 必须明确
-声明契约，不能依赖 fallback（ADR-0027 D7）。
+真实 Task 的 preset/profile 无法解析时,完成路径 fail closed;`task-contract.json` 会钉住
+创建时的 `presetSnapshotDigest`,让契约不随 preset 演进悄悄漂移。
 
 ## 实体种类:生命周期 vs. schema
 
 `entityKinds[]` 是一个可辨识联合(discriminated union)。每一项是两种形状之一,由 `entityType` 字段来区分:
 
 - **生命周期(lifecycle)**种类声明 `packageKind`——它的文档包所依据的前置元数据合同(`task-package/v2`、`decision-package/v1`)。生命周期种类会拿到一个完整的文档包。
-- **schema** 种类声明 `schemaRef`——一个指向字段 schema 的指针(`schema://fact-record`),仅此而已。schema 种类约束字段;它不拿文档模板。
+- **schema** 种类声明 `schemaRef`——一个指向字段 schema 的指针(`schema://fact-event`),仅此而已。schema 种类约束字段;它不拿文档模板。
 
-当一个种类是承重的时候,两者都带 `contractEntity: true`。在真实的 `software/coding` 场景合同里,这个联合正好解析成三条:`task` 和 `decision` 是生命周期种类,`fact` 是 schema 种类,三者又都列进了 `contractEntityKinds`。这个映射——生命周期拿到文档包,schema 只拿到字段——正是 [learn/04](../../learn/zh/04-verticals-and-extension.md) 描述的那套拆分,在这里表达为一个 schema 联合的两条分支。
+在真实的 `software/coding` 场景合同里,`entityKinds` 有六项:`task` 与 `decision` 是
+生命周期种类,`fact`、`architecture-decision-record`、`external-issue`、`research`
+是 schema 种类;`contractEntityKinds` 仍只有 task、decision、fact 三者——只有它们承担
+合同实体的完整生命周期。这个映射——生命周期拿到文档包,schema 只拿到字段——正是
+[learn/04](../../learn/zh/04-verticals-and-extension.md) 描述的那套拆分,在这里表达为
+一个 schema 联合的两条分支。
 
 ## 模板选择:从 slot 到文档
 
@@ -58,15 +67,20 @@ requiredWhen    可选的键/值选择守卫
 
 语言策略就住在 `localePolicy` 里。`prefer` 是 `project`、`preset`、`explicit` 之一——引擎查找语言偏好的顺序;`fallback` 是字面量 `zh-CN` 或 `en-US`,当首选语言缺失时降级到的正文。模板正文本身住在场景合同的 `template-catalog.json` 里;目录里每份文档都列出 `zh-CN` 和 `en-US` 两个语言,各自带一个 `bodyPath`。所以一条选择声明的是 slot 和策略;真正的本地化文本由目录持有。如果首选语言没有正文,引擎会具体化 fallback,而不是产出一份残缺的文档。
 
-在 `software/coding` 场景合同里,`task` 文档包脚手架列了五条选择——`task_plan.md`、`progress.md`、`review.md`、`closeout.md`,再加 `artifacts/` 目录的 `.gitkeep` slot——每一条都首选项目语言,fallback 到 `en-US`。Fact 记录为独立的 `facts/F-<id>.md` 文档,不再生成 task-local `facts.md`。Reference 改为按需生成:`reference-task` preset 只在任务需要持久输入快照时,追加现有的本地化 `references/INDEX.md` 模板。`decision` 文档包列的是一个空选择数组:decision 的 `INDEX.md` 由它的文档包合同具体化出来,所以场景合同不再给它添加额外的正文文档。
+在 `software/coding` 场景合同里,`task` 文档包脚手架列三条选择——`task_plan.md`、
+`closeout.md` 与 `artifacts/.gitkeep`——每条首选项目语言,fallback 到 `en-US`;
+`progress`、`review` 等叙述由生命周期事件在需要时生成,不占脚手架选择。Fact 记录为独立的
+`facts/F-<id>.md` 文档。`decision` 文档包列的是一个空选择数组:decision 的实体文档由它的
+文档包合同具体化出来,场景合同不再给它添加额外的正文文档。每个 preset 还可以在
+`presets/<preset-id>/template-catalog.json` 追加自己的本地化模板。
 
 ## 仓库脚手架
 
 `repositoryScaffold` 描述项目采用这个场景合同时,引擎铺下的顶层布局。它有四个部分:
 
 - **`entityRoots[]`**——每个实体种类一条,都是 `{ entityKind, path, create }` 三元组。`path` 是像 `{{paths.tasksRoot}}` 这样的模板,在搭建时解析;`create` 是 `init` 或 `lazy`。`init` 根目录一开始就建好;`lazy` 根目录只在该种类的第一个实体出现时才建。在 `software/coding` 里,task 根是 `init`,decision 根是 `lazy`——task 从一开始就存在,decision 按需到来。
-- **`dirs[]`**——普通目录,用同样的 `init`|`lazy` 建立模式,用于那些不是实体根的布局(放辅助文档的目录、上下文树、记录累积的地方)。
-- **`seededDocs[]`**——搭建时就放进去的文档。每一份都是一个 `RepositorySeededDoc`:和模板选择相同的 `slot`/`templateRef`/`materializeAs`/`localePolicy` 字段,再加一个可选的 `overwrite` 布尔,决定已存在的文件是否被替换。种子文档就是一个全新仓库为何一到手就已经带好 README 文件和初始文档的原因。
+- **`dirs[]`**——普通目录,用同样的 `init`|`lazy` 建立模式,用于那些不是实体根的布局(`standards/`、`context/`、`milestones/`、`sessions/` 等)。
+- **`seededDocs[]`**——搭建时就放进去的文档(software/coding 有 13 份)。每一份都是一个 `RepositorySeededDoc`:和模板选择相同的 `slot`/`templateRef`/`materializeAs`/`localePolicy` 字段,再加一个可选的 `overwrite` 布尔,决定已存在的文件是否被替换。种子文档就是一个全新仓库为何一到手就已经带好 README 文件和初始文档的原因。
 - **`agentsEntry`**——一个可选的复合体,下面细说。
 
 `create: init | lazy` 就是"提前建 vs. 延后建"策略的全部:引擎要么立刻铺下一个目录,要么等第一个占用者出现。
@@ -92,7 +106,7 @@ overwrite             可选
 
 `scripts[]` 声明场景合同附带的脚本条目——每一条是一个 `{ id, type: "script", command, reads[], writes[], inputs, metadata }` 记录。`reads`/`writes` 数组是 glob 模板(`{{paths.docsRoot}}/**`),声明脚本会碰哪些路径;`metadata.purpose` 是 `scaffold`、`generate`、`transform`、`audit` 之一。在 `software/coding` 里,这些脚本从 decision 渲染文档并种进仓库。声明陈述的是每个脚本读什么、写什么、产出什么;它不内嵌脚本的逻辑。
 
-`projectionSchemas[]` 指名投影用来校验的前置元数据 schema——`schema://task-frontmatter`、`schema://decision-frontmatter`、`schema://fact-record`——把场景合同的实体种类,和[投影](03-projection.md)校验每一行所用的 schema 绑在一起。
+`projectionSchemas[]` 指名投影用来校验的前置元数据 schema——`schema://task-frontmatter`、`schema://decision-frontmatter`、`schema://fact-event`、`schema://artifact-descriptor`——把场景合同的实体种类,和[投影](03-projection.md)校验每一行所用的 schema 绑在一起。
 
 ## 约定优于声明,落在 schema 上
 

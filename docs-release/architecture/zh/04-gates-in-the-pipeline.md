@@ -4,84 +4,116 @@
 
 ## 门位于何处
 
-门不是一份政策文档,而是一个在**生命周期迁移**上运行、返回通过或拒绝的函数。task 是沿生命周期流转的实体——task 包上的一个状态字段,从进行中的工作推进到 review,最终进入终态 `done`。门的代码位于应用层(`packages/application/src/task-lifecycle-gates.ts`),由一个编排器(`packages/application/src/task-lifecycle-orchestrator.ts`)驱动;调用它们的 CLI 面是 `packages/cli/src/commands/core/task-gates.ts`。
+门不是一份政策文档,而是生命周期迁移上的确定性校验,返回通过或一组阻塞问题。task 是沿生命周期
+流转的实体——状态从 `planned`/`active` 推进到 `in_review`,最终进入终态 `done`。
+迁移规则在 kernel domain 层定义(`packages/kernel/src/domain/task-lifecycle-command-transitions.ts`、
+`task-lifecycle-review-transitions.ts`),完成判定由
+`packages/kernel/src/domain/completion-readiness.ts` 与 `closeout-readiness.ts` 计算;
+daemon 侧的 RepoCell 编排提交流程、评审与完成(`packages/daemon/src/repo-cell-submit.ts`、
+`repo-cell-completion.ts`、`task-completion-review.ts`、`repo-cell-review-lint.ts`),
+应用服务在 `packages/application/src/task-lifecycle-service.ts`。CLI 只是把这些命令转发给
+daemon 协议(`packages/cli/src/cli/thin-command-task.ts`)。
 
-关键性质是**从构造上就 fail-closed**。每个门函数会收集一组 **issues(问题)**。只要这个问题列表非空,迁移就不会发生——编排器返回一个携带这些问题的失败结果,task 的状态从不被写入。没有任何东西被"默认认为没问题"。一次迁移必须靠交出一个空的问题列表,才能挣得通行。
+关键性质是**从构造上就 fail-closed**。完成判定收集一组 **blocker**;只要列表非空,
+迁移就不会发生,task 的状态从不被写入。没有任何东西被"默认认为没问题"——一次迁移必须靠
+交出一个空的 blocker 列表,才能挣得通行。
 
 ```text
-active Execution
-    │  ha task transition <id> in_review --completion-claim "..."
+active Execution(持有 lease)
+    │  写实 closeout.md → ha task submit <id>
     ▼
-[ submit：封存 bindings + 六字段 packet ] ─ 拒绝 ─▶ (状态不变)
-    │ submitted
-in_review
-    │  ha task review-execution <id> ... --rationale "..."
-    │  ha task complete <id> [--consent]
+[ doc sync + 从 closeout.md 派生 Submission packet ] ─ 拒绝 ─▶ (状态不变)
+    │ submitted → in_review
+    │  ha task code-doc reconcile <id> --path ...   (契约声明时)
+    │  ha task declare-executor <id>
+    │  ha task review-execution <id> ...
+    │  ha task review-consent <id>
     ▼
-[ approved Review · 声明的 completionGates · closeout ] ─ 拒绝 ─▶ (状态不变)
-    │ 通过
-done  (终态——写入经由唯一的写协调器)
+[ approved Review · consent · 声明的 completionGates · closeout readiness ] ─ 拒绝 ─▶ (状态不变)
+    │  ha task complete <id>
+done  (终态——写入经由唯一写路径)
 ```
 
-像 `done` 这样的终态,永远不是你可以直接设置的状态。编排器会拒绝对终态的直接写入,转而让它走完成路径,于是整个门栈无法靠"直接改字段"绕过。
+像 `done` 这样的终态,永远不是你可以直接设置的状态:`ha task transition` 的目标集合只有
+`planned`/`active`/`blocked`/`cancelled`,进入 `in_review` 只能经 `ha task submit`,
+进入 `done` 只能经 `ha task complete`。门栈无法靠"直接改字段"绕过。
 
 ## Fact 归属是 completion 门
 
 依据 `dec_22E7895EB4642798B70ADFAC79`，task 完成前必须至少有一条 active 的
-`task/<id> -> fact/F-<id>` `produces` 边。Fact 仍是显式、append-only 的观察；
-submit 与 review 都不会自动生成 Fact。独立 fact 合法,但不满足 task 的完成门。
+`task/<id> -> fact/F-<id>` `produces` 边,否则 completion readiness 报 `fact_missing`。
+Fact 仍是显式、append-only 的观察；submit 与 review 都不会自动生成 Fact。
+独立 fact 合法,但不满足 task 的完成门。
 
-Fact 以单独的 `facts/F-<id>.md` 文档存储。交付证据仍属于 Execution outputs 与
-Submission packet，不能为了凑数量而复制进 Fact。
+Fact 以单独的 `facts/F-<id>.md` 文档存储。交付证据仍属于 Execution 的 Submission packet,
+不能为了凑数量而复制进 Fact。
 
-## Submission 与 Evidence 检查
+## Submission 派生检查
 
-提交 active Execution 时，completion claim 必须非空，另外五个数组字段可以为空：
-deliverables、Evidence refs、verification notes、known gaps、residual risks。这是可追溯的
-检查锚点，不是“必须有文件”的证明形状；只有文字 claim、零条 Evidence 也合法（依据
-`dec_mrg3z1we/CH1`、ADR-0027 D3）。
+`ha task submit` 不接受提交参数——它先把任务包做 doc sync,再从 `closeout.md` 派生
+Submission(`packages/daemon/src/repo-cell-submit.ts`)。机械检查包括:
 
-对每条 `OutputEvidence`，机器只检查四类事实：locator 存在或形状合法、Evidence 归属于
-本 Execution、可选 SHA-256 匹配、可选 checker receipt 存在且绑定同一目标。机器不判断
-相关性、正确性或充分性；这些属于 Reviewer，并由 `review/v2` 记录检查过的 Evidence ID 与
-rationale（依据 `dec_mrg3z1we/CH2-CH4`、ADR-0027 D5-D6）。
+- Summary 必须点名**一个**交付 commit,或至少一个 `artifact:path@revision` 锚;
+  多于一个 commit、零个锚、同一 artifact 路径重复,都是 `invalid_submission`。
+- 具名 commit 必须在某个绑定或 canonical 仓库里已发布,且是某绑定工作区的 HEAD
+  或已发布的合并 commit;`deliverables` 由 `git diff` 求出。
+- `artifact:` 锚的路径必须有 center-accepted revision。
+- `closeout.md` 仍是 preset 脚手架句时,`closeout_placeholder` 拒绝。
+
+重复提交同一份 closeout 返回已存回执;内容变化则拒绝,须显式 `ha task submit --amend`。
+submit 必须持有并原子释放该 Execution 的 active lease——lease 与提交权绑定,
+不是任何调用者都能替别人交卷。
 
 ## review 门
 
-对于 legacy task，review 门检查 task 的 `review.md`。评审发现记在一张 Markdown 表里，门把这张表解析成结构化的发现，每条带一个严重度(`P0`–`P3`)、一个 `open` 标记和一个 `blocksRelease` 标记。
+对于 Execution 路径,`ha task review-execution` 写一份 `review/v1` 不可变记录:
+`verdict`(`approved`/`changes_requested`/`dismissed`)、非空 `reason`、
+`evidenceChecked[]`,并按 `submissionDigest` 绑定到那一轮提交
+(`packages/kernel/src/domain/review.ts`)。评审独立性由 `settings.review-*` 与
+`task-completion-review.ts` 把关;随后 `ha task review-consent` 以
+`review-consent/v1` 把同意钉在同一份 review 与 submission digest 上。
 
-规则狭窄而机械:只要有任何一条发现**既 open 又 release-blocking**,review 就失败,每一条这样的发现都会以 `release_blocking_finding` 问题回报。只有当不再有 open 的阻断性发现时,门才发出一份通过的评审契约(`verifier-backed-review/v1`),概述看到了多少条发现,并确认 open 阻断项为零。一张格式错误的发现表——列数不对、severity 非法——本身就是一次拒绝,而不是被悄悄跳过;门不会读过一张它无法校验的表。
-
-还有一个配套的占位符检查。一个仍带着初始"not-started"模板的 `review.md`,或一个仍与某个已知模板指纹匹配的 `closeout.md`,都会被视作**未完成**。门拒绝接受被打扮成结果的脚手架。
+对于没有 Execution 的 legacy task,评审面是任务包的 `review.md`。lint 把发现表解析成
+结构化条目——每条带严重度(`P0`–`P3`)、`open` 与 `blocksRelease` 标记;只要有任何
+既 open 又 release-blocking 的发现,就以 `release_blocking_finding` 拒绝
+(`packages/daemon/src/repo-cell-review-lint.ts`,产出 `verifier-backed-review/v1`
+契约)。格式错误的表本身就是拒绝,而不是被悄悄跳过。仍带初始模板的 `review.md`、
+仍与已知模板指纹匹配的 `closeout.md`,一律视为未完成。
 
 ## completion 门
 
-完成一个 task 是最严格的迁移，因为 `done` 是终态。`ha task complete` 会解析选中
-preset/profile 的 `completionGates`，只执行其中声明的确定性门，同时落实适用 review 路径与
-closeout readiness，最后才写入 `done`。legacy task 会重新运行 `review.md` 门；带 Execution
-的 task 要求当前 Execution 已有 approved Review（ADR-0027 D5、D7）。
+完成一个 task 是最严格的迁移,因为 `done` 是终态。`ha task complete` 解析选中
+preset/profile 的 `completionGates`,执行 `completion-readiness.ts` 的确定性判定,
+落实 review/consent 路径与 closeout readiness,最后才写 `done`。当前的 blocker 代码:
 
-| 检查 | 通过要求 | 报告的失败码或 issue |
-|---|---|---|
-| legacy review 文档 | 不带 Execution 文档的 task 必须有 `review.md`，发现表必须能解析，且不能有 open 的 release-blocking 发现 | completion 报告 `review_not_passed`；底层 review 失败可能是 `review_document_missing`、`review_schema_invalid` 或 `release_blocking_findings` |
-| Execution Review | 带 Execution 的 task 必须对当前 Execution 有 approved Review | Execution completion service 报告 Review 缺失或未批准 |
-| review 占位符 | 初始 `review.md` 占位符必须被替换 | `review_placeholder` |
-| 转换文档就绪 | 被转换消费的文档必须写实全部必需节且不保留 preset 脚手架句；共享校验器覆盖 task plan/closeout、Decision body、Agent instructions 与 Squad roster | `<doc>_placeholder` |
-| code-doc reconciliation | 解析出的契约声明 `code-doc-reconciliation` 且已复核 submission 含任一公开仓交付物时，Execution 必须有已验证的 code-doc witness；非空 deliverable 列表若全部是 `artifacts/`、`tasks/` 或 `harness/tasks/` 下的任务包工件，则此门不适用 | 适用但缺 witness 时报告 `code_doc_missing` |
-| review 门轴 | 上面的 review 门通过后，completion 函数收到的 review 必须是 `passed` | `review_not_passed` |
-| CI 门轴 | 只有当仓库 settings 配置了 CI 见证 workflow（`settings.ci.workflows` 非空）时，解析出的契约才声明 `ci`；不配置即默认不做任何 CI 见证。用 `ha settings update --ci-workflows <workflow>...` 显式开启，用 `ha settings update --ci-workflows none` 清空回到不挂门；声明时，submitted cut 必须有经 `ha ci observe pull` 导入的、配置 workflow 在 `main` 上的绿 run 见证，run conclusion 即判定，上传的 `ci-observation-*` 工件只是可选细节 | `ci_missing` |
-| closeout 就绪度轴 | 投影出的 closeout readiness 必须是 `ready` 或 `passed` | `closeout_not_ready` |
-| task tree dirty 检查 | 迁移清扫之后，`tasks/<id>/` 必须足够干净，让 lifecycle writer 可以提交 | `task_tree_dirty` |
+| blocker | 含义 |
+|---|---|
+| `projection_unknown` | 投影不可读,无法判定 |
+| `execution_ambiguous` | 选中哪一轮 Execution 有歧义 |
+| `actor_unauthorized` | 调用者无权完成此 task |
+| `document_invalid` | 必需文档缺失或校验失败 |
+| `not_in_review` | task 不在 `in_review` |
+| `task_blocked` | task 处于 blocked |
+| `executor_missing` | 未声明 executor(`ha task declare-executor`) |
+| `closeout_placeholder` | closeout 仍是脚手架 |
+| `review_missing` | 缺 approved Review |
+| `consent_missing` | 缺 review-consent 记录 |
+| `ci_missing` | 契约声明 `ci` 但无见证绿 run(`settings.ci.workflows`、`ha ci observe pull`) |
+| `code_doc_missing` | 契约声明 `code-doc-reconciliation` 但缺已验证 witness(`ha task code-doc reconcile`) |
+| `gate_witness_missing` | 其他声明门的 canonical checker 见证缺失 |
+| `decision_lineage_missing` | 承重 decision 谱系未闭合 |
+| `lease_held` | 仍有未释放 lease |
+| `doc_sync_required` | 有待同步的撰写文档 |
+| `fact_missing` | 无 active `produces` fact 边 |
+| `fact_retirement_undeclared` | fact 退役未声明 |
 
-对于适用的 Execution，`ha task code-doc reconcile <task-id>` 会从唯一 submitted execution 的
-deliverables 自动取 execution、commit、iteration 与公开仓路径，对着拥有该 commit 的 Git 仓库
-验证路径，再发布 typed witness。已复核的 report-only
-submission 若声明的交付物全是任务包工件，可以直接完成，不必伪造公开仓路径。空 deliverable 列表和
-自由文本声明仍属歧义，不会豁免 witness。
+对于适用的 Execution,`ha task code-doc reconcile <task-id>` 会从唯一 submitted
+execution 的 deliverables 自动取 execution、commit、iteration 与公开仓路径,对着拥有该
+commit 的 Git 仓库验证路径,再发布 typed witness。已复核的 report-only submission
+若声明的交付物全是任务包工件,可以直接完成,不必伪造公开仓路径。
 
-只要任一检查失败，task 就原地不动。只有当完成路径返回一个空的问题列表后，task 才被写入 `done`——
-而且因为 `done` 是一次承重写入，这次写入本身要走[写路径](02-write-path.md)里描述的那个唯一写
-协调器，所以被接受的迁移会留下一条持久、可追溯的痕迹。
+只要任一 blocker 存在,task 就原地不动;而且因为 `done` 是一次承重写入,这次写入本身要走
+[写路径](02-write-path.md)里描述的唯一写者,所以被接受的迁移会留下一条持久、可追溯的痕迹。
 
 开发本地 gate 时还有一个操作层陷阱：`ha` 二进制跑的是已构建的 CLI 输出，不是 TypeScript 源码。
 一扇门合入源码，并不等于当前本地二进制已经执行这扇门；在调用 `ha task complete` 测新门或改过的门
@@ -89,13 +121,24 @@ submission 若声明的交付物全是任务包工件，可以直接完成，不
 
 ## 三扇具名的门,作为机制
 
-learn/03 按名字介绍了三扇门。这里说明每扇门到底在检查什么,描述在结构层面,而非意图层面。
+learn/03 按名字介绍了三扇门。它们不是三个同名函数,而是三处机械装置的意图层叫法;
+这里说明每扇门在当前代码里到底对应什么。
 
-**Exit Gate。** 当一整项工作被作为"已完成"提交时触发。它不信任那份宣布,而是检查其背后的结构。具体地说,三件事必须同时成立:承重的 decisions 都已解决(没有任何一个还开着)、task 链真正闭合(没有东西被阻塞或悬空)、发生过什么的事件账本完整。那个账本的完整性不是靠感觉——它是运行时事件的 append 记录,详见[出处与事件](06-provenance-and-events.md)。三者缺一即为拒绝。
+**Exit Gate。** 对应上文的 completion readiness:`ha task complete` 前的整张 blocker 表——
+承重的 decision 谱系闭合(`decision_lineage_missing`)、review 与 consent 就位、
+声明的 completionGates 各有见证、closeout readiness 为 `ready`/`passed`。
+账本完整性不是感觉,而是 canonical 事件的 append 记录,详见
+[出处与事件](06-provenance-and-events.md)。
 
-**Usability Gate。** 针对一个已交付的能力触发。它检查一个可达性性质:一个全新的 agent,只拿到自描述的表面信息(`--help` 和能力清单),对这东西如何造出来毫无记忆,必须能把它端到端跑通。被测的结构是发现路径——命令是否把自己广而告之、入口是否找得到——而不是实现本身。一个能用却无法从 `--help` 找到的能力,过不了这道门,因为一个 agent 触达不到的能力,在机制上就等于未被采用。
+**Usability Gate。** 针对一个已交付的能力:一个全新的 agent,只拿到自描述的表面信息
+(`--help` 与 capabilities 清单),必须能把它端到端跑通。被测的结构是发现路径——
+命令是否把自己广而告之、入口是否找得到。
 
-**Disposition Guard。** 在删除时触发。它检查图上的**入边**。任何仍被引用的东西都受保护:被其他实体指向的 decision 永不物理删除——最多被 retire,让它的 id 和边保留下来;fact 永不被单独删除,因为可能有东西依赖它来追溯出处。这道守卫的检查是一个图问题——"还有东西指向它吗?"——如果答案是有,就拒绝销毁,转而提供归档。
+**Disposition Guard。** 对应 `packages/kernel/src/domain/entity-kind-registry.ts` 的
+disposition 矩阵:每种实体声明支持哪些退出动作(`retire`、`supersede`、`invalidate`、
+`archive`、`tombstone`、`hard-delete`)以及为什么其余不支持。decision 的纠正是
+supersede 关系而不是删除;fact 的退出是 `invalidate`——以追加一条取代记录表达,而不是
+物理移除,因为可能有东西依赖它来追溯出处。
 
 ## 为什么是这个形状
 

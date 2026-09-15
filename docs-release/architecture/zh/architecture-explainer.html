@@ -77,12 +77,13 @@
     <main>
       <h1>一次命令，多个可独立观察的进度</h1>
       <p>
-        每个仓库的 SQLite generation 1 台账是唯一接受点。命令持久接受后，投影、Git
+        每个仓库当前 active generation 的 SQLite 台账是唯一接受点。命令持久接受后，投影、Git
         文档和工作树分别推进；回执明确区分这些进度。
       </p>
       <div class="flow" aria-label="命令到可见结果的顺序">
         <div class="step">
-          <strong>1 · RepoCell 排队</strong>中心 daemon 校验请求、权限、幂等键和 writer epoch。边缘节点向中心提交请求。
+          <strong>1 · RepoCell 排队</strong>中心 daemon 校验请求、权限、幂等键和 writer epoch；实际写者运行在
+          repo-writer-worker 线程内。边缘节点向中心提交请求。
         </div>
         <div class="step accept">
           <strong>2 · SQLite 接受</strong>所需对象先完成文件和目录同步。一个 <code>BEGIN IMMEDIATE</code> 事务校验
@@ -125,7 +126,7 @@
           </tr>
           <tr>
             <td><code>replica</code></td>
-            <td>没有配置验证时报告 not_configured；本次换代不引入 generation 2 或 FleetCut generation。</td>
+            <td>没有配置验证时报告 not_configured；replica cut 独立回读，不并入接受区间。</td>
           </tr>
           <tr>
             <td><code>wait</code></td>
@@ -145,8 +146,9 @@
       </p>
       <h2>历史转换与切换</h2>
       <p>
-        旧 Git 前缀和已接受业务 WAL 后缀在停止写入后被固定为不可变 generation-0 快照。已知历史转换仅导入未激活的
-        generation 1；原始字节保留。严格转换校验和零待转换 preflight 通过后才能激活。生产中的历史原地重写命令已退役。
+        新仓库原生使用 generation 2，并写入 <code>generation-activation/v2</code> 激活证书。存量
+        generation-1 仓库在停止写入后经离线、已验证的备份转换进入 generation 2；原始字节保留。
+        转换 preflight 与激活证书落盘后，active generation 才切换为 2。生产中的历史原地重写命令已退役。
       </p>
       <p>
         独立 reconcile 比较固定导入源、台账元数据、行摘要、命令结果、对象字节和实际 Git
@@ -155,18 +157,27 @@
       </p>
       <h2>可核查的实现入口</h2>
       <ul>
-        <li><code>packages/daemon/src/repo-cell.ts</code>：RepoCell 接受组合与 daemon writer fence。</li>
+        <li><code>packages/daemon/src/repo-cell.ts</code>：RepoCell 接受组合；写者运行在
+          <code>repo-writer-worker.ts</code>，由 <code>writer-supervisor.ts</code> 监管、
+          <code>writer-epoch.ts</code> 持久 fence。</li>
         <li>
-          <code>packages/kernel/src/store/sqlite-event-store.ts</code>：事务、事件、command outcome 与 writer lease。
+          <code>packages/kernel/src/store/sqlite-event-store.ts</code>：事务、事件、command outcome、
+          generation 激活证书与 writer fence。
+        </li>
+        <li>
+          <code>packages/kernel/src/store/task-event-store-factory.ts</code>：为读写解析 active canonical
+          generation。
         </li>
         <li>
           <code>packages/kernel/src/store/sqlite-task-event-store.ts</code>：事件驱动的 Git 和工作树消费者、独立回读。
         </li>
         <li>
-          <code>packages/kernel/src/composition/receipt-acceptance.ts</code>：从持久结果与独立消费者组装 D4 回执。
+          <code>packages/kernel/src/composition/receipt-acceptance.ts</code>：从持久结果与独立消费者组装回执。
         </li>
         <li>
-          <code>packages/kernel/src/store/legacy-generation-conversion.ts</code>：停止写入后的原始导入与激活 preflight。
+          <code>packages/kernel/src/store/generation-two-conversion.ts</code> 与
+          <code>legacy-generation-conversion.ts</code>：generation-1 到 generation-2 的离线转换与激活
+          preflight。
         </li>
       </ul>
       <footer>
