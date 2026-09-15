@@ -42,3 +42,18 @@ export function purgeRepoCache(rootDir: string): readonly string[] {
     }
   return removed.sort();
 }
+
+/** Deletes the repository's local and authored Harness roots; callers must have a drilled backup first. */
+export function removeRepoHarnessRoots(rootDir: string): readonly string[] {
+  const layout = resolveHarnessLayout(realpathSync(rootDir)),
+    removed: string[] = [];
+  for (const [target, receiptPath] of [
+    [layout.localRoot, ".harness"],
+    [layout.authoredRoot, "harness"],
+  ] as const) {
+    if (!existsSync(target)) continue;
+    rmSync(target, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    removed.push(receiptPath);
+  }
+  return removed;
+}

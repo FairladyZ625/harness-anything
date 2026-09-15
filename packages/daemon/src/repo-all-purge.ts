@@ -1,5 +1,4 @@
-import { execFileSync } from "node:child_process";
-import { existsSync, lstatSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import path from "node:path";
 import {
   createLedgerBackup,
@@ -8,6 +7,8 @@ import {
   restoreDrillRetentionFor,
   type DaemonRegistryRepo,
 } from "../../kernel/src/index.ts";
+import { removeHarnessIgnoreRules } from "./repo-bootstrap.ts";
+import { removeRepoHarnessRoots } from "./repo-cache-purge.ts";
 
 type LedgerBackupManifest = ReturnType<typeof createLedgerBackup>;
 
@@ -69,34 +70,9 @@ export function drillRepoAllPurgeBackup(input: {
 export function removeRepoHarnessData(rootDir: string): readonly string[] {
   const canonicalRoot = realpathSync(rootDir),
     layout = resolveHarnessLayout(canonicalRoot),
-    removed: string[] = [];
-  removePath(layout.localRoot, ".harness", removed);
-  removePath(layout.authoredRoot, "harness", removed);
-  removeHarnessGitignoreRules(canonicalRoot, layout.localRoot, layout.authoredRoot);
+    removed = removeRepoHarnessRoots(canonicalRoot);
+  removeHarnessIgnoreRules(canonicalRoot, layout.authoredRoot, layout.localRoot);
   return removed;
-}
-
-function removePath(target: string, receiptPath: string, removed: string[]): void {
-  if (!existsSync(target)) return;
-  rmSync(target, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
-  removed.push(receiptPath);
-}
-
-function removeHarnessGitignoreRules(rootDir: string, localRoot: string, authoredRoot: string): void {
-  const projectRoot = execFileSync("git", ["-C", rootDir, "rev-parse", "--show-toplevel"], {
-      encoding: "utf8",
-      windowsHide: true,
-    }).trim(),
-    ignorePath = path.join(projectRoot, ".gitignore");
-  if (!existsSync(ignorePath)) return;
-  const status = lstatSync(ignorePath);
-  if (!status.isFile() || status.isSymbolicLink()) throw new Error(".gitignore must be a regular file");
-  const rules = new Set(
-      [authoredRoot, localRoot].map((target) => `/${path.relative(projectRoot, target).split(path.sep).join("/")}/`),
-    ),
-    existing = readFileSync(ignorePath, "utf8"),
-    retained = existing.split(/(?<=\n)/u).filter((line) => !rules.has(line.replace(/\r?\n$/u, "")));
-  if (retained.length !== existing.split(/(?<=\n)/u).length) writeFileSync(ignorePath, retained.join(""), "utf8");
 }
 
 function isWithin(candidate: string, parent: string): boolean {

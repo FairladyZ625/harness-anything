@@ -628,13 +628,7 @@ function isolateLedgerFromProject(rootDir: string, authoredRoot: string, localRo
       "publication_indeterminate",
       "Bootstrap cannot resolve the containing project Git repository.",
     );
-  const canonicalRoot = realpathSync.native(rootDir),
-    projectPaths = [authoredRoot, localRoot].map((target) =>
-      path
-        .relative(projectRoot, path.join(canonicalRoot, path.relative(rootDir, target)))
-        .split(path.sep)
-        .join("/"),
-    );
+  const projectPaths = projectRelativePaths(projectRoot, rootDir, authoredRoot, localRoot);
   if (projectPaths.some((target) => !target || target === ".." || target.startsWith("../")))
     throw repoBootstrapError(
       "publication_indeterminate",
@@ -653,6 +647,35 @@ function isolateLedgerFromProject(rootDir: string, authoredRoot: string, localRo
       "utf8",
     );
   git(projectRoot, ["rm", "-r", "--cached", "--ignore-unmatch", "--", ...projectPaths]);
+}
+/** Removes exactly the ignore rules bootstrap added for these Harness roots; other user rules stay. */
+export function removeHarnessIgnoreRules(rootDir: string, authoredRoot: string, localRoot: string): void {
+  const projectRoot = optionalGit(rootDir, ["rev-parse", "--show-toplevel"]);
+  if (!projectRoot) return;
+  const ignorePath = path.join(projectRoot, ".gitignore");
+  if (!existsSync(ignorePath)) return;
+  if (!lstatSync(ignorePath).isFile() || lstatSync(ignorePath).isSymbolicLink())
+    throw repoBootstrapError("reserved_path", ".gitignore must be a regular file.");
+  const rules = new Set(
+      projectRelativePaths(projectRoot, rootDir, authoredRoot, localRoot).map((target) => `/${target}/`),
+    ),
+    lines = readFileSync(ignorePath, "utf8").split(/(?<=\n)/u),
+    retained = lines.filter((line) => !rules.has(line.replace(/\r?\n$/u, "")));
+  if (retained.length !== lines.length) writeFileSync(ignorePath, retained.join(""), "utf8");
+}
+function projectRelativePaths(
+  projectRoot: string,
+  rootDir: string,
+  authoredRoot: string,
+  localRoot: string,
+): readonly string[] {
+  const canonicalRoot = realpathSync.native(rootDir);
+  return [authoredRoot, localRoot].map((target) =>
+    path
+      .relative(projectRoot, path.join(canonicalRoot, path.relative(rootDir, target)))
+      .split(path.sep)
+      .join("/"),
+  );
 }
 function git(rootDir: string, args: readonly string[]): string {
   return runProcessText("git", ["-C", rootDir, ...args]);
