@@ -566,7 +566,7 @@ test("task show renders lifecycle status before the secondary graph cursor", () 
     ok: true,
     command: "task-show",
     evidence: JSON.stringify({
-      task: { status: "done", currentNode: "review", completionGateIds: [] },
+      task: { status: "done", currentNode: "review", completionGateIds: [], packageDisposition: "archived" },
       returnBudget: 2,
       returnBudgetSource: "task",
     }),
@@ -577,8 +577,17 @@ test("task show renders lifecycle status before the secondary graph cursor", () 
     "status: done",
     "graph cursor: review",
     "completion gates: none",
+    "packageDisposition: archived",
     "returnBudget=2 (task)",
   ]);
+  // Legacy snapshots without the field still render a line, defaulted to active.
+  const legacy = renderCliReceipt({
+    ok: true,
+    command: "task-show",
+    evidence: JSON.stringify({ task: { status: "active", currentNode: "implementation" } }),
+    summary: "task: status=active",
+  });
+  assert.match(legacy.text, /\npackageDisposition: active$/u);
 });
 
 test("task show renders the current fact prerequisite as a completion gate", () => {

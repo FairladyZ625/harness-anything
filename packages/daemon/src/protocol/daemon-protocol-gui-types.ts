@@ -797,6 +797,8 @@ export type DaemonAgendaResult = {
   readonly command: "agenda";
   readonly status: "ready" | "pending";
   readonly inFlight: readonly AgendaTaskRow[];
+  /** 评审打回、等使用者修:active 且最新 execution=changes_requested、无 lease、无 active execution。可选,旧形状可省略。 */
+  readonly awaitingRework?: readonly AgendaTaskRow[];
   readonly awaitingDecision: readonly AgendaAwaitingRow[];
   readonly waitingOnOthers: readonly AgendaTaskRow[];
   readonly dispatchable: readonly AgendaTaskRow[];

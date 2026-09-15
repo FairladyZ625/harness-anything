@@ -263,6 +263,94 @@ test("agenda derives all four groups, pins first, and rejects a missing task pin
   });
 });
 
+test("agenda surfaces a changes_requested task in the rework group and nowhere else", async () => {
+  await withCell("agenda-rework", async (cell, rootDir) => {
+    const created = await cell.run(
+      { kind: "task-create", taskId: "task_rework", title: "Returned for rework" },
+      binding,
+    );
+    assert.equal(created.outcome, "applied");
+    await waitForFixturePublication(cell, created.opId, binding);
+    const packagePath = String((created as Record<string, unknown>).packagePath);
+    await realizeTaskPlanFixture(rootDir, packagePath, (planPath) =>
+      cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
+    );
+    assert.equal(
+      (await cell.run({ kind: "task-start", taskId: "task_rework", executionId: "exe_rework" }, binding)).outcome,
+      "applied",
+    );
+    writeFileSync(
+      path.join(rootDir, "harness", packagePath, "closeout.md"),
+      `# Closeout\n\n## Summary\n\nRework fixture delivery ${git(rootDir, "rev-parse", "fixture-delivery")} is ready.\n\n## Verification\n\nIntegration assertions exercise agenda rework grouping.\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nTask lifecycle projections share the review cut.\n`,
+    );
+    assert.equal(
+      (await cell.run({ kind: "task-submit", taskId: "task_rework", executionId: "exe_rework" }, binding)).outcome,
+      "applied",
+    );
+    const reviewerBinding = withRoleBinding(
+      {
+        actor: {
+          principal: { personId: "person-agenda-reviewer" },
+          executor: { kind: "agent" as const, id: "agenda-reviewer" },
+        },
+        source: "local" as const,
+      },
+      "arbiter",
+    );
+    writeFileSync(
+      path.join(rootDir, "review.json"),
+      JSON.stringify({ verdict: "changes_requested", reason: "Needs another pass.", evidenceChecked: ["agenda"] }),
+    );
+    assert.equal(
+      (
+        await cell.run(
+          {
+            kind: "task-review-execution",
+            taskId: "task_rework",
+            executionId: "exe_rework",
+            reviewId: "review-rework",
+            fromFile: "review.json",
+          },
+          reviewerBinding,
+        )
+      ).outcome,
+      "applied",
+    );
+
+    const agenda = await cell.read("repo.agenda.read", { limit: 50 });
+    // The returned task sits in exactly one group — the one this change adds.
+    assert.deepEqual(
+      (agenda.awaitingRework ?? []).map(({ taskId }) => taskId),
+      ["task_rework"],
+    );
+    for (const group of [agenda.inFlight, agenda.waitingOnOthers, agenda.dispatchable])
+      assert.equal(
+        group.some(({ taskId }) => taskId === "task_rework"),
+        false,
+      );
+    assert.equal(
+      agenda.awaitingDecision.some((row) => row.kind === "execution" && row.taskId === "task_rework"),
+      false,
+    );
+    assert.match(agenda.summary, /等我修 \(1\) — status=active 且最新 execution=changes_requested[\s\S]*task_rework/u);
+
+    // Starting a fresh execution moves it back to the in-flight line.
+    assert.equal(
+      (await cell.run({ kind: "task-start", taskId: "task_rework", executionId: "exe_rework_2" }, binding)).outcome,
+      "applied",
+    );
+    const restarted = await cell.read("repo.agenda.read", { limit: 50 });
+    assert.equal(
+      (restarted.awaitingRework ?? []).some(({ taskId }) => taskId === "task_rework"),
+      false,
+    );
+    assert.equal(
+      restarted.inFlight.some(({ taskId }) => taskId === "task_rework"),
+      true,
+    );
+  });
+});
+
 test("agenda projects an all-blocked ledger only into the waiting group", async () => {
   await withCell("agenda-all-blocked", async (cell) => {
     for (const taskId of ["task_blocked_a", "task_blocked_b"] as const) {
