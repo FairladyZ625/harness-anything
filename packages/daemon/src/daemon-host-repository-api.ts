@@ -1,4 +1,5 @@
 /** @daemon-transport-authority Daemon ingress filtering and repository dispatch. */
+import { doctorBuildDrift, unavailableCenterDoctor, type DoctorCheck } from "./repo-cell-doctor.ts";
 import { existsSync, realpathSync } from "node:fs";
 import path from "node:path";
 import {
@@ -544,6 +545,13 @@ export function createDaemonHostRepositoryApi(
       const command = entityActionCommandTopology(commandDescriptorForAction(action.kind), action),
         modeAdmission = context.admitHostMode(repoId, command, auth);
       if (!modeAdmission.ok) return context.rejectHostAction(action, modeAdmission.code, modeAdmission.nextAction);
+      if (
+        action.kind === "doctor-health" &&
+        readDaemonRegistry({ userRoot: context.input.userRoot }).repos.some(
+          (repo) => repo.repoId === repoId && repo.mode === "remote-edge",
+        )
+      )
+        return unavailableCenterDoctor(repoId);
       await context.attemptHostRecovery(repoId);
       const cell = context.cells.get(repoId);
       if (!cell)
@@ -586,6 +594,13 @@ export function createDaemonHostRepositoryApi(
           receipt = await cell.run(resolvedAction, serverBinding, auth.connectionSignal);
         if (getExecutableEntityAction(action.kind)?.target.kind === "schedule")
           await context.scheduleScheduler.refresh();
+        if (action.kind === "doctor-health" && receipt.outcome === "applied") {
+          const health = receipt as typeof receipt & { checks: readonly DoctorCheck[] };
+          const checks = health.checks.map((check) =>
+            check.id === "build-drift" ? doctorBuildDrift(context.buildObserver.status()) : check,
+          );
+          return { ...health, checks, evidence: JSON.stringify({ ...JSON.parse(health.evidence!), checks }) };
+        }
         return receipt;
       } catch (error) {
         return context.rejectHostAction(

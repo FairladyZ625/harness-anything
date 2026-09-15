@@ -71,7 +71,10 @@ test("the default Policy covers the frozen durable inventory exactly once", () =
   // 2026-09-15 task_5e5eea52: task-review-dispatch enters the durable inventory (task is the change's own authority) —
   // a first-class task action that spawns reviewer dispatches bound to submitted cuts, gated under repo-write alongside
   // the other task lifecycle actions, 117 → 118.
-  assert.equal(durablePolicyActions.length, 118);
+  // PR #2785: CEO confirms one repo-write task-settle entry, reusing existing submission authority: 118 → 119.
+  assert.equal(durablePolicyActions.length, 119);
+  assert.equal(port.authorize(action("task-settle"), roleContext("repo-write")).outcome, "allowed");
+  assert.equal(port.authorize(action("task-settle"), roleContext("repo-read")).outcome, "denied");
   // 其余两条是自洽不变量,不需要第二个硬编码数字:清单内无重复(三个角色分段互不重叠),
   // 且每个 durable Action 恰好被一条 rule 覆盖。
   assert.equal(new Set(durablePolicyActions).size, durablePolicyActions.length);

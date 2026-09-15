@@ -41,6 +41,7 @@ const doctorLocalRoots: readonly string[] = [
     ["capabilities"],
     ["doctor"],
     ["doctor", "commands"],
+    ["doctor", "health"],
     ["restore"],
     ["events", "tail"],
     ["version"],
@@ -65,13 +66,17 @@ const doctorDocDirs = ["harness/context", "harness/governance", "docs-release"],
 
 export function doctorInvocation(
   argv: readonly string[],
-): { readonly ok: true; readonly rootDir: string } | { readonly ok: false; readonly reason: string } {
+):
+  | { readonly ok: true; readonly mode: "health" | "commands"; readonly rootDir: string }
+  | { readonly ok: false; readonly reason: string } {
   const rest = stripGlobals(argv),
     args = rest.slice(rest.indexOf("doctor") + 1),
     rootDir = path.resolve(globalOption(argv, "--root") ?? process.cwd());
-  if (args.length > 1 || (args.length === 1 && args[0] !== "commands"))
-    return { ok: false, reason: "Use ha doctor [commands] [--root <path>] [--json]." };
-  return existsSync(rootDir) ? { ok: true, rootDir } : { ok: false, reason: `--root ${rootDir} does not exist.` };
+  if (args.length > 1 || (args.length === 1 && !["commands", "health"].includes(args[0]!)))
+    return { ok: false, reason: "Use ha doctor [commands|health] [--root <path>] [--json]." };
+  return existsSync(rootDir)
+    ? { ok: true, mode: args[0] === "commands" ? "commands" : "health", rootDir }
+    : { ok: false, reason: `--root ${rootDir} does not exist.` };
 }
 
 export function renderDoctorReport(report: DoctorReport, json: boolean): number {

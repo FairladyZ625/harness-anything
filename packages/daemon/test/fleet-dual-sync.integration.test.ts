@@ -999,57 +999,96 @@ test(
   },
 );
 
-test("class A submit carries the closing documents in the same serial command", { timeout: 60_000 }, async (t) => {
-  const originalPath = process.env.PATH,
-    bin = mkdtempSync(path.join(tmpdir(), "ha-fleet-ci-"));
-  writeFileSync(path.join(bin, "gh"), "#!/usr/bin/env node\nprocess.stdout.write('[]');\n", { mode: 0o755 });
-  process.env.PATH = `${bin}${path.delimiter}${originalPath ?? ""}`;
-  t.after(() => {
-    if (originalPath === undefined) delete process.env.PATH;
-    else process.env.PATH = originalPath;
-    rmSync(bin, { recursive: true, force: true });
-  });
-  const fixture: Fixture = await dualSyncFixture();
-  t.after(() => fixture.close());
-  const created = await fixture.createTask("node-one", "task_HHHH000000000000000000000H", "Closing docs ride submit");
-  assert.equal(
-    (await fixture.edgeTask("node-one", { kind: "task-start", taskId: created.taskId, executionId: "exe-a-submit" }))
-      .ok,
-    true,
+for (const commandKind of ["task-submit", "task-settle"] as const)
+  test(
+    `class A ${commandKind} carries closing documents from edge through the center`,
+    { timeout: 60_000 },
+    async (t) => {
+      const originalPath = process.env.PATH,
+        bin = mkdtempSync(path.join(tmpdir(), "ha-fleet-ci-"));
+      writeFileSync(path.join(bin, "gh"), "#!/usr/bin/env node\nprocess.stdout.write('[]');\n", { mode: 0o755 });
+      process.env.PATH = `${bin}${path.delimiter}${originalPath ?? ""}`;
+      t.after(() => {
+        if (originalPath === undefined) delete process.env.PATH;
+        else process.env.PATH = originalPath;
+        rmSync(bin, { recursive: true, force: true });
+      });
+      const fixture: Fixture = await dualSyncFixture();
+      t.after(() => fixture.close());
+      const created = await fixture.createTask(
+        "node-one",
+        "task_HHHH000000000000000000000H",
+        "Closing docs ride submit",
+      );
+      assert.equal(
+        (
+          await fixture.edgeTask("node-one", {
+            kind: "task-start",
+            taskId: created.taskId,
+            executionId: "exe-a-submit",
+          })
+        ).ok,
+        true,
+      );
+      const planPath = `${created.packagePath}/task_plan.md`,
+        closeoutPath = `${created.packagePath}/closeout.md`,
+        original = readFileSync(fixture.worktree("node-one", planPath), "utf8");
+      fixture.git("update-ref", "refs/remotes/origin/main", "HEAD");
+      writeFileSync(path.join(fixture.repo, "delivery.md"), "# Fleet delivery\n");
+      fixture.git("add", "delivery.md");
+      fixture.git("commit", "-qm", "test: deliver fleet submission cut");
+      const commitSha = fixture.git("rev-parse", "HEAD");
+      fixture.writeWorktree("node-one", planPath, `${original}\n## Closing note\n\nRides the submit.\n`);
+      fixture.writeWorktree(
+        "node-one",
+        closeoutPath,
+        `# Closeout\n\n## Summary\n\nFleet delivery commit ${commitSha}.\n\n` +
+          "## Verification\n\nVerified by the dual-sync integration fixture.\n\n" +
+          "## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nNo other path in this fixture.\n",
+      );
+      const submitted = await fixture.edgeTask("node-one", {
+        kind: commandKind,
+        taskId: created.taskId,
+        ...(commandKind === "task-submit" ? { executionId: "exe-a-submit" } : {}),
+      });
+      assert.equal(submitted.ok, true, JSON.stringify(submitted).slice(0, 500));
+      assert.equal(
+        (submitted as { readonly docSync?: { readonly outcome?: string; readonly paths?: readonly string[] } }).docSync
+          ?.outcome,
+        "applied",
+      );
+      assert.deepEqual(
+        (submitted as { readonly docSync?: { readonly paths?: readonly string[] } }).docSync?.paths?.slice().sort(),
+        [closeoutPath, planPath].sort(),
+      );
+      assert.match(readFileSync(fixture.worktree("node-one", planPath), "utf8"), /Closing note/u);
+      if (commandKind === "task-settle") {
+        const replay = await fixture.edgeTask("node-one", { kind: "task-settle", taskId: created.taskId });
+        assert.equal(replay.ok, true, JSON.stringify(replay).slice(0, 1000));
+        assert.equal(replay.opId, submitted.opId, "same assignment resumes the same cut after replica pull");
+        const foreign = await fixture.edgeTask("node-two", { kind: "task-settle", taskId: created.taskId });
+        assert.equal(foreign.ok, false, JSON.stringify(foreign));
+        const changedCloseout = readFileSync(fixture.worktree("node-one", closeoutPath), "utf8").replace(
+          "Verified by the dual-sync integration fixture.",
+          "Amended verification from edge.",
+        );
+        fixture.writeWorktree("node-one", closeoutPath, changedCloseout);
+        const changed = await fixture.edgeTask("node-one", { kind: "task-settle", taskId: created.taskId });
+        assert.equal(changed.ok, false, JSON.stringify(changed));
+        assert.match(JSON.stringify(changed), /amend/u);
+        const amended = await fixture.edgeTask("node-one", {
+          kind: "task-submit",
+          taskId: created.taskId,
+          amend: true,
+        });
+        assert.equal(amended.ok, true, JSON.stringify(amended).slice(0, 1500));
+        assert.match(
+          readFileSync(path.join(fixture.repo, "harness", closeoutPath), "utf8"),
+          /Amended verification from edge/u,
+        );
+      }
+    },
   );
-  const planPath = `${created.packagePath}/task_plan.md`,
-    closeoutPath = `${created.packagePath}/closeout.md`,
-    original = readFileSync(fixture.worktree("node-one", planPath), "utf8");
-  fixture.git("update-ref", "refs/remotes/origin/main", "HEAD");
-  writeFileSync(path.join(fixture.repo, "delivery.md"), "# Fleet delivery\n");
-  fixture.git("add", "delivery.md");
-  fixture.git("commit", "-qm", "test: deliver fleet submission cut");
-  const commitSha = fixture.git("rev-parse", "HEAD");
-  fixture.writeWorktree("node-one", planPath, `${original}\n## Closing note\n\nRides the submit.\n`);
-  fixture.writeWorktree(
-    "node-one",
-    closeoutPath,
-    `# Closeout\n\n## Summary\n\nFleet delivery commit ${commitSha}.\n\n` +
-      "## Verification\n\nVerified by the dual-sync integration fixture.\n\n" +
-      "## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nNo other path in this fixture.\n",
-  );
-  const submitted = await fixture.edgeTask("node-one", {
-    kind: "task-submit",
-    taskId: created.taskId,
-    executionId: "exe-a-submit",
-  });
-  assert.equal(submitted.ok, true, JSON.stringify(submitted).slice(0, 500));
-  assert.equal(
-    (submitted as { readonly docSync?: { readonly outcome?: string; readonly paths?: readonly string[] } }).docSync
-      ?.outcome,
-    "applied",
-  );
-  assert.deepEqual(
-    (submitted as { readonly docSync?: { readonly paths?: readonly string[] } }).docSync?.paths?.slice().sort(),
-    [closeoutPath, planPath].sort(),
-  );
-  assert.match(readFileSync(fixture.worktree("node-one", planPath), "utf8"), /Closing note/u);
-});
 
 // Raw Task artifact bytes across the fleet. The publication and local read sides were proved in
 // doc-sync-artifact-raw-bytes / task-raw-artifact-consumer-read; what is unproven until here is the

@@ -18,6 +18,7 @@ import {
 import { beginCliTiming, cliPhaseEnd, cliPhaseStart, daemonRequestTimer, finishCliTiming } from "./cli/timing.ts";
 import { isRetiredEntityExplain, taskExplainHelpOverlay } from "./cli/thin-command-explain.ts";
 import { doctorInvocation, renderDoctorReport, runDoctor } from "./cli/thin-command-doctor.ts";
+import { runDoctorHealth } from "./cli/thin-command-doctor-health.ts";
 import { renderCliReceipt } from "./cli/receipt-render-registry.ts";
 import {
   daemonAutostartFailureCode,
@@ -98,7 +99,9 @@ async function runThinCli(argv: readonly string[]): Promise<number> {
       emit(cliFailure("doctor", "invalid_field", invocation.reason), argv.includes("--json"));
       return 2;
     }
-    return renderDoctorReport(runDoctor(invocation.rootDir), argv.includes("--json"));
+    if (invocation.mode === "commands")
+      return renderDoctorReport(runDoctor(invocation.rootDir), argv.includes("--json"));
+    return runDoctorHealth(argv, emit);
   }
   if (command === "daemon" || command === "gui") {
     const { runDaemonControl } = await import("./daemon/control.ts");
