@@ -90,14 +90,5 @@ export async function runDaemonRepoControl(
     );
     return finish(result, result.ok === true ? 0 : 1);
   }
-  if (subcommand !== "unregister") return undefined;
-  const repoId = daemonOption(argv, "--repo-id");
-  if (!repoId) return finish(daemonFailure("daemon-repo-unregister", "missing_field", "Add --repo-id."), 2);
-  const result = await requestDaemonJsonRpcAt(
-    localUserDaemonEndpoint(userRoot, daemonId),
-    "daemon.repo.unregister",
-    { repoId },
-    75,
-  );
-  return finish(result, result.ok === true ? 0 : 1);
+  return undefined;
 }

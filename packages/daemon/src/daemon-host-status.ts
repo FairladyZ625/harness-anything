@@ -1,4 +1,4 @@
-import { unregisterDaemonRepo, type InvalidDaemonRegistryRepo } from "../../kernel/src/index.ts";
+import { unbindDaemonRepo, type InvalidDaemonRegistryRepo } from "../../kernel/src/index.ts";
 import { hostCodedError } from "./daemon-host-errors.ts";
 import { type RepoCell, type RepoCellStatus } from "./repo-cell.ts";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
@@ -59,7 +59,7 @@ export function invalidRegistrySystemRow(repo: InvalidDaemonRegistryRepo) {
   };
 }
 
-export function publicRegistryRepo(repo: ReturnType<typeof unregisterDaemonRepo>["repo"]) {
+export function publicRegistryRepo(repo: ReturnType<typeof unbindDaemonRepo>["repo"]) {
   if (!("raw" in repo)) return repo;
   return {
     repoId: invalidRepoId(repo),

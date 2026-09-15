@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import {
   consumeKnownError,
   readDaemonRegistry,
-  unregisterDaemonRepo,
+  disableDaemonRepo,
   type DaemonRepoMode,
 } from "../../kernel/src/index.ts";
 import { revokedAttachError } from "./daemon-host-errors.ts";
@@ -20,8 +20,8 @@ export async function closeCell(context: DaemonHostRegistryContext, repoId: stri
 }
 
 // Registry hygiene: a registered root that no longer exists on disk (an OS-cleaned temp
-// fixture, a deleted checkout) is retired instead of attach-failing forever. Unregister
-// keeps the row as state=disabled so the root can be re-registered later; the lifecycle
+// fixture, a deleted checkout) is disabled instead of attach-failing forever. The row is
+// retained so an operator can distinguish a temporarily unavailable mount from an intentional unbind; the lifecycle
 // log records exactly what was retired and when it was first registered.
 export function pruneMissingRoot(
   context: DaemonHostRegistryContext,
@@ -33,7 +33,7 @@ export function pruneMissingRoot(
 ): boolean {
   if (existsSync(repo.canonicalRoot)) return false;
   try {
-    unregisterDaemonRepo(repo.repoId, {
+    disableDaemonRepo(repo.repoId, {
       userRoot: context.input.userRoot,
       createConvenienceLinks: false,
     });

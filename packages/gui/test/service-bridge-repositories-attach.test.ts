@@ -98,23 +98,15 @@ test("GUI bridge switches between two enabled RepoCells without leaking task row
         [repoBId, "enabled", "attached"],
       ],
     );
-    const disabled = await requestDaemonJsonRpcAt(
-      fixture.endpoint,
-      "daemon.repo.unregister",
-      { repoId: repoBId },
-      1_000,
-    );
-    assert.equal(disabled.ok, true, JSON.stringify(disabled));
-    const afterDisable = parseDaemonGuiReadResult(
+    const unbound = await requestDaemonJsonRpcAt(fixture.endpoint, "daemon.repo.unbind", { repoId: repoBId }, 1_000);
+    assert.equal(unbound.ok, true, JSON.stringify(unbound));
+    const afterUnbind = parseDaemonGuiReadResult(
       "daemon.gui.system.read",
       await bridge.invoke("getSystemStatus", null),
     );
-    assert.deepEqual(
-      afterDisable.repos.find((repo) => repo.repoId === repoBId) && {
-        registrationState: afterDisable.repos.find((repo) => repo.repoId === repoBId)?.registrationState,
-        cellState: afterDisable.repos.find((repo) => repo.repoId === repoBId)?.cellState,
-      },
-      { registrationState: "disabled", cellState: "not_loaded" },
+    assert.equal(
+      afterUnbind.repos.find((repo) => repo.repoId === repoBId),
+      undefined,
     );
     const denied = (await bridge.invoke("getTasks", {
       repoId: repoBId,

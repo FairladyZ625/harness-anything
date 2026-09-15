@@ -52,6 +52,7 @@ export function parseRouted(
   if (rootCommand === "schedule") return parseSchedule(route, args, rootDir, repoId, json, inputs);
   if (rootCommand === "settings" || rootCommand === "ci")
     return parseProjected(route.id, args.slice(route.path.length), rootDir, repoId, json, inputs, {}, {}, route.method);
+  if (rootCommand === "repo") return parseRepoLifecycle(route, args, rootDir, repoId, json, inputs);
   if (rootCommand === "people") return parsePeople(route, args, rootDir, repoId, json, inputs);
   if (route.id === "receipt-show" && nonEmpty(args[2])) {
     const f = readFlags(route.id, args.slice(3), inputs);
@@ -94,6 +95,29 @@ export function parseRouted(
   if (route.phase.startsWith("Preset-") || rootCommand === "agent" || rootCommand === "squad")
     return parsePreset(route, args, rootDir, repoId, json, inputs);
   return undefined;
+}
+
+function parseRepoLifecycle(
+  route: ProtocolCommand,
+  args: readonly string[],
+  rootDir: SafePath,
+  repoId: string | undefined,
+  json: boolean,
+  inputs: ThinCliInputDirectory,
+): ThinParseResult {
+  const targetRepoId = args[2];
+  if (!nonEmpty(targetRepoId)) return rejected("missing_field", `Use ha repo ${route.path[1]} <repo-id>.`, json);
+  return parseProjected(
+    route.id,
+    args.slice(3),
+    rootDir,
+    repoId,
+    json,
+    inputs,
+    { repoId: targetRepoId },
+    {},
+    route.method,
+  );
 }
 
 function parseAgentRun(

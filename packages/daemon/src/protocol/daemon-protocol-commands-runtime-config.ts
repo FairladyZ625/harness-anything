@@ -126,16 +126,22 @@ export const runtimeConfigProtocolCommands = Object.freeze([
     ],
   }),
   defineHostAdminCommand({
-    id: "daemon-repo-unregister",
-    phase: "W3",
-    path: ["daemon", "repo", "unregister"],
-    summary: "Disable a registered workspace.",
-    method: "daemon.repo.unregister",
-    inputs: [
-      cliInput("--repo-id", "single", true, {
-        code: "missing_field",
-      }),
-    ],
+    id: "repo-unbind",
+    phase: "Repo-Lifecycle",
+    path: ["repo", "unbind"],
+    syntaxPath: ["repo", "unbind", "<repo-id>"],
+    summary: "Detach a repository from this local daemon without deleting repository data.",
+    method: "daemon.repo.unbind",
+    inputs: [],
+  }),
+  defineHostAdminCommand({
+    id: "repo-purge",
+    phase: "Repo-Lifecycle",
+    path: ["repo", "purge"],
+    syntaxPath: ["repo", "purge", "<repo-id>"],
+    summary: "Unbind a repository and remove only locally derived Harness state.",
+    method: "daemon.repo.purge",
+    inputs: [cliInput("--scope", "single", true, { code: "missing_field" }, { enum: ["cache"] })],
   }),
   defineHostAdminCommand({
     id: "daemon-connection-add",

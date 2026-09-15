@@ -482,7 +482,7 @@ read -r b_state b_mode <<< "$(mixed_repo_state)"
 note "phase 4: daemon serves local repo $REPO_ID + remote-edge repo $MIXED_REPO (both attached)"
 
 docker compose exec -T center sh -c "mv $MIXED_ROOT/harness/.git $MIXED_ROOT/harness/.git-aside"
-docker compose exec -T center ha --json daemon repo unregister --repo-id "$MIXED_REPO" > "$W4_OUT/p4-unregister.json" || fail "phase 4: unregister failed"
+docker compose exec -T center ha --json repo unbind "$MIXED_REPO" > "$W4_OUT/p4-unbind.json" || fail "phase 4: unbind failed"
 docker compose exec -T center ha --json daemon repo register --repo-id "$MIXED_REPO" --root "$MIXED_ROOT" --mode remote-edge > "$W4_OUT/p4-relatch.json" || fail "phase 4: relatch registration failed"
 read -r b_state b_mode <<< "$(mixed_repo_state)"
 [ "$b_state" = "unavailable" ] || fail "phase 4: mixed repo should be latched (unavailable), got $b_state"

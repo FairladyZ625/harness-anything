@@ -119,8 +119,8 @@ export function registerConnectionAdminIpc(
   });
   registrar.handle(REPO_UNREGISTER_CHANNEL, async (event, payload) => {
     assertTrustedIpcSender(event, trustPolicy);
-    const record = closedRecord(payload, ["repoId"], "Repo unregister");
-    return call("daemon.repo.unregister", { repoId: requireSlug(record.repoId, "repoId") });
+    const record = closedRecord(payload, ["repoId"], "Repo unbind");
+    return call("daemon.repo.unbind", { repoId: requireSlug(record.repoId, "repoId") });
   });
   registrar.handle(WORKSPACE_INSPECT_CHANNEL, async (event, payload) => {
     assertTrustedIpcSender(event, trustPolicy);

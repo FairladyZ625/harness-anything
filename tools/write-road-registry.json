@@ -15,7 +15,7 @@
     },
     {
       "id": "workspace.bootstrap",
-      "actions": ["repo-bootstrap", "daemon-repo-register", "daemon-repo-unregister"],
+      "actions": ["repo-bootstrap", "daemon-repo-register", "repo-unbind", "repo-purge"],
       "authority": "packages/daemon/src/daemon-host.ts",
       "evidence": [
         "packages/daemon/src/daemon-host.ts",
@@ -66,6 +66,7 @@
     "packages/daemon/src/migration-import-oracle-rebuild.ts",
     "packages/daemon/src/observe-jsonl-tail.ts",
     "packages/daemon/src/repo-bootstrap.ts",
+    "packages/daemon/src/repo-cache-purge.ts",
     "packages/daemon/src/repo-cell-errors.ts",
     "packages/daemon/src/repo-cell-lock.ts",
     "packages/daemon/src/request-log.ts",

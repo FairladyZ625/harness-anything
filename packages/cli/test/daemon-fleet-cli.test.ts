@@ -649,18 +649,12 @@ test("daemon control reports Git follower failure while SQLite keeps accepting c
     assert.equal(rebuilt.status, 0, rebuilt.stderr);
     assert.match(rebuilt.stdout, /stateDigest=sha256:[0-9a-f]{64}/u);
 
-    const unregistered = runText(fixture, ["daemon", "repo", "unregister", "--repo-id", "receipt"]);
-    assert.equal(unregistered.status, 0, unregistered.stderr);
-    assert.match(unregistered.stdout, /repoId=receipt/u);
-    assert.match(unregistered.stdout, /changed=true/u);
-
-    // The first unregister disables and keeps history; the second removes the disabled row.
-    const removed = runText(fixture, ["daemon", "repo", "unregister", "--repo-id", "receipt"]);
+    const removed = runText(fixture, ["repo", "unbind", "receipt"]);
     assert.equal(removed.status, 0, removed.stderr);
-    assert.match(removed.stdout, /repoId=receipt/u);
-    assert.match(removed.stdout, /changed=true/u);
+    assert.match(removed.stdout, /Repository receipt is unbound/u);
+    assert.match(removed.stdout, /run ha init there to bind it again/u);
 
-    const gone = runText(fixture, ["daemon", "repo", "unregister", "--repo-id", "receipt"]);
+    const gone = runText(fixture, ["repo", "unbind", "receipt"]);
     assert.notEqual(gone.status, 0);
     // The daemon route refuses an unknown repoId as repo_namespace_unknown; the kernel path says "not registered".
     assert.match(`${gone.stdout}${gone.stderr}`, /not registered|repo_namespace_unknown/u);

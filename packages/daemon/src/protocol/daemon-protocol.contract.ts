@@ -117,11 +117,18 @@ export const daemonProtocolMethods = Object.freeze([
     }),
   },
   {
-    id: "daemon.repo.unregister",
+    id: "daemon.repo.unbind",
     phase: "W3",
-    method: "daemon.repo.unregister",
+    method: "daemon.repo.unbind",
     requiresRepo: false,
     params: shape({ repoId: "string" }),
+  },
+  {
+    id: "daemon.repo.purge",
+    phase: "Repo-Lifecycle",
+    method: "daemon.repo.purge",
+    requiresRepo: false,
+    params: shape({ repoId: "string", scope: { values: ["cache"], optional: false } }),
   },
   {
     id: "daemon.connection.register",
@@ -673,6 +680,7 @@ export default Object.freeze({
     "Governed-Entity-W2-0",
     "Governed-Entity-W2-B",
     "Governed-Entity-W2",
+    "Repo-Lifecycle",
   ]),
   commands: daemonOwnedProtocolCommands,
   methods: Object.freeze([

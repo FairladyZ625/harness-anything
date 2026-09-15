@@ -187,7 +187,7 @@ export function writeDaemonRegistryRepo(
 
   if (invalidByRoot)
     throw new Error(
-      `canonical root has an invalid daemon registry entry${invalidByRoot.repoId ? ` for repoId "${invalidByRoot.repoId}"` : ""}; unregister it before registering the root again`,
+      `canonical root has an invalid daemon registry entry${invalidByRoot.repoId ? ` for repoId "${invalidByRoot.repoId}"` : ""}; unbind it before registering the root again`,
     );
 
   if (existingByRoot) {
@@ -236,7 +236,7 @@ export function writeDaemonRegistryRepo(
     );
   }
   if (registry.invalidRepos.some((repo) => repo.repoId === repoId && repo.state !== "disabled"))
-    throw new Error(`repoId "${repoId}" has an invalid daemon registry entry; unregister it before reusing the id`);
+    throw new Error(`repoId "${repoId}" has an invalid daemon registry entry; unbind it before reusing the id`);
 
   const connection = resolveRegistrationConnection(registry, {
     mode: requestedMode,
@@ -373,7 +373,7 @@ export function removeDaemonConnection(
   return { registry: next, connection, registryPath: paths.registryPath, changed };
 }
 
-export function unregisterDaemonRepo(
+export function unbindDaemonRepo(
   repoId: string,
   options: DaemonRegistryOptions = {},
 ): DaemonRegistryMutationResult<DaemonRegistryRepo | InvalidDaemonRegistryRepo> {
@@ -384,29 +384,43 @@ export function unregisterDaemonRepo(
   const invalid = registry.invalidRepos.find((repo) => repo.repoId === normalizedRepoId);
   if (!existing && !invalid) throw new Error(`repoId "${normalizedRepoId}" is not registered`);
   if (invalid) {
-    const alreadyDisabled = invalid.state === "disabled",
-      raw = isDaemonRegistryRecord(invalid.raw) ? { ...invalid.raw, state: "disabled" } : invalid.raw,
-      repo = { ...invalid, state: "disabled" as const, raw },
-      next = alreadyDisabled
-        ? { ...registry, invalidRepos: registry.invalidRepos.filter((candidate) => candidate !== invalid) }
-        : replaceInvalidRepo(registry, repo),
-      changed = true;
-    if (changed) writeDaemonRegistry(next, options);
+    const next = { ...registry, invalidRepos: registry.invalidRepos.filter((candidate) => candidate !== invalid) };
+    writeDaemonRegistry(next, options);
     const warnings = invalid.canonicalRoot
       ? removeConvenienceLink({ repoId: normalizedRepoId, canonicalRoot: invalid.canonicalRoot }, options)
       : [];
-    return { registry: next, repo, registryPath: paths.registryPath, changed, warnings };
+    return { registry: next, repo: invalid, registryPath: paths.registryPath, changed: true, warnings };
   }
   const valid = existing!;
-  const alreadyDisabled = valid.state === "disabled",
-    repo = { ...valid, state: "disabled" as const },
-    next = alreadyDisabled
-      ? { ...registry, repos: registry.repos.filter((candidate) => candidate !== valid) }
-      : replaceRepo(registry, repo),
-    changed = true;
+  const next = { ...registry, repos: registry.repos.filter((candidate) => candidate !== valid) };
+  writeDaemonRegistry(next, options);
+  const warnings = valid.canonicalRoot === null ? [] : removeConvenienceLink(valid as LocalDaemonRegistryRepo, options);
+  return { registry: next, repo: valid, registryPath: paths.registryPath, changed: true, warnings };
+}
+
+export function disableDaemonRepo(
+  repoId: string,
+  options: DaemonRegistryOptions = {},
+): DaemonRegistryMutationResult<DaemonRegistryRepo | InvalidDaemonRegistryRepo> {
+  const paths = daemonRegistryPaths(options),
+    registry = readDaemonRegistry(options),
+    normalizedRepoId = normalizeExplicitRepoId(repoId),
+    existing = registry.repos.find((repo) => repo.repoId === normalizedRepoId),
+    invalid = registry.invalidRepos.find((repo) => repo.repoId === normalizedRepoId);
+  if (!existing && !invalid) throw new Error(`repoId "${normalizedRepoId}" is not registered`);
+  if (invalid) {
+    const raw = isDaemonRegistryRecord(invalid.raw) ? { ...invalid.raw, state: "disabled" } : invalid.raw,
+      repo = { ...invalid, state: "disabled" as const, raw },
+      next = replaceInvalidRepo(registry, repo),
+      changed = invalid.state !== "disabled";
+    if (changed) writeDaemonRegistry(next, options);
+    return { registry: next, repo, registryPath: paths.registryPath, changed, warnings: [] };
+  }
+  const repo = { ...existing!, state: "disabled" as const },
+    next = replaceRepo(registry, repo),
+    changed = existing!.state !== "disabled";
   if (changed) writeDaemonRegistry(next, options);
-  const warnings = repo.canonicalRoot === null ? [] : removeConvenienceLink(repo as LocalDaemonRegistryRepo, options);
-  return { registry: next, repo, registryPath: paths.registryPath, changed, warnings };
+  return { registry: next, repo, registryPath: paths.registryPath, changed, warnings: [] };
 }
 
 export function resolveDaemonRepoByRoot(

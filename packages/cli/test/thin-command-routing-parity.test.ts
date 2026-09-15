@@ -94,6 +94,21 @@ test("settings update projects repeatable CI workflow flags into the daemon Acti
   assert.equal(rejected.ok, false);
 });
 
+test("repo lifecycle commands require a positional repo id and only expose cache purge", () => {
+  const unbind = parseThinCommand(["repo", "unbind", "canonical"]),
+    purge = parseThinCommand(["repo", "purge", "canonical", "--scope", "cache"]);
+  assert.equal(unbind.ok, true);
+  assert.equal(purge.ok, true);
+  if (!unbind.ok || !purge.ok) return;
+  assert.deepEqual(unbind.command.action, { kind: "repo-unbind", repoId: "canonical" });
+  assert.equal(unbind.command.method, "daemon.repo.unbind");
+  assert.deepEqual(purge.command.action, { kind: "repo-purge", repoId: "canonical", scope: "cache" });
+  assert.equal(purge.command.method, "daemon.repo.purge");
+  assert.equal(parseThinCommand(["repo", "unbind"]).ok, false);
+  assert.equal(parseThinCommand(["repo", "unbind", "canonical", "extra"]).ok, false);
+  assert.equal(parseThinCommand(["repo", "purge", "canonical", "--scope", "all"]).ok, false);
+});
+
 test("entity import and update carry declared attributes as one typed JSON object", () => {
   const imported = parseThinCommand([
     "entity",
@@ -313,12 +328,12 @@ test("capabilities is an exact-set projection of the command contract", () => {
       "daemon-fleet-edge-sync",
       "daemon-projection-rebuild",
       "daemon-repo-register",
-      "daemon-repo-unregister",
       "daemon-repo-update",
       "daemon-start",
       "daemon-status",
       "daemon-stop",
     ],
+    repo: ["repo-purge", "repo-unbind"],
     decision: [
       "decision-accept",
       "decision-amend",

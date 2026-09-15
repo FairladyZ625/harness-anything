@@ -30,7 +30,7 @@ ha restore /Volumes/offsite/harness-backup-2026-09-15 --to /srv/restored-project
 
 The restore verifies before and after copying and advances the saved repository's writer-epoch
 floor in the selected Harness user root. It never overwrites an existing destination. If an old
-registration for the same repository ID remains, unregister that unavailable root first. Then use
+registration for the same repository ID remains, run `ha repo unbind <repoId>` first. Then use
 the `repoId` printed in the restore receipt to bind and verify the restored repository:
 
 ```sh

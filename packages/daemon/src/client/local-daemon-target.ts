@@ -120,8 +120,7 @@ export function resolveLocalDaemonTargetFromRepos(
       new Error(
         repo
           ? `workspace is blocked by disabled repoId ${JSON.stringify(repo.repoId)} at ` +
-            `${JSON.stringify(repo.canonicalRoot)}; run ha daemon repo unregister --repo-id ${repo.repoId} ` +
-            "twice to remove it"
+            `${JSON.stringify(repo.canonicalRoot)}; run ha repo unbind ${repo.repoId} to remove it`
           : `workspace is not registered; run ha daemon repo register --repo-id <id> --root ` +
             JSON.stringify(path.resolve(input.rootDir)),
       ),

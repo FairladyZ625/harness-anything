@@ -102,7 +102,7 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
         "daemon",
         "unsupported_command",
         [
-          "Use daemon projection rebuild, daemon repo register|update|unregister,",
+          "Use daemon projection rebuild, daemon repo register|update,",
           "daemon connection add|update|remove|probe, fleet center start, fleet edge sync,",
           "start --service, status, or stop.",
         ].join(" "),

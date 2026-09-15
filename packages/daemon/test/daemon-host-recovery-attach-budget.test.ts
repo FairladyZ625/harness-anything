@@ -158,10 +158,7 @@ test("a disabled repository is not resurrected by its in-flight attach landing l
     );
     assert.equal(late.status().state, "closed", "the discarded Cell must be closed, not just dropped from the map");
     assert.equal(existsSync(lockPath), false, "the discarded attach must release the workspace writer lock");
-    assert.equal(
-      host.status().repos.some((repo) => repo.repoId === "disable-attach"),
-      false,
-    );
+    assert.equal(host.status().repos.find((repo) => repo.repoId === "disable-attach")?.state, "closed");
     // Re-enabling is unaffected: the next registry refresh opens a fresh Cell and serves writes.
     assert.equal(
       (await host.admin({ kind: "update", repoId: "disable-attach", state: "enabled" }, auth)).outcome,
