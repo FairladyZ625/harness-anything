@@ -1,4 +1,5 @@
 import { decodeCatalog } from "./preset-assets.ts";
+import { safeTemplatePath } from "./preset-materialization.ts";
 import { presetFailure, resolverContentHash } from "./preset-resolver-common.ts";
 import type { DecodedPresetPackageV3, PresetPackageScript } from "./preset-resolver-types.ts";
 import { validatePackagePolicy } from "./preset-validation.ts";
@@ -35,7 +36,12 @@ export function decodePackage(
       "missing_template_catalog",
       `User preset ${manifest.id} must provide template-catalog.json for its template selections.`,
     );
-  if (catalogBody !== undefined) decodeCatalog(catalogBody, root);
+  if (catalogBody !== undefined)
+    decodeCatalog(catalogBody, root, ({ locale }) => {
+      const target = safeTemplatePath(root, locale.bodyPath, manifest.id),
+        relative = path.relative(root, target).split(path.sep).join("/");
+      return file(files, relative, "missing_template");
+    });
   const packageDigest =
     trustedDigest ??
     (() => {

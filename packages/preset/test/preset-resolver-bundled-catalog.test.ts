@@ -7,10 +7,21 @@ import test from "node:test";
 import { makeTaskEventStore, sha256Text } from "../../kernel/src/index.ts";
 import { compileTaskBootstrap, readBundledAgentDeclaration } from "../src/index.ts";
 import { createRuntime, presetDocumentBody } from "../src/preset-resolver.ts";
+import { loadCanonicalAssets } from "../src/preset-assets.ts";
 import { effectiveCatalog } from "../src/preset-catalog.ts";
-import { defaultBundled, key } from "../src/preset-resolver-common.ts";
+import { defaultAssets, defaultBundled, key } from "../src/preset-resolver-common.ts";
 
 import { git } from "./preset-resolver.fixtures.ts";
+test("every bundled catalog body exists and contains its required anchors", () => {
+  const source = loadCanonicalAssets(defaultAssets).catalog;
+  for (const document of source.catalog.documents)
+    for (const locale of document.locales) {
+      const body = readFileSync(path.join(source.root, locale.bodyPath), "utf8");
+      for (const anchor of document.requiredAnchors)
+        assert.equal(body.includes(anchor), true, `${document.id}:${locale.locale}:${anchor}`);
+    }
+});
+
 test("bundled closeout reviewer is machine-independent and leaves instance model selection open", () => {
   const reviewer = readBundledAgentDeclaration("closeout-reviewer");
   assert.ok(reviewer);

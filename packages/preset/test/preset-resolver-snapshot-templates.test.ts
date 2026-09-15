@@ -373,6 +373,15 @@ test("user template selections resolve only package-local canonical catalog bodi
         ),
       ),
     );
+    write(path.join(sourceRoot, "user-impact/templates/user-impact.md"), "# Local only\n\nPackage body.\n");
+    assert.throws(
+      () =>
+        installPresetPackage({
+          source: path.join(sourceRoot, "user-impact"),
+          userRoot: fixture.userRoot,
+        }),
+      (error: unknown) => (error as { code?: string }).code === "invalid_template_catalog",
+    );
     write(
       path.join(sourceRoot, "user-impact/templates/user-impact.md"),
       "# Local only\n\n## User Impact\n\nPackage body.\n",
