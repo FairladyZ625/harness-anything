@@ -11,6 +11,7 @@ import type {
   TaskProjection,
 } from "../../kernel/src/index.ts";
 import {
+  annotateExecution as annotateExecutionImpl,
   declareExecutionExecutor as declareExecutionExecutorImpl,
   executeAction as executeActionImpl,
 } from "./repo-cell-action-dispatch.ts";
@@ -148,6 +149,7 @@ export interface RepoCellActionContext extends TaskQueryCell {
   readonly archiveTasks: Bound<typeof archiveTasksImpl>;
   readonly supersedeWithNewTask: Bound<typeof supersedeWithNewTaskImpl>;
   readonly declareExecutionExecutor: Bound<typeof declareExecutionExecutorImpl>;
+  readonly annotateExecution: Bound<typeof annotateExecutionImpl>;
   readonly completeTask: Bound<typeof completeTaskImpl>;
   readonly taskSurfaceWrite: Bound<typeof taskSurfaceWriteImpl>;
   readonly rejected: typeof rejected;
@@ -292,6 +294,7 @@ export function createRepoCellActionContext(bindings: {
     archiveTasks: bind(archiveTasksImpl),
     supersedeWithNewTask: bind(supersedeWithNewTaskImpl),
     declareExecutionExecutor: bind(declareExecutionExecutorImpl),
+    annotateExecution: bind(annotateExecutionImpl),
     completeTask: bind(completeTaskImpl),
     taskSurfaceWrite: bind(taskSurfaceWriteImpl),
     rejected,

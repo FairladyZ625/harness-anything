@@ -39,6 +39,10 @@ export function lifecycleDocumentPaths(event: TaskEventV1, packagePath: string):
     const plan = retitledTaskPlanPath(event, packagePath);
     return plan !== null && event.payload.documentClaims?.some((claim) => claim.path === plan) ? [...base, plan] : base;
   }
+  // An annotation rewrites only the annotated Execution's record; INDEX.md does not list
+  // annotations, and re-rendering it here would pin a possibly historical Execution as current.
+  if (event.type === "execution_annotated")
+    return [`${packagePath}/executions/${event.payload.execution.executionId}.md`];
   const paths = [`${packagePath}/INDEX.md`, `${packagePath}/executions/${event.payload.execution.executionId}.md`];
   if (event.type === "review_recorded" || event.type === "review_consent_recorded")
     paths.push(`${packagePath}/reviews/${event.payload.review.reviewId}.md`);
@@ -413,6 +417,20 @@ function renderExecution(value: ExecutionV1, snapshot: TaskLifecycleSnapshot): s
     list(packet?.knownGaps ?? []),
     "\n\n## Residual risks\n\n",
     list(packet?.residualRisks ?? []),
+    // The section renders only once annotations exist, so an annotated record keeps the entire
+    // previously published body as a strict prefix — the projection appends, it never rewrites.
+    ...(value.annotations?.length
+      ? [
+          "\n\n## Annotations\n\n",
+          value.annotations
+            .map(
+              (annotation) =>
+                `- ${annotation.annotatedAt} ${annotation.kind} by ${annotation.actor.principal.personId}: ` +
+                annotation.note,
+            )
+            .join("\n"),
+        ]
+      : []),
     "\n",
   ].join("");
 }

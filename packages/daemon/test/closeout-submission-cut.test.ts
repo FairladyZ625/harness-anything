@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { sha256Bytes } from "../../kernel/src/index.ts";
-import { deriveCloseoutSubmission, submissionStopped } from "../src/repo-cell-submit.ts";
+import { deriveCloseoutSubmission, submissionAnchorDriftWarnings, submissionStopped } from "../src/repo-cell-submit.ts";
 import { openDispatchStream } from "../src/dispatch-stream.ts";
 import type { RepoCellBinding, RepoTaskAction, Snapshot } from "../src/repo-cell-types.ts";
 
@@ -377,4 +377,36 @@ test("a stopped submission keeps the invalid_submission message as its rejection
   assert.equal(receipt.code, "document_invalid");
   assert.equal(receipt.rejectionExplanation, "Delivery cut contains no changed paths.");
   assert.match(receipt.next?.[0]?.action ?? "", /ha doc sync --submit --task task-1/u);
+});
+
+test("anchor drift warning fires only when the delivery cut moved under unchanged closeout prose", () => {
+  const anchor = {
+      path: `${packagePath}/artifacts/report.md`,
+      revision: 7,
+      blobSha256: "a".repeat(64),
+    },
+    submitted = {
+      completionClaim: "Delivered the report.",
+      deliverables: ["src/live.ts"],
+      outputs: [`Artifact-Anchor: ${anchor.path}@${anchor.revision}`],
+      verificationNotes: ["Tests passed."],
+      knownGaps: [],
+      residualRisks: [],
+      commitSha: "a".repeat(40),
+      artifacts: [anchor],
+    };
+  // The artifact anchor (or any other delivery-cut field) moved while closeout prose did not.
+  for (const drifted of [
+    { ...submitted, artifacts: [{ ...anchor, revision: 8 }] },
+    { ...submitted, deliverables: ["src/live.ts", "src/extra.ts"] },
+    { ...submitted, commitSha: "b".repeat(40) },
+  ])
+    assert.deepEqual(submissionAnchorDriftWarnings(submitted, drifted), [
+      "Anchored artifact deliveries changed while the closeout prose did not; " +
+        "verify the closeout claim still describes the delivered artifacts.",
+    ]);
+  // No previous submission, an identical cut, or revised prose: no advisory.
+  assert.deepEqual(submissionAnchorDriftWarnings(null, submitted), []);
+  assert.deepEqual(submissionAnchorDriftWarnings(submitted, submitted), []);
+  assert.deepEqual(submissionAnchorDriftWarnings(submitted, { ...submitted, completionClaim: "Revised claim." }), []);
 });

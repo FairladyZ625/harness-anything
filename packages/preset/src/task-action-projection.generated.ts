@@ -22,6 +22,7 @@ export const taskActionDescriptorProjection = {
     "commitSha",
     "unmetCriteria",
     "effects",
+    "warnings",
     "updatedProjection",
     "rejectionExplanation",
     "nextAction",

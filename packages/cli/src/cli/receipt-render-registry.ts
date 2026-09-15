@@ -65,9 +65,17 @@ export function renderCliReceipt(
     daemonBuild =
       receipt.daemonBuild !== null && typeof receipt.daemonBuild === "object" && !Array.isArray(receipt.daemonBuild)
         ? (receipt.daemonBuild as Record<string, unknown>)
-        : null;
-  return daemonBuild?.code === "daemon_build_stale" && typeof daemonBuild.message === "string"
-    ? { ...rendered, text: `${rendered.text}\nwarning: ${daemonBuild.message}` }
+        : null,
+    warnings = [
+      ...(daemonBuild?.code === "daemon_build_stale" && typeof daemonBuild.message === "string"
+        ? [daemonBuild.message]
+        : []),
+      ...(Array.isArray(receipt.warnings)
+        ? receipt.warnings.filter((entry): entry is string => nonEmptyText(entry) !== null)
+        : []),
+    ];
+  return warnings.length
+    ? { ...rendered, text: `${rendered.text}\n${warnings.map((warning) => `warning: ${warning}`).join("\n")}` }
     : rendered;
 }
 
