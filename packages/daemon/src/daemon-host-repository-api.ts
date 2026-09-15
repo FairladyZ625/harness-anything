@@ -1,5 +1,6 @@
 /** @daemon-transport-authority Daemon ingress filtering and repository dispatch. */
 import { existsSync, realpathSync } from "node:fs";
+import path from "node:path";
 import {
   readDaemonRegistry,
   getExecutableEntityAction,
@@ -36,9 +37,10 @@ import { resolveVerticalKindCommandAction } from "./vertical-kind-command-action
 import { cachePurgePreservedPaths, purgeRepoCache } from "./repo-cache-purge.ts";
 import { backupReceipt } from "./offline-storage.ts";
 import {
-  backupRepoForAllPurge,
-  drillRepoAllPurgeBackup,
+  backupRepo,
+  drillRepoBackup,
   removeRepoHarnessData,
+  validateBackupDestination,
   validateRepoAllPurge,
 } from "./repo-all-purge.ts";
 
@@ -215,6 +217,66 @@ export function createDaemonHostRepositoryApi(
     },
     admin: async (request, auth) => {
       context.localOnly(auth);
+      if (request.kind === "backup" || request.kind === "restore-drill") {
+        const rootDir = realpathSync(request.rootDir),
+          repo = readDaemonRegistry({ userRoot: context.input.userRoot }).repos.find(
+            (candidate) => candidate.state === "enabled" && candidate.canonicalRoot === rootDir,
+          ),
+          actionKind = request.kind === "backup" ? "ledger-backup" : "ledger-restore-drill",
+          authorizationDecision = requireAuthorizedHostAction({
+            kind: actionKind,
+            binding:
+              repo && repo.mode !== "remote-proxy" ? await context.binding(rootDir, auth) : localDefaultBinding(auth),
+            actionId: `${actionKind}:${rootDir}:${request.backupDir}`,
+            evaluatedAtCut: repo ? `daemon-registry:${repo.repoId}` : "daemon-registry:unregistered",
+            now: context.now(),
+          }),
+          backupDir = path.resolve(request.backupDir);
+        if (repo?.mode === "remote-proxy")
+          throw context.hostCodedError("repo_mode_remote_proxy", `Repository ${repo.repoId} is remote-proxy.`);
+        if (request.kind === "backup") validateBackupDestination(rootDir, request.backupDir);
+        else if (!existsSync(backupDir)) throw new Error("restore --drill backup directory does not exist");
+        const shadowParent =
+          request.kind === "restore-drill" && request.shadowParent ? { shadowParent: request.shadowParent } : {};
+        let result: ReturnType<typeof backupRepo> | ReturnType<typeof drillRepoBackup>;
+        if (repo) {
+          await context.waitForWarming(repo.repoId);
+          result = await context.requiredCell(context.cells, context.warming, context.unavailable, repo.repoId).backup!(
+            {
+              kind: request.kind === "backup" ? "backup" : "drill",
+              backupDir,
+              ...shadowParent,
+              registration: repo,
+              writerEpoch: context.writerEpochHighWatermark(repo.repoId),
+            },
+          );
+        } else {
+          // An unregistered root has no daemon-held writer, so there is no write queue to serialize against.
+          result =
+            request.kind === "backup"
+              ? backupRepo({ rootDir, backupDir })
+              : drillRepoBackup({ rootDir, backupDir, ...shadowParent });
+        }
+        if (request.kind === "backup")
+          return {
+            ok: true,
+            schema: "ledger-backup-receipt/v1",
+            exitCode: 0,
+            ...backupReceipt(backupDir, result as Parameters<typeof backupReceipt>[1]),
+            authorizationDecision,
+          };
+        const drill = result as ReturnType<typeof drillRepoBackup>;
+        return {
+          ok: true,
+          schema: "ledger-restore-drill-receipt/v1",
+          exitCode: 0,
+          ...backupReceipt(backupDir, drill.manifest),
+          shadowRoot: drill.shadowRoot,
+          removedShadowRoots: drill.removedShadowRoots,
+          warnings: drill.warnings,
+          authorizationDecision,
+        };
+      }
       if (request.kind === "register") {
         const remoteProxy = request.mode === "remote-proxy",
           adminBinding = remoteProxy
@@ -420,13 +482,13 @@ export function createDaemonHostRepositoryApi(
         };
       let backupManifest;
       if (purgingAll) {
-        backupManifest = backupRepoForAllPurge({
+        backupManifest = backupRepo({
           rootDir: rootDir!,
           backupDir: backupDir!,
           registration: registeredRepo!,
           writerEpoch: context.writerEpochHighWatermark(request.repoId),
         });
-        drillRepoAllPurgeBackup({ rootDir: rootDir!, backupDir: backupDir!, manifest: backupManifest });
+        drillRepoBackup({ rootDir: rootDir!, backupDir: backupDir!, manifest: backupManifest });
       }
       context.settleWarming(request.repoId);
       await context.closeCell(request.repoId);

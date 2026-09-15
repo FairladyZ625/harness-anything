@@ -48,6 +48,7 @@ export interface RepoWriterRequestV1 {
     | "cancelRuntime"
     | "runtimeIngress"
     | "settlePendingMaterialization"
+    | "backup"
     | "catalog";
   readonly payload: unknown;
   readonly binding?: SerializableRepoCellBindingV1;

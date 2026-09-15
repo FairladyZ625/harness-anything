@@ -117,6 +117,20 @@ export const daemonProtocolMethods = Object.freeze([
     }),
   },
   {
+    id: "daemon.repo.backup",
+    phase: "Repo-Lifecycle",
+    method: "daemon.repo.backup",
+    requiresRepo: false,
+    params: shape({ rootDir: "string", backupDir: "string" }),
+  },
+  {
+    id: "daemon.repo.restoreDrill",
+    phase: "Repo-Lifecycle",
+    method: "daemon.repo.restoreDrill",
+    requiresRepo: false,
+    params: shape({ rootDir: "string", backupDir: "string", shadowParent: "string?" }),
+  },
+  {
     id: "daemon.repo.unbind",
     phase: "W3",
     method: "daemon.repo.unbind",

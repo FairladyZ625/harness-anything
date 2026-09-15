@@ -1,7 +1,10 @@
 # Back up and restore a ledger
 
-Run backups from the registered repository root. A backup is a directory containing an
-integrity-checked manifest and a consistent SQLite snapshot; choose a new absolute destination.
+Run backups from the repository root. For a registered local repository, the daemon takes the
+backup in its write queue, so the command works from a sandboxed agent session that cannot open the
+ledger itself. For an unregistered root, the daemon takes the backup directly because it has no
+writer for that ledger. A backup is a directory containing an integrity-checked manifest and a
+consistent SQLite snapshot; choose a new absolute destination outside `.harness/` and `harness/`.
 
 ```sh
 ha backup /Volumes/offsite/harness-backup-2026-09-15

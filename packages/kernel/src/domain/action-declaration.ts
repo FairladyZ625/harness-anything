@@ -41,6 +41,16 @@ const local = (
 ): ActionDeclaration =>
   Object.freeze({ kind, catalogId: null, executionClass, policyAction: null, residency, receiptSettlement: "none" });
 
+const hostAdmin = (kind: string): ActionDeclaration =>
+  Object.freeze({
+    kind,
+    catalogId: null,
+    executionClass: "admin",
+    policyAction: kind,
+    residency: hostResidency,
+    receiptSettlement: "none",
+  });
+
 /**
  * The built-in non-read action inventory. Protocol descriptors are checked against these rows;
  * policy, entity-catalog bindings, and receipt settlement are projections of the declarations.
@@ -55,6 +65,8 @@ export const actionDeclarations = Object.freeze([
   local("daemon-connection-probe", "admin", hostResidency),
   local("daemon-connection-remove", "admin", hostResidency),
   local("daemon-connection-update", "admin", hostResidency),
+  hostAdmin("ledger-backup"),
+  hostAdmin("ledger-restore-drill"),
   canonical("daemon-control-request", null, "admin"),
   canonical("daemon-fleet-center-start", null, "admin"),
   canonical("daemon-fleet-edge-sync", null, "admin"),
