@@ -55,11 +55,12 @@ export async function dispatchCompletionReview(
     );
   // Once the return budget is spent the ledger refuses a changes_requested RecordReview; the cut can
   // still be approved. The receipt must say both instead of promising a verdict that cannot land.
-  const returnBudget = cell.settings.readRepository().reviewReturnBudget,
+  const returnBudget = snapshot.task!.reviewReturnBudget ?? cell.settings.readRepository().reviewReturnBudget,
     budgetNote =
       snapshot.task!.iteration >= returnBudget
         ? ` Return budget ${String(returnBudget)} is spent at iteration ${String(snapshot.task!.iteration)}: a ` +
-          "changes_requested RecordReview will be refused. Raise it with `ha settings update " +
+          `changes_requested RecordReview will be refused. Raise it for this task with \`ha task amend ` +
+          `${taskId} --set reviewReturnBudget:<n>\`, or repository-wide with \`ha settings update ` +
           "--review-return-budget <n>`, or amend the submission so the reviewer can approve."
         : "";
   // Attempt 0 keeps the historical key; each retry appends ":retry<N>". The deterministic opId per

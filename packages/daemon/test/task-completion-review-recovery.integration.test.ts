@@ -316,6 +316,11 @@ test(
       assert.equal(second.code, "review_missing", JSON.stringify(second));
       assert.match(JSON.stringify(second.next), /Return budget 1 is spent at iteration 1/u);
       assert.match(JSON.stringify(second.next), /--review-return-budget/u);
+      // Without a task-scoped override, inspection reports the repository setting as the source.
+      const shown = (await f.run({ kind: "task-show", taskId })) as Record<string, unknown>,
+        shownPayload = JSON.parse(String(shown.evidence)) as Record<string, unknown>;
+      assert.equal(shownPayload.returnBudget, 1);
+      assert.equal(shownPayload.returnBudgetSource, "repository");
       const refused = await reviewExecution(
         String(second.runtimeSessionId),
         roundTwo,
@@ -352,6 +357,86 @@ test(
       const completed = await f.run({ kind: "task-complete", taskId, executionId: roundThree, consent: true });
       assert.equal(completed.outcome, "applied", JSON.stringify(completed));
       assert.equal(f.events().filter((event) => event.type === "task_completed").length, 1);
+    } finally {
+      await f.close();
+    }
+  },
+);
+
+test(
+  "a task-scoped return budget overrides the exhausted repository budget and is named in show",
+  { timeout: 20_000 },
+  async () => {
+    const f = await fixture(false, true, false, false, false, 2);
+    const reviewExecution = (sessionId: string, execution: string, reviewId: string) => {
+      const packet = `${f.packagePath}/artifacts/reports/${reviewId}.json`;
+      mkdirSync(path.dirname(path.join(f.root, "harness", packet)), { recursive: true });
+      writeFileSync(
+        path.join(f.root, "harness", packet),
+        JSON.stringify({
+          verdict: "changes_requested",
+          reason: "Another pass is required.",
+          evidenceChecked: ["closeout.md"],
+        }),
+      );
+      return f.cell().run(
+        { kind: "task-review-execution", taskId, executionId: execution, reviewId, fromFile: `harness/${packet}` },
+        {
+          actor: {
+            principal: owner.actor.principal,
+            executor: { kind: "agent", id: `runtime-session:${sessionId}` },
+          },
+          source: "local",
+        },
+      );
+    };
+    try {
+      await f.install();
+      // The repository budget is already spent; the task-scoped override still admits a return.
+      assert.equal((await f.run({ kind: "settings-update", reviewReturnBudget: 1 })).outcome, "applied");
+      const shown = (await f.run({ kind: "task-show", taskId })) as Record<string, unknown>,
+        shownPayload = JSON.parse(String(shown.evidence)) as Record<string, unknown>;
+      assert.equal(shownPayload.returnBudget, 2);
+      assert.equal(shownPayload.returnBudgetSource, "task");
+      // The amend write path adjusts the override in place; amend it back before the rounds.
+      const amend = (value: string) =>
+        f.run({ kind: "task-amend", taskId, patches: [{ field: "reviewReturnBudget", value }] });
+      assert.equal((await amend("1")).outcome, "applied");
+      const amended = (await f.run({ kind: "task-show", taskId })) as Record<string, unknown>,
+        amendedPayload = JSON.parse(String(amended.evidence)) as Record<string, unknown>;
+      assert.equal(amendedPayload.returnBudget, 1);
+      assert.equal(amendedPayload.returnBudgetSource, "task");
+      assert.equal((await amend("2")).outcome, "applied");
+      const first = (await f.complete()) as Record<string, unknown>;
+      assert.equal(first.code, "review_missing", JSON.stringify(first));
+      assert.equal(
+        (await reviewExecution(String(first.runtimeSessionId), executionId, "review-task-budget-one")).outcome,
+        "applied",
+      );
+      const roundTwo = "execution-task-budget-two";
+      assert.equal((await f.run({ kind: "task-start", taskId, executionId: roundTwo })).outcome, "applied");
+      assert.equal((await f.run({ kind: "task-submit", taskId, executionId: roundTwo })).outcome, "applied");
+      const second = (await f.run({ kind: "task-complete", taskId, executionId: roundTwo })) as Record<string, unknown>;
+      assert.equal(second.code, "review_missing", JSON.stringify(second));
+      // Iteration 1 exhausts the repository budget (1) but not the task budget (2): no spent note.
+      assert.doesNotMatch(JSON.stringify(second.next), /return budget/u);
+      assert.equal(
+        (await reviewExecution(String(second.runtimeSessionId), roundTwo, "review-task-budget-two")).outcome,
+        "applied",
+      );
+      const roundThree = "execution-task-budget-three";
+      assert.equal((await f.run({ kind: "task-start", taskId, executionId: roundThree })).outcome, "applied");
+      assert.equal((await f.run({ kind: "task-submit", taskId, executionId: roundThree })).outcome, "applied");
+      const third = (await f.run({ kind: "task-complete", taskId, executionId: roundThree })) as Record<
+        string,
+        unknown
+      >;
+      assert.equal(third.code, "review_missing", JSON.stringify(third));
+      // The spent note names the task-scoped budget, not the repository's.
+      assert.match(JSON.stringify(third.next), /Return budget 2 is spent at iteration 2/u);
+      const refused = await reviewExecution(String(third.runtimeSessionId), roundThree, "review-task-budget-three");
+      assert.equal(refused.outcome, "op_rejected");
+      assert.match(refused.rejectionExplanation ?? "", /return budget exhausted/u);
     } finally {
       await f.close();
     }

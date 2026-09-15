@@ -49,6 +49,7 @@ export interface CompileTaskPackageInput extends PresetResolverOptions {
   readonly registerModule?: TaskModuleRegistration;
   readonly slug?: string;
   readonly surfaces?: readonly string[];
+  readonly reviewReturnBudget?: number;
 }
 export interface CompileTaskBootstrapInput extends CompileTaskPackageInput {
   readonly actor: ActorIdentity;
@@ -99,6 +100,11 @@ export interface CompiledPresetSnapshotUpgrade extends PresetSnapshotUpgradeBund
 export function compileTaskPackage(input: CompileTaskPackageInput): CompiledTaskPackage {
   validateTaskIdSyntax(input.taskId);
   if (!input.title.trim()) throw bootstrapFailure("invalid_title", "Task title is required.");
+  if (
+    input.reviewReturnBudget !== undefined &&
+    (!Number.isSafeInteger(input.reviewReturnBudget) || input.reviewReturnBudget < 1)
+  )
+    throw bootstrapFailure("invalid_field", "reviewReturnBudget must be a positive integer.");
   const resolved = createRuntime(input).resolveInternal({
     presetId: input.presetId,
     verticalId: input.verticalId,
@@ -218,6 +224,7 @@ export function compileTaskPackage(input: CompileTaskPackageInput): CompiledTask
           locale: input.locale,
           metadata,
           registerModule: input.registerModule ?? null,
+          ...(input.reviewReturnBudget === undefined ? {} : { reviewReturnBudget: input.reviewReturnBudget }),
           completionGates: snapshot.profile.completionGateIds,
           presetSnapshotDigest: snapshot.digest,
           scaffold: {
@@ -316,6 +323,7 @@ export function compileTaskBootstrap(input: CompileTaskBootstrapInput): Compiled
         packageDisposition: "active",
         supersededBy: null,
         contractVersion: 1,
+        ...(input.reviewReturnBudget === undefined ? {} : { reviewReturnBudget: input.reviewReturnBudget }),
       },
       presetSnapshotClaim: snapshotClaim,
       initialDocumentClaims,
@@ -371,6 +379,7 @@ export function compilePresetSnapshotUpgrade(input: CompilePresetSnapshotUpgrade
       slug: input.task.metadata?.slug,
       moduleKey: input.task.metadata?.moduleKey ?? undefined,
       workKind: input.task.metadata?.workKind ?? undefined,
+      reviewReturnBudget: input.task.reviewReturnBudget,
       verticalId,
       profileId: input.toPresetId && input.toPresetId !== presetId ? undefined : profileId,
       locale,

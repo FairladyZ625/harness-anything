@@ -134,6 +134,7 @@ const createPacketFields = Object.freeze([
   field("slug", "string", false, undefined, "^[a-z0-9](?:[a-z0-9-]{0,70}[a-z0-9])?$"),
   field("surfaces", "string-array"),
   field("taskClass", "string", false, taskClasses),
+  field("reviewReturnBudget", "number"),
   field("locale", "string", false, settingsLocales),
   field("createMode", "string", false, ["migration", "import", "admin"]),
 ]);
@@ -192,6 +193,10 @@ const createInput = input([
   }),
   cli("surfaces", "string-array", false, "--surface", "repeated"),
   cli("taskClass", "string", false, "--task-class", "single", { enum: taskClasses }),
+  cli("reviewReturnBudget", "number", false, "--review-return-budget", "single", {
+    regex: "^[1-9][0-9]*$",
+    projection: "number",
+  }),
   cli("dryRun", "boolean", false, "--dry-run", "boolean"),
   cli("locale", "string", false, "--locale", "single", { enum: settingsLocales }),
   cli("migration", "boolean", false, "--migration", "boolean"),
