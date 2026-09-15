@@ -341,7 +341,7 @@ function renderIndex(event: TaskEventV1, snapshot: TaskLifecycleSnapshot, path: 
 function renderContract(snapshot: TaskLifecycleSnapshot, base: string | null, packagePath: string): string {
   const task = snapshot.task!,
     current = base ? (JSON.parse(base) as Record<string, unknown>) : {},
-    { relations: _legacyRelations, ...withoutHostedRelations } = current,
+    { relations: _legacyRelations, reviewReturnBudget: _staleBudget, ...withoutHostedRelations } = current,
     metadata = JSON.parse(stableStringify(task.metadata ?? null)) as unknown;
   return `${JSON.stringify(
     {
@@ -354,6 +354,7 @@ function renderContract(snapshot: TaskLifecycleSnapshot, base: string | null, pa
       taskClass: task.taskClass,
       pinned: task.pinned,
       presetSnapshotDigest: task.presetSnapshotDigest,
+      ...(task.reviewReturnBudget === undefined ? {} : { reviewReturnBudget: task.reviewReturnBudget }),
       metadata,
     },
     null,

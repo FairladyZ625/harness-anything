@@ -366,6 +366,7 @@ const taskActionShapes: Readonly<Record<FleetTaskCommandKind, Check>> = {
       slug: (value) => typeof value === "string" && /^[a-z0-9](?:[a-z0-9-]{0,70}[a-z0-9])?$/u.test(value),
       surfaces: array(text),
       taskClass: one("standard", "milestone", "epic", "long_running"),
+      reviewReturnBudget: positiveInt,
       locale: one("zh-CN", "en-US"),
       dryRun: boolean,
     },

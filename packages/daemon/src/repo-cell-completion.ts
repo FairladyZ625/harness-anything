@@ -15,6 +15,7 @@ import {
 } from "../../kernel/src/index.ts";
 import type { RepoCellBinding, Snapshot } from "./repo-cell-types.ts";
 import { resolveTaskRootThreshold } from "./task-wip-settings.ts";
+import { readEffectiveReviewReturnBudget } from "./repo-cell-settings-state.ts";
 import type { RepoCellActionContext } from "./repo-cell-action-context.ts";
 import { renderEvidencePayload } from "./repo-cell-evidence.ts";
 import { failed } from "./repo-cell-settlement.ts";
@@ -142,6 +143,7 @@ export function taskShowFromProjection(
     execution = read.snapshot.executions.find(
       (candidate) => candidate.iteration === task?.iteration && candidate.submission !== null,
     ),
+    returnBudget = readEffectiveReviewReturnBudget(projection, task),
     rootAssessment = task
       ? deriveTaskRoot(
           {
@@ -171,6 +173,8 @@ export function taskShowFromProjection(
           }
         : null,
       packagePath: read.packagePath,
+      returnBudget: returnBudget.value,
+      returnBudgetSource: returnBudget.source,
       rootAssessment,
       completionNext: completion.completionNext,
       completionBlocker: completion.completionBlocker,

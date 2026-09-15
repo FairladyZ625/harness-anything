@@ -217,7 +217,14 @@ export function task(value: unknown): boolean {
       "presetSnapshotDigest",
       "pinned",
     ],
-    optional = ["provenance", "metadata", "packageDisposition", "supersededBy", "contractVersion"];
+    optional = [
+      "provenance",
+      "metadata",
+      "packageDisposition",
+      "supersededBy",
+      "contractVersion",
+      "reviewReturnBudget",
+    ];
   return (
     recordWith(value, required) &&
     Object.keys(value).every((field) => required.includes(field) || optional.includes(field)) &&
@@ -237,7 +244,9 @@ export function task(value: unknown): boolean {
     (value.metadata === undefined || validTaskMetadata(value.metadata)) &&
     (value.packageDisposition === undefined || statusWord(packageDispositionWords, value.packageDisposition)) &&
     (value.supersededBy === undefined || value.supersededBy === null || nonEmpty(value.supersededBy)) &&
-    (value.contractVersion === undefined || (integer(value.contractVersion) && Number(value.contractVersion) > 0))
+    (value.contractVersion === undefined || (integer(value.contractVersion) && Number(value.contractVersion) > 0)) &&
+    (value.reviewReturnBudget === undefined ||
+      (integer(value.reviewReturnBudget) && Number(value.reviewReturnBudget) > 0))
   );
 }
 

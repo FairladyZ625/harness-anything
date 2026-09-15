@@ -111,6 +111,24 @@ export function makeRepoCellSettingsState(cell: RepoCellActionContext): RepoCell
 }
 
 /**
+ * The effective review return budget for one task: the task-scoped override when the contract
+ * carries one, else the repository setting (or the bootstrap default before it is projected).
+ */
+export function readEffectiveReviewReturnBudget(
+  projection: Pick<TaskProjectionQueries, "getEntity">,
+  task: { readonly reviewReturnBudget?: number } | null | undefined,
+): { readonly value: number; readonly source: "task" | "repository" } {
+  if (task?.reviewReturnBudget !== undefined) return { value: task.reviewReturnBudget, source: "task" };
+  const projected = projection.getEntity("settings", "repository")?.value as
+    | { readonly reviewReturnBudget?: number }
+    | undefined;
+  return {
+    value: projected?.reviewReturnBudget ?? INITIAL_SETTINGS_V1.reviewReturnBudget,
+    source: "repository",
+  };
+}
+
+/**
  * The effective closeout gate set for read-side judgments. Reads the settings facet from
  * the same projection cut as the task being judged; a repository with no settings entity
  * (or a pre-closeout settings event) reads the same standard default bootstrap would mint.

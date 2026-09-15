@@ -73,6 +73,7 @@ export interface TaskV2 extends BaseEntityPinState {
   readonly packageDisposition?: TaskPackageDisposition;
   readonly supersededBy?: string | null;
   readonly contractVersion?: number;
+  readonly reviewReturnBudget?: number;
 }
 export interface ContractValidationIssue {
   readonly code: string;
@@ -102,7 +103,15 @@ export function validateActorAxes(value: unknown, allowUnknownFields = false): r
 }
 export function validateTaskV2(value: unknown, allowUnknownFields = false): readonly ContractValidationIssue[] {
   const fields = TASK_V2_SCHEMA.required,
-    allowed = [...fields, "provenance", "metadata", "packageDisposition", "supersededBy", "contractVersion"];
+    allowed = [
+      ...fields,
+      "provenance",
+      "metadata",
+      "packageDisposition",
+      "supersededBy",
+      "contractVersion",
+      "reviewReturnBudget",
+    ];
   if (
     !isRecord(value) ||
     fields.some((field) => !(field in value)) ||
@@ -152,6 +161,11 @@ export function validateTaskV2(value: unknown, allowUnknownFields = false): read
     (!Number.isSafeInteger(value.contractVersion) || (value.contractVersion as number) < 1)
   )
     issues.push({ code: "invalid_task", message: "contractVersion must be a positive integer" });
+  if (
+    value.reviewReturnBudget !== undefined &&
+    (!Number.isSafeInteger(value.reviewReturnBudget) || (value.reviewReturnBudget as number) < 1)
+  )
+    issues.push({ code: "invalid_task", message: "reviewReturnBudget must be a positive integer" });
   issues.push(
     ...validateActorAxes(value.createdBy, allowUnknownFields),
     ...validateTaskGraph(value.graph, allowUnknownFields),

@@ -124,6 +124,9 @@ function renderTaskShow(receipt: Record<string, unknown>): string {
         ", ",
       ) || "none"
     }`,
+    ...(typeof payload.returnBudget === "number"
+      ? [`returnBudget=${String(payload.returnBudget)} (${String(payload.returnBudgetSource)})`]
+      : []),
   ].join("\n");
 }
 

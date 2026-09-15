@@ -165,3 +165,24 @@ test("long_running is a kernel taskClass and the retired longRunning boolean is 
     /invalid taskClass/u,
   );
 });
+
+test("task-scoped reviewReturnBudget is an optional positive integer; absence replays unchanged", () => {
+  // Existing packages without the field stay valid and round-trip untouched.
+  assert.deepEqual(parseCanonicalEvent(serializeCanonicalEvent(event)), event);
+  const overridden = {
+      ...event,
+      payload: { ...event.payload, task: { ...event.payload.task, reviewReturnBudget: 7 } },
+    } as TaskBootstrapEventV1,
+    body = serializeCanonicalEvent(overridden);
+  assert.match(body, /"reviewReturnBudget":7/u);
+  assert.equal((parseCanonicalEvent(body) as TaskBootstrapEventV1).payload.task.reviewReturnBudget, 7);
+  for (const invalid of [0, -1, 1.5, "3", true])
+    assert.throws(
+      () =>
+        serializeCanonicalEvent({
+          ...event,
+          payload: { ...event.payload, task: { ...event.payload.task, reviewReturnBudget: invalid } },
+        } as unknown as TaskBootstrapEventV1),
+      /reviewReturnBudget must be a positive integer/u,
+    );
+});

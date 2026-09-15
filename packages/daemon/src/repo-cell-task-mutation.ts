@@ -47,6 +47,14 @@ export function taskMutation(
       amendPatches.length > 0 &&
       amendPatches.every(
         (raw) => raw !== null && typeof raw === "object" && (raw as Record<string, unknown>).field === "pinned",
+      ),
+    metadataFreeAmend =
+      amendPatches.length > 0 &&
+      amendPatches.every(
+        (raw) =>
+          raw !== null &&
+          typeof raw === "object" &&
+          ["pinned", "reviewReturnBudget"].includes(String((raw as Record<string, unknown>).field)),
       );
   if (action.kind === "task-release") {
     if (!activeLease)
@@ -114,7 +122,7 @@ export function taskMutation(
   if (action.kind === "task-amend") {
     const patches = amendPatches,
       metadata = task.metadata;
-    if (!patches.length || (!metadata && !pinOnlyAmend))
+    if (!patches.length || (!metadata && !metadataFreeAmend))
       throw cell.cellCodedError(
         "invalid_amend",
         `Use ha task amend ${task.taskId} --set <field>:<value> on a task with a current contract.`,
@@ -157,13 +165,15 @@ export function taskMutation(
         };
       else if (field === "taskClass" && (taskClasses as readonly string[]).includes(value))
         changed = { ...changed, taskClass: value as TaskV2["taskClass"] };
+      else if (field === "reviewReturnBudget" && /^[1-9][0-9]*$/u.test(value))
+        changed = { ...changed, reviewReturnBudget: Number(value) };
       else
         throw cell.cellCodedError(
           "invalid_amend",
           [
             "Amend title, parentTaskId, workKind, riskTier, urgency, moduleKey, ",
-            "taskClass, or pinned (true/false); use task contract migrate for ",
-            "contract shape changes.",
+            "taskClass, reviewReturnBudget (positive integer), or pinned (true/false); use task contract ",
+            "migrate for contract shape changes.",
           ].join(""),
         );
       fields.push(field);

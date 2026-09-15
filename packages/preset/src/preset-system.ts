@@ -272,11 +272,13 @@ function taskPackageFields(
   | "registerModule"
   | "slug"
   | "surfaces"
+  | "reviewReturnBudget"
 > {
   const register =
-    action.registerModule && typeof action.registerModule === "object" && !Array.isArray(action.registerModule)
-      ? (action.registerModule as Record<string, unknown>)
-      : null;
+      action.registerModule && typeof action.registerModule === "object" && !Array.isArray(action.registerModule)
+        ? (action.registerModule as Record<string, unknown>)
+        : null,
+    reviewReturnBudget = optionalReviewReturnBudget(action.reviewReturnBudget);
   return {
     ...(optionalActionText(action.idempotencyKey)
       ? { idempotencyKey: optionalActionText(action.idempotencyKey)! }
@@ -298,7 +300,15 @@ function taskPackageFields(
       : {}),
     ...(optionalActionText(action.slug) ? { slug: optionalActionText(action.slug)! } : {}),
     ...(Array.isArray(action.surfaces) ? { surfaces: action.surfaces.map((value) => required(value, "surface")) } : {}),
+    ...(reviewReturnBudget === undefined ? {} : { reviewReturnBudget }),
   };
+}
+function optionalReviewReturnBudget(value: unknown): number | undefined {
+  if (value === undefined) return undefined;
+  const parsed = typeof value === "string" && /^[1-9][0-9]*$/u.test(value) ? Number(value) : value;
+  if (typeof parsed !== "number" || !Number.isSafeInteger(parsed) || parsed < 1)
+    throw presetActionError("invalid_field", "reviewReturnBudget must be a positive integer.");
+  return parsed;
 }
 function oneOf<const T extends readonly string[]>(value: unknown, allowed: T): T[number] | undefined {
   return typeof value === "string" && allowed.includes(value) ? (value as T[number]) : undefined;

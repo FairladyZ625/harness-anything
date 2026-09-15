@@ -414,7 +414,9 @@ const taskCreateRpcFields: RpcShape["fields"] = Object.fromEntries([
         ? "array?"
         : field.type === "boolean"
           ? "boolean?"
-          : "string?",
+          : field.type === "number"
+            ? "number?"
+            : "string?",
   ]),
   ["fromFile", "string?"],
   ["jsonInput", "string?"],

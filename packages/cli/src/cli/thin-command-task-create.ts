@@ -42,7 +42,7 @@ export function parseTaskCreate(
   const declared = Object.fromEntries(
       (route.inputs as readonly (ThinCliInput & { readonly field?: string })[]).flatMap((input) => {
         const value = input.kind === "single" && input.field ? f.one.get(input.name) : undefined;
-        return value ? [[input.field!, value]] : [];
+        return value ? [[input.field!, input.projection === "number" ? Number(value) : value]] : [];
       }),
     ),
     {

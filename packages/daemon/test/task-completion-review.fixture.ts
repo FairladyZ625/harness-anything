@@ -67,6 +67,7 @@ export async function fixture(
   artifactDelivery = false,
   noInstances = false,
   hybridDelivery = false,
+  reviewReturnBudget?: number,
 ) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-completion-review-")),
     repoId = workspaceId("completion-review");
@@ -180,6 +181,7 @@ export async function fixture(
     taskId,
     title: "Completion Review",
     presetId: artifactDelivery || hybridDelivery ? "standard-task" : "docs-task",
+    ...(reviewReturnBudget === undefined ? {} : { reviewReturnBudget }),
   });
   assert.equal(created.outcome, "applied", JSON.stringify(created));
   await waitForFixturePublication(cell, created.opId, owner);

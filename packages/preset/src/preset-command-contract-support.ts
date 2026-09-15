@@ -37,7 +37,10 @@ export interface CliInputFacet {
 }
 export type RpcShape = {
   readonly fields: Readonly<
-    Record<string, "string" | "number" | "boolean?" | "string?" | "json" | "json?" | "array" | "array?" | RpcShape>
+    Record<
+      string,
+      "string" | "number" | "boolean?" | "number?" | "string?" | "json" | "json?" | "array" | "array?" | RpcShape
+    >
   >;
   readonly open?: boolean;
 };
