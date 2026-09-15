@@ -657,6 +657,16 @@
         "value": "packages/cli/test/daemon-write-round-trip.test.ts",
         "ref": "task_d70f45787a59cbd65469f5b3c4",
         "reason": "Consolidated into packages/cli/test/daemon-thin-client-cli.test.ts under relaxed file complexity limits (1,200 lines); assertions preserved verbatim."
+      },
+      {
+        "value": "packages/daemon/test/migration-import-replay-records.integration.test.ts",
+        "ref": "task_f9a37aaa70e746826eb3aa11f8",
+        "reason": "Consolidated into packages/daemon/test/migration-import-witness-replay.integration.test.ts under relaxed file complexity limits (1,200 lines); assertions preserved verbatim."
+      },
+      {
+        "value": "packages/daemon/test/migration-import.integration.test.ts",
+        "ref": "task_f9a37aaa70e746826eb3aa11f8",
+        "reason": "Consolidated into packages/daemon/test/migration-import-lifecycle.integration.test.ts under relaxed file complexity limits (1,200 lines); assertions preserved verbatim."
       }
     ]
   }
