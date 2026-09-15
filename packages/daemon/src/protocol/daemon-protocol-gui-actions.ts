@@ -57,6 +57,7 @@ export const daemonGuiActionMethods = Object.freeze([
       text: "string",
       evidence: "array?",
       baseDocumentSha256: "string-null?",
+      asOwner: "boolean?",
     }),
     "appendTaskProgress",
     "/api/tasks/:taskId/progress",

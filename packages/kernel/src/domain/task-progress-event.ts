@@ -17,7 +17,7 @@ import {
   type WriteTarget,
 } from "./write-chain.contract.ts";
 import type { LeaseV1 } from "./execution.ts";
-import { isSameExecution } from "./actor-domain-services.ts";
+import { isSameExecution, isSamePerson } from "./actor-domain-services.ts";
 import { isTaskBoundRuntimeWriter, type TaskBoundRuntimeBinding } from "./task-bound-runtime-authority.ts";
 import { isValidDocEventChange, type DocEventChange } from "./doc-sync.contract.ts";
 
@@ -53,6 +53,8 @@ export type TaskProgressEventV1 = EventEnvelope<
     readonly resultDocumentClaim: ProgressDocumentClaim;
     readonly runtimeSessionId?: string;
     readonly carriedDocumentClaims?: readonly DocEventChange[];
+    /** Set only when the task creator appended without a held lease via --as-owner post-release backfill. */
+    readonly backfilled?: true;
   }
 >;
 export interface ProgressDocumentState {
@@ -72,7 +74,8 @@ export class TaskProgressError extends Error {
 /** Reads the lease record the caller already holds; lapsed-ness stays the projection's single derivation (phase=orphaned). */
 function progressLeaseRequiredMessage(taskId: string, lease: LeaseV1 | null, startRecoveryAvailable: boolean): string {
   const unavailable =
-    "task start cannot re-enter the current lifecycle state, so progress append has no recovery in this state";
+    `task start cannot re-enter the current lifecycle state; the task creator can still backfill ` +
+    `with ha task progress append ${taskId} --text <text> --as-owner`;
   if (lease === null)
     return startRecoveryAvailable
       ? `progress append requires an active lease; run ha task start ${taskId}`
@@ -102,6 +105,9 @@ export function compileTaskProgress(input: {
   readonly activeLease: LeaseV1 | null;
   readonly startRecoveryAvailable: boolean;
   readonly runtimeBinding?: TaskBoundRuntimeBinding;
+  /** The caller declared --as-owner; honored only for post-release backfill by the task creator. */
+  readonly asOwner?: boolean;
+  readonly taskCreatedBy?: ActorIdentity;
   readonly actor: ActorIdentity;
   readonly source: WriteSource;
   readonly eventId: string;
@@ -132,23 +138,35 @@ export function compileTaskProgress(input: {
   } catch {
     throw new TaskProgressError("invalid_progress", "progress package path is invalid");
   }
-  const lease = input.activeLease;
-  if (lease === null || lease.phase !== "held")
-    throw new TaskProgressError(
-      "progress_lease_required",
-      progressLeaseRequiredMessage(input.taskId, lease, input.startRecoveryAvailable),
-    );
-  const directHolder = isSameExecution(lease.actor, input.actor) && input.runtimeBinding === undefined,
-    runtimeWorker =
-      input.runtimeBinding !== undefined &&
-      isTaskBoundRuntimeWriter(lease, input.actor, input.source, input.runtimeBinding);
-  if (
-    lease.taskId !== input.taskId ||
-    lease.executionId !== input.executionId ||
-    stableStringify(lease.source) !== stableStringify(input.source) ||
-    (!directHolder && !runtimeWorker)
-  )
-    throw new TaskProgressError("progress_lease_mismatch", progressLeaseMismatchMessage(input.taskId, lease));
+  const lease = input.activeLease,
+    // Post-release owner backfill: the task creator may append after the lease is gone, but a
+    // live reservation or a held lease keeps the normal holder rules (no writability revival).
+    ownerBackfill =
+      input.asOwner === true &&
+      input.taskCreatedBy !== undefined &&
+      isSamePerson(input.taskCreatedBy, input.actor) &&
+      (lease === null || lease.phase === "released" || lease.phase === "orphaned");
+  if (lease === null || lease.phase !== "held") {
+    if (!ownerBackfill)
+      throw new TaskProgressError(
+        "progress_lease_required",
+        progressLeaseRequiredMessage(input.taskId, lease, input.startRecoveryAvailable),
+      );
+    if (!isNonEmptyString(input.executionId))
+      throw new TaskProgressError("invalid_progress", "owner backfill must name the released round's execution id");
+  } else {
+    const directHolder = isSameExecution(lease.actor, input.actor) && input.runtimeBinding === undefined,
+      runtimeWorker =
+        input.runtimeBinding !== undefined &&
+        isTaskBoundRuntimeWriter(lease, input.actor, input.source, input.runtimeBinding);
+    if (
+      lease.taskId !== input.taskId ||
+      lease.executionId !== input.executionId ||
+      stableStringify(lease.source) !== stableStringify(input.source) ||
+      (!directHolder && !runtimeWorker)
+    )
+      throw new TaskProgressError("progress_lease_mismatch", progressLeaseMismatchMessage(input.taskId, lease));
+  }
   if (
     (input.currentDocument !== null && input.currentDocument.path !== progressPath) ||
     (input.expectedBaseSha256 !== undefined && input.expectedBaseSha256 !== (input.currentDocument?.blobSha256 ?? null))
@@ -159,6 +177,7 @@ export function compileTaskProgress(input: {
       input.occurredAt,
       input.text,
       input.evidence,
+      ownerBackfill,
     ),
     claim: ProgressDocumentClaim = {
       path: progressPath,
@@ -184,6 +203,7 @@ export function compileTaskProgress(input: {
       baseDocumentSha256: input.currentDocument?.blobSha256 ?? null,
       resultDocumentClaim: claim,
       ...(input.runtimeBinding ? { runtimeSessionId: input.runtimeBinding.runtimeSessionId } : {}),
+      ...(ownerBackfill ? { backfilled: true as const } : {}),
     },
   };
   return {
@@ -199,9 +219,10 @@ export function renderTaskProgressDocument(
   occurredAt: string,
   text: string,
   evidence: readonly TaskProgressEvidence[],
+  backfilled = false,
 ): string {
   const base = current ?? "# Progress\n\n## Entries\n\n",
-    suffix = `### ${occurredAt}\n\n${text}${text.endsWith("\n") ? "" : "\n"}${evidence.map((item) => `Evidence: ${item.type}:${item.path}:${item.summary}\n`).join("")}\n`,
+    suffix = `### ${occurredAt}${backfilled ? " (owner backfill)" : ""}\n\n${text}${text.endsWith("\n") ? "" : "\n"}${evidence.map((item) => `Evidence: ${item.type}:${item.path}:${item.summary}\n`).join("")}\n`,
     next = `${base}${suffix}`;
   if (!next.startsWith(base))
     throw new TaskProgressError("stale_progress_base", "progress append must preserve every existing byte");
@@ -284,7 +305,9 @@ function validateTaskProgressEventFields(value: unknown, allowUnknownFields: boo
     carried = payload.carriedDocumentClaims,
     runtimeSessionId = payload.runtimeSessionId,
     payloadWithoutOptional = Object.fromEntries(
-      Object.entries(payload).filter(([key]) => key !== "carriedDocumentClaims" && key !== "runtimeSessionId"),
+      Object.entries(payload).filter(
+        ([key]) => key !== "carriedDocumentClaims" && key !== "runtimeSessionId" && key !== "backfilled",
+      ),
     ),
     claim = payload.resultDocumentClaim;
   if (
@@ -302,6 +325,7 @@ function validateTaskProgressEventFields(value: unknown, allowUnknownFields: boo
         carried.some((change) => !isValidDocEventChange(change, allowUnknownFields)))) ||
     (runtimeSessionId !== undefined &&
       (!isNonEmptyString(runtimeSessionId) || !isRuntimeSessionActor(value.actor, runtimeSessionId))) ||
+    (payload.backfilled !== undefined && payload.backfilled !== true) ||
     !isNonEmptyString(payload.taskId) ||
     !isNonEmptyString(payload.executionId) ||
     !validText(payload.text) ||

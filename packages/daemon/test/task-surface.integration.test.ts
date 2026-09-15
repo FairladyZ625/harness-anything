@@ -327,6 +327,37 @@ test("task lifecycle mutations publish L1 events, exact documents, and replayabl
     );
     assert.equal(submittedProgress.outcome, "op_rejected");
     assert.equal(submittedProgress.code, "progress_lease_required");
+    // Post-release backfill: only the task creator may append with --as-owner, and the entry is marked.
+    const outsiderBackfill = await cell.run(
+      {
+        kind: "task-progress-append",
+        taskId: "task_reviewing",
+        text: "Outsider backfill",
+        evidence: [],
+        asOwner: true,
+      },
+      { actor: { principal: { personId: "person-outsider" }, executor: null }, source: "local" as const },
+    );
+    assert.equal(outsiderBackfill.outcome, "op_rejected");
+    assert.equal(outsiderBackfill.code, "progress_lease_required");
+    const ownerBackfill = await cell.run(
+      {
+        kind: "task-progress-append",
+        taskId: "task_reviewing",
+        text: "Owner handoff after submit",
+        evidence: [],
+        asOwner: true,
+      },
+      binding,
+    );
+    assert.equal(ownerBackfill.outcome, "applied", JSON.stringify(ownerBackfill));
+    await waitForFixturePublication(cell, ownerBackfill.opId, binding);
+    const backfilledBody = readFileSync(
+      path.join(rootDir, "harness/tasks/task_reviewing-reviewing/progress.md"),
+      "utf8",
+    );
+    assert.match(backfilledBody, /\(owner backfill\)/u);
+    assert.match(backfilledBody, /Owner handoff after submit/u);
     const submittedRestart = await cell.run(
       {
         kind: "task-start",

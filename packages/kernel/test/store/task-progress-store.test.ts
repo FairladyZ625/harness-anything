@@ -121,6 +121,7 @@ test("progress compiler rejects invalid evidence, lease mismatches, and stale ba
   );
   assert.equal(stableStringify(fixture), before);
   const compiled = compileTaskProgress(fixture);
+  assert.equal(compiled.event.payload.backfilled, undefined);
   assert.deepEqual(validateTaskProgressEvent(compiled.event), []);
   assert.notDeepEqual(
     validateTaskProgressEvent({
@@ -134,6 +135,83 @@ test("progress compiler rejects invalid evidence, lease mismatches, and stale ba
       },
     }),
     [],
+  );
+});
+
+test("progress compiler lets only the task creator backfill after lease release and marks the entry", () => {
+  const fixture = domainFixture(),
+    released = { ...fixture.activeLease, phase: "released" as const },
+    stranger = { principal: { personId: "other" }, executor: null } as const,
+    backfilled = compileTaskProgress({
+      ...fixture,
+      activeLease: released,
+      startRecoveryAvailable: false,
+      asOwner: true,
+      taskCreatedBy: actor,
+    });
+  assert.equal(backfilled.event.payload.backfilled, true);
+  assert.match(backfilled.body, /\(owner backfill\)/u);
+  assert.deepEqual(validateTaskProgressEvent(backfilled.event), []);
+  assert.notDeepEqual(
+    validateTaskProgressEvent({
+      ...backfilled.event,
+      payload: { ...backfilled.event.payload, backfilled: false },
+    }),
+    [],
+  );
+  // Without --as-owner the same post-release state still rejects and names the recovery path.
+  assert.throws(
+    () => compileTaskProgress({ ...fixture, activeLease: released, startRecoveryAvailable: false }),
+    (error: unknown) =>
+      code(error) === "progress_lease_required" &&
+      /ha task progress append task-progress --text <text> --as-owner/u.test((error as Error).message),
+  );
+  // A non-creator caller stays rejected even with --as-owner.
+  assert.throws(
+    () =>
+      compileTaskProgress({
+        ...fixture,
+        activeLease: released,
+        startRecoveryAvailable: false,
+        asOwner: true,
+        taskCreatedBy: actor,
+        actor: stranger,
+      }),
+    (error: unknown) => code(error) === "progress_lease_required",
+  );
+  // A live reservation is not post-release, so the creator's flag cannot bypass it.
+  assert.throws(
+    () =>
+      compileTaskProgress({
+        ...fixture,
+        activeLease: { ...released, phase: "reserving" },
+        startRecoveryAvailable: false,
+        asOwner: true,
+        taskCreatedBy: actor,
+      }),
+    (error: unknown) => code(error) === "progress_lease_required",
+  );
+  // A held lease keeps holder rules: the creator's flag cannot override a foreign holder.
+  assert.throws(
+    () =>
+      compileTaskProgress({
+        ...fixture,
+        activeLease: { ...fixture.activeLease, actor: stranger },
+        asOwner: true,
+        taskCreatedBy: actor,
+      }),
+    (error: unknown) => code(error) === "progress_lease_mismatch",
+  );
+  // The flag alone is no authority: without the creator identity it still rejects.
+  assert.throws(
+    () =>
+      compileTaskProgress({
+        ...fixture,
+        activeLease: released,
+        startRecoveryAvailable: false,
+        asOwner: true,
+      }),
+    (error: unknown) => code(error) === "progress_lease_required",
   );
 });
 
