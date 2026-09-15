@@ -1,6 +1,16 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
+import {
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  readlinkSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -15,20 +25,56 @@ import {
 type FactEventDraftV1 = Parameters<typeof compileFactWrite>[0]["event"];
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openFencedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
+import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
 
 import {
   actor,
-  binaryAttachmentFixture,
-  coverageGapFixture,
+  coverageCompleteFixture,
   git,
   initRepo,
   legacyFixture,
-  snapshot,
   sources,
   statOrNull,
   symbolicLinkFixture,
   unfamiliarDocumentFixture,
 } from "./migration-import.fixtures.ts";
+
+// Fixture functions below moved verbatim from migration-import.fixtures.ts: this suite is their only consumer.
+export function coverageGapFixture(root: string): void {
+  coverageCompleteFixture(root);
+  const taskRoot = path.join(root, "harness/tasks/task_coverage-old"),
+    mysteryRoot = path.join(root, "harness/mystery"),
+    objectsRoot = path.join(root, "harness/objects/sha256/aa"),
+    presetRoot = path.join(root, "harness/presets/example");
+  mkdirSync(mysteryRoot, { recursive: true });
+  mkdirSync(objectsRoot, { recursive: true });
+  mkdirSync(presetRoot, { recursive: true });
+  writeFileSync(path.join(taskRoot, "task_plan.md"), realizedTaskPlan("Legacy done task"));
+  writeFileSync(path.join(mysteryRoot, "orphan.md"), "# This path has no migration rule\n");
+  writeFileSync(path.join(objectsRoot, "blob"), "rebuildable CAS\n");
+  writeFileSync(path.join(presetRoot, "preset.json"), '{"schema":"harness-preset/v1"}\n');
+}
+export function binaryAttachmentFixture(root: string): void {
+  coverageCompleteFixture(root);
+  const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0xff, 0x00]),
+    notes = path.join(root, "harness/field-notes"),
+    artifacts = path.join(root, "harness/tasks/task_coverage-old/artifacts");
+  mkdirSync(notes, { recursive: true });
+  writeFileSync(path.join(notes, "screenshot.png"), bytes);
+  writeFileSync(path.join(artifacts, "screenshot.png"), bytes);
+}
+export function snapshot(root: string): readonly string[] {
+  const walk = (dir: string): string[] =>
+    readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+      if (entry.name === ".git" || entry.name === ".harness") return [];
+      const target = path.join(dir, entry.name);
+      return entry.isDirectory()
+        ? walk(target)
+        : [`${path.relative(root, target)}:${statSync(target).size}:${readFileSync(target, "utf8")}`];
+    });
+  return walk(root).sort();
+}
+
 test("legacy copy -> initialized repository -> migration import -> reconciliation", async () => {
   const scratch = mkdtempSync(path.join(tmpdir(), "ha-migrate-import-")),
     source = path.join(scratch, "legacy"),

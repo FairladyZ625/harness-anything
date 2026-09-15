@@ -76,20 +76,6 @@ export function legacyFixture(root: string): void {
     `---\nschema: decision-package/v1\ndecision_id: dec_LEGACY\nworkspaceRevision: 7\ntitle: "Legacy decision"\nstate: active\nriskTier: medium\nurgency: medium\nvertical: "software/coding"\npreset: "standard-task"\ndecisionClass: ordinary\napplies_to: {"modules":["kernel"],"productLines":["harness"]}\nproposedAt: "2026-01-01T12:00:00.000Z"\ndecidedAt: "2026-01-03T00:00:00.000Z"\nquestion: "Should the history migrate?"\nchosen: [{"id":"CH1","text":"Migrate it"}]\nrejected: [{"id":"RJ1","text":"Drop it","whyNot":"History is required"}]\nclaims: [{"id":"C1","text":"History remains auditable","loadBearing":true,"fulfillment":"evidenced"}]\nrelations: ${JSON.stringify([relation, migratedFactRelation])}\n---\n\n# Legacy decision\n\nPreserved prose.\n`,
   );
 }
-export function coverageGapFixture(root: string): void {
-  coverageCompleteFixture(root);
-  const taskRoot = path.join(root, "harness/tasks/task_coverage-old"),
-    mysteryRoot = path.join(root, "harness/mystery"),
-    objectsRoot = path.join(root, "harness/objects/sha256/aa"),
-    presetRoot = path.join(root, "harness/presets/example");
-  mkdirSync(mysteryRoot, { recursive: true });
-  mkdirSync(objectsRoot, { recursive: true });
-  mkdirSync(presetRoot, { recursive: true });
-  writeFileSync(path.join(taskRoot, "task_plan.md"), realizedTaskPlan("Legacy done task"));
-  writeFileSync(path.join(mysteryRoot, "orphan.md"), "# This path has no migration rule\n");
-  writeFileSync(path.join(objectsRoot, "blob"), "rebuildable CAS\n");
-  writeFileSync(path.join(presetRoot, "preset.json"), '{"schema":"harness-preset/v1"}\n');
-}
 export function unfamiliarDocumentFixture(root: string): void {
   const notes = path.join(root, "harness/field-notes/2024");
   mkdirSync(notes, { recursive: true });
@@ -117,15 +103,6 @@ export function referencedDocumentFixture(root: string, referencedBody: string):
     `${JSON.stringify({ schema: "unfamiliar-record/v1", nested: { attachment: { store: "authored-cas/v1", ref: `harness/objects/sha256/${hash.slice(0, 2)}/${hash.slice(2)}`, sha256: hash, size: Buffer.byteLength(referencedBody), mediaType: "text/markdown; charset=utf-8" } } }, null, 2)}\n`,
   );
   writeFileSync(path.join(objects, hash.slice(2)), referencedBody);
-}
-export function binaryAttachmentFixture(root: string): void {
-  coverageCompleteFixture(root);
-  const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0xff, 0x00]),
-    notes = path.join(root, "harness/field-notes"),
-    artifacts = path.join(root, "harness/tasks/task_coverage-old/artifacts");
-  mkdirSync(notes, { recursive: true });
-  writeFileSync(path.join(notes, "screenshot.png"), bytes);
-  writeFileSync(path.join(artifacts, "screenshot.png"), bytes);
 }
 export function symbolicLinkFixture(root: string, linkTarget: string): void {
   const notes = path.join(root, "harness/field-notes");
@@ -302,17 +279,6 @@ function commitSource(root: string): void {
   const exclude = path.join(root, ".git/info/exclude"),
     currentExclude = readFileSync(exclude, "utf8");
   if (!currentExclude.split("\n").includes(".harness/")) writeFileSync(exclude, `${currentExclude}\n.harness/\n`);
-}
-export function snapshot(root: string): readonly string[] {
-  const walk = (dir: string): string[] =>
-    readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
-      if (entry.name === ".git" || entry.name === ".harness") return [];
-      const target = path.join(dir, entry.name);
-      return entry.isDirectory()
-        ? walk(target)
-        : [`${path.relative(root, target)}:${statSync(target).size}:${readFileSync(target, "utf8")}`];
-    });
-  return walk(root).sort();
 }
 
 export function buildProjectionOracle(root: string): void {
