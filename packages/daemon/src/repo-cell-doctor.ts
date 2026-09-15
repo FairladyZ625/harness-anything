@@ -3,6 +3,7 @@ import {
   resolveLedgerGitLayout,
   type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
+import type { DaemonBuildStatus } from "./build-identity.ts";
 import { scanDocCandidates } from "./doc-sync-candidate-scanner.ts";
 import { runProcessTextAsync } from "./process-port.ts";
 import { readTaskWipSnapshot } from "./repo-cell-task-query.ts";
@@ -29,6 +30,7 @@ export async function doctorHealth(
   action: RepoTaskAction,
   binding: RepoCellBinding,
 ): Promise<WriteReceipt> {
+  if (cell.mode === "remote-edge") return unavailableCenterDoctor(cell.input.repoId) as WriteReceipt;
   const ledger = resolveLedgerGitLayout(cell.rootDir),
     gitRoots = [...new Set([cell.rootDir, ledger.rootDir])],
     tips: Record<string, string | null> = {};
@@ -40,7 +42,7 @@ export async function doctorHealth(
       orphanLeaseCheck(cell),
       wipPressureCheck(cell),
       await docDebtCheck(cell, binding),
-      buildDriftCheck(cell),
+      doctorBuildDrift(null),
     ],
     cut = cell.projection.readCut(),
     scope = {
@@ -84,7 +86,7 @@ function submittedRoundExecutions(cell: RepoCellOperationalContext): {
   readonly executor: string | null;
 }[] {
   const tasks = (["in_review", "active"] as const).flatMap(
-    (status) => cell.projection.list({ status, activePackagesOnly: true, limit: 500 }).rows,
+    (status) => cell.projection.list({ status, activePackagesOnly: true }).rows,
   );
   return tasks.flatMap((row) => {
     const task = row.snapshot.task;
@@ -120,11 +122,23 @@ async function staleDeliveredCheck(
       count: submitted.length,
       next: "Fetch origin on the center repository, then rerun ha doctor.",
     };
-  const items: string[] = [];
+  const items: string[] = [],
+    measurements = new Map<string, { owner: string | null; exit: number | null }>();
   let indeterminate = false;
   for (const entry of submitted) {
     if (entry.commitSha === null) continue;
-    const owner = (await gitHasCommit(roots, entry.commitSha)) ?? null;
+    let measured = measurements.get(entry.commitSha);
+    if (!measured) {
+      const owner = await gitHasCommit(roots, entry.commitSha),
+        tip = owner === null ? null : tips[owner],
+        exit =
+          owner === null || !tip
+            ? null
+            : (await git(owner, ["merge-base", "--is-ancestor", entry.commitSha, tip])).exit;
+      measured = { owner, exit };
+      measurements.set(entry.commitSha, measured);
+    }
+    const { owner } = measured;
     if (owner === null) {
       indeterminate = true;
       items.push(`${entry.taskId}/${entry.executionId}: commit ${entry.commitSha.slice(0, 12)} not found locally`);
@@ -135,7 +149,7 @@ async function staleDeliveredCheck(
       items.push(`${entry.taskId}/${entry.executionId}: ${owner} has no origin/main ref`);
       continue;
     }
-    const merged = await git(owner, ["merge-base", "--is-ancestor", entry.commitSha, "origin/main"]);
+    const merged = { exit: measured.exit };
     if (merged.exit !== 0 && merged.exit !== 1) {
       indeterminate = true;
       items.push(`${entry.taskId}/${entry.executionId}: ancestry of ${entry.commitSha.slice(0, 12)} is unreadable`);
@@ -201,7 +215,7 @@ function executorUndeclaredCheck(submitted: ReturnType<typeof submittedRoundExec
 function orphanLeaseCheck(cell: RepoCellOperationalContext): DoctorCheck {
   const now = cell.now(),
     items = (["planned", "active", "blocked", "in_review"] as const)
-      .flatMap((status) => cell.projection.list({ status, activePackagesOnly: true, limit: 500 }).rows)
+      .flatMap((status) => cell.projection.list({ status, activePackagesOnly: true }).rows)
       .flatMap((row) => {
         const lease = cell.projection.currentLease(row.taskId, now);
         return lease !== null && lease.phase === "orphaned"
@@ -272,15 +286,50 @@ async function docDebtCheck(cell: RepoCellOperationalContext, binding: RepoCellB
   }
 }
 
-// The repo cell cannot see the daemon process's loaded/disk build pair; the CLI replaces this
-// placeholder with the verdict computed from `daemon.status`. Left standing it reports itself
-// indeterminate rather than guessing healthy.
-function buildDriftCheck(_cell: RepoCellOperationalContext): DoctorCheck {
+// Host composition supplies the observed process build pair in the same health response.
+export function doctorBuildDrift(build: Pick<DaemonBuildStatus, "loadedBuildId" | "diskBuildId"> | null): DoctorCheck {
+  const loaded = build?.loadedBuildId,
+    disk = build?.diskBuildId;
+  return !loaded || !disk
+    ? {
+        id: "build-drift",
+        status: "indeterminate",
+        count: 0,
+        summary: "The loaded/disk build identities are unavailable; center build drift cannot be judged.",
+        next: "Run ha daemon status on the center to inspect its build identities.",
+      }
+    : {
+        id: "build-drift",
+        status: loaded === disk ? "ok" : "warn",
+        count: loaded === disk ? 0 : 1,
+        summary:
+          loaded === disk
+            ? `Daemon build ${loaded} matches disk.`
+            : `Daemon loaded build ${loaded} while disk has ${disk}.`,
+        next:
+          loaded === disk
+            ? "Nothing to do."
+            : "Let the center daemon drain, or restart it with ha daemon start --service.",
+      };
+}
+
+export function unavailableCenterDoctor(repoId: string) {
+  const note =
+    "ha doctor observes center-local health. Center observations are unavailable from a remote-edge; run ha doctor on the center.";
   return {
-    id: "build-drift",
-    status: "indeterminate",
-    summary: "Build drift is assessed from daemon.status by the CLI; this response carries no verdict.",
-    count: 0,
-    next: "Run ha daemon status to inspect the loaded/disk build pair.",
+    schema: "doctor-health/v1",
+    ok: true,
+    outcome: "applied" as const,
+    opId: "doctor-center-unavailable",
+    scope: { repoId, productOriginMainTip: null, ledgerOriginMainTip: null, note },
+    checks: ["stale-delivered", "executor-undeclared", "orphan-lease", "wip-pressure", "doc-debt", "build-drift"].map(
+      (id) => ({
+        id,
+        status: "indeterminate" as const,
+        summary: note,
+        count: 0,
+        next: "Run ha doctor on the center.",
+      }),
+    ),
   };
 }

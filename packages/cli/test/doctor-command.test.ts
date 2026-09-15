@@ -6,7 +6,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { doctorInvocation, extractDoctorCommands, runDoctor } from "../src/cli/thin-command-doctor.ts";
-import { main } from "../src/index.ts";
+import { renderDoctorHealth } from "../src/cli/thin-command-doctor-health.ts";
+import { emit, main } from "../src/index.ts";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 
@@ -163,3 +164,41 @@ test("ha doctor smoke-runs against the repository's own authored docs", async ()
   assert.match(summary, /^doctor: (ok|[0-9]+ stale command reference\(s\)) \([0-9]+ commands checked\)$/u);
   for (const finding of lines.slice(0, -1)) assert.match(finding, /^.+\.md:[0-9]+ — ha .+ — [a-z_]+: .+$/u);
 });
+
+for (const json of [false, true]) {
+  test(`doctor health preserves failed receipt code and next (json=${json})`, async () => {
+    const receipt = {
+      schema: "command-receipt/v2",
+      ok: false,
+      outcome: "op_rejected",
+      command: "doctor-health",
+      code: "repo_unavailable",
+      error: { code: "repo_unavailable", hint: "Center unavailable." },
+      next: [{ action: "ha daemon status", reason: "Inspect the center." }],
+    };
+    const result = await captureConsole(() => renderDoctorHealth(receipt, json, emit));
+    assert.equal(result.exit, 1);
+    assert.match(result.lines.join("\n"), /repo_unavailable/u);
+    assert.match(result.lines.join("\n"), /ha daemon status/u);
+  });
+  for (const status of ["ok", "warn", "indeterminate", "fail"]) {
+    test(`doctor health ${status} exit and rendering (json=${json})`, async () => {
+      const result = await captureConsole(() =>
+        renderDoctorHealth(
+          {
+            schema: "doctor-health/v1",
+            outcome: "applied",
+            ok: true,
+            scope: { repoId: "center", note: "center-local" },
+            checks: [{ id: "wip-pressure", status, summary: "observed capacity", count: 1, next: "ha task list" }],
+          },
+          json,
+          emit,
+        ),
+      );
+      assert.equal(result.exit, status === "fail" ? 1 : 0);
+      assert.match(result.lines.join("\n"), /observed capacity/u);
+      if (json) assert.equal(JSON.parse(result.lines[0]!).ok, status !== "fail");
+    });
+  }
+}

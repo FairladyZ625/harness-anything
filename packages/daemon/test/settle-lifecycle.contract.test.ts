@@ -1,7 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -44,12 +44,16 @@ async function reachDeliverable(
   rootDir: string,
   taskId: string,
   executionId: string,
+  options: { publicDelivery?: boolean; syncCloseout?: boolean } = {},
 ): Promise<void> {
   const title = "Settle Lifecycle";
   await createRealizedTaskPlanFixture(
     rootDir,
     async () => {
-      const created = await cell.run({ kind: "task-create", taskId, title, presetId: "docs-task" }, workerBinding);
+      const created = await cell.run(
+        { kind: "task-create", taskId, title, presetId: options.publicDelivery ? "standard-task" : "docs-task" },
+        workerBinding,
+      );
       const shown = await cell.run(
         { kind: "receipt-show", opId: created.opId, waitFor: ["worktree_visible"], timeoutMs: 5_000 },
         workerBinding,
@@ -85,11 +89,20 @@ async function reachDeliverable(
   const artifactSync = await cell.run({ kind: "doc-submit", paths: [artifactPath] }, workerBinding);
   assert.equal(artifactSync.outcome, "applied", JSON.stringify(artifactSync));
   await waitForFixturePublication(cell, artifactSync.opId, workerBinding);
+  let summary = `Done: artifact:${artifactPath}@${artifactSync.revision}`;
+  if (options.publicDelivery) {
+    writeFileSync(path.join(rootDir, "delivery.md"), "# Delivered documentation\n");
+    const git = (...args: string[]) => execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8" }).trim();
+    git("add", "delivery.md");
+    git("commit", "-qm", "docs: fixture delivery");
+    summary = `Delivered ${git("rev-parse", "HEAD")}`;
+  }
   writeFileSync(
     path.join(rootDir, "harness", `${packagePath}/closeout.md`),
-    `# Closeout\n\n## Summary\n\nDone: artifact:${artifactPath}@${artifactSync.revision}\n\n` +
+    `# Closeout\n\n## Summary\n\n${summary}\n\n` +
       "## Verification\n\nVerified.\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nNo sibling mechanism in this fixture.\n",
   );
+  if (options.syncCloseout === false) return;
   assert.equal(
     (await cell.run({ kind: "doc-submit", paths: [`${packagePath}/closeout.md`] }, workerBinding)).outcome,
     "applied",
@@ -105,12 +118,15 @@ test("settle rejoins the owner executor-less and preserves the worker's executor
   try {
     initRepo(rootDir);
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "settle-rejoin" });
-    await reachDeliverable(cell, rootDir, taskId, executionId);
+    await reachDeliverable(cell, rootDir, taskId, executionId, { syncCloseout: false });
     assert.equal((await cell.run({ kind: "task-release", taskId }, workerBinding)).outcome, "applied");
 
     const settled = (await cell.run({ kind: "task-settle", taskId }, ownerRejoinBinding)) as Record<string, unknown>;
     assert.equal(settled.outcome, "applied", JSON.stringify(settled));
 
+    const replay = await cell.run({ kind: "task-settle", taskId }, ownerRejoinBinding);
+    assert.equal(replay.outcome, "applied", JSON.stringify(replay));
+    assert.equal(replay.opId, settled.opId, "same owner resumes the original operation");
     const reader = makeTaskEventReader({ repoId, rootDir }),
       submitted = reader.read().events.filter((event) => event.type === "execution_submitted");
     assert.equal(submitted.length, 1, "settle publishes exactly one submission cut");
@@ -118,6 +134,22 @@ test("settle rejoins the owner executor-less and preserves the worker's executor
     if (event.type !== "execution_submitted") throw new Error("missing submission event");
     assert.equal(event.payload.execution.actor.executor?.id, "worker-runtime");
     assert.equal(event.actor.executor, null);
+    assert.equal(event.source, "local");
+    const starts = reader.read().events.filter((entry) => entry.type === "execution_started");
+    assert.equal(starts.at(-1)?.actor.executor, null, "rejoin caller is the lease holder");
+    const closeout = path.join(rootDir, "harness", `tasks/${taskId}-settle-lifecycle/closeout.md`),
+      original = readFileSync(closeout, "utf8");
+    writeFileSync(closeout, original.replace("Verified.", "Changed verification."));
+    const beforeForeign = reader.read().revision;
+    for (const caller of [workerBinding, peerBinding, { ...ownerRejoinBinding, source: "remote_direct" as const }]) {
+      const foreign = await cell.run({ kind: "task-settle", taskId }, caller);
+      assert.equal(foreign.outcome, "op_rejected");
+      assert.equal(reader.read().revision, beforeForeign, "recovery authority rejects before doc side effects");
+    }
+    const changed = await cell.run({ kind: "task-settle", taskId }, ownerRejoinBinding);
+    assert.equal(changed.code, "invalid_transition", JSON.stringify(changed));
+    assert.equal(reader.read().events.filter((entry) => entry.type === "execution_submitted").length, 1);
+
     await reader.drain();
   } finally {
     await cell?.close();
@@ -382,6 +414,60 @@ test("settle stops on the closeout gate instead of fabricating a draft", async (
     await reader.drain();
   } finally {
     await cell?.close();
+    await removeTemporaryDirectory(rootDir);
+  }
+});
+
+test("owner retries preparation failure on the same submitted cut without a second submit event", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-settle-prepare-")),
+    repoId = workspaceId("settle-prepare"),
+    taskId = "task_settle_prepare",
+    executionId = "exe_settle_prepare";
+  initRepo(rootDir);
+  let armed = false,
+    interrupted = false;
+  const cell = await openRepoCell({
+    repoId,
+    rootDir: canonicalRoot(rootDir),
+    ownerId: "settle-prepare",
+    killpoint: (point) => {
+      if (
+        armed &&
+        point === "before_event_write" &&
+        reader.read().events.some((event) => event.type === "execution_submitted")
+      ) {
+        interrupted = true;
+        throw new Error("fixture interrupts evidence preparation after submission");
+      }
+    },
+  });
+  const reader = makeTaskEventReader({ repoId, rootDir });
+  try {
+    await reachDeliverable(cell, rootDir, taskId, executionId, { publicDelivery: true });
+    assert.equal((await cell.run({ kind: "task-release", taskId }, workerBinding)).outcome, "applied");
+    armed = true;
+    const failed = await cell.run({ kind: "task-settle", taskId }, ownerRejoinBinding);
+    assert.equal(interrupted, true, JSON.stringify(failed));
+    // The outer receipt preserves the already durable submission while reporting the
+    // interrupted follow-up; it must not imply the missing witness was prepared.
+    assert.equal(failed.code, "publication_indeterminate", JSON.stringify(failed));
+    assert.equal(
+      reader.read().events.some((event) => event.type === "code_doc_reconciled"),
+      false,
+    );
+    armed = false;
+    const cut = reader.read().events.find((event) => event.type === "execution_submitted");
+    assert.ok(cut);
+    const resumed = await cell.run({ kind: "task-settle", taskId }, ownerRejoinBinding);
+    assert.equal(resumed.outcome, "applied", JSON.stringify(resumed));
+    assert.deepEqual(
+      reader.read().events.filter((event) => event.type === "execution_submitted"),
+      [cut],
+    );
+    assert.ok(reader.read().events.some((event) => event.type === "code_doc_reconciled"));
+  } finally {
+    await cell.close();
+    await reader.drain();
     await removeTemporaryDirectory(rootDir);
   }
 });

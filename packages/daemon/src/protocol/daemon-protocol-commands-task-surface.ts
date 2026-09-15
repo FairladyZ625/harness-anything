@@ -15,7 +15,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
     method: "repo.task.dispatches",
     inputs: [],
   }),
-  defineLedgerWriteCommand({
+  defineCenterForwardWriteCommand({
     id: "task-settle",
     phase: "W3",
     path: ["task", "settle", "<task-id>"],
@@ -23,11 +23,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
       "Assemble the deterministic post-delivery chain once: lease admission, document " +
       "synchronization, submission, and evidence preparation; stops wherever judgment is required.",
     method: "repo.task.run",
-    inputs: [
-      cliInput("--execution-id", "single", false, {
-        code: "invalid_field",
-      }),
-    ],
+    inputs: [],
   }),
   defineCenterForwardWriteCommand({
     id: "task-release",

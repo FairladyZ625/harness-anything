@@ -361,6 +361,7 @@ export async function executeAction(
       now: cell.now,
       killpoint: cell.input.killpoint,
     });
+  if (action.kind === "task-settle") return settleTask(cell, action, binding);
   if (
     Array.isArray(
       (
@@ -372,7 +373,6 @@ export async function executeAction(
   )
     return cell.runTaskCommandWithDocs(action as TaskCommandWithDocsAction, binding);
   if (action.kind === "task-submit") return submitTask(cell, action, binding);
-  if (action.kind === "task-settle") return settleTask(cell, action, binding);
   if (action.kind === "doctor-health") return doctorHealth(cell, action, binding);
   if (action.kind === "task-progress-append") return cell.appendProgress(action, binding);
   if (action.kind === "task-annotate") return cell.annotateExecution(action, binding);

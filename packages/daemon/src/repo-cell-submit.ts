@@ -9,6 +9,7 @@ import {
   resolveLedgerGitLayout,
   submissionFromCloseout,
   submissionDigest,
+  sameWriteSource,
   type SubmissionV1,
   type WriteReceiptDraft,
 } from "../../kernel/src/index.ts";
@@ -236,22 +237,66 @@ export async function submitTask(
     current.snapshot.task !== null &&
     isSamePerson(current.snapshot.task.createdBy, binding.actor) &&
     isSamePerson(selected.actor, binding.actor);
-  if (!selected || (!isSameExecution(selected.actor, binding.actor) && !ownerAmendment && !ownerSubmission))
+  // Recovery authority is the submission event caller, not the retained execution attribution.
+  const submissionOpId =
+      selected?.submission && action.amend !== true
+        ? cell.projection.readTaskSubmissionOperation(taskId, selected.executionId)
+        : null,
+    event = submissionOpId === null ? null : cell.store.readEvent(submissionOpId);
+  if (selected?.submission && action.amend !== true) {
+    if (
+      !event ||
+      !isTaskEvent(event) ||
+      event.type !== "execution_submitted" ||
+      event.taskId !== taskId ||
+      event.payload.execution.executionId !== selected.executionId ||
+      !event.payload.execution.submission ||
+      submissionDigest(event.payload.execution.submission) !== submissionDigest(selected.submission) ||
+      !isSameExecution(event.actor, binding.actor) ||
+      !sameWriteSource(event.source, binding.source)
+    )
+      throw cell.cellCodedError("lease_required", "Only the original submission holder may resume this cut.");
+  }
+  if (!selected || (!isSameExecution(selected.actor, binding.actor) && !ownerAmendment && !ownerSubmission && !event))
     return cell.lifecycleAction(action, binding);
   const executionId = selected.executionId;
   if (action.amend === true) assertCurrentSubmittedExecution(current.snapshot, taskId, executionId);
-  if (!selected.submission && (!held || current.snapshot.lease?.source !== binding.source))
+  if (!selected.submission && (!held || !sameWriteSource(current.snapshot.lease?.source, binding.source)))
     return cell.lifecycleAction(action, binding);
-  const synced = await runDocAction({
-    action: { kind: "doc-submit", taskId },
-    binding,
-    rootDir: cell.rootDir,
-    workspaceId: cell.input.repoId,
-    store: cell.store,
-    projection: cell.projection,
-    now: cell.now,
-  });
-  if (!["applied", "no_changes"].includes(synced.outcome))
+  if (Array.isArray(action.docChanges)) {
+    // Reuse the existing atomic carried-document submission path. A submitted cut with
+    // changed edge documents must be amended explicitly, never silently synchronized.
+    if (selected.submission && action.amend !== true)
+      throw cell.cellCodedError(
+        "invalid_transition",
+        "Carried documents change a submitted cut; use ha task submit --amend.",
+      );
+    const receipt = await cell.runTaskCommandWithDocs(
+      { ...action, executionId, docChanges: action.docChanges } as Parameters<typeof cell.runTaskCommandWithDocs>[0],
+      binding,
+    );
+    if (receipt.outcome !== "applied") return receipt;
+    const steps = await prepareSubmissionEvidence(cell, taskId, executionId, binding);
+    return {
+      ...(steps.find((step) => !["applied", "no_changes"].includes(step.outcome)) ?? receipt),
+      steps,
+    } as WriteReceiptDraft;
+  }
+  // Assignment callers carry their changed documents above. With no carried changes,
+  // consume center-accepted content; never scan the center worktree on an edge's behalf.
+  const synced =
+    typeof binding.source === "object" && binding.source.kind === "assignment"
+      ? null
+      : await runDocAction({
+          action: { kind: "doc-submit", taskId },
+          binding,
+          rootDir: cell.rootDir,
+          workspaceId: cell.input.repoId,
+          store: cell.store,
+          projection: cell.projection,
+          now: cell.now,
+        });
+  if (synced && !["applied", "no_changes"].includes(synced.outcome))
     return {
       ...synced,
       next: [
@@ -266,26 +311,20 @@ export async function submitTask(
   const fresh = await cell.service.read(taskId),
     derived = readCloseoutSubmission(cell, taskId, executionId, fresh.snapshot);
   if (!derived.ok)
-    return submissionStopped(cell, action, binding, fresh.snapshot, executionId, fresh.packagePath, derived.error, [
-      synced,
-    ]);
+    return submissionStopped(
+      cell,
+      action,
+      binding,
+      fresh.snapshot,
+      executionId,
+      fresh.packagePath,
+      derived.error,
+      synced ? [synced] : [],
+    );
   const submission = derived.submission,
     anchorDriftWarnings = submissionAnchorDriftWarnings(selected.submission, submission);
   // A lost response resumes the stored cut only when the synchronized closeout still derives the same submission.
   if (selected.submission && action.amend !== true) {
-    const opId = cell.projection.readTaskSubmissionOperation(taskId, executionId),
-      event = opId === null ? null : cell.store.readEvent(opId);
-    if (
-      !event ||
-      !isTaskEvent(event) ||
-      event.type !== "execution_submitted" ||
-      event.taskId !== taskId ||
-      event.payload.execution.executionId !== executionId ||
-      submissionDigest(event.payload.execution.submission!) !== submissionDigest(selected.submission) ||
-      !isSameExecution(event.actor, binding.actor) ||
-      event.source !== binding.source
-    )
-      throw cell.cellCodedError("lease_required", "Only the original submission holder may resume this cut.");
     if (submissionDigest(selected.submission) !== submissionDigest(submission))
       return {
         ...cell.rejected(
@@ -301,9 +340,9 @@ export async function submitTask(
             "Amend the submitted cut explicitly before review.",
           ),
         ],
-        steps: [synced],
+        steps: synced ? [synced] : [],
       } as WriteReceiptDraft;
-    const receipt = cell.receiptForOperation(event.opId, binding);
+    const receipt = cell.receiptForOperation(event!.opId, binding);
     if (receipt.outcome !== "applied") return receipt;
     const steps = await prepareSubmissionEvidence(cell, taskId, executionId, binding);
     return {
@@ -319,7 +358,7 @@ export async function submitTask(
   return {
     ...(steps.find((step) => !["applied", "no_changes"].includes(step.outcome)) ?? receipt),
     ...(anchorDriftWarnings.length ? { warnings: anchorDriftWarnings } : {}),
-    steps: [synced, ...steps],
+    steps: [...(synced ? [synced] : []), ...steps],
   } as WriteReceiptDraft;
 }
 
@@ -350,13 +389,12 @@ export async function settleTask(
     steps.push(started);
     if (!["applied", "no_changes"].includes(started.outcome)) return { ...started, steps } as WriteReceiptDraft;
   }
-  const submitted = await submitTask(cell, { kind: "task-submit", taskId }, binding),
+  const submitted = await submitTask(cell, { ...action, kind: "task-submit", taskId }, binding),
     mergedSteps = [...steps, ...((submitted as { readonly steps?: readonly WriteReceiptDraft[] }).steps ?? [])];
   if (submitted.outcome !== "applied") return { ...submitted, steps: mergedSteps } as WriteReceiptDraft;
   const fresh = await cell.service.read(taskId),
     submittedExecutionId =
-      currentExecutionCuts(fresh.snapshot).find((execution) => execution.state === "submitted")?.executionId ??
-      String(action.executionId ?? "");
+      currentExecutionCuts(fresh.snapshot).find((execution) => execution.state === "submitted")?.executionId ?? "";
   if (
     fresh.snapshot.task?.presetSnapshotDigest &&
     !isPresetSnapshotCurrent(cell, taskId, fresh.snapshot, fresh.packagePath, `ha task settle ${taskId}`)

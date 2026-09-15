@@ -8,16 +8,19 @@ import {
   cliEntryFailureCode,
   runCommandThroughDaemon,
 } from "../daemon/client.ts";
-import { daemonBuildDrift, type DoctorCheck } from "../daemon/doctor-build-drift.ts";
 import { globalOption } from "./thin-command-flags.ts";
 import { daemonRequestTimer } from "./timing.ts";
 import type { ThinCommand } from "./thin-command-types.ts";
 
-/**
- * `ha doctor` (health mode): the daemon computes five repo checks; this module merges the
- * sixth — loaded/disk build drift — from `daemon.status`, renders, and maps any `fail`
- * check to exit 1. Warnings and indeterminate checks never fail the command.
- */
+interface DoctorCheck {
+  readonly id: string;
+  readonly status: "ok" | "warn" | "fail" | "indeterminate";
+  readonly summary: string;
+  readonly count: number;
+  readonly next: string;
+}
+
+/** Render the center-local health observation and preserve failed receipts. */
 export async function runDoctorHealth(
   argv: readonly string[],
   emit: (receipt: Record<string, unknown>, json: boolean) => void,
@@ -48,7 +51,19 @@ export async function runDoctorHealth(
     emit(cliFailure("doctor", failure.code, failure.hint), json);
     return 1;
   }
-  const checks = mergeBuildDrift(await daemonBuildDrift(command), receipt.checks),
+  return renderDoctorHealth(receipt, json, emit);
+}
+
+export function renderDoctorHealth(
+  receipt: Record<string, unknown>,
+  json: boolean,
+  emit: (receipt: Record<string, unknown>, json: boolean) => void,
+): number {
+  if (receipt.outcome !== "applied" || receipt.ok === false) {
+    emit(receipt, json);
+    return 1;
+  }
+  const checks = (Array.isArray(receipt.checks) ? receipt.checks : []).filter(isDoctorCheck),
     scope =
       typeof receipt.scope === "object" && receipt.scope !== null ? (receipt.scope as Record<string, unknown>) : {},
     failed = checks.some((check) => check.status === "fail");
@@ -57,7 +72,7 @@ export async function runDoctorHealth(
     return failed ? 1 : 0;
   }
   const lines = [
-    `doctor health: scope repoId=${String(scope.repoId ?? command.repoId ?? "?")} ` +
+    `doctor health: scope repoId=${String(scope.repoId ?? "?")} ` +
       `product origin/main tip=${String(scope.productOriginMainTip ?? "none")} ` +
       `ledger origin/main tip=${String(scope.ledgerOriginMainTip ?? "none")}`,
     `${String(scope.note ?? "")}`,
@@ -67,14 +82,6 @@ export async function runDoctorHealth(
   ];
   console.log(lines.join("\n"));
   return failed ? 1 : 0;
-}
-
-function mergeBuildDrift(check: DoctorCheck | null, value: unknown): readonly DoctorCheck[] {
-  const checks = (Array.isArray(value) ? value : []).filter(isDoctorCheck);
-  if (check === null) return checks;
-  return checks.some((entry) => entry.id === check.id)
-    ? checks.map((entry) => (entry.id === check.id ? check : entry))
-    : [...checks, check];
 }
 
 function isDoctorCheck(value: unknown): value is DoctorCheck {

@@ -491,7 +491,8 @@ export function openFleetLeaseBroker(options: {
             expiresAt: state.leases[key]!.expiresAt,
           };
         } else delete state.leases[key];
-      } else if (applied && (action.kind === "task-submit" || action.kind === "task-release")) delete state.leases[key];
+      } else if (applied && ["task-submit", "task-settle", "task-release"].includes(action.kind))
+        delete state.leases[key];
     }
     recordReceipt(
       opId,

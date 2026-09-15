@@ -244,14 +244,7 @@ test("task settle parses to the closed orchestration action", () => {
   const settle = parseThinCommand(["task", "settle", "task-1"]);
   assert.equal(settle.ok, true, JSON.stringify(settle));
   if (settle.ok) assert.deepEqual(settle.command.action, { kind: "task-settle", taskId: "task-1" });
-  const flagged = parseThinCommand(["task", "settle", "task-1", "--execution-id", "execution-1"]);
-  assert.equal(flagged.ok, true, JSON.stringify(flagged));
-  if (flagged.ok)
-    assert.deepEqual(flagged.command.action, {
-      kind: "task-settle",
-      taskId: "task-1",
-      executionId: "execution-1",
-    });
+  assert.equal(parseThinCommand(["task", "settle", "task-1", "--execution-id", "execution-1"]).ok, false);
   assert.equal(parseThinCommand(["task", "settle"]).ok, false);
   assert.equal(parseThinCommand(["task", "settle", "task-1", "--amend"]).ok, false);
   assert.equal(parseThinCommand(["task", "settle", "task-1", "--from-file", "x.json"]).ok, false);
