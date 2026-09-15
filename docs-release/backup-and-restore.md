@@ -9,6 +9,8 @@ ha backup /Volumes/offsite/harness-backup-2026-09-15
 
 The manifest records the repository ID, mode, connection, display name, authored branch, and
 writer epoch alongside the digest and size of every retained file. Keep the whole backup directory.
+A backup taken from an unregistered root has no registration; the restore receipt then leaves the
+repository ID for you to supply to `ha init`.
 
 Exercise the backup without changing the live repository:
 
