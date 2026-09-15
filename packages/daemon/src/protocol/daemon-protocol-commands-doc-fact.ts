@@ -342,14 +342,16 @@ export const docFactProtocolCommands = Object.freeze([
   defineRepoReadCommand({
     id: "fact-show",
     phase: "DecisionFact-A",
-    path: ["fact", "show"],
+    path: ["fact", "show", "<fact-id>"],
     summary: "Show one projected Fact.",
     method: "repo.task.read",
     inputs: [
+      // <fact-id> and --id are the same field in two spellings; the parser rejects both-at-once
+      // and reports a missing id itself, so the flag stays optional in the declaration.
       cliInput(
         "--id",
         "single",
-        true,
+        false,
         {
           code: "invalid_field",
         },

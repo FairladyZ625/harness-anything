@@ -45,11 +45,13 @@ test("Fact CLI exposes record, controlled types, search, and show while keeping 
       "--rationale",
       "Dual-purpose observation",
     ]),
-    show = parseThinCommand(["fact", "show", "--id", "F-ABCDEFGH"]);
+    show = parseThinCommand(["fact", "show", "--id", "F-ABCDEFGH"]),
+    showPositional = parseThinCommand(["fact", "show", "F-ABCDEFGH"]);
   assert.equal(record.ok, true);
   assert.equal(search.ok, true);
   assert.equal(facetedSearch.ok, true);
   assert.equal(show.ok, true);
+  assert.equal(showPositional.ok, true, JSON.stringify(showPositional));
   assert.equal(registration.ok, true);
   assert.equal(vocabulary.ok, true);
   assert.equal(reclassification.ok, true);
@@ -77,6 +79,11 @@ test("Fact CLI exposes record, controlled types, search, and show while keeping 
       registersDomainType: "architecture",
     });
   if (vocabulary.ok) assert.deepEqual(vocabulary.command.action, { kind: "fact-type-list" });
+  // fact show accepts the id positionally or as --id; both spellings produce the same Action.
+  if (show.ok && showPositional.ok) {
+    assert.deepEqual(showPositional.command.action, { kind: "fact-show", factId: "F-ABCDEFGH" });
+    assert.deepEqual(showPositional.command.action, show.command.action);
+  }
   if (reclassification.ok)
     assert.deepEqual(reclassification.command.action, {
       kind: "fact-reclassify",
@@ -110,10 +117,22 @@ test("Fact CLI exposes record, controlled types, search, and show while keeping 
     parseThinCommand(["fact", "record", "--task", "a"]),
     parseThinCommand(["fact", "search", "--wat", "x"]),
     parseThinCommand(["fact", "list"]),
+    parseThinCommand(["fact", "show", "F-ABCDEFGH", "--id", "F-ABCDEFGH"]),
+    parseThinCommand(["fact", "show"]),
+    parseThinCommand(["fact", "show", "F-ABCDEFGH", "--wat", "x"]),
   ];
   assert.deepEqual(
     failures.map((result) => (result.ok ? "ok" : result.code)),
-    ["duplicate_field", "invalid_field", "missing_field", "unknown_field", "unsupported_command"],
+    [
+      "duplicate_field",
+      "invalid_field",
+      "missing_field",
+      "unknown_field",
+      "unsupported_command",
+      "duplicate_field",
+      "missing_field",
+      "unknown_field",
+    ],
   );
   const excessiveRationale = parseThinCommand([
     "fact",
@@ -752,11 +771,15 @@ test("Relation commands replace hosted Task and Decision relation ingress", () =
       "Reviewed the new target version.",
     ]),
     suspect = parseThinCommand(["relation", "list", "--freshness", "suspect"]),
+    listed = parseThinCommand(["relation", "list", "--source", "task/task-a", "--target", "task/task-b"]),
+    listedRefs = parseThinCommand(["relation", "list", "--source-ref", "task/task-a", "--target-ref", "task/task-b"]),
     triples = parseThinCommand(["relation", "triples", "--source-kind", "decision", "--target-kind", "fact"]);
   assert.equal(relate.ok, true);
   assert.equal(unrelate.ok, true);
   assert.equal(reconfirm.ok, true);
   assert.equal(suspect.ok, true);
+  assert.equal(listed.ok, true);
+  assert.equal(listedRefs.ok, true);
   assert.equal(triples.ok, true);
   if (relate.ok)
     assert.deepEqual(relate.command.action, {
@@ -784,6 +807,14 @@ test("Relation commands replace hosted Task and Decision relation ingress", () =
       rationale: "Reviewed the new target version.",
     });
   if (suspect.ok) assert.deepEqual(suspect.command.action, { kind: "relation-list", freshness: "suspect" });
+  // relation list takes the relate spellings --source-ref/--target-ref for the same query fields.
+  if (listed.ok)
+    assert.deepEqual(listed.command.action, {
+      kind: "relation-list",
+      source: "task/task-a",
+      target: "task/task-b",
+    });
+  if (listedRefs.ok && listed.ok) assert.deepEqual(listedRefs.command.action, listed.command.action);
   if (triples.ok)
     assert.deepEqual(triples.command.action, {
       kind: "relation-triples",
@@ -791,6 +822,16 @@ test("Relation commands replace hosted Task and Decision relation ingress", () =
       targetKind: "fact",
     });
   assert.equal(parseThinCommand(["relation", "list", "--freshness", "unknown"]).ok, false);
+  const mixedSpellings = parseThinCommand([
+    "relation",
+    "list",
+    "--source",
+    "task/task-a",
+    "--source-ref",
+    "task/task-b",
+  ]);
+  assert.equal(mixedSpellings.ok, false);
+  if (!mixedSpellings.ok) assert.equal(mixedSpellings.code, "invalid_field");
   assert.equal(
     parseThinCommand([
       "relation",

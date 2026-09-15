@@ -51,7 +51,19 @@ export function parseRouted(
   if (route.id === "agent-run") return parseAgentRun(route, args, rootDir, repoId, json, inputs);
   if (rootCommand === "schedule") return parseSchedule(route, args, rootDir, repoId, json, inputs);
   if (rootCommand === "settings" || rootCommand === "ci")
-    return parseProjected(route.id, args.slice(route.path.length), rootDir, repoId, json, inputs, {}, {}, route.method);
+    return parseProjected(
+      route.id,
+      args.slice(route.path.length),
+      rootDir,
+      repoId,
+      json,
+      inputs,
+      // An alias command (settings-show) declares the Action kind it shares a handler with; the
+      // wire Action must name that kind, not the command id.
+      "actionKind" in route ? { kind: route.actionKind } : {},
+      {},
+      route.method,
+    );
   if (rootCommand === "repo") return parseRepoLifecycle(route, args, rootDir, repoId, json, inputs);
   if (rootCommand === "people") return parsePeople(route, args, rootDir, repoId, json, inputs);
   if (route.id === "receipt-show" && nonEmpty(args[2])) {
@@ -156,6 +168,7 @@ function parseAgentRun(
       ...(f.one.get("--prompt-file") ? { promptFile: f.one.get("--prompt-file") } : {}),
       ...(f.one.get("--prompt-file") ? { promptFile: f.one.get("--prompt-file") } : {}),
       ...(missionName ? { missionName } : {}),
+      ...(f.one.get("--model") ? { model: f.one.get("--model") } : {}),
       ...(f.one.get("--effort") ? { effort: f.one.get("--effort") } : {}),
       ...(f.booleans.has("--fast") ? { fast: true } : {}),
       ...(cwd
