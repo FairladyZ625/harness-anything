@@ -102,7 +102,7 @@ function readSettings(
       },
       settingsId: SETTINGS_ID,
       settings,
-      lastChanged: settingsLastChanged(cell.store.read().events),
+      lastChanged: settingsLastChanged(cell.store),
       effects: [] as readonly string[],
       updatedProjection: null,
     };

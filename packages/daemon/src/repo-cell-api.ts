@@ -530,8 +530,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
         ...(payload.window === undefined ? {} : { window: Number(payload.window) }),
       }),
     // settings 原样返回(含 locale);values 为 kernel 拍平的动作值面(键 = 契约字段)。
-    "repo.settings.read": () =>
-      daemonSettingsRead(context.settings.read(), settingsLastChanged(context.store.read().events)),
+    "repo.settings.read": () => daemonSettingsRead(context.settings.read(), settingsLastChanged(context.store)),
     "repo.tasks.list": (payload: Readonly<Record<string, unknown>>) =>
       queryRead().guiTasks(taskListQueryFromPayload(payload)),
     "repo.tasks.wip": () => readTaskWipSnapshot(context as unknown as TaskQueryCell),

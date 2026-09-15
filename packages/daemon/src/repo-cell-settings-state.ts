@@ -16,6 +16,7 @@ import {
   serializeLocalSettings,
   validateRepositorySettings,
   writeRepositorySettingsFacet,
+  type CanonicalEventStore,
   type CanonicalEventV1,
   type CloseoutGate,
   type CloseoutSettingsV1,
@@ -134,11 +135,21 @@ export function readEffectiveReviewReturnBudget(
 /**
  * The `settings read` attribution: the latest `settings_changed` event already carries the
  * provenance (occurredAt, actor, workspace revision) the entity projection does not retain, so the
- * read path derives it straight from the canonical stream. A repository with no settings change
- * event reports "initial". The actor compacts to `person:<personId>` or `<executor-kind>:<id>`.
+ * read path derives it from the canonical stream through the bounded `readBatch` window — never a
+ * full-history `store.read()` on the request path. A repository with no settings change event
+ * reports "initial". The actor compacts to `person:<personId>` or `<executor-kind>:<id>`.
  */
-export function settingsLastChanged(events: readonly CanonicalEventV1[]): DaemonSettingsLastChange | "initial" {
-  const latest = events.filter(isSettingsEvent).at(-1);
+export function settingsLastChanged(
+  store: Pick<CanonicalEventStore, "readBatch">,
+): DaemonSettingsLastChange | "initial" {
+  let latest: CanonicalEventV1 | undefined,
+    cursor: string | null = null;
+  for (;;) {
+    const batch = store.readBatch(cursor, 1024);
+    for (const event of batch.events) if (isSettingsEvent(event)) latest = event;
+    cursor = batch.cursor;
+    if (batch.done) break;
+  }
   if (latest === undefined) return "initial";
   return {
     occurredAt: latest.occurredAt,
