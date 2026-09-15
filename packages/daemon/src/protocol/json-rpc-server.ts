@@ -231,6 +231,21 @@ export function createJsonRpcProtocolServer(options: {
         } catch (error) {
           return reply(call.method, protocolFailure(call.method, error));
         }
+      case "daemon.repo.backup":
+        try {
+          return reply(call.method, await options.host.admin({ kind: "backup", ...call.params }, options.authContext));
+        } catch (error) {
+          return reply(call.method, protocolFailure(call.method, error));
+        }
+      case "daemon.repo.restoreDrill":
+        try {
+          return reply(
+            call.method,
+            await options.host.admin({ kind: "restore-drill", ...call.params }, options.authContext),
+          );
+        } catch (error) {
+          return reply(call.method, protocolFailure(call.method, error));
+        }
       case "daemon.repo.purge":
         try {
           return reply(

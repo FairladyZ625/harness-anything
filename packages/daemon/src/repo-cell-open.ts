@@ -90,6 +90,7 @@ import { makeAgentActionRuntime, makeSquadActionRuntime } from "./squad-action-r
 import type { DaemonLifecycleRecorder } from "./lifecycle-log.ts";
 import { withWriterEpochFenceDescriptor } from "./writer-epoch.ts";
 import { repoCellLatchedMessage } from "./repo-cell-latched-message.ts";
+import { backupRepo, drillRepoBackup } from "./repo-all-purge.ts";
 
 export function publicPublication(value: Pick<CanonicalEventAppendReceipt, "commitSha" | "cut">): PublicPublication {
   return { commitSha: value.commitSha?.sha ?? null, cut: value.cut };
@@ -406,6 +407,29 @@ export async function openRepoWriterCell(
         replica.kick();
       },
     );
+  };
+  const backup: NonNullable<RepoCell["backup"]> = (request) => {
+    queueDepth += 1;
+    const pending = chainRepoCellWrite(tail, () => {
+      queueDepth -= 1;
+      return request.kind === "backup"
+        ? backupRepo({
+            rootDir,
+            backupDir: request.backupDir,
+            registration: request.registration,
+            writerEpoch: request.writerEpoch,
+          })
+        : drillRepoBackup({
+            rootDir,
+            backupDir: request.backupDir,
+            ...(request.shadowParent ? { shadowParent: request.shadowParent } : {}),
+          });
+    });
+    tail = pending.then(
+      () => undefined,
+      () => undefined,
+    );
+    return pending;
   };
   let settleExecutionLease: (terminal: RuntimeAttemptTerminal) => Promise<void> = async () => {
     throw cellCodedError("runtime_preconditions_unavailable", "RepoCell execution settlement is not ready.");
@@ -1051,5 +1075,5 @@ export async function openRepoWriterCell(
     },
     lock,
   };
-  return createRepoCellApi(apiContext);
+  return { ...createRepoCellApi(apiContext), backup };
 }

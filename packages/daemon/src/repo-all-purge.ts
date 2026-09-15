@@ -33,7 +33,7 @@ export function validateRepoAllPurge(input: {
   return backupDir;
 }
 
-export function backupRepoForAllPurge(input: {
+export function backupRepo(input: {
   readonly rootDir: string;
   readonly backupDir: string;
   readonly registration: DaemonRegistryRepo;
@@ -53,18 +53,29 @@ export function backupRepoForAllPurge(input: {
   });
 }
 
+export const backupRepoForAllPurge = backupRepo;
+
+export function drillRepoBackup(input: {
+  readonly rootDir: string;
+  readonly backupDir: string;
+  readonly manifest?: LedgerBackupManifest;
+  readonly shadowParent?: string;
+}) {
+  const layout = resolveHarnessLayout(input.rootDir);
+  return drillLedgerBackup({
+    backupDir: input.backupDir,
+    shadowParent: input.shadowParent ?? path.join(layout.localRoot, "restore-drills"),
+    retention: restoreDrillRetentionFor(input.rootDir),
+    ...(input.manifest ? { verifiedManifest: input.manifest } : {}),
+  });
+}
+
 export function drillRepoAllPurgeBackup(input: {
   readonly rootDir: string;
   readonly backupDir: string;
   readonly manifest: LedgerBackupManifest;
 }): void {
-  const layout = resolveHarnessLayout(input.rootDir);
-  drillLedgerBackup({
-    backupDir: input.backupDir,
-    shadowParent: path.join(layout.localRoot, "restore-drills"),
-    retention: restoreDrillRetentionFor(input.rootDir),
-    verifiedManifest: input.manifest,
-  });
+  drillRepoBackup(input);
 }
 
 export function removeRepoHarnessData(rootDir: string): readonly string[] {

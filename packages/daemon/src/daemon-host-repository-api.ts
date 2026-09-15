@@ -1,5 +1,6 @@
 /** @daemon-transport-authority Daemon ingress filtering and repository dispatch. */
 import { existsSync, realpathSync } from "node:fs";
+import path from "node:path";
 import {
   readDaemonRegistry,
   getExecutableEntityAction,
@@ -38,6 +39,7 @@ import { backupReceipt } from "./offline-storage.ts";
 import {
   backupRepoForAllPurge,
   drillRepoAllPurgeBackup,
+  drillRepoBackup,
   removeRepoHarnessData,
   validateRepoAllPurge,
 } from "./repo-all-purge.ts";
@@ -52,6 +54,30 @@ function isRepoCellReadMethod(method: DaemonGuiRpcReadMethod): method is RepoCel
     method !== "repo.gui.catalog.preset.read" &&
     method !== "repo.terminal.sessions.list"
   );
+}
+
+function validateBackupDestination(rootDir: string, input: string): void {
+  if (!path.isAbsolute(input)) throw new Error("backup directory must be absolute");
+  const backupDir = path.resolve(input),
+    layout = resolveHarnessLayout(rootDir);
+  if (existsSync(backupDir)) throw new Error("backup destination must not already exist");
+  for (const protectedRoot of [layout.localRoot, layout.authoredRoot]) {
+    const relative = path.relative(canonicalProspectivePath(protectedRoot), canonicalProspectivePath(backupDir));
+    if (relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative)))
+      throw new Error("backup must not be inside .harness or harness");
+  }
+}
+
+function canonicalProspectivePath(candidate: string): string {
+  const remainder: string[] = [];
+  let existing = candidate;
+  while (!existsSync(existing)) {
+    const parent = path.dirname(existing);
+    if (parent === existing) break;
+    remainder.unshift(path.basename(existing));
+    existing = parent;
+  }
+  return path.join(realpathSync(existing), ...remainder);
 }
 
 export function createDaemonHostRepositoryApi(
@@ -215,6 +241,44 @@ export function createDaemonHostRepositoryApi(
     },
     admin: async (request, auth) => {
       context.localOnly(auth);
+      if (request.kind === "backup" || request.kind === "restore-drill") {
+        const rootDir = realpathSync(request.rootDir),
+          repo = readDaemonRegistry({ userRoot: context.input.userRoot }).repos.find(
+            (candidate) =>
+              candidate.state === "enabled" && candidate.mode !== "remote-proxy" && candidate.canonicalRoot === rootDir,
+          );
+        if (!repo)
+          throw context.hostCodedError("repo_namespace_unknown", `No enabled local repository for ${rootDir}.`);
+        const backupDir = path.resolve(request.backupDir);
+        if (request.kind === "backup") validateBackupDestination(rootDir, request.backupDir);
+        else if (!existsSync(backupDir)) throw new Error("restore --drill backup directory does not exist");
+        await context.waitForWarming(repo.repoId);
+        const cell = context.requiredCell(context.cells, context.warming, context.unavailable, repo.repoId),
+          result = await cell.backup!({
+            kind: request.kind === "backup" ? "backup" : "drill",
+            backupDir,
+            ...(request.kind === "restore-drill" && request.shadowParent ? { shadowParent: request.shadowParent } : {}),
+            registration: repo,
+            writerEpoch: context.writerEpochHighWatermark(repo.repoId),
+          });
+        if (request.kind === "backup")
+          return {
+            ok: true,
+            schema: "ledger-backup-receipt/v1",
+            exitCode: 0,
+            ...backupReceipt(backupDir, result as Parameters<typeof backupReceipt>[1]),
+          };
+        const drill = result as ReturnType<typeof drillRepoBackup>;
+        return {
+          ok: true,
+          schema: "ledger-restore-drill-receipt/v1",
+          exitCode: 0,
+          ...backupReceipt(backupDir, drill.manifest),
+          shadowRoot: drill.shadowRoot,
+          removedShadowRoots: drill.removedShadowRoots,
+          warnings: drill.warnings,
+        };
+      }
       if (request.kind === "register") {
         const remoteProxy = request.mode === "remote-proxy",
           adminBinding = remoteProxy

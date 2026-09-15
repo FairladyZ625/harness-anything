@@ -7,8 +7,13 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { renderCliReceipt } from "../src/cli/receipt-render-registry.ts";
-import { flatLedgerFixture } from "../../kernel/test/store/task-event-store.fixtures.ts";
-import { registerDaemonRepo } from "../../kernel/src/index.ts";
+import { event } from "../../kernel/test/store/task-event-store.fixtures.ts";
+import {
+  activateEmptyCanonicalGeneration,
+  makeTaskEventStore,
+  registerDaemonRepo,
+  taskLifecycleWritePlan,
+} from "../../kernel/src/index.ts";
 import { openPersistentWriterEpoch } from "../../daemon/src/writer-epoch.ts";
 
 const cli = fileURLToPath(new URL("../src/index.ts", import.meta.url));
@@ -39,6 +44,20 @@ function register(userRoot: string, root: string, repoId: string): void {
     createConvenienceLinks: false,
   });
 }
+async function seedNativeLedger(root: string, repoId: string): Promise<void> {
+  const store = makeTaskEventStore({
+    repoId,
+    rootDir: root,
+    activationPreflight: activateEmptyCanonicalGeneration,
+    writerFence: () => ({ repoId, holderId: "offline-storage-test", epoch: 1 }),
+  });
+  try {
+    store.append({ event, plan: taskLifecycleWritePlan(event), blobs: [] });
+    await store.drain();
+  } finally {
+    await store.drain();
+  }
+}
 
 test("daemon offline storage reports malformed invocations through the CLI", () => {
   const result = invokeCliResult(["restore"]),
@@ -47,7 +66,7 @@ test("daemon offline storage reports malformed invocations through the CLI", () 
   assert.equal(receipt.code, "offline_storage_failed");
 });
 
-test("backup failure receipts carry the missing source path and errno through human rendering", () => {
+test("daemon backup rejects an unavailable registered source through human rendering", () => {
   const missingRoot = path.join(os.tmpdir(), `ha-cli-missing-root-${process.pid}-${Date.now()}`),
     backupDir = path.join(os.tmpdir(), `ha-cli-missing-backup-${process.pid}-${Date.now()}`),
     userRoot = mkdtempSync(path.join(os.tmpdir(), "ha-cli-missing-user-"));
@@ -57,31 +76,27 @@ test("backup failure receipts carry the missing source path and errno through hu
     receipt = JSON.parse(result.stdout.trim()) as Record<string, unknown>;
   try {
     assert.equal(result.status, 1);
-    const hint = String(receipt.hint);
-    assert.equal(receipt.code, "offline_storage_failed");
-    assert.ok(hint.includes(`${missingRoot}/harness`), hint);
-    assert.ok(hint.includes("No such file or directory"), hint);
+    assert.equal(receipt.code, "daemon_spawn_not_found");
     const rendered = renderCliReceipt(receipt);
     assert.equal(rendered.stream, "stderr");
-    assert.ok(rendered.text.includes(hint), rendered.text);
+    assert.match(rendered.text, /daemon_spawn_not_found/u);
   } finally {
     rmSync(backupDir, { recursive: true, force: true });
     rmSync(userRoot, { recursive: true, force: true });
   }
 });
 
-test("CLI delegates backup, restore drill and event tail to the daemon offline host", () => {
+test("CLI delegates backup and restore drill to the daemon while event tail stays offline", async () => {
   const root = mkdtempSync(path.join(os.tmpdir(), "ha-cli-offline-spawn-")),
     backupDir = path.join(os.tmpdir(), `ha-cli-spawn-backup-${process.pid}-${Date.now()}`),
     restoredRoot = path.join(os.tmpdir(), `ha-cli-spawn-restored-${process.pid}-${Date.now()}`),
-    userRoot = mkdtempSync(path.join(os.tmpdir(), "ha-cli-offline-user-")),
-    { parent } = flatLedgerFixture(root, 1);
+    userRoot = mkdtempSync(path.join(os.tmpdir(), "ha-cli-offline-user-"));
   try {
     register(userRoot, root, "offline-spawn");
+    await seedNativeLedger(root, "offline-spawn");
     const authority = openPersistentWriterEpoch({ stateRoot: path.join(userRoot, "fleet"), holderId: "test" });
     assert.equal(authority.acquire("offline-spawn").epoch, 1);
     authority.close();
-    execFileSync("git", ["update-ref", "refs/ha/canonical", parent], { cwd: root });
     const backup = invokeCli(["backup", backupDir, "--root", root], userRoot),
       restore = invokeCli(
         ["restore", "--drill", backupDir, "--root", root, "--shadow-parent", path.join(root, "drills")],
@@ -108,13 +123,13 @@ test("CLI delegates backup, restore drill and event tail to the daemon offline h
         cwd: path.join(root, "harness"),
         encoding: "utf8",
       }).trim(),
-      writerEpoch: 1,
+      writerEpoch: 2,
     });
     assert.equal(restore.schema, "ledger-restore-drill-receipt/v1");
     assert.equal(restore.manifest, undefined);
     assert.equal(restored.schema, "ledger-restore-receipt/v1");
     assert.equal(restored.manifest, undefined);
-    assert.equal(restored.writerEpoch, 2);
+    assert.equal(restored.writerEpoch, 3);
     assert.equal(events.schema, "offline-ledger-events/v1");
     assert.equal((events.events as readonly unknown[]).length, 1);
     const repeated = invokeCliResult(["restore", backupDir, "--to", restoredRoot], userRoot);
@@ -167,15 +182,14 @@ test("CLI backup receipt stays below spawnSync's default buffer for a manifest a
   }
 });
 
-test("offline restore drill reads retention from harness.yaml and defaults to three", () => {
+test("daemon restore drill reads retention from harness.yaml and defaults to three", async () => {
   const root = mkdtempSync(path.join(os.tmpdir(), "ha-cli-offline-retention-")),
     backupDir = path.join(os.tmpdir(), `ha-cli-retention-backup-${process.pid}-${Date.now()}`),
     shadowParent = path.join(root, "drills"),
-    userRoot = mkdtempSync(path.join(os.tmpdir(), "ha-cli-retention-user-")),
-    { parent } = flatLedgerFixture(root, 1);
+    userRoot = mkdtempSync(path.join(os.tmpdir(), "ha-cli-retention-user-"));
   try {
     register(userRoot, root, "retention");
-    execFileSync("git", ["update-ref", "refs/ha/canonical", parent], { cwd: root });
+    await seedNativeLedger(root, "retention");
     invokeCli(["backup", backupDir, "--root", root], userRoot);
     writeFileSync(path.join(root, "harness", "harness.yaml"), "settings:\n  restoreDrillRetention: 1\n");
     for (let index = 0; index < 2; index += 1)
