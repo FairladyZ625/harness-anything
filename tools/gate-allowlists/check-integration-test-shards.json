@@ -527,6 +527,31 @@
         "value": "packages/cli/test/daemon-multi-repo-lifecycle-cli-upgrades-overlays.test.ts",
         "ref": "task_94cac93e5083d72bb45f5f9577",
         "reason": "Consolidated into packages/cli/test/daemon-multi-repo-lifecycle-cli.test.ts under relaxed file complexity limits (1,200 lines); assertions preserved verbatim."
+      },
+      {
+        "value": "packages/cli/test/daemon-singleton-cli.test.ts",
+        "ref": "task_d70f45787a59cbd65469f5b3c4",
+        "reason": "Consolidated into packages/cli/test/daemon-lifecycle-process.test.ts under relaxed file complexity limits (1,200 lines); assertions preserved verbatim."
+      },
+      {
+        "value": "packages/cli/test/daemon-stop-identity.test.ts",
+        "ref": "task_d70f45787a59cbd65469f5b3c4",
+        "reason": "Consolidated into packages/cli/test/daemon-lifecycle-process.test.ts under relaxed file complexity limits (1,200 lines); assertions preserved verbatim."
+      },
+      {
+        "value": "packages/cli/test/daemon-stop-drain-window.test.ts",
+        "ref": "task_d70f45787a59cbd65469f5b3c4",
+        "reason": "Consolidated into packages/cli/test/daemon-lifecycle-process.test.ts under relaxed file complexity limits (1,200 lines); assertions preserved verbatim."
+      },
+      {
+        "value": "packages/cli/test/daemon-receipt-cli.test.ts",
+        "ref": "task_d70f45787a59cbd65469f5b3c4",
+        "reason": "Consolidated into packages/cli/test/daemon-fleet-cli.test.ts under relaxed file complexity limits (1,200 lines); assertions preserved verbatim."
+      },
+      {
+        "value": "packages/cli/test/daemon-write-round-trip.test.ts",
+        "ref": "task_d70f45787a59cbd65469f5b3c4",
+        "reason": "Consolidated into packages/cli/test/daemon-thin-client-cli.test.ts under relaxed file complexity limits (1,200 lines); assertions preserved verbatim."
       }
     ]
   }
