@@ -529,6 +529,86 @@
         "reason": "Consolidated into packages/cli/test/daemon-multi-repo-lifecycle-cli.test.ts under relaxed file complexity limits (1,200 lines); assertions preserved verbatim."
       },
       {
+        "value": "packages/cli/test/runtime-cli.automatic-lease.integration.test.ts",
+        "ref": "task_6d53132ed7dcc47c4cb967756b",
+        "reason": "Consolidated into packages/cli/test/runtime-cli-lifecycle.integration.test.ts under relaxed file complexity limits (1,200 lines); assertions preserved verbatim."
+      },
+      {
+        "value": "packages/cli/test/runtime-cli.cancel-resume.integration.test.ts",
+        "ref": "task_6d53132ed7dcc47c4cb967756b",
+        "reason": "Consolidated into packages/cli/test/runtime-cli-lifecycle.integration.test.ts under relaxed file complexity limits (1,200 lines); assertions preserved verbatim."
+      },
+      {
+        "value": "packages/cli/test/runtime-cli.detach.integration.test.ts",
+        "ref": "task_6d53132ed7dcc47c4cb967756b",
+        "reason": "Consolidated into packages/cli/test/runtime-cli-lifecycle.integration.test.ts under relaxed file complexity limits (1,200 lines); assertions preserved verbatim."
+      },
+      {
+        "value": "packages/cli/test/runtime-cli.executor.integration.test.ts",
+        "ref": "task_6d53132ed7dcc47c4cb967756b",
+        "reason": "Consolidated into packages/cli/test/runtime-cli-lifecycle.integration.test.ts under relaxed file complexity limits (1,200 lines); assertions preserved verbatim."
+      },
+      {
+        "value": "packages/cli/test/runtime-cli.identity.integration.test.ts",
+        "ref": "task_6d53132ed7dcc47c4cb967756b",
+        "reason": "Consolidated into packages/cli/test/runtime-cli-lifecycle.integration.test.ts under relaxed file complexity limits (1,200 lines); assertions preserved verbatim."
+      },
+      {
+        "value": "packages/cli/test/runtime-cli.progress.integration.test.ts",
+        "ref": "task_6d53132ed7dcc47c4cb967756b",
+        "reason": "Consolidated into packages/cli/test/runtime-cli-lifecycle.integration.test.ts under relaxed file complexity limits (1,200 lines); assertions preserved verbatim."
+      },
+      {
+        "value": "packages/cli/test/runtime-cli.restart.integration.test.ts",
+        "ref": "task_6d53132ed7dcc47c4cb967756b",
+        "reason": "Consolidated into packages/cli/test/runtime-cli-lifecycle.integration.test.ts under relaxed file complexity limits (1,200 lines); assertions preserved verbatim."
+      },
+      {
+        "value": "packages/cli/test/runtime-cli.validation.integration.test.ts",
+        "ref": "task_6d53132ed7dcc47c4cb967756b",
+        "reason": "Consolidated into packages/cli/test/runtime-cli-lifecycle.integration.test.ts under relaxed file complexity limits (1,200 lines); assertions preserved verbatim."
+      },
+      {
+        "value": "packages/cli/test/runtime-cli.archive.integration.test.ts",
+        "ref": "task_6d53132ed7dcc47c4cb967756b",
+        "reason": "Consolidated into packages/cli/test/runtime-cli-dispatch.integration.test.ts under relaxed file complexity limits (1,200 lines); assertions preserved verbatim."
+      },
+      {
+        "value": "packages/cli/test/runtime-cli.submitted-archive.integration.test.ts",
+        "ref": "task_6d53132ed7dcc47c4cb967756b",
+        "reason": "Consolidated into packages/cli/test/runtime-cli-dispatch.integration.test.ts under relaxed file complexity limits (1,200 lines); assertions preserved verbatim."
+      },
+      {
+        "value": "packages/cli/test/runtime-cli.batch.integration.test.ts",
+        "ref": "task_6d53132ed7dcc47c4cb967756b",
+        "reason": "Consolidated into packages/cli/test/runtime-cli-dispatch.integration.test.ts under relaxed file complexity limits (1,200 lines); assertions preserved verbatim."
+      },
+      {
+        "value": "packages/cli/test/runtime-cli.direct.integration.test.ts",
+        "ref": "task_6d53132ed7dcc47c4cb967756b",
+        "reason": "Consolidated into packages/cli/test/runtime-cli-dispatch.integration.test.ts under relaxed file complexity limits (1,200 lines); assertions preserved verbatim."
+      },
+      {
+        "value": "packages/cli/test/runtime-cli.failure.integration.test.ts",
+        "ref": "task_6d53132ed7dcc47c4cb967756b",
+        "reason": "Consolidated into packages/cli/test/runtime-cli-dispatch.integration.test.ts under relaxed file complexity limits (1,200 lines); assertions preserved verbatim."
+      },
+      {
+        "value": "packages/cli/test/runtime-cli.mission.integration.test.ts",
+        "ref": "task_6d53132ed7dcc47c4cb967756b",
+        "reason": "Consolidated into packages/cli/test/runtime-cli-dispatch.integration.test.ts under relaxed file complexity limits (1,200 lines); assertions preserved verbatim."
+      },
+      {
+        "value": "packages/cli/test/runtime-cli.notification-failure.integration.test.ts",
+        "ref": "task_6d53132ed7dcc47c4cb967756b",
+        "reason": "Consolidated into packages/cli/test/runtime-cli-dispatch.integration.test.ts under relaxed file complexity limits (1,200 lines); assertions preserved verbatim."
+      },
+      {
+        "value": "packages/cli/test/runtime-cli.notification-queue.integration.test.ts",
+        "ref": "task_6d53132ed7dcc47c4cb967756b",
+        "reason": "Consolidated into packages/cli/test/runtime-cli-dispatch.integration.test.ts under relaxed file complexity limits (1,200 lines); assertions preserved verbatim."
+      },
+      {
         "value": "packages/cli/test/daemon-singleton-cli.test.ts",
         "ref": "task_d70f45787a59cbd65469f5b3c4",
         "reason": "Consolidated into packages/cli/test/daemon-lifecycle-process.test.ts under relaxed file complexity limits (1,200 lines); assertions preserved verbatim."
