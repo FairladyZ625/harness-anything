@@ -4,7 +4,6 @@ import {
   isSamePerson,
   isTerminalStatus,
   resolveTaskBoundRuntimeBinding,
-  runtimeSessionSemanticState,
   taskClasses,
   type AuthorizationDecision,
   type LeaseV1,
@@ -103,14 +102,8 @@ export function taskMutation(
     // A terminal runtime settlement knows the session that actually executed the dispatch. When the
     // execution still names no executor (e.g. a coordinator-retained lease whose start ran before the
     // dispatch), stamp that session identity so declare-executor is no longer required downstream. The
-    // session is stamped only when its canonical task bindings prove it executed this execution.
-    const settledSession =
-        terminalRuntimeSessionId === null ? null : cell.projection.readRuntimeSession(terminalRuntimeSessionId),
-      settledRuntimeSessionId =
-        terminalRuntimeSessionId !== null &&
-        resolveTaskBoundRuntimeBinding(settledSession, task.taskId, activeLease.executionId) !== null
-          ? terminalRuntimeSessionId
-          : (terminalRuntimeBinding?.runtimeSessionId ?? null),
+    // binding is proven from durable dispatch stream evidence, not the rebuildable session projection.
+    const settledRuntimeSessionId = terminalRuntimeBinding?.runtimeSessionId ?? null,
       settledExecution =
         execution !== undefined && execution.actor.executor === null && settledRuntimeSessionId !== null
           ? {
@@ -356,32 +349,28 @@ function terminalExecutionRuntimeBinding(
   lease: LeaseV1,
   runtimeSessionId: string | null,
 ): TaskBoundRuntimeBinding | null {
-  if (typeof cell.projection?.readRuntimeSessionsForTask !== "function") return null;
-  const inferredTerminalSessionIds =
-    runtimeSessionId === null
-      ? new Set(
-          readDispatchLiveIndex(cell.rootDir, [lease.taskId])
-            .entries.map((entry) => readDispatchStreamSummary(cell.rootDir, entry.dispatchId))
-            .filter((stream) => stream?.header.executionId === lease.executionId)
-            .filter(
-              (stream) =>
-                stream !== null && (dispatchReachedTerminalAttempt(stream) || dispatchProcessIsOrphaned(stream)),
-            )
-            .map((stream) => stream!.header.runtimeSessionId),
-        )
+  // Dispatch stream headers are durable file state written before settlement reaches this
+  // mutation, while the rebuildable session projection may lag behind the release. Terminal
+  // attempt/process evidence on the stream is what proves a session ended on this execution.
+  const terminalStreams = readDispatchLiveIndex(cell.rootDir, [lease.taskId])
+    .entries.map((entry) => readDispatchStreamSummary(cell.rootDir, entry.dispatchId))
+    .filter((stream) => stream?.header.executionId === lease.executionId)
+    .filter(
+      (stream) => stream !== null && (dispatchReachedTerminalAttempt(stream) || dispatchProcessIsOrphaned(stream)),
+    );
+  // A settlement names the session that just reached terminal; its own dispatch header already
+  // proves it executed this execution, so no projected session state is needed.
+  if (runtimeSessionId !== null)
+    return terminalStreams.some((stream) => stream!.header.runtimeSessionId === runtimeSessionId)
+      ? { runtimeSessionId, taskId: lease.taskId, executionId: lease.executionId }
       : null;
-  const taskSessions = cell.projection.readRuntimeSessionsForTask(lease.taskId) as readonly RuntimeSession[];
-  const sessions = [...taskSessions].sort((left, right) =>
-    compareRuntimeActivity(right.lastObservedAt, left.lastObservedAt),
-  );
+  if (typeof cell.projection?.readRuntimeSessionsForTask !== "function") return null;
+  const inferredTerminalSessionIds = new Set(terminalStreams.map((stream) => stream!.header.runtimeSessionId)),
+    sessions = [...(cell.projection.readRuntimeSessionsForTask(lease.taskId) as readonly RuntimeSession[])].sort(
+      (left, right) => compareRuntimeActivity(right.lastObservedAt, left.lastObservedAt),
+    );
   for (const session of sessions) {
-    if (runtimeSessionId !== null && session.runtimeSessionId !== runtimeSessionId) continue;
-    if (inferredTerminalSessionIds !== null && !inferredTerminalSessionIds.has(session.runtimeSessionId)) continue;
-    if (
-      (session.liveness !== "exited" || runtimeSessionSemanticState(session) === "running") &&
-      !inferredTerminalSessionIds?.has(session.runtimeSessionId)
-    )
-      continue;
+    if (!inferredTerminalSessionIds.has(session.runtimeSessionId)) continue;
     const binding = resolveTaskBoundRuntimeBinding(session, lease.taskId, lease.executionId);
     if (binding) return binding;
   }
