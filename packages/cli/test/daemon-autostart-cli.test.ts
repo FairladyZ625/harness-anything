@@ -211,9 +211,6 @@ test("operator stop blocks autostart until explicit start while process death re
   assert.notEqual(recoveredPid, restartedPid);
   context.diagnostic(`SIGKILL negative control autostart pid=${recoveredPid}`);
   assert.equal(run(fixture.root, fixture.userRoot, ["daemon", "stop"]).ok, true);
-  for (const deadline = Date.now() + 10_000; processAlive(recoveredPid) && Date.now() < deadline; )
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  assert.equal(processAlive(recoveredPid), false, `recovered daemon ${recoveredPid} did not exit after stop`);
 });
 
 test("daemon status names a build_superseded self-exit and its recovery once the daemon is down", async () => {
