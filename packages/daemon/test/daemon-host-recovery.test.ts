@@ -498,7 +498,7 @@ test("all purge backs up and drills before deleting, then restores and rebinds w
     assert.equal(existsSync(path.join(rootDir, "harness")), true);
     const receipt = await host.admin({ kind: "purge", repoId, scope: "all", backup: backupDir, confirm: repoId }, auth);
     assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
-    assert.equal(receipt.backupDir, backupDir);
+    assert.equal((receipt.backup as { backupDir: string }).backupDir, backupDir);
     assert.deepEqual(receipt.removed, [".harness", "harness"]);
     assert.equal(existsSync(path.join(rootDir, ".harness")), false);
     assert.equal(existsSync(path.join(rootDir, "harness")), false);
@@ -509,7 +509,7 @@ test("all purge backs up and drills before deleting, then restores and rebinds w
       projectHead,
     );
     assert.equal(readDaemonRegistry({ userRoot }).repos.length, 0);
-    const savedEpoch = (receipt.backupManifest as { registration: { writerEpoch: number } }).registration.writerEpoch,
+    const savedEpoch = (receipt.backup as { registration: { writerEpoch: number } }).registration.writerEpoch,
       restored = restoreLedgerBackup({ backupDir, destinationRoot: restoredRoot }),
       epochAuthority = openPersistentWriterEpoch({ stateRoot: path.join(userRoot, "fleet"), holderId: "restore" });
     assert.equal(epochAuthority.current(repoId), null);

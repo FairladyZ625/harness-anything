@@ -34,6 +34,7 @@ import { requireAuthorizedHostAction } from "./host-action-authorization.ts";
 import { entityActionCommandTopology } from "./repo-mode.ts";
 import { resolveVerticalKindCommandAction } from "./vertical-kind-command-action.ts";
 import { cachePurgePreservedPaths, purgeRepoCache } from "./repo-cache-purge.ts";
+import { backupReceipt } from "./offline-storage.ts";
 import {
   backupRepoForAllPurge,
   drillRepoAllPurgeBackup,
@@ -452,8 +453,7 @@ export function createDaemonHostRepositoryApi(
           preserved: purgingAll ? ["project files", ".git", ".worktrees"] : cachePurgePreservedPaths,
           ...(purgingAll
             ? {
-                backupDir,
-                backupManifest,
+                backup: backupReceipt(backupDir!, backupManifest!),
                 restoreCommand: `ha restore ${JSON.stringify(backupDir)} --to <absolute-directory>`,
                 rebindCommand: `ha init --repo-id ${request.repoId}`,
               }
