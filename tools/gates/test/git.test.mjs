@@ -1,7 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import { changedFiles, git } from "../git.mjs";
+import { changedFiles, git, pullRequestBase } from "../git.mjs";
 import { commitAll, makeRepo, writeRepoFile } from "./helpers.mjs";
 
 test("changedFiles measures the head from its merge base when the target branch advances", () => {
@@ -21,4 +21,20 @@ test("changedFiles measures the head from its merge base when the target branch 
     "package.json",
   ]);
   assert.deepEqual(changedFiles(rootDir, advancedTarget, featureHead), ["feature.txt"]);
+});
+
+test("pullRequestBase returns the merge-base with origin/main", () => {
+  const { rootDir, base } = makeRepo({ "shared.txt": "shared\n" });
+  git(rootDir, ["update-ref", "refs/remotes/origin/main", "HEAD"]);
+  writeRepoFile(rootDir, "feature.txt", "feature\n");
+  commitAll(rootDir, "feature change");
+
+  assert.equal(pullRequestBase(rootDir), base);
+});
+
+test("pullRequestBase without origin/main fails closed with a fix", () => {
+  const { rootDir } = makeRepo({ "shared.txt": "shared\n" });
+
+  assert.throws(() => pullRequestBase(rootDir), /git merge-base origin\/main HEAD` failed/u);
+  assert.throws(() => pullRequestBase(rootDir), /git fetch origin main/u);
 });
