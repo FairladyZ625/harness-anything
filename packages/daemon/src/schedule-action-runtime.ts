@@ -1,3 +1,4 @@
+import path from "node:path";
 import {
   getExecutableEntityAction,
   isScheduleEvent,
@@ -377,6 +378,11 @@ export async function dispatchClaimedSchedule<
       ...(target.reasoningEffort ? { effort: target.reasoningEffort } : {}),
       ...(target.fast === undefined ? {} : { fast: target.fast }),
       cwd: input.workspace.cwd,
+      ...(input.schedule.spec.writableRoots?.length
+        ? {
+            writableRoots: input.schedule.spec.writableRoots.map((root) => path.resolve(input.workspace.rootDir, root)),
+          }
+        : {}),
       mode: input.schedule.mode,
       occurrenceId: active.occurrenceId,
       ...(input.workspace.runtime.worktree ? { worktree: input.workspace.runtime.worktree } : {}),

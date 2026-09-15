@@ -10,6 +10,7 @@ import { agentProtocolCommands } from "./daemon-protocol-commands-agent.ts";
 import { decisionLifecycleProtocolCommands } from "./daemon-protocol-commands-decision-lifecycle.ts";
 import { decisionRelationProtocolCommands } from "./daemon-protocol-commands-decision-relations.ts";
 import { docFactProtocolCommands } from "./daemon-protocol-commands-doc-fact.ts";
+import { eventProtocolCommands } from "./daemon-protocol-commands-event.ts";
 import { runtimeConfigProtocolCommands } from "./daemon-protocol-commands-runtime-config.ts";
 import { runtimeFleetProtocolCommands, scheduleProtocolCommands } from "./daemon-protocol-commands-runtime-fleet.ts";
 import { taskSurfaceProtocolCommands } from "./daemon-protocol-commands-task-surface.ts";
@@ -148,6 +149,7 @@ export const daemonOwnedProtocolCommands = Object.freeze([
   ...runtimeFleetProtocolCommands,
   ...scheduleProtocolCommands,
   ...settingsProtocolCommands,
+  ...eventProtocolCommands,
   ...peopleProtocolCommands,
   ...ciObservationProtocolCommands,
 ] as const);

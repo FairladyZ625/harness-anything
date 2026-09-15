@@ -31,11 +31,14 @@ const commandRenderers = new Map<string, ReceiptRenderer>([
   ["task-contract-migrate", renderSuccessfulReceipt],
   ["doc-show", (receipt) => String(receipt.evidence)],
   ["init", renderInitReceipt],
+  ["settings-read", renderSettingsRead],
   ["schedule-list", renderScheduleReceipt],
   ["schedule-show", renderScheduleReceipt],
   ["schedule-runs", renderScheduleReceipt],
   ["squad-list", renderSquadListReceipt],
   ["squad-status", renderSquadStatusReceipt],
+  ["event-list", renderEventListReceipt],
+  ["event-show", renderEventShowReceipt],
 ]);
 
 const preOutcomeCommandRenderers = new Map<string, ReceiptRenderer>([["runtime-batch", renderRuntimeBatchReceipt]]);
@@ -65,9 +68,17 @@ export function renderCliReceipt(
     daemonBuild =
       receipt.daemonBuild !== null && typeof receipt.daemonBuild === "object" && !Array.isArray(receipt.daemonBuild)
         ? (receipt.daemonBuild as Record<string, unknown>)
-        : null;
-  return daemonBuild?.code === "daemon_build_stale" && typeof daemonBuild.message === "string"
-    ? { ...rendered, text: `${rendered.text}\nwarning: ${daemonBuild.message}` }
+        : null,
+    warnings = [
+      ...(daemonBuild?.code === "daemon_build_stale" && typeof daemonBuild.message === "string"
+        ? [daemonBuild.message]
+        : []),
+      ...(Array.isArray(receipt.warnings)
+        ? receipt.warnings.filter((entry): entry is string => nonEmptyText(entry) !== null)
+        : []),
+    ];
+  return warnings.length
+    ? { ...rendered, text: `${rendered.text}\n${warnings.map((warning) => `warning: ${warning}`).join("\n")}` }
     : rendered;
 }
 
@@ -128,6 +139,18 @@ function renderTaskShow(receipt: Record<string, unknown>): string {
     ...(typeof payload.returnBudget === "number"
       ? [`returnBudget=${String(payload.returnBudget)} (${String(payload.returnBudgetSource)})`]
       : []),
+  ].join("\n");
+}
+
+function renderSettingsRead(receipt: Record<string, unknown>): string {
+  const lastChanged = receipt.lastChanged;
+  return [
+    renderSuccessfulReceipt(receipt),
+    lastChanged === "initial"
+      ? "lastChanged=initial"
+      : isRecord(lastChanged)
+        ? `lastChanged=${String(lastChanged.occurredAt)} by=${String(lastChanged.actor)} revision=${String(lastChanged.revision)}`
+        : "lastChanged=unavailable",
   ].join("\n");
 }
 
@@ -198,6 +221,27 @@ function squadAttemptLine(kind: string, index: number, value: unknown): string {
     ` tokens=${String(usage.input ?? 0)}in/${String(usage.output ?? 0)}out` +
     ` tools=${String(value.toolCallCount ?? 0)} compacted=${String(value.compacted ?? false)}`
   );
+}
+
+function renderEventListReceipt(receipt: Record<string, unknown>): string {
+  const payload = parseEvidence(receipt);
+  if (!payload || payload.schema !== "event-list/v1" || !Array.isArray(payload.rows))
+    return renderSuccessfulReceipt(receipt);
+  const lines = payload.rows.map((row) => {
+      if (!isRecord(row) || !isRecord(row.actor)) throw new TypeError("Event list row is invalid.");
+      const actor = typeof row.actor.executorId === "string" ? row.actor.executorId : row.actor.personId;
+      return [row.revision, row.occurredAt, row.type, row.opId, actor].map((value) => String(value ?? "")).join(" | ");
+    }),
+    nextCursor = isRecord(payload.page) && typeof payload.page.nextCursor === "string" ? payload.page.nextCursor : null;
+  return [
+    ...(lines.length ? lines : ["No events."]),
+    ...(nextCursor === null ? [] : [`more: use --cursor ${nextCursor}`]),
+  ].join("\n");
+}
+
+function renderEventShowReceipt(receipt: Record<string, unknown>): string {
+  const payload = parseEvidence(receipt);
+  return payload?.event !== undefined ? JSON.stringify(payload.event, null, 2) : renderSuccessfulReceipt(receipt);
 }
 
 function parseEvidence(receipt: Record<string, unknown>): Record<string, unknown> | null {

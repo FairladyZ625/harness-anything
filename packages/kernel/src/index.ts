@@ -41,6 +41,7 @@ export {
   canonicalCodeDocPaths,
   canonicalGateReceipts,
   canStartExecution,
+  compileExecutionAnnotation,
   compileExecutionExecutorDeclaration,
   codeDocRecordId,
   currentCodeDocWitness,
@@ -199,12 +200,13 @@ export type {
 export type {
   ArtifactDelivery,
   ArchivedExecutionV0,
+  ExecutionAnnotationKind,
   ExecutionV1,
   LeaseV1,
   ProjectedExecution,
   SubmissionV1,
 } from "./domain/execution.ts";
-export { submissionDigest } from "./domain/execution.ts";
+export { executionAnnotationKinds, submissionDigest } from "./domain/execution.ts";
 export { sha256Bytes, sha256Text, stablePayloadHash, stableStringify } from "./integrity/stable-hash.ts";
 export { eventObjectTarget } from "./layout/ledger-object-layout.ts";
 export {

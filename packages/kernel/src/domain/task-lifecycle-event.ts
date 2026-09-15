@@ -1,11 +1,12 @@
 import {
   isNativeCommitSha,
   isSubmissionId,
+  validateExecutionAnnotationV1s,
   validateExecutionV1,
   validateLeaseHolder,
   validateLeaseV1,
 } from "./execution.ts";
-import type { ExecutionV1, LeaseHolder, LeaseV1 } from "./execution.ts";
+import type { ExecutionAnnotationV1, ExecutionV1, LeaseHolder, LeaseV1 } from "./execution.ts";
 import { validateReviewConsentV1, validateReviewV1 } from "./review.ts";
 import type { ReviewConsentV1, ReviewV1 } from "./review.ts";
 import { validateActorAxes, validateTaskV2 } from "./task.ts";
@@ -42,6 +43,7 @@ export const taskEventTypes = [
   "lease_renewed",
   "execution_submitted",
   "execution_executor_declared",
+  "execution_annotated",
   "review_recorded",
   "review_consent_recorded",
   "code_doc_reconciled",
@@ -133,6 +135,15 @@ export type ExecutionExecutorDeclaredEvent = TaskEventEnvelope<
     readonly reason: string;
   }
 >;
+export type ExecutionAnnotatedEvent = TaskEventEnvelope<
+  "execution_annotated",
+  {
+    readonly task: TaskV2;
+    readonly execution: ExecutionV1;
+    /** The single note this event appended; the same record is the last entry of execution.annotations. */
+    readonly annotation: ExecutionAnnotationV1;
+  }
+>;
 export type ReviewRecordedEvent = TaskEventEnvelope<
   "review_recorded",
   {
@@ -214,6 +225,7 @@ export type TaskMutationEventType = Exclude<
   | "lease_renewed"
   | "execution_submitted"
   | "execution_executor_declared"
+  | "execution_annotated"
   | "review_recorded"
   | "review_consent_recorded"
   | "code_doc_reconciled"
@@ -232,6 +244,7 @@ export type TaskEventV1 =
   | LeaseRenewedEvent
   | ExecutionSubmittedEvent
   | ExecutionExecutorDeclaredEvent
+  | ExecutionAnnotatedEvent
   | ReviewRecordedEvent
   | ReviewConsentRecordedEvent
   | CodeDocReconciledEvent
@@ -352,6 +365,7 @@ function validateTaskEventFields(value: unknown, allowUnknownFields: boolean): r
       "lease_renewed",
       "execution_submitted",
       "execution_executor_declared",
+      "execution_annotated",
       "review_recorded",
       "review_consent_recorded",
       "code_doc_reconciled",
@@ -399,6 +413,14 @@ function validateTaskEventFields(value: unknown, allowUnknownFields: boolean): r
             "bind a dispatched agent on the same principal, and state a reason",
         ),
       );
+  }
+  if (value.type === "execution_annotated") {
+    issues.push(...validateExecutionAnnotationV1s([payload.annotation], allowUnknownFields));
+    if (
+      isRecord(payload.annotation) &&
+      (!sameActorIdentity(payload.annotation.actor, value.actor) || payload.annotation.annotatedAt !== value.occurredAt)
+    )
+      issues.push(invalidEventPayloadIssue("execution annotation must be pinned to its canonical event envelope"));
   }
   if (value.type === "review_recorded") issues.push(...validateReviewV1(payload.review, allowUnknownFields));
   if (value.type === "review_consent_recorded")
@@ -491,6 +513,7 @@ function lifecyclePayloadFields(
     return [...common, ...(edge ? ["edge"] : []), ...(supersedesSubmissionId ? ["supersedesSubmissionId"] : [])];
   if (type === "execution_executor_declared")
     return [...common, "previousActor", ...(dispatchTaskId ? ["dispatchTaskId"] : []), "reason"];
+  if (type === "execution_annotated") return [...common, "annotation"];
   if (type === "review_recorded") return [...common, "review", ...(edge ? ["edge"] : [])];
   if (type === "review_consent_recorded") return [...common, "review", "consent"];
   if (type === "code_doc_reconciled" || type === "completion_gate_verified") return [...common, "witness"];

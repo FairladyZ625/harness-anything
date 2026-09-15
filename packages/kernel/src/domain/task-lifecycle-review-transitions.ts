@@ -83,9 +83,10 @@ function reviewIssues(
       lifecycleContractIssue(
         "manual_intervention_required",
         "return budget exhausted: a changes_requested verdict cannot be recorded for this cut. Amend the " +
-          "submitted packet with `ha task submit --amend` so the reviewer can approve, or raise the budget " +
-          `for this task with \`ha task amend ${snapshot.task?.taskId ?? "<task-id>"} --set ` +
-          "reviewReturnBudget:<n>`, or repository-wide with `ha settings update --review-return-budget <n>`",
+          "submitted packet with `ha task submit --amend` so the reviewer can approve, or escalate to the " +
+          "dispatching principal to raise the review return budget — for this task with `ha task amend " +
+          `${snapshot.task?.taskId ?? "<task-id>"} --set reviewReturnBudget:<n>\`, or repository-wide ` +
+          "with `ha settings update --review-return-budget <n>`",
       ),
     );
   return issues;

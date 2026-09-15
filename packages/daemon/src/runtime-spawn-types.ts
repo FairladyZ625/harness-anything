@@ -101,6 +101,7 @@ export interface TrustedScheduleSpawn extends TrustedScheduleRuntime {
   readonly effort?: string;
   readonly fast?: boolean;
   readonly cwd: string;
+  readonly writableRoots?: readonly string[];
 }
 
 /** The execution lease generation a task-bound dispatch was authorized against; terminal
@@ -292,6 +293,7 @@ export interface RuntimeSpawnerInput {
       readonly fast?: boolean;
       readonly providerSessionId?: string;
       readonly permissionMode?: string;
+      readonly writableRoots?: readonly string[];
     },
   ) => Promise<PreparedRuntimeLaunch>;
   readonly prepareWorkerGitEnvironment?: (instanceId: string) => Promise<NodeJS.ProcessEnv | null>;

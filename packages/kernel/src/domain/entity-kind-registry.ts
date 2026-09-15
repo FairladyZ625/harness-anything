@@ -754,6 +754,7 @@ export const entityKindContracts = withDeclaredEntityActions([
             "lease_renewed",
             "execution_submitted",
             "execution_executor_declared",
+            "execution_annotated",
             "review_recorded",
             "review_consent_recorded",
             "code_doc_reconciled",

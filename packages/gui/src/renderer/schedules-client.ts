@@ -93,6 +93,7 @@ export interface ScheduleDefinitionInput {
   readonly model?: string | null;
   readonly reasoningEffort?: string | null;
   readonly fast?: boolean;
+  readonly writableRoots?: readonly string[];
 }
 
 export const schedulesClient = {

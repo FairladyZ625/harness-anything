@@ -62,13 +62,20 @@ export function launchArgs(
   effort: string | null = null,
   permissionMode: RuntimePermissionMode | undefined = undefined,
   fast = false,
+  writableRoots: readonly string[] = [],
 ): string[] {
   const declaration = runtimeKindForId(config.kindId),
     launch: RuntimeProviderDeclaration["launch"] = declaration.launch,
     permission = permissionMode
       ? ((providerSessionId ? launch.resumePermissionArgs : undefined)?.[permissionMode] ??
         launch.permissionArgs[permissionMode])
-      : [];
+      : [],
+    writableRootTemplate = launch.writableRootArgs;
+  if (writableRoots.length > 0 && writableRootTemplate === undefined)
+    throw runtimeInstanceError(
+      "runtime_writable_roots_unsupported",
+      `Runtime kind ${config.kindId} does not support additional writable roots.`,
+    );
   return launch.argumentTemplate.flatMap((token) => {
     if (token === "$model") return [model];
     if (token === "$prompt") return [prompt];
@@ -80,6 +87,8 @@ export function launchArgs(
     if (token === "$effort-config") return effort ? ["--config", `model_reasoning_effort=${tomlString(effort)}`] : [];
     if (token === "$api-auth") return config.auth.mode === "api-key" ? (launch.apiKeyArgs ?? []) : [];
     if (token === "$fast") return fast ? (launch.fastArgs ?? []) : [];
+    if (token === "$writable-roots")
+      return writableRoots.flatMap((root) => writableRootTemplate!.map((part) => (part === "$root" ? root : part)));
     return [token];
   });
 }
@@ -128,10 +137,7 @@ export function credentialHint(error: unknown): string {
     : credentialUnavailableHint;
 }
 
-export function secureRuntimeBaseUrl(
-  value: unknown,
-  options: { readonly allowInsecureHttp?: boolean } = {},
-): string {
+export function secureRuntimeBaseUrl(value: unknown, options: { readonly allowInsecureHttp?: boolean } = {}): string {
   const text = requiredRuntimeInstanceText(value, "baseUrl");
   let parsed: URL;
   try {
@@ -146,11 +152,7 @@ export function secureRuntimeBaseUrl(
     parsed.hash ||
     (parsed.protocol !== "https:" &&
       !(parsed.protocol === "http:" && ["127.0.0.1", "::1", "localhost"].includes(parsed.hostname)) &&
-      !(
-        parsed.protocol === "http:" &&
-        options.allowInsecureHttp === true &&
-        isPrivateIpv4(parsed.hostname)
-      ))
+      !(parsed.protocol === "http:" && options.allowInsecureHttp === true && isPrivateIpv4(parsed.hostname)))
   )
     throw runtimeInstanceError(
       "invalid_base_url",
@@ -164,11 +166,7 @@ export function secureRuntimeBaseUrl(
 
 function isPrivateIpv4(hostname: string): boolean {
   const octets = hostname.split(".").map(Number);
-  if (
-    octets.length !== 4 ||
-    octets.some((octet) => !Number.isInteger(octet) || octet < 0 || octet > 255)
-  )
-    return false;
+  if (octets.length !== 4 || octets.some((octet) => !Number.isInteger(octet) || octet < 0 || octet > 255)) return false;
   const [first, second] = octets;
   return first === 10 || (first === 192 && second === 168) || (first === 172 && second >= 16 && second <= 31);
 }

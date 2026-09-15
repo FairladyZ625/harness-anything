@@ -11,6 +11,7 @@ import type {
   TaskProjection,
 } from "../../kernel/src/index.ts";
 import {
+  annotateExecution as annotateExecutionImpl,
   declareExecutionExecutor as declareExecutionExecutorImpl,
   executeAction as executeActionImpl,
 } from "./repo-cell-action-dispatch.ts";
@@ -84,6 +85,7 @@ import {
   wipSnapshotEntries as wipSnapshotEntriesImpl,
 } from "./repo-cell-task-query.ts";
 import type { TaskQueryCell } from "./repo-cell-task-query.ts";
+import { listEvents as listEventsImpl, showEvent as showEventImpl } from "./repo-cell-event-query.ts";
 import { type PublicPublication, type RepoTaskAction } from "./repo-cell-types.ts";
 import type { TaskQueryReadModel } from "./task-query-read.ts";
 import type { makeSquadCoordinator } from "./squad-coordinator.ts";
@@ -129,6 +131,8 @@ export interface RepoCellActionContext extends TaskQueryCell {
   readonly showTask: Bound<typeof showTaskImpl>;
   readonly listTasks: Bound<typeof listTasksImpl>;
   readonly listRelations: Bound<typeof listRelationsImpl>;
+  readonly listEvents: Bound<typeof listEventsImpl>;
+  readonly showEvent: Bound<typeof showEventImpl>;
   readonly reviewTask: Bound<typeof reviewTaskImpl>;
   readonly taskReadSet: Bound<typeof taskReadSetImpl>;
   readonly publishGeneratedArtifact: typeof publishGeneratedArtifact;
@@ -148,6 +152,7 @@ export interface RepoCellActionContext extends TaskQueryCell {
   readonly archiveTasks: Bound<typeof archiveTasksImpl>;
   readonly supersedeWithNewTask: Bound<typeof supersedeWithNewTaskImpl>;
   readonly declareExecutionExecutor: Bound<typeof declareExecutionExecutorImpl>;
+  readonly annotateExecution: Bound<typeof annotateExecutionImpl>;
   readonly completeTask: Bound<typeof completeTaskImpl>;
   readonly taskSurfaceWrite: Bound<typeof taskSurfaceWriteImpl>;
   readonly rejected: typeof rejected;
@@ -264,6 +269,8 @@ export function createRepoCellActionContext(bindings: {
     showTask: bind(showTaskImpl),
     listTasks: bind(listTasksImpl),
     listRelations: bind(listRelationsImpl),
+    listEvents: bind(listEventsImpl),
+    showEvent: bind(showEventImpl),
     reviewTask: bind(reviewTaskImpl),
     taskReadSet: bind(taskReadSetImpl),
     taskListQueryFromAction: (_action: RepoTaskAction) => unavailableTaskQuery(),
@@ -292,6 +299,7 @@ export function createRepoCellActionContext(bindings: {
     archiveTasks: bind(archiveTasksImpl),
     supersedeWithNewTask: bind(supersedeWithNewTaskImpl),
     declareExecutionExecutor: bind(declareExecutionExecutorImpl),
+    annotateExecution: bind(annotateExecutionImpl),
     completeTask: bind(completeTaskImpl),
     taskSurfaceWrite: bind(taskSurfaceWriteImpl),
     rejected,

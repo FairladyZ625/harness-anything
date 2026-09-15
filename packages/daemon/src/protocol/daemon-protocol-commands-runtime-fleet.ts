@@ -302,6 +302,7 @@ export const scheduleShowJsonFields = Object.freeze(["scheduleId"] as const),
     "model",
     "reasoningEffort",
     "fast",
+    "writableRoots",
     "idempotencyKey",
   ] as const),
   scheduleDeleteJsonFields = Object.freeze(["scheduleId"] as const),
@@ -392,6 +393,7 @@ export const scheduleProtocolCommands = Object.freeze([
       cliInput("--fast", "boolean", false, {
         code: "invalid_runtime_fast",
       }),
+      cliInput("--writable-root", "repeated", false, { code: "invalid_field" }, { field: "writableRoots" }),
       cliInput("--disabled", "boolean", false, {
         code: "invalid_field",
       }),
@@ -489,6 +491,20 @@ export const scheduleProtocolCommands = Object.freeze([
       cliInput("--fast", "boolean", false, {
         code: "invalid_runtime_fast",
       }),
+      cliInput(
+        "--writable-root",
+        "repeated",
+        false,
+        { code: "invalid_field" },
+        { field: "writableRoots", conflictsWith: ["--clear-writable-roots"] },
+      ),
+      cliInput(
+        "--clear-writable-roots",
+        "boolean",
+        false,
+        { code: "invalid_field" },
+        { conflictsWith: ["--writable-root"] },
+      ),
       scheduleIdInput(),
     ],
   }),

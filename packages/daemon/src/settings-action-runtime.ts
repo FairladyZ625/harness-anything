@@ -9,6 +9,7 @@ import {
   type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
 import { runPresetAction } from "../../preset/src/index.ts";
+import { settingsLastChanged } from "./repo-cell-settings-state.ts";
 import type { RepoCellRuntimeContext, RepoCellSettingsState } from "./repo-cell-action-context.ts";
 import type { EntityActionCatalogRunner } from "./entity-action-catalog-executor.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
@@ -25,6 +26,16 @@ export function makeSettingsActionRuntime(
     if (contract.execution.read) return readSettings(cell, settingsState, action, binding);
     if (binding.authorizationDecision?.outcome !== "allowed")
       throw cell.cellCodedError("actor_unauthorized", "Settings Action execution requires AuthorizationPort approval.");
+    // Repository settings are principal-owned: a runtime executor (agent or runtime-session actor)
+    // must not mutate the repository-wide constraints that govern it, so the write is refused with
+    // an escalation path instead of reaching the event compiler. Reads stay open to every actor.
+    if (binding.actor.executor !== null)
+      throw cell.cellCodedError(
+        "settings_write_requires_principal",
+        `Repository settings can only be changed by the principal; executor ` +
+          `${binding.actor.executor.kind}:${binding.actor.executor.id} cannot run settings-update. ` +
+          "Escalate to the dispatching principal so a person actor can apply the change.",
+      );
     const row = cell.projection.getEntity("settings", SETTINGS_ID),
       revision = row?.workspaceRevision ?? 0,
       opId = settingsOperationId(cell, action, binding, revision, catalogOpId),
@@ -91,6 +102,7 @@ function readSettings(
       },
       settingsId: SETTINGS_ID,
       settings,
+      lastChanged: settingsLastChanged(cell.store),
       effects: [] as readonly string[],
       updatedProjection: null,
     };

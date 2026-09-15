@@ -66,6 +66,7 @@ export function parseRouted(
       {},
       route.method,
     );
+  if (rootCommand === "event") return parseEventRouted(route, args, rootDir, repoId, json, inputs);
   if (rootCommand === "repo") return parseRepoLifecycle(route, args, rootDir, repoId, json, inputs);
   if (rootCommand === "people") return parsePeople(route, args, rootDir, repoId, json, inputs);
   if (route.id === "receipt-show" && nonEmpty(args[2])) {
@@ -109,6 +110,23 @@ export function parseRouted(
   if (route.phase.startsWith("Preset-") || rootCommand === "agent" || rootCommand === "squad")
     return parsePreset(route, args, rootDir, repoId, json, inputs);
   return undefined;
+}
+
+function parseEventRouted(
+  route: ProtocolCommand,
+  args: readonly string[],
+  rootDir: SafePath,
+  repoId: string | undefined,
+  json: boolean,
+  inputs: ThinCliInputDirectory,
+): ThinParseResult {
+  if (route.id === "event-show") {
+    const opId = args[2];
+    return nonEmpty(opId)
+      ? parseProjected(route.id, args.slice(3), rootDir, repoId, json, inputs, { opId }, {}, route.method)
+      : rejected("missing_field", "Use ha event show <op-id|event-id>.", json);
+  }
+  return parseProjected(route.id, args.slice(2), rootDir, repoId, json, inputs, {}, {}, route.method);
 }
 
 function parseRepoLifecycle(

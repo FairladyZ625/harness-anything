@@ -10,6 +10,7 @@ import {
 import type { RepoCellCore } from "./repo-cell.ts";
 import { readAcceptedCommandOutcome } from "../../kernel/src/index.ts";
 import { daemonSettingsRead } from "./protocol/daemon-settings-read-types.ts";
+import { settingsLastChanged } from "./repo-cell-settings-state.ts";
 import { settleWriteReceipt } from "./write-receipt-settlement.ts";
 import { repoCellStatus, repoCellStatusCuts } from "./repo-cell-status.ts";
 import {
@@ -529,7 +530,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
         ...(payload.window === undefined ? {} : { window: Number(payload.window) }),
       }),
     // settings 原样返回(含 locale);values 为 kernel 拍平的动作值面(键 = 契约字段)。
-    "repo.settings.read": () => daemonSettingsRead(context.settings.read()),
+    "repo.settings.read": () => daemonSettingsRead(context.settings.read(), settingsLastChanged(context.store)),
     "repo.tasks.list": (payload: Readonly<Record<string, unknown>>) =>
       queryRead().guiTasks(taskListQueryFromPayload(payload)),
     "repo.tasks.wip": () => readTaskWipSnapshot(context as unknown as TaskQueryCell),

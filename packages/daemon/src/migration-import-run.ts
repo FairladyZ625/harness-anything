@@ -181,6 +181,7 @@ export interface MigrationImportContext extends MigrationRelationsContext {
   readonly factDocuments: Map<
     string,
     Array<{
+      readonly taskId?: string;
       readonly factId: string;
       readonly statement: string;
       readonly evidenceSource: string;
@@ -300,6 +301,7 @@ export async function runSingleMigrationImport(
     factDocuments = new Map<
       string,
       Array<{
+        readonly taskId?: string;
         readonly factId: string;
         readonly statement: string;
         readonly evidenceSource: string;

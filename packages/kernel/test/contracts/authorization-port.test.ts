@@ -61,9 +61,11 @@ test("the default Policy covers the frozen durable inventory exactly once", () =
   // entity-kind-content-declared 三个 integration 测试),不是把数字改对就算数。
   // 2026-09-12: task-closeout retired with its packet protocol; complete is the sole closeout mutation, 114 → 113.
   // 2026-09-15 task_288b0a29: repository unbind replaces daemon-repo-unregister (same count) and adds the admin-only
-  // repo-purge (cache scope) at the user's request, CEO confirmed; a reader calling daemon.repo.purge is refused
+  // repo-purge at the user's request, CEO confirmed; a reader calling daemon.repo.purge is refused
   // with authorization_denied in json-rpc-task-settlement.integration.test.ts, 113 → 114.
-  assert.equal(durablePolicyActions.length, 114);
+  // 2026-09-15 task_569d4d4c: task-annotate enters the durable inventory (CEO confirmed) — append-only execution
+  // annotations are repository writes gated under repo-write alongside the other task lifecycle actions, 114 → 115.
+  assert.equal(durablePolicyActions.length, 115);
   // 其余两条是自洽不变量,不需要第二个硬编码数字:清单内无重复(三个角色分段互不重叠),
   // 且每个 durable Action 恰好被一条 rule 覆盖。
   assert.equal(new Set(durablePolicyActions).size, durablePolicyActions.length);

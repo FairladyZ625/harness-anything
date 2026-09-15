@@ -213,11 +213,29 @@ test("Codex sidecar launch materializes the complete non-secret provider config 
     chmodSync(path.join(userRoot, "runtime-instances.json"), 0o644);
     for (const directory of [stateRoot, ...["home", "tmp", "run"].map((name) => path.join(stateRoot, name))])
       chmodSync(directory, 0o755);
-    const launch = await store.prepareLaunch("codex-api", { cwd: "/workspace/repo", prompt: "Inspect" });
+    const launch = await store.prepareLaunch("codex-api", { cwd: "/workspace/repo", prompt: "Inspect" }),
+      writableLaunch = await store.prepareLaunch("codex-api", {
+        cwd: "/workspace/repo",
+        prompt: "Inspect",
+        writableRoots: ["/workspace/repo/tmp/backup", "/workspace/repo/.harness/drills"],
+      });
     assert.equal(resolvedReference, "keychain:harness/codex-api");
     assert.deepEqual(launch.installation, observed);
     assert.equal(launch.executablePath, observed.executablePath);
     assert.deepEqual(launch.args, ["exec", "--json", "--sandbox", "danger-full-access", "--model", "gpt-5.6-sol", "-"]);
+    assert.deepEqual(writableLaunch.args, [
+      "exec",
+      "--json",
+      "--sandbox",
+      "danger-full-access",
+      "--add-dir",
+      "/workspace/repo/tmp/backup",
+      "--add-dir",
+      "/workspace/repo/.harness/drills",
+      "--model",
+      "gpt-5.6-sol",
+      "-",
+    ]);
     assert.deepEqual(launch.env, expectedIsolatedEnvironment(stateRoot, "codex", { PATH: "/runtime/tools" }));
     const codexConfig = path.join(launch.env.CODEX_HOME!, "config.toml"),
       text = readFileSync(codexConfig, "utf8");
@@ -444,6 +462,11 @@ test("subscription launch fails closed without provider-native readiness and nev
     assert.equal(credentialCalls, 0);
     ready = true;
     const launch = await store.prepareLaunch("claude-subscription", { cwd: "/workspace/repo", prompt: "Inspect" }),
+      writableLaunch = await store.prepareLaunch("claude-subscription", {
+        cwd: "/workspace/repo",
+        prompt: "Inspect",
+        writableRoots: ["/workspace/repo/tmp/backup"],
+      }),
       stateRoot = path.join(userRoot, "runtime-instances", "claude-subscription");
     assert.deepEqual(launch.args, [
       "-p",
@@ -456,6 +479,12 @@ test("subscription launch fails closed without provider-native readiness and nev
       "bypassPermissions",
       "--model",
       "claude-fable-5",
+    ]);
+    assert.deepEqual(writableLaunch.args.slice(6, 10), [
+      "--permission-mode",
+      "bypassPermissions",
+      "--add-dir",
+      "/workspace/repo/tmp/backup",
     ]);
     assert.deepEqual(launch.env, expectedIsolatedEnvironment(stateRoot, "claude", { PATH: "/runtime/tools" }));
     assert.deepEqual(readinessEnvironment, launch.env);
@@ -689,6 +718,10 @@ test("Codex fast reaches its CLI, per-run false overrides its default, and unsup
     await assert.rejects(
       store.prepareLaunch("agy-fast", { cwd: "/workspace/repo", prompt: "Reject", fast: true }),
       (error: unknown) => codedAs(error, "invalid_runtime_fast"),
+    );
+    await assert.rejects(
+      store.prepareLaunch("agy-fast", { cwd: "/workspace/repo", prompt: "Reject", writableRoots: ["/tmp/out"] }),
+      (error: unknown) => codedAs(error, "runtime_writable_roots_unsupported"),
     );
     assert.throws(
       () => store.command({ kind: "runtime-instance-update", instanceId: "agy-fast", fast: true }),

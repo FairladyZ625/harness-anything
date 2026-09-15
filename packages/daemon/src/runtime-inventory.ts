@@ -55,6 +55,7 @@ export interface RuntimeProviderDeclaration {
     readonly resumePermissionArgs?: Readonly<Record<"bypass" | "workspace-write" | "read-only", readonly string[]>>;
     readonly apiKeyArgs?: readonly string[];
     readonly fastArgs?: readonly string[];
+    readonly writableRootArgs?: readonly string[];
   };
   readonly sessionIdentity: {
     readonly eventDiscriminator: readonly [string, string] | null;
@@ -121,6 +122,7 @@ export const runtimeKinds = [
         "--output-format",
         "stream-json",
         "$permission",
+        "$writable-roots",
         "--model",
         "$model",
         "$effort-flag",
@@ -133,6 +135,7 @@ export const runtimeKinds = [
         "read-only": ["--permission-mode", "plan"],
       },
       apiKeyArgs: ["--bare"],
+      writableRootArgs: ["--add-dir", "$root"],
     },
     sessionIdentity: {
       eventDiscriminator: null,
@@ -224,6 +227,7 @@ export const runtimeKinds = [
         "$resume-command",
         "--json",
         "$permission",
+        "$writable-roots",
         "--model",
         "$model",
         "$effort-config",
@@ -256,6 +260,7 @@ export const runtimeKinds = [
         "read-only": ["--config", 'sandbox_mode="read-only"'],
       },
       fastArgs: ["--config", 'service_tier="fast"'],
+      writableRootArgs: ["--add-dir", "$root"],
     },
     sessionIdentity: {
       eventDiscriminator: ["type", "thread.started"],

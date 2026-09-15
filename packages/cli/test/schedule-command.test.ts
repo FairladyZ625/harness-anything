@@ -25,6 +25,9 @@ test("Schedule CLI exposes CRUD and run-control commands with closed inputs", ()
     "--mission",
     "Run the probe",
     "--fast",
+    "--writable-root",
+    "tmp/harness-backup",
+    "--writable-root=.harness/restore-drills",
     "--disabled",
     "--idempotency-key",
     "seed-e2e-probe",
@@ -41,6 +44,7 @@ test("Schedule CLI exposes CRUD and run-control commands with closed inputs", ()
       runtimeInstanceId: "codex-probe",
       mission: "Run the probe",
       fast: true,
+      writableRoots: ["tmp/harness-backup", ".harness/restore-drills"],
       disabled: true,
       idempotencyKey: "seed-e2e-probe",
     });
@@ -171,6 +175,18 @@ test("Schedule CLI accepts cron and rejects ambiguous triggers, sub-minute inter
       mission: "one",
     });
   assert.equal(parseThinCommand(["schedule", "update", "probe"]).ok, false);
+  const cleared = parseThinCommand(["schedule", "update", "probe", "--clear-writable-roots"]);
+  assert.equal(cleared.ok, true);
+  if (cleared.ok)
+    assert.deepEqual(cleared.command.action, {
+      kind: "schedule-update",
+      scheduleId: "probe",
+      writableRoots: [],
+    });
+  assert.equal(
+    parseThinCommand(["schedule", "update", "probe", "--writable-root", "tmp/backup", "--clear-writable-roots"]).ok,
+    false,
+  );
   assert.equal(
     parseThinCommand(["schedule", "update", "probe", "--mission", "one", "--mission-file", "mission.md"]).ok,
     false,

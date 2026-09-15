@@ -1,4 +1,4 @@
-import { readCloseoutSubmission, submissionStopped } from "./repo-cell-submit.ts";
+import { readCloseoutSubmission, submissionAnchorDriftWarnings, submissionStopped } from "./repo-cell-submit.ts";
 import { createHash } from "node:crypto";
 import {
   compileTaskLifecycleWrite,
@@ -218,7 +218,8 @@ export async function runTaskCommandWithDocs(
         ? taskAction.executionId
         : current.snapshot.lease?.executionId
       : undefined;
-  let submittedAction = taskAction;
+  let submittedAction = taskAction,
+    anchorDriftWarnings: readonly string[] = [];
   if (submittedExecutionId) {
     const derived = readCloseoutSubmission(cell, taskId, submittedExecutionId, current.snapshot, bodyOverrides);
     if (!derived.ok) {
@@ -233,6 +234,10 @@ export async function runTaskCommandWithDocs(
         derived.error,
       );
     }
+    anchorDriftWarnings = submissionAnchorDriftWarnings(
+      current.snapshot.executions.find((execution) => execution.executionId === submittedExecutionId)?.submission,
+      derived.submission,
+    );
     submittedAction = { ...taskAction, executionId: submittedExecutionId, submission: derived.submission };
   }
   const normalized = cell.buildCommand(
@@ -274,6 +279,7 @@ export async function runTaskCommandWithDocs(
       );
     return {
       ...receipt,
+      ...(anchorDriftWarnings.length ? { warnings: anchorDriftWarnings } : {}),
       taskId,
       docSync: {
         outcome: "applied",

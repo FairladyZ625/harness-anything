@@ -164,6 +164,8 @@ export interface WriteReceiptDraft extends Partial<Omit<ReceiptAcceptanceFields,
   readonly authorizationDecision?: AuthorizationDecision;
   readonly unmetCriteria?: readonly EntityActionUnmetCriterionV1[];
   readonly effects?: readonly string[];
+  /** Non-blocking advisories (for example a closeout/artifact drift noticed at submit time). */
+  readonly warnings?: readonly string[];
   readonly updatedProjection?: {
     readonly kind: string;
     readonly ref: string;
@@ -212,6 +214,7 @@ export const WRITE_RECEIPT_SCHEMA = Object.freeze({
     "commitSha",
     "unmetCriteria",
     "effects",
+    "warnings",
     "updatedProjection",
     "rejectionExplanation",
     "nextAction",
@@ -256,6 +259,11 @@ export function validateWriteReceipt(value: unknown): readonly string[] {
     errors.push("diagnostic must be a structured receipt diagnostic");
   if ("effects" in value && (!Array.isArray(value.effects) || value.effects.some((entry) => !isNonEmptyString(entry))))
     errors.push("effects must be an array of effect references");
+  if (
+    "warnings" in value &&
+    (!Array.isArray(value.warnings) || value.warnings.some((entry) => !isNonEmptyString(entry)))
+  )
+    errors.push("warnings must be an array of advisory messages");
   if (
     "rejectionExplanation" in value &&
     value.rejectionExplanation !== null &&

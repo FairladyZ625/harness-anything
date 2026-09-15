@@ -3,12 +3,15 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   REPLAY_TASK_GRAPH,
+  compileExecutionAnnotation,
+  compileTaskLifecycleWrite,
   currentTaskForWrite,
+  lifecycleDocumentPaths,
   reduceTaskEvent,
   type TaskEventV1,
   type TaskLifecycleSnapshot,
 } from "../../src/index.ts";
-import { lifecycleFixture, implementer } from "../store/task-lifecycle-fixture.ts";
+import { lifecycleFixture, implementer, twoRoundLifecycleEvents } from "../store/task-lifecycle-fixture.ts";
 import { closeoutReadiness } from "../../src/domain/closeout-readiness.ts";
 import { validateTaskGraph } from "../../src/domain/task-graph.ts";
 import {
@@ -185,4 +188,85 @@ test("accepted history still rejects missing approval and mismatched gate bindin
 test("a graph stored with the retired maxIterations field still validates strictly", () => {
   assert.deepEqual(validateTaskGraph({ ...REPLAY_TASK_GRAPH, maxIterations: 1 }), []);
   assert.equal(validateTaskGraph({ ...REPLAY_TASK_GRAPH, maxIterationz: 1 }).length, 1);
+});
+
+test("execution annotation appends one note to a historical execution without rewriting it", () => {
+  const { snapshot } = twoRoundLifecycleEvents(),
+    historical = snapshot.executions.find((value) => value.executionId === "execution-round-one")!,
+    compiled = compileExecutionAnnotation({
+      snapshot,
+      taskId: "task-two-round",
+      executionId: "execution-round-one",
+      actor: implementer,
+      source: "local",
+      kind: "superseded-by",
+      note: "Superseded by execution-round-two after requested changes.",
+      opId: "op-annotate",
+      eventId: "event-annotate",
+      workspaceRevision: snapshot.revision + 1,
+      occurredAt: "2026-08-11T00:10:00.000Z",
+    });
+  assert.equal(compiled.event.type, "execution_annotated");
+  const annotated = compiled.snapshot.executions.find((value) => value.executionId === "execution-round-one")!,
+    current = compiled.snapshot.executions.find((value) => value.executionId === "execution-round-two")!;
+  // Original record fields are untouched; only the append-only notes list grew.
+  const { annotations: _annotations, ...rest } = annotated;
+  assert.deepEqual(rest, historical);
+  assert.deepEqual(annotated.annotations, [
+    {
+      kind: "superseded-by",
+      note: "Superseded by execution-round-two after requested changes.",
+      actor: implementer,
+      annotatedAt: "2026-08-11T00:10:00.000Z",
+    },
+  ]);
+  assert.equal(current.annotations, undefined);
+  assert.equal(compiled.snapshot.task?.iteration, snapshot.task?.iteration);
+  // The write plan rewrites only the annotated Execution's record, even for a past iteration.
+  assert.deepEqual(lifecycleDocumentPaths(compiled.event, "tasks/task-two-round"), [
+    "tasks/task-two-round/executions/execution-round-one.md",
+  ]);
+  const write = compileTaskLifecycleWrite({
+    event: compiled.event,
+    snapshot: compiled.snapshot,
+    packagePath: "tasks/task-two-round",
+    currentDocuments: [],
+  });
+  assert.deepEqual(write.changedPaths, ["tasks/task-two-round/executions/execution-round-one.md"]);
+  assert.match(
+    write.blobs[0]!.body,
+    /## Annotations\n\n- 2026-08-11T00:10:00\.000Z superseded-by by person-owner: Superseded by execution-round-two/u,
+  );
+  // Replay of the canonical event lands the same snapshot; a payload that does not append the
+  // envelope-pinned note is rejected, so history stays append-only.
+  assert.deepEqual(reduceTaskEvent(snapshot, compiled.event), compiled.snapshot);
+  const tampered = {
+    ...compiled.event,
+    payload: { ...compiled.event.payload, execution: historical },
+  } as TaskEventV1;
+  assert.throws(() => reduceTaskEvent(snapshot, tampered), /append exactly one/u);
+  for (const invalid of [
+    { executionId: "execution-missing" },
+    { note: "   " },
+    { kind: "obsolete" as never },
+    { workspaceRevision: snapshot.revision },
+  ])
+    assert.throws(
+      () =>
+        compileExecutionAnnotation({
+          snapshot,
+          taskId: "task-two-round",
+          executionId: "execution-round-one",
+          actor: implementer,
+          source: "local",
+          kind: "correction",
+          note: "correction",
+          opId: "op-annotate",
+          eventId: "event-annotate",
+          workspaceRevision: snapshot.revision + 1,
+          occurredAt: "2026-08-11T00:10:00.000Z",
+          ...invalid,
+        }),
+      /annotation|append/u,
+    );
 });

@@ -151,6 +151,7 @@ export function addOracleFact(context: MigrationImportContext, source: Projectio
           provenance: canonicalMigrationProvenance(provenance) as never,
         },
         record = {
+          ...(mappedTaskId ? { taskId: mappedTaskId } : {}),
           factId: targetFactId,
           statement: fact.statement,
           evidenceSource: fact.evidenceSource,

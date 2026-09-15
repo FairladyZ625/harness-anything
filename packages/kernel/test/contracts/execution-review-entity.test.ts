@@ -97,6 +97,7 @@ test("execution and review are dependency-free EntityKindContracts with lifecycl
           "lease_renewed",
           "execution_submitted",
           "execution_executor_declared",
+          "execution_annotated",
           "review_recorded",
           "review_consent_recorded",
           "code_doc_reconciled",

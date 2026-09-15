@@ -138,6 +138,7 @@ export const actionDeclarations = Object.freeze([
   canonical("squad-install", "squad/install", "repo-write"),
   canonical("squad-run", "squad/run", "repo-write"),
   canonical("task-amend", "task/amend", "repo-write"),
+  canonical("task-annotate", null, "repo-write"),
   canonical("task-archive", "task/archive", "repo-write"),
   canonical("task-artifact-add", null, "repo-write"),
   canonical("task-code-doc-reconcile", "task/reconcile", "repo-write"),

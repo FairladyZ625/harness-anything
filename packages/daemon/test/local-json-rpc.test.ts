@@ -316,7 +316,7 @@ test("non-read protocol, Policy, receipt, residency, and entity catalogs close o
     ),
     declaredKinds = new Set(actionDeclarations.map(({ kind }) => kind)),
     protocolKinds = new Set(protocol.keys());
-  assert.equal(actionDeclarations.length, 120);
+  assert.equal(actionDeclarations.length, 121);
   assert.deepEqual([...protocolKinds].sort(), [...declaredKinds].sort());
   for (const [kind, descriptor] of protocol) {
     const declaration = actionDeclarations.find((candidate) => candidate.kind === kind);
@@ -401,6 +401,8 @@ test("protocol descriptors preserve topology metadata without authorizing action
     "task-complete": "repo-write",
     "task-show": "repo-read",
     "receipt-show": "repo-read",
+    "event-list": "repo-read",
+    "event-show": "repo-read",
     "doc-status": "repo-read",
     "doc-dry-run": "repo-read",
     "doc-submit": "repo-write",
