@@ -10,6 +10,24 @@ import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 export const artifactAnchorGuidance =
   "Use artifact:artifacts/report.md; submit pins the current center-accepted revision.";
 
+const artifactAnchorPattern = /artifact:([^\s`<>@]+?)(?:@([1-9][0-9]*))?(?=$|[\s`<>,)，。]|[.](?=$|[\s`<>,)，。]))/gu;
+
+type ArtifactAnchorMatch = {
+  readonly path: string;
+  readonly revision?: number;
+  readonly start: number;
+  readonly end: number;
+};
+
+function artifactAnchorMatches(summary: string): readonly ArtifactAnchorMatch[] {
+  return [...summary.matchAll(artifactAnchorPattern)].map((match) => ({
+    path: match[1]!,
+    ...(match[2] === undefined ? {} : { revision: Number(match[2]) }),
+    start: match.index!,
+    end: match.index! + match[0]!.length,
+  }));
+}
+
 /** Anchors name this task's artifacts package-relative; the frozen cut stores the full task-package path. */
 export function submissionArtifactPath(packagePath: string, path: string): string {
   return path.startsWith("artifacts/") ? `${packagePath}/${path}` : path;
@@ -56,8 +74,18 @@ export function readSubmissionArtifact(
 }
 
 export function artifactAnchors(summary: string): readonly { readonly path: string; readonly revision?: number }[] {
-  return [...summary.matchAll(/artifact:([^\s`<>@]+)(?:@([1-9][0-9]*))?(?=$|[\s`<>])/gu)].map((match) => ({
-    path: match[1]!,
-    ...(match[2] === undefined ? {} : { revision: Number(match[2]) }),
+  return artifactAnchorMatches(summary).map(({ path, revision }) => ({
+    path,
+    ...(revision === undefined ? {} : { revision }),
   }));
+}
+
+export function removeArtifactAnchors(summary: string): string {
+  let cursor = 0,
+    result = "";
+  for (const { start, end } of artifactAnchorMatches(summary)) {
+    result += summary.slice(cursor, start);
+    cursor = end;
+  }
+  return result + summary.slice(cursor);
 }

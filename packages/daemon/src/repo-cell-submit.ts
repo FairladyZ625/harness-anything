@@ -18,6 +18,7 @@ import { assertCurrentSubmittedExecution } from "./repo-cell-execution-selection
 import {
   artifactAnchorGuidance,
   artifactAnchors,
+  removeArtifactAnchors,
   readSubmissionArtifact,
   submissionArtifactPath,
 } from "./submission-artifacts.ts";
@@ -44,7 +45,7 @@ export function deriveCloseoutSubmission(
     // Parse/validate before reading any Git cut. No risk or verification line is filtered.
     prose = submissionFromCloseout(document.body, { commitSha: "0".repeat(40), deliverables: [], outputs: [] }),
     anchors = artifactAnchors(prose.completionClaim),
-    named = [...new Set(prose.completionClaim.replace(/artifact:[^\s`<>]+/gu, "").match(/\b[0-9a-f]{40}\b/gu) ?? [])];
+    named = [...new Set(removeArtifactAnchors(prose.completionClaim).match(/\b[0-9a-f]{40}\b/gu) ?? [])];
   if (named.length > 1)
     throw cell.cellCodedError(
       "invalid_submission",
