@@ -8,6 +8,7 @@ import {
   INITIAL_SETTINGS_V1,
   SETTINGS_LOCAL_PATH,
   compileSettingsChangedEvent,
+  isSettingsEvent,
   parseLocalSettings,
   readSettingsFacet,
   repositorySettings,
@@ -15,6 +16,7 @@ import {
   serializeLocalSettings,
   validateRepositorySettings,
   writeRepositorySettingsFacet,
+  type CanonicalEventV1,
   type CloseoutGate,
   type CloseoutSettingsV1,
   type RepositorySettingsV1,
@@ -25,6 +27,7 @@ import {
 import { writeFileDurably } from "./durable-file.ts";
 import type { RepoCellActionContext, RepoCellSettingsState } from "./repo-cell-action-context.ts";
 import type { RepoCellBinding } from "./repo-cell-types.ts";
+import type { DaemonSettingsLastChange } from "./protocol/daemon-settings-read-types.ts";
 
 export function makeRepoCellSettingsState(cell: RepoCellActionContext): RepoCellSettingsState {
   const localPath = path.join(cell.rootDir, ...SETTINGS_LOCAL_PATH.split("/"));
@@ -125,6 +128,25 @@ export function readEffectiveReviewReturnBudget(
   return {
     value: projected?.reviewReturnBudget ?? INITIAL_SETTINGS_V1.reviewReturnBudget,
     source: "repository",
+  };
+}
+
+/**
+ * The `settings read` attribution: the latest `settings_changed` event already carries the
+ * provenance (occurredAt, actor, workspace revision) the entity projection does not retain, so the
+ * read path derives it straight from the canonical stream. A repository with no settings change
+ * event reports "initial". The actor compacts to `person:<personId>` or `<executor-kind>:<id>`.
+ */
+export function settingsLastChanged(events: readonly CanonicalEventV1[]): DaemonSettingsLastChange | "initial" {
+  const latest = events.filter(isSettingsEvent).at(-1);
+  if (latest === undefined) return "initial";
+  return {
+    occurredAt: latest.occurredAt,
+    actor:
+      latest.actor.executor === null
+        ? `person:${latest.actor.principal.personId}`
+        : `${latest.actor.executor.kind}:${latest.actor.executor.id}`,
+    revision: latest.workspaceRevision,
   };
 }
 

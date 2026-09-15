@@ -10,7 +10,11 @@ import { validateWriteReceipt } from "../../kernel/test/store/canonical-generati
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 
-const actor = { principal: { personId: "settings-owner" }, executor: { kind: "agent", id: "settings-test" } } as const;
+const actor = { principal: { personId: "settings-owner" }, executor: null } as const,
+  agentActor = {
+    principal: { personId: "settings-owner" },
+    executor: { kind: "agent", id: "runtime-session:settings-test" },
+  } as const;
 
 test("settings writes reject catalog-inconsistent vertical, preset, and profile selections", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-settings-catalog-"));
@@ -35,6 +39,13 @@ test("settings writes reject catalog-inconsistent vertical, preset, and profile 
       initialRevision = read.revision!;
     assert.equal(catalogSettings?.locale, "en-US");
     assert.deepEqual(catalogSettings?.ci?.workflows, ["ci"]);
+    // The seeded bootstrap settings_changed event is the only change so far, and its provenance
+    // (fixture actor, not the reader) surfaces on the read receipt.
+    assert.deepEqual(read.lastChanged, {
+      occurredAt: "2026-08-27T00:00:00.000Z",
+      actor: "person:fixture",
+      revision: 1,
+    });
     for (const selection of [
       { defaultVertical: "software/coding", defaultPreset: "standard-task", defaultProfile: "prose" },
       { defaultVertical: "other/vertical", defaultPreset: "standard-task", defaultProfile: "baseline" },
@@ -110,6 +121,18 @@ test("settings writes reject catalog-inconsistent vertical, preset, and profile 
     assert.equal(replayed.opId, applied.opId);
     assert.equal(replayed.revision, applied.revision);
     assert.equal(eventStore.read().events.filter((event) => event.schema === "settings-event/v1").length, eventCount);
+
+    // After the write, the attribution line follows the latest settings_changed event rather than
+    // the bootstrap seed: principal actor and the event's own workspace revision.
+    const attributed = await cell.run({ kind: "settings-read" }, binding);
+    assert.equal(attributed.outcome, "applied", JSON.stringify(attributed));
+    assert.deepEqual(attributed.lastChanged, {
+      occurredAt: audited!.occurredAt,
+      actor: "person:settings-owner",
+      revision: applied.revision,
+    });
+    const guiRead = (await cell.read("repo.settings.read")) as { readonly lastChanged: unknown };
+    assert.deepEqual(guiRead.lastChanged, attributed.lastChanged);
 
     const currentRevision = applied.revision!,
       unchanged = await cell.run(
@@ -238,6 +261,47 @@ test("settings writes reject catalog-inconsistent vertical, preset, and profile 
     assert.equal(localApplied.outcome, "applied", JSON.stringify(localApplied));
     assert.equal(eventStore.readHead()!.revision, beforeLocalRevision);
     assert.deepEqual(localApplied.effects, ["settings-local/locale_changed"]);
+  } finally {
+    await cell?.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("settings writes from a runtime executor are refused and must escalate to the principal", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-settings-principal-"));
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    initRepo(root);
+    cell = await openRepoCell({
+      repoId: workspaceId("settings-principal"),
+      rootDir: canonicalRoot(root),
+      ownerId: "settings-principal-test",
+    });
+    const agent = { actor: agentActor, source: "local" as const },
+      configPath = path.join(root, "harness/harness.yaml"),
+      before = readFileSync(configPath, "utf8");
+    // Reads stay open to runtime actors; only the write path is principal-gated.
+    const read = await cell.run({ kind: "settings-read" }, agent);
+    assert.equal(read.outcome, "applied", JSON.stringify(read));
+
+    const eventStore = makeTaskEventReader({ repoId: "settings-principal", rootDir: root }),
+      settingsEvents = () => eventStore.read().events.filter((event) => event.schema === "settings-event/v1").length,
+      refused = await cell.run(
+        { kind: "settings-update", defaultPreset: "docs-task", idempotencyKey: "agent-settings-update" },
+        agent,
+      );
+    assert.equal(refused.outcome, "op_rejected", JSON.stringify(refused));
+    assert.equal(refused.code, "settings_write_requires_principal");
+    assert.match(refused.rejectionExplanation ?? "", /dispatching principal/u);
+    assert.equal(readFileSync(configPath, "utf8"), before);
+    assert.equal(settingsEvents(), 1, "the refused write must not append a settings_changed event");
+
+    // The same write from the principal (no executor) still applies.
+    const applied = await cell.run(
+      { kind: "settings-update", defaultPreset: "docs-task", idempotencyKey: "principal-settings-update" },
+      { actor, source: "local" as const },
+    );
+    assert.equal(applied.outcome, "applied", JSON.stringify(applied));
   } finally {
     await cell?.close();
     rmSync(root, { recursive: true, force: true });

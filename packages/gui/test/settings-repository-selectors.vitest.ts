@@ -200,6 +200,7 @@ async function mountView(
         ok: true,
         settings: SETTINGS,
         values: SETTINGS_VALUES,
+        lastChanged: "initial",
       }),
       ...(options.catalogBridge ? { getCatalogSnapshot: options.catalogBridge } : {}),
     },
@@ -210,6 +211,7 @@ async function mountView(
     ok: true,
     settings: SETTINGS,
     values: SETTINGS_VALUES,
+    lastChanged: "initial",
   });
   // 目录快照走缓存种子(与 preset-detail/system-group-widescreen 同一模式),桥只承担写面;
   // 显式传 null 表示「不种」,用于让目录读面真的失败。
