@@ -4,6 +4,7 @@ import type { RuntimeInstallation, RuntimeKind, RuntimeKindId } from "../../kern
 
 export type RuntimeCapabilitySupport = "supported" | "unsupported" | "unverified";
 export type RuntimeAuthMode = "subscription" | "api-key";
+export type RuntimeEndpointAvailability = "none" | "optional" | "required";
 export interface RuntimeProviderDeclaration {
   readonly kindId: string;
   readonly protocolFamily: RuntimeInstallation["protocolFamily"];
@@ -40,6 +41,11 @@ export interface RuntimeProviderDeclaration {
      * matching the instance's call path (e.g. "chat-gpt" over the advertised
      * "api-key"). Absent means the first advertised method is used. */
     readonly acpAuthMethod?: string;
+    /** Endpoint configurability is a per-kind declaration, not derivable from `modes`:
+     * an ACP kind can offer an api-key call path (the key rides `authenticate`'s
+     * `_meta.api_key`) while having no endpoint concept at all. "required" means the
+     * api-key call path cannot launch against a built-in default endpoint. */
+    readonly endpoints: { readonly baseUrl: RuntimeEndpointAvailability };
   };
   readonly isolation: {
     readonly defaultState: "enforced" | "operator-environment";
@@ -105,6 +111,8 @@ export const runtimeKinds = [
       modes: ["subscription", "api-key"],
       subscriptionProbe: ["auth", "status", "--json"],
       subscriptionProbeTimeoutMs: 5_000,
+      // The API override sets ANTHROPIC_BASE_URL; empty falls back to the official endpoint.
+      endpoints: { baseUrl: "optional" },
     },
     isolation: { defaultState: "operator-environment", states: ["enforced", "operator-environment"] },
     permissions: { available: true, defaultMode: "bypass" },
@@ -215,6 +223,9 @@ export const runtimeKinds = [
       modes: ["subscription", "api-key"],
       subscriptionProbe: ["login", "status"],
       subscriptionProbeTimeoutMs: 5_000,
+      // API-key instances write model_providers.<id>.base_url into the generated
+      // config.toml; absent means the provider's built-in endpoint.
+      endpoints: { baseUrl: "optional" },
     },
     isolation: { defaultState: "enforced", states: ["enforced", "operator-environment"] },
     permissions: { available: true, defaultMode: "bypass" },
@@ -309,6 +320,7 @@ export const runtimeKinds = [
       modes: ["subscription"],
       subscriptionProbe: ["models"],
       subscriptionProbeTimeoutMs: 15_000,
+      endpoints: { baseUrl: "none" },
     },
     isolation: { defaultState: "operator-environment", states: ["operator-environment"] },
     permissions: { available: false, defaultMode: "bypass" },
@@ -378,6 +390,9 @@ export const runtimeKinds = [
       modes: ["subscription", "api-key"],
       subscriptionProbe: ["doctor"],
       subscriptionProbeTimeoutMs: 5_000,
+      // API-key instances write provider options.baseURL into the generated
+      // cli/config.json; absent means the provider's default endpoint (default: zai).
+      endpoints: { baseUrl: "optional" },
     },
     isolation: { defaultState: "enforced", states: ["enforced", "operator-environment"] },
     permissions: { available: true, defaultMode: "bypass" },
@@ -448,6 +463,8 @@ export const runtimeKinds = [
       subscriptionProbe: ["auth", "status"],
       subscriptionProbeTimeoutMs: 10_000,
       acpCredentialKey: "windsurf_api_key",
+      // ACP local binary: the key rides authenticate's _meta.api_key; no endpoint exists.
+      endpoints: { baseUrl: "none" },
     },
     isolation: { defaultState: "operator-environment", states: ["enforced", "operator-environment"] },
     permissions: { available: true, defaultMode: "bypass" },
@@ -516,6 +533,7 @@ export const runtimeKinds = [
       // `cursor_login` consumes the linked cli-config.json and accepts an empty
       // api_key; it is the only advertised method anyway.
       acpAuthMethod: "cursor_login",
+      endpoints: { baseUrl: "none" },
     },
     isolation: { defaultState: "operator-environment", states: ["enforced", "operator-environment"] },
     permissions: { available: true, defaultMode: "bypass" },
@@ -584,6 +602,7 @@ export const runtimeKinds = [
       // Advertised methods are ["api-key", "chat-gpt"]; the ChatGPT login in
       // the linked auth.json answers "chat-gpt" with an empty api_key.
       acpAuthMethod: "chat-gpt",
+      endpoints: { baseUrl: "none" },
     },
     isolation: { defaultState: "operator-environment", states: ["enforced", "operator-environment"] },
     permissions: { available: true, defaultMode: "bypass" },
@@ -647,6 +666,7 @@ export const runtimeKinds = [
       modes: ["subscription"],
       subscriptionProbe: ["--version"],
       subscriptionProbeTimeoutMs: 10_000,
+      endpoints: { baseUrl: "none" },
     },
     isolation: { defaultState: "operator-environment", states: ["enforced", "operator-environment"] },
     permissions: { available: true, defaultMode: "bypass" },
@@ -712,6 +732,7 @@ export const runtimeKinds = [
       subscriptionProbe: ["--version"],
       subscriptionProbeTimeoutMs: 10_000,
       acpAuthMethod: "gemini-api-key",
+      endpoints: { baseUrl: "none" },
     },
     isolation: { defaultState: "operator-environment", states: ["enforced", "operator-environment"] },
     permissions: { available: true, defaultMode: "bypass" },
@@ -779,6 +800,7 @@ export const runtimeKinds = [
       // `opencode-login` consumes the linked auth.json and accepts an empty
       // api_key; it is the only advertised method.
       acpAuthMethod: "opencode-login",
+      endpoints: { baseUrl: "none" },
     },
     isolation: { defaultState: "operator-environment", states: ["enforced", "operator-environment"] },
     permissions: { available: true, defaultMode: "bypass" },

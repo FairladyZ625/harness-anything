@@ -16,12 +16,15 @@ import {
 } from "../src/renderer/runtime-instance-form.ts";
 import { runtimeInstanceClient } from "../src/renderer/runtime-instance-client.ts";
 import {
+  baseUrlAvailability,
   planeAllowsApiKey,
   planeAllowsBaseUrl,
   planeAllowsEffort,
   planeAllowsPermissions,
   planeAuthMode,
   planeAuthModes,
+  planeBaseUrlEndpoint,
+  planeRequiresBaseUrl,
   planeUsesApiOverride,
   runtimeProviderPlane,
   RUNTIME_KIND_IDS,
@@ -122,6 +125,18 @@ describe("provider edit form", () => {
     expect(agy.baseUrlEditable).toBe(false);
     expect("baseUrl" in buildRuntimeInstanceUpdatePayload("codex-edit", agy)).toBe(false);
   });
+  it("omits the base URL for an api-key instance whose kind declares no endpoint", () => {
+    const devin = runtimeInstanceEditForm({
+      ...apiCodex,
+      kindId: "devin",
+      installationId: "devin-install",
+      configuration: {},
+      authMode: "api-key",
+    });
+    expect(devin.baseUrlEditable).toBe(false);
+    expect(devin.baseUrl).toBe("");
+    expect("baseUrl" in buildRuntimeInstanceUpdatePayload("devin-edit", devin)).toBe(false);
+  });
   it("seeds the claude edit form with the current effort and edits it through the update payload", () => {
     const form = runtimeInstanceEditForm(claude);
     expect(form.effortEditable).toBe(true);
@@ -207,6 +222,38 @@ describe("provider planes (2026-08-20 adjudication)", () => {
     expect(planeAllowsApiKey("zcode", "api-key")).toBe(true);
     expect(planeAllowsEffort("zcode")).toBe(false);
     expect(planeAllowsPermissions("zcode")).toBe(true);
+  });
+  it("declares endpoint configurability per kind instead of deriving it from auth modes", () => {
+    expect(planeBaseUrlEndpoint("claude")).toBe("optional");
+    expect(planeBaseUrlEndpoint("codex")).toBe("optional");
+    expect(planeBaseUrlEndpoint("zcode")).toBe("optional");
+    for (const kindId of ["agy", "devin", "cursor", "codex-acp", "claude-acp", "gemini", "opencode"] as const)
+      expect(planeBaseUrlEndpoint(kindId)).toBe("none");
+  });
+  it("hides the base URL field on api-key call paths that have no endpoint (G2)", () => {
+    // Negative control: devin's api-key path keeps the key field but offers no endpoint,
+    // so the previously shown dead Base URL input is gone while the key input stays.
+    expect(planeAllowsBaseUrl("devin", "api-key")).toBe(false);
+    expect(planeAllowsBaseUrl("devin", "subscription")).toBe(false);
+    expect(planeAllowsApiKey("devin", "api-key")).toBe(true);
+    for (const kindId of ["cursor", "codex-acp", "claude-acp", "gemini", "opencode"] as const)
+      expect(planeAllowsBaseUrl(kindId, "api-key")).toBe(false);
+    // Positive control: kinds with a real endpoint keep the field on their api-key path.
+    expect(planeAllowsBaseUrl("zcode", "api-key")).toBe(true);
+    expect(planeAllowsBaseUrl("claude", "api-key")).toBe(true);
+    expect(planeAllowsBaseUrl("codex", "api-key")).toBe(true);
+  });
+  it("covers the three-value endpoint vocabulary, including required", () => {
+    expect(baseUrlAvailability("none", "api-key")).toBe("none");
+    expect(baseUrlAvailability("optional", "api-key")).toBe("optional");
+    expect(baseUrlAvailability("required", "api-key")).toBe("required");
+    for (const endpoint of ["none", "optional", "required"] as const)
+      expect(baseUrlAvailability(endpoint, "subscription")).toBe("none");
+    // No current kind declares "required"; the mapping is what gates the form.
+    for (const kindId of RUNTIME_KIND_IDS) {
+      expect(planeRequiresBaseUrl(kindId, "api-key")).toBe(false);
+      expect(planeRequiresBaseUrl(kindId, "subscription")).toBe(false);
+    }
   });
   it("covers every runtime kind the contract accepts", () => {
     expect([...RUNTIME_KIND_IDS].sort()).toEqual([
