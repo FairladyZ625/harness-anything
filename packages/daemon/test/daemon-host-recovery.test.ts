@@ -17,9 +17,11 @@ import { WRITE_RECEIPT_SCHEMA } from "../../kernel/src/index.ts";
 import { validateWriteReceipt } from "../../kernel/test/contracts/receipt-acceptance.fixtures.ts";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
+import { localSystemBinding } from "../src/daemon-host-binding.ts";
+import { rejectHostAction, rejectPresetRun } from "../src/daemon-host-errors.ts";
 import type { DaemonHostOpenInput } from "../src/daemon-host-open.ts";
 import { canonicalRoot, workspaceId, type DaemonStatusResult } from "../src/protocol/daemon-protocol.contract.ts";
-import type { RepoCellStatus } from "../src/repo-cell-types.ts";
+import type { RepoCellStatus, RepoTaskAction } from "../src/repo-cell-types.ts";
 import {
   openBootstrappedRepoCell as openRepoCell,
   registerBootstrappedDaemonRepo as registerDaemonRepo,
@@ -675,6 +677,54 @@ test("daemon status exposes an ahead projection cache without letting rebuild di
   } finally {
     await host.close();
     rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("a host-rejected action keeps its coded message as the receipt explanation", () => {
+  const message = "CI receipt cannot support completion: evidence executionId is not the current execution.",
+    receipt = rejectHostAction({ kind: "task-complete", taskId: "task-1" } as RepoTaskAction, "invalid_proof", message);
+  assert.equal(receipt.code, "invalid_proof");
+  assert.equal(receipt.rejectionExplanation, message);
+  assert.deepEqual(receipt.diagnostic, { kind: "failure", code: "invalid_proof" });
+});
+
+test("a host-rejected preset run keeps its coded message as the receipt explanation", () => {
+  const message = "Repository repository-a is still warming up.",
+    receipt = rejectPresetRun("run-1", "repo_warming", message);
+  assert.equal(receipt.code, "repo_warming");
+  assert.equal(receipt.rejectionExplanation, message);
+});
+
+test("local system binding uses the stable owner fallback when no POSIX UID exists", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-daemon-binding-fallback-"));
+  try {
+    const binding = localSystemBinding(rootDir),
+      ownerUid = process.getuid?.() ?? 0;
+    assert.equal(binding.source, "local");
+    assert.equal(binding.authorizationBindingMode, "default");
+    assert.equal(binding.actor.principal.personId, `local-user-${ownerUid}`);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("Windows binding simulates a missing process.getuid without changing G2 authorization mode", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-daemon-binding-win32-")),
+    originalGetuid = Object.getOwnPropertyDescriptor(process, "getuid"),
+    originalPlatform = Object.getOwnPropertyDescriptor(process, "platform");
+  try {
+    Object.defineProperty(process, "getuid", { configurable: true, value: undefined });
+    Object.defineProperty(process, "platform", { configurable: true, value: "win32" });
+    const binding = localSystemBinding(rootDir);
+    assert.equal(binding.actor.principal.personId, "local-user-0");
+    assert.equal(binding.source, "local");
+    assert.equal(binding.authorizationBindingMode, "default");
+  } finally {
+    if (originalGetuid === undefined) delete process.getuid;
+    else Object.defineProperty(process, "getuid", originalGetuid);
+    if (originalPlatform === undefined) delete process.platform;
+    else Object.defineProperty(process, "platform", originalPlatform);
+    rmSync(rootDir, { recursive: true, force: true });
   }
 });
 
