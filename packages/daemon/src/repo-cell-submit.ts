@@ -109,26 +109,36 @@ export function deriveCloseoutSubmission(
       "invalid_submission",
       "Summary commit must be the bound worktree HEAD or its published merge commit.",
     );
-  const mergeBase = git.run(root, ["merge-base", "origin/main", commitSha]);
-  const base =
-    mergeBase.ok && mergeBase.stdout !== commitSha
-      ? mergeBase.stdout
-      : git.run(root, ["rev-parse", `${commitSha}^1`]).stdout;
-  if (!base) throw cell.cellCodedError("invalid_submission", "Delivery commit has no verifiable comparison cut.");
-  const deliverables = runProcessText(
+  const frozen = snapshot.executions.find((execution) => execution.executionId === executionId)?.submission;
+  let deliverables: readonly string[], commitOutputs: readonly string[];
+  if (frozen?.commitSha === commitSha) {
+    // A submitted commit already owns its file manifest. Advancing main must not
+    // shrink a branch-wide diff to the last commit; prose and artifacts remain freshly derived.
+    deliverables = frozen.deliverables;
+    commitOutputs = frozen.outputs.filter((output) => !output.startsWith("Artifact-Anchor: "));
+  } else {
+    const mergeBase = git.run(root, ["merge-base", "origin/main", commitSha]);
+    const base =
+      mergeBase.ok && mergeBase.stdout !== commitSha
+        ? mergeBase.stdout
+        : git.run(root, ["rev-parse", `${commitSha}^1`]).stdout;
+    if (!base) throw cell.cellCodedError("invalid_submission", "Delivery commit has no verifiable comparison cut.");
+    deliverables = runProcessText(
       "git",
       ["diff", "--name-only", "-z", "--diff-filter=ACMRT", base, commitSha, "--"],
       root,
     )
       .split("\0")
-      .filter(Boolean),
-    removed = runProcessText("git", ["diff", "--name-only", "-z", "--diff-filter=D", base, commitSha, "--"], root)
-      .split("\0")
       .filter(Boolean);
+    commitOutputs = runProcessText("git", ["diff", "--name-only", "-z", "--diff-filter=D", base, commitSha, "--"], root)
+      .split("\0")
+      .filter(Boolean)
+      .map((target) => `Deleted-Production-Paths: ${target}`);
+  }
   // Deliverables stay paths of the delivery commit: anchored in-package artifacts ride in the
   // artifacts field and outputs lines so commit-based gates never verify ledger paths against
   // the public cut.
-  if (!deliverables.length && !removed.length && !artifacts.length) {
+  if (!deliverables.length && !commitOutputs.length && !artifacts.length) {
     // A task without CI or code-doc gates delivers authored documents: its cut is the private
     // ledger HEAD plus this package's accepted artifacts, never a public code diff.
     const privateDelivery = !(snapshot.task?.completionGateIds ?? []).some(
@@ -162,10 +172,7 @@ export function deriveCloseoutSubmission(
     commitSha,
     ...(artifacts.length ? { artifacts } : {}),
     deliverables,
-    outputs: [
-      ...removed.map((target) => `Deleted-Production-Paths: ${target}`),
-      ...artifacts.map((anchor) => `Artifact-Anchor: ${anchor.path}@${anchor.revision}`),
-    ],
+    outputs: [...commitOutputs, ...artifacts.map((anchor) => `Artifact-Anchor: ${anchor.path}@${anchor.revision}`)],
   };
 }
 
