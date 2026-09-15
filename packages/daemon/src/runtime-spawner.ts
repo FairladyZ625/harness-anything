@@ -45,6 +45,7 @@ import {
 } from "./runtime-spawn-errors.ts";
 import {
   assembleAgentPrompt,
+  assembleUnboundPrompt,
   assembleScheduledMission,
   assembleTaskMission,
   deriveTaskMission,
@@ -414,7 +415,9 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             : mission,
       readOnlyDispatch = effectivePermissionMode === "read-only",
       dispatchMission = dispatchMissionForPermission(selfContainedMission ?? mission, effectivePermissionMode),
-      assembledPrompt = agent ? assembleAgentPrompt(agent, dispatchMission, preset, resolvedSkills) : dispatchMission,
+      assembledPrompt = agent
+        ? assembleAgentPrompt(agent, dispatchMission, preset, resolvedSkills)
+        : assembleUnboundPrompt(dispatchMission),
       prompt = trustedSchedule ? scheduleMissionWithOutcomeProtocol(assembledPrompt) : assembledPrompt,
       prepared = await input.prepareLaunch(runtimeInstanceId, {
         cwd,
