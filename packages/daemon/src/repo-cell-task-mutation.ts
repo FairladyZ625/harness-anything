@@ -352,12 +352,16 @@ function terminalExecutionRuntimeBinding(
   // Dispatch stream headers are durable file state written before settlement reaches this
   // mutation, while the rebuildable session projection may lag behind the release. Terminal
   // attempt/process evidence on the stream is what proves a session ended on this execution.
-  const terminalStreams = readDispatchLiveIndex(cell.rootDir, [lease.taskId])
-    .entries.map((entry) => readDispatchStreamSummary(cell.rootDir, entry.dispatchId))
-    .filter((stream) => stream?.header.executionId === lease.executionId)
-    .filter(
-      (stream) => stream !== null && (dispatchReachedTerminalAttempt(stream) || dispatchProcessIsOrphaned(stream)),
-    );
+  const terminalStreams =
+    typeof cell.rootDir === "string"
+      ? readDispatchLiveIndex(cell.rootDir, [lease.taskId])
+          .entries.map((entry) => readDispatchStreamSummary(cell.rootDir, entry.dispatchId))
+          .filter((stream) => stream?.header.executionId === lease.executionId)
+          .filter(
+            (stream) =>
+              stream !== null && (dispatchReachedTerminalAttempt(stream) || dispatchProcessIsOrphaned(stream)),
+          )
+      : [];
   // A settlement names the session that just reached terminal; its own dispatch header already
   // proves it executed this execution, so no projected session state is needed.
   if (runtimeSessionId !== null)
