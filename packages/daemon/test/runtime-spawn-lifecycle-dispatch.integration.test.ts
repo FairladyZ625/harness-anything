@@ -160,7 +160,7 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
           error.message ===
             'Runtime spawn payload contains an unknown field "permission_mode"; allowed fields: "runtimeInstanceId", ' +
               '"dispatchId", "agentId", "targetAgentId", "squadId", "role", "model", "effort", "fast", "permissionMode", "cwd", ' +
-              '"prompt", "promptSource", "missionName", "onExitCommand", "taskId", "idempotencyKey", ' +
+              '"prompt", "promptSource", "missionName", "onExitCommand", "taskId", "executionId", "idempotencyKey", ' +
               '"providerSessionId".',
       );
       await assert.rejects(

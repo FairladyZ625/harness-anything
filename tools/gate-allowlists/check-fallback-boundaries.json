@@ -179,6 +179,7 @@
       "packages/daemon/src/squad-coordinator.ts#continueLeader",
       "packages/daemon/src/task-action-explanation-read.ts#personRosterAtCut",
       "packages/daemon/src/task-index-query.ts#decodeCursor",
+      "packages/daemon/src/task-review-dispatch.ts#dispatchTaskReview",
       "packages/daemon/src/terminal-environment.ts#terminalEnvironment",
       "packages/daemon/src/terminal-spawn-helper.ts#ensurePtySpawnHelperExecutable",
       "packages/daemon/src/writer-epoch.ts#withImmediateTransaction",
