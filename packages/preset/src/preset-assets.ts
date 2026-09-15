@@ -6,7 +6,7 @@ import {
 } from "./preset-extension-model.ts";
 import { compileVerticalContract, decodeVerticalDefinition, TemplateCatalogSchema } from "../../kernel/src/index.ts";
 import type { CompiledVerticalContract, TemplateCatalog } from "../../kernel/src/index.ts";
-import { requiredRegularFile } from "./preset-materialization.ts";
+import { requiredRegularFile, safeTemplatePath } from "./preset-materialization.ts";
 import { parsePresetJson } from "./preset-package.ts";
 import {
   defaultAssets,
@@ -83,6 +83,9 @@ export function decodeCatalog(
     validation = validateTemplateCatalog(catalog);
   if (!validation.ok)
     throw presetFailure("invalid_template_catalog", validation.issues.map((item) => item.message).join("; "));
+  for (const document of catalog.documents)
+    for (const locale of document.locales)
+      safeTemplatePath(root, locale.bodyPath, `${catalog.package.id}/${locale.locale}`);
   if (resolveBody) {
     const bodyValidation = validateTemplateCatalogBodies(catalog, resolveBody);
     if (!bodyValidation.ok)
