@@ -101,6 +101,8 @@ export function authorizeDurableRepoCellAction(
       return authorizeRepoCellAction(input);
     case "daemon-repo-register":
       return authorizeRepoCellAction(input);
+    case "repo-purge":
+      return authorizeRepoCellAction(input);
     case "repo-unbind":
       return authorizeRepoCellAction(input);
     case "daemon-start":

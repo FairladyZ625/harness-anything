@@ -365,9 +365,9 @@ export function createDaemonHostRepositoryApi(
           ? await context.binding(registeredRepo.canonicalRoot, auth)
           : localDefaultBinding(auth),
         authorizationDecision = requireAuthorizedHostAction({
-          kind: "repo-unbind",
+          kind: purging ? "repo-purge" : "repo-unbind",
           binding: adminBinding,
-          actionId: `repo-unbind:${request.repoId}`,
+          actionId: `${purging ? "repo-purge" : "repo-unbind"}:${request.repoId}`,
           evaluatedAtCut: "daemon-registry:current",
           now: context.now(),
         }),

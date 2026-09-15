@@ -1233,7 +1233,7 @@ test("Policy rejects a principal without a durable-action RoleBinding", async ()
     const review = await host.run("rbac", { kind: "task-review-execution", taskId: "task-rbac", executionId, reviewId: "review-rbac", fromFile: "review.json" }, auth(ids.arbiter)); assert.equal(review.outcome, "applied", JSON.stringify(review));
     const attached = await rpc(host, auth(ids.admin), "daemon.repo.register", { rootDir: second, repoId: "second", mode: "remote-edge" }); assert.equal(attached.outcome, "applied"); assert.equal((attached.repo as Record<string, unknown>).mode, "remote-edge");
     const deniedEdgePreset = await rpc(host, auth(ids.writer), "repo.preset.run.start", { repo: { repoId: "second" }, payload: { presetId: "standard-task", entrypoint: "run", idempotencyKey: "edge-preset" } }); assert.equal(deniedEdgePreset.outcome, "op_rejected"); assert.equal(deniedEdgePreset.code, "repo_mode_read_only");
-    const deniedUnbind = await rpc(host, auth(ids.reader), "daemon.repo.unbind", { repoId: "second" }); assert.equal(deniedUnbind.outcome, "op_rejected"); assert.equal(deniedUnbind.code, "authorization_denied");
+    const deniedUnbind = await rpc(host, auth(ids.reader), "daemon.repo.unbind", { repoId: "second" }); assert.equal(deniedUnbind.outcome, "op_rejected"); assert.equal(deniedUnbind.code, "authorization_denied"); const deniedPurge = await rpc(host, auth(ids.reader), "daemon.repo.purge", { repoId: "second", scope: "cache" }); assert.equal(deniedPurge.outcome, "op_rejected"); assert.equal(deniedPurge.code, "authorization_denied");
   } finally { await host.close(); rmSync(parent, { recursive: true, force: true }); }
 });
 
