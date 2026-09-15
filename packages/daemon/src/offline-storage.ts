@@ -12,7 +12,6 @@ import {
 } from "../../kernel/src/index.ts";
 import { daemonUserRoot } from "./client/local-daemon-target.ts";
 import { generationMigrationCommand } from "./offline-storage-command.ts";
-import { openPersistentWriterEpoch } from "./writer-epoch.ts";
 
 export function runOfflineStorageCommand(argv: readonly string[]): number {
   try {
@@ -46,20 +45,18 @@ export function runOfflineStorageCommand(argv: readonly string[]): number {
           (candidate) => candidate.state === "enabled" && candidate.canonicalRoot === sourceRoot,
         );
       if (!repo) throw new Error(`backup source is not registered: ${sourceRoot}`);
-      const writerEpoch = currentWriterEpoch(userRoot, repo.repoId),
-        manifest = createLedgerBackup({
-          rootInput,
-          backupDir,
-          generation,
-          registration: {
-            repoId: repo.repoId,
-            mode: repo.mode,
-            connectionId: repo.connectionId,
-            displayName: repo.displayName,
-            authoredBranch: repo.authoredBranch,
-            writerEpoch,
-          },
-        });
+      const manifest = createLedgerBackup({
+        rootInput,
+        backupDir,
+        generation,
+        registration: {
+          repoId: repo.repoId,
+          mode: repo.mode,
+          connectionId: repo.connectionId,
+          displayName: repo.displayName,
+          authoredBranch: repo.authoredBranch,
+        },
+      });
       emitReceipt({ ok: true, schema: "ledger-backup-receipt/v1", exitCode: 0, backupDir, manifest });
       return 0;
     }
@@ -77,14 +74,12 @@ export function runOfflineStorageCommand(argv: readonly string[]): number {
       const result = restoreLedgerBackup({ backupDir, destinationRoot }),
         registration = result.manifest.registration;
       if (!registration) throw new Error("backup manifest has no repository registration");
-      const writerEpoch = advanceWriterEpoch(daemonUserRoot(), registration.repoId, registration.writerEpoch);
       emitReceipt({
         ok: true,
         schema: "ledger-restore-receipt/v1",
         exitCode: 0,
         ...result,
         registration,
-        writerEpoch,
         next:
           `ha --root ${JSON.stringify(result.restoredRoot)} init --repo-id ${registration.repoId} ` +
           "--person-id <owner-person-id> --display-name <owner-display-name>",
@@ -116,24 +111,6 @@ export function runOfflineStorageCommand(argv: readonly string[]): number {
       hint: error instanceof Error ? error.message : String(error),
     });
     return 1;
-  }
-}
-
-function currentWriterEpoch(userRoot: string, repoId: string): number {
-  const authority = openPersistentWriterEpoch({ stateRoot: path.join(userRoot, "fleet") });
-  try {
-    return authority.current(repoId)?.epoch ?? 0;
-  } finally {
-    authority.close();
-  }
-}
-
-function advanceWriterEpoch(userRoot: string, repoId: string, minimum: number): number {
-  const authority = openPersistentWriterEpoch({ stateRoot: path.join(userRoot, "fleet") });
-  try {
-    return authority.acquire(repoId, minimum).epoch;
-  } finally {
-    authority.close();
   }
 }
 

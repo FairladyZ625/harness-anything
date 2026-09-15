@@ -28,7 +28,6 @@ export interface LedgerBackupRegistrationV1 {
   readonly connectionId: string;
   readonly displayName: string;
   readonly authoredBranch: string | null;
-  readonly writerEpoch: number;
 }
 
 export interface LedgerBackupFileV1 {
@@ -393,7 +392,6 @@ function validRegistration(value: unknown): value is LedgerBackupRegistrationV1 
     "connectionId" in value &&
     "displayName" in value &&
     "authoredBranch" in value &&
-    "writerEpoch" in value &&
     typeof value.repoId === "string" &&
     value.repoId.length > 0 &&
     typeof value.mode === "string" &&
@@ -402,10 +400,7 @@ function validRegistration(value: unknown): value is LedgerBackupRegistrationV1 
     value.connectionId.length > 0 &&
     typeof value.displayName === "string" &&
     value.displayName.length > 0 &&
-    (value.authoredBranch === null || typeof value.authoredBranch === "string") &&
-    typeof value.writerEpoch === "number" &&
-    Number.isSafeInteger(value.writerEpoch) &&
-    value.writerEpoch >= 0
+    (value.authoredBranch === null || typeof value.authoredBranch === "string")
   );
 }
 
