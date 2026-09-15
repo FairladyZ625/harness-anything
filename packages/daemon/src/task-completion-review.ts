@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import {
   completionGateIds,
   completionGuidance,
@@ -7,11 +6,11 @@ import {
   type ExecutionV1,
   type WriteReceiptDraft,
 } from "../../kernel/src/index.ts";
-import { readSubmissionArtifact } from "./submission-artifacts.ts";
 import { isRuntimeEvent } from "./runtime-spawn-errors.ts";
 import { readDispatchStream } from "./dispatch-stream.ts";
 import { readAgentDeclarationResolution } from "./agent-entities.ts";
 import { authorizeRepoCellAction } from "./repo-cell-authorization.ts";
+import { reviewDispatchIds, reviewDispatchPrompt } from "./task-review-dispatch.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import type { RepoCellBinding, Snapshot } from "./repo-cell-types.ts";
 
@@ -33,14 +32,7 @@ export async function dispatchCompletionReview(
   const taskId = snapshot.task!.taskId,
     gates = completionGateIds(snapshot.task!.completionGateIds, execution.submission!.commitSha),
     baseKey = completionReviewKey(taskId, execution),
-    dispatchIdsFor = (idempotencyKey: string) => {
-      const hash = createHash("sha256").update(`${cell.input.repoId}\0${idempotencyKey}`).digest("hex");
-      return {
-        dispatchId: `dispatch_${hash.slice(0, 24)}`,
-        runtimeSessionId: `runtime_${hash.slice(24, 48)}`,
-        dispatchOpId: `runtime-spawn-${hash.slice(0, 32)}`,
-      };
-    };
+    dispatchIdsFor = (idempotencyKey: string) => reviewDispatchIds(cell.input.repoId, idempotencyKey);
   const stopped = (action: string, reason: string) =>
     cell.completionStopped(
       opId,
@@ -99,39 +91,20 @@ export async function dispatchCompletionReview(
           `Declare an explicit model for reviewer ${reviewerId}, then retry completion. ` +
             "Installed reviewer overrides must not select an instance default model.",
         );
-      const report = `${packagePath}/artifacts/reports/${ids.dispatchId}.md`,
-        packet = `${packagePath}/artifacts/reports/${ids.dispatchId}.json`,
-        payload = {
+      const payload = {
           agentId: agent.id,
           role: "reviewer",
           taskId,
           cwd: { scope: "repo-root" },
           idempotencyKey: attemptKey,
-          prompt: [
-            `Independently review task ${taskId}, execution ${execution.executionId}, ` +
-              `iteration ${execution.iteration}.`,
-            `The exact submission digest is ${submissionDigest(execution.submission!)}; ` +
-              `delivery ${JSON.stringify(execution.submission!)}.`,
-            ...(execution.submission!.artifacts ?? []).map((anchor) =>
-              JSON.stringify(
-                readSubmissionArtifact(cell, packagePath, anchor.path, anchor.revision, anchor.blobSha256),
-              ),
-            ),
-            "For artifact anchors, review the center-accepted frozen contents above against the contract; " +
-              "do not substitute local files or require Git ancestry for them.",
-            `Effective completion gates: ${gates.length ? gates.join(", ") : "none"}.`,
-            ...(execution.submission!.commitSha === null
-              ? ["This is an artifact-only submission; ci and code-doc-reconciliation do not apply."]
-              : []),
-            "Read the task plan, closeout, and submitted delivery yourself. " +
-              "Record approved or changes_requested through RecordReview; never infer approval from provider success.",
-            `Write this execution's review report to harness/${report} and review input to harness/${packet}. ` +
-              "These dispatch-specific paths replace any shared report path in your declaration.",
-            `Register with ha task review-execution ${taskId} --execution-id ${execution.executionId} ` +
-              `--review-id review-${ids.dispatchId} --from-file harness/${packet}.`,
-            "Do not submit, consent, or complete. If the submitted cut changes, stop and report it; " +
-              "do not review the replacement under this dispatch.",
-          ].join("\n"),
+          prompt: reviewDispatchPrompt({
+            cell,
+            taskId,
+            packagePath,
+            dispatchId: ids.dispatchId,
+            execution,
+            gates,
+          }),
         },
         revision = cell.store.readHead()?.revision ?? 0,
         authorizationDecision = authorizeRepoCellAction({

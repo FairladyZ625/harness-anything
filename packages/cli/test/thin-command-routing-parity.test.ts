@@ -501,6 +501,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
       "task-create",
       "task-declare-executor",
       "task-delete",
+      "task-dispatch-review",
       "task-dispatches",
       "task-list",
       "task-pin",

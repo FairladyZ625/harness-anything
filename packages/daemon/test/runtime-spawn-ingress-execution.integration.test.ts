@@ -329,7 +329,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
       assert.equal(staleReviewer.code, "executor_binding_invalid", JSON.stringify(staleReviewer));
       assert.match(
         String((staleReviewer.diagnostic as { expectation?: unknown } | undefined)?.expectation),
-        new RegExp(`ha agent run <reviewer-agent-id> --role reviewer --task ${taskId}`, "u"),
+        new RegExp(`ha task dispatch-review ${taskId} --agent <reviewer-agent-id>`, "u"),
       );
 
       const independentReview = await rpc(host, auth, "repo.agentRuntime.spawn", {

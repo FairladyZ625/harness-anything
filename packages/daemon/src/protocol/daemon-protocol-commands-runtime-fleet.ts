@@ -20,7 +20,6 @@ export const agentRunProtocolCommand = defineRuntimeLocalWriteCommand({
     cliInput("--resume-dispatch", "single", false, { code: "invalid_field" }),
     cliInput("--instance", "single", false, { code: "invalid_field" }),
     cliInput("--cwd", "single", false, { code: "invalid_field" }),
-    cliInput("--role", "single", false, { code: "invalid_field" }, { enum: ["reviewer"] }),
     cliInput("--to", "single", false, { code: "invalid_field" }),
     cliInput("--prompt", "single", false, { code: "invalid_field" }, { conflictsWith: ["--mission", "--prompt-file"] }),
     cliInput("--prompt-file", "single", false, { code: "invalid_field" }, { conflictsWith: ["--mission", "--prompt"] }),
@@ -51,7 +50,6 @@ export const runtimeFleetProtocolCommands = Object.freeze([
     method: "repo.agentRuntime.spawn",
     inputs: [
       cliInput("--agent", "single", false, { code: "invalid_field" }),
-      cliInput("--role", "single", false, { code: "invalid_field" }, { enum: ["reviewer"] }),
       cliInput("--to", "single", false, { code: "invalid_field" }),
       cliInput("--squad", "single", false, { code: "invalid_field" }),
       cliInput("--model", "single", false, {
