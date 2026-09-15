@@ -1,14 +1,21 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import { requestLocalDaemonJsonRpc } from "../../daemon/src/client/local-json-rpc-client.ts";
 import { openPersistentWriterEpoch } from "../../daemon/src/writer-epoch.ts";
 import { seedSettingsEvent } from "../../daemon/test/repo-settings.fixture.ts";
 
-export const cli = path.resolve("packages/cli/src/index.ts");
-export const builtCli = path.resolve("packages/cli/dist/cli/src/index.js");
+const canonicalRoot = (() => {
+  const cwd = process.cwd();
+  const marker = `${path.sep}.worktrees${path.sep}`;
+  const idx = cwd.indexOf(marker);
+  return idx !== -1 ? cwd.slice(0, idx) : cwd;
+})();
+
+export const cli = path.resolve(canonicalRoot, "packages/cli/src/index.ts");
+export const builtCli = path.resolve(canonicalRoot, "packages/cli/dist/cli/src/index.js");
 
 export function setup(): {
   root: string;
@@ -16,7 +23,7 @@ export function setup(): {
   alpha: string;
   beta: string;
 } {
-  const root = mkdtempSync(path.join(tmpdir(), "ha-w3-"));
+  const root = mkdtempSync(path.join(realpathSync(tmpdir()), "ha-w3-"));
   const alpha = path.join(root, "alpha"),
     beta = path.join(root, "beta"),
     userRoot = path.join(root, "user");
@@ -24,7 +31,7 @@ export function setup(): {
   return { root, userRoot, alpha, beta };
 }
 export function setupEmpty(): { root: string; userRoot: string; repo: string } {
-  const root = mkdtempSync(path.join(tmpdir(), "ha-w3-init-"));
+  const root = mkdtempSync(path.join(realpathSync(tmpdir()), "ha-w3-init-"));
   const repo = path.join(root, "repo"),
     userRoot = path.join(root, "user");
   mkdirSync(repo);
@@ -94,6 +101,7 @@ export async function waitForRun(root: string, userRoot: string, runId: string, 
 }
 export function initialize(root: string): void {
   mkdirSync(path.join(root, "harness"), { recursive: true });
+  writeFileSync(path.join(root, ".gitignore"), ".home/\n", "utf8");
   writeFileSync(path.join(root, "harness/harness.yaml"), "layout:\n  authoredRoot: harness\n", "utf8");
   writeFileSync(
     path.join(root, "harness/people.yaml"),
@@ -101,7 +109,7 @@ export function initialize(root: string): void {
     "utf8",
   );
   git(root, "init", "--quiet");
-  git(root, "add", "harness/harness.yaml", "harness/people.yaml");
+  git(root, "add", ".gitignore", "harness/harness.yaml", "harness/people.yaml");
   git(root, "commit", "--quiet", "-m", "fixture");
 }
 export function median(values: readonly number[]): number {
