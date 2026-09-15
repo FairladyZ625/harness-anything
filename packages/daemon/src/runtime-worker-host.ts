@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { consumeKnownError } from "../../kernel/src/index.ts";
 import { dispatchStreamPath, openDispatchStreamAppender, scrubProviderValue } from "./dispatch-stream.ts";
 import { createRuntimeCallbackRelay } from "./runtime-callback-relay.ts";
+import { runAcpProviderSession } from "./runtime-worker-acp.ts";
 import type { RuntimeCallbackRelay } from "./runtime-spawn-types.ts";
 
 type RuntimeWorkerManifest = {
@@ -14,6 +15,11 @@ type RuntimeWorkerManifest = {
   readonly prompt: string;
   readonly windowsVerbatimArguments: boolean;
   readonly callbackRelay?: RuntimeCallbackRelay;
+  readonly kindId?: string;
+  readonly protocolFamily?: string;
+  readonly permissionMode?: string;
+  readonly providerSessionId?: string;
+  readonly acpApiKey?: string;
 };
 
 export async function runRuntimeWorkerHost(): Promise<void> {
@@ -55,9 +61,20 @@ export async function runRuntimeWorkerHost(): Promise<void> {
       windowsHide: true,
       ...(manifest.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
     });
-    let outputBuffer = "";
-    child.stdout!.setEncoding("utf8");
     child.stderr!.setEncoding("utf8");
+    child.stderr!.on("data", (chunk: string) =>
+      append({
+        kind: "provider_stderr",
+        chunk: scrubProviderValue(chunk) as string,
+      }),
+    );
+    // ACP providers speak bidirectional JSON-RPC on stdout; the acp session loop
+    // owns stdout parsing and stdin writes instead of the line-relay path.
+    const acp =
+      manifest.protocolFamily === "acp" && typeof manifest.kindId === "string"
+        ? runAcpProviderSession(child, manifest as RuntimeWorkerManifest & { readonly kindId: string }, append)
+        : null;
+    let outputBuffer = "";
     const consumeOutput = (chunk: string, flush = false): void => {
       outputBuffer += chunk;
       const lines = outputBuffer.split(/\r?\n/u);
@@ -66,17 +83,14 @@ export async function runRuntimeWorkerHost(): Promise<void> {
       for (const line of lines) if (line.trim()) appendProviderLine(append, line);
       if (flush && trailing.trim()) appendProviderLine(append, trailing);
     };
-    child.stdout!.on("data", (chunk: string) => consumeOutput(chunk));
-    child.stderr!.on("data", (chunk: string) =>
-      append({
-        kind: "provider_stderr",
-        chunk: scrubProviderValue(chunk) as string,
-      }),
-    );
+    if (!acp) {
+      child.stdout!.setEncoding("utf8");
+      child.stdout!.on("data", (chunk: string) => consumeOutput(chunk));
+    }
     const finish = (exitCode: number | null, signal: NodeJS.Signals | null): void => {
       if (settled) return;
       settled = true;
-      consumeOutput("", true);
+      if (!acp) consumeOutput("", true);
       append({ kind: "process_exit", exitCode, signal });
     };
     child.once("error", (error) => {
@@ -85,9 +99,12 @@ export async function runRuntimeWorkerHost(): Promise<void> {
     });
     child.once("close", finish);
     process.once("SIGTERM", () => {
-      if (!settled) child?.kill("SIGTERM");
+      if (!settled) {
+        if (acp) acp.cancel();
+        else child?.kill("SIGTERM");
+      }
     });
-    child.stdin!.end(manifest.prompt);
+    if (!acp) child.stdin!.end(manifest.prompt);
     await new Promise<void>((resolve) => child?.once("close", () => resolve()));
   } finally {
     appender.close();

@@ -93,12 +93,16 @@ export type RuntimeInstanceSummary = AgentRuntimeInstanceDto;
 export interface PreparedRuntimeLaunch {
   readonly definition: AgentDefinitionSnapshot;
   readonly installation: RuntimeInstallationWitness;
+  readonly protocolFamily: string;
   readonly executablePath: string;
   readonly args: readonly string[];
   readonly env: NodeJS.ProcessEnv;
   readonly cwd: string;
   readonly prompt: string;
   readonly providerSessionId?: string;
+  readonly permissionMode?: RuntimePermissionMode;
+  /** Resolved API key delivered to the ACP client for `authenticate`; never enters the provider's environment. */
+  readonly acpApiKey?: string;
 }
 
 export interface PreparedRuntimeAuthCommand {
