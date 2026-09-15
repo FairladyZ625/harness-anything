@@ -62,7 +62,7 @@ test("the default Policy covers the frozen durable inventory exactly once", () =
   // 2026-09-12: task-closeout retired with its packet protocol; complete is the sole closeout mutation, 114 → 113.
   // 2026-09-15 task_288b0a29: repository unbind replaces daemon-repo-unregister (same count) and adds the admin-only
   // repo-purge (cache scope) at the user's request, CEO confirmed; a reader calling daemon.repo.purge is refused
-  // with authorization_denied in json-rpc-protocol.test.ts, 113 → 114.
+  // with authorization_denied in json-rpc-task-settlement.integration.test.ts, 113 → 114.
   assert.equal(durablePolicyActions.length, 114);
   // 其余两条是自洽不变量,不需要第二个硬编码数字:清单内无重复(三个角色分段互不重叠),
   // 且每个 durable Action 恰好被一条 rule 覆盖。

@@ -52,12 +52,12 @@
           "reason": "W3 store implementation requires event publication, recovery, publish-once, process, and fsync evidence."
         },
         {
-          "value": "packages/kernel/test/store/task-projection.test.ts",
+          "value": "packages/kernel/test/store/task-projection-steady-state.integration.test.ts",
           "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
           "reason": "W3 store implementation requires event-derived SQLite projection and lease CAS evidence."
         },
         {
-          "value": "packages/daemon/test/json-rpc-protocol.test.ts",
+          "value": "packages/daemon/test/json-rpc-task-settlement.integration.test.ts",
           "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
           "reason": "W3 store composition requires RepoCell crash-matrix and multi-repository daemon evidence."
         },

@@ -240,7 +240,7 @@ if (hasGuiImplementation) {
 }
 
 if (hasDaemonImplementation) {
-  const daemonProtocolTestPath = "packages/daemon/test/json-rpc-protocol.test.ts";
+  const daemonProtocolTestPath = "packages/daemon/test/json-rpc-task-settlement.integration.test.ts";
   if (!existsSync(path.join(root, daemonProtocolTestPath)))
     record(`daemon protocol implementation requires contract test: ${daemonProtocolTestPath}`);
 }
@@ -260,7 +260,10 @@ if (hasStoreImplementation) {
   if (storeIndexExported) record("kernel public index must not export internal store implementations");
 
   const storeTest = readFileSync(path.join(root, "packages/kernel/test/store/task-event-store.test.ts"), "utf8");
-  const daemonTest = readFileSync(path.join(root, "packages/daemon/test/json-rpc-protocol.test.ts"), "utf8");
+  const daemonTest = readFileSync(
+    path.join(root, "packages/daemon/test/json-rpc-task-settlement.integration.test.ts"),
+    "utf8",
+  );
   for (const evidence of missingEventStoreEvidence(storeTest, daemonTest))
     record(`W3 event-store tests must prove ${evidence}`);
   const publisher = readFileSync(path.join(root, "packages/kernel/src/store/task-event-store.ts"), "utf8");
@@ -274,7 +277,10 @@ if (hasStoreImplementation) {
     "packages/kernel/test/store/task-event-store.test.ts",
     "store.history-independent-subprocess-cost",
   );
-  requireTestContract("packages/daemon/test/json-rpc-protocol.test.ts", "daemon.recovery-publishes-once");
+  requireTestContract(
+    "packages/daemon/test/json-rpc-task-settlement.integration.test.ts",
+    "daemon.recovery-publishes-once",
+  );
   // A cell that latches on how long recovery took makes availability a function of machine
   // speed: the same committed recovery attaches on an idle laptop and latches the workspace
   // unavailable on a loaded CI runner. Only the recovery status may decide availability.
@@ -318,7 +324,7 @@ if (hasTaskProjectionImplementation) {
     "projection.bounded-catch-up-no-stale-ready",
     "projection.lease-cas-rejection",
   ])
-    requireTestContract("packages/kernel/test/store/task-projection.test.ts", id);
+    requireTestContract("packages/kernel/test/store/task-projection-steady-state.integration.test.ts", id);
   if (/writeFileSync\s*\([^)]*tasks\//s.test(projectionText) || /renameSync\s*\([^)]*tasks\//s.test(projectionText)) {
     record("task projection must not write authored task documents");
   }
