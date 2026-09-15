@@ -186,6 +186,73 @@ export function sessionTranscriptTurns(
         else if (kind === "error" && payload) add(target, "error", label, contentOf(payload.error), at);
         continue;
       }
+      if (type === "acp.update") {
+        const update = recordOf(event.update);
+        if (!update) continue;
+        const sessionId = stringOf(event.sessionId) ?? "1";
+        current ??= turn(`acp:${sessionId}`, at);
+        if (current.status === "unknown") current.status = "running";
+        const kind = stringOf(update.sessionUpdate);
+        if (kind === "agent_message_chunk" || kind === "agent_thought_chunk") {
+          const content = recordOf(update.content);
+          add(
+            current,
+            kind === "agent_thought_chunk" ? "thinking" : "text",
+            kind === "agent_thought_chunk" ? "thinking" : "text",
+            stringOf(content?.text) ?? "",
+            at,
+            true,
+          );
+        } else if (kind === "tool_call") {
+          const toolId = stringOf(update.toolCallId),
+            label = stringOf(update.title) ?? "tool";
+          add(current, "tool_call", label, contentOf(update.rawInput ?? update), at);
+          if (toolId) toolTurns.set(toolId, { turn: current, label });
+        } else if (kind === "tool_call_update") {
+          const status = stringOf(update.status);
+          if (status !== "in_progress" && status !== "pending") {
+            const toolId = stringOf(update.toolCallId),
+              known = toolId ? toolTurns.get(toolId) : null,
+              target = known?.turn ?? current,
+              label = known?.label ?? (toolId ? `tool ${toolId}` : "tool"),
+              parts = Array.isArray(update.content) ? update.content.map(recordOf).filter(isPresent) : [],
+              output = parts
+                .map((part) => stringOf(recordOf(part.content)?.text) ?? contentOf(part.content ?? part))
+                .join("\n");
+            if (status === "failed") add(target, "error", label, output || "tool call failed", at);
+            else if (output) add(target, "tool_result", label, output, at);
+            current = target;
+          }
+        }
+        continue;
+      }
+      if (type === "acp.result") {
+        const sessionId = stringOf(event.sessionId) ?? "1",
+          finalText = stringOf(event.finalText) ?? "";
+        current ??= turn(`acp:${sessionId}`, at);
+        const lastTextIndex = current.items.map((item) => item.type).lastIndexOf("text"),
+          lastText = lastTextIndex === -1 ? null : current.items[lastTextIndex];
+        if (finalText && lastText?.label === "text")
+          current.items[lastTextIndex] = {
+            ...lastText,
+            label: "result",
+            summary: summaryOf(finalText),
+            detail: clip(finalText, DETAIL_LIMIT),
+            occurredAt: at ?? lastText.occurredAt,
+          };
+        else if (finalText && lastText?.detail !== finalText) add(current, "text", "result", finalText, at);
+        current.status = ["end_turn", "max_tokens", "stop_sequence"].includes(stringOf(event.stopReason) ?? "")
+          ? "completed"
+          : "failed";
+        current.endedAt = at;
+        continue;
+      }
+      if (type === "acp.error") {
+        const sessionId = stringOf(event.sessionId) ?? "1";
+        current ??= turn(`acp:${sessionId}`, at);
+        add(current, "error", "error", contentOf(event.error ?? event.message ?? event), at);
+        continue;
+      }
       if (type === "result") {
         current ??= turn(`provider:${turns.length + 1}`, at);
         const response = stringOf(event.response),
