@@ -84,7 +84,8 @@ function reviewIssues(
         "manual_intervention_required",
         "return budget exhausted: a changes_requested verdict cannot be recorded for this cut. Amend the " +
           "submitted packet with `ha task submit --amend` so the reviewer can approve, or raise the budget " +
-          "with `ha settings update --review-return-budget <n>`",
+          `for this task with \`ha task amend ${snapshot.task?.taskId ?? "<task-id>"} --set ` +
+          "reviewReturnBudget:<n>`, or repository-wide with `ha settings update --review-return-budget <n>`",
       ),
     );
   return issues;
