@@ -135,7 +135,7 @@ export function runOfflineStorageCommand(argv: readonly string[]): number {
 function currentWriterEpoch(userRoot: string, repoId: string): number {
   const authority = openPersistentWriterEpoch({ stateRoot: path.join(userRoot, "fleet") });
   try {
-    return authority.current(repoId)?.epoch ?? 0;
+    return authority.highWatermark(repoId);
   } finally {
     authority.close();
   }

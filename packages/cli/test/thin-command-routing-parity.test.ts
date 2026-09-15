@@ -102,19 +102,49 @@ test("settings update projects repeatable CI workflow flags into the daemon Acti
   assert.equal(rejected.ok, false);
 });
 
-test("repo lifecycle commands require a positional repo id and only expose cache purge", () => {
+test("repo lifecycle commands validate cache and destructive purge inputs", () => {
+  const backup = path.join(tmpdir(), `ha-purge-all-${process.pid}-${Date.now()}`);
   const unbind = parseThinCommand(["repo", "unbind", "canonical"]),
-    purge = parseThinCommand(["repo", "purge", "canonical", "--scope", "cache"]);
+    purge = parseThinCommand(["repo", "purge", "canonical", "--scope", "cache"]),
+    purgeAll = parseThinCommand([
+      "repo",
+      "purge",
+      "canonical",
+      "--scope",
+      "all",
+      "--backup",
+      backup,
+      "--confirm",
+      "canonical",
+    ]);
   assert.equal(unbind.ok, true);
   assert.equal(purge.ok, true);
-  if (!unbind.ok || !purge.ok) return;
+  assert.equal(purgeAll.ok, true);
+  if (!unbind.ok || !purge.ok || !purgeAll.ok) return;
   assert.deepEqual(unbind.command.action, { kind: "repo-unbind", repoId: "canonical" });
   assert.equal(unbind.command.method, "daemon.repo.unbind");
   assert.deepEqual(purge.command.action, { kind: "repo-purge", repoId: "canonical", scope: "cache" });
+  assert.deepEqual(purgeAll.command.action, {
+    kind: "repo-purge",
+    repoId: "canonical",
+    scope: "all",
+    backup,
+    confirm: "canonical",
+  });
   assert.equal(purge.command.method, "daemon.repo.purge");
   assert.equal(parseThinCommand(["repo", "unbind"]).ok, false);
   assert.equal(parseThinCommand(["repo", "unbind", "canonical", "extra"]).ok, false);
   assert.equal(parseThinCommand(["repo", "purge", "canonical", "--scope", "all"]).ok, false);
+  assert.equal(
+    parseThinCommand(["repo", "purge", "canonical", "--scope", "all", "--backup", "relative", "--confirm", "canonical"])
+      .ok,
+    false,
+  );
+  assert.equal(
+    parseThinCommand(["repo", "purge", "canonical", "--scope", "all", "--backup", backup, "--confirm", "wrong"]).ok,
+    false,
+  );
+  assert.equal(parseThinCommand(["repo", "purge", "canonical", "--scope", "cache", "--backup", backup]).ok, false);
 });
 
 test("entity import and update carry declared attributes as one typed JSON object", () => {

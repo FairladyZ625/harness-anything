@@ -128,7 +128,12 @@ export const daemonProtocolMethods = Object.freeze([
     phase: "Repo-Lifecycle",
     method: "daemon.repo.purge",
     requiresRepo: false,
-    params: shape({ repoId: "string", scope: { values: ["cache"], optional: false } }),
+    params: shape({
+      repoId: "string",
+      scope: { values: ["cache", "all"], optional: false },
+      backup: "string?",
+      confirm: "string?",
+    }),
   },
   {
     id: "daemon.connection.register",

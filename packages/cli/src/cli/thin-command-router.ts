@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import path from "node:path";
 import type { SafePath } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { parseDecision } from "./thin-command-decision.ts";
 import { parseDoc } from "./thin-command-doc.ts";
@@ -119,7 +121,7 @@ function parseRepoLifecycle(
 ): ThinParseResult {
   const targetRepoId = args[2];
   if (!nonEmpty(targetRepoId)) return rejected("missing_field", `Use ha repo ${route.path[1]} <repo-id>.`, json);
-  return parseProjected(
+  const projected = parseProjected(
     route.id,
     args.slice(3),
     rootDir,
@@ -130,6 +132,21 @@ function parseRepoLifecycle(
     {},
     route.method,
   );
+  if (!projected.ok || route.id !== "repo-purge") return projected;
+  const action = projected.command.action,
+    scope = action.scope,
+    backup = action.backup,
+    confirm = action.confirm;
+  if (scope === "cache" && (backup !== undefined || confirm !== undefined))
+    return rejected("invalid_field", "--backup and --confirm are only valid with --scope all.", json);
+  if (scope !== "all") return projected;
+  if (typeof backup !== "string" || !nonEmpty(backup))
+    return rejected("missing_field", "Use --backup <absolute-directory> with --scope all.", json);
+  if (!path.isAbsolute(backup)) return rejected("invalid_field", "--backup must be an absolute path.", json);
+  if (existsSync(backup)) return rejected("invalid_field", "--backup destination must not already exist.", json);
+  if (confirm !== targetRepoId)
+    return rejected("invalid_field", `--confirm must exactly match repository id ${targetRepoId}.`, json);
+  return projected;
 }
 
 function parseAgentRun(
