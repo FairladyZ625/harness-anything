@@ -497,6 +497,8 @@ test("release acceptance: JSON, PDF and binary artifacts publish byte-exact, rou
 
     // Backup and drill-restore through the real offline CLI.
     const backupDir = path.join(parent, "release-backup"),
+      restoredRoot = path.join(parent, "restored-repo"),
+      restoredUserRoot = path.join(parent, "restored-user"),
       backup = runOffline(root, userRoot, ["backup", backupDir, "--json"]);
     assert.equal(backup.ok, true, JSON.stringify(backup));
     assert.equal(backup.schema, "ledger-backup-receipt/v1");
@@ -518,9 +520,29 @@ test("release acceptance: JSON, PDF and binary artifacts publish byte-exact, rou
       const restored = readFileSync(path.join(shadowRoot, "harness", packagePath, destination));
       assert.deepEqual(restored, bytes, `${destination}: drill restore must return the original bytes`);
     }
+    const restored = runOffline(root, restoredUserRoot, ["restore", backupDir, "--to", restoredRoot, "--json"]);
+    assert.equal(restored.ok, true, JSON.stringify(restored));
+    assert.equal((restored.registration as { repoId: string }).repoId, repoId);
+    startDaemon(restoredRoot, restoredUserRoot);
+    const rebound = run(restoredRoot, restoredUserRoot, [
+      "init",
+      "--repo-id",
+      repoId,
+      "--person-id",
+      "owner",
+      "--display-name",
+      "Owner",
+    ]);
+    assert.equal(rebound.ok, true, JSON.stringify(rebound));
+    const restoredTask = run(restoredRoot, restoredUserRoot, ["task", "show", taskId]),
+      restoredFacts = run(restoredRoot, restoredUserRoot, ["fact", "search", "artifact fixture"]);
+    assert.match(String(restoredTask.evidence), new RegExp(`"taskId":"${taskId}"`, "u"));
+    assert.match(JSON.stringify(restoredFacts), /artifact fixture/u);
     context.diagnostic(JSON.stringify({ schema: "release-acceptance-artifacts/v1", taskId, backupDir, shadowRoot }));
   } finally {
     if (existsSync(userRoot)) runMaybe(root, userRoot, ["daemon", "stop"]);
+    if (existsSync(path.join(parent, "restored-user")))
+      runMaybe(path.join(parent, "restored-repo"), path.join(parent, "restored-user"), ["daemon", "stop"]);
     await reader.drain();
     rmSync(parent, { recursive: true, force: true });
   }

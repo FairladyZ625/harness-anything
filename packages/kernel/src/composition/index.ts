@@ -32,6 +32,7 @@ export { reconcileSqliteEvents } from "../store/sqlite-ledger-reconcile.ts";
 export {
   createLedgerBackup,
   drillLedgerBackup,
+  restoreLedgerBackup,
   readOfflineLedgerEvents,
   restoreDrillRetentionFor,
   runGenerationTwoConversion,

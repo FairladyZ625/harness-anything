@@ -59,7 +59,9 @@ export function renderCliReceipt(
               ...renderReceiptNext(receipt.next),
             ].join("\n"),
           }
-        : base,
+        : base.stream === "stderr"
+          ? { ...base, text: [base.text, ...renderReceiptNext(receipt.next, base.text)].join("\n") }
+          : base,
     daemonBuild =
       receipt.daemonBuild !== null && typeof receipt.daemonBuild === "object" && !Array.isArray(receipt.daemonBuild)
         ? (receipt.daemonBuild as Record<string, unknown>)
@@ -225,15 +227,21 @@ function gitFacetText(git: unknown): string {
     : `git(harness-outbox): committed ${commitSha.slice(0, 7)}`;
 }
 
-function renderReceiptNext(next: unknown): readonly string[] {
+// Lifecycle receipts carry { command, reason }; completion guidance (submit rejections, completion
+// blockers) carries the kernel's CompletionNext { action, reason, ... }.
+function renderReceiptNext(next: unknown, renderedText = ""): readonly string[] {
   if (!Array.isArray(next)) return [];
-  return next.map((entry) => {
-    if (!isRecord(entry) || typeof entry.command !== "string" || entry.command.length === 0)
-      throw new TypeError("Successful receipt next entries must carry a command.");
-    return typeof entry.reason === "string" && entry.reason.length > 0
-      ? `next: ${entry.command} (${entry.reason})`
-      : `next: ${entry.command}`;
+  return next.flatMap((entry) => {
+    const command = isRecord(entry) ? (nonEmptyText(entry.command) ?? nonEmptyText(entry.action)) : null;
+    if (command === null) throw new TypeError("Receipt next entries must carry a command or action.");
+    if (renderedText.includes(command)) return [];
+    const reason = isRecord(entry) ? nonEmptyText(entry.reason) : null;
+    return [reason === null || renderedText.includes(reason) ? `next: ${command}` : `next: ${command} (${reason})`];
   });
+}
+
+function nonEmptyText(value: unknown): string | null {
+  return typeof value === "string" && value.length > 0 ? value : null;
 }
 
 function renderInitReceipt(receipt: Record<string, unknown>): string {
