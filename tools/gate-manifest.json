@@ -4326,7 +4326,7 @@
       "authoritySource": [
         "task_0783e583898931b87e4cc9874c",
         "tools/measure-cli-command-timing.mjs",
-        "packages/cli/test/daemon-multi-repo-lifecycle-cli-latency.test.ts",
+        "packages/cli/test/daemon-multi-repo-lifecycle-cli.test.ts",
         ".github/workflows/rewrite-ci.yml:jobs.nightly-cli-command-timing"
       ],
       "consumerScope": [
