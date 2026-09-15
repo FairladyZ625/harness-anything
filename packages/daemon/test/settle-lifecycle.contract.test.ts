@@ -483,3 +483,60 @@ test("owner retries preparation failure on the same submitted cut without a seco
     await removeTemporaryDirectory(rootDir);
   }
 });
+
+test("settle preserves the submitted file manifest after main merges the delivery", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-settle-merged-")),
+    repoId = workspaceId("settle-merged"),
+    taskId = "task_settle_merged",
+    executionId = "exe_settle_merged",
+    git = (...args: string[]) => execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8" }).trim();
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    initRepo(rootDir);
+    writeFileSync(path.join(rootDir, "retired.txt"), "old delivery path\n");
+    git("add", "retired.txt");
+    git("commit", "-qm", "test: seed removed path");
+    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "settle-merged" });
+    await reachDeliverable(cell, rootDir, taskId, executionId, { publicDelivery: true });
+    await cell.close();
+    cell = undefined;
+    const closeout = path.join(rootDir, "harness", `tasks/${taskId}-settle-lifecycle/closeout.md`),
+      original = readFileSync(closeout, "utf8"),
+      firstDelivery = original.match(/\b[0-9a-f]{40}\b/u)?.[0];
+    assert.ok(firstDelivery);
+    const base = git("rev-parse", `${firstDelivery}^1`);
+    git("update-ref", "refs/remotes/origin/main", base);
+    git("rm", "retired.txt");
+    git("commit", "-qm", "test: remove an earlier delivery path");
+    writeFileSync(path.join(rootDir, "later.md"), "# Later delivery\n");
+    git("add", "later.md");
+    git("commit", "-qm", "test: finish multi-commit delivery");
+    const delivery = git("rev-parse", "HEAD");
+    writeFileSync(closeout, original.replace(firstDelivery, delivery));
+    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "settle-merged" });
+    const first = await cell.run({ kind: "task-settle", taskId }, workerBinding);
+    assert.equal(first.outcome, "applied", JSON.stringify(first));
+    const reader = makeTaskEventReader({ repoId, rootDir }),
+      submissions = () => reader.read().events.filter((event) => event.type === "execution_submitted"),
+      before = submissions();
+    assert.equal(before.length, 1);
+    const packet = before[0]!.payload.execution.submission!;
+    assert.ok(packet.deliverables.includes("delivery.md"));
+    assert.ok(packet.deliverables.includes("later.md"));
+    assert.ok(packet.outputs.includes("Deleted-Production-Paths: retired.txt"));
+    const merged = git("commit-tree", `${delivery}^{tree}`, "-p", base, "-p", delivery, "-m", "test: merge delivery");
+    git("update-ref", "refs/remotes/origin/main", merged);
+    const replay = await cell.run({ kind: "task-settle", taskId }, workerBinding);
+    assert.equal(replay.outcome, "applied", JSON.stringify(replay));
+    assert.equal(replay.opId, first.opId);
+    assert.deepEqual(submissions(), before, "main advancement must not replace the frozen submission");
+    writeFileSync(closeout, readFileSync(closeout, "utf8").replace("Verified.", "Changed verification after merge."));
+    const changed = await cell.run({ kind: "task-settle", taskId }, workerBinding);
+    assert.equal(changed.code, "invalid_transition", JSON.stringify(changed));
+    assert.deepEqual(submissions(), before, "real prose changes still require explicit amendment");
+    await reader.drain();
+  } finally {
+    await cell?.close();
+    await removeTemporaryDirectory(rootDir);
+  }
+});
