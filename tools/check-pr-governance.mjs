@@ -17,6 +17,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
+import { pullRequestBase } from "./gates/git.mjs";
 
 const DEFAULT_ROOT = process.cwd();
 const DEFAULT_MANIFEST = "tools/gate-manifest.json";
@@ -193,19 +194,20 @@ export function readChangedFiles({ root, changedFilesPath, changedFilesText, bas
   if (changedFilesPath) {
     return splitChangedFiles(readFileSync(changedFilesPath, "utf8"));
   }
-  if (base && head) {
-    // Three-dot: only the branch's own changes count. The PR base sha is the target branch tip at event
-    // time, so a two-dot diff would charge the PR with everything merged to main since it branched.
-    const result = spawnSync("git", ["diff", "--name-only", `${base}...${head}`, "--"], {
-      cwd: root,
-      encoding: "utf8",
-    });
-    if (result.status !== 0) {
-      throw new Error(`git diff --name-only failed: ${(result.stderr || result.stdout).trim()}`);
-    }
-    return splitChangedFiles(result.stdout);
+  // Missing base/head (a bare local run) derives the same context CI injects: merge-base with
+  // origin/main through HEAD. Derivation failure is fail-closed with a fix inside pullRequestBase.
+  const effectiveBase = base || pullRequestBase(root);
+  const effectiveHead = head || "HEAD";
+  // Three-dot: only the branch's own changes count. The PR base sha is the target branch tip at event
+  // time, so a two-dot diff would charge the PR with everything merged to main since it branched.
+  const result = spawnSync("git", ["diff", "--name-only", `${effectiveBase}...${effectiveHead}`, "--"], {
+    cwd: root,
+    encoding: "utf8",
+  });
+  if (result.status !== 0) {
+    throw new Error(`git diff --name-only failed: ${(result.stderr || result.stdout).trim()}`);
   }
-  throw new Error("Provide changed files via --changed-files, --changed-files-text, or --base/--head.");
+  return splitChangedFiles(result.stdout);
 }
 
 function splitChangedFiles(text) {

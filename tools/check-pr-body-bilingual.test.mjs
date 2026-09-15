@@ -359,6 +359,19 @@ test("G1 evidence rejects headings, placeholders, partial metrics, and hidden ta
     assert.equal(checkWriteBody(table).ok, false, table);
 });
 
+test("a body with several problems reports every issue in one run", () => {
+  const result = checkPrBodyBilingual(validEnglish, undefined, {
+    files: ["packages/kernel/src/store/write-journal-coordinator.ts"],
+    productionDelta: { added: 201, deleted: 0 },
+  });
+  const issues = result.issues.join("\n");
+
+  assert.equal(result.ok, false);
+  assert.match(issues, /Missing top-level heading `# 中文`/u);
+  assert.match(issues, /Write-path changes require `## Per-Write Cost`/u);
+  assert.match(issues, /English `## Architectural Justification`/u);
+});
+
 test("PR lint CLI derives write changes from PR base/head and rejects missing evidence", (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "pr-write-cost-"));
   t.after(() => removeTemporaryDirectory(root));
@@ -391,4 +404,55 @@ test("PR lint CLI derives write changes from PR base/head and rejects missing ev
     assert.equal(result.status, evidence ? 0 : 1, result.stderr);
     if (!evidence) assert.match(result.stderr, /Write-path changes require/u);
   }
+});
+
+test("PR lint CLI without base/head env derives the diff context from origin/main", (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "pr-write-cost-local-"));
+  t.after(() => removeTemporaryDirectory(root));
+  const git = (...args) => execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
+  git("init", "-q");
+  git("config", "user.name", "Fixture");
+  git("config", "user.email", "fixture@example.invalid");
+  git("commit", "--allow-empty", "-qm", "base");
+  git("update-ref", "refs/remotes/origin/main", "HEAD");
+  mkdirSync(path.join(root, "packages/kernel/src"), { recursive: true });
+  writeFileSync(path.join(root, "packages/kernel/src/write.ts"), "export const count = 1;\n");
+  git("add", ".");
+  git("commit", "-qm", "write path");
+  for (const evidence of ["", g1Table]) {
+    const env = {
+      ...process.env,
+      PR_BODY: twoBlockBody({ english: `${validEnglish}\n${evidence}` }),
+    };
+    delete env.PR_BASE_SHA;
+    delete env.PR_HEAD_SHA;
+    const result = spawnSync(
+      process.execPath,
+      [fileURLToPath(new URL("./check-pr-body-bilingual.mjs", import.meta.url)), "--env", "PR_BODY"],
+      { cwd: root, encoding: "utf8", env },
+    );
+    assert.equal(result.status, evidence ? 0 : 1, result.stderr);
+    if (!evidence) assert.match(result.stderr, /Write-path changes require/u);
+  }
+});
+
+test("PR lint CLI without base/head env or origin/main fails closed with a fix", (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "pr-lint-no-base-"));
+  t.after(() => removeTemporaryDirectory(root));
+  const git = (...args) => execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
+  git("init", "-q");
+  git("config", "user.name", "Fixture");
+  git("config", "user.email", "fixture@example.invalid");
+  git("commit", "--allow-empty", "-qm", "base");
+  const env = { ...process.env, PR_BODY: twoBlockBody() };
+  delete env.PR_BASE_SHA;
+  delete env.PR_HEAD_SHA;
+  const result = spawnSync(
+    process.execPath,
+    [fileURLToPath(new URL("./check-pr-body-bilingual.mjs", import.meta.url)), "--env", "PR_BODY"],
+    { cwd: root, encoding: "utf8", env },
+  );
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /git merge-base origin\/main HEAD` failed/u);
+  assert.match(result.stderr, /git fetch origin main/u);
 });

@@ -278,3 +278,46 @@ test("changed files are the branch's own commits, not what the base branch merge
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("missing base/head derives the diff context from merge-base with origin/main", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "pr-governance-local-"));
+  const git = (...args) =>
+    execFileSync("git", ["-C", root, "-c", "user.name=t", "-c", "user.email=t@example.com", ...args], {
+      encoding: "utf8",
+    }).trim();
+  try {
+    git("init", "-q");
+    writeFileSync(path.join(root, "README.md"), "base\n");
+    git("add", "README.md");
+    git("commit", "-q", "-m", "base");
+    git("update-ref", "refs/remotes/origin/main", "HEAD");
+    writeFileSync(path.join(root, "feature.txt"), "feature\n");
+    git("add", "feature.txt");
+    git("commit", "-q", "-m", "feature");
+    assert.deepEqual(readChangedFiles({ root, changedFilesPath: null, changedFilesText: null, base: "", head: "" }), [
+      "feature.txt",
+    ]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("missing base/head without origin/main fails closed with a fix", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "pr-governance-no-base-"));
+  const git = (...args) =>
+    execFileSync("git", ["-C", root, "-c", "user.name=t", "-c", "user.email=t@example.com", ...args], {
+      encoding: "utf8",
+    }).trim();
+  try {
+    git("init", "-q");
+    writeFileSync(path.join(root, "README.md"), "base\n");
+    git("add", "README.md");
+    git("commit", "-q", "-m", "base");
+    assert.throws(
+      () => readChangedFiles({ root, changedFilesPath: null, changedFilesText: null, base: "", head: "" }),
+      /git fetch origin main/u,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

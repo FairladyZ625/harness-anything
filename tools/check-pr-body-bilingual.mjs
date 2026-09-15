@@ -5,7 +5,7 @@ import { agentProtocolCommands } from "../packages/daemon/src/protocol/daemon-pr
 import { clientLocalCommands } from "../packages/cli/src/cli/thin-command-help.ts";
 import { G1_MARGINS, G1_OPERATION_NAMES, G1_SCALES } from "./gates/cost-budget.mjs";
 import { computeProductionDelta } from "./gates/production-delta.mjs";
-import { changedFiles, repoRoot } from "./gates/git.mjs";
+import { changedFiles, pullRequestBase, repoRoot } from "./gates/git.mjs";
 
 export const defaultThresholds = Object.freeze({
   minCjkChars: 20,
@@ -377,10 +377,11 @@ function readBodyFromArgs(argv) {
 if (import.meta.url === `file://${process.argv[1]}`) {
   try {
     const body = readBodyFromArgs(process.argv.slice(2));
-    const base = process.env.PR_BASE_SHA,
-      head = process.env.PR_HEAD_SHA,
-      files = base && head ? changedFiles(repoRoot(), base, head) : [],
-      productionDelta = base && head ? computeProductionDelta({ rootDir: repoRoot(), base }) : undefined,
+    const root = repoRoot(),
+      base = process.env.PR_BASE_SHA || pullRequestBase(root),
+      head = process.env.PR_HEAD_SHA || "HEAD",
+      files = changedFiles(root, base, head),
+      productionDelta = computeProductionDelta({ rootDir: root, base }),
       result = checkPrBodyBilingual(body, defaultThresholds, { files, eventMigration: { files }, productionDelta });
     if (result.ok) {
       process.stdout.write(
