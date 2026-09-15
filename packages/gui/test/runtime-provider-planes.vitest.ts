@@ -211,14 +211,25 @@ describe("provider planes (2026-08-20 adjudication)", () => {
   it("covers every runtime kind the contract accepts", () => {
     expect([...RUNTIME_KIND_IDS].sort()).toEqual([
       "agy",
+      "agy-acp",
+      "auggie",
       "claude",
       "claude-acp",
+      "codebuddy",
       "codex",
       "codex-acp",
+      "copilot",
       "cursor",
       "devin",
-      "gemini",
+      "droid",
+      "glm-acp",
+      "grok",
+      "junie",
+      "kimi",
+      "minimax-code",
+      "mistral-vibe",
       "opencode",
+      "qwen-code",
       "zcode",
     ]);
   });
