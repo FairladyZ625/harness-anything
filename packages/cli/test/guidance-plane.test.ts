@@ -321,6 +321,60 @@ test("a rejected receipt's own explanation replaces the generic code-only hint",
   );
 });
 
+test("rejected submit receipts render every structured next step", () => {
+  const cases = [
+    {
+      code: "closeout_placeholder",
+      hint: "Closeout is incomplete.",
+      next: [
+        {
+          command: "Fill harness/tasks/task-a/closeout.md, then run ha task submit task-a.",
+          reason: "Summary, Verification, and Residual Risk must contain substantive content.",
+        },
+      ],
+    },
+    {
+      code: "invalid_transition",
+      hint: "The closeout or anchored artifacts differ from the submitted cut.",
+      next: [
+        {
+          command: "ha task submit --amend task-a",
+          reason: "Amend the submitted cut explicitly before review.",
+        },
+        { command: "ha task show task-a" },
+      ],
+    },
+  ];
+  for (const receipt of cases) {
+    assert.deepEqual(renderCliReceipt({ ok: false, command: "task-submit", ...receipt }), {
+      stream: "stderr",
+      text: [
+        `error code=${receipt.code} hint=${receipt.hint}`,
+        ...receipt.next.map((entry) =>
+          "reason" in entry ? `next: ${entry.command} (${entry.reason})` : `next: ${entry.command}`,
+        ),
+      ].join("\n"),
+    });
+  }
+});
+
+test("rejected receipts do not repeat a next command already rendered in the error", () => {
+  const command = "ha task review task-a --execution-id exe-a";
+  assert.deepEqual(
+    renderCliReceipt({
+      ok: false,
+      command: "task-complete",
+      code: "review_required",
+      rejectionExplanation: `Review is required. Next: ${command}`,
+      next: [{ command, reason: "Record the required review before completion." }],
+    }),
+    {
+      stream: "stderr",
+      text: `error code=review_required hint=Review is required. Next: ${command}`,
+    },
+  );
+});
+
 test("a daemon control failure receipt's nextAction reaches the operator instead of the generic retry sentence", () => {
   assert.deepEqual(renderCliReceipt(daemonFailure("daemon-repo-register", "missing_field", "Add --repo-id.")), {
     stream: "stderr",

@@ -59,7 +59,9 @@ export function renderCliReceipt(
               ...renderReceiptNext(receipt.next),
             ].join("\n"),
           }
-        : base,
+        : base.stream === "stderr"
+          ? { ...base, text: [base.text, ...renderReceiptNext(receipt.next, base.text)].join("\n") }
+          : base,
     daemonBuild =
       receipt.daemonBuild !== null && typeof receipt.daemonBuild === "object" && !Array.isArray(receipt.daemonBuild)
         ? (receipt.daemonBuild as Record<string, unknown>)
@@ -225,14 +227,17 @@ function gitFacetText(git: unknown): string {
     : `git(harness-outbox): committed ${commitSha.slice(0, 7)}`;
 }
 
-function renderReceiptNext(next: unknown): readonly string[] {
+function renderReceiptNext(next: unknown, renderedText = ""): readonly string[] {
   if (!Array.isArray(next)) return [];
-  return next.map((entry) => {
+  return next.flatMap((entry) => {
     if (!isRecord(entry) || typeof entry.command !== "string" || entry.command.length === 0)
-      throw new TypeError("Successful receipt next entries must carry a command.");
-    return typeof entry.reason === "string" && entry.reason.length > 0
-      ? `next: ${entry.command} (${entry.reason})`
-      : `next: ${entry.command}`;
+      throw new TypeError("Receipt next entries must carry a command.");
+    if (renderedText.includes(entry.command)) return [];
+    return [
+      typeof entry.reason === "string" && entry.reason.length > 0
+        ? `next: ${entry.command} (${entry.reason})`
+        : `next: ${entry.command}`,
+    ];
   });
 }
 
