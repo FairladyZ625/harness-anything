@@ -527,6 +527,31 @@
         "value": "packages/cli/test/daemon-multi-repo-lifecycle-cli-upgrades-overlays.test.ts",
         "ref": "task_94cac93e5083d72bb45f5f9577",
         "reason": "Consolidated into packages/cli/test/daemon-multi-repo-lifecycle-cli.test.ts under relaxed file complexity limits (1,200 lines); assertions preserved verbatim."
+      },
+      {
+        "value": "packages/daemon/test/migration-import-destination-resolution.integration.test.ts",
+        "ref": "task_c877b09412a2fb723cd03d2b16",
+        "reason": "Consolidated into packages/daemon/test/migration-import-destination-rosters.integration.test.ts under relaxed file complexity limits (1,200 lines); assertions preserved verbatim."
+      },
+      {
+        "value": "packages/daemon/test/migration-import-rosters-multisource.integration.test.ts",
+        "ref": "task_c877b09412a2fb723cd03d2b16",
+        "reason": "Consolidated into packages/daemon/test/migration-import-destination-rosters.integration.test.ts under relaxed file complexity limits (1,200 lines); assertions preserved verbatim."
+      },
+      {
+        "value": "packages/daemon/test/migration-import-acceptance.integration.test.ts",
+        "ref": "task_c877b09412a2fb723cd03d2b16",
+        "reason": "Consolidated into packages/daemon/test/migration-import-destination-rosters.integration.test.ts under relaxed file complexity limits (1,200 lines); assertions preserved verbatim."
+      },
+      {
+        "value": "packages/daemon/test/migration-import-legacy-variants.integration.test.ts",
+        "ref": "task_c877b09412a2fb723cd03d2b16",
+        "reason": "Consolidated into packages/daemon/test/migration-import-variants-actors.integration.test.ts under relaxed file complexity limits (1,200 lines); assertions preserved verbatim."
+      },
+      {
+        "value": "packages/daemon/test/migration-import-relations-actors.integration.test.ts",
+        "ref": "task_c877b09412a2fb723cd03d2b16",
+        "reason": "Consolidated into packages/daemon/test/migration-import-variants-actors.integration.test.ts under relaxed file complexity limits (1,200 lines); assertions preserved verbatim."
       }
     ]
   }
