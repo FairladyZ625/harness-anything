@@ -686,6 +686,7 @@ export default Object.freeze({
     "Governed-Entity-W2-B",
     "Governed-Entity-W2",
     "Repo-Lifecycle",
+    "Ledger-Read",
   ]),
   commands: daemonOwnedProtocolCommands,
   methods: Object.freeze([

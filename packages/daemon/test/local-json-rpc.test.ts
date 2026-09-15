@@ -401,6 +401,8 @@ test("protocol descriptors preserve topology metadata without authorizing action
     "task-complete": "repo-write",
     "task-show": "repo-read",
     "receipt-show": "repo-read",
+    "event-list": "repo-read",
+    "event-show": "repo-read",
     "doc-status": "repo-read",
     "doc-dry-run": "repo-read",
     "doc-submit": "repo-write",
