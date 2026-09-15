@@ -486,15 +486,16 @@ test("terminal settlement stamps the bound runtime session as executor when the 
       });
       assert.ok(exit, "runtime exit listener must be attached before the provider exits");
       exit(0);
-      await eventually(() =>
-        makeTaskEventReader({ repoId: "runtime-executor-settle", rootDir: root })
-          .read()
-          .events.some(
+      await eventually(() => {
+        const events = makeTaskEventReader({ repoId: "runtime-executor-settle", rootDir: root }).read().events;
+        return (
+          events.some(
             (event) =>
               event.type === "runtime_session_outcome_observed" &&
               event.payload.runtimeSessionId === receipt.runtimeSessionId,
-          ),
-      );
+          ) && events.some((event) => event.type === "lease_released" && event.taskId === taskId)
+        );
+      });
       const expectedExecutor = {
           kind: "agent",
           id: `runtime-session:${String(receipt.runtimeSessionId)}`,
