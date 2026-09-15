@@ -667,6 +667,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           definitionSnapshotRef,
           launchGeneration: input.daemonGeneration,
           attachable: true,
+          ...(taskBinding ? { taskBinding: { taskId: taskBinding.taskId, executionId: taskBinding.executionId } } : {}),
         },
         `${dispatchOpId}-started`,
         binding,

@@ -425,7 +425,12 @@ export function bindVerifiedExecutorClaim(input: {
       principal: input.binding.actor.principal,
       executor: { kind: "agent" as const, id: `runtime-session:${runtimeSessionId}` },
     };
-  if (lease === null || lease.executionId !== taskBinding.executionId || !isSamePerson(lease.actor, runtimeActor))
+  if (
+    lease === null ||
+    (lease.phase !== "held" && action.kind !== "task-review-execution") ||
+    lease.executionId !== taskBinding.executionId ||
+    !isSamePerson(lease.actor, runtimeActor)
+  )
     throw invalidExecutorBindingFor(
       input,
       raw,
@@ -490,16 +495,27 @@ function invalidExecutorBindingFor(
       raw.kind === "agent" &&
       typeof raw.id === "string" &&
       raw.id.startsWith("runtime-session:"),
+    missingRequestedBinding =
+      taskId !== null &&
+      runtimeSession !== null &&
+      !runtimeSession.taskBindings.some(
+        (candidate) =>
+          candidate.taskId === taskId &&
+          (requestedExecutionId === null || candidate.executionId === requestedExecutionId),
+      ),
     expectation = canonicalTaskId
       ? `The supplied taskId matches the bound package basename; use canonical taskId ${canonicalTaskId}, then retry ` +
         executorRetryCommand(input.action, canonicalTaskId, executionId)
       : reviewerRedispatch
         ? `Expected a reviewer RuntimeSession bound to execution ${executionId ?? "<execution-id>"}; run ` +
           `ha agent run <reviewer-agent-id> --role reviewer --task ${taskId}, then retry ${retry}`
-        : expected
-          ? `Expected ${expected} from the held execution lease; run from that executor, then retry ${retry}`
-          : "Expected a task-bound executor with a matching held execution lease; run ha task start " +
-            `${taskId ?? "<task-id>"}, then retry ${retry}`,
+        : missingRequestedBinding
+          ? `Expected the claimed RuntimeSession to have canonical Task/Execution binding ` +
+            `${taskId}/${executionId ?? "<execution-id>"}; retry ${retry} from that bound session`
+          : expected
+            ? `Expected ${expected} from the held execution lease; run from that executor, then retry ${retry}`
+            : "Expected a task-bound executor with a matching held execution lease; run ha task start " +
+              `${taskId ?? "<task-id>"}, then retry ${retry}`,
     diagnostic: ReceiptDiagnostic = {
       kind: "validation",
       entity: [taskId ? `task ${taskId}` : "repository", executionId ? `execution ${executionId}` : ""]

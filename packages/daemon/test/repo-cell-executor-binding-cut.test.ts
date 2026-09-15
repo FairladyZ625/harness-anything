@@ -81,6 +81,62 @@ test("executor binding waits for the preceding writer cut that binds the runtime
   assert.deepEqual(context.observedActor, runtimeActor);
 });
 
+test("task submit accepts a pre-launch Task/Execution binding before provider enrichment", async () => {
+  const preLaunchSession: RuntimeSession = {
+      ...runtimeSession,
+      providerSessionId: null,
+      transcriptRef: null,
+      taskBindings: [
+        {
+          taskId,
+          executionId,
+          providerSessionId: null,
+          transcriptRef: null,
+          boundAt: now,
+        },
+      ],
+    },
+    submit = { kind: "task-submit", taskId, executionId, executor: runtimeActor.executor } as const,
+    accepted = await createRepoCellApi(
+      contextFor(
+        Promise.resolve(),
+        () => preLaunchSession,
+        () => lease,
+      ),
+    ).run(submit, binding);
+  assert.equal(accepted.outcome, "applied", JSON.stringify(accepted));
+
+  for (const [name, claimedSession, claimedLease, claimedExecution] of [
+    [
+      "another RuntimeSession",
+      { ...preLaunchSession, runtimeSessionId: "unrelated-runtime", taskBindings: [] },
+      lease,
+      executionId,
+    ],
+    ["another execution", preLaunchSession, lease, "exec-unrelated"],
+    ["a released lease", preLaunchSession, { ...lease, phase: "released" }, executionId],
+  ] as const) {
+    const receipt = await createRepoCellApi(
+      contextFor(
+        Promise.resolve(),
+        () => claimedSession,
+        () => claimedLease,
+      ),
+    ).run(
+      {
+        ...submit,
+        executionId: claimedExecution,
+        executor:
+          name === "another RuntimeSession"
+            ? { kind: "agent", id: "runtime-session:unrelated-runtime" }
+            : submit.executor,
+      },
+      binding,
+    );
+    assert.equal(receipt.code, "executor_binding_invalid", name);
+  }
+});
+
 test("executor binding rejection names the claimed and held executors", async (testContext) => {
   const context = contextFor(
       Promise.resolve(),
@@ -105,6 +161,20 @@ test("executor binding rejection names the claimed and held executors", async (t
   });
   testContext.diagnostic(`executor_binding_invalid receipt=${JSON.stringify(receipt)}`);
   assert.equal(context.observedActor, null);
+});
+
+test("missing session binding diagnostics name the missing canonical condition", async () => {
+  const unbound = { ...runtimeSession, taskBindings: [] },
+    receipt = await createRepoCellApi(
+      contextFor(
+        Promise.resolve(),
+        () => unbound,
+        () => lease,
+      ),
+    ).run({ kind: "task-submit", taskId, executionId, executor: runtimeActor.executor }, binding);
+  assert.equal(receipt.code, "executor_binding_invalid");
+  assert.match(String(receipt.diagnostic?.expectation), /canonical Task\/Execution binding/u);
+  assert.doesNotMatch(String(receipt.diagnostic?.expectation), /Expected agent:runtime-session/u);
 });
 
 test("package basename diagnostics name the canonical task id and retry command", async () => {
@@ -350,8 +420,15 @@ function contextFor(
       projection: {
         read: (candidateTaskId: string) => {
           fixture.taskReads += 1;
-          return { packagePath: candidateTaskId === taskId ? `tasks/${packageBasenameFor(taskId)}` : null };
+          return {
+            packagePath: candidateTaskId === taskId ? `tasks/${packageBasenameFor(taskId)}` : null,
+            snapshot: {
+              task: { taskId: candidateTaskId, iteration: 1, completionGateIds: [] },
+              executions: [{ iteration: 1, executionId, submission: { commitSha: null } }],
+            },
+          };
         },
+        readTaskCompletion: () => null,
         readRuntimeSession,
         currentLease,
         readCut: () => ({ status: "ready", watermark: 3, sourceRevision: 3 }),

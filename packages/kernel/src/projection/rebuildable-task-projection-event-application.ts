@@ -18,6 +18,7 @@ import {
   isAgentRuntimeEvent,
   reduceRuntimeInstallation,
   reduceRuntimeSession,
+  runtimeExecutionLinkForEvent,
   runtimeSessionId,
 } from "../domain/agent-runtime.ts";
 import { contractForDeclarationEvent, isEntityDeclarationEvent, isEntityEvent } from "../domain/entity-event.ts";
@@ -357,7 +358,7 @@ export function applyEvent(
     return;
   }
   if (isAgentRuntimeEvent(event)) {
-    const taskId = event.type === "runtime_session_task_bound" ? event.payload.taskId : null;
+    const taskId = runtimeExecutionLinkForEvent(event)?.taskId ?? null;
     runSql(
       db,
       "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, ?, ?)",

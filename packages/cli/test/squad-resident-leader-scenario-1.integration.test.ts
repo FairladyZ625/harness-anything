@@ -187,9 +187,12 @@ test("each worker outcome calls back into a new leader turn and a failed worker 
   const acceptedAtLaunch = calls.find((call) => call.kind === "leader-initial")?.acceptedAtLaunch as {
     opId: string;
     runtimeSessionId: string;
+    taskBinding: { taskId: string; executionId: string };
   };
   assert.match(acceptedAtLaunch.opId, /^runtime-spawn-/u);
   assert.equal(acceptedAtLaunch.runtimeSessionId, started.leaderRuntimeSessionId);
+  assert.equal(acceptedAtLaunch.taskBinding.taskId, "resident-task");
+  assert.match(acceptedAtLaunch.taskBinding.executionId, /^exe_/u);
   assert.equal(callbackLeaders.length, 3, JSON.stringify(calls));
   assert.equal(
     calls.every((call) => String(call.cwd).endsWith(`${path.sep}squadwork`)),
