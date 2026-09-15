@@ -37,6 +37,13 @@ test("completion next is one pure judgment across lifecycle and unavailable-inpu
       "not_in_review",
       "submit execution execution-1",
     ],
+    [
+      "returned review without a current execution",
+      { ...active, task: { ...active.task!, iteration: active.task!.iteration + 1 } },
+      context,
+      "not_in_review",
+      "ha task start task-1",
+    ],
     ["submitted unreviewed", submitted, context, "review_missing", "ha task complete"],
     ["approved awaits consent", at(4), context, "consent_missing", "ha task complete task-1 --consent"],
     [
