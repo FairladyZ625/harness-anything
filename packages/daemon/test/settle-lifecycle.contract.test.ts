@@ -149,6 +149,18 @@ test("settle rejoins the owner executor-less and preserves the worker's executor
     const changed = await cell.run({ kind: "task-settle", taskId }, ownerRejoinBinding);
     assert.equal(changed.code, "invalid_transition", JSON.stringify(changed));
     assert.equal(reader.read().events.filter((entry) => entry.type === "execution_submitted").length, 1);
+    assert.match(JSON.stringify(changed), /--as-owner/u, "owner recovery guidance must preserve attribution");
+    const amended = await cell.run({ kind: "task-submit", taskId, amend: true, asOwner: true }, ownerRejoinBinding);
+    assert.equal(amended.outcome, "applied", JSON.stringify(amended));
+    const shown = await cell.run({ kind: "task-show", taskId }, ownerRejoinBinding);
+    assert.match(String(shown.evidence), /Changed verification/u);
+    assert.equal(
+      reader
+        .read()
+        .events.filter((entry) => entry.type === "execution_submitted")
+        .at(-1)?.payload.execution.actor.executor?.id,
+      "worker-runtime",
+    );
 
     await reader.drain();
   } finally {

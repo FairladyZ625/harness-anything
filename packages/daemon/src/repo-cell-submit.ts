@@ -259,7 +259,14 @@ export async function submitTask(
   }
   if (!selected || (!isSameExecution(selected.actor, binding.actor) && !ownerAmendment && !ownerSubmission && !event))
     return cell.lifecycleAction(action, binding);
-  const executionId = selected.executionId;
+  const executionId = selected.executionId,
+    amendCommand = `ha task submit --amend ${taskId}${
+      current.snapshot.task &&
+      isSamePerson(current.snapshot.task.createdBy, binding.actor) &&
+      !isSameExecution(selected.actor, binding.actor)
+        ? " --as-owner"
+        : ""
+    }`;
   if (action.amend === true) assertCurrentSubmittedExecution(current.snapshot, taskId, executionId);
   if (!selected.submission && (!held || !sameWriteSource(current.snapshot.lease?.source, binding.source)))
     return cell.lifecycleAction(action, binding);
@@ -267,10 +274,7 @@ export async function submitTask(
     // Reuse the existing atomic carried-document submission path. A submitted cut with
     // changed edge documents must be amended explicitly, never silently synchronized.
     if (selected.submission && action.amend !== true)
-      throw cell.cellCodedError(
-        "invalid_transition",
-        "Carried documents change a submitted cut; use ha task submit --amend.",
-      );
+      throw cell.cellCodedError("invalid_transition", `Carried documents change a submitted cut; use ${amendCommand}.`);
     const receipt = await cell.runTaskCommandWithDocs(
       { ...action, executionId, docChanges: action.docChanges } as Parameters<typeof cell.runTaskCommandWithDocs>[0],
       binding,
@@ -336,7 +340,7 @@ export async function submitTask(
           completionGuidance(
             fresh.snapshot,
             executionId,
-            `ha task submit --amend ${taskId}`,
+            amendCommand,
             "Amend the submitted cut explicitly before review.",
           ),
         ],

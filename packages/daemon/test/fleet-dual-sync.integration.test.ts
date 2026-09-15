@@ -1068,6 +1068,24 @@ for (const commandKind of ["task-submit", "task-settle"] as const)
         assert.equal(replay.opId, submitted.opId, "same assignment resumes the same cut after replica pull");
         const foreign = await fixture.edgeTask("node-two", { kind: "task-settle", taskId: created.taskId });
         assert.equal(foreign.ok, false, JSON.stringify(foreign));
+        const changedCloseout = readFileSync(fixture.worktree("node-one", closeoutPath), "utf8").replace(
+          "Verified by the dual-sync integration fixture.",
+          "Amended verification from edge.",
+        );
+        fixture.writeWorktree("node-one", closeoutPath, changedCloseout);
+        const changed = await fixture.edgeTask("node-one", { kind: "task-settle", taskId: created.taskId });
+        assert.equal(changed.ok, false, JSON.stringify(changed));
+        assert.match(JSON.stringify(changed), /amend/u);
+        const amended = await fixture.edgeTask("node-one", {
+          kind: "task-submit",
+          taskId: created.taskId,
+          amend: true,
+        });
+        assert.equal(amended.ok, true, JSON.stringify(amended).slice(0, 1500));
+        assert.match(
+          readFileSync(path.join(fixture.repo, "harness", closeoutPath), "utf8"),
+          /Amended verification from edge/u,
+        );
       }
     },
   );

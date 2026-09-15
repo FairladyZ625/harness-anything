@@ -240,6 +240,7 @@ test("Fleet transport union round-trips every closed wire variant", () => {
   const taskCommand = frames.find((frame) => frame.schema === "fleet.task.command/v1")!;
   for (const action of [
     { kind: "task-settle", taskId: "task_abc" },
+    { kind: "task-submit", taskId: "task_abc", amend: true, asOwner: true },
     {
       kind: "task-create",
       title: "Fleet task",

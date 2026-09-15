@@ -391,7 +391,10 @@ const taskActionShapes: Readonly<Record<FleetTaskCommandKind, Check>> = {
     ["kind"],
   ),
   "task-settle": optionalShape({ kind: one("task-settle"), taskId: id }, ["kind", "taskId"]),
-  "task-submit": optionalShape({ kind: one("task-submit"), taskId: id, executionId: id, submission: record }, ["kind"]),
+  "task-submit": optionalShape(
+    { kind: one("task-submit"), taskId: id, executionId: id, submission: record, amend: boolean, asOwner: boolean },
+    ["kind"],
+  ),
   "task-complete": optionalShape(
     {
       kind: one("task-complete"),

@@ -141,7 +141,7 @@ const doctorProtocolCommands = Object.freeze([
   defineRepoReadCommand({
     id: "doctor-health",
     actionKind: "doctor-health",
-    phase: "Ops",
+    phase: "W3",
     path: ["doctor", "health"],
     summary:
       "Run the read-only repository health checks behind ha doctor: delivered cuts, executor " +
