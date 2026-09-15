@@ -114,11 +114,16 @@ function renderTaskCreate(receipt: Record<string, unknown>): string {
 function renderTaskShow(receipt: Record<string, unknown>): string {
   const payload = parseEvidence(receipt);
   if (!payload || !isRecord(payload.task)) return renderSuccessfulReceipt(receipt);
-  const gates = Array.isArray(payload.task.completionGateIds) ? payload.task.completionGateIds : [];
+  const gates = Array.isArray(payload.task.completionGateIds) ? payload.task.completionGateIds : [],
+    blocker = isRecord(payload.completionBlocker) ? payload.completionBlocker : null;
   return [
     `status: ${String(payload.task.status)}`,
     `graph cursor: ${String(payload.task.currentNode)}`,
-    `completion gates: ${gates.length ? gates.join(", ") : "none"}`,
+    `completion gates: ${
+      [...gates, ...(typeof blocker?.gate === "string" ? [`${blocker.gate} (${String(blocker.code)})`] : [])].join(
+        ", ",
+      ) || "none"
+    }`,
   ].join("\n");
 }
 

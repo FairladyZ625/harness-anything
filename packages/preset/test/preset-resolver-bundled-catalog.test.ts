@@ -170,6 +170,13 @@ test("all thirteen bundled packages resolve through one valid catalog", async ()
           assert.match(plan, new RegExp(anchor, "u"), `${presetId}:${locale}:${anchor}:body`);
         }
       }
+    for (const locale of ["en-US", "zh-CN"] as const) {
+      const blackbox = runtime.resolveInternal({ ...common, locale, presetId: "lifecycle-blackbox-acceptance" }),
+        plan = blackbox.documents.find(({ slot }) => slot === "task.plan")?.body ?? "";
+      assert.match(plan, /ha task show/u);
+      assert.doesNotMatch(plan, /Stop point.*node tools\/|停止点.*node tools\//u);
+      assert.match(plan, /No source tests|不要求源码测试/u);
+    }
     const matrix = [
       [
         "standard-task",

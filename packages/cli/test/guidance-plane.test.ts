@@ -572,6 +572,18 @@ test("task show renders lifecycle status before the secondary graph cursor", () 
   assert.deepEqual(rendered.text.split("\n"), ["status: done", "graph cursor: review", "completion gates: none"]);
 });
 
+test("task show renders the current fact prerequisite as a completion gate", () => {
+  const rendered = renderCliReceipt({
+    ok: true,
+    command: "task-show",
+    evidence: JSON.stringify({
+      task: { status: "in_review", currentNode: "review", completionGateIds: [] },
+      completionBlocker: { code: "fact_missing", gate: "facts" },
+    }),
+  });
+  assert.match(rendered.text, /completion gates: facts \(fact_missing\)/u);
+});
+
 test("relation rejection renders structured triples and preserves them through diagnostic validation", () => {
   const diagnostic = {
     kind: "validation",

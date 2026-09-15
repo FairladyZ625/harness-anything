@@ -7,6 +7,7 @@ import {
   requireEntityTypeContract,
   type ActorIdentity,
   type BaseEntity,
+  type CompletionReadinessContext,
   type EntityActionExplanationSetV1,
   type TaskLifecycleSnapshot,
 } from "../../kernel/src/index.ts";
@@ -132,6 +133,9 @@ test("Task explanations distinguish lifecycle state, actor capability, invocatio
       ownerComplete = row(explain(harness, ready, owner), "complete"),
       reviewerComplete = row(explain(harness, ready, reviewer), "complete");
     assert.equal(ownerComplete.available, true);
+    const missingFact = row(explain(harness, ready, owner, "allowed", 0), "complete");
+    assert.equal(missingFact.available, false);
+    assert.equal(criterion(missingFact, "closeout-readiness/closeoutReadiness").status, "unmet");
     assert.equal(reviewerComplete.available, false);
     assert.equal(criterion(reviewerComplete, "task-lifecycle-review-transitions/complete.validate").status, "unmet");
 
@@ -170,6 +174,7 @@ function explain(
   snapshotValue: TaskLifecycleSnapshot,
   actor: ActorIdentity,
   outcome: "allowed" | "denied" = "allowed",
+  producesFactCount = 1,
 ): EntityActionExplanationSetV1 {
   const event = harness.eventStore
     .read()
@@ -202,7 +207,18 @@ function explain(
     // This suite locks lifecycle semantics, not catalog usage; the daemon wiring
     // is locked by the CLI catalog-consistency test.
     usage: ({ id }) => `ha task ${id} <task-id>`,
-  }).object({ entity, snapshot: snapshotValue, evaluatedAtCut: cut });
+  }).object({
+    entity,
+    snapshot: snapshotValue,
+    evaluatedAtCut: cut,
+    completionContext: {
+      closeout: "ready",
+      closeoutPath: "tasks/task-1/closeout.md",
+      closeoutGates: { review: true, consent: true, factDisposition: false, codeDoc: false },
+      eligibleDirtyPaths: [],
+      producesFactCount,
+    } satisfies CompletionReadinessContext,
+  });
 }
 
 function row(result: EntityActionExplanationSetV1, id: string) {

@@ -24,6 +24,7 @@ export { renderThinCapabilities } from "./thin-command-help.ts";
 export { firstCliCommandIndex } from "./thin-command-help.ts";
 export { firstCliCommand } from "./thin-command-help.ts";
 export { helpDomain } from "./thin-command-help.ts";
+export { helpCommandPrefix } from "./thin-command-help.ts";
 export { deriveThinCliInputs } from "./thin-command-inputs.ts";
 export { cliCommandDomains } from "./thin-command-help.ts";
 export { unsupportedCommandHint } from "./thin-command-help.ts";
@@ -100,7 +101,11 @@ function parseTaskRoute(
   return parseTask(id, args, rootDir, repoId, json, inputs);
 }
 
-export function renderThinHelp(catalog: readonly ThinHelpCatalogEntry[] = [], domain?: string): string {
+export function renderThinHelp(
+  catalog: readonly ThinHelpCatalogEntry[] = [],
+  domain?: string,
+  commandPrefix?: string,
+): string {
   const rows = [
       ...thinCliCommands.map(({ usage, summary, help }) =>
         preferTaskActionHelp({
@@ -111,11 +116,15 @@ export function renderThinHelp(catalog: readonly ThinHelpCatalogEntry[] = [], do
       ),
       ...clientLocalCommands,
     ],
-    visible = domain ? rows.filter(({ usage }) => usage.split(" ")[1] === domain) : rows,
+    visible = commandPrefix
+      ? rows.filter(({ usage }) => usage === commandPrefix || usage.startsWith(`${commandPrefix} `))
+      : domain
+        ? rows.filter(({ usage }) => usage.split(" ")[1] === domain)
+        : rows,
     groups = commandDomains,
     body = domain
       ? [
-          `Commands for ${domain}:`,
+          commandPrefix ? `Command ${commandPrefix}:` : `Commands for ${domain}:`,
           ...visible.map(({ usage, summary, help }) => `  ${usage}\n    ${summary}${help ? `\n${help}` : ""}`),
         ]
       : [

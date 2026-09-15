@@ -7,7 +7,9 @@
   "kind": "template-content",
   "outputShape": "task-package-artifact",
   "kernelVersionRange": { "min": "1.0.0", "maxExclusive": "2.0.0" },
-  "capabilityImports": [],
+  "capabilityImports": [
+    { "id": "policy:template-override/blackbox-task-plan/v1", "kind": "command", "version": "1", "required": true }
+  ],
   "profiles": [
     {
       "id": "baseline",
@@ -15,6 +17,12 @@
       "checkerProfile": "standard",
       "completionGates": [],
       "templateSelections": [
+        {
+          "slot": "task.plan",
+          "templateRef": "template://acceptance/lifecycle-blackbox-task-plan@1",
+          "materializeAs": "task_plan.md",
+          "localePolicy": { "prefer": "project", "fallback": "en-US" }
+        },
         {
           "slot": "task.lifecycle.blackbox.acceptance",
           "templateRef": "template://acceptance/lifecycle-blackbox@1",

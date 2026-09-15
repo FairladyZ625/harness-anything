@@ -8,6 +8,7 @@ import {
   cliCommandDomains,
   firstCliCommand,
   firstCliCommandIndex,
+  helpCommandPrefix,
   helpDomain,
   parseThinCommand,
   renderThinHelp,
@@ -83,7 +84,11 @@ async function runThinCli(argv: readonly string[]): Promise<number> {
     }
     const rows = await taskCreateHelpCatalog(argv),
       helpRenderStartedAt = cliPhaseStart();
-    console.log(rows.length === 0 && domain === undefined ? renderThinHelp() : renderThinHelp(rows, domain));
+    console.log(
+      rows.length === 0 && domain === undefined
+        ? renderThinHelp()
+        : renderThinHelp(rows, domain, helpCommandPrefix(argv)),
+    );
     cliPhaseEnd("render", helpRenderStartedAt);
     return 0;
   }

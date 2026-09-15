@@ -50,6 +50,11 @@ test("top-level help renders a derived domain directory and domain help filters 
     /JSON defaulted fields: vertical \(repository defaultVertical\), preset \(decision-conformance\)/u,
   );
   assert.match(decisionHelp, /--json-input <json-input>[\s\S]*<json\|@->/u);
+  const reviewHelp = renderThinHelp([], "task", "ha task review-execution");
+  assert.match(reviewHelp, /^Command ha task review-execution:/mu);
+  assert.match(reviewHelp, /JSON required fields: verdict, reason, evidenceChecked/u);
+  assert.match(reviewHelp, /JSON values: verdict: approved\|changes_requested\|dismissed/u);
+  assert.doesNotMatch(reviewHelp, /ha task (?:start|submit|complete) /u);
   assert.match(help, /capabilities \[--json\].*--version.*ha daemon start --service/su);
 });
 

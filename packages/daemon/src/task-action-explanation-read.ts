@@ -32,6 +32,7 @@ import { authorizeRepoCellAction } from "./repo-cell-authorization.ts";
 import { taskActionCommandUsage } from "./protocol/daemon-protocol-commands.ts";
 import { compiledArtifactKinds } from "./artifact-entity-action.ts";
 import { readEffectiveCloseoutGates } from "./repo-cell-settings-state.ts";
+import { readCompletionContext } from "./task-completion-read.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 
 export interface TaskActionExplanationReadDependencies {
@@ -238,6 +239,7 @@ export function readTaskActionExplanation(
             snapshot,
             evaluatedAtCut: cut,
             closeoutGates: readEffectiveCloseoutGates(dependencies.projection, task.completionGateIds),
+            completionContext: readCompletionContext(dependencies.projection, entity.id, snapshot, "ready"),
           }).subjects[0]!;
         }
       } else {

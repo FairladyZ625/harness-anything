@@ -161,6 +161,7 @@ export function taskShowFromProjection(
           rootSetting.threshold,
         )
       : null,
+    completion = readTaskCompletion(projection, taskId),
     payload = {
       ...read.snapshot,
       task: task
@@ -171,7 +172,8 @@ export function taskShowFromProjection(
         : null,
       packagePath: read.packagePath,
       rootAssessment,
-      completionNext: readTaskCompletion(projection, taskId).completionNext,
+      completionNext: completion.completionNext,
+      completionBlocker: completion.completionBlocker,
       progress: progress.rows,
     },
     receipt = {
