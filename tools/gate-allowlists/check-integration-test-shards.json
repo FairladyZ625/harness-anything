@@ -477,6 +477,26 @@
         "value": "packages/daemon/test/doc-sync-governance.test.ts",
         "ref": "task_03cb7a92053c5b072005256d57",
         "reason": "Consolidated into packages/daemon/test/doc-sync-slice-b.test.ts under relaxed file complexity limits (1,200 lines); assertions preserved verbatim."
+      },
+      {
+        "value": "packages/cli/test/daemon-autostart-cli-scenario-1.test.ts",
+        "ref": "task_237d96e30287e4c2552826ef46",
+        "reason": "Consolidated into packages/cli/test/daemon-autostart-cli.test.ts under relaxed file complexity limits (1,200 lines); assertions preserved verbatim."
+      },
+      {
+        "value": "packages/cli/test/daemon-autostart-cli-scenario-2.test.ts",
+        "ref": "task_237d96e30287e4c2552826ef46",
+        "reason": "Consolidated into packages/cli/test/daemon-autostart-cli.test.ts under relaxed file complexity limits (1,200 lines); assertions preserved verbatim."
+      },
+      {
+        "value": "packages/cli/test/release-cli-acceptance-scenario-1.integration.test.ts",
+        "ref": "task_237d96e30287e4c2552826ef46",
+        "reason": "Consolidated into packages/cli/test/release-cli-acceptance.integration.test.ts under relaxed file complexity limits (1,200 lines); assertions preserved verbatim."
+      },
+      {
+        "value": "packages/cli/test/release-cli-acceptance-scenario-2.integration.test.ts",
+        "ref": "task_237d96e30287e4c2552826ef46",
+        "reason": "Consolidated into packages/cli/test/release-cli-acceptance.integration.test.ts under relaxed file complexity limits (1,200 lines); assertions preserved verbatim."
       }
     ]
   }
