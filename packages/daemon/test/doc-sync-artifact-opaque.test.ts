@@ -976,6 +976,37 @@ test("doc status uses the configured authored root and quotes artifact source pa
   }
 });
 
+test("doc status routes oversized textual task artifacts through artifact add", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-artifact-oversized-text-"));
+  initRepo(rootDir);
+  const repoId = workspaceId("artifact-oversized-text"),
+    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "artifact-oversized-text" }),
+    binding = { actor, source: "local" as const };
+  try {
+    const created = (await cell.run(
+        { kind: "task-create", taskId: "task-oversized-text", title: "Oversized Text" },
+        binding,
+      )) as { readonly outcome: string; readonly packagePath: string },
+      logical = `${created.packagePath}/artifacts/report.txt`,
+      source = `harness/${logical}`,
+      target = path.join(rootDir, source),
+      bytes = Buffer.from(`# Oversized\n${"x".repeat(DOC_SYNC_INLINE_MAX_BYTES)}`);
+    assert.equal(created.outcome, "applied", JSON.stringify(created));
+    mkdirSync(path.dirname(target), { recursive: true });
+    writeFileSync(target, bytes);
+    const rejected = (await cell.run({ kind: "doc-submit", paths: [logical] }, binding)) as Record<string, unknown>;
+    assert.equal(rejected.outcome, "op_rejected", JSON.stringify(rejected));
+    assert.equal(rejected.code, "doc_candidate_too_large");
+    assert.equal(
+      (rejected.detail as { readonly nextAction?: string }).nextAction,
+      `ha task artifact add task-oversized-text --source ${source} --destination artifacts/report.txt`,
+    );
+  } finally {
+    await cell.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("doc status nextAction round-trips when the authored root is its own nested Git repository", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-artifact-nested-ledger-"));
   initRawBytesRepo(rootDir);
