@@ -497,6 +497,16 @@
         "value": "packages/cli/test/release-cli-acceptance-scenario-2.integration.test.ts",
         "ref": "task_237d96e30287e4c2552826ef46",
         "reason": "Consolidated into packages/cli/test/release-cli-acceptance.integration.test.ts under relaxed file complexity limits (1,200 lines); assertions preserved verbatim."
+      },
+      {
+        "value": "packages/daemon/test/task-surface-pages-facts.integration.test.ts",
+        "ref": "task_6d28fb8546ca9bb75ddc0df38b",
+        "reason": "Consolidated into packages/daemon/test/task-surface-query.integration.test.ts under relaxed file complexity limits (1,200 lines); assertions preserved verbatim."
+      },
+      {
+        "value": "packages/daemon/test/task-surface-reads-leases.integration.test.ts",
+        "ref": "task_6d28fb8546ca9bb75ddc0df38b",
+        "reason": "Consolidated into packages/daemon/test/task-surface-query.integration.test.ts under relaxed file complexity limits (1,200 lines); assertions preserved verbatim."
       }
     ]
   }
