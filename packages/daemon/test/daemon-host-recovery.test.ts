@@ -468,6 +468,10 @@ test("unbind rejects an active task lease without changing registry or repositor
       receipt.blockingWork?.some((item) => item.kind === "task-lease" && item.taskId === "task-live"),
       true,
     );
+    assert.deepEqual(
+      (receipt as { next?: readonly { command: string }[] }).next?.map((entry) => entry.command),
+      ["ha task release task-live"],
+    );
     assert.deepEqual(readFileSync(path.join(userRoot, "registry.json")), registryBefore);
     assert.deepEqual(readFileSync(path.join(rootDir, "harness/harness.yaml")), ledgerBefore);
   } finally {

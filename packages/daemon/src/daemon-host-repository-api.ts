@@ -388,6 +388,7 @@ export function createDaemonHostRepositoryApi(
                 ],
           ),
         ].sort((left, right) => left.kind.localeCompare(right.kind) || left.id.localeCompare(right.id));
+      const inFlightSummary = `Repository ${request.repoId} still has ${blockingWork.length} in-flight item${blockingWork.length === 1 ? "" : "s"}; settle them before retrying.`;
       if (blockingWork.length > 0)
         return {
           schema: "command-receipt/v2",
@@ -397,7 +398,9 @@ export function createDaemonHostRepositoryApi(
           code: "repo_in_flight",
           repoId: request.repoId,
           blockingWork,
-          summary: `Repository ${request.repoId} still has ${blockingWork.length} in-flight item${blockingWork.length === 1 ? "" : "s"}; settle them before retrying.`,
+          next: blockingWork.map((item) => ({ command: item.nextAction, reason: `${item.kind} ${item.id}` })),
+          rejectionExplanation: inFlightSummary,
+          summary: inFlightSummary,
         };
       context.settleWarming(request.repoId);
       await context.closeCell(request.repoId);
