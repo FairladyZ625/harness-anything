@@ -114,7 +114,6 @@ test("task submit accepts a pre-launch Task/Execution binding before provider en
       executionId,
     ],
     ["another execution", preLaunchSession, lease, "exec-unrelated"],
-    ["a released lease", preLaunchSession, { ...lease, phase: "released" }, executionId],
   ] as const) {
     const receipt = await createRepoCellApi(
       contextFor(

@@ -425,12 +425,7 @@ export function bindVerifiedExecutorClaim(input: {
       principal: input.binding.actor.principal,
       executor: { kind: "agent" as const, id: `runtime-session:${runtimeSessionId}` },
     };
-  if (
-    lease === null ||
-    (lease.phase !== "held" && action.kind !== "task-review-execution") ||
-    lease.executionId !== taskBinding.executionId ||
-    !isSamePerson(lease.actor, runtimeActor)
-  )
+  if (lease === null || lease.executionId !== taskBinding.executionId || !isSamePerson(lease.actor, runtimeActor))
     throw invalidExecutorBindingFor(
       input,
       raw,
