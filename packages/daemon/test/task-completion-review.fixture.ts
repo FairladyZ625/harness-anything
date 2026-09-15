@@ -22,6 +22,15 @@ export const owner = withRoleBinding(
   },
   "repo-write",
 );
+// Settings writes are principal-gated: the executor actor above owns the task lifecycle while this
+// binding stands in for the dispatching principal applying repository-level settings changes.
+export const principal = withRoleBinding(
+  {
+    actor: { principal: owner.actor.principal, executor: null },
+    source: "local" as const,
+  },
+  "repo-write",
+);
 export const taskId = "task-completion-review",
   executionId = "execution-completion-review";
 const installation = {
@@ -245,6 +254,7 @@ export async function fixture(
       instancesAvailable = false;
     },
     run,
+    runPrincipal: (action: Parameters<typeof cell.run>[0]) => cell.run(action, principal),
     events,
     cell: () => cell,
     complete: (consent = false) => run({ kind: "task-complete", taskId, executionId, ...(consent ? { consent } : {}) }),

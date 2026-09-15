@@ -126,6 +126,7 @@ test("principal review independence rejects a different executor owned by the su
       ownerId: "daemon-test",
     });
     const principal = { personId: "person-review-principal" } as const,
+      person = withRoleBinding({ actor: { principal, executor: null }, source: "local" as const }, "arbiter"),
       agent = withRoleBinding(
         { actor: { principal, executor: { kind: "agent" as const, id: "worker" } }, source: "local" as const },
         "arbiter",
@@ -136,7 +137,7 @@ test("principal review independence rejects a different executor owned by the su
       );
     const updated = await cell.run(
       { kind: "settings-update", reviewIndependence: "principal", idempotencyKey: "strict-review-independence" },
-      agent,
+      person,
     );
     assert.equal(updated.outcome, "applied", JSON.stringify(updated));
     const settingsRead = (await cell.read("repo.settings.read")) as {

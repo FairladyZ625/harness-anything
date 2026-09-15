@@ -13,14 +13,14 @@ test(
     const f = await fixture();
     try {
       await f.install();
-      const configured = await f.run({ kind: "settings-update", defaultReviewer: "selected-reviewer" });
+      const configured = await f.runPrincipal({ kind: "settings-update", defaultReviewer: "selected-reviewer" });
       assert.equal(configured.outcome, "applied", JSON.stringify(configured));
       const selectedMissing = await f.complete();
       assert.equal(selectedMissing.code, "review_missing", JSON.stringify(selectedMissing));
       assert.match(JSON.stringify((selectedMissing as Record<string, unknown>).next), /selected-reviewer/u);
       assert.match(JSON.stringify((selectedMissing as Record<string, unknown>).next), /--default-reviewer/u);
       assert.equal(f.launches.length, 0);
-      const restored = await f.run({ kind: "settings-update", defaultReviewer: "closeout-reviewer" });
+      const restored = await f.runPrincipal({ kind: "settings-update", defaultReviewer: "closeout-reviewer" });
       assert.equal(restored.outcome, "applied", JSON.stringify(restored));
       const first = (await f.complete(true)) as Record<string, unknown>;
       assert.equal(first.code, "review_missing", JSON.stringify(first));

@@ -341,7 +341,13 @@ describe("Settings kind renderer consumes and updates the daemon-owned facet", (
         closeoutCodeDoc: false,
         restoreDrillRetention: 3,
       },
-      getSettings = vi.fn(async () => ({ schema: "daemon.settings-read/v1", ok: true, settings, values }));
+      getSettings = vi.fn(async () => ({
+        schema: "daemon.settings-read/v1",
+        ok: true,
+        settings,
+        values,
+        lastChanged: "initial" as const,
+      }));
     Object.defineProperty(window, "harness", {
       configurable: true,
       value: { updateSettings, getSettings },

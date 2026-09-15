@@ -300,7 +300,7 @@ test(
     };
     try {
       await f.install();
-      assert.equal((await f.run({ kind: "settings-update", reviewReturnBudget: 1 })).outcome, "applied");
+      assert.equal((await f.runPrincipal({ kind: "settings-update", reviewReturnBudget: 1 })).outcome, "applied");
       const first = (await f.complete()) as Record<string, unknown>;
       assert.equal(first.code, "review_missing", JSON.stringify(first));
       assert.doesNotMatch(JSON.stringify(first.next), /return budget/u);
@@ -316,6 +316,7 @@ test(
       assert.equal(second.code, "review_missing", JSON.stringify(second));
       assert.match(JSON.stringify(second.next), /Return budget 1 is spent at iteration 1/u);
       assert.match(JSON.stringify(second.next), /--review-return-budget/u);
+      assert.match(JSON.stringify(second.next), /escalate to the dispatching principal/u);
       // Without a task-scoped override, inspection reports the repository setting as the source.
       const shown = (await f.run({ kind: "task-show", taskId })) as Record<string, unknown>,
         shownPayload = JSON.parse(String(shown.evidence)) as Record<string, unknown>;
@@ -331,7 +332,7 @@ test(
       assert.equal(refused.code, "manual_intervention_required");
       assert.match(refused.rejectionExplanation ?? "", /return budget exhausted/u);
       // The receipt's own exit is executable: raising the live budget unblocks the same verdict.
-      assert.equal((await f.run({ kind: "settings-update", reviewReturnBudget: 2 })).outcome, "applied");
+      assert.equal((await f.runPrincipal({ kind: "settings-update", reviewReturnBudget: 2 })).outcome, "applied");
       const raised = (await f.run({ kind: "task-complete", taskId, executionId: roundTwo })) as Record<string, unknown>;
       assert.equal(raised.code, "review_missing", JSON.stringify(raised));
       assert.doesNotMatch(JSON.stringify(raised.next), /return budget/u);
@@ -393,7 +394,7 @@ test(
     try {
       await f.install();
       // The repository budget is already spent; the task-scoped override still admits a return.
-      assert.equal((await f.run({ kind: "settings-update", reviewReturnBudget: 1 })).outcome, "applied");
+      assert.equal((await f.runPrincipal({ kind: "settings-update", reviewReturnBudget: 1 })).outcome, "applied");
       const shown = (await f.run({ kind: "task-show", taskId })) as Record<string, unknown>,
         shownPayload = JSON.parse(String(shown.evidence)) as Record<string, unknown>;
       assert.equal(shownPayload.returnBudget, 2);

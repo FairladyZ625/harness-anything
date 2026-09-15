@@ -31,6 +31,7 @@ const commandRenderers = new Map<string, ReceiptRenderer>([
   ["task-contract-migrate", renderSuccessfulReceipt],
   ["doc-show", (receipt) => String(receipt.evidence)],
   ["init", renderInitReceipt],
+  ["settings-read", renderSettingsRead],
   ["schedule-list", renderScheduleReceipt],
   ["schedule-show", renderScheduleReceipt],
   ["schedule-runs", renderScheduleReceipt],
@@ -136,6 +137,18 @@ function renderTaskShow(receipt: Record<string, unknown>): string {
     ...(typeof payload.returnBudget === "number"
       ? [`returnBudget=${String(payload.returnBudget)} (${String(payload.returnBudgetSource)})`]
       : []),
+  ].join("\n");
+}
+
+function renderSettingsRead(receipt: Record<string, unknown>): string {
+  const lastChanged = receipt.lastChanged;
+  return [
+    renderSuccessfulReceipt(receipt),
+    lastChanged === "initial"
+      ? "lastChanged=initial"
+      : isRecord(lastChanged)
+        ? `lastChanged=${String(lastChanged.occurredAt)} by=${String(lastChanged.actor)} revision=${String(lastChanged.revision)}`
+        : "lastChanged=unavailable",
   ].join("\n");
 }
 

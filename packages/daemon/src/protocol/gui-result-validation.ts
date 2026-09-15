@@ -75,14 +75,21 @@ const flatSettingsValue = (item: unknown): boolean =>
   typeof item === "number" ||
   typeof item === "boolean" ||
   (Array.isArray(item) && item.every((entry) => typeof entry === "string"));
+const settingsLastChange = (item: unknown): boolean =>
+  item === "initial" ||
+  (isJsonObject(item) &&
+    typeof item.occurredAt === "string" &&
+    typeof item.actor === "string" &&
+    Number.isSafeInteger(item.revision));
 export const validateDaemonSettingsRead: ResultValidator = (value) =>
   isJsonObject(value) &&
-  Object.keys(value).length === 4 &&
+  Object.keys(value).length === 5 &&
   value.schema === "daemon.settings-read/v1" &&
   value.ok === true &&
   validateSettingsV1(value.settings).length === 0 &&
   isJsonObject(value.values) &&
-  Object.values(value.values).every(flatSettingsValue)
+  Object.values(value.values).every(flatSettingsValue) &&
+  settingsLastChange(value.lastChanged)
     ? []
     : [
         validationError(

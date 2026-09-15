@@ -59,9 +59,10 @@ export async function dispatchCompletionReview(
     budgetNote =
       snapshot.task!.iteration >= returnBudget
         ? ` Return budget ${String(returnBudget)} is spent at iteration ${String(snapshot.task!.iteration)}: a ` +
-          `changes_requested RecordReview will be refused. Raise it for this task with \`ha task amend ` +
-          `${taskId} --set reviewReturnBudget:<n>\`, or repository-wide with \`ha settings update ` +
-          "--review-return-budget <n>`, or amend the submission so the reviewer can approve."
+          "changes_requested RecordReview will be refused. Amend the submission so the reviewer can " +
+          "approve, or escalate to the dispatching principal to raise the review return budget — " +
+          `for this task with \`ha task amend ${taskId} --set reviewReturnBudget:<n>\`, or ` +
+          "repository-wide with `ha settings update --review-return-budget <n>`."
         : "";
   // Attempt 0 keeps the historical key; each retry appends ":retry<N>". The deterministic opId per
   // key stays the claim fence that makes concurrent completions share one dispatch per attempt.
