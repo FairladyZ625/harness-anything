@@ -15,13 +15,6 @@ import {
 } from "node:fs";
 import path from "node:path";
 import {
-  dispatchStreamReadLimitBytes,
-  dispatchStreamSchema as streamSchema,
-  openDispatchStreamAppender as openStreamAppender,
-  type DispatchStreamAppender,
-} from "./dispatch-stream-io.ts";
-export { readDispatchStreamIncrement, readRuntimeWorkerChunk } from "./dispatch-stream-io.ts";
-import {
   consumeKnownError,
   resolveHarnessLayout,
   type ActorIdentity,
@@ -32,6 +25,9 @@ import type { RuntimeMetrics } from "./runtime-metrics.ts";
 import type { RuntimeAttemptOutcome, RuntimeFallbackAttempt } from "./runtime-fallback-contract.ts";
 import type { RuntimeResumeHeader } from "./runtime-resume-contract.ts";
 
+const streamSchema = "runtime-dispatch-stream/v1" as const;
+const dispatchStreamReadLimitBytes = 200 * 1024 * 1024;
+const dispatchStreamWriteLimitBytes = 500 * 1024 * 1024;
 const liveIndexSchema = "runtime-dispatch-live-index/v1" as const;
 const forbiddenKey =
   /(?:token|credential|password|secret|authorization|executablepath|api[-_ ]?key|private[-_ ]?key|cookie)/iu;
@@ -433,6 +429,82 @@ export function appendRuntimeWorkerRecord(
 /** Append to a dispatch stream whose path the caller resolved once for the dispatch's lifetime. */
 export function appendDispatchStreamRecord(target: string, value: Readonly<Record<string, unknown>>): void {
   appendJsonl(target, { schema: streamSchema, ...value });
+}
+
+export function readDispatchStreamIncrement(
+  target: string,
+  offset: number,
+): { readonly bytes: Buffer; readonly size: number } | null {
+  const stat = statSync(target, { throwIfNoEntry: false });
+  if (!stat?.isFile() || stat.size > dispatchStreamReadLimitBytes) return null;
+  const descriptor = openSync(target, fsConstants.O_RDONLY);
+  try {
+    const size = fstatSync(descriptor).size;
+    if (size > dispatchStreamReadLimitBytes || size <= offset) return { bytes: Buffer.alloc(0), size };
+    const bytes = Buffer.alloc(size - offset);
+    const read = readSync(descriptor, bytes, 0, bytes.length, offset);
+    return { bytes: bytes.subarray(0, read), size };
+  } finally {
+    closeSync(descriptor);
+  }
+}
+
+export function readRuntimeWorkerChunk(target: string, offset: number, limit = 1024 * 1024): Buffer {
+  const descriptor = openSync(target, fsConstants.O_RDONLY);
+  try {
+    const size = fstatSync(descriptor).size;
+    if (size <= offset) return Buffer.alloc(0);
+    const bytes = Buffer.alloc(Math.min(size - offset, limit));
+    const read = readSync(descriptor, bytes, 0, bytes.length, offset);
+    return bytes.subarray(0, read);
+  } finally {
+    closeSync(descriptor);
+  }
+}
+
+export interface DispatchStreamAppender {
+  readonly append: (value: Readonly<Record<string, unknown>>) => void;
+  readonly close: () => void;
+}
+
+function openStreamAppender(
+  target: string,
+  input: {
+    readonly invalidateSummary: () => void;
+    readonly scrub: (value: unknown) => unknown;
+    readonly unbounded: (value: Readonly<Record<string, unknown>>) => boolean;
+    readonly warnDroppedOutput: () => void;
+  },
+): DispatchStreamAppender {
+  let descriptor: number | null = null;
+  return {
+    append: (value) => {
+      input.invalidateSummary();
+      const owned = descriptor !== null,
+        handle = descriptor ?? openSync(target, fsConstants.O_APPEND | fsConstants.O_WRONLY);
+      try {
+        const size = fstatSync(handle).size;
+        if (size >= dispatchStreamWriteLimitBytes && input.unbounded(value)) {
+          input.warnDroppedOutput();
+          if (!owned) closeSync(handle);
+          return;
+        }
+        writeFileSync(handle, `${JSON.stringify(input.scrub({ schema: streamSchema, ...value }))}\n`, "utf8");
+      } catch (error) {
+        // Drop the held descriptor; a close failure surfaces like the finally-close did before the split.
+        descriptor = null;
+        closeSync(handle);
+        throw error;
+      }
+      descriptor = handle;
+    },
+    close: () => {
+      if (descriptor === null) return;
+      const handle = descriptor;
+      descriptor = null;
+      closeSync(handle);
+    },
+  };
 }
 
 export function openDispatchStreamAppender(target: string): DispatchStreamAppender {

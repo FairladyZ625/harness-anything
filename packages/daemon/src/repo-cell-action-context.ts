@@ -53,9 +53,9 @@ import {
 } from "./repo-cell-settlement.ts";
 import {
   runTaskCommandWithDocs as runTaskCommandWithDocsImpl,
-  taskMutation as taskMutationImpl,
   taskSurfaceWrite as taskSurfaceWriteImpl,
-} from "./repo-cell-task-command.ts";
+} from "./repo-cell-task-command-docs.ts";
+import { taskMutation as taskMutationImpl } from "./repo-cell-task-mutation.ts";
 import { assertTaskTransitionDocumentReady } from "./transition-document-access.ts";
 import {
   createTask as createTaskImpl,
