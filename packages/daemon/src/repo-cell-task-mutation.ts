@@ -100,16 +100,37 @@ export function taskMutation(
           ".",
         ].join(""),
       );
+    // A terminal runtime settlement knows the session that actually executed the dispatch. When the
+    // execution still names no executor (e.g. a coordinator-retained lease whose start ran before the
+    // dispatch), stamp that session identity so declare-executor is no longer required downstream. The
+    // session is stamped only when its canonical task bindings prove it executed this execution.
+    const settledSession =
+        terminalRuntimeSessionId === null ? null : cell.projection.readRuntimeSession(terminalRuntimeSessionId),
+      settledRuntimeSessionId =
+        terminalRuntimeSessionId !== null &&
+        resolveTaskBoundRuntimeBinding(settledSession, task.taskId, activeLease.executionId) !== null
+          ? terminalRuntimeSessionId
+          : (terminalRuntimeBinding?.runtimeSessionId ?? null),
+      settledExecution =
+        execution !== undefined && execution.actor.executor === null && settledRuntimeSessionId !== null
+          ? {
+              ...execution,
+              actor: {
+                ...execution.actor,
+                executor: { kind: "agent" as const, id: `runtime-session:${settledRuntimeSessionId}` },
+              },
+            }
+          : execution;
     return {
       type: "lease_released",
       task,
-      ...(execution === undefined ? {} : { execution }),
+      ...(settledExecution === undefined ? {} : { execution: settledExecution }),
       releasedLease: activeLease,
       authorizationDecision,
       audit: {
         command: "release",
         reason,
-        fields: ["lease"],
+        fields: ["lease", ...(settledExecution === execution ? [] : ["executor"])],
       },
     };
   }

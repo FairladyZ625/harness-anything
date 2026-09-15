@@ -120,7 +120,7 @@ export function noOp(input: Input, scan: DocCandidateScan): DocSettlementReceipt
     visibility: "center",
     proof: proof(revision, revision, true, true),
     detail: scanDetail(input, scan, "no_changes"),
-    summary: submitSummary("no_changes", [], scan),
+    summary: submitSummary("no_changes", [], scan, (candidate) => input.projection.taskIdForDocumentPath(candidate)),
   };
 }
 
@@ -139,7 +139,9 @@ export function scannerSettlement(
   return {
     ...receipt,
     ...(detail ? { detail } : {}),
-    summary: submitSummary(receipt.outcome, receiptDetail?.paths.map((row) => row.path) ?? [], scan),
+    summary: submitSummary(receipt.outcome, receiptDetail?.paths.map((row) => row.path) ?? [], scan, (candidate) =>
+      input.projection.taskIdForDocumentPath(candidate),
+    ),
   };
 }
 
@@ -147,8 +149,9 @@ export function submitSummary(
   outcome: WriteReceipt["outcome"],
   applied: readonly string[],
   scan: DocCandidateScan,
+  taskOwner: (path: string) => string | null,
 ): string {
-  const skipped = scan.rows.filter(
+  const blocked = scan.rows.filter(
       (row) => row.state === "blocked" || row.state === "deletion" || row.state === "conflict",
     ),
     inapplicable = scan.rows.filter((row) => row.state === "inapplicable");
@@ -157,9 +160,13 @@ export function submitSummary(
     "applied:",
     ...(applied.length ? applied : ["(none)"]),
     `applied count: ${applied.length}`,
-    "skipped:",
-    ...(skipped.length
-      ? skipped.map((row) => `${row.path}\t${row.state}\t${row.reason ?? "candidate is not eligible"}`)
+    "blocked (not submitted; owning task and required route shown):",
+    ...(blocked.length
+      ? blocked.map(
+          (row) =>
+            `${row.path}\t${row.state}\ttask=${taskOwner(row.path) ?? "-"}\t` +
+            `requiredRoute=${row.requiredRoute ?? "ha doc sync"}\t${row.reason ?? "candidate is not eligible"}`,
+        )
       : ["(none)"]),
     "inapplicable:",
     ...(inapplicable.length ? inapplicable.map((row) => `${row.path}\t${row.reason}`) : ["(none)"]),

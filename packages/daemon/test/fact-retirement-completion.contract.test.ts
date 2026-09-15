@@ -60,6 +60,9 @@ test("task complete rejects an undeclared upstream Fact and persists a still-hol
       String((blocked.next as readonly { readonly reason: string }[])[0]?.reason),
       new RegExp(`${factRef} via decision/${decisionId}/C1`, "u"),
     );
+    const nextAction = String((blocked.next as readonly { readonly action: string }[])[0]?.action ?? "");
+    assert.match(nextAction, /--fact-holds/u);
+    assert.match(nextAction, /supersedes-fact/u);
     assert.match(String(blocked.rejectionExplanation), new RegExp(`${factRef} via decision/${decisionId}/C1`, "u"));
     eventReader = makeTaskEventReader({ repoId, rootDir });
     assert.equal(
