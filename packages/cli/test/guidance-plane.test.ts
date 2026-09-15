@@ -11,7 +11,7 @@ import {
   taskCreateGuidance,
   workspaceRelativePath,
 } from "../../daemon/src/receipt-guidance.ts";
-import { resolveHarnessLayout, type CanonicalEventStore } from "../../kernel/src/index.ts";
+import { completionGuidance, resolveHarnessLayout, type CanonicalEventStore } from "../../kernel/src/index.ts";
 import { workspacePathResolutionRule } from "../../preset/src/preset-command-contract.ts";
 import { humanError, renderReceiptGuidance } from "../src/cli/guidance-plane.ts";
 import { renderCliReceipt } from "../src/cli/receipt-render-registry.ts";
@@ -318,6 +318,73 @@ test("a rejected receipt's own explanation replaces the generic code-only hint",
       rejectionExplanation: "generic wrapper text",
     }).hint,
     "Validation failed for entity=task-a field=status; actual=weird; planned.",
+  );
+});
+
+// The daemon builds rejected-receipt next steps with the kernel's completionGuidance ({ action, reason, ... }),
+// so these fixtures come from that function rather than a hand-written shape.
+const guidanceSnapshot = {
+  revision: 7,
+  lease: null,
+  task: { iteration: 1, createdBy: { principal: { personId: "person_a" } } },
+} as unknown as Parameters<typeof completionGuidance>[0];
+
+test("rejected submit receipts render the daemon's completion guidance as next steps", () => {
+  const placeholder = "Closeout is incomplete: Summary, Verification.",
+    cases = [
+      {
+        code: "closeout_placeholder",
+        rejectionExplanation: placeholder,
+        next: [
+          completionGuidance(
+            guidanceSnapshot,
+            "exe-a",
+            "Fill harness/tasks/task-a/closeout.md, then run ha task submit task-a.",
+            placeholder,
+          ),
+        ],
+        lines: ["next: Fill harness/tasks/task-a/closeout.md, then run ha task submit task-a."],
+      },
+      {
+        code: "invalid_transition",
+        rejectionExplanation: "The closeout or anchored artifacts differ from the submitted cut.",
+        next: [
+          completionGuidance(
+            guidanceSnapshot,
+            "exe-a",
+            "ha task submit --amend task-a",
+            "Amend the submitted cut explicitly before review.",
+          ),
+          { command: "ha task show task-a" },
+        ],
+        lines: [
+          "next: ha task submit --amend task-a (Amend the submitted cut explicitly before review.)",
+          "next: ha task show task-a",
+        ],
+      },
+    ];
+  for (const { lines, ...receipt } of cases) {
+    const rendered = renderCliReceipt({ ok: false, command: "task-submit", ...receipt });
+    assert.equal(rendered.stream, "stderr");
+    assert.deepEqual(rendered.text.split("\n").slice(1), lines);
+    assert.match(rendered.text.split("\n")[0]!, new RegExp(`^error code=${receipt.code} hint=`, "u"));
+  }
+});
+
+test("rejected receipts do not repeat a next action already rendered in the error", () => {
+  const action = "ha task review task-a --execution-id exe-a";
+  assert.deepEqual(
+    renderCliReceipt({
+      ok: false,
+      command: "task-complete",
+      code: "review_required",
+      rejectionExplanation: `Review is required. Next: ${action}`,
+      next: [completionGuidance(guidanceSnapshot, "exe-a", action, "Record the required review before completion.")],
+    }),
+    {
+      stream: "stderr",
+      text: `error code=review_required hint=Review is required. Next: ${action}`,
+    },
   );
 });
 

@@ -48,7 +48,7 @@ const judgments = Object.freeze([
   {
     id: "statusVocabulary",
     symbol: "statusVocabularies",
-    canonical: "packages/kernel/src/domain/status-vocabulary-catalog.ts",
+    canonical: "packages/kernel/src/domain/status-vocabulary.ts",
     declaration: "const",
   },
 ]);
@@ -62,7 +62,6 @@ const requiredConsumers = new Map([
   ["packages/daemon/src/repo-cell.ts#closeout", "closeoutReadiness("],
   ["packages/daemon/src/repo-cell.ts#blocking", "blockingOf("],
   ["packages/kernel/src/domain/task-action-capability.ts", "canStartExecution("],
-  ["packages/kernel/src/domain/status-vocabulary.ts", 'from "./status-vocabulary-catalog.ts"'],
   [
     "packages/daemon/src/protocol/daemon-protocol-vocabulary.ts#generated-start",
     "// daemon-status-vocabulary:generated:start",
