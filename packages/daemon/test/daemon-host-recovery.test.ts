@@ -465,6 +465,14 @@ test("all purge backs up and drills before deleting, then restores and rebinds w
     assert.equal(fact.outcome, "applied", JSON.stringify(fact));
     const factsBefore = await host.run(repoId, { kind: "fact-search", taskId: "task_purge_restore" }, auth);
     assert.match(String(factsBefore.evidence), /Purge restore fact witness/u);
+    for (const receipt of [created, fact] as const) {
+      const settled = await host.run(
+        repoId,
+        { kind: "receipt-show", opId: receipt.opId, waitFor: ["git_verified"], timeoutMs: 5_000 },
+        auth,
+      );
+      assert.equal(settled.wait?.state, "satisfied", JSON.stringify(settled));
+    }
     const projectHead = spawnSync("git", ["-C", rootDir, "rev-parse", "HEAD"], {
       encoding: "utf8",
     }).stdout.trim();
