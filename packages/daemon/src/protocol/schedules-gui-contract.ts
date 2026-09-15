@@ -102,6 +102,7 @@ export interface ScheduleGuiRowDto {
   readonly targetState?: "invalid" | "missing";
   readonly targetError?: { readonly code: string; readonly hint: string };
   readonly mission: string;
+  readonly writableRoots: readonly string[];
   readonly executionAvailability: ScheduleExecutionAvailability;
   readonly claim: { readonly nodeId: string | null; readonly assignmentId: string | null };
   readonly health: ScheduleGuiHealthDto;
@@ -187,6 +188,7 @@ const scheduleGuiRowFields = [
   "targetState",
   "targetError",
   "mission",
+  "writableRoots",
   "executionAvailability",
   "claim",
   "health",
@@ -361,6 +363,8 @@ export function validateSchedulesList(value: unknown): readonly string[] {
       !validTargetDto(row.target) ||
       !validTargetProjection(row) ||
       typeof row.mission !== "string" ||
+      !Array.isArray(row.writableRoots) ||
+      !row.writableRoots.every(scheduleNonEmptyText) ||
       !scheduleGuiAvailabilityWords.includes(String(row.executionAvailability)) ||
       !isJsonObject(row.claim) ||
       Object.keys(row.claim).length !== 2 ||

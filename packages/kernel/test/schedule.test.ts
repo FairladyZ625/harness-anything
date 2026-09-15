@@ -73,6 +73,37 @@ test("Schedule creation trims authored text and starts with an empty projected r
   });
 });
 
+test("Schedule writable roots normalize inside the repository and are remediate-only", () => {
+  const schedule = createScheduleV1({
+    scheduleId: "schedule-backup",
+    name: "Backup",
+    mode: "remediate",
+    spec: {
+      trigger: { kind: "interval", everyMs: 60_000, anchorAt: "2026-08-26T10:00:00.000Z" },
+      target: { kind: "agent", agentId: "codex", runtimeInstanceId: "runtime-local" },
+      mission: "Back up the ledger.",
+      writableRoots: ["tmp//harness-backup", ".harness/restore-drills", "tmp/harness-backup"],
+    },
+    actor,
+    occurredAt: "2026-08-26T10:00:00.000Z",
+  });
+  assert.deepEqual(schedule.spec.writableRoots, ["tmp/harness-backup", ".harness/restore-drills"]);
+  for (const root of ["/tmp/backup", "../backup", "tmp/../backup", ".git", ".git/objects"])
+    assert.throws(() =>
+      createScheduleV1({
+        ...schedule,
+        spec: { ...schedule.spec, writableRoots: [root] },
+        actor,
+        occurredAt: schedule.createdAt,
+      }),
+    );
+  assert.notDeepEqual(validateScheduleV1({ ...schedule, mode: "detect" }), []);
+  assert.deepEqual(
+    validateScheduleV1({ ...schedule, mode: "detect", spec: { ...schedule.spec, writableRoots: [] } }),
+    [],
+  );
+});
+
 function fixtureSchedule(): ScheduleV1 {
   return createScheduleV1({
     scheduleId: "schedule-heartbeat",

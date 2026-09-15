@@ -19,6 +19,7 @@ import {
 } from "./schedule-event.ts";
 import {
   createScheduleV1,
+  normalizeScheduleWritableRoots,
   scheduleMissedReasons,
   scheduleRunOutcomes,
   validateScheduleV1,
@@ -94,6 +95,7 @@ const definitionFields = Object.freeze([
   field("model"),
   field("reasoningEffort", "string", false, ["minimal", "low", "medium", "high", "xhigh"]),
   field("fast", "boolean"),
+  field("writableRoots", "string-array"),
 ]);
 const createDefinitionFields = Object.freeze([
   field("name", "string", true),
@@ -405,6 +407,9 @@ function compileScheduleAction(
           ...(typeof action.fast === "boolean" ? { fast: action.fast } : {}),
         },
         mission: text(action.mission, "mission"),
+        ...(Array.isArray(action.writableRoots)
+          ? { writableRoots: stringArray(action.writableRoots, "writableRoots") }
+          : {}),
       },
       actor: input.actor,
       occurredAt: input.occurredAt,
@@ -701,6 +706,11 @@ function mergeScheduleUpdate(
       : currentTarget?.kind === "agent" && typeof currentTarget.fast === "boolean"
         ? currentTarget.fast
         : undefined,
+    writableRoots = Object.hasOwn(action, "writableRoots")
+      ? normalizeScheduleWritableRoots(stringArray(action.writableRoots, "writableRoots"))
+      : Array.isArray(currentSpec?.writableRoots)
+        ? currentSpec.writableRoots
+        : undefined,
     target =
       currentTarget?.kind === "agent" || Object.hasOwn(action, "agentId") || Object.hasOwn(action, "runtimeInstanceId")
         ? {
@@ -723,6 +733,7 @@ function mergeScheduleUpdate(
         trigger,
         target,
         mission: Object.hasOwn(action, "mission") ? text(action.mission, "mission").trim() : currentSpec?.mission,
+        ...(writableRoots === undefined ? {} : { writableRoots }),
       },
       updatedAt: occurredAt,
     },
@@ -768,6 +779,11 @@ function scheduleMode(value: unknown): ScheduleMode {
 function text(value: unknown, name: string): string {
   if (typeof value === "string" && value.trim()) return value.trim();
   reject("invalid_command", `${name} must be a non-empty string.`);
+}
+
+function stringArray(value: unknown, name: string): readonly string[] {
+  if (Array.isArray(value) && value.every((entry) => typeof entry === "string")) return value;
+  reject("invalid_command", `${name} must be an array of strings.`);
 }
 
 function reject(code: string, message: string): never {

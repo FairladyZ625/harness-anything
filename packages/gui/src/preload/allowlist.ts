@@ -314,6 +314,7 @@ function validScheduleDefinitionMutation(value: unknown, nullableOptionals: bool
     "model",
     "reasoningEffort",
     "fast",
+    "writableRoots",
     "idempotencyKey",
   ];
   if (!isPreloadPayloadRecord(value) || !closed(value, fields)) return false;
@@ -327,6 +328,9 @@ function validScheduleDefinitionMutation(value: unknown, nullableOptionals: bool
     return false;
   return (
     (value.fast === undefined || typeof value.fast === "boolean") &&
+    (value.writableRoots === undefined ||
+      (Array.isArray(value.writableRoots) &&
+        value.writableRoots.every((root) => typeof root === "string" && root.trim().length > 0))) &&
     [value.model, value.reasoningEffort].every(
       (field) =>
         field === undefined ||
