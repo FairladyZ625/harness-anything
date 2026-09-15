@@ -767,7 +767,7 @@
   "views.repositories.setCurrentAction": "Open",
   "views.repositories.setCurrentDisabledHint": "Enable the repository to open it.",
   "views.repositories.removeRepoLabel": "Remove repository",
-  "views.repositories.removeRepoHint": "Unregister from this daemon; files on disk are not deleted.",
+  "views.repositories.removeRepoHint": "Unbind from this daemon; files on disk are not deleted.",
   "views.repositories.removeRepoAction": "Remove",
   "views.repositories.centerPlaceholderSummary": "Read-only this round: center connections are managed through the fleet CLI; the GUI only shows the current configuration.",
   "views.repositories.centerConnections": "Center connections",

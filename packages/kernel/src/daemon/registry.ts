@@ -187,7 +187,7 @@ export function writeDaemonRegistryRepo(
 
   if (invalidByRoot)
     throw new Error(
-      `canonical root has an invalid daemon registry entry${invalidByRoot.repoId ? ` for repoId "${invalidByRoot.repoId}"` : ""}; unregister it before registering the root again`,
+      `canonical root has an invalid daemon registry entry${invalidByRoot.repoId ? ` for repoId "${invalidByRoot.repoId}"` : ""}; unbind it before registering the root again`,
     );
 
   if (existingByRoot) {
@@ -236,7 +236,7 @@ export function writeDaemonRegistryRepo(
     );
   }
   if (registry.invalidRepos.some((repo) => repo.repoId === repoId && repo.state !== "disabled"))
-    throw new Error(`repoId "${repoId}" has an invalid daemon registry entry; unregister it before reusing the id`);
+    throw new Error(`repoId "${repoId}" has an invalid daemon registry entry; unbind it before reusing the id`);
 
   const connection = resolveRegistrationConnection(registry, {
     mode: requestedMode,

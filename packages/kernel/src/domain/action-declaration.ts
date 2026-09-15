@@ -59,6 +59,7 @@ export const actionDeclarations = Object.freeze([
   canonical("daemon-fleet-center-start", null, "admin"),
   canonical("daemon-fleet-edge-sync", null, "admin"),
   canonical("daemon-repo-register", null, "admin"),
+  canonical("repo-purge", null, "admin"),
   canonical("repo-unbind", null, "admin"),
   local("daemon-repo-update", "admin", hostResidency),
   canonical("daemon-start", null, "admin"),

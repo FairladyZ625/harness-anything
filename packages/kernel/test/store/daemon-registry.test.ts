@@ -427,7 +427,7 @@ test("daemon registry unbind removes an invalid repo in one operation", () => {
   });
 });
 
-test("daemon registry rebinds an unregistered repoId to a new canonical root", () => {
+test("daemon registry rebinds an unbound repoId to a new canonical root", () => {
   withTempDir((root) => {
     const userRoot = path.join(root, "user-harness");
     const firstRoot = createHarnessRepo(path.join(root, "before-move"));
