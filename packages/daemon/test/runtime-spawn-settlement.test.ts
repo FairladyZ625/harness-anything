@@ -9,6 +9,7 @@ import test from "node:test";
 import { classifyRuntimeExit } from "../src/runtime-provider-fault.ts";
 import { failed } from "../src/repo-cell-settlement.ts";
 import { runtimeMissionName } from "../src/runtime-spawn-mission.ts";
+import { scheduleMissionWithOutcomeProtocol, scheduleOutcomeFromRuntime } from "../src/schedule-runtime-outcome.ts";
 import { publishExit } from "../src/runtime-spawn-settlement.ts";
 import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
 import type { ActiveRuntime } from "../src/runtime-spawn-types.ts";
@@ -50,6 +51,31 @@ test("exit zero does not turn an internal plan heuristic into an unknown outcome
     classifyRuntimeExit(active({ writeItemObserved: true, planObserved: true, planIncomplete: true }), 0).outcome,
     "succeeded",
   );
+});
+
+test("scheduled missions receive the daemon-owned outcome protocol", () => {
+  assert.equal(
+    scheduleMissionWithOutcomeProtocol("Inspect the repository.\n"),
+    [
+      "Inspect the repository.",
+      "",
+      "# Schedule outcome protocol",
+      "Your final response's last non-empty line must be exactly one of:",
+      "HARNESS-OUTCOME: succeeded",
+      "HARNESS-OUTCOME: failed",
+    ].join("\n"),
+  );
+});
+
+test("schedule outcome requires an exact verdict on the last non-empty line", () => {
+  assert.equal(scheduleOutcomeFromRuntime("succeeded", "done\nHARNESS-OUTCOME: succeeded\n\n"), "succeeded");
+  assert.equal(scheduleOutcomeFromRuntime("succeeded", "not done\nHARNESS-OUTCOME: failed"), "failed");
+  assert.equal(scheduleOutcomeFromRuntime("succeeded", "HARNESS-OUTCOME: failed\nmore text"), "unknown");
+  assert.equal(scheduleOutcomeFromRuntime("succeeded", " HARNESS-OUTCOME: succeeded"), "unknown");
+  assert.equal(scheduleOutcomeFromRuntime("succeeded", "done"), "unknown");
+  assert.equal(scheduleOutcomeFromRuntime("failed", "HARNESS-OUTCOME: succeeded"), "failed");
+  assert.equal(scheduleOutcomeFromRuntime("unknown", "HARNESS-OUTCOME: succeeded"), "unknown");
+  assert.equal(scheduleOutcomeFromRuntime("cancelled", "HARNESS-OUTCOME: succeeded"), "cancelled");
 });
 
 test("a write-capable squad leader converged decision settles as succeeded without per-turn write evidence", () => {

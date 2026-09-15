@@ -34,6 +34,7 @@ test("runtime attempt-terminal asynchronously settles the claimed Schedule occur
     scheduleId = "settlement-probe";
   let output: ((chunk: string) => void) | null = null,
     exit: ((code: number | null) => void) | null = null;
+  const prompts: string[] = [];
   try {
     git(root, "init", "-q");
     git(root, "config", "user.name", "Schedule Settlement Test");
@@ -79,21 +80,24 @@ test("runtime attempt-terminal asynchronously settles the claimed Schedule occur
           isolationState: "enforced",
         },
       ],
-      prepareRuntimeLaunch: async (_instanceId, request) => ({
-        definition,
-        installation: {
-          installationId: definition.installationId,
-          kindId: definition.kindId,
+      prepareRuntimeLaunch: async (_instanceId, request) => {
+        prompts.push(request.prompt);
+        return {
+          definition,
+          installation: {
+            installationId: definition.installationId,
+            kindId: definition.kindId,
+            executablePath: "/opt/test/codex",
+            version: "1.0.0",
+            observedAt: "2026-08-27T00:00:00.000Z",
+          },
           executablePath: "/opt/test/codex",
-          version: "1.0.0",
-          observedAt: "2026-08-27T00:00:00.000Z",
-        },
-        executablePath: "/opt/test/codex",
-        args: [],
-        env: {},
-        cwd: request.cwd,
-        prompt: request.prompt,
-      }),
+          args: [],
+          env: {},
+          cwd: request.cwd,
+          prompt: request.prompt,
+        };
+      },
       runtimeLaunch: () => ({
         pid: 4343,
         onOutput: (listener) => {
@@ -159,16 +163,24 @@ test("runtime attempt-terminal asynchronously settles the claimed Schedule occur
       output?.(
         `${JSON.stringify({ type: "thread.started", thread_id: "schedule-settlement" })}\n` +
           `${JSON.stringify({ type: "item.completed", item: { id: "write", type: "file_change", status: "completed" } })}\n` +
-          `${JSON.stringify({ type: "item.completed", item: { id: "message", type: "agent_message", text: "done" } })}\n` +
+          `${JSON.stringify({
+            type: "item.completed",
+            item: {
+              id: "message",
+              type: "agent_message",
+              text: "not completed\n\nHARNESS-OUTCOME: failed",
+            },
+          })}\n` +
           `${JSON.stringify({ type: "turn.completed" })}\n`,
       );
       exit?.(0);
 
       const settled = await eventually(async () => {
         const schedule = await listedSchedule(cell, scheduleId);
-        return schedule.status.activeRun === null && schedule.status.lastRun?.outcome === "succeeded";
+        return schedule.status.activeRun === null && schedule.status.lastRun?.outcome === "failed";
       });
       assert.equal(settled, true);
+      assert.equal(prompts[0]?.endsWith("HARNESS-OUTCOME: failed"), true);
       const events = makeTaskEventStore({ repoId, rootDir: root }).read().events,
         claimIndex = events.findIndex((event) => event.type === "schedule_occurrence_claimed"),
         dispatchIndex = events.findIndex((event) => event.type === "runtime_dispatch_requested"),
@@ -194,6 +206,15 @@ test("runtime attempt-terminal asynchronously settles the claimed Schedule occur
         settlement?.type === "schedule_run_settled" && settlement.payload.schedule.status.lastRun?.runtimeSessionId,
         runtimeSessionId,
       );
+
+      await runOccurrence(cell, scheduleId, "run-success-verdict", "done\nHARNESS-OUTCOME: succeeded", "succeeded", {
+        output: () => output,
+        exit: () => exit,
+      });
+      await runOccurrence(cell, scheduleId, "run-missing-verdict", "done", "unknown", {
+        output: () => output,
+        exit: () => exit,
+      });
     } finally {
       await cell.close();
     }
@@ -201,6 +222,34 @@ test("runtime attempt-terminal asynchronously settles the claimed Schedule occur
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+async function runOccurrence(
+  cell: Awaited<ReturnType<typeof openRepoCell>>,
+  scheduleId: string,
+  idempotencyKey: string,
+  finalText: string,
+  expectedOutcome: string,
+  callbacks: {
+    readonly output: () => ((chunk: string) => void) | null;
+    readonly exit: () => ((code: number | null) => void) | null;
+  },
+): Promise<void> {
+  const started = await cell.run({ kind: "schedule-run-now", scheduleId, idempotencyKey }, actor);
+  assert.equal(started.outcome, "applied", JSON.stringify(started));
+  callbacks.output()?.(
+    `${JSON.stringify({ type: "thread.started", thread_id: idempotencyKey })}\n` +
+      `${JSON.stringify({ type: "item.completed", item: { id: "message", type: "agent_message", text: finalText } })}\n` +
+      `${JSON.stringify({ type: "turn.completed" })}\n`,
+  );
+  callbacks.exit()?.(0);
+  assert.equal(
+    await eventually(async () => {
+      const schedule = await listedSchedule(cell, scheduleId);
+      return schedule.status.activeRun === null && schedule.status.lastRun?.outcome === expectedOutcome;
+    }),
+    true,
+  );
+}
 
 async function listedSchedule(cell: Awaited<ReturnType<typeof openRepoCell>>, scheduleId: string) {
   const listed = (await cell.run({ kind: "schedule-list" }, actor)) as unknown as {

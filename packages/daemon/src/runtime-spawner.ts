@@ -26,6 +26,7 @@ import {
 import { unknownFieldViolation, type JsonObject } from "./protocol/json-rpc-types.ts";
 import { runtimeKindForId } from "./runtime-inventory.ts";
 import { runtimePermissionMode } from "./runtime-permissions.ts";
+import { scheduleMissionWithOutcomeProtocol } from "./schedule-runtime-outcome.ts";
 import {
   isSealedRuntimeDaemonRoute,
   removeRuntimeCallbackRelay,
@@ -412,7 +413,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             : mission,
       readOnlyDispatch = effectivePermissionMode === "read-only",
       dispatchMission = dispatchMissionForPermission(selfContainedMission ?? mission, effectivePermissionMode),
-      prompt = agent ? assembleAgentPrompt(agent, dispatchMission, preset, resolvedSkills) : dispatchMission,
+      assembledPrompt = agent ? assembleAgentPrompt(agent, dispatchMission, preset, resolvedSkills) : dispatchMission,
+      prompt = trustedSchedule ? scheduleMissionWithOutcomeProtocol(assembledPrompt) : assembledPrompt,
       prepared = await input.prepareLaunch(runtimeInstanceId, {
         cwd,
         prompt,

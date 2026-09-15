@@ -8,6 +8,7 @@ import type { ActiveRuntime } from "./runtime-spawn-types.ts";
 import { pushWorkerBranch, workerWorktreeDirty } from "./runtime-worker-push.ts";
 import { classifyRuntimeExit } from "./runtime-provider-fault.ts";
 import { runtimeErrorCode, runtimeErrorMessage } from "./runtime-spawn-errors.ts";
+import { scheduleOutcomeFromRuntime } from "./schedule-runtime-outcome.ts";
 import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 
@@ -205,7 +206,11 @@ export async function publishExit(
         dispatchId: active.dispatchId,
         task: terminalTask,
         schedule: active.schedule,
-        outcome: outcome === "succeeded" ? "succeeded" : "failed",
+        outcome: active.schedule
+          ? scheduleOutcomeFromRuntime(outcome, active.finalText)
+          : outcome === "succeeded"
+            ? "succeeded"
+            : "failed",
         reason: outcome === "succeeded" ? null : attemptOutcome.reason,
         endedAt,
         resultRef,
