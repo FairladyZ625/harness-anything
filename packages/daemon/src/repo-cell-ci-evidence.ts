@@ -23,6 +23,31 @@ function relatedCiObservation(root: string, event: CiRunObservationEventV3, subm
   );
 }
 
+function githubRunOrder(event: CiRunObservationEventV3): readonly [bigint, bigint] | null {
+  const match = /^(?<run>[1-9][0-9]*)\.(?<attempt>[1-9][0-9]*)$/u.exec(event.payload.run.runId);
+  return match?.groups ? [BigInt(match.groups.run!), BigInt(match.groups.attempt!)] : null;
+}
+
+function newestGithubRuns(events: readonly CiRunObservationEventV3[]): readonly CiRunObservationEventV3[] {
+  const ordered = events
+      .map((event, index) => ({ event, index, order: githubRunOrder(event) }))
+      .sort((left, right) => {
+        if (left.order && right.order) {
+          if (left.order[0] !== right.order[0]) return left.order[0] > right.order[0] ? -1 : 1;
+          if (left.order[1] !== right.order[1]) return left.order[1] > right.order[1] ? -1 : 1;
+        } else if (left.order || right.order) return left.order ? -1 : 1;
+        return left.index - right.index;
+      }),
+    seen = new Set<string>();
+  return ordered.flatMap(({ event, order }) => {
+    if (!order) return [event];
+    const key = `${order[0]}.${order[1]}`;
+    if (seen.has(key)) return [];
+    seen.add(key);
+    return [event];
+  });
+}
+
 export function readLatestCiEvidence(
   cell: RepoCellOperationalContext,
   execution: Snapshot["executions"][number] | undefined,
@@ -31,12 +56,13 @@ export function readLatestCiEvidence(
   const observations = cell.projection.readCiRunObservations(2000);
   if (!cell.projectionReady(observations))
     throw cell.cellCodedError("content_not_ready", "CI observation projection is not ready.");
-  // Newest delivery observation first; non-push runs are measurements, not delivery verdicts.
+  // Newest GitHub run and attempt first; non-push runs are measurements, not delivery verdicts.
   // Never skip a red/unverified push for an older green; cancelled/skipped: no verdict.
   const submitted = execution.submission.commitSha,
     publicCut = localGitObjectRefStore.hasCommit(cell.rootDir, submitted),
     root = publicCut ? cell.rootDir : resolveHarnessLayout(cell.rootDir).authoredRoot;
-  for (const event of observations.events) {
+  const events = publicCut ? newestGithubRuns(observations.events) : observations.events;
+  for (const event of events) {
     if (!relatedCiObservation(root, event, submitted)) continue;
     const verification = event.payload.verification;
     if (publicCut && verification?.source === "github-actions" && verification.event !== "push") continue;

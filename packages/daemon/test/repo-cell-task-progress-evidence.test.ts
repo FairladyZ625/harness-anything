@@ -75,6 +75,8 @@ function observation(
   workflow = "rewrite-ci",
   branch = "main",
   trigger: "push" | "schedule" = "push",
+  runId = revision,
+  attempt = 1,
 ): CiRunObservationEventV3 {
   return {
     schema: "ci-run-observation/v3",
@@ -86,15 +88,15 @@ function observation(
     source: "local",
     occurredAt: "2026-09-12T00:00:00.000Z",
     payload: {
-      run: { runId: `run-${revision}`, sha, branch, prNumber: null, job: workflow, wallclockMs: 0, runner: "test" },
+      run: { runId: `${runId}.${attempt}`, sha, branch, prNumber: null, job: workflow, wallclockMs: 0, runner: "test" },
       verification:
         conclusion === null
           ? null
           : {
               source: workflow === "ledger-publication" ? "write-coordinator" : "github-actions",
               workflow,
-              runId: `run-${revision}`,
-              attempt: 1,
+              runId: String(runId),
+              attempt,
               headSha: sha,
               conclusion,
               event: trigger,
@@ -104,6 +106,29 @@ function observation(
     },
   };
 }
+
+test("CI evidence follows GitHub run and attempt order instead of observation delivery order", () => {
+  const current = execution(publicSha),
+    newerGreen = observation(publicSha, 1, "success", "rewrite-ci", "main", "push", 200),
+    olderRedReimportedLater = observation(publicSha, 3, "failure", "rewrite-ci", "main", "push", 100),
+    newestRed = observation(publicSha, 2, "failure", "rewrite-ci", "main", "push", 300),
+    firstAttemptRed = observation(publicSha, 5, "failure", "rewrite-ci", "main", "push", 400, 1),
+    retryGreen = observation(publicSha, 4, "success", "rewrite-ci", "main", "push", 400, 2);
+
+  assert.equal(
+    readLatestCiEvidence(fixture(publicRoot, current, [olderRedReimportedLater, newerGreen]).cell, current)?.result,
+    "pass",
+  );
+  assert.equal(
+    readLatestCiEvidence(fixture(publicRoot, current, [newerGreen, newestRed, olderRedReimportedLater]).cell, current)
+      ?.result,
+    "fail",
+  );
+  assert.equal(
+    readLatestCiEvidence(fixture(publicRoot, current, [firstAttemptRed, retryGreen]).cell, current)?.result,
+    "pass",
+  );
+});
 
 test("scheduled failures do not override push delivery evidence, while push failures still reject", () => {
   const current = execution(publicSha),
