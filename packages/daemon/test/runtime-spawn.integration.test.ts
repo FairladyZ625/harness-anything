@@ -100,9 +100,8 @@ test("runtime spawn maps the GUI Claude kind to a canonical claude-compatible in
       );
       assert.equal(receipt.outcome, "applied");
       assert.equal(executablePath, "/opt/witnessed/claude");
-      // A dispatch without an agent declaration still carries the shared execution boundaries.
-      assert.match(launchedPrompt ?? "", /must not operate host virtualization, networking, or system services/u);
-      assert.match(launchedPrompt ?? "", /# Mission\n\nInspect the repository$/u);
+      // A direct prompt with neither task nor agent declaration is passed through verbatim.
+      assert.equal(launchedPrompt, "Inspect the repository");
     } finally {
       await cell.close();
     }

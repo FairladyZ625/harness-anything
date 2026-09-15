@@ -417,7 +417,9 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       dispatchMission = dispatchMissionForPermission(selfContainedMission ?? mission, effectivePermissionMode),
       assembledPrompt = agent
         ? assembleAgentPrompt(agent, dispatchMission, preset, resolvedSkills)
-        : assembleUnboundPrompt(dispatchMission),
+        : taskMission
+          ? assembleUnboundPrompt(dispatchMission)
+          : dispatchMission,
       prompt = trustedSchedule ? scheduleMissionWithOutcomeProtocol(assembledPrompt) : assembledPrompt,
       prepared = await input.prepareLaunch(runtimeInstanceId, {
         cwd,

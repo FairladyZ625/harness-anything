@@ -51,7 +51,10 @@ export function assembleAgentPrompt(
   ].join("\n\n");
 }
 
-/** A dispatch without an agent declaration has no role, but the execution boundaries still apply to it. */
+/**
+ * A task-bound dispatch without an agent declaration has no role, but it is worker work and the execution
+ * boundaries still apply. A direct prompt with neither task nor agent is passed through verbatim.
+ */
 export function assembleUnboundPrompt(mission: string): string {
   return [sharedExecutionDiscipline, "# Mission", mission].join("\n\n");
 }
