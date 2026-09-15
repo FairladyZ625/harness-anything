@@ -227,7 +227,7 @@ describe("provider planes (2026-08-20 adjudication)", () => {
     expect(planeBaseUrlEndpoint("claude")).toBe("optional");
     expect(planeBaseUrlEndpoint("codex")).toBe("optional");
     expect(planeBaseUrlEndpoint("zcode")).toBe("optional");
-    for (const kindId of ["agy", "devin", "cursor", "codex-acp", "claude-acp", "gemini", "opencode"] as const)
+    for (const kindId of ["agy", "devin", "cursor", "codex-acp", "claude-acp", "opencode"] as const)
       expect(planeBaseUrlEndpoint(kindId)).toBe("none");
   });
   it("hides the base URL field on api-key call paths that have no endpoint (G2)", () => {
@@ -236,7 +236,7 @@ describe("provider planes (2026-08-20 adjudication)", () => {
     expect(planeAllowsBaseUrl("devin", "api-key")).toBe(false);
     expect(planeAllowsBaseUrl("devin", "subscription")).toBe(false);
     expect(planeAllowsApiKey("devin", "api-key")).toBe(true);
-    for (const kindId of ["cursor", "codex-acp", "claude-acp", "gemini", "opencode"] as const)
+    for (const kindId of ["cursor", "codex-acp", "claude-acp", "opencode"] as const)
       expect(planeAllowsBaseUrl(kindId, "api-key")).toBe(false);
     // Positive control: kinds with a real endpoint keep the field on their api-key path.
     expect(planeAllowsBaseUrl("zcode", "api-key")).toBe(true);
@@ -258,14 +258,25 @@ describe("provider planes (2026-08-20 adjudication)", () => {
   it("covers every runtime kind the contract accepts", () => {
     expect([...RUNTIME_KIND_IDS].sort()).toEqual([
       "agy",
+      "agy-acp",
+      "auggie",
       "claude",
       "claude-acp",
+      "codebuddy",
       "codex",
       "codex-acp",
+      "copilot",
       "cursor",
       "devin",
-      "gemini",
+      "droid",
+      "glm-acp",
+      "grok",
+      "junie",
+      "kimi",
+      "minimax-code",
+      "mistral-vibe",
       "opencode",
+      "qwen-code",
       "zcode",
     ]);
   });

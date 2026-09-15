@@ -86,6 +86,83 @@ const sharedCapabilities = {
   authentication: "supported",
 } as const;
 
+function acpKind<K extends RuntimeKindId>(
+  kindId: K,
+  displayName: string,
+  command: string,
+  argumentTemplate: readonly string[],
+  configDirectory: string,
+  auth: {
+    shape: "subscription-only" | "separate";
+    modes: readonly RuntimeAuthMode[];
+    subscriptionProbe: readonly string[];
+    subscriptionProbeTimeoutMs: number;
+    acpAuthMethod?: string;
+    acpCredentialKey?: string;
+    endpoints?: { baseUrl: RuntimeEndpointAvailability };
+  },
+  modelFamily: "open" | "codex-only" | "gemini-only" = "open",
+  authFile: string | null = null,
+): RuntimeProviderDeclaration & { readonly kindId: K } {
+  return {
+    kindId,
+    protocolFamily: "acp",
+    displayName,
+    defaultProviderId: kindId,
+    executable: {
+      command,
+      configDirectory,
+      configHomeEnvironment: null,
+      authFile,
+      modelProbe: null,
+      modelProbeFormat: "json-models",
+    },
+    declaredCapabilities: ["structured_witness", "resume", "attach", "session_identity"] as const,
+    configuration: { fields: {}, publicFields: {}, publicDefaults: {} },
+    auth: {
+      shape: auth.shape,
+      modes: auth.modes,
+      subscriptionProbe: auth.subscriptionProbe,
+      subscriptionProbeTimeoutMs: auth.subscriptionProbeTimeoutMs,
+      endpoints: auth.endpoints ?? { baseUrl: "none" },
+      ...(auth.acpAuthMethod ? { acpAuthMethod: auth.acpAuthMethod } : {}),
+      ...(auth.acpCredentialKey ? { acpCredentialKey: auth.acpCredentialKey } : {}),
+    },
+    isolation: { defaultState: "operator-environment", states: ["enforced", "operator-environment"] },
+    permissions: { available: true, defaultMode: "bypass" },
+    launch: {
+      input: "stdin",
+      streamFormat: "jsonl",
+      resumeFlag: "session/load",
+      argumentTemplate,
+      permissionArgs: { bypass: [], "workspace-write": [], "read-only": [] },
+    },
+    sessionIdentity: {
+      eventDiscriminator: null,
+      eventIdField: "sessionId",
+      environmentFields: [],
+      transcriptReachability: "dispatch_stream_only",
+      everyFrame: true,
+    },
+    gui: { modelFamily, effort: "none", effortValues: [] },
+    capabilities: {
+      ...sharedCapabilities,
+      sessionIdEveryFrame: "supported",
+      toolAllowlist: "unsupported",
+      toolDenylist: "unsupported",
+      turnLimit: "unsupported",
+      configurationIsolation: "supported",
+      permissionVocabulary: "unverified",
+      independentSandbox: "unverified",
+      approvalEvent: "supported",
+      effort: "unsupported",
+      mcp: "unverified",
+      cwdRestriction: "unverified",
+      gracefulCancel: "unverified",
+    },
+  } as RuntimeProviderDeclaration & { readonly kindId: K };
+}
+
 export const runtimeKinds = [
   {
     kindId: "claude",
@@ -701,74 +778,87 @@ export const runtimeKinds = [
       gracefulCancel: "unverified",
     },
   },
-  {
-    kindId: "gemini",
-    protocolFamily: "acp",
-    displayName: "Gemini (ACP)",
-    defaultProviderId: "google",
-    executable: {
-      command: "gemini",
-      configDirectory: ".gemini",
-      configHomeEnvironment: "GEMINI_CLI_HOME",
-      // oauth_creds.json exists locally, but the ACP handshake only supports
-      // key-based methods, so no auth file is linked.
-      authFile: null,
-      modelProbe: null,
-      modelProbeFormat: "json-models",
-    },
-    declaredCapabilities: ["structured_witness", "resume", "attach", "session_identity"] as const,
-    configuration: {
-      fields: {},
-      publicFields: {},
-      publicDefaults: {},
-    },
-    auth: {
-      // Advertised methods are [oauth-personal, gemini-api-key, vertex-ai]; the
-      // bridge cannot drive an interactive OAuth flow, so only the api-key
-      // call path is offered. The key rides the launch manifest into
-      // authenticate's _meta.api_key.
-      shape: "separate",
-      modes: ["api-key"],
-      subscriptionProbe: ["--version"],
-      subscriptionProbeTimeoutMs: 10_000,
-      acpAuthMethod: "gemini-api-key",
-      endpoints: { baseUrl: "none" },
-    },
-    isolation: { defaultState: "operator-environment", states: ["enforced", "operator-environment"] },
-    permissions: { available: true, defaultMode: "bypass" },
-    launch: {
-      input: "stdin",
-      streamFormat: "jsonl",
-      resumeFlag: "session/load",
-      // --acp replaced the deprecated --experimental-acp flag in gemini-cli
-      // 0.59; older builds only accept the experimental spelling.
-      argumentTemplate: ["--acp", "--model", "$model"],
-      permissionArgs: { bypass: [], "workspace-write": [], "read-only": [] },
-    },
-    sessionIdentity: {
-      eventDiscriminator: null,
-      eventIdField: "sessionId",
-      environmentFields: [],
-      transcriptReachability: "dispatch_stream_only",
-      everyFrame: true,
-    },
-    gui: { modelFamily: "gemini-only", effort: "none", effortValues: [] },
-    capabilities: {
-      ...sharedCapabilities,
-      sessionIdEveryFrame: "supported",
-      toolAllowlist: "unsupported",
-      toolDenylist: "unsupported",
-      turnLimit: "unsupported",
-      configurationIsolation: "supported",
-      permissionVocabulary: "supported",
-      independentSandbox: "unverified",
-      approvalEvent: "supported",
-      effort: "unsupported",
-      mcp: "unverified",
-      cwdRestriction: "unverified",
-      gracefulCancel: "unverified",
-    },
-  },
+  acpKind("copilot", "GitHub Copilot", "copilot", ["--acp"], ".copilot", {
+    shape: "subscription-only",
+    modes: ["subscription"],
+    subscriptionProbe: ["--version"],
+    subscriptionProbeTimeoutMs: 10_000,
+    acpAuthMethod: "copilot-login",
+  }),
+  acpKind("auggie", "Auggie CLI", "auggie", ["--acp"], ".auggie", {
+    shape: "subscription-only",
+    modes: ["subscription"],
+    subscriptionProbe: ["--version"],
+    subscriptionProbeTimeoutMs: 10_000,
+  }),
+  acpKind("droid", "Factory Droid", "droid", ["exec", "--output-format", "acp-daemon"], ".factory", {
+    shape: "separate",
+    modes: ["subscription", "api-key"],
+    subscriptionProbe: ["--version"],
+    subscriptionProbeTimeoutMs: 10_000,
+    acpAuthMethod: "factory-api-key",
+    acpCredentialKey: "factory_api_key",
+  }),
+  acpKind("grok", "Grok Build", "grok", ["agent", "stdio"], ".grok", {
+    shape: "subscription-only",
+    modes: ["subscription"],
+    subscriptionProbe: ["--version"],
+    subscriptionProbeTimeoutMs: 10_000,
+    acpAuthMethod: "grok.com",
+  }),
+  acpKind("kimi", "Kimi CLI", "kimi", ["acp"], ".kimi", {
+    shape: "subscription-only",
+    modes: ["subscription"],
+    subscriptionProbe: ["--version"],
+    subscriptionProbeTimeoutMs: 15_000,
+  }),
+  acpKind("qwen-code", "Qwen Code", "qwen", ["--acp"], ".qwen-code", {
+    shape: "separate",
+    modes: ["api-key"],
+    subscriptionProbe: ["--version"],
+    subscriptionProbeTimeoutMs: 10_000,
+    acpAuthMethod: "openai",
+    acpCredentialKey: "openai_api_key",
+  }),
+  acpKind("minimax-code", "MiniMax Code", "mcode", ["acp"], ".minimax-code", {
+    shape: "subscription-only",
+    modes: ["subscription"],
+    subscriptionProbe: ["--version"],
+    subscriptionProbeTimeoutMs: 10_000,
+  }),
+  acpKind("mistral-vibe", "Mistral Vibe", "vibe-acp", [], ".vibe", {
+    shape: "subscription-only",
+    modes: ["subscription"],
+    subscriptionProbe: ["--version"],
+    subscriptionProbeTimeoutMs: 10_000,
+    acpAuthMethod: "browser-auth",
+  }),
+  acpKind("junie", "Junie", "junie", ["--acp=true"], ".junie", {
+    shape: "subscription-only",
+    modes: ["subscription"],
+    subscriptionProbe: ["--version"],
+    subscriptionProbeTimeoutMs: 10_000,
+  }),
+  acpKind("codebuddy", "Codebuddy Code", "codebuddy", ["--acp"], ".codebuddy", {
+    shape: "subscription-only",
+    modes: ["subscription"],
+    subscriptionProbe: ["--version"],
+    subscriptionProbeTimeoutMs: 10_000,
+  }),
+  acpKind("glm-acp", "GLM (ACP)", "glm-acp-agent", [], ".glm-acp-agent", {
+    shape: "separate",
+    modes: ["subscription", "api-key"],
+    subscriptionProbe: ["--version"],
+    subscriptionProbeTimeoutMs: 10_000,
+    acpAuthMethod: "z-ai-api-key",
+  }),
+  acpKind("agy-acp", "AGY (ACP)", "agy_acp_server", [], ".gemini", {
+    shape: "separate",
+    modes: ["subscription", "api-key"],
+    subscriptionProbe: ["--notices"],
+    subscriptionProbeTimeoutMs: 15_000,
+    acpAuthMethod: "gemini-api-key",
+  }),
   {
     kindId: "opencode",
     protocolFamily: "acp",
