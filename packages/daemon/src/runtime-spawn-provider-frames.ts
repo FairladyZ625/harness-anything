@@ -2,7 +2,7 @@ import { consumeKnownError } from "../../kernel/src/index.ts";
 import { validateAgentDeclarationV1 } from "../../kernel/src/index.ts";
 import type { RuntimeInstanceKind } from "./agent-runtime-instances.ts";
 import type { AgentRuntimeNativeSignal } from "./agent-runtime-stream.ts";
-import { runtimeKindForId, runtimeKindIds } from "./runtime-inventory.ts";
+import { runtimeKindForId, runtimeKindIds, runtimeKinds } from "./runtime-inventory.ts";
 import { sessionIdentityResolverFor } from "./session-identity/index.ts";
 import type { ProviderFrame } from "./runtime-spawn-types.ts";
 import { providerFaultFromFrame } from "./runtime-provider-fault.ts";
@@ -29,7 +29,10 @@ export const providerFrameParsers: Record<
   codex: parseCodexFrame,
   agy: parseAgyFrame,
   zcode: parseZcodeFrame,
-  devin: parseAcpFrame,
+  // Every acp-family kind emits the same canonical frame vocabulary.
+  ...Object.fromEntries(
+    runtimeKinds.filter((kind) => kind.protocolFamily === "acp").map((kind) => [kind.kindId, parseAcpFrame]),
+  ),
 };
 if (!runtimeKindIds.every((kindId) => Object.hasOwn(providerFrameParsers, kindId)))
   throw new Error("provider frame parser registry is incomplete");

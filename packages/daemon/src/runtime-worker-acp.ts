@@ -52,8 +52,8 @@ const observedUpdates = new Set([
 ]);
 
 const modePreference: Readonly<Record<string, readonly string[]>> = {
-  bypass: ["bypass", "yolo", "full-access"],
-  "workspace-write": ["accept-edits", "workspace-write", "acceptEdits", "auto-edit", "smart"],
+  bypass: ["bypass", "yolo", "full-access", "agent-full-access", "bypassPermissions", "agent"],
+  "workspace-write": ["accept-edits", "workspace-write", "acceptEdits", "autoEdit", "auto-edit", "smart", "agent"],
   "read-only": ["plan", "read-only", "readonly", "ask"],
 };
 
@@ -198,10 +198,15 @@ export function runAcpProviderSession(
         ? (initialize.authMethods as Record<string, unknown>[])
         : [];
       if (authMethods.length) {
-        const apiKey = manifest.acpApiKey ?? subscriptionApiKey(manifest),
-          methodId = typeof authMethods[0]?.id === "string" ? authMethods[0].id : "default";
-        if (!apiKey) throw new Error("ACP agent requires authentication but no credential is available.");
-        await request("authenticate", { methodId, _meta: { api_key: apiKey } });
+        const declaration = runtimeKindForId(manifest.kindId),
+          apiKey = manifest.acpApiKey ?? subscriptionApiKey(manifest),
+          declaredMethod = "acpAuthMethod" in declaration.auth ? declaration.auth.acpAuthMethod : undefined,
+          method = authMethods.find((entry) => entry.id === declaredMethod) ?? authMethods[0],
+          methodId = typeof method?.id === "string" ? method.id : "default";
+        // File-based login methods (cursor_login, chat-gpt) accept an empty
+        // api_key and read the provider's own credential store; key-based
+        // methods fail closed on the agent side when nothing resolves.
+        await request("authenticate", { methodId, _meta: { api_key: apiKey ?? "" } });
       }
       const session = manifest.providerSessionId
         ? ((await request("session/load", {

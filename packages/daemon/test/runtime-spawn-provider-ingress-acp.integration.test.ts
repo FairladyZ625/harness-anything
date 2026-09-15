@@ -114,6 +114,7 @@ test("daemon ingress drives an ACP provider through the worker host", async () =
       captured.find((entry) => entry.apiKey !== undefined),
       {
         apiKey: "test-subscription-key",
+        methodId: "devin-browser",
       },
     );
     assert.deepEqual(
