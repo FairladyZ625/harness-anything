@@ -51,7 +51,7 @@ async function runThinCli(argv: readonly string[]): Promise<number> {
     return emitMeta("version", argv.includes("--json"));
   if (command === "capabilities") return emitMeta("capabilities", argv.includes("--json"));
   if (
-    (command === "restore" && !argv.includes("--drill")) ||
+    (command === "restore" && !argv.includes("--drill") && !argv.includes("--help")) ||
     command === "events" ||
     (command === "migrate" && argv[firstCliCommandIndex(argv) + 1] === "ledger")
   ) {

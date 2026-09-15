@@ -442,7 +442,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
     ],
     receipt: ["receipt-show"],
     relation: ["relation-list", "relation-reconfirm", "relation-relate", "relation-triples", "relation-unrelate"],
-    restore: ["ledger-restore-drill"],
+    restore: ["ledger-restore-drill", "ledger-restore-offline"],
     runtime: [
       "runtime-batch",
       "runtime-cancel",

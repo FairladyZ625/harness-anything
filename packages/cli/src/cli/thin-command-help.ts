@@ -13,6 +13,13 @@ export type ThinHelpCatalogEntry = {
 export const clientLocalCommands = [
   generationMigrationCommand,
   {
+    id: "ledger-restore-offline",
+    path: ["restore"],
+    usage: "ha restore <backup-directory> --to <absolute-directory>",
+    summary: "Restore a backup into a new absolute directory without a running daemon.",
+    help: undefined,
+  },
+  {
     id: "gui",
     path: ["gui"],
     usage: "ha gui [--root <path>]",
@@ -108,7 +115,7 @@ export function helpCommandPrefix(argv: readonly string[]): string | undefined {
   const index = firstCliCommandIndex(argv);
   if (index < 0) return undefined;
   const tokens = argv.slice(index).filter((token) => token !== "--help" && token !== "--json");
-  if (tokens.length < 2 || tokens.some((token) => token.startsWith("-"))) return undefined;
+  if (tokens.length < 2) return undefined;
   return `ha ${tokens.join(" ")}`;
 }
 
