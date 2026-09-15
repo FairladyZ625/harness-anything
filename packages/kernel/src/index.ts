@@ -157,10 +157,13 @@ export {
   resolveDocRoute,
 } from "./domain/doc-sync.contract.ts";
 export {
+  classifyOpaqueTextualArtifactPath,
   classifyRawArtifactPath,
   classifyTextualArtifactPath,
   DOC_SYNC_INLINE_MAX_BYTES,
+  isOpaqueTextualMediaType,
   type OpaqueTextualMediaType,
+  OPAQUE_TEXTUAL_POLICY_ID,
   RAW_ARTIFACT_MAX_BYTES,
   RAW_ARTIFACT_MEDIA_TYPE,
   RAW_ARTIFACT_POLICY_ID,

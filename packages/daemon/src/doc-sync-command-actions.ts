@@ -101,36 +101,6 @@ export async function runDocAction(input: Input): Promise<DocSettlementReceipt> 
   if (input.action.kind === "doc-retire") return runDocRetire(input);
   if (input.action.kind !== "doc-submit") return readAction(input);
   const scan = localProseSource(input.binding.source) ? scannerSubmit(input) : null;
-  if (
-    scan &&
-    !input.authoredCandidateInventory &&
-    !Object.hasOwn(input.action, "taskId") &&
-    Array.isArray(input.action.paths) &&
-    input.action.paths.length === 0 &&
-    input.action.all !== true
-  ) {
-    const code = scanRejectionCode(scan);
-    if (code !== null)
-      return Object.assign(
-        rejectDocSyncAction(`scan:${scan.baseLedgerSha.headDigest}`, code, scanDetail(input, scan, code)),
-        { summary: scanRejectionSummary(code, scan) },
-      );
-    if (!scan.rows.some((row) => row.state === "eligible")) return noOp(input, scan);
-    const candidates = scan.rows.filter((row) => row.state === "eligible"),
-      rejection = rejectDocSyncAction(
-        `scan:${scan.baseLedgerSha.headDigest}`,
-        "doc_submit_confirmation_required",
-        scanDetail(input, scan, "doc_submit_confirmation_required"),
-      );
-    return Object.assign(rejection, {
-      summary: [
-        "doc-submit: op_rejected",
-        "full authored-tree submission requires explicit confirmation for:",
-        ...candidates.map((row) => `${row.path}\t${row.size ?? 0} bytes`),
-        "rerun with --path for an explicit selection or --all for every eligible candidate",
-      ].join("\n"),
-    });
-  }
   if (scan) {
     const explicitSelection = Array.isArray(input.action.paths) && input.action.paths.length > 0;
     if (explicitSelection && scan.rows.some((row) => row.state === "conflict")) {

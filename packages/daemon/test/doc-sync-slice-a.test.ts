@@ -90,7 +90,7 @@ test("status, dry-run, and submit share the repeatable-path scanner and automati
       [
         ["context/a.md", "eligible"],
         ["context/b.md", "eligible"],
-        ["context/ignored.json", "inapplicable"],
+        ["context/ignored.json", "eligible"],
         ["tasks/task-one/artifacts/data.json", "blocked"],
         ["tasks/task-one/progress.md", "blocked"],
       ],
@@ -310,24 +310,29 @@ test("scanner routes multi-megabyte JSONL to artifact add without reading it and
       "unsupported JSONL remains visible with a reason without loading its bytes",
     );
     write(rootDir, "events/segments/manifest.json", "{}\n");
-    const unconfirmed = await cell.run({ kind: "doc-submit", paths: [] }, binding);
-    assert.equal(unconfirmed.outcome, "op_rejected", JSON.stringify(unconfirmed));
-    assert.equal(unconfirmed.code, "preview_blocked");
-    assert.deepEqual(
-      unconfirmed.detail?.unresolvedTouches.map((touch) => [touch.path, touch.requiredRoute]),
-      [["events/segments/manifest.json", "canonical-event"]],
-      "the canonical manifest is explained before full-submit confirmation; oversized JSONL is artifact-add routed",
-    );
-
-    const confirmed = await cell.run({ kind: "doc-submit", paths: [], all: true }, binding);
-    assert.equal(confirmed.outcome, "applied", JSON.stringify(confirmed));
-    const event = makeTaskEventReader({ repoId, rootDir }).readEvent(confirmed.opId);
+    const submitted = await cell.run({ kind: "doc-submit", paths: [] }, binding);
+    assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+    const event = makeTaskEventReader({ repoId, rootDir }).readEvent(submitted.opId);
     assert.equal(event?.schema, "doc-event/v1");
     if (event?.schema === "doc-event/v1")
       assert.deepEqual(
         event.payload.changes.map((change) => change.path),
         [prose],
       );
+    assert.deepEqual(
+      submitted.detail?.unresolvedTouches.map((touch) => [touch.path, touch.requiredRoute]),
+      [["events/segments/manifest.json", "canonical-event"]],
+      "the batch commits every eligible candidate and reports the blocked manifest with its route",
+    );
+
+    const residual = await cell.run({ kind: "doc-submit", paths: [], all: true }, binding);
+    assert.equal(residual.outcome, "op_rejected", JSON.stringify(residual));
+    assert.equal(residual.code, "preview_blocked");
+    assert.deepEqual(
+      residual.detail?.unresolvedTouches.map((touch) => [touch.path, touch.requiredRoute]),
+      [["events/segments/manifest.json", "canonical-event"]],
+      "with nothing eligible left the blocked manifest still refuses the batch",
+    );
 
     for (const logical of [firstLog, secondLog]) {
       const selected = await cell.run({ kind: "doc-status", paths: [logical] }, binding),
@@ -347,6 +352,77 @@ test("scanner routes multi-megabyte JSONL to artifact add without reading it and
     const oversizedRow = rows((await cell.run({ kind: "doc-status", paths: [oversized] }, binding)).evidence)[0];
     assert.equal(oversizedRow?.size, Buffer.byteLength(`# Oversized\n${"x".repeat(DOC_SYNC_INLINE_MAX_BYTES)}`));
     assert.match(oversizedRow?.reason ?? "", new RegExp(`${oversized}.*${DOC_SYNC_INLINE_MAX_BYTES}.*blob`, "u"));
+  } finally {
+    await cell.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("batch submit commits eligible candidates and reports blocked rows instead of rejecting the batch", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-batch-tolerance-"));
+  initRepo(rootDir);
+  const repoId = workspaceId("batch-tolerance"),
+    cell = await openRepoCell({
+      repoId,
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "batch-tolerance-daemon",
+    }),
+    binding = { actor, source: "local" as const },
+    oversized = "context/oversized.md";
+  try {
+    write(rootDir, "context/data.json", "{}\n");
+    write(rootDir, "context/notes.md", "# Notes\n");
+    write(rootDir, "context/script.py", "print('ok')\n");
+    write(rootDir, "context/table.tsv", "a\tb\n");
+    writeFileSync(path.join(rootDir, "harness/context/binary.pdf"), Buffer.from([0x25, 0x50, 0x44, 0x46, 0x00, 0xff]));
+    write(rootDir, oversized, `# Oversized\n${"x".repeat(DOC_SYNC_INLINE_MAX_BYTES)}`);
+    const status = await cell.run({ kind: "doc-status", paths: [] }, binding);
+    assert.deepEqual(
+      rows(status.evidence).map((row) => [row.path, row.state, row.mediaType]),
+      [
+        ["context/binary.pdf", "inapplicable", null],
+        ["context/data.json", "eligible", "application/json"],
+        ["context/notes.md", "eligible", "text/markdown"],
+        ["context/oversized.md", "blocked", "text/markdown"],
+        ["context/script.py", "eligible", "text/x-harness-opaque"],
+        ["context/table.tsv", "eligible", "text/x-harness-opaque"],
+      ],
+      JSON.stringify(rows(status.evidence)),
+    );
+    const submitted = await cell.run({ kind: "doc-submit", paths: [] }, binding);
+    assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+    const event = makeTaskEventReader({ repoId, rootDir }).readEvent(submitted.opId);
+    assert.equal(event?.schema, "doc-event/v1");
+    if (event?.schema === "doc-event/v1") {
+      assert.deepEqual(
+        event.payload.changes.map((change) => [change.path, change.candidate?.mediaType]),
+        [
+          ["context/data.json", "application/json"],
+          ["context/notes.md", "text/markdown"],
+          ["context/script.py", "text/x-harness-opaque"],
+          ["context/table.tsv", "text/x-harness-opaque"],
+        ],
+      );
+      assert.ok(
+        event.payload.changes.every(
+          (change) => change.policyId === OPAQUE_TEXTUAL_POLICY_ID || change.path === "context/notes.md",
+        ),
+      );
+    }
+    assert.deepEqual(
+      submitted.detail?.unresolvedTouches.map((touch) => [touch.path, touch.requiredRoute]),
+      [["context/oversized.md", "blob-content"]],
+      "the oversized candidate is reported with its required route instead of poisoning the batch",
+    );
+    assert.equal(git(rootDir, "ls-files", "harness/context/binary.pdf"), "", "binary content stays unpublished");
+    const clean = await cell.run({ kind: "doc-status", paths: [] }, binding);
+    assert.deepEqual(
+      rows(clean.evidence)
+        .filter((row) => row.state === "eligible" || row.state === "blocked")
+        .map((row) => [row.path, row.state]),
+      [["context/oversized.md", "blocked"]],
+      "committed candidates turn clean; the oversized residual stays blocked",
+    );
   } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });
