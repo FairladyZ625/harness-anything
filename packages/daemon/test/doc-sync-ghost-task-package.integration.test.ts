@@ -52,25 +52,15 @@ test("repo prose channel blocks artifacts under an unregistered tasks/ package d
     assert.match(ghostRow?.reason ?? "", /tasks\/task-ghost-wrong-slug is not the package path of any projected task/u);
     assert.match(ghostRow?.reason ?? "", /ha task artifact add/u);
     assert.equal(ghostRow?.mediaType, "text/markdown");
-    const unconfirmed = (await cell.run({ kind: "doc-submit", paths: [] }, binding)) as {
-      readonly outcome: string;
-      readonly code: string;
-      readonly detail: {
-        readonly unresolvedTouches: readonly { readonly path: string; readonly requiredRoute: string }[];
-      };
-    };
-    assert.equal(unconfirmed.outcome, "op_rejected", JSON.stringify(unconfirmed));
-    assert.equal(unconfirmed.code, "task_package_unregistered");
-    assert.deepEqual(
-      unconfirmed.detail.unresolvedTouches.map((touch) => [touch.path, touch.requiredRoute]),
-      [[ghost, "ha task artifact add"]],
-    );
-    // Misfire control: the eligible sibling in the registered package still
-    // publishes, and the blocked ghost must not ride along in that submit.
-    const submitted = (await cell.run({ kind: "doc-submit", paths: [], all: true }, binding)) as {
+    // Batch tolerance: the eligible sibling in the registered package publishes in
+    // the same submit that reports the blocked ghost — no whole-batch rejection.
+    const submitted = (await cell.run({ kind: "doc-submit", paths: [] }, binding)) as {
       readonly outcome: string;
       readonly opId: string;
       readonly summary: string | null;
+      readonly detail: {
+        readonly unresolvedTouches: readonly { readonly path: string; readonly requiredRoute: string }[];
+      };
     };
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
     const event = makeTaskEventReader({ repoId, rootDir }).readEvent(submitted.opId);
@@ -84,8 +74,12 @@ test("repo prose channel blocks artifacts under an unregistered tasks/ package d
       submitted.summary ?? "",
       new RegExp(`${ghost.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}\\tblocked\\t`, "u"),
     );
+    assert.deepEqual(
+      submitted.detail.unresolvedTouches.map((touch) => [touch.path, touch.requiredRoute]),
+      [[ghost, "ha task artifact add"]],
+    );
     assert.equal(existsSync(path.join(rootDir, "harness", ghost)), true);
-    // A submit whose only candidate is the ghost refuses with the recovery route.
+    // A submit whose only candidates are ghosts refuses with the recovery route.
     write(rootDir, `${impostor}/artifacts/second.md`, "# Second ghost\n");
     const rejected = (await cell.run({ kind: "doc-submit", paths: [] }, binding)) as {
       readonly outcome: string;

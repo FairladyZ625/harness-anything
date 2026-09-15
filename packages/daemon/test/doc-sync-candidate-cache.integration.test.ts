@@ -176,7 +176,7 @@ test("discovery preserves unknown files and owners and isolates repositories and
         "context/unknown.sh",
         "agents/unknown.json",
       ])
-        write(rootDir, logical, "unknown bytes\n");
+        write(rootDir, logical, "unknown bytes\n\0\n");
       const result = await cell.run({ kind: "doc-status", paths: [] }, { actor, source: "local" });
       for (const logical of [
         "context/unknown.json",
@@ -184,7 +184,7 @@ test("discovery preserves unknown files and owners and isolates repositories and
         "context/unknown.sh",
         "agents/unknown.json",
       ]) {
-        // Unsupported types stay visible in status but are inapplicable — they must not
+        // Non-textual files stay visible in status but are inapplicable — they must not
         // occupy the blocked signal or its unresolvedTouches.
         assert.equal(rows(result.evidence).find((row) => row.path === logical)?.state, "inapplicable", logical);
         assert.ok(!result.detail?.unresolvedTouches.some((touch) => touch.path === logical), logical);

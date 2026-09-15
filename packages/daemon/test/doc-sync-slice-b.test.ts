@@ -514,9 +514,9 @@ test("task artifact json and log files ride doc sync under the held task lease",
       [
         [submission, "eligible"],
         [log, "eligible"],
-        // The artifacts subtree is the unified textual subset; a JSON file elsewhere in the
-        // package is still not a doc-sync candidate — inapplicable, not blocked.
-        [packetOutsideArtifacts, "inapplicable"],
+        // The artifacts subtree is the unified textual subset; a textual JSON file elsewhere
+        // in the package is now a doc-sync candidate under the byte-probed textual rule.
+        [packetOutsideArtifacts, "eligible"],
       ],
       JSON.stringify(status.evidence),
     );

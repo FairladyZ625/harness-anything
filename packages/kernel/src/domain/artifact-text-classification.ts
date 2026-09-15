@@ -62,7 +62,7 @@ const textualFileTypes: readonly {
  */
 export function classifyTextualArtifactPath(value: string): TextualArtifactClassification | null {
   if (artifactPath(value) || architectureModelPath(value) || value === "governance/walls/walls.json")
-    return { kind: "opaque-textual", mediaType: opaqueTextualMediaType(value), policyId: OPAQUE_TEXTUAL_POLICY_ID };
+    return classifyOpaqueTextualArtifactPath(value);
   const fileType = textualFileType(value);
   if (fileType === null || !fileType.docSyncCandidate) return null;
   const { mediaType } = fileType;
@@ -81,6 +81,15 @@ export function classifyRawArtifactPath(value: string): RawArtifactClassificatio
   return taskArtifactSubtreePath(value) && textualFileType(value) === null
     ? { kind: "raw-artifact", mediaType: RAW_ARTIFACT_MEDIA_TYPE, policyId: RAW_ARTIFACT_POLICY_ID }
     : null;
+}
+
+/**
+ * Opaque whole-file classification for a path whose bytes the caller already
+ * proved textual. The media type keeps the table mapping when the extension
+ * has one and falls back to the opaque marker otherwise.
+ */
+export function classifyOpaqueTextualArtifactPath(value: string): TextualArtifactClassification {
+  return { kind: "opaque-textual", mediaType: opaqueTextualMediaType(value), policyId: OPAQUE_TEXTUAL_POLICY_ID };
 }
 
 export function taskArtifactSubtreePath(value: string): boolean {

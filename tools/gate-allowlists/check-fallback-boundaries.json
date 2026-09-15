@@ -67,6 +67,7 @@
       "packages/daemon/src/dispatch-read.ts#parseArchive",
       "packages/daemon/src/dispatch-stream.ts#parseRecord",
       "packages/daemon/src/dispatch-stream.ts#readStoredDispatchLiveIndex",
+      "packages/daemon/src/doc-sync-candidate-scanner.ts#textualBytes",
       "packages/daemon/src/doc-sync-files.ts#gitModified",
       "packages/daemon/src/doc-sync-files.ts#runtimeArchiveMissionRef",
       "packages/daemon/src/doc-sync-reads.ts#statFileSync",

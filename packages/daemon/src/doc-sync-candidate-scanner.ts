@@ -5,10 +5,14 @@ import {
 import { existsSync, lstatSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import {
+  classifyOpaqueTextualArtifactPath,
   classifyTextualArtifactPath,
   classifyRawArtifactPath,
+  consumeKnownError,
   decideDocWriteCriteria,
   DOC_SYNC_INLINE_MAX_BYTES,
+  isOpaqueTextualMediaType,
+  OPAQUE_TEXTUAL_POLICY_ID,
   DOC_POLICY_ID,
   documentPath,
   parseDocWriteIntent,
@@ -184,14 +188,19 @@ export function scanDocCandidates(input: {
       existingMediaType = classifyTextualArtifactPath(logical)?.mediaType ?? null,
       rawBytes = inventoried
         ? inventoried.bytes
-        : (classification !== null || taskArtifactCandidate || !route.allowed || projected.document !== null) &&
-            fileSize !== null &&
-            fileSize <= DOC_SYNC_INLINE_MAX_BYTES &&
-            safe &&
-            existsSync(target)
+        : fileSize !== null && fileSize <= DOC_SYNC_INLINE_MAX_BYTES && safe && existsSync(target)
           ? readCandidate(target)
           : null,
-      bytes = rawBytes === null ? null : canonicalProseBytes(rawBytes, classification?.policyId),
+      // A path the extension table does not claim is still a doc candidate when
+      // its bytes are textual: the opaque whole-file policy carries any text
+      // inside the inline cap, so `.py`/`.tsv`/`.json` land instead of sitting
+      // dirty forever. Binary bytes keep the not-a-textual-document verdict.
+      probed =
+        classification === null && rawBytes !== null && textualBytes(rawBytes)
+          ? classifyOpaqueTextualArtifactPath(logical)
+          : null,
+      effective = classification ?? probed,
+      bytes = rawBytes === null ? null : canonicalProseBytes(rawBytes, effective?.policyId),
       base = projected.document?.blobSha256 ?? null,
       candidate = bytes === null ? null : sha256Bytes(bytes);
     if (!route.allowed) {
@@ -245,13 +254,13 @@ export function scanDocCandidates(input: {
         fileSize,
       );
     }
-    if (classification === null && candidate !== null && candidate === base)
+    if (effective === null && candidate !== null && candidate === base)
       return scannedCandidateRow("clean", null, bytes, base, candidate, existingMediaType);
-    // An unsupported type with no canonical document at the path is not doc-sync
+    // A non-textual type with no canonical document at the path is not doc-sync
     // business at all — inapplicable, not blocked: blocked stays the "a human must
     // resolve this" signal. A canonical document that IS projected here keeps
     // blocked, because diverging from it is a real resolution.
-    if (classification === null)
+    if (effective === null)
       return projected.document === null
         ? scannedCandidateRow(
             "inapplicable",
@@ -303,7 +312,7 @@ export function scanDocCandidates(input: {
         null,
         projected.document?.blobSha256 ?? null,
         null,
-        classification.mediaType,
+        effective.mediaType,
         "doc_candidate_too_large",
         taskArtifactAddAction === null ? "blob-content" : "ha task artifact add",
         null,
@@ -320,7 +329,7 @@ export function scanDocCandidates(input: {
         projected.document ? "deletion_forbidden" : null,
         projected.document ? "deletion_forbidden" : null,
       );
-    const { mediaType, policyId } = classification;
+    const { mediaType, policyId } = effective;
     if (candidate === base)
       return scannedCandidateRow(
         conflicts.length ? "conflict" : "clean",
@@ -367,7 +376,7 @@ export function scanDocCandidates(input: {
     const unresolved = decision.detail.unresolvedTouches,
       nonTextualArtifact =
         base === null &&
-        classification.kind === "opaque-textual" &&
+        effective.kind === "opaque-textual" &&
         decision.code === "unresolved_touch" &&
         unresolved.length === 1 &&
         unresolved[0]?.requiredRoute === "typed-binary-content";
@@ -440,15 +449,9 @@ export function scanAuthoredCandidateInventory(input: {
     rows: paths.map((logical) => {
       const safe = directFile(layout.authoredRoot, logical),
         classification = classifyTextualArtifactPath(logical),
-        route = resolveDocRoute(documentPath(logical)),
         target = path.join(layout.authoredRoot, ...logical.split("/")),
         size = safe && existsSync(target) ? lstatSync(target).size : null,
-        rawBytes =
-          (classification !== null || !route.allowed || /^tasks\/[^/]+\/artifacts\//u.test(logical)) &&
-          size !== null &&
-          size <= DOC_SYNC_INLINE_MAX_BYTES
-            ? readCandidate(target)
-            : null,
+        rawBytes = size !== null && size <= DOC_SYNC_INLINE_MAX_BYTES ? readCandidate(target) : null,
         bytes = rawBytes === null ? null : canonicalProseBytes(rawBytes, classification?.policyId);
       return {
         path: logical,
@@ -488,7 +491,11 @@ export function intentFromScan(
         executionId: scan.executionId,
         baseLedgerSha: scan.baseLedgerSha,
         changes: eligible.map((row) => {
-          const classification = classifyTextualArtifactPath(row.path);
+          const classification =
+            classifyTextualArtifactPath(row.path) ??
+            (row.mediaType !== null && isOpaqueTextualMediaType(row.mediaType)
+              ? { kind: "opaque-textual" as const, mediaType: row.mediaType, policyId: OPAQUE_TEXTUAL_POLICY_ID }
+              : null);
           if (classification === null || row.candidateBlobSha256 === null || row.size === null)
             throw new Error(`eligible scan row is not a textual artifact: ${row.path}`);
           return {
@@ -692,6 +699,20 @@ function directFile(authoredRoot: string, logical: string): boolean {
   }
   return !existsSync(target) || lstatSync(target).isFile();
 }
+// The byte-side textual probe the path table cannot answer: valid UTF-8 with
+// no NUL byte inside the inline cap is a document; anything else is binary and
+// keeps the not-a-supported-textual-document verdict.
+function textualBytes(bytes: Uint8Array): boolean {
+  if (bytes.includes(0)) return false;
+  try {
+    new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    return true;
+  } catch (error) {
+    consumeKnownError(error);
+    return false;
+  }
+}
+
 function canonicalProseBytes(bytes: Uint8Array, policyId: string | undefined): Uint8Array {
   if (policyId !== DOC_POLICY_ID || !bytes.includes(13)) return bytes;
   try {
