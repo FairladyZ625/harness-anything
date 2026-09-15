@@ -167,7 +167,7 @@ test("runtime attempt-terminal settles the Schedule occurrence while the RepoCel
       output?.(
         `${JSON.stringify({ type: "thread.started", thread_id: "latched-settlement" })}\n` +
           `${JSON.stringify({ type: "item.completed", item: { id: "write", type: "file_change", status: "completed" } })}\n` +
-          `${JSON.stringify({ type: "item.completed", item: { id: "message", type: "agent_message", text: "done" } })}\n` +
+          `${JSON.stringify({ type: "item.completed", item: { id: "message", type: "agent_message", text: "done\nHARNESS-OUTCOME: succeeded" } })}\n` +
           `${JSON.stringify({ type: "turn.completed" })}\n`,
       );
       exit?.(0);
