@@ -46,7 +46,11 @@ export function readAction(input: Input): WriteReceipt {
   if (
     !hasExactDocSyncActionFields(
       input.action,
-      input.action.kind === "doc-show" ? ["kind", "path"] : ["kind", "paths"],
+      input.action.kind === "doc-show"
+        ? input.action.raw === true
+          ? ["kind", "path", "raw"]
+          : ["kind", "path"]
+        : ["kind", "paths"],
     ) ||
     !Array.isArray(rawPaths) ||
     !rawPaths.length ||

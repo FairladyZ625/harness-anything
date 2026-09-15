@@ -184,11 +184,10 @@ test("discovery preserves unknown files and owners and isolates repositories and
         "context/unknown.sh",
         "agents/unknown.json",
       ]) {
-        assert.equal(rows(result.evidence).find((row) => row.path === logical)?.state, "blocked", logical);
-        assert.ok(
-          result.detail?.unresolvedTouches.some((touch) => touch.path === logical && touch.requiredRoute),
-          logical,
-        );
+        // Unsupported types stay visible in status but are inapplicable — they must not
+        // occupy the blocked signal or its unresolvedTouches.
+        assert.equal(rows(result.evidence).find((row) => row.path === logical)?.state, "inapplicable", logical);
+        assert.ok(!result.detail?.unresolvedTouches.some((touch) => touch.path === logical), logical);
       }
     }
     let fileLoads = 0;
