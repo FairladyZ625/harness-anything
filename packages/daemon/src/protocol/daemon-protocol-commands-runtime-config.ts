@@ -41,6 +41,12 @@ export const builtInRuntimeProviderInputDeclaration = Object.freeze({
     effortField: "effort",
     fast: false,
   }),
+  devin: Object.freeze({
+    authModes: ["subscription", "api-key"] as const,
+    fields: [] as const,
+    effortField: "effort",
+    fast: false,
+  }),
 });
 
 export const runtimeConfigProtocolCommands = Object.freeze([

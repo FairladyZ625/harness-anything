@@ -130,11 +130,19 @@ function observeRuntimeMetrics(active: ActiveRuntime, value: unknown): void {
         : null;
   if (usage) {
     active.rawUsage = { ...active.rawUsage, ...usage };
-    const input = numberValue(usage.input_tokens) ?? numberValue(usage.inputTokens),
+    // ACP frames rename usage fields (input/output/total/used) because the
+    // dispatch-stream scrubber drops every key containing "token".
+    const input = numberValue(usage.input_tokens) ?? numberValue(usage.inputTokens) ?? numberValue(usage.input),
       cacheRead = numberValue(usage.cached_input_tokens) ?? numberValue(usage.cache_read_input_tokens),
       cacheCreation = numberValue(usage.cache_creation_input_tokens),
-      output = numberValue(usage.output_tokens) ?? numberValue(usage.outputTokens);
-    if (input !== null || cacheRead !== null || cacheCreation !== null || output !== null) active.usageReported = true;
+      output = numberValue(usage.output_tokens) ?? numberValue(usage.outputTokens) ?? numberValue(usage.output),
+      total =
+        numberValue(usage.total_tokens) ??
+        numberValue(usage.totalTokens) ??
+        numberValue(usage.total) ??
+        numberValue(usage.used);
+    if (input !== null || cacheRead !== null || cacheCreation !== null || output !== null || total !== null)
+      active.usageReported = true;
     active.inputTokens +=
       (input ?? 0) +
       (numberValue(usage.cache_read_input_tokens) !== null ? (cacheRead ?? 0) + (cacheCreation ?? 0) : 0);
@@ -181,6 +189,14 @@ function observeRuntimeMetrics(active: ActiveRuntime, value: unknown): void {
   if (type === "turn.completed" && providerRecord(frame.payload)) {
     const turnToolCalls = numberValue(frame.payload.toolCallCount);
     if (turnToolCalls !== null) active.toolCallCount += turnToolCalls;
+  }
+  // ACP tool calls announce once per toolCallId; later tool_call_update rows are status churn.
+  if (type === "acp.update" && providerRecord(frame.update) && frame.update.sessionUpdate === "tool_call") {
+    const key = `acp:${String(frame.update.toolCallId ?? "")}`;
+    if (!active.providerToolSteps.has(key)) {
+      active.providerToolSteps.add(key);
+      active.toolCallCount += 1;
+    }
   }
 }
 
