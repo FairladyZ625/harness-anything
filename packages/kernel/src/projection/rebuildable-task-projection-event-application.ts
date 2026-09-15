@@ -1,6 +1,6 @@
 // @write-boundary-exemption rebuildable-projection
 import { DatabaseSync } from "node:sqlite";
-import { emptyTaskLifecycleSnapshot } from "../domain/task-lifecycle.contract.ts";
+import { emptyTaskLifecycleSnapshot, reduceTaskEvent, type TaskEventV1 } from "../domain/task-lifecycle.contract.ts";
 import { OPAQUE_TEXTUAL_POLICY_ID, RAW_ARTIFACT_POLICY_ID } from "../domain/artifact-text-classification.ts";
 import {
   docByteLength,
@@ -9,6 +9,8 @@ import {
   isFactEvent,
   isMigrationImportEvent,
   isRelationEvent,
+  normalizePersistedCanonicalEvent,
+  serializePersistedCanonicalEvent,
   type CanonicalEventV1,
   type DocumentState,
 } from "../domain/doc-sync.contract.ts";
@@ -33,12 +35,18 @@ import { isPeopleEvent } from "../domain/people-event.ts";
 import { isCiRunObservationEvent } from "../domain/ci-run-observation-event.ts";
 import { parsePeopleRosterDocument } from "../domain/people-roster.ts";
 import { scheduleDefinition, validateScheduleDefinitionV1 } from "../domain/schedule.ts";
+import { lifecycleDocumentPaths } from "../domain/task-lifecycle-publication.ts";
+import { slugifyTaskTitle } from "../layout/index.ts";
 import { refreshDecisionDocumentSearch } from "./decision-event-projection.ts";
 import { refreshTaskRelationProjection } from "./task-query-projection.ts";
-import type { EventStreamPort } from "./rebuildable-task-projection-types.ts";
-import { projectMigration } from "./rebuildable-task-projection-migration.ts";
-import { projectDecision, projectFact, projectProgress } from "./rebuildable-task-projection-write-model.ts";
-import { applyTaskEvent } from "./rebuildable-task-projection-task-events.ts";
+import type { EventContentPrefetch, EventStreamPort } from "./rebuildable-task-projection-types.ts";
+import type { ProjectionApplyReceipt } from "./projection-reads.ts";
+import {
+  projectDecision,
+  projectFact,
+  projectMigration,
+  projectProgress,
+} from "./rebuildable-task-projection-write-model.ts";
 import {
   deleteEntityProjectionRow,
   markEntityProjectionMissing,
@@ -51,8 +59,18 @@ import {
   readRuntimeSession,
   readSnapshot,
   refreshRuntimeSessionAssociations,
+  replayClaim,
+  replayRelease,
+  replayRenew,
 } from "./rebuildable-task-projection-runtime.ts";
-import { canonicalJson, prepareQuery, runSql } from "./rebuildable-task-projection-sql.ts";
+import {
+  canonicalJson,
+  prepareQuery,
+  queryRows,
+  runSql,
+  transaction,
+  watermark,
+} from "./rebuildable-task-projection-sql.ts";
 import { applyEmbeddedRelationProjectionEvents, applyRelationProjectionEvent } from "./relation-entity-projection.ts";
 export type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
 export type { TaskProjection } from "./task-projection-port.ts";
@@ -610,4 +628,332 @@ export function applyEvent(
     return;
   }
   applyTaskEvent(db, event, eventJson, readBlob);
+}
+
+// Lifecycle task-event reduction, document claims, and materialized task rows.
+export function applyTaskEvent(
+  db: DatabaseSync,
+  event: TaskEventV1,
+  eventJson: string,
+  readBlob: EventStreamPort["readContentBlob"],
+): void {
+  const snapshot = reduceTaskEvent(readSnapshot(db, event.taskId), event);
+  runSql(
+    db,
+    "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, ?, ?)",
+    event.opId,
+    event.workspaceRevision,
+    event.taskId,
+    eventJson,
+  );
+  runSql(
+    db,
+    UPSERT_TASK_SNAPSHOT_SQL,
+    event.taskId,
+    event.workspaceRevision,
+    canonicalJson({
+      ...snapshot,
+      task: snapshot.task === null ? null : currentTaskForWrite(snapshot.task),
+      executions: [],
+      reviews: [],
+    }),
+    snapshot.task?.status ?? null,
+    event.occurredAt,
+  );
+  applyEmbeddedRelationProjectionEvents(db, event);
+  if (event.type === "task_created") {
+    runSql(
+      db,
+      "INSERT OR IGNORE INTO task_package(task_id, package_path) VALUES (?, ?)",
+      event.taskId,
+      `tasks/${event.taskId}-${slugifyTaskTitle(event.payload.task.title)}`,
+    );
+    runSql(db, "INSERT OR IGNORE INTO task_generation VALUES (?, 'v1')", event.taskId);
+  }
+  const packagePath = queryRows(db, "SELECT package_path FROM task_package WHERE task_id = ?", event.taskId)[0]
+    ?.package_path;
+  refreshTaskRelationProjection(
+    db,
+    event.taskId,
+    snapshot.task,
+    event.workspaceRevision,
+    event.occurredAt,
+    packagePath === undefined ? null : String(packagePath),
+  );
+  // Replay used to re-render each lifecycle document and require today's renderer to reproduce
+  // the bytes committed when the event was written. That is not a data invariant; it is a claim
+  // that the renderer has never changed. `renderIndex` did change (#1472, #1533, #1562), and the
+  // assertion sat dormant until #1599 bumped the projection schema and forced a cold rebuild --
+  // at which point replay threw on a document from three days earlier and latched every workspace
+  // command in the repository, including the rebuild command that exists to repair it.
+  //
+  // The blob is already content-addressed by the claim's own sha256 and checked for availability
+  // and size below, so nothing verifiable is lost. What is lost is a delayed brick on every future
+  // renderer change.
+  const lifecycleClaims = event.payload.documentClaims ?? [];
+  if (lifecycleClaims.length) {
+    if (
+      !packagePath ||
+      canonicalJson(lifecycleClaims.map((claim) => claim.path)) !==
+        canonicalJson(lifecycleDocumentPaths(event, String(packagePath)))
+    )
+      throw new Error(`lifecycle document paths mismatch for ${event.taskId}`);
+    for (const claim of lifecycleClaims) {
+      const bytes = readBlob(claim.sha256);
+      if (!bytes || bytes.byteLength !== claim.size)
+        throw new Error(`lifecycle document blob ${claim.sha256} is unavailable`);
+      const body = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+      const document: DocumentState = {
+        path: claim.path as DocumentState["path"],
+        blobSha256: claim.sha256,
+        body,
+        size: docByteLength(claim.size),
+        mediaType: claim.mediaType,
+        policyId: claim.policyId,
+        workspaceRevision: event.workspaceRevision,
+      };
+      runSql(db, UPSERT_DOCUMENT_SQL, claim.path, event.workspaceRevision, canonicalJson(document));
+    }
+  }
+  // Class-A task commands carry replaceable prose on the same canonical event
+  // as the lifecycle transition. Replaying this event after a process crash
+  // therefore restores both the task snapshot and its carried documents.
+  for (const change of event.payload.carriedDocumentClaims ?? []) {
+    const previous = queryRows(db, "SELECT value_json FROM document WHERE path = ?", change.path)[0],
+      base = previous ? (JSON.parse(String(previous.value_json)) as DocumentState) : null,
+      bytes = readBlob(change.candidate.sha256);
+    if (!bytes || bytes.byteLength !== change.candidate.size)
+      throw new Error(`carried document blob ${change.candidate.sha256} is unavailable`);
+    let body: string;
+    try {
+      body = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    } catch {
+      throw new Error(`carried document blob ${change.candidate.sha256} is not UTF-8`);
+    }
+    if (change.baseBlobSha256 !== (base?.blobSha256 ?? null))
+      throw new Error(`carried document proof mismatch for ${change.path}`);
+    const document: DocumentState = {
+      path: change.path as DocumentState["path"],
+      blobSha256: change.candidate.sha256,
+      body,
+      size: docByteLength(change.candidate.size),
+      mediaType: change.candidate.mediaType,
+      policyId: change.policyId,
+      workspaceRevision: event.workspaceRevision,
+    };
+    runSql(db, UPSERT_DOCUMENT_SQL, change.path, event.workspaceRevision, canonicalJson(document));
+    refreshDecisionDocumentSearch(db, document);
+  }
+  projectEmbeddedCanonicalEntities(db, event);
+  const edge =
+    event.type === "execution_submitted"
+      ? event.payload.edge
+      : event.type === "review_recorded"
+        ? event.payload.edge
+        : undefined;
+  if (edge !== undefined)
+    runSql(
+      db,
+      "INSERT INTO edge(task_id, edge_id, iteration, workspace_revision, value_json) VALUES (?, ?, ?, ?, ?)",
+      event.taskId,
+      edge.edgeId,
+      edge.iteration,
+      event.workspaceRevision,
+      canonicalJson(edge),
+    );
+  if (event.type === "execution_started") replayClaim(db, event);
+  if (event.type === "lease_renewed") replayRenew(db, event);
+  if (
+    (event.type === "execution_submitted" && event.payload.supersedesSubmissionId === undefined) ||
+    event.type === "lease_released"
+  )
+    replayRelease(db, event.taskId, event.payload.execution.executionId, event.workspaceRevision);
+}
+
+// Incremental source scanning, deferred-event staging, and batch replay.
+const batchContentPrefetchers = new WeakMap<EventStreamPort, EventContentPrefetch>();
+const SCAN_STATE_SQL = "SELECT scan_cursor, scanned_revision FROM projection_meta WHERE singleton = 1",
+  NEXT_DEFERRED_EVENT_SQL = [
+    "SELECT event_json FROM event_source WHERE workspace_revision = ?",
+    "OR (? = 1 AND workspace_revision > ?) ORDER BY workspace_revision LIMIT 1",
+  ].join(" ");
+export function reduceBatch(
+  db: DatabaseSync,
+  events: readonly CanonicalEventV1[],
+  limit: number,
+  readBlob: EventStreamPort["readContentBlob"],
+  head: ReturnType<EventStreamPort["readHead"]>,
+): ProjectionApplyReceipt {
+  return transaction(db, () => {
+    for (const event of events) stageEvent(db, event);
+    const reducedItems = drainDeferred(db, limit, readBlob, true);
+    const state = prepareQuery(db, SCAN_STATE_SQL, (sql) =>
+      /* @gate-identity check-bypass-write-boundary/bypass-write-001 */ db.prepare(sql),
+    ).get() as { readonly scan_cursor: string | null; readonly scanned_revision: number };
+    const last = events.at(-1);
+    if (
+      last !== undefined &&
+      state.scan_cursor === null &&
+      state.scanned_revision === last.workspaceRevision - events.length &&
+      watermark(db) >= last.workspaceRevision
+    ) {
+      runSql(
+        db,
+        "UPDATE projection_meta SET scanned_revision = ?, head_digest = ? WHERE singleton = 1",
+        last.workspaceRevision,
+        head?.eventDigest ?? null,
+      );
+    }
+    return { metrics: { sqliteTransactions: 1, reducedItems } };
+  });
+}
+
+export function catchUpRound(
+  db: DatabaseSync,
+  eventStore: EventStreamPort,
+  limit: number,
+): {
+  readonly sourceRevision: number;
+  readonly watermark: number;
+  readonly reducedItems: number;
+  readonly accessedItems: number;
+  readonly sqliteTransactions: 0 | 1;
+} {
+  const head = eventStore.readHead();
+  const sourceRevision = head?.revision ?? 0;
+  const state = prepareQuery(db, SCAN_STATE_SQL, (sql) =>
+    /* @gate-identity check-bypass-write-boundary/bypass-write-002 */ db.prepare(sql),
+  ).get() as { readonly scan_cursor: string | null; readonly scanned_revision: number };
+  const shouldScan = state.scan_cursor !== null || state.scanned_revision < sourceRevision;
+  const batch = shouldScan ? eventStore.readBatch(state.scan_cursor, limit) : null;
+  if (batch?.prefetchContent !== undefined) batchContentPrefetchers.set(eventStore, batch.prefetchContent);
+  const hasDeferred =
+    prepareQuery(db, "SELECT 1 AS present FROM event_source WHERE workspace_revision > ? LIMIT 1", (sql) =>
+      /* @gate-identity check-bypass-write-boundary/bypass-write-003 */ db.prepare(sql),
+    ).get(watermark(db)) !== undefined;
+  if (batch === null && !hasDeferred)
+    return {
+      sourceRevision,
+      watermark: watermark(db),
+      reducedItems: 0,
+      accessedItems: 0,
+      sqliteTransactions: 0,
+    };
+  // A complete source scan proves that an absent revision is a permanent hole in this
+  // ledger. Before that point, keep strict continuity so a later batch can still supply it.
+  const allowRevisionGaps = batch === null || batch.done;
+  const replayEvents = readyDeferredEvents(db, batch?.events ?? [], limit, allowRevisionGaps);
+  let prefetch = batch?.prefetchContent ?? batchContentPrefetchers.get(eventStore);
+  if (prefetch === undefined && hasDeferred) {
+    prefetch = eventStore.readBatch(null, 1).prefetchContent;
+    if (prefetch !== undefined) batchContentPrefetchers.set(eventStore, prefetch);
+  }
+  if (replayEvents.length > 0 && prefetch === undefined)
+    throw new Error("event stream must provide a verified batch content prefetch");
+  const prefetchedContent = replayEvents.length ? prefetch!(replayEvents) : new Map<string, Uint8Array | null>();
+  const reducedItems = transaction(db, () => {
+    if (batch !== null) {
+      for (const event of batch.events) stageEvent(db, event);
+      if (batch.done)
+        runSql(
+          db,
+          "UPDATE projection_meta SET scan_cursor = NULL, scanned_revision = ?, head_digest = ? WHERE singleton = 1",
+          batch.sourceRevision,
+          head?.eventDigest ?? null,
+        );
+      else runSql(db, "UPDATE projection_meta SET scan_cursor = ? WHERE singleton = 1", batch.cursor);
+    }
+    return drainDeferred(db, limit, (sha256) => prefetchedContent.get(sha256) ?? null, allowRevisionGaps);
+  });
+  return {
+    sourceRevision,
+    watermark: watermark(db),
+    reducedItems,
+    accessedItems: batch?.accessedItems ?? 0,
+    sqliteTransactions: 1,
+  };
+}
+
+function readyDeferredEvents(
+  db: DatabaseSync,
+  batch: readonly CanonicalEventV1[],
+  limit: number,
+  allowRevisionGaps: boolean,
+): readonly CanonicalEventV1[] {
+  const current = watermark(db),
+    candidates = new Map<number, CanonicalEventV1>();
+  for (const row of queryRows(
+    db,
+    [
+      "SELECT workspace_revision, event_json FROM event_source",
+      "WHERE workspace_revision > ? AND workspace_revision <= ?",
+      "ORDER BY workspace_revision",
+    ].join(" "),
+    current,
+    current + limit,
+  ))
+    candidates.set(Number(row.workspace_revision), JSON.parse(String(row.event_json)) as CanonicalEventV1);
+  for (const event of batch)
+    if (event.workspaceRevision <= current + limit) candidates.set(event.workspaceRevision, event);
+  const ready: CanonicalEventV1[] = [];
+  for (let revision = current + 1; revision <= current + limit; revision += 1) {
+    const event = candidates.get(revision);
+    if (event === undefined) {
+      if (!allowRevisionGaps) break;
+      continue;
+    }
+    ready.push(event);
+  }
+  return ready;
+}
+
+function stageEvent(db: DatabaseSync, event: CanonicalEventV1): void {
+  const eventJson = serializePersistedCanonicalEvent(event).trimEnd();
+  const applied = prepareQuery(db, "SELECT event_json FROM event_index WHERE op_id = ?", (sql) =>
+    /* @gate-identity check-bypass-write-boundary/bypass-write-004 */ db.prepare(sql),
+  ).get(event.opId) as { readonly event_json: string } | undefined;
+  if (applied !== undefined) {
+    if (applied.event_json !== eventJson) throw new Error(`projection opId ${event.opId} names different bytes`);
+    return;
+  }
+  const staged = prepareQuery(
+    db,
+    "SELECT event_json FROM event_source WHERE op_id = ? OR workspace_revision = ?",
+    (sql) => /* @gate-identity check-bypass-write-boundary/bypass-write-005 */ db.prepare(sql),
+  ).get(event.opId, event.workspaceRevision) as { readonly event_json: string } | undefined;
+  if (staged !== undefined) {
+    if (staged.event_json !== eventJson)
+      throw new Error(`projection revision or opId ${event.opId} names different bytes`);
+    return;
+  }
+  runSql(
+    db,
+    "INSERT INTO event_source(workspace_revision, op_id, event_json) VALUES (?, ?, ?)",
+    event.workspaceRevision,
+    event.opId,
+    eventJson,
+  );
+}
+
+function drainDeferred(
+  db: DatabaseSync,
+  limit: number,
+  readBlob: EventStreamPort["readContentBlob"],
+  allowRevisionGaps = false,
+): number {
+  let next = watermark(db),
+    reduced = 0;
+  while (reduced < limit) {
+    const row = prepareQuery(db, NEXT_DEFERRED_EVENT_SQL, (sql) =>
+      /* @gate-identity check-bypass-write-boundary/bypass-write-006 */ db.prepare(sql),
+    ).get(next + 1, allowRevisionGaps ? 1 : 0, next) as { readonly event_json: string } | undefined;
+    if (row === undefined) break;
+    const event = JSON.parse(row.event_json) as CanonicalEventV1;
+    applyEvent(db, normalizePersistedCanonicalEvent(event), row.event_json, readBlob);
+    runSql(db, "DELETE FROM event_source WHERE workspace_revision = ?", event.workspaceRevision);
+    next = event.workspaceRevision;
+    reduced += 1;
+  }
+  runSql(db, "UPDATE projection_meta SET watermark = ? WHERE singleton = 1", next);
+  return reduced;
 }
