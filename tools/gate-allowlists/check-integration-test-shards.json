@@ -703,6 +703,56 @@
         "value": "packages/kernel/test/store/task-projection.test.ts",
         "ref": "task_f4b56d482e26280d51859359aa",
         "reason": "Split into task-projection-rebuild and task-projection-steady-state integration suites under the 1,200-line test file limit; assertions preserved verbatim."
+      },
+      {
+        "value": "packages/application/test/execution-approval-idempotency.test.ts",
+        "ref": "task_4ed6d8c8faebdbcfc484745ceb",
+        "reason": "Consolidated into packages/application/test/execution-lifecycle-integrity.integration.test.ts under the 1,200-line test file limit; assertions preserved verbatim."
+      },
+      {
+        "value": "packages/application/test/execution-claim-atomicity.test.ts",
+        "ref": "task_4ed6d8c8faebdbcfc484745ceb",
+        "reason": "Consolidated into packages/application/test/execution-lifecycle-integrity.integration.test.ts under the 1,200-line test file limit; assertions preserved verbatim."
+      },
+      {
+        "value": "packages/application/test/execution-lease-renewal.test.ts",
+        "ref": "task_4ed6d8c8faebdbcfc484745ceb",
+        "reason": "Consolidated into packages/application/test/execution-lifecycle-integrity.integration.test.ts under the 1,200-line test file limit; assertions preserved verbatim."
+      },
+      {
+        "value": "packages/application/test/execution-saga-v1.test.ts",
+        "ref": "task_4ed6d8c8faebdbcfc484745ceb",
+        "reason": "Consolidated into packages/application/test/execution-lifecycle-integrity.integration.test.ts under the 1,200-line test file limit; assertions preserved verbatim."
+      },
+      {
+        "value": "packages/application/test/execution-submit-atomicity.test.ts",
+        "ref": "task_4ed6d8c8faebdbcfc484745ceb",
+        "reason": "Consolidated into packages/application/test/execution-lifecycle-integrity.integration.test.ts under the 1,200-line test file limit; assertions preserved verbatim."
+      },
+      {
+        "value": "packages/application/test/execution-submit-concurrency.test.ts",
+        "ref": "task_4ed6d8c8faebdbcfc484745ceb",
+        "reason": "Consolidated into packages/application/test/execution-lifecycle-integrity.integration.test.ts under the 1,200-line test file limit; assertions preserved verbatim."
+      },
+      {
+        "value": "packages/application/test/execution-submit-receipt-honesty.test.ts",
+        "ref": "task_4ed6d8c8faebdbcfc484745ceb",
+        "reason": "Consolidated into packages/application/test/execution-lifecycle-integrity.integration.test.ts under the 1,200-line test file limit; assertions preserved verbatim."
+      },
+      {
+        "value": "packages/application/test/review-execution-companion-atomicity.test.ts",
+        "ref": "task_4ed6d8c8faebdbcfc484745ceb",
+        "reason": "Consolidated into packages/application/test/execution-lifecycle-integrity.integration.test.ts under the 1,200-line test file limit; assertions preserved verbatim."
+      },
+      {
+        "value": "packages/kernel/test/store/task-owned-entity-projection-control.integration.test.ts",
+        "ref": "task_4ed6d8c8faebdbcfc484745ceb",
+        "reason": "Merged into task-owned-entity-projection.integration.test.ts as the control case of the same experiment sharing one fixture; assertions preserved verbatim."
+      },
+      {
+        "value": "packages/kernel/test/store/task-event-store-replacement-authorization.test.ts",
+        "ref": "task_4ed6d8c8faebdbcfc484745ceb",
+        "reason": "Merged into task-event-store.test.ts, the sibling suite for the same store; assertions preserved verbatim."
       }
     ]
   }
