@@ -765,15 +765,20 @@ async function openPeer(options: FleetPeerOptions) {
       send(frame);
       return next();
     };
-  const ready = await request({
-    schema: "fleet.session.hello/v1",
-    messageId: messageId(),
-    protocolVersion: currentFleetProtocolVersion,
-    nodeId: options.nodeId,
-    credential: options.credential,
-  });
-  if (ready.schema !== "fleet.session.ready/v1") throw new Error("session ready expected");
-  return { messageId, next, send, request, close: peer.close };
+  try {
+    const ready = await request({
+      schema: "fleet.session.hello/v1",
+      messageId: messageId(),
+      protocolVersion: currentFleetProtocolVersion,
+      nodeId: options.nodeId,
+      credential: options.credential,
+    });
+    if (ready.schema !== "fleet.session.ready/v1") throw new Error("session ready expected");
+    return { messageId, next, send, request, close: peer.close };
+  } catch (error) {
+    peer.close();
+    throw error;
+  }
 }
 function peerSocket(options: FleetPeerOptions): Promise<TLSSocket> {
   return new Promise((resolve, reject) => {

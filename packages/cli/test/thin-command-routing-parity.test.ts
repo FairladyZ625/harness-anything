@@ -948,6 +948,12 @@ test("thin parser routes CI observation pulls through the repo task command", ()
   if (named.ok)
     assert.deepEqual(named.command.action, { kind: "ci-observe-pull", runs: ["34091151001", "33890867571"] });
   assert.equal(parseThinCommand(["ci", "observe", "pull", "--run", "abc"]).ok, false);
+  const tasked = parseThinCommand(["ci", "observe", "pull", "--task", "task-1"]);
+  assert.equal(tasked.ok, true, JSON.stringify(tasked));
+  if (tasked.ok) assert.deepEqual(tasked.command.action, { kind: "ci-observe-pull", taskId: "task-1" });
+  const conflicting = parseThinCommand(["ci", "observe", "pull", "--task", "task-1", "--run", "34091151001"]);
+  assert.equal(conflicting.ok, false);
+  if (!conflicting.ok) assert.match(conflicting.nextAction, /mutually exclusive/u);
 });
 
 test("thin parser validates only the selected command descriptor", () => {
