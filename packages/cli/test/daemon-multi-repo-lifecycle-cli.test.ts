@@ -364,7 +364,7 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
     assert.equal(partial.receipt.outcome, "applied", JSON.stringify(partial.receipt));
     assert.match(
       String(partial.receipt.summary),
-      /doc-submit: applied[\s\S]*skipped:[\s\S]*context\/other-session\.md\tblocked\tmachine region changed/u,
+      /doc-submit: applied[\s\S]*blocked \(not submitted; owning task and required route shown\):[\s\S]*context\/other-session\.md\tblocked\ttask=-\trequiredRoute=typed-machine-writer\tmachine region changed/u,
     );
     assert.equal(
       run(fixture.alpha, fixture.userRoot, ["doc", "show", "--path", eligiblePath]).evidence,

@@ -129,7 +129,7 @@ test("confirmed full submit applies eligible prose and reports an unrelated dele
     assert.equal(settled.worktree.state, "verified");
     assert.match(
       String(submitted.summary),
-      /doc-submit: applied[\s\S]*context\/eligible\.md[\s\S]*skipped:[\s\S]*context\/deleted\.md\tdeletion\tcanonical document is missing from the worktree/u,
+      /doc-submit: applied[\s\S]*context\/eligible\.md[\s\S]*blocked \(not submitted[\s\S]*context\/deleted\.md\tdeletion\ttask=-\trequiredRoute=deletion_forbidden\tcanonical document is missing from the worktree/u,
     );
     const event = makeTaskEventReader({ repoId, rootDir }).readEvent(String(submitted.opId));
     assert.equal(event?.schema, "doc-event/v1");
@@ -360,6 +360,9 @@ test("path and confirmed full submits ride the repository prose channel when ano
     write(rootDir, "context/shared.md", "# Shared\nsynced\n");
     assert.equal((await cell.run({ kind: "doc-submit", paths: ["context/shared.md"] }, person)).outcome, "applied");
     write(rootDir, `${packagePath}/artifacts/reports/second.md`, "# Second\n");
+    // A daemon-managed task file in the same batch must surface as blocked with its owning task and
+    // required route, without making the clean submission read as a failure.
+    write(rootDir, `${packagePath}/progress.md`, "# Progress\n");
     const fullSubmit = (await cell.run({ kind: "doc-submit", paths: [], all: true }, person)) as Record<
       string,
       unknown
@@ -368,6 +371,13 @@ test("path and confirmed full submits ride the repository prose channel when ano
     assert.match(
       String(fullSubmit.summary),
       new RegExp(`applied:\\n${packagePath}/artifacts/reports/second\\.md`, "u"),
+    );
+    assert.match(
+      String(fullSubmit.summary),
+      new RegExp(
+        `blocked \\(not submitted[\\s\\S]*${packagePath}/progress\\.md\\tblocked\\ttask=${taskId}\\trequiredRoute=task-progress-append`,
+        "u",
+      ),
     );
     // Naming the foreign execution explicitly still refuses — and the receipt names the exit that works.
     write(rootDir, `${packagePath}/artifacts/reports/third.md`, "# Third\n");
