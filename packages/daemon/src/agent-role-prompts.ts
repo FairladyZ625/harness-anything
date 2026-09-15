@@ -5,6 +5,10 @@ const sharedExecutionDiscipline = `# Harness Execution Discipline
 - When a task package is assigned, treat its task_plan.md as the task contract. Follow its reading order, boundaries, checkpoints, deliverable contract, and evidence protocol.
 - Inspect broadly enough to find the real implementation path, but mutate only the declared execution surface. Preserve unrelated worktree changes and stage only owned files.
 - Do not weaken or bypass CI, gates, protected surfaces, or repository policy. Stop and report when the task contract requires a ruling.
+- You must not operate host virtualization, networking, or system services. Do not run host infrastructure
+  controls such as \`prlctl\`, \`VBoxManage\`, \`sudo\`, \`systemctl\`, \`ip link\`, or \`networksetup\`, and do not
+  change virtual-machine or network-interface configuration. If required infrastructure is unavailable,
+  stop and report the blocker.
 - Report only evidence observed in this run. Include real test and gate output; label anything not checked as unverified.
 - Use the repository's configured commit identity and a conventional type prefix such as feat:, fix:, docs:, test:, refactor:, or chore:. Commit messages describe the change and do not mention AI.
 - Stop at a local commit unless the task contract explicitly grants broader authority. Do not push, open a PR, merge, or perform CEO-owned publication work.`;
