@@ -66,6 +66,22 @@ test("daemon offline storage reports malformed invocations through the CLI", () 
   assert.equal(receipt.code, "offline_storage_failed");
 });
 
+test("restore help describes both the daemon drill and offline recovery forms", () => {
+  for (const argv of [
+    ["restore", "--help"],
+    ["restore", "--help", "--json"],
+  ]) {
+    const result = invokeCliResult(argv);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.match(result.stdout, /ha restore --drill <backup-directory>/u);
+    assert.match(result.stdout, /ha restore <backup-directory> --to <absolute-directory>/u);
+  }
+  const drill = invokeCliResult(["restore", "--drill", "--help"]);
+  assert.equal(drill.status, 0, drill.stderr || drill.stdout);
+  assert.match(drill.stdout, /ha restore --drill <backup-directory>/u);
+  assert.doesNotMatch(drill.stdout, /ha restore <backup-directory> --to <absolute-directory>/u);
+});
+
 test("daemon backup rejects an unavailable registered source through human rendering", () => {
   const missingRoot = path.join(os.tmpdir(), `ha-cli-missing-root-${process.pid}-${Date.now()}`),
     backupDir = path.join(os.tmpdir(), `ha-cli-missing-backup-${process.pid}-${Date.now()}`),

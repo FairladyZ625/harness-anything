@@ -134,7 +134,9 @@ export function renderThinHelp(
     groups = commandDomains,
     body = domain
       ? [
-          matchedPrefix ? `Command ${matchedPrefix}:` : `Commands for ${domain}:`,
+          matchedPrefix && !matchedPrefix.split(" ").at(-1)?.startsWith("-")
+            ? `Command ${matchedPrefix}:`
+            : `Commands for ${domain}:`,
           ...visible.map(({ usage, summary, help }) => `  ${usage}\n    ${summary}${help ? `\n${help}` : ""}`),
         ]
       : [
