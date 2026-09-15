@@ -16,10 +16,12 @@ export const ciObservationProtocolCommands = Object.freeze([
     actionKind: "ci-observe-pull",
     phase: "PLT-TestEng-W1",
     path: ["ci", "observe", "pull"],
-    summary: "Pull GitHub Actions CI observations; --run imports named runs instead of the latest --limit runs.",
+    summary:
+      "Pull GitHub Actions CI observations; --run imports named runs, --task resolves the task delivery commit to its first covering successful main run.",
     method: "repo.task.run",
     inputs: [
       cliInput("--run", "repeated", false, { code: "invalid_field" }, { field: "runs", regex: "^[1-9][0-9]{0,19}$" }),
+      cliInput("--task", "single", false, { code: "invalid_field" }, { field: "taskId", conflictsWith: ["--run"] }),
       cliInput(
         "--limit",
         "single",
