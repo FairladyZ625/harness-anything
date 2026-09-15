@@ -140,6 +140,8 @@ async function runThinCli(argv: readonly string[]): Promise<number> {
     const renderStartedAt = cliPhaseStart();
     if (typedCommand.action.kind === "template-render" && typedCommand.action.raw === true && receipt.ok === true)
       process.stdout.write(rawTemplateBody(receipt));
+    else if (typedCommand.action.kind === "doc-show" && typedCommand.action.raw === true && receipt.ok === true)
+      process.stdout.write(rawDocumentBody(receipt));
     else emit(receipt, typedCommand.json, explainRequestRefs(typedCommand));
     cliPhaseEnd("render", renderStartedAt);
     return receiptExitCode(receipt);
@@ -209,6 +211,14 @@ export function rawTemplateBody(receipt: Record<string, unknown>): string {
   if (typeof rendered !== "object" || rendered === null || !("body" in rendered) || typeof rendered.body !== "string")
     throw new TypeError("Template receipt is missing its rendered body.");
   return rendered.body;
+}
+
+// doc-show --raw: evidence is the projected document body itself; it is written
+// verbatim (no receipt decoration) so its sha256 matches the file on disk.
+export function rawDocumentBody(receipt: Record<string, unknown>): string {
+  if (receipt.ok !== true || typeof receipt.evidence !== "string")
+    throw new TypeError("Raw document output requires a successful doc-show receipt.");
+  return receipt.evidence;
 }
 
 function isCliEntrypoint(): boolean {

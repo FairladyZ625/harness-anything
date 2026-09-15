@@ -137,7 +137,7 @@ test("Fact compiler renders one exact machine-owned document per fact", () => {
   });
   assert.equal(
     first.body,
-    "# Facts\n\nManaged by `ha fact record`; hand edits are rejected.\n\n## Records\n\n### F-ABCDEFGH\n\n- Statement: Closed Fact payload\n- Evidence source: contract fixture\n- Observed at: 2026-08-13T00:00:00.000Z\n- Confidence: high\n- State: standing\n\n",
+    "# Facts\n\nManaged by `ha fact record`; hand edits are rejected.\n\n`State` is record-time; authoritative liveness via `ha fact show`.\n\n## Records\n\n### F-ABCDEFGH\n\n- Statement: Closed Fact payload\n- Evidence source: contract fixture\n- Observed at: 2026-08-13T00:00:00.000Z\n- Confidence: high\n- State: standing\n\n",
   );
   const secondDraft: FactEventDraftV1 = {
       ...draft,
@@ -171,6 +171,12 @@ test("Fact compiler renders one exact machine-owned document per fact", () => {
     });
   assert.doesNotMatch(second.body, /### F-ABCDEFGH/u);
   assert.match(second.body, /### F-BCDEFGHJ[\s\S]*State: standing/u);
+  assert.match(second.body, /authoritative liveness via `ha fact show`/u);
+  // Positive control for file-vs-projection honesty: superseding F-ABCDEFGH does not rewrite its
+  // durable file — it keeps `State: standing` at record time, which is exactly why every rendered
+  // facts file must point readers at `ha fact show` for the authoritative liveness.
+  assert.match(first.body, /State: standing/u);
+  assert.match(first.body, /authoritative liveness via `ha fact show`/u);
 });
 
 const initialRelationIdentity = {
