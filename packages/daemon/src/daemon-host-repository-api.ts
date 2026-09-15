@@ -34,6 +34,13 @@ import { requireAuthorizedHostAction } from "./host-action-authorization.ts";
 import { entityActionCommandTopology } from "./repo-mode.ts";
 import { resolveVerticalKindCommandAction } from "./vertical-kind-command-action.ts";
 import { cachePurgePreservedPaths, purgeRepoCache } from "./repo-cache-purge.ts";
+import { backupReceipt } from "./offline-storage.ts";
+import {
+  backupRepoForAllPurge,
+  drillRepoAllPurgeBackup,
+  removeRepoHarnessData,
+  validateRepoAllPurge,
+} from "./repo-all-purge.ts";
 
 function isRepoCellReadMethod(method: DaemonGuiRpcReadMethod): method is RepoCellReadMethod {
   return (
@@ -345,7 +352,8 @@ export function createDaemonHostRepositoryApi(
       if (!known) throw context.hostCodedError("repo_namespace_unknown", `Unknown repo namespace: ${request.repoId}.`);
       const registeredRepo = registry.repos.find((repo) => repo.repoId === request.repoId),
         invalidRepo = registry.invalidRepos.find((repo) => repo.repoId === request.repoId),
-        purging = request.kind === "purge";
+        purging = request.kind === "purge",
+        purgingAll = purging && request.scope === "all";
       if (
         purging &&
         (!registeredRepo || registeredRepo.mode === "remote-proxy" || registeredRepo.canonicalRoot === null)
@@ -361,6 +369,14 @@ export function createDaemonHostRepositoryApi(
           `Repository ${request.repoId} canonical root is unavailable; no files were removed.`,
         );
       const rootDir = registeredRepo?.canonicalRoot ?? invalidRepo?.canonicalRoot ?? null,
+        backupDir = purgingAll
+          ? validateRepoAllPurge({
+              rootDir: registeredRepo!.canonicalRoot!,
+              repoId: request.repoId,
+              backup: request.backup,
+              confirm: request.confirm,
+            })
+          : null,
         adminBinding = registeredRepo?.canonicalRoot
           ? await context.binding(registeredRepo.canonicalRoot, auth)
           : localDefaultBinding(auth),
@@ -402,6 +418,16 @@ export function createDaemonHostRepositoryApi(
           rejectionExplanation: inFlightSummary,
           summary: inFlightSummary,
         };
+      let backupManifest;
+      if (purgingAll) {
+        backupManifest = backupRepoForAllPurge({
+          rootDir: rootDir!,
+          backupDir: backupDir!,
+          registration: registeredRepo!,
+          writerEpoch: context.writerEpochHighWatermark(request.repoId),
+        });
+        drillRepoAllPurgeBackup({ rootDir: rootDir!, backupDir: backupDir!, manifest: backupManifest });
+      }
       context.settleWarming(request.repoId);
       await context.closeCell(request.repoId);
       context.unavailable.delete(request.repoId);
@@ -411,7 +437,8 @@ export function createDaemonHostRepositoryApi(
       });
       const repo = context.publicRegistryRepo(result.repo);
       if (purging) {
-        const removed = purgeRepoCache(rootDir!);
+        const removed = purgingAll ? removeRepoHarnessData(rootDir!) : purgeRepoCache(rootDir!);
+        if (purgingAll) context.retireWriterEpoch(request.repoId);
         return {
           schema: "command-receipt/v2",
           ok: true,
@@ -419,14 +446,22 @@ export function createDaemonHostRepositoryApi(
           outcome: "applied",
           repoId: request.repoId,
           rootDir,
-          scope: "cache",
+          scope: request.scope,
           registryChanged: result.changed,
-          dataPreserved: true,
+          dataPreserved: !purgingAll,
           removed,
-          preserved: cachePurgePreservedPaths,
-          rebindCommand: "ha init",
+          preserved: purgingAll ? ["project files", ".git", ".worktrees"] : cachePurgePreservedPaths,
+          ...(purgingAll
+            ? {
+                backup: backupReceipt(backupDir!, backupManifest!),
+                restoreCommand: `ha restore ${JSON.stringify(backupDir)} --to <absolute-directory>`,
+                rebindCommand: `ha init --repo-id ${request.repoId}`,
+              }
+            : { rebindCommand: "ha init" }),
           authorizationDecision,
-          summary: `Repository ${request.repoId} is unbound and its derived cache state was removed; authoritative data was preserved.`,
+          summary: purgingAll
+            ? `Repository ${request.repoId} is backed up, restore-drilled, unbound, and its local Harness data was removed.`
+            : `Repository ${request.repoId} is unbound and its derived cache state was removed; authoritative data was preserved.`,
         };
       }
       return {

@@ -119,7 +119,13 @@ export interface DaemonHost {
           readonly state?: "enabled" | "disabled";
         }
       | { readonly kind: "unbind"; readonly repoId: string }
-      | { readonly kind: "purge"; readonly repoId: string; readonly scope: "cache" }
+      | {
+          readonly kind: "purge";
+          readonly repoId: string;
+          readonly scope: "cache" | "all";
+          readonly backup?: string;
+          readonly confirm?: string;
+        }
       | {
           readonly kind: "connection-register";
           readonly connectionId?: string;

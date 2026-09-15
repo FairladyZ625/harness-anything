@@ -183,6 +183,23 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         holderId: lease.holderId,
       };
     },
+    writerEpochHighWatermark = (repoId: string) => {
+      daemonWriterEpoch ??= openPersistentWriterEpoch({
+        stateRoot: path.join(input.userRoot, "fleet"),
+        holderId: `local-daemon:${input.daemonId}:${process.pid}`,
+        now,
+      });
+      return daemonWriterEpoch.highWatermark(repoId);
+    },
+    retireWriterEpoch = (repoId: string) => {
+      daemonWriterEpoch ??= openPersistentWriterEpoch({
+        stateRoot: path.join(input.userRoot, "fleet"),
+        holderId: `local-daemon:${input.daemonId}:${process.pid}`,
+        now,
+      });
+      daemonWriterEpoch.retireCurrent(repoId);
+      daemonWriterLeases.delete(repoId);
+    },
     daemonWriterBinding = (repoId: string, base: ReturnType<typeof localSystemBinding>) => {
       if (base.writerEpochFence) return base;
       return withDaemonWriterEpochFence(base, writerEpochFence(repoId));
@@ -500,6 +517,8 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     binding: hostBinding,
     writerEpochFence,
     writerEpochLease,
+    writerEpochHighWatermark,
+    retireWriterEpoch,
     closeDaemonWriterEpoch,
     attach,
     localOnly,

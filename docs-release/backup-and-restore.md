@@ -43,3 +43,23 @@ ha fact search <known-query>
 Use the registry metadata printed in the receipt when the original repository used a non-local
 mode or named connection. Do not copy a live `ledger.sqlite` file manually: `ha backup` uses
 SQLite's snapshot operation while the daemon may still be accepting writes.
+
+To permanently remove every local Harness record for a repository, let the daemon create and
+exercise a fresh backup before it deletes anything:
+
+```sh
+ha repo purge <repoId> --scope all \
+  --backup /Volumes/offsite/harness-final-backup \
+  --confirm <repoId>
+```
+
+The confirmation must exactly match the repository ID. The backup destination must be absolute,
+must not exist, and must not be inside the repository's `.harness/` or `harness/` directory. The
+command refuses while work is in flight. It then creates the backup, runs a restore drill, unbinds
+the repository, removes `.harness/` and `harness/`, and removes the two Harness rules added to the
+project `.gitignore`. Project files, worktrees, and Git history remain in place. A failed backup or
+drill leaves the registered repository and its data untouched.
+
+The receipt prints the backup directory and the corresponding `ha restore <backup> --to <dir>` and
+`ha init --repo-id <repoId>` commands. The writer-epoch history remains as a fencing tombstone, so
+restoring and binding the repository cannot reuse an earlier writer epoch.

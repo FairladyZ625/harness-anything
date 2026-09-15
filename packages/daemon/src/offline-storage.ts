@@ -135,7 +135,7 @@ export function runOfflineStorageCommand(argv: readonly string[]): number {
 function currentWriterEpoch(userRoot: string, repoId: string): number {
   const authority = openPersistentWriterEpoch({ stateRoot: path.join(userRoot, "fleet") });
   try {
-    return authority.current(repoId)?.epoch ?? 0;
+    return authority.highWatermark(repoId);
   } finally {
     authority.close();
   }
@@ -153,7 +153,10 @@ function advanceWriterEpoch(userRoot: string, repoId: string, minimum: number): 
 function emitReceipt(receipt: Record<string, unknown>): void {
   console.log(JSON.stringify(receipt));
 }
-function backupReceipt(backupDir: string, manifest: ReturnType<typeof createLedgerBackup>): Record<string, unknown> {
+export function backupReceipt(
+  backupDir: string,
+  manifest: ReturnType<typeof createLedgerBackup>,
+): Record<string, unknown> {
   return {
     backupDir,
     manifestPath: path.join(backupDir, "manifest.json"),
