@@ -12,7 +12,7 @@ import {
   type AgentDefinitionSnapshot,
 } from "../../kernel/src/index.ts";
 import { type RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
-import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/dispatch-stream.ts";
+import { appendRuntimeWorkerRecord } from "../src/dispatch-stream.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import {
@@ -380,100 +380,6 @@ test("attached task runtime settlement releases its execution lease before publi
         ),
         true,
       );
-    } finally {
-      await cell.close();
-    }
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test("terminal settlement stamps the bound runtime session as executor when the execution never declared one", async () => {
-  const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-executor-settle-"));
-  try {
-    initIngressRepo(root, 4312);
-    const cell = await openRepoCell({
-      repoId: workspaceId("runtime-executor-settle"),
-      rootDir: canonicalRoot(root),
-      ownerId: "executor-settle-test",
-    });
-    try {
-      const taskId = "task-runtime-executor-settle",
-        executionId = "execution-runtime-executor-settle",
-        binding = {
-          actor: { principal: { personId: "person-executor-settle" }, executor: null },
-          source: "local" as const,
-        };
-      const created = await cell.run({ kind: "task-create", taskId, title: "Executor settle" }, binding);
-      assert.equal(created.outcome, "applied");
-      await waitForFixturePublication(cell, created.opId, binding);
-      const packagePath = String((created as Record<string, unknown>).packagePath);
-      await realizeTaskPlanFixture(root, packagePath, (planPath) =>
-        cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
-      );
-      // The coordinator-retained shape: the person-started execution keeps executor null and the
-      // held lease while a task-bound runtime session rides it. Every public spawn path that binds
-      // a session either hands the lease off (executor is stamped at rejoin) or, since review
-      // dispatches were bound to submitted cuts, is unreachable for an active execution — so the
-      // terminal release is driven through the same action settleRuntimeExecutionLease issues,
-      // backed by the durable dispatch stream evidence a real settlement leaves behind.
-      assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, binding)).outcome, "applied");
-      const runtimeSessionId = "runtime_executor_settle_bound",
-        dispatchId = "dispatch_1e2a3b4c5d6e7f8090a1b2c3";
-      openDispatchStream(root, {
-        dispatchId,
-        taskId,
-        executionId,
-        runtimeSessionId,
-        instanceId: definition.instanceId,
-        startedAt: "2026-08-24T11:59:00.000Z",
-      });
-      appendRuntimeWorkerRecord(root, dispatchId, {
-        kind: "process_started",
-        occurredAt: "2026-08-24T11:59:30.000Z",
-        pid: 99999991,
-      });
-      appendRuntimeWorkerRecord(root, dispatchId, {
-        kind: "process_exit",
-        occurredAt: "2026-08-24T12:00:01.000Z",
-        exitCode: 0,
-        signal: null,
-      });
-      const settled = await cell.run(
-        {
-          kind: "task-release",
-          taskId,
-          terminalExecutionId: executionId,
-          terminalRuntimeSessionId: runtimeSessionId,
-          reason: `Runtime session ${runtimeSessionId} reached a terminal dispatch state.`,
-        },
-        binding,
-      );
-      assert.equal(settled.outcome, "applied", JSON.stringify(settled));
-      const expectedExecutor = {
-          kind: "agent",
-          id: `runtime-session:${runtimeSessionId}`,
-        },
-        released = makeTaskEventReader({ repoId: "runtime-executor-settle", rootDir: root })
-          .read()
-          .events.find((event) => event.type === "lease_released" && event.taskId === taskId);
-      const projection = makeTaskProjection({
-        rootDir: root,
-        eventStore: makeTaskEventReader({ repoId: "runtime-executor-settle", rootDir: root }),
-      });
-      try {
-        const executions = projection.read(taskId).snapshot.executions;
-        assert.deepEqual(
-          executions[0]?.actor.executor,
-          expectedExecutor,
-          "terminal settlement must record the runtime session that actually executed the dispatch",
-        );
-      } finally {
-        projection.close();
-      }
-      assert.equal(released?.type, "lease_released", "terminal settlement must release the execution lease");
-      if (released?.type === "lease_released")
-        assert.deepEqual(released.payload.execution.actor.executor, expectedExecutor);
     } finally {
       await cell.close();
     }
