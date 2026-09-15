@@ -12,7 +12,7 @@ import type {
   TaskProjectionRead,
 } from "./projection-reads.ts";
 import { discardDatabase, withDatabase } from "./rebuildable-task-projection-database.ts";
-import { catchUpRound } from "./rebuildable-task-projection-catch-up.ts";
+import { catchUpRound } from "./rebuildable-task-projection-event-application.ts";
 import { markRuntimeSessionsUnknown, readSnapshot, readSnapshots } from "./rebuildable-task-projection-runtime.ts";
 import {
   prepareQuery,

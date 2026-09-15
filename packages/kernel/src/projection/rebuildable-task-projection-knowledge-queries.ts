@@ -21,7 +21,7 @@ import type { TaskProjection } from "./task-projection-port.ts";
 import type { ProjectionContext } from "./rebuildable-task-projection-types.ts";
 import { withDatabase } from "./rebuildable-task-projection-database.ts";
 import { readDecisionDocumentState } from "./decision-projection-documents.ts";
-import { catchUpRound } from "./rebuildable-task-projection-catch-up.ts";
+import { catchUpRound } from "./rebuildable-task-projection-event-application.ts";
 import { readProjectionCut } from "./rebuildable-task-projection-sql.ts";
 export type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
 export type { TaskProjection } from "./task-projection-port.ts";
