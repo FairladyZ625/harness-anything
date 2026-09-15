@@ -38,23 +38,27 @@ export function validateBackupDestination(rootDir: string, backup: string): stri
   return backupDir;
 }
 
-export function backupRepo(input: {
-  readonly rootDir: string;
-  readonly backupDir: string;
-  readonly registration: DaemonRegistryRepo;
-  readonly writerEpoch: number;
-}): LedgerBackupManifest {
+export function backupRepo(
+  input: { readonly rootDir: string; readonly backupDir: string } & (
+    | { readonly registration: DaemonRegistryRepo; readonly writerEpoch: number }
+    | { readonly registration?: never; readonly writerEpoch?: never }
+  ),
+): LedgerBackupManifest {
   return createLedgerBackup({
     rootInput: input.rootDir,
     backupDir: input.backupDir,
-    registration: {
-      repoId: input.registration.repoId,
-      mode: input.registration.mode,
-      connectionId: input.registration.connectionId,
-      displayName: input.registration.displayName,
-      authoredBranch: input.registration.authoredBranch,
-      writerEpoch: input.writerEpoch,
-    },
+    ...(input.registration
+      ? {
+          registration: {
+            repoId: input.registration.repoId,
+            mode: input.registration.mode,
+            connectionId: input.registration.connectionId,
+            displayName: input.registration.displayName,
+            authoredBranch: input.registration.authoredBranch,
+            writerEpoch: input.writerEpoch,
+          },
+        }
+      : {}),
   });
 }
 

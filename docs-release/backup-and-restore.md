@@ -1,9 +1,10 @@
 # Back up and restore a ledger
 
-Run backups from the registered repository root. The local daemon takes the backup in the
-repository's write queue, so the command works from a sandboxed agent session that cannot open the
-ledger itself. A backup is a directory containing an integrity-checked manifest and a consistent
-SQLite snapshot; choose a new absolute destination outside `.harness/` and `harness/`.
+Run backups from the repository root. For a registered local repository, the daemon takes the
+backup in its write queue, so the command works from a sandboxed agent session that cannot open the
+ledger itself. For an unregistered root, the daemon takes the backup directly because it has no
+writer for that ledger. A backup is a directory containing an integrity-checked manifest and a
+consistent SQLite snapshot; choose a new absolute destination outside `.harness/` and `harness/`.
 
 ```sh
 ha backup /Volumes/offsite/harness-backup-2026-09-15
@@ -11,9 +12,8 @@ ha backup /Volumes/offsite/harness-backup-2026-09-15
 
 The manifest records the repository ID, mode, connection, display name, authored branch, and
 writer epoch alongside the digest and size of every retained file. Keep the whole backup directory.
-`ha backup` and `ha restore --drill` refuse a root that is not registered with the daemon. A backup
-whose manifest has no registration leaves the repository ID for you to supply to `ha init` on
-restore.
+A backup taken from an unregistered root has no registration; the restore receipt then leaves the
+repository ID for you to supply to `ha init`.
 
 Exercise the backup without changing the live repository:
 

@@ -220,14 +220,51 @@ export function createDaemonHostRepositoryApi(
       if (request.kind === "backup" || request.kind === "restore-drill") {
         const rootDir = realpathSync(request.rootDir),
           repo = readDaemonRegistry({ userRoot: context.input.userRoot }).repos.find(
-            (candidate) =>
-              candidate.state === "enabled" && candidate.mode !== "remote-proxy" && candidate.canonicalRoot === rootDir,
-          );
-        if (!repo)
-          throw context.hostCodedError("repo_namespace_unknown", `No enabled local repository for ${rootDir}.`);
-        const backupDir = path.resolve(request.backupDir);
+            (candidate) => candidate.state === "enabled" && candidate.canonicalRoot === rootDir,
+          ),
+          actionKind = request.kind === "backup" ? "ledger-backup" : "ledger-restore-drill",
+          authorizationDecision = requireAuthorizedHostAction({
+            kind: actionKind,
+            binding:
+              repo && repo.mode !== "remote-proxy" ? await context.binding(rootDir, auth) : localDefaultBinding(auth),
+            actionId: `${actionKind}:${rootDir}:${request.backupDir}`,
+            evaluatedAtCut: repo ? `daemon-registry:${repo.repoId}` : "daemon-registry:unregistered",
+            now: context.now(),
+          }),
+          backupDir = path.resolve(request.backupDir);
+        if (repo?.mode === "remote-proxy")
+          throw context.hostCodedError("repo_mode_remote_proxy", `Repository ${repo.repoId} is remote-proxy.`);
         if (request.kind === "backup") validateBackupDestination(rootDir, request.backupDir);
         else if (!existsSync(backupDir)) throw new Error("restore --drill backup directory does not exist");
+        if (!repo) {
+          const result =
+            request.kind === "backup"
+              ? backupRepo({ rootDir, backupDir })
+              : drillRepoBackup({
+                  rootDir,
+                  backupDir,
+                  ...(request.shadowParent ? { shadowParent: request.shadowParent } : {}),
+                });
+          if (request.kind === "backup")
+            return {
+              ok: true,
+              schema: "ledger-backup-receipt/v1",
+              exitCode: 0,
+              ...backupReceipt(backupDir, result as Parameters<typeof backupReceipt>[1]),
+              authorizationDecision,
+            };
+          const drill = result as ReturnType<typeof drillRepoBackup>;
+          return {
+            ok: true,
+            schema: "ledger-restore-drill-receipt/v1",
+            exitCode: 0,
+            ...backupReceipt(backupDir, drill.manifest),
+            shadowRoot: drill.shadowRoot,
+            removedShadowRoots: drill.removedShadowRoots,
+            warnings: drill.warnings,
+            authorizationDecision,
+          };
+        }
         await context.waitForWarming(repo.repoId);
         const cell = context.requiredCell(context.cells, context.warming, context.unavailable, repo.repoId),
           result = await cell.backup!({
@@ -243,6 +280,7 @@ export function createDaemonHostRepositoryApi(
             schema: "ledger-backup-receipt/v1",
             exitCode: 0,
             ...backupReceipt(backupDir, result as Parameters<typeof backupReceipt>[1]),
+            authorizationDecision,
           };
         const drill = result as ReturnType<typeof drillRepoBackup>;
         return {
@@ -253,6 +291,7 @@ export function createDaemonHostRepositoryApi(
           shadowRoot: drill.shadowRoot,
           removedShadowRoots: drill.removedShadowRoots,
           warnings: drill.warnings,
+          authorizationDecision,
         };
       }
       if (request.kind === "register") {
