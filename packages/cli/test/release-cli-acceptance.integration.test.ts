@@ -502,7 +502,9 @@ test("release acceptance: JSON, PDF and binary artifacts publish byte-exact, rou
       backup = runOffline(root, userRoot, ["backup", backupDir, "--json"]);
     assert.equal(backup.ok, true, JSON.stringify(backup));
     assert.equal(backup.schema, "ledger-backup-receipt/v1");
-    const manifest = backup.manifest as { files: readonly { path: string }[] },
+    const manifest = JSON.parse(readFileSync(String(backup.manifestPath), "utf8")) as {
+        files: readonly { path: string }[];
+      },
       manifestPaths = manifest.files.map(({ path: held }) => held).join("\n");
     for (const { destination } of cases)
       assert.match(manifestPaths, new RegExp(destination.replace(/^artifacts\//u, ""), "u"));

@@ -164,9 +164,9 @@ test("activation reports the real state and writer, reader, offline commands and
     const backupDir = path.join(f.parent, "post-activation-backup"),
       backup = run(["backup", backupDir, "--root", f.destination]);
     assert.equal(backup.status, 0, JSON.stringify(backup.receipt));
-    assert.equal(backup.receipt.manifest.sqlite.generation, 2);
-    assert.equal(backup.receipt.manifest.accepted.revision, 3);
-    console.log("GEN2_RESTART_EVIDENCE=" + JSON.stringify({ tail: tail.receipt, backup: backup.receipt.manifest }));
+    assert.equal(backup.receipt.sqlite.generation, 2);
+    assert.equal(backup.receipt.accepted.revision, 3);
+    console.log("GEN2_RESTART_EVIDENCE=" + JSON.stringify({ tail: tail.receipt, backup: backup.receipt }));
   } finally {
     rmSync(f.parent, { recursive: true, force: true });
   }
