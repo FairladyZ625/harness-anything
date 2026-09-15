@@ -351,6 +351,95 @@ test("agenda surfaces a changes_requested task in the rework group and nowhere e
   });
 });
 
+test("agenda excludes archived rework tasks without consuming a page", async () => {
+  await withCell("agenda-archived-rework", async (cell, rootDir) => {
+    const reviewerBinding = withRoleBinding(
+      {
+        actor: {
+          principal: { personId: "person-agenda-reviewer" },
+          executor: { kind: "agent" as const, id: "agenda-reviewer" },
+        },
+        source: "local" as const,
+      },
+      "arbiter",
+    );
+    const createChangesRequestedTask = async (taskId: string) => {
+      const created = await cell.run({ kind: "task-create", taskId, title: taskId }, binding);
+      assert.equal(created.outcome, "applied");
+      await waitForFixturePublication(cell, created.opId, binding);
+      const packagePath = String((created as Record<string, unknown>).packagePath);
+      await realizeTaskPlanFixture(rootDir, packagePath, (planPath) =>
+        cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
+      );
+      assert.equal(
+        (await cell.run({ kind: "task-start", taskId, executionId: `exe_${taskId}` }, binding)).outcome,
+        "applied",
+      );
+      writeFileSync(
+        path.join(rootDir, "harness", packagePath, "closeout.md"),
+        `# Closeout\n\n## Summary\n\nAgenda fixture delivery ${git(rootDir, "rev-parse", "fixture-delivery")} is ready.\n\n## Verification\n\nIntegration assertions exercise agenda grouping.\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nTask lifecycle projections share the review cut.\n`,
+      );
+      assert.equal(
+        (await cell.run({ kind: "task-submit", taskId, executionId: `exe_${taskId}` }, binding)).outcome,
+        "applied",
+      );
+      writeFileSync(
+        path.join(rootDir, "review.json"),
+        JSON.stringify({ verdict: "changes_requested", reason: "Needs another pass.", evidenceChecked: ["agenda"] }),
+      );
+      assert.equal(
+        (
+          await cell.run(
+            {
+              kind: "task-review-execution",
+              taskId,
+              executionId: `exe_${taskId}`,
+              reviewId: `review_${taskId}`,
+              fromFile: "review.json",
+            },
+            reviewerBinding,
+          )
+        ).outcome,
+        "applied",
+      );
+    };
+
+    await createChangesRequestedTask("task_000_archived_rework");
+    await createChangesRequestedTask("task_zzz_active_rework");
+    assert.equal(
+      (
+        await cell.run(
+          {
+            kind: "task-archive",
+            taskId: "task_000_archived_rework",
+            reason: "Replacement task owns the remaining work.",
+          },
+          binding,
+        )
+      ).outcome,
+      "applied",
+    );
+
+    const agenda = await cell.read("repo.agenda.read", { limit: 1 });
+    assert.deepEqual(
+      (agenda.awaitingRework ?? []).map(({ taskId }) => taskId),
+      ["task_zzz_active_rework"],
+      "an archived row must not consume the source page before active rework",
+    );
+    for (const group of [agenda.inFlight, agenda.waitingOnOthers, agenda.dispatchable])
+      assert.equal(
+        group.some(({ taskId }) => taskId === "task_000_archived_rework"),
+        false,
+      );
+    assert.equal(
+      agenda.awaitingDecision.some((row) => row.kind === "execution" && row.taskId === "task_000_archived_rework"),
+      false,
+    );
+    assert.match(agenda.summary, /等我修 \(1\)[\s\S]*task_zzz_active_rework/u);
+    assert.doesNotMatch(agenda.summary, /task_000_archived_rework/u);
+  });
+});
+
 test("agenda projects an all-blocked ledger only into the waiting group", async () => {
   await withCell("agenda-all-blocked", async (cell) => {
     for (const taskId of ["task_blocked_a", "task_blocked_b"] as const) {
