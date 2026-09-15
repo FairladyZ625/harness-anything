@@ -18,7 +18,17 @@ export interface LedgerBackupManifestV1 {
   readonly sourceRoot: string;
   readonly accepted: { readonly revision: number; readonly opIds: number };
   readonly sqlite: { readonly present: boolean; readonly integrity: string | null; readonly generation?: number };
+  readonly registration: LedgerBackupRegistrationV1 | null;
   readonly files: readonly LedgerBackupFileV1[];
+}
+
+export interface LedgerBackupRegistrationV1 {
+  readonly repoId: string;
+  readonly mode: string;
+  readonly connectionId: string;
+  readonly displayName: string;
+  readonly authoredBranch: string | null;
+  readonly writerEpoch: number;
 }
 
 export interface LedgerBackupFileV1 {
@@ -33,6 +43,7 @@ export function createLedgerBackup(input: {
   readonly backupDir: string;
   readonly now?: Date;
   readonly generation?: 1 | 2;
+  readonly registration?: LedgerBackupRegistrationV1;
 }): LedgerBackupManifestV1 {
   const backupDir = path.resolve(input.backupDir);
   if (!path.isAbsolute(input.backupDir)) throw new Error("backup directory must be absolute");
@@ -75,6 +86,7 @@ export function createLedgerBackup(input: {
           opIds: new Set(legacy!.eventEntries.map(({ event }) => event.opId)).size,
         },
     sqlite: { present: sqlitePresent, integrity: sqlite?.integrity ?? null, generation },
+    registration: input.registration ?? null,
     files,
   };
   fileSystem.write(path.join(backupDir, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
@@ -94,19 +106,14 @@ export function drillLedgerBackup(input: {
   readonly warnings: readonly string[];
 } {
   const backupDir = path.resolve(input.backupDir),
-    manifest = input.verifiedManifest ?? readManifest(backupDir),
-    payloadRoot = path.join(backupDir, "payload");
-  if (!input.verifiedManifest) verifyManifest(payloadRoot, manifest);
+    manifest = input.verifiedManifest ?? readManifest(backupDir);
   fileSystem.mkdir(input.shadowParent, { recursive: true });
   if (input.destinationRoot && fileSystem.exists(input.destinationRoot))
     throw new Error("restore destination already exists");
   const shadowRoot =
     input.destinationRoot ??
     fileSystem.makeTemporaryDirectory(path.join(path.resolve(input.shadowParent), "restore-drill-"));
-  fileSystem.copy(payloadRoot, shadowRoot, { recursive: true, errorOnExist: true, verbatimSymlinks: true });
-  verifyManifest(shadowRoot, manifest);
-  for (const database of manifest.files.filter(({ method }) => method === "vacuum-into"))
-    inspectSqlite(path.join(shadowRoot, database.path));
+  materializeVerifiedBackup(backupDir, shadowRoot, manifest, input.verifiedManifest !== undefined);
   const removedShadowRoots: string[] = [],
     warnings: string[] = [],
     retention = input.retention ?? DEFAULT_RESTORE_DRILL_RETENTION,
@@ -126,6 +133,33 @@ export function drillLedgerBackup(input: {
     }
   }
   return { shadowRoot, manifest, removedShadowRoots, warnings };
+}
+
+export function restoreLedgerBackup(input: { readonly backupDir: string; readonly destinationRoot: string }): {
+  readonly restoredRoot: string;
+  readonly manifest: LedgerBackupManifestV1;
+} {
+  if (!path.isAbsolute(input.destinationRoot)) throw new Error("restore destination must be absolute");
+  const backupDir = path.resolve(input.backupDir),
+    restoredRoot = path.resolve(input.destinationRoot),
+    manifest = readManifest(backupDir);
+  if (fileSystem.exists(restoredRoot)) throw new Error("restore destination already exists");
+  materializeVerifiedBackup(backupDir, restoredRoot, manifest, false);
+  return { restoredRoot, manifest };
+}
+
+function materializeVerifiedBackup(
+  backupDir: string,
+  destinationRoot: string,
+  manifest: LedgerBackupManifestV1,
+  alreadyVerified: boolean,
+): void {
+  const payloadRoot = path.join(backupDir, "payload");
+  if (!alreadyVerified) verifyManifest(payloadRoot, manifest);
+  fileSystem.copy(payloadRoot, destinationRoot, { recursive: true, errorOnExist: true, verbatimSymlinks: true });
+  verifyManifest(destinationRoot, manifest);
+  for (const database of manifest.files.filter(({ method }) => method === "vacuum-into"))
+    inspectSqlite(path.join(destinationRoot, database.path));
 }
 
 /** The drill runs offline, so the retention setting is read from the authored harness.yaml facet. */
@@ -345,7 +379,34 @@ function readSqliteEvents(databasePath: string): readonly unknown[] {
 function readManifest(backupDir: string): LedgerBackupManifestV1 {
   const value = JSON.parse(fileSystem.read(path.join(backupDir, "manifest.json"), "utf8")) as LedgerBackupManifestV1;
   if (value.schema !== "ledger-backup/v1" || !Array.isArray(value.files)) throw new Error("backup manifest is invalid");
+  if (value.registration !== null && !validRegistration(value.registration))
+    throw new Error("backup manifest repository registration is invalid");
   return value;
+}
+
+function validRegistration(value: unknown): value is LedgerBackupRegistrationV1 {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "repoId" in value &&
+    "mode" in value &&
+    "connectionId" in value &&
+    "displayName" in value &&
+    "authoredBranch" in value &&
+    "writerEpoch" in value &&
+    typeof value.repoId === "string" &&
+    value.repoId.length > 0 &&
+    typeof value.mode === "string" &&
+    value.mode.length > 0 &&
+    typeof value.connectionId === "string" &&
+    value.connectionId.length > 0 &&
+    typeof value.displayName === "string" &&
+    value.displayName.length > 0 &&
+    (value.authoredBranch === null || typeof value.authoredBranch === "string") &&
+    typeof value.writerEpoch === "number" &&
+    Number.isSafeInteger(value.writerEpoch) &&
+    value.writerEpoch >= 0
+  );
 }
 
 function verifyManifest(root: string, manifest: LedgerBackupManifestV1): void {

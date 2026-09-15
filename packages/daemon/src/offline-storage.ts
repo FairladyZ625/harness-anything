@@ -2,12 +2,17 @@ import path from "node:path";
 import {
   createLedgerBackup,
   drillLedgerBackup,
+  readDaemonRegistry,
   readOfflineLedgerEvents,
+  resolveHarnessLayout,
+  restoreLedgerBackup,
   restoreDrillRetentionFor,
   resolveActiveGeneration,
   runGenerationTwoConversion,
 } from "../../kernel/src/index.ts";
+import { daemonUserRoot } from "./client/local-daemon-target.ts";
 import { generationMigrationCommand } from "./offline-storage-command.ts";
+import { openPersistentWriterEpoch } from "./writer-epoch.ts";
 
 export function runOfflineStorageCommand(argv: readonly string[]): number {
   try {
@@ -35,7 +40,29 @@ export function runOfflineStorageCommand(argv: readonly string[]): number {
     }
     if (argv[0] === "backup") {
       const backupDir = positional(argv, 1, "backup requires an absolute destination directory"),
-        manifest = createLedgerBackup({ rootInput, backupDir, generation });
+        userRoot = daemonUserRoot(),
+        sourceRoot = resolveHarnessLayout(rootInput).rootDir,
+        repo = readDaemonRegistry({ userRoot }).repos.find(
+          (candidate) => candidate.state === "enabled" && candidate.canonicalRoot === sourceRoot,
+        );
+      // Registration is recorded when the root is registered; an unregistered ledger still backs up.
+      const manifest = createLedgerBackup({
+        rootInput,
+        backupDir,
+        generation,
+        ...(repo
+          ? {
+              registration: {
+                repoId: repo.repoId,
+                mode: repo.mode,
+                connectionId: repo.connectionId,
+                displayName: repo.displayName,
+                authoredBranch: repo.authoredBranch,
+                writerEpoch: currentWriterEpoch(userRoot, repo.repoId),
+              },
+            }
+          : {}),
+      });
       emitReceipt({ ok: true, schema: "ledger-backup-receipt/v1", exitCode: 0, backupDir, manifest });
       return 0;
     }
@@ -44,6 +71,28 @@ export function runOfflineStorageCommand(argv: readonly string[]): number {
         shadowParent = option(argv, "--shadow-parent") ?? path.join(rootInput, ".harness", "restore-drills"),
         result = drillLedgerBackup({ backupDir, shadowParent, retention: restoreDrillRetentionFor(rootInput) });
       emitReceipt({ ok: true, schema: "ledger-restore-drill-receipt/v1", exitCode: 0, ...result });
+      return 0;
+    }
+    if (argv[0] === "restore") {
+      const backupDir = positional(argv, 1, "restore requires a backup directory"),
+        destinationRoot = option(argv, "--to");
+      if (!destinationRoot) throw new Error("restore requires --to <absolute-directory>");
+      const result = restoreLedgerBackup({ backupDir, destinationRoot }),
+        registration = result.manifest.registration;
+      const writerEpoch = registration
+        ? advanceWriterEpoch(daemonUserRoot(), registration.repoId, registration.writerEpoch)
+        : null;
+      emitReceipt({
+        ok: true,
+        schema: "ledger-restore-receipt/v1",
+        exitCode: 0,
+        ...result,
+        registration,
+        writerEpoch,
+        next:
+          `ha --root ${JSON.stringify(result.restoredRoot)} init --repo-id ${registration?.repoId ?? "<repo-id>"} ` +
+          "--person-id <owner-person-id> --display-name <owner-display-name>",
+      });
       return 0;
     }
     if (argv[0] === "events" && argv[1] === "tail") {
@@ -59,7 +108,9 @@ export function runOfflineStorageCommand(argv: readonly string[]): number {
       emitReceipt({ ok: true, schema: "offline-ledger-events/v1", exitCode: 0, events });
       return 0;
     }
-    throw new Error("use ha backup <absolute-dir>, ha restore --drill <backup>, or ha events tail");
+    throw new Error(
+      "use ha backup <absolute-dir>, ha restore --drill <backup>, ha restore <backup> --to <absolute-dir>, or ha events tail",
+    );
   } catch (error) {
     emitReceipt({
       ok: false,
@@ -69,6 +120,24 @@ export function runOfflineStorageCommand(argv: readonly string[]): number {
       hint: error instanceof Error ? error.message : String(error),
     });
     return 1;
+  }
+}
+
+function currentWriterEpoch(userRoot: string, repoId: string): number {
+  const authority = openPersistentWriterEpoch({ stateRoot: path.join(userRoot, "fleet") });
+  try {
+    return authority.current(repoId)?.epoch ?? 0;
+  } finally {
+    authority.close();
+  }
+}
+
+function advanceWriterEpoch(userRoot: string, repoId: string, minimum: number): number {
+  const authority = openPersistentWriterEpoch({ stateRoot: path.join(userRoot, "fleet") });
+  try {
+    return authority.acquire(repoId, minimum).epoch;
+  } finally {
+    authority.close();
   }
 }
 
