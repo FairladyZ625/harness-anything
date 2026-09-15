@@ -88,6 +88,7 @@ export async function fetchCiObservations(
                           "list",
                           "--workflow",
                           `${workflow}.yml`,
+                          ...(taskId === null ? [] : ["--branch", "main"]),
                           "--limit",
                           String(limit),
                           "--json",

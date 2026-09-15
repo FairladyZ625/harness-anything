@@ -792,7 +792,15 @@ test("CI observation pull --task imports the first covering successful main run"
   const runGh = async (_command: string, args: readonly string[]) => {
     if (args[0] === "api")
       return JSON.stringify({ status: coverage[String(args[1]).split("...")[1] ?? ""] ?? "diverged" });
-    if (args[1] === "list") return JSON.stringify(runs);
+    if (args[1] === "list") {
+      // GitHub applies the limit after its branch filter. A busy PR stream must not
+      // hide the older successful main witness from a task-scoped lookup.
+      return JSON.stringify(
+        args.includes("--branch") && args[args.indexOf("--branch") + 1] === "main"
+          ? runs
+          : Array.from({ length: 20 }, (_, index) => ({ ...runs[4], databaseId: 1000 + index })),
+      );
+    }
     if (args[1] === "view")
       return JSON.stringify({
         workflowName: "rewrite-ci",
