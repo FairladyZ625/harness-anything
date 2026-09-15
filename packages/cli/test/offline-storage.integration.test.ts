@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { renderCliReceipt } from "../src/cli/receipt-render-registry.ts";
 import { flatLedgerFixture } from "../../kernel/test/store/task-event-store.fixtures.ts";
 import { registerDaemonRepo } from "../../kernel/src/index.ts";
+import { openPersistentWriterEpoch } from "../../daemon/src/writer-epoch.ts";
 
 const cli = fileURLToPath(new URL("../src/index.ts", import.meta.url));
 
@@ -77,6 +78,9 @@ test("CLI delegates backup, restore drill and event tail to the daemon offline h
     { parent } = flatLedgerFixture(root, 1);
   try {
     register(userRoot, root, "offline-spawn");
+    const authority = openPersistentWriterEpoch({ stateRoot: path.join(userRoot, "fleet"), holderId: "test" });
+    assert.equal(authority.acquire("offline-spawn").epoch, 1);
+    authority.close();
     execFileSync("git", ["update-ref", "refs/ha/canonical", parent], { cwd: root });
     const backup = invokeCli(["backup", backupDir, "--root", root], userRoot),
       restore = invokeCli(
@@ -95,9 +99,11 @@ test("CLI delegates backup, restore drill and event tail to the daemon offline h
         cwd: path.join(root, "harness"),
         encoding: "utf8",
       }).trim(),
+      writerEpoch: 1,
     });
     assert.equal(restore.schema, "ledger-restore-drill-receipt/v1");
     assert.equal(restored.schema, "ledger-restore-receipt/v1");
+    assert.equal(restored.writerEpoch, 2);
     assert.equal(events.schema, "offline-ledger-events/v1");
     assert.equal((events.events as readonly unknown[]).length, 1);
     const repeated = invokeCliResult(["restore", backupDir, "--to", restoredRoot], userRoot);
