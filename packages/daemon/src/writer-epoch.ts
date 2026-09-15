@@ -26,6 +26,8 @@ export interface WriterEpochFenceDescriptor {
 export interface PersistentWriterEpoch {
   readonly acquire: (repoId: string, observedLedgerEpoch?: number) => WriterEpochLease;
   readonly current: (repoId: string) => WriterEpochLease | null;
+  readonly highWatermark: (repoId: string) => number;
+  readonly retireCurrent: (repoId: string) => void;
   readonly assert: (repoId: string, epoch: number, holderId?: string) => void;
   readonly withAppendFence: <T>(repoId: string, epoch: number, holderId: string, operation: () => T) => T;
   readonly status: () => readonly WriterEpochLease[];
@@ -79,6 +81,7 @@ export function openPersistentWriterEpoch(options: {
       "SELECT repo_id, holder_id, epoch, version, issued_at FROM writer_epochs ORDER BY repo_id",
     ),
     selectFloor = database.prepare("SELECT MAX(epoch) AS floor FROM writer_epoch_history WHERE repo_id=?"),
+    deleteCurrent = database.prepare("DELETE FROM writer_epochs WHERE repo_id=?"),
     insertHistory = database.prepare("INSERT INTO writer_epoch_history(repo_id, epoch) VALUES (?, ?)"),
     upsertCurrent = database.prepare(
       "INSERT INTO writer_epochs(repo_id, holder_id, epoch, version, issued_at) VALUES (?, ?, ?, ?, ?) " +
@@ -146,6 +149,17 @@ export function openPersistentWriterEpoch(options: {
     current: (repoId) => {
       ensureOpen();
       return readCurrent(repoId);
+    },
+    highWatermark: (repoId) => {
+      ensureOpen();
+      const current = readCurrent(repoId)?.epoch ?? 0,
+        history = Number((selectFloor.get(repoId) as { readonly floor: number | null }).floor ?? 0);
+      return Math.max(current, history);
+    },
+    retireCurrent: (repoId) => {
+      withImmediateTransaction(() => {
+        deleteCurrent.run(repoId);
+      });
     },
     assert: (repoId, epoch, expectedHolderId = holderId) => {
       ensureOpen();

@@ -90,7 +90,7 @@ test("status, dry-run, and submit share the repeatable-path scanner and automati
       [
         ["context/a.md", "eligible"],
         ["context/b.md", "eligible"],
-        ["context/ignored.json", "blocked"],
+        ["context/ignored.json", "inapplicable"],
         ["tasks/task-one/artifacts/data.json", "blocked"],
         ["tasks/task-one/progress.md", "blocked"],
       ],

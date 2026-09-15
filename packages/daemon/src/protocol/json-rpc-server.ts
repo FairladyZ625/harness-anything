@@ -236,7 +236,13 @@ export function createJsonRpcProtocolServer(options: {
           return reply(
             call.method,
             await options.host.admin(
-              { kind: "purge", repoId: call.params.repoId, scope: call.params.scope },
+              {
+                kind: "purge",
+                repoId: call.params.repoId,
+                scope: call.params.scope,
+                ...(call.params.backup ? { backup: call.params.backup } : {}),
+                ...(call.params.confirm ? { confirm: call.params.confirm } : {}),
+              },
               options.authContext,
             ),
           );

@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -90,7 +90,16 @@ test("CLI delegates backup, restore drill and event tail to the daemon offline h
       restored = invokeCli(["restore", backupDir, "--to", restoredRoot], userRoot),
       events = invokeCli(["events", "tail", "--root", root, "--since", "0"], userRoot);
     assert.equal(backup.schema, "ledger-backup-receipt/v1");
-    assert.deepEqual((backup.manifest as { registration: unknown }).registration, {
+    assert.equal(backup.manifest, undefined);
+    const manifest = JSON.parse(readFileSync(String(backup.manifestPath), "utf8")) as {
+      files: readonly { size: number }[];
+    };
+    assert.equal(backup.fileCount, manifest.files.length);
+    assert.equal(
+      backup.totalBytes,
+      manifest.files.reduce((total, file) => total + file.size, 0),
+    );
+    assert.deepEqual(backup.registration, {
       repoId: "offline-spawn",
       mode: "local",
       connectionId: "local",
@@ -102,7 +111,9 @@ test("CLI delegates backup, restore drill and event tail to the daemon offline h
       writerEpoch: 1,
     });
     assert.equal(restore.schema, "ledger-restore-drill-receipt/v1");
+    assert.equal(restore.manifest, undefined);
     assert.equal(restored.schema, "ledger-restore-receipt/v1");
+    assert.equal(restored.manifest, undefined);
     assert.equal(restored.writerEpoch, 2);
     assert.equal(events.schema, "offline-ledger-events/v1");
     assert.equal((events.events as readonly unknown[]).length, 1);
@@ -113,6 +124,45 @@ test("CLI delegates backup, restore drill and event tail to the daemon offline h
     rmSync(root, { recursive: true, force: true });
     rmSync(backupDir, { recursive: true, force: true });
     rmSync(restoredRoot, { recursive: true, force: true });
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
+test("CLI backup receipt stays below spawnSync's default buffer for a manifest above it", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "ha-cli-offline-large-")),
+    backupDir = path.join(os.tmpdir(), `ha-cli-large-backup-${process.pid}-${Date.now()}`),
+    userRoot = mkdtempSync(path.join(os.tmpdir(), "ha-cli-large-user-"));
+  try {
+    register(userRoot, root, "offline-large");
+    execFileSync("git", ["update-ref", "refs/ha/canonical", "HEAD"], { cwd: root });
+    const entries = path.join(root, "harness", "context");
+    mkdirSync(entries);
+    for (let index = 0; index < 10_000; index += 1)
+      writeFileSync(path.join(entries, `entry-${String(index).padStart(5, "0")}-${"x".repeat(120)}.txt`), "x\n");
+    const backupResult = invokeCliResult(["backup", backupDir, "--root", root], userRoot);
+    assert.equal(backupResult.status, 0, backupResult.stderr || backupResult.stdout);
+    const receipt = JSON.parse(backupResult.stdout.trim()) as Record<string, unknown>,
+      manifest = readFileSync(String(receipt.manifestPath));
+    assert.equal(receipt.manifest, undefined);
+    assert.ok(Number(receipt.fileCount) >= 10_000, `fileCount=${receipt.fileCount}`);
+    assert.ok(manifest.byteLength > 1_024 * 1_024, `manifest=${manifest.byteLength}`);
+    assert.ok(
+      Buffer.byteLength(backupResult.stdout) < 1_024 * 1_024,
+      `receipt=${Buffer.byteLength(backupResult.stdout)}`,
+    );
+    const drill = invokeCliResult(
+      ["restore", "--drill", backupDir, "--root", root, "--shadow-parent", path.join(root, "drills")],
+      userRoot,
+    );
+    assert.equal(drill.status, 0, drill.stderr || drill.stdout);
+    assert.equal((JSON.parse(drill.stdout) as Record<string, unknown>).manifest, undefined);
+    console.log(
+      "LARGE_BACKUP_RECEIPT_EVIDENCE=" +
+        JSON.stringify({ manifestBytes: manifest.byteLength, receiptBytes: Buffer.byteLength(backupResult.stdout) }),
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(backupDir, { recursive: true, force: true });
     rmSync(userRoot, { recursive: true, force: true });
   }
 });

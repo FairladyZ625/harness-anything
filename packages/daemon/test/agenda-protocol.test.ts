@@ -46,4 +46,10 @@ test("agenda result schema rejects mistyped pin state", () => {
   };
   assert.deepEqual(validateDaemonAgenda(agenda), []);
   assert.notDeepEqual(validateDaemonAgenda({ ...agenda, waitingOnOthers: [{ ...task, pinned: "true" }] }), []);
+  // awaitingRework is an optional additive group: absent validates, present rows are checked,
+  // and an undeclared field is still refused.
+  assert.deepEqual(validateDaemonAgenda({ ...agenda, awaitingRework: [task] }), []);
+  assert.notDeepEqual(validateDaemonAgenda({ ...agenda, awaitingRework: [{ ...task, pinned: "true" }] }), []);
+  assert.notDeepEqual(validateDaemonAgenda({ ...agenda, awaitingRework: "task-current" }), []);
+  assert.notDeepEqual(validateDaemonAgenda({ ...agenda, undeclaredGroup: [] }), []);
 });

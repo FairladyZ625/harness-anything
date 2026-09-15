@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -12,12 +12,15 @@ import {
   makeTaskProjection,
   readDaemonRegistry,
   registerDaemonRepo as registerProductDaemonRepo,
+  restoreLedgerBackup,
   taskLifecycleWritePlan,
 } from "../../kernel/src/index.ts";
 import { WRITE_RECEIPT_SCHEMA } from "../../kernel/src/index.ts";
 import { validateWriteReceipt } from "../../kernel/test/contracts/receipt-acceptance.fixtures.ts";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
+import { backupRepoForAllPurge, drillRepoAllPurgeBackup } from "../src/repo-all-purge.ts";
+import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
 import { localSystemBinding } from "../src/daemon-host-binding.ts";
 import { rejectHostAction, rejectPresetRun } from "../src/daemon-host-errors.ts";
 import type { DaemonHostOpenInput } from "../src/daemon-host-open.ts";
@@ -417,6 +420,142 @@ test("cache purge removes only derived local state and unbinds the repository", 
   }
 });
 
+test("all purge backs up and drills before deleting, then restores and rebinds without epoch rollback", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-host-all-purge-")),
+    rootDir = path.join(parent, "repo"),
+    restoredRoot = path.join(parent, "restored"),
+    backupDir = path.join(parent, "backup"),
+    userRoot = path.join(parent, "user"),
+    repoId = "host-all-purge";
+  rosterRepo(rootDir, repoId);
+  writeFileSync(path.join(rootDir, "project.txt"), "project data\n");
+  writeFileSync(path.join(rootDir, ".gitignore"), "/harness/\n/.harness/\nuser-rule\n");
+  registerDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
+  const host = await openDaemonHost({ daemonId: repoId, userRoot });
+  await host.attachmentsSettled();
+  try {
+    const created = await host.run(
+      repoId,
+      { kind: "task-create", taskId: "task_purge_restore", title: "Purge restore witness" },
+      auth,
+    );
+    assert.equal(created.outcome, "applied", JSON.stringify(created));
+    const fact = await host.run(
+      repoId,
+      {
+        kind: "fact-record",
+        taskId: "task_purge_restore",
+        statement: "Purge restore fact witness",
+        evidenceSource: "test:repo-purge-all",
+        confidence: "high",
+        memoryClass: "episodic",
+        memoryTags: [],
+      },
+      auth,
+    );
+    assert.equal(fact.outcome, "applied", JSON.stringify(fact));
+    const factsBefore = await host.run(repoId, { kind: "fact-search", taskId: "task_purge_restore" }, auth);
+    assert.match(String(factsBefore.evidence), /Purge restore fact witness/u);
+    const projectHead = spawnSync("git", ["-C", rootDir, "rev-parse", "HEAD"], {
+      encoding: "utf8",
+    }).stdout.trim();
+    await assert.rejects(
+      host.admin({ kind: "purge", repoId, scope: "all", confirm: repoId }, auth),
+      /--backup is required/u,
+    );
+    await assert.rejects(
+      host.admin({ kind: "purge", repoId, scope: "all", backup: backupDir, confirm: "wrong" }, auth),
+      /--confirm must equal/u,
+    );
+    await assert.rejects(
+      host.admin(
+        {
+          kind: "purge",
+          repoId,
+          scope: "all",
+          backup: path.join(rootDir, ".harness", "backup"),
+          confirm: repoId,
+        },
+        auth,
+      ),
+      /must not be inside/u,
+    );
+    symlinkSync(path.join(rootDir, ".harness"), path.join(rootDir, "linked-harness"));
+    await assert.rejects(
+      host.admin(
+        {
+          kind: "purge",
+          repoId,
+          scope: "all",
+          backup: path.join(rootDir, "linked-harness", "backup"),
+          confirm: repoId,
+        },
+        auth,
+      ),
+      /must not be inside/u,
+    );
+    assert.equal(existsSync(path.join(rootDir, ".harness")), true);
+    assert.equal(existsSync(path.join(rootDir, "harness")), true);
+    const receipt = await host.admin({ kind: "purge", repoId, scope: "all", backup: backupDir, confirm: repoId }, auth);
+    assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+    assert.equal((receipt.backup as { backupDir: string }).backupDir, backupDir);
+    assert.deepEqual(receipt.removed, [".harness", "harness"]);
+    assert.equal(existsSync(path.join(rootDir, ".harness")), false);
+    assert.equal(existsSync(path.join(rootDir, "harness")), false);
+    assert.equal(readFileSync(path.join(rootDir, "project.txt"), "utf8"), "project data\n");
+    assert.equal(readFileSync(path.join(rootDir, ".gitignore"), "utf8"), "user-rule\n");
+    assert.equal(
+      spawnSync("git", ["-C", rootDir, "rev-parse", "HEAD"], { encoding: "utf8" }).stdout.trim(),
+      projectHead,
+    );
+    assert.equal(readDaemonRegistry({ userRoot }).repos.length, 0);
+    const savedEpoch = (receipt.backup as { registration: { writerEpoch: number } }).registration.writerEpoch,
+      restored = restoreLedgerBackup({ backupDir, destinationRoot: restoredRoot }),
+      epochAuthority = openPersistentWriterEpoch({ stateRoot: path.join(userRoot, "fleet"), holderId: "restore" });
+    assert.equal(epochAuthority.current(repoId), null);
+    const restoredEpoch = epochAuthority.acquire(repoId, restored.manifest.registration!.writerEpoch).epoch;
+    epochAuthority.close();
+    assert.ok(restoredEpoch > savedEpoch);
+    const rebound = await host.admin({ kind: "register", rootDir: restoredRoot, repoId, mode: "local" }, auth);
+    assert.equal(rebound.outcome, "applied", JSON.stringify(rebound));
+    const shown = await host.run(repoId, { kind: "task-show", taskId: "task_purge_restore" }, auth);
+    assert.equal(shown.outcome, "applied", JSON.stringify(shown));
+    assert.match(String(shown.evidence), /"taskId":"task_purge_restore"/u);
+    const factsAfter = await host.run(repoId, { kind: "fact-search", taskId: "task_purge_restore" }, auth);
+    assert.equal(factsAfter.evidence, factsBefore.evidence);
+  } finally {
+    await host.close();
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("a corrupted purge backup fails its drill without deleting source data", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-host-all-purge-drill-")),
+    rootDir = path.join(parent, "repo"),
+    backupDir = path.join(parent, "backup"),
+    userRoot = path.join(parent, "user"),
+    repoId = "host-all-purge-drill";
+  rosterRepo(rootDir, repoId);
+  registerDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
+  const host = await openDaemonHost({ daemonId: repoId, userRoot });
+  await host.attachmentsSettled();
+  try {
+    const registration = readDaemonRegistry({ userRoot }).repos[0]!,
+      epochAuthority = openPersistentWriterEpoch({ stateRoot: path.join(userRoot, "fleet") }),
+      writerEpoch = epochAuthority.highWatermark(repoId);
+    epochAuthority.close();
+    const manifest = backupRepoForAllPurge({ rootDir, backupDir, registration, writerEpoch });
+    writeFileSync(path.join(backupDir, "payload/harness/harness.yaml"), "corrupted\n");
+    assert.throws(() => drillRepoAllPurgeBackup({ rootDir, backupDir, manifest }), /digest differs|size differs/u);
+    assert.equal(existsSync(path.join(rootDir, ".harness")), true);
+    assert.equal(existsSync(path.join(rootDir, "harness/harness.yaml")), true);
+    assert.equal(readDaemonRegistry({ userRoot }).repos.length, 1);
+  } finally {
+    await host.close();
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
 test("unbind rejects an active task lease without changing registry or repository files", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-host-unbind-lease-")),
     rootDir = path.join(parent, "repo"),
@@ -459,9 +598,10 @@ test("unbind rejects an active task lease without changing registry or repositor
     });
     assert.equal(projection.list().rows.find((row) => row.taskId === "task-live")?.snapshot.lease?.phase, "held");
     projection.close();
-    const registryBefore = readFileSync(path.join(userRoot, "registry.json")),
+    const backupDir = path.join(parent, "blocked-backup"),
+      registryBefore = readFileSync(path.join(userRoot, "registry.json")),
       ledgerBefore = readFileSync(path.join(rootDir, "harness/harness.yaml")),
-      receipt = await host.admin({ kind: "unbind", repoId }, auth);
+      receipt = await host.admin({ kind: "purge", repoId, scope: "all", backup: backupDir, confirm: repoId }, auth);
     assert.equal(receipt.outcome, "rejected");
     assert.equal(receipt.code, "repo_in_flight");
     assert.equal(
@@ -474,6 +614,7 @@ test("unbind rejects an active task lease without changing registry or repositor
     );
     assert.deepEqual(readFileSync(path.join(userRoot, "registry.json")), registryBefore);
     assert.deepEqual(readFileSync(path.join(rootDir, "harness/harness.yaml")), ledgerBefore);
+    assert.equal(existsSync(backupDir), false);
   } finally {
     await host.close();
     rmSync(parent, { recursive: true, force: true });

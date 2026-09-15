@@ -4,7 +4,6 @@ import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
 import {
@@ -295,16 +294,17 @@ function workerTaskCreated(revision: number): TaskEventV1 {
   };
 }
 
-test("deleting the current row cannot reuse an issued historical epoch", () => {
+test("retiring the current row preserves the historical epoch high watermark", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-writer-epoch-floor-"));
   try {
     const first = openPersistentWriterEpoch({ stateRoot: root, holderId: "center" }),
       leaseOne = first.acquire("repo"),
       leaseTwo = first.acquire("repo");
+    assert.equal(first.highWatermark("repo"), 2);
+    first.retireCurrent("repo");
+    assert.equal(first.current("repo"), null);
+    assert.equal(first.highWatermark("repo"), 2);
     first.close();
-    const database = new DatabaseSync(path.join(root, "writer-epochs.sqlite"));
-    database.prepare("DELETE FROM writer_epochs WHERE repo_id=?").run("repo");
-    database.close();
     const replacement = openPersistentWriterEpoch({ stateRoot: root, holderId: "center" }),
       leaseThree = replacement.acquire("repo");
     assert.equal(leaseOne.epoch, 1);

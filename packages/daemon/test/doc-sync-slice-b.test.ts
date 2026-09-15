@@ -515,8 +515,8 @@ test("task artifact json and log files ride doc sync under the held task lease",
         [submission, "eligible"],
         [log, "eligible"],
         // The artifacts subtree is the unified textual subset; a JSON file elsewhere in the
-        // package is still not a doc-sync candidate.
-        [packetOutsideArtifacts, "blocked"],
+        // package is still not a doc-sync candidate — inapplicable, not blocked.
+        [packetOutsideArtifacts, "inapplicable"],
       ],
       JSON.stringify(status.evidence),
     );
@@ -635,6 +635,11 @@ test("the authored walls manifest can be created and edited through doc sync", a
       await waitForFixturePublication(cell, submitted.opId, binding);
       const read = await cell.run({ kind: "doc-show", path: logical }, binding);
       assert.equal(read.evidence, body);
+      // --raw rides the same read; the flag only switches CLI rendering to verbatim body output.
+      const rawRead = await cell.run({ kind: "doc-show", path: logical, raw: true }, binding);
+      assert.equal(rawRead.evidence, body);
+      const rawFalse = await cell.run({ kind: "doc-show", path: logical, raw: false }, binding);
+      assert.equal(rawFalse.code, "invalid_command");
       const clean = await cell.run({ kind: "doc-status", paths: [logical] }, binding);
       assert.equal(rows(clean.evidence)[0]?.state, "clean", JSON.stringify(clean));
     }

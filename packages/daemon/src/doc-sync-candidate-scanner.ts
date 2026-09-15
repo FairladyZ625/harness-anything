@@ -243,19 +243,36 @@ export function scanDocCandidates(input: {
     }
     if (classification === null && candidate !== null && candidate === base)
       return scannedCandidateRow("clean", null, bytes, base, candidate, existingMediaType);
+    // An unsupported type with no canonical document at the path is not doc-sync
+    // business at all — inapplicable, not blocked: blocked stays the "a human must
+    // resolve this" signal. A canonical document that IS projected here keeps
+    // blocked, because diverging from it is a real resolution.
     if (classification === null)
-      return scannedCandidateRow(
-        "blocked",
-        "path is not a supported textual document",
-        null,
-        projected.document?.blobSha256 ?? null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        fileSize,
-      );
+      return projected.document === null
+        ? scannedCandidateRow(
+            "inapplicable",
+            "path is not a supported textual document",
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            fileSize,
+          )
+        : scannedCandidateRow(
+            "blocked",
+            "path is not a supported textual document",
+            null,
+            projected.document.blobSha256,
+            null,
+            null,
+            null,
+            null,
+            null,
+            fileSize,
+          );
     if (projected.watermark !== projected.sourceRevision)
       return scannedCandidateRow(
         "blocked",

@@ -124,6 +124,7 @@ function renderTaskShow(receipt: Record<string, unknown>): string {
         ", ",
       ) || "none"
     }`,
+    `packageDisposition: ${String(payload.task.packageDisposition ?? "active")}`,
     ...(typeof payload.returnBudget === "number"
       ? [`returnBudget=${String(payload.returnBudget)} (${String(payload.returnBudgetSource)})`]
       : []),

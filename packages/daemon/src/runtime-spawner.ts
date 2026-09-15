@@ -619,7 +619,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         "runtime_installation_observed",
         {
           installationId: installation.installationId,
-          kindId: protocolFamily,
+          kindId: installation.kindId,
           protocolFamily,
           hostRef: "host:local",
           version: installation.version,

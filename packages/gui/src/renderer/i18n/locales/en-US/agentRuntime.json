@@ -438,5 +438,15 @@
   "agentRuntime.sessionMetricsCompactedTip": "Context compaction fired; watch for lost negative constraints",
   "agentRuntime.sessionMetricsNone": "This session's dispatch has not reported consumption yet.",
   "agentRuntime.sessionMetricsTokens": "Token usage",
-  "agentRuntime.sessionMetricsUnavailable": "Unavailable (provider reports no tokens)"
+  "agentRuntime.sessionMetricsUnavailable": "Unavailable (provider reports no tokens)",
+  "agentRuntime.plane_cursor": "Cursor subscription login only; connected over ACP.",
+  "agentRuntime.modelHint_cursor": "Open, free-form model names configured per instance; models arrive on session start.",
+  "agentRuntime.plane_codex-acp": "ChatGPT subscription login only; connected over ACP via the codex-acp adapter.",
+  "agentRuntime.modelHint_codex-acp": "Codex-family models only; reasoning effort rides the session model selector.",
+  "agentRuntime.plane_claude-acp": "Claude subscription login only; connected over ACP via the claude-agent-acp adapter.",
+  "agentRuntime.modelHint_claude-acp": "Claude-family models only; effort rides the session model selector.",
+  "agentRuntime.plane_gemini": "Gemini API key only; connected over ACP.",
+  "agentRuntime.modelHint_gemini": "Gemini-family models only.",
+  "agentRuntime.plane_opencode": "OpenCode login only; connected over ACP.",
+  "agentRuntime.modelHint_opencode": "Open, free-form model names configured per instance; models arrive on session start."
 }

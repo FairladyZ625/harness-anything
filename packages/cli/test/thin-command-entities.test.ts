@@ -9,7 +9,7 @@ import { packetJson } from "../../daemon/src/repo-cell-packets.ts";
 import { readWorkspaceText } from "../../daemon/src/workspace-text-port.ts";
 import { workspacePathFormat, workspacePathResolutionRule } from "../../preset/src/preset-command-contract.ts";
 import { parseThinCommand } from "../src/cli/thin-command.ts";
-import { materializePacketStdin, rawTemplateBody } from "../src/index.ts";
+import { materializePacketStdin, rawDocumentBody, rawTemplateBody } from "../src/index.ts";
 
 test("Fact CLI exposes record, controlled types, search, and show while keeping local errors closed", () => {
   const record = parseThinCommand([
@@ -726,6 +726,13 @@ test("thin parser derives builtin vertical, template, and script discovery actio
 test("raw template rendering extracts only markdown body", () => {
   assert.equal(rawTemplateBody({ ok: true, evidence: JSON.stringify({ body: "# Agent\n" }) }), "# Agent\n");
   assert.throws(() => rawTemplateBody({ ok: true, evidence: JSON.stringify({}) }), /missing its rendered body/u);
+});
+
+test("raw document output returns the doc-show evidence verbatim", () => {
+  const body = "# Doc\n\nbody without a trailing newline";
+  assert.equal(rawDocumentBody({ ok: true, command: "doc-show", evidence: body }), body);
+  assert.throws(() => rawDocumentBody({ ok: false, command: "doc-show", evidence: body }), TypeError);
+  assert.throws(() => rawDocumentBody({ ok: true, command: "doc-show" }), TypeError);
 });
 
 test("structured packets name missing required fields", () => {

@@ -123,6 +123,8 @@ export interface DaemonHostApiContext extends HostMaps, DaemonHostAdmissionConte
   ) => Promise<import("./repo-cell-types.ts").RepoCellBinding>;
   readonly writerEpochFence: (repoId: string) => WriterEpochFenceDescriptor;
   readonly writerEpochLease: (repoId: string) => WriterEpochLease;
+  readonly writerEpochHighWatermark: (repoId: string) => number;
+  readonly retireWriterEpoch: (repoId: string) => void;
   readonly closeDaemonWriterEpoch: () => void;
   readonly attach: (
     rootDir: string,

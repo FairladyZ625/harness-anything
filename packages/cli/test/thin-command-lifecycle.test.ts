@@ -570,6 +570,14 @@ test("thin doc commands derive descriptor-only actions from the protocol directo
       kind: "doc-show",
       path: "tasks/task-1/INDEX.md",
     });
+  const rawShow = parseThinCommand(["doc", "show", "--path", "tasks/task-1/INDEX.md", "--raw"]);
+  assert.equal(rawShow.ok, true);
+  if (rawShow.ok)
+    assert.deepEqual(rawShow.command.action, {
+      kind: "doc-show",
+      path: "tasks/task-1/INDEX.md",
+      raw: true,
+    });
   if (retire.ok)
     assert.deepEqual(retire.command.action, {
       kind: "doc-retire",

@@ -64,10 +64,6 @@ export type TemplateBodyResolver = (input: {
   readonly localeIndex: number;
 }) => string | undefined;
 
-export interface TemplateCatalogValidationOptions {
-  readonly resolveBody?: TemplateBodyResolver;
-}
-
 export function validateExtensionInputShape(kind: ExtensionInputKind, input: unknown): ExtensionValidationResult {
   const issues: ExtensionValidationIssue[] = [];
   scanForbiddenKeys(input, "$", issues);
@@ -78,10 +74,7 @@ export function validateExtensionInputShape(kind: ExtensionInputKind, input: unk
   return { ok: issues.length === 0, issues };
 }
 
-export function validateTemplateCatalog(
-  catalog: TemplateCatalog,
-  options: TemplateCatalogValidationOptions = {},
-): ExtensionValidationResult {
+export function validateTemplateCatalog(catalog: TemplateCatalog): ExtensionValidationResult {
   const issues: ExtensionValidationIssue[] = [];
   const seenDocuments = new Set<string>();
 
@@ -115,23 +108,31 @@ export function validateTemplateCatalog(
           ),
         );
       }
-      const body = options.resolveBody?.({ document, locale: variant, documentIndex, localeIndex: variantIndex });
-      if (body !== undefined) {
-        for (const anchor of document.requiredAnchors) {
-          if (!body.includes(anchor)) {
-            issues.push(
-              extensionIssue(
-                "missing_required_anchor",
-                `Locale ${variant.locale} body is missing anchor ${anchor}.`,
-                `${variantPath}.bodyPath`,
-              ),
-            );
-          }
-        }
-      }
     }
   }
 
+  return { ok: issues.length === 0, issues };
+}
+
+export function validateTemplateCatalogBodies(
+  catalog: TemplateCatalog,
+  resolveBody: TemplateBodyResolver,
+): ExtensionValidationResult {
+  const issues: ExtensionValidationIssue[] = [];
+  for (const [documentIndex, document] of catalog.documents.entries())
+    for (const [localeIndex, locale] of document.locales.entries()) {
+      const body = resolveBody({ document, locale, documentIndex, localeIndex });
+      if (body === undefined) continue;
+      for (const anchor of document.requiredAnchors)
+        if (!body.includes(anchor))
+          issues.push(
+            extensionIssue(
+              "missing_required_anchor",
+              `Locale ${locale.locale} body is missing anchor ${anchor}.`,
+              `documents[${documentIndex}].locales[${localeIndex}].bodyPath`,
+            ),
+          );
+    }
   return { ok: issues.length === 0, issues };
 }
 
@@ -258,7 +259,7 @@ export function validateVerticalDefinition(vertical: VerticalDefinition): Extens
 
 export function planTemplateMaterialization(request: MaterializationRequest): MaterializationResult {
   const resolveBody = memoizeBodyResolver(request.resolveBody);
-  const catalogValidation = validateTemplateCatalog(request.catalog, { resolveBody });
+  const catalogValidation = validateTemplateCatalog(request.catalog);
   const issues: ExtensionValidationIssue[] = [...catalogValidation.issues];
   const documents: MaterializedTemplatePlan[] = [];
 
@@ -307,6 +308,15 @@ export function planTemplateMaterialization(request: MaterializationRequest): Ma
       );
       continue;
     }
+    for (const anchor of document.requiredAnchors)
+      if (!body.includes(anchor))
+        issues.push(
+          extensionIssue(
+            "missing_required_anchor",
+            `Locale ${selected.locale} body is missing anchor ${anchor}.`,
+            `documents[${documentIndex}].locales[${localeIndex}].bodyPath`,
+          ),
+        );
 
     documents.push({
       slot: selection.slot,

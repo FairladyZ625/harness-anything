@@ -12,7 +12,11 @@ import {
   type TaskRelationQuery,
 } from "../../kernel/src/index.ts";
 import { seedRelationProjection } from "../../kernel/test/store/relation-graph-projection.fixtures.ts";
-import { canonicalRoot, validateDaemonRelationGraph } from "../src/protocol/daemon-protocol.contract.ts";
+import {
+  canonicalRoot,
+  validateDaemonAgenda,
+  validateDaemonRelationGraph,
+} from "../src/protocol/daemon-protocol.contract.ts";
 import { readTaskWipSnapshot, wipSnapshotEntries, type TaskQueryCell } from "../src/repo-cell-task-query.ts";
 import { readTaskCompletion } from "../src/task-completion-read.ts";
 import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
@@ -240,6 +244,65 @@ test("agenda reads one narrow lifecycle page per status and no wide-assembly rea
     result.waitingOnOthers.map(({ taskId }) => taskId),
     ["task_event"],
   );
+});
+
+test("agenda groups a changes_requested return into awaiting rework, not the in-flight line", () => {
+  const taskRows = [
+      reworkTaskRow("task_returned"),
+      reworkTaskRow("task_resubmitted", [
+        executionRow("exe_old", 0, "changes_requested"),
+        executionRow("exe_new", 1, "active"),
+      ]),
+      leasedTaskRow("task_flying"),
+      reworkTaskRow("task_accepted", [executionRow("exe_done", 0, "accepted")]),
+      protocolTaskRow("task_idle", [], { status: "active" }),
+    ],
+    base = projectionStub({ taskRows }),
+    projection = {
+      ...base,
+      readTaskStatuses: (taskIds: readonly string[]) => ({
+        ...readyCut,
+        rows: taskIds.map((taskId) => ({ taskId, status: "active" })),
+      }),
+    } as unknown as TaskProjection,
+    result = makeTaskQueryReadModel({
+      rootDir: canonicalRoot(process.cwd()),
+      projection,
+      judgments: {
+        closeout: (() => ({ readiness: "missing", blocker: "execution", gates: [] })) as never,
+        blocking: ((tasks: readonly { taskId: string }[]) =>
+          tasks.map(({ taskId }) => ({
+            taskId,
+            state: "clear",
+            label: "none",
+            blockers: [],
+            warnings: [],
+          }))) as never,
+      },
+    }).agenda();
+
+  // 阴性→阳性对照:打回任务此前四组全落空,现在只进「等我修」。
+  assert.deepEqual(
+    (result.awaitingRework ?? []).map(({ taskId }) => taskId),
+    ["task_returned"],
+  );
+  assert.deepEqual(
+    result.inFlight.map(({ taskId }) => taskId),
+    ["task_flying", "task_resubmitted"],
+  );
+  for (const group of [result.waitingOnOthers, result.dispatchable])
+    assert.equal(
+      group.some(({ taskId }) => taskId === "task_returned"),
+      false,
+    );
+  assert.equal(result.awaitingDecision.length, 0);
+  assert.match(result.summary, /在飞线 \(2\) — status=active/u);
+  assert.match(
+    result.summary,
+    /等我修 \(1\) — status=active 且最新 execution=changes_requested[\s\S]*- task_returned/u,
+  );
+  // The produced result passes the same wire validator the GUI-side parser uses.
+  assert.deepEqual(validateDaemonAgenda(result), []);
 });
 
 test("task reads fail closed when event truth has no packageDisposition", () => {
@@ -505,6 +568,50 @@ function protocolTaskRow(
       consents: [],
       codeDocWitnesses,
       gateWitnesses: [],
+    },
+  };
+}
+
+function executionRow(executionId: string, iteration: number, state: string, taskId = "task") {
+  return {
+    schema: "execution/v1",
+    executionId,
+    taskId,
+    nodeId: "implementation",
+    iteration,
+    state,
+    claimedAt: "2026-08-30T00:00:00.000Z",
+    submittedAt: "2026-08-30T01:00:00.000Z",
+    closedAt: "2026-08-30T02:00:00.000Z",
+    submission: null,
+  };
+}
+
+function reworkTaskRow(
+  taskId: string,
+  executions: readonly unknown[] = [executionRow("exe_returned", 0, "changes_requested", taskId)],
+) {
+  const row = protocolTaskRow(taskId, [], { status: "active" });
+  return { ...row, snapshot: { ...row.snapshot, executions: [...executions] } };
+}
+
+function leasedTaskRow(taskId: string) {
+  const row = protocolTaskRow(taskId, [], { status: "active" });
+  return {
+    ...row,
+    snapshot: {
+      ...row.snapshot,
+      lease: {
+        schema: "lease/v1",
+        taskId,
+        executionId: "exe_leased",
+        actor: { principal: { personId: "person-owner" }, executor: null },
+        source: "local",
+        phase: "held",
+        expiresAt: "2026-08-30T03:00:00.000Z",
+        ttlMs: 60000,
+        version: 1,
+      },
     },
   };
 }

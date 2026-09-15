@@ -130,7 +130,9 @@ export function compileFactWrite(input: { readonly event: FactEventDraftV1 }): C
   };
 }
 export function renderFactsDocument(records: readonly FactDocumentRecord[]): string {
-  return `# Facts\n\nManaged by \`ha fact record\`; hand edits are rejected.\n\n## Records\n\n${[...records]
+  return `# Facts\n\nManaged by \`ha fact record\`; hand edits are rejected.\n\n\`State\` is record-time; authoritative liveness via \`ha fact show\`.\n\n## Records\n\n${[
+    ...records,
+  ]
     .sort((left, right) => left.workspaceRevision - right.workspaceRevision || left.factId.localeCompare(right.factId))
     .map(
       (fact) =>

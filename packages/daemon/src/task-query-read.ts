@@ -365,6 +365,16 @@ export function makeTaskQueryReadModel(input: {
         .filter((row) => row.snapshot.lease !== null || row.snapshot.executions.some(({ state }) => state === "active"))
         .map(agendaTaskRow)
         .sort(compareAgendaTasks),
+      // 评审打回、球已回到使用者手里的那批:执行已关闭、lease 已释放,既不在飞也不待裁。
+      awaitingRework = (active?.rows ?? [])
+        .filter(
+          (row) =>
+            row.snapshot.lease === null &&
+            !row.snapshot.executions.some(({ state }) => state === "active") &&
+            latestExecution(row.snapshot.executions)?.state === "changes_requested",
+        )
+        .map(agendaTaskRow)
+        .sort(compareAgendaTasks),
       waitingOnOthers = [
         ...(blocked?.rows ?? []),
         ...(planned?.rows ?? []).filter(({ blockingAssessment }) => blockingAssessment.state !== "clear"),
@@ -433,12 +443,13 @@ export function makeTaskQueryReadModel(input: {
       command: "agenda",
       ...cut,
       inFlight,
+      awaitingRework,
       awaitingDecision,
       waitingOnOthers,
       dispatchable,
       page: { sourceLimit, cursor: query.cursor ?? null, nextCursor },
       warnings,
-      summary: renderAgendaSummary({ inFlight, awaitingDecision, waitingOnOthers, dispatchable }),
+      summary: renderAgendaSummary({ inFlight, awaitingRework, awaitingDecision, waitingOnOthers, dispatchable }),
     };
   }
   /**
@@ -659,6 +670,13 @@ function agendaTaskRow(row: AgendaSourceRow): AgendaTaskRow {
     blockingAssessment: row.blockingAssessment,
   };
 }
+/** 最新一轮 execution:按 iteration 取最大者的 state,不回看更早历史(同一轮内后到者胜出)。 */
+function latestExecution(executions: readonly ProjectedExecution[]): ProjectedExecution | undefined {
+  let latest: ProjectedExecution | undefined;
+  for (const execution of executions)
+    if (latest === undefined || execution.iteration >= latest.iteration) latest = execution;
+  return latest;
+}
 function compareAgendaTasks(left: AgendaTaskRow, right: AgendaTaskRow): number {
   return Number(right.pinned) - Number(left.pinned) || left.taskId.localeCompare(right.taskId);
 }
@@ -697,7 +715,10 @@ function encodeAgendaCursor(value: AgendaCursor): string {
   return Buffer.from(JSON.stringify(value), "utf8").toString("base64url");
 }
 function renderAgendaSummary(
-  groups: Pick<DaemonAgendaResult, "inFlight" | "awaitingDecision" | "waitingOnOthers" | "dispatchable">,
+  groups: Pick<
+    DaemonAgendaResult,
+    "inFlight" | "awaitingRework" | "awaitingDecision" | "waitingOnOthers" | "dispatchable"
+  >,
 ): string {
   const taskLine = (row: AgendaTaskRow) =>
       `- ${row.pinned ? "📌 " : ""}${row.taskId} ${row.title}${row.blockingAssessment.blockers.length ? `（阻塞: ${row.blockingAssessment.blockers.map(({ targetTaskId }) => targetTaskId).join(", ")}）` : ""}`,
@@ -705,12 +726,22 @@ function renderAgendaSummary(
       row.kind === "execution"
         ? `- ${row.pinned ? "📌 " : ""}execution ${row.executionId} / ${row.taskId} ${row.title}`
         : `- decision ${row.decisionId} ${row.title}`,
-    section = (title: string, rows: readonly string[]) =>
-      `${title} (${rows.length})\n${rows.length ? rows.join("\n") : "- 无"}`;
+    // 每组标题旁写出过滤条件,「为什么这条不在里面」可对照自查,不必逐条比对。
+    section = (title: string, filter: string, rows: readonly string[]) =>
+      `${title} (${rows.length}) — ${filter}\n${rows.length ? rows.join("\n") : "- 无"}`;
   return [
-    section("在飞线", groups.inFlight.map(taskLine)),
-    section("待裁", groups.awaitingDecision.map(awaitingLine)),
-    section("球在别人手里", groups.waitingOnOthers.map(taskLine)),
-    section("可派队列", groups.dispatchable.map(taskLine)),
+    section("在飞线", "status=active 且（有 lease 或有 active execution）", groups.inFlight.map(taskLine)),
+    section(
+      "等我修",
+      "status=active 且最新 execution=changes_requested 且无 lease、无 active execution",
+      (groups.awaitingRework ?? []).map(taskLine),
+    ),
+    section(
+      "待裁",
+      "in_review 且有未被 approved 覆盖的 submitted execution，或有 proposed decision",
+      groups.awaitingDecision.map(awaitingLine),
+    ),
+    section("球在别人手里", "status=blocked 或 blocking 非 clear", groups.waitingOnOthers.map(taskLine)),
+    section("可派队列", "status=planned 且 blocking=clear", groups.dispatchable.map(taskLine)),
   ].join("\n\n");
 }

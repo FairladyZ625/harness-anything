@@ -145,9 +145,13 @@ export const runtimeConfigProtocolCommands = Object.freeze([
     phase: "Repo-Lifecycle",
     path: ["repo", "purge"],
     syntaxPath: ["repo", "purge", "<repo-id>"],
-    summary: "Unbind a repository and remove only locally derived Harness state.",
+    summary: "Unbind a repository and remove derived state, or back up and remove all Harness data.",
     method: "daemon.repo.purge",
-    inputs: [cliInput("--scope", "single", true, { code: "missing_field" }, { enum: ["cache"] })],
+    inputs: [
+      cliInput("--scope", "single", true, { code: "missing_field" }, { enum: ["cache", "all"] }),
+      cliInput("--backup", "single", false, { code: "invalid_field" }),
+      cliInput("--confirm", "single", false, { code: "invalid_field" }),
+    ],
   }),
   defineHostAdminCommand({
     id: "daemon-connection-add",

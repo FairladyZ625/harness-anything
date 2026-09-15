@@ -109,7 +109,7 @@ test("acp worker session drives initialize/authenticate/new/prompt and emits can
       .split("\n")
       .filter(Boolean)
       .map((line) => JSON.parse(line) as Record<string, unknown>);
-    assert.deepEqual(captured, [{ apiKey: "test-manifest-key" }, { mode: "bypass" }]);
+    assert.deepEqual(captured, [{ apiKey: "test-manifest-key", methodId: "devin-browser" }, { mode: "bypass" }]);
   } finally {
     rmSync(parent, { recursive: true, force: true });
   }
@@ -178,7 +178,10 @@ test("acp worker session reads the provider credential file for subscription ins
       .map((line) => JSON.parse(line) as Record<string, unknown>);
     assert.deepEqual(
       captured.find((entry) => entry.apiKey !== undefined),
-      { apiKey: "test-subscription-key" },
+      {
+        apiKey: "test-subscription-key",
+        methodId: "devin-browser",
+      },
     );
   } finally {
     rmSync(parent, { recursive: true, force: true });
@@ -218,7 +221,97 @@ test("acp worker session sends session/cancel before terminating the child", asy
   }
 });
 
-test("acp worker session fails closed when the agent requires auth and no credential exists", async () => {
+test("acp worker session selects the declared auth method and authenticates without a key", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-acp-worker-")),
+    capture = path.join(parent, "capture.jsonl"),
+    executablePath = writeAcpProviderStub(path.join(parent, "codex-stub"), capture, {
+      authMethods: [
+        { id: "api-key", name: "API Key" },
+        { id: "chat-gpt", name: "ChatGPT" },
+      ],
+    });
+  writeFileSync(capture, "");
+  try {
+    const { append } = collect(),
+      child = launch(executablePath, ["acp"], { HOME: parent, PATH: process.env.PATH }),
+      session = runAcpProviderSession(
+        child,
+        { kindId: "codex-acp", cwd: "/tmp", env: { HOME: parent }, prompt: "do work" },
+        append,
+      );
+    await session.done;
+    assert.equal(await closed(child), 0);
+    const captured = readFileSync(capture, "utf8")
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    assert.deepEqual(
+      captured.find((entry) => entry.methodId !== undefined),
+      {
+        apiKey: "",
+        methodId: "chat-gpt",
+      },
+    );
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("acp worker session maps the permission mode onto the agent's mode vocabulary", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-acp-worker-")),
+    capture = path.join(parent, "capture.jsonl"),
+    executablePath = writeAcpProviderStub(path.join(parent, "codex-stub"), capture, {
+      modes: {
+        currentModeId: "agent",
+        availableModes: [
+          { id: "read-only", name: "Ask" },
+          { id: "agent", name: "Approve" },
+          { id: "agent-full-access", name: "Full access" },
+        ],
+      },
+    });
+  writeFileSync(capture, "");
+  try {
+    const { records, append } = collect(),
+      child = launch(executablePath, ["acp"], { HOME: parent, PATH: process.env.PATH }),
+      session = runAcpProviderSession(
+        child,
+        {
+          kindId: "devin",
+          cwd: "/tmp",
+          env: { HOME: parent },
+          prompt: "do work",
+          permissionMode: "bypass",
+          acpApiKey: "test-manifest-key",
+        },
+        append,
+      );
+    await session.done;
+    assert.equal(await closed(child), 0);
+    const captured = readFileSync(capture, "utf8")
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    assert.deepEqual(
+      captured.find((entry) => entry.mode !== undefined),
+      { mode: "agent-full-access" },
+    );
+    const modeFrame = records
+      .filter((record) => record.kind === "provider_event")
+      .map((record) => record.event as Record<string, unknown>)
+      .find((frame) => frame.type === "acp.mode");
+    assert.deepEqual(modeFrame, {
+      sessionId: "devin-acp-session",
+      type: "acp.mode",
+      requested: "bypass",
+      applied: "agent-full-access",
+    });
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("acp worker session fails closed when the agent rejects the offered credential", async () => {
   const { parent, executablePath } = fixture();
   try {
     const { records, append } = collect(),
@@ -235,7 +328,7 @@ test("acp worker session fails closed when the agent requires auth and no creden
       .map((record) => record.event as Record<string, unknown>);
     assert.equal(frames.length, 1);
     assert.equal(frames[0]!.type, "acp.error");
-    assert.match(String(frames[0]!.message), /authentication/i);
+    assert.match(String(frames[0]!.message), /api key required/i);
   } finally {
     rmSync(parent, { recursive: true, force: true });
   }

@@ -1,6 +1,7 @@
 import {
   validateExtensionInputShape,
   validateTemplateCatalog,
+  validateTemplateCatalogBodies,
   validateVerticalDefinition,
 } from "./preset-extension-model.ts";
 import { compileVerticalContract, decodeVerticalDefinition, TemplateCatalogSchema } from "../../kernel/src/index.ts";
@@ -64,7 +65,11 @@ export function assertCanonicalVertical(assets: CanonicalAssets, verticalId: str
     );
 }
 
-export function decodeCatalog(body: string, root: string): CatalogSource {
+export function decodeCatalog(
+  body: string,
+  root: string,
+  resolveBody?: Parameters<typeof validateTemplateCatalogBodies>[1],
+): CatalogSource {
   const raw = parsePresetJson(body, "invalid_template_catalog"),
     shape = validateExtensionInputShape("template-catalog", raw);
   if (!shape.ok) throw presetFailure("invalid_template_catalog", shape.issues.map((item) => item.message).join("; "));
@@ -75,15 +80,17 @@ export function decodeCatalog(body: string, root: string): CatalogSource {
     throw presetFailure("invalid_template_catalog", "Template catalog is invalid.");
   }
   const source = { catalog, root, sha256: resolverContentHash(body) },
-    validation = validateTemplateCatalog(catalog, {
-      resolveBody: ({ locale }) =>
-        requiredRegularFile(
-          safeTemplatePath(root, locale.bodyPath, `${catalog.package.id}/${locale.locale}`),
-          "missing_template",
-        ),
-    });
+    validation = validateTemplateCatalog(catalog);
   if (!validation.ok)
     throw presetFailure("invalid_template_catalog", validation.issues.map((item) => item.message).join("; "));
+  for (const document of catalog.documents)
+    for (const locale of document.locales)
+      safeTemplatePath(root, locale.bodyPath, `${catalog.package.id}/${locale.locale}`);
+  if (resolveBody) {
+    const bodyValidation = validateTemplateCatalogBodies(catalog, resolveBody);
+    if (!bodyValidation.ok)
+      throw presetFailure("invalid_template_catalog", bodyValidation.issues.map((item) => item.message).join("; "));
+  }
   return source;
 }
 

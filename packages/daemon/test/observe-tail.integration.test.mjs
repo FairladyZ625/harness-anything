@@ -387,6 +387,89 @@ test("observe.tail replays persisted ZCode transcript records", async () => {
   }
 });
 
+test("observe.tail replays persisted ACP transcript records and drops bookkeeping frames", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-observe-acp-"));
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-observe-acp-user-"));
+  const dispatchId = "dispatch_0123456789abcdef01234568";
+  try {
+    initRepo(rootDir);
+    const stream = openDispatchStream(rootDir, {
+      dispatchId,
+      taskId: "task-acp-transcript",
+      executionId: "execution-acp-transcript",
+      runtimeSessionId: "runtime-acp-transcript",
+      instanceId: "devin-main",
+      kindId: "devin",
+      startedAt: "2026-09-15T00:00:00.000Z",
+    });
+    stream.appendProviderEvent(
+      { type: "acp.session", sessionId: "session-acp", modes: ["bypass"], currentMode: "bypass" },
+      "2026-09-15T00:00:00.001Z",
+    );
+    stream.appendProviderEvent(
+      {
+        type: "acp.update",
+        sessionId: "session-acp",
+        update: { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "Inspect " } },
+      },
+      "2026-09-15T00:00:00.002Z",
+    );
+    stream.appendProviderEvent(
+      {
+        type: "acp.update",
+        sessionId: "session-acp",
+        update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Checking." } },
+      },
+      "2026-09-15T00:00:00.003Z",
+    );
+    stream.appendProviderEvent(
+      {
+        type: "acp.update",
+        sessionId: "session-acp",
+        update: { sessionUpdate: "tool_call", toolCallId: "read:0", title: "Read file" },
+      },
+      "2026-09-15T00:00:00.004Z",
+    );
+    stream.appendProviderEvent(
+      {
+        type: "acp.update",
+        sessionId: "session-acp",
+        update: { sessionUpdate: "usage_update", usage: { used: 42 } },
+      },
+      "2026-09-15T00:00:00.005Z",
+    );
+    stream.appendProviderEvent(
+      { type: "acp.result", sessionId: "session-acp", stopReason: "end_turn", finalText: "Checking." },
+      "2026-09-15T00:00:00.006Z",
+    );
+
+    const page = await readObserveTail({
+      repoId: workspaceId("observe-acp"),
+      rootDir,
+      mode: "local",
+      projection: {},
+      userRoot,
+      daemonId: "observe-acp-daemon",
+      payload: { kind: "dispatch", dispatchId, direction: "history" },
+    });
+
+    assertAvailable(page, "local", "dispatch");
+    assert.deepEqual(
+      page.items.map((record) => [record.kind, record.event?.type, record.event?.update?.sessionUpdate]),
+      [
+        ["provider_event", "acp.session", undefined],
+        ["provider_event", "acp.update", "agent_thought_chunk"],
+        ["provider_event", "acp.update", "agent_message_chunk"],
+        ["provider_event", "acp.update", "tool_call"],
+        ["provider_event", "acp.result", undefined],
+      ],
+    );
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
 // The lifecycle sink is only tailable because it is a sink of its own. This test writes both
 // sinks the way the daemon does — structured records through the recorder, a bare child stdout
 // line straight to the stdio path — so it goes red with log_record_invalid the moment the two

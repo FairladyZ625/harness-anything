@@ -91,11 +91,14 @@ export const docFactProtocolCommands = Object.freeze([
     id: "doc-show",
     phase: "DocSync-B",
     path: ["doc", "show"],
-    summary: "Show a canonical projected document.",
+    summary: "Show a canonical projected document; --raw prints only the document body.",
     method: "repo.task.read",
     inputs: [
       cliInput("--path", "single", true, {
         code: "missing_field",
+      }),
+      cliInput("--raw", "boolean", false, {
+        code: "invalid_field",
       }),
     ],
   }),
