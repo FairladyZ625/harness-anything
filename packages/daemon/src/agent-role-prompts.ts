@@ -1,6 +1,6 @@
 import type { AgentRole } from "../../kernel/src/index.ts";
 
-const sharedExecutionDiscipline = `# Harness Execution Discipline
+export const sharedExecutionDiscipline = `# Harness Execution Discipline
 
 - When a task package is assigned, treat its task_plan.md as the task contract. Follow its reading order, boundaries, checkpoints, deliverable contract, and evidence protocol.
 - Inspect broadly enough to find the real implementation path, but mutate only the declared execution surface. Preserve unrelated worktree changes and stage only owned files.

@@ -47,7 +47,8 @@ const installation: RuntimeInstallationWitness = {
 test("attached task runtime settlement releases its execution lease before publishing the terminal outcome", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-attached-tail-"));
   let exit: ((code: number | null) => void) | null = null,
-    failSettlement = false;
+    failSettlement = false,
+    launchedPrompt: string | undefined;
   try {
     initIngressRepo(root, 4310);
     const cell = await openRepoCell({
@@ -78,15 +79,18 @@ test("attached task runtime settlement releases its execution lease before publi
           isolationState: "enforced",
         },
       ],
-      prepareRuntimeLaunch: async (_instanceId, request) => ({
-        definition,
-        installation,
-        executablePath: installation.executablePath,
-        args: ["exec", "--json", "-"],
-        env: process.env,
-        cwd: request.cwd,
-        prompt: request.prompt,
-      }),
+      prepareRuntimeLaunch: async (_instanceId, request) => {
+        launchedPrompt = request.prompt;
+        return {
+          definition,
+          installation,
+          executablePath: installation.executablePath,
+          args: ["exec", "--json", "-"],
+          env: process.env,
+          cwd: request.cwd,
+          prompt: request.prompt,
+        };
+      },
       runtimeLaunch: () => ({
         pid: process.pid,
         onOutput: () => undefined,
@@ -142,6 +146,9 @@ test("attached task runtime settlement releases its execution lease before publi
         },
         binding,
       );
+      // A task-bound dispatch without an agent declaration is worker work and carries the shared discipline.
+      assert.match(launchedPrompt ?? "", /^# Harness Execution Discipline/u);
+      assert.match(launchedPrompt ?? "", /must not operate host virtualization, networking, or system services/u);
       const claimedProjection = makeTaskProjection({
         rootDir: root,
         eventStore: makeTaskEventReader({ repoId: "runtime-attached-tail", rootDir: root }),

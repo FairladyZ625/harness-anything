@@ -57,13 +57,14 @@ test("runtime spawn maps the GUI Claude kind to a canonical claude-compatible in
       version: "1.0.0",
       observedAt: "2026-08-14T00:00:00.000Z",
     };
-    let executablePath: string | undefined;
+    let executablePath: string | undefined, launchedPrompt: string | undefined;
     const cell = await openRepoCell({
       repoId: workspaceId("runtime-spawn-claude"),
       rootDir: canonicalRoot(root),
       ownerId: "spawn-test",
       runtimeInstances: () => [],
       prepareRuntimeLaunch: (_instanceId, request) => ({
+        ...((launchedPrompt = request.prompt), {}),
         definition: claudeDefinition,
         installation: claudeInstallation,
         executablePath: claudeInstallation.executablePath,
@@ -99,6 +100,8 @@ test("runtime spawn maps the GUI Claude kind to a canonical claude-compatible in
       );
       assert.equal(receipt.outcome, "applied");
       assert.equal(executablePath, "/opt/witnessed/claude");
+      // A direct prompt with neither task nor agent declaration is passed through verbatim.
+      assert.equal(launchedPrompt, "Inspect the repository");
     } finally {
       await cell.close();
     }
