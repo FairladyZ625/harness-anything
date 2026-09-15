@@ -29,7 +29,7 @@ test("vertical and template schemas decode clean-room extension fixtures", async
   const catalog = Schema.decodeUnknownSync(TemplateCatalogSchema)(await readFixture(templateCatalogUrl));
   const vertical = compileVerticalSource(await readFixture(verticalDefinitionUrl)).definition;
 
-  assert.equal(validateTemplateCatalog(catalog, { resolveBody: resolveFixtureTemplateBody }).ok, true);
+  assert.equal(validateTemplateCatalog(catalog).ok, true);
   assert.equal(validateVerticalDefinition(vertical).ok, true);
 });
 
@@ -88,18 +88,65 @@ test("template catalog validation fails closed on locale structure drift", async
     ],
   };
 
-  const result = validateTemplateCatalog(drifted, {
-    resolveBody: ({ locale }) =>
-      locale.locale === "zh-CN" ? "## Goal\n\n## Steps\n" : resolveFixtureTemplateBody({ locale }),
-  });
+  const result = validateTemplateCatalog(drifted);
 
   assert.equal(result.ok, false);
   assert.equal(
     result.issues.some((issue) => issue.code === "template_locale_structure_mismatch"),
     true,
   );
+});
+
+test("template materialization resolves and validates only the selected locale body", async () => {
+  const catalog = Schema.decodeUnknownSync(TemplateCatalogSchema)(await readFixture(templateCatalogUrl)),
+    selected = catalog.documents[0]!,
+    unselected = {
+      ...selected,
+      id: "planning/unselected",
+      slot: "task.unselected",
+      materializeAs: "unselected.md",
+    },
+    resolved: string[] = [];
+  const result = planTemplateMaterialization({
+    catalog: { ...catalog, documents: [selected, unselected] },
+    locale: "en-US",
+    resolveBody: ({ document, locale }) => {
+      resolved.push(`${document.id}/${locale.locale}`);
+      return document === selected ? "Body without required anchors.\n" : undefined;
+    },
+    selections: [
+      {
+        slot: selected.slot,
+        templateRef: `template://${selected.id}@${selected.version}`,
+        materializeAs: selected.materializeAs,
+        localePolicy: { prefer: "project", fallback: "en-US" },
+      },
+    ],
+  });
+
+  assert.deepEqual(resolved, [`${selected.id}/en-US`]);
+  assert.equal(result.ok, false);
   assert.equal(
     result.issues.some((issue) => issue.code === "missing_required_anchor"),
+    true,
+  );
+
+  const missing = planTemplateMaterialization({
+    catalog: { ...catalog, documents: [selected, unselected] },
+    locale: "en-US",
+    resolveBody: () => undefined,
+    selections: [
+      {
+        slot: selected.slot,
+        templateRef: `template://${selected.id}@${selected.version}`,
+        materializeAs: selected.materializeAs,
+        localePolicy: { prefer: "project", fallback: "en-US" },
+      },
+    ],
+  });
+  assert.equal(missing.ok, false);
+  assert.equal(
+    missing.issues.some((issue) => issue.code === "template_body_unavailable"),
     true,
   );
 });
