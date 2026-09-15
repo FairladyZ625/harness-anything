@@ -161,7 +161,7 @@ function factPackage(root, index, random) {
   const title = `${pick(random, ["observed", "measured", "confirmed", "reported"])} fixture fact ${pad(index)}`;
   write(
     path,
-    `# Facts\n\nManaged by \`ha fact record\`; hand edits are rejected.\n\n\`State\` is the value at record time and is never rewritten — the authoritative liveness is the projection; run \`ha fact show --id <fact-id>\`.\n\n## Records\n\n### ${id}\n\n- Statement: ${title}. ${body(random, `${id} observation`, int(random, 300, 2200))}\n- Evidence source: scale fixture\n- Observed at: ${iso(index)}\n- Confidence: high\n- State: standing\n`,
+    `# Facts\n\nManaged by \`ha fact record\`; hand edits are rejected.\n\n\`State\` is record-time; authoritative liveness via \`ha fact show\`.\n\n## Records\n\n### ${id}\n\n- Statement: ${title}. ${body(random, `${id} observation`, int(random, 300, 2200))}\n- Evidence source: scale fixture\n- Observed at: ${iso(index)}\n- Confidence: high\n- State: standing\n`,
   );
   return id;
 }
