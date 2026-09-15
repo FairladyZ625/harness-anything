@@ -11,6 +11,7 @@ export type {
   CodeDocReconciledEvent,
   CodeDocRepointedEvent,
   CompletionGateVerifiedEvent,
+  ExecutionAnnotatedEvent,
   ExecutionExecutorDeclaredEvent,
   ExecutionStartedEvent,
   ExecutionSubmittedEvent,
@@ -87,6 +88,7 @@ export { isReadyToComplete } from "./task-lifecycle-review-transitions.ts";
 export { TASK_LIFECYCLE_TRANSITIONS } from "./task-lifecycle-transitions.ts";
 export {
   applyTransition,
+  compileExecutionAnnotation,
   compileExecutionExecutorDeclaration,
   reduceTaskEvent,
   validateTransition,

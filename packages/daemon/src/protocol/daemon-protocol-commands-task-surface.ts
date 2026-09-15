@@ -54,6 +54,32 @@ export const taskSurfaceProtocolCommands = Object.freeze([
     ],
   }),
   defineLedgerWriteCommand({
+    id: "task-annotate",
+    phase: "W3",
+    path: ["task", "annotate", "<task-id>"],
+    summary:
+      "Append a correction or superseded-by note to an existing Execution record; " +
+      "annotated history is never rewritten.",
+    method: "repo.task.run",
+    inputs: [
+      cliInput("--execution-id", "single", true, {
+        code: "missing_field",
+      }),
+      cliInput("--note", "single", true, {
+        code: "missing_field",
+      }),
+      cliInput(
+        "--kind",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { enum: ["correction", "superseded-by"] },
+      ),
+    ],
+  }),
+  defineLedgerWriteCommand({
     id: "task-amend",
     phase: "W3",
     path: ["task", "amend", "<task-id>"],

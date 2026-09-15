@@ -191,13 +191,15 @@ export function lifecycleReceipt(
     receiptReview = eventReview ?? selected?.review ?? (reviews.length === 1 ? reviews[0] : undefined),
     reviewId = receiptReview?.reviewId ?? null,
     declarationNeeded = snapshot.task?.status === "in_review" && undeclared && reviews.length === 0,
+    to = `${snapshot.task?.status ?? "missing"}/${snapshot.task?.currentNode ?? "missing"}`,
     from =
       event.type === "execution_started"
         ? "planned/implementation"
         : event.type === "execution_submitted" && event.payload.supersedesSubmissionId === undefined
           ? "active/implementation"
-          : "in_review/review",
-    to = `${snapshot.task?.status ?? "missing"}/${snapshot.task?.currentNode ?? "missing"}`,
+          : event.type === "execution_annotated"
+            ? to
+            : "in_review/review",
     checks = gateChecks(snapshot, executionId ?? ""),
     missingGate = checks.find((value) => value.status === "blocked")?.gate,
     nextCommand =
@@ -249,12 +251,14 @@ export function lifecycleReceipt(
       : [],
     changedPaths = (event.payload.documentClaims ?? []).map((claim) => claim.path),
     summary =
-      event.type === "execution_submitted" && event.payload.supersedesSubmissionId !== undefined
-        ? "task-submit: amended; prior Review and consent pins are stale until reviewed or explicitly " +
-          "consented again."
-        : event.type === "execution_submitted"
-          ? `task-submit: submitted (execution: ${executionId})`
-          : undefined;
+      event.type === "execution_annotated"
+        ? `task-annotate: ${event.payload.annotation.kind} (execution: ${executionId})`
+        : event.type === "execution_submitted" && event.payload.supersedesSubmissionId !== undefined
+          ? "task-submit: amended; prior Review and consent pins are stale until reviewed or explicitly " +
+            "consented again."
+          : event.type === "execution_submitted"
+            ? `task-submit: submitted (execution: ${executionId})`
+            : undefined;
   return {
     outcome: "applied",
     opId: event.opId,

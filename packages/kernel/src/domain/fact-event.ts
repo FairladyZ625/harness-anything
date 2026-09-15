@@ -46,6 +46,8 @@ export interface FactsDocumentClaim {
 }
 export interface FactDocumentRecord {
   readonly factId: string;
+  /** Optional provenance owner. It is not part of fact identity. */
+  readonly taskId?: string;
   readonly statement: string;
   readonly evidenceSource: string;
   readonly observedAt: string;
@@ -105,6 +107,7 @@ export function compileFactWrite(input: { readonly event: FactEventDraftV1 }): C
   }
   const next: FactDocumentRecord = {
       factId: input.event.factId,
+      ...(input.event.taskId !== undefined ? { taskId: input.event.taskId } : {}),
       statement: input.event.payload.statement,
       evidenceSource: input.event.payload.evidenceSource,
       observedAt: input.event.payload.observedAt,
@@ -136,7 +139,7 @@ export function renderFactsDocument(records: readonly FactDocumentRecord[]): str
     .sort((left, right) => left.workspaceRevision - right.workspaceRevision || left.factId.localeCompare(right.factId))
     .map(
       (fact) =>
-        `### ${fact.factId}\n\n- Statement: ${escapeFactDocumentScalar(fact.statement)}\n- Evidence source: ${escapeFactDocumentScalar(fact.evidenceSource)}\n- Observed at: ${fact.observedAt}\n- Confidence: ${fact.confidence}\n- State: ${fact.state}\n\n`,
+        `### ${fact.factId}\n\n- Statement: ${escapeFactDocumentScalar(fact.statement)}\n- Evidence source: ${escapeFactDocumentScalar(fact.evidenceSource)}\n- Observed at: ${fact.observedAt}\n- Confidence: ${fact.confidence}\n- State: ${fact.state}\n${fact.taskId === undefined ? "" : `- Task: ${fact.taskId}\n`}\n`,
     )
     .join("")}`;
 }

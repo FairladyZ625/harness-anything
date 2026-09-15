@@ -1,5 +1,5 @@
-import { submissionDigest, submissionId } from "./execution.ts";
-import type { ExecutionV1, LeaseV1 } from "./execution.ts";
+import { executionAnnotationKinds, isNativeExecution, submissionDigest, submissionId } from "./execution.ts";
+import type { ExecutionAnnotationKind, ExecutionAnnotationV1, ExecutionV1, LeaseV1 } from "./execution.ts";
 import { reviewDigest, consentedApprovedReviewForExecution } from "./review.ts";
 import { judgeCompletionEvidence } from "./completion-evidence.ts";
 import { currentTaskForWrite, type ActorAxes, type ContractValidationIssue } from "./task.ts";
@@ -8,7 +8,7 @@ import { isNonEmptyString } from "./write-chain.contract.ts";
 import type { WriteSource } from "./write-chain.contract.ts";
 import { stableStringify } from "../integrity/stable-hash.ts";
 import { TaskLifecycleContractError, validateTaskEvent } from "./task-lifecycle-event.ts";
-import type { ExecutionExecutorDeclaredEvent, TaskEventV1 } from "./task-lifecycle-event.ts";
+import type { ExecutionAnnotatedEvent, ExecutionExecutorDeclaredEvent, TaskEventV1 } from "./task-lifecycle-event.ts";
 import { isSameExecution, isSamePerson } from "./actor-domain-services.ts";
 import { codeDocRecordId, currentCodeDocRecord, currentCodeDocWitness } from "./code-doc-witness.ts";
 import { completionGateIds } from "./closeout-readiness.ts";
@@ -197,6 +197,75 @@ export function compileExecutionExecutorDeclaration(input: {
     };
   return { event, snapshot: reduceTaskEvent(input.snapshot, event) };
 }
+/**
+ * Append-only Execution annotation. Any iteration may be annotated: the event carries the full
+ * Execution so replay can verify the note was appended and nothing prior was rewritten.
+ */
+export function compileExecutionAnnotation(input: {
+  readonly snapshot: TaskLifecycleSnapshot;
+  readonly taskId: string;
+  readonly executionId: string;
+  readonly actor: ActorAxes;
+  readonly source: WriteSource;
+  readonly kind: ExecutionAnnotationKind;
+  readonly note: string;
+  readonly opId: string;
+  readonly eventId: string;
+  readonly workspaceRevision: number;
+  readonly occurredAt: string;
+}): {
+  readonly event: ExecutionAnnotatedEvent;
+  readonly snapshot: TaskLifecycleSnapshot;
+} {
+  const task = input.snapshot.task,
+    current = input.snapshot.executions.find(
+      (value): value is ExecutionV1 => isNativeExecution(value) && value.executionId === input.executionId,
+    );
+  if (
+    !task ||
+    task.taskId !== input.taskId ||
+    !current ||
+    current.taskId !== input.taskId ||
+    !executionAnnotationKinds.includes(input.kind) ||
+    !isNonEmptyString(input.note) ||
+    input.workspaceRevision <= input.snapshot.revision
+  )
+    throw new TaskLifecycleContractError("invalid_transition", [
+      lifecycleContractIssue(
+        "invalid_transition",
+        "execution annotation requires an existing Execution of this task and a non-empty correction or " +
+          "superseded-by note",
+      ),
+    ]);
+  const annotation: ExecutionAnnotationV1 = {
+      kind: input.kind,
+      note: input.note,
+      actor: input.actor,
+      annotatedAt: input.occurredAt,
+    },
+    nextExecution: ExecutionV1 = {
+      ...current,
+      annotations: [...(current.annotations ?? []), annotation],
+    },
+    event: ExecutionAnnotatedEvent = {
+      schema: "task-event/v1",
+      eventId: input.eventId,
+      workspaceRevision: input.workspaceRevision,
+      opId: input.opId,
+      taskId: input.taskId,
+      type: "execution_annotated",
+      actor: input.actor,
+      source: input.source,
+      occurredAt: input.occurredAt,
+      payload: {
+        task,
+        execution: nextExecution,
+        annotation,
+        documentClaims: [],
+      },
+    };
+  return { event, snapshot: reduceTaskEvent(input.snapshot, event) };
+}
 export function reduceTaskEvent(snapshot: TaskLifecycleSnapshot, event: TaskEventV1): TaskLifecycleSnapshot {
   const issues = validateTaskEvent(event);
   if (issues.length) throw new TaskLifecycleContractError("invalid_schema", issues);
@@ -240,6 +309,13 @@ export function reduceTaskEvent(snapshot: TaskLifecycleSnapshot, event: TaskEven
       lease: null,
     };
   else if (event.type === "execution_executor_declared")
+    next = {
+      ...snapshot,
+      revision: event.workspaceRevision,
+      task: event.payload.task,
+      executions: replaceExecution(snapshot.executions, event.payload.execution),
+    };
+  else if (event.type === "execution_annotated")
     next = {
       ...snapshot,
       revision: event.workspaceRevision,
@@ -432,6 +508,31 @@ function assertReplay(snapshot: TaskLifecycleSnapshot, event: TaskEventV1, next:
         lifecycleContractIssue(
           "invalid_executor_declaration",
           "replayed executor declaration is not a same-principal repair of a submitted execution at review",
+        ),
+      ]);
+  }
+  if (event.type === "execution_annotated") {
+    const current = snapshot.executions.find(
+        (value): value is ExecutionV1 =>
+          isNativeExecution(value) && value.executionId === event.payload.execution.executionId,
+      ),
+      expected = current
+        ? {
+            ...current,
+            annotations: [...(current.annotations ?? []), event.payload.annotation],
+          }
+        : null;
+    if (
+      !current ||
+      !sameReplayTask(event.payload.task, snapshot.task) ||
+      stableStringify(event.payload.execution) !== stableStringify(expected) ||
+      event.payload.annotation.annotatedAt !== event.occurredAt ||
+      stableStringify(event.payload.annotation.actor) !== stableStringify(event.actor)
+    )
+      throw new TaskLifecycleContractError("invalid_transition", [
+        lifecycleContractIssue(
+          "invalid_transition",
+          "replayed execution annotation must append exactly one envelope-pinned note to an existing Execution",
         ),
       ]);
   }

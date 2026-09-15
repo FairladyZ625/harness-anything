@@ -73,6 +73,18 @@ export function parseTask(
       patches: [{ field: "pinned", value: id === "task-pin" ? "true" : "false" }],
     });
   if (id === "task-supersede") return parseSupersede(args, taskId, rootDir, repoId, json, inputs);
+  if (id === "task-annotate") {
+    const f = readFlags(id, args.slice(3), inputs);
+    return f.ok
+      ? accepted(rootDir, repoId, json, {
+          kind: id,
+          taskId,
+          executionId: f.one.get("--execution-id"),
+          note: f.one.get("--note"),
+          ...(f.one.get("--kind") ? { annotationKind: f.one.get("--kind") } : {}),
+        })
+      : rejected(f.code, f.nextAction, json);
+  }
   if (id === "task-declare-executor") {
     const f = readFlags(id, args.slice(3), inputs),
       executionId = f.ok ? f.one.get("--execution-id") : undefined;

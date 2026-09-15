@@ -257,6 +257,8 @@ export function authorizeDurableRepoCellAction(
       return authorizeRepoCellAction(input);
     case "task-amend":
       return authorizeRepoCellAction(input);
+    case "task-annotate":
+      return authorizeRepoCellAction(input);
     case "task-archive":
       return authorizeRepoCellAction(input);
     case "task-artifact-add":

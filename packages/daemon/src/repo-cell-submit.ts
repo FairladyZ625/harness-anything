@@ -167,6 +167,36 @@ export function deriveCloseoutSubmission(
   };
 }
 
+/**
+ * The submit/amend advisory: accepted artifact deliveries moved under an unchanged closeout.
+ * `outputs`, `deliverables`, `commitSha`, and `artifacts` all derive from the delivery cut rather
+ * than closeout.md, so prose equality compares only the fields `submissionFromCloseout` authors.
+ * Digest reuse keeps one submission-identity mechanism; the warning never gates the write.
+ */
+const closeoutProse = (value: SubmissionV1): SubmissionV1 => ({
+  ...value,
+  deliverables: [],
+  outputs: [],
+  commitSha: null,
+  artifacts: [],
+});
+
+export function submissionAnchorDriftWarnings(
+  previous: SubmissionV1 | null | undefined,
+  submission: SubmissionV1,
+): readonly string[] {
+  if (
+    !previous ||
+    submissionDigest(previous) === submissionDigest(submission) ||
+    submissionDigest(closeoutProse(previous)) !== submissionDigest(closeoutProse(submission))
+  )
+    return [];
+  return [
+    "Anchored artifact deliveries changed while the closeout prose did not; " +
+      "verify the closeout claim still describes the delivered artifacts.",
+  ];
+}
+
 export async function submitTask(
   cell: RepoCellOperationalContext,
   action: RepoTaskAction,
@@ -227,7 +257,8 @@ export async function submitTask(
     return submissionStopped(cell, action, binding, fresh.snapshot, executionId, fresh.packagePath, derived.error, [
       synced,
     ]);
-  const submission = derived.submission;
+  const submission = derived.submission,
+    anchorDriftWarnings = submissionAnchorDriftWarnings(selected.submission, submission);
   // A lost response resumes the stored cut only when the synchronized closeout still derives the same submission.
   if (selected.submission && action.amend !== true) {
     const opId = cell.projection.readTaskSubmissionOperation(taskId, executionId),
@@ -275,6 +306,7 @@ export async function submitTask(
   const steps = await prepareSubmissionEvidence(cell, taskId, executionId, binding);
   return {
     ...(steps.find((step) => !["applied", "no_changes"].includes(step.outcome)) ?? receipt),
+    ...(anchorDriftWarnings.length ? { warnings: anchorDriftWarnings } : {}),
     steps: [synced, ...steps],
   } as WriteReceiptDraft;
 }

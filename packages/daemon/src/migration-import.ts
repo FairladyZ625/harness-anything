@@ -281,6 +281,7 @@ function addFact(context: MigrationImportContext, row: RelationFactRow): void {
           provenance: canonicalMigrationProvenance(row.provenance) as never,
         },
         record = {
+          ...(mappedTaskId ? { taskId: mappedTaskId } : {}),
           factId: targetFactId,
           statement: row.statement,
           evidenceSource: row.source,
@@ -329,6 +330,7 @@ function matchesRestatedFact(
       provenance: canonicalMigrationProvenance(row.provenance),
     },
     record = {
+      ...(mappedTaskId ? { taskId: mappedTaskId } : {}),
       factId,
       statement: row.statement,
       evidenceSource: row.source,
