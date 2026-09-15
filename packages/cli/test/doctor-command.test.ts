@@ -76,7 +76,7 @@ test("doctor reports stale invocations per file:line and accepts the live surfac
       "ha task list --json",
       "ha runtime run --agent worker-a --task task_1",
       "```",
-      "Inspect with `ha task show --id task_1`, check `ha daemon status`.",
+      "Inspect with `ha status`, check `ha daemon status`.",
     ].join("\n"),
     "AGENTS.md": "Follow `ha task show task_1` for details.\n",
   });
@@ -89,7 +89,7 @@ test("doctor reports stale invocations per file:line and accepts the live surfac
     );
     const reasons = report.findings.map(({ reason }) => reason);
     assert.match(reasons[0] ?? "", /runtime run/u);
-    assert.match(reasons[1] ?? "", /task show --help|command domain/u);
+    assert.match(reasons[1] ?? "", /command domain/u);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
