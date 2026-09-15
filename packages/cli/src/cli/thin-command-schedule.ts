@@ -75,13 +75,15 @@ export function parseSchedule(
         "--model",
         "--effort",
         "--fast",
+        "--writable-root",
+        "--clear-writable-roots",
       ];
     if (mission && missionFile)
       return rejected("invalid_field", "Use --mission <text> or --mission-file <path>, not both.", json);
     if (every && (cronExpression || timezone))
       return rejected("invalid_field", "Use --every or --cron/--timezone, not both.", json);
     if (cronExpression && !timezone) return rejected("missing_field", "Add --timezone <IANA-zone> with --cron.", json);
-    if (!updateFlags.some((flag) => flags.one.has(flag) || flags.booleans.has(flag)))
+    if (!updateFlags.some((flag) => flags.one.has(flag) || flags.many.has(flag) || flags.booleans.has(flag)))
       return rejected("missing_field", "Change at least one Schedule definition field.", json);
     const everyMs = every === undefined ? undefined : parseScheduleDuration(every);
     if (everyMs === null)
@@ -106,6 +108,7 @@ export function parseSchedule(
       ...(timezone === undefined ? {} : { timezone }),
       ...(mission ? { mission } : missionFile ? { missionFile } : {}),
       ...(flags.booleans.has("--fast") ? { fast: true } : {}),
+      ...scheduleWritableRootUpdate(flags),
       ...retry,
     });
   }
@@ -143,8 +146,18 @@ export function parseSchedule(
     ]),
     ...(flags.booleans.has("--fast") ? { fast: true } : {}),
     ...(flags.booleans.has("--disabled") ? { disabled: true } : {}),
+    ...scheduleWritableRootUpdate(flags),
     ...retry,
   });
+}
+
+function scheduleWritableRootUpdate(flags: {
+  readonly many: ReadonlyMap<string, string[]>;
+  readonly booleans: ReadonlySet<string>;
+}): { readonly writableRoots?: readonly string[] } {
+  const declared = flags.many.get("--writable-root");
+  if (declared) return { writableRoots: declared };
+  return flags.booleans.has("--clear-writable-roots") ? { writableRoots: [] } : {};
 }
 
 function isPacketInputToken(value: string | undefined): boolean {

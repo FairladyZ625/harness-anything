@@ -5,6 +5,7 @@ import { ENTITY_ID_PATTERN } from "./entity-ref.ts";
 import { validateActorIdentity, type ActorIdentity } from "./actor-identity.ts";
 import { timestamp } from "./timestamp.ts";
 import { hasContractFields, isNonEmptyString, isRecord } from "./write-chain.contract.ts";
+import { normalizeRelativeDocumentPath } from "../layout/portable-path.ts";
 
 export const scheduleStates = ["armed", "paused"] as const;
 const scheduleIdPattern = new RegExp(ENTITY_ID_PATTERN, "u");
@@ -69,6 +70,7 @@ export interface ScheduleDefinitionV1 {
     readonly trigger: ScheduleTriggerV1;
     readonly target: ScheduleTargetV1;
     readonly mission: string;
+    readonly writableRoots?: readonly string[];
   };
   readonly createdAt: string;
   readonly createdBy: ActorIdentity;
@@ -151,6 +153,7 @@ const definitionProperties = {
       trigger: triggerSchema,
       target: targetSchema,
       mission: { type: "string", minLength: 1 },
+      writableRoots: { type: "array", items: { type: "string", minLength: 1 }, uniqueItems: true },
     },
     required: ["trigger", "target", "mission"],
     additionalProperties: false,
@@ -226,7 +229,11 @@ export function createScheduleV1(input: {
     name: input.name.trim(),
     state: input.state ?? "armed",
     mode: input.mode,
-    spec: { ...input.spec, mission: input.spec.mission.trim() },
+    spec: {
+      ...input.spec,
+      mission: input.spec.mission.trim(),
+      ...(input.spec.writableRoots ? { writableRoots: normalizeScheduleWritableRoots(input.spec.writableRoots) } : {}),
+    },
     createdAt: input.occurredAt,
     createdBy: input.actor,
     updatedAt: input.occurredAt,
@@ -278,7 +285,11 @@ export function validateScheduleDefinitionV1(value: unknown, allowUnknownFields 
     !timestamp(value.createdAt) ||
     !timestamp(value.updatedAt) ||
     validateActorIdentity(value.createdBy, allowUnknownFields).length > 0 ||
-    !validSpec(value.spec, allowUnknownFields)
+    !validSpec(value.spec, allowUnknownFields) ||
+    (isRecord(value.spec) &&
+      Array.isArray(value.spec.writableRoots) &&
+      value.spec.writableRoots.length > 0 &&
+      value.mode !== "remediate")
   )
     return ["schedule definition is invalid"];
   return [];
@@ -314,13 +325,41 @@ export function nextScheduleOccurrence(trigger: ScheduleTriggerV1, after: string
 }
 
 function validSpec(value: unknown, allowUnknownFields: boolean): boolean {
+  const writableRoots = isRecord(value) && Object.hasOwn(value, "writableRoots") ? value.writableRoots : undefined;
   return (
     isRecord(value) &&
-    hasContractFields(value, ["trigger", "target", "mission"], allowUnknownFields) &&
+    hasContractFields(
+      value,
+      ["trigger", "target", "mission", ...(writableRoots === undefined ? [] : ["writableRoots"])],
+      allowUnknownFields,
+    ) &&
     validTrigger(value.trigger, allowUnknownFields) &&
     validTarget(value.target, allowUnknownFields) &&
-    isNonEmptyString(value.mission)
+    isNonEmptyString(value.mission) &&
+    validScheduleWritableRoots(writableRoots)
   );
+}
+
+export function normalizeScheduleWritableRoots(values: readonly string[]): readonly string[] {
+  const normalized = values.map((value) => {
+    if (value.split("/").includes("..")) throw new Error(`writable root must not contain a .. segment: ${value}`);
+    const root = normalizeRelativeDocumentPath(value);
+    if (root.split("/").some((segment) => segment.toLowerCase() === ".git"))
+      throw new Error(`writable root must not point to .git: ${value}`);
+    return root;
+  });
+  return [...new Set(normalized)];
+}
+
+function validScheduleWritableRoots(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string")) return false;
+  try {
+    const normalized = normalizeScheduleWritableRoots(value);
+    return normalized.length === value.length && normalized.every((entry, index) => entry === value[index]);
+  } catch {
+    return false;
+  }
 }
 
 function validTrigger(value: unknown, allowUnknownFields: boolean): value is ScheduleTriggerV1 {

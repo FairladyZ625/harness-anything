@@ -309,6 +309,7 @@ export function readSchedulesGui(context: SchedulesGuiReadContext): SchedulesLis
             : { kind: "squad", squadId: schedule.spec.target.squadId },
         ...(targetProjection ? { targetState: targetProjection.state, targetError: targetProjection.error } : {}),
         mission: schedule.spec.mission,
+        writableRoots: schedule.spec.writableRoots ?? [],
         executionAvailability: availability,
         claim: active
           ? { nodeId: active.nodeId, assignmentId: active.assignmentId }
