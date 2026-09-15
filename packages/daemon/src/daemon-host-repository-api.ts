@@ -236,44 +236,27 @@ export function createDaemonHostRepositoryApi(
           throw context.hostCodedError("repo_mode_remote_proxy", `Repository ${repo.repoId} is remote-proxy.`);
         if (request.kind === "backup") validateBackupDestination(rootDir, request.backupDir);
         else if (!existsSync(backupDir)) throw new Error("restore --drill backup directory does not exist");
-        if (!repo) {
-          const result =
+        const shadowParent =
+          request.kind === "restore-drill" && request.shadowParent ? { shadowParent: request.shadowParent } : {};
+        let result: ReturnType<typeof backupRepo> | ReturnType<typeof drillRepoBackup>;
+        if (repo) {
+          await context.waitForWarming(repo.repoId);
+          result = await context.requiredCell(context.cells, context.warming, context.unavailable, repo.repoId).backup!(
+            {
+              kind: request.kind === "backup" ? "backup" : "drill",
+              backupDir,
+              ...shadowParent,
+              registration: repo,
+              writerEpoch: context.writerEpochHighWatermark(repo.repoId),
+            },
+          );
+        } else {
+          // An unregistered root has no daemon-held writer, so there is no write queue to serialize against.
+          result =
             request.kind === "backup"
               ? backupRepo({ rootDir, backupDir })
-              : drillRepoBackup({
-                  rootDir,
-                  backupDir,
-                  ...(request.shadowParent ? { shadowParent: request.shadowParent } : {}),
-                });
-          if (request.kind === "backup")
-            return {
-              ok: true,
-              schema: "ledger-backup-receipt/v1",
-              exitCode: 0,
-              ...backupReceipt(backupDir, result as Parameters<typeof backupReceipt>[1]),
-              authorizationDecision,
-            };
-          const drill = result as ReturnType<typeof drillRepoBackup>;
-          return {
-            ok: true,
-            schema: "ledger-restore-drill-receipt/v1",
-            exitCode: 0,
-            ...backupReceipt(backupDir, drill.manifest),
-            shadowRoot: drill.shadowRoot,
-            removedShadowRoots: drill.removedShadowRoots,
-            warnings: drill.warnings,
-            authorizationDecision,
-          };
+              : drillRepoBackup({ rootDir, backupDir, ...shadowParent });
         }
-        await context.waitForWarming(repo.repoId);
-        const cell = context.requiredCell(context.cells, context.warming, context.unavailable, repo.repoId),
-          result = await cell.backup!({
-            kind: request.kind === "backup" ? "backup" : "drill",
-            backupDir,
-            ...(request.kind === "restore-drill" && request.shadowParent ? { shadowParent: request.shadowParent } : {}),
-            registration: repo,
-            writerEpoch: context.writerEpochHighWatermark(repo.repoId),
-          });
         if (request.kind === "backup")
           return {
             ok: true,
