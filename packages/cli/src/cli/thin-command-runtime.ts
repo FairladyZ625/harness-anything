@@ -27,14 +27,13 @@ export function parseRuntime(
     promptFlagPresent = f.one.has("--prompt"),
     detach = f.booleans.has("--detach"),
     onExitCommand = f.one.get("--on-exit");
-  if (taskId || f.one.has("--agent") || f.one.has("--role") || f.one.has("--to") || f.one.has("--squad"))
+  if (taskId || f.one.has("--agent") || f.one.has("--to") || f.one.has("--squad"))
     return rejected("invalid_field", "Use ha agent run <agent-id> --task <task-id> for task-bound work.", json);
   if (!prompt && (promptFlagPresent || !taskId)) return rejectInput(inputs, kind, "--prompt", json);
   const cwd = f.one.get("--cwd"),
     agentId = f.one.get("--agent"),
     targetAgentId = f.one.get("--to"),
     squadId = f.one.get("--squad");
-  const role = f.one.get("--role");
   if (targetAgentId && !agentId)
     return rejected("invalid_field", "Use --to <worker-agent-id> only with --agent <leader-agent-id>.", json);
   if (squadId && !agentId)
@@ -49,7 +48,6 @@ export function parseRuntime(
       ...(agentId ? { agentId } : {}),
       ...(targetAgentId ? { targetAgentId } : {}),
       ...(squadId ? { squadId } : {}),
-      ...(role ? { role } : {}),
       ...(f.one.get("--model") ? { model: f.one.get("--model") } : {}),
       ...(f.one.get("--effort") ? { effort: f.one.get("--effort") } : {}),
       ...(f.booleans.has("--fast") ? { fast: true } : {}),

@@ -765,6 +765,31 @@ test("runtime work commands parse into closed daemon facade actions", () => {
       detach: true,
     });
   assert.equal(reviewer.ok, false);
+  const reviewDispatch = parseThinCommand([
+      "task",
+      "dispatch-review",
+      "task-1",
+      "--task",
+      "task-2",
+      "--agent",
+      "closeout-reviewer",
+      "--model",
+      "review-model",
+    ]),
+    reviewDispatchOne = parseThinCommand(["task", "dispatch-review", "task-1", "--execution-id", "exec-1"]);
+  if (reviewDispatch.ok)
+    assert.deepEqual(reviewDispatch.command.action, {
+      kind: "task-dispatch-review",
+      taskIds: ["task-1", "task-2"],
+      agentId: "closeout-reviewer",
+      model: "review-model",
+    });
+  if (reviewDispatchOne.ok)
+    assert.deepEqual(reviewDispatchOne.command.action, {
+      kind: "task-dispatch-review",
+      taskIds: ["task-1"],
+      executionId: "exec-1",
+    });
   if (mission.ok)
     assert.deepEqual(mission.command.action, {
       kind: "runtime-run",

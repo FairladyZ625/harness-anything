@@ -26,9 +26,11 @@ import {
   type ProofFor,
   type SettingsV1,
   type TaskLifecycleCommand,
+  type TaskProjection,
   type WriteReceipt,
 } from "../../kernel/src/index.ts";
 import { cellCodedError, cellCriterionError } from "./repo-cell-errors.ts";
+import { readDispatchStream } from "./dispatch-stream.ts";
 import { verifyCodeDocCommitPaths } from "./code-doc-path-verification.ts";
 import { completionReviewKey } from "./task-completion-review.ts";
 import { readTaskLineageDispatches } from "./dispatch-read.ts";
@@ -40,6 +42,27 @@ const SUBMIT_PROOF_CRITERION = "repo-cell-proof/proofFor.SubmitExecution";
 const REVIEW_PROOF_CRITERION = "repo-cell-proof/proofFor.RecordReview";
 const COMPLETE_VALIDATION_CRITERION = "task-lifecycle-review-transitions/complete.validate";
 
+/**
+ * Resolve the dispatch role of a runtime-session actor, or null when the actor is not a runtime
+ * session (or its dispatch stream carries no role). The dispatch stream header is authoritative:
+ * it is written by the spawner before the session is admitted.
+ */
+export function runtimeSessionDispatchRole(
+  projection: Pick<TaskProjection, "readRuntimeDispatch" | "readRuntimeSession">,
+  rootDir: string,
+  actor: ActorIdentity,
+): { readonly runtimeSessionId: string; readonly role: string | null } | null {
+  const runtimeSessionId = runtimeSessionIdFromActor(actor);
+  if (runtimeSessionId === null) return null;
+  const session = projection.readRuntimeSession(runtimeSessionId),
+    dispatch =
+      session === null ? null : projection.readRuntimeDispatch(session.runtimeSessionId, session.definitionSnapshotRef);
+  return {
+    runtimeSessionId,
+    role: dispatch ? (readDispatchStream(rootDir, dispatch.payload.dispatchId)?.header.role ?? null) : null,
+  };
+}
+
 export async function proofFor(
   command: TaskLifecycleCommand,
   snapshot: Snapshot,
@@ -49,6 +72,18 @@ export async function proofFor(
   getSettings: () => SettingsV1,
 ): Promise<TaskLifecycleServiceProof<typeof command> & { readonly authorizationDecision?: AuthorizationDecision }> {
   if (command.type === "CreateReplayTask") return { taskIdUnique: true, actorBinding: command.actor };
+  // A reviewer runtime session is bound to the submitted cut under review and holds no task lease:
+  // the only lifecycle write it may ever perform is RecordReview. Every other lifecycle command
+  // (start, submit, transition, release) would mutate the implementation iteration it must not own.
+  const actorSession = runtimeSessionDispatchRole(projection, rootDir, command.actor);
+  if (actorSession !== null && actorSession.role === "reviewer" && command.type !== "RecordReview")
+    throw cellCriterionError(
+      "runtime_reviewer_lifecycle_forbidden",
+      `Reviewer runtime ${actorSession.runtimeSessionId} may only record a review; ${command.type} belongs to an ` +
+        "implementation executor and would mutate the task's implementation iteration.",
+      "start",
+      START_VALIDATION_CRITERION,
+    );
   const transition = TASK_LIFECYCLE_TRANSITIONS.find((candidate) => candidate.matches(command, snapshot)),
     lifecycleAction = transition ? getTaskActionForTransition(transition.actionId) : undefined,
     lifecycleExecution = lifecycleAction?.execution?.lifecycle;

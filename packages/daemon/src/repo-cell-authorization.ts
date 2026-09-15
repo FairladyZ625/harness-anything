@@ -277,6 +277,8 @@ export function authorizeDurableRepoCellAction(
       return authorizeRepoCellAction(input);
     case "task-delete":
       return authorizeRepoCellAction(input);
+    case "task-dispatch-review":
+      return authorizeRepoCellAction(input);
     case "task-pin":
       return authorizeRepoCellAction(input);
     case "task-progress-append":
@@ -505,7 +507,7 @@ function invalidExecutorBindingFor(
         executorRetryCommand(input.action, canonicalTaskId, executionId)
       : reviewerRedispatch
         ? `Expected a reviewer RuntimeSession bound to execution ${executionId ?? "<execution-id>"}; run ` +
-          `ha agent run <reviewer-agent-id> --role reviewer --task ${taskId}, then retry ${retry}`
+          `ha task dispatch-review ${taskId} --agent <reviewer-agent-id>, then retry ${retry}`
         : missingRequestedBinding
           ? `Expected the claimed RuntimeSession to have canonical Task/Execution binding ` +
             `${taskId}/${executionId ?? "<execution-id>"}; retry ${retry} from that bound session`

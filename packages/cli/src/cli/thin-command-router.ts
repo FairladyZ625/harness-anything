@@ -225,7 +225,6 @@ function parseAgentRun(
       ...(f.one.get("--to") ? { targetAgentId: f.one.get("--to") } : {}),
       taskId: f.one.get("--task"),
       ...(f.one.get("--instance") ? { runtimeInstanceId: f.one.get("--instance") } : {}),
-      ...(f.one.get("--role") ? { role: f.one.get("--role") } : {}),
       ...(prompt ? { prompt } : {}),
       ...(f.one.get("--prompt-file") ? { promptFile: f.one.get("--prompt-file") } : {}),
       ...(f.one.get("--prompt-file") ? { promptFile: f.one.get("--prompt-file") } : {}),

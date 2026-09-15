@@ -160,8 +160,21 @@ export async function publishExit(
         // event honest when publication fails, while still publishing the exit
         // event so the runtime cannot remain live forever.
         console.error(`[runtime-archive] ${active.dispatchId} could not be archived: ${detail}`);
-        outcome = "failed";
-        reasonCode = "runtime_archive_failed";
+        // Settlement honesty for a reviewer is whether the review was registered, not whether
+        // every archive document was fresh: a reviewer that already recorded its RecordReview
+        // (which publishes the report documents itself) keeps its real outcome, and the archive
+        // failure is recorded as a note instead of flipping the dispatch to failed.
+        const reviewRegistered =
+          active.role === "reviewer" &&
+          active.task !== null &&
+          context
+            .requiredRuntimeProjection(context.input)
+            .read(active.task.taskId)
+            .snapshot.reviews.some((review) => review.reviewId === `review-${active.dispatchId}`);
+        if (!reviewRegistered) {
+          outcome = "failed";
+          reasonCode = "runtime_archive_failed";
+        }
         // The worker result is independently durable input to this settlement.
         // Preserve it in the terminal content while appending the reason that
         // prevents this Task execution from claiming success.
