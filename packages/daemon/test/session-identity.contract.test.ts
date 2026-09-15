@@ -1,6 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import test from "node:test";
 import { type RuntimeProtocolFamily, type SessionIdentity } from "../../kernel/src/index.ts";
 import { runtimeProtocolFamilies } from "../src/runtime-inventory.ts";
@@ -56,6 +56,45 @@ test("every protocol family owns a resolver and a provider identity fixture", ()
       transcriptRefForSessionIdentity(identity, header.eventStreamRef),
       family === "claude-compatible" ? `provider:${meta.runtime}/${meta.expectedSessionId}` : header.eventStreamRef,
     );
+  }
+});
+
+test("every per-kind capture inside a family fixture set resolves against the family resolver", () => {
+  // Kinds sharing one protocol family each contribute a real capture named
+  // `<family>-<kind>.jsonl`; the family resolver must read all of them.
+  const fixtureDir = new URL("./fixtures/session-identity/", import.meta.url),
+    extras = readdirSync(fixtureDir).filter((name) =>
+      runtimeProtocolFamilies.some((family) => name.startsWith(`${family}-`) && name.endsWith(".jsonl")),
+    );
+  assert.ok(extras.length > 0, "expected at least one per-kind session-identity capture");
+  for (const name of extras) {
+    const records = readFileSync(new URL(name, fixtureDir), "utf8")
+        .trim()
+        .split(/\r?\n/u)
+        .map((line) => JSON.parse(line) as FixtureRecord),
+      meta = records[0] as FixtureMeta,
+      events = records.slice(1),
+      header = events.find((record) => record.kind === "dispatch"),
+      binding = events.find((record) => record.kind === "provider_binding");
+    assert.equal(meta.fixture, "captured-provider-session-identity/v1");
+    assert.ok(
+      runtimeProtocolFamilies.includes(meta.protocolFamily),
+      `${name}: unknown protocolFamily ${meta.protocolFamily}`,
+    );
+    assert.equal(name, `${meta.protocolFamily}-${meta.runtime}.jsonl`);
+    assert.match(meta.capturePolicy, /real dispatch|supplied provider contract pending live calibration/u);
+    assert.ok(header && typeof header.eventStreamRef === "string");
+    assert.ok(binding && typeof binding.providerSessionId === "string");
+    const identity = resolveSessionIdentity(meta.protocolFamily, {
+      runtime: meta.runtime,
+      dispatchEvents: events,
+      providerBinding: { sessionId: binding.providerSessionId, transcriptRef: header.eventStreamRef },
+    });
+    assert.deepEqual(identity, {
+      runtime: meta.runtime,
+      sessionId: meta.expectedSessionId,
+      transcriptReachability: meta.expectedTranscriptReachability,
+    });
   }
 });
 

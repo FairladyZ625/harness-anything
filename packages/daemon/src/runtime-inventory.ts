@@ -36,6 +36,10 @@ export interface RuntimeProviderDeclaration {
      * the launch manifest; subscription instances read this TOML key inside the
      * provider's `configDirectory`/`authFile`. Absent on non-ACP kinds. */
     readonly acpCredentialKey?: string;
+    /** ACP agents may advertise several authenticate methods; this picks the one
+     * matching the instance's call path (e.g. "chat-gpt" over the advertised
+     * "api-key"). Absent means the first advertised method is used. */
+    readonly acpAuthMethod?: string;
   };
   readonly isolation: {
     readonly defaultState: "enforced" | "operator-environment";
@@ -476,6 +480,202 @@ export const runtimeKinds = [
       gracefulCancel: "supported",
     },
   },
+  {
+    kindId: "cursor",
+    protocolFamily: "acp",
+    displayName: "Cursor",
+    defaultProviderId: "cursor",
+    executable: {
+      command: "cursor-agent",
+      configDirectory: ".cursor",
+      configHomeEnvironment: null,
+      // cli-config.json carries authInfo for `cursor-agent login`; linking it is
+      // what makes the ACP `cursor_login` authenticate succeed for instances.
+      authFile: "cli-config.json",
+      // Models arrive on session/new (models.availableModels); the CLI exposes
+      // no model-listing subcommand.
+      modelProbe: null,
+      modelProbeFormat: "json-models",
+    },
+    declaredCapabilities: ["structured_witness", "resume", "attach", "session_identity"] as const,
+    configuration: {
+      fields: {},
+      publicFields: {},
+      publicDefaults: {},
+    },
+    auth: {
+      shape: "subscription-only",
+      modes: ["subscription"],
+      subscriptionProbe: ["status"],
+      subscriptionProbeTimeoutMs: 10_000,
+      // `cursor_login` consumes the linked cli-config.json and accepts an empty
+      // api_key; it is the only advertised method anyway.
+      acpAuthMethod: "cursor_login",
+    },
+    isolation: { defaultState: "operator-environment", states: ["enforced", "operator-environment"] },
+    permissions: { available: true, defaultMode: "bypass" },
+    launch: {
+      input: "stdin",
+      streamFormat: "jsonl",
+      resumeFlag: "session/load",
+      argumentTemplate: ["acp"],
+      permissionArgs: { bypass: [], "workspace-write": [], "read-only": [] },
+    },
+    sessionIdentity: {
+      eventDiscriminator: null,
+      eventIdField: "sessionId",
+      environmentFields: [],
+      transcriptReachability: "dispatch_stream_only",
+      everyFrame: true,
+    },
+    gui: { modelFamily: "open", effort: "none", effortValues: [] },
+    capabilities: {
+      ...sharedCapabilities,
+      sessionIdEveryFrame: "supported",
+      toolAllowlist: "unsupported",
+      toolDenylist: "unsupported",
+      turnLimit: "unsupported",
+      configurationIsolation: "supported",
+      permissionVocabulary: "supported",
+      independentSandbox: "unverified",
+      approvalEvent: "supported",
+      effort: "unsupported",
+      mcp: "unverified",
+      cwdRestriction: "unverified",
+      gracefulCancel: "unverified",
+    },
+  },
+  {
+    kindId: "codex-acp",
+    protocolFamily: "acp",
+    displayName: "Codex (ACP)",
+    defaultProviderId: "openai",
+    executable: {
+      // npm bin of @agentclientprotocol/codex-acp; wraps the codex CLI and
+      // reuses its CODEX_HOME login.
+      command: "codex-acp",
+      configDirectory: ".codex",
+      configHomeEnvironment: "CODEX_HOME",
+      authFile: "auth.json",
+      // Models arrive on session/new (models.availableModels); the wrapper
+      // exposes no model-listing subcommand.
+      modelProbe: null,
+      modelProbeFormat: "json-models",
+    },
+    declaredCapabilities: ["structured_witness", "resume", "attach", "session_identity"] as const,
+    configuration: {
+      fields: {},
+      publicFields: {},
+      publicDefaults: {},
+    },
+    auth: {
+      shape: "subscription-only",
+      modes: ["subscription"],
+      // The wrapper has no login-status subcommand; version output is the
+      // weakest available presence probe. The ACP `authenticate` handshake is
+      // the authoritative check at launch time.
+      subscriptionProbe: ["--version"],
+      subscriptionProbeTimeoutMs: 10_000,
+      // Advertised methods are ["api-key", "chat-gpt"]; the ChatGPT login in
+      // the linked auth.json answers "chat-gpt" with an empty api_key.
+      acpAuthMethod: "chat-gpt",
+    },
+    isolation: { defaultState: "operator-environment", states: ["enforced", "operator-environment"] },
+    permissions: { available: true, defaultMode: "bypass" },
+    launch: {
+      input: "stdin",
+      streamFormat: "jsonl",
+      resumeFlag: "session/load",
+      argumentTemplate: [],
+      permissionArgs: { bypass: [], "workspace-write": [], "read-only": [] },
+    },
+    sessionIdentity: {
+      eventDiscriminator: null,
+      eventIdField: "sessionId",
+      environmentFields: [],
+      transcriptReachability: "dispatch_stream_only",
+      everyFrame: true,
+    },
+    // Reasoning effort is embedded in the session model selector, not a
+    // separate launch surface.
+    gui: { modelFamily: "codex-only", effort: "none", effortValues: [] },
+    capabilities: {
+      ...sharedCapabilities,
+      sessionIdEveryFrame: "supported",
+      toolAllowlist: "unsupported",
+      toolDenylist: "unsupported",
+      turnLimit: "unsupported",
+      configurationIsolation: "supported",
+      permissionVocabulary: "supported",
+      independentSandbox: "unverified",
+      approvalEvent: "supported",
+      effort: "unsupported",
+      mcp: "unverified",
+      cwdRestriction: "unverified",
+      gracefulCancel: "unverified",
+    },
+  },
+  {
+    kindId: "claude-acp",
+    protocolFamily: "acp",
+    displayName: "Claude (ACP)",
+    defaultProviderId: "anthropic",
+    executable: {
+      // npm bin of @agentclientprotocol/claude-agent-acp; wraps the claude CLI
+      // and reuses its CLAUDE_CONFIG_DIR credentials. The adapter advertises no
+      // authMethods: the wrapped CLI authenticates from its own login.
+      command: "claude-agent-acp",
+      configDirectory: ".claude",
+      configHomeEnvironment: "CLAUDE_CONFIG_DIR",
+      authFile: ".credentials.json",
+      modelProbe: null,
+      modelProbeFormat: "json-models",
+    },
+    declaredCapabilities: ["structured_witness", "resume", "attach", "session_identity"] as const,
+    configuration: {
+      fields: {},
+      publicFields: {},
+      publicDefaults: {},
+    },
+    auth: {
+      shape: "subscription-only",
+      modes: ["subscription"],
+      subscriptionProbe: ["--version"],
+      subscriptionProbeTimeoutMs: 10_000,
+    },
+    isolation: { defaultState: "operator-environment", states: ["enforced", "operator-environment"] },
+    permissions: { available: true, defaultMode: "bypass" },
+    launch: {
+      input: "stdin",
+      streamFormat: "jsonl",
+      resumeFlag: "session/load",
+      argumentTemplate: [],
+      permissionArgs: { bypass: [], "workspace-write": [], "read-only": [] },
+    },
+    sessionIdentity: {
+      eventDiscriminator: null,
+      eventIdField: "sessionId",
+      environmentFields: [],
+      transcriptReachability: "dispatch_stream_only",
+      everyFrame: true,
+    },
+    gui: { modelFamily: "open", effort: "none", effortValues: [] },
+    capabilities: {
+      ...sharedCapabilities,
+      sessionIdEveryFrame: "supported",
+      toolAllowlist: "unsupported",
+      toolDenylist: "unsupported",
+      turnLimit: "unsupported",
+      configurationIsolation: "supported",
+      permissionVocabulary: "supported",
+      independentSandbox: "unverified",
+      approvalEvent: "supported",
+      effort: "unsupported",
+      mcp: "unverified",
+      cwdRestriction: "unverified",
+      gracefulCancel: "unverified",
+    },
+  },
 ] as const satisfies readonly RuntimeProviderDeclaration[];
 
 export type RuntimeProtocolFamily = (typeof runtimeKinds)[number]["protocolFamily"];
@@ -492,7 +692,12 @@ export function isRuntimeKindId(value: unknown): value is RuntimeKindId {
 }
 
 export function runtimeKindForInstallation(installation: RuntimeInstallation): RuntimeKindInventory {
-  const found = runtimeKinds.find((kind) => kind.protocolFamily === installation.protocolFamily);
+  // Several kinds can share one protocol family (multiple ACP agents), so the
+  // witnessed kindId decides; protocolFamily remains the fallback for
+  // installations witnessed before kindId was recorded.
+  const found =
+    runtimeKinds.find((kind) => kind.kindId === installation.kindId) ??
+    runtimeKinds.find((kind) => kind.protocolFamily === installation.protocolFamily);
   if (!found) throw new Error(`Unknown runtime protocol family: ${installation.protocolFamily}`);
   return found;
 }
