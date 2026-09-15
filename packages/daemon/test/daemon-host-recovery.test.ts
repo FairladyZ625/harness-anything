@@ -28,7 +28,7 @@ import { WRITE_RECEIPT_SCHEMA } from "../../kernel/src/index.ts";
 import { validateWriteReceipt } from "../../kernel/test/contracts/receipt-acceptance.fixtures.ts";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
-import { backupRepoForAllPurge, drillRepoAllPurgeBackup } from "../src/repo-all-purge.ts";
+import { backupRepo, drillRepoBackup } from "../src/repo-all-purge.ts";
 import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
 import { localSystemBinding } from "../src/daemon-host-binding.ts";
 import { rejectHostAction, rejectPresetRun } from "../src/daemon-host-errors.ts";
@@ -585,9 +585,9 @@ test("a corrupted purge backup fails its drill without deleting source data", as
       epochAuthority = openPersistentWriterEpoch({ stateRoot: path.join(userRoot, "fleet") }),
       writerEpoch = epochAuthority.highWatermark(repoId);
     epochAuthority.close();
-    const manifest = backupRepoForAllPurge({ rootDir, backupDir, registration, writerEpoch });
+    const manifest = backupRepo({ rootDir, backupDir, registration, writerEpoch });
     writeFileSync(path.join(backupDir, "payload/harness/harness.yaml"), "corrupted\n");
-    assert.throws(() => drillRepoAllPurgeBackup({ rootDir, backupDir, manifest }), /digest differs|size differs/u);
+    assert.throws(() => drillRepoBackup({ rootDir, backupDir, manifest }), /digest differs|size differs/u);
     assert.equal(existsSync(path.join(rootDir, ".harness")), true);
     assert.equal(existsSync(path.join(rootDir, "harness/harness.yaml")), true);
     assert.equal(readDaemonRegistry({ userRoot }).repos.length, 1);

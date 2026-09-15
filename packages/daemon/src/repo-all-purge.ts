@@ -20,16 +20,21 @@ export function validateRepoAllPurge(input: {
 }): string {
   if (input.confirm !== input.repoId) throw new Error(`--confirm must equal repository id ${input.repoId}`);
   if (!input.backup) throw new Error("--backup is required when --scope is all");
-  if (!path.isAbsolute(input.backup)) throw new Error("--backup must be an absolute path");
-  const backupDir = path.resolve(input.backup),
+  return validateBackupDestination(input.rootDir, input.backup);
+}
+
+/** A backup lands outside the live ledger roots: purge removes them, and a drill restores below them. */
+export function validateBackupDestination(rootDir: string, backup: string): string {
+  if (!path.isAbsolute(backup)) throw new Error("backup destination must be an absolute path");
+  const backupDir = path.resolve(backup),
     canonicalBackupDir = canonicalProspectivePath(backupDir),
-    layout = resolveHarnessLayout(input.rootDir);
-  if (existsSync(backupDir)) throw new Error("--backup destination must not already exist");
+    layout = resolveHarnessLayout(rootDir);
+  if (existsSync(backupDir)) throw new Error("backup destination must not already exist");
   if (
     isWithin(canonicalBackupDir, realpathSync(layout.localRoot)) ||
     isWithin(canonicalBackupDir, realpathSync(layout.authoredRoot))
   )
-    throw new Error("--backup must not be inside .harness or harness because those directories will be removed");
+    throw new Error("backup destination must not be inside .harness or harness");
   return backupDir;
 }
 
@@ -53,8 +58,6 @@ export function backupRepo(input: {
   });
 }
 
-export const backupRepoForAllPurge = backupRepo;
-
 export function drillRepoBackup(input: {
   readonly rootDir: string;
   readonly backupDir: string;
@@ -68,14 +71,6 @@ export function drillRepoBackup(input: {
     retention: restoreDrillRetentionFor(input.rootDir),
     ...(input.manifest ? { verifiedManifest: input.manifest } : {}),
   });
-}
-
-export function drillRepoAllPurgeBackup(input: {
-  readonly rootDir: string;
-  readonly backupDir: string;
-  readonly manifest: LedgerBackupManifest;
-}): void {
-  drillRepoBackup(input);
 }
 
 export function removeRepoHarnessData(rootDir: string): readonly string[] {

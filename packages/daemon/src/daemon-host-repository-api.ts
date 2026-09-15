@@ -37,10 +37,10 @@ import { resolveVerticalKindCommandAction } from "./vertical-kind-command-action
 import { cachePurgePreservedPaths, purgeRepoCache } from "./repo-cache-purge.ts";
 import { backupReceipt } from "./offline-storage.ts";
 import {
-  backupRepoForAllPurge,
-  drillRepoAllPurgeBackup,
+  backupRepo,
   drillRepoBackup,
   removeRepoHarnessData,
+  validateBackupDestination,
   validateRepoAllPurge,
 } from "./repo-all-purge.ts";
 
@@ -54,30 +54,6 @@ function isRepoCellReadMethod(method: DaemonGuiRpcReadMethod): method is RepoCel
     method !== "repo.gui.catalog.preset.read" &&
     method !== "repo.terminal.sessions.list"
   );
-}
-
-function validateBackupDestination(rootDir: string, input: string): void {
-  if (!path.isAbsolute(input)) throw new Error("backup directory must be absolute");
-  const backupDir = path.resolve(input),
-    layout = resolveHarnessLayout(rootDir);
-  if (existsSync(backupDir)) throw new Error("backup destination must not already exist");
-  for (const protectedRoot of [layout.localRoot, layout.authoredRoot]) {
-    const relative = path.relative(canonicalProspectivePath(protectedRoot), canonicalProspectivePath(backupDir));
-    if (relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative)))
-      throw new Error("backup must not be inside .harness or harness");
-  }
-}
-
-function canonicalProspectivePath(candidate: string): string {
-  const remainder: string[] = [];
-  let existing = candidate;
-  while (!existsSync(existing)) {
-    const parent = path.dirname(existing);
-    if (parent === existing) break;
-    remainder.unshift(path.basename(existing));
-    existing = parent;
-  }
-  return path.join(realpathSync(existing), ...remainder);
 }
 
 export function createDaemonHostRepositoryApi(
@@ -484,13 +460,13 @@ export function createDaemonHostRepositoryApi(
         };
       let backupManifest;
       if (purgingAll) {
-        backupManifest = backupRepoForAllPurge({
+        backupManifest = backupRepo({
           rootDir: rootDir!,
           backupDir: backupDir!,
           registration: registeredRepo!,
           writerEpoch: context.writerEpochHighWatermark(request.repoId),
         });
-        drillRepoAllPurgeBackup({ rootDir: rootDir!, backupDir: backupDir!, manifest: backupManifest });
+        drillRepoBackup({ rootDir: rootDir!, backupDir: backupDir!, manifest: backupManifest });
       }
       context.settleWarming(request.repoId);
       await context.closeCell(request.repoId);
