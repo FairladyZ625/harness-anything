@@ -457,7 +457,7 @@ export function launchNative(
       cwd: input.cwd,
       env: input.env,
       prompt: input.prompt,
-      kindId: input.installation.kindId,
+      kindId: input.installation?.kindId,
       protocolFamily: input.protocolFamily,
       ...(input.permissionMode ? { permissionMode: input.permissionMode } : {}),
       ...(input.providerSessionId ? { providerSessionId: input.providerSessionId } : {}),
