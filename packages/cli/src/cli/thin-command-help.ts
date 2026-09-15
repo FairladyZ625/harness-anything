@@ -23,6 +23,18 @@ export const clientLocalCommands = [
       "    Closing the GUI never stops the daemon, and the GUI never respawns a stopped daemon.",
     ].join("\n"),
   },
+  {
+    id: "doctor",
+    path: ["doctor"],
+    usage: "ha doctor [commands] [--root <path>]",
+    summary: "Validate ha command invocations in authored Markdown docs against the live command catalog.",
+    help: [
+      "    Scans harness/context, harness/governance, AGENTS.md, CLAUDE.md, .agents/, and docs-release/ for",
+      "    ha commands in code fences and inline code spans, then parses each through the same descriptor",
+      "    pipeline the CLI runs. Read-only: no daemon contact, no writes. Exits 1 with one",
+      "    file:line — command — reason line per stale reference; invocations containing <placeholders> skip.",
+    ].join("\n"),
+  },
 ] as const;
 const commandDirectory = new Map<string, string[]>();
 for (const command of [...thinCliCommands, ...clientLocalCommands]) {
