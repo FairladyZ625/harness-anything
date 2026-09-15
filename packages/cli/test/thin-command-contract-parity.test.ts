@@ -201,6 +201,7 @@ const reviewedExecutorSurface = Object.freeze([
   "repo.preset.run.start",
   "repo.preset.run.status",
   "repo.agentRuntime.spawn",
+  "repo.entity.actions.explain",
 ] as const);
 const agent = Object.freeze({ kind: "agent", id: "parity-probe" });
 const payloadShapeOf = (params: (typeof DAEMON_RPC_SCHEMA.methods)[number]["params"]) => {
