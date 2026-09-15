@@ -37,11 +37,21 @@ export function runtimeSessionActionPreparer(projection: () => TaskProjection): 
           contract.id,
           "runtime-session/assignment-fence",
         );
+      const claimedTask =
+        action.kind === "runtime_session_task_bound"
+          ? { taskId: action.taskId, executionId: action.executionId }
+          : action.kind === "runtime_session_started" &&
+              typeof action.taskBinding === "object" &&
+              action.taskBinding !== null &&
+              "taskId" in action.taskBinding &&
+              "executionId" in action.taskBinding
+            ? { taskId: action.taskBinding.taskId, executionId: action.taskBinding.executionId }
+            : null;
       if (
-        action.kind === "runtime_session_task_bound" &&
+        claimedTask !== null &&
         (scope.scope.kind !== "task" ||
-          action.taskId !== scope.scope.taskId ||
-          action.executionId !== scope.scope.executionId)
+          claimedTask.taskId !== scope.scope.taskId ||
+          claimedTask.executionId !== scope.scope.executionId)
       )
         invalidRuntimeSessionAction(
           "assignment_scope_mismatch",

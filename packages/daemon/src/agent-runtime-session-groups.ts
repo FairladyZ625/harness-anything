@@ -124,15 +124,7 @@ function membersForSession(
       ...taskSearch,
     ];
   if (input.query.groupBy === "task") {
-    // The dispatch stream header carries the task identity before the provider can emit the
-    // asynchronous runtime_session_task_bound event. Use that canonical header during the
-    // short projection gap so a just-started task dispatch is not misclassified as unattributed.
-    const taskIds =
-      session.taskBindings.length > 0
-        ? [...new Set(session.taskBindings.map(({ taskId }) => taskId))]
-        : dispatch?.taskId && dispatch.taskId !== "unattributed"
-          ? [dispatch.taskId]
-          : [];
+    const taskIds = [...new Set(session.taskBindings.map(({ taskId }) => taskId))];
     if (taskIds.length === 0) {
       const identity = unattributed("task", dispatch !== null);
       return [member(identity, session, null, status, startedAt, agentName, commonSearch)];

@@ -418,6 +418,49 @@ test("session outcome and exit round-trip while exited remains terminal", async 
   });
 });
 
+test("session start projects a pre-launch task binding and provider binding enriches it", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const store = makeTaskEventStore({ repoId: "test-repo", rootDir }),
+      projection = makeTaskProjection({ rootDir, eventStore: store }),
+      started = eventFromProviderWitness(
+        {
+          ...witness("runtime_session_started"),
+          payload: {
+            ...witness("runtime_session_started").payload,
+            taskBinding: { taskId: "task-pre-launch", executionId: "execution-pre-launch" },
+          },
+        },
+        envelope(1),
+      )!,
+      bound = eventFromProviderWitness(
+        {
+          ...witness("runtime_session_task_bound"),
+          payload: {
+            ...witness("runtime_session_task_bound").payload,
+            taskId: "task-pre-launch",
+            executionId: "execution-pre-launch",
+          },
+        },
+        envelope(2),
+      )!;
+    for (const event of [started, bound]) {
+      store.append(bundle(event));
+      projection.apply(event);
+    }
+    const session = projection.readRuntimeSession("runtime-session-claude")!;
+    assert.deepEqual(session.taskBindings, [
+      {
+        taskId: "task-pre-launch",
+        executionId: "execution-pre-launch",
+        providerSessionId: bound.payload.providerSessionId,
+        transcriptRef: bound.payload.transcriptRef,
+        boundAt: bound.occurredAt,
+      },
+    ]);
+  });
+});
+
 test("runtime schema rejects credential, transcript body, tool/cost stream, and non-reference transcript data", () => {
   const bound = eventFromProviderWitness(witness("runtime_session_task_bound"), envelope(1))!;
   for (const forbidden of [
