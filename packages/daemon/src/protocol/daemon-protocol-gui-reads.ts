@@ -182,6 +182,7 @@ export const daemonGuiReadMethods = Object.freeze([
         mode: { values: ["catalog", "object"], optional: false },
         entityKind: "string-null?",
         refs: "array",
+        executor: "json?",
       }),
     }),
     guiBridgeMethod: "explainEntityActions",
