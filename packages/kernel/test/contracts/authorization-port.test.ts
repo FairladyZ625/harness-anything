@@ -62,7 +62,7 @@ test("the default Policy covers the frozen durable inventory exactly once", () =
   // 2026-09-12: task-closeout retired with its packet protocol; complete is the sole closeout mutation, 114 → 113.
   // 2026-09-15 task_288b0a29: repository unbind replaces daemon-repo-unregister (same count) and adds the admin-only
   // repo-purge at the user's request, CEO confirmed; a reader calling daemon.repo.purge is refused
-  // with authorization_denied in json-rpc-protocol.test.ts, 113 → 114.
+  // with authorization_denied in json-rpc-task-settlement.integration.test.ts, 113 → 114.
   // 2026-09-15 task_569d4d4c: task-annotate enters the durable inventory (CEO confirmed) — append-only execution
   // annotations are repository writes gated under repo-write alongside the other task lifecycle actions, 114 → 115.
   assert.equal(durablePolicyActions.length, 115);

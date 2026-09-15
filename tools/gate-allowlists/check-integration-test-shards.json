@@ -688,6 +688,21 @@
         "ref": "task_f9a37aaa70e746826eb3aa11f8",
         "reason": "Consolidated into packages/daemon/test/migration-import-lifecycle.integration.test.ts under relaxed file complexity limits (1,200 lines); assertions preserved verbatim."
 
+      },
+      {
+        "value": "packages/daemon/test/json-rpc-protocol.test.ts",
+        "ref": "task_f4b56d482e26280d51859359aa",
+        "reason": "Split into json-rpc-contracts, json-rpc-repocell-lifecycle, and json-rpc-task-settlement integration suites under the 1,200-line test file limit; assertions preserved verbatim."
+      },
+      {
+        "value": "packages/daemon/test/fleet-transport.integration.test.ts",
+        "ref": "task_f4b56d482e26280d51859359aa",
+        "reason": "Split into fleet-transport-tls-session, fleet-transport-edge-runtime, and fleet-transport-replica-sync integration suites under the 1,200-line test file limit; assertions preserved verbatim."
+      },
+      {
+        "value": "packages/kernel/test/store/task-projection.test.ts",
+        "ref": "task_f4b56d482e26280d51859359aa",
+        "reason": "Split into task-projection-rebuild and task-projection-steady-state integration suites under the 1,200-line test file limit; assertions preserved verbatim."
       }
     ]
   }
