@@ -49,7 +49,7 @@ test("daemon status omits projection cuts while a repository close is still sett
     assert.equal(typeof attached.projectionWatermark, "number");
     assert.equal(typeof attached.ledgerRevision, "number");
 
-    const unregistering = host.admin({ kind: "unregister", repoId: "host-closing-status" }, auth);
+    const unregistering = host.admin({ kind: "unbind", repoId: "host-closing-status" }, auth);
     await closeReached;
     const closing = host.status().repos.find((repo) => repo.repoId === "host-closing-status")!;
     assert.equal(closing.state, "closed");

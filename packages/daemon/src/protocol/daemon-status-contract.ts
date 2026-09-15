@@ -49,6 +49,8 @@ export interface DaemonStatusResult {
       readonly lastError?: string;
     } | null;
     readonly attach?: DaemonRepoAttachProgress;
+    readonly registrationState?: "enabled" | "disabled";
+    readonly nextAction?: string;
   }[];
   readonly summary: string;
 }

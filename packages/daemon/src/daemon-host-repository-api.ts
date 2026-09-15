@@ -1,4 +1,5 @@
 /** @daemon-transport-authority Daemon ingress filtering and repository dispatch. */
+import { existsSync, realpathSync } from "node:fs";
 import {
   readDaemonRegistry,
   getExecutableEntityAction,
@@ -6,7 +7,7 @@ import {
   registerDaemonRepo,
   removeDaemonConnection,
   resolveHarnessLayout,
-  unregisterDaemonRepo,
+  unbindDaemonRepo,
   updateDaemonConnection,
   updateDaemonRepo,
 } from "../../kernel/src/index.ts";
@@ -32,6 +33,7 @@ import { localDefaultBinding } from "./daemon-host-binding.ts";
 import { requireAuthorizedHostAction } from "./host-action-authorization.ts";
 import { entityActionCommandTopology } from "./repo-mode.ts";
 import { resolveVerticalKindCommandAction } from "./vertical-kind-command-action.ts";
+import { cachePurgePreservedPaths, purgeRepoCache } from "./repo-cache-purge.ts";
 
 function isRepoCellReadMethod(method: DaemonGuiRpcReadMethod): method is RepoCellReadMethod {
   return (
@@ -300,7 +302,7 @@ export function createDaemonHostRepositoryApi(
                   ? "daemon-connection-remove"
                   : "daemon-connection-probe",
           authorizationDecision = requireAuthorizedHostAction({
-            kind: removing ? "daemon-repo-unregister" : "daemon-repo-register",
+            kind: removing ? "repo-unbind" : "daemon-repo-register",
             binding: localDefaultBinding(auth),
             actionId: `${command}:${connectionSubject}`,
             evaluatedAtCut: "daemon-registry:current",
@@ -342,41 +344,100 @@ export function createDaemonHostRepositoryApi(
           registry.invalidRepos.some((repo) => repo.repoId === request.repoId);
       if (!known) throw context.hostCodedError("repo_namespace_unknown", `Unknown repo namespace: ${request.repoId}.`);
       const registeredRepo = registry.repos.find((repo) => repo.repoId === request.repoId),
+        invalidRepo = registry.invalidRepos.find((repo) => repo.repoId === request.repoId),
+        purging = request.kind === "purge";
+      if (
+        purging &&
+        (!registeredRepo || registeredRepo.mode === "remote-proxy" || registeredRepo.canonicalRoot === null)
+      )
+        throw context.hostCodedError("repo_has_no_local_state", `Repository ${request.repoId} has no local state.`);
+      if (
+        purging &&
+        (!existsSync(registeredRepo!.canonicalRoot!) ||
+          realpathSync(registeredRepo!.canonicalRoot!) !== registeredRepo!.canonicalRoot)
+      )
+        throw context.hostCodedError(
+          "repo_root_unavailable",
+          `Repository ${request.repoId} canonical root is unavailable; no files were removed.`,
+        );
+      const rootDir = registeredRepo?.canonicalRoot ?? invalidRepo?.canonicalRoot ?? null,
         adminBinding = registeredRepo?.canonicalRoot
           ? await context.binding(registeredRepo.canonicalRoot, auth)
           : localDefaultBinding(auth),
         authorizationDecision = requireAuthorizedHostAction({
-          kind: "daemon-repo-unregister",
+          kind: "repo-unbind",
           binding: adminBinding,
-          actionId: `daemon-repo-unregister:${request.repoId}`,
+          actionId: `repo-unbind:${request.repoId}`,
           evaluatedAtCut: "daemon-registry:current",
           now: context.now(),
-        });
-      const result = unregisterDaemonRepo(request.repoId, {
-        userRoot: context.input.userRoot,
-        createConvenienceLinks: false,
-      });
+        }),
+        cell = context.cells.get(request.repoId),
+        blockingWork = [
+          ...(cell?.inFlightWork() ?? []),
+          ...(context.fleetRoster?.assignments ?? []).flatMap((assignment) =>
+            assignment.repoId !== request.repoId || cell
+              ? []
+              : [
+                  {
+                    kind: "fleet-assignment" as const,
+                    id: assignment.assignmentId,
+                    assignmentId: assignment.assignmentId,
+                    nodeId: assignment.nodeId,
+                    nextAction: `Release fleet assignment ${assignment.assignmentId} before retrying.`,
+                  },
+                ],
+          ),
+        ].sort((left, right) => left.kind.localeCompare(right.kind) || left.id.localeCompare(right.id));
+      if (blockingWork.length > 0)
+        return {
+          schema: "command-receipt/v2",
+          ok: false,
+          command: purging ? "repo-purge" : "repo-unbind",
+          outcome: "rejected",
+          code: "repo_in_flight",
+          repoId: request.repoId,
+          blockingWork,
+          summary: `Repository ${request.repoId} still has ${blockingWork.length} in-flight item${blockingWork.length === 1 ? "" : "s"}; settle them before retrying.`,
+        };
       context.settleWarming(request.repoId);
       await context.closeCell(request.repoId);
       context.unavailable.delete(request.repoId);
+      const result = unbindDaemonRepo(request.repoId, {
+        userRoot: context.input.userRoot,
+        createConvenienceLinks: false,
+      });
       const repo = context.publicRegistryRepo(result.repo);
+      if (purging) {
+        const removed = purgeRepoCache(rootDir!);
+        return {
+          schema: "command-receipt/v2",
+          ok: true,
+          command: "repo-purge",
+          outcome: "applied",
+          repoId: request.repoId,
+          rootDir,
+          scope: "cache",
+          registryChanged: result.changed,
+          dataPreserved: true,
+          removed,
+          preserved: cachePurgePreservedPaths,
+          rebindCommand: "ha init",
+          authorizationDecision,
+          summary: `Repository ${request.repoId} is unbound and its derived cache state was removed; authoritative data was preserved.`,
+        };
+      }
       return {
         schema: "command-receipt/v2",
         ok: true,
-        command: "daemon-repo-unregister",
+        command: "repo-unbind",
         outcome: "applied",
-        repo,
-        changed: result.changed,
+        repoId: request.repoId,
+        rootDir,
+        registryChanged: result.changed,
+        dataPreserved: true,
+        rebindCommand: "ha init",
         authorizationDecision,
-        summary: [
-          "repo unregister: repoId=",
-          `${repo.repoId}`,
-          " canonicalRoot=",
-          `${String(repo.canonicalRoot)}`,
-          " changed=",
-          `${result.changed}`,
-          "",
-        ].join(""),
+        summary: `Repository ${repo.repoId} is unbound. Data remains at ${String(rootDir)}; run ha init there to bind it again.`,
       };
     },
     run: async (repoId, action, auth) => {

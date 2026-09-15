@@ -332,7 +332,8 @@ export {
   registerDaemonConnection,
   resolveDaemonRepoByRoot,
   removeDaemonConnection,
-  unregisterDaemonRepo,
+  disableDaemonRepo,
+  unbindDaemonRepo,
   updateDaemonConnection,
   updateDaemonRepo,
 } from "./daemon/registry.ts";

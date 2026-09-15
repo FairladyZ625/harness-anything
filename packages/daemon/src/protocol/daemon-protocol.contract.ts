@@ -117,11 +117,18 @@ export const daemonProtocolMethods = Object.freeze([
     }),
   },
   {
-    id: "daemon.repo.unregister",
+    id: "daemon.repo.unbind",
     phase: "W3",
-    method: "daemon.repo.unregister",
+    method: "daemon.repo.unbind",
     requiresRepo: false,
     params: shape({ repoId: "string" }),
+  },
+  {
+    id: "daemon.repo.purge",
+    phase: "Repo-Lifecycle",
+    method: "daemon.repo.purge",
+    requiresRepo: false,
+    params: shape({ repoId: "string", scope: { values: ["cache"], optional: false } }),
   },
   {
     id: "daemon.connection.register",

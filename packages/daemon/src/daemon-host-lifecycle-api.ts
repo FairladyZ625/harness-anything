@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import type { DaemonHost } from "./daemon-host.ts";
 import type { DaemonHostApiContext } from "./daemon-host-context.ts";
 import { readDaemonRegistry } from "../../kernel/src/index.ts";
@@ -26,6 +27,22 @@ export function createDaemonHostLifecycleApi(
             materialization: null,
             lastError: null,
             causeClass: null,
+          })),
+        disabledRepos = registry.repos
+          .filter((repo) => repo.state === "disabled")
+          .map((repo) => ({
+            repoId: repo.repoId,
+            rootDir: repo.canonicalRoot ?? "",
+            mode: repo.mode,
+            state: "closed" as const,
+            generation: null,
+            queueDepth: null,
+            recoveryMs: null,
+            materialization: null,
+            lastError: repo.canonicalRoot && !existsSync(repo.canonicalRoot) ? "canonical root does not exist" : null,
+            causeClass: repo.canonicalRoot && !existsSync(repo.canonicalRoot) ? ("infrastructure" as const) : null,
+            registrationState: "disabled" as const,
+            nextAction: `ha repo unbind ${repo.repoId}`,
           })),
         attachedRepos = context.cells.size + context.unavailable.size,
         attachTotal = attachedRepos + context.warming.size,
@@ -69,6 +86,7 @@ export function createDaemonHostLifecycleApi(
           ...context.warming.values(),
           ...context.unavailable.values(),
           ...proxyRepos,
+          ...disabledRepos,
         ].sort((a, b) => a.repoId.localeCompare(b.repoId)),
         summary,
       };

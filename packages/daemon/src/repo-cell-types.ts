@@ -103,6 +103,21 @@ export interface RepoCellStatus {
   readonly attach?: RepoCellAttachProgress;
 }
 
+export interface RepoInFlightWork {
+  readonly kind: "runtime-session" | "task-lease" | "publication" | "schedule-occurrence" | "fleet-assignment";
+  readonly id: string;
+  readonly taskId?: string;
+  readonly executionId?: string;
+  readonly phase?: string;
+  readonly holder?: string;
+  readonly scheduleId?: string;
+  readonly runtimeSessionId?: string;
+  readonly assignmentId?: string;
+  readonly nodeId?: string;
+  readonly queueDepth?: number;
+  readonly nextAction: string;
+}
+
 export type RepoCellReadMethod = Exclude<
   DaemonGuiReadMethod,
   | "daemon.gui.system.read"
@@ -155,6 +170,7 @@ export interface RepoCell {
   readonly runtime: Pick<AgentRuntimeStreamHub, "publish" | "issueWitnessToken" | "bindWitness">;
   readonly status: () => RepoCellStatus;
   readonly statusCuts: () => Pick<RepoCellStatus, "projectionWatermark" | "ledgerRevision"> | null;
+  readonly inFlightWork: () => readonly RepoInFlightWork[];
   /** Waits for the event-derived Git follower while the caller's writer epoch is current. */
   readonly settlePendingMaterialization: (context: string) => Promise<void>;
   readonly close: () => Promise<void>;
