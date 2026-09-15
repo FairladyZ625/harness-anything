@@ -243,7 +243,7 @@ test(
           output?.(
             `${JSON.stringify({ type: "thread.started", thread_id: "provider-schedules" })}\n` +
               `${JSON.stringify({ type: "item.completed", item: { id: "write", type: "file_change", status: "completed" } })}\n` +
-              `${JSON.stringify({ type: "item.completed", item: { id: "message", type: "agent_message", text: "done" } })}\n` +
+              `${JSON.stringify({ type: "item.completed", item: { id: "message", type: "agent_message", text: "done\nHARNESS-OUTCOME: succeeded" } })}\n` +
               `${JSON.stringify({ type: "turn.completed" })}\n`,
           );
           const pending = attached.initial.ok ? [...attached.initial.events] : [];
@@ -251,7 +251,12 @@ test(
             const event = pending.shift() ?? (await attached.next());
             assert.notEqual(event, null, "runtime attach stream closed before provider activity arrived");
             assert.notEqual(event?.type, "exit", "runtime exited before provider activity was consumed");
-            if (event?.type === "activity" && event.activity === "message" && event.content === "done") break;
+            if (
+              event?.type === "activity" &&
+              event.activity === "message" &&
+              event.content === "done\nHARNESS-OUTCOME: succeeded"
+            )
+              break;
           }
         } finally {
           attached.detach();

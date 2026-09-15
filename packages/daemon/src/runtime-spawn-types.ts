@@ -18,6 +18,7 @@ import type {
   AgentPermissionMode,
   AgentRole,
   AgentSkillDeclarationV1,
+  ScheduleRunOutcome,
 } from "../../kernel/src/index.ts";
 import type { PreparedRuntimeLaunch, RuntimeInstanceKind, RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
 import type { AgentRuntimeStreamHub, AgentRuntimeNativeSignal } from "./agent-runtime-stream.ts";
@@ -117,7 +118,7 @@ export interface RuntimeAttemptTerminal {
   readonly dispatchId: string;
   readonly task: RuntimeLeaseScope | null;
   readonly schedule: TrustedScheduleRuntime | null;
-  readonly outcome: "succeeded" | "failed";
+  readonly outcome: ScheduleRunOutcome;
   readonly reason: string | null;
   readonly endedAt: string;
   readonly resultRef: string | null;

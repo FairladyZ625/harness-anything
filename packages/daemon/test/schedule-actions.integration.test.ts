@@ -271,7 +271,7 @@ test("run-now launches only after an applied claim, stays single-flight, and set
       output?.(
         `${JSON.stringify({ type: "thread.started", thread_id: "provider-schedule" })}\n` +
           `${JSON.stringify({ type: "item.completed", item: { id: "write", type: "file_change", status: "completed" } })}\n` +
-          `${JSON.stringify({ type: "item.completed", item: { id: "message", type: "agent_message", text: "done" } })}\n` +
+          `${JSON.stringify({ type: "item.completed", item: { id: "message", type: "agent_message", text: "done\nHARNESS-OUTCOME: succeeded" } })}\n` +
           `${JSON.stringify({ type: "turn.completed" })}\n`,
       );
       exit?.(0);
@@ -503,7 +503,7 @@ test("run-now launches only after an applied claim, stays single-flight, and set
       );
       output?.(
         `${JSON.stringify({ type: "thread.started", thread_id: "provider-schedule-restart" })}\n` +
-          `${JSON.stringify({ type: "item.completed", item: { id: "message", type: "agent_message", text: "done" } })}\n` +
+          `${JSON.stringify({ type: "item.completed", item: { id: "message", type: "agent_message", text: "done\nHARNESS-OUTCOME: succeeded" } })}\n` +
           `${JSON.stringify({ type: "turn.completed" })}\n`,
       );
       exit?.(0);
