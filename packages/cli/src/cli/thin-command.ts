@@ -116,15 +116,22 @@ export function renderThinHelp(
       ),
       ...clientLocalCommands,
     ],
-    visible = commandPrefix
-      ? rows.filter(({ usage }) => usage === commandPrefix || usage.startsWith(`${commandPrefix} `))
+    commandWords = commandPrefix?.split(" ") ?? [],
+    matchedPrefix = commandWords
+      .map((_, dropped) => commandWords.slice(0, commandWords.length - dropped).join(" "))
+      .find(
+        (prefix) =>
+          prefix.split(" ").length > 2 && rows.some(({ usage }) => usage === prefix || usage.startsWith(`${prefix} `)),
+      ),
+    visible = matchedPrefix
+      ? rows.filter(({ usage }) => usage === matchedPrefix || usage.startsWith(`${matchedPrefix} `))
       : domain
         ? rows.filter(({ usage }) => usage.split(" ")[1] === domain)
         : rows,
     groups = commandDomains,
     body = domain
       ? [
-          commandPrefix ? `Command ${commandPrefix}:` : `Commands for ${domain}:`,
+          matchedPrefix ? `Command ${matchedPrefix}:` : `Commands for ${domain}:`,
           ...visible.map(({ usage, summary, help }) => `  ${usage}\n    ${summary}${help ? `\n${help}` : ""}`),
         ]
       : [
