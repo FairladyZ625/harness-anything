@@ -160,13 +160,27 @@ export function scanDocCandidates(input: {
       classification = classifyTextualArtifactPath(logical),
       rawClassification = classifyRawArtifactPath(document),
       rawTaskArtifactCandidate = rawClassification !== null,
-      taskArtifactCandidate =
+      taskArtifactAddAction =
         claimingTaskId !== null &&
+        taskDirectory !== null &&
+        /^tasks\/[^/]+\/artifacts\//u.test(document) &&
+        baseDocumentIsNew(projected)
+          ? formatShellCommand("ha", [
+              "task",
+              "artifact",
+              "add",
+              claimingTaskId,
+              "--source",
+              `${sourcePrefix ? `${sourcePrefix}/` : ""}${logical}`,
+              "--destination",
+              logical.slice(`tasks/${taskDirectory}/`.length),
+            ])
+          : null,
+      taskArtifactCandidate =
         rawTaskArtifactCandidate &&
         fileSize !== null &&
         fileSize > DOC_SYNC_INLINE_MAX_BYTES &&
-        /^tasks\/[^/]+\/artifacts\//u.test(document) &&
-        baseDocumentIsNew(projected),
+        taskArtifactAddAction !== null,
       existingMediaType = classifyTextualArtifactPath(logical)?.mediaType ?? null,
       rawBytes = inventoried
         ? inventoried.bytes
@@ -218,19 +232,9 @@ export function scanDocCandidates(input: {
         "ha task artifact add",
       );
     if (taskArtifactCandidate) {
-      const nextAction = formatShellCommand("ha", [
-        "task",
-        "artifact",
-        "add",
-        claimingTaskId,
-        "--source",
-        `${sourcePrefix ? `${sourcePrefix}/` : ""}${logical}`,
-        "--destination",
-        logical.slice(`tasks/${taskDirectory}/`.length),
-      ]);
       return scannedCandidateRow(
         "inapplicable",
-        `task artifact is outside doc sync; publish it with ${nextAction}`,
+        `task artifact is outside doc sync; publish it with ${taskArtifactAddAction}`,
         bytes,
         base,
         candidate,
@@ -293,13 +297,15 @@ export function scanDocCandidates(input: {
       return scannedCandidateRow(
         "blocked",
         `${logical} is ${fileSize} bytes; doc sync accepts at most ${DOC_SYNC_INLINE_MAX_BYTES} bytes; ` +
-          "send raw content through the blob content contract",
+          (taskArtifactAddAction === null
+            ? "send raw content through the blob content contract"
+            : `publish it with ${taskArtifactAddAction}`),
         null,
         projected.document?.blobSha256 ?? null,
         null,
         classification.mediaType,
         "doc_candidate_too_large",
-        "blob-content",
+        taskArtifactAddAction === null ? "blob-content" : "ha task artifact add",
         null,
         fileSize,
       );
