@@ -676,6 +676,140 @@ export const runtimeKinds = [
       gracefulCancel: "unverified",
     },
   },
+  {
+    kindId: "gemini",
+    protocolFamily: "acp",
+    displayName: "Gemini (ACP)",
+    defaultProviderId: "google",
+    executable: {
+      command: "gemini",
+      configDirectory: ".gemini",
+      configHomeEnvironment: "GEMINI_CLI_HOME",
+      // oauth_creds.json exists locally, but the ACP handshake only supports
+      // key-based methods, so no auth file is linked.
+      authFile: null,
+      modelProbe: null,
+      modelProbeFormat: "json-models",
+    },
+    declaredCapabilities: ["structured_witness", "resume", "attach", "session_identity"] as const,
+    configuration: {
+      fields: {},
+      publicFields: {},
+      publicDefaults: {},
+    },
+    auth: {
+      // Advertised methods are [oauth-personal, gemini-api-key, vertex-ai]; the
+      // bridge cannot drive an interactive OAuth flow, so only the api-key
+      // call path is offered. The key rides the launch manifest into
+      // authenticate's _meta.api_key.
+      shape: "separate",
+      modes: ["api-key"],
+      subscriptionProbe: ["--version"],
+      subscriptionProbeTimeoutMs: 10_000,
+      acpAuthMethod: "gemini-api-key",
+    },
+    isolation: { defaultState: "operator-environment", states: ["enforced", "operator-environment"] },
+    permissions: { available: true, defaultMode: "bypass" },
+    launch: {
+      input: "stdin",
+      streamFormat: "jsonl",
+      resumeFlag: "session/load",
+      // --acp replaced the deprecated --experimental-acp flag in gemini-cli
+      // 0.59; older builds only accept the experimental spelling.
+      argumentTemplate: ["--acp", "--model", "$model"],
+      permissionArgs: { bypass: [], "workspace-write": [], "read-only": [] },
+    },
+    sessionIdentity: {
+      eventDiscriminator: null,
+      eventIdField: "sessionId",
+      environmentFields: [],
+      transcriptReachability: "dispatch_stream_only",
+      everyFrame: true,
+    },
+    gui: { modelFamily: "gemini-only", effort: "none", effortValues: [] },
+    capabilities: {
+      ...sharedCapabilities,
+      sessionIdEveryFrame: "supported",
+      toolAllowlist: "unsupported",
+      toolDenylist: "unsupported",
+      turnLimit: "unsupported",
+      configurationIsolation: "supported",
+      permissionVocabulary: "supported",
+      independentSandbox: "unverified",
+      approvalEvent: "supported",
+      effort: "unsupported",
+      mcp: "unverified",
+      cwdRestriction: "unverified",
+      gracefulCancel: "unverified",
+    },
+  },
+  {
+    kindId: "opencode",
+    protocolFamily: "acp",
+    displayName: "OpenCode",
+    defaultProviderId: "opencode",
+    executable: {
+      // ACP mode needs opencode >= 1.18 (`opencode acp`); older brew builds
+      // answer nothing on stdio.
+      command: "opencode",
+      configDirectory: ".local/share/opencode",
+      configHomeEnvironment: null,
+      authFile: "auth.json",
+      // Models arrive on session/new configOptions; the CLI exposes no
+      // model-listing subcommand.
+      modelProbe: null,
+      modelProbeFormat: "json-models",
+    },
+    declaredCapabilities: ["structured_witness", "resume", "attach", "session_identity"] as const,
+    configuration: {
+      fields: {},
+      publicFields: {},
+      publicDefaults: {},
+    },
+    auth: {
+      shape: "subscription-only",
+      modes: ["subscription"],
+      subscriptionProbe: ["--version"],
+      subscriptionProbeTimeoutMs: 10_000,
+      // `opencode-login` consumes the linked auth.json and accepts an empty
+      // api_key; it is the only advertised method.
+      acpAuthMethod: "opencode-login",
+    },
+    isolation: { defaultState: "operator-environment", states: ["enforced", "operator-environment"] },
+    permissions: { available: true, defaultMode: "bypass" },
+    launch: {
+      input: "stdin",
+      streamFormat: "jsonl",
+      resumeFlag: "session/load",
+      argumentTemplate: ["acp"],
+      permissionArgs: { bypass: [], "workspace-write": [], "read-only": [] },
+    },
+    sessionIdentity: {
+      eventDiscriminator: null,
+      eventIdField: "sessionId",
+      environmentFields: [],
+      transcriptReachability: "dispatch_stream_only",
+      everyFrame: true,
+    },
+    gui: { modelFamily: "open", effort: "none", effortValues: [] },
+    capabilities: {
+      ...sharedCapabilities,
+      sessionIdEveryFrame: "supported",
+      toolAllowlist: "unsupported",
+      toolDenylist: "unsupported",
+      turnLimit: "unsupported",
+      configurationIsolation: "supported",
+      // session/new advertises configOptions but no permission modes, so no
+      // permission vocabulary can be negotiated.
+      permissionVocabulary: "unsupported",
+      independentSandbox: "unverified",
+      approvalEvent: "unverified",
+      effort: "unsupported",
+      mcp: "unverified",
+      cwdRestriction: "unverified",
+      gracefulCancel: "unverified",
+    },
+  },
 ] as const satisfies readonly RuntimeProviderDeclaration[];
 
 export type RuntimeProtocolFamily = (typeof runtimeKinds)[number]["protocolFamily"];

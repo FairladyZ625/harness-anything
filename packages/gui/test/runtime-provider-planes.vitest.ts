@@ -217,6 +217,8 @@ describe("provider planes (2026-08-20 adjudication)", () => {
       "codex-acp",
       "cursor",
       "devin",
+      "gemini",
+      "opencode",
       "zcode",
     ]);
   });

@@ -95,6 +95,8 @@ export const runtimeKindIds = Object.freeze([
   "cursor",
   "codex-acp",
   "claude-acp",
+  "gemini",
+  "opencode",
 ] as const);
 export type RuntimeKindId = (typeof runtimeKindIds)[number];
 export interface RuntimeResultClaim {

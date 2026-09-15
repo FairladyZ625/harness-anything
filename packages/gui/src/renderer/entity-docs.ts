@@ -186,7 +186,7 @@ export const KERNEL_ENTITY_CONTRACT = Object.freeze({
       },
       {
         field: "kindId",
-        words: ["claude", "codex", "agy", "zcode", "devin", "cursor", "codex-acp", "claude-acp"],
+        words: ["claude", "codex", "agy", "zcode", "devin", "cursor", "codex-acp", "claude-acp", "gemini", "opencode"],
       },
     ],
     actions: ["create", "update", "delete", "probe"],
@@ -584,7 +584,7 @@ const runtimeInstanceDoc: EntityKindDoc = {
   ...kernelContract("runtime-instance"),
   storage: "本机 daemon user-root(runtime-instances.json);不随仓库同步",
   definition:
-    "可创建、停用和删除的 provider 配置实例。kind 是实例属性而不是独立实体:claude / codex / agy / zcode / devin / cursor / codex-acp / claude-acp " +
+    "可创建、停用和删除的 provider 配置实例。kind 是实例属性而不是独立实体:claude / codex / agy / zcode / devin / cursor / codex-acp / claude-acp / gemini / opencode " +
     "选择内置适配器;认证面为 subscription 或 api-key,隔离面为 enforced 或 operator-environment。",
   fields: [
     field("instanceId", true, "string", "本机 daemon 内稳定的实例 ID。"),
@@ -593,7 +593,7 @@ const runtimeInstanceDoc: EntityKindDoc = {
       "kindId",
       true,
       "enum",
-      "内置适配器词表:claude / codex / agy / zcode / devin / cursor / codex-acp / claude-acp。",
+      "内置适配器词表:claude / codex / agy / zcode / devin / cursor / codex-acp / claude-acp / gemini / opencode。",
     ),
     field("enabled", true, "boolean", "是否允许该实例参与派工。"),
   ],

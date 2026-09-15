@@ -57,6 +57,8 @@ export const planeAllowsPermissions = (kindId: string): boolean => runtimeProvid
  * single-state declaration has nothing to pick and the field is not offered. */
 export const planeAllowsIsolation = (kindId: string): boolean => runtimeKindForId(kindId).isolation.states.length > 1;
 /** Rejects an auth mode the plane does not have, so a stale form value cannot survive a kind switch. */
-export const planeAuthMode = (kindId: string, requested: RuntimeAuthMode): RuntimeAuthMode =>
-  runtimeProviderPlane(kindId).authModes.includes(requested) ? requested : "subscription";
+export const planeAuthMode = (kindId: string, requested: RuntimeAuthMode): RuntimeAuthMode => {
+  const modes = runtimeProviderPlane(kindId).authModes;
+  return modes.includes(requested) ? requested : (modes[0] ?? "subscription");
+};
 export const planeModelHint = (kindId: string): string => runtimeProviderPlane(kindId).modelFamily;

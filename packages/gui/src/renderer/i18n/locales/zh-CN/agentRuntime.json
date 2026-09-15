@@ -444,5 +444,9 @@
   "agentRuntime.plane_codex-acp": "只有 ChatGPT 登录态;经 codex-acp 适配器走 ACP 协议接入。",
   "agentRuntime.modelHint_codex-acp": "只接受 codex 系模型;推理强度随会话模型选择器下发。",
   "agentRuntime.plane_claude-acp": "只有 Claude 登录态;经 claude-agent-acp 适配器走 ACP 协议接入。",
-  "agentRuntime.modelHint_claude-acp": "只接受 claude 系模型;强度随会话模型选择器下发。"
+  "agentRuntime.modelHint_claude-acp": "只接受 claude 系模型;强度随会话模型选择器下发。",
+  "agentRuntime.plane_gemini": "只有 Gemini API key 调用方式;经 ACP 协议接入。",
+  "agentRuntime.modelHint_gemini": "只接受 gemini 系模型。",
+  "agentRuntime.plane_opencode": "只有 OpenCode 登录态;经 ACP 协议接入。",
+  "agentRuntime.modelHint_opencode": "开放模型名,按实例自填;模型目录随会话建立下发。"
 }
