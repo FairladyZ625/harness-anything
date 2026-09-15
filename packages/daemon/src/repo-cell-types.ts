@@ -28,6 +28,7 @@ import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { type RepoBootstrapReceipt } from "./repo-bootstrap.ts";
 import { type TerminalHost, type TrustedTerminalLaunch } from "./terminal-host.ts";
 import type { WriterEpochFenceDescriptor } from "./writer-epoch.ts";
+import { createLedgerBackup, type DaemonRegistryRepo } from "../../kernel/src/index.ts";
 
 export type RepoTaskAction = Readonly<Record<string, unknown>> & {
   readonly kind: string;
@@ -173,6 +174,15 @@ export interface RepoCell {
   readonly inFlightWork: () => readonly RepoInFlightWork[];
   /** Waits for the event-derived Git follower while the caller's writer epoch is current. */
   readonly settlePendingMaterialization: (context: string) => Promise<void>;
+  readonly backup?: (input: {
+    readonly kind: "backup" | "drill";
+    readonly backupDir: string;
+    readonly shadowParent?: string;
+    readonly registration: DaemonRegistryRepo;
+    readonly writerEpoch: number;
+  }) => Promise<
+    ReturnType<typeof createLedgerBackup> | ReturnType<typeof import("./repo-all-purge.ts").drillRepoBackup>
+  >;
   readonly close: () => Promise<void>;
 }
 

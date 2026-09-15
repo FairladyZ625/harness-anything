@@ -128,7 +128,14 @@ function withFixture(run) {
             },
             {
               id: "workspace.bootstrap",
-              actions: ["repo-bootstrap", "daemon-repo-register", "repo-unbind", "repo-purge"],
+              actions: [
+                "repo-bootstrap",
+                "daemon-repo-register",
+                "ledger-backup",
+                "ledger-restore-drill",
+                "repo-unbind",
+                "repo-purge",
+              ],
               authority: "packages/daemon/src/daemon-host.ts",
               evidence: ["packages/daemon/src/daemon-host.ts"],
             },

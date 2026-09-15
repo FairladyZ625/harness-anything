@@ -119,6 +119,13 @@ export interface DaemonHost {
           readonly state?: "enabled" | "disabled";
         }
       | { readonly kind: "unbind"; readonly repoId: string }
+      | { readonly kind: "backup"; readonly rootDir: string; readonly backupDir: string }
+      | {
+          readonly kind: "restore-drill";
+          readonly rootDir: string;
+          readonly backupDir: string;
+          readonly shadowParent?: string;
+        }
       | {
           readonly kind: "purge";
           readonly repoId: string;

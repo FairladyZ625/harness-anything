@@ -148,6 +148,22 @@ test("repo lifecycle commands validate cache and destructive purge inputs", () =
   assert.equal(parseThinCommand(["repo", "purge", "canonical", "--scope", "cache", "--backup", backup]).ok, false);
 });
 
+test("backup and restore drill preserve their positional daemon routes", () => {
+  const backup = parseThinCommand(["backup", "/tmp/backup"]),
+    drill = parseThinCommand(["restore", "--drill", "/tmp/backup", "--shadow-parent", "/tmp/drills"]);
+  assert.equal(backup.ok, true);
+  assert.equal(drill.ok, true);
+  if (!backup.ok || !drill.ok) return;
+  assert.equal(backup.command.method, "daemon.repo.backup");
+  assert.deepEqual(backup.command.action, { kind: "ledger-backup", backupDir: "/tmp/backup" });
+  assert.equal(drill.command.method, "daemon.repo.restoreDrill");
+  assert.deepEqual(drill.command.action, {
+    kind: "ledger-restore-drill",
+    backupDir: "/tmp/backup",
+    shadowParent: "/tmp/drills",
+  });
+});
+
 test("entity import and update carry declared attributes as one typed JSON object", () => {
   const imported = parseThinCommand([
     "entity",
@@ -348,6 +364,7 @@ test("retired mutation migrations are explicitly absent from the thin router", (
 test("capabilities is an exact-set projection of the command contract", () => {
   assert.deepEqual(cliCapabilities, {
     agenda: ["agenda"],
+    backup: ["ledger-backup"],
     agent: [
       "agent-create",
       "agent-delete",
@@ -425,6 +442,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
     ],
     receipt: ["receipt-show"],
     relation: ["relation-list", "relation-reconfirm", "relation-relate", "relation-triples", "relation-unrelate"],
+    restore: ["ledger-restore-drill"],
     runtime: [
       "runtime-batch",
       "runtime-cancel",

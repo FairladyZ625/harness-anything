@@ -348,6 +348,7 @@ export async function openRepoCellProxy(
         }),
       ),
     settlePendingMaterialization: (context) => supervisor.request("settlePendingMaterialization", context),
+    backup: (request) => supervisor.request("backup", request),
     close: async () => {
       if (closed) return;
       closed = true;

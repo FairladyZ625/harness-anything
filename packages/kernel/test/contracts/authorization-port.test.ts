@@ -65,7 +65,10 @@ test("the default Policy covers the frozen durable inventory exactly once", () =
   // with authorization_denied in json-rpc-task-settlement.integration.test.ts, 113 → 114.
   // 2026-09-15 task_569d4d4c: task-annotate enters the durable inventory (CEO confirmed) — append-only execution
   // annotations are repository writes gated under repo-write alongside the other task lifecycle actions, 114 → 115.
-  assert.equal(durablePolicyActions.length, 115);
+  // 2026-09-15 task_5a50cbd3 / dec_102D74524FEF2F36FAD73B0EB7: ledger backup and restore drill move into the daemon as
+  // admin-only host Actions ledger-backup / ledger-restore-drill (owner ruling); a reader calling daemon.repo.backup or
+  // daemon.repo.restoreDrill is refused with authorization_denied in json-rpc-task-settlement.integration.test.ts, 115 → 117.
+  assert.equal(durablePolicyActions.length, 117);
   // 其余两条是自洽不变量,不需要第二个硬编码数字:清单内无重复(三个角色分段互不重叠),
   // 且每个 durable Action 恰好被一条 rule 覆盖。
   assert.equal(new Set(durablePolicyActions).size, durablePolicyActions.length);

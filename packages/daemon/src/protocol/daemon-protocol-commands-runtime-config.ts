@@ -50,6 +50,24 @@ export const builtInRuntimeProviderInputDeclaration = Object.freeze({
 });
 
 export const runtimeConfigProtocolCommands = Object.freeze([
+  defineHostAdminCommand({
+    id: "ledger-backup",
+    phase: "Repo-Lifecycle",
+    path: ["backup"],
+    syntaxPath: ["backup", "<absolute-directory>"],
+    summary: "Back up the registered repository through its daemon writer queue.",
+    method: "daemon.repo.backup",
+    inputs: [],
+  }),
+  defineHostAdminCommand({
+    id: "ledger-restore-drill",
+    phase: "Repo-Lifecycle",
+    path: ["restore", "--drill"],
+    syntaxPath: ["restore", "--drill", "<backup-directory>"],
+    summary: "Verify and restore-drill a backup through its repository daemon.",
+    method: "daemon.repo.restoreDrill",
+    inputs: [cliInput("--shadow-parent", "single", false, { code: "invalid_field" })],
+  }),
   defineCenterRepairWriteCommand({
     id: "daemon-projection-rebuild",
     phase: "B2-S1",

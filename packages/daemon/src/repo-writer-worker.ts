@@ -210,6 +210,9 @@ async function startRepoWriterWorker(): Promise<void> {
         case "settlePendingMaterialization":
           value = await cell.settlePendingMaterialization(String(request.payload));
           break;
+        case "backup":
+          value = await cell.backup!(request.payload as Parameters<NonNullable<typeof cell.backup>>[0]);
+          break;
         case "catalog": {
           const payload = request.payload as { method: keyof typeof cell.catalog; args: unknown[] };
           value = await (cell.catalog[payload.method] as (...args: unknown[]) => unknown)(...payload.args);

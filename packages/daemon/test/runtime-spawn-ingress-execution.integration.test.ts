@@ -22,7 +22,7 @@ import {
   spawnCli,
 } from "./fixtures/runtime-ingress.ts";
 
-test("daemon ingress preserves executor-scoped task-bound runtime spawn", async (t) => {
+test("daemon ingress preserves executor-scoped task-bound runtime execution", async (t) => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-spawn-ingress-")),
     root = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),

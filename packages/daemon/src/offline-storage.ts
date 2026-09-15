@@ -1,12 +1,7 @@
 import path from "node:path";
 import {
-  createLedgerBackup,
-  drillLedgerBackup,
-  readDaemonRegistry,
   readOfflineLedgerEvents,
-  resolveHarnessLayout,
   restoreLedgerBackup,
-  restoreDrillRetentionFor,
   resolveActiveGeneration,
   runGenerationTwoConversion,
 } from "../../kernel/src/index.ts";
@@ -37,49 +32,6 @@ export function runOfflineStorageCommand(argv: readonly string[]): number {
       const exitCode = result.plan.ready ? 0 : 1;
       emitReceipt({ ok: result.plan.ready, exitCode, schema: "generation-conversion-receipt/v1", ...result });
       return exitCode;
-    }
-    if (argv[0] === "backup") {
-      const backupDir = positional(argv, 1, "backup requires an absolute destination directory"),
-        userRoot = daemonUserRoot(),
-        sourceRoot = resolveHarnessLayout(rootInput).rootDir,
-        repo = readDaemonRegistry({ userRoot }).repos.find(
-          (candidate) => candidate.state === "enabled" && candidate.canonicalRoot === sourceRoot,
-        );
-      // Registration is recorded when the root is registered; an unregistered ledger still backs up.
-      const manifest = createLedgerBackup({
-        rootInput,
-        backupDir,
-        generation,
-        ...(repo
-          ? {
-              registration: {
-                repoId: repo.repoId,
-                mode: repo.mode,
-                connectionId: repo.connectionId,
-                displayName: repo.displayName,
-                authoredBranch: repo.authoredBranch,
-                writerEpoch: currentWriterEpoch(userRoot, repo.repoId),
-              },
-            }
-          : {}),
-      });
-      emitReceipt({ ok: true, schema: "ledger-backup-receipt/v1", exitCode: 0, ...backupReceipt(backupDir, manifest) });
-      return 0;
-    }
-    if (argv[0] === "restore" && argv[1] === "--drill") {
-      const backupDir = positional(argv, 2, "restore --drill requires a backup directory"),
-        shadowParent = option(argv, "--shadow-parent") ?? path.join(rootInput, ".harness", "restore-drills"),
-        result = drillLedgerBackup({ backupDir, shadowParent, retention: restoreDrillRetentionFor(rootInput) });
-      emitReceipt({
-        ok: true,
-        schema: "ledger-restore-drill-receipt/v1",
-        exitCode: 0,
-        ...backupReceipt(backupDir, result.manifest),
-        shadowRoot: result.shadowRoot,
-        removedShadowRoots: result.removedShadowRoots,
-        warnings: result.warnings,
-      });
-      return 0;
     }
     if (argv[0] === "restore") {
       const backupDir = positional(argv, 1, "restore requires a backup directory"),
@@ -132,15 +84,6 @@ export function runOfflineStorageCommand(argv: readonly string[]): number {
   }
 }
 
-function currentWriterEpoch(userRoot: string, repoId: string): number {
-  const authority = openPersistentWriterEpoch({ stateRoot: path.join(userRoot, "fleet") });
-  try {
-    return authority.highWatermark(repoId);
-  } finally {
-    authority.close();
-  }
-}
-
 function advanceWriterEpoch(userRoot: string, repoId: string, minimum: number): number {
   const authority = openPersistentWriterEpoch({ stateRoot: path.join(userRoot, "fleet") });
   try {
@@ -155,7 +98,7 @@ function emitReceipt(receipt: Record<string, unknown>): void {
 }
 export function backupReceipt(
   backupDir: string,
-  manifest: ReturnType<typeof createLedgerBackup>,
+  manifest: ReturnType<typeof import("../../kernel/src/index.ts").createLedgerBackup>,
 ): Record<string, unknown> {
   return {
     backupDir,

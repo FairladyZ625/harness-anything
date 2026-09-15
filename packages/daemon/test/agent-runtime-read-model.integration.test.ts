@@ -36,6 +36,11 @@ import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts"
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
 import type { DaemonHost } from "../src/daemon-host.ts";
+import { parseProviderFrame } from "../src/runtime-spawn-provider-frames.ts";
+import { consumeProviderLine } from "../src/runtime-spawn-provider-stream.ts";
+import { validateAgentRuntimeSession } from "../src/agent-runtime-contract.ts";
+import { readRuntimeSessionActivityEvidence } from "../src/dispatch-read.ts";
+import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/dispatch-stream.ts";
 
 const actor = { principal: { personId: "person-runtime" }, executor: null } as const;
 test("runtime read facets expose safe overview/session/events through the shared contract registry", () =>
@@ -674,4 +679,413 @@ function initRepo(rootDir: string): void {
 }
 function git(rootDir: string, ...args: readonly string[]): string {
   return execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8" }).trim();
+}
+
+test("runtime overview pages at the server before DTO and dispatch expansion", () => {
+  const session = (runtimeSessionId: string): RuntimeSession => ({
+      runtimeSessionId,
+      instanceId: "instance-1",
+      installationId: "installation-1",
+      kindId: "codex",
+      definitionSnapshotRef: "artifact:runtime-definition/test",
+      providerSessionId: null,
+      transcriptRef: null,
+      launchGeneration: 1,
+      liveness: "live",
+      attachable: false,
+      taskBindings: [],
+      outcome: null,
+      exitCode: null,
+      resultRef: null,
+      lastObservedAt: "2026-09-12T00:00:00.000Z",
+    }),
+    rows = Array.from({ length: 12 }, (_, index) => session(`runtime-${String(index).padStart(2, "0")}`));
+  let unboundedReads = 0,
+    exactDispatchReads = 0,
+    batchDispatchReads = 0,
+    pageQuery: unknown;
+  const dispatches = rows.map(
+      ({ runtimeSessionId }) =>
+        ({
+          type: "runtime_dispatch_requested",
+          payload: { runtimeSessionId, definitionSnapshotRef: "artifact:runtime-definition/test" },
+        }) as AgentRuntimeEventV1,
+    ),
+    projection = {
+      readCut: () => ({ status: "ready", watermark: 1 }),
+      readRuntimeSessionPage: (query: unknown) => (
+        (pageQuery = query),
+        { rows, nextRuntimeSessionId: "runtime-11", remainingCount: 13 }
+      ),
+      readRuntimeSessions: () => ((unboundedReads += 1), rows),
+      readRuntimeInstallations: () => [],
+      readRuntimeDispatches: () => ((batchDispatchReads += 1), dispatches),
+      readRuntimeDispatch: () => ((exactDispatchReads += 1), null),
+      currentLease: () => null,
+    };
+  const overview = makeAgentRuntimeReadModel({
+    store: {} as never,
+    projection: projection as never,
+    stream: { latestCursor: () => "stream:0" } as never,
+  }).overview({ limit: 12 });
+  assert.equal(overview.sessions.length, 12);
+  assert.equal(unboundedReads, 0);
+  assert.equal(exactDispatchReads, 0);
+  assert.equal(batchDispatchReads, 1);
+  assert.deepEqual(pageQuery, { limit: 12 });
+  assert.deepEqual(overview.page, {
+    limit: 12,
+    cursor: null,
+    nextCursor: "runtime-session:runtime-11",
+    remainingCount: 13,
+  });
+});
+
+test("provider output publication does not scale full projection reads with line count", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-runtime-publish-projection-"));
+  git(rootDir, "init", "-q");
+  git(rootDir, "config", "user.name", "Runtime Projection Test");
+  git(rootDir, "config", "user.email", "runtime-projection@example.invalid");
+  git(rootDir, "commit", "--allow-empty", "-qm", "base");
+
+  const store = makeTaskEventStore({ repoId: "runtime-projection", rootDir });
+  const projection = makeTaskProjection({ rootDir, eventStore: store });
+  const session: RuntimeSession = {
+    runtimeSessionId: "runtime-session",
+    instanceId: "instance-runtime",
+    installationId: "installation-runtime",
+    kindId: "codex",
+    definitionSnapshotRef: "artifact:runtime-definition/test",
+    providerSessionId: null,
+    transcriptRef: null,
+    launchGeneration: 1,
+    liveness: "live",
+    attachable: true,
+    taskBindings: [],
+    outcome: null,
+    exitCode: null,
+    resultRef: null,
+    lastObservedAt: "2026-08-13T00:00:00.000Z",
+  };
+  let fullProjectionReads = 0;
+  const stream = makeAgentRuntimeStreamHub({
+    readSession: (runtimeSessionId) => {
+      fullProjectionReads += 1;
+      projection.list();
+      return runtimeSessionId === session.runtimeSessionId ? session : null;
+    },
+    canAttach: ({ attachable }) => attachable,
+    now: () => new Date("2026-08-13T00:00:00.000Z"),
+  });
+  const active = {
+    runtimeSessionId: session.runtimeSessionId,
+    kindId: "codex",
+    stream: { appendProviderEvent: () => undefined },
+    durableOutputCount: 0,
+    finalText: null,
+    failureText: null,
+    providerOutcome: null,
+    writeItemObserved: false,
+    planObserved: false,
+    planIncomplete: false,
+    protocolError: false,
+  } as never;
+  const context = {
+    input: { stream, now: () => "2026-08-13T00:00:00.000Z" },
+    parseProviderFrame,
+    bindProvider: async () => undefined,
+    markProtocolError: () => assert.fail("valid provider output was rejected"),
+    isStructuredSuccessResult: () => false,
+  };
+
+  try {
+    for (let index = 0; index < 1_000; index += 1)
+      await consumeProviderLine(
+        context,
+        active,
+        JSON.stringify({
+          type: "item.completed",
+          item: { type: "agent_message", text: `line-${index}` },
+        }),
+      );
+
+    assert.equal(fullProjectionReads, 0);
+    const attached = stream.attach(session.runtimeSessionId, "stream:1000");
+    assert.equal(attached.initial.ok, true);
+    attached.detach();
+    stream.issueWitnessToken(session.runtimeSessionId, {
+      principalId: "person-owner",
+      source: "local",
+    });
+    assert.equal(fullProjectionReads, 2);
+  } finally {
+    stream.close();
+    projection.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("runtime reads retain a session whose installation witness is missing", (t) =>
+  withMissingInstallationRuntime(false, ({ reads }) => {
+    const overview = reads.overview({}),
+      session = overview.sessions[0]!;
+    assert.equal(overview.status, "ready");
+    assert.equal(session.runtimeSessionId, "runtime-historical");
+    assert.equal(session.kindId, "claude");
+    assert.equal(session.attachCapability, "unsupported");
+    assert.equal(session.installationState, "missing");
+    assert.deepEqual(session.installationError, {
+      code: "runtime_installation_not_found",
+      hint: "Runtime installation installation-missing was not found.",
+    });
+    assert.deepEqual(validateAgentRuntimeOverview(overview), []);
+    const single = reads.session({ runtimeSessionId: session.runtimeSessionId });
+    assert.deepEqual(single.session, session);
+    assert.deepEqual(validateAgentRuntimeSession(single), []);
+    t.diagnostic(JSON.stringify({ status: overview.status, session }));
+  }));
+
+test("an installation-backed session DTO remains byte-for-byte unchanged", () =>
+  withMissingInstallationRuntime(true, ({ reads }) => {
+    const session = reads.overview({}).sessions[0]!;
+    assert.equal(
+      JSON.stringify(session),
+      JSON.stringify({
+        runtimeSessionId: "runtime-historical",
+        providerSessionId: null,
+        instanceId: "instance-historical",
+        installationId: "installation-present",
+        kindId: "claude",
+        definitionSnapshotRef: "artifact:runtime-definition/test",
+        definitionSnapshot: historicalDefinition("installation-present"),
+        definitionSnapshotPersisted: false,
+        liveness: "live",
+        semanticState: "running",
+        attachCapability: "supported",
+        streamCursor: "stream:0",
+        associations: [],
+        activity: {
+          lastObservedAt: "2026-09-03T00:00:03.000Z",
+          outcome: null,
+          exitCode: null,
+          resultRef: null,
+          missingEvidence: null,
+        },
+      }),
+    );
+    assert.equal(Object.hasOwn(session, "installationState"), false);
+    assert.equal(Object.hasOwn(session, "installationError"), false);
+  }));
+
+test("live dispatch evidence repairs an unknown session and advances its observed time", () =>
+  withMissingInstallationRuntime(true, ({ store, projection, stream }) => {
+    const unknownProjection = new Proxy(projection, {
+        get: (target, property, receiver) => {
+          if (property === "readRuntimeSessions")
+            return () =>
+              target.readRuntimeSessions().map((session) => ({
+                ...session,
+                liveness: "unknown" as const,
+                attachable: false,
+              }));
+          if (property === "readRuntimeSession")
+            return (runtimeSessionId: string) => {
+              const session = target.readRuntimeSession(runtimeSessionId);
+              return session ? { ...session, liveness: "unknown" as const, attachable: false } : null;
+            };
+          const value = Reflect.get(target, property, receiver);
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      }),
+      reads = makeAgentRuntimeReadModel({
+        readActivityEvidence: () => ({
+          lastObservedAt: "2026-09-06T01:45:42.460Z",
+          workerHostAlive: true,
+        }),
+        store,
+        projection: unknownProjection,
+        stream,
+      });
+    for (const session of [
+      reads.overview({}).sessions[0]!,
+      reads.session({ runtimeSessionId: "runtime-historical" }).session,
+    ]) {
+      assert.equal(session.liveness, "live");
+      assert.equal(session.semanticState, "running");
+      assert.equal(session.attachCapability, "supported");
+      assert.equal(session.activity.lastObservedAt, "2026-09-06T01:45:42.460Z");
+    }
+  }));
+
+test("runtime overview remains available without a local dispatch stream", () =>
+  withMissingInstallationRuntime(true, ({ rootDir, store, projection, stream }) => {
+    const reads = makeAgentRuntimeReadModel({
+      readActivityEvidence: (dispatchId) => readRuntimeSessionActivityEvidence(rootDir, dispatchId),
+      store,
+      projection,
+      stream,
+    });
+    const overview = reads.overview({});
+    assert.equal(overview.ok, true);
+    assert.equal(overview.sessions[0]?.runtimeSessionId, "runtime-historical");
+  }));
+
+test("session reads carry the dispatch stream's latest runtime metrics", () =>
+  withMissingInstallationRuntime(true, ({ rootDir, store, projection, stream }) => {
+    openDispatchStream(rootDir, {
+      dispatchId: "dispatch_000000000000000000000001",
+      taskId: null,
+      executionId: null,
+      runtimeSessionId: "runtime-historical",
+      instanceId: "instance-historical",
+      startedAt: "2026-09-03T00:00:00.000Z",
+    });
+    appendRuntimeWorkerRecord(rootDir, "dispatch_000000000000000000000001", {
+      kind: "runtime_metrics",
+      inputTokens: 1_200,
+      cacheReadTokens: 340,
+      outputTokens: 260,
+      totalTokens: 1_800,
+      toolCallCount: 17,
+      compacted: true,
+      raw: { input_tokens: 1_200, output_tokens: 260 },
+    });
+    const reads = makeAgentRuntimeReadModel({
+      readActivityEvidence: (dispatchId) => readRuntimeSessionActivityEvidence(rootDir, dispatchId),
+      store,
+      projection,
+      stream,
+    });
+    const single = reads.session({ runtimeSessionId: "runtime-historical" });
+    assert.deepEqual(single.session.metrics, {
+      inputTokens: 1_200,
+      cacheReadTokens: 340,
+      outputTokens: 260,
+      totalTokens: 1_800,
+      toolCallCount: 17,
+      compacted: true,
+      usageUnavailable: false,
+    });
+    assert.deepEqual(validateAgentRuntimeSession(single), []);
+    assert.notEqual(
+      validateAgentRuntimeSession({
+        ...single,
+        session: { ...single.session, metrics: { ...single.session.metrics!, inputTokens: -1 } },
+      }).length,
+      0,
+    );
+  }));
+
+function withMissingInstallationRuntime(
+  installationPresent: boolean,
+  use: (fixture: {
+    readonly reads: ReturnType<typeof makeAgentRuntimeReadModel>;
+    readonly store: ReturnType<typeof makeTaskEventStore>;
+    readonly projection: ReturnType<typeof makeTaskProjection>;
+    readonly stream: ReturnType<typeof makeAgentRuntimeStreamHub>;
+    readonly rootDir: string;
+  }) => void,
+): void {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-runtime-missing-installation-"));
+  let projection: ReturnType<typeof makeTaskProjection> | undefined;
+  try {
+    execFileSync("git", ["-C", rootDir, "init", "-q"]);
+    execFileSync("git", ["-C", rootDir, "config", "user.name", "Runtime Test"]);
+    execFileSync("git", ["-C", rootDir, "config", "user.email", "runtime@example.invalid"]);
+    execFileSync("git", ["-C", rootDir, "commit", "--allow-empty", "-qm", "base"]);
+    const store = makeTaskEventStore({ repoId: "runtime-missing-installation", rootDir });
+    projection = makeTaskProjection({ rootDir, eventStore: store });
+    const installationId = installationPresent ? "installation-present" : "installation-missing";
+    for (const event of events(installationId)) {
+      store.append({ event, plan: runtimeWritePlan(event), blobs: [] });
+      projection.apply(event);
+    }
+    const stream = makeAgentRuntimeStreamHub({
+      readSession: (runtimeSessionId) => projection!.readRuntimeSession(runtimeSessionId),
+      canAttach: () => true,
+    });
+    use({ reads: makeAgentRuntimeReadModel({ store, projection, stream }), store, projection, stream, rootDir });
+  } finally {
+    projection?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+}
+
+function events(installationId: string): readonly AgentRuntimeEventV1[] {
+  const snapshot = historicalDefinition(installationId);
+  return [
+    historicalEvent(
+      "runtime_installation_observed",
+      {
+        installationId: "installation-present",
+        kindId: "claude",
+        protocolFamily: "claude-compatible",
+        hostRef: "host:local",
+        version: "1.0.0",
+        discoverySource: "wrapper",
+        capabilities: ["structured_witness", "attach"],
+      },
+      1,
+    ),
+    historicalEvent(
+      "runtime_dispatch_requested",
+      {
+        dispatchId: "dispatch_000000000000000000000001",
+        runtimeSessionId: "runtime-historical",
+        instanceId: snapshot.instanceId,
+        installationId,
+        kindId: snapshot.kindId,
+        idempotencyKey: "historical-once",
+        definitionSnapshotRef: "artifact:runtime-definition/test",
+        definitionSnapshot: snapshot,
+      },
+      2,
+    ),
+    historicalEvent(
+      "runtime_session_started",
+      {
+        runtimeSessionId: "runtime-historical",
+        instanceId: snapshot.instanceId,
+        installationId,
+        kindId: snapshot.kindId,
+        definitionSnapshotRef: "artifact:runtime-definition/test",
+        launchGeneration: 1,
+        attachable: true,
+      },
+      3,
+    ),
+  ];
+}
+
+function historicalDefinition(installationId: string): AgentDefinitionSnapshot {
+  return {
+    authMode: "subscription",
+    baseUrl: null,
+    configVersion: 1,
+    installationId,
+    instanceId: "instance-historical",
+    kindId: "claude",
+    model: "claude-opus",
+    providerId: "anthropic",
+    reasoningEffort: null,
+    schema: "agent-definition-snapshot/v1",
+  };
+}
+
+function historicalEvent<T extends AgentRuntimeEventV1["type"]>(
+  type: T,
+  payload: Extract<AgentRuntimeEventV1, { readonly type: T }>["payload"],
+  revision: number,
+): AgentRuntimeEventV1 {
+  return {
+    schema: "agent-runtime-event/v1",
+    eventId: `event-${revision}`,
+    workspaceRevision: revision,
+    opId: `op-${revision}`,
+    actor,
+    source: "local",
+    occurredAt: `2026-09-03T00:00:0${revision}.000Z`,
+    type,
+    payload,
+  } as AgentRuntimeEventV1;
 }
