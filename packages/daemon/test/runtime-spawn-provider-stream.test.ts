@@ -13,9 +13,15 @@ import {
 } from "../src/runtime-spawn-provider-stream.ts";
 import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/dispatch-stream.ts";
 import { validateMissionCommands } from "../src/runtime-spawn-mission.ts";
-import { parseAgyFrame, parseProviderFrame, parseZcodeFrame } from "../src/runtime-spawn-provider-frames.ts";
+import {
+  parseAcpFrame,
+  parseAgyFrame,
+  parseProviderFrame,
+  parseZcodeFrame,
+} from "../src/runtime-spawn-provider-frames.ts";
+import { discoverRuntimeModelCatalog } from "../src/agent-runtime-installation-discovery.ts";
 
-function active(kindId = "codex", process = {} as never) {
+function active(kindId = "codex", process = {} as never, extras: Record<string, unknown> = {}) {
   return createActiveRuntime({
     runtimeSessionId: "runtime_aaaaaaaaaaaaaaaaaaaaaaaa",
     dispatchId: "dispatch_aaaaaaaaaaaaaaaaaaaaaaaa",
@@ -31,6 +37,7 @@ function active(kindId = "codex", process = {} as never) {
     binding: {} as never,
     process,
     stream: { appendProviderEvent: () => undefined } as never,
+    ...extras,
   } as never);
 }
 
@@ -203,6 +210,44 @@ test("identical provider frames without stable identity retain every write and s
 
   assert.deepEqual(appended, [frame, frame]);
   assert.equal(signals.length, 0);
+});
+
+test("acp.session frames surface the advertised model catalog and merge it into the installation catalog", async () => {
+  assert.deepEqual(
+    parseAcpFrame(
+      { type: "acp.session", models: ["swe-2-medium", "swe-2-high"], currentModelId: "swe-2-medium" },
+      "session-1",
+    ),
+    { observedModels: ["swe-2-medium", "swe-2-high"], observedCurrentModel: "swe-2-medium" },
+  );
+  // An agent that advertises no catalog produces no observation.
+  assert.deepEqual(parseAcpFrame({ type: "acp.session" }, "session-1"), {});
+  const runtime = active("devin", {} as never, {
+      installation: { executablePath: "/opt/stream-test/devin", version: "3000.10.27" },
+    }),
+    passthroughContext = { ...context(), parseProviderFrame } as never;
+  await consumeProviderLine(
+    passthroughContext,
+    runtime,
+    JSON.stringify({
+      type: "acp.session",
+      sessionId: "session-1",
+      modes: [],
+      currentMode: null,
+      models: ["swe-2-medium"],
+      currentModelId: "swe-2-medium",
+    }),
+  );
+  assert.deepEqual(
+    await discoverRuntimeModelCatalog({
+      platform: process.platform,
+      executablePath: "/opt/stream-test/devin",
+      kindId: "devin",
+      env: {},
+      version: "3000.10.27",
+    }),
+    { models: ["swe-2-medium"], defaultModel: "swe-2-medium" },
+  );
 });
 
 test("Codex empty turn usage is replaced by the matching session turn token count", async () => {

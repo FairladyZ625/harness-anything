@@ -20,7 +20,12 @@ import type {
   AgentSkillDeclarationV1,
   ScheduleRunOutcome,
 } from "../../kernel/src/index.ts";
-import type { PreparedRuntimeLaunch, RuntimeInstanceKind, RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
+import type {
+  PreparedRuntimeLaunch,
+  RuntimeInstallationWitness,
+  RuntimeInstanceKind,
+  RuntimeInstanceSummary,
+} from "./agent-runtime-instances.ts";
 import type { AgentRuntimeStreamHub, AgentRuntimeNativeSignal } from "./agent-runtime-stream.ts";
 import { type DispatchStreamWriter } from "./dispatch-stream.ts";
 import { type RuntimeDispatchArchive } from "./doc-sync-actions.ts";
@@ -155,6 +160,9 @@ export type ActiveRuntime = {
   readonly binding: RuntimeBinding;
   readonly task: RuntimeLeaseScope | null;
   readonly schedule: TrustedScheduleRuntime | null;
+  /** The witnessed installation backing this launch; absent on adopted sessions
+   * rebuilt from persisted streams, where the witness is no longer in scope. */
+  readonly installation?: Pick<RuntimeInstallationWitness, "executablePath" | "version">;
   readonly cwd: string;
   readonly prompt: string;
   readonly promptSource?: string;
@@ -213,6 +221,9 @@ export type ProviderFrame = {
   readonly toolCallObserved?: boolean;
   readonly providerUsageEmpty?: boolean;
   readonly providerFault?: RuntimeProviderFault;
+  /** Model ids the provider advertised on session establishment (ACP kinds). */
+  readonly observedModels?: readonly string[];
+  readonly observedCurrentModel?: string;
 };
 
 export type ResumeProcessEvent =

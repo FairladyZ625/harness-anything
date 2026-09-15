@@ -3,7 +3,8 @@
 // drives the JSON-RPC 2.0 handshake over the child's stdio, translating ACP
 // session traffic into the canonical dispatch-stream frame vocabulary:
 //
-//   {type:"acp.session", sessionId, modes, currentMode}   emitted once after session/new|load
+//   {type:"acp.session", sessionId, modes, currentMode, models?, currentModelId?}
+//                                                       emitted once after session/new|load
 //   {type:"acp.mode",    sessionId, requested, applied}   permission-mode mapping result
 //   {type:"acp.update",  sessionId, update, usage?}       whitelisted session/update kinds
 //   {type:"acp.result",  sessionId, stopReason, finalText, usage?}
@@ -219,8 +220,15 @@ export function runAcpProviderSession(
             mcpServers: [],
           })) as Record<string, unknown>);
       sessionId = typeof session.sessionId === "string" ? session.sessionId : manifest.providerSessionId!;
-      const modes = acpModes(session);
-      event({ type: "acp.session", modes: modes.available, currentMode: modes.current });
+      const modes = acpModes(session),
+        models = acpModels(session);
+      event({
+        type: "acp.session",
+        modes: modes.available,
+        currentMode: modes.current,
+        ...(models.available.length ? { models: models.available } : {}),
+        ...(models.current ? { currentModelId: models.current } : {}),
+      });
       const requested = manifest.permissionMode,
         applied = requested ? pickAcpMode(requested, modes.available) : null;
       if (applied && applied !== modes.current)
@@ -287,6 +295,40 @@ function acpModes(session: Record<string, unknown>): AcpModes {
         ? modes.currentModeId
         : isRecord(modeOption) && typeof modeOption.currentValue === "string"
           ? modeOption.currentValue
+          : null,
+  };
+}
+
+interface AcpModels {
+  readonly available: readonly string[];
+  readonly current: string | null;
+}
+
+// Agents advertise their model catalog two ways: the spec `models` block
+// (codex-acp, cursor) and a select configOption with category "model"
+// (devin, opencode — and cursor, which emits both). Both feed one list.
+function acpModels(session: Record<string, unknown>): AcpModels {
+  const models = isRecord(session.models) ? session.models : {},
+    availableModels = Array.isArray(models.availableModels) ? models.availableModels : [],
+    configOptions = Array.isArray(session.configOptions) ? session.configOptions : [],
+    modelOption = configOptions.filter(isRecord).find((option) => option.category === "model" || option.id === "model"),
+    optionValues =
+      isRecord(modelOption) && Array.isArray(modelOption.options)
+        ? modelOption.options.filter(isRecord).map((option) => option.value)
+        : [];
+  return {
+    available: [
+      ...new Set(
+        [...availableModels.filter(isRecord).map((model) => model.modelId), ...optionValues].filter(
+          (value): value is string => typeof value === "string",
+        ),
+      ),
+    ],
+    current:
+      typeof models.currentModelId === "string"
+        ? models.currentModelId
+        : isRecord(modelOption) && typeof modelOption.currentValue === "string"
+          ? modelOption.currentValue
           : null,
   };
 }

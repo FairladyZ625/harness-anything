@@ -5,6 +5,7 @@ import path from "node:path";
 import type { SessionIdentity } from "../../kernel/src/index.ts";
 import { consumeKnownError } from "../../kernel/src/index.ts";
 import { dispatchStreamPath, parseRecord, readDispatchStreamIncrement, scrubProviderValue } from "./dispatch-stream.ts";
+import { observeRuntimeModels } from "./agent-runtime-installation-discovery.ts";
 import type { ActiveRuntime, ProviderFrame, RuntimeBinding } from "./runtime-spawn-types.ts";
 import { transcriptRefForSessionIdentity } from "./session-identity/index.ts";
 import { observeProviderFault } from "./runtime-provider-fault.ts";
@@ -102,6 +103,16 @@ export async function consumeProviderLine(
     context.markProtocolError(active);
     return;
   }
+  // ACP session frames carry the provider's advertised model catalog; merge it
+  // into the installation catalog cache so refresh surfaces it like a CLI probe.
+  if (parsed.observedModels?.length && active.installation)
+    observeRuntimeModels({
+      kindId: active.kindId,
+      executablePath: active.installation.executablePath,
+      version: active.installation.version,
+      models: parsed.observedModels,
+      ...(parsed.observedCurrentModel ? { currentModel: parsed.observedCurrentModel } : {}),
+    });
   if (parsed.sessionIdentity?.sessionId) await context.bindProvider(active, parsed.sessionIdentity);
   if (publishSignals)
     for (const signal of parsed.signals ?? []) context.input.stream.publish(active.runtimeSessionId, signal);

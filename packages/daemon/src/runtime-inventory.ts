@@ -16,7 +16,7 @@ export interface RuntimeProviderDeclaration {
     readonly authFile: string | null;
     /** null means the provider exposes no model catalog; discovery leaves catalog fields unavailable. */
     readonly modelProbe: readonly string[] | null;
-    readonly modelProbeFormat: "aliases-from-help" | "json-models" | "tabular-models";
+    readonly modelProbeFormat: "aliases-from-help" | "json-models" | "json-families" | "tabular-models";
   };
   readonly declaredCapabilities: RuntimeInstallation["effectiveCapabilities"];
   readonly configuration: {
@@ -29,7 +29,11 @@ export interface RuntimeProviderDeclaration {
   readonly auth: {
     readonly shape: "subscription-only" | "api-override" | "separate";
     readonly modes: readonly RuntimeAuthMode[];
-    readonly subscriptionProbe: readonly string[];
+    /** Command probes run the argv and judge by exit code. A file-key probe checks
+     * that the declared `authFile` exists under the provider's config directory and
+     * that the `acpCredentialKey` entry is non-empty — for CLIs whose status command
+     * exits 0 whether or not credentials exist. */
+    readonly subscriptionProbe: readonly string[] | { readonly kind: "file-key" };
     readonly subscriptionProbeTimeoutMs: number;
     /** ACP agents delegate authentication to the host: the client sends the key in
      * `authenticate`'s `_meta.api_key`. API-key instances carry the resolved secret on
@@ -431,7 +435,7 @@ export const runtimeKinds = [
       // Requires authentication; exits non-zero when logged out, so a failed
       // probe simply yields no models.
       modelProbe: ["models", "list", "--format", "json"],
-      modelProbeFormat: "json-models",
+      modelProbeFormat: "json-families",
     },
     declaredCapabilities: ["structured_witness", "resume", "attach", "session_identity"] as const,
     configuration: {
@@ -443,9 +447,10 @@ export const runtimeKinds = [
       shape: "separate",
       modes: ["subscription", "api-key"],
       // `devin auth status` exits 0 whether or not credentials exist (verified
-      // 3000.10.21), so the probe is advisory; the ACP `authenticate` handshake is
-      // the authoritative check at launch time.
-      subscriptionProbe: ["auth", "status"],
+      // 3000.10.21). The credential the ACP `authenticate` handshake actually
+      // consumes is the windsurf_api_key entry in credentials.toml, so presence
+      // of that key is the meaningful local readiness check.
+      subscriptionProbe: { kind: "file-key" },
       subscriptionProbeTimeoutMs: 10_000,
       acpCredentialKey: "windsurf_api_key",
     },

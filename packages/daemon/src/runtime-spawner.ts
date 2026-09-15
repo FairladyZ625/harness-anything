@@ -720,6 +720,10 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       binding: activeBinding,
       task: taskBinding,
       schedule: trustedSchedule ?? null,
+      installation: {
+        executablePath: installation.executablePath,
+        version: installation.version,
+      },
       cwd,
       prompt,
       ...(promptSource ? { promptSource } : {}),

@@ -95,6 +95,8 @@ test("daemon ingress drives an ACP provider through the worker host", async () =
         }
       });
     assert.match(stream, /"type":"acp\.session"/u);
+    assert.match(stream, /"models":\["swe-2-medium","swe-2-high"\]/u);
+    assert.match(stream, /"currentModelId":"swe-2-medium"/u);
     assert.match(stream, /"sessionUpdate":"tool_call"/u);
     assert.match(stream, /"stopReason":"end_turn"/u);
     const outcome = makeTaskEventReader({ repoId, rootDir: root })
