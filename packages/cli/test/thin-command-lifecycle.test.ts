@@ -307,6 +307,17 @@ test("progress append preserves ordered duplicate evidence in its closed daemon 
     }
   }
   assert.equal(parseThinCommand(["task", "progress", "append", "task-1"]).ok, false);
+  const ownerBackfill = parseThinCommand([
+    "task",
+    "progress",
+    "append",
+    "task-1",
+    "--text",
+    "Post-release note",
+    "--as-owner",
+  ]);
+  assert.equal(ownerBackfill.ok, true, JSON.stringify(ownerBackfill));
+  if (ownerBackfill.ok) assert.equal(ownerBackfill.command.action.asOwner, true);
 });
 
 test("task submit uses closeout and rejects packet inputs while code-doc rejects retired witness flags", () => {

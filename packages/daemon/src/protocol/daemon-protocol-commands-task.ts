@@ -94,7 +94,7 @@ export const taskExecutionProtocolCommands = Object.freeze([
     id: "task-progress-append",
     phase: "W3",
     path: ["task", "progress", "append", "<task-id>"],
-    summary: "Append typed progress through the active task lease.",
+    summary: "Append typed progress through the active task lease, or backfill after release with --as-owner.",
     method: "repo.task.run",
     inputs: [
       cliInput("--text", "single", true, {
@@ -112,6 +112,7 @@ export const taskExecutionProtocolCommands = Object.freeze([
           regex: "^[a-z][a-z0-9_-]{0,31}:[^:]+:.+$",
         },
       ),
+      cliInput("--as-owner", "boolean", false, { code: "invalid_field" }, { field: "asOwner" }),
     ],
   }),
   defineLedgerWriteCommand({

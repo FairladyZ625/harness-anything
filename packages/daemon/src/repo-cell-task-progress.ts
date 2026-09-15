@@ -127,7 +127,13 @@ export function appendProgress(
     throw cell.cellCodedError("content_not_ready", `Task ${taskId} is not ready for progress append.`);
   const at = cell.now(),
     lease = cell.projection.currentLease(taskId, at),
-    executionId = typeof action.executionId === "string" ? action.executionId : (lease?.executionId ?? ""),
+    executionId =
+      typeof action.executionId === "string"
+        ? action.executionId
+        : (lease?.executionId ??
+          task.snapshot.executions.findLast((value) => value.iteration === task.snapshot.task?.iteration)
+            ?.executionId ??
+          ""),
     recoveryExecutionId =
       lease?.executionId ??
       task.snapshot.executions.find(
@@ -162,6 +168,8 @@ export function appendProgress(
     activeLease: lease,
     startRecoveryAvailable: canStartExecution(recoverySnapshot, recoveryExecutionId),
     ...(runtimeBinding ? { runtimeBinding } : {}),
+    asOwner: action.asOwner === true,
+    taskCreatedBy: task.snapshot.task.createdBy,
     actor: binding.actor,
     source: binding.source,
     eventId: `event-${createHash("sha256").update(opId).digest("hex")}`,

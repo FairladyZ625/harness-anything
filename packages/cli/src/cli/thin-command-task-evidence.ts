@@ -39,6 +39,7 @@ export function parseProgress(
     taskId,
     text: f.one.get("--text"),
     evidence,
+    ...(f.booleans.has("--as-owner") ? { asOwner: true } : {}),
   });
 }
 

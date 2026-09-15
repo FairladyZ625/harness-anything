@@ -384,6 +384,7 @@ const taskActionShapes: Readonly<Record<FleetTaskCommandKind, Check>> = {
       text,
       evidence: array(taskEvidence),
       baseDocumentSha256: nullable(sha64),
+      asOwner: boolean,
     },
     ["kind"],
   ),

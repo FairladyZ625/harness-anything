@@ -6,6 +6,7 @@ import { docByteLength, type DocumentState } from "../domain/doc-sync.contract.t
 import { requireEntityKindContract } from "../domain/entity-kind-registry.ts";
 import { type TaskProgressEventV1 } from "../domain/task-progress-event.ts";
 import { isTaskBoundRuntimeWriter, resolveTaskBoundRuntimeBinding } from "../domain/task-bound-runtime-authority.ts";
+import { isSamePerson } from "../domain/actor-domain-services.ts";
 import { type DecisionEventV1 } from "../domain/decision-event.ts";
 import { type FactEventV1 } from "../domain/fact-event.ts";
 import { type MigrationDocumentClaim, type MigrationImportEventV1 } from "../domain/migration-import-event.ts";
@@ -58,14 +59,23 @@ export function projectProgress(
       lease !== null &&
       runtimeSessionIdValue !== undefined &&
       runtimeBinding !== null &&
-      isTaskBoundRuntimeWriter(lease, event.actor, event.source, runtimeBinding);
+      isTaskBoundRuntimeWriter(lease, event.actor, event.source, runtimeBinding),
+    // Owner backfill entries bypass the held-lease requirement but still bind the creator and a
+    // non-held lease, mirroring compileTaskProgress so replay reaches the same verdict.
+    ownerBackfill =
+      event.payload.backfilled === true &&
+      snapshot.task !== null &&
+      isSamePerson(snapshot.task.createdBy, event.actor) &&
+      (lease === null || lease.phase === "released" || lease.phase === "orphaned");
   if (
-    snapshot.task?.status !== "active" ||
+    snapshot.task === null ||
     !packagePath ||
     claim.path !== `${packagePath}/progress.md` ||
-    lease?.phase !== "held" ||
-    lease.executionId !== event.payload.executionId ||
-    (!directHolder && !runtimeWorker)
+    (!ownerBackfill &&
+      (snapshot.task.status !== "active" ||
+        lease?.phase !== "held" ||
+        lease.executionId !== event.payload.executionId ||
+        (!directHolder && !runtimeWorker)))
   )
     throw new Error(`progress event lease mismatch for task ${taskId}`);
   if (event.payload.baseDocumentSha256 !== (base?.blob_sha256 ?? null) || !bytes || bytes.byteLength !== claim.size)
