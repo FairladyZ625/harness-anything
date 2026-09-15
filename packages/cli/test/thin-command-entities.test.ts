@@ -5,10 +5,11 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { daemonProtocolCommands } from "../../daemon/src/protocol/daemon-protocol.contract.ts";
+import { packetJson } from "../../daemon/src/repo-cell-packets.ts";
 import { readWorkspaceText } from "../../daemon/src/workspace-text-port.ts";
 import { workspacePathFormat, workspacePathResolutionRule } from "../../preset/src/preset-command-contract.ts";
 import { parseThinCommand } from "../src/cli/thin-command.ts";
-import { materializePacketStdin } from "../src/index.ts";
+import { materializePacketStdin, rawTemplateBody } from "../src/index.ts";
 
 test("Fact CLI exposes record, controlled types, search, and show while keeping local errors closed", () => {
   const record = parseThinCommand([
@@ -631,4 +632,555 @@ test("Decision human consent defaults absent consent-at and consent-channel at t
     ["decision", "transition", "superseded", "dec_TEST", "--consent-by", "person-test"],
   ])
     assert.equal(parseThinCommand(args).ok, false, JSON.stringify(args));
+});
+
+test("thin parser derives builtin vertical, template, and script discovery actions", () => {
+  const vertical = parseThinCommand(["vertical", "validate", "--source", "software/coding"]),
+    templates = parseThinCommand(["template", "list"]),
+    render = parseThinCommand([
+      "template",
+      "render",
+      "template://repository/adr-template@1",
+      "--locale",
+      "zh-CN",
+      "--raw",
+    ]),
+    scripts = parseThinCommand(["script", "list"]),
+    inspect = parseThinCommand(["script", "inspect", "vertical:software-coding:repository-audit"]);
+  assert.equal(
+    [vertical, templates, render, scripts, inspect].every((result) => result.ok),
+    true,
+  );
+  if (vertical.ok)
+    assert.deepEqual(vertical.command.action, {
+      kind: "vertical-validate",
+      verticalSource: "software/coding",
+    });
+  if (templates.ok) assert.deepEqual(templates.command.action, { kind: "template-list" });
+  if (render.ok)
+    assert.deepEqual(render.command.action, {
+      kind: "template-render",
+      templateRef: "template://repository/adr-template@1",
+      locale: "zh-CN",
+      raw: true,
+    });
+  if (scripts.ok) assert.deepEqual(scripts.command.action, { kind: "script-list" });
+  if (inspect.ok)
+    assert.deepEqual(inspect.command.action, {
+      kind: "script-inspect",
+      scriptId: "vertical:software-coding:repository-audit",
+    });
+  const run = parseThinCommand([
+    "script",
+    "run",
+    "vertical:software-coding:repository-audit",
+    "--task",
+    "task-1",
+    "--inputs",
+    '{"locale":"en-US"}',
+    "--dry-run",
+  ]);
+  assert.equal(run.ok, true);
+  if (run.ok)
+    assert.deepEqual(run.command, {
+      rootDir: run.command.rootDir,
+      json: false,
+      method: "repo.script.run",
+      action: {
+        schema: "vertical-script-action/v1",
+        kind: "script-run",
+        scriptId: "vertical:software-coding:repository-audit",
+        taskId: "task-1",
+        inputs: { locale: "en-US" },
+        dryRun: true,
+      },
+    });
+  assert.equal(parseThinCommand(["script", "run", "user-canary/check"]).ok, false);
+  assert.equal(
+    parseThinCommand(["script", "run", "vertical:software-coding:repository-audit", "--task-id", "task-1"]).ok,
+    false,
+  );
+  assert.equal(parseThinCommand(["preset", "run", "standard-task"]).ok, false);
+  assert.equal(parseThinCommand(["preset", "action", "standard-task"]).ok, false);
+});
+
+test("raw template rendering extracts only markdown body", () => {
+  assert.equal(rawTemplateBody({ ok: true, evidence: JSON.stringify({ body: "# Agent\n" }) }), "# Agent\n");
+  assert.throws(() => rawTemplateBody({ ok: true, evidence: JSON.stringify({}) }), /missing its rendered body/u);
+});
+
+test("structured packets name missing required fields", () => {
+  assert.throws(
+    () => packetJson(JSON.stringify({ completionClaim: "done" }), ["completionClaim", "commitSha"]),
+    (error: unknown) =>
+      (error as { code?: string; message?: string }).code === "missing_field" &&
+      /commitSha/u.test((error as Error).message),
+  );
+});
+
+test("Relation commands replace hosted Task and Decision relation ingress", () => {
+  const relate = parseThinCommand([
+      "relation",
+      "relate",
+      "--source-ref",
+      "task/task-a",
+      "--target-ref",
+      "task/task-b",
+      "--type",
+      "depends-on",
+      "--rationale",
+      "A waits for B.",
+      "--expected-version",
+      "0",
+    ]),
+    unrelate = parseThinCommand([
+      "relation",
+      "unrelate",
+      "rel_0123456789abcdef",
+      "--reason",
+      "No longer required.",
+      "--expected-version",
+      "17",
+    ]),
+    reconfirm = parseThinCommand([
+      "relation",
+      "reconfirm",
+      "rel_0123456789abcdef",
+      "--expected-version",
+      "18",
+      "--rationale",
+      "Reviewed the new target version.",
+    ]),
+    suspect = parseThinCommand(["relation", "list", "--freshness", "suspect"]),
+    triples = parseThinCommand(["relation", "triples", "--source-kind", "decision", "--target-kind", "fact"]);
+  assert.equal(relate.ok, true);
+  assert.equal(unrelate.ok, true);
+  assert.equal(reconfirm.ok, true);
+  assert.equal(suspect.ok, true);
+  assert.equal(triples.ok, true);
+  if (relate.ok)
+    assert.deepEqual(relate.command.action, {
+      kind: "relation-relate",
+      sourceRef: "task/task-a",
+      targetRef: "task/task-b",
+      relationType: "depends-on",
+      direction: "directed",
+      origin: "declared",
+      rationale: "A waits for B.",
+      expectedVersion: 0,
+    });
+  if (unrelate.ok)
+    assert.deepEqual(unrelate.command.action, {
+      kind: "relation-unrelate",
+      relationId: "rel_0123456789abcdef",
+      reason: "No longer required.",
+      expectedVersion: 17,
+    });
+  if (reconfirm.ok)
+    assert.deepEqual(reconfirm.command.action, {
+      kind: "relation-reconfirm",
+      relationId: "rel_0123456789abcdef",
+      expectedVersion: 18,
+      rationale: "Reviewed the new target version.",
+    });
+  if (suspect.ok) assert.deepEqual(suspect.command.action, { kind: "relation-list", freshness: "suspect" });
+  if (triples.ok)
+    assert.deepEqual(triples.command.action, {
+      kind: "relation-triples",
+      sourceKind: "decision",
+      targetKind: "fact",
+    });
+  assert.equal(parseThinCommand(["relation", "list", "--freshness", "unknown"]).ok, false);
+  assert.equal(
+    parseThinCommand([
+      "relation",
+      "relate",
+      "--source-ref",
+      "task/task-a",
+      "--target-ref",
+      "task/task-b",
+      "--type",
+      "relates",
+      "--strength",
+      "strong",
+      "--rationale",
+      "Caller must not choose strength.",
+      "--expected-version",
+      "0",
+    ]).ok,
+    false,
+  );
+  assert.equal(parseThinCommand(["task", "relate", "task-a", "depends-on", "task-b"]).ok, false);
+  assert.equal(parseThinCommand(["decision", "relate", "dec_a"]).ok, false);
+});
+
+test("Relation relate names missing concurrency and rationale fields with executable hints", () => {
+  const base = [
+      "relation",
+      "relate",
+      "--source-ref",
+      "decision/dec_a",
+      "--target-ref",
+      "task/task_a",
+      "--type",
+      "derives",
+    ],
+    missingVersion = parseThinCommand([...base, "--rationale", "Decision derives task."]),
+    missingRationale = parseThinCommand([...base, "--expected-version", "0"]);
+  assert.deepEqual(missingVersion, {
+    ok: false,
+    code: "missing_field",
+    nextAction: "Add --expected-version 0 when creating a new Relation, then rerun the command.",
+    json: false,
+  });
+  assert.deepEqual(missingRationale, {
+    ok: false,
+    code: "missing_field",
+    nextAction: "Add --rationale <why>, then rerun the command.",
+    json: false,
+  });
+});
+
+test("Agent and Squad package sources resolve against caller cwd independently of repository selection", () => {
+  const caller = path.resolve("caller"),
+    repository = path.resolve("repository");
+  for (const kind of ["agent", "squad"]) {
+    for (const action of ["validate", "install"]) {
+      for (const source of ["./declaration", "../declaration", path.resolve("absolute-declaration")]) {
+        for (const selection of [[], ["--root", repository], ["--repo", "selected-repository"]]) {
+          const parsed = parseThinCommand([kind, action, "--source", source, ...selection], caller);
+          assert.equal(parsed.ok, true);
+          if (!parsed.ok) continue;
+          assert.equal(parsed.command.action.packageSource, path.resolve(caller, source));
+          assert.equal(parsed.command.rootDir, selection[0] === "--root" ? repository : caller);
+        }
+      }
+    }
+  }
+});
+
+test("squad run derives its mission from task unless prompt overrides it", () => {
+  const promptFile = parseThinCommand([
+      "squad",
+      "run",
+      "core-squad",
+      "--instance",
+      "worker",
+      "--prompt-file",
+      "mission.md",
+      "--cwd",
+      "work",
+      "--task",
+      "task-1",
+    ]),
+    prompt = parseThinCommand([
+      "squad",
+      "run",
+      "core-squad",
+      "--instance",
+      "worker",
+      "--prompt",
+      "mission",
+      "--cwd",
+      "work",
+      "--task",
+      "task-1",
+      "--permission-mode",
+      "workspace-write",
+    ]),
+    both = parseThinCommand([
+      "squad",
+      "run",
+      "core-squad",
+      "--instance",
+      "worker",
+      "--prompt",
+      "mission",
+      "--prompt-file",
+      "mission.md",
+      "--cwd",
+      "work",
+      "--task",
+      "task-1",
+    ]),
+    taskOnly = parseThinCommand(["squad", "run", "core-squad", "--instance", "worker", "--task", "task-1"]);
+  assert.equal(promptFile.ok, false);
+  assert.equal(prompt.ok, true);
+  if (prompt.ok) {
+    assert.equal(prompt.command.action.prompt, "mission");
+    assert.equal(prompt.command.action.permissionMode, "workspace-write");
+  }
+  assert.equal(both.ok, false);
+  assert.equal(taskOnly.ok, true);
+  if (taskOnly.ok) assert.deepEqual(taskOnly.command.action.cwd, { scope: "repo-root" });
+});
+
+test("Agent and Squad declaration commands route reads directly and writes through the daemon entity lifecycle", () => {
+  const cases: ReadonlyArray<readonly [readonly string[], string, string]> = [
+    [["agent", "list"], "agent-list", "repo.task.read"],
+    [["agent", "inspect", "terra"], "agent-inspect", "repo.task.read"],
+    [["agent", "validate", "--source", "terra"], "agent-validate", "repo.task.read"],
+    [["agent", "install", "--source", "terra", "--dry-run"], "agent-install", "repo.task.run"],
+    [["squad", "list"], "squad-list", "repo.task.read"],
+    [["squad", "inspect", "core-squad"], "squad-inspect", "repo.task.read"],
+    [["squad", "status", "squad_0123456789abcdef01234567"], "squad-status", "repo.task.read"],
+    [["squad", "validate", "--source", "core-squad"], "squad-validate", "repo.task.read"],
+    [["squad", "install", "--source", "core-squad"], "squad-install", "repo.task.run"],
+  ];
+  for (const [argv, kind, method] of cases) {
+    const parsed = parseThinCommand([...argv]);
+    assert.equal(parsed.ok, true, JSON.stringify(argv));
+    if (parsed.ok) {
+      assert.equal(parsed.command.method, method);
+      assert.equal(parsed.command.action.kind, kind);
+    }
+  }
+  assert.equal(parseThinCommand(["squad", "status"]).ok, false);
+  const create = parseThinCommand([
+    "agent",
+    "create",
+    "codex-sidecar",
+    "--agent",
+    "meta",
+    "--prompt",
+    "Design a worker",
+    "--task",
+    "task-1",
+  ]);
+  assert.equal(create.ok, true, JSON.stringify(create));
+  if (create.ok)
+    assert.deepEqual(
+      { method: create.command.method, action: create.command.action },
+      {
+        method: "repo.agentRuntime.spawn",
+        action: {
+          kind: "agent-create",
+          runtimeInstanceId: "codex-sidecar",
+          agentId: "meta",
+          prompt: "Design a worker",
+          taskId: "task-1",
+          cwd: { scope: "repo-root" },
+        },
+      },
+    );
+});
+test("runtime instance create leaves installation discovery to the daemon when omitted", () => {
+  const parsed = parseThinCommand([
+    "runtime",
+    "instance",
+    "create",
+    "--id",
+    "codex-auto",
+    "--name",
+    "Codex Auto",
+    "--kind",
+    "codex",
+    "--provider",
+    "openai",
+    "--model",
+    "gpt-5.6-sol",
+    "--auth",
+    "subscription",
+  ]);
+  assert.equal(parsed.ok, true, JSON.stringify(parsed));
+  if (parsed.ok) assert.equal("installationId" in parsed.command.action, false);
+  const multi = parseThinCommand([
+    "runtime",
+    "instance",
+    "create",
+    "--id",
+    "claude-multi",
+    "--name",
+    "Claude Multi",
+    "--kind",
+    "claude",
+    "--provider",
+    "anthropic",
+    "--model",
+    "claude-fable-5",
+    "--model",
+    "claude-opus",
+    "--default-model",
+    "claude-opus",
+    "--permission-mode",
+    "workspace-write",
+    "--isolation",
+    "enforced",
+    "--auth",
+    "subscription",
+  ]);
+  assert.equal(multi.ok, true, JSON.stringify(multi));
+  if (multi.ok)
+    assert.deepEqual(multi.command.action, {
+      kind: "runtime-instance-create",
+      instanceId: "claude-multi",
+      name: "Claude Multi",
+      kindId: "claude",
+      providerId: "anthropic",
+      models: ["claude-fable-5", "claude-opus"],
+      defaultModel: "claude-opus",
+      permissionMode: "workspace-write",
+      isolationState: "enforced",
+      claude: {},
+      authMode: "subscription",
+    });
+  const agy = parseThinCommand([
+    "runtime",
+    "instance",
+    "create",
+    "--id",
+    "agy-open",
+    "--name",
+    "AGY Open",
+    "--kind",
+    "agy",
+    "--provider",
+    "google",
+    "--model",
+    "gemini-3.1-pro-low",
+    "--permission-mode",
+    "bypass",
+    "--auth",
+    "subscription",
+  ]);
+  assert.equal(agy.ok, true, JSON.stringify(agy));
+  if (agy.ok) assert.equal(agy.command.action.permissionMode, "bypass");
+  assert.equal(
+    parseThinCommand([
+      "runtime",
+      "instance",
+      "create",
+      "--id",
+      "bad",
+      "--name",
+      "Bad",
+      "--kind",
+      "codex",
+      "--provider",
+      "openai",
+      "--permission-mode",
+      "turbo",
+      "--model",
+      "gpt",
+      "--auth",
+      "subscription",
+    ]).ok,
+    false,
+  );
+  assert.equal(
+    parseThinCommand([
+      "runtime",
+      "instance",
+      "create",
+      "--id",
+      "bad",
+      "--name",
+      "Bad",
+      "--kind",
+      "codex",
+      "--provider",
+      "openai",
+      "--auth",
+      "subscription",
+    ]).ok,
+    false,
+  );
+});
+
+test("runtime instance auth commands parse into repo-scoped interactive sign-in actions", () => {
+  const login = parseThinCommand([
+      "runtime",
+      "instance",
+      "login",
+      "worker",
+      "--repo",
+      "alpha",
+      "--idempotency-key",
+      "sign-in-once",
+    ]),
+    logout = parseThinCommand(["runtime", "instance", "logout", "worker"]);
+  for (const parsed of [login, logout]) assert.equal(parsed.ok, true, JSON.stringify(parsed));
+  if (login.ok)
+    assert.deepEqual(
+      {
+        repoId: login.command.repoId,
+        method: login.command.method,
+        action: login.command.action,
+      },
+      {
+        repoId: "alpha",
+        method: "repo.runtimeInstance.auth.login",
+        action: {
+          kind: "runtime-instance-login",
+          instanceId: "worker",
+          idempotencyKey: "sign-in-once",
+        },
+      },
+    );
+  if (logout.ok)
+    assert.deepEqual(
+      { method: logout.command.method, action: logout.command.action },
+      {
+        method: "repo.runtimeInstance.auth.logout",
+        action: { kind: "runtime-instance-logout", instanceId: "worker" },
+      },
+    );
+  assert.equal(parseThinCommand(["runtime", "instance", "login"]).ok, false);
+  assert.equal(parseThinCommand(["runtime", "instance", "login", "worker", "--prompt", "x"]).ok, false);
+  assert.equal(parseThinCommand(["runtime", "instance", "reauth", "worker"]).ok, false);
+  const shown = parseThinCommand(["runtime", "instance", "show", "worker", "--repo", "alpha", "--probe"]);
+  assert.equal(shown.ok === true && shown.command.repoId, undefined);
+  if (shown.ok) assert.equal(shown.command.action.probe, true);
+});
+
+test("migration import parser accepts ordered sources and repeated explicit conflict resolutions", () => {
+  const parsed = parseThinCommand([
+    "migrate",
+    "import",
+    "--source",
+    "../alice",
+    "--source",
+    "../bob",
+    "--resolve",
+    "harness/people.yaml=source",
+    "--resolve",
+    "harness/AGENTS.md=destination",
+    "--dry-run",
+    "--json",
+  ]);
+  assert.equal(parsed.ok, true);
+  if (parsed.ok)
+    assert.deepEqual(parsed.command.action, {
+      kind: "migrate-import",
+      sourceRoots: ["../alice", "../bob"],
+      resolutions: ["harness/people.yaml=source", "harness/AGENTS.md=destination"],
+      dryRun: true,
+    });
+  assert.equal(parseThinCommand(["migrate", "import"]).ok, false);
+  assert.equal(
+    parseThinCommand(["migrate", "import", "--source", "a", "--resolve", "harness/people.yaml=automatic"]).ok,
+    false,
+  );
+  assert.equal(parseThinCommand(["migrate", "import", "--source", "a", "--force"]).ok, false);
+});
+
+test("retired in-place ledger migration is rejected while generation reconciliation remains readable", () => {
+  for (const argv of [
+    ["migrate", "ledger"],
+    ["migrate", "ledger", "--generation", "1"],
+    ["migrate", "ledger", "--dry-run"],
+  ])
+    assert.equal(parseThinCommand(argv).ok, false, argv.join(" "));
+});
+
+test("ledger reconcile requires the declared SQLite generation", () => {
+  const parsed = parseThinCommand(["ledger", "reconcile", "--generation", "1", "--json"]);
+  assert.equal(parsed.ok, true);
+  if (parsed.ok) {
+    assert.deepEqual(parsed.command.action, { kind: "ledger-reconcile", generation: 1 });
+    assert.equal(parsed.command.method, "repo.task.read");
+    assert.equal(parsed.command.json, true);
+  }
+  assert.equal(parseThinCommand(["ledger", "reconcile"]).ok, false);
+  assert.equal(parseThinCommand(["ledger", "reconcile", "--generation", "2"]).ok, false);
 });
