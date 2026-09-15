@@ -69,7 +69,7 @@ function statusSummary(scan: DocCandidateScan): string {
 
 export function scanDetail(input: Input, scan: DocCandidateScan, code: string): DocSyncReceiptDetail {
   const nextAction = scan.rows
-    .filter((row) => row.state === "inapplicable" && row.reason?.includes("ha task artifact add"))
+    .filter((row) => row.reason?.includes("ha task artifact add"))
     .map((row) => row.reason!.slice(row.reason!.indexOf("ha task artifact add")))[0];
   return {
     kind: "doc_sync",

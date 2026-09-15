@@ -105,6 +105,28 @@ test("Summary may pair one commit with artifact anchors but never omits both", (
   assert.deepEqual(artifactAnchors(`artifact:${path}`), [{ path }]);
 });
 
+test("artifact anchors leave trailing prose punctuation outside the path", () => {
+  for (const summary of [
+    "Delivered artifact:artifacts/report.md.",
+    "Delivered artifact:artifacts/report.md, with the receipt.",
+    "(artifact:artifacts/report.md)",
+    "已交付 artifact:artifacts/report.md。",
+  ])
+    assert.deepEqual(artifactAnchors(summary), [{ path: "artifacts/report.md" }]);
+  for (const summary of [
+    "Delivered artifact:artifacts/report.md.",
+    "Delivered artifact:artifacts/report.md, with the receipt.",
+    "(artifact:artifacts/report.md)",
+    "已交付 artifact:artifacts/report.md。",
+  ])
+    assert.deepEqual(
+      derive(summary).artifacts?.map((anchor) => anchor.path),
+      [path],
+    );
+  assert.deepEqual(artifactAnchors("artifact:artifacts/x.other/report.md"), [{ path: "artifacts/x.other/report.md" }]);
+  assert.deepEqual(artifactAnchors("artifact:artifacts/report.md@7.2"), []);
+});
+
 test("invalid artifact anchors explain the copyable form and revision source", () => {
   for (const action of [
     () => derive("no anchor"),

@@ -234,10 +234,10 @@ test("agenda reads one narrow lifecycle page per status and no wide-assembly rea
   const result = queryRead(process.cwd(), projection).agenda();
 
   assert.deepEqual(listCalls, [
-    { status: "active", limit: 100, pinnedFirst: true },
-    { status: "blocked", limit: 100, pinnedFirst: true },
-    { status: "planned", limit: 100, pinnedFirst: true },
-    { status: "in_review", limit: 100, pinnedFirst: true },
+    { status: "active", activePackagesOnly: true, limit: 100, pinnedFirst: true },
+    { status: "blocked", activePackagesOnly: true, limit: 100, pinnedFirst: true },
+    { status: "planned", activePackagesOnly: true, limit: 100, pinnedFirst: true },
+    { status: "in_review", activePackagesOnly: true, limit: 100, pinnedFirst: true },
   ]);
   assert.deepEqual(decisionCalls, []);
   assert.deepEqual(
