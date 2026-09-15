@@ -31,8 +31,8 @@ export function validateBackupDestination(rootDir: string, backup: string): stri
     layout = resolveHarnessLayout(rootDir);
   if (existsSync(backupDir)) throw new Error("backup destination must not already exist");
   if (
-    isWithin(canonicalBackupDir, realpathSync(layout.localRoot)) ||
-    isWithin(canonicalBackupDir, realpathSync(layout.authoredRoot))
+    isWithin(canonicalBackupDir, canonicalProspectivePath(layout.localRoot)) ||
+    isWithin(canonicalBackupDir, canonicalProspectivePath(layout.authoredRoot))
   )
     throw new Error("backup destination must not be inside .harness or harness");
   return backupDir;
