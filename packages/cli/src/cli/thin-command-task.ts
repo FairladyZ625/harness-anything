@@ -20,12 +20,21 @@ export function parseTask(
   if (id === "task-contract-migrate") return parseContractMigrate(args, rootDir, repoId, json, inputs);
   if (id === "task-delete") return parseTaskDelete(args, rootDir, repoId, json, inputs);
   if (id === "task-archive") return parseTaskArchive(args, rootDir, repoId, json, inputs);
-  if (id === "task-show" && nonEmpty(args[2]) && args.length === 3)
-    return accepted(rootDir, repoId, json, {
-      kind: "task-show",
-      verb,
-      taskId: args[2],
-    });
+  if (id === "task-show") {
+    const positional = args[2]?.startsWith("--") ? undefined : args[2],
+      f = readFlags(id, args.slice(positional ? 3 : 2), inputs);
+    if (!f.ok) return rejected(f.code, f.nextAction, json);
+    const flagged = f.one.get("--id");
+    if (positional && flagged)
+      return rejected("duplicate_field", "Use either ha task show <task-id> or --id <task-id>, not both.", json);
+    return nonEmpty(positional ?? flagged)
+      ? accepted(rootDir, repoId, json, {
+          kind: "task-show",
+          verb,
+          taskId: positional ?? flagged,
+        })
+      : rejected("missing_field", "Run ha task show <task-id>.", json);
+  }
   if (id === "task-progress-append") return parseProgress(rootDir, repoId, json, args, inputs);
   if (id === "task-artifact-add") {
     const taskId = args[3];

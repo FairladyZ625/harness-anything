@@ -52,6 +52,15 @@ const settingsWriteTopology = {
       method: "repo.task.read",
       inputs: [],
     }),
+    defineRepoReadCommand({
+      id: "settings-show",
+      actionKind: "settings-read",
+      phase: "Settings-Kind",
+      path: ["settings", "show"],
+      summary: "Alias of settings read: show the repository Settings entity from the canonical projection.",
+      method: "repo.task.read",
+      inputs: [],
+    }),
     defineCliCommand({
       id: "settings-update",
       actionKind: "settings-update",

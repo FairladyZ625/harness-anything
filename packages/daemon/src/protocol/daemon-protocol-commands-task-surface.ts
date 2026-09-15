@@ -343,12 +343,44 @@ export const taskSurfaceProtocolCommands = Object.freeze([
       cliInput("--entity", "single", false, {
         code: "invalid_field",
       }),
-      cliInput("--source", "single", false, {
-        code: "invalid_field",
-      }),
-      cliInput("--target", "single", false, {
-        code: "invalid_field",
-      }),
+      // --source/--target and the --source-ref/--target-ref spellings from `relation relate` feed
+      // the same query fields; declaring them as mutually exclusive pairs keeps both spellings legal.
+      cliInput(
+        "--source",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { conflictsWith: ["--source-ref"] },
+      ),
+      cliInput(
+        "--source-ref",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { field: "source", conflictsWith: ["--source"] },
+      ),
+      cliInput(
+        "--target",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { conflictsWith: ["--target-ref"] },
+      ),
+      cliInput(
+        "--target-ref",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { field: "target", conflictsWith: ["--target"] },
+      ),
       cliInput("--type", "single", false, {
         code: "invalid_field",
       }),

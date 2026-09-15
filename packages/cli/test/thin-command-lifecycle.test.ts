@@ -341,6 +341,29 @@ test("task submit uses closeout and rejects packet inputs while code-doc rejects
   if (!obsolete.ok)
     assert.match(obsolete.nextAction, /submitted execution supplies execution id, commit, and iteration/u);
 });
+test("task show accepts the id positionally or as --id and reports flag misuse as unknown_field", () => {
+  const positional = parseThinCommand(["task", "show", "task-1"]),
+    flagged = parseThinCommand(["task", "show", "--id", "task-1"]);
+  assert.equal(positional.ok, true);
+  assert.equal(flagged.ok, true, JSON.stringify(flagged));
+  if (positional.ok && flagged.ok) {
+    assert.deepEqual(positional.command.action, { kind: "task-show", verb: "show", taskId: "task-1" });
+    assert.deepEqual(flagged.command.action, positional.command.action);
+  }
+  const both = parseThinCommand(["task", "show", "task-1", "--id", "task-1"]);
+  assert.equal(both.ok, false);
+  if (!both.ok) assert.equal(both.code, "duplicate_field");
+  const missing = parseThinCommand(["task", "show"]);
+  assert.equal(missing.ok, false);
+  if (!missing.ok) assert.equal(missing.code, "missing_field");
+  const misused = parseThinCommand(["task", "show", "--id", "task-1", "--bogus", "x"]);
+  assert.equal(misused.ok, false);
+  if (!misused.ok) {
+    assert.equal(misused.code, "unknown_field");
+    assert.match(misused.nextAction, /ha task show --help/u);
+  }
+});
+
 test("artifact add emits only a source-to-destination descriptor", () => {
   const parsed = parseThinCommand([
     "task",
@@ -658,6 +681,7 @@ test("runtime work commands parse into closed daemon facade actions", () => {
       "--no-stream",
     ]),
     taskOnly = parseThinCommand(["agent", "run", "terra", "--task", "task-1", "--cwd", "."]),
+    modeled = parseThinCommand(["agent", "run", "terra", "--task", "task-1", "--model", "gpt-5.6-sol"]),
     reviewer = parseThinCommand(["runtime", "run", "worker", "--task", "task-1", "--role", "reviewer"]),
     file = parseThinCommand(["runtime", "run", "worker", "--prompt-file", "prompt.txt"]),
     mission = parseThinCommand(["agent", "run", "terra", "--task", "task-1", "--mission", "api-review"]),
@@ -689,6 +713,7 @@ test("runtime work commands parse into closed daemon facade actions", () => {
   for (const parsed of [
     run,
     taskOnly,
+    modeled,
     mission,
     missionJson,
     batch,
@@ -716,6 +741,17 @@ test("runtime work commands parse into closed daemon facade actions", () => {
     assert.deepEqual(taskOnly.command.action, {
       kind: "runtime-run",
       agentId: "terra",
+      cwd: { scope: "repo-root" },
+      taskId: "task-1",
+      detach: true,
+    });
+  // agent run --model overrides the Agent-declared model for this one dispatch; the spawn payload
+  // field is the same `model` the instance filter and runtime run already consume.
+  if (modeled.ok)
+    assert.deepEqual(modeled.command.action, {
+      kind: "runtime-run",
+      agentId: "terra",
+      model: "gpt-5.6-sol",
       cwd: { scope: "repo-root" },
       taskId: "task-1",
       detach: true,

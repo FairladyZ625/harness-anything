@@ -419,7 +419,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
       "schedule-update",
     ],
     script: ["preset-run-start", "script-inspect", "script-list", "script-run"],
-    settings: ["settings-read", "settings-update"],
+    settings: ["settings-read", "settings-show", "settings-update"],
     people: [
       "people-add",
       "people-bind",
@@ -850,8 +850,8 @@ test("shared CLI option rejections point to descriptor-derived leaf help", () =>
   });
   assert.deepEqual(parseThinCommand(["task", "show", "task-1", "--policy-conformance-probe"]), {
     ok: false,
-    code: "unsupported_command",
-    nextAction: "Run ha task show --help.",
+    code: "unknown_field",
+    nextAction: "Unknown option --policy-conformance-probe. Run ha task show --help.",
     json: false,
   });
 });
@@ -911,8 +911,16 @@ test("all public commands expose the canonical structured input facet", () => {
       command.id,
     );
   }
-  for (const id of ["task-show", "preset-upgrade", "daemon-projection-rebuild", "daemon-start", "daemon-status"])
+  for (const id of ["preset-upgrade", "daemon-projection-rebuild", "daemon-start", "daemon-status"])
     assert.deepEqual(daemonProtocolCommands.find((command) => command.id === id)?.inputs, [], id);
+  // task show accepts the id positionally or as --id; both spellings land on the same action field.
+  assert.deepEqual(
+    daemonProtocolCommands
+      .find((command) => command.id === "task-show")
+      ?.inputs.map(({ name, kind, required, field }) => [name, kind, required, field]),
+    [["--id", "single", false, "taskId"]],
+    "task-show",
+  );
   // doc-materialize mirrors doc-sync-submit's confirmation gate surface: a repeated --path for an
   // explicit selection and a boolean --all that excludes it.
   assert.deepEqual(

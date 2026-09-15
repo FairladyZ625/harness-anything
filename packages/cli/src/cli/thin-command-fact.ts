@@ -1,5 +1,5 @@
 import type { SafePath } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
-import { accepted, readFlags, rejected } from "./thin-command-flags.ts";
+import { accepted, nonEmpty, readFlags, rejected } from "./thin-command-flags.ts";
 import { parseProjected } from "./thin-command-projection.ts";
 import type { ThinCliInputDirectory, ThinParseResult } from "./thin-command-types.ts";
 
@@ -49,7 +49,17 @@ export function parseFact(
     const query = args[2]?.startsWith("--") ? undefined : args[2];
     return parseProjected(id, args.slice(query ? 3 : 2), rootDir, repoId, json, inputs, query ? { query } : {});
   }
-  if (id === "fact-show") return parseProjected(id, args.slice(2), rootDir, repoId, json, inputs);
+  if (id === "fact-show") {
+    const positional = args[2]?.startsWith("--") ? undefined : args[2],
+      f = readFlags(id, args.slice(positional ? 3 : 2), inputs);
+    if (!f.ok) return rejected(f.code, f.nextAction, json);
+    const flagged = f.one.get("--id");
+    if (positional && flagged)
+      return rejected("duplicate_field", "Use either ha fact show <fact-id> or --id <fact-id>, not both.", json);
+    return nonEmpty(positional ?? flagged)
+      ? accepted(rootDir, repoId, json, { kind: "fact-show", factId: positional ?? flagged })
+      : rejected("missing_field", "Run ha fact show <fact-id>.", json);
+  }
   return rejected("unsupported_command", "Use fact record, type register, type list, search, or show.", json);
 }
 

@@ -136,7 +136,8 @@ export const taskExecutionProtocolCommands = Object.freeze([
     path: ["task", "show", "<task-id>"],
     summary: "Read the task projection.",
     method: "repo.task.read",
-    inputs: [],
+    // <task-id> and --id are the same field in two spellings; the parser rejects both-at-once.
+    inputs: [cliInput("--id", "single", false, { code: "invalid_field" }, { field: "taskId" })],
   }),
   defineRepoReadCommand({
     id: "receipt-show",

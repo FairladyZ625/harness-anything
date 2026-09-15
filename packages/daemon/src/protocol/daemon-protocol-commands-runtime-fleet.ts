@@ -25,6 +25,7 @@ export const agentRunProtocolCommand = defineRuntimeLocalWriteCommand({
     cliInput("--prompt", "single", false, { code: "invalid_field" }, { conflictsWith: ["--mission", "--prompt-file"] }),
     cliInput("--prompt-file", "single", false, { code: "invalid_field" }, { conflictsWith: ["--mission", "--prompt"] }),
     cliInput("--mission", "single", false, { code: "invalid_field" }, { conflictsWith: ["--prompt", "--prompt-file"] }),
+    cliInput("--model", "single", false, { code: "invalid_field" }),
     cliInput(
       "--effort",
       "single",

@@ -13,6 +13,15 @@ test("Settings CLI projects read and owned update flags to the closed daemon act
     assert.deepEqual(read.command.action, { kind: "settings-read" });
   }
 
+  // settings show is a pure alias of settings read: the wire Action keeps the read kind and handler.
+  const shown = parseThinCommand(["settings", "show"]);
+  assert.equal(shown.ok, true);
+  if (shown.ok) {
+    assert.equal(shown.command.method, "repo.task.read");
+    assert.deepEqual(shown.command.action, { kind: "settings-read" });
+    if (read.ok) assert.deepEqual(shown.command.action, read.command.action);
+  }
+
   const update = parseThinCommand([
     "settings",
     "update",
@@ -46,6 +55,9 @@ test("Settings CLI rejects unknown and unsupported locale fields", () => {
   assert.equal(parseThinCommand(["settings", "update", "--locale", "fr-FR"]).ok, false);
   assert.equal(parseThinCommand(["settings", "update", "--wip-limit", "1"]).ok, false);
   assert.equal(parseThinCommand(["settings", "read", "--locale", "en-US"]).ok, false);
+  const shown = parseThinCommand(["settings", "show", "--locale", "en-US"]);
+  assert.equal(shown.ok, false);
+  if (!shown.ok) assert.equal(shown.code, "unknown_field");
 });
 
 test("Settings CLI forwards CI workflow names and the none opt-out to the settings action", () => {
