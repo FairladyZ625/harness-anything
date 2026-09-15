@@ -92,6 +92,14 @@ export function helpDomain(argv: readonly string[]): string | undefined {
   return firstCliCommand(argv);
 }
 
+export function helpCommandPrefix(argv: readonly string[]): string | undefined {
+  const index = firstCliCommandIndex(argv);
+  if (index < 0) return undefined;
+  const tokens = argv.slice(index).filter((token) => token !== "--help" && token !== "--json");
+  if (tokens.length < 2 || tokens.some((token) => token.startsWith("-"))) return undefined;
+  return `ha ${tokens.join(" ")}`;
+}
+
 export const commandDomains = Object.freeze(sortedCommandDomains.map(([name, ids]) => ({ name, count: ids.length })));
 
 export const cliCommandDomains: readonly string[] = Object.freeze(commandDomains.map(({ name }) => name));

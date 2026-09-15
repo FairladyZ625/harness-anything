@@ -26,7 +26,7 @@ test("template and script discovery expose builtin content with typed vertical e
       materializeAs: string;
       locales: string[];
     }>;
-    assert.equal(templates.length, 31);
+    assert.equal(templates.length, 32);
     assert.deepEqual(
       templates,
       [...templates].sort((left, right) => left.templateRef.localeCompare(right.templateRef)),

@@ -9,6 +9,7 @@ import type { TaskLifecycleCommand } from "./task-lifecycle.contract.ts";
 import type { TaskLifecycleSnapshot } from "./task-lifecycle-contract-internal-types.ts";
 import type { ActorIdentity } from "./actor-identity.ts";
 import type { CloseoutGate } from "./settings-closeout.ts";
+import { taskCompletionNext, type CompletionReadinessContext } from "./completion-readiness.ts";
 
 export interface TaskActionCapabilityCriterionResult {
   readonly criterionRef: string;
@@ -23,6 +24,7 @@ export interface TaskActionCapabilityInput {
   readonly invocation?: TaskActionCapabilityInvocation;
   /** The effective closeout gate set; absent means the strict read every gate still demands. */
   readonly closeoutGates?: Readonly<Record<CloseoutGate, boolean>>;
+  readonly completionContext?: CompletionReadinessContext;
 }
 
 export interface TaskActionCapabilityInvocation {
@@ -95,8 +97,16 @@ const taskCapabilityEvaluators = Object.freeze(
     [key("complete", "task-lifecycle-contract-support/revisionIssues"), revisionCurrent],
     [
       key("complete", "closeout-readiness/closeoutReadiness"),
-      ({ snapshot, closeoutGates }) =>
-        closeoutReadiness(snapshot, undefined, closeoutGates).readiness === "ready" ? "met" : "unmet",
+      ({ snapshot, closeoutGates, completionContext }) =>
+        snapshot.task?.status === "done"
+          ? "unmet"
+          : completionContext
+            ? taskCompletionNext(snapshot, completionContext).blocker === null
+              ? "met"
+              : "unmet"
+            : closeoutReadiness(snapshot, undefined, closeoutGates).readiness === "ready"
+              ? "met"
+              : "unmet",
     ],
     [
       key("complete", "task-lifecycle-review-transitions/complete.validate"),

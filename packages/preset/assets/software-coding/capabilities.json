@@ -6,6 +6,7 @@
     { "id": "policy:task-create/v1", "kind": "command", "version": "1", "actionKind": "task-create", "payloadFields": ["title", "taskId", "presetId", "profileId", "locale", "taskClass"] },
     { "id": "task-create-module-context", "kind": "command", "version": "1" },
     { "id": "task-parent-relation", "kind": "command", "version": "1" },
-    { "id": "policy:template-override/task-plan/v1", "kind": "command", "version": "1", "requiredTaskClass": "milestone", "templateOverrides": { "task.plan": "template://planning/milestone-task-plan@1" } }
+    { "id": "policy:template-override/task-plan/v1", "kind": "command", "version": "1", "requiredTaskClass": "milestone", "templateOverrides": { "task.plan": "template://planning/milestone-task-plan@1" } },
+    { "id": "policy:template-override/blackbox-task-plan/v1", "kind": "command", "version": "1", "templateOverrides": { "task.plan": "template://acceptance/lifecycle-blackbox-task-plan@1" } }
   ]
 }

@@ -27,7 +27,7 @@ import { makeGitReadinessSource, runProcessText } from "./process-port.ts";
 import { readTaskTransitionDocument } from "./transition-document-access.ts";
 import { prepareSubmissionEvidence } from "./repo-cell-task-progress.ts";
 
-/** Summary explicitly selects one public delivery commit and may anchor center-accepted artifacts to it. */
+/** Summary selects one public delivery commit, center-accepted artifacts, or both. */
 export function deriveCloseoutSubmission(
   cell: Pick<RepoCellOperationalContext, "rootDir" | "projection" | "store" | "cellCodedError">,
   taskId: string,
@@ -57,8 +57,7 @@ export function deriveCloseoutSubmission(
   )
     throw cell.cellCodedError(
       "invalid_submission",
-      `Summary must explicitly name one delivery commit, optionally with artifact:path@revision anchors. ` +
-        artifactAnchorGuidance,
+      `Summary must name one delivery commit or at least one artifact:path@revision anchor. ` + artifactAnchorGuidance,
     );
   const artifacts = anchors.map(({ path, revision }) => {
     const artifact = submissionArtifactPath(document.packagePath, path);
@@ -305,7 +304,8 @@ export function submissionStopped(
       completionGuidance(
         snapshot,
         executionId,
-        `Fill harness/${packagePath}/closeout.md, then run ha task submit ${String(action.taskId)}.`,
+        `Fill harness/${packagePath}/closeout.md, run ha doc sync --submit --task ${String(action.taskId)}, ` +
+          `then run ha task submit ${String(action.taskId)}.`,
         error.message,
       ),
     ],

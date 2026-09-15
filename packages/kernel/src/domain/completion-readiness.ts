@@ -132,7 +132,7 @@ function evaluateCompletion(
     return one(
       "not_in_review",
       "lifecycle",
-      task.status === "active"
+      task.status === "active" && execution
         ? `Fill harness/${context.closeoutPath} with the verified delivery, then submit execution ${executionId}.`
         : `ha task start ${task.taskId}`,
       snapshot.lease

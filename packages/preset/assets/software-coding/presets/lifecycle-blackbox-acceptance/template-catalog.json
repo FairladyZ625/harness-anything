@@ -9,6 +9,20 @@
   },
   "documents": [
     {
+      "id": "acceptance/lifecycle-blackbox-task-plan",
+      "version": "1",
+      "documentKind": "task-plan",
+      "slot": "task.plan",
+      "materializeAs": "task_plan.md",
+      "frontmatterSchema": "task-package/v2",
+      "requiredAnchors": ["## Brief", "## Goal", "## Context", "## Required Reading", "## Entry Conditions", "## Dependencies", "## Execution Surface", "## Constraints", "## Checkpoint", "## CI/Gate Authority Stop Condition", "## Implementation Plan", "## Deliverable Contract", "## Evidence Protocol", "## Verification"],
+      "fallbackLocale": "en-US",
+      "locales": [
+        { "locale": "zh-CN", "anchors": ["## Brief", "## Goal", "## Context", "## Required Reading", "## Entry Conditions", "## Dependencies", "## Execution Surface", "## Constraints", "## Checkpoint", "## CI/Gate Authority Stop Condition", "## Implementation Plan", "## Deliverable Contract", "## Evidence Protocol", "## Verification"], "bodyPath": "templates/task.lifecycle.blackbox.plan/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Brief", "## Goal", "## Context", "## Required Reading", "## Entry Conditions", "## Dependencies", "## Execution Surface", "## Constraints", "## Checkpoint", "## CI/Gate Authority Stop Condition", "## Implementation Plan", "## Deliverable Contract", "## Evidence Protocol", "## Verification"], "bodyPath": "templates/task.lifecycle.blackbox.plan/en-US.md" }
+      ]
+    },
+    {
       "id": "acceptance/lifecycle-blackbox",
       "version": "1",
       "documentKind": "acceptance-script",

@@ -285,7 +285,7 @@ test("removed dispatch worktree resolves an explicit published cut in the canoni
   git(root, "worktree", "remove", cwd);
   assert.equal(derive(root, `Delivery ${merged}`).commitSha, merged);
   assert.deepEqual(derive(root, `Delivery ${merged}`).deliverables, ["src/delivery.ts"]);
-  assert.throws(() => derive(root, "Delivery complete."), /explicitly name/u);
+  assert.throws(() => derive(root, "Delivery complete."), /one delivery commit or at least one artifact/u);
   assert.throws(() => derive(root, `Delivery ${"f".repeat(40)}`), /not published/u);
   put(root, "src/unpublished.ts", "unpublished\n");
   const unpublished = commit(root);
@@ -376,4 +376,5 @@ test("a stopped submission keeps the invalid_submission message as its rejection
     );
   assert.equal(receipt.code, "document_invalid");
   assert.equal(receipt.rejectionExplanation, "Delivery cut contains no changed paths.");
+  assert.match(receipt.next?.[0]?.action ?? "", /ha doc sync --submit --task task-1/u);
 });
