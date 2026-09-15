@@ -36,6 +36,8 @@ const commandRenderers = new Map<string, ReceiptRenderer>([
   ["schedule-runs", renderScheduleReceipt],
   ["squad-list", renderSquadListReceipt],
   ["squad-status", renderSquadStatusReceipt],
+  ["event-list", renderEventListReceipt],
+  ["event-show", renderEventShowReceipt],
 ]);
 
 const preOutcomeCommandRenderers = new Map<string, ReceiptRenderer>([["runtime-batch", renderRuntimeBatchReceipt]]);
@@ -198,6 +200,27 @@ function squadAttemptLine(kind: string, index: number, value: unknown): string {
     ` tokens=${String(usage.input ?? 0)}in/${String(usage.output ?? 0)}out` +
     ` tools=${String(value.toolCallCount ?? 0)} compacted=${String(value.compacted ?? false)}`
   );
+}
+
+function renderEventListReceipt(receipt: Record<string, unknown>): string {
+  const payload = parseEvidence(receipt);
+  if (!payload || payload.schema !== "event-list/v1" || !Array.isArray(payload.rows))
+    return renderSuccessfulReceipt(receipt);
+  const lines = payload.rows.map((row) => {
+      if (!isRecord(row) || !isRecord(row.actor)) throw new TypeError("Event list row is invalid.");
+      const actor = typeof row.actor.executorId === "string" ? row.actor.executorId : row.actor.personId;
+      return [row.revision, row.occurredAt, row.type, row.opId, actor].map((value) => String(value ?? "")).join(" | ");
+    }),
+    nextCursor = isRecord(payload.page) && typeof payload.page.nextCursor === "string" ? payload.page.nextCursor : null;
+  return [
+    ...(lines.length ? lines : ["No events."]),
+    ...(nextCursor === null ? [] : [`more: use --cursor ${nextCursor}`]),
+  ].join("\n");
+}
+
+function renderEventShowReceipt(receipt: Record<string, unknown>): string {
+  const payload = parseEvidence(receipt);
+  return payload?.event !== undefined ? JSON.stringify(payload.event, null, 2) : renderSuccessfulReceipt(receipt);
 }
 
 function parseEvidence(receipt: Record<string, unknown>): Record<string, unknown> | null {

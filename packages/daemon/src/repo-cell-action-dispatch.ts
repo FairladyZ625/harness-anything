@@ -106,6 +106,8 @@ export async function executeAction(
   if (action.kind === "task-show") return cell.showTask(String(action.taskId ?? ""));
   if (action.kind === "task-list") return cell.listTasks(action, binding);
   if (action.kind === "relation-list") return cell.listRelations(action, binding);
+  if (action.kind === "event-list") return cell.listEvents(action, binding);
+  if (action.kind === "event-show") return cell.showEvent(action, binding);
   if (action.kind === "relation-triples") {
     const revision = cell.store.readHead()?.revision ?? 0,
       rows = declaredRelationTriples({

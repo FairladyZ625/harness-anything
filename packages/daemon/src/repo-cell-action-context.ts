@@ -84,6 +84,7 @@ import {
   wipSnapshotEntries as wipSnapshotEntriesImpl,
 } from "./repo-cell-task-query.ts";
 import type { TaskQueryCell } from "./repo-cell-task-query.ts";
+import { listEvents as listEventsImpl, showEvent as showEventImpl } from "./repo-cell-event-query.ts";
 import { type PublicPublication, type RepoTaskAction } from "./repo-cell-types.ts";
 import type { TaskQueryReadModel } from "./task-query-read.ts";
 import type { makeSquadCoordinator } from "./squad-coordinator.ts";
@@ -129,6 +130,8 @@ export interface RepoCellActionContext extends TaskQueryCell {
   readonly showTask: Bound<typeof showTaskImpl>;
   readonly listTasks: Bound<typeof listTasksImpl>;
   readonly listRelations: Bound<typeof listRelationsImpl>;
+  readonly listEvents: Bound<typeof listEventsImpl>;
+  readonly showEvent: Bound<typeof showEventImpl>;
   readonly reviewTask: Bound<typeof reviewTaskImpl>;
   readonly taskReadSet: Bound<typeof taskReadSetImpl>;
   readonly publishGeneratedArtifact: typeof publishGeneratedArtifact;
@@ -264,6 +267,8 @@ export function createRepoCellActionContext(bindings: {
     showTask: bind(showTaskImpl),
     listTasks: bind(listTasksImpl),
     listRelations: bind(listRelationsImpl),
+    listEvents: bind(listEventsImpl),
+    showEvent: bind(showEventImpl),
     reviewTask: bind(reviewTaskImpl),
     taskReadSet: bind(taskReadSetImpl),
     taskListQueryFromAction: (_action: RepoTaskAction) => unavailableTaskQuery(),

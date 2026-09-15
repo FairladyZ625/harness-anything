@@ -16,6 +16,7 @@ import { taskCreateGuidance } from "../../daemon/src/receipt-guidance.ts";
 import { resolveHarnessLayout } from "../../kernel/src/index.ts";
 import { workspacePathFormat } from "../../preset/src/preset-command-contract.ts";
 import { cliCapabilities, deriveThinCliInputs, parseThinCommand, renderThinHelp } from "../src/cli/thin-command.ts";
+import { renderCliReceipt } from "../src/cli/receipt-render-registry.ts";
 import { emit, main, resolveCliVersion } from "../src/index.ts";
 
 test("top-level help renders a derived domain directory and domain help filters commands", () => {
@@ -404,6 +405,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
     ],
     doctor: ["doctor"],
     entity: ["entity-archive", "entity-delete", "entity-get", "entity-import", "entity-list", "entity-update"],
+    event: ["event-list", "event-show"],
     explain: ["explain"],
     fact: ["fact-reclassify", "fact-record", "fact-search", "fact-show", "fact-type-list", "fact-type-register"],
     gui: ["gui"],
@@ -505,6 +507,85 @@ test("capabilities is an exact-set projection of the command contract", () => {
       "vertical-validate",
     ],
   });
+});
+
+test("event commands project list filters and the show positional into read actions", () => {
+  const list = parseThinCommand([
+    "event",
+    "list",
+    "--type",
+    "settings_changed",
+    "--actor",
+    "codex",
+    "--after",
+    "2026-09-01T00:00:00Z",
+    "--limit",
+    "25",
+    "--cursor",
+    "40",
+  ]);
+  assert.equal(list.ok, true, JSON.stringify(list));
+  if (list.ok) {
+    assert.equal(list.command.method, "repo.task.read");
+    assert.deepEqual(list.command.action, {
+      kind: "event-list",
+      type: "settings_changed",
+      actor: "codex",
+      after: "2026-09-01T00:00:00Z",
+      limit: 25,
+      cursor: "40",
+    });
+  }
+  const show = parseThinCommand(["event", "show", "op-1"]);
+  assert.equal(show.ok, true);
+  if (show.ok) {
+    assert.equal(show.command.method, "repo.task.read");
+    assert.deepEqual(show.command.action, { kind: "event-show", opId: "op-1" });
+  }
+  assert.equal(parseThinCommand(["event", "show"]).ok, false);
+  assert.equal(parseThinCommand(["event", "list", "--limit", "0"]).ok, false);
+  assert.equal(parseThinCommand(["event", "list", "--limit", "501"]).ok, false);
+  assert.equal(parseThinCommand(["event", "list", "--after", "yesterday"]).ok, false);
+});
+
+test("event list renders revision-descending rows and event show renders the full event JSON", () => {
+  const listReceipt = {
+    ok: true,
+    command: "event-list",
+    outcome: "applied",
+    evidence: JSON.stringify({
+      schema: "event-list/v1",
+      rows: [
+        {
+          revision: 7,
+          opId: "op-7",
+          eventId: "event-7",
+          schema: "settings-event/v1",
+          type: "settings_changed",
+          occurredAt: "2026-09-01T00:00:07.000Z",
+          actor: { personId: "person-a", executorId: "codex" },
+          entityRefs: [],
+        },
+      ],
+      page: { limit: 50, cursor: null, nextCursor: "7" },
+    }),
+  };
+  const listText = renderCliReceipt(listReceipt).text;
+  assert.match(listText, /^7 \| 2026-09-01T00:00:07\.000Z \| settings_changed \| op-7 \| codex$/mu);
+  assert.match(listText, /more: use --cursor 7/u);
+  const showReceipt = {
+    ok: true,
+    command: "event-show",
+    outcome: "applied",
+    evidence: JSON.stringify({
+      schema: "event-show/v1",
+      event: { eventId: "event-7", opId: "op-7", payload: { nested: true } },
+    }),
+  };
+  assert.equal(
+    renderCliReceipt(showReceipt).text,
+    JSON.stringify({ eventId: "event-7", opId: "op-7", payload: { nested: true } }, null, 2),
+  );
 });
 
 test("task transition leaves lifecycle eligibility to the kernel", () => {
