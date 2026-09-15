@@ -64,6 +64,7 @@ const actionFields: Readonly<Record<RuntimeSessionActionId, readonly EntityActio
     field("definitionSnapshotRef"),
     field("launchGeneration", "number"),
     field("attachable", "boolean"),
+    field("taskBinding", "json-object", false),
     idempotencyKey,
   ]),
   runtime_session_provider_bound: Object.freeze([

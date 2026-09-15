@@ -29,6 +29,7 @@ export const providerFrameParsers: Record<
   codex: parseCodexFrame,
   agy: parseAgyFrame,
   zcode: parseZcodeFrame,
+  devin: parseAcpFrame,
 };
 if (!runtimeKindIds.every((kindId) => Object.hasOwn(providerFrameParsers, kindId)))
   throw new Error("provider frame parser registry is incomplete");
@@ -230,6 +231,71 @@ export function parseZcodeFrame(value: Record<string, unknown>, providerSessionI
 }
 
 const zcodeWriteTools: ReadonlySet<string> = new Set(["Write", "Edit", "MultiEdit", "NotebookEdit"]);
+
+// ACP canonical frames are emitted by runtime-worker-acp.ts; every frame carries
+// `sessionId`, which the acp sessionIdentity declaration resolves per frame.
+export function parseAcpFrame(value: Record<string, unknown>, _providerSessionId: string | null): ProviderFrame {
+  if (value.type === "acp.update") {
+    const update = isPlainRecord(value.update) ? value.update : null;
+    if (!update) throw new Error("ACP update frame is incomplete");
+    const kind = String(update.sessionUpdate ?? ""),
+      content = isPlainRecord(update.content) ? update.content : null;
+    if (kind === "agent_message_chunk" && typeof content?.text === "string" && content.text)
+      return { signals: [{ type: "activity", activity: "message", content: content.text }] };
+    if (kind === "agent_thought_chunk" && typeof content?.text === "string" && content.text)
+      return { signals: [{ type: "activity", activity: "thinking", content: content.text }] };
+    if (kind === "tool_call")
+      return {
+        signals: [
+          {
+            type: "activity",
+            activity: "tool",
+            content: typeof update.title === "string" ? update.title : JSON.stringify(update),
+          },
+        ],
+        toolCallObserved: true,
+        writeItemObserved: acpWriteToolKinds.has(String(update.kind)),
+      };
+    if (kind === "tool_call_update") {
+      const status = String(update.status ?? "");
+      return status === "failed"
+        ? {
+            signals: [
+              { type: "activity", activity: "tool", content: `tool call failed: ${String(update.toolCallId ?? "")}` },
+            ],
+          }
+        : {};
+    }
+    if (kind === "plan") {
+      const entries = Array.isArray(update.entries) ? update.entries : [];
+      return {
+        planObserved: true,
+        planIncomplete: entries.some((entry) => isPlainRecord(entry) && String(entry.status) !== "completed"),
+      };
+    }
+    return {};
+  }
+  if (value.type === "acp.result") {
+    const stopReason = String(value.stopReason ?? "end_turn");
+    return {
+      providerUsageEmpty: !isPlainRecord(value.usage) || Object.keys(value.usage).length === 0,
+      ...(typeof value.finalText === "string" ? { finalText: value.finalText } : {}),
+      ...(stopReason === "end_turn"
+        ? { outcome: "succeeded" as const }
+        : stopReason === "cancelled"
+          ? {}
+          : { outcome: "failed" as const, failureText: `ACP prompt stopped: ${stopReason}` }),
+    };
+  }
+  if (value.type === "acp.error")
+    return {
+      outcome: "failed",
+      failureText: typeof value.message === "string" ? value.message : "ACP session failed",
+    };
+  return {};
+}
+
+const acpWriteToolKinds: ReadonlySet<string> = new Set(["edit", "delete", "move"]);
 
 export function planHasIncompleteItems(item: Record<string, unknown>): boolean {
   const value = isPlainRecord(item.input) ? item.input : item,

@@ -31,6 +31,11 @@ export interface RuntimeProviderDeclaration {
     readonly modes: readonly RuntimeAuthMode[];
     readonly subscriptionProbe: readonly string[];
     readonly subscriptionProbeTimeoutMs: number;
+    /** ACP agents delegate authentication to the host: the client sends the key in
+     * `authenticate`'s `_meta.api_key`. API-key instances carry the resolved secret on
+     * the launch manifest; subscription instances read this TOML key inside the
+     * provider's `configDirectory`/`authFile`. Absent on non-ACP kinds. */
+    readonly acpCredentialKey?: string;
   };
   readonly isolation: {
     readonly defaultState: "enforced" | "operator-environment";
@@ -402,6 +407,73 @@ export const runtimeKinds = [
       mcp: "unverified",
       cwdRestriction: "unverified",
       gracefulCancel: "unverified",
+    },
+  },
+  {
+    kindId: "devin",
+    protocolFamily: "acp",
+    displayName: "Devin",
+    defaultProviderId: "devin",
+    executable: {
+      command: "devin",
+      configDirectory: ".local/share/devin",
+      configHomeEnvironment: null,
+      authFile: "credentials.toml",
+      // Requires authentication; exits non-zero when logged out, so a failed
+      // probe simply yields no models.
+      modelProbe: ["models", "list", "--format", "json"],
+      modelProbeFormat: "json-models",
+    },
+    declaredCapabilities: ["structured_witness", "resume", "attach", "session_identity"] as const,
+    configuration: {
+      fields: {},
+      publicFields: {},
+      publicDefaults: {},
+    },
+    auth: {
+      shape: "separate",
+      modes: ["subscription", "api-key"],
+      // `devin auth status` exits 0 whether or not credentials exist (verified
+      // 3000.10.21), so the probe is advisory; the ACP `authenticate` handshake is
+      // the authoritative check at launch time.
+      subscriptionProbe: ["auth", "status"],
+      subscriptionProbeTimeoutMs: 10_000,
+      acpCredentialKey: "windsurf_api_key",
+    },
+    isolation: { defaultState: "operator-environment", states: ["enforced", "operator-environment"] },
+    permissions: { available: true, defaultMode: "bypass" },
+    launch: {
+      // The prompt travels inside session/prompt; the permission mode is applied
+      // through session/set_mode; resume is session/load. Only the model rides argv.
+      input: "stdin",
+      streamFormat: "jsonl",
+      resumeFlag: "session/load",
+      argumentTemplate: ["acp", "--model", "$model"],
+      permissionArgs: { bypass: [], "workspace-write": [], "read-only": [] },
+    },
+    sessionIdentity: {
+      // Every canonical ACP frame carries the session id, so no discriminator.
+      eventDiscriminator: null,
+      eventIdField: "sessionId",
+      environmentFields: [],
+      transcriptReachability: "dispatch_stream_only",
+      everyFrame: true,
+    },
+    gui: { modelFamily: "open", effort: "none", effortValues: [] },
+    capabilities: {
+      ...sharedCapabilities,
+      sessionIdEveryFrame: "supported",
+      toolAllowlist: "unsupported",
+      toolDenylist: "unsupported",
+      turnLimit: "unsupported",
+      configurationIsolation: "supported",
+      permissionVocabulary: "supported",
+      independentSandbox: "unverified",
+      approvalEvent: "supported",
+      effort: "unsupported",
+      mcp: "unverified",
+      cwdRestriction: "unverified",
+      gracefulCancel: "supported",
     },
   },
 ] as const satisfies readonly RuntimeProviderDeclaration[];

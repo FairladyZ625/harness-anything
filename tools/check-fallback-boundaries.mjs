@@ -21,7 +21,7 @@ const consume = new Set();
 const scans = new Set();
 const substitutions = new Set();
 const offlineMaintenanceFullHistoryReaders = new Set([
-  "packages/kernel/src/projection/rebuildable-task-projection-catch-up.ts#catchUpRound",
+  "packages/kernel/src/projection/rebuildable-task-projection-event-application.ts#catchUpRound",
   "packages/kernel/src/store/ledger-backup.ts#readSqliteEvents",
   "packages/kernel/src/store/sqlite-event-store.ts#migrateEventsToSqlite",
   "packages/kernel/src/store/sqlite-task-event-publication.ts#publishConvertedGeneration",

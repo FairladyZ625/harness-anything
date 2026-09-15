@@ -1,6 +1,10 @@
 // @write-boundary-exemption rebuildable-projection
 import type { DatabaseSync } from "node:sqlite";
-import { runtimeTaskExecutionRelation, type AgentRuntimeEventV1 } from "../domain/agent-runtime.ts";
+import {
+  runtimeExecutionLinkForEvent,
+  runtimeTaskExecutionRelation,
+  type AgentRuntimeEventV1,
+} from "../domain/agent-runtime.ts";
 import type { DecisionEventV1 } from "../domain/decision-event.ts";
 import type { FactEventV1 } from "../domain/fact-event.ts";
 import { entityKindContracts } from "../domain/entity-kind-registry.ts";
@@ -140,8 +144,10 @@ function derivedRelationRecordsForReplay(
   event: AgentRuntimeEventV1 | DecisionEventV1 | FactEventV1 | TaskEventV1,
 ): readonly EntityRelationRecord[] {
   const records: EntityRelationRecord[] = [];
-  if (event.schema === "agent-runtime-event/v1" && event.type === "runtime_session_task_bound")
-    records.push(runtimeTaskExecutionRelation(event.payload.runtimeSessionId, event.payload.taskId));
+  if (event.schema === "agent-runtime-event/v1") {
+    const binding = runtimeExecutionLinkForEvent(event);
+    if (binding) records.push(runtimeTaskExecutionRelation(binding.runtimeSessionId, binding.taskId));
+  }
   // Hoisted from interpretEmbeddedEntityProjections: it raised this for every declaring contract
   // regardless of schema match, so replay keeps rejecting a malformed payload outright.
   if (typeof event.payload !== "object" || event.payload === null || Array.isArray(event.payload))

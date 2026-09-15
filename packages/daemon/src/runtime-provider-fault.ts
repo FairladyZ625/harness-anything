@@ -40,6 +40,10 @@ export function providerFaultFromFrame(
       diagnostic = diagnosticText(detail?.message) ?? (detail ? JSON.stringify(detail) : null);
     return providerFaultFromDiagnostic(responseCode, code, diagnostic, resetAtFrom(attribution ?? detail ?? value));
   }
+  // ACP-family kinds share the canonical frame vocabulary; the error frame's
+  // message is the only diagnostic surface.
+  if (value.type === "acp.error")
+    return providerFaultFromDiagnostic(null, null, diagnosticText(value.message), undefined);
   return null;
 }
 

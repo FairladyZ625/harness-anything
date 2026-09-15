@@ -209,7 +209,7 @@ describe("provider planes (2026-08-20 adjudication)", () => {
     expect(planeAllowsPermissions("zcode")).toBe(true);
   });
   it("covers every runtime kind the contract accepts", () => {
-    expect([...RUNTIME_KIND_IDS].sort()).toEqual(["agy", "claude", "codex", "zcode"]);
+    expect([...RUNTIME_KIND_IDS].sort()).toEqual(["agy", "claude", "codex", "devin", "zcode"]);
   });
   it("clears every field the new plane cannot express when the provider changes", () => {
     const configured = applyRuntimeAuthMode(

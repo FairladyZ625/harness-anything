@@ -457,6 +457,11 @@ export function launchNative(
       cwd: input.cwd,
       env: input.env,
       prompt: input.prompt,
+      kindId: input.installation?.kindId,
+      protocolFamily: input.protocolFamily,
+      ...(input.permissionMode ? { permissionMode: input.permissionMode } : {}),
+      ...(input.providerSessionId ? { providerSessionId: input.providerSessionId } : {}),
+      ...(input.acpApiKey ? { acpApiKey: input.acpApiKey } : {}),
       ...(persistence.callbackRelay
         ? {
             callbackRelay: {

@@ -41,7 +41,7 @@ import {
   withQueryOnlyDatabaseSession,
 } from "./rebuildable-task-projection-database.ts";
 import { taskProjectionSchemaVersion } from "./projection-schema.ts";
-import { catchUpRound, reduceBatch } from "./rebuildable-task-projection-catch-up.ts";
+import { catchUpRound, reduceBatch } from "./rebuildable-task-projection-event-application.ts";
 import { listProjection, readProjection, rebuildProjection } from "./rebuildable-task-projection-reads.ts";
 import { knowledgeQueryApi } from "./rebuildable-task-projection-knowledge-queries.ts";
 import { entityQueryApi } from "./rebuildable-task-projection-entity-api.ts";

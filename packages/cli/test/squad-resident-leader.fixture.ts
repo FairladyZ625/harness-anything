@@ -174,7 +174,10 @@ if (initialLeader) {
   const db = new (require("node:sqlite").DatabaseSync)(${JSON.stringify(ledgerPath)}, { readOnly: true });
   const row = db.prepare("SELECT e.op_id, e.event_json, c.status FROM event e JOIN command_outcome c ON c.op_id=e.op_id WHERE json_extract(e.event_json, '$.type')='runtime_dispatch_requested' ORDER BY e.revision DESC LIMIT 1").get();
   if (!row || row.status !== "accepted_durable") throw new Error("leader launched before dispatch acceptance");
-  acceptedAtLaunch = { opId: row.op_id, runtimeSessionId: JSON.parse(row.event_json).payload.runtimeSessionId };
+  const runtimeSessionId = JSON.parse(row.event_json).payload.runtimeSessionId;
+  const started = db.prepare("SELECT event_json FROM event WHERE json_extract(event_json, '$.type')='runtime_session_started' AND json_extract(event_json, '$.payload.runtimeSessionId')=? ORDER BY revision DESC LIMIT 1").get(runtimeSessionId);
+  if (!started) throw new Error("leader launched before RuntimeSession start acceptance");
+  acceptedAtLaunch = { opId: row.op_id, runtimeSessionId, taskBinding: JSON.parse(started.event_json).payload.taskBinding };
   db.close();
 }
 const callbackLeader = prompt.includes("# Squad worker callback") || prompt.includes("# Squad leader retry");

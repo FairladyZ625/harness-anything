@@ -204,6 +204,16 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
       assert.equal(launchedPrompt.includes(userRoot), false);
       assert.equal(launchedPrompt.includes("Daemon id: runtime-spawn-ingress"), false);
       assert.ok(launchedPrompt.includes(`Daemon endpoint: ${launchedEnv?.HARNESS_DAEMON_ENDPOINT}`));
+      const started = makeTaskEventReader({ repoId, rootDir: root })
+        .read()
+        .events.find(
+          (event) =>
+            event.type === "runtime_session_started" && event.payload.runtimeSessionId === receipt.runtimeSessionId,
+        );
+      assert.deepEqual(started?.type === "runtime_session_started" && started.payload.taskBinding, {
+        taskId,
+        executionId,
+      });
       const bound = await eventuallyValue(
         async () =>
           makeTaskEventReader({ repoId, rootDir: root })

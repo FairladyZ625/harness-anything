@@ -677,6 +677,17 @@
         "value": "packages/daemon/test/runtime-spawn-launch-flags.integration.test.ts",
         "ref": "task_0bff009657f2a466ee187c8210",
         "reason": "Consolidated into packages/daemon/test/runtime-spawn-provider-ingress.integration.test.ts under the 1,200-line test file limit; assertions preserved verbatim."
+      },
+      {
+        "value": "packages/daemon/test/migration-import-replay-records.integration.test.ts",
+        "ref": "task_f9a37aaa70e746826eb3aa11f8",
+        "reason": "Consolidated into packages/daemon/test/migration-import-witness-replay.integration.test.ts under relaxed file complexity limits (1,200 lines); assertions preserved verbatim."
+      },
+      {
+        "value": "packages/daemon/test/migration-import.integration.test.ts",
+        "ref": "task_f9a37aaa70e746826eb3aa11f8",
+        "reason": "Consolidated into packages/daemon/test/migration-import-lifecycle.integration.test.ts under relaxed file complexity limits (1,200 lines); assertions preserved verbatim."
+
       }
     ]
   }

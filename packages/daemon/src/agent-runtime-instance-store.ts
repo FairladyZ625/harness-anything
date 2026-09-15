@@ -52,7 +52,12 @@ import {
   providerSubscriptionReadiness,
 } from "./agent-runtime-launch-config.ts";
 import { runtimePermissionMode, type RuntimeIsolationState } from "./runtime-permissions.ts";
-import { runtimeEffortField, runtimeEffortRidesProviderConfig, runtimeKindIds } from "./runtime-inventory.ts";
+import {
+  runtimeEffortField,
+  runtimeEffortRidesProviderConfig,
+  runtimeKindForId,
+  runtimeKindIds,
+} from "./runtime-inventory.ts";
 
 export function openRuntimeInstanceStore(input: {
   readonly userRoot: string;
@@ -261,7 +266,8 @@ export function openRuntimeInstanceStore(input: {
         permissionMode,
         fast,
       ),
-      definition = definitionSnapshot(config, model, effort, fast);
+      definition = definitionSnapshot(config, model, effort, fast),
+      protocolFamily = runtimeKindForId(config.kindId).protocolFamily;
     if (config.auth.mode === "subscription") {
       const readiness = rememberAuthReadiness(
         config.instanceId,
@@ -271,12 +277,14 @@ export function openRuntimeInstanceStore(input: {
       return {
         definition,
         installation,
+        protocolFamily,
         executablePath: installation.executablePath,
         args,
         env,
         cwd: request.cwd,
         prompt: request.prompt,
         ...(request.providerSessionId ? { providerSessionId: request.providerSessionId } : {}),
+        ...(permissionMode ? { permissionMode } : {}),
       };
     }
     let secret: string;
@@ -304,17 +312,22 @@ export function openRuntimeInstanceStore(input: {
       if (!home)
         throw runtimeInstanceError("invalid_runtime_launch", "ZCode launch environment has no home directory.");
       writeZcodeConfig(path.join(home, ".zcode", "cli", "config.json"), config, secret);
-    } else env.ANTHROPIC_API_KEY = secret;
+    } else if (protocolFamily !== "acp") env.ANTHROPIC_API_KEY = secret;
     rememberAuthReadiness(config.instanceId, available());
     return {
       definition,
       installation,
+      protocolFamily,
       executablePath: installation.executablePath,
       args,
       env,
       cwd: request.cwd,
       prompt: request.prompt,
       ...(request.providerSessionId ? { providerSessionId: request.providerSessionId } : {}),
+      ...(permissionMode ? { permissionMode } : {}),
+      // ACP agents authenticate through the client handshake, so the key rides the
+      // launch manifest rather than the provider's environment.
+      ...(protocolFamily === "acp" ? { acpApiKey: secret } : {}),
     };
   }
   async function prepareWorkerGitEnvironment(instanceId: string): Promise<NodeJS.ProcessEnv | null> {

@@ -86,7 +86,7 @@ export interface RuntimeKind {
   readonly protocolFamily: RuntimeProtocolFamily;
   readonly declaredCapabilities: readonly RuntimeCapability[];
 }
-export const runtimeKindIds = Object.freeze(["claude", "codex", "agy", "zcode"] as const);
+export const runtimeKindIds = Object.freeze(["claude", "codex", "agy", "zcode", "devin"] as const);
 export type RuntimeKindId = (typeof runtimeKindIds)[number];
 export interface RuntimeResultClaim {
   readonly sha256: string;
@@ -116,8 +116,8 @@ export interface RuntimeInstallation {
 export interface RuntimeTaskSessionLink {
   readonly taskId: string;
   readonly executionId: string;
-  readonly providerSessionId: string;
-  readonly transcriptRef: string;
+  readonly providerSessionId: string | null;
+  readonly transcriptRef: string | null;
   readonly boundAt: string;
 }
 export interface RuntimeSession {
@@ -322,6 +322,7 @@ interface RuntimePayloads {
     readonly definitionSnapshotRef: string;
     readonly launchGeneration: number;
     readonly attachable: boolean;
+    readonly taskBinding?: { readonly taskId: string; readonly executionId: string };
   };
   readonly runtime_session_provider_bound: {
     readonly runtimeSessionId: string;
@@ -410,7 +411,12 @@ function validateAgentRuntimePayloadFields(
   value: unknown,
   allowUnknownFields: boolean,
 ): readonly string[] {
-  const optionalFields = type === "runtime_session_outcome_observed" ? ["reasonCode"] : [];
+  const optionalFields =
+    type === "runtime_session_outcome_observed"
+      ? ["reasonCode"]
+      : type === "runtime_session_started"
+        ? ["taskBinding"]
+        : [];
   if (
     !isRecord(value) ||
     !hasRequiredFields(value, payloadFields[type]) ||
@@ -445,7 +451,12 @@ function validateAgentRuntimePayloadFields(
     (!validRef(value.definitionSnapshotRef) ||
       !Number.isInteger(value.launchGeneration) ||
       (value.launchGeneration as number) < 0 ||
-      typeof value.attachable !== "boolean")
+      typeof value.attachable !== "boolean" ||
+      (value.taskBinding !== undefined &&
+        (!isRecord(value.taskBinding) ||
+          !hasOnlyFields(value.taskBinding, ["taskId", "executionId"]) ||
+          !isNonEmptyString(value.taskBinding.taskId) ||
+          !isNonEmptyString(value.taskBinding.executionId))))
   )
     return ["runtime session start is invalid"];
   if (
@@ -522,6 +533,13 @@ export function runtimeDefinitionSnapshotArtifact(definition: AgentDefinitionSna
 export function runtimeSessionId(event: AgentRuntimeEventV1): string | null {
   return "runtimeSessionId" in event.payload ? event.payload.runtimeSessionId : null;
 }
+export function runtimeExecutionLinkForEvent(
+  event: AgentRuntimeEventV1,
+): { readonly runtimeSessionId: string; readonly taskId: string; readonly executionId: string } | null {
+  if (event.type === "runtime_session_task_bound") return event.payload;
+  if (event.type !== "runtime_session_started" || event.payload.taskBinding === undefined) return null;
+  return { runtimeSessionId: event.payload.runtimeSessionId, ...event.payload.taskBinding };
+}
 export function reduceRuntimeInstallation(
   current: RuntimeInstallation | null,
   event: AgentRuntimeEventV1,
@@ -560,7 +578,20 @@ export function reduceRuntimeSession(
       launchGeneration: value.launchGeneration,
       liveness: "live",
       attachable: value.attachable,
-      taskBindings: current?.taskBindings ?? [],
+      taskBindings: value.taskBinding
+        ? [
+            ...(current?.taskBindings.filter(
+              (binding) =>
+                binding.taskId !== value.taskBinding!.taskId || binding.executionId !== value.taskBinding!.executionId,
+            ) ?? []),
+            {
+              ...value.taskBinding,
+              providerSessionId: null,
+              transcriptRef: null,
+              boundAt: event.occurredAt,
+            },
+          ]
+        : (current?.taskBindings ?? []),
       outcome: current?.outcome ?? null,
       exitCode: current?.exitCode ?? null,
       resultRef: current?.resultRef ?? null,

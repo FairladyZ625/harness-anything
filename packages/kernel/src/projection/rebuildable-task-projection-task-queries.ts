@@ -20,7 +20,7 @@ import {
 import type { TaskProjection } from "./task-projection-port.ts";
 import type { ProjectionContext } from "./rebuildable-task-projection-types.ts";
 import { withDatabase } from "./rebuildable-task-projection-database.ts";
-import { catchUpRound } from "./rebuildable-task-projection-catch-up.ts";
+import { catchUpRound } from "./rebuildable-task-projection-event-application.ts";
 import { readDocument, readPresetSnapshot } from "./rebuildable-task-projection-reads.ts";
 import {
   prepareQuery,
