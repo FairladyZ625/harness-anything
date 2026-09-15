@@ -63,7 +63,10 @@ export function agendaAwaiting(value: unknown): boolean {
 
 export function validateDaemonAgenda(value: unknown): readonly string[] {
   const entityId = validationEntityId(value, ["command"], "agenda"),
-    shapeError = recordShapeError(entityId, value, DAEMON_AGENDA_SCHEMA.required);
+    shapeError = recordShapeError(entityId, value, DAEMON_AGENDA_SCHEMA.required, [
+      ...DAEMON_AGENDA_SCHEMA.required,
+      ...DAEMON_AGENDA_SCHEMA.optional,
+    ]);
   if (shapeError) return [shapeError];
   if (!isJsonObject(value)) return [];
   for (const [field, actual, valid, expectation] of [
@@ -107,7 +110,9 @@ export function validateDaemonAgenda(value: unknown): readonly string[] {
     ],
   ] as const)
     if (!valid) return [validationError(entityId, field, actual, expectation)];
-  for (const field of ["inFlight", "waitingOnOthers", "dispatchable"] as const) {
+  for (const field of ["inFlight", "awaitingRework", "waitingOnOthers", "dispatchable"] as const) {
+    // awaitingRework is optional on the wire; required fields already passed the shape check above.
+    if (value[field] === undefined) continue;
     if (!Array.isArray(value[field])) return [validationError(entityId, field, value[field], "must be an array")];
     const invalidIndex = value[field].findIndex((row) => !agendaTask(row));
     if (invalidIndex >= 0)
