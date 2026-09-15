@@ -420,6 +420,7 @@ export type DaemonGuiReadPayloadMap = {
     readonly mode: "catalog" | "object";
     readonly entityKind: string | null;
     readonly refs: readonly string[];
+    readonly executor?: Readonly<Record<string, unknown>>;
   };
   readonly "repo.entity.kinds.read": Readonly<Record<string, never>>;
   readonly "repo.vertical.declaration.read": Readonly<Record<string, never>>;

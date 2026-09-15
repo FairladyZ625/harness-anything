@@ -97,6 +97,62 @@ test("ha explain and Task help overlay share one typed read, renderer, cut, and 
   }
 });
 
+test("ha explain reports submit availability for the same actor that can submit", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-explain-submit-actor-")),
+    root = path.join(parent, "repo"),
+    userRoot = path.join(parent, "user"),
+    taskId = "task-submit-actor",
+    actorId = "agent:submit-actor";
+  try {
+    initialize(root);
+    await seedTasks(root);
+    startDaemon(root, userRoot);
+    assert.equal(
+      runJson(root, userRoot, ["daemon", "repo", "register", "--repo-id", repoId, "--root", root, "--no-link"]).status,
+      0,
+    );
+    const created = runJson(
+      root,
+      userRoot,
+      ["task", "create", "--title", "Submit actor", "--id", taskId, "--admin"],
+      actorId,
+    );
+    assert.equal(created.status, 0, created.stderr);
+    const packagePath = String(created.value.packagePath);
+    await realizeTaskPlanFixture(root, packagePath, async () => {
+      const synced = runJson(root, userRoot, ["doc", "sync", "--submit", "--task", taskId], actorId);
+      assert.equal(synced.status, 0, synced.stderr);
+      return synced.value as never;
+    });
+    const started = runJson(root, userRoot, ["task", "start", taskId], actorId);
+    assert.equal(started.status, 0, started.stderr);
+    writeFileSync(path.join(root, "README.md"), "# Explain fixture\n\nSubmit actor delivery.\n", "utf8");
+    git(root, "add", "README.md");
+    git(root, "commit", "--quiet", "-m", "test: prepare submit actor delivery");
+    const deliveryCommit = git(root, "rev-parse", "HEAD");
+    writeFileSync(
+      path.join(root, "harness", packagePath, "closeout.md"),
+      `## Summary\n\nSubmit actor fixture at ${deliveryCommit}.\n\n## Verification\n\nCLI integration.\n\n` +
+        "## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nShared actor binding.\n",
+    );
+    const closeoutSynced = runJson(root, userRoot, ["doc", "sync", "--submit", "--task", taskId], actorId);
+    assert.equal(closeoutSynced.status, 0, closeoutSynced.stderr);
+
+    const explained = requireSuccess(runJson(root, userRoot, ["explain", `task/${taskId}`], actorId)),
+      submit = explained.subjects[0]!.actions.find(({ action }) => action.id === "submit");
+    const other = requireSuccess(runJson(root, userRoot, ["explain", `task/${taskId}`], "agent:other-actor")),
+      otherSubmit = other.subjects[0]!.actions.find(({ action }) => action.id === "submit");
+    assert.equal(otherSubmit?.available, false, JSON.stringify(otherSubmit));
+    const submitted = runJson(root, userRoot, ["task", "submit", taskId], actorId);
+    assert.equal(submitted.status, 0, `${submitted.stderr}\n${JSON.stringify(submitted.value)}`);
+    assert.equal(submitted.value.outcome, "applied", JSON.stringify(submitted.value));
+    assert.equal(submit?.available, true, JSON.stringify(submit));
+  } finally {
+    if (existsSync(userRoot)) runText(root, userRoot, ["daemon", "stop"]);
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
 type Explanation = {
   readonly mode: string;
   readonly evaluatedAtCut: string | null;
@@ -198,8 +254,9 @@ function runJson(
   root: string,
   userRoot: string,
   args: readonly string[],
+  actor?: string,
 ): { readonly status: number | null; readonly value: Record<string, unknown>; readonly stderr: string } {
-  const result = runText(root, userRoot, args, true);
+  const result = runText(root, userRoot, args, true, actor);
   let value: Record<string, unknown>;
   try {
     value = JSON.parse(result.stdout) as Record<string, unknown>;
@@ -214,10 +271,11 @@ function runText(
   userRoot: string,
   args: readonly string[],
   json = false,
+  actor?: string,
 ): { readonly status: number | null; readonly stdout: string; readonly stderr: string } {
   const result = spawnSync(process.execPath, [cli, "--root", root, ...(json ? ["--json"] : []), ...args], {
     encoding: "utf8",
-    env: environment(root, userRoot),
+    env: { ...environment(root, userRoot), ...(actor ? { HARNESS_ACTOR: actor } : {}) },
     maxBuffer: 32 * 1024 * 1024,
   });
   return { status: result.status, stdout: result.stdout.trim(), stderr: result.stderr.trim() };

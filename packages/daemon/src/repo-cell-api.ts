@@ -678,9 +678,22 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
   const readNow: RepoCellSynchronousRead[typeof repoCellSynchronousRead] = (method, payload = {}, binding) => {
     if (context.state !== "attached") throw context.cellCodedError("repo_unavailable", context.latched());
     if (method === "repo.entity.actions.explain") {
+      const { executor, ...request } = payload,
+        verified = bindVerifiedExecutorClaim({
+          action: { kind: "entity-action-explain", executor },
+          binding: binding ?? explainAuthenticationRequired(),
+          projection: context.projection,
+          now: context.now(),
+        });
       return readTaskActionExplanation(
-        { store: context.store, projection: context.projection, binding, rootDir: context.rootDir, now: context.now },
-        payload,
+        {
+          store: context.store,
+          projection: context.projection,
+          binding: verified.binding,
+          rootDir: context.rootDir,
+          now: context.now,
+        },
+        request,
       ) as DaemonGuiReadResultMap[typeof method];
     }
     return context.dispatchRead(readHandlers, method, payload) as DaemonGuiReadResultMap[typeof method];
