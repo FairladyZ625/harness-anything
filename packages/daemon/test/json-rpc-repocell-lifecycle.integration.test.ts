@@ -526,7 +526,6 @@ async function publishCiObservation(
   executionId: string,
   commitSha: string,
   runId: string,
-  verified = true,
 ): Promise<string> {
   const stateRoot = path.join(rootDir, ".harness", "fixture-writer-epochs"),
     authority = openPersistentWriterEpoch({ stateRoot, holderId: "direct-store" }),
@@ -560,7 +559,7 @@ async function publishCiObservation(
         return JSON.stringify([{ databaseId, headBranch: "main", createdAt: "2026-09-09T00:00:00.000Z" }]);
       if (args[1] === "view")
         return JSON.stringify({
-          workflowName: verified ? "rewrite-ci" : "other-ci",
+          workflowName: "rewrite-ci",
           headSha: commitSha,
           headBranch: "main",
           status: "completed",
@@ -598,7 +597,7 @@ async function publishCiObservation(
         (candidate) => candidate.type === "ci_run_observed" && candidate.payload.run.runId === observedRunId,
       );
     assert.ok(event && event.type === "ci_run_observed");
-    assert.equal(event.payload.verification?.conclusion, verified ? "success" : undefined);
+    assert.equal(event.payload.verification?.conclusion, "success");
     assert.ok(
       store
         .read()

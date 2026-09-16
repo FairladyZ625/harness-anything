@@ -47,7 +47,6 @@ type FetchedCiRun = {
 };
 type CiObservationFetch = {
   readonly requestedRuns: number;
-  readonly workflows: readonly string[];
   readonly runs: readonly FetchedCiRun[];
 };
 
@@ -220,7 +219,7 @@ export async function fetchCiObservations(
           });
       }
     }
-    return { requestedRuns: namedRuns?.length ?? witnessRuns?.length ?? limit, workflows, runs: fetched };
+    return { requestedRuns: namedRuns?.length ?? witnessRuns?.length ?? limit, runs: fetched };
   } finally {
     rmSync(temporaryRoot, { recursive: true, force: true });
   }
@@ -238,7 +237,8 @@ export function ingestCiObservations(
   for (const { databaseId, summary, artifacts } of fetched.runs)
     for (const artifact of artifacts) {
       const digest = createHash("sha256")
-          .update(`verified-v3\u0000${artifact.run.runId}\u0000${artifact.run.job}`)
+          // Reimport appends policy-independent provenance without rewriting previous observations.
+          .update(`verified-v4\u0000${artifact.run.runId}\u0000${artifact.run.job}`)
           .digest("hex"),
         opId = `ci-observation-${digest}`;
       if (cell.store.readEvent(opId)) {
@@ -269,8 +269,7 @@ export function ingestCiObservations(
                     headSha: summary.headSha,
                     conclusion: "success",
                   }
-                : fetched.workflows.includes(summary.workflowName) &&
-                    summary.headBranch === "main" &&
+                : summary.headBranch === "main" &&
                     artifact.run.branch === "main" &&
                     artifact.run.sha === summary.headSha &&
                     artifact.run.runId === `${databaseId}.${summary.attempt}`
