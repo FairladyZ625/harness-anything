@@ -3,7 +3,7 @@ import type { DaemonLaunchSpec } from "../../../daemon/src/client/daemon-autosta
 import {
   daemonIdFromEnv,
   daemonUserRoot,
-  localUserDaemonEndpoint,
+  resolveLocalDaemonEndpoint,
 } from "../../../daemon/src/client/local-daemon-target.ts";
 import type { ThinCommand } from "../cli/thin-command.ts";
 import { withAutostart } from "./with-autostart.ts";
@@ -21,7 +21,13 @@ export function runRepoAdminCommand(input: {
 }): Promise<JsonObject> {
   const userRoot = daemonUserRoot(input.env),
     daemonId = daemonIdFromEnv(input.env),
-    socketPath = localUserDaemonEndpoint(userRoot, daemonId),
+    socketPath = resolveLocalDaemonEndpoint({
+      userRoot,
+      daemonId,
+      env: input.env,
+      repoId: input.env.HARNESS_DAEMON_REPO_ID,
+      canonicalRoot: input.env.HARNESS_CANONICAL_ROOT ?? input.command.rootDir,
+    }),
     target = { userRoot, daemonId, socketPath },
     { kind: _kind, ...actionParams } = input.command.action,
     params =

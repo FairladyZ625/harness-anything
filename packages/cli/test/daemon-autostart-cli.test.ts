@@ -2,6 +2,7 @@
 import test from "node:test";
 import type { Socket } from "node:net";
 import { daemonStoppedMarkerPath } from "../../daemon/src/client/daemon-autostart.ts";
+import { createRuntimeCallbackRelay } from "../../daemon/src/runtime-callback-relay.ts";
 import { startDaemon } from "../../daemon/src/runtime.ts";
 import * as shared from "./daemon-autostart-cli.fixture.ts";
 
@@ -45,6 +46,7 @@ const {
   seedSettingsEvent,
   setup,
   setupRepository,
+  spawn,
   spawnCli,
   spawnSync,
   statusOf,
@@ -333,6 +335,113 @@ test("task-bound runtime identity cannot autostart the shared daemon", (context)
   assert.equal(available.status, 0, `${available.stderr}\n${available.stdout}`);
   assert.equal((JSON.parse(available.stdout) as { readonly outcome?: string }).outcome, "applied");
   context.diagnostic(`task-bound refusal=${refusal.error?.code}; existing daemon request=applied`);
+});
+
+test("repo-admin backup routes through the injected runtime callback relay", async () => {
+  const previousTemp = process.env.TMPDIR;
+  process.env.TMPDIR = "/tmp";
+  const fixture = setup(),
+    repoId = "relay-admin",
+    dispatchId = "dispatch_0123456789abcdef01234567",
+    canonicalRoot = realpathSync.native(fixture.root),
+    endpoint = localUserDaemonEndpoint(fixture.userRoot, "default"),
+    relayPath = path.join(canonicalRoot, ".harness", `r-${dispatchId.slice("dispatch_".length)}.sock`),
+    workerHome = path.join(fixture.parent, "worker", "home"),
+    backupDir = path.join(fixture.root, "tmp", "relay-backup"),
+    {
+      HARNESS_DAEMON_USER_ROOT: _stripped,
+      HARNESS_DAEMON_RELAY: _relay,
+      ...workerEnv
+    } = cliEnv(fixture.root, fixture.userRoot);
+  seedSettingsEvent({ rootDir: fixture.root, repoId });
+  registerDaemonRepo({
+    canonicalRoot: fixture.root,
+    repoId,
+    userRoot: fixture.userRoot,
+    createConvenienceLinks: false,
+  });
+  assert.equal(run(fixture.root, fixture.userRoot, ["daemon", "start", "--service"]).ok, true);
+  mkdirSync(workerHome, { recursive: true });
+  const relay = createRuntimeCallbackRelay({
+    rootDir: canonicalRoot,
+    dispatchId,
+    route: { userRoot: fixture.userRoot, daemonId: "default", endpoint },
+    relayPath,
+  });
+  await relay.start();
+  try {
+    const result = await new Promise<{ status: number | null; stdout: string; stderr: string }>((resolve) => {
+      const child = spawn(process.execPath, [cli, "--root", fixture.root, "--json", "backup", backupDir], {
+        env: {
+          ...workerEnv,
+          HOME: workerHome,
+          HARNESS_ACTOR: "agent:runtime-session:relay-admin",
+          HARNESS_TASK_BOUND: "1",
+          HARNESS_DAEMON_ENDPOINT: relayPath,
+          HARNESS_DAEMON_RELAY: "1",
+          HARNESS_CANONICAL_ROOT: canonicalRoot,
+          HARNESS_DAEMON_REPO_ID: repoId,
+          HARNESS_DAEMON_ID: "default",
+        },
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      let stdout = "",
+        stderr = "";
+      child.stdout.setEncoding("utf8").on("data", (chunk) => {
+        stdout += chunk;
+      });
+      child.stderr.setEncoding("utf8").on("data", (chunk) => {
+        stderr += chunk;
+      });
+      child.on("close", (status) => resolve({ status, stdout, stderr }));
+    });
+    assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`);
+    const receipt = JSON.parse(result.stdout) as { readonly ok?: boolean };
+    assert.equal(receipt.ok, true);
+    assert.equal(existsSync(path.join(backupDir, "manifest.json")), true);
+  } finally {
+    await relay.stop();
+    if (previousTemp === undefined) delete process.env.TMPDIR;
+    else process.env.TMPDIR = previousTemp;
+  }
+});
+
+test("repo-admin backup rejects an injected relay endpoint outside the sealed canonical root", () => {
+  const fixture = setup(),
+    repoId = "relay-conflict",
+    canonicalRoot = realpathSync.native(fixture.root),
+    foreignRelay = path.join(fixture.parent, "foreign", ".harness", "r-0123456789abcdef01234567.sock"),
+    workerHome = path.join(fixture.parent, "worker", "home"),
+    { HARNESS_DAEMON_USER_ROOT: _stripped, ...workerEnv } = cliEnv(fixture.root, fixture.userRoot);
+  seedSettingsEvent({ rootDir: fixture.root, repoId });
+  registerDaemonRepo({
+    canonicalRoot: fixture.root,
+    repoId,
+    userRoot: fixture.userRoot,
+    createConvenienceLinks: false,
+  });
+  mkdirSync(workerHome, { recursive: true });
+  const result = spawnSync(
+    process.execPath,
+    [cli, "--root", fixture.root, "--json", "backup", path.join(fixture.root, "tmp", "relay-backup")],
+    {
+      encoding: "utf8",
+      env: {
+        ...workerEnv,
+        HOME: workerHome,
+        HARNESS_ACTOR: "agent:runtime-session:relay-conflict",
+        HARNESS_TASK_BOUND: "1",
+        HARNESS_DAEMON_ENDPOINT: foreignRelay,
+        HARNESS_DAEMON_RELAY: "1",
+        HARNESS_CANONICAL_ROOT: canonicalRoot,
+        HARNESS_DAEMON_REPO_ID: repoId,
+        HARNESS_DAEMON_ID: "default",
+      },
+    },
+  );
+  assert.notEqual(result.status, 0, `${result.stderr}\n${result.stdout}`);
+  const receipt = JSON.parse(result.stdout) as { readonly error?: { readonly code?: string } };
+  assert.equal(receipt.error?.code, "daemon_target_conflict");
 });
 
 test("repo bootstrap reaches an injected daemon endpoint across an isolated runtime temp directory", () => {
