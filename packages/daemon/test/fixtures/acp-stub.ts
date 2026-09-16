@@ -70,7 +70,11 @@ process.stdin.on("data", (chunk) => {
       } else fail("api key required");
     } else if (!authenticated) fail("unauthenticated");
     else if (message.method === "session/new") reply({ sessionId, modes });
-    else if (message.method === "session/load") reply({ modes });
+    else if (message.method === "session/load") {
+      // Real agents replay session history before answering session/load.
+      update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "devin history " } });
+      reply({ modes });
+    }
     else if (message.method === "session/set_mode") { record({ mode: message.params?.modeId ?? null }); reply({}); }
     else if (message.method === "session/prompt") {
       const text = message.params?.prompt?.[0]?.text ?? "";
