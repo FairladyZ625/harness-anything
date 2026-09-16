@@ -64,7 +64,7 @@ test(
   "task dispatch-review launches one reviewer bound to the submitted cut without touching the implementation iteration",
   { timeout: 20_000 },
   async () => {
-    const f = await fixture();
+    const f = await fixture(false, true, false, false, false, undefined, { closeoutProfile: "standard" });
     try {
       await f.install();
       const before = await showTask(f, taskId);
@@ -105,7 +105,7 @@ test(
   "task dispatch-review expands a batch into one independent review dispatch per task",
   { timeout: 20_000 },
   async () => {
-    const f = await fixture();
+    const f = await fixture(false, true, false, false, false, undefined, { closeoutProfile: "standard" });
     try {
       await f.install();
       const task2 = "task-completion-review-batch",
@@ -148,7 +148,7 @@ test(
   "a reviewer runtime may only record a review; lifecycle writes that would mutate the implementation iteration are denied",
   { timeout: 20_000 },
   async () => {
-    const f = await fixture();
+    const f = await fixture(false, true, false, false, false, undefined, { closeoutProfile: "standard" });
     try {
       await f.install();
       const receipt = await f.run({ kind: "task-dispatch-review", taskIds: [taskId] });
@@ -206,7 +206,7 @@ test(
   "a registered review keeps the runtime settlement honest even when the archive collides",
   { timeout: 20_000 },
   async () => {
-    const f = await fixture();
+    const f = await fixture(false, true, false, false, false, undefined, { closeoutProfile: "standard" });
     try {
       await f.install();
       const receipt = await f.run({ kind: "task-dispatch-review", taskIds: [taskId] });
@@ -231,7 +231,7 @@ test(
   "an archive collision without a registered review still settles the reviewer dispatch as failed",
   { timeout: 20_000 },
   async () => {
-    const f = await fixture();
+    const f = await fixture(false, true, false, false, false, undefined, { closeoutProfile: "standard" });
     try {
       await f.install();
       const receipt = await f.run({ kind: "task-dispatch-review", taskIds: [taskId] });
@@ -252,7 +252,7 @@ test(
   "the reviewer report lands under the reviewed task's own package reports directory",
   { timeout: 20_000 },
   async () => {
-    const f = await fixture();
+    const f = await fixture(false, true, false, false, false, undefined, { closeoutProfile: "standard" });
     try {
       await f.install();
       const receipt = await f.run({ kind: "task-dispatch-review", taskIds: [taskId] });
@@ -274,7 +274,7 @@ test(
   "dispatch-review refuses a task with no submitted cut instead of binding the implementation execution",
   { timeout: 20_000 },
   async () => {
-    const f = await fixture();
+    const f = await fixture(false, true, false, false, false, undefined, { closeoutProfile: "standard" });
     try {
       await f.install();
       const planned = "task-completion-review-planned";

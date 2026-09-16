@@ -77,6 +77,7 @@ export async function fixture(
   noInstances = false,
   hybridDelivery = false,
   reviewReturnBudget?: number,
+  options: { readonly autoSubmit?: boolean; readonly closeoutProfile?: "standard" | "strict" } = {},
 ) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-completion-review-")),
     repoId = workspaceId("completion-review");
@@ -181,7 +182,7 @@ export async function fixture(
     path.join(root, "harness", "harness.yaml"),
     "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n" +
       "settings:\n  defaultVertical: software/coding\n  defaultPreset: standard-task\n  defaultProfile: baseline\n" +
-      "  closeout:\n    profile: strict\n",
+      `  closeout:\n    profile: ${options.closeoutProfile ?? "strict"}\n`,
   );
   let cell = await open();
   const run = (action: Parameters<typeof cell.run>[0]) => cell.run(action, owner);
@@ -228,12 +229,17 @@ export async function fixture(
     assert.equal(accepted.outcome, "applied", JSON.stringify(accepted));
     delivery = `${delivery} artifact:${report}@${accepted.revision}`;
   }
-  writeFileSync(
-    path.join(root, "harness", packagePath, "closeout.md"),
-    `# Closeout\n\n## Summary\n\nReviewed delivery ${delivery}\n\n## Verification\n\nREADME bytes checked.\n\n` +
-      "## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nReview dispatch retry.\n",
-  );
-  assert.equal((await run({ kind: "task-submit", taskId, executionId })).outcome, "applied");
+  const submit = async () => {
+    writeFileSync(
+      path.join(root, "harness", packagePath, "closeout.md"),
+      `# Closeout\n\n## Summary\n\nReviewed delivery ${delivery}\n\n## Verification\n\nREADME bytes checked.\n\n` +
+        "## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nReview dispatch retry.\n",
+    );
+    const receipt = await run({ kind: "task-submit", taskId, executionId });
+    assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+    return receipt;
+  };
+  if (options.autoSubmit !== false) await submit();
   const events = () => makeTaskEventReader({ repoId, rootDir: root }).read().events;
   const awaitOutcome = async (runtimeSessionId: string) => {
     for (let attempt = 0; attempt < 500; attempt += 1) {
@@ -253,10 +259,14 @@ export async function fixture(
     disableInstances: () => {
       instancesAvailable = false;
     },
+    enableInstances: () => {
+      instancesAvailable = true;
+    },
     run,
     runPrincipal: (action: Parameters<typeof cell.run>[0]) => cell.run(action, principal),
     events,
     cell: () => cell,
+    submit,
     complete: (consent = false) => run({ kind: "task-complete", taskId, executionId, ...(consent ? { consent } : {}) }),
     install: async () => {
       const installed = await run({

@@ -151,6 +151,7 @@ test("submit freezes the resolved gate contract into the cut; later harness.yaml
           witness: { adapterId: "code-doc-reconciliation", adapterOptions: {} },
         },
       ],
+      reviewer: { agentId: "closeout-reviewer" },
     };
   try {
     const submitted = await submitOverTransport(cell, repoId, { taskId, executionId });
