@@ -43,6 +43,12 @@ export type AgentDraft = {
   readonly skills: readonly { readonly id: string; readonly path: string }[];
   readonly instructions: string;
   readonly prompts: readonly string[];
+  // Optional declaration facets the editor does not render controls for still round-trip:
+  // rebuilding the declaration from only the visible fields silently stripped instance,
+  // permissionMode, and fallback on every save.
+  readonly instance: string;
+  readonly permissionMode: AgentDeclarationV1["permissionMode"] | "";
+  readonly fallback: AgentDeclarationV1["fallback"] | undefined;
 };
 export const agentDraftFrom = (detail: AgentEntityDetail): AgentDraft => ({
   name: detail.name,
@@ -53,6 +59,9 @@ export const agentDraftFrom = (detail: AgentEntityDetail): AgentDraft => ({
   skills: detail.skills,
   instructions: detail.instructions,
   prompts: detail.prompts,
+  instance: detail.instance ?? "",
+  permissionMode: detail.permissionMode ?? "",
+  fallback: detail.fallback ?? undefined,
 });
 export function agentDeclarationFrom(id: string, draft: AgentDraft): AgentDeclarationV1 {
   return {
@@ -68,6 +77,9 @@ export function agentDeclarationFrom(id: string, draft: AgentDraft): AgentDeclar
       ? { prompts: draft.prompts.map((prompt) => prompt.trim()).filter(Boolean) }
       : {}),
     ...(draft.preset.trim() ? { preset: draft.preset.trim() } : {}),
+    ...(draft.instance.trim() ? { instance: draft.instance.trim() } : {}),
+    ...(draft.permissionMode ? { permissionMode: draft.permissionMode } : {}),
+    ...(draft.fallback ? { fallback: draft.fallback } : {}),
   } as AgentDeclarationV1;
 }
 export const agentDraftDirty = (detail: AgentEntityDetail, draft: AgentDraft): boolean =>
@@ -402,12 +414,56 @@ export function AgentCard({
             <SegCtl
               label={t("agentRuntime.runtimeConstraint")}
               value={draft.runtimeType}
-              onChange={(runtimeType) => patch({ runtimeType })}
+              onChange={(runtimeType) =>
+                patch({
+                  runtimeType,
+                  // A pinned instance only stays valid while its kind still matches the new type.
+                  instance:
+                    draft.instance &&
+                    instances.some(
+                      (entry) =>
+                        entry.enabled &&
+                        entry.instanceId === draft.instance &&
+                        runtimeTypeMatchesKind(runtimeType, entry.kindId),
+                    )
+                      ? draft.instance
+                      : "",
+                })
+              }
               options={[
                 { value: "any", label: t("agentRuntime.anyRuntime") },
                 ...RUNTIME_KIND_IDS.map((kindId) => ({ value: kindId, label: kindId })),
               ]}
             />
+            <select
+              aria-label={t("agentRuntime.instanceAssignment")}
+              data-testid="agent-instance-select"
+              value={draft.instance}
+              onChange={(event) => patch({ instance: event.target.value })}
+              className="control"
+            >
+              <option value="">{t("agentRuntime.instanceAuto")}</option>
+              {compatible.map((entry) => (
+                <option key={entry.instanceId} value={entry.instanceId}>
+                  {entry.name} · {entry.defaultModel}
+                </option>
+              ))}
+              {/* A declared instance that no longer resolves stays visible so the pin is explicit,
+                  not silently rewritten — the daemon still rejects it as agent_instance_unavailable.
+                  The option itself carries no raw id (dead-entity-id gate); the link beside the
+                  select shows the pinned ref and stays navigable. */}
+              {draft.instance && !compatible.some((entry) => entry.instanceId === draft.instance) && (
+                <option value={draft.instance}>{t("agentRuntime.instanceUnavailable")}</option>
+              )}
+            </select>
+            {draft.instance ? (
+              <EntityRefLink
+                entityRef={`provider/${draft.instance}`}
+                onNavigate={() => onSelectRuntime(draft.instance)}
+                title={draft.instance}
+                className="font-mono ui-micro text-text-faint hover:text-accent hover:underline"
+              />
+            ) : null}
             <Hint>{t("agentRuntime.compatibleCount", { count: compatible.length })}</Hint>
             <Btn size="sm" variant="ghost" onClick={() => setRuntimeListOpen(!runtimeListOpen)}>
               {t(runtimeListOpen ? "agentRuntime.collapse" : "agentRuntime.expand")}

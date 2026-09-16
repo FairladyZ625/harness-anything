@@ -65,6 +65,8 @@ export interface AgentEntityGuiDetail {
   readonly skills: readonly { readonly id: string; readonly path: string }[];
   readonly prompts: readonly string[];
   readonly preset: string | null;
+  readonly instance: string | null;
+  readonly permissionMode: AgentDeclarationV1["permissionMode"] | null;
   readonly fallback?: AgentDeclarationV1["fallback"] | null;
 }
 export interface AgentSkillGuiRead {
@@ -666,26 +668,22 @@ function agentRuntimeSelectionIssue(
       };
     return null;
   }
-  if (compatible.length === 1) return null;
-  if (compatible.length === 0 && kindCompatible.length === 0)
+  // Ambiguity between enabled compatible instances is not an install-time fault: dispatch ranks
+  // the candidates deterministically (providerPriority, then live load, then instance id) and the
+  // declaration only pins `instance` when the author wants that node-local binding.
+  if (compatible.length > 0) return null;
+  if (kindCompatible.length === 0)
     return {
       code: "agent_runtime_type_unavailable",
       message:
         `Agent ${agent.id} requires runtime_type ${agent.runtime_type}, ` +
         "but no enabled instance provides it; run ha runtime instance list.",
     };
-  if (compatible.length === 0)
-    return {
-      code: "agent_model_unavailable",
-      message:
-        `Agent ${agent.id} requests model ${agent.model}, ` +
-        "but no compatible enabled instance supports it; run ha runtime instance list.",
-    };
   return {
-    code: "agent_instance_ambiguous",
-    message: `Agent ${agent.id} matches multiple enabled instances on this node: ${compatible
-      .map(({ instanceId }) => instanceId)
-      .join(", ")}; declare instance explicitly.`,
+    code: "agent_model_unavailable",
+    message:
+      `Agent ${agent.id} requests model ${agent.model}, ` +
+      "but no compatible enabled instance supports it; run ha runtime instance list.",
   };
 }
 

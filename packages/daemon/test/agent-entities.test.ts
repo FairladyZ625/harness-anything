@@ -471,6 +471,60 @@ test("generated Agent output reuses validation, admits only runnable declaration
   }
 });
 
+test("an unpinned Agent installs with several compatible instances and a declared instance still validates", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-agent-instance-selection-")),
+    runtimeInstances = [
+      { instanceId: "codex-a", kindId: "codex", models: ["gpt-5.6-sol", "gpt-5.6-terra"], enabled: true },
+      { instanceId: "codex-b", kindId: "codex", models: ["gpt-5.6-sol", "gpt-5.6-terra"], enabled: true },
+    ] as const;
+  try {
+    // Dispatch ranks compatible instances deterministically, so an unbound declaration is
+    // installable whenever at least one enabled instance can run it.
+    assert.equal(
+      (
+        (await install({ rootDir, kind: "agent-install", declaration: agent, runtimeInstances })) as {
+          entityId: string;
+        }
+      ).entityId,
+      agent.id,
+    );
+    const pinned = { ...agent, id: "pinned", name: "Pinned", instance: "codex-b" };
+    assert.equal(
+      (
+        (await install({ rootDir, kind: "agent-install", declaration: pinned, runtimeInstances })) as {
+          entityId: string;
+        }
+      ).entityId,
+      "pinned",
+    );
+    await assert.rejects(
+      () =>
+        install({
+          rootDir,
+          kind: "agent-install",
+          declaration: { ...pinned, id: "ghosted", instance: "codex-missing" },
+          runtimeInstances,
+        }),
+      (error: unknown) => (error as { code?: string }).code === "agent_instance_unavailable",
+    );
+    await assert.rejects(
+      () =>
+        install({
+          rootDir,
+          kind: "agent-install",
+          declaration: { ...agent, id: "wrong-kind", instance: "claude-a" },
+          runtimeInstances: [
+            ...runtimeInstances,
+            { instanceId: "claude-a", kindId: "claude", models: ["opus"], enabled: true },
+          ],
+        }),
+      (error: unknown) => (error as { code?: string }).code === "agent_instance_incompatible",
+    );
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("entity validation names every malformed manifest and refuses squads that reference missing agents", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-entity-errors-")),
     source = path.join(rootDir, "source");

@@ -148,6 +148,9 @@ const agentDetail = {
   ],
   prompts: ["daily-plan"],
   preset: null,
+  instance: "claude-one",
+  permissionMode: "bypass",
+  fallback: { providerPriority: ["anthropic"], backoff: { baseMs: 1000, maxMs: 5000 } },
 } as const;
 const availableSkills = [
     { id: "review", path: "/Users/test/.claude/skills/review", source: "user" },
@@ -614,6 +617,9 @@ describe("agent runtime renderer", () => {
     ])
       expect(agent).toContain(text);
     expect(agent).toContain("Role is fully decoupled from model and provider");
+    expect(agent).toContain('data-testid="agent-instance-select"');
+    expect(agent).toContain("Claude One · gpt-5.6-sol");
+    expect(agent).toContain("provider/claude-one");
     const squad = renderToStaticMarkup(
       createElement(SquadCard, {
         detail: squadDetail,
@@ -655,6 +661,9 @@ describe("agent runtime renderer", () => {
     );
     expect(agentDeclarationFrom(agentDetail.id, agentDraftFrom(agentDetail))).toMatchObject({
       skills: agentDetail.skills,
+      instance: agentDetail.instance,
+      permissionMode: agentDetail.permissionMode,
+      fallback: agentDetail.fallback,
     });
     expect(withSkills).toContain('data-testid="agent-skill-search"');
     expect(withSkills).toContain('data-testid="agent-preset"');
