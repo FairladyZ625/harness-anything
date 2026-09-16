@@ -257,7 +257,7 @@ const lifecycleSpecs = Object.freeze({
     topology: "center-forward-write",
     coordination: "reserve",
     eventType: "execution_started",
-    proof: ["actorBinding", "reservation"],
+    proof: ["actorBinding", "deliveryBaseline", "reservation"],
   },
   transition: {
     ingress: "task-transition",

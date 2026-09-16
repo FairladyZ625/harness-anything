@@ -204,12 +204,19 @@ export type {
   ArtifactDelivery,
   ArchivedExecutionV0,
   ExecutionAnnotationKind,
+  ExecutionDeliveryBaseline,
   ExecutionV1,
   LeaseV1,
   ProjectedExecution,
   SubmissionV1,
 } from "./domain/execution.ts";
-export { executionAnnotationKinds, isNativeCommitSha, submissionDigest } from "./domain/execution.ts";
+export {
+  executionAnnotationKinds,
+  isNativeCommitSha,
+  isNativeExecution,
+  submissionDigest,
+  validExecutionDeliveryBaseline,
+} from "./domain/execution.ts";
 export { resolveCompletionContract, validateFrozenCompletionContract } from "./domain/completion-contract.ts";
 export { gateAppliesToSubmission, mappedWitnessAdapterIds, CODE_DOC_GATE_ID } from "./domain/completion-contract.ts";
 export type {

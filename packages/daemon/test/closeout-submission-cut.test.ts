@@ -79,6 +79,11 @@ function artifactStore() {
   };
 }
 
+/** The execution's start-frozen baseline: the repository root commit by default. */
+function baseline(root: string) {
+  return { kind: "commit" as const, commitSha: git(root, "rev-list", "--max-parents=0", "HEAD") };
+}
+
 function derive(
   rootDir: string,
   summary: string,
@@ -87,10 +92,31 @@ function derive(
   store: Parameters<typeof deriveCloseoutSubmission>[0]["store"] = {} as Parameters<
     typeof deriveCloseoutSubmission
   >[0]["store"],
+  deliveryBaseline:
+    | { readonly kind: "commit"; readonly commitSha: string }
+    | { readonly kind: "empty-tree" }
+    | null
+    | undefined = rootDir === "/nonexistent" ? { kind: "empty-tree" } : baseline(rootDir),
 ) {
-  const snapshot = { executions: [], task: { completionGateIds: gates } } as unknown as Parameters<
-      typeof deriveCloseoutSubmission
-    >[3],
+  const snapshot = {
+      executions: [
+        {
+          schema: "execution/v1",
+          executionId: "execution-1",
+          taskId: "task-1",
+          nodeId: "implementation",
+          iteration: 0,
+          state: "active",
+          actor: { principal: { personId: "owner" }, executor: null },
+          claimedAt: "2026-09-12T00:00:00.000Z",
+          submittedAt: null,
+          closedAt: null,
+          submission: null,
+          ...(deliveryBaseline == null ? {} : { deliveryBaseline }),
+        },
+      ],
+      task: { completionGateIds: gates },
+    } as unknown as Parameters<typeof deriveCloseoutSubmission>[3],
     body = closeout(summary),
     projection = {
       read: () => ({ watermark: 1, sourceRevision: 1, snapshot: { ...snapshot, task: {} }, packagePath }),
@@ -284,7 +310,7 @@ test("already merged dispatch preserves earlier branch changes and rejects unrel
   assert.equal(derive(root, `Delivery ${merged}`).commitSha, merged);
   // Naming an older published commit is still rejected, by the comparison-cut check rather than
   // by any relationship to the dispatch HEAD.
-  assert.throws(() => derive(root, `Delivery ${base}`), /no verifiable comparison cut/u);
+  assert.throws(() => derive(root, `Delivery ${base}`), /no changed paths/u);
   assert.throws(() => derive(root, "Worktree delivery."), { code: "invalid_submission" });
 });
 
@@ -425,4 +451,71 @@ test("anchor drift warning fires only when the delivery cut moved under unchange
   assert.deepEqual(submissionAnchorDriftWarnings(null, submitted), []);
   assert.deepEqual(submissionAnchorDriftWarnings(submitted, submitted), []);
   assert.deepEqual(submissionAnchorDriftWarnings(submitted, { ...submitted, completionClaim: "Revised claim." }), []);
+});
+
+// -- frozen delivery baseline (dec_59FA45A407F850E2B167A192D7: execution start owns the cut) ------
+
+test("a root-commit delivery on an unborn repository diffs against the empty tree", (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-closeout-unborn-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  git(root, "init", "-q", "-b", "main");
+  git(root, "config", "user.name", "Harness Test");
+  git(root, "config", "user.email", "harness@example.test");
+  put(root, "src/first.ts", "export const first = 1;\n");
+  const sha = commit(root);
+  dispatch(root, root);
+  const packet = derive(root, `Delivered ${sha}.`, undefined, ["ci"], undefined, { kind: "empty-tree" });
+  assert.equal(packet.commitSha, sha);
+  assert.deepEqual(packet.deliverables, ["src/first.ts"]);
+});
+
+test("a multi-commit delivery lists every path changed since the frozen baseline", (t) => {
+  const { root } = fixture(t);
+  put(root, "src/first.ts", "first\n");
+  commit(root);
+  put(root, "src/second.ts", "second\n");
+  const sha = commit(root);
+  dispatch(root, root);
+  const packet = derive(root, `Delivered ${sha}.`);
+  assert.equal(packet.commitSha, sha);
+  assert.deepEqual(packet.deliverables, ["src/first.ts", "src/second.ts"]);
+});
+
+test("an execution without a frozen baseline fails closed instead of guessing one", (t) => {
+  const { root } = fixture(t);
+  put(root, "src/live.ts", "export const liveValue = 9;\n");
+  const sha = commit(root);
+  dispatch(root, root);
+  assert.throws(() => derive(root, `Delivered ${sha}.`, undefined, ["ci"], undefined, null), {
+    code: "invalid_submission",
+    message: /no frozen delivery baseline/u,
+  });
+});
+
+test("a frozen baseline unreadable in the delivery repository fails closed", (t) => {
+  const { root } = fixture(t);
+  put(root, "src/live.ts", "export const liveValue = 10;\n");
+  const sha = commit(root);
+  dispatch(root, root);
+  assert.throws(
+    () =>
+      derive(root, `Delivered ${sha}.`, undefined, ["ci"], undefined, {
+        kind: "commit",
+        commitSha: "f".repeat(40),
+      }),
+    { code: "invalid_submission", message: /not readable/u },
+  );
+});
+
+test("the frozen baseline does not move when the project HEAD advances after start", (t) => {
+  const { root, base } = fixture(t);
+  put(root, "src/delivery.ts", "delivery\n");
+  const sha = commit(root);
+  dispatch(root, root);
+  // The baseline was frozen at fixture time (base); the delivery cut itself is the new HEAD.
+  const packet = derive(root, `Delivered ${sha}.`, undefined, ["ci"], undefined, {
+    kind: "commit",
+    commitSha: base,
+  });
+  assert.deepEqual(packet.deliverables, ["src/delivery.ts"]);
 });

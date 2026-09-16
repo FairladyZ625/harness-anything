@@ -3,6 +3,7 @@ import {
   consumeKnownError,
   currentExecutionCuts,
   heldLeaseForExecutionActor,
+  isNativeExecution,
   isSameExecution,
   isSamePerson,
   isTaskEvent,
@@ -34,6 +35,9 @@ import { isPresetSnapshotCurrent, prepareSubmissionEvidence } from "./repo-cell-
 import { actionWitnessCollections } from "./repo-cell-witness-adapters.ts";
 import { dispatchCompletionReview } from "./task-completion-review.ts";
 import { readEffectiveCloseoutGates } from "./repo-cell-settings-state.ts";
+
+/** Git resolves the empty-tree object id virtually; it exists in every repository. */
+const EMPTY_TREE_SHA = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 
 /** Summary selects one public delivery commit, center-accepted artifacts, or both. */
 export function deriveCloseoutSubmission(
@@ -132,12 +136,19 @@ export function deriveCloseoutSubmission(
     deliverables = frozen.deliverables;
     commitOutputs = frozen.outputs.filter((output) => !output.startsWith("Artifact-Anchor: "));
   } else {
-    const mergeBase = git.run(root, ["merge-base", "origin/main", commitSha]);
-    const base =
-      mergeBase.ok && mergeBase.stdout !== commitSha
-        ? mergeBase.stdout
-        : git.run(root, ["rev-parse", `${commitSha}^1`]).stdout;
-    if (!base) throw cell.cellCodedError("invalid_submission", "Delivery commit has no verifiable comparison cut.");
+    const execution = snapshot.executions.find((value) => value.executionId === executionId),
+      baseline = execution !== undefined && isNativeExecution(execution) ? execution.deliveryBaseline : undefined;
+    if (baseline === undefined)
+      throw cell.cellCodedError(
+        "invalid_submission",
+        "Execution has no frozen delivery baseline; the comparison cut is fixed at execution start.",
+      );
+    const base = baseline.kind === "commit" ? baseline.commitSha : EMPTY_TREE_SHA;
+    if (baseline.kind === "commit" && !git.run(root, ["cat-file", "-e", `${baseline.commitSha}^{commit}`]).ok)
+      throw cell.cellCodedError(
+        "invalid_submission",
+        `Frozen delivery baseline ${baseline.commitSha} is not readable in the delivery repository.`,
+      );
     deliverables = runProcessText(
       "git",
       ["diff", "--name-only", "-z", "--diff-filter=ACMRT", base, commitSha, "--"],

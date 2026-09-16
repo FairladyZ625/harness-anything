@@ -172,6 +172,9 @@ async function collectLocalCommand(
           PATH: process.env.PATH,
           HARNESS_WITNESS_CUT: cutSha,
           HARNESS_WITNESS_GATE: requirement.gateId,
+          // Repository-scoped observations (e.g. merged-to ancestry) read the source repo through
+          // this handle; the extracted workdir carries no .git.
+          HARNESS_WITNESS_REPO: root,
         },
         undefined,
         undefined,
