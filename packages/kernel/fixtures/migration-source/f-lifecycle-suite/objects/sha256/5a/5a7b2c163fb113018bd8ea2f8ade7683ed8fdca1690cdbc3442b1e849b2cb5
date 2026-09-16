@@ -1,0 +1,23 @@
+# Review review-x13-1
+
+Managed by `ha task review-execution`; legacy `review.md` is not authoritative.
+
+- Task: task_fx13_mix
+- Execution: exe_fx13_1
+- Verdict: approved
+- Commit: fe10a8916c0aefda9275818aa8a32110e1cba6d0
+- Iteration: 0
+- Content digest: sha256:b469eca66a22123d1f07a9e1859067593729c5bc251cbcb3c9e6f53dc7573700
+- Submission digest: sha256:3d95fb485c30f82058a488df4a5cc61b09787bdaa31068280732582bad46bbe3
+- Reviewed at: 2026-09-16T12:46:44.029Z
+- Consent: consent-7f304013af005863cd968d1e
+- Consent actor: owner
+- Consent source: "local"
+
+## Reason
+
+Fixture review review-x13-1: approved.
+
+## Evidence checked
+
+- harness

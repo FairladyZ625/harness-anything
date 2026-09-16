@@ -1,0 +1,17 @@
+# Facts
+
+Managed by `ha fact record`; hand edits are rejected.
+
+`State` is record-time; authoritative liveness via `ha fact show`.
+
+## Records
+
+### F-A90B3D45
+
+- Statement: Fixture observation for task_fx23_sup.
+- Evidence source: test:migration-fixtures/task_fx23_sup
+- Observed at: 2026-09-16T12:47:00.188Z
+- Confidence: high
+- State: standing
+- Task: task_fx23_sup
+

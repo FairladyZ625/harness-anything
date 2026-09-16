@@ -1,0 +1,31 @@
+{
+  "fixture": "h-x18-complete-review-dispatch",
+  "tier": "H",
+  "source": "canonical gen2 snapshot (sqlite .backup, mode=ro), de-identified",
+  "deidentification": {
+    "tool": "tools/gates/sample-canonical-events.mjs deidentifyCanonicalEvent",
+    "digestInputDrift": false,
+    "drifted": []
+  },
+  "manifest": {
+    "shapes": [
+      "X18 complete-review: 派工"
+    ],
+    "sourceTaskId": null,
+    "idempotencyPrefix": "complete-review:"
+  },
+  "eventCount": 6,
+  "revisionRange": [
+    74274,
+    74495
+  ],
+  "revisions": [
+    74274,
+    74310,
+    74458,
+    74462,
+    74491,
+    74495
+  ],
+  "frozenAt": "2026-09-16T13:04:07.517Z"
+}

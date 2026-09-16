@@ -1,0 +1,39 @@
+# Execution exe_fx10_1
+
+Managed by `ha task start/submit`; hand edits are rejected.
+
+- Task: task_fx10_gate
+- Iteration: 0
+- State: accepted
+- Claimed: 2026-09-16T12:46:46.345Z
+- Submitted: 2026-09-16T12:46:48.005Z
+- Closed: 2026-09-16T12:46:50.045Z
+- Commit: 214472cfa4f36ca0a8d5b86e3c090e6accb0ccb8
+- Completion claim: X10 gated delivery: commit 214472cfa4f36ca0a8d5b86e3c090e6accb0ccb8
+- Reviews: review-x10-1/approved
+- Selected review: review-x10-1
+- Consent: consent-f10fd9ebfe3e8062519b4790
+- Checker witnesses: ci/op_a71a21e0ec107f8e2a0b7b702446bf3951ffc1c9805a3d87b7379af1bf69ec19
+- Code-doc witness: code-doc-repoint-d90be13f16175311
+
+## Deliverables
+
+- src/gated.ts
+
+## Outputs
+
+- none
+
+## Verification
+
+- Fixture verification.
+
+## Known gaps
+
+- None.
+- Not applicable.
+
+## Residual risks
+
+- None.
+- Not applicable.

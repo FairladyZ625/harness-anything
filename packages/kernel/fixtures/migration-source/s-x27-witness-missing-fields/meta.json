@@ -1,0 +1,19 @@
+{
+  "fixture": "s-x27-witness-missing-fields",
+  "tier": "S",
+  "source": "static: mutated copy of a real F-tier completion_gate_verified row",
+  "seededFrom": "f-lifecycle-suite",
+  "shapes": [
+    "X27 字段不全的 witness(缺 result/gateId)"
+  ],
+  "oracle": "dry-run 报 unsupported(ready=false)，不静默修补",
+  "eventCount": 1,
+  "revisionRange": [
+    87,
+    87
+  ],
+  "revisions": [
+    87
+  ],
+  "frozenAt": "2026-09-16T13:04:10.434Z"
+}

@@ -1,0 +1,171 @@
+{
+  "fixture": "f-lifecycle-suite",
+  "tier": "F",
+  "source": "generated: hermetic daemon + real ha CLI (pre-S1 build 9c7a29910)",
+  "repoId": "s6-fixture-repo-14168",
+  "scenarios": {
+    "x5-multi-review-consent-done": {
+      "taskId": "task_fx5_done",
+      "revisionRange": [
+        2,
+        11
+      ],
+      "eventCount": 10
+    },
+    "x1-amend-chain": {
+      "taskId": "task_fx1_amend",
+      "revisionRange": [
+        12,
+        25
+      ],
+      "eventCount": 14
+    },
+    "x2-amend-across-iterations": {
+      "taskId": "task_fx2_iter",
+      "revisionRange": [
+        26,
+        43
+      ],
+      "eventCount": 18
+    },
+    "x7-changes-requested-resubmit": {
+      "taskId": "task_fx2_iter",
+      "revisionRange": [
+        26,
+        43
+      ],
+      "eventCount": 18
+    },
+    "x8-amend-then-rejected": {
+      "taskId": "task_fx2_iter",
+      "revisionRange": [
+        26,
+        43
+      ],
+      "eventCount": 18
+    },
+    "x6-two-reviews-double-consent": {
+      "taskId": "task_fx6_two",
+      "revisionRange": [
+        44,
+        55
+      ],
+      "eventCount": 12
+    },
+    "x12-artifact-only": {
+      "taskId": "task_fx12_art",
+      "revisionRange": [
+        56,
+        65
+      ],
+      "eventCount": 10
+    },
+    "x16-private-delivery": {
+      "taskId": "task_fx12_art",
+      "revisionRange": [
+        56,
+        65
+      ],
+      "eventCount": 10
+    },
+    "x13-mixed-delivery": {
+      "taskId": "task_fx13_mix",
+      "revisionRange": [
+        66,
+        75
+      ],
+      "eventCount": 10
+    },
+    "x10-provenance-witness": {
+      "taskId": "task_fx10_gate",
+      "revisionRange": [
+        76,
+        89
+      ],
+      "eventCount": 13
+    },
+    "x21-code-doc-witness": {
+      "taskId": "task_fx10_gate",
+      "revisionRange": [
+        76,
+        89
+      ],
+      "eventCount": 13
+    },
+    "x22-code-doc-repoint": {
+      "taskId": "task_fx10_gate",
+      "revisionRange": [
+        76,
+        89
+      ],
+      "eventCount": 13
+    },
+    "x19-suspended-execution": {
+      "taskId": "task_fx19_cancel",
+      "revisionRange": [
+        90,
+        95
+      ],
+      "eventCount": 6
+    },
+    "x17-held-lease": {
+      "taskId": "task_fx17_held",
+      "revisionRange": [
+        96,
+        99
+      ],
+      "eventCount": 4
+    },
+    "x17-released-lease": {
+      "taskId": "task_fx17_released",
+      "revisionRange": [
+        100,
+        104
+      ],
+      "eventCount": 5
+    },
+    "x17-in-review": {
+      "taskId": "task_fx17_inreview",
+      "revisionRange": [
+        105,
+        111
+      ],
+      "eventCount": 7
+    },
+    "x23-archive": {
+      "taskId": "task_fx23_arch",
+      "revisionRange": [
+        112,
+        121
+      ],
+      "eventCount": 5
+    },
+    "x23-supersede": {
+      "taskId": "task_fx23_sup",
+      "revisionRange": [
+        116,
+        120
+      ],
+      "eventCount": 4
+    },
+    "x28-reopen": {
+      "taskId": "task_fx23_arch",
+      "revisionRange": [
+        112,
+        121
+      ],
+      "eventCount": 5
+    }
+  },
+  "notes": [],
+  "generation": 2,
+  "eventCount": 121,
+  "outcomeCount": 120,
+  "objectCount": 207,
+  "revisionRange": [
+    1,
+    121
+  ],
+  "contiguous": true,
+  "frozenAt": "2026-09-16T12:47:02.917Z"
+}

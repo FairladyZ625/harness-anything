@@ -1,0 +1,40 @@
+# Execution exe_fx12_1
+
+Managed by `ha task start/submit`; hand edits are rejected.
+
+- Task: task_fx12_art
+- Iteration: 0
+- State: submitted
+- Claimed: 2026-09-16T12:46:39.013Z
+- Submitted: 2026-09-16T12:46:39.878Z
+- Closed: open
+- Commit: none (artifact delivery)
+- Artifact: tasks/task_fx12_art-fixture-x12-artifact-only/artifacts/report.md@60 (58cbf390b8ede1492ed9f41106fbbfcb10fca5c50df07fa4b4e36121aac9708c)
+- Completion claim: X12 artifact-only delivery: artifact:artifacts/report.md
+- Reviews: review-x12-1/approved
+- Selected review: pending
+- Consent: pending
+- Checker witnesses: pending
+- Code-doc witness: pending
+
+## Deliverables
+
+- tasks/task_fx12_art-fixture-x12-artifact-only/artifacts/report.md
+
+## Outputs
+
+- none
+
+## Verification
+
+- Fixture verification.
+
+## Known gaps
+
+- None.
+- Not applicable.
+
+## Residual risks
+
+- None.
+- Not applicable.

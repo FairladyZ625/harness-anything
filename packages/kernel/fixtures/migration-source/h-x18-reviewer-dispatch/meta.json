@@ -1,0 +1,31 @@
+{
+  "fixture": "h-x18-reviewer-dispatch",
+  "tier": "H",
+  "source": "canonical gen2 snapshot (sqlite .backup, mode=ro), de-identified",
+  "deidentification": {
+    "tool": "tools/gates/sample-canonical-events.mjs deidentifyCanonicalEvent",
+    "digestInputDrift": false,
+    "drifted": []
+  },
+  "manifest": {
+    "shapes": [
+      "X18 在途 reviewer 派工(task-review: idempotencyKey)"
+    ],
+    "sourceTaskId": null,
+    "idempotencyPrefix": "task-review:"
+  },
+  "eventCount": 6,
+  "revisionRange": [
+    93388,
+    93529
+  ],
+  "revisions": [
+    93388,
+    93415,
+    93433,
+    93471,
+    93510,
+    93529
+  ],
+  "frozenAt": "2026-09-16T13:04:07.221Z"
+}

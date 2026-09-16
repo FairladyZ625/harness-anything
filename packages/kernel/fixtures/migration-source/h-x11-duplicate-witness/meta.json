@@ -1,0 +1,144 @@
+{
+  "fixture": "h-x11-duplicate-witness",
+  "tier": "H",
+  "source": "canonical gen2 snapshot (sqlite .backup, mode=ro), de-identified",
+  "deidentification": {
+    "tool": "tools/gates/sample-canonical-events.mjs deidentifyCanonicalEvent",
+    "digestInputDrift": true,
+    "drifted": [
+      {
+        "revision": 80899,
+        "opId": "op_b34f46765415d7e9f1adcc9ed3a9f4772eb77912ec278545be4c6ee6fa98eb67",
+        "drift": [
+          {
+            "kind": "reviewDigest",
+            "at": "/payload/review",
+            "before": "sha256:24593686e7149364fd121cf345dd23461fca0efa38fe27dd5e0e791740c0c678",
+            "after": "sha256:24e776fca383c4904e9c7086b3266c67fedfc930d3f0cc1476fca2984771cff8"
+          }
+        ]
+      },
+      {
+        "revision": 81084,
+        "opId": "op_f3fe8e453599eb3ae684af6cf7478097fb4794e5e73b7fae87e95b42e1c5b0aa",
+        "drift": [
+          {
+            "kind": "reviewDigest",
+            "at": "/payload/review",
+            "before": "sha256:e7c418fd77f94f8549378977a0e174a505d421e8e143b1a4b3e1f58c87a749c4",
+            "after": "sha256:fc5e48801290b2146408f7e7cebae476f7fe58bb92327fbe3fe4aeb02858eb7c"
+          }
+        ]
+      },
+      {
+        "revision": 81116,
+        "opId": "op_e9cfd9c43b854d245835f463d45b39ae76adc966a5ce79c6633d87ecab350dc1",
+        "drift": [
+          {
+            "kind": "reviewDigest",
+            "at": "/payload/review",
+            "before": "sha256:bdaff1cdec4b4162735344ce2e712dac15e09493da6fd4b8926ce1d59e1e7e10",
+            "after": "sha256:9ca3a11ee156852c194e4e4f43f1a7635bb87d39bf7f5731528745d0d35c5401"
+          }
+        ]
+      },
+      {
+        "revision": 81443,
+        "opId": "op_74f1597b538ea63389825c4aa69dd28c0f56adf35f48b9c614166b97dd95d15c",
+        "drift": [
+          {
+            "kind": "reviewDigest",
+            "at": "/payload/review",
+            "before": "sha256:14449eecb982352adf48b9a291ee540bdbcb108d395867170a31b35e82f70b29",
+            "after": "sha256:e0c65323c081fb4e83cd238754e96ff7c4f3cd9a746a92a523cb78b486102f76"
+          }
+        ]
+      },
+      {
+        "revision": 81452,
+        "opId": "op_b3fb1c8899ec521a78fef56cd59c2f7edc8b463181edfcaf2c1606e6f9652b51",
+        "drift": [
+          {
+            "kind": "reviewDigest",
+            "at": "/payload/review",
+            "before": "sha256:14449eecb982352adf48b9a291ee540bdbcb108d395867170a31b35e82f70b29",
+            "after": "sha256:e0c65323c081fb4e83cd238754e96ff7c4f3cd9a746a92a523cb78b486102f76"
+          }
+        ]
+      }
+    ]
+  },
+  "manifest": {
+    "shapes": [
+      "X11 同 exec+gate 重复 witness"
+    ],
+    "sourceTaskId": "task_834acadebf9c0ca09ed09687ed"
+  },
+  "eventCount": 59,
+  "revisionRange": [
+    75270,
+    93197
+  ],
+  "revisions": [
+    75270,
+    75271,
+    76340,
+    76344,
+    76351,
+    76432,
+    76454,
+    76457,
+    76458,
+    80742,
+    80753,
+    80781,
+    80795,
+    80799,
+    80800,
+    80801,
+    80835,
+    80899,
+    80912,
+    81047,
+    81048,
+    81053,
+    81059,
+    81084,
+    81087,
+    81091,
+    81092,
+    81094,
+    81103,
+    81116,
+    81117,
+    81133,
+    81134,
+    81137,
+    81143,
+    81160,
+    81267,
+    81268,
+    81269,
+    81277,
+    81295,
+    81316,
+    81317,
+    81318,
+    81320,
+    81324,
+    81376,
+    81422,
+    81425,
+    81426,
+    81428,
+    81432,
+    81436,
+    81443,
+    81451,
+    81452,
+    81453,
+    81463,
+    93197
+  ],
+  "frozenAt": "2026-09-16T13:04:01.173Z"
+}

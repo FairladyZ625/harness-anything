@@ -1,0 +1,407 @@
+{
+  "schema": "migration-source-fixtures/v1",
+  "fixtures": [
+    {
+      "id": "f-lifecycle-suite",
+      "tier": "F",
+      "path": "f-lifecycle-suite",
+      "shapes": [
+        {
+          "shape": "x5-multi-review-consent-done",
+          "taskId": "task_fx5_done",
+          "revisionRange": [
+            2,
+            11
+          ]
+        },
+        {
+          "shape": "x1-amend-chain",
+          "taskId": "task_fx1_amend",
+          "revisionRange": [
+            12,
+            25
+          ]
+        },
+        {
+          "shape": "x2-amend-across-iterations",
+          "taskId": "task_fx2_iter",
+          "revisionRange": [
+            26,
+            43
+          ]
+        },
+        {
+          "shape": "x7-changes-requested-resubmit",
+          "taskId": "task_fx2_iter",
+          "revisionRange": [
+            26,
+            43
+          ]
+        },
+        {
+          "shape": "x8-amend-then-rejected",
+          "taskId": "task_fx2_iter",
+          "revisionRange": [
+            26,
+            43
+          ]
+        },
+        {
+          "shape": "x6-two-reviews-double-consent",
+          "taskId": "task_fx6_two",
+          "revisionRange": [
+            44,
+            55
+          ]
+        },
+        {
+          "shape": "x12-artifact-only",
+          "taskId": "task_fx12_art",
+          "revisionRange": [
+            56,
+            65
+          ]
+        },
+        {
+          "shape": "x16-private-delivery",
+          "taskId": "task_fx12_art",
+          "revisionRange": [
+            56,
+            65
+          ]
+        },
+        {
+          "shape": "x13-mixed-delivery",
+          "taskId": "task_fx13_mix",
+          "revisionRange": [
+            66,
+            75
+          ]
+        },
+        {
+          "shape": "x10-provenance-witness",
+          "taskId": "task_fx10_gate",
+          "revisionRange": [
+            76,
+            89
+          ]
+        },
+        {
+          "shape": "x21-code-doc-witness",
+          "taskId": "task_fx10_gate",
+          "revisionRange": [
+            76,
+            89
+          ]
+        },
+        {
+          "shape": "x22-code-doc-repoint",
+          "taskId": "task_fx10_gate",
+          "revisionRange": [
+            76,
+            89
+          ]
+        },
+        {
+          "shape": "x19-suspended-execution",
+          "taskId": "task_fx19_cancel",
+          "revisionRange": [
+            90,
+            95
+          ]
+        },
+        {
+          "shape": "x17-held-lease",
+          "taskId": "task_fx17_held",
+          "revisionRange": [
+            96,
+            99
+          ]
+        },
+        {
+          "shape": "x17-released-lease",
+          "taskId": "task_fx17_released",
+          "revisionRange": [
+            100,
+            104
+          ]
+        },
+        {
+          "shape": "x17-in-review",
+          "taskId": "task_fx17_inreview",
+          "revisionRange": [
+            105,
+            111
+          ]
+        },
+        {
+          "shape": "x23-archive",
+          "taskId": "task_fx23_arch",
+          "revisionRange": [
+            112,
+            121
+          ]
+        },
+        {
+          "shape": "x23-supersede",
+          "taskId": "task_fx23_sup",
+          "revisionRange": [
+            116,
+            120
+          ]
+        },
+        {
+          "shape": "x28-reopen",
+          "taskId": "task_fx23_arch",
+          "revisionRange": [
+            112,
+            121
+          ]
+        }
+      ],
+      "oracle": "design §8: cold replay passes; amend supersedes chain maps every intermediate cut; review/consent digests re-pin per C3-C5; artifact-only materializes 'not applicable' gate shape (not 'no requirement').",
+      "notes": []
+    },
+    {
+      "id": "h-x11-duplicate-witness",
+      "tier": "H",
+      "path": "h-x11-duplicate-witness",
+      "shapes": [
+        "X11 同 exec+gate 重复 witness"
+      ],
+      "sourceTaskId": "task_834acadebf9c0ca09ed09687ed",
+      "eventCount": 59,
+      "deidentifiedDigestDrift": true
+    },
+    {
+      "id": "h-x11-mixed-witness-forms",
+      "tier": "H",
+      "path": "h-x11-mixed-witness-forms",
+      "shapes": [
+        "X11 同 task 两种 witness 形态"
+      ],
+      "sourceTaskId": "task_8f073d9d9b90214a34a4050c28",
+      "eventCount": 19,
+      "deidentifiedDigestDrift": true
+    },
+    {
+      "id": "h-x14-ledger-commit-delivery",
+      "tier": "H",
+      "path": "h-x14-ledger-commit-delivery",
+      "shapes": [
+        "X14 台账仓 commit 交付(privateDelivery 前身)"
+      ],
+      "sourceTaskId": "task_f3d0dc4ecdb2fdb8ba24692b1c",
+      "eventCount": 26,
+      "deidentifiedDigestDrift": true
+    },
+    {
+      "id": "h-x15-unresolvable-commit",
+      "tier": "H",
+      "path": "h-x15-unresolvable-commit",
+      "shapes": [
+        "X15 commit 在两个仓都解析不到"
+      ],
+      "sourceTaskId": "task_12b143fd682b0a48e01602a9f8",
+      "eventCount": 25,
+      "deidentifiedDigestDrift": true
+    },
+    {
+      "id": "h-x18-complete-review-dispatch",
+      "tier": "H",
+      "path": "h-x18-complete-review-dispatch",
+      "shapes": [
+        "X18 complete-review: 派工"
+      ],
+      "sourceTaskId": null,
+      "idempotencyPrefix": "complete-review:",
+      "eventCount": 6,
+      "deidentifiedDigestDrift": false
+    },
+    {
+      "id": "h-x18-reviewer-dispatch",
+      "tier": "H",
+      "path": "h-x18-reviewer-dispatch",
+      "shapes": [
+        "X18 在途 reviewer 派工(task-review: idempotencyKey)"
+      ],
+      "sourceTaskId": null,
+      "idempotencyPrefix": "task-review:",
+      "eventCount": 6,
+      "deidentifiedDigestDrift": false
+    },
+    {
+      "id": "h-x19-suspended-on-terminal",
+      "tier": "H",
+      "path": "h-x19-suspended-on-terminal",
+      "shapes": [
+        "X19 终态任务上的悬置 execution(cancel 时 active)"
+      ],
+      "sourceTaskId": "task_e87de4b515c52c01dd285b8320",
+      "eventCount": 13,
+      "deidentifiedDigestDrift": false
+    },
+    {
+      "id": "h-x19-suspended-on-terminal-b",
+      "tier": "H",
+      "path": "h-x19-suspended-on-terminal-b",
+      "shapes": [
+        "X19 preset 升级抬 iteration 遗留"
+      ],
+      "sourceTaskId": "task_18fbac3907458c9a3d5bda12a8",
+      "eventCount": 57,
+      "deidentifiedDigestDrift": true
+    },
+    {
+      "id": "h-x20-zombie-runtime",
+      "tier": "H",
+      "path": "h-x20-zombie-runtime",
+      "shapes": [
+        "X20 僵尸 runtime session(无 exit)"
+      ],
+      "sourceTaskId": "task_962979dec24a440f06e5f3259b",
+      "eventCount": 38,
+      "deidentifiedDigestDrift": false
+    },
+    {
+      "id": "h-x24-preserved-historical",
+      "tier": "H",
+      "path": "h-x24-preserved-historical",
+      "shapes": [
+        "X24 gen1→gen2 preserved-historical 事件(样本 60/5825)"
+      ],
+      "sourceTaskId": null,
+      "disposition": "preserved-historical",
+      "eventCount": 60,
+      "deidentifiedDigestDrift": false
+    },
+    {
+      "id": "h-x24-retained-read-only",
+      "tier": "H",
+      "path": "h-x24-retained-read-only",
+      "shapes": [
+        "X24 gen1→gen2 retained-read-only 事件(样本 48/143)"
+      ],
+      "sourceTaskId": null,
+      "disposition": "retained-read-only",
+      "eventCount": 48,
+      "deidentifiedDigestDrift": false
+    },
+    {
+      "id": "h-x25-stale-base-ledger-sha",
+      "tier": "H",
+      "path": "h-x25-stale-base-ledger-sha",
+      "shapes": [
+        "X25 过期的 baseLedgerSha.headDigest"
+      ],
+      "sourceTaskId": null,
+      "eventCount": 77,
+      "deidentifiedDigestDrift": false
+    },
+    {
+      "id": "h-x26-ci-run-observation-v2",
+      "tier": "H",
+      "path": "h-x26-ci-run-observation-v2",
+      "shapes": [
+        "X26 ci_run_observed v2(均匀采样 37/222)"
+      ],
+      "sourceTaskId": null,
+      "eventCount": 37,
+      "deidentifiedDigestDrift": false
+    },
+    {
+      "id": "h-x26-ci-run-observation-v3-sample",
+      "tier": "H",
+      "path": "h-x26-ci-run-observation-v3-sample",
+      "shapes": [
+        "X26 ci_run_observed v3(对照样本)"
+      ],
+      "sourceTaskId": null,
+      "eventCount": 40,
+      "deidentifiedDigestDrift": false
+    },
+    {
+      "id": "h-x3-non-actor-amend",
+      "tier": "H",
+      "path": "h-x3-non-actor-amend",
+      "shapes": [
+        "X3 非原 actor amend(amendedBy)"
+      ],
+      "sourceTaskId": "task_f4b56d482e26280d51859359aa",
+      "eventCount": 27,
+      "deidentifiedDigestDrift": true
+    },
+    {
+      "id": "h-x4-consent-then-amend",
+      "tier": "H",
+      "path": "h-x4-consent-then-amend",
+      "shapes": [
+        "X4 先 consent 后 amend"
+      ],
+      "sourceTaskId": "task_32212e8ed7cc70b84823eee952",
+      "eventCount": 36,
+      "deidentifiedDigestDrift": true
+    },
+    {
+      "id": "h-x9-unprovenanced-witness",
+      "tier": "H",
+      "path": "h-x9-unprovenanced-witness",
+      "shapes": [
+        "X9 无 basis/provenance/observed 已接受 witness"
+      ],
+      "sourceTaskId": "task_053af663301df54d9a92692b64",
+      "eventCount": 31,
+      "deidentifiedDigestDrift": true
+    },
+    {
+      "id": "h-x9-unprovenanced-witness-b",
+      "tier": "H",
+      "path": "h-x9-unprovenanced-witness-b",
+      "shapes": [
+        "X9 备选 task"
+      ],
+      "sourceTaskId": "task_06bae07e93db25a86588e4ac05",
+      "eventCount": 29,
+      "deidentifiedDigestDrift": true
+    },
+    {
+      "id": "s-x27-witness-missing-fields",
+      "tier": "S",
+      "path": "s-x27-witness-missing-fields",
+      "shapes": [
+        "X27 字段不全的 witness(缺 result/gateId)"
+      ],
+      "oracle": "dry-run 报 unsupported(ready=false)，不静默修补",
+      "eventCount": 1
+    },
+    {
+      "id": "s-x27-witness-non-ci-gate",
+      "tier": "S",
+      "path": "s-x27-witness-non-ci-gate",
+      "shapes": [
+        "X27 非 ci gate 的 witness"
+      ],
+      "oracle": "dry-run 报 unsupported(ready=false)，不静默修补",
+      "eventCount": 1
+    },
+    {
+      "id": "s-x27-witness-non-pass",
+      "tier": "S",
+      "path": "s-x27-witness-non-pass",
+      "shapes": [
+        "X27 非 pass witness(result=fail 却被接受的历史形态)"
+      ],
+      "oracle": "dry-run 报 unsupported(ready=false)，不静默修补；不得当作满足 gate",
+      "eventCount": 1
+    }
+  ],
+  "canonicalSnapshot": {
+    "source": "/Users/lizeyu/Projects/coding-agent-harness/harness-anything/.harness/store/generations/2/ledger.sqlite",
+    "method": "sqlite3 file:<ledger>?mode=ro .backup <target>",
+    "headRevision": 94865,
+    "eventRows": 94865,
+    "sha256": "0a5bcda41073870d92dd63ce31a872c6a25b4e88f8682b1cc4fd79ce74f3e0c7",
+    "sizeBytes": 893542400,
+    "note": "X29/X30 are R-tier: run migrate against a fresh .backup of this ledger; snapshot itself is not committed (852M)."
+  }
+}

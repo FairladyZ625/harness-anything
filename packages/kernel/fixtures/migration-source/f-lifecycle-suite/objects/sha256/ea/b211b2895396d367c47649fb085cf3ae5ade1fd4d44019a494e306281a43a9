@@ -1,0 +1,40 @@
+# Execution exe_fx17_rev
+
+Managed by `ha task start/submit`; hand edits are rejected.
+
+- Task: task_fx17_inreview
+- Iteration: 0
+- State: submitted
+- Claimed: 2026-09-16T12:46:56.491Z
+- Submitted: 2026-09-16T12:46:57.585Z
+- Closed: open
+- Commit: none (artifact delivery)
+- Artifact: tasks/task_fx17_inreview-fixture-x17-in-review/artifacts/inreview.txt@109 (b64f237f5869220835c3425aac18719667d90e57118e83c2bc61588dc84be2b2)
+- Completion claim: X17 in-review submission: artifact:artifacts/inreview.txt
+- Reviews: pending
+- Selected review: pending
+- Consent: pending
+- Checker witnesses: pending
+- Code-doc witness: pending
+
+## Deliverables
+
+- tasks/task_fx17_inreview-fixture-x17-in-review/artifacts/inreview.txt
+
+## Outputs
+
+- none
+
+## Verification
+
+- Fixture verification.
+
+## Known gaps
+
+- None.
+- Not applicable.
+
+## Residual risks
+
+- None.
+- Not applicable.

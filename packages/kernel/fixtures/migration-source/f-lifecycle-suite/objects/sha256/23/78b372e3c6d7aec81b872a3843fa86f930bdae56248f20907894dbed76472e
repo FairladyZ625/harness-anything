@@ -1,0 +1,23 @@
+# Review review-x10-1
+
+Managed by `ha task review-execution`; legacy `review.md` is not authoritative.
+
+- Task: task_fx10_gate
+- Execution: exe_fx10_1
+- Verdict: approved
+- Commit: 214472cfa4f36ca0a8d5b86e3c090e6accb0ccb8
+- Iteration: 0
+- Content digest: sha256:a81048034fc72a7622f45cc423fd8a6738a1e969e8f30d879d60d2d38ea49110
+- Submission digest: sha256:a450af6cc13460637ddc5ea74d9b152bd02601be183aac8961b2cdf507c14946
+- Reviewed at: 2026-09-16T12:46:49.061Z
+- Consent: pending
+- Consent actor: pending
+- Consent source: pending
+
+## Reason
+
+Fixture review review-x10-1: approved.
+
+## Evidence checked
+
+- harness

@@ -1,0 +1,40 @@
+# Execution exe_fx13_1
+
+Managed by `ha task start/submit`; hand edits are rejected.
+
+- Task: task_fx13_mix
+- Iteration: 0
+- State: accepted
+- Claimed: 2026-09-16T12:46:42.598Z
+- Submitted: 2026-09-16T12:46:43.611Z
+- Closed: 2026-09-16T12:46:44.927Z
+- Commit: fe10a8916c0aefda9275818aa8a32110e1cba6d0
+- Artifact: tasks/task_fx13_mix-fixture-x13-mixed/artifacts/notes.md@70 (e578de3bea1d2fd3ddc0627710a60fc9c6ebf52b98b7d8f623a265b1e6370d76)
+- Completion claim: X13 mixed delivery: commit fe10a8916c0aefda9275818aa8a32110e1cba6d0 plus artifact:artifacts/notes.md
+- Reviews: review-x13-1/approved
+- Selected review: review-x13-1
+- Consent: consent-7f304013af005863cd968d1e
+- Checker witnesses: pending
+- Code-doc witness: pending
+
+## Deliverables
+
+- src/mixed.ts
+
+## Outputs
+
+- Artifact-Anchor: tasks/task_fx13_mix-fixture-x13-mixed/artifacts/notes.md@70
+
+## Verification
+
+- Fixture verification.
+
+## Known gaps
+
+- None.
+- Not applicable.
+
+## Residual risks
+
+- None.
+- Not applicable.

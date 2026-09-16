@@ -1,0 +1,40 @@
+# Execution exe_fx2_1
+
+Managed by `ha task start/submit`; hand edits are rejected.
+
+- Task: task_fx2_iter
+- Iteration: 0
+- State: submitted
+- Claimed: 2026-09-16T12:46:28.258Z
+- Submitted: 2026-09-16T12:46:29.845Z
+- Closed: open
+- Commit: none (artifact delivery)
+- Artifact: tasks/task_fx2_iter-fixture-x2-cross-iteration-amend/artifacts/iter.txt@30 (34a2b470612db26035b061987598deec9a3434abff85f01587c6412cc583d5a7)
+- Completion claim: X2 amend inside iteration 1: artifact:artifacts/iter.txt
+- Reviews: pending
+- Selected review: pending
+- Consent: pending
+- Checker witnesses: pending
+- Code-doc witness: pending
+
+## Deliverables
+
+- tasks/task_fx2_iter-fixture-x2-cross-iteration-amend/artifacts/iter.txt
+
+## Outputs
+
+- none
+
+## Verification
+
+- Fixture verification.
+
+## Known gaps
+
+- None.
+- Not applicable.
+
+## Residual risks
+
+- None.
+- Not applicable.

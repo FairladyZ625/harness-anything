@@ -1,0 +1,17 @@
+# Facts
+
+Managed by `ha fact record`; hand edits are rejected.
+
+`State` is record-time; authoritative liveness via `ha fact show`.
+
+## Records
+
+### F-94335F66
+
+- Statement: Fixture observation for task_fx1_amend.
+- Evidence source: test:migration-fixtures/task_fx1_amend
+- Observed at: 2026-09-16T12:46:23.011Z
+- Confidence: high
+- State: standing
+- Task: task_fx1_amend
+

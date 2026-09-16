@@ -1,0 +1,74 @@
+{
+  "fixture": "h-x15-unresolvable-commit",
+  "tier": "H",
+  "source": "canonical gen2 snapshot (sqlite .backup, mode=ro), de-identified",
+  "deidentification": {
+    "tool": "tools/gates/sample-canonical-events.mjs deidentifyCanonicalEvent",
+    "digestInputDrift": true,
+    "drifted": [
+      {
+        "revision": 42086,
+        "opId": "op_273676a6af4ed707bb70dbdd193d5ce90293ec2829f73de569fb5ce238b01fc3",
+        "drift": [
+          {
+            "kind": "reviewDigest",
+            "at": "/payload/review",
+            "before": "sha256:73d8a1934af00af7b6fac65c5b6b9e1f240745475a1ea021b1ed1c602f0feb8c",
+            "after": "sha256:326f55c885bc541ffbe7396c10db4fdb2619e3e7ff2a3db6d7d8c573bcac5353"
+          }
+        ]
+      },
+      {
+        "revision": 42087,
+        "opId": "op_ee0caadae8b5fbe2a55cc48ae18289fcbe691d1cecaf4322ce5ac2bf811a7346",
+        "drift": [
+          {
+            "kind": "reviewDigest",
+            "at": "/payload/review",
+            "before": "sha256:73d8a1934af00af7b6fac65c5b6b9e1f240745475a1ea021b1ed1c602f0feb8c",
+            "after": "sha256:326f55c885bc541ffbe7396c10db4fdb2619e3e7ff2a3db6d7d8c573bcac5353"
+          }
+        ]
+      }
+    ]
+  },
+  "manifest": {
+    "shapes": [
+      "X15 commit 在两个仓都解析不到"
+    ],
+    "sourceTaskId": "task_12b143fd682b0a48e01602a9f8"
+  },
+  "eventCount": 25,
+  "revisionRange": [
+    4230,
+    55750
+  ],
+  "revisions": [
+    4230,
+    36137,
+    36138,
+    36139,
+    36140,
+    39975,
+    39986,
+    40048,
+    40049,
+    40050,
+    40141,
+    40142,
+    40224,
+    41379,
+    42076,
+    42085,
+    42086,
+    42087,
+    42091,
+    42093,
+    55634,
+    55709,
+    55713,
+    55731,
+    55750
+  ],
+  "frozenAt": "2026-09-16T13:04:03.239Z"
+}

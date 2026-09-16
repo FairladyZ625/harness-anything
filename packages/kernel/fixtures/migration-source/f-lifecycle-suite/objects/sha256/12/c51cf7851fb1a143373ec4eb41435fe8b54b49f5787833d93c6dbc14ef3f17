@@ -1,0 +1,23 @@
+# Review review-x6-2
+
+Managed by `ha task review-execution`; legacy `review.md` is not authoritative.
+
+- Task: task_fx6_two
+- Execution: exe_fx6_1
+- Verdict: approved
+- Commit: null
+- Iteration: 0
+- Content digest: sha256:777239c8e881c8cb11cb27358f4350c4849660667eeef31b6135b6ba37e6ed7d
+- Submission digest: sha256:901c23890ea60bfcc29ff280bee1c4adc3bfeede5dff7d26f8974b61f878d7d2
+- Reviewed at: 2026-09-16T12:46:36.716Z
+- Consent: pending
+- Consent actor: pending
+- Consent source: pending
+
+## Reason
+
+Second approved review.
+
+## Evidence checked
+
+- harness

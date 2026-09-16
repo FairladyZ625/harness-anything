@@ -1,0 +1,103 @@
+{
+  "schema": "task-contract/v1",
+  "contractVersion": 1,
+  "taskId": "task_fx10_gate",
+  "packagePath": "tasks/task_fx10_gate-fixture-x10-gated",
+  "title": "Fixture X10 gated",
+  "taskClass": "standard",
+  "verticalId": "software/coding",
+  "presetId": "standard-task",
+  "profileId": "baseline",
+  "locale": "en-US",
+  "metadata": {
+    "idempotencyKey": null,
+    "parentTaskId": null,
+    "workKind": "feat",
+    "riskTier": null,
+    "urgency": null,
+    "verticalId": "software/coding",
+    "presetId": "standard-task",
+    "profileId": "baseline",
+    "moduleKey": null,
+    "slug": "fixture-x10-gated",
+    "surfaces": [],
+    "fromLegacyId": null
+  },
+  "registerModule": null,
+  "completionGates": [
+    "ci",
+    "code-doc-reconciliation"
+  ],
+  "presetSnapshotDigest": "sha256:36661db4f76af57099e74925a696b5bb3282277edb1148a253235a98526c6a2e",
+  "scaffold": {
+    "baseVersion": "software-coding/v1",
+    "overlayDigest": null,
+    "resolvedSelectionDigest": "sha256:65cf03275542bf095048fe71564cd7137f899c6a401cd38cf255cc1f23e8d623"
+  },
+  "documents": [
+    {
+      "slot": "task.index",
+      "path": "INDEX.md",
+      "owner": "machine",
+      "materializeAs": "INDEX.md",
+      "requiredAnchors": [],
+      "templateRef": null,
+      "contentSha256": null
+    },
+    {
+      "slot": "task.contract",
+      "path": "task-contract.json",
+      "owner": "machine",
+      "materializeAs": "task-contract.json",
+      "requiredAnchors": [],
+      "templateRef": null,
+      "contentSha256": null
+    },
+    {
+      "slot": "task.plan",
+      "path": "task_plan.md",
+      "owner": "doc-sync",
+      "materializeAs": "task_plan.md",
+      "requiredAnchors": [
+        "## Brief",
+        "## Goal",
+        "## Context",
+        "## Required Reading",
+        "## Entry Conditions",
+        "## Dependencies",
+        "## Execution Surface",
+        "## Constraints",
+        "## Checkpoint",
+        "## CI/Gate Authority Stop Condition",
+        "## Implementation Plan",
+        "## Deliverable Contract",
+        "## Evidence Protocol",
+        "## Verification"
+      ],
+      "templateRef": "template://planning/task-plan@1",
+      "contentSha256": "313901851272015e656d51519ba26e44c1a97df7112bf8bdf2832cc8624c5f7f"
+    },
+    {
+      "slot": "task.closeout",
+      "path": "closeout.md",
+      "owner": "doc-sync",
+      "materializeAs": "closeout.md",
+      "requiredAnchors": [
+        "## Summary",
+        "## Verification",
+        "## Residual Risk"
+      ],
+      "templateRef": "template://planning/closeout@1",
+      "contentSha256": "47b4e51587f789d5eb33df9c8578927be3936ead63cfb66b4b4d4fe941517e6f"
+    },
+    {
+      "slot": "task.artifacts.keep",
+      "path": "artifacts/.gitkeep",
+      "owner": "doc-sync",
+      "materializeAs": "artifacts/.gitkeep",
+      "requiredAnchors": [],
+      "templateRef": "template://planning/keep-file@1",
+      "contentSha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+    }
+  ]
+}
