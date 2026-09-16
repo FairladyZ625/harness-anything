@@ -5,6 +5,7 @@ import path from "node:path";
 import {
   completionEvidenceBasis,
   consumeKnownError,
+  gateAppliesToSubmission,
   judgeCompletionEvidence,
   localGitObjectRefStore,
   submissionDigest,
@@ -178,12 +179,13 @@ async function collectLocalCommand(
       );
       exitCode = 0;
     } catch (error) {
-      const failure = error as { status?: number; stdout?: string };
+      const failure = error as { status?: number; stdout?: string },
+        spawnExit = typeof failure.status === "number" ? failure.status : undefined;
       // Spawn failure, signal, or timeout is unavailable evidence, never a verdict.
-      if (typeof failure.status !== "number") throw error;
+      if (spawnExit === undefined) throw error;
       // A nonzero exit is the command's verdict — consumed as evidence, not a swallowed failure.
       consumeKnownError(error);
-      exitCode = failure.status;
+      exitCode = spawnExit;
       output = typeof failure.stdout === "string" ? failure.stdout : "";
     }
     return {
@@ -254,12 +256,17 @@ export function attestGateWitness(
       (candidate) => candidate.iteration === snapshot.task?.iteration && candidate.submission !== null,
     ),
     requirement = execution?.submission?.completionContract?.gates.find((gate) => gate.gateId === gateId);
-  if (!execution?.submission?.commitSha)
-    throw cell.cellCodedError("invalid_transition", "Attestation requires a submitted execution with a code commit.");
+  if (!execution?.submission)
+    throw cell.cellCodedError("invalid_transition", "Attestation requires a submitted execution.");
   if (!requirement)
     throw cell.cellCodedError(
       "invalid_command",
       `Gate ${gateId} is not part of the frozen completion contract for this submission.`,
+    );
+  if (!gateAppliesToSubmission(requirement, execution.submission))
+    throw cell.cellCodedError(
+      "invalid_transition",
+      `Gate ${gateId} applies to ${requirement.appliesTo}, which this submission does not deliver.`,
     );
   if (requirement.witness.adapterId !== "manual-attest")
     throw cell.cellCodedError(

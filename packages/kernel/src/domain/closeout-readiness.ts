@@ -4,16 +4,18 @@ export type CloseoutReadiness = (typeof closeoutReadinesses)[number];
 
 import { approvedReviewsForExecution, consentedApprovedReviewForExecution } from "./review.ts";
 import { isNativeExecution } from "./execution.ts";
-import type { ExecutionV1, ProjectedExecution } from "./execution.ts";
+import type { ExecutionV1, ProjectedExecution, SubmissionV1 } from "./execution.ts";
 import type { ReviewConsentV1, ReviewV1 } from "./review.ts";
 import { currentCodeDocWitness } from "./code-doc-witness.ts";
 import type { CodeDocWitnessRecord } from "./code-doc-witness.ts";
+import { isPreservedVerdictWitness } from "./completion-gate-witness.ts";
 import type { CompletionGateWitnessV1 } from "./completion-gate-witness.ts";
+import { CODE_DOC_GATE_ID, gateAppliesToSubmission } from "./completion-contract.ts";
 import type { CoverageRelation } from "./decision-coverage.ts";
 import { judgeCompletionEvidence } from "./completion-evidence.ts";
 import type { CloseoutGate } from "./settings-closeout.ts";
 
-export type CloseoutGateStatus = "passed" | "failed" | "missing" | "unknown";
+export type CloseoutGateStatus = "passed" | "failed" | "missing" | "unknown" | "not_applicable";
 export interface CloseoutGateResult {
   readonly gateId: string;
   readonly status: CloseoutGateStatus;
@@ -65,8 +67,8 @@ export function closeoutReadiness(
         blocker: "execution",
         gates: gateResults(snapshot, availability),
       };
-    const gates = gateResults(snapshot, availability, cut?.executionId, cut?.submission?.commitSha, cut?.iteration),
-      missing = gates.some(({ status }) => status !== "passed");
+    const gates = gateResults(snapshot, availability, cut?.executionId, cut?.submission, cut?.iteration),
+      missing = gates.some(({ status }) => status !== "passed" && status !== "not_applicable");
     return {
       readiness: missing ? "incomplete" : "passed",
       ...(cut ? { executionId: cut.executionId } : {}),
@@ -78,13 +80,7 @@ export function closeoutReadiness(
   const execution = cut?.state === "submitted" ? cut : undefined;
   if (!execution?.submission)
     return { readiness: "missing", blocker: "execution", gates: gateResults(snapshot, availability) };
-  const gates = gateResults(
-    snapshot,
-    availability,
-    execution.executionId,
-    execution.submission.commitSha,
-    execution.iteration,
-  );
+  const gates = gateResults(snapshot, availability, execution.executionId, execution.submission, execution.iteration);
   if (
     (availability && Object.values(availability).includes("unknown")) ||
     gates.some(({ status }) => status === "unknown")
@@ -98,7 +94,7 @@ export function closeoutReadiness(
   if (effectiveGates?.consent !== false && !consented)
     return { readiness: "incomplete", executionId: execution.executionId, blocker: "consent", gates };
   const failed = gates.some(({ status }) => status === "failed"),
-    missing = gates.some(({ status }) => status !== "passed");
+    missing = gates.some(({ status }) => status !== "passed" && status !== "not_applicable");
   const orphan = lineageOrphan(task, snapshot.decisionRelations ?? []);
   return {
     readiness: failed ? "failed" : missing || orphan ? "incomplete" : "ready",
@@ -139,22 +135,33 @@ export function gateResults(
   snapshot: CloseoutSnapshot,
   availability?: CloseoutProjectionAvailability,
   executionId?: string,
-  commitSha?: string | null,
+  submission?: SubmissionV1 | null,
   iteration?: number,
 ): readonly CloseoutGateResult[] {
   const submitted = executionId
       ? (snapshot.executions ?? []).find((value) => value.executionId === executionId && value.iteration === iteration)
       : undefined,
-    contract = submitted?.submission?.completionContract,
-    // The frozen contract is the gate list: a `none` mapping removed the requirement, and a
-    // code-scoped gate cannot bind an artifact-only cut.
-    gateIds = contract
-      ? contract.gates.flatMap((gate) => (commitSha || gate.appliesTo !== "code" ? [gate.gateId] : []))
-      : completionGateIds(snapshot.task?.completionGateIds ?? [], commitSha);
-  return gateIds.map((gateId) => {
-    const codeDoc = gateId === "code-doc-reconciliation",
+    cut = submission ?? submitted?.submission,
+    contract = cut?.completionContract,
+    // The frozen contract is the gate list: a `none` mapping removed the requirement at submit
+    // time, and a requirement whose appliesTo does not match this cut reports not_applicable —
+    // distinct from both a missing witness and a passing one.
+    requirements =
+      contract?.gates.map((gate) => ({
+        gateId: gate.gateId,
+        applies: cut ? gateAppliesToSubmission(gate, cut) : false,
+      })) ??
+      completionGateIds(snapshot.task?.completionGateIds ?? [], cut).map((gateId) => ({
+        gateId,
+        applies: true,
+      }));
+  return requirements.map(({ gateId, applies }) => {
+    if (!applies)
+      return gateResult(gateId, "not_applicable", "the gate's declared scope has no delivery part in this cut");
+    const codeDoc = gateId === CODE_DOC_GATE_ID,
+      commitSha = cut?.commitSha,
       known = !availability || (codeDoc ? availability.codeDocWitnesses : availability.gateWitnesses) === "known";
-    if (!executionId || !commitSha || iteration === undefined)
+    if (!executionId || !cut || iteration === undefined)
       return gateResult(gateId, "missing", "no submitted execution cut");
     if (!known) return gateResult(gateId, "unknown", "witness projection unknown");
     if (codeDoc) {
@@ -187,7 +194,13 @@ export function gateResults(
               },
             )
           : witness
-            ? { accepted: false, result: witness.result, reason: "completion witness has no bound evidence" }
+            ? {
+                accepted: false,
+                result: witness.result,
+                reason: isPreservedVerdictWitness(witness)
+                  ? "preserved historical verdict carries no bound evidence"
+                  : "completion witness has no bound evidence",
+              }
             : null;
     return judgment?.accepted
       ? gateResult(gateId, "passed")
@@ -197,18 +210,21 @@ export function gateResults(
   });
 }
 
-/** Gates tied to a public code cut do not apply to an artifact-only submission. */
-export function completionGateIds(
-  taskGateIds: readonly string[],
-  commitSha: string | null | undefined,
-): readonly string[] {
-  return commitSha === null
-    ? taskGateIds.filter((gateId) => gateId !== "ci" && gateId !== "code-doc-reconciliation")
+/**
+ * The gates that apply to a submitted cut, by declaration: the frozen contract's requirements
+ * filtered through each gate's appliesTo. Before any submission exists the declared list is the
+ * best available answer; submissions predate the frozen contract only as migration input, never
+ * as current cuts.
+ */
+export function completionGateIds(taskGateIds: readonly string[], submission?: SubmissionV1 | null): readonly string[] {
+  const contract = submission?.completionContract;
+  return contract
+    ? contract.gates.flatMap((gate) => (submission && gateAppliesToSubmission(gate, submission) ? [gate.gateId] : []))
     : taskGateIds;
 }
 
 export function closeoutGateOk(status: CloseoutGateStatus): boolean | null {
-  return status === "unknown" ? null : status === "passed";
+  return status === "unknown" || status === "not_applicable" ? null : status === "passed";
 }
 
 function gateResult(gateId: string, status: CloseoutGateStatus, detail?: string): CloseoutGateResult {

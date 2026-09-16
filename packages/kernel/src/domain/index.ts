@@ -70,6 +70,7 @@ export {
   closeoutReadinesses,
   completionGateIds,
   currentExecutionCuts,
+  gateResults,
   currentSubmittedExecutions,
   isCloseoutReadiness,
 } from "./closeout-readiness.ts";

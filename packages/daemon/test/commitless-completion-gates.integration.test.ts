@@ -51,6 +51,29 @@ function snapshot(commitSha: string | null): TaskLifecycleSnapshot {
           verificationNotes: ["Verified."],
           knownGaps: [],
           residualRisks: [],
+          completionContract: {
+            gates: [
+              {
+                gateId: "ci",
+                appliesTo: "code",
+                witness: {
+                  adapterId: "github-actions",
+                  adapterOptions: {
+                    workflows: ["rewrite-ci"],
+                    branch: "main",
+                    event: "push",
+                    coverage: "exact",
+                    selection: "newest",
+                  },
+                },
+              },
+              {
+                gateId: "code-doc-reconciliation",
+                appliesTo: "code",
+                witness: { adapterId: "code-doc-reconciliation", adapterOptions: {} },
+              },
+            ],
+          },
         },
       },
     ],

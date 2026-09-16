@@ -16,6 +16,7 @@ import {
   type TaskLifecycleSnapshot,
 } from "../../src/domain/task-lifecycle.contract.ts";
 import type { ActorAxes } from "../../src/domain/task.ts";
+import type { FrozenGateRequirement } from "../../src/domain/completion-contract.ts";
 
 export const implementer: ActorAxes = {
   principal: { personId: "person-owner" },
@@ -48,6 +49,10 @@ export function lifecycleFixture(
     readonly taskId?: string;
     readonly executionId?: string;
     readonly reviewId?: string;
+    /** Frozen into the submission contract at submit; digests bind reviews and consents to it. */
+    readonly gates?: readonly FrozenGateRequirement[];
+    /** False stops after the consent event: an unwitnessed gated cut cannot complete. */
+    readonly complete?: boolean;
   } = {},
 ): {
   readonly events: readonly TaskEventV1[];
@@ -55,7 +60,8 @@ export function lifecycleFixture(
 } {
   const taskId = options.taskId ?? "task-1",
     executionId = options.executionId ?? "execution-1",
-    reviewId = options.reviewId ?? "review-execution";
+    reviewId = options.reviewId ?? "review-execution",
+    completionContract = { gates: options.gates ?? [] };
   const events: TaskEventV1[] = [];
   let snapshot = emptyTaskLifecycleSnapshot();
   const run = (
@@ -73,7 +79,7 @@ export function lifecycleFixture(
       title: "Fixture",
       taskClass: "standard",
       graph: REPLAY_TASK_GRAPH,
-      completionGateIds: [],
+      completionGateIds: completionContract.gates.map((gate) => gate.gateId),
       presetSnapshotDigest: null,
     }),
     { taskIdUnique: true, actorBinding: implementer },
@@ -110,12 +116,12 @@ export function lifecycleFixture(
         knownGaps: [],
         residualRisks: [],
         commitSha,
-        completionContract: { gates: [] },
+        completionContract,
       },
     }),
     { actorBinding: implementer, leaseVersion: 0, sessionDisposition: "complete" },
   );
-  run(reviewCommand(4, taskId, executionId, "approved", reviewId), {
+  run(reviewCommand(4, taskId, executionId, "approved", reviewId, completionContract), {
     actorBinding: reviewer,
     capability: "execution-review@v1",
     capabilityRef: "cap-review",
@@ -134,14 +140,15 @@ export function lifecycleFixture(
     }),
     { actorBinding: implementer, capability: "execution-consent@v1", capabilityRef: "cap-consent" } as never,
   );
-  run(command(implementer, 6, { type: "CompleteTask", taskId, executionId }), {
-    capability: "task-complete@v1",
-    capabilityRef: "cap-complete",
-    actorRole: "owner",
-    noActiveLease: true,
-    closeoutGates: { review: true, consent: true, factDisposition: true, codeDoc: true },
-    gateReceipts: [],
-  });
+  if (options.complete !== false)
+    run(command(implementer, 6, { type: "CompleteTask", taskId, executionId }), {
+      capability: "task-complete@v1",
+      capabilityRef: "cap-complete",
+      actorRole: "owner",
+      noActiveLease: true,
+      closeoutGates: { review: true, consent: true, factDisposition: true, codeDoc: true },
+      gateReceipts: [],
+    });
   return { events, snapshot };
 }
 
@@ -251,6 +258,7 @@ function reviewCommand(
   executionId: string,
   verdict: "approved" | "changes_requested",
   reviewId: string,
+  completionContract: { readonly gates: readonly FrozenGateRequirement[] } = { gates: [] },
 ): RecordReviewCommand {
   const submission = {
     completionClaim: "implemented",
@@ -260,7 +268,7 @@ function reviewCommand(
     knownGaps: [],
     residualRisks: [],
     commitSha,
-    completionContract: { gates: [] },
+    completionContract,
   };
   return command(reviewer, revision, {
     type: "RecordReview",

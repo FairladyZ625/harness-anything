@@ -30,7 +30,7 @@ export async function dispatchCompletionReview(
   steps: readonly WriteReceiptDraft[],
 ): Promise<WriteReceiptDraft> {
   const taskId = snapshot.task!.taskId,
-    gates = completionGateIds(snapshot.task!.completionGateIds, execution.submission!.commitSha),
+    gates = completionGateIds(snapshot.task!.completionGateIds, execution.submission),
     baseKey = completionReviewKey(taskId, execution),
     dispatchIdsFor = (idempotencyKey: string) => reviewDispatchIds(cell.input.repoId, idempotencyKey);
   const stopped = (action: string, reason: string) =>

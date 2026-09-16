@@ -49,6 +49,20 @@ export interface FrozenCompletionContract {
   readonly gates: readonly FrozenGateRequirement[];
 }
 
+/**
+ * Which part of a submitted cut a requirement judges. `submission` applies to every cut;
+ * `code` needs a delivery commit; `artifacts` needs at least one accepted artifact anchor.
+ * A mixed commit+artifact delivery can carry both kinds at once.
+ */
+export function gateAppliesToSubmission(
+  requirement: Pick<FrozenGateRequirement, "appliesTo">,
+  submission: { readonly commitSha: string | null; readonly artifacts?: readonly unknown[] },
+): boolean {
+  if (requirement.appliesTo === "submission") return true;
+  if (requirement.appliesTo === "code") return submission.commitSha !== null;
+  return (submission.artifacts?.length ?? 0) > 0;
+}
+
 /** One `settings.gates` entry: `none` removes a declared gate; any other adapter witnesses it. */
 export interface GateWitnessMappingV1 {
   readonly gateId: string;
