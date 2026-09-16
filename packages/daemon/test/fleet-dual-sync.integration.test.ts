@@ -1082,6 +1082,16 @@ for (const commandKind of ["task-submit", "task-settle"] as const)
           amend: true,
         });
         assert.equal(amended.ok, true, JSON.stringify(amended).slice(0, 1500));
+        // `applied` certifies SQLite acceptance only; the center worktree is materialized
+        // by the WAL→Git follower on its own stage. Wait for the receipt's
+        // worktree_visible facet before reading the file, as createTask does.
+        const amendedPublication = (await fixture.centerRun({
+          kind: "receipt-show",
+          opId: amended.opId,
+          waitFor: ["worktree_visible"],
+          timeoutMs: 5000,
+        })) as { readonly wait?: { readonly state?: string } };
+        assert.equal(amendedPublication.wait?.state, "satisfied", JSON.stringify(amendedPublication));
         assert.match(
           readFileSync(path.join(fixture.repo, "harness", closeoutPath), "utf8"),
           /Amended verification from edge/u,
