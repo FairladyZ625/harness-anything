@@ -7,6 +7,7 @@ import {
   taskStatusWords,
 } from "./daemon-protocol-vocabulary.ts";
 import { isJsonObject, type JsonObject, validationValueSummary } from "./json-rpc-types.ts";
+import { validateFrozenCompletionContract } from "../../../kernel/src/index.ts";
 
 export const recordWith = (value: unknown, fields: readonly string[]): value is JsonObject =>
     isJsonObject(value) && fields.every((field) => Object.hasOwn(value, field)),
@@ -148,6 +149,7 @@ export function validateGuiSubmission(value: unknown): readonly string[] {
       "completionClaim",
       ...arrayFields,
       "commitSha",
+      "completionContract",
       ...(isJsonObject(value) && (value.commitSha === null || "artifacts" in value) ? ["artifacts"] : []),
     ],
     entityId = validationEntityId(value, ["commitSha"], "submission:<unknown>"),
@@ -164,6 +166,15 @@ export function validateGuiSubmission(value: unknown): readonly string[] {
   if (value.commitSha === null ? !validArtifactDelivery(value.artifacts) : !sha(value.commitSha) || !anchorsOk)
     errors.push(
       validationError(entityId, "commitSha", value.commitSha, "must identify a commit or accepted artifact revisions"),
+    );
+  if (validateFrozenCompletionContract(value.completionContract).length)
+    errors.push(
+      validationError(
+        entityId,
+        "completionContract",
+        value.completionContract,
+        "must list unique gate requirements bound to known witness adapters",
+      ),
     );
   return errors;
 }

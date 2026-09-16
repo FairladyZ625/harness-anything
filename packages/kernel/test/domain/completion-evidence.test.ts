@@ -27,6 +27,7 @@ const execution = {
     knownGaps: [],
     residualRisks: [],
     commitSha: "0123456789abcdef0123456789abcdef01234567",
+    completionContract: { gates: [] },
   },
 } as const satisfies ExecutionV1;
 

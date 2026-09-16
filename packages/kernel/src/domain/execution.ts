@@ -5,6 +5,7 @@ import { timestamp } from "./timestamp.ts";
 import { hasRequiredFields, validateWriteSource } from "./write-chain.contract.ts";
 import type { WriteSource } from "./write-chain.contract.ts";
 import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
+import { validateFrozenCompletionContract, type FrozenCompletionContract } from "./completion-contract.ts";
 
 export const executionStates = ["active", "submitted", "accepted", "changes_requested", "abandoned"] as const;
 export type ExecutionState = (typeof executionStates)[number];
@@ -37,6 +38,8 @@ export type SubmissionV1 = SubmissionDelivery & {
   readonly verificationNotes: readonly string[];
   readonly knownGaps: readonly string[];
   readonly residualRisks: readonly string[];
+  /** Gate requirements frozen at the execution's first submission; YAML edits never reach this cut. */
+  readonly completionContract: FrozenCompletionContract;
 };
 export const SUBMISSION_V1_SCHEMA = Object.freeze({
   id: "Submission/v1",
@@ -48,6 +51,7 @@ export const SUBMISSION_V1_SCHEMA = Object.freeze({
     "knownGaps",
     "residualRisks",
     "commitSha",
+    "completionContract",
   ] as const),
 });
 export type SubmissionDigest = `sha256:${string}`;
@@ -105,7 +109,9 @@ export interface ArchivedExecutionV0 {
   readonly outputs: readonly ArchivedExecutionOutputV0[];
   readonly submission: null;
   readonly archivedSubmission:
-    | (Omit<SubmissionV1, "commitSha" | "outputs"> & { readonly evidenceRefs: readonly string[] })
+    | (Omit<SubmissionV1, "commitSha" | "outputs" | "completionContract"> & {
+        readonly evidenceRefs: readonly string[];
+      })
     | null;
 }
 export type ProjectedExecution = ExecutionV1 | ArchivedExecutionV0;
@@ -189,6 +195,9 @@ export function validSubmissionDelivery(value: Record<string, unknown>): boolean
   return validArtifactAnchors(value.artifacts);
 }
 export function validateSubmissionV1(value: unknown, allowUnknownFields = false): readonly ContractValidationIssue[] {
+  // Submissions written before the frozen completion contract are migration input, never current cuts.
+  if (isRecord(value) && !Object.hasOwn(value, "completionContract"))
+    return [{ code: "invalid_submission", message: "Submission lacks the completion contract frozen at submit" }];
   if (
     !isRecord(value) ||
     !(allowUnknownFields ? hasRequiredFields : hasOnlyFields)(value, [
@@ -205,7 +214,7 @@ export function validateSubmissionV1(value: unknown, allowUnknownFields = false)
   ) {
     return [{ code: "invalid_submission", message: "Submission must name a commit or accepted artifact revisions" }];
   }
-  return [];
+  return validateFrozenCompletionContract(value.completionContract, allowUnknownFields);
 }
 export function validateExecutionV1(value: unknown, allowUnknownFields = false): readonly ContractValidationIssue[] {
   if (

@@ -110,6 +110,7 @@ export function lifecycleFixture(
         knownGaps: [],
         residualRisks: [],
         commitSha,
+        completionContract: { gates: [] },
       },
     }),
     { actorBinding: implementer, leaseVersion: 0, sessionDisposition: "complete" },
@@ -211,6 +212,7 @@ export function twoRoundLifecycleEvents(
         knownGaps: [],
         residualRisks: [],
         commitSha,
+        completionContract: { gates: [] },
       },
     }),
     { actorBinding: implementer, leaseVersion: 0, sessionDisposition: "complete" },
@@ -258,6 +260,7 @@ function reviewCommand(
     knownGaps: [],
     residualRisks: [],
     commitSha,
+    completionContract: { gates: [] },
   };
   return command(reviewer, revision, {
     type: "RecordReview",

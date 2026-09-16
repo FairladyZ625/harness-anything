@@ -188,7 +188,8 @@ export function assertTransitionDocumentReady(kind: TransitionDocumentKind, body
 /** Preserve authored evidence verbatim; the execution cut supplies every repository-derived field. */
 export function submissionFromCloseout(
   body: string,
-  cut: import("./execution.ts").SubmissionDelivery & Pick<SubmissionV1, "deliverables" | "outputs">,
+  cut: import("./execution.ts").SubmissionDelivery &
+    Pick<SubmissionV1, "deliverables" | "outputs" | "completionContract">,
 ): SubmissionV1 {
   assertTransitionDocumentReady("task.closeout", body);
   const sections = markdownSections(body),

@@ -329,6 +329,7 @@ function submittedExecution() {
       knownGaps: [],
       residualRisks: [],
       commitSha: "a".repeat(40),
+      completionContract: { gates: [] },
     },
   };
 }
