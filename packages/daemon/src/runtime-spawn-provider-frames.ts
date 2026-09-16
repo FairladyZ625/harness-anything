@@ -238,6 +238,16 @@ const zcodeWriteTools: ReadonlySet<string> = new Set(["Write", "Edit", "MultiEdi
 // ACP canonical frames are emitted by runtime-worker-acp.ts; every frame carries
 // `sessionId`, which the acp sessionIdentity declaration resolves per frame.
 export function parseAcpFrame(value: Record<string, unknown>, _providerSessionId: string | null): ProviderFrame {
+  if (value.type === "acp.session") {
+    const models = Array.isArray(value.models)
+        ? value.models.filter((model): model is string => typeof model === "string" && model !== "")
+        : [],
+      current = typeof value.currentModelId === "string" ? value.currentModelId : undefined;
+    return {
+      ...(models.length ? { observedModels: models } : {}),
+      ...(current ? { observedCurrentModel: current } : {}),
+    };
+  }
   if (value.type === "acp.update") {
     const update = isPlainRecord(value.update) ? value.update : null;
     if (!update) throw new Error("ACP update frame is incomplete");

@@ -11,6 +11,9 @@ export function writeAcpProviderStub(
   options: {
     readonly authMethods?: readonly Record<string, unknown>[];
     readonly modes?: Record<string, unknown>;
+    /** Extra fields merged into the session/new and session/load results —
+     * e.g. a spec `models` block or `configOptions` model selector. */
+    readonly session?: Record<string, unknown>;
   } = {},
 ): string {
   return writeProviderExecutable(
@@ -30,6 +33,17 @@ const modes = ${JSON.stringify(
           { id: "plan", name: "Plan" },
           { id: "bypass", name: "Bypass" },
         ],
+      },
+    )};
+const sessionExtras = ${JSON.stringify(
+      options.session ?? {
+        models: {
+          currentModelId: "swe-2-medium",
+          availableModels: [
+            { modelId: "swe-2-medium", name: "SWE-2 Medium" },
+            { modelId: "swe-2-high", name: "SWE-2 High" },
+          ],
+        },
       },
     )};
 let buffer = "", authenticated = false, pendingPromptId = null;
@@ -69,11 +83,11 @@ process.stdin.on("data", (chunk) => {
         authenticated = true; record({ apiKey: key, methodId }); reply({});
       } else fail("api key required");
     } else if (!authenticated) fail("unauthenticated");
-    else if (message.method === "session/new") reply({ sessionId, modes });
+    else if (message.method === "session/new") reply({ sessionId, modes, ...sessionExtras });
     else if (message.method === "session/load") {
       // Real agents replay session history before answering session/load.
       update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "devin history " } });
-      reply({ modes });
+      reply({ modes, ...sessionExtras });
     }
     else if (message.method === "session/set_mode") { record({ mode: message.params?.modeId ?? null }); reply({}); }
     else if (message.method === "session/prompt") {

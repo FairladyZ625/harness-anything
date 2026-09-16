@@ -1,3 +1,4 @@
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { consumeKnownError } from "../../kernel/src/index.ts";
 import { type RuntimeIsolationState, type RuntimePermissionMode } from "./runtime-permissions.ts";
@@ -101,9 +102,28 @@ export async function providerSubscriptionReadiness(
   },
   platform: NodeJS.Platform,
 ): Promise<RuntimeAuthReadiness> {
+  const hint =
+    input.isolationState === "operator-environment"
+      ? "Provider subscription authentication is unavailable in the operator environment."
+      : "Provider subscription authentication is unavailable in this instance state root.";
   try {
-    const declaration = runtimeKindForId(input.installation.kindId);
-    await runExecutable(platform, input.installation.executablePath, declaration.auth.subscriptionProbe, {
+    const declaration = runtimeKindForId(input.installation.kindId),
+      probe = declaration.auth.subscriptionProbe;
+    if (!Array.isArray(probe)) {
+      const authFile = declaration.executable.authFile,
+        key = "acpCredentialKey" in declaration.auth ? declaration.auth.acpCredentialKey : undefined,
+        home = input.env.HOME ?? input.env.USERPROFILE;
+      if (!authFile || !key || !home)
+        return unavailable("runtime_auth_probe_failed", "Provider authentication probe could not determine readiness.");
+      const file = path.join(providerConfigDirectory(home, input.installation.kindId), authFile);
+      // Existence of the file plus a non-empty declared key is the whole check;
+      // the secret value itself is never read out, logged, or forwarded.
+      return existsSync(file) &&
+        new RegExp(`^\\s*${escapeRegExp(key)}\\s*=\\s*"[^"]+"`, "mu").test(readFileSync(file, "utf8"))
+        ? available()
+        : unavailable("runtime_subscription_required", hint);
+    }
+    await runExecutable(platform, input.installation.executablePath, probe, {
       env: input.env,
       timeoutMs: declaration.auth.subscriptionProbeTimeoutMs,
       captureOutput: false,
@@ -111,10 +131,6 @@ export async function providerSubscriptionReadiness(
     return available();
   } catch (error) {
     consumeKnownError(error);
-    const hint =
-      input.isolationState === "operator-environment"
-        ? "Provider subscription authentication is unavailable in the operator environment."
-        : "Provider subscription authentication is unavailable in this instance state root.";
     return typeof error === "object" &&
       error !== null &&
       "status" in error &&
@@ -122,6 +138,10 @@ export async function providerSubscriptionReadiness(
       ? unavailable("runtime_subscription_required", hint)
       : unavailable("runtime_auth_probe_failed", "Provider authentication probe could not determine readiness.");
   }
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 }
 
 export const credentialUnavailableHint = "The configured runtime API credential is unavailable.";

@@ -21,6 +21,7 @@ import {
   openRuntimeInstanceStore,
   type RuntimeInstallationWitness,
 } from "../src/agent-runtime-instances.ts";
+import { discoverRuntimeModelCatalog, observeRuntimeModels } from "../src/agent-runtime-installation-discovery.ts";
 import { codedAs, observed } from "./agent-runtime-instance-environment.fixture.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 
@@ -121,6 +122,12 @@ test("runtime installation discovery projects each provider's detected model cat
       path.join(bin, "zcode"),
       `const args = process.argv.slice(2); if (args[0] === "--version") console.log("zcode-test"); else process.exitCode = 1;\n`,
     );
+    writeProviderExecutable(
+      path.join(bin, "devin"),
+      // Shape reconstructed from the verified devin 3000.10.27 observation
+      // (F-069741D0): {families:[{slug,aliases,variants:[{model_uid}]}]}.
+      `const args = process.argv.slice(2); if (args[0] === "--version") console.log("devin-test"); else if (args.join(" ") === "models list --format json") console.log(JSON.stringify({ families: [{ slug: "swe-2", aliases: ["swe2"], variants: [{ model_uid: "swe-2-medium" }] }, { slug: "claude-opus-5", aliases: [], variants: [{ model_uid: "claude-opus-5-high" }] }] }));\n`,
+    );
     const rows = await discoverRuntimeInstallations({ env: { PATH: bin }, now: () => "2026-08-22T00:00:00.000Z" });
     assert.deepEqual(
       rows.map(({ kindId, models, defaultModel }) => ({ kindId, models, defaultModel })),
@@ -128,9 +135,78 @@ test("runtime installation discovery projects each provider's detected model cat
         { kindId: "agy", models: ["gemini-high", "gemini-low"], defaultModel: "gemini-high" },
         { kindId: "claude", models: ["fable", "sonnet", "opus"], defaultModel: "fable" },
         { kindId: "codex", models: ["gpt-sol", "gpt-terra"], defaultModel: "gpt-sol" },
+        { kindId: "devin", models: ["swe-2", "claude-opus-5"], defaultModel: "swe-2" },
         // modelProbe: null means catalog unavailable, not a successfully probed empty catalog.
         { kindId: "zcode", models: undefined, defaultModel: undefined },
       ],
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("protocol-observed models merge into the installation catalog without displacing probed entries", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-model-observe-")),
+    bin = path.join(root, "bin");
+  try {
+    mkdirSync(bin);
+    writeProviderExecutable(
+      path.join(bin, "devin"),
+      `const args = process.argv.slice(2); if (args[0] === "--version") console.log("devin-test"); else if (args.join(" ") === "models list --format json") console.log(JSON.stringify({ families: [{ slug: "swe-2" }] }));\n`,
+    );
+    const devin = (await discoverRuntimeInstallations({ env: { PATH: bin } }))[0]!;
+    assert.deepEqual(devin.models, ["swe-2"]);
+    observeRuntimeModels({
+      kindId: "devin",
+      executablePath: devin.executablePath,
+      version: devin.version,
+      models: ["swe-2-medium", "swe-2"],
+      currentModel: "swe-2-medium",
+    });
+    assert.deepEqual(
+      await discoverRuntimeModelCatalog({
+        platform: process.platform,
+        executablePath: devin.executablePath,
+        kindId: "devin",
+        env: { PATH: bin },
+        version: devin.version,
+      }),
+      { models: ["swe-2", "swe-2-medium"], defaultModel: "swe-2" },
+    );
+    // An empty advertisement never clears an installation's catalog.
+    observeRuntimeModels({
+      kindId: "codex-acp",
+      executablePath: "/opt/runtime-test/codex-acp",
+      version: "1.11.0",
+      models: [],
+    });
+    assert.equal(
+      await discoverRuntimeModelCatalog({
+        platform: process.platform,
+        executablePath: "/opt/runtime-test/codex-acp",
+        kindId: "codex-acp",
+        env: {},
+        version: "1.11.0",
+      }),
+      null,
+    );
+    // A modelProbe: null kind still gains a catalog once the protocol advertises one.
+    observeRuntimeModels({
+      kindId: "codex-acp",
+      executablePath: "/opt/runtime-test/codex-acp",
+      version: "1.11.0",
+      models: ["gpt-5.6-sol[low]", "gpt-5.6-sol[medium]"],
+      currentModel: "gpt-5.6-sol[medium]",
+    });
+    assert.deepEqual(
+      await discoverRuntimeModelCatalog({
+        platform: process.platform,
+        executablePath: "/opt/runtime-test/codex-acp",
+        kindId: "codex-acp",
+        env: {},
+        version: "1.11.0",
+      }),
+      { models: ["gpt-5.6-sol[low]", "gpt-5.6-sol[medium]"], defaultModel: "gpt-5.6-sol[medium]" },
     );
   } finally {
     rmSync(root, { recursive: true, force: true });

@@ -1,6 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -226,6 +226,70 @@ test("agy uses the operator environment, OAuth-only auth, and a closed effort en
       () => store.prepareAuthCommand("agy-review", "login"),
       (error: unknown) => codedAs(error, "runtime_auth_interactive_only"),
     );
+  } finally {
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
+// `devin auth status` exits 0 whether or not credentials exist, so the kind's
+// subscription probe is file-key: the declared authFile must exist and carry a
+// non-empty windsurf_api_key — the same credential the ACP handshake consumes.
+test("devin subscription readiness follows the credential file key, not a command exit code", async () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-devin-filekey-")),
+    home = path.join(userRoot, "home"),
+    credentials = path.join(home, ".local/share/devin/credentials.toml"),
+    devin: RuntimeInstallationWitness = {
+      installationId: "devin-installation-test",
+      kindId: "devin",
+      executablePath: "/opt/runtime-test/devin",
+      version: "3000.10.27",
+      observedAt: "2026-09-15T00:00:00.000Z",
+    };
+  try {
+    mkdirSync(path.dirname(credentials), { recursive: true });
+    const store = openRuntimeInstanceStore({
+      userRoot,
+      env: { HOME: home, PATH: "/bin" },
+      discover: () => [devin],
+    });
+    store.create({
+      schemaVersion: 2,
+      instanceId: "devin-subscription",
+      name: "Devin Subscription",
+      kindId: "devin",
+      installationId: devin.installationId,
+      providerId: "devin",
+      models: ["swe2"],
+      defaultModel: "swe2",
+      enabled: true,
+      isolationState: "operator-environment",
+      devin: {},
+      auth: { mode: "subscription" },
+    });
+    const hint = "Provider subscription authentication is unavailable in the operator environment.";
+    // No credential file at all → not ready.
+    assert.deepEqual(await store.authStatus("devin-subscription"), {
+      status: "not-ready",
+      code: "runtime_subscription_required",
+      hint,
+    });
+    // The key present but empty is still unauthenticated.
+    writeFileSync(credentials, 'windsurf_api_key = ""\napi_server_url = "https://example.invalid"\n');
+    assert.deepEqual(await store.authStatus("devin-subscription"), {
+      status: "not-ready",
+      code: "runtime_subscription_required",
+      hint,
+    });
+    // A non-empty declared key is ready; the secret value never leaves the file.
+    writeFileSync(
+      credentials,
+      'windsurf_api_key = "test-subscription-key"\napi_server_url = "https://example.invalid"\n',
+    );
+    assert.deepEqual(await store.authStatus("devin-subscription"), {
+      status: "ready",
+      code: null,
+      hint: null,
+    });
   } finally {
     rmSync(userRoot, { recursive: true, force: true });
   }

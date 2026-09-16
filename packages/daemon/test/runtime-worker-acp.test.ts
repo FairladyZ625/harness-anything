@@ -76,6 +76,8 @@ test("acp worker session drives initialize/authenticate/new/prompt and emits can
       type: "acp.session",
       modes: ["accept-edits", "plan", "bypass"],
       currentMode: "accept-edits",
+      models: ["swe-2-medium", "swe-2-high"],
+      currentModelId: "swe-2-medium",
     });
     assert.deepEqual(frames[1], {
       sessionId: "devin-acp-session",
@@ -352,6 +354,97 @@ test("acp worker session maps the permission mode onto the agent's mode vocabula
       type: "acp.mode",
       requested: "bypass",
       applied: "agent-full-access",
+    });
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+// devin and opencode advertise the catalog as a configOptions select instead of
+// the spec models block; the session frame flattens both shapes the same way.
+test("acp worker session reads the model catalog from a configOptions selector", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-acp-worker-")),
+    capture = path.join(parent, "capture.jsonl"),
+    executablePath = writeAcpProviderStub(path.join(parent, "opencode-stub"), capture, {
+      session: {
+        configOptions: [
+          {
+            id: "model",
+            name: "Model",
+            category: "model",
+            type: "select",
+            currentValue: "opencode/big-pickle",
+            options: [{ value: "opencode/big-pickle" }, { value: "minimax/MiniMax-M3" }],
+          },
+        ],
+      },
+    });
+  writeFileSync(capture, "");
+  try {
+    const { records, append } = collect(),
+      child = launch(executablePath, ["acp"], { HOME: parent, PATH: process.env.PATH }),
+      session = runAcpProviderSession(
+        child,
+        {
+          kindId: "devin",
+          cwd: "/tmp",
+          env: { HOME: parent },
+          prompt: "do work",
+          acpApiKey: "test-manifest-key",
+        },
+        append,
+      );
+    await session.done;
+    assert.equal(await closed(child), 0);
+    const sessionFrame = records
+      .filter((record) => record.kind === "provider_event")
+      .map((record) => record.event as Record<string, unknown>)
+      .find((frame) => frame.type === "acp.session");
+    assert.deepEqual(sessionFrame, {
+      sessionId: "devin-acp-session",
+      type: "acp.session",
+      modes: ["accept-edits", "plan", "bypass"],
+      currentMode: "accept-edits",
+      models: ["opencode/big-pickle", "minimax/MiniMax-M3"],
+      currentModelId: "opencode/big-pickle",
+    });
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+// A session/new that advertises no catalog (the spec allows omission) must not
+// produce a misleading empty model list on the frame.
+test("acp worker session omits model fields when the agent advertises none", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-acp-worker-")),
+    capture = path.join(parent, "capture.jsonl"),
+    executablePath = writeAcpProviderStub(path.join(parent, "devin-stub"), capture, { session: {} });
+  writeFileSync(capture, "");
+  try {
+    const { records, append } = collect(),
+      child = launch(executablePath, ["acp"], { HOME: parent, PATH: process.env.PATH }),
+      session = runAcpProviderSession(
+        child,
+        {
+          kindId: "devin",
+          cwd: "/tmp",
+          env: { HOME: parent },
+          prompt: "do work",
+          acpApiKey: "test-manifest-key",
+        },
+        append,
+      );
+    await session.done;
+    assert.equal(await closed(child), 0);
+    const sessionFrame = records
+      .filter((record) => record.kind === "provider_event")
+      .map((record) => record.event as Record<string, unknown>)
+      .find((frame) => frame.type === "acp.session");
+    assert.deepEqual(sessionFrame, {
+      sessionId: "devin-acp-session",
+      type: "acp.session",
+      modes: ["accept-edits", "plan", "bypass"],
+      currentMode: "accept-edits",
     });
   } finally {
     rmSync(parent, { recursive: true, force: true });

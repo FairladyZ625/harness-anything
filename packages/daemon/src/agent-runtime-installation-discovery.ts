@@ -4,7 +4,7 @@ import path from "node:path";
 import { consumeKnownError } from "../../kernel/src/index.ts";
 import type { RuntimeInstallationWitness, RuntimeInstanceKind } from "./agent-runtime-instance-types.ts";
 import { runProcessTextAsync } from "./process-port.ts";
-import { runtimeKindForId, runtimeKinds } from "./runtime-inventory.ts";
+import { runtimeKindForId, runtimeKinds, type RuntimeProviderDeclaration } from "./runtime-inventory.ts";
 
 export const runtimeModelCatalogCache = new Map<
   string,
@@ -102,25 +102,7 @@ export function discoverRuntimeModelCatalog(input: {
           timeoutMs: 8_000,
           captureOutput: true,
         });
-      if (declaration.executable.modelProbeFormat === "json-models") {
-        const decoded = JSON.parse(output) as {
-          readonly models?: readonly {
-            readonly slug?: unknown;
-            readonly id?: unknown;
-          }[];
-        };
-        models = (decoded.models ?? [])
-          .map((model) => (typeof model.slug === "string" ? model.slug : typeof model.id === "string" ? model.id : ""))
-          .filter(Boolean);
-      } else if (declaration.executable.modelProbeFormat === "tabular-models")
-        models = output
-          .split(/\r?\n/u)
-          .map((line) => (line.includes("\t") ? line.split("\t", 1)[0]!.trim() : ""))
-          .filter((model) => /^[A-Za-z0-9][A-Za-z0-9._-]+$/u.test(model));
-      else
-        models = ["fable", "sonnet", "opus"].filter(
-          (alias) => output.includes(`'${alias}'`) || output.includes(`"${alias}"`),
-        );
+      models = [...modelProbeParsers[declaration.executable.modelProbeFormat](output)];
     } catch (error) {
       consumeKnownError(error);
     }
@@ -129,6 +111,66 @@ export function discoverRuntimeModelCatalog(input: {
   })();
   runtimeModelCatalogCache.set(cacheKey, discovered);
   return discovered;
+}
+
+type ModelProbeFormat = RuntimeProviderDeclaration["executable"]["modelProbeFormat"];
+
+// Each CLI model-listing shape gets exactly one named parser; a new provider
+// shape is a function here plus one catalog line, never a new code path.
+const modelProbeParsers: Record<ModelProbeFormat, (output: string) => readonly string[]> = {
+  "json-models": (output) => {
+    const decoded = JSON.parse(output) as {
+      readonly models?: readonly {
+        readonly slug?: unknown;
+        readonly id?: unknown;
+      }[];
+    };
+    return (decoded.models ?? [])
+      .map((model) => (typeof model.slug === "string" ? model.slug : typeof model.id === "string" ? model.id : ""))
+      .filter(Boolean);
+  },
+  // devin `models list --format json` (3000.10.27, F-069741D0):
+  // {families:[{slug,aliases,variants:[{model_uid}]}]} — the family slug is the
+  // launch-level model token, so the catalog flattens families, not variants.
+  "json-families": (output) => {
+    const decoded = JSON.parse(output) as {
+      readonly families?: readonly { readonly slug?: unknown }[];
+    };
+    return (decoded.families ?? [])
+      .map((family) => family.slug)
+      .filter((slug): slug is string => typeof slug === "string" && slug !== "");
+  },
+  "tabular-models": (output) =>
+    output
+      .split(/\r?\n/u)
+      .map((line) => (line.includes("\t") ? line.split("\t", 1)[0]!.trim() : ""))
+      .filter((model) => /^[A-Za-z0-9][A-Za-z0-9._-]+$/u.test(model)),
+  "aliases-from-help": (output) =>
+    ["fable", "sonnet", "opus"].filter((alias) => output.includes(`'${alias}'`) || output.includes(`"${alias}"`)),
+};
+
+/** Merges models observed on the ACP `session/new` response into the catalog
+ * cache that CLI probes feed, so a protocol-advertised model set reaches the
+ * same consumption surface as a probed one. Union-only: observed models never
+ * remove probed or user-entered entries. */
+export function observeRuntimeModels(input: {
+  readonly kindId: RuntimeInstanceKind;
+  readonly executablePath: string;
+  readonly version: string;
+  readonly models: readonly string[];
+  readonly currentModel?: string;
+}): void {
+  const observed = [...new Set(input.models.filter((model) => model !== ""))];
+  if (observed.length === 0) return;
+  const cacheKey = `${input.kindId}\0${input.executablePath}\0${input.version}`,
+    previous = runtimeModelCatalogCache.get(cacheKey),
+    merged = (async () => {
+      const base = previous ? await previous : null,
+        models = [...new Set([...(base?.models ?? []), ...observed])],
+        defaultModel = base?.defaultModel ?? input.currentModel ?? models[0]!;
+      return { models, defaultModel };
+    })();
+  runtimeModelCatalogCache.set(cacheKey, merged);
 }
 
 export function versionProbeEnvironment(env: NodeJS.ProcessEnv, platform: NodeJS.Platform): NodeJS.ProcessEnv {
@@ -158,7 +200,7 @@ export async function runExecutable(
 ): Promise<string> {
   const shim = (platform === "win32" || process.platform === "win32") && /\.(?:cmd|bat)$/iu.test(executablePath);
   const command =
-    shim && process.platform === "win32" ? process.env.ComSpec ?? process.env.COMSPEC ?? "cmd.exe" : "cmd.exe";
+    shim && process.platform === "win32" ? (process.env.ComSpec ?? process.env.COMSPEC ?? "cmd.exe") : "cmd.exe";
   const stdout = await runProcessTextAsync(
     shim ? command : executablePath,
     shim ? ["/d", "/s", "/c", `"${executablePath}" ${args.join(" ")}`] : [...args],
