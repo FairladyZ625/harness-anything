@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
+import { runProcessTextAsync } from "../src/process-port.ts";
 import { readCiObservatory } from "../src/ci-observatory-read.ts";
 import { fetchCiObservations, ingestCiObservations, selectCiObservationRuns } from "../src/ci-observation-actions.ts";
 import type { CiRunObservationEventV3 } from "../../kernel/src/index.ts";
@@ -790,8 +791,18 @@ test("CI observation pull --task imports the first covering successful main run"
       },
     ];
   const runGh = async (_command: string, args: readonly string[]) => {
-    if (args[0] === "api")
-      return JSON.stringify({ status: coverage[String(args[1]).split("...")[1] ?? ""] ?? "diverged" });
+    if (args[0] === "api") {
+      const status = coverage[String(args[1]).split("...")[1] ?? ""] ?? "diverged";
+      // Exercise the production subprocess buffer with a historical compare whose
+      // patch exceeds it. gh must project the response before writing stdout.
+      return runProcessTextAsync(process.execPath, [
+        "-e",
+        `const response = { status: process.argv[1], files: [{ patch: "x".repeat(2 * 1024 * 1024) }] };
+         process.stdout.write(JSON.stringify(process.argv[2] === "{status: .status}" ? { status: response.status } : response));`,
+        status,
+        args[args.indexOf("--jq") + 1] ?? "",
+      ]);
+    }
     if (args[1] === "list") {
       // GitHub applies the limit after its branch filter. A busy PR stream must not
       // hide the older successful main witness from a task-scoped lookup.
