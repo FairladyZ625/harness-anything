@@ -381,7 +381,9 @@ async function selectTaskWitnessRun(
 // A main run covers the delivery when the delivery commit is an ancestor of the run head:
 // GitHub compare reports "ahead"/"identical" only when base is contained in head's history.
 async function coversCommit(runGh: RunGh, cwd: string, base: string, head: string): Promise<boolean> {
-  const compare = JSON.parse(await runGh("gh", ["api", `repos/:owner/:repo/compare/${base}...${head}`], { cwd })) as {
+  const compare = JSON.parse(
+    await runGh("gh", ["api", `repos/:owner/:repo/compare/${base}...${head}`, "--jq", "{status: .status}"], { cwd }),
+  ) as {
     readonly status?: string;
   };
   return compare.status === "ahead" || compare.status === "identical";
