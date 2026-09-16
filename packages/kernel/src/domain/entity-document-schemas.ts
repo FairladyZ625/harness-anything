@@ -88,6 +88,7 @@ export const executionSchema: EntityDocumentJsonSchema = {
     closedAt: { type: "string", minLength: 1, "x-nullable": true },
     submission: nullableOpaqueObject(),
     amendedBy: opaqueObject(),
+    annotations: { type: "array", items: opaqueObject(), minItems: 1 },
   },
   required: [
     "schema",
