@@ -565,7 +565,15 @@ test("CI observation pull imports named main runs without listing recent runs", 
       runGh,
     );
     assert.equal(JSON.parse(unconfigured.evidence).imported, 1);
-    assert.equal(events[1]?.payload.verification, null);
+    assert.deepEqual(events[1]?.payload.verification, {
+      source: "github-actions",
+      workflow: "rewrite-ci",
+      runId: "702",
+      attempt: 1,
+      headSha: "sha-702",
+      conclusion: "success",
+      event: "push",
+    });
     await assert.rejects(
       pullAndIngestCiObservations(
         cell as never,
@@ -580,7 +588,7 @@ test("CI observation pull imports named main runs without listing recent runs", 
   }
 });
 
-test("CI completion verdict comes from the completed matching workflow run, not artifact labels", async () => {
+test("CI provenance comes from the completed matching GitHub run, not workflow policy or artifact labels", async () => {
   const cases = [
     {
       name: "success",
@@ -607,7 +615,7 @@ test("CI completion verdict comes from the completed matching workflow run, not 
       conclusion: "success",
       attempt: 1,
       sha: "commit",
-      expected: undefined,
+      expected: true,
     },
     {
       name: "still running",
