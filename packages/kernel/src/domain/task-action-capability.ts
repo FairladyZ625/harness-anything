@@ -269,8 +269,9 @@ function reviewIndependence(input: TaskActionCapabilityInput): PredicateEvaluati
       status: "unmet",
       nextActions: [
         `The submitted execution's original start declared no executor, so only a different person can review it. ` +
-          `Run ha task declare-executor ${taskId} --execution-id ${executionId} ` +
-          `--reason <reason> before same-person review, or have a different person run ${command}.`,
+          `When the execution has a dispatch record, run ha task declare-executor ${taskId} ` +
+          `--execution-id ${executionId} --reason <reason> before same-person review; without one, ` +
+          `have a different person run ${command} or run it with HARNESS_ACTOR=agent:<id>.`,
       ],
     };
   return {

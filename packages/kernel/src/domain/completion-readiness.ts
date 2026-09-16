@@ -148,7 +148,9 @@ function evaluateCompletion(
         `--execution-id ${executionId}`,
         "--reason <auditable-recovery-reason>",
       ].join(" "),
-      "The submitted execution is already at review; restore its omitted executor instead of restarting it.",
+      "The submitted execution is already at review; restore its omitted executor instead of restarting it. " +
+        "declare-executor requires an existing dispatch record; without one, an independent reviewer " +
+        "(a different person or HARNESS_ACTOR=agent:<id>) must record the review.",
     );
   if (task.status !== "in_review")
     return one(

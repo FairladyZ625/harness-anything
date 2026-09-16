@@ -127,6 +127,21 @@ test("artifact anchors leave trailing prose punctuation outside the path", () =>
   assert.deepEqual(artifactAnchors("artifact:artifacts/report.md@7.2"), []);
 });
 
+test("a prose label ending in 'artifact:' is not counted as a second anchor", () => {
+  for (const summary of [
+    "Delivery artifact: artifact:artifacts/report.md.",
+    `Delivery artifact: artifact:${path}`,
+    "Delivered artifact: artifact:artifacts/report.md@7 per the closeout.",
+  ])
+    assert.deepEqual(
+      derive(summary).artifacts?.map((anchor) => anchor.path),
+      [path],
+    );
+  // A label without an anchor names nothing, and a malformed anchor attempt still fails.
+  assert.throws(() => derive("Delivery artifact: artifacts/report.md"), { code: "invalid_submission" });
+  assert.throws(() => derive(`artifact:${path}@sha256:${"a".repeat(64)}`), { code: "invalid_submission" });
+});
+
 test("invalid artifact anchors explain the copyable form and revision source", () => {
   for (const action of [
     () => derive("no anchor"),

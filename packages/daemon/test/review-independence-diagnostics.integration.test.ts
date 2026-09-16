@@ -527,7 +527,15 @@ test("a reviewed child execution cannot declare an executor when neither it nor 
     git(rootDir, "update-ref", "refs/remotes/origin/main", commitSha);
     assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, bare)).outcome, "applied");
     writeCloseout(rootDir, packagePath);
-    assert.equal(submissionOutcome(await cell.run({ kind: "task-submit", taskId, executionId }, bare)), "applied");
+    const submitted = (await cell.run({ kind: "task-submit", taskId, executionId }, bare)) as Record<string, unknown>;
+    assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+    // With no dispatch lineage, declare-executor cannot recover the omitted executor; the receipt
+    // next step must be the independent review command instead.
+    const next = submitted.next as { readonly command: string; readonly reason?: string }[];
+    assert.match(next[0]!.command, /ha task review-execution/u);
+    assert.doesNotMatch(next[0]!.command, /declare-executor/u);
+    assert.match(next[0]!.reason ?? "", /declare-executor is unavailable/u);
+    assert.match(next[0]!.reason ?? "", /HARNESS_ACTOR=agent:<id>/u);
     writeFileSync(
       path.join(rootDir, "review.json"),
       JSON.stringify({

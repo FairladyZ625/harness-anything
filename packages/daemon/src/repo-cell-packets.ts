@@ -10,6 +10,8 @@ import {
 import { validateGuiSubmission, type GuiSubmissionV1 } from "./protocol/daemon-protocol.contract.ts";
 import { reviewJsonFields } from "./protocol/daemon-protocol-commands-task.ts";
 import { validationDiagnostic } from "./protocol/daemon-protocol-validate-entities.ts";
+import { readTaskLineageDispatches } from "./dispatch-read.ts";
+import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
 import { gateChecks } from "./repo-cell-proof.ts";
 import { requiredCellText } from "./repo-cell-settlement.ts";
@@ -171,6 +173,7 @@ export function submissionPacket(action: RepoTaskAction): GuiSubmissionV1 {
 }
 
 export function lifecycleReceipt(
+  cell: Pick<RepoCellOperationalContext, "projection" | "rootDir">,
   event: Extract<ReturnType<ReturnType<typeof makeTaskEventStore>["readEvent"]>, { readonly schema: "task-event/v1" }>,
   snapshot: Snapshot,
   publication: PublicPublication,
@@ -191,6 +194,12 @@ export function lifecycleReceipt(
     receiptReview = eventReview ?? selected?.review ?? (reviews.length === 1 ? reviews[0] : undefined),
     reviewId = receiptReview?.reviewId ?? null,
     declarationNeeded = snapshot.task?.status === "in_review" && undeclared && reviews.length === 0,
+    // declare-executor replays a runtime dispatch record as its executor proof; a task with no
+    // dispatch lineage offers no such record, so the receipt must point at independent review.
+    dispatchlessDeclaration =
+      declarationNeeded === true &&
+      readTaskLineageDispatches({ projection: cell.projection, rootDir: cell.rootDir, taskId: event.taskId }).length ===
+        0,
     to = `${snapshot.task?.status ?? "missing"}/${snapshot.task?.currentNode ?? "missing"}`,
     from =
       event.type === "execution_started"
@@ -212,7 +221,7 @@ export function lifecycleReceipt(
             : snapshot.task?.status !== "in_review"
               ? null
               : !approved.length && !approvedHistory.length
-                ? declarationNeeded
+                ? declarationNeeded && !dispatchlessDeclaration
                   ? [
                       "ha task declare-executor ",
                       `${event.taskId}`,
@@ -240,10 +249,17 @@ export function lifecycleReceipt(
             // for a lifecycle state is its own explanation.
             ...(declarationNeeded
               ? {
-                  reason: [
-                    "This Execution declared no executor; record an auditable executor ",
-                    "declaration before same-person review.",
-                  ].join(""),
+                  reason: dispatchlessDeclaration
+                    ? [
+                        "This execution declared no executor and its task lineage has no dispatch ",
+                        "record, so ha task declare-executor is unavailable; have a different person ",
+                        "run this review, or run it with HARNESS_ACTOR=agent:<id> for an auditable ",
+                        "same-principal review.",
+                      ].join("")
+                    : [
+                        "This Execution declared no executor; record an auditable executor ",
+                        "declaration before same-person review.",
+                      ].join(""),
                 }
               : {}),
           },
