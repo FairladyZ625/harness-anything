@@ -159,6 +159,7 @@ const relationGraph = {
           knownGaps: [],
           residualRisks: [],
           commitSha: "a".repeat(40),
+          completionContract: { gates: [] },
         }),
     },
     {

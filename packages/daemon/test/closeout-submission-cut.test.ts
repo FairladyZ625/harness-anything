@@ -115,6 +115,12 @@ function derive(
       projection,
       store,
       cellCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),
+      settings: {
+        readRepository: () => ({
+          ci: { workflows: ["rewrite-ci"] },
+          gates: [{ gateId: "ci", adapter: "github-actions", appliesTo: "code", branch: "main", event: "push" }],
+        }),
+      } as unknown as Parameters<typeof deriveCloseoutSubmission>[0]["settings"],
     },
     "task-1",
     "execution-1",

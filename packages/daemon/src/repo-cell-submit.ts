@@ -6,6 +6,7 @@ import {
   isSamePerson,
   isTaskEvent,
   ledgerGitPath,
+  resolveCompletionContract,
   resolveLedgerGitLayout,
   submissionFromCloseout,
   submissionDigest,
@@ -31,7 +32,7 @@ import { isPresetSnapshotCurrent, prepareSubmissionEvidence } from "./repo-cell-
 
 /** Summary selects one public delivery commit, center-accepted artifacts, or both. */
 export function deriveCloseoutSubmission(
-  cell: Pick<RepoCellOperationalContext, "rootDir" | "projection" | "store" | "cellCodedError">,
+  cell: Pick<RepoCellOperationalContext, "rootDir" | "projection" | "store" | "cellCodedError" | "settings">,
   taskId: string,
   executionId: string,
   snapshot: Snapshot,
@@ -43,8 +44,16 @@ export function deriveCloseoutSubmission(
       slot: "task.closeout",
       bodyOverrides,
     }),
+    frozen = snapshot.executions.find((execution) => execution.executionId === executionId)?.submission,
     // Parse/validate before reading any Git cut. No risk or verification line is filtered.
-    prose = submissionFromCloseout(document.body, { commitSha: "0".repeat(40), deliverables: [], outputs: [] }),
+    parsed = submissionFromCloseout(document.body, {
+      commitSha: "0".repeat(40),
+      deliverables: [],
+      outputs: [],
+      completionContract: { gates: [] },
+    }),
+    // The execution's first submission freezes the gate requirements; resumes and amendments keep them.
+    prose = { ...parsed, completionContract: frozen?.completionContract ?? freezeCompletionContract(cell, snapshot) },
     anchors = artifactAnchors(prose.completionClaim),
     named = [...new Set(removeArtifactAnchors(prose.completionClaim).match(/\b[0-9a-f]{40}\b/gu) ?? [])];
   if (named.length > 1)
@@ -111,7 +120,6 @@ export function deriveCloseoutSubmission(
       "invalid_submission",
       "Summary commit must be the bound worktree HEAD or its published merge commit.",
     );
-  const frozen = snapshot.executions.find((execution) => execution.executionId === executionId)?.submission;
   let deliverables: readonly string[], commitOutputs: readonly string[];
   if (frozen?.commitSha === commitSha) {
     // A submitted commit already owns its file manifest. Advancing main must not
@@ -176,6 +184,15 @@ export function deriveCloseoutSubmission(
     deliverables,
     outputs: [...commitOutputs, ...artifacts.map((anchor) => `Artifact-Anchor: ${anchor.path}@${anchor.revision}`)],
   };
+}
+
+function freezeCompletionContract(
+  cell: Pick<RepoCellOperationalContext, "cellCodedError" | "settings">,
+  snapshot: Snapshot,
+): SubmissionV1["completionContract"] {
+  const resolved = resolveCompletionContract(snapshot.task?.completionGateIds ?? [], cell.settings.readRepository());
+  if (!resolved.ok) throw cell.cellCodedError("gate_mapping_invalid", resolved.message);
+  return resolved.contract;
 }
 
 /**
@@ -433,6 +450,8 @@ export async function settleTask(
   return { ...submitted, steps: mergedSteps } as WriteReceiptDraft;
 }
 
+const submissionStopCodes = ["closeout_placeholder", "invalid_submission", "gate_mapping_invalid"];
+
 export function submissionStopped(
   cell: Pick<RepoCellOperationalContext, "rejected" | "operationId" | "input">,
   action: RepoTaskAction,
@@ -443,13 +462,8 @@ export function submissionStopped(
   error: unknown,
   steps: readonly WriteReceiptDraft[] = [],
 ): WriteReceiptDraft {
-  if (
-    !(error instanceof Error) ||
-    !("code" in error) ||
-    !["closeout_placeholder", "invalid_submission"].includes(String(error.code))
-  )
-    throw error;
-  const code = error.code === "closeout_placeholder" ? "closeout_placeholder" : "document_invalid";
+  if (!(error instanceof Error) || !("code" in error) || !submissionStopCodes.includes(String(error.code))) throw error;
+  const code = error.code === "invalid_submission" ? "document_invalid" : String(error.code);
   return {
     ...cell.rejected(cell.operationId(action, binding, cell.input.repoId, snapshot.revision), code),
     // The remapped code alone cannot say why the document was rejected; the guard's own message can.
@@ -458,8 +472,10 @@ export function submissionStopped(
       completionGuidance(
         snapshot,
         executionId,
-        `Fill harness/${packagePath}/closeout.md, run ha doc sync --submit --task ${String(action.taskId)}, ` +
-          `then run ha task submit ${String(action.taskId)}.`,
+        code === "gate_mapping_invalid"
+          ? `Map every declared gate in harness.yaml settings.gates, then run ha task submit ${String(action.taskId)}.`
+          : `Fill harness/${packagePath}/closeout.md, run ha doc sync --submit --task ${String(action.taskId)}, ` +
+              `then run ha task submit ${String(action.taskId)}.`,
         error.message,
       ),
     ],
@@ -473,11 +489,7 @@ export function readCloseoutSubmission(
   try {
     return { ok: true, submission: deriveCloseoutSubmission(...args) };
   } catch (error) {
-    if (
-      !(error instanceof Error) ||
-      !("code" in error) ||
-      !["closeout_placeholder", "invalid_submission"].includes(String(error.code))
-    )
+    if (!(error instanceof Error) || !("code" in error) || !submissionStopCodes.includes(String(error.code)))
       throw error;
     return { ok: false, error };
   }
