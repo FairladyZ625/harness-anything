@@ -8,7 +8,7 @@
   1. **Create Task**: `ha task create --title "..."` to define scope, goals, and acceptance criteria;
   2. **Acquire Lease**: `ha task start <task-id>` to acquire an exclusive Lease, protecting execution and avoiding concurrent collisions;
   3. **Implement & Ground Truth**: Implement code and tests in an isolated environment; use `ha fact record --statement "..." --source "..." --task <task-id>` to capture key test evidence;
-  4. **Closeout Synthesis**: Fully author `closeout.md` with Summary, Verification, and Residual Risk. **Critical: execution records assimilate directly from closeout.md**; never update artifacts while leaving closeout stale;
+  4. **Closeout Synthesis**: Fully author `closeout.md` with Summary, Verification, Residual Risk, and Same Mechanism Elsewhere. In the last section, state the underlying mechanism, where you searched for it, and what you found. **Critical: execution records assimilate directly from closeout.md**; never update artifacts while leaving closeout stale;
   5. **Submit & Independent Review**: `ha task submit <task-id>` submits deliverables; an independent reviewer verifies code and test evidence against ground truth (self-review is rejected with `actor_unauthorized`); settle after completion gates pass via `ha task complete <task-id>`;
   6. **Dynamic Inspection**: The CLI is fully self-describing; always run `ha <command> --help` or `ha capabilities` to verify current grammar, and never memorize static command sequences.
 
