@@ -7,7 +7,7 @@ import {
   taskStatusWords,
 } from "./daemon-protocol-vocabulary.ts";
 import { isJsonObject, type JsonObject, validationValueSummary } from "./json-rpc-types.ts";
-import { validateFrozenCompletionContract } from "../../../kernel/src/index.ts";
+import { mappedWitnessAdapterIds, validateFrozenCompletionContract } from "../../../kernel/src/index.ts";
 
 export const recordWith = (value: unknown, fields: readonly string[]): value is JsonObject =>
     isJsonObject(value) && fields.every((field) => Object.hasOwn(value, field)),
@@ -488,7 +488,7 @@ export function gate(value: unknown): boolean {
       value.executionId,
       value.verifiedAt,
     ].every(nonEmpty) &&
-    value.result === "pass" &&
+    (value.result === "pass" || value.result === "fail") &&
     sha(value.commitSha) &&
     iteration(value.iteration) &&
     actor(value.actor) &&
@@ -502,8 +502,9 @@ export function gate(value: unknown): boolean {
         (value.basis.codeCommit === undefined || sha(value.basis.codeCommit)) &&
         (value.basis.ledgerCut === undefined || (integer(value.basis.ledgerCut) && value.basis.ledgerCut >= 0)))) &&
     (value.provenance === undefined ||
-      (recordWith(value.provenance, ["source", "runId", "rawResult"]) &&
+      (recordWith(value.provenance, ["source", "adapterId", "runId", "rawResult"]) &&
         (value.provenance.source === "runner" || value.provenance.source === "human") &&
+        mappedWitnessAdapterIds.includes(value.provenance.adapterId as never) &&
         nonEmpty(value.provenance.runId) &&
         nonEmpty(value.provenance.rawResult)))
   );

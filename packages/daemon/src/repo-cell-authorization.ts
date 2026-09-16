@@ -263,6 +263,8 @@ export function authorizeDurableRepoCellAction(
       return authorizeRepoCellAction(input);
     case "task-artifact-add":
       return authorizeRepoCellAction(input);
+    case "task-attest":
+      return authorizeRepoCellAction(input);
     case "task-code-doc-reconcile":
       return authorizeRepoCellAction(input);
     case "task-code-doc-repoint":

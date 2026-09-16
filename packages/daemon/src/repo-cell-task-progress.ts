@@ -12,7 +12,6 @@ import {
   completionGateIds,
   effectiveCloseoutGates,
   currentCodeDocWitness,
-  judgeCompletionEvidence,
   consumeKnownError,
   isTaskProgressEvent,
   requireTransitionDocumentKind,
@@ -25,6 +24,9 @@ import {
   type FactRetirementAssessment,
   type FactStillHoldsAttestation,
   type TaskProgressEventV1,
+  type CompletionEvidenceV1,
+  type FrozenGateRequirement,
+  type MappedWitnessAdapterId,
   type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
 import { compileRepoTaskPackage } from "../../preset/src/index.ts";
@@ -36,7 +38,38 @@ import { readCompletionContext, completionBlockersForAction } from "./task-compl
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 
 import { dispatchCompletionReview } from "./task-completion-review.ts";
-import { readApplicableCiEvidence, readLatestCiEvidence } from "./repo-cell-ci-evidence.ts";
+import {
+  acceptedGateWitness,
+  actionWitnessCollections,
+  witnessAdapters,
+  type PendingWitnessCollections,
+} from "./repo-cell-witness-adapters.ts";
+
+/**
+ * Judge each declared gate's witness adapter against the frozen cut. A `fail` verdict from any
+ * adapter stops the write; a `pass` becomes a published gate witness. Internal checkers such as
+ * code-doc-reconciliation are not in the adapter table and are skipped here.
+ */
+function evaluateGateEvidence(
+  cell: RepoCellOperationalContext,
+  requirements: readonly FrozenGateRequirement[],
+  execution: Snapshot["executions"][number] | undefined,
+  collections: PendingWitnessCollections | undefined,
+): ReadonlyMap<string, CompletionEvidenceV1> {
+  const evidenceByGate = new Map<string, CompletionEvidenceV1>();
+  for (const requirement of requirements) {
+    const adapter = witnessAdapters[requirement.witness.adapterId as MappedWitnessAdapterId];
+    if (!adapter) continue;
+    const evidence = adapter.evaluate(cell, requirement, execution, collections?.get(requirement.gateId));
+    if (evidence?.result === "fail")
+      throw cell.cellCodedError(
+        "invalid_proof",
+        `Gate ${requirement.gateId} receipt ${evidence.provenance.rawResult} reported fail.`,
+      );
+    if (evidence) evidenceByGate.set(requirement.gateId, evidence);
+  }
+  return evidenceByGate;
+}
 
 /** Attach only existing evidence to the submitted cut; document sync belongs to its original holder. */
 export async function prepareSubmissionEvidence(
@@ -44,6 +77,7 @@ export async function prepareSubmissionEvidence(
   taskId: string,
   executionId: string,
   binding: RepoCellBinding,
+  collections?: PendingWitnessCollections,
 ): Promise<readonly WriteReceipt[]> {
   const current = await cell.service.read(taskId),
     snapshot = current.snapshot,
@@ -54,10 +88,8 @@ export async function prepareSubmissionEvidence(
     throw cell.cellCodedError("invalid_transition", "Evidence preparation requires a submitted execution.");
   const steps: WriteReceipt[] = [],
     gates = completionGateIds(snapshot.task?.completionGateIds ?? [], execution.submission.commitSha),
-    ci = gates.includes("ci") ? readLatestCiEvidence(cell, execution) : null,
+    evidenceByGate = evaluateGateEvidence(cell, execution.submission.completionContract.gates, execution, collections),
     witness = currentCodeDocWitness(snapshot.codeDocWitnesses, executionId);
-  if (ci?.result === "fail")
-    throw cell.cellCodedError("invalid_proof", `CI receipt ${ci.provenance.rawResult} reported fail.`);
   if (
     gates.includes("code-doc-reconciliation") &&
     !(
@@ -76,24 +108,12 @@ export async function prepareSubmissionEvidence(
     steps.push(step);
     if (step.outcome !== "applied") return steps;
   }
-  const refreshed = cell.projection.read(taskId),
-    recorded = refreshed.snapshot.gateWitnesses.find(
-      (candidate) =>
-        candidate.executionId === executionId &&
-        candidate.gateId === "ci" &&
-        candidate.commitSha === execution.submission!.commitSha &&
-        candidate.iteration === execution.iteration,
-    ),
-    alreadyVerified =
-      recorded?.basis &&
-      recorded.provenance &&
-      recorded.observed !== undefined &&
-      judgeCompletionEvidence(
-        { ...recorded, basis: recorded.basis, provenance: recorded.provenance, observed: recorded.observed },
-        { execution, gateId: "ci" },
-      ).accepted;
-  if (ci && !alreadyVerified)
-    steps.push(cell.publishCiWitness(taskId, executionId, refreshed.snapshot, refreshed.packagePath, binding, ci));
+  const refreshed = cell.projection.read(taskId);
+  for (const [gateId, evidence] of evidenceByGate)
+    if (!acceptedGateWitness(refreshed.snapshot, execution, gateId))
+      steps.push(
+        cell.publishGateWitness(taskId, executionId, refreshed.snapshot, refreshed.packagePath, binding, evidence),
+      );
   return steps;
 }
 
@@ -257,16 +277,21 @@ export async function completeTask(
       [],
     );
   }
-  const ciEvidence = readApplicableCiEvidence(cell, submittedExecution, initial.snapshot.task?.completionGateIds ?? []);
-  if (ciEvidence?.result === "fail")
-    throw cell.cellCodedError("invalid_proof", `CI receipt ${ciEvidence.provenance.rawResult} reported fail.`);
-  const steps: WriteReceipt[] = [],
+  const evidenceByGate = evaluateGateEvidence(
+      cell,
+      submittedExecution?.submission?.completionContract?.gates ?? [],
+      submittedExecution,
+      actionWitnessCollections(action),
+    ),
+    steps: WriteReceipt[] = [],
     facadeOpId = cell.operationId(
       {
         kind: "task-complete",
         taskId,
         executionId,
-        ...(ciEvidence ? { ci: ciEvidence.provenance.rawResult } : {}),
+        ...Object.fromEntries(
+          [...evidenceByGate.values()].map((evidence) => [evidence.gateId, evidence.provenance.rawResult]),
+        ),
         ...(paths.length ? { paths } : {}),
         ...(factRetirementAttestations.length ? { factHolds: factRetirementAttestations } : {}),
       },
@@ -296,7 +321,7 @@ export async function completeTask(
   const remaining = completionPreparationBlockers(initial.snapshot, executionId, {
     ...preparedContext,
     preparedGateIds: [
-      ...(ciEvidence?.result === "pass" ? ["ci"] : []),
+      ...[...evidenceByGate.values()].flatMap((evidence) => (evidence.result === "pass" ? [evidence.gateId] : [])),
       ...(codeDoc?.ok ? ["code-doc-reconciliation"] : []),
     ],
     ...(codeDoc && !codeDoc.ok
@@ -426,14 +451,17 @@ export async function completeTask(
         return cell.completionSettlement(step, current.snapshot, executionId, steps, "consent-settlement");
       continue;
     }
-    if (blocker.code === "ci_missing" && ciEvidence !== null) {
-      const step = cell.publishCiWitness(
+    if (
+      (blocker.code === "ci_missing" || blocker.code === "gate_witness_missing") &&
+      evidenceByGate.has(blocker.gate)
+    ) {
+      const step = cell.publishGateWitness(
         taskId,
         executionId,
         current.snapshot,
         current.packagePath,
         binding,
-        ciEvidence,
+        evidenceByGate.get(blocker.gate)!,
       );
       steps.push(step);
       continue;

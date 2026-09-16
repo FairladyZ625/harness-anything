@@ -37,7 +37,7 @@ const worker = withRoleBinding(
 );
 const owner = { actor: { principal: { personId: "person-owner" }, executor: null }, source: "local" } as const;
 const githubCiMapping =
-  "  gates:\n    ci:\n      appliesTo: code\n      adapter: github-actions\n      branch: main\n      event: push\n";
+  "  gates:\n    ci:\n      appliesTo: code\n      adapter: github-actions\n      branch: main\n      event: push\n      coverage: descendant\n      selection: newest\n";
 
 type Cell = Awaited<ReturnType<typeof openRepoCell>>;
 
@@ -136,7 +136,13 @@ test("submit freezes the resolved gate contract into the cut; later harness.yaml
           appliesTo: "code",
           witness: {
             adapterId: "github-actions",
-            adapterOptions: { workflows: ["rewrite-ci"], branch: "main", event: "push" },
+            adapterOptions: {
+              workflows: ["rewrite-ci"],
+              branch: "main",
+              event: "push",
+              coverage: "descendant",
+              selection: "newest",
+            },
           },
         },
         {
@@ -163,7 +169,15 @@ test("submit freezes the resolved gate contract into the cut; later harness.yaml
     };
     assert.deepEqual(settings.settings.ci, { workflows: ["rebuild-gates"] });
     assert.deepEqual(settings.settings.gates, [
-      { gateId: "ci", adapter: "github-actions", appliesTo: "code", branch: "main", event: "push" },
+      {
+        gateId: "ci",
+        adapter: "github-actions",
+        appliesTo: "code",
+        branch: "main",
+        event: "push",
+        coverage: "descendant",
+        selection: "newest",
+      },
     ]);
 
     const resumed = await submitOverTransport(cell, repoId, { taskId, executionId });

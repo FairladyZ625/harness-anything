@@ -29,6 +29,10 @@ export type FrozenGateWitness =
         readonly workflows: readonly string[];
         readonly branch: string;
         readonly event: string;
+        /** `descendant` admits runs whose head SHA has the submitted SHA as an ancestor; `exact` does not. */
+        readonly coverage: "exact" | "descendant";
+        /** Ordering applied before verdict selection; `newest` picks the highest run/attempt first. */
+        readonly selection: "newest";
       };
     }
   | { readonly adapterId: "local-command"; readonly adapterOptions: { readonly command: string } }
@@ -53,10 +57,12 @@ export interface GateWitnessMappingV1 {
   readonly branch?: string;
   readonly event?: string;
   readonly command?: string;
+  readonly coverage?: "exact" | "descendant";
+  readonly selection?: "newest";
 }
 
 const adapterOptionFields: Readonly<Record<FrozenGateWitness["adapterId"], readonly string[]>> = {
-  "github-actions": ["workflows", "branch", "event"],
+  "github-actions": ["workflows", "branch", "event", "coverage", "selection"],
   "local-command": ["command"],
   "manual-attest": [],
   [CODE_DOC_GATE_ID]: [],
@@ -64,7 +70,7 @@ const adapterOptionFields: Readonly<Record<FrozenGateWitness["adapterId"], reado
 
 const mappingFields: Readonly<Record<GateWitnessMappingV1["adapter"], readonly string[]>> = {
   none: [],
-  "github-actions": ["appliesTo", "branch", "event"],
+  "github-actions": ["appliesTo", "branch", "event", "coverage", "selection"],
   "local-command": ["appliesTo", "command"],
   "manual-attest": ["appliesTo"],
 };
@@ -113,7 +119,11 @@ function frozenRequirement(value: unknown, fields: typeof hasOnlyFields): boolea
           options.workflows.length > 0 &&
           options.workflows.every(isNonEmptyString) &&
           new Set(options.workflows).size === options.workflows.length
-        : isNonEmptyString(options[field]),
+        : field === "coverage"
+          ? options.coverage === "exact" || options.coverage === "descendant"
+          : field === "selection"
+            ? options.selection === "newest"
+            : isNonEmptyString(options[field]),
     )
   );
 }
@@ -127,6 +137,11 @@ export function gateWitnessMappingIssues(mappings: readonly GateWitnessMappingV1
       return [
         `settings.gates.${gateId} with adapter ${adapter} must declare exactly: ${expected.join(", ") || "none"}`,
       ];
+    if (adapter === "github-actions") {
+      if (options.coverage !== "exact" && options.coverage !== "descendant")
+        return [`settings.gates.${gateId}.coverage must be "exact" or "descendant"`];
+      if (options.selection !== "newest") return [`settings.gates.${gateId}.selection must be "newest"`];
+    }
     if (gateId === CODE_DOC_GATE_ID && adapter !== "none")
       return [`settings.gates.${CODE_DOC_GATE_ID} is witnessed by the internal checker; map it only to none`];
     return [];
@@ -164,12 +179,22 @@ export function resolveCompletionContract(
       // settings.ci.workflows stays the repository's single GitHub Actions workflow registry.
       if (settings.ci.workflows.length === 0)
         return unresolved(`Gate ${gateId} is witnessed by github-actions, but settings.ci.workflows is empty.`);
+      if (mapping.coverage !== "exact" && mapping.coverage !== "descendant")
+        return unresolved(`Gate ${gateId} maps github-actions with invalid coverage; use "exact" or "descendant".`);
+      if (mapping.selection !== "newest")
+        return unresolved(`Gate ${gateId} maps github-actions with invalid selection; use "newest".`);
       gates.push({
         gateId,
         appliesTo,
         witness: {
           adapterId: "github-actions",
-          adapterOptions: { workflows: settings.ci.workflows, branch: mapping.branch!, event: mapping.event! },
+          adapterOptions: {
+            workflows: settings.ci.workflows,
+            branch: mapping.branch!,
+            event: mapping.event!,
+            coverage: mapping.coverage,
+            selection: mapping.selection,
+          },
         },
       });
     } else if (mapping.adapter === "local-command")

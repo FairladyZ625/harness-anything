@@ -21,7 +21,12 @@ import { renderEvidencePayload } from "./repo-cell-evidence.ts";
 import { failed } from "./repo-cell-settlement.ts";
 import { projectedTaskNotFound } from "./projection-readiness.ts";
 
-export function publishCiWitness(
+/**
+ * The canonical witness write entry: judge the evidence's binding to the frozen cut, then let
+ * `compileCompletionGateWitness` enforce that the evidence's source adapter equals the adapter
+ * declared in the submission's frozen completion contract.
+ */
+export function publishGateWitness(
   cell: RepoCellActionContext,
   taskId: string,
   executionId: string,
@@ -34,19 +39,23 @@ export function publishCiWitness(
     (value) => value.executionId === executionId && value.iteration === snapshot.task?.iteration,
   );
   if (!execution?.submission?.commitSha)
-    throw cell.cellCodedError("invalid_transition", "CI witness requires a submitted execution.");
-  const judgment: CompletionEvidenceJudgment = judgeCompletionEvidence(evidence, { execution, gateId: "ci" });
+    throw cell.cellCodedError("invalid_transition", "A gate witness requires a submitted execution.");
+  const judgment: CompletionEvidenceJudgment = judgeCompletionEvidence(evidence, {
+    execution,
+    gateId: evidence.gateId,
+    admitFail: true,
+  });
   if (!judgment.accepted)
     throw cell.cellCodedError(
       "invalid_proof",
-      `CI receipt cannot support completion: ${judgment.reason ?? "evidence was rejected"}.`,
+      `Witness for gate ${evidence.gateId} cannot bind this cut: ${judgment.reason ?? "evidence was rejected"}.`,
     );
   const intent = {
       kind: "canonical-checker-receipt",
       taskId,
       executionId,
-      gateId: "ci",
-      result: "pass",
+      gateId: evidence.gateId,
+      result: evidence.result,
       commitSha: execution.submission.commitSha,
       iteration: execution.iteration,
     },
@@ -69,10 +78,10 @@ export function publishCiWitness(
       snapshot,
       taskId,
       executionId,
-      gateId: "ci",
-      result: "pass",
+      gateId: evidence.gateId,
+      result: evidence.result as "pass" | "fail",
       receiptId: opId,
-      checkerId: "standard",
+      checkerId: evidence.checkerId,
       commitSha: execution.submission.commitSha,
       iteration: execution.iteration,
       actor: binding.actor,

@@ -11,7 +11,7 @@ export function compileCompletionGateWitness(input: {
   readonly taskId: string;
   readonly executionId: string;
   readonly gateId: string;
-  readonly result: "pass";
+  readonly result: "pass" | "fail";
   readonly evidence?: CompletionEvidenceV1;
   readonly receiptId: string;
   readonly checkerId: string;
@@ -29,15 +29,17 @@ export function compileCompletionGateWitness(input: {
   const task = input.snapshot.task,
     execution = input.snapshot.executions.find(
       (value) => value.executionId === input.executionId && value.iteration === task?.iteration,
-    );
+    ),
+    requirement = execution?.submission?.completionContract?.gates.find((gate) => gate.gateId === input.gateId);
   if (
     !task ||
     task.taskId !== input.taskId ||
     task.status !== "in_review" ||
     execution?.state !== "submitted" ||
     !execution.submission ||
-    !task.completionGateIds.includes(input.gateId) ||
-    input.gateId === "code-doc-reconciliation" ||
+    !requirement ||
+    // The witness's actual source adapter must equal the adapter frozen into the submission contract.
+    input.evidence?.provenance.adapterId !== requirement.witness.adapterId ||
     input.commitSha !== execution.submission.commitSha ||
     input.iteration !== execution.iteration ||
     input.workspaceRevision <= input.snapshot.revision

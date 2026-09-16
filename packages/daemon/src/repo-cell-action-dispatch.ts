@@ -28,6 +28,7 @@ import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import { runFactAction } from "./repo-cell-fact-action.ts";
 import type { TaskCommandWithDocsAction } from "./repo-cell-task-command-docs.ts";
 import { runVerticalDeclarationAction } from "./vertical-declaration-action.ts";
+import { attestGateWitness } from "./repo-cell-witness-adapters.ts";
 
 export async function executeAction(
   cell: RepoCellOperationalContext,
@@ -345,6 +346,7 @@ export async function executeAction(
   if (action.kind === "doctor-health") return doctorHealth(cell, action, binding);
   if (action.kind === "task-progress-append") return cell.appendProgress(action, binding);
   if (action.kind === "task-annotate") return cell.annotateExecution(action, binding);
+  if (action.kind === "task-attest") return attestGateWitness(cell, action, binding);
   if (action.kind === "task-declare-executor") return cell.declareExecutionExecutor(action, binding);
   return cell.lifecycleAction(action, binding);
 }
