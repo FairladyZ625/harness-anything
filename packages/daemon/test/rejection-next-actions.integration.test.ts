@@ -225,7 +225,7 @@ test("executor declaration and completion context refusals name projection rebui
     mkdirSync(path.join(rootDir, "harness"), { recursive: true });
     writeFileSync(
       path.join(rootDir, "harness/harness.yaml"),
-      "settings:\n  ci:\n    workflows: [rewrite-ci]\n  gates:\n    ci:\n      appliesTo: code\n      adapter: github-actions\n      branch: main\n      event: push\n",
+      "settings:\n  ci:\n    workflows: [rewrite-ci]\n  gates:\n    ci:\n      appliesTo: code\n      adapter: github-actions\n      branch: main\n      event: push\n      coverage: descendant\n      selection: newest\n",
     );
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "projection-exits-one" });
     const created = await cell.run({ kind: "task-create", taskId, title: "Projection exits" }, owner);

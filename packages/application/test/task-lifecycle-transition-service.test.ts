@@ -13,8 +13,10 @@ import {
   completionEvidenceBasis,
   completionBlockers,
   normalizeTaskLifecycleCommand,
+  reviewDigest,
   serializeCanonicalEvent,
   sha256Text,
+  submissionDigest,
   type TaskEventV1,
 } from "../../kernel/src/index.ts";
 import {
@@ -53,10 +55,51 @@ test("completion blocker matrix returns one canonical next for every substantive
       closeoutPath: "tasks/task-1/closeout.md",
       eligibleDirtyPaths: [] as string[],
     };
-    const withGates = (gateIds: readonly string[]) => ({
-      ...consented.snapshot,
-      task: { ...consented.snapshot.task!, completionGateIds: gateIds },
-    });
+    const requirement = (gateId: string) => ({
+        gateId,
+        appliesTo: "code" as const,
+        witness:
+          gateId === "ci"
+            ? {
+                adapterId: "github-actions" as const,
+                adapterOptions: {
+                  workflows: ["rewrite-ci"],
+                  branch: "main",
+                  event: "push",
+                  coverage: "descendant" as const,
+                  selection: "newest" as const,
+                },
+              }
+            : gateId === "code-doc-reconciliation"
+              ? { adapterId: "code-doc-reconciliation" as const, adapterOptions: {} }
+              : { adapterId: "manual-attest" as const, adapterOptions: {} },
+      }),
+      withGates = (gateIds: readonly string[]) => {
+        const execution = {
+            ...consented.snapshot.executions.find((value) => value.executionId === "execution-1")!,
+            submission: {
+              ...consented.snapshot.executions.find((value) => value.executionId === "execution-1")!.submission!,
+              completionContract: { gates: gateIds.map(requirement) },
+            },
+          },
+          // The Review and consent pin the submission by digest; repin them to the patched cut.
+          digest = submissionDigest(execution.submission),
+          review = {
+            ...consented.snapshot.reviews.find((value) => value.executionId === "execution-1")!,
+            submissionDigest: digest,
+          };
+        return {
+          ...consented.snapshot,
+          task: { ...consented.snapshot.task!, completionGateIds: gateIds },
+          executions: [execution],
+          reviews: [review],
+          consents: consented.snapshot.consents.map((consent) => ({
+            ...consent,
+            submissionDigest: digest,
+            reviewDigest: reviewDigest(review),
+          })),
+        };
+      };
     const orphanMilestone = {
       ...consented.snapshot,
       task: { ...consented.snapshot.task!, taskClass: "milestone" as const },
@@ -103,10 +146,10 @@ test("completion blocker matrix returns one canonical next for every substantive
       closeoutMissingSections: [{ section: "Residual Risk", reason: "scaffold" }],
     })[0]!;
     assert.match(templateSection.next.reason, /section Residual Risk is scaffold/);
-    // A nonstandard gate has no ordinary selector-bearing command; the guidance names the checker, not --execution-id.
+    // A manual-attest gate names its own attestation command; no execution selector is needed.
     const witness = completionBlockers(withGates(["lint"]), "execution-1", ready)[0]!;
     assert.equal(witness.next.action.includes("--execution-id"), false);
-    assert.match(witness.next.action, /canonical lint checker/);
+    assert.match(witness.next.action, /ha task attest task-1 --gate lint --result pass/u);
     // The lineage blocker names the missing edge with the exact command that writes it.
     const lineage = completionBlockers(orphanMilestone, "execution-1", ready)[0]!;
     assert.equal(
@@ -163,10 +206,35 @@ test("canonical checker receipt becomes a content-cut gate witness before Comple
   try {
     await harness.create();
     await harness.start("execution-1");
-    await harness.submit("execution-1");
+    await harness.submit(
+      "execution-1",
+      undefined,
+      "implemented",
+      "a".repeat(40),
+      [],
+      [
+        {
+          gateId: "ci",
+          appliesTo: "code",
+          witness: {
+            adapterId: "github-actions",
+            adapterOptions: {
+              workflows: ["rewrite-ci"],
+              branch: "main",
+              event: "push",
+              coverage: "descendant",
+              selection: "newest",
+            },
+          },
+        },
+      ],
+    );
     await harness.review("execution-1", "acceptance", "approved");
     const consented = await harness.consent("execution-1");
-    const snapshot = { ...consented.snapshot, task: { ...consented.snapshot.task!, completionGateIds: ["ci"] } };
+    const snapshot = {
+      ...consented.snapshot,
+      task: { ...consented.snapshot.task!, completionGateIds: ["ci"] },
+    };
     const input = {
       snapshot,
       taskId: "task-1",
@@ -194,7 +262,12 @@ test("canonical checker receipt becomes a content-cut gate witness before Comple
         basis: completionEvidenceBasis(
           snapshot.executions.find((execution) => execution.executionId === "execution-1")!,
         ),
-        provenance: { source: "runner" as const, runId: "run-ci", rawResult: "event:op-ci" },
+        provenance: {
+          source: "runner" as const,
+          adapterId: "github-actions" as const,
+          runId: "run-ci",
+          rawResult: "event:op-ci",
+        },
       },
     };
     const compiled = compileCompletionGateWitness(input);
@@ -214,7 +287,7 @@ test("canonical checker receipt becomes a content-cut gate witness before Comple
       verifiedAt: "2026-08-11T00:10:00.000Z",
       observed: true,
       basis: completionEvidenceBasis(snapshot.executions.find((execution) => execution.executionId === "execution-1")!),
-      provenance: { source: "runner", runId: "run-ci", rawResult: "event:op-ci" },
+      provenance: { source: "runner", adapterId: "github-actions", runId: "run-ci", rawResult: "event:op-ci" },
     });
     const verified = reduceTaskEvent(snapshot, compiled.event),
       complete = command(

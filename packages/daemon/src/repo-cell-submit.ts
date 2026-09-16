@@ -29,6 +29,7 @@ import { runDocAction } from "./doc-sync-actions.ts";
 import { makeGitReadinessSource, runProcessText } from "./process-port.ts";
 import { readTaskTransitionDocument } from "./transition-document-access.ts";
 import { isPresetSnapshotCurrent, prepareSubmissionEvidence } from "./repo-cell-task-progress.ts";
+import { actionWitnessCollections } from "./repo-cell-witness-adapters.ts";
 
 /** Summary selects one public delivery commit, center-accepted artifacts, or both. */
 export function deriveCloseoutSubmission(
@@ -306,7 +307,7 @@ export async function submitTask(
       binding,
     );
     if (receipt.outcome !== "applied") return receipt;
-    const steps = await prepareSubmissionEvidence(cell, taskId, executionId, binding);
+    const steps = await prepareSubmissionEvidence(cell, taskId, executionId, binding, actionWitnessCollections(action));
     return {
       ...(steps.find((step) => !["applied", "no_changes"].includes(step.outcome)) ?? receipt),
       steps,
@@ -374,7 +375,7 @@ export async function submitTask(
       } as WriteReceiptDraft;
     const receipt = cell.receiptForOperation(event!.opId, binding);
     if (receipt.outcome !== "applied") return receipt;
-    const steps = await prepareSubmissionEvidence(cell, taskId, executionId, binding);
+    const steps = await prepareSubmissionEvidence(cell, taskId, executionId, binding, actionWitnessCollections(action));
     return {
       ...(steps.find((step) => !["applied", "no_changes"].includes(step.outcome)) ?? receipt),
       steps,
@@ -384,7 +385,7 @@ export async function submitTask(
     return submitTask(cell, { ...action, amend: false }, binding);
   const receipt = await cell.lifecycleAction({ ...action, executionId, submission }, binding);
   if (receipt.outcome !== "applied") return receipt;
-  const steps = await prepareSubmissionEvidence(cell, taskId, executionId, binding);
+  const steps = await prepareSubmissionEvidence(cell, taskId, executionId, binding, actionWitnessCollections(action));
   return {
     ...(steps.find((step) => !["applied", "no_changes"].includes(step.outcome)) ?? receipt),
     ...(anchorDriftWarnings.length ? { warnings: anchorDriftWarnings } : {}),

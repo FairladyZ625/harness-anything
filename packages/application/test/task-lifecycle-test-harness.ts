@@ -7,6 +7,7 @@ import {
   normalizeTaskLifecycleCommand,
   submissionDigest,
   type EventPublicationKillpoint,
+  type FrozenGateRequirement,
 } from "../../kernel/src/index.ts";
 import { reviewDigest } from "../../kernel/src/index.ts";
 import { makeTaskEventStore, makeTaskProjection } from "../../kernel/test/store/task-lifecycle-runtime.ts";
@@ -171,6 +172,7 @@ export function lifecycleHarness() {
       claim = "implemented",
       submittedCommitSha = commitSha,
       deliverables: readonly string[] = [],
+      gates: readonly FrozenGateRequirement[] = [],
     ) => {
       const next = revision() + 1;
       const leaseVersion = (await service.read("task-1")).snapshot.lease?.version;
@@ -191,7 +193,7 @@ export function lifecycleHarness() {
               knownGaps: [],
               residualRisks: [],
               commitSha: submittedCommitSha,
-              completionContract: { gates: [] },
+              completionContract: { gates },
             },
           },
           opId,

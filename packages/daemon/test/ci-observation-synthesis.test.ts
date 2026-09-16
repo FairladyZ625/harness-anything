@@ -6,14 +6,28 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import type { CiRunObservationEventV3 } from "../../kernel/src/index.ts";
+import type { CiRunObservationEventV3, FrozenGateRequirement } from "../../kernel/src/index.ts";
 import type { RepoCellOperationalContext } from "../src/repo-cell-action-context.ts";
 import { fetchCiObservations, ingestCiObservations } from "../src/ci-observation-actions.ts";
-import { readLatestCiEvidence } from "../src/repo-cell-ci-evidence.ts";
+import { githubActionsWitnessEvidence } from "../src/repo-cell-ci-evidence.ts";
 import { projectionReady } from "../src/repo-cell-settlement.ts";
 
 const actor = { principal: { personId: "person-synthesis" }, executor: null } as const;
 const cellSettings = { closeout: { profile: "standard" }, ci: { workflows: ["ci"] } };
+const ciRequirement: FrozenGateRequirement = {
+  gateId: "ci",
+  appliesTo: "code",
+  witness: {
+    adapterId: "github-actions",
+    adapterOptions: {
+      workflows: ["ci"],
+      branch: "main",
+      event: "push",
+      coverage: "descendant",
+      selection: "newest",
+    },
+  },
+};
 
 function git(root: string, ...args: readonly string[]): string {
   return execFileSync("git", ["-C", root, "-c", "user.name=test", "-c", "user.email=test@example.com", ...args], {
@@ -99,7 +113,7 @@ test("an artifact-less green main run synthesizes a passing observation from its
       iteration: 0,
       submission: { commitSha: delivered, deliverables: [], outputs: [], verificationNotes: [], knownGaps: [] },
     } as never;
-    const evidence = readLatestCiEvidence(
+    const evidence = githubActionsWitnessEvidence(
       {
         rootDir,
         projectionReady,
@@ -114,6 +128,7 @@ test("an artifact-less green main run synthesizes a passing observation from its
         },
         cellCodedError: (_code: string, message: string) => new Error(message),
       } as unknown as RepoCellOperationalContext,
+      ciRequirement,
       submitted,
     );
     assert.equal(evidence?.result, "pass");
@@ -172,7 +187,7 @@ test("reimport authenticates an unconfigured run without letting it shadow confi
       JSON.parse(ingestCiObservations(cell as never, { actor, source: "local" }, fetched).evidence).duplicate,
       2,
     );
-    const evidence = readLatestCiEvidence(
+    const evidence = githubActionsWitnessEvidence(
       {
         ...cell,
         projectionReady,
@@ -185,6 +200,7 @@ test("reimport authenticates an unconfigured run without letting it shadow confi
           }),
         },
       } as unknown as RepoCellOperationalContext,
+      ciRequirement,
       { submission: { commitSha: delivered }, iteration: 0, executionId: "execution" } as never,
     );
     assert.equal(evidence?.result, "pass");

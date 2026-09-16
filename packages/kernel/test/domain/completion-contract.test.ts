@@ -17,7 +17,7 @@ const githubCi =
   "    ci:\n" +
   "      adapter: github-actions  # verdict source\n" +
   "      appliesTo: code\n" +
-  "      event: push\n" +
+  "      event: push\n      coverage: descendant\n      selection: newest\n" +
   "      branch: main\n";
 
 const currentPresetContract: FrozenCompletionContract = {
@@ -27,7 +27,13 @@ const currentPresetContract: FrozenCompletionContract = {
       appliesTo: "code",
       witness: {
         adapterId: "github-actions",
-        adapterOptions: { workflows: ["rewrite-ci"], branch: "main", event: "push" },
+        adapterOptions: {
+          workflows: ["rewrite-ci"],
+          branch: "main",
+          event: "push",
+          coverage: "descendant",
+          selection: "newest",
+        },
       },
     },
     {
@@ -42,7 +48,15 @@ test("the standard preset gates resolve gate by gate to today's GitHub CI and in
   const settings = readSettingsFacet(repositoryYaml(githubCi));
 
   assert.deepEqual(settings.gates, [
-    { gateId: "ci", adapter: "github-actions", appliesTo: "code", branch: "main", event: "push" },
+    {
+      gateId: "ci",
+      adapter: "github-actions",
+      appliesTo: "code",
+      branch: "main",
+      event: "push",
+      coverage: "descendant",
+      selection: "newest",
+    },
   ]);
   const resolved = resolveCompletionContract(["ci", "code-doc-reconciliation"], settings);
   assert.deepEqual(resolved, { ok: true, contract: currentPresetContract });
@@ -104,7 +118,7 @@ test("harness.yaml gate mappings reject unknown fields, unknown adapters, and re
     assert.throws(() => readSettingsFacet(repositoryYaml(`  gates:\n${gates}`)), pattern);
 
   rejects(
-    `    ci:\n      appliesTo: code\n      adapter: github-actions\n      branch: main\n      event: push\n      workflow: x\n`,
+    `    ci:\n      appliesTo: code\n      adapter: github-actions\n      branch: main\n      event: push\n      coverage: descendant\n      selection: newest\n      workflow: x\n`,
     /workflow/u,
   );
   rejects(`    ci:\n      appliesTo: code\n      adapter: gitlab-pipeline\n`, /adapter/u);

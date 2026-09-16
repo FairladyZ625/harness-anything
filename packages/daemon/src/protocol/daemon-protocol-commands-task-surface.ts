@@ -90,6 +90,32 @@ export const taskSurfaceProtocolCommands = Object.freeze([
     ],
   }),
   defineLedgerWriteCommand({
+    id: "task-attest",
+    phase: "W3",
+    path: ["task", "attest", "<task-id>"],
+    summary:
+      "Record a human pass/fail witness for a completion gate the submission contract declared " +
+      "manual-attest; only the adapter declared in the frozen contract is admitted.",
+    method: "repo.task.run",
+    inputs: [
+      cliInput("--gate", "single", true, {
+        code: "missing_field",
+      }),
+      cliInput(
+        "--result",
+        "single",
+        true,
+        {
+          code: "missing_field",
+        },
+        { enum: ["pass", "fail"] },
+      ),
+      cliInput("--note", "single", false, {
+        code: "invalid_field",
+      }),
+    ],
+  }),
+  defineLedgerWriteCommand({
     id: "task-amend",
     phase: "W3",
     path: ["task", "amend", "<task-id>"],

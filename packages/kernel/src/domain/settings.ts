@@ -458,6 +458,8 @@ function gateSettingsSchema() {
         branch: { type: "string" as const, pattern: settingValuePattern, minLength: 1 },
         event: { type: "string" as const, pattern: settingValuePattern, minLength: 1 },
         command: { type: "string" as const, minLength: 1 },
+        coverage: { type: "string" as const, enum: ["exact", "descendant"] },
+        selection: { type: "string" as const, enum: ["newest"] },
       },
       required: ["gateId", "adapter"],
       additionalProperties: false,

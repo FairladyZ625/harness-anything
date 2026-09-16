@@ -42,7 +42,7 @@ export function initIngressRepo(root: string, uid: number): void {
     // ci.workflows stays explicit: the ingress flows under test pull CI observations on submission.
     "schema: harness-anything/v1\nname: runtime-spawn-ingress\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n" +
       "settings:\n  ci:\n    workflows: [rewrite-ci]\n" +
-      "  gates:\n    ci:\n      appliesTo: code\n      adapter: github-actions\n      branch: main\n      event: push\n",
+      "  gates:\n    ci:\n      appliesTo: code\n      adapter: github-actions\n      branch: main\n      event: push\n      coverage: descendant\n      selection: newest\n",
   );
   writeFileSync(
     path.join(root, "harness/people.yaml"),

@@ -142,7 +142,16 @@ export function gateResults(
   commitSha?: string | null,
   iteration?: number,
 ): readonly CloseoutGateResult[] {
-  return completionGateIds(snapshot.task?.completionGateIds ?? [], commitSha).map((gateId) => {
+  const submitted = executionId
+      ? (snapshot.executions ?? []).find((value) => value.executionId === executionId && value.iteration === iteration)
+      : undefined,
+    contract = submitted?.submission?.completionContract,
+    // The frozen contract is the gate list: a `none` mapping removed the requirement, and a
+    // code-scoped gate cannot bind an artifact-only cut.
+    gateIds = contract
+      ? contract.gates.flatMap((gate) => (commitSha || gate.appliesTo !== "code" ? [gate.gateId] : []))
+      : completionGateIds(snapshot.task?.completionGateIds ?? [], commitSha);
+  return gateIds.map((gateId) => {
     const codeDoc = gateId === "code-doc-reconciliation",
       known = !availability || (codeDoc ? availability.codeDocWitnesses : availability.gateWitnesses) === "known";
     if (!executionId || !commitSha || iteration === undefined)
