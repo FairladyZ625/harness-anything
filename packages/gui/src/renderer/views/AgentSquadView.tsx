@@ -136,6 +136,9 @@ export function AgentSquadView({
             skills: [],
             instructions: t("agentRuntime.blankInstructions"),
             prompts: [],
+            instance: "",
+            permissionMode: "" as const,
+            fallback: undefined,
           };
       const saved = await workspace.saveAgent(agentDeclarationFrom(request.id, { ...draft, name: request.name }));
       if (saved === null) return;
