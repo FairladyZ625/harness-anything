@@ -13,6 +13,7 @@ import {
   effectiveCloseoutGates,
   currentCodeDocWitness,
   consumeKnownError,
+  gateAppliesToSubmission,
   isTaskProgressEvent,
   requireTransitionDocumentKind,
   resolveTaskBoundRuntimeBinding,
@@ -59,7 +60,7 @@ function evaluateGateEvidence(
   const evidenceByGate = new Map<string, CompletionEvidenceV1>();
   for (const requirement of requirements) {
     const adapter = witnessAdapters[requirement.witness.adapterId as MappedWitnessAdapterId];
-    if (!adapter) continue;
+    if (!adapter || !execution?.submission || !gateAppliesToSubmission(requirement, execution.submission)) continue;
     const evidence = adapter.evaluate(cell, requirement, execution, collections?.get(requirement.gateId));
     if (evidence?.result === "fail")
       throw cell.cellCodedError(
@@ -87,7 +88,7 @@ export async function prepareSubmissionEvidence(
   if (!execution?.submission)
     throw cell.cellCodedError("invalid_transition", "Evidence preparation requires a submitted execution.");
   const steps: WriteReceipt[] = [],
-    gates = completionGateIds(snapshot.task?.completionGateIds ?? [], execution.submission.commitSha),
+    gates = completionGateIds(snapshot.task?.completionGateIds ?? [], execution.submission),
     evidenceByGate = evaluateGateEvidence(cell, execution.submission.completionContract.gates, execution, collections),
     witness = currentCodeDocWitness(snapshot.codeDocWitnesses, executionId);
   if (

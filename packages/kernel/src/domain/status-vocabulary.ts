@@ -292,8 +292,11 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     field: "gate status",
     module: "packages/kernel/src/domain/closeout-readiness.ts",
     anchor: "CloseoutGateStatus",
-    words: ["passed", "failed", "missing", "unknown"],
-    note: "Per-gate verdict inside closeoutReadiness; the readiness label aggregates these.",
+    words: ["passed", "failed", "missing", "unknown", "not_applicable"],
+    note:
+      "Per-gate verdict inside closeoutReadiness; the readiness label aggregates these. " +
+      "not_applicable marks a frozen requirement whose declared scope this cut does not deliver — " +
+      "it is not a pass and never counts as missing.",
   },
   {
     id: "task-blocking.availability",

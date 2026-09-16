@@ -118,7 +118,17 @@ function derive(
       settings: {
         readRepository: () => ({
           ci: { workflows: ["rewrite-ci"] },
-          gates: [{ gateId: "ci", adapter: "github-actions", appliesTo: "code", branch: "main", event: "push" }],
+          gates: [
+            {
+              gateId: "ci",
+              adapter: "github-actions",
+              appliesTo: "code",
+              branch: "main",
+              event: "push",
+              coverage: "exact",
+              selection: "newest",
+            },
+          ],
         }),
       } as unknown as Parameters<typeof deriveCloseoutSubmission>[0]["settings"],
     },

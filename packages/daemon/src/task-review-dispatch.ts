@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import {
   completionGateIds,
   consumeKnownError,
+  gateAppliesToSubmission,
   createEntityStore,
   currentSubmittedExecutions,
   submissionDigest,
@@ -44,6 +45,9 @@ export function reviewDispatchPrompt(input: {
   readonly gates: readonly string[];
 }): string {
   const { cell, taskId, packagePath, dispatchId, execution, gates } = input,
+    inapplicable = (execution.submission?.completionContract?.gates ?? [])
+      .filter((gate) => !gateAppliesToSubmission(gate, execution.submission!))
+      .map((gate) => gate.gateId),
     report = `${packagePath}/artifacts/reports/${dispatchId}.md`,
     packet = `${packagePath}/artifacts/reports/${dispatchId}.json`;
   return [
@@ -56,9 +60,7 @@ export function reviewDispatchPrompt(input: {
     "For artifact anchors, review the center-accepted frozen contents above against the contract; " +
       "do not substitute local files or require Git ancestry for them.",
     `Effective completion gates: ${gates.length ? gates.join(", ") : "none"}.`,
-    ...(execution.submission!.commitSha === null
-      ? ["This is an artifact-only submission; ci and code-doc-reconciliation do not apply."]
-      : []),
+    ...(inapplicable.length ? [`Declared gates not applicable to this delivery: ${inapplicable.join(", ")}.`] : []),
     "Read the task plan, closeout, and submitted delivery yourself. " +
       "Record approved or changes_requested through RecordReview; never infer approval from provider success.",
     `Write this execution's review report to harness/${report} and review input to harness/${packet}. ` +
@@ -201,7 +203,7 @@ export async function dispatchTaskReview(
           packagePath: read.packagePath,
           dispatchId: ids.dispatchId,
           execution,
-          gates: completionGateIds(snapshot.task!.completionGateIds, execution.submission!.commitSha),
+          gates: completionGateIds(snapshot.task!.completionGateIds, execution.submission),
         }),
       },
       authorizationDecision = authorizeRepoCellAction({

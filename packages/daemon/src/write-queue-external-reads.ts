@@ -1,4 +1,8 @@
-import type { MappedWitnessAdapterId, WriteReceiptDraft } from "../../kernel/src/index.ts";
+import {
+  gateAppliesToSubmission,
+  type MappedWitnessAdapterId,
+  type WriteReceiptDraft,
+} from "../../kernel/src/index.ts";
 import { artifactImportSourceResolution, prepareArtifactEntityImportSource } from "./artifact-entity-action.ts";
 import { fetchCiObservations, ingestCiObservations } from "./ci-observation-actions.ts";
 import type { RepoCellApiContext } from "./repo-cell-api.ts";
@@ -46,6 +50,7 @@ export function readBeforeWriteQueue(
     const pending = (execution.submission.completionContract?.gates ?? []).flatMap((requirement) => {
       const adapter = witnessAdapters[requirement.witness.adapterId as MappedWitnessAdapterId];
       return adapter?.collect &&
+        gateAppliesToSubmission(requirement, execution.submission!) &&
         !acceptedGateWitness(snapshot, execution, requirement.gateId) &&
         adapter.evaluate(context.extracted, requirement, execution, undefined) === null
         ? [{ requirement, adapter }]

@@ -41,6 +41,12 @@ const manualRequirement = (gateId = "signoff"): FrozenGateRequirement => ({
   witness: { adapterId: "manual-attest", adapterOptions: {} },
 });
 
+const artifactRequirement = (gateId = "signoff"): FrozenGateRequirement => ({
+  gateId,
+  appliesTo: "artifacts",
+  witness: { adapterId: "manual-attest", adapterOptions: {} },
+});
+
 const githubRequirement = (gateId = "ci"): FrozenGateRequirement => ({
   gateId,
   appliesTo: "code",
@@ -214,6 +220,7 @@ function humanEvidence(
   gateId: string,
   adapterId: "manual-attest" | "github-actions",
 ): CompletionEvidenceV1 {
+  const submission = execution.submission!;
   return {
     schema: "completion-evidence/v1",
     checkerId: gateId,
@@ -223,8 +230,16 @@ function humanEvidence(
     basis: {
       executionId: execution.executionId,
       iteration: execution.iteration,
-      submissionDigest: submissionDigest(execution.submission as never),
-      codeCommit: execution.submission!.commitSha!,
+      submissionDigest: submissionDigest(submission as never),
+      ...(submission.commitSha === null
+        ? {
+            ledgerCut: Math.max(
+              ...("artifacts" in submission && Array.isArray(submission.artifacts)
+                ? submission.artifacts.map((anchor: { revision: number }) => anchor.revision)
+                : [0]),
+            ),
+          }
+        : { codeCommit: submission.commitSha }),
     },
     provenance: { source: "human", adapterId, runId: "attest:owner", rawResult: "pass attested by owner" },
   };
@@ -373,4 +388,117 @@ test("the wire validator admits pass/fail witnesses only with a mapped adapter i
     }),
     false,
   );
+});
+
+// -- artifact-only and mixed cuts ----------------------------------------------
+
+const ARTIFACTS = [{ path: "tasks/task/artifacts/report.md", revision: 7, blobSha256: "a".repeat(64) }] as const;
+
+function artifactOnlyFixture(requirement: FrozenGateRequirement) {
+  const fixture = admissionFixture(requirement);
+  fixture.execution.submission = {
+    ...fixture.execution.submission!,
+    commitSha: null,
+    artifacts: [...ARTIFACTS],
+  } as never;
+  return fixture;
+}
+
+function publishingCell(execution: Snapshot["executions"][number]) {
+  const published: CompletionEvidenceV1[] = [];
+  return {
+    published,
+    cell: {
+      ...cellStub("unused", execution),
+      publishGateWitness: (
+        _taskId: string,
+        _executionId: string,
+        _snapshot: unknown,
+        _packagePath: unknown,
+        _binding: unknown,
+        evidence: CompletionEvidenceV1,
+      ) => {
+        published.push(evidence);
+        return { outcome: "applied", opId: "witness" };
+      },
+    } as unknown as RepoCellOperationalContext,
+  };
+}
+
+test("manual attestation witnesses an artifact-only cut, bound to its ledger cut", () => {
+  const requirement = artifactRequirement(),
+    { snapshot, execution } = artifactOnlyFixture(requirement),
+    { published, cell } = publishingCell(execution);
+  attestGateWitness(cell, { kind: "task-attest", taskId: "task", gateId: "signoff", result: "pass" }, binding);
+  assert.equal(published.length, 1);
+  assert.equal(published[0]!.basis.ledgerCut, 7);
+  assert.equal(published[0]!.basis.codeCommit, undefined);
+  assert.equal(published[0]!.provenance.adapterId, "manual-attest");
+  // The canonical write admits the null-commit witness: the requirement applies to this cut.
+  const compiled = compileWitness(snapshot, execution, humanEvidence(execution, "signoff", "manual-attest"));
+  assert.equal(compiled.event.payload.witness.commitSha, null);
+  assert.equal(compiled.event.payload.witness.basis?.ledgerCut, 7);
+});
+
+test("a code-scoped gate is not_applicable on an artifact-only cut and cannot be witnessed", () => {
+  const { snapshot, execution } = artifactOnlyFixture(githubRequirement());
+  assert.throws(() => compileWitness(snapshot, execution, humanEvidence(execution, "ci", "github-actions")), {
+    code: "invalid_proof",
+  });
+  const { cell } = publishingCell(execution);
+  assert.throws(
+    () => attestGateWitness(cell, { kind: "task-attest", taskId: "task", gateId: "ci", result: "pass" }, binding),
+    { code: "invalid_transition" },
+  );
+});
+
+test("a mixed commit+artifact cut carries both scopes: each gate judges its own part", () => {
+  const requirement = artifactRequirement(),
+    { snapshot, execution } = admissionFixture(requirement);
+  execution.submission = {
+    ...execution.submission!,
+    artifacts: [...ARTIFACTS],
+  } as never;
+  const { published, cell } = publishingCell(execution);
+  attestGateWitness(cell, { kind: "task-attest", taskId: "task", gateId: "signoff", result: "pass" }, binding);
+  assert.equal(published.length, 1);
+  const compiled = compileWitness(snapshot, execution, humanEvidence(execution, "signoff", "manual-attest"));
+  assert.equal(compiled.event.payload.witness.commitSha, execution.submission!.commitSha);
+  // The code part of the same cut still carries code-scoped gates.
+  const coded = admissionFixture(manualRequirement("signoff"));
+  assert.doesNotThrow(() =>
+    compileWitness(coded.snapshot, coded.execution, humanEvidence(coded.execution, "signoff", "manual-attest")),
+  );
+});
+
+test("the wire validator admits a null-commit witness for artifact-scoped gates", () => {
+  const witness = {
+    schema: "completion-gate-witness/v1",
+    witnessId: "witness-artifact",
+    receiptId: "receipt-artifact",
+    checkerId: "signoff",
+    gateId: "signoff",
+    result: "pass",
+    taskId: "task-1",
+    executionId: "execution-1",
+    commitSha: null,
+    iteration: 0,
+    actor: { principal: { personId: "owner" }, executor: null },
+    source: "local",
+    verifiedAt: "2026-09-12T00:02:00.000Z",
+    observed: true,
+    basis: {
+      executionId: "execution-1",
+      iteration: 0,
+      submissionDigest: `sha256:${"2".repeat(64)}`,
+      ledgerCut: 7,
+    },
+    provenance: {
+      source: "human",
+      adapterId: "manual-attest",
+      runId: "attest:owner",
+      rawResult: "pass attested by owner",
+    },
+  };
+  assert.equal(validateGateWitnessWire(witness), true);
 });

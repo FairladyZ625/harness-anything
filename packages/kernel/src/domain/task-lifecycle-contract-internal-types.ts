@@ -196,7 +196,7 @@ export interface CompleteTaskProof {
     readonly receiptRef: string;
     readonly result: "pass";
     readonly executionId: string;
-    readonly commitSha: string;
+    readonly commitSha: string | null;
     readonly iteration: number;
   }[];
 }

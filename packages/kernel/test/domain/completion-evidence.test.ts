@@ -97,6 +97,34 @@ test("artifact evidence binds ledger revisions and only commit cuts carry code g
       ...execution.submission,
       commitSha: null,
       artifacts: [{ path: "tasks/t/artifacts/report.md", revision: 7, blobSha256: "a".repeat(64) }],
+      completionContract: {
+        gates: [
+          {
+            gateId: "ci",
+            appliesTo: "code" as const,
+            witness: {
+              adapterId: "github-actions" as const,
+              adapterOptions: {
+                workflows: ["rewrite-ci"],
+                branch: "main",
+                event: "push",
+                coverage: "exact" as const,
+                selection: "newest" as const,
+              },
+            },
+          },
+          {
+            gateId: "code-doc-reconciliation",
+            appliesTo: "code" as const,
+            witness: { adapterId: "code-doc-reconciliation" as const, adapterOptions: {} },
+          },
+          {
+            gateId: "attest",
+            appliesTo: "artifacts" as const,
+            witness: { adapterId: "manual-attest" as const, adapterOptions: {} },
+          },
+        ],
+      },
     },
   };
   assert.deepEqual(validateSubmissionV1(artifactExecution.submission), []);
@@ -110,13 +138,30 @@ test("artifact evidence binds ledger revisions and only commit cuts carry code g
   assert.equal(basis.codeCommit, undefined);
   assert.equal(basis.ledgerCut, 7);
   const snapshot = {
-    task: { completionGateIds: ["ci", "code-doc-reconciliation"] },
+    task: { completionGateIds: ["ci", "code-doc-reconciliation", "attest"] },
     gateWitnesses: [],
     codeDocWitnesses: [],
   } as unknown as Parameters<typeof gateResults>[0];
-  // An artifact-only cut has no public commit, so the code gates do not apply to it at all.
-  assert.equal(gateResults(snapshot, undefined, artifactExecution.executionId, null, 0).length, 0);
-  const commitResults = gateResults(snapshot, undefined, artifactExecution.executionId, "a".repeat(40), 0);
-  assert.equal(commitResults.length, 2);
-  assert.ok(commitResults.every((gate) => gate.status !== "passed"));
+  // An artifact-only cut has no public commit: code-scoped gates report not_applicable — never
+  // missing and never pass — while the artifact-scoped gate still demands its witness.
+  const artifactResults = gateResults(
+    snapshot,
+    undefined,
+    artifactExecution.executionId,
+    artifactExecution.submission,
+    0,
+  );
+  assert.deepEqual(
+    artifactResults.map((gate) => [gate.gateId, gate.status]),
+    [
+      ["ci", "not_applicable"],
+      ["code-doc-reconciliation", "not_applicable"],
+      ["attest", "missing"],
+    ],
+  );
+  // A mixed commit+artifact cut carries both scopes: code gates apply to the commit and the
+  // artifact-scoped gate still applies to the anchors.
+  const commitResults = gateResults(snapshot, undefined, artifactExecution.executionId, hybrid, 0);
+  assert.equal(commitResults.length, 3);
+  assert.ok(commitResults.every((gate) => gate.status === "missing"));
 });

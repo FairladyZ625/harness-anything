@@ -113,12 +113,31 @@ test("lease release replay ignores only the retired longRunning task metadata", 
 });
 
 function legacyCompletion() {
-  const fixture = lifecycleFixture();
-  let snapshot = fixture.events.slice(0, -1).reduce(reduceTaskEvent, emptyTaskLifecycleSnapshot());
+  // The gated fixture stops before CompleteTask: an unwitnessed cut cannot complete through the
+  // command path, which is exactly the historical-acceptance asymmetry this replay test exercises.
+  const fixture = lifecycleFixture({
+    gates: [
+      {
+        gateId: "ci",
+        appliesTo: "code" as const,
+        witness: {
+          adapterId: "github-actions" as const,
+          adapterOptions: {
+            workflows: ["rewrite-ci"],
+            branch: "main",
+            event: "push",
+            coverage: "exact" as const,
+            selection: "newest" as const,
+          },
+        },
+      },
+    ],
+    complete: false,
+  });
+  let snapshot = fixture.events.reduce(reduceTaskEvent, emptyTaskLifecycleSnapshot());
   const current = snapshot.executions[0]!;
   snapshot = {
     ...snapshot,
-    task: { ...snapshot.task!, completionGateIds: ["ci"] },
     gateWitnesses: [
       {
         schema: "completion-gate-witness/v1",
@@ -137,12 +156,25 @@ function legacyCompletion() {
       },
     ],
   };
-  const last = fixture.events.at(-1)!;
-  assert.equal(last.type, "task_completed");
-  const completed = {
-    ...last,
-    payload: { ...last.payload, task: { ...snapshot.task!, status: "done" } },
-  } as TaskEventV1;
+  // The accepted completion event is historical input: fabricate it the way a migrated ledger
+  // carries it, since the current command path would never admit this cut.
+  const completed: TaskEventV1 = {
+    schema: "task-event/v1",
+    eventId: "event-complete",
+    workspaceRevision: snapshot.revision + 1,
+    opId: "op-complete",
+    taskId: current.taskId,
+    type: "task_completed",
+    actor: implementer,
+    source: "local",
+    occurredAt: "2026-08-11T00:05:00.000Z",
+    payload: {
+      task: { ...snapshot.task!, status: "done" },
+      execution: { ...current, state: "accepted", closedAt: "2026-08-11T00:05:00.000Z" },
+      closeoutGates: { review: true, consent: true, factDisposition: true, codeDoc: true },
+      documentClaims: [],
+    },
+  };
   return { snapshot, completed, current };
 }
 
