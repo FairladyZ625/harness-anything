@@ -2,6 +2,7 @@ import type { TerminalControlReceipt, TerminalSessionRow } from "../../../daemon
 import type { DaemonStreamPayloadMap } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { isRendererRecord, rendererErrorHint } from "./result-validation.ts";
 import type { TerminalStreamFrame } from "./terminal-model.ts";
+import { invoke } from "./api-client-invoke.ts";
 import { guiHostBridge } from "./gui-transport.ts";
 
 export interface TerminalSessionList {
@@ -31,57 +32,38 @@ export interface TerminalSpawnInput {
 }
 
 type RepoScope = { readonly repoId: string };
-type TerminalBridge = {
-  readonly listTerminalSessions: (payload: RepoScope) => Promise<unknown>;
-  readonly spawnTerminal: (payload: RepoScope & TerminalSpawnInput) => Promise<unknown>;
+type TerminalStreamBridge = {
   readonly attachTerminal: (
     payload: DaemonStreamPayloadMap["repo.terminal.attach"] & RepoScope,
     onValue: (value: unknown) => void,
   ) => () => void;
-  readonly sendTerminalInput: (
-    payload: RepoScope & { readonly sessionId: string; readonly clientSeq: number; readonly utf8: string },
-  ) => Promise<unknown>;
-  readonly resizeTerminal: (
-    payload: RepoScope & { readonly sessionId: string; readonly cols: number; readonly rows: number },
-  ) => Promise<unknown>;
-  readonly detachTerminal: (
-    payload: RepoScope & { readonly sessionId: string; readonly attachmentId: string },
-  ) => Promise<unknown>;
-  readonly terminateTerminal: (
-    payload: RepoScope & { readonly sessionId: string; readonly confirmed: true },
-  ) => Promise<unknown>;
 };
 
-const bridge = (): TerminalBridge => {
-  const value = guiHostBridge() as unknown as Partial<TerminalBridge> | undefined;
-  const required = [
-    "listTerminalSessions",
-    "spawnTerminal",
-    "attachTerminal",
-    "sendTerminalInput",
-    "resizeTerminal",
-    "detachTerminal",
-    "terminateTerminal",
-  ] as const;
-  if (!value || required.some((method) => typeof value[method] !== "function"))
-    throw new Error("Terminal contract bridge is unavailable.");
-  return value as TerminalBridge;
+const streamBridge = (): TerminalStreamBridge => {
+  const value = guiHostBridge() as unknown as Partial<TerminalStreamBridge> | undefined;
+  if (!value || typeof value.attachTerminal !== "function") throw new Error("Terminal contract bridge is unavailable.");
+  return value as TerminalStreamBridge;
 };
 
 export const terminalQueryKeys = { sessions: (repoId: string) => ["terminal", repoId, "sessions"] as const };
 export const terminalClient = {
   list: async (repoId: string): Promise<TerminalSessionList> =>
-    sessionList(await bridge().listTerminalSessions({ repoId })),
+    sessionList(await invoke("repo.terminal.sessions.list", { repoId }, "listTerminalSessions")),
   spawn: async (repoId: string, input: TerminalSpawnInput): Promise<TerminalControlReceipt> =>
-    control(await bridge().spawnTerminal({ repoId, ...input })),
+    control(await invoke("repo.terminal.spawn", { repoId, ...input }, "spawnTerminal")),
   attach: (
     repoId: string,
     sessionId: string,
     afterSeq: number,
     onValue: (value: TerminalAttachInitial | TerminalStreamFrame) => void,
-  ): (() => void) => bridge().attachTerminal({ repoId, sessionId, afterSeq }, (value) => onValue(attachValue(value))),
+  ): (() => void) =>
+    streamBridge().attachTerminal({ repoId, sessionId, afterSeq }, (value) => onValue(attachValue(value))),
   input: async (repoId: string, sessionId: string, clientSeq: number, utf8: string): Promise<number> => {
-    const result = await bridge().sendTerminalInput({ repoId, sessionId, clientSeq, utf8 });
+    const result: unknown = await invoke(
+      "repo.terminal.input",
+      { repoId, sessionId, clientSeq, utf8 } as { readonly repoId: string } & object,
+      "sendTerminalInput",
+    );
     if (
       !isRendererRecord(result) ||
       result.schema !== "terminal-input-ack/v1" ||
@@ -92,9 +74,19 @@ export const terminalClient = {
     return Number(result.acceptedThrough);
   },
   resize: async (repoId: string, sessionId: string, cols: number, rows: number): Promise<TerminalControlReceipt> =>
-    control(await bridge().resizeTerminal({ repoId, sessionId, cols, rows })),
+    control(
+      await invoke(
+        "repo.terminal.resize",
+        { repoId, sessionId, cols, rows } as { readonly repoId: string } & object,
+        "resizeTerminal",
+      ),
+    ),
   detach: async (repoId: string, sessionId: string, attachmentId: string): Promise<unknown> => {
-    const result = await bridge().detachTerminal({ repoId, sessionId, attachmentId });
+    const result: unknown = await invoke(
+      "repo.terminal.detach",
+      { repoId, sessionId, attachmentId } as { readonly repoId: string } & object,
+      "detachTerminal",
+    );
     if (
       !isRendererRecord(result) ||
       result.schema !== "terminal-detach-ack/v1" ||
@@ -105,7 +97,13 @@ export const terminalClient = {
     return result;
   },
   terminate: async (repoId: string, sessionId: string, confirmed: true): Promise<TerminalControlReceipt> =>
-    control(await bridge().terminateTerminal({ repoId, sessionId, confirmed })),
+    control(
+      await invoke(
+        "repo.terminal.terminate",
+        { repoId, sessionId, confirmed } as { readonly repoId: string } & object,
+        "terminateTerminal",
+      ),
+    ),
 };
 
 function sessionList(value: unknown): TerminalSessionList {
