@@ -286,7 +286,7 @@ function renderIndex(event: TaskEventV1, snapshot: TaskLifecycleSnapshot, path: 
           value.iteration === current.iteration,
       );
     },
-    gatesForCut = completionGateIds(task.completionGateIds, current?.submission?.commitSha),
+    gatesForCut = completionGateIds(task.completionGateIds, current?.submission),
     missingGate = gatesForCut.find((gateId) => !gateStatus(gateId)),
     next =
       task.status === "active"

@@ -38,7 +38,7 @@ export function publishGateWitness(
   const execution = snapshot.executions.find(
     (value) => value.executionId === executionId && value.iteration === snapshot.task?.iteration,
   );
-  if (!execution?.submission?.commitSha)
+  if (!execution?.submission)
     throw cell.cellCodedError("invalid_transition", "A gate witness requires a submitted execution.");
   const judgment: CompletionEvidenceJudgment = judgeCompletionEvidence(evidence, {
     execution,
@@ -178,7 +178,7 @@ export function taskShowFromProjection(
       task: task
         ? {
             ...task,
-            completionGateIds: completionGateIds(task.completionGateIds, execution?.submission?.commitSha),
+            completionGateIds: completionGateIds(task.completionGateIds, execution?.submission),
           }
         : null,
       packagePath: read.packagePath,

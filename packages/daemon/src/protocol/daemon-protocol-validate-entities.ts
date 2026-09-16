@@ -489,7 +489,7 @@ export function gate(value: unknown): boolean {
       value.verifiedAt,
     ].every(nonEmpty) &&
     (value.result === "pass" || value.result === "fail") &&
-    sha(value.commitSha) &&
+    (value.commitSha === null || sha(value.commitSha)) &&
     iteration(value.iteration) &&
     actor(value.actor) &&
     source(value.source) &&

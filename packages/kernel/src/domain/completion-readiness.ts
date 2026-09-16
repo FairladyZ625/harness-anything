@@ -188,6 +188,7 @@ function evaluateCompletion(
   const gate = assessment.gates.find(
     ({ gateId, status }) =>
       status !== "passed" &&
+      status !== "not_applicable" &&
       (gateId !== "code-doc-reconciliation" || closeoutGates.codeDoc) &&
       !context.preparedGateIds?.includes(gateId),
   );

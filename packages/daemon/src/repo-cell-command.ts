@@ -60,10 +60,16 @@ function submittedExecutionWitness(
     found = executions.map((value) => value.executionId).join(", ") || "none",
     witnessError = `Expected one code-doc witness; found ${found}. Run ha task show ${taskId}.`;
   if (executions.length !== 1) throw cellCodedError("invalid_command", witnessError);
-  const execution = executions[0]!;
+  const execution = executions[0]!,
+    commitSha = execution.submission!.commitSha;
+  if (commitSha === null)
+    throw cellCodedError(
+      "invalid_transition",
+      "code-doc reconciliation applies to the code part of a delivery; this submission is artifact-only.",
+    );
   return {
     executionId: execution.executionId,
-    commitSha: execution.submission!.commitSha,
+    commitSha,
     iteration: execution.iteration,
     paths,
   };

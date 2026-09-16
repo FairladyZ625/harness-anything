@@ -1,19 +1,18 @@
 import { type TaskLifecycleServiceProof } from "../../application/src/task-lifecycle-service.ts";
 import {
   canonicalGateReceipts,
-  completionGateIds,
   codeDocRecordId,
   consumeKnownError,
   consentedApprovedReviewForExecution,
   currentCodeDocWitness,
   effectiveCloseoutGates,
   evaluateTaskActionCapability,
+  gateResults,
   heldLeaseForExecutionActor,
   getTaskActionForTransition,
   isIndependentFrom,
   isSameExecution,
   isSamePerson,
-  judgeCompletionEvidence,
   localGitObjectRefStore,
   makeTaskProjection,
   normalizeCommandEnvelope,
@@ -544,12 +543,16 @@ export function gateChecks(snapshot: Snapshot, executionId: string) {
   const execution = snapshot.executions.find(
     (value) => value.executionId === executionId && value.iteration === snapshot.task?.iteration,
   );
-  const gates = completionGateIds(snapshot.task?.completionGateIds ?? [], execution?.submission?.commitSha);
-  if (gates.length === 0) return [{ gate: "none", status: "pass", witnessRef: null }];
-  return gates.map((gate) => {
-    const candidate =
+  // Status comes from the one domain judgment; not_applicable stays distinct from pass and
+  // blocked so an out-of-scope gate never reads as satisfied or missing.
+  const results = gateResults(snapshot, undefined, executionId, execution?.submission, execution?.iteration);
+  if (results.length === 0) return [{ gate: "none", status: "pass", witnessRef: null }];
+  return results.map(({ gateId: gate, status: gateStatus }) => {
+    const passed = gateStatus === "passed",
+      candidate =
         gate === "code-doc-reconciliation" ? currentCodeDocWitness(snapshot.codeDocWitnesses, executionId) : undefined,
       codeDoc =
+        passed &&
         candidate &&
         execution?.submission &&
         candidate.iteration === execution.iteration &&
@@ -557,26 +560,19 @@ export function gateChecks(snapshot: Snapshot, executionId: string) {
           ? candidate
           : undefined,
       witness =
-        gate !== "code-doc-reconciliation" && execution?.schema === "execution/v1"
+        passed && gate !== "code-doc-reconciliation" && execution?.schema === "execution/v1"
           ? snapshot.gateWitnesses.find(
               (value) =>
                 value.gateId === gate &&
                 value.executionId === executionId &&
                 value.commitSha === execution.submission?.commitSha &&
                 value.iteration === execution.iteration &&
-                value.result === "pass" &&
-                value.basis !== undefined &&
-                value.provenance !== undefined &&
-                value.observed !== undefined &&
-                judgeCompletionEvidence(
-                  { ...value, basis: value.basis, provenance: value.provenance, observed: value.observed },
-                  { execution, gateId: gate },
-                ).accepted,
+                value.result === "pass",
             )
           : undefined;
     return {
       gate,
-      status: codeDoc || witness ? "pass" : "blocked",
+      status: gateStatus === "passed" ? "pass" : gateStatus === "not_applicable" ? "not_applicable" : "blocked",
       witnessRef: codeDoc ? `event:${codeDocRecordId(codeDoc)}` : witness ? `event:${witness.receiptId}` : null,
     };
   });

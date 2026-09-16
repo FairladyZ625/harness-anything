@@ -119,12 +119,34 @@ test("completion next is one pure judgment across lifecycle and unavailable-inpu
   assert.equal(taskCompletionNext(cases[2][1], context).next?.authority, "other-agent");
 });
 
+// The submission's frozen contract is the gate list; it must exist at submit time so review and
+// consent digests pin the same cut.
+const codeDocRequirement = {
+    gateId: "code-doc-reconciliation",
+    appliesTo: "code" as const,
+    witness: { adapterId: "code-doc-reconciliation" as const, adapterOptions: {} },
+  },
+  ciRequirement = {
+    gateId: "ci",
+    appliesTo: "code" as const,
+    witness: {
+      adapterId: "github-actions" as const,
+      adapterOptions: {
+        workflows: ["rewrite-ci"],
+        branch: "main",
+        event: "push",
+        coverage: "exact" as const,
+        selection: "newest" as const,
+      },
+    },
+  };
+const gatedAt = (gates: readonly (typeof ciRequirement | typeof codeDocRequirement)[], count: number) =>
+  lifecycleFixture({ gates, complete: false })
+    .events.slice(0, count)
+    .reduce(reduceTaskEvent, emptyTaskLifecycleSnapshot());
+
 test("missing delivery paths identify the Summary instead of a JSON closeout recipe", () => {
-  const snapshot = at(5),
-    result = taskCompletionNext(
-      { ...snapshot, task: { ...snapshot.task!, completionGateIds: ["code-doc-reconciliation"] } },
-      context,
-    );
+  const result = taskCompletionNext(gatedAt([codeDocRequirement], 5), context);
   assert.equal(result.blocker?.code, "code_doc_missing");
   assert.match(result.next!.action, /Identify the delivery paths.*Summary/);
   assert.doesNotMatch(result.next!.action, /packet.json|task closeout/);
@@ -143,8 +165,7 @@ test("missing facts guide an observable change while a recorded fact clears the 
 });
 
 test("missing CI witness precedes independent review and requests canonical observation", () => {
-  const snapshot = at(3),
-    result = taskCompletionNext({ ...snapshot, task: { ...snapshot.task!, completionGateIds: ["ci"] } }, context);
+  const result = taskCompletionNext(gatedAt([ciRequirement], 3), context);
   assert.equal(result.blocker?.code, "ci_missing");
   assert.equal(result.next?.action, "ha ci observe pull");
 });
