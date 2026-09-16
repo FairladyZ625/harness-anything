@@ -45,8 +45,18 @@ export interface FrozenGateRequirement {
   readonly witness: FrozenGateWitness;
 }
 
+/**
+ * The reviewer declaration a submission freezes with its cut (dec_59FA45A407F850E2B167A192D7 CH2 §3):
+ * the agent declaration id that owns independent review of this cut. Later settings changes never
+ * redirect an in-review cut; cuts frozen before the field fall back to the repository default.
+ */
+export interface FrozenReviewerDeclaration {
+  readonly agentId: string;
+}
+
 export interface FrozenCompletionContract {
   readonly gates: readonly FrozenGateRequirement[];
+  readonly reviewer?: FrozenReviewerDeclaration;
 }
 
 /**
@@ -95,7 +105,9 @@ export function validateFrozenCompletionContract(
 ): readonly ContractValidationIssue[] {
   const fields = allowUnknownFields ? hasRequiredFields : hasOnlyFields;
   return isRecord(value) &&
-    fields(value, ["gates"]) &&
+    fields(value, Object.hasOwn(value, "reviewer") ? ["gates", "reviewer"] : ["gates"]) &&
+    (value.reviewer === undefined ||
+      (isRecord(value.reviewer) && fields(value.reviewer, ["agentId"]) && isNonEmptyString(value.reviewer.agentId))) &&
     Array.isArray(value.gates) &&
     value.gates.every((gate) => frozenRequirement(gate, fields)) &&
     new Set(value.gates.map((gate: FrozenGateRequirement) => gate.gateId)).size === value.gates.length
