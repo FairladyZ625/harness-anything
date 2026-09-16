@@ -1,4 +1,5 @@
 import { validateActorAxes, type ActorAxes, type ContractValidationIssue } from "./task.ts";
+import { mappedWitnessAdapterIds } from "./completion-contract.ts";
 import { isNativeCommitSha } from "./execution.ts";
 import type { CompletionEvidenceBasis, CompletionEvidenceProvenance } from "./completion-evidence.ts";
 import { hasRequiredFields, isNonEmptyString, validateWriteSource, type WriteSource } from "./write-chain.contract.ts";
@@ -77,6 +78,7 @@ export function validateCompletionGateWitnessV1(
           (!Number.isSafeInteger(record.basis.ledgerCut) || record.basis.ledgerCut < 0)))) ||
     (record.provenance !== undefined &&
       (!["runner", "human"].includes(record.provenance.source) ||
+        !(mappedWitnessAdapterIds as readonly string[]).includes(record.provenance.adapterId as string) ||
         !isNonEmptyString(record.provenance.runId) ||
         !isNonEmptyString(record.provenance.rawResult)))
     ? [

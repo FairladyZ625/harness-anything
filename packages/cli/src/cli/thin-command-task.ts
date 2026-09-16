@@ -79,6 +79,18 @@ export function parseTask(
       patches: [{ field: "pinned", value: id === "task-pin" ? "true" : "false" }],
     });
   if (id === "task-supersede") return parseSupersede(args, taskId, rootDir, repoId, json, inputs);
+  if (id === "task-attest") {
+    const f = readFlags(id, args.slice(3), inputs);
+    return f.ok
+      ? accepted(rootDir, repoId, json, {
+          kind: id,
+          taskId,
+          gateId: f.one.get("--gate"),
+          result: f.one.get("--result"),
+          ...(f.one.get("--note") ? { note: f.one.get("--note") } : {}),
+        })
+      : rejected(f.code, f.nextAction, json);
+  }
   if (id === "task-annotate") {
     const f = readFlags(id, args.slice(3), inputs);
     return f.ok

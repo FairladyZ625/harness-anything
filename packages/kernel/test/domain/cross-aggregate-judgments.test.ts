@@ -90,7 +90,7 @@ function closeout(gateResult: "pass" | "fail" = "pass"): CloseoutSnapshot {
           submissionDigest: submissionDigest(execution.submission!),
           codeCommit: commitSha,
         },
-        provenance: { source: "runner", runId: "run-1", rawResult: "event:receipt-1" },
+        provenance: { source: "runner", adapterId: "github-actions", runId: "run-1", rawResult: "event:receipt-1" },
       } as CloseoutSnapshot["gateWitnesses"][number],
     ],
   };

@@ -40,7 +40,7 @@ function evidence(result: CompletionEvidenceV1["result"] = "pass"): CompletionEv
     result,
     observed: true,
     basis: completionEvidenceBasis(execution),
-    provenance: { source: "runner", runId: "run-1", rawResult: "event:receipt-1" },
+    provenance: { source: "runner", adapterId: "github-actions", runId: "run-1", rawResult: "event:receipt-1" },
   };
 }
 
@@ -80,7 +80,7 @@ test("a receipt with an unsupported provenance source cannot become a verified f
   const judgment = judgeCompletionEvidence(
     {
       ...evidence(),
-      provenance: { source: "client", runId: "run-1", rawResult: "event:receipt-1" },
+      provenance: { source: "client", adapterId: "github-actions", runId: "run-1", rawResult: "event:receipt-1" },
     } as unknown as CompletionEvidenceV1,
     { execution, gateId: "ci" },
   );

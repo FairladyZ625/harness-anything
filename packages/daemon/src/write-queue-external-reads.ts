@@ -1,9 +1,9 @@
-import type { WriteReceiptDraft } from "../../kernel/src/index.ts";
+import type { MappedWitnessAdapterId, WriteReceiptDraft } from "../../kernel/src/index.ts";
 import { artifactImportSourceResolution, prepareArtifactEntityImportSource } from "./artifact-entity-action.ts";
 import { fetchCiObservations, ingestCiObservations } from "./ci-observation-actions.ts";
 import type { RepoCellApiContext } from "./repo-cell-api.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
-import { ciGateApplies, readLatestCiEvidence } from "./repo-cell-ci-evidence.ts";
+import { acceptedGateWitness, witnessAdapters, witnessCollections } from "./repo-cell-witness-adapters.ts";
 
 type QueuedPublication = (
   action: RepoTaskAction,
@@ -40,16 +40,33 @@ export function readBeforeWriteQueue(
           (action.executionId === undefined || action.executionId === candidate.executionId),
       );
     if (execution && context.projection.readTaskCompletion(action.taskId, execution.executionId)) return null;
-    if (
-      ciGateApplies(snapshot.task?.completionGateIds ?? [], execution?.submission?.commitSha) &&
-      (!execution || readLatestCiEvidence(context.extracted, execution) === null)
-    )
-      return fetchCiObservations(context.extracted, { kind: "ci-observe-pull" }).then(
-        (fetched) => async (action, binding) => {
-          ingestCiObservations(context.extracted, binding, fetched);
-          return context.executeAction(action, binding);
-        },
-      );
+    if (!execution?.submission) return null;
+    // Every adapter that can collect its own observations runs here, outside the queue; inside the
+    // queue the collected values are re-judged against the frozen cut before any canonical write.
+    const pending = (execution.submission.completionContract?.gates ?? []).flatMap((requirement) => {
+      const adapter = witnessAdapters[requirement.witness.adapterId as MappedWitnessAdapterId];
+      return adapter?.collect &&
+        !acceptedGateWitness(snapshot, execution, requirement.gateId) &&
+        adapter.evaluate(context.extracted, requirement, execution, undefined) === null
+        ? [{ requirement, adapter }]
+        : [];
+    });
+    if (pending.length)
+      return Promise.all(
+        pending.map(async ({ requirement, adapter }) => {
+          const collected = await adapter.collect!(context.extracted, requirement, execution);
+          return [requirement.gateId, { adapter, collected }] as const;
+        }),
+      ).then((entries) => async (action, binding) => {
+        for (const [, { adapter, collected }] of entries) adapter.ingest?.(context.extracted, binding, collected);
+        return context.executeAction(
+          {
+            ...action,
+            [witnessCollections]: new Map(entries.map(([gateId, { collected }]) => [gateId, collected])),
+          },
+          binding,
+        );
+      });
   }
   return null;
 }
