@@ -869,7 +869,7 @@ async function publishCiObservation(
     }),
     projection = makeTaskProjection({ rootDir, eventStore: store }),
     databaseId = Number.parseInt(createHash("sha256").update(runId).digest("hex").slice(0, 8), 16) + 1,
-    observedRunId = `${databaseId}.1`;
+    observedRunId = `${databaseId}.${verified ? 1 : 2}`;
   try {
     const cell = {
       rootDir,
@@ -884,7 +884,7 @@ async function publishCiObservation(
         return JSON.stringify([{ databaseId, headBranch: "main", createdAt: "2026-09-09T00:00:00.000Z" }]);
       if (args[1] === "view")
         return JSON.stringify({
-          workflowName: verified ? "rewrite-ci" : "other-ci",
+          workflowName: "rewrite-ci",
           headSha: commitSha,
           headBranch: "main",
           status: "completed",
