@@ -168,7 +168,7 @@ export interface RepoCellActionContext extends TaskQueryCell {
     binding: Parameters<typeof proofFor>[2],
     projection: Parameters<typeof proofFor>[3],
   ) => ReturnType<typeof proofFor>;
-  readonly lifecycleReceipt: typeof lifecycleReceipt;
+  readonly lifecycleReceipt: Bound<typeof lifecycleReceipt>;
   readonly publicPublication: (value: Pick<CanonicalEventAppendReceipt, "commitSha" | "cut">) => PublicPublication;
   readonly explicitExecutionId: typeof explicitExecutionId;
   readonly projectionReady: typeof projectionReady;
@@ -319,7 +319,7 @@ export function createRepoCellActionContext(bindings: {
       binding: Parameters<typeof proofFor>[2],
       projection: Parameters<typeof proofFor>[3],
     ) => proofFor(command, snapshot, binding, projection, bindings.rootDir, bindings.getSettings),
-    lifecycleReceipt,
+    lifecycleReceipt: bind(lifecycleReceipt),
     publicPublication: bindings.publicPublication,
     explicitExecutionId,
     projectionReady,
