@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { REPLAY_TASK_GRAPH } from "../../src/domain/task-graph.ts";
-import { submissionDigest } from "../../src/domain/execution.ts";
+import { isNativeExecution, submissionDigest } from "../../src/domain/execution.ts";
 import {
   applyTransition,
   canStartExecution,
@@ -67,6 +67,7 @@ function started(): TaskLifecycleSnapshot {
     command(2, { type: "StartExecution", taskId: "task-1", executionId: "execution-1" }) as TaskLifecycleCommand,
     {
       actorBinding: implementer,
+      deliveryBaseline: { kind: "commit", commitSha: "0".repeat(40) },
       reservation: {
         taskId: "task-1",
         executionId: "execution-1",
@@ -217,6 +218,7 @@ test("a review node with no submitted execution recovers exclusively through Sta
 
     const recovered = apply(stranded, command(stranded.revision + 1, startIntent) as TaskLifecycleCommand, {
       actorBinding: implementer,
+      deliveryBaseline: { kind: "commit", commitSha: "0".repeat(40) },
       reservation: {
         taskId: "task-1",
         executionId: "execution-recovery",
@@ -242,6 +244,7 @@ test("two edge commands with the same expected version cannot both commit", () =
     }) as TaskLifecycleCommand,
     proof: StartExecutionProof = {
       actorBinding: implementer,
+      deliveryBaseline: { kind: "commit", commitSha: "0".repeat(40) },
       reservation: {
         taskId: "task-1",
         executionId: "execution-1",
@@ -369,6 +372,7 @@ test("a different actor takes over the orphaned lease and inherits the execution
       ) as TaskLifecycleCommand,
       {
         actorBinding: peer,
+        deliveryBaseline: { kind: "commit", commitSha: "0".repeat(40) },
         reservation: {
           taskId: "task-1",
           executionId: "execution-1",
@@ -443,6 +447,73 @@ test("ReturnToPlanned without an open round keeps the iteration", () => {
   assert.equal(canStartExecution(returned, "execution-fresh"), true);
 });
 
+test("rejoining preserves the frozen delivery baseline and rejects a re-observed one", () => {
+  const frozen = { kind: "commit", commitSha: "0".repeat(40) } as const,
+    expired: TaskLifecycleSnapshot = { ...started(), lease: null },
+    intent = { type: "StartExecution", taskId: "task-1", executionId: "execution-1" } as const,
+    first = expired.executions[0];
+  assert.deepEqual(
+    first !== undefined && isNativeExecution(first) ? first.deliveryBaseline : undefined,
+    frozen,
+    "fixture precondition: baseline froze at start",
+  );
+
+  const rejoinProof = (deliveryBaseline: StartExecutionProof["deliveryBaseline"]): StartExecutionProof => ({
+      actorBinding: implementer,
+      deliveryBaseline,
+      reservation: {
+        taskId: "task-1",
+        executionId: "execution-1",
+        expiresAt: "2026-08-17T01:30:00.000Z",
+        ttlMs: 1_800_000,
+        previousHolder: null,
+        reason: "rejoin",
+        version: 1,
+      },
+    }),
+    next = command(3, intent) as TaskLifecycleCommand,
+    rejoined = apply(expired, next, rejoinProof(frozen)),
+    rejoinedFirst = rejoined.executions[0];
+  assert.deepEqual(
+    rejoinedFirst !== undefined && isNativeExecution(rejoinedFirst) ? rejoinedFirst.deliveryBaseline : undefined,
+    frozen,
+    "the baseline is not re-frozen from HEAD",
+  );
+
+  const drifted = validateTransition(
+    expired,
+    command(3, intent) as TaskLifecycleCommand,
+    rejoinProof({ kind: "commit", commitSha: "1".repeat(40) }),
+  );
+  assert.ok(
+    drifted.some(({ code, message }) => code === "invalid_proof" && /baseline/u.test(message)),
+    `a moved baseline must fail closed: ${JSON.stringify(drifted)}`,
+  );
+});
+
+test("a first start without a proven delivery baseline is rejected", () => {
+  const issues = validateTransition(
+    planned(),
+    command(2, { type: "StartExecution", taskId: "task-1", executionId: "execution-1" }) as TaskLifecycleCommand,
+    {
+      actorBinding: implementer,
+      reservation: {
+        taskId: "task-1",
+        executionId: "execution-1",
+        expiresAt: "2026-08-17T01:00:00.000Z",
+        ttlMs: 1_800_000,
+        previousHolder: null,
+        reason: "initial_claim",
+        version: 0,
+      },
+    } as StartExecutionProof,
+  );
+  assert.ok(
+    issues.some(({ code }) => code === "invalid_proof"),
+    JSON.stringify(issues),
+  );
+});
+
 test("rejoining an active execution transfers its attribution to the new lease holder", () => {
   const expired: TaskLifecycleSnapshot = { ...started(), lease: null },
     runtimeActor: ActorAxes = {
@@ -458,6 +529,7 @@ test("rejoining an active execution transfers its attribution to the new lease h
       ) as TaskLifecycleCommand,
       {
         actorBinding: runtimeActor,
+        deliveryBaseline: { kind: "commit", commitSha: "0".repeat(40) },
         reservation: {
           taskId: "task-1",
           executionId: "execution-1",

@@ -68,6 +68,11 @@ export function submissionId(value: SubmissionV1): SubmissionId {
 export function isSubmissionId(value: unknown): value is SubmissionId {
   return typeof value === "string" && /^submission:sha256:[0-9a-f]{64}$/u.test(value);
 }
+/** The project comparison point frozen when an execution first starts. */
+export type ExecutionDeliveryBaseline =
+  | { readonly kind: "commit"; readonly commitSha: string }
+  | { readonly kind: "empty-tree" };
+
 export interface ExecutionV1 {
   readonly schema: "execution/v1";
   readonly executionId: string;
@@ -80,6 +85,7 @@ export interface ExecutionV1 {
   readonly submittedAt: string | null;
   readonly closedAt: string | null;
   readonly submission: SubmissionV1 | null;
+  readonly deliveryBaseline?: ExecutionDeliveryBaseline;
   /** Actor that last replaced the submitted packet when it differs from the execution actor. */
   readonly amendedBy?: ActorAxes;
   /** Append-only correction/superseded-by notes projected back into the rendered Execution record. */
@@ -194,6 +200,14 @@ export function validSubmissionDelivery(value: Record<string, unknown>): boolean
     );
   return validArtifactAnchors(value.artifacts);
 }
+export function validExecutionDeliveryBaseline(value: unknown): value is ExecutionDeliveryBaseline {
+  return (
+    isRecord(value) &&
+    ((hasOnlyFields(value, ["kind", "commitSha"]) && value.kind === "commit" && isNativeCommitSha(value.commitSha)) ||
+      (hasOnlyFields(value, ["kind"]) && value.kind === "empty-tree"))
+  );
+}
+
 export function validateSubmissionV1(value: unknown, allowUnknownFields = false): readonly ContractValidationIssue[] {
   // Submissions written before the frozen completion contract are migration input, never current cuts.
   if (isRecord(value) && !Object.hasOwn(value, "completionContract"))
@@ -223,7 +237,7 @@ export function validateExecutionV1(value: unknown, allowUnknownFields = false):
       ? hasRequiredFields(value, EXECUTION_V1_SCHEMA.required)
       : hasRequiredFields(value, EXECUTION_V1_SCHEMA.required) &&
         Object.keys(value).every((field) =>
-          [...EXECUTION_V1_SCHEMA.required, "amendedBy", "annotations"].includes(field),
+          [...EXECUTION_V1_SCHEMA.required, "deliveryBaseline", "amendedBy", "annotations"].includes(field),
         ))
   )
     return [{ code: "invalid_execution", message: "Execution/v1 fields are incomplete or unknown" }];
@@ -246,6 +260,8 @@ export function validateExecutionV1(value: unknown, allowUnknownFields = false):
   if (value.amendedBy !== undefined) issues.push(...validateActorAxes(value.amendedBy, allowUnknownFields));
   if (value.annotations !== undefined)
     issues.push(...validateExecutionAnnotationV1s(value.annotations, allowUnknownFields));
+  if (value.deliveryBaseline !== undefined && !validExecutionDeliveryBaseline(value.deliveryBaseline))
+    issues.push({ code: "invalid_execution", message: "execution delivery baseline is invalid" });
   if (value.submission !== null) issues.push(...validateSubmissionV1(value.submission, allowUnknownFields));
   return issues;
 }

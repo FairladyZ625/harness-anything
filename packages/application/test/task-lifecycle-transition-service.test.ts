@@ -404,6 +404,7 @@ test("transition service freezes targets and makes create/start idempotent by op
       ),
       {
         actorBinding: actor,
+        deliveryBaseline: { kind: "commit", commitSha: "0".repeat(40) },
         reservation: {
           taskId: "task-1",
           executionId: "execution-1",
@@ -753,6 +754,7 @@ test("pending without an event uses an honest receipt", async () => {
   );
   const receipt = await service.execute(start, {
     actorBinding: actor,
+    deliveryBaseline: { kind: "commit", commitSha: "0".repeat(40) },
     reservation: {
       taskId: start.taskId,
       executionId: start.executionId,

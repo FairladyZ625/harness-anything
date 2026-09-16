@@ -58,6 +58,7 @@ function start(revision, executionId = "execution-0") {
 function startProof(executionId = "execution-0") {
   return {
     actorBinding: executor,
+    deliveryBaseline: { kind: "commit", commitSha: "0".repeat(40) },
     reservation: {
       taskId: "task-1",
       executionId,

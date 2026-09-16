@@ -92,6 +92,7 @@ export function lifecycleFixture(
     }),
     {
       actorBinding: implementer,
+      deliveryBaseline: { kind: "commit", commitSha: "0".repeat(40) },
       reservation: {
         taskId,
         executionId,
@@ -195,6 +196,7 @@ export function twoRoundLifecycleEvents(
     }),
     {
       actorBinding: implementer,
+      deliveryBaseline: { kind: "commit", commitSha: "0".repeat(40) },
       reservation: {
         taskId,
         executionId: firstExecutionId,
@@ -238,6 +240,7 @@ export function twoRoundLifecycleEvents(
     }),
     {
       actorBinding: implementer,
+      deliveryBaseline: { kind: "commit", commitSha: "0".repeat(40) },
       reservation: {
         taskId,
         executionId: secondExecutionId,

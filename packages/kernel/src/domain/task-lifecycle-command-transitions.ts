@@ -1,4 +1,4 @@
-import { isNativeExecution, submissionId, validateSubmissionV1 } from "./execution.ts";
+import { isNativeExecution, submissionId, validExecutionDeliveryBaseline, validateSubmissionV1 } from "./execution.ts";
 import type { ExecutionV1, LeaseV1 } from "./execution.ts";
 import { taskClasses } from "./task.ts";
 import type { TaskV2 } from "./task.ts";
@@ -149,11 +149,26 @@ export const start: Transition = {
       reservation.version < 0
     )
       issues.push(lifecycleContractIssue("invalid_proof", "active reservation CAS proof is required"));
+    const rejoined = snapshot.executions.find((value) => value.executionId === command.executionId),
+      rejoinBaseline = rejoined !== undefined && isNativeExecution(rejoined) ? rejoined.deliveryBaseline : undefined,
+      baseline = rejoinBaseline ?? proof.deliveryBaseline;
+    if (!validExecutionDeliveryBaseline(baseline))
+      issues.push(
+        lifecycleContractIssue("invalid_proof", "a valid frozen project delivery baseline is required at start"),
+      );
+    else if (
+      rejoinBaseline !== undefined &&
+      stableStringify(rejoinBaseline) !== stableStringify(proof.deliveryBaseline)
+    )
+      issues.push(
+        lifecycleContractIssue("invalid_proof", "execution rejoin must preserve the frozen delivery baseline"),
+      );
     return issues;
   },
   reduce: (snapshot, raw, rawProof) => {
     const command = raw as StartExecutionCommand,
-      reservation = (rawProof as StartExecutionProof).reservation,
+      proof = rawProof as StartExecutionProof,
+      reservation = proof.reservation,
       task = { ...(snapshot.task as TaskV2), status: "active" as const, currentNode: "implementation" as const },
       rejoin = snapshot.executions.find((value) => value.executionId === command.executionId) as
         | ExecutionV1
@@ -181,6 +196,7 @@ export const start: Transition = {
             submittedAt: null,
             closedAt: null,
             submission: null,
+            deliveryBaseline: proof.deliveryBaseline,
           },
       lease: LeaseV1 = {
         schema: "lease/v1",

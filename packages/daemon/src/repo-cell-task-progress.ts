@@ -56,17 +56,22 @@ function evaluateGateEvidence(
   requirements: readonly FrozenGateRequirement[],
   execution: Snapshot["executions"][number] | undefined,
   collections: PendingWitnessCollections | undefined,
+  failStops = true,
 ): ReadonlyMap<string, CompletionEvidenceV1> {
   const evidenceByGate = new Map<string, CompletionEvidenceV1>();
   for (const requirement of requirements) {
     const adapter = witnessAdapters[requirement.witness.adapterId as MappedWitnessAdapterId];
     if (!adapter || !execution?.submission || !gateAppliesToSubmission(requirement, execution.submission)) continue;
     const evidence = adapter.evaluate(cell, requirement, execution, collections?.get(requirement.gateId));
-    if (evidence?.result === "fail")
+    // Submit-time preparation attaches only passing evidence: a gate's verdict is judged at
+    // completion, so a not-yet-satisfied observation must never bounce an already-accepted cut.
+    if (evidence?.result === "fail") {
+      if (!failStops) continue;
       throw cell.cellCodedError(
         "invalid_proof",
         `Gate ${requirement.gateId} receipt ${evidence.provenance.rawResult} reported fail.`,
       );
+    }
     if (evidence) evidenceByGate.set(requirement.gateId, evidence);
   }
   return evidenceByGate;
@@ -89,7 +94,13 @@ export async function prepareSubmissionEvidence(
     throw cell.cellCodedError("invalid_transition", "Evidence preparation requires a submitted execution.");
   const steps: WriteReceipt[] = [],
     gates = completionGateIds(snapshot.task?.completionGateIds ?? [], execution.submission),
-    evidenceByGate = evaluateGateEvidence(cell, execution.submission.completionContract.gates, execution, collections),
+    evidenceByGate = evaluateGateEvidence(
+      cell,
+      execution.submission.completionContract.gates,
+      execution,
+      collections,
+      false,
+    ),
     witness = currentCodeDocWitness(snapshot.codeDocWitnesses, executionId);
   if (
     gates.includes("code-doc-reconciliation") &&
