@@ -1,5 +1,5 @@
 import { /* @gate-identity check-sync-subprocess/sync-subprocess-018 */ execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, symlinkSync } from "node:fs";
 import path from "node:path";
 import type { ScheduleV1 } from "../../kernel/src/index.ts";
 import type { TrustedScheduleRuntime } from "./runtime-spawn-types.ts";
@@ -31,7 +31,30 @@ export function prepareScheduleOccurrenceWorkspace(rootDir: string, schedule: Sc
       windowsHide: true,
     },
   );
-  return { rootDir, cwd, runtime: { ...base, worktree: { cwd, branch, baseRef: "origin/main" } } };
+  const note = linkSharedNodeModules(rootDir, cwd);
+  return {
+    rootDir,
+    cwd,
+    runtime: { ...base, worktree: { cwd, branch, baseRef: "origin/main", ...(note ? { note } : {}) } },
+  };
+}
+
+// npm workspaces hoist every package's dependencies to the repository root store, so one
+// junction gives the fresh worktree the whole dependency surface without an install. This is
+// best-effort: a repo without node_modules (non-node) or a filesystem that refuses the link
+// must not fail the occurrence — the note lands on the worktree record and surfaces in the
+// settlement detail instead of being swallowed.
+export function linkSharedNodeModules(rootDir: string, worktreeDir: string): string | null {
+  try {
+    const target = path.join(rootDir, "node_modules");
+    if (!existsSync(target) || existsSync(path.join(worktreeDir, "node_modules"))) return null;
+    symlinkSync(target, path.join(worktreeDir, "node_modules"), "junction");
+    return null;
+  } catch (error) {
+    return `Occurrence worktree has no linked node_modules (${
+      error instanceof Error ? error.message : String(error)
+    }).`;
+  }
 }
 
 export function settleScheduleOccurrenceWorkspace(
@@ -85,7 +108,7 @@ export function scheduleSettlementDetail(
   detail: string | null,
 ): string | null {
   const retained = settleScheduleOccurrenceWorkspace(rootDir, schedule).retainedDetail;
-  return [detail, retained].filter(Boolean).join(" ") || null;
+  return [schedule.worktree?.note, detail, retained].filter(Boolean).join(" ") || null;
 }
 
 function git(cwd: string, ...args: string[]): string {

@@ -1,7 +1,16 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readlinkSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -9,6 +18,7 @@ import { createScheduleV1, type ScheduleV1 } from "../../kernel/src/index.ts";
 import { dispatchClaimedSchedule } from "../src/schedule-action-runtime.ts";
 import { launchArgs } from "../src/agent-runtime-launch-config.ts";
 import {
+  linkSharedNodeModules,
   prepareScheduleOccurrenceWorkspace,
   settleScheduleOccurrenceWorkspace,
 } from "../src/schedule-occurrence-workspace.ts";
@@ -154,6 +164,60 @@ for (const change of ["dirty", "commit"] as const)
     }
   });
 
+test("remediate occurrences link the canonical node_modules store into the worktree", () => {
+  const fixture = repositoryFixture();
+  try {
+    mkdirSync(path.join(fixture.root, "node_modules", "sentinel-pkg"), { recursive: true });
+    writeFileSync(path.join(fixture.root, "node_modules", "sentinel-pkg", "marker.txt"), "present\n");
+    const workspace = prepareScheduleOccurrenceWorkspace(fixture.root, schedule("remediate", "occurrence-deps"));
+    assert.equal(readlinkSync(path.join(workspace.cwd, "node_modules")), path.join(fixture.root, "node_modules"));
+    assert.equal(
+      readFileSync(path.join(workspace.cwd, "node_modules", "sentinel-pkg", "marker.txt"), "utf8"),
+      "present\n",
+    );
+    assert.equal(workspace.runtime.worktree?.note, undefined);
+    // The linked store is gitignored, so it neither marks the worktree dirty nor blocks removal.
+    assert.equal(settleScheduleOccurrenceWorkspace(fixture.root, workspace.runtime).retainedDetail, null);
+    assert.equal(existsSync(workspace.cwd), false);
+    assert.equal(existsSync(path.join(fixture.root, "node_modules", "sentinel-pkg")), true);
+  } finally {
+    rmSync(fixture.base, { recursive: true, force: true });
+  }
+});
+
+test("remediate occurrences without a canonical node_modules still prepare cleanly", () => {
+  const fixture = repositoryFixture();
+  try {
+    const workspace = prepareScheduleOccurrenceWorkspace(fixture.root, schedule("remediate", "occurrence-nodeps"));
+    assert.equal(existsSync(path.join(workspace.cwd, "node_modules")), false);
+    assert.equal(workspace.runtime.worktree?.note, undefined);
+    assert.equal(settleScheduleOccurrenceWorkspace(fixture.root, workspace.runtime).retainedDetail, null);
+  } finally {
+    rmSync(fixture.base, { recursive: true, force: true });
+  }
+});
+
+test(
+  "a failed node_modules link is reported as a note, not thrown or swallowed",
+  { skip: process.platform === "win32" },
+  () => {
+    const fixture = repositoryFixture(),
+      worktree = mkdtempSync(path.join(fixture.base, "wt-"));
+    try {
+      mkdirSync(path.join(fixture.root, "node_modules"));
+      chmodSync(worktree, 0o555);
+      const note = linkSharedNodeModules(fixture.root, worktree);
+      assert.match(note ?? "", /node_modules/u);
+      chmodSync(worktree, 0o755);
+      assert.equal(linkSharedNodeModules(fixture.root, worktree), null);
+      assert.equal(readlinkSync(path.join(worktree, "node_modules")), path.join(fixture.root, "node_modules"));
+    } finally {
+      chmodSync(worktree, 0o755);
+      rmSync(fixture.base, { recursive: true, force: true });
+    }
+  },
+);
+
 function schedule(mode: "detect" | "remediate", occurrenceId: string): ScheduleV1 {
   return {
     scheduleId: "workspace-test",
@@ -171,7 +235,8 @@ function repositoryFixture(): { readonly base: string; readonly root: string } {
   git(root, "config", "user.name", "Schedule Test");
   git(root, "config", "user.email", "schedule@example.invalid");
   writeFileSync(path.join(root, "README.md"), "base\n");
-  git(root, "add", "README.md");
+  writeFileSync(path.join(root, ".gitignore"), "node_modules\n.worktrees\n");
+  git(root, "add", "README.md", ".gitignore");
   git(root, "commit", "-qm", "base");
   git(root, "remote", "add", "origin", remote);
   git(root, "push", "-q", "-u", "origin", "main");
