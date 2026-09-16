@@ -1,0 +1,17 @@
+# Facts
+
+Managed by `ha fact record`; hand edits are rejected.
+
+`State` is record-time; authoritative liveness via `ha fact show`.
+
+## Records
+
+### F-A839D789
+
+- Statement: Fixture observation for task_fx13_mix.
+- Evidence source: test:migration-fixtures/task_fx13_mix
+- Observed at: 2026-09-16T12:46:42.387Z
+- Confidence: high
+- State: standing
+- Task: task_fx13_mix
+

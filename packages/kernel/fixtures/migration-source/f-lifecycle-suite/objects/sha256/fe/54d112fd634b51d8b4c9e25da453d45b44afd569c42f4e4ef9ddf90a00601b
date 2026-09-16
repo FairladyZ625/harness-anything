@@ -1,0 +1,40 @@
+# Execution exe_fx1_1
+
+Managed by `ha task start/submit`; hand edits are rejected.
+
+- Task: task_fx1_amend
+- Iteration: 0
+- State: submitted
+- Claimed: 2026-09-16T12:46:23.224Z
+- Submitted: 2026-09-16T12:46:24.840Z
+- Closed: open
+- Commit: none (artifact delivery)
+- Artifact: tasks/task_fx1_amend-fixture-x1-amend-chain/artifacts/amend-chain.txt@16 (e273e3bd2258f70dfb74e0df1fe5e7967d037c500b599a09ce0b6b3424cfdfc1)
+- Completion claim: X1 amend 2: artifact:artifacts/amend-chain.txt
+- Reviews: pending
+- Selected review: pending
+- Consent: pending
+- Checker witnesses: pending
+- Code-doc witness: pending
+
+## Deliverables
+
+- tasks/task_fx1_amend-fixture-x1-amend-chain/artifacts/amend-chain.txt
+
+## Outputs
+
+- none
+
+## Verification
+
+- Fixture verification.
+
+## Known gaps
+
+- None.
+- Not applicable.
+
+## Residual risks
+
+- None.
+- Not applicable.

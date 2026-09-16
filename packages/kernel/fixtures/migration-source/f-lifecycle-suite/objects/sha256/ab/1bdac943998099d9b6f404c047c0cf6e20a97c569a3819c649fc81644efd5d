@@ -1,0 +1,34 @@
+---
+schema: task-package/v2
+task_id: task_fx2_iter
+title: "Fixture X2 cross-iteration amend"
+lifecycle:
+  engine: kernel/task-lifecycle/v1
+  status: done
+packageDisposition: active
+workKind: docs
+vertical: software/coding
+preset: docs-task
+profile: baseline
+packagePath: tasks/task_fx2_iter-fixture-x2-cross-iteration-amend
+owner: machine
+---
+# Fixture X2 cross-iteration amend
+
+Preset: docs-task/baseline
+
+## Documents
+
+- `INDEX.md` — machine
+- `task-contract.json` — machine
+- `task_plan.md` — doc-sync
+- `closeout.md` — doc-sync
+- `artifacts/.gitkeep` — doc-sync
+
+## Next
+
+Task complete.
+
+## Gate Checks
+
+- none

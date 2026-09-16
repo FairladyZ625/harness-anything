@@ -1,0 +1,40 @@
+# Execution exe_fx5_1
+
+Managed by `ha task start/submit`; hand edits are rejected.
+
+- Task: task_fx5_done
+- Iteration: 0
+- State: submitted
+- Claimed: 2026-09-16T12:46:19.489Z
+- Submitted: 2026-09-16T12:46:20.459Z
+- Closed: open
+- Commit: none (artifact delivery)
+- Artifact: tasks/task_fx5_done-fixture-x5-baseline-done/artifacts/chain.txt@6 (7efee5b2aa9d83e673281aa983279a6e454a4e7136693f888cdb3722bff2637a)
+- Completion claim: X5 baseline completion: artifact:artifacts/chain.txt
+- Reviews: review-x5-1/approved
+- Selected review: pending
+- Consent: pending
+- Checker witnesses: pending
+- Code-doc witness: pending
+
+## Deliverables
+
+- tasks/task_fx5_done-fixture-x5-baseline-done/artifacts/chain.txt
+
+## Outputs
+
+- none
+
+## Verification
+
+- Fixture verification.
+
+## Known gaps
+
+- None.
+- Not applicable.
+
+## Residual risks
+
+- None.
+- Not applicable.

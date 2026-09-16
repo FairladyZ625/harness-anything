@@ -1,0 +1,37 @@
+# Execution exe_fx2_2
+
+Managed by `ha task start/submit`; hand edits are rejected.
+
+- Task: task_fx2_iter
+- Iteration: 1
+- State: active
+- Claimed: 2026-09-16T12:46:30.706Z
+- Submitted: pending
+- Closed: open
+- Commit: pending
+- Completion claim: pending
+- Reviews: pending
+- Selected review: pending
+- Consent: pending
+- Checker witnesses: pending
+- Code-doc witness: pending
+
+## Deliverables
+
+- none
+
+## Outputs
+
+- none
+
+## Verification
+
+- none
+
+## Known gaps
+
+- none
+
+## Residual risks
+
+- none

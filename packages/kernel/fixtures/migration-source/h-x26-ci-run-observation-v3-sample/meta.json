@@ -1,0 +1,64 @@
+{
+  "fixture": "h-x26-ci-run-observation-v3-sample",
+  "tier": "H",
+  "source": "canonical gen2 snapshot (sqlite .backup, mode=ro), de-identified",
+  "deidentification": {
+    "tool": "tools/gates/sample-canonical-events.mjs deidentifyCanonicalEvent",
+    "digestInputDrift": false,
+    "drifted": []
+  },
+  "manifest": {
+    "shapes": [
+      "X26 ci_run_observed v3(对照样本)"
+    ],
+    "sourceTaskId": null
+  },
+  "eventCount": 40,
+  "revisionRange": [
+    70974,
+    71117
+  ],
+  "revisions": [
+    70974,
+    70975,
+    70976,
+    70977,
+    70978,
+    70979,
+    70980,
+    70981,
+    70982,
+    70983,
+    70984,
+    70985,
+    70986,
+    70987,
+    70988,
+    70989,
+    70990,
+    70991,
+    70992,
+    70993,
+    71009,
+    71010,
+    71100,
+    71101,
+    71102,
+    71103,
+    71104,
+    71105,
+    71106,
+    71107,
+    71108,
+    71109,
+    71110,
+    71111,
+    71112,
+    71113,
+    71114,
+    71115,
+    71116,
+    71117
+  ],
+  "frozenAt": "2026-09-16T13:04:10.329Z"
+}

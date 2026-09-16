@@ -1,0 +1,35 @@
+---
+schema: task-package/v2
+task_id: task_fx10_gate
+title: "Fixture X10 gated"
+lifecycle:
+  engine: kernel/task-lifecycle/v1
+  status: in_review
+packageDisposition: active
+workKind: feat
+vertical: software/coding
+preset: standard-task
+profile: baseline
+packagePath: tasks/task_fx10_gate-fixture-x10-gated
+owner: machine
+---
+# Fixture X10 gated
+
+Preset: standard-task/baseline
+
+## Documents
+
+- `INDEX.md` — machine
+- `task-contract.json` — machine
+- `task_plan.md` — doc-sync
+- `closeout.md` — doc-sync
+- `artifacts/.gitkeep` — doc-sync
+
+## Next
+
+Run `ha task complete task_fx10_gate --consent`.
+
+## Gate Checks
+
+- ci: blocked
+- code-doc-reconciliation: pass

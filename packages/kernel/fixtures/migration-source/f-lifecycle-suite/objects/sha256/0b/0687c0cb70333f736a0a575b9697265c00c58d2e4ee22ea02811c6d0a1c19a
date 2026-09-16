@@ -1,0 +1,30 @@
+---
+schema: task-package/v2
+task_id: task_fx12_art
+title: "Fixture X12 artifact only"
+lifecycle:
+  engine: kernel/task-lifecycle/v1
+  status: planned
+packageDisposition: active
+workKind: docs
+vertical: software/coding
+preset: docs-task
+profile: baseline
+packagePath: tasks/task_fx12_art-fixture-x12-artifact-only
+owner: machine
+---
+# Fixture X12 artifact only
+
+Preset: docs-task/baseline
+
+## Documents
+
+- `INDEX.md` — machine
+- `task-contract.json` — machine
+- `task_plan.md` — doc-sync
+- `closeout.md` — doc-sync
+- `artifacts/.gitkeep` — doc-sync
+
+## Next
+
+Edit `task_plan.md`, then run `ha task start task_fx12_art`.

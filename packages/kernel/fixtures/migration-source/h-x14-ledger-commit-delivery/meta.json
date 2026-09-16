@@ -1,0 +1,75 @@
+{
+  "fixture": "h-x14-ledger-commit-delivery",
+  "tier": "H",
+  "source": "canonical gen2 snapshot (sqlite .backup, mode=ro), de-identified",
+  "deidentification": {
+    "tool": "tools/gates/sample-canonical-events.mjs deidentifyCanonicalEvent",
+    "digestInputDrift": true,
+    "drifted": [
+      {
+        "revision": 51085,
+        "opId": "op_f777a4a199c6e9255ed467f1a2893c78af99c04f2f50825db8c84678178957ca",
+        "drift": [
+          {
+            "kind": "reviewDigest",
+            "at": "/payload/review",
+            "before": "sha256:00f7e7b0aaa84e5aaae830b9ba9df6e91b00f519a35a558e84e8ff083262e547",
+            "after": "sha256:29e8d74dc06570d8c84f16d52a452af1573d6a6eb0876eda693564d39aab6af5"
+          }
+        ]
+      },
+      {
+        "revision": 51086,
+        "opId": "op_df60dc3bf79000dac09c23dbaf787d79320896f12fdc9dbae04737cc30922b8f",
+        "drift": [
+          {
+            "kind": "reviewDigest",
+            "at": "/payload/review",
+            "before": "sha256:00f7e7b0aaa84e5aaae830b9ba9df6e91b00f519a35a558e84e8ff083262e547",
+            "after": "sha256:29e8d74dc06570d8c84f16d52a452af1573d6a6eb0876eda693564d39aab6af5"
+          }
+        ]
+      }
+    ]
+  },
+  "manifest": {
+    "shapes": [
+      "X14 台账仓 commit 交付(privateDelivery 前身)"
+    ],
+    "sourceTaskId": "task_f3d0dc4ecdb2fdb8ba24692b1c"
+  },
+  "eventCount": 26,
+  "revisionRange": [
+    49403,
+    51776
+  ],
+  "revisions": [
+    49403,
+    49425,
+    49454,
+    49460,
+    49469,
+    49470,
+    49473,
+    49479,
+    49483,
+    49491,
+    49492,
+    49499,
+    49500,
+    49541,
+    51074,
+    51078,
+    51082,
+    51083,
+    51084,
+    51085,
+    51086,
+    51087,
+    51088,
+    51113,
+    51114,
+    51776
+  ],
+  "frozenAt": "2026-09-16T13:04:02.222Z"
+}

@@ -1,0 +1,17 @@
+# Facts
+
+Managed by `ha fact record`; hand edits are rejected.
+
+`State` is record-time; authoritative liveness via `ha fact show`.
+
+## Records
+
+### F-A383AE5A
+
+- Statement: Fixture observation for task_fx12_art.
+- Evidence source: test:migration-fixtures/task_fx12_art
+- Observed at: 2026-09-16T12:46:38.811Z
+- Confidence: high
+- State: standing
+- Task: task_fx12_art
+

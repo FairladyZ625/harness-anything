@@ -1,0 +1,40 @@
+# Execution exe_fx6_1
+
+Managed by `ha task start/submit`; hand edits are rejected.
+
+- Task: task_fx6_two
+- Iteration: 0
+- State: submitted
+- Claimed: 2026-09-16T12:46:34.577Z
+- Submitted: 2026-09-16T12:46:35.458Z
+- Closed: open
+- Commit: none (artifact delivery)
+- Artifact: tasks/task_fx6_two-fixture-x6-double-consent/artifacts/x6.txt@48 (6aa08a942ceb3d68786c00d8a5ceccb074bffeaaf43a4b1def821ced746ccc00)
+- Completion claim: X6 submission: artifact:artifacts/x6.txt
+- Reviews: review-x6-1/approved, review-x6-2/approved
+- Selected review: review-x6-2
+- Consent: consent-1d53544057b2f1a7e4a8d3f4
+- Checker witnesses: pending
+- Code-doc witness: pending
+
+## Deliverables
+
+- tasks/task_fx6_two-fixture-x6-double-consent/artifacts/x6.txt
+
+## Outputs
+
+- none
+
+## Verification
+
+- Fixture verification.
+
+## Known gaps
+
+- None.
+- Not applicable.
+
+## Residual risks
+
+- None.
+- Not applicable.

@@ -1,0 +1,23 @@
+# Review review-x2-2
+
+Managed by `ha task review-execution`; legacy `review.md` is not authoritative.
+
+- Task: task_fx2_iter
+- Execution: exe_fx2_2
+- Verdict: approved
+- Commit: null
+- Iteration: 1
+- Content digest: sha256:bc65753bd9259110a4667baf89ece3606c4286484a64829951bcdd741a8cf2a7
+- Submission digest: sha256:841d01e6106c88974a8b5dc59f18ec01d73dd62624ababe6dfb74d140343b3e3
+- Reviewed at: 2026-09-16T12:46:32.260Z
+- Consent: pending
+- Consent actor: pending
+- Consent source: pending
+
+## Reason
+
+Fixture review review-x2-2: approved.
+
+## Evidence checked
+
+- harness

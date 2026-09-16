@@ -1,0 +1,37 @@
+{
+  "fixture": "h-x19-suspended-on-terminal",
+  "tier": "H",
+  "source": "canonical gen2 snapshot (sqlite .backup, mode=ro), de-identified",
+  "deidentification": {
+    "tool": "tools/gates/sample-canonical-events.mjs deidentifyCanonicalEvent",
+    "digestInputDrift": false,
+    "drifted": []
+  },
+  "manifest": {
+    "shapes": [
+      "X19 终态任务上的悬置 execution(cancel 时 active)"
+    ],
+    "sourceTaskId": "task_e87de4b515c52c01dd285b8320"
+  },
+  "eventCount": 13,
+  "revisionRange": [
+    61792,
+    70294
+  ],
+  "revisions": [
+    61792,
+    61794,
+    61796,
+    61818,
+    61939,
+    61949,
+    61950,
+    61951,
+    61952,
+    61954,
+    61964,
+    62101,
+    70294
+  ],
+  "frozenAt": "2026-09-16T13:04:04.278Z"
+}

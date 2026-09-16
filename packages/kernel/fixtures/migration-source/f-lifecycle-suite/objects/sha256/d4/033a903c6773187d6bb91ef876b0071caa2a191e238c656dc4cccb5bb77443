@@ -1,0 +1,6 @@
+layout:
+  authoredRoot: harness
+  localRoot: .harness
+settings:
+  ci:
+    workflows: [fixture-ci]

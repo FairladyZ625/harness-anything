@@ -1,0 +1,62 @@
+{
+  "fixture": "h-x20-zombie-runtime",
+  "tier": "H",
+  "source": "canonical gen2 snapshot (sqlite .backup, mode=ro), de-identified",
+  "deidentification": {
+    "tool": "tools/gates/sample-canonical-events.mjs deidentifyCanonicalEvent",
+    "digestInputDrift": false,
+    "drifted": []
+  },
+  "manifest": {
+    "shapes": [
+      "X20 僵尸 runtime session(无 exit)"
+    ],
+    "sourceTaskId": "task_962979dec24a440f06e5f3259b"
+  },
+  "eventCount": 38,
+  "revisionRange": [
+    3428,
+    47788
+  ],
+  "revisions": [
+    3428,
+    3442,
+    4382,
+    5989,
+    6197,
+    6721,
+    7982,
+    8148,
+    9938,
+    30536,
+    30537,
+    30538,
+    30539,
+    30540,
+    30541,
+    30542,
+    30543,
+    30544,
+    30545,
+    30546,
+    30547,
+    30548,
+    30549,
+    30550,
+    30551,
+    30552,
+    30553,
+    30554,
+    30555,
+    30556,
+    30557,
+    30558,
+    30559,
+    30560,
+    30561,
+    41749,
+    42660,
+    47788
+  ],
+  "frozenAt": "2026-09-16T13:04:06.383Z"
+}

@@ -1,0 +1,214 @@
+{
+  "fixture": "h-x19-suspended-on-terminal-b",
+  "tier": "H",
+  "source": "canonical gen2 snapshot (sqlite .backup, mode=ro), de-identified",
+  "deidentification": {
+    "tool": "tools/gates/sample-canonical-events.mjs deidentifyCanonicalEvent",
+    "digestInputDrift": true,
+    "drifted": [
+      {
+        "revision": 73259,
+        "opId": "op_c86f91012b6a0488847a66259c4077199cbb275c8be37b81a0a0becfaf2d10d8",
+        "drift": [
+          {
+            "kind": "reviewDigest",
+            "at": "/payload/review",
+            "before": "sha256:47d8c216abd5d2852ff7cd13b392502e59d44ba81ba3911c402e2fb9c3976389",
+            "after": "sha256:e5c0fae6456f5c435acc64d12cb8c2723e9dfcc98214218db0136e025585e8b9"
+          }
+        ]
+      },
+      {
+        "revision": 73424,
+        "opId": "op_d543d666ceb6e7e66d7e8697884bc1d85efc10883b612380cbe6ca2d7310aecc",
+        "drift": [
+          {
+            "kind": "reviewDigest",
+            "at": "/payload/review",
+            "before": "sha256:f1532b670d3772bb6842d102e368848cc81d678720a4fb84e5fb0cf5abfdb1af",
+            "after": "sha256:183c5a210eddc240f102d35795c55ea837fe4afb86e3f7e187acd625643209b2"
+          }
+        ]
+      },
+      {
+        "revision": 73495,
+        "opId": "op_d8eef4f2c98ca5471a141930571fb70a21a64f56a88ac35509e717496be91dc1",
+        "drift": [
+          {
+            "kind": "reviewDigest",
+            "at": "/payload/review",
+            "before": "sha256:ad389e84734adafa4cd25d16e9b0abca7eccedaab3f66c9698c1584ed12842b8",
+            "after": "sha256:25d51a15f21ee839f9b1cfdd842ee55bf0bf7e2d0980bbb3a6edfd7e479c53cb"
+          }
+        ]
+      },
+      {
+        "revision": 73536,
+        "opId": "op_b6f8f3e7fe8df18e8b754c56986151175675bd474323b430a2619e2eb886aeb4",
+        "drift": [
+          {
+            "kind": "reviewDigest",
+            "at": "/payload/review",
+            "before": "sha256:47e5ffca22cf7129ae9976759435d6a6c8db519b17b0cf6ca1cf6754789143ea",
+            "after": "sha256:efa27fc9b5f7645c05187dbd575801a820a35c5cfc90fd3313e929c305f232b6"
+          }
+        ]
+      },
+      {
+        "revision": 73542,
+        "opId": "op_613e9e911792c370a2b25b97e81f69be4350af5865e445c17e959b99f87023ae",
+        "drift": [
+          {
+            "kind": "reviewDigest",
+            "at": "/payload/review",
+            "before": "sha256:47e5ffca22cf7129ae9976759435d6a6c8db519b17b0cf6ca1cf6754789143ea",
+            "after": "sha256:efa27fc9b5f7645c05187dbd575801a820a35c5cfc90fd3313e929c305f232b6"
+          }
+        ]
+      },
+      {
+        "revision": 80814,
+        "opId": "op_c79e2aeb33f6b9abae94bd231c70f074135d6856933ee483e5a7ac01bb47e715",
+        "drift": [
+          {
+            "kind": "submissionDigest",
+            "at": "/payload/execution/submission",
+            "before": "sha256:501f9239224c0e39a319310f108df575f3f1c9b63cf9941db1ff27919bd0b874",
+            "after": "sha256:2c79d1483d82d0c5a79ecb14978bca9ad3c1d7a1c4f0fd13ee4a260fe69449df"
+          }
+        ]
+      },
+      {
+        "revision": 81360,
+        "opId": "op_bb2483812e4407346896f8cd65fe14e2f775b3f72465b3ba6b3176f3965a2822",
+        "drift": [
+          {
+            "kind": "submissionDigest",
+            "at": "/payload/execution/submission",
+            "before": "sha256:501f9239224c0e39a319310f108df575f3f1c9b63cf9941db1ff27919bd0b874",
+            "after": "sha256:2c79d1483d82d0c5a79ecb14978bca9ad3c1d7a1c4f0fd13ee4a260fe69449df"
+          }
+        ]
+      },
+      {
+        "revision": 81386,
+        "opId": "op_46478b7582c099e7630dd2f863f9592420f028f03b78d5c45ad79e348e8a52b9",
+        "drift": [
+          {
+            "kind": "submissionDigest",
+            "at": "/payload/execution/submission",
+            "before": "sha256:501f9239224c0e39a319310f108df575f3f1c9b63cf9941db1ff27919bd0b874",
+            "after": "sha256:2c79d1483d82d0c5a79ecb14978bca9ad3c1d7a1c4f0fd13ee4a260fe69449df"
+          },
+          {
+            "kind": "reviewDigest",
+            "at": "/payload/review",
+            "before": "sha256:06766f2cd61af6c47f226d1e7778c211b037cae52e4b2fd609a75be82615e269",
+            "after": "sha256:4da1284e44668a8cd05309922f35900d329e2660a0f14e6585a44127a0040a01"
+          }
+        ]
+      },
+      {
+        "revision": 81403,
+        "opId": "op_40699d5d89a966b666079094d7e5ecdbfefce2ed2e5f092c02a9a890ec67adbf",
+        "drift": [
+          {
+            "kind": "submissionDigest",
+            "at": "/payload/execution/submission",
+            "before": "sha256:501f9239224c0e39a319310f108df575f3f1c9b63cf9941db1ff27919bd0b874",
+            "after": "sha256:2c79d1483d82d0c5a79ecb14978bca9ad3c1d7a1c4f0fd13ee4a260fe69449df"
+          },
+          {
+            "kind": "reviewDigest",
+            "at": "/payload/review",
+            "before": "sha256:06766f2cd61af6c47f226d1e7778c211b037cae52e4b2fd609a75be82615e269",
+            "after": "sha256:4da1284e44668a8cd05309922f35900d329e2660a0f14e6585a44127a0040a01"
+          }
+        ]
+      },
+      {
+        "revision": 81404,
+        "opId": "op_0f32b5bf2e6454888467773c110c2db5088017c95f2db04bcd542f062297879a",
+        "drift": [
+          {
+            "kind": "submissionDigest",
+            "at": "/payload/execution/submission",
+            "before": "sha256:501f9239224c0e39a319310f108df575f3f1c9b63cf9941db1ff27919bd0b874",
+            "after": "sha256:2c79d1483d82d0c5a79ecb14978bca9ad3c1d7a1c4f0fd13ee4a260fe69449df"
+          }
+        ]
+      }
+    ]
+  },
+  "manifest": {
+    "shapes": [
+      "X19 preset 升级抬 iteration 遗留"
+    ],
+    "sourceTaskId": "task_18fbac3907458c9a3d5bda12a8"
+  },
+  "eventCount": 57,
+  "revisionRange": [
+    73229,
+    93197
+  ],
+  "revisions": [
+    73229,
+    73230,
+    73231,
+    73232,
+    73239,
+    73244,
+    73245,
+    73259,
+    73373,
+    73374,
+    73424,
+    73476,
+    73495,
+    73520,
+    73536,
+    73542,
+    73544,
+    73546,
+    73547,
+    76361,
+    76364,
+    76373,
+    76401,
+    76402,
+    76412,
+    76413,
+    76936,
+    77018,
+    77021,
+    77027,
+    77057,
+    77105,
+    77107,
+    77108,
+    77109,
+    80761,
+    80771,
+    80785,
+    80787,
+    80807,
+    80812,
+    80814,
+    80857,
+    80911,
+    80944,
+    81210,
+    81356,
+    81359,
+    81360,
+    81362,
+    81367,
+    81386,
+    81402,
+    81403,
+    81404,
+    81410,
+    93197
+  ],
+  "frozenAt": "2026-09-16T13:04:05.338Z"
+}

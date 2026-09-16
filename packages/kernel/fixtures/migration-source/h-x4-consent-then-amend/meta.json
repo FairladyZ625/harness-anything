@@ -1,0 +1,193 @@
+{
+  "fixture": "h-x4-consent-then-amend",
+  "tier": "H",
+  "source": "canonical gen2 snapshot (sqlite .backup, mode=ro), de-identified",
+  "deidentification": {
+    "tool": "tools/gates/sample-canonical-events.mjs deidentifyCanonicalEvent",
+    "digestInputDrift": true,
+    "drifted": [
+      {
+        "revision": 55520,
+        "opId": "op_d5222d26a553ecfe43d78333789c9461a76daba152a605f32c3bb326a26d3252",
+        "drift": [
+          {
+            "kind": "reviewDigest",
+            "at": "/payload/review",
+            "before": "sha256:f493a1bc45f0eb0d2428a2714b5d1d3eb2fdab711b4cf07e864609fb236d257f",
+            "after": "sha256:5af4394c1e50e2b70166fa053e47996f920d79edcc04b0b242bdd8f0384dd54b"
+          }
+        ]
+      },
+      {
+        "revision": 55521,
+        "opId": "op_627549b0f71f0277412217167dcf17b1f28bd4ac9f0cf407f259b24af45520aa",
+        "drift": [
+          {
+            "kind": "reviewDigest",
+            "at": "/payload/review",
+            "before": "sha256:f493a1bc45f0eb0d2428a2714b5d1d3eb2fdab711b4cf07e864609fb236d257f",
+            "after": "sha256:5af4394c1e50e2b70166fa053e47996f920d79edcc04b0b242bdd8f0384dd54b"
+          }
+        ]
+      },
+      {
+        "revision": 55533,
+        "opId": "op_812a3bff1d78e2d954709e1f6b071b1724397f3927869d301e08e149255ad71d",
+        "drift": [
+          {
+            "kind": "reviewDigest",
+            "at": "/payload/review",
+            "before": "sha256:f0363797daba532094e080ef652cf2e8027c3295fa02254e35ddfe10436a47aa",
+            "after": "sha256:b557d88c22cddfa28234e8d4e425472a14b8c1987598cdc7b19ca0ca92f37184"
+          }
+        ]
+      },
+      {
+        "revision": 55534,
+        "opId": "op_aad3418892275337b80dbded28cde39b7dc0bb1c5725e7781154348bea0cda52",
+        "drift": [
+          {
+            "kind": "reviewDigest",
+            "at": "/payload/review",
+            "before": "sha256:f0363797daba532094e080ef652cf2e8027c3295fa02254e35ddfe10436a47aa",
+            "after": "sha256:b557d88c22cddfa28234e8d4e425472a14b8c1987598cdc7b19ca0ca92f37184"
+          }
+        ]
+      },
+      {
+        "revision": 55554,
+        "opId": "op_a9ac29f17e11ab3cf97822af051d3ef6ce217e4db398f1be12922d8b48d4ddc9",
+        "drift": [
+          {
+            "kind": "submissionDigest",
+            "at": "/payload/execution/submission",
+            "before": "sha256:64b8f4e3970e6e26f4531779b188d585df43d84a8c7ee52fc1d9675f50636689",
+            "after": "sha256:a954dae2f624293ead33feae576e1654f709bd8b34ebc4a0518eb2790ca45c0f"
+          }
+        ]
+      },
+      {
+        "revision": 55555,
+        "opId": "op_89f5cbf892fd31d63d7cc56e879a0a3ada2878c3f0b18eedf9cdd22f0ca5ff44",
+        "drift": [
+          {
+            "kind": "submissionDigest",
+            "at": "/payload/execution/submission",
+            "before": "sha256:64b8f4e3970e6e26f4531779b188d585df43d84a8c7ee52fc1d9675f50636689",
+            "after": "sha256:a954dae2f624293ead33feae576e1654f709bd8b34ebc4a0518eb2790ca45c0f"
+          }
+        ]
+      },
+      {
+        "revision": 55559,
+        "opId": "op_634c777993ae22670d1ddf815e0d1195a0815553867dd603466621ec1108420e",
+        "drift": [
+          {
+            "kind": "submissionDigest",
+            "at": "/payload/execution/submission",
+            "before": "sha256:b894d02af7b87c8c1830f847cc1bf51357e5c93b22a9064e282263c2e50cdb42",
+            "after": "sha256:d9c786ed9f1f3115a0f2219e5d453ce8e01311aaa11d076529153f703796c5dd"
+          }
+        ]
+      },
+      {
+        "revision": 55895,
+        "opId": "op_25421599f815156428bc4e1903f0c5c8b120647a8c05dcb54b691dc6ee6376e8",
+        "drift": [
+          {
+            "kind": "submissionDigest",
+            "at": "/payload/execution/submission",
+            "before": "sha256:b894d02af7b87c8c1830f847cc1bf51357e5c93b22a9064e282263c2e50cdb42",
+            "after": "sha256:d9c786ed9f1f3115a0f2219e5d453ce8e01311aaa11d076529153f703796c5dd"
+          },
+          {
+            "kind": "reviewDigest",
+            "at": "/payload/review",
+            "before": "sha256:4f76fa2501261eff4d9c285cc55effac7147b1bc2b44d889e74a1a4713d6f0d9",
+            "after": "sha256:3386eb69690cfa922dff306c51924cb67005121c0c8ad3a94229120511a1af7a"
+          }
+        ]
+      },
+      {
+        "revision": 55896,
+        "opId": "op_5667903e05186eed307c0af5951ca41888bfa1caa1ed19a5176fca0fdc2a9d75",
+        "drift": [
+          {
+            "kind": "submissionDigest",
+            "at": "/payload/execution/submission",
+            "before": "sha256:b894d02af7b87c8c1830f847cc1bf51357e5c93b22a9064e282263c2e50cdb42",
+            "after": "sha256:d9c786ed9f1f3115a0f2219e5d453ce8e01311aaa11d076529153f703796c5dd"
+          },
+          {
+            "kind": "reviewDigest",
+            "at": "/payload/review",
+            "before": "sha256:4f76fa2501261eff4d9c285cc55effac7147b1bc2b44d889e74a1a4713d6f0d9",
+            "after": "sha256:3386eb69690cfa922dff306c51924cb67005121c0c8ad3a94229120511a1af7a"
+          }
+        ]
+      },
+      {
+        "revision": 55897,
+        "opId": "op_10a491552058f1a3fa611751d6a8f80a3bc5449ed4707695bfeae5a470c76760",
+        "drift": [
+          {
+            "kind": "submissionDigest",
+            "at": "/payload/execution/submission",
+            "before": "sha256:b894d02af7b87c8c1830f847cc1bf51357e5c93b22a9064e282263c2e50cdb42",
+            "after": "sha256:d9c786ed9f1f3115a0f2219e5d453ce8e01311aaa11d076529153f703796c5dd"
+          }
+        ]
+      }
+    ]
+  },
+  "manifest": {
+    "shapes": [
+      "X4 先 consent 后 amend"
+    ],
+    "sourceTaskId": "task_32212e8ed7cc70b84823eee952"
+  },
+  "eventCount": 36,
+  "revisionRange": [
+    3506,
+    55897
+  ],
+  "revisions": [
+    3506,
+    31499,
+    31500,
+    31501,
+    31502,
+    31503,
+    41464,
+    49493,
+    55470,
+    55476,
+    55481,
+    55487,
+    55505,
+    55508,
+    55510,
+    55511,
+    55513,
+    55518,
+    55519,
+    55520,
+    55521,
+    55522,
+    55527,
+    55528,
+    55529,
+    55532,
+    55533,
+    55534,
+    55535,
+    55554,
+    55555,
+    55559,
+    55893,
+    55895,
+    55896,
+    55897
+  ],
+  "frozenAt": "2026-09-16T13:03:56.965Z"
+}

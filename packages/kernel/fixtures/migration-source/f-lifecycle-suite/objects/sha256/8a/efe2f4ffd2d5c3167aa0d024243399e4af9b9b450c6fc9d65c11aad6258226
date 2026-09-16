@@ -1,0 +1,23 @@
+# Review review-x5-1
+
+Managed by `ha task review-execution`; legacy `review.md` is not authoritative.
+
+- Task: task_fx5_done
+- Execution: exe_fx5_1
+- Verdict: approved
+- Commit: null
+- Iteration: 0
+- Content digest: sha256:51f082b2753e03bfc82b65ff5a4c945f2a5b2713f6c47c4e583f64ac151c1dbf
+- Submission digest: sha256:fbe6cda5d29ed41962ea20150762de5186640d3d0b3f587b81f45f78b6f9af72
+- Reviewed at: 2026-09-16T12:46:20.881Z
+- Consent: pending
+- Consent actor: pending
+- Consent source: pending
+
+## Reason
+
+Fixture review review-x5-1: approved.
+
+## Evidence checked
+
+- harness
