@@ -95,6 +95,7 @@ function submitted(): TaskLifecycleSnapshot {
         knownGaps: [],
         residualRisks: [],
         commitSha: "a".repeat(40),
+        completionContract: { gates: [] },
       },
     }) as TaskLifecycleCommand,
     { actorBinding: implementer, leaseVersion: 0, sessionDisposition: "complete" },
@@ -121,6 +122,7 @@ function amendment(
         knownGaps: [],
         residualRisks: [],
         commitSha: "b".repeat(40),
+        completionContract: { gates: [] },
       },
     },
     actor,
@@ -186,6 +188,7 @@ test("a review node with no submitted execution recovers exclusively through Sta
           knownGaps: [],
           residualRisks: [],
           commitSha: "a".repeat(40),
+          completionContract: { gates: [] },
         },
       } as const,
       reviewIntent = {

@@ -86,6 +86,7 @@ function submission(commitSha = commit0) {
     knownGaps: [],
     residualRisks: [],
     commitSha,
+    completionContract: { gates: [] },
   };
 }
 function submit(revision, executionId = "execution-0", commitSha = commit0) {

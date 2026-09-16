@@ -210,6 +210,8 @@ export type {
   SubmissionV1,
 } from "./domain/execution.ts";
 export { executionAnnotationKinds, isNativeCommitSha, submissionDigest } from "./domain/execution.ts";
+export { resolveCompletionContract, validateFrozenCompletionContract } from "./domain/completion-contract.ts";
+export type { FrozenCompletionContract } from "./domain/completion-contract.ts";
 export { sha256Bytes, sha256Text, stablePayloadHash, stableStringify } from "./integrity/stable-hash.ts";
 export { eventObjectTarget } from "./layout/ledger-object-layout.ts";
 export {

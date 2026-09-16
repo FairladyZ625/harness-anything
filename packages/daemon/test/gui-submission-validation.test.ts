@@ -11,6 +11,7 @@ const valid = Object.freeze({
   knownGaps: [],
   residualRisks: [],
   commitSha: "a".repeat(40),
+  completionContract: { gates: [] },
 });
 
 test("#1546: a valid submission has no issues", () => {
