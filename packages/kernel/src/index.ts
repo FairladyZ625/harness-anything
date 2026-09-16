@@ -216,6 +216,7 @@ export type {
   FrozenCompletionContract,
   FrozenGateRequirement,
   FrozenGateWitness,
+  FrozenReviewerDeclaration,
   MappedWitnessAdapterId,
 } from "./domain/completion-contract.ts";
 export { isPreservedVerdictWitness } from "./domain/completion-gate-witness.ts";

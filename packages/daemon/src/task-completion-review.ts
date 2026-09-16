@@ -72,7 +72,12 @@ export async function dispatchCompletionReview(
       );
     if (!existing) {
       // Repository-installed declarations shadow bundled product defaults; the executor never becomes the reviewer.
-      const reviewerId = cell.settings.readRepository().defaultReviewer ?? "closeout-reviewer";
+      // The cut's frozen declaration wins over the live repository setting so a settings change
+      // never redirects a cut already under review.
+      const reviewerId =
+        execution.submission!.completionContract.reviewer?.agentId ??
+        cell.settings.readRepository().defaultReviewer ??
+        "closeout-reviewer";
       const resolved = readAgentDeclarationResolution({
         rootDir: cell.rootDir,
         agentId: reviewerId,

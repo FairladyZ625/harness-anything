@@ -15,21 +15,26 @@ import { runFleetTaskCommandClient } from "../src/fleet/edge.ts";
 import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
 
 test(
-  "completion uses an installed override, reuses the cut dispatch after a lost response/reopen, and requires later owner consent",
+  "submit freezes the installed reviewer into the cut, reuses the cut dispatch after resubmit/reopen, and requires later owner consent",
   { timeout: 20_000 },
   async () => {
-    const f = await fixture();
+    const f = await fixture(false, true, false, false, false, undefined, { autoSubmit: false });
     try {
       await f.install();
+      const submitted = await f.submit();
+      assert.equal(f.launches.length, 1, "canonical submit dispatches the frozen reviewer once");
+      assert.equal(f.launches[0]!.instanceId, "review-first");
+      const dispatchStep = (
+        ((submitted as Record<string, unknown>).steps as Record<string, unknown>[] | undefined) ?? []
+      ).find((step) => typeof step.dispatchId === "string");
+      assert.ok(dispatchStep, `submit receipt must carry the review dispatch: ${JSON.stringify(submitted)}`);
+      assert.equal(typeof dispatchStep.runtimeSessionId, "string");
+      // The reviewer declaration is frozen into the cut: a later settings change cannot redirect it.
       const configured = await f.runPrincipal({ kind: "settings-update", defaultReviewer: "selected-reviewer" });
       assert.equal(configured.outcome, "applied", JSON.stringify(configured));
-      const selectedMissing = await f.complete();
-      assert.equal(selectedMissing.code, "review_missing", JSON.stringify(selectedMissing));
-      assert.match(JSON.stringify((selectedMissing as Record<string, unknown>).next), /selected-reviewer/u);
-      assert.match(JSON.stringify((selectedMissing as Record<string, unknown>).next), /--default-reviewer/u);
-      assert.equal(f.launches.length, 0);
-      const restored = await f.runPrincipal({ kind: "settings-update", defaultReviewer: "closeout-reviewer" });
-      assert.equal(restored.outcome, "applied", JSON.stringify(restored));
+      const resumed = await f.run({ kind: "task-submit", taskId, executionId });
+      assert.notEqual(resumed.outcome, "op_rejected", JSON.stringify(resumed));
+      assert.equal(f.launches.length, 1, "the same cut never spawns a second reviewer");
       const first = (await f.complete(true)) as Record<string, unknown>;
       assert.equal(first.code, "review_missing", JSON.stringify(first));
       assert.equal(f.launches.length, 1);
@@ -175,7 +180,7 @@ test("bundled reviewer without a ready instance returns configuration guidance",
 });
 
 test("completion requires a declared reviewer model instead of selecting the ambient default", async () => {
-  const f = await fixture();
+  const f = await fixture(false, true, false, false, false, undefined, { autoSubmit: false });
   try {
     // Omit model entirely, as in an unconstrained runtime_type=any declaration.
     const installed = await f.run({
@@ -190,6 +195,9 @@ test("completion requires a declared reviewer model instead of selecting the amb
       },
     });
     assert.equal(installed.outcome, "applied", JSON.stringify(installed));
+    const submitted = await f.submit();
+    assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+    assert.equal(f.launches.length, 0, "an unconfigured reviewer must not launch the ambient model at submit");
     const result = await f.complete();
     assert.equal(result.code, "review_missing", JSON.stringify(result));
     assert.match(JSON.stringify((result as Record<string, unknown>).next), /model/u);
@@ -233,10 +241,12 @@ test(
   },
 );
 test("completion with an unavailable declared model returns guidance without launching an ambient instance", async () => {
-  const f = await fixture(false, true);
+  const f = await fixture(false, true, false, false, false, undefined, { autoSubmit: false });
   try {
     await f.install();
     f.disableInstances();
+    const submitted = await f.submit();
+    assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
     const result = await f.complete();
     assert.equal(result.code, "review_missing", JSON.stringify(result));
     assert.match(JSON.stringify((result as Record<string, unknown>).next), /ready compatible instance/u);
@@ -335,9 +345,14 @@ test(
   "completion provider fallback keeps reviewer role; each exhausted attempt is replaced by the next complete",
   { timeout: 20_000 },
   async () => {
-    const f = await fixture(true);
+    const f = await fixture(true, true, false, false, false, undefined, { autoSubmit: false });
     try {
       await f.install();
+      // Keep the first attempt inside the first complete: submit while no compatible instance is
+      // enabled so the submit-time dispatch fails without recording an attempt, then re-enable.
+      f.disableInstances();
+      await f.submit();
+      f.enableInstances();
       const first = (await f.complete()) as Record<string, unknown>;
       assert.equal(first.code, "review_missing", JSON.stringify(first));
       const exhaustedCount = () =>
@@ -374,9 +389,14 @@ test(
   "a live fallback continuation still owns the cut; only full exhaustion lets complete re-dispatch",
   { timeout: 20_000 },
   async () => {
-    const f = await fixture(1);
+    const f = await fixture(1, true, false, false, false, undefined, { autoSubmit: false });
     try {
       await f.install();
+      // Keep the first attempt inside the first complete: submit while no compatible instance is
+      // enabled so the submit-time dispatch fails without recording an attempt, then re-enable.
+      f.disableInstances();
+      await f.submit();
+      f.enableInstances();
       const first = (await f.complete()) as Record<string, unknown>;
       assert.equal(first.code, "review_missing", JSON.stringify(first));
       // The root attempt failed; its fallback continuation launched and is still live.
@@ -412,10 +432,15 @@ test(
   "fleet TLS completions share one reviewer dispatch per attempt, including the exhausted retry",
   { timeout: 20_000 },
   async () => {
-    const f = await fixture(1);
+    const f = await fixture(1, true, false, false, false, undefined, { autoSubmit: false });
     let center: Awaited<ReturnType<typeof listenFleetTls>> | undefined;
     try {
       await f.install();
+      // Keep the first attempt inside the first fleet completion: submit while no compatible
+      // instance is enabled so the submit-time dispatch fails without recording an attempt.
+      f.disableInstances();
+      await f.submit();
+      f.enableInstances();
       const keyFile = path.join(f.root, "tls.key"),
         certFile = path.join(f.root, "tls.crt");
       execFileSync(

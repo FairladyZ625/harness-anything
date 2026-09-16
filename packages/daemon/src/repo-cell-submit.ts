@@ -1,5 +1,6 @@
 import {
   completionGuidance,
+  consumeKnownError,
   currentExecutionCuts,
   heldLeaseForExecutionActor,
   isSameExecution,
@@ -8,6 +9,7 @@ import {
   ledgerGitPath,
   resolveCompletionContract,
   resolveLedgerGitLayout,
+  reviewsForExecution,
   submissionFromCloseout,
   submissionDigest,
   sameWriteSource,
@@ -30,6 +32,8 @@ import { makeGitReadinessSource, runProcessText } from "./process-port.ts";
 import { readTaskTransitionDocument } from "./transition-document-access.ts";
 import { isPresetSnapshotCurrent, prepareSubmissionEvidence } from "./repo-cell-task-progress.ts";
 import { actionWitnessCollections } from "./repo-cell-witness-adapters.ts";
+import { dispatchCompletionReview } from "./task-completion-review.ts";
+import { readEffectiveCloseoutGates } from "./repo-cell-settings-state.ts";
 
 /** Summary selects one public delivery commit, center-accepted artifacts, or both. */
 export function deriveCloseoutSubmission(
@@ -193,7 +197,47 @@ function freezeCompletionContract(
 ): SubmissionV1["completionContract"] {
   const resolved = resolveCompletionContract(snapshot.task?.completionGateIds ?? [], cell.settings.readRepository());
   if (!resolved.ok) throw cell.cellCodedError("gate_mapping_invalid", resolved.message);
-  return resolved.contract;
+  // The cut freezes the resolved reviewer declaration so a later settings change never redirects a
+  // cut already under review; cuts frozen before the field fall back to the repository default.
+  return {
+    ...resolved.contract,
+    reviewer: { agentId: cell.settings.readRepository().defaultReviewer ?? "closeout-reviewer" },
+  };
+}
+
+/**
+ * Submit-triggered review dispatch (dec_59FA45A407F850E2B167A192D7 CH2 §3): once the canonical
+ * submission is accepted and evidence preparation ran, the cut's frozen reviewer claim owns the
+ * dispatch — the same claim complete's review_missing branch reuses, keyed by task/execution/
+ * iteration/digest. The submission is already accepted, so a dispatch failure lands as a receipt
+ * step and never reports the accepted cut as unsubmitted. Tasks whose closeout profile disables
+ * review, and cuts that already carry a recorded review, dispatch nothing.
+ */
+async function dispatchSubmittedCutReview(
+  cell: RepoCellOperationalContext,
+  taskId: string,
+  executionId: string,
+  binding: RepoCellBinding,
+  opId: string,
+): Promise<WriteReceiptDraft | null> {
+  const current = await cell.service.read(taskId),
+    snapshot = current.snapshot,
+    execution = snapshot.executions.find(
+      (candidate) => candidate.executionId === executionId && candidate.iteration === snapshot.task?.iteration,
+    );
+  if (
+    !execution?.submission ||
+    !current.packagePath ||
+    !readEffectiveCloseoutGates(cell.projection, snapshot.task?.completionGateIds ?? []).review ||
+    reviewsForExecution(snapshot.reviews, execution).length > 0
+  )
+    return null;
+  try {
+    return await dispatchCompletionReview(cell, snapshot, execution, current.packagePath, binding, opId, []);
+  } catch (error) {
+    consumeKnownError(error);
+    return cell.failed(cell.errorOperationId(error) ?? opId, error);
+  }
 }
 
 /**
@@ -307,10 +351,11 @@ export async function submitTask(
       binding,
     );
     if (receipt.outcome !== "applied") return receipt;
-    const steps = await prepareSubmissionEvidence(cell, taskId, executionId, binding, actionWitnessCollections(action));
+    const steps = await prepareSubmissionEvidence(cell, taskId, executionId, binding, actionWitnessCollections(action)),
+      review = await dispatchSubmittedCutReview(cell, taskId, executionId, binding, receipt.opId);
     return {
       ...(steps.find((step) => !["applied", "no_changes"].includes(step.outcome)) ?? receipt),
-      steps,
+      steps: [...steps, ...(review === null ? [] : [review])],
     } as WriteReceiptDraft;
   }
   // Assignment callers carry their changed documents above. With no carried changes,
@@ -375,21 +420,23 @@ export async function submitTask(
       } as WriteReceiptDraft;
     const receipt = cell.receiptForOperation(event!.opId, binding);
     if (receipt.outcome !== "applied") return receipt;
-    const steps = await prepareSubmissionEvidence(cell, taskId, executionId, binding, actionWitnessCollections(action));
+    const steps = await prepareSubmissionEvidence(cell, taskId, executionId, binding, actionWitnessCollections(action)),
+      review = await dispatchSubmittedCutReview(cell, taskId, executionId, binding, receipt.opId);
     return {
       ...(steps.find((step) => !["applied", "no_changes"].includes(step.outcome)) ?? receipt),
-      steps,
+      steps: [...steps, ...(review === null ? [] : [review])],
     } as WriteReceiptDraft;
   }
   if (selected.submission && submissionDigest(selected.submission) === submissionDigest(submission))
     return submitTask(cell, { ...action, amend: false }, binding);
   const receipt = await cell.lifecycleAction({ ...action, executionId, submission }, binding);
   if (receipt.outcome !== "applied") return receipt;
-  const steps = await prepareSubmissionEvidence(cell, taskId, executionId, binding, actionWitnessCollections(action));
+  const steps = await prepareSubmissionEvidence(cell, taskId, executionId, binding, actionWitnessCollections(action)),
+    review = await dispatchSubmittedCutReview(cell, taskId, executionId, binding, receipt.opId);
   return {
     ...(steps.find((step) => !["applied", "no_changes"].includes(step.outcome)) ?? receipt),
     ...(anchorDriftWarnings.length ? { warnings: anchorDriftWarnings } : {}),
-    steps: [...(synced ? [synced] : []), ...steps],
+    steps: [...(synced ? [synced] : []), ...steps, ...(review === null ? [] : [review])],
   } as WriteReceiptDraft;
 }
 
