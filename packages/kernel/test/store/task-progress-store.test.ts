@@ -354,6 +354,7 @@ function bootstrapAndStart(rootDir: string) {
     },
     start = applyTransition(snapshot, command, {
       actorBinding: actor,
+      deliveryBaseline: { kind: "commit", commitSha: "0".repeat(40) },
       reservation: {
         taskId: event.taskId,
         executionId: "execution-progress",

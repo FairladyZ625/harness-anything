@@ -155,6 +155,7 @@ export function lifecycleHarness() {
       const next = revision() + 1;
       return service.execute(command(owner, next, { type: "StartExecution", taskId: "task-1", executionId }, opId), {
         actorBinding: owner,
+        deliveryBaseline: { kind: "commit", commitSha: "0".repeat(40) },
         reservation: {
           taskId: "task-1",
           executionId,

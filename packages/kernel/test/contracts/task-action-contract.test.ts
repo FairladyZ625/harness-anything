@@ -127,7 +127,7 @@ test("named lifecycle specifications preserve every execution metadata field", (
         topology: "center-forward-write",
         coordination: "reserve",
         eventType: "execution_started",
-        proof: ["actorBinding", "reservation"],
+        proof: ["actorBinding", "deliveryBaseline", "reservation"],
       },
       {
         id: "transition",

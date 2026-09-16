@@ -188,6 +188,47 @@ test("local-command refuses stale collections after the submitted cut is amended
   }
 });
 
+// A merged-to:<branch> declaration resolves to an ordinary local-command requirement whose
+// command observes ancestry in the source repository through HARNESS_WITNESS_REPO: the verdict is
+// fail while the branch lacks the cut and flips to pass once the branch contains it — completion
+// reads the later observation, never a submit-time verdict.
+test("a merged-to ancestry observation fails until the target branch contains the cut", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-merged-to-"));
+  try {
+    git(root, "init", "-q", "-b", "main");
+    git(root, "config", "user.name", "Test");
+    git(root, "config", "user.email", "test@example.com");
+    writeFileSync(path.join(root, "file.txt"), "base\n");
+    git(root, "add", "file.txt");
+    git(root, "commit", "-qm", "base");
+    git(root, "checkout", "-qb", "delivery");
+    writeFileSync(path.join(root, "delivered.txt"), "delivered\n");
+    git(root, "add", "delivered.txt");
+    git(root, "commit", "-qm", "delivery");
+    const cutSha = git(root, "rev-parse", "HEAD");
+    git(root, "checkout", "-q", "main");
+
+    const requirement = localRequirement(
+        'git -C "$HARNESS_WITNESS_REPO" merge-base --is-ancestor "$HARNESS_WITNESS_CUT" refs/heads/main',
+        "merged-to:main",
+      ),
+      execution = submittedExecution(cutSha, [requirement]),
+      cell = cellStub(root, execution);
+
+    const before = await witnessAdapters["local-command"].collect!(cell, requirement, execution),
+      beforeEvidence = witnessAdapters["local-command"].evaluate(cell, requirement, execution, before);
+    assert.equal(beforeEvidence?.result, "fail");
+    assert.match(beforeEvidence?.provenance.rawResult ?? "", /exit [1-9]/u);
+
+    git(root, "merge", "-qm", "merge delivery", cutSha);
+    const after = await witnessAdapters["local-command"].collect!(cell, requirement, execution),
+      afterEvidence = witnessAdapters["local-command"].evaluate(cell, requirement, execution, after);
+    assert.equal(afterEvidence?.result, "pass");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 // -- canonical write admission ------------------------------------------------
 
 function admissionFixture(requirement: FrozenGateRequirement) {

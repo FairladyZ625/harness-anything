@@ -262,8 +262,7 @@ export function task(value: unknown): boolean {
 }
 
 export function execution(value: unknown): boolean {
-  if (
-    exactRecord(value, [
+  const executionV1Required = [
       "schema",
       "executionId",
       "taskId",
@@ -275,7 +274,11 @@ export function execution(value: unknown): boolean {
       "submittedAt",
       "closedAt",
       "submission",
-    ])
+    ],
+    executionV1Optional = ["deliveryBaseline", "amendedBy", "annotations"];
+  if (
+    recordWith(value, executionV1Required) &&
+    Object.keys(value).every((field) => [...executionV1Required, ...executionV1Optional].includes(field))
   )
     return (
       value.schema === "execution/v1" &&
