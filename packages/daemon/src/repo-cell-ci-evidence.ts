@@ -61,24 +61,32 @@ export function readLatestCiEvidence(
   const submitted = execution.submission.commitSha,
     publicCut = localGitObjectRefStore.hasCommit(cell.rootDir, submitted),
     root = publicCut ? cell.rootDir : resolveHarnessLayout(cell.rootDir).authoredRoot;
-  const events = publicCut ? newestGithubRuns(observations.events) : observations.events;
+  const events = publicCut ? newestGithubRuns(observations.events) : observations.events,
+    workflows = publicCut ? cell.settings.read().ci.workflows : [];
   for (const event of events) {
     if (!relatedCiObservation(root, event, submitted)) continue;
     const verification = event.payload.verification;
     if (publicCut && verification?.source === "github-actions" && verification.event !== "push") continue;
+    // Runs of workflows outside settings.ci.workflows are measurements, not delivery
+    // verdicts: they never shadow the configured workflow's runs, whichever conclusion.
+    if (
+      publicCut &&
+      verification?.source === "github-actions" &&
+      event.payload.run.branch === "main" &&
+      !workflows.includes(verification.workflow)
+    )
+      continue;
     if (
       !localGitObjectRefStore.hasCommit(root, submitted) ||
       !verification ||
       (publicCut
-        ? verification.source !== "github-actions" ||
-          !cell.settings.read().ci.workflows.includes(verification.workflow) ||
-          event.payload.run.branch !== "main"
+        ? verification.source !== "github-actions" || event.payload.run.branch !== "main"
         : verification.source !== "write-coordinator" || verification.workflow !== "ledger-publication")
     )
       throw cell.cellCodedError(
         "invalid_proof",
         publicCut
-          ? `Public delivery requires a verified ${cell.settings.read().ci.workflows.join(" or ")} GitHub main run.`
+          ? `Public delivery requires a verified ${workflows.join(" or ")} GitHub main run.`
           : "Private delivery requires a verified ledger-publication observation for its authored cut.",
       );
     if (verification.conclusion === "cancelled" || verification.conclusion === "skipped") continue;

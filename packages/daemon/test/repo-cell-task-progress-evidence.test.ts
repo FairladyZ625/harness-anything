@@ -355,12 +355,26 @@ test("CI evidence follows the repository's configured workflow names, not only r
   assert.equal(readLatestCiEvidence(configured.cell, current)?.result, "pass");
   const unconfigured = fixture(publicRoot, current, [observation(publicSha, 2, "success", "rewrite-ci")]);
   Object.assign(unconfigured.cell, { settings: settingsStub(["ci"]) });
-  assert.throws(
-    () => readLatestCiEvidence(unconfigured.cell, current),
-    (error: unknown) => {
-      if ((error as { readonly code?: string }).code !== "invalid_proof") return false;
-      return /verified ci GitHub main run/u.test((error as Error).message);
-    },
+  assert.equal(readLatestCiEvidence(unconfigured.cell, current), null);
+});
+
+test("verified runs from non-configured workflows never shadow configured main runs", () => {
+  const current = execution(publicSha),
+    unrelatedGreen = observation(publicSha, 2, "success", "rebuild-gates", "main", "push", 35066679301),
+    configuredGreen = observation(publicSha, 1, "success", "rewrite-ci", "main", "push", 35066679233),
+    unrelatedRed = observation(publicSha, 4, "failure", "rebuild-gates", "main", "push", 35066679400),
+    configuredRed = observation(publicSha, 3, "failure", "rewrite-ci", "main", "push", 35066679350);
+  assert.equal(
+    readLatestCiEvidence(fixture(publicRoot, current, [unrelatedGreen, configuredGreen]).cell, current)?.result,
+    "pass",
+  );
+  assert.equal(
+    readLatestCiEvidence(fixture(publicRoot, current, [unrelatedRed, configuredGreen]).cell, current)?.result,
+    "pass",
+  );
+  assert.equal(
+    readLatestCiEvidence(fixture(publicRoot, current, [unrelatedGreen, configuredRed]).cell, current)?.result,
+    "fail",
   );
 });
 
