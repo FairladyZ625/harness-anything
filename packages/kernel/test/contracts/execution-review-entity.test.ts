@@ -1,6 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
+import { validateExecutionV1 } from "../../src/domain/execution.ts";
 import { compileEntityUpsert } from "../../src/domain/entity-event-compile.ts";
 import {
   interpretEmbeddedEntityProjections,
@@ -73,6 +74,33 @@ test("execution and review are dependency-free EntityKindContracts with lifecycl
       source: "local" as const,
       occurredAt: execution.claimedAt,
     };
+
+  const executionContract = getEntityKindContract("execution")!;
+  for (const kind of ["correction", "superseded-by"]) {
+    const annotated = {
+      ...execution,
+      annotations: [{ kind, note: "Preserve the accepted history.", actor, annotatedAt: execution.claimedAt }],
+    };
+    assert.deepEqual(validateExecutionV1(annotated), []);
+    const event = {
+      schema: "task-event/v1",
+      type: "execution_annotated",
+      opId: "op-annotation",
+      workspaceRevision: 2,
+      payload: { execution: annotated },
+    };
+    const [projected] = interpretEmbeddedEntityProjections(executionContract, event);
+    assert.deepEqual(projected?.value.annotations, annotated.annotations);
+    assert.equal(projected?.relations[0]?.targetRef, `task/${execution.taskId}`);
+    for (const malformed of [
+      { ...annotated, annotations: [] },
+      { ...annotated, annotations: "not-an-array" },
+      { ...annotated, unexpected: true },
+    ])
+      assert.throws(() =>
+        interpretEmbeddedEntityProjections(executionContract, { ...event, payload: { execution: malformed } }),
+      );
+  }
 
   assert.equal(getEntityKindContract("execution")?.id.field, "executionId");
   assert.equal(getEntityKindContract("review")?.id.field, "reviewId");
