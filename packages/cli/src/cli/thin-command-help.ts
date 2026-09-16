@@ -13,6 +13,13 @@ export type ThinHelpCatalogEntry = {
 export const clientLocalCommands = [
   generationMigrationCommand,
   {
+    id: "ledger-restore-offline",
+    path: ["restore"],
+    usage: "ha restore <backup-directory> --to <absolute-directory>",
+    summary: "Restore a backup into a new absolute directory without a running daemon.",
+    help: undefined,
+  },
+  {
     id: "gui",
     path: ["gui"],
     usage: "ha gui [--root <path>]",
@@ -26,8 +33,10 @@ export const clientLocalCommands = [
   {
     id: "doctor",
     path: ["doctor"],
-    usage: "ha doctor [commands] [--root <path>]",
-    summary: "Validate ha command invocations in authored Markdown docs against the live command catalog.",
+    usage: "ha doctor [commands|health] [--root <path>] [--json]",
+    summary:
+      "Report repository health (default), or validate ha command references in authored Markdown docs " +
+      "with `ha doctor commands`.",
     help: [
       "    Scans harness/context, harness/governance, AGENTS.md, CLAUDE.md, .agents/, and docs-release/ for",
       "    ha commands in code fences and inline code spans, then parses each through the same descriptor",
@@ -108,7 +117,7 @@ export function helpCommandPrefix(argv: readonly string[]): string | undefined {
   const index = firstCliCommandIndex(argv);
   if (index < 0) return undefined;
   const tokens = argv.slice(index).filter((token) => token !== "--help" && token !== "--json");
-  if (tokens.length < 2 || tokens.some((token) => token.startsWith("-"))) return undefined;
+  if (tokens.length < 2) return undefined;
   return `ha ${tokens.join(" ")}`;
 }
 

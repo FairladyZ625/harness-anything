@@ -6,7 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { type ActorIdentity, type LeaseV1, type TaskLifecycleSnapshot, type TaskV2 } from "../../kernel/src/index.ts";
 import { taskSurfaceWrite } from "../src/repo-cell-task-command-docs.ts";
-import { taskMutation } from "../src/repo-cell-task-command.ts";
+import { taskMutation } from "../src/repo-cell-task-mutation.ts";
 import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/dispatch-stream.ts";
 
 const now = "2026-08-25T03:15:20.000Z";

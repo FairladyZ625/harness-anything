@@ -57,7 +57,8 @@ export function listProjection(
       query.updatedBefore === undefined &&
       query.limit === undefined &&
       query.cursor === undefined &&
-      query.pinnedFirst !== true
+      query.pinnedFirst !== true &&
+      query.activePackagesOnly !== true
     ) {
       const rows = queryPreparedRows<{
           readonly task_id: string;

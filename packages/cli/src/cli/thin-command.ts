@@ -46,7 +46,7 @@ import { accepted, globalOption, nonEmpty, rejected, stripGlobals } from "./thin
 import { clientLocalCommands, commandDomains, unsupportedCommandHint } from "./thin-command-help.ts";
 import type { ThinHelpCatalogEntry } from "./thin-command-help.ts";
 import { deriveInputDirectory } from "./thin-command-inputs.ts";
-import { parseRouted } from "./thin-command-router.ts";
+import { parseRouted, parseStorageRoute } from "./thin-command-router.ts";
 import { parseResumeDispatch } from "./thin-command-runtime.ts";
 import { parseTask } from "./thin-command-task.ts";
 import { preferTaskActionHelp } from "./task-action-help.ts";
@@ -77,7 +77,9 @@ export function parseThinCommand(
     return parseResumeDispatch(rootDir, repoId, json, args, inputs);
   if (route?.id === "task-dispatches" && nonEmpty(args[2]) && args.length === 3)
     return accepted(rootDir, repoId, json, { kind: "task-dispatches", taskId: args[2] }, "repo.task.dispatches");
-  const routed = parseRouted(route, args, rootDir, repoId, json, inputs);
+  const routed =
+    parseStorageRoute(route, args, rootDir, repoId, json, inputs) ??
+    parseRouted(route, args, rootDir, repoId, json, inputs);
   if (routed?.ok && typeof routed.command.action.packageSource === "string")
     return {
       ...routed,
@@ -132,7 +134,9 @@ export function renderThinHelp(
     groups = commandDomains,
     body = domain
       ? [
-          matchedPrefix ? `Command ${matchedPrefix}:` : `Commands for ${domain}:`,
+          matchedPrefix && !matchedPrefix.split(" ").at(-1)?.startsWith("-")
+            ? `Command ${matchedPrefix}:`
+            : `Commands for ${domain}:`,
           ...visible.map(({ usage, summary, help }) => `  ${usage}\n    ${summary}${help ? `\n${help}` : ""}`),
         ]
       : [

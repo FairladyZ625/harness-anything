@@ -10,6 +10,7 @@ import {
   type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
 import { actionCriterionFailure, attributeCellCriterion } from "./repo-cell-errors.ts";
+import { runtimeSessionDispatchRole } from "./repo-cell-proof.ts";
 import { readEffectiveCloseoutGates } from "./repo-cell-settings-state.ts";
 import { assertCurrentSubmittedExecution } from "./repo-cell-execution-selection.ts";
 import { leaseTtlMs, type RepoCellBinding, type RepoTaskAction, type Snapshot } from "./repo-cell-types.ts";
@@ -26,6 +27,16 @@ export async function runTaskActionCatalogRuntime(
   action: RepoTaskAction,
   binding: RepoCellBinding,
 ): Promise<WriteReceipt> {
+  // A reviewer runtime session may only record a review; every other task action belongs to an
+  // implementation executor. This runs before lease and transition checks so a reviewer can never
+  // reach a path that would open or mutate an implementation iteration.
+  const actorRuntime = runtimeSessionDispatchRole(cell.projection, cell.rootDir, binding.actor);
+  if (actorRuntime?.role === "reviewer" && action.kind !== "task-review-execution")
+    throw cell.cellCodedError(
+      "runtime_reviewer_lifecycle_forbidden",
+      `Reviewer runtime ${actorRuntime.runtimeSessionId} may only record a review; ${action.kind} belongs to an ` +
+        "implementation executor and would mutate the task's implementation iteration.",
+    );
   const taskId = cell.requiredCellText(action.taskId, "taskId"),
     current = await cell.service.read(taskId),
     expectedRevision = Number.isSafeInteger(action.expectedVersion)

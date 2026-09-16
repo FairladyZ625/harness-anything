@@ -115,6 +115,31 @@ export const taskExecutionProtocolCommands = Object.freeze([
       cliInput("--as-owner", "boolean", false, { code: "invalid_field" }, { field: "asOwner" }),
     ],
   }),
+  defineCenterForwardWriteCommand({
+    id: "task-dispatch-review",
+    phase: "W3",
+    path: ["task", "dispatch-review", "<task-id>"],
+    summary:
+      "Dispatch one independent reviewer per selected task; each review binds to the task's submitted cut, never to an implementation execution.",
+    method: "repo.task.run",
+    inputs: [
+      cliInput("--task", "repeated", false, {
+        code: "invalid_field",
+      }),
+      cliInput("--agent", "single", false, { code: "invalid_field" }),
+      cliInput("--execution-id", "single", false, { code: "invalid_field" }),
+      cliInput("--instance", "single", false, { code: "invalid_field" }),
+      cliInput("--model", "single", false, { code: "invalid_field" }),
+      cliInput(
+        "--effort",
+        "single",
+        false,
+        { code: "invalid_runtime_effort" },
+        { enum: ["minimal", "low", "medium", "high", "xhigh", "max"] },
+      ),
+      cliInput("--fast", "boolean", false, { code: "invalid_runtime_fast" }),
+    ],
+  }),
   defineLedgerWriteCommand({
     id: "task-artifact-add",
     phase: "W3",

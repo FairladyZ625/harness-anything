@@ -154,6 +154,7 @@ export type ActiveRuntime = {
   readonly kindId: RuntimeInstanceKind;
   readonly permissionMode: RuntimePermissionMode | null;
   readonly agent: Pick<RuntimeAgent, "id" | "name"> | null;
+  readonly role: string | null;
   readonly delegatedBy: Pick<RuntimeAgent, "id" | "name"> | null;
   readonly squadId: string | null;
   readonly parentRuntimeSessionId: string | null;

@@ -8,6 +8,10 @@ import {
 import type { ThinCommand } from "../cli/thin-command.ts";
 import { withAutostart } from "./with-autostart.ts";
 
+export function isRepoAdminMethod(method: string): boolean {
+  return ["daemon.repo.unbind", "daemon.repo.purge", "daemon.repo.backup", "daemon.repo.restoreDrill"].includes(method);
+}
+
 export function runRepoAdminCommand(input: {
   readonly command: ThinCommand;
   readonly env: NodeJS.ProcessEnv;
@@ -19,7 +23,11 @@ export function runRepoAdminCommand(input: {
     daemonId = daemonIdFromEnv(input.env),
     socketPath = localUserDaemonEndpoint(userRoot, daemonId),
     target = { userRoot, daemonId, socketPath },
-    { kind: _kind, ...params } = input.command.action;
+    { kind: _kind, ...actionParams } = input.command.action,
+    params =
+      input.command.method === "daemon.repo.backup" || input.command.method === "daemon.repo.restoreDrill"
+        ? { rootDir: input.command.rootDir, ...actionParams }
+        : actionParams;
   return withAutostart(
     () => input.request(target, input.command.method, params as JsonObject),
     () => input.launch(target),

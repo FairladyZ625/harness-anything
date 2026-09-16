@@ -591,7 +591,9 @@ function factRetirementBlocker(snapshot: Snapshot, executionId: string, assessme
     next: completionGuidance(
       snapshot,
       executionId,
-      `Record the disposition of ${first} in the task closeout: superseding observation or why it still holds.`,
+      `Declare the disposition of ${first}: run ha task complete --fact-holds "${first}:<rationale>" ` +
+        "if it still holds, or record a task Fact with a supersedes-fact relation to it if superseded; " +
+        "closeout prose only records and does not discharge.",
       "Standing upstream evidencing Facts lack an explicit retirement disposition:\n" + details,
     ),
   } as const;

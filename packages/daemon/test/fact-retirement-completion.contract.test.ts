@@ -60,6 +60,9 @@ test("task complete rejects an undeclared upstream Fact and persists a still-hol
       String((blocked.next as readonly { readonly reason: string }[])[0]?.reason),
       new RegExp(`${factRef} via decision/${decisionId}/C1`, "u"),
     );
+    const nextAction = String((blocked.next as readonly { readonly action: string }[])[0]?.action ?? "");
+    assert.match(nextAction, /--fact-holds/u);
+    assert.match(nextAction, /supersedes-fact/u);
     assert.match(String(blocked.rejectionExplanation), new RegExp(`${factRef} via decision/${decisionId}/C1`, "u"));
     eventReader = makeTaskEventReader({ repoId, rootDir });
     assert.equal(
@@ -126,14 +129,92 @@ test("task complete needs no disposition for an upstream Fact that another Fact 
   }
 });
 
+test("task complete rejects malformed and duplicate fact-holds dispositions", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-fact-retirement-enum-")),
+    repoId = workspaceId("fact-retirement-enum"),
+    taskId = "task_fact_retirement_enum";
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    initRepo(rootDir);
+    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "fact-retirement-enum" });
+    const created = await cell.run(
+      { kind: "task-create", taskId, title: "Disposition Enum", presetId: "docs-task" },
+      binding,
+    );
+    assert.equal(created.outcome, "applied", JSON.stringify(created));
+    // The disposition enum is exactly one canonical Fact ref plus a non-empty rationale,
+    // at most once per Fact — anything else is an invalid command, not a silent ignore.
+    const malformed = (await cell.run(
+        { kind: "task-complete", taskId, factHolds: [{ factRef: "fact/F-ABCDEFGH", rationale: "" }] },
+        binding,
+      )) as Record<string, unknown>,
+      duplicate = (await cell.run(
+        {
+          kind: "task-complete",
+          taskId,
+          factHolds: [
+            { factRef: "fact/F-ABCDEFGH", rationale: "first" },
+            { factRef: "fact/F-ABCDEFGH", rationale: "second" },
+          ],
+        },
+        binding,
+      )) as Record<string, unknown>;
+    assert.equal(malformed.outcome, "op_rejected", JSON.stringify(malformed));
+    assert.equal(malformed.code, "invalid_command");
+    assert.match(String(malformed.rejectionExplanation ?? malformed.evidence), /canonical Fact ref/u);
+    assert.equal(duplicate.outcome, "op_rejected", JSON.stringify(duplicate));
+    assert.equal(duplicate.code, "invalid_command");
+    assert.match(
+      String(duplicate.rejectionExplanation ?? duplicate.evidence),
+      /at most one --fact-holds rationale per Fact/u,
+    );
+  } finally {
+    await cell?.close();
+    await removeTemporaryDirectory(rootDir);
+  }
+});
+
+test("task complete enumerates every undischarged upstream Fact in the blocker", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-fact-retirement-list-")),
+    repoId = workspaceId("fact-retirement-list"),
+    taskId = "task_fact_retirement",
+    executionId = "exe_fact_retirement";
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    initRepo(rootDir);
+    mkdirSync(path.join(rootDir, "harness"), { recursive: true });
+    writeFileSync(
+      path.join(rootDir, "harness", "harness.yaml"),
+      "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n" +
+        "settings:\n  closeout:\n    profile: strict\n",
+    );
+    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "fact-retirement-list" });
+    await reachGreenInReview(cell, rootDir, taskId, executionId);
+    const first = await linkUpstreamFact(cell, taskId, "first"),
+      second = await linkUpstreamFact(cell, taskId, "second");
+    const blocked = (await cell.run({ kind: "task-complete", taskId, executionId }, binding)) as Record<
+      string,
+      unknown
+    >;
+    assert.equal(blocked.outcome, "op_rejected", JSON.stringify(blocked));
+    const presented = JSON.stringify(blocked.next) + String(blocked.rejectionExplanation ?? "");
+    assert.ok(presented.includes(first.factRef), `missing ${first.factRef} in ${presented}`);
+    assert.ok(presented.includes(second.factRef), `missing ${second.factRef} in ${presented}`);
+  } finally {
+    await cell?.close();
+    await removeTemporaryDirectory(rootDir);
+  }
+});
+
 async function linkUpstreamFact(
   cell: Awaited<ReturnType<typeof openRepoCell>>,
   taskId: string,
+  marker = "the",
 ): Promise<{ readonly factRef: string; readonly decisionId: string }> {
   const upstream = (await cell.run(
       {
         kind: "fact-record",
-        statement: "The completion loop leaves motivating Facts standing without a disposition.",
+        statement: `The completion loop leaves motivating Facts standing without a disposition (${marker}).`,
         evidenceSource: "test:fact-retirement",
         confidence: "high",
         memoryClass: "semantic",
@@ -146,7 +227,7 @@ async function linkUpstreamFact(
       {
         kind: "decision-propose",
         jsonInput: JSON.stringify({
-          title: "Require Fact retirement disposition",
+          title: `Require Fact retirement disposition (${marker})`,
           question: "How should completion close the motivating Fact loop?",
           riskTier: "high",
           urgency: "high",
@@ -156,7 +237,7 @@ async function linkUpstreamFact(
           appliesTo: { modules: ["daemon"], productLines: ["harness-anything"] },
           chosen: [{ id: "CH1", text: "Gate completion on explicit disposition" }],
           rejected: [{ id: "RJ1", text: "Leave it manual", whyNot: "That leaves the loop open" }],
-          claims: [{ id: "C1", text: "The loop is currently open", loadBearing: true }],
+          claims: [{ id: "C1", text: `The ${marker} loop is currently open`, loadBearing: true }],
           fulfillments: [{ claimId: "C1", mode: "evidenced" }],
         }),
       },

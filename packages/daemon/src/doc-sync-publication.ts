@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import type { TaskProjection } from "../../kernel/src/index.ts";
 import {
@@ -29,6 +29,7 @@ import {
   runtimeArchiveText,
 } from "./doc-sync-files.ts";
 import { readDocReceipt } from "./doc-sync-reads.ts";
+import { readDispatchStream } from "./dispatch-stream.ts";
 
 export interface RuntimeDispatchArchive {
   readonly dispatchId: string;
@@ -183,46 +184,73 @@ export function archiveRuntimeDispatch(
       .update(`${input.workspaceId}\0${value.dispatchId}\0${value.runtimeSessionId}`)
       .digest("hex")}`,
     existing = input.store.readEvent(opId);
-  if (
-    existing === null &&
-    (!directPaths(
-      input.rootDir,
-      documents.map(({ path: target }) => target),
-    ) ||
-      documents.some(({ path: target }) => !resolveDocRoute(target).allowed) ||
-      documents.some(
-        ({ path: target }, index) =>
-          reads[index]!.status !== "ready" ||
-          reads[index]!.document !== null ||
-          existsSync(path.join(layout.authoredRoot, ...target.split("/"))),
-      ))
-  )
-    throw docSyncError(
-      "runtime_archive_collision",
-      `Runtime archive ${value.dispatchId} is not a fresh task artifact set`,
+  // A reviewer registers its review (which publishes the report documents itself) before its runtime
+  // settles. For reviewer dispatches an archive document that is already published with identical
+  // content is already archived, not a collision; only divergent pre-existing content still fails.
+  const reviewer = readDispatchStream(input.rootDir, value.dispatchId)?.header.role === "reviewer",
+    classified = documents.map((document, index) => {
+      const authored = path.join(layout.authoredRoot, ...document.path.split("/")),
+        authoredBody = existsSync(authored) ? readFileSync(authored) : null,
+        read = reads[index]!,
+        fresh = read.status === "ready" && read.document === null && authoredBody === null;
+      let identical = false;
+      if (!fresh && reviewer) {
+        const digest = sha256Bytes(document.bytes);
+        identical =
+          (read.status === "ready" && read.document?.blobSha256 === digest) ||
+          (authoredBody !== null && sha256Bytes(authoredBody) === digest);
+      }
+      return { document, fresh, identical };
+    });
+  if (existing === null) {
+    const unrouted =
+        !directPaths(
+          input.rootDir,
+          documents.map(({ path: target }) => target),
+        ) || documents.some(({ path: target }) => !resolveDocRoute(target).allowed),
+      conflict = classified.find((entry) => !entry.fresh && !entry.identical);
+    if (unrouted || conflict)
+      throw docSyncError(
+        "runtime_archive_collision",
+        `Runtime archive ${value.dispatchId} is not a fresh task artifact set` +
+          (conflict ? ` (${conflict.document.path} already exists)` : ""),
+      );
+  }
+  const pending = classified.filter((entry) => entry.fresh).map((entry) => entry.document);
+  if (existing === null && pending.length === 0)
+    return {
+      outcome: "applied",
+      opId,
+      receiptId: opId,
+      code: "already_published",
+      origin: "doc-sync",
+      summary: `runtime archive ${value.dispatchId}: every document is already published`,
+    };
+  // On replay the intent must match the recorded event's full change set; the pending filter only
+  // applies to a first-time archive that found some of its documents already published.
+  const intentDocuments = existing === null ? pending : documents,
+    intent = parseDocWriteIntent(
+      {
+        schema: "doc-write-intent/v1",
+        executionId: null,
+        baseLedgerSha: input.store.currentCut(),
+        changes: intentDocuments.map(({ path: target, bytes, mediaType }) => {
+          const sha = sha256Bytes(bytes);
+          return {
+            path: target,
+            baseBlobSha256: null,
+            policyId: classifyTextualArtifactPath(target)?.policyId ?? DOC_POLICY_ID,
+            candidate: {
+              ref: `doc-sync-claims/${sha}`,
+              sha256: sha,
+              size: bytes.byteLength,
+              mediaType,
+            },
+          };
+        }),
+      },
+      input.workspaceId,
     );
-  const intent = parseDocWriteIntent(
-    {
-      schema: "doc-write-intent/v1",
-      executionId: null,
-      baseLedgerSha: input.store.currentCut(),
-      changes: documents.map(({ path: target, bytes, mediaType }) => {
-        const sha = sha256Bytes(bytes);
-        return {
-          path: target,
-          baseBlobSha256: null,
-          policyId: classifyTextualArtifactPath(target)?.policyId ?? DOC_POLICY_ID,
-          candidate: {
-            ref: `doc-sync-claims/${sha}`,
-            sha256: sha,
-            size: bytes.byteLength,
-            mediaType,
-          },
-        };
-      }),
-    },
-    input.workspaceId,
-  );
   return publishDocIntent(
     {
       ...input,
@@ -236,7 +264,7 @@ export function archiveRuntimeDispatch(
       },
     },
     intent,
-    documents.map(({ bytes }) => bytes),
+    intentDocuments.map(({ bytes }) => bytes),
     null,
     { opId, ignoreBaseLedgerShaOnReplay: true },
   );

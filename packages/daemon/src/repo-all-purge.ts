@@ -20,50 +20,60 @@ export function validateRepoAllPurge(input: {
 }): string {
   if (input.confirm !== input.repoId) throw new Error(`--confirm must equal repository id ${input.repoId}`);
   if (!input.backup) throw new Error("--backup is required when --scope is all");
-  if (!path.isAbsolute(input.backup)) throw new Error("--backup must be an absolute path");
-  const backupDir = path.resolve(input.backup),
+  return validateBackupDestination(input.rootDir, input.backup);
+}
+
+/** A backup lands outside the live ledger roots: purge removes them, and a drill restores below them. */
+export function validateBackupDestination(rootDir: string, backup: string): string {
+  if (!path.isAbsolute(backup)) throw new Error("backup destination must be an absolute path");
+  const backupDir = path.resolve(backup),
     canonicalBackupDir = canonicalProspectivePath(backupDir),
-    layout = resolveHarnessLayout(input.rootDir);
-  if (existsSync(backupDir)) throw new Error("--backup destination must not already exist");
+    layout = resolveHarnessLayout(rootDir);
+  if (existsSync(backupDir)) throw new Error("backup destination must not already exist");
   if (
-    isWithin(canonicalBackupDir, realpathSync(layout.localRoot)) ||
-    isWithin(canonicalBackupDir, realpathSync(layout.authoredRoot))
+    isWithin(canonicalBackupDir, canonicalProspectivePath(layout.localRoot)) ||
+    isWithin(canonicalBackupDir, canonicalProspectivePath(layout.authoredRoot))
   )
-    throw new Error("--backup must not be inside .harness or harness because those directories will be removed");
+    throw new Error("backup destination must not be inside .harness or harness");
   return backupDir;
 }
 
-export function backupRepoForAllPurge(input: {
-  readonly rootDir: string;
-  readonly backupDir: string;
-  readonly registration: DaemonRegistryRepo;
-  readonly writerEpoch: number;
-}): LedgerBackupManifest {
+export function backupRepo(
+  input: { readonly rootDir: string; readonly backupDir: string } & (
+    | { readonly registration: DaemonRegistryRepo; readonly writerEpoch: number }
+    | { readonly registration?: never; readonly writerEpoch?: never }
+  ),
+): LedgerBackupManifest {
   return createLedgerBackup({
     rootInput: input.rootDir,
     backupDir: input.backupDir,
-    registration: {
-      repoId: input.registration.repoId,
-      mode: input.registration.mode,
-      connectionId: input.registration.connectionId,
-      displayName: input.registration.displayName,
-      authoredBranch: input.registration.authoredBranch,
-      writerEpoch: input.writerEpoch,
-    },
+    ...(input.registration
+      ? {
+          registration: {
+            repoId: input.registration.repoId,
+            mode: input.registration.mode,
+            connectionId: input.registration.connectionId,
+            displayName: input.registration.displayName,
+            authoredBranch: input.registration.authoredBranch,
+            writerEpoch: input.writerEpoch,
+          },
+        }
+      : {}),
   });
 }
 
-export function drillRepoAllPurgeBackup(input: {
+export function drillRepoBackup(input: {
   readonly rootDir: string;
   readonly backupDir: string;
-  readonly manifest: LedgerBackupManifest;
-}): void {
+  readonly manifest?: LedgerBackupManifest;
+  readonly shadowParent?: string;
+}) {
   const layout = resolveHarnessLayout(input.rootDir);
-  drillLedgerBackup({
+  return drillLedgerBackup({
     backupDir: input.backupDir,
-    shadowParent: path.join(layout.localRoot, "restore-drills"),
+    shadowParent: input.shadowParent ?? path.join(layout.localRoot, "restore-drills"),
     retention: restoreDrillRetentionFor(input.rootDir),
-    verifiedManifest: input.manifest,
+    ...(input.manifest ? { verifiedManifest: input.manifest } : {}),
   });
 }
 

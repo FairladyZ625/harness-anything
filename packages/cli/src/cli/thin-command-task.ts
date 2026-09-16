@@ -15,11 +15,16 @@ export function parseTask(
   json: boolean,
   inputs: ThinCliInputDirectory,
 ): ThinParseResult {
-  const verb = args[1];
-  if (id === "task-list") return parseProjected(id, args.slice(2), rootDir, repoId, json, inputs);
-  if (id === "task-contract-migrate") return parseContractMigrate(args, rootDir, repoId, json, inputs);
-  if (id === "task-delete") return parseTaskDelete(args, rootDir, repoId, json, inputs);
-  if (id === "task-archive") return parseTaskArchive(args, rootDir, repoId, json, inputs);
+  const verb = args[1],
+    delegated: Partial<Record<string, () => ThinParseResult>> = {
+      "task-list": () => parseProjected(id, args.slice(2), rootDir, repoId, json, inputs),
+      "task-contract-migrate": () => parseContractMigrate(args, rootDir, repoId, json, inputs),
+      "task-delete": () => parseTaskDelete(args, rootDir, repoId, json, inputs),
+      "task-archive": () => parseTaskArchive(args, rootDir, repoId, json, inputs),
+      "task-dispatch-review": () => parseTaskDispatchReview(args, rootDir, repoId, json, inputs),
+    },
+    delegatedParse = delegated[id]?.();
+  if (delegatedParse !== undefined) return delegatedParse;
   if (id === "task-show") {
     const positional = args[2]?.startsWith("--") ? undefined : args[2],
       f = readFlags(id, args.slice(positional ? 3 : 2), inputs);
@@ -49,6 +54,7 @@ export function parseTask(
   if (
     id === "task-start" ||
     id === "task-submit" ||
+    id === "task-settle" ||
     id === "task-review-execution" ||
     id === "task-complete" ||
     id === "task-release" ||
@@ -110,4 +116,27 @@ export function parseTask(
     renderCliGuidance("run-help", { helpCommand: inputs.get(id)!.helpCommand }),
     json,
   );
+}
+
+function parseTaskDispatchReview(
+  args: readonly string[],
+  rootDir: SafePath,
+  repoId: string | undefined,
+  json: boolean,
+  inputs: ThinCliInputDirectory,
+): ThinParseResult {
+  const first = args[2];
+  if (!nonEmpty(first)) return rejected("missing_field", "Run ha task dispatch-review <task-id>.", json);
+  const f = readFlags("task-dispatch-review", args.slice(3), inputs);
+  if (!f.ok) return rejected(f.code, f.nextAction, json);
+  return accepted(rootDir, repoId, json, {
+    kind: "task-dispatch-review",
+    taskIds: [first, ...(f.many.get("--task") ?? [])],
+    ...(f.one.get("--agent") ? { agentId: f.one.get("--agent") } : {}),
+    ...(f.one.get("--execution-id") ? { executionId: f.one.get("--execution-id") } : {}),
+    ...(f.one.get("--instance") ? { runtimeInstanceId: f.one.get("--instance") } : {}),
+    ...(f.one.get("--model") ? { model: f.one.get("--model") } : {}),
+    ...(f.one.get("--effort") ? { effort: f.one.get("--effort") } : {}),
+    ...(f.booleans.has("--fast") ? { fast: true } : {}),
+  });
 }

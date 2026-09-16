@@ -1,48 +1,36 @@
 # 出处、裁决与事件账本
 
-[决策 vs 裁决](../../learn/zh/02-decision-and-verdict.md) 划下了一条硬线:decision 回答*我们走哪条路?*,verdict 回答*这个具体的输出成立吗?*——把两者混为一谈,会让其中一个悄悄吞掉另一个。本页展示把它们分开的机械装置,以及它们所依赖的两种记录结构:把每个实体绑定到产生它的那次运行的 `provenance[]`,以及 Exit Gate 用来核对完整性的那本 append-only 事件账本。
+[决策 vs 裁决](../../learn/zh/02-decision-and-verdict.md) 划下了一条硬线:decision 回答*我们走哪条路?*,verdict 回答*这个具体的输出成立吗?*——把两者混为一谈,会让其中一个悄悄吞掉另一个。本页展示把它们分开的机械装置,以及它们所依赖的两种记录结构:把记录绑定到产生它的那次运行的会话身份,以及 Exit Gate 用来核对完整性的那本 append-only 事件账本。
 
-## 出处:每个实体都写明自己的来源
+## 出处:每条记录都能指回它的来源
 
-磁盘上的每一个实体都携带一个 `provenance[]` 数组,而且要求**至少有一条**。provenance 就是把一条记录绑定到产生它的那次运行的东西,好让没有任何实体脱离来源、凭空漂着。
-
-单条 provenance 记录很小,也很严格。它的 schema(`packages/kernel/src/schemas/common.ts` 里的 `ProvenanceEntrySchema`)恰好是三个字段,全都不能为空:
+可归因性有两层。底层是 canonical 事件信封:每条被接受的事件都携带 `actor`
+(`principal` 人 + 可选 `executor` agent)与 `source`——不存在匿名落盘的记录。
+上层是文档面把会话身份显式写出来:decision 的 frontmatter 携带 `provenance[]`,而且
+**恰好一条**——`SessionProvenanceV1`
+(`packages/kernel/src/domain/agent-runtime.ts`):
 
 | 字段 | 含义 |
 |---|---|
-| `runtime` | 由哪个 agent runtime 产生——`human`、`claude-code`、`codex`、`zcode`、`antigravity` 之一 |
-| `sessionId` | 执行写入的那个会话 |
+| `runtime` | 产生它的运行时名(`claude`、`devin`、`codex` 等,非空字符串) |
+| `sessionId` | 执行写入的那个会话(可为 null) |
+| `transcriptReachability` | 该会话 transcript 的可达性(`by_session_id`、`dispatch_stream_only` 等) |
 | `boundAt` | 这次绑定被盖章的时间戳 |
 
-因为这个字段是一个*数组*,一个实体在经过不止一次运行时可以累积不止一条绑定——但它永远不能有零条。一个来源为空的实体,是一条你无法追溯的记录,而 schema 不允许这样的记录存在。
-
-## 回填路径
-
-provenance 是必需的,但早于这条要求的记录、或从别处导入的记录,可能到来时并不带它。有一条专门的路径来补上这个缺口:`packages/cli/src/commands/core/provenance-backfill.ts`,以 `ha migrate-provenance` 运行。
-
-它有两种模式。`dry-run` 只报告;`apply` 才写入。扫描会遍历每一个 task `INDEX.md`,跳过任何不是 task 包的东西(schema 不对,或根本没有 frontmatter),对每个真实的 task 包检查 `provenance:` 是否已经带有一条记录。如果有,该 task 被计为**已存在**并原封不动。如果没有,就构造一条合成记录——盖上当前会话的 runtime、一个生成的回填会话 id、以及一个 `boundAt` 时间戳——用 `ProvenanceEntrySchema` 校验,再补进 frontmatter。
-
-这里有两个性质要紧。第一,回填是**幂等的**:一个已经有 provenance 记录的 task 永远不会被叠加成两条。第二,被应用的写入不直接落盘——它们走写协调器(见[写路径](02-write-path.md)),所以即便是一次批量迁移,产生的也是和任何其他承重变更一样的、可追溯的原子写入。
-
-```text
-扫描每个 task INDEX.md
-    │
-    ├─ 不是 task 包 ────────────────▶ 跳过
-    ├─ provenance[] 已存在 ─────────▶ 已存在(原封不动)
-    └─ provenance[] 缺失
-           │  构造合成记录 {runtime, sessionId, boundAt}
-           │  用 ProvenanceEntrySchema 校验
-           ▼
-        dry-run:只报告   │   apply:经写协调器补入
-```
+决策要求恰好一条会话身份:一条记录的出处要么能指回一次真实运行,要么不存在——
+多条来源会让"谁拍板"变得含糊。task 包的归属由 `task-contract.json` 与文档属主声明承载;
+fact 由 `Evidence source` 与 `Observed at` 承载;每条事件信封上的 `actor`/`source`
+兜底,让任何实体都能沿 canonical 日志找回写它的人。
 
 ## 裁决:是一个判断,不是一个 decision 实体
 
-**verdict（裁决）**是 Reviewer 对某个 submitted Execution 的语义判断。`review/v2` 的封闭
-值域是 `approved`、`changes_requested`、`dismissed`，并且必须记录 `evidence_checked` 与
-非空 rationale。机械 locator/digest/receipt 检查不会产出 verdict；Reviewer 读取 Task intent、
-六字段 Submission Packet 与可用 Evidence 后裁决这一轮（依据 `dec_mrg3z1we/CH3-CH4`、
-ADR-0027 D5-D6）。
+**verdict（裁决）**是 Reviewer 对某个 submitted Execution 的语义判断。`review/v1`
+(`packages/kernel/src/domain/review.ts`)的封闭值域是 `approved`、
+`changes_requested`、`dismissed`,并且必须记录非空 `reason` 与 `evidenceChecked[]`;
+它还带 `submissionDigest`,把裁决钉在被评审的那一轮提交上——换个提交就得重审。
+Reviewer 读取 Task intent、closeout 派生的 Submission Packet 与可用工件后裁决这一轮
+(依据 `dec_mrg3z1we/CH3-CH4`、ADR-0027 D5-D6)。`review-consent/v1` 再把同意钉在
+同一份 review 与 submission digest 上。
 
 值得着重强调的结构性事实，是 verdict **不是** decision 实体。它拿不到 `dec_` 式 id，
 不进入 decisions 目录，也不上 decision 队列。它落在绑定到被判断 Execution 的不可变 Review
@@ -51,16 +39,15 @@ Entity 中，留在那一轮交付旁边，而不是被提拔为塑造未来工�
 | | Decision | Verdict |
 |---|---|---|
 | 问题 | 走哪条路?(WHY) | 这一轮交付成立吗? |
-| 记在哪里 | `decisions/` 里的一个 decision 实体 | 某个 Execution 的不可变 `review/v2` |
+| 记在哪里 | `decisions/` 里的一个 decision 实体 | 某个 Execution 的不可变 `review/v1` |
 | 上 decision 队列? | 是 | 否 |
 | 可推翻 | 后来的 decision 能推翻它 | 一次性,默认 fail-closed |
 
-## Session binding 的 capture range
+## Session binding 与 Execution
 
-Session provenance 通过带稳定 `range_id`、role 与含首尾 timestamp interval 的 binding 关联
-到 Execution。`start_at` 是 attach 时间；active 时 `end_at` 为 null，在 submit 或 review 时
-封存。这个区间描述 observer 的 capture responsibility，不证明每条 transcript event 都有
-timestamp。legacy binding 暴露未指定区间，而不是搜索 transcript prose 推断归属（ADR-0027 D1）。
+Execution(`execution/v1`)携带 `sessionBindings`,记录这轮交付绑到了哪些 runtime
+session;submit 封存 bindings 并固化 Submission。绑定里只保存 `transcriptRef` 这类
+指针——能定位原 provider session,但不把 transcript 正文写进 canonical 日志(ADR-0027 D1)。
 
 ## 路由不是自动的
 
@@ -71,7 +58,8 @@ timestamp。legacy binding 暴露未指定区间，而不是搜索 transcript pr
 ## Agent Runtime 见证事件
 
 Agent Runtime 事件是持久化的**生命周期变化见证**,不是原始活动流。`AgentRuntimeEventV1`
-与 task、document 事件复用同一个 canonical envelope、head、Git-backed event store 与可重建投影。
+(`packages/kernel/src/domain/agent-runtime.ts`)与 task、document 事件复用同一个
+canonical 信封、SQLite 事件台账与可重建投影。
 它记录 installation 观察、session 生命周期变化、provider session 绑定,以及显式的 task/execution
 绑定。绑定只保存 `transcriptRef`,因此可以定位原 provider session,但不会把 transcript 正文写入
 canonical log。
@@ -112,9 +100,9 @@ result，绝不解析人类可读的终端输出。未绑定 task 的 runtime ru
 三种彼此独立的结构,一条问责的主干:
 
 ```text
-provenance[]       ──▶  每个实体写明产生它的那次运行
-runtime witness    ──▶  task 与 execution 可以定位原生 session
-execution verdict  ──▶  每个被判断的输出都被记录在工作旁边
+provenance / actor   ──▶  每条记录写明产生它的那次运行与行动者
+runtime witness      ──▶  task 与 execution 可以定位原生 session
+execution verdict    ──▶  每个被判断的输出都被记录在工作旁边
 
 一个战略性的 verdict → 由人提出一个新 decision(见 learn/02)
 ```

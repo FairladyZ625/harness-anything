@@ -112,6 +112,33 @@ export function parseRouted(
   return undefined;
 }
 
+export function parseStorageRoute(
+  route: ProtocolCommand | undefined,
+  args: readonly string[],
+  rootDir: SafePath,
+  repoId: string | undefined,
+  json: boolean,
+  inputs: ThinCliInputDirectory,
+): ThinParseResult | undefined {
+  if (route?.id !== "ledger-backup" && route?.id !== "ledger-restore-drill") return undefined;
+  const positionalIndex = route.id === "ledger-backup" ? 1 : 2,
+    backupDir = args[positionalIndex];
+  if (!nonEmpty(backupDir)) return rejected("missing_field", `${route.usage} requires a directory.`, json);
+  const flags = readFlags(route.id, args.slice(positionalIndex + 1), inputs);
+  if (!flags.ok) return rejected(flags.code, flags.nextAction, json);
+  return accepted(
+    rootDir,
+    repoId,
+    json,
+    {
+      kind: route.id,
+      backupDir,
+      ...(flags.one.get("--shadow-parent") ? { shadowParent: flags.one.get("--shadow-parent") } : {}),
+    },
+    route.method,
+  );
+}
+
 function parseEventRouted(
   route: ProtocolCommand,
   args: readonly string[],
@@ -198,7 +225,6 @@ function parseAgentRun(
       ...(f.one.get("--to") ? { targetAgentId: f.one.get("--to") } : {}),
       taskId: f.one.get("--task"),
       ...(f.one.get("--instance") ? { runtimeInstanceId: f.one.get("--instance") } : {}),
-      ...(f.one.get("--role") ? { role: f.one.get("--role") } : {}),
       ...(prompt ? { prompt } : {}),
       ...(f.one.get("--prompt-file") ? { promptFile: f.one.get("--prompt-file") } : {}),
       ...(f.one.get("--prompt-file") ? { promptFile: f.one.get("--prompt-file") } : {}),

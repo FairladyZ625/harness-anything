@@ -316,6 +316,7 @@ export function makeTaskQueryReadModel(input: {
   ): AgendaSourcePage {
     const lifecycle = projection.list({
         status,
+        activePackagesOnly: true,
         limit: sourceLimit,
         pinnedFirst: true,
         ...(pageCursor ? { cursor: pageCursor } : {}),

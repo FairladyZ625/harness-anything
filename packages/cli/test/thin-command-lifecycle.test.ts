@@ -240,6 +240,16 @@ test("lifecycle CLI maps explicit selectors and accepts every derivable executio
   );
 });
 
+test("task settle parses to the closed orchestration action", () => {
+  const settle = parseThinCommand(["task", "settle", "task-1"]);
+  assert.equal(settle.ok, true, JSON.stringify(settle));
+  if (settle.ok) assert.deepEqual(settle.command.action, { kind: "task-settle", taskId: "task-1" });
+  assert.equal(parseThinCommand(["task", "settle", "task-1", "--execution-id", "execution-1"]).ok, false);
+  assert.equal(parseThinCommand(["task", "settle"]).ok, false);
+  assert.equal(parseThinCommand(["task", "settle", "task-1", "--amend"]).ok, false);
+  assert.equal(parseThinCommand(["task", "settle", "task-1", "--from-file", "x.json"]).ok, false);
+});
+
 test("consent accepts only server-derived Review inputs", () => {
   const complete = parseThinCommand(["task", "complete", "task-1", "--consent"]);
   assert.equal(complete.ok, true, JSON.stringify(complete));
@@ -765,6 +775,31 @@ test("runtime work commands parse into closed daemon facade actions", () => {
       detach: true,
     });
   assert.equal(reviewer.ok, false);
+  const reviewDispatch = parseThinCommand([
+      "task",
+      "dispatch-review",
+      "task-1",
+      "--task",
+      "task-2",
+      "--agent",
+      "closeout-reviewer",
+      "--model",
+      "review-model",
+    ]),
+    reviewDispatchOne = parseThinCommand(["task", "dispatch-review", "task-1", "--execution-id", "exec-1"]);
+  if (reviewDispatch.ok)
+    assert.deepEqual(reviewDispatch.command.action, {
+      kind: "task-dispatch-review",
+      taskIds: ["task-1", "task-2"],
+      agentId: "closeout-reviewer",
+      model: "review-model",
+    });
+  if (reviewDispatchOne.ok)
+    assert.deepEqual(reviewDispatchOne.command.action, {
+      kind: "task-dispatch-review",
+      taskIds: ["task-1"],
+      executionId: "exec-1",
+    });
   if (mission.ok)
     assert.deepEqual(mission.command.action, {
       kind: "runtime-run",

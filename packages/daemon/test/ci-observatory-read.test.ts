@@ -709,3 +709,270 @@ test("CI completion verdict comes from the completed matching workflow run, not 
     }
   }
 });
+
+test("CI observation pull --task imports the first covering successful main run", async () => {
+  const rootDir = mkdtempSync(path.join(process.cwd(), ".tmp-ci-observation-task-")),
+    delivery = "d".repeat(40),
+    events: CiRunObservationEventV3[] = [];
+  const cell = {
+    rootDir,
+    settings: ciSettings(["rewrite-ci"]),
+    now: () => "2026-09-15T00:00:00.000Z",
+    cellCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),
+    store: {
+      readHead: () => (events.length ? { revision: events.length } : null),
+      readEvent: (opId: string) => events.find((event) => event.opId === opId),
+      append: ({ event }: { event: CiRunObservationEventV3 }) => {
+        events.push(event);
+        return { revision: events.length };
+      },
+    },
+    projection: {
+      apply: () => undefined,
+      readCiRunObservations: () => ({ watermark: events.length }),
+      read: () => ({
+        snapshot: {
+          task: { iteration: 2 },
+          executions: [
+            { iteration: 1, submission: { commitSha: "a".repeat(40) } },
+            { iteration: 2, submission: { commitSha: delivery } },
+          ],
+        },
+      }),
+    },
+  };
+  const coverage: Readonly<Record<string, string>> = {
+      "sha-905": "diverged",
+      "sha-904": "ahead",
+      "sha-903": "ahead",
+      "sha-902": "ahead",
+    },
+    runs = [
+      {
+        databaseId: 905,
+        headBranch: "main",
+        headSha: "sha-905",
+        createdAt: "2026-09-15T05:00:00Z",
+        status: "completed",
+        conclusion: "success",
+      },
+      {
+        databaseId: 904,
+        headBranch: "main",
+        headSha: "sha-904",
+        createdAt: "2026-09-15T04:00:00Z",
+        status: "completed",
+        conclusion: "cancelled",
+      },
+      {
+        databaseId: 903,
+        headBranch: "main",
+        headSha: "sha-903",
+        createdAt: "2026-09-15T03:00:00Z",
+        status: "completed",
+        conclusion: "failure",
+      },
+      {
+        databaseId: 902,
+        headBranch: "main",
+        headSha: "sha-902",
+        createdAt: "2026-09-15T02:00:00Z",
+        status: "completed",
+        conclusion: "success",
+      },
+      {
+        databaseId: 901,
+        headBranch: "codex/x",
+        headSha: "sha-901",
+        createdAt: "2026-09-15T01:00:00Z",
+        status: "completed",
+        conclusion: "success",
+      },
+    ];
+  const runGh = async (_command: string, args: readonly string[]) => {
+    if (args[0] === "api")
+      return JSON.stringify({ status: coverage[String(args[1]).split("...")[1] ?? ""] ?? "diverged" });
+    if (args[1] === "list") {
+      // GitHub applies the limit after its branch filter. A busy PR stream must not
+      // hide the older successful main witness from a task-scoped lookup.
+      return JSON.stringify(
+        args.includes("--branch") && args[args.indexOf("--branch") + 1] === "main"
+          ? runs
+          : Array.from({ length: 20 }, (_, index) => ({ ...runs[4], databaseId: 1000 + index })),
+      );
+    }
+    if (args[1] === "view")
+      return JSON.stringify({
+        workflowName: "rewrite-ci",
+        headSha: `sha-${args[2]}`,
+        headBranch: "main",
+        status: "completed",
+        conclusion: "success",
+        attempt: 1,
+        event: "push",
+      });
+    assert.equal(args[1], "download");
+    const output = String(args[args.indexOf("--dir") + 1]);
+    mkdirSync(output, { recursive: true });
+    writeFileSync(
+      path.join(output, "observation.json"),
+      JSON.stringify({
+        schema: "ci-run-artifact/v1",
+        run: {
+          runId: `${args[2]}.1`,
+          sha: `sha-${args[2]}`,
+          branch: "main",
+          prNumber: null,
+          job: "full-check (24)",
+          wallclockMs: 20,
+          runner: "ubuntu",
+        },
+        tests: [],
+        gates: [],
+      }),
+    );
+    return "";
+  };
+  try {
+    const receipt = await pullAndIngestCiObservations(
+      cell as never,
+      { kind: "ci-observe-pull", taskId: "task-witness" },
+      { actor, source: "local" },
+      runGh,
+    );
+    assert.equal(events.length, 1);
+    assert.equal(events[0]?.payload.verification?.runId, "902");
+    assert.equal(events[0]?.payload.verification?.headSha, "sha-902");
+    assert.equal(JSON.parse(receipt.evidence).requestedRuns, 1);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("CI observation pull --task fails closed when no completed success covers the delivery", async () => {
+  const rootDir = mkdtempSync(path.join(process.cwd(), ".tmp-ci-observation-task-none-")),
+    delivery = "d".repeat(40);
+  const cell = {
+    rootDir,
+    settings: ciSettings(["rewrite-ci"]),
+    cellCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),
+    projection: {
+      read: () => ({
+        snapshot: {
+          task: { iteration: 1 },
+          executions: [{ iteration: 1, submission: { commitSha: delivery } }],
+        },
+      }),
+    },
+  };
+  const runs = [
+    {
+      databaseId: 906,
+      headBranch: "main",
+      headSha: "sha-906",
+      createdAt: "2026-09-15T06:00:00Z",
+      status: "in_progress",
+      conclusion: null,
+    },
+    {
+      databaseId: 905,
+      headBranch: "main",
+      headSha: "sha-905",
+      createdAt: "2026-09-15T05:00:00Z",
+      status: "completed",
+      conclusion: "success",
+    },
+  ];
+  const coverage: Readonly<Record<string, string>> = { "sha-906": "ahead", "sha-905": "diverged" };
+  const runGh = (async (_command: string, args: readonly string[]) => {
+    if (args[0] === "api")
+      return JSON.stringify({ status: coverage[String(args[1]).split("...")[1] ?? ""] ?? "diverged" });
+    if (args[1] === "list") return JSON.stringify(runs);
+    throw new Error(`unexpected gh call: ${args.join(" ")}`);
+  }) as never;
+  try {
+    // The completed success does not cover; the in_progress run does, so next names the pending run.
+    await assert.rejects(
+      fetchCiObservations(cell as never, { kind: "ci-observe-pull", taskId: "task-witness" }, runGh),
+      (error: Error & { code?: string }) => {
+        assert.equal(error.code, "ci_witness_not_found");
+        assert.match(error.message, /next: run 906 is in_progress/u);
+        return true;
+      },
+    );
+    // No submitted execution with a delivery commit fails closed before any gh call.
+    const unsubmitted = {
+      ...cell,
+      projection: {
+        read: () => ({
+          snapshot: { task: { iteration: 1 }, executions: [{ iteration: 1, submission: null }] },
+        }),
+      },
+    };
+    await assert.rejects(
+      fetchCiObservations(unsubmitted as never, { kind: "ci-observe-pull", taskId: "task-witness" }, runGh),
+      (error: Error & { code?: string }) => {
+        assert.equal(error.code, "ci_witness_delivery_unresolved");
+        assert.match(error.message, /next: submit the task delivery/u);
+        return true;
+      },
+    );
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("CI observatory fails closed on malformed quarantine ownership", () => {
+  const rootDir = mkdtempSync(path.join(process.cwd(), ".tmp-ci-observatory-invalid-"));
+  mkdirSync(path.join(rootDir, "tools"), { recursive: true });
+  writeFileSync(
+    path.join(rootDir, "tools/test-quarantine.json"),
+    JSON.stringify({
+      schema: "harness-test-quarantine/v1",
+      tests: [{ test: "x", ownerTask: "", quarantinedAt: "2026-08-01" }],
+    }),
+  );
+  try {
+    assert.throws(
+      () =>
+        readCiObservatory({
+          rootDir,
+          projection: {
+            readCiRunObservations: () => ({ status: "ready", events: [], watermark: 0, sourceRevision: 0 }),
+          } as never,
+        }),
+      /ownerTask/u,
+    );
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("CI observatory rejects quarantine ownership outside the two real task id shapes", () => {
+  for (const ownerTask of ["task_owner1", "task_2301", "task_f7cc215a54a194898ad733c20"]) {
+    const rootDir = mkdtempSync(path.join(process.cwd(), ".tmp-ci-observatory-shape-"));
+    mkdirSync(path.join(rootDir, "tools"), { recursive: true });
+    writeFileSync(
+      path.join(rootDir, "tools/test-quarantine.json"),
+      JSON.stringify({
+        schema: "harness-test-quarantine/v1",
+        tests: [{ test: "x", ownerTask, quarantinedAt: "2026-08-01" }],
+      }),
+    );
+    try {
+      assert.throws(
+        () =>
+          readCiObservatory({
+            rootDir,
+            projection: {
+              readCiRunObservations: () => ({ status: "ready", events: [], watermark: 0, sourceRevision: 0 }),
+            } as never,
+          }),
+        /ownerTask/u,
+        ownerTask,
+      );
+    } finally {
+      rmSync(rootDir, { recursive: true, force: true });
+    }
+  }
+});

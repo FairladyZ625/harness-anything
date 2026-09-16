@@ -26,7 +26,7 @@ import { fleetEdgeRegistration, fleetScheduleRoute } from "./fleet-command-route
 import { openDaemonStatusReader } from "./status-reader.ts";
 import { withAutostart } from "./with-autostart.ts";
 import { assertCanonicalCliEntry, cliEntryNotCanonicalCode } from "./cli-entry-guard.ts";
-import { runRepoAdminCommand } from "./repo-admin-route.ts";
+import { isRepoAdminMethod, runRepoAdminCommand } from "./repo-admin-route.ts";
 export {
   daemonIdFromEnv,
   daemonUserRoot,
@@ -185,7 +185,7 @@ export async function runCommandThroughDaemon(
       daemonAutostartOptions(command, autostart, env, userRoot, daemonId),
     );
   }
-  if (command.method === "daemon.repo.unbind" || command.method === "daemon.repo.purge")
+  if (isRepoAdminMethod(command.method))
     return runRepoAdminCommand({
       command,
       env,

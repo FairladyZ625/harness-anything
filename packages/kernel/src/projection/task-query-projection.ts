@@ -628,6 +628,7 @@ export function listTaskRowsNarrow(
     where.push("task_snapshot.updated_at <= ?");
     values.push(query.updatedBefore);
   }
+  if (query.activePackagesOnly) where.push("task_snapshot.package_disposition = 'active'");
   if (query.cursor !== undefined) {
     if (query.pinnedFirst) {
       const [pinned, taskId] = decodePageCursor(query.cursor, 2);

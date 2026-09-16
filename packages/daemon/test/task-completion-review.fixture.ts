@@ -279,6 +279,57 @@ export async function fixture(
       await cell.close();
       cell = await open();
     },
+    createPlannedTask: async (extraTaskId: string) => {
+      const created = await run({
+        kind: "task-create",
+        taskId: extraTaskId,
+        title: `Completion Review ${extraTaskId}`,
+        presetId: "docs-task",
+      });
+      assert.equal(created.outcome, "applied", JSON.stringify(created));
+      await waitForFixturePublication(cell, created.opId, owner);
+      return String((created as Record<string, unknown>).packagePath);
+    },
+    submitExtraTask: async (extraTaskId: string, extraExecutionId: string) => {
+      const created = await run({
+        kind: "task-create",
+        taskId: extraTaskId,
+        title: `Completion Review ${extraTaskId}`,
+        presetId: "docs-task",
+      });
+      assert.equal(created.outcome, "applied", JSON.stringify(created));
+      await waitForFixturePublication(cell, created.opId, owner);
+      const extraPackage = String((created as Record<string, unknown>).packagePath);
+      await realizeTaskPlanFixture(root, extraPackage, (planPath) => run({ kind: "doc-submit", paths: [planPath] }));
+      assert.equal(
+        (await run({ kind: "task-start", taskId: extraTaskId, executionId: extraExecutionId })).outcome,
+        "applied",
+      );
+      assert.equal(
+        (
+          await run({
+            kind: "fact-record",
+            taskId: extraTaskId,
+            statement: "README contains the reviewed delivery.",
+            evidenceSource: "README.md",
+            confidence: "high",
+            memoryClass: "episodic",
+            memoryTags: [],
+          })
+        ).outcome,
+        "applied",
+      );
+      writeFileSync(
+        path.join(root, "harness", extraPackage, "closeout.md"),
+        `# Closeout\n\n## Summary\n\nReviewed delivery ${git(root, "rev-parse", "HEAD")}\n\n## Verification\n\nREADME bytes checked.\n\n` +
+          "## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nReview dispatch retry.\n",
+      );
+      assert.equal(
+        (await run({ kind: "task-submit", taskId: extraTaskId, executionId: extraExecutionId })).outcome,
+        "applied",
+      );
+      return extraPackage;
+    },
     review: async (runtimeSessionId: string, reviewId: string) => {
       // Controlled reviewer inspects the actual submitted file before entering the real RecordReview path.
       const submitted = events()

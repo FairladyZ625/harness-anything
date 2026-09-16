@@ -1,7 +1,16 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -19,7 +28,7 @@ import { WRITE_RECEIPT_SCHEMA } from "../../kernel/src/index.ts";
 import { validateWriteReceipt } from "../../kernel/test/contracts/receipt-acceptance.fixtures.ts";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
-import { backupRepoForAllPurge, drillRepoAllPurgeBackup } from "../src/repo-all-purge.ts";
+import { backupRepo, drillRepoBackup } from "../src/repo-all-purge.ts";
 import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
 import { localSystemBinding } from "../src/daemon-host-binding.ts";
 import { rejectHostAction, rejectPresetRun } from "../src/daemon-host-errors.ts";
@@ -456,6 +465,14 @@ test("all purge backs up and drills before deleting, then restores and rebinds w
     assert.equal(fact.outcome, "applied", JSON.stringify(fact));
     const factsBefore = await host.run(repoId, { kind: "fact-search", taskId: "task_purge_restore" }, auth);
     assert.match(String(factsBefore.evidence), /Purge restore fact witness/u);
+    for (const receipt of [created, fact] as const) {
+      const settled = await host.run(
+        repoId,
+        { kind: "receipt-show", opId: receipt.opId, waitFor: ["git_verified"], timeoutMs: 5_000 },
+        auth,
+      );
+      assert.equal(settled.wait?.state, "satisfied", JSON.stringify(settled));
+    }
     const projectHead = spawnSync("git", ["-C", rootDir, "rev-parse", "HEAD"], {
       encoding: "utf8",
     }).stdout.trim();
@@ -529,6 +546,38 @@ test("all purge backs up and drills before deleting, then restores and rebinds w
   }
 });
 
+test("daemon backup and restore drill leave the runtime HOME and daemon user root unchanged", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-host-backup-runtime-")),
+    rootDir = path.join(parent, "repo"),
+    userRoot = path.join(parent, "user"),
+    runtimeHome = path.join(parent, "runtime-home"),
+    backupDir = path.join(parent, "backup"),
+    shadowParent = path.join(parent, "drills"),
+    repoId = "host-backup-runtime";
+  rosterRepo(rootDir, repoId);
+  mkdirSync(runtimeHome);
+  registerDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
+  const host = await openDaemonHost({ daemonId: repoId, userRoot });
+  await host.attachmentsSettled();
+  const snapshot = (directory: string) =>
+    readdirSync(directory, { recursive: true, encoding: "utf8" }).map(String).sort();
+  try {
+    const userRootBefore = snapshot(userRoot),
+      runtimeHomeBefore = snapshot(runtimeHome),
+      backup = await host.admin({ kind: "backup", rootDir, backupDir }, auth),
+      drill = await host.admin({ kind: "restore-drill", rootDir, backupDir, shadowParent }, auth);
+    assert.equal(backup.ok, true, JSON.stringify(backup));
+    assert.equal(backup.exitCode, 0);
+    assert.equal(drill.ok, true, JSON.stringify(drill));
+    assert.equal(drill.exitCode, 0);
+    assert.deepEqual(snapshot(userRoot), userRootBefore);
+    assert.deepEqual(snapshot(runtimeHome), runtimeHomeBefore);
+  } finally {
+    await host.close();
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
 test("a corrupted purge backup fails its drill without deleting source data", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-host-all-purge-drill-")),
     rootDir = path.join(parent, "repo"),
@@ -544,9 +593,9 @@ test("a corrupted purge backup fails its drill without deleting source data", as
       epochAuthority = openPersistentWriterEpoch({ stateRoot: path.join(userRoot, "fleet") }),
       writerEpoch = epochAuthority.highWatermark(repoId);
     epochAuthority.close();
-    const manifest = backupRepoForAllPurge({ rootDir, backupDir, registration, writerEpoch });
+    const manifest = backupRepo({ rootDir, backupDir, registration, writerEpoch });
     writeFileSync(path.join(backupDir, "payload/harness/harness.yaml"), "corrupted\n");
-    assert.throws(() => drillRepoAllPurgeBackup({ rootDir, backupDir, manifest }), /digest differs|size differs/u);
+    assert.throws(() => drillRepoBackup({ rootDir, backupDir, manifest }), /digest differs|size differs/u);
     assert.equal(existsSync(path.join(rootDir, ".harness")), true);
     assert.equal(existsSync(path.join(rootDir, "harness/harness.yaml")), true);
     assert.equal(readDaemonRegistry({ userRoot }).repos.length, 1);

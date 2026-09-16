@@ -300,6 +300,64 @@ test("split UTF-8 frame preserves multibyte text in both TLS directions", { time
   );
   assert.equal(sawUpload, true);
 });
+test("failed Fleet hello closes the socket before session ownership transfers", { timeout: 30_000 }, async (t) => {
+  const fixture = await fleetFixture(t);
+  for (const mode of ["timeout", "remote-error", "unexpected-frame"] as const) {
+    const closed = Promise.withResolvers<void>(),
+      server = createServer({ key: fixture.key, cert: fixture.cert }, (socket) => {
+        fixture.track(() => socket.destroy());
+        socket.once("close", closed.resolve);
+        const decoder = new FleetUtf8LineDecoder();
+        socket.on("data", (chunk) => {
+          for (const line of decoder.push(chunk)) {
+            const hello = parseFleetFrame(line);
+            assert.equal(hello.schema, "fleet.session.hello/v1");
+            // Withhold a response entirely to exercise the handshake timeout without a sleep.
+            if (mode === "timeout") continue;
+            socket.write(
+              serializeFleetFrame(
+                mode === "remote-error"
+                  ? {
+                      schema: "fleet.error/v1",
+                      messageId: "hello-rejected",
+                      inReplyTo: hello.messageId,
+                      code: "hello_rejected",
+                      retryable: false,
+                      resumeOffset: null,
+                    }
+                  : hello,
+              ),
+            );
+          }
+        });
+      });
+    fixture.track(() => server.close());
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(0, "127.0.0.1", resolve);
+    });
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("hello test server did not bind");
+    await assert.rejects(
+      readFleetAssignmentClient({
+        port: address.port,
+        ca: fixture.cert,
+        nodeId: fixture.assignment.nodeId,
+        credential: "machine-secret",
+        assignmentId: fixture.assignment.assignmentId,
+        timeoutMs: mode === "timeout" ? 5 : 5_000,
+      }),
+      mode === "timeout"
+        ? /Fleet response timeout/u
+        : mode === "remote-error"
+          ? /hello_rejected/u
+          : /session ready expected/u,
+    );
+    // A rejected open must release its own socket; the fixture has not reclaimed it yet.
+    await closed.promise;
+    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+  }
+});
 test(
   "production Fleet session rejects provenance, revocation, expiry, content mismatch, and ninth active upload before L1",
   { timeout: 30_000 },

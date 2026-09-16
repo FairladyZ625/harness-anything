@@ -687,7 +687,6 @@
         "value": "packages/daemon/test/migration-import.integration.test.ts",
         "ref": "task_f9a37aaa70e746826eb3aa11f8",
         "reason": "Consolidated into packages/daemon/test/migration-import-lifecycle.integration.test.ts under relaxed file complexity limits (1,200 lines); assertions preserved verbatim."
-
       },
       {
         "value": "packages/daemon/test/json-rpc-protocol.test.ts",
@@ -703,6 +702,126 @@
         "value": "packages/kernel/test/store/task-projection.test.ts",
         "ref": "task_f4b56d482e26280d51859359aa",
         "reason": "Split into task-projection-rebuild and task-projection-steady-state integration suites under the 1,200-line test file limit; assertions preserved verbatim."
+      },
+      {
+        "value": "packages/application/test/execution-approval-idempotency.test.ts",
+        "ref": "task_4ed6d8c8faebdbcfc484745ceb",
+        "reason": "Consolidated into packages/application/test/execution-lifecycle-integrity.integration.test.ts under the 1,200-line test file limit; assertions preserved verbatim."
+      },
+      {
+        "value": "packages/application/test/execution-claim-atomicity.test.ts",
+        "ref": "task_4ed6d8c8faebdbcfc484745ceb",
+        "reason": "Consolidated into packages/application/test/execution-lifecycle-integrity.integration.test.ts under the 1,200-line test file limit; assertions preserved verbatim."
+      },
+      {
+        "value": "packages/application/test/execution-lease-renewal.test.ts",
+        "ref": "task_4ed6d8c8faebdbcfc484745ceb",
+        "reason": "Consolidated into packages/application/test/execution-lifecycle-integrity.integration.test.ts under the 1,200-line test file limit; assertions preserved verbatim."
+      },
+      {
+        "value": "packages/application/test/execution-saga-v1.test.ts",
+        "ref": "task_4ed6d8c8faebdbcfc484745ceb",
+        "reason": "Consolidated into packages/application/test/execution-lifecycle-integrity.integration.test.ts under the 1,200-line test file limit; assertions preserved verbatim."
+      },
+      {
+        "value": "packages/application/test/execution-submit-atomicity.test.ts",
+        "ref": "task_4ed6d8c8faebdbcfc484745ceb",
+        "reason": "Consolidated into packages/application/test/execution-lifecycle-integrity.integration.test.ts under the 1,200-line test file limit; assertions preserved verbatim."
+      },
+      {
+        "value": "packages/application/test/execution-submit-concurrency.test.ts",
+        "ref": "task_4ed6d8c8faebdbcfc484745ceb",
+        "reason": "Consolidated into packages/application/test/execution-lifecycle-integrity.integration.test.ts under the 1,200-line test file limit; assertions preserved verbatim."
+      },
+      {
+        "value": "packages/application/test/execution-submit-receipt-honesty.test.ts",
+        "ref": "task_4ed6d8c8faebdbcfc484745ceb",
+        "reason": "Consolidated into packages/application/test/execution-lifecycle-integrity.integration.test.ts under the 1,200-line test file limit; assertions preserved verbatim."
+      },
+      {
+        "value": "packages/application/test/review-execution-companion-atomicity.test.ts",
+        "ref": "task_4ed6d8c8faebdbcfc484745ceb",
+        "reason": "Consolidated into packages/application/test/execution-lifecycle-integrity.integration.test.ts under the 1,200-line test file limit; assertions preserved verbatim."
+      },
+      {
+        "value": "packages/kernel/test/store/task-owned-entity-projection-control.integration.test.ts",
+        "ref": "task_4ed6d8c8faebdbcfc484745ceb",
+        "reason": "Merged into task-owned-entity-projection.integration.test.ts as the control case of the same experiment sharing one fixture; assertions preserved verbatim."
+      },
+      {
+        "value": "packages/kernel/test/store/task-event-store-replacement-authorization.test.ts",
+        "ref": "task_4ed6d8c8faebdbcfc484745ceb",
+        "reason": "Merged into task-event-store.test.ts, the sibling suite for the same store; assertions preserved verbatim."
+      },
+      {
+        "value": "packages/daemon/test/task-completion-review-recovery.integration.test.ts",
+        "ref": "task_2c42314f552452ad44d90f8dfe",
+        "reason": "Consolidated into packages/daemon/test/task-completion-review.integration.test.ts under the 1,200-line test file limit; assertions preserved verbatim."
+      },
+      {
+        "value": "packages/daemon/test/projection-stall-repro.integration.test.ts",
+        "ref": "task_2c42314f552452ad44d90f8dfe",
+        "reason": "Consolidated into packages/daemon/test/task-completion-review.integration.test.ts under the 1,200-line test file limit; assertions preserved verbatim."
+      },
+      {
+        "value": "packages/daemon/test/migration-import-variants-actors.integration.test.ts",
+        "ref": "task_2c42314f552452ad44d90f8dfe",
+        "reason": "Consolidated into packages/daemon/test/migration-import-lifecycle.integration.test.ts under the 1,200-line test file limit; assertions preserved verbatim."
+      },
+      {
+        "value": "packages/daemon/test/agent-runtime-slice-b.test.ts",
+        "ref": "task_2c42314f552452ad44d90f8dfe",
+        "reason": "Consolidated into packages/daemon/test/agent-runtime-read-model.integration.test.ts under the 1,200-line test file limit; assertions preserved verbatim."
+      },
+      {
+        "value": "packages/daemon/test/agent-runtime-overview-batching.test.ts",
+        "ref": "task_2c42314f552452ad44d90f8dfe",
+        "reason": "Consolidated into packages/daemon/test/agent-runtime-read-model.integration.test.ts under the 1,200-line test file limit; assertions preserved verbatim."
+      },
+      {
+        "value": "packages/daemon/test/agent-runtime-publish-projection.integration.test.ts",
+        "ref": "task_2c42314f552452ad44d90f8dfe",
+        "reason": "Consolidated into packages/daemon/test/agent-runtime-read-model.integration.test.ts under the 1,200-line test file limit; assertions preserved verbatim."
+      },
+      {
+        "value": "packages/daemon/test/agent-runtime-read-missing-installation.test.ts",
+        "ref": "task_2c42314f552452ad44d90f8dfe",
+        "reason": "Consolidated into packages/daemon/test/agent-runtime-read-model.integration.test.ts under the 1,200-line test file limit; assertions preserved verbatim."
+      },
+      {
+        "value": "packages/daemon/test/schedule-actions.fleet.integration.test.ts",
+        "ref": "task_2c42314f552452ad44d90f8dfe",
+        "reason": "Consolidated into packages/daemon/test/schedule-actions.integration.test.ts under the 1,200-line test file limit; assertions preserved verbatim."
+      },
+      {
+        "value": "packages/daemon/test/schedule-runtime-settlement.integration.test.ts",
+        "ref": "task_2c42314f552452ad44d90f8dfe",
+        "reason": "Consolidated into packages/daemon/test/schedule-latched-terminal-settlement.integration.test.ts under the 1,200-line test file limit; assertions preserved verbatim."
+      },
+      {
+        "value": "packages/daemon/test/agent-entity-source.test.ts",
+        "ref": "task_2c42314f552452ad44d90f8dfe",
+        "reason": "Consolidated into packages/daemon/test/agent-entities.test.ts under the 1,200-line test file limit; assertions preserved verbatim."
+      },
+      {
+        "value": "packages/daemon/test/task-wip-read-contract.integration.test.ts",
+        "ref": "task_2c42314f552452ad44d90f8dfe",
+        "reason": "Consolidated into packages/daemon/test/task-wip.integration.test.ts under the 1,200-line test file limit; assertions preserved verbatim."
+      },
+      {
+        "value": "packages/daemon/test/doc-sync-artifact-raw-bytes.test.ts",
+        "ref": "task_2c42314f552452ad44d90f8dfe",
+        "reason": "Consolidated into packages/daemon/test/doc-sync-artifact-opaque.test.ts under the 1,200-line test file limit; assertions preserved verbatim."
+      },
+      {
+        "value": "packages/daemon/test/writer-sync-capability-cost.integration.test.ts",
+        "ref": "task_2c42314f552452ad44d90f8dfe",
+        "reason": "Consolidated into packages/daemon/test/writer-request-cost.integration.test.ts under the 1,200-line test file limit; assertions preserved verbatim."
+      },
+      {
+        "value": "packages/daemon/test/review-execution-selection.integration.test.ts",
+        "ref": "task_2c42314f552452ad44d90f8dfe",
+        "reason": "Consolidated into packages/daemon/test/review-consent.integration.test.ts under the 1,200-line test file limit; assertions preserved verbatim."
       }
     ]
   }

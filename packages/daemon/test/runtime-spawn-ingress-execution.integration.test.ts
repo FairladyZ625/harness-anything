@@ -22,7 +22,7 @@ import {
   spawnCli,
 } from "./fixtures/runtime-ingress.ts";
 
-test("daemon ingress preserves executor-scoped task-bound runtime spawn", async (t) => {
+test("daemon ingress preserves executor-scoped task-bound runtime execution", async (t) => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-spawn-ingress-")),
     root = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
@@ -329,7 +329,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
       assert.equal(staleReviewer.code, "executor_binding_invalid", JSON.stringify(staleReviewer));
       assert.match(
         String((staleReviewer.diagnostic as { expectation?: unknown } | undefined)?.expectation),
-        new RegExp(`ha agent run <reviewer-agent-id> --role reviewer --task ${taskId}`, "u"),
+        new RegExp(`ha task dispatch-review ${taskId} --agent <reviewer-agent-id>`, "u"),
       );
 
       const independentReview = await rpc(host, auth, "repo.agentRuntime.spawn", {

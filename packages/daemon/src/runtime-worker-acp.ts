@@ -65,7 +65,12 @@ export function runAcpProviderSession(
 ): { readonly done: Promise<void>; readonly cancel: () => void } {
   let nextId: JsonRpcId = 1,
     buffer = "",
-    sessionId: string | null = null,
+    // On resume the session id is known up front; tagging replayed history
+    // frames with it is what lets resume admission see the expected id.
+    sessionId: string | null = manifest.providerSessionId ?? null,
+    // session/load replays prior updates before responding; they are history,
+    // not this turn's output, so they must not accumulate into finalText.
+    replayingHistory = manifest.providerSessionId !== undefined,
     finalText = "";
   const pending = new Map<JsonRpcId, { resolve: (value: unknown) => void; reject: (error: Error) => void }>();
   const send = (message: Record<string, unknown>): void => {
@@ -151,7 +156,7 @@ export function runAcpProviderSession(
     const params = (message.params ?? {}) as Record<string, unknown>,
       update = (params.update ?? {}) as Record<string, unknown>,
       updateKind = String(update.sessionUpdate ?? "");
-    if (updateKind === "agent_message_chunk") {
+    if (updateKind === "agent_message_chunk" && !replayingHistory) {
       const content = update.content as Record<string, unknown> | undefined;
       if (typeof content?.text === "string") finalText += content.text;
     }
@@ -220,6 +225,7 @@ export function runAcpProviderSession(
             mcpServers: [],
           })) as Record<string, unknown>);
       sessionId = typeof session.sessionId === "string" ? session.sessionId : manifest.providerSessionId!;
+      replayingHistory = false;
       const modes = acpModes(session),
         models = acpModels(session);
       event({

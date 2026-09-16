@@ -41,6 +41,16 @@ const local = (
 ): ActionDeclaration =>
   Object.freeze({ kind, catalogId: null, executionClass, policyAction: null, residency, receiptSettlement: "none" });
 
+const hostAdmin = (kind: string): ActionDeclaration =>
+  Object.freeze({
+    kind,
+    catalogId: null,
+    executionClass: "admin",
+    policyAction: kind,
+    residency: hostResidency,
+    receiptSettlement: "none",
+  });
+
 /**
  * The built-in non-read action inventory. Protocol descriptors are checked against these rows;
  * policy, entity-catalog bindings, and receipt settlement are projections of the declarations.
@@ -55,6 +65,8 @@ export const actionDeclarations = Object.freeze([
   local("daemon-connection-probe", "admin", hostResidency),
   local("daemon-connection-remove", "admin", hostResidency),
   local("daemon-connection-update", "admin", hostResidency),
+  hostAdmin("ledger-backup"),
+  hostAdmin("ledger-restore-drill"),
   canonical("daemon-control-request", null, "admin"),
   canonical("daemon-fleet-center-start", null, "admin"),
   canonical("daemon-fleet-edge-sync", null, "admin"),
@@ -148,12 +160,14 @@ export const actionDeclarations = Object.freeze([
   canonical("task-create", "task/create", "repo-write"),
   canonical("task-declare-executor", null, "repo-write"),
   canonical("task-delete", "task/delete", "repo-write"),
+  canonical("task-dispatch-review", null, "repo-write", "none"),
   canonical("task-pin", null, "repo-write"),
   canonical("task-progress-append", null, "repo-write"),
   canonical("task-release", "task/release", "repo-write"),
   canonical("task-reopen", "task/reopen", "repo-write"),
   canonical("task-review-consent", "task/consent", "repo-write"),
   canonical("task-review-execution", "task/review", "arbiter"),
+  canonical("task-settle", null, "repo-write"),
   canonical("task-start", "task/start", "repo-write"),
   canonical("task-submit", "task/submit", "repo-write"),
   canonical("task-supersede", "task/supersede", "repo-write"),

@@ -157,10 +157,13 @@ export {
   resolveDocRoute,
 } from "./domain/doc-sync.contract.ts";
 export {
+  classifyOpaqueTextualArtifactPath,
   classifyRawArtifactPath,
   classifyTextualArtifactPath,
   DOC_SYNC_INLINE_MAX_BYTES,
+  isOpaqueTextualMediaType,
   type OpaqueTextualMediaType,
+  OPAQUE_TEXTUAL_POLICY_ID,
   RAW_ARTIFACT_MAX_BYTES,
   RAW_ARTIFACT_MEDIA_TYPE,
   RAW_ARTIFACT_POLICY_ID,
@@ -206,7 +209,7 @@ export type {
   ProjectedExecution,
   SubmissionV1,
 } from "./domain/execution.ts";
-export { executionAnnotationKinds, submissionDigest } from "./domain/execution.ts";
+export { executionAnnotationKinds, isNativeCommitSha, submissionDigest } from "./domain/execution.ts";
 export { sha256Bytes, sha256Text, stablePayloadHash, stableStringify } from "./integrity/stable-hash.ts";
 export { eventObjectTarget } from "./layout/ledger-object-layout.ts";
 export {

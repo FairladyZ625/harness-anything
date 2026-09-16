@@ -67,6 +67,7 @@ export async function adoptRuntimes(context: RuntimeSpawnerContext): Promise<voi
       agent: stream.header.agentId
         ? { id: stream.header.agentId, name: stream.header.agentName ?? stream.header.agentId }
         : null,
+      role: stream.header.role ?? null,
       delegatedBy: stream.header.delegatedByAgentId
         ? {
             id: stream.header.delegatedByAgentId,

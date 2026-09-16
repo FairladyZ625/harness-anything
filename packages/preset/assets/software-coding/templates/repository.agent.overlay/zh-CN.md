@@ -8,7 +8,7 @@
   1. **创建任务**：`ha task create --title "..."` 明确目标、范围与验收标准；
   2. **获取租约**：`ha task start <task-id>` 获取独占 Lease 保护当前实现，防止多进程并发冲突；
   3. **实施与取证**：在隔离环境中编码与编写测试，使用 `ha fact record --statement "..." --source "..." --task <task-id>` 记录关键测试证据；
-  4. **收口提炼（Closeout）**：在 `closeout.md` 中写实 Summary（改动总结）、Verification（测试依据）、Residual Risk（已知风险）。**重要：系统执行记录（Execution）直接从 closeout.md 提炼吸收**，切忌只更新工件而漏写收口；
+  4. **收口提炼（Closeout）**：在 `closeout.md` 中写实 Summary（改动总结）、Verification（测试依据）、Residual Risk（已知风险）和 Same Mechanism Elsewhere（同机制排查）。最后一节写清机制、搜索范围和发现。**重要：系统执行记录（Execution）直接从 closeout.md 提炼吸收**，切忌只更新工件而漏写收口；
   5. **提交与独立把关**：`ha task submit <task-id>` 提交交付包；由独立评审者基于客观测试证据进行复核（执行者严禁自审，自审以 `actor_unauthorized` 拒绝），门禁通过后 `ha task complete <task-id>` 完成销账；
   6. **动态查证**：CLI 完全自描述，随时运行 `ha <command> --help` 或 `ha capabilities` 查看当前命令语法，严禁死记静态命令序列。
 

@@ -117,6 +117,45 @@ test("acp worker session drives initialize/authenticate/new/prompt and emits can
   }
 });
 
+test("acp worker session/load keeps replayed history out of finalText and tags it with the session id", async () => {
+  const { parent, executablePath } = fixture();
+  try {
+    const { records, append } = collect(),
+      child = launch(executablePath, ["acp"], { HOME: parent, PATH: process.env.PATH }),
+      session = runAcpProviderSession(
+        child,
+        {
+          kindId: "devin",
+          cwd: "/tmp",
+          env: { HOME: parent },
+          prompt: "do work",
+          providerSessionId: "prior-session",
+          acpApiKey: "test-manifest-key",
+        },
+        append,
+      );
+    await session.done;
+    assert.equal(await closed(child), 0);
+    const frames = records
+        .filter((record) => record.kind === "provider_event")
+        .map((record) => record.event as Record<string, unknown>),
+      replay = frames.find(
+        (frame) =>
+          frame.type === "acp.update" &&
+          (frame.update as Record<string, unknown>).sessionUpdate === "agent_message_chunk" &&
+          String(((frame.update as Record<string, unknown>).content as Record<string, unknown>).text).includes(
+            "history",
+          ),
+      );
+    assert.equal(replay?.sessionId, "prior-session");
+    const result = frames.at(-1)!;
+    assert.equal(result.type, "acp.result");
+    assert.equal(result.finalText, "devin live content");
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
 test("acp worker session answers request_permission from the permission mode", async () => {
   const { parent, capture, executablePath } = fixture();
   try {
@@ -193,7 +232,7 @@ test("acp worker session reads the provider credential file for subscription ins
 test("acp worker session sends session/cancel before terminating the child", async () => {
   const { parent, capture, executablePath } = fixture();
   try {
-    const { append } = collect(),
+    const { records, append } = collect(),
       child = launch(executablePath, ["acp"], { HOME: parent, PATH: process.env.PATH }),
       session = runAcpProviderSession(
         child,
@@ -207,7 +246,15 @@ test("acp worker session sends session/cancel before terminating the child", asy
         append,
       );
     // Wait until the prompt is in flight (session frame seen) before cancelling.
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    const seenSession = () =>
+      records.some(
+        (record) =>
+          record.kind === "provider_event" &&
+          (record.event as Record<string, unknown> | undefined)?.type === "acp.session",
+      );
+    for (let waited = 0; !seenSession() && waited < 10_000; waited += 10)
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.ok(seenSession(), "acp.session frame must precede cancel");
     session.cancel();
     assert.notEqual(await closed(child), 0);
     const captured = readFileSync(capture, "utf8")

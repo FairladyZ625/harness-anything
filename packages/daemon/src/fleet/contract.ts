@@ -28,9 +28,11 @@ export const FLEET_TASK_COMMAND_KINDS = Object.freeze([
   "task-start",
   "task-progress-append",
   "task-submit",
+  "task-settle",
   "task-complete",
   "task-review-execution",
   "task-review-consent",
+  "task-dispatch-review",
   "task-release",
   "task-transition",
   "task-show",
@@ -388,7 +390,11 @@ const taskActionShapes: Readonly<Record<FleetTaskCommandKind, Check>> = {
     },
     ["kind"],
   ),
-  "task-submit": optionalShape({ kind: one("task-submit"), taskId: id, executionId: id, submission: record }, ["kind"]),
+  "task-settle": optionalShape({ kind: one("task-settle"), taskId: id }, ["kind", "taskId"]),
+  "task-submit": optionalShape(
+    { kind: one("task-submit"), taskId: id, executionId: id, submission: record, amend: boolean, asOwner: boolean },
+    ["kind"],
+  ),
   "task-complete": optionalShape(
     {
       kind: one("task-complete"),
@@ -422,6 +428,19 @@ const taskActionShapes: Readonly<Record<FleetTaskCommandKind, Check>> = {
       commandType: one("RecordReviewConsent"),
     },
     ["kind", "taskId"],
+  ),
+  "task-dispatch-review": optionalShape(
+    {
+      kind: one("task-dispatch-review"),
+      taskIds: array(id),
+      agentId: id,
+      runtimeInstanceId: id,
+      executionId: id,
+      model: text,
+      effort: text,
+      fast: boolean,
+    },
+    ["kind", "taskIds"],
   ),
   "task-release": optionalShape(
     {

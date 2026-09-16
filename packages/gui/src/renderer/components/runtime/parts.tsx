@@ -376,7 +376,11 @@ export function SegCtl<T extends string>({
   readonly label?: string;
 }) {
   return (
-    <span role="group" aria-label={label} className="inline-flex overflow-hidden rounded border border-border-strong">
+    <span
+      role="group"
+      aria-label={label}
+      className="inline-flex flex-wrap overflow-hidden rounded border border-border-strong"
+    >
       {options.map((option) => (
         <button
           key={option.value}

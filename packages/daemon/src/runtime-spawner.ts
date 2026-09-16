@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import path from "node:path";
-import type { AgentRuntimeEventV1, CanonicalEventStore, SessionIdentity } from "../../kernel/src/index.ts";
+import type { AgentRuntimeEventV1, CanonicalEventStore, ExecutionV1, SessionIdentity } from "../../kernel/src/index.ts";
 import {
   consumeKnownError,
   currentSubmittedExecutions,
@@ -45,6 +45,7 @@ import {
 } from "./runtime-spawn-errors.ts";
 import {
   assembleAgentPrompt,
+  assembleUnboundPrompt,
   assembleScheduledMission,
   assembleTaskMission,
   deriveTaskMission,
@@ -96,6 +97,41 @@ export const resultMediaType = "text/plain; charset=utf-8" as const,
   providerErrorLimit = 64 * 1024,
   resumeAdmissionTimeoutMs = 30_000,
   exitNotificationTimeoutMs = 30_000;
+
+/** A reviewer dispatch binds to the task's submitted cut; anything else is a dispatch error, never a fallback to an implementation execution. */
+function selectReviewTarget(
+  taskId: string | null,
+  requestedExecutionId: string | undefined,
+  taskSnapshot: ReturnType<typeof requireCurrentTaskProjection>["snapshot"] | null,
+  remote: boolean,
+): ExecutionV1 | null {
+  if (taskId === null || remote || taskSnapshot === null) return null;
+  const candidates = currentSubmittedExecutions(taskSnapshot);
+  if (requestedExecutionId !== undefined) {
+    const match = candidates.find((candidate) => candidate.executionId === requestedExecutionId);
+    if (!match)
+      throw runtimeSpawnError(
+        "review_target_missing",
+        `Execution ${requestedExecutionId} is not a submitted cut on task ${taskId}'s current iteration.`,
+      );
+    return match;
+  }
+  if (candidates.length === 0)
+    throw runtimeSpawnError(
+      "review_target_missing",
+      `Task ${taskId} has no submitted execution to review; a reviewer dispatch binds to a submitted ` +
+        "cut, never to the active implementation execution. Submit the implementation first.",
+    );
+  if (candidates.length > 1)
+    throw runtimeSpawnError(
+      "invalid_runtime_spawn",
+      `Task ${taskId} has ${String(candidates.length)} submitted executions on its current iteration ` +
+        `(${candidates.map((candidate) => candidate.executionId).join(", ")}); ` +
+        "dispatch each review with an explicit executionId.",
+    );
+  return candidates[0]!;
+}
+
 export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
   const processes = new Map<string, ActiveRuntime>(),
     exiting = new Set<string>(),
@@ -162,6 +198,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         "missionName",
         "onExitCommand",
         "taskId",
+        "executionId",
         "idempotencyKey",
         "providerSessionId",
       ],
@@ -205,6 +242,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         payload.taskId === null || payload.taskId === undefined
           ? (resumed?.header.taskId ?? null)
           : requiredRuntimeSpawnText(payload.taskId, "taskId"),
+      requestedExecutionId =
+        payload.executionId === undefined ? undefined : requiredRuntimeSpawnText(payload.executionId, "executionId"),
       providerSessionId =
         typeof payload.providerSessionId === "string"
           ? requiredRuntimeSpawnText(payload.providerSessionId, "providerSessionId")
@@ -223,6 +262,23 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       projection = input.remote ? null : requiredRuntimeProjection(input),
       remoteTask = taskId && input.remote ? await input.remote.taskContext(taskId, missionName) : null;
     const reviewerBinding = role === "reviewer";
+    // A reviewer binds to a submitted cut through the review surface only; a role-reviewer spawn
+    // without a task can never select that cut and must not fall back to a task-less runtime.
+    if (reviewerBinding && taskId === null)
+      throw runtimeSpawnError(
+        "invalid_runtime_spawn",
+        "Reviewer dispatch requires a reviewed task id; use ha task dispatch-review <task-id>.",
+      );
+    if (requestedExecutionId !== undefined && !reviewerBinding)
+      throw runtimeSpawnError(
+        "invalid_runtime_spawn",
+        "executionId only applies to a reviewer dispatch; use ha task dispatch-review <task-id> --execution-id <id>.",
+      );
+    if (reviewerBinding && taskId !== null && input.remote && remoteTask?.executionId === undefined)
+      throw runtimeSpawnError(
+        "review_target_missing",
+        `Remote task context for ${taskId} returned no submitted execution to review.`,
+      );
     // Every local spawn (runtime.run, squad turns, fallback continuations) runs in the RepoCell write queue.
     const taskSnapshot =
         taskId && !input.remote ? requireCurrentTaskProjection(projection!, taskId, "runtime.run").snapshot : null,
@@ -234,6 +290,13 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           ? currentSubmittedExecutions(taskSnapshot)
           : [],
       reviewExecution = reviewExecutions.length === 1 ? reviewExecutions[0]! : null,
+      // A reviewer dispatch binds to the submitted cut under review — never to the task's active
+      // implementation execution or lease — so it cannot observe, open, or mutate an implementation
+      // iteration. Selection happens here so every entry (task dispatch-review, completion facade)
+      // enforces the same invariant.
+      reviewTarget = reviewerBinding
+        ? selectReviewTarget(taskId, requestedExecutionId, taskSnapshot, input.remote != null)
+        : null,
       hash = createHash("sha256").update(`${input.repoId}\0${idempotencyKey}`).digest("hex"),
       newDispatchId = `dispatch_${hash.slice(0, 24)}`,
       runtimeSessionId = `runtime_${hash.slice(24, 48)}`,
@@ -414,7 +477,11 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             : mission,
       readOnlyDispatch = effectivePermissionMode === "read-only",
       dispatchMission = dispatchMissionForPermission(selfContainedMission ?? mission, effectivePermissionMode),
-      assembledPrompt = agent ? assembleAgentPrompt(agent, dispatchMission, preset, resolvedSkills) : dispatchMission,
+      assembledPrompt = agent
+        ? assembleAgentPrompt(agent, dispatchMission, preset, resolvedSkills)
+        : taskMission
+          ? assembleUnboundPrompt(dispatchMission)
+          : dispatchMission,
       prompt = trustedSchedule ? scheduleMissionWithOutcomeProtocol(assembledPrompt) : assembledPrompt,
       prepared = await input.prepareLaunch(runtimeInstanceId, {
         cwd,
@@ -533,8 +600,12 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     const taskBinding = taskId
         ? {
             taskId,
-            executionId: remoteTask?.executionId ?? lease?.executionId ?? reviewExecution!.executionId,
-            leaseVersion: lease?.version ?? null,
+            executionId:
+              remoteTask?.executionId ??
+              (reviewerBinding ? reviewTarget!.executionId : (lease?.executionId ?? reviewExecution!.executionId)),
+            // A reviewer holds no lease; carrying another executor's leaseVersion would misstate
+            // the session's write authority in every downstream binding check.
+            leaseVersion: reviewerBinding ? null : (lease?.version ?? null),
           }
         : null,
       streamStartedAt = input.now();
@@ -714,6 +785,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       kindId: definition.kindId,
       permissionMode: launchedPermissionMode ?? null,
       agent,
+      role: role ?? null,
       delegatedBy,
       squadId: squad?.squadId ?? null,
       parentRuntimeSessionId: parentRuntimeSessionId ?? null,
