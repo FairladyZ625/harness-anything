@@ -55,6 +55,54 @@ function lifecycleCommand(
   } as TaskLifecycleCommand;
 }
 
+const ciRequirement = {
+    gateId: "ci",
+    appliesTo: "code" as const,
+    witness: {
+      adapterId: "github-actions" as const,
+      adapterOptions: {
+        workflows: ["rewrite-ci"],
+        branch: "main",
+        event: "push" as const,
+        coverage: "exact" as const,
+        selection: "newest" as const,
+      },
+    },
+  },
+  codeDocRequirement = {
+    gateId: "code-doc-reconciliation",
+    appliesTo: "code" as const,
+    witness: { adapterId: "code-doc-reconciliation" as const, adapterOptions: {} },
+  };
+
+function executionReceipt(gates: readonly (typeof ciRequirement | typeof codeDocRequirement)[]): string {
+  const fixture = lifecycleFixture({ gates, complete: false }),
+    event = fixture.events.at(-1)!,
+    compiled = compileTaskLifecycleWrite({
+      event,
+      snapshot: fixture.snapshot,
+      packagePath: "tasks/task-1-fixture",
+      currentDocuments: [],
+    }),
+    receipt = compiled.blobs.find(({ body }) => body.startsWith("# Execution "));
+  assert.ok(receipt);
+  return receipt.body;
+}
+
+test("Execution receipts distinguish undeclared gates from required missing witnesses", () => {
+  const ungated = executionReceipt([]);
+  assert.match(ungated, /- Checker witnesses: not_required/u);
+  assert.match(ungated, /- Code-doc witness: not_required/u);
+
+  const ci = executionReceipt([ciRequirement]);
+  assert.match(ci, /- Checker witnesses: pending/u);
+  assert.match(ci, /- Code-doc witness: not_required/u);
+
+  const codeDoc = executionReceipt([codeDocRequirement]);
+  assert.match(codeDoc, /- Checker witnesses: not_required/u);
+  assert.match(codeDoc, /- Code-doc witness: pending/u);
+});
+
 test("lease release replay ignores only the retired longRunning task metadata", () => {
   const task = {
       schema: "task/v2",

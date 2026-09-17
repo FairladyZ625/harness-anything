@@ -31,7 +31,9 @@ export type DecisionFieldKey =
   | "judgmentConsents"
   | "body";
 export type TaskFieldKey = keyof TaskFrontmatter;
-export type FactFieldKey = Exclude<keyof FactEventPayload, "factsDocumentClaim"> | "factId";
+export type FactFieldKey =
+  | Exclude<keyof FactEventPayload, "factsDocumentClaim" | "supersededFactsDocumentClaim">
+  | "factId";
 export type RelationFieldKey = keyof EntityRelationRecord;
 
 export const decisionFieldContracts = {
