@@ -3,6 +3,7 @@ import {
   renderEntityActionExplanation,
   type EntityActionExplanationRenderInput,
 } from "./entity-action-explain-render.ts";
+import { renderCausalGraph } from "./graph-render.ts";
 import { consumeKnownError } from "../daemon/client.ts";
 import { humanError, renderReceiptGuidance } from "./guidance-plane.ts";
 import { renderScheduleList, renderScheduleRuns, renderScheduleShow } from "./thin-command-schedule.ts";
@@ -39,6 +40,7 @@ const commandRenderers = new Map<string, ReceiptRenderer>([
   ["squad-status", renderSquadStatusReceipt],
   ["event-list", renderEventListReceipt],
   ["event-show", renderEventShowReceipt],
+  ["graph", (receipt) => renderCausalGraph(receipt) ?? renderSuccessfulReceipt(receipt)],
 ]);
 
 const preOutcomeCommandRenderers = new Map<string, ReceiptRenderer>([["runtime-batch", renderRuntimeBatchReceipt]]);

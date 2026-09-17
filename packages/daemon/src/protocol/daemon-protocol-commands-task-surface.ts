@@ -475,6 +475,27 @@ export const taskSurfaceProtocolCommands = Object.freeze([
     ],
   }),
   defineRepoReadCommand({
+    id: "graph",
+    phase: "W3",
+    path: ["graph", "<ref>"],
+    summary:
+      "Render the read-only causal tree for one Task, Decision, Fact, or milestone slug: " +
+      "declared relations in both directions plus task parent/child structure, with cycles, " +
+      "repeats, and truncated frontiers marked.",
+    method: "repo.task.read",
+    inputs: [
+      cliInput(
+        "--depth",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { regex: "^(?:[1-9]|1[0-6])$" },
+      ),
+    ],
+  }),
+  defineRepoReadCommand({
     id: "task-read-set",
     phase: "Governed-Entity-W2-B",
     path: ["task", "read-set", "<task-id>"],

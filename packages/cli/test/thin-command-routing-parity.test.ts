@@ -425,6 +425,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
     event: ["event-list", "event-show"],
     explain: ["explain"],
     fact: ["fact-reclassify", "fact-record", "fact-search", "fact-show", "fact-type-list", "fact-type-register"],
+    graph: ["graph"],
     gui: ["gui"],
     init: ["repo-bootstrap"],
     ledger: ["ledger-reconcile"],

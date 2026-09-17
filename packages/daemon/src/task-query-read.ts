@@ -504,6 +504,7 @@ export function makeTaskQueryReadModel(input: {
       warnings: relationFacetWarnings(cut.status),
       ...cut,
       ...(page.page ? { page: page.page } : {}),
+      ...("truncated" in page && page.truncated === true ? { truncated: true } : {}),
     };
   }
   return Object.freeze({ agenda, relationGraphNeighborhood, relationGraphFacet, relationGraphPage, guiTasks });
@@ -573,7 +574,7 @@ function relationFacetWarnings(status: "ready" | "pending") {
         },
       ];
 }
-type ProjectionCut = Pick<TaskRelationProjectionRead, "status" | "watermark" | "sourceRevision">;
+export type ProjectionCut = Pick<TaskRelationProjectionRead, "status" | "watermark" | "sourceRevision">;
 function projectionCut(read: ProjectionCut): ProjectionCut {
   return {
     status: read.status,
@@ -581,7 +582,7 @@ function projectionCut(read: ProjectionCut): ProjectionCut {
     sourceRevision: read.sourceRevision,
   };
 }
-function requireSameProjectionCut(surface: string, reads: readonly ProjectionCut[]): ProjectionCut {
+export function requireSameProjectionCut(surface: string, reads: readonly ProjectionCut[]): ProjectionCut {
   const basis = reads[0];
   if (basis === undefined) throw new Error(`${surface} requires an event projection cut.`);
   for (const read of reads.slice(1))

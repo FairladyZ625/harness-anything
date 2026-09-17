@@ -99,6 +99,10 @@ export interface TaskRelationProjectionRead {
   readonly sourceRevision: number;
   readonly page?: ProjectionPage;
 }
+export interface TaskRelationNeighborhoodRead extends TaskRelationProjectionRead {
+  /** True when traversable edges exist beyond the query's maxDepth window. */
+  readonly truncated: boolean;
+}
 export interface ProjectionApplyReceipt {
   readonly metrics: { readonly sqliteTransactions: 1; readonly reducedItems: number };
 }
