@@ -1,0 +1,27 @@
+# Node 仓库：GitHub Actions 见证 ci 门，本地命令见证 lint 与合并门。
+# - ci 由内置 code 类 preset 声明；workflows 名单与 .github/workflows/ci.yml 的名字一致。
+# - lint / merged-to.main 是自定义 gate id，需要 preset 在 profile completionGates 里声明
+#   （见 skills/preset-creator/SKILL.md），否则映射惰性。
+# 预期行为：提交后 ci 等 GitHub run（coverage: descendant 接受以提交 SHA 为祖先的 run）；
+# lint 在 submit/complete 前于提交沙箱里跑 `npm ci && npm run lint`，非零退出阻塞 complete；
+# merged-to.main 在 cut 合入 main 前采到 fail，合入后重跑 task complete 即 pass。
+schema: harness-anything/v1
+settings:
+  ci:
+    workflows: [ci]
+  gates:
+    ci:
+      adapter: github-actions
+      appliesTo: code
+      branch: main
+      event: push
+      coverage: descendant
+      selection: newest
+    lint:
+      appliesTo: code
+      adapter: local-command
+      command: npm ci && npm run lint
+    merged-to.main:
+      appliesTo: code
+      adapter: local-command
+      command: git -C "$HARNESS_WITNESS_REPO" merge-base --is-ancestor "$HARNESS_WITNESS_CUT" refs/heads/main
