@@ -8,7 +8,7 @@ import { projectedTaskFields } from "./task-projection-fields.ts";
 import { rendererCapabilityModel, rendererNavigation } from "../src/renderer/app-model.ts";
 import { GraphView } from "../src/renderer/views/GraphView.tsx";
 import { PhaseSteps } from "../src/renderer/components/taskDetail/PhaseSteps.tsx";
-import { DecisionPoolView } from "../src/renderer/views/DecisionPoolView.tsx";
+import { AttestationPoolView } from "../src/renderer/views/AttestationPoolView.tsx";
 import { TaskDetailView } from "../src/renderer/views/TaskDetailView.tsx";
 import { TaskCloseoutTab } from "../src/renderer/components/taskDetail/TaskCloseoutTab.tsx";
 import { DecisionJudgmentPanel } from "../src/renderer/components/DecisionJudgmentPanel.tsx";
@@ -413,8 +413,11 @@ describe("renderer app model", () => {
       createElement(
         QueryClientProvider,
         { client: new QueryClient() },
-        createElement(DecisionPoolView, {
+        createElement(AttestationPoolView, {
           repoId: "repo-a",
+          tasks: [],
+          poolTab: "decisions",
+          onPoolTabChange: () => undefined,
           decisions,
           facts: [],
           relations: [],

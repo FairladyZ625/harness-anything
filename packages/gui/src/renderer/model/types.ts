@@ -39,10 +39,14 @@ export interface DocEntry {
   readonly uncommitted?: boolean;
 }
 
+/** kernel `CloseoutGateStatus` 原样透传：failed/missing 区分是签发总池的判据，不用 ok 三态重推。 */
+export type GateStatus = TaskSnapshotProjectionRow["closeoutAssessment"]["gates"][number]["status"];
+
 /** materialization gate / check 结果——任务详情收口区的"原因"维度 */
 export interface GateResult {
   readonly name: string;
   readonly ok: boolean | null;
+  readonly status?: GateStatus;
   readonly detail?: string;
 }
 

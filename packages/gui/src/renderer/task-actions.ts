@@ -67,7 +67,7 @@ export function createGuiExecutionId(randomUUID: () => string = () => crypto.ran
 
 export interface TaskMutationFeedback {
   readonly state: "pending" | "success" | "error";
-  readonly kind: "start" | "progress" | "submit" | "complete" | "pin";
+  readonly kind: "start" | "progress" | "submit" | "complete" | "pin" | "attest";
   readonly opId: string;
   readonly code?: string;
   readonly hint: string;
@@ -262,5 +262,35 @@ export function useTaskActions(repoId: string) {
       }),
     [once, reread],
   );
-  return { feedback, startTask, appendProgress, submitTask, completeTask, setTaskPin };
+  // Gate 签发的 GUI 写通道:与 `ha task attest` 同一条 daemon 动作(kind=task-attest)。
+  // 表单里的一段人话按 mode 分字段:approve 的可选评语走 note,override 的特批理由
+  // 走 rationale——daemon 对字段错位/理由过短是 invalid_field 拒收,错误原样进反馈。
+  const attestGate = useCallback(
+    (
+      task: Pick<TaskRow, "taskId">,
+      gateId: string,
+      mode: "approve" | "override",
+      comment?: string,
+    ): Promise<TaskMutationFeedback> =>
+      once(`attest:${task.taskId}:${gateId}:${mode}`, task.taskId, async () => {
+        publish(task.taskId, {
+          state: "pending",
+          kind: "attest",
+          opId: "awaiting-receipt",
+          hint: mode === "approve" ? "正在提交打勾签注…" : "正在提交特批覆盖…",
+        });
+        const settlement = settleTaskReceipt(
+          await harnessClient.taskAttest({
+            repoId,
+            taskId: task.taskId,
+            gateId,
+            mode,
+            ...(comment ? (mode === "override" ? { rationale: comment } : { note: comment }) : {}),
+          }),
+        );
+        return reread(task.taskId, "attest", settlement);
+      }),
+    [once, reread],
+  );
+  return { feedback, startTask, appendProgress, submitTask, completeTask, setTaskPin, attestGate };
 }

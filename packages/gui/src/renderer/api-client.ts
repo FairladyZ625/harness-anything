@@ -387,6 +387,31 @@ export const harnessClient = {
   async unpinTask(payload: RepoScope & { readonly taskId: string }): Promise<GuiActionResult> {
     return readGuiActionResult(await invoke("repo.task.unpin", payload, "unpinTask"));
   },
+  /**
+   * Gate 签发的唯一 GUI 写通道:正式 facet `repo.task.attest`(bridge `taskAttest`),
+   * 与 `ha task attest` 同一条 task-attest 动作。payload 是闭形状,daemon 按
+   * ActionDeclaration 展开:approve 不带 mode,可选评语走 `note`;override 必须
+   * `mode`+`rationale`(trim 后 ≥10 字符,daemon 权威校验)。错误码原样上抛,
+   * 由调用方透传,不伪造成功。
+   */
+  async taskAttest(
+    payload: RepoScope & {
+      readonly taskId: string;
+      readonly gateId: string;
+      readonly mode: "approve" | "override";
+      readonly note?: string;
+      readonly rationale?: string;
+    },
+  ): Promise<GuiActionResult> {
+    const { repoId, taskId, gateId, mode, note, rationale } = payload;
+    // invoke 的传参沿用本文件既有惯例:先落成变量再传(facet 注册表在 guiAction 边界
+    // 把 payload 类型放宽为索引签名,新鲜字面量会被 excess-property 检查误伤)。
+    const request =
+      mode === "override"
+        ? { repoId, taskId, gateId, result: "pass" as const, mode, ...(rationale ? { rationale } : {}) }
+        : { repoId, taskId, gateId, result: "pass" as const, ...(note ? { note } : {}) };
+    return readGuiActionResult(await invoke("repo.task.attest", request, "taskAttest"));
+  },
   /** 只读的 canonical receipt 查询,不是重放。 */
   async showReceipt(payload: RepoScope & { readonly opId: string }): Promise<GuiActionResult> {
     return readGuiActionResult(await invoke("repo.receipt.show", payload, "showReceipt"));
