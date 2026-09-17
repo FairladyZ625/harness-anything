@@ -15,6 +15,7 @@ import type { TaskLifecycleSnapshot } from "../../kernel/src/index.ts";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 import { gate as validateGateWitnessWire } from "../src/protocol/daemon-protocol-validate-entities.ts";
 import { attestGateWitness, witnessAdapters } from "../src/repo-cell-witness-adapters.ts";
+import { runProcessExitAsync } from "../src/process-port.ts";
 import type { RepoCellOperationalContext } from "../src/repo-cell-action-context.ts";
 import type { RepoCellBinding, Snapshot } from "../src/repo-cell-types.ts";
 import { projectionReady } from "../src/repo-cell-settlement.ts";
@@ -187,6 +188,40 @@ test("local-command refuses stale collections after the submitted cut is amended
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+// local-command's verdict comes from runProcessExitAsync: a real exit resolves with its code
+// (0 → pass, nonzero → fail), while termination paths — spawn failure, signal, timeout, abort —
+// produce no verdict and must reject. The timeout case is the sharp edge: a child that catches
+// SIGTERM and exits 7 on its own still reports a numeric error.code, so the killed/signal
+// markers — not the code — classify it as no-verdict.
+test(
+  "runProcessExitAsync resolves only real exits: a SIGTERM-swallowing child under timeout rejects",
+  { skip: process.platform === "win32" ? "requires POSIX SIGTERM delivery semantics" : false },
+  async () => {
+    assert.deepEqual(await runProcessExitAsync(process.execPath, ["-e", "process.exit(7)"]), {
+      exitCode: 7,
+      stdout: "",
+      stderr: "",
+    });
+    assert.equal((await runProcessExitAsync(process.execPath, ["-e", ""])).exitCode, 0);
+    await assert.rejects(
+      runProcessExitAsync(
+        process.execPath,
+        ["-e", 'process.on("SIGTERM",()=>process.exit(7)); setInterval(()=>{},1000);'],
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { timeoutMs: 1000 },
+      ),
+      (error: unknown) => {
+        const failure = error as { killed?: boolean; signal?: string | null };
+        return failure.killed === true || failure.signal != null;
+      },
+    );
+    await assert.rejects(runProcessExitAsync("ha-no-such-binary-9f8e7d", []), { code: "ENOENT" });
+  },
+);
 
 // A merged-to:<branch> declaration resolves to an ordinary local-command requirement whose
 // command observes ancestry in the source repository through HARNESS_WITNESS_REPO: the verdict is

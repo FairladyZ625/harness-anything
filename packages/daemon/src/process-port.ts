@@ -107,7 +107,16 @@ export function runProcessText(
   );
 }
 interface ProcessTextOutcome {
-  readonly error: (Error & { code?: number | string | null; status?: number; stdout: string; stderr: string }) | null;
+  readonly error:
+    | (Error & {
+        code?: number | string | null;
+        status?: number;
+        killed?: boolean;
+        signal?: string | null;
+        stdout: string;
+        stderr: string;
+      })
+    | null;
   readonly stdout: string;
   readonly stderr: string;
 }
@@ -209,9 +218,12 @@ export function runProcessExitAsync(
   } = {},
 ): Promise<ProcessExitResult> {
   return launchProcessText(command, args, cwd, env, input, signal, options).then((outcome) => {
-    if (outcome.error && typeof outcome.error.code !== "number") throw outcome.error;
+    const error = outcome.error;
+    // A child that handles the timeout/abort kill signal and exits itself still reports a
+    // numeric error.code; killed/signal are what separate a real verdict from a termination.
+    if (error && (typeof error.code !== "number" || error.killed === true || error.signal != null)) throw error;
     return {
-      exitCode: typeof outcome.error?.code === "number" ? outcome.error.code : 0,
+      exitCode: typeof error?.code === "number" ? error.code : 0,
       stdout: outcome.stdout,
       stderr: outcome.stderr,
     };
