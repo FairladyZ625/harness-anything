@@ -7,6 +7,7 @@ import { runtimeTypeMatchesKind } from "./agent-runtime-contract.ts";
 import type { RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
 import { type ResolvedAgentSkill } from "./agent-skills.ts";
 import { resolveContainedPath } from "./contained-path.ts";
+import { assembleTaskCausalContext } from "./dispatch-causal-context.ts";
 import { requiredRuntimeSpawnText, runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import type { RuntimeAgent, RuntimeDaemonRoute, RuntimeSessionSelection } from "./runtime-spawn-types.ts";
 import { assertTaskTransitionDocumentReady } from "./transition-document-access.ts";
@@ -170,6 +171,7 @@ export function deriveTaskMission(
   taskId: string,
   transition: "runtime.run" | "squad.run",
   missionName?: string,
+  causalContext?: string | null,
 ): {
   readonly mission: string;
   readonly packageRoot: string;
@@ -190,8 +192,11 @@ export function deriveTaskMission(
     missionDocument = missionName
       ? readMissionDocument(projection, planDocument.packagePath, taskId, missionName, packageRoot)
       : null,
+    causalContextResolved =
+      causalContext === undefined ? assembleTaskCausalContext({ projection, taskId }) : causalContext,
     mission = [
       `Your task package is ${packageRoot}.\nRead ${path.basename(planPath)} in that package and complete the task.`,
+      ...(causalContextResolved === null ? [] : [causalContextResolved]),
       ...(missionDocument ? [`# Mission: ${missionName}\n\n${missionDocument.body.trim()}`] : []),
     ].join("\n\n");
   return {
