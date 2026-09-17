@@ -138,17 +138,24 @@ export function deriveCloseoutSubmission(
   } else {
     const execution = snapshot.executions.find((value) => value.executionId === executionId),
       baseline = execution !== undefined && isNativeExecution(execution) ? execution.deliveryBaseline : undefined;
-    if (baseline === undefined)
-      throw cell.cellCodedError(
-        "invalid_submission",
-        "Execution has no frozen delivery baseline; the comparison cut is fixed at execution start.",
-      );
-    const base = baseline.kind === "commit" ? baseline.commitSha : EMPTY_TREE_SHA;
-    if (baseline.kind === "commit" && !git.run(root, ["cat-file", "-e", `${baseline.commitSha}^{commit}`]).ok)
-      throw cell.cellCodedError(
-        "invalid_submission",
-        `Frozen delivery baseline ${baseline.commitSha} is not readable in the delivery repository.`,
-      );
+    let base: string;
+    if (baseline === undefined) {
+      // Executions started before the baseline froze keep the comparison cut in force when they started
+      // (dec_D23B9787328EF7E0FACB70F9FE): the merge base with origin/main, else the commit's first parent.
+      const mergeBase = git.run(root, ["merge-base", "origin/main", commitSha]);
+      base =
+        mergeBase.ok && mergeBase.stdout !== commitSha
+          ? mergeBase.stdout
+          : git.run(root, ["rev-parse", `${commitSha}^1`]).stdout;
+      if (!base) throw cell.cellCodedError("invalid_submission", "Delivery commit has no verifiable comparison cut.");
+    } else {
+      base = baseline.kind === "commit" ? baseline.commitSha : EMPTY_TREE_SHA;
+      if (baseline.kind === "commit" && !git.run(root, ["cat-file", "-e", `${baseline.commitSha}^{commit}`]).ok)
+        throw cell.cellCodedError(
+          "invalid_submission",
+          `Frozen delivery baseline ${baseline.commitSha} is not readable in the delivery repository.`,
+        );
+    }
     deliverables = runProcessText(
       "git",
       ["diff", "--name-only", "-z", "--diff-filter=ACMRT", base, commitSha, "--"],

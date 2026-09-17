@@ -49,7 +49,7 @@ export const closeoutStatusWordRegister: readonly StatusWordRegistration[] = [
     word: "not_applicable",
     entity: "TaskCloseout",
     field: "gate status",
-    meaning: "The frozen requirement's declared scope has no delivery part in the current cut.",
+    meaning: "A frozen gate requirement whose declared scope this cut does not deliver; neither a pass nor missing.",
     divergence: "entity-scoped",
   },
   // ---- TaskCloseout.readiness (closeout judgment result) ----
