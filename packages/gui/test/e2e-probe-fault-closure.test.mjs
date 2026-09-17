@@ -65,11 +65,24 @@ test(
       rows = await taskRows(fixture),
       failures = rows.filter((row) => row.snapshot.task?.title === `E2E probe failure [${journey.failureSignature}]`),
       artifacts = globSync("harness/tasks/**/artifacts/e2e-probe/failure.json", { cwd: fixture.rootDir });
+    // Fact receipts are durable at write time, but the markdown projection file is emitted
+    // asynchronously after the receipt returns; poll briefly instead of racing it.
+    const signatureFacts = async () =>
+        globSync("harness/facts/F-*.md", { cwd: fixture.rootDir })
+          .map((file) => readFileSync(path.join(fixture.rootDir, file), "utf8"))
+          .filter((body) => body.includes(journey.failureSignature)),
+      factDeadline = Date.now() + 10_000;
+    while (Date.now() < factDeadline && (await signatureFacts()).length < 2)
+      await new Promise((resolve) => setTimeout(resolve, 200));
 
     assert.equal(first.outcome, "failed");
     assert.equal(first.deduplicated, false);
+    assert.equal(first.factRecorded, true, JSON.stringify(first));
+    assert.equal(first.factError, null);
     assert.equal(second.deduplicated, true);
     assert.equal(second.taskId, first.taskId);
+    assert.equal(second.factRecorded, true, JSON.stringify(second));
+    assert.equal((await signatureFacts()).length, 2, "create and dedupe closures must each record a first-triage fact");
     assert.deepEqual(
       failures.map(({ taskId }) => taskId),
       [first.taskId],

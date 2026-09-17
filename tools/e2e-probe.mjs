@@ -214,6 +214,36 @@ export async function recordE2EProbeFailure({
         env,
       ),
     )[0];
+  // The closure runs as agent:e2e-probe — the task creator — so it can attach the probe's own
+  // first-triage evidence to the task it opened. The schedule-bound runtime doing the deeper
+  // diagnosis stays bound to its dispatch and cannot write here; its findings live in the
+  // schedule receipt. A failed fact write must never mask the task-closure result.
+  const recordFailureFact = async (taskId) => {
+    try {
+      await runCliJson(
+        workspaceRoot,
+        rootDir,
+        [
+          "fact",
+          "record",
+          "--task",
+          taskId,
+          "--statement",
+          `E2E probe failure ${journey.failureSignature}: step ${journey.failedStep ?? "unknown"} ` +
+            `failed with ${String(journey.message ?? "").slice(0, 400)} ` +
+            `(run ${journey.runId}, deduped=${Boolean(existing)}).`,
+          "--source",
+          bundlePath,
+          "--confidence",
+          "high",
+        ],
+        env,
+      );
+      return { factRecorded: true, factError: null };
+    } catch (error) {
+      return { factRecorded: false, factError: error instanceof Error ? error.message : String(error) };
+    }
+  };
   if (existing)
     return {
       schema: "e2e-probe-result/v1",
@@ -222,6 +252,7 @@ export async function recordE2EProbeFailure({
       failureSignature: journey.failureSignature,
       taskId: String(existing.taskId),
       deduplicated: true,
+      ...(await recordFailureFact(String(existing.taskId))),
     };
   const created = await runCliJson(
       workspaceRoot,
@@ -261,6 +292,7 @@ export async function recordE2EProbeFailure({
     failureSignature: journey.failureSignature,
     taskId,
     deduplicated: false,
+    ...(await recordFailureFact(taskId)),
   };
 }
 
