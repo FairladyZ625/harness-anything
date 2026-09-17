@@ -240,6 +240,9 @@ export const presetCommands = Object.freeze([
   }),
   defineCenterForwardWriteCommand({
     id: "subtask-create",
+    // CLI alias only: the forwarded durable action is task-create, so authorization, receipt,
+    // and the Action inventory key on the shared kind rather than a duplicate declaration.
+    actionKind: "task-create",
     phase: "Preset-A",
     path: ["subtask", "create"],
     summary: "Create a lightweight child task under an existing parent task.",

@@ -9,7 +9,7 @@ import presetContract, {
   validatePresetRunReceiptV1,
   validatePresetSnapshotV1,
 } from "../src/preset.contract.ts";
-import { closeoutOverrideKeys } from "../../kernel/src/index.ts";
+import { DEFAULT_CLOSEOUT_SETTINGS, effectiveCloseoutGates } from "../../kernel/src/index.ts";
 import { parameterRelationHint, regexLength } from "../src/preset-command-contract.ts";
 import { decodePresetPackageV3, validateVerticalSource } from "../src/preset-resolver.ts";
 
@@ -62,7 +62,8 @@ test("profile closeoutOverrides accepts exactly the kernel closeout gate vocabul
     /invalid|profile/u,
   );
   // The contract leaf restates the kernel gate vocabulary; this parity assertion is the drift guard.
-  for (const key of closeoutOverrideKeys)
+  const kernelCloseoutOverrideKeys = Object.keys(effectiveCloseoutGates(DEFAULT_CLOSEOUT_SETTINGS));
+  for (const key of kernelCloseoutOverrideKeys)
     assert.deepEqual(
       validatePresetManifestV3({
         ...withOverrides,
@@ -74,7 +75,7 @@ test("profile closeoutOverrides accepts exactly the kernel closeout gate vocabul
   assert.equal(
     validatePresetManifestV3({
       ...withOverrides,
-      profiles: [{ ...lightweight, closeoutOverrides: { [closeoutOverrideKeys[0]]: true, bogus: true } }],
+      profiles: [{ ...lightweight, closeoutOverrides: { [kernelCloseoutOverrideKeys[0]]: true, bogus: true } }],
     }).length > 0,
     true,
   );
