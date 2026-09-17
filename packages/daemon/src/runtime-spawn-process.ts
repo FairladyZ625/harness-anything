@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import type { CanonicalEventStore, TaskProjection } from "../../kernel/src/index.ts";
 import { consumeKnownError } from "../../kernel/src/index.ts";
 import type { PreparedRuntimeLaunch, RuntimeInstanceKind } from "./agent-runtime-instances.ts";
+import { runtimeKindForId } from "./runtime-inventory.ts";
 import {
   appendRuntimeWorkerRecord,
   dispatchStreamPath,
@@ -18,9 +19,14 @@ import {
 } from "./dispatch-stream.ts";
 import { removeRuntimeCallbackRelay } from "./runtime-callback-relay.ts";
 import { runtimePidIsAlive } from "./runtime-process-liveness.ts";
-import { runtimeSpawnError } from "./runtime-spawn-errors.ts";
+import { runtimeErrorCode, runtimeErrorMessage, runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import { parseProviderFrame } from "./runtime-spawn-provider-frames.ts";
-import type { ResumeProcessEvent, ResumeProcessObservation, RuntimeProcess } from "./runtime-spawn-types.ts";
+import type {
+  ResumeProcessEvent,
+  ResumeProcessObservation,
+  RuntimeLauncher,
+  RuntimeProcess,
+} from "./runtime-spawn-types.ts";
 import { exitNotificationTimeoutMs, providerErrorLimit, resumeAdmissionTimeoutMs } from "./runtime-spawner.ts";
 import { runProcessTextAsync } from "./process-port.ts";
 
@@ -34,6 +40,35 @@ export function requiredRuntimeProjection(input: { readonly projection?: () => T
   if (!input.projection)
     throw runtimeSpawnError("runtime_preconditions_unavailable", "Local runtime projection is unavailable.");
   return input.projection();
+}
+
+/** Launch once, and for a resume retain the buffered witness until the session is registered. */
+export async function launchRuntimeProcess(
+  launch: RuntimeLauncher,
+  prepared: PreparedRuntimeLaunch,
+  persistence: Parameters<RuntimeLauncher>[1],
+  providerSessionId?: string | null,
+): Promise<{ process: RuntimeProcess; resumeObservation?: ResumeProcessObservation }> {
+  let process: RuntimeProcess | undefined;
+  try {
+    process = launch(prepared, persistence);
+    if (!providerSessionId) return { process };
+    const resumeObservation = observeResumeProcess(
+      process,
+      runtimeKindForId(prepared.definition.kindId).kindId,
+      providerSessionId,
+    );
+    await resumeObservation.ready;
+    return { process, resumeObservation };
+  } catch (error) {
+    process?.terminate();
+    process?.release?.();
+    if (!providerSessionId || runtimeErrorCode(error) === "runtime_resume_failed") throw error;
+    throw runtimeSpawnError(
+      "runtime_resume_failed",
+      `${prepared.definition.kindId} session ${providerSessionId} could not be resumed: ${runtimeErrorMessage(error)}`,
+    );
+  }
 }
 
 // A resume receipt is an admission claim: the provider has accepted the old

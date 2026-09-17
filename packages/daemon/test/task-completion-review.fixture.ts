@@ -222,6 +222,10 @@ export async function fixture(
     delivery = `artifact:${report}@${accepted.revision}`;
   }
   if (hybridDelivery) {
+    writeFileSync(path.join(root, "README.md"), "# Reviewed hybrid delivery\n");
+    git(root, "add", "README.md");
+    git(root, "commit", "-qm", "docs: update hybrid fixture delivery");
+    delivery = git(root, "rev-parse", "HEAD");
     const report = `${packagePath}/artifacts/hybrid.md`;
     mkdirSync(path.dirname(path.join(root, "harness", report)), { recursive: true });
     writeFileSync(path.join(root, "harness", report), "Frozen hybrid evidence.\n");

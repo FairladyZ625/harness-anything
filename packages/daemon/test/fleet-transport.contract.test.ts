@@ -15,6 +15,34 @@ import {
 const cut = { revision: 7, headDigest: `sha256:${"b".repeat(64)}` } as const;
 const ledgerCut = { repoId: "repo", ...cut } as const;
 const blob = { sha256: "c".repeat(64), size: 3, mediaType: "text/markdown" } as const;
+test("runtime dispatch frames carry typed center admission context without mirrored budget state", () => {
+  const frame = {
+    schema: "fleet.runtime.event/v1",
+    messageId: "dispatch",
+    assignmentId: "assignment",
+    writerEpoch: 1,
+    repoId: "repo",
+    opId: "dispatch-op",
+    eventType: "runtime_dispatch_requested",
+    payload: {},
+    result: null,
+    dispatchContext: { role: "reviewer", taskId: "task", executionId: "execution" },
+  };
+  assert.deepEqual(parseFleetFrame(frame), frame);
+  const { dispatchContext: _context, ...missing } = frame;
+  assert.throws(() => parseFleetFrame(missing), FleetContractError);
+  assert.throws(
+    () =>
+      parseFleetFrame({
+        ...frame,
+        dispatchContext: {
+          ...frame.dispatchContext,
+          reviewReturnBudget: 99,
+        },
+      }),
+    FleetContractError,
+  );
+});
 const frames = [
   {
     schema: "fleet.session.hello/v1",
