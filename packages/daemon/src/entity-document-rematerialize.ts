@@ -152,7 +152,8 @@ export function runEntityDocumentRematerialize(
     appliedCut = cell.projection.readCut().watermark,
     canonicalVisible = appliedCut >= revision;
   return {
-    outcome: canonicalVisible ? "applied" : "pending",
+    // Skipped dirty paths still await a rerun, so a partial batch never reports itself applied.
+    outcome: canonicalVisible && report.conflictCount === 0 ? "applied" : "pending",
     ...base,
     revision,
     evidence: JSON.stringify({
