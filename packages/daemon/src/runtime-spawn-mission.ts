@@ -341,7 +341,7 @@ export function validateMissionCommands(mission: string, workerRoot: string, sou
 
 export function shellSegments(line: string): string[][] {
   const segments: string[][] = [[]];
-  for (const [raw] of line.matchAll(/"(?:\\.|[^"])*"|'[^']*'|&&|[|;]|[^\s|&;<>]+/gu)) {
+  for (const [raw] of line.matchAll(/"(?:\\.|[^"])*"|'[^']*'|&&|[|;]|(?:<[^<>\r\n]+>|[^\s|&;<>])+/gu)) {
     if (["&&", "|", ";"].includes(raw)) {
       if (segments.at(-1)?.length) segments.push([]);
       continue;
