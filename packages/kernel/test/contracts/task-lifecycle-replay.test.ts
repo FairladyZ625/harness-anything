@@ -219,6 +219,79 @@ test("accepted history still rejects missing approval and mismatched gate bindin
     assert.throws(() => reduceTaskEvent(invalid, completed), /accepted task and execution state/);
 });
 
+test("pre-freeze submissions replay declared-gate witnesses without a frozen contract", () => {
+  // dec_D23B9787: gen1/gen2 submissions carry no completionContract, so replay cannot look the
+  // gate requirement up in the contract. It infers the requirement from the declared gate ids
+  // and still enforces the witness-to-execution binding fields.
+  const fixture = lifecycleFixture({
+      gates: [
+        {
+          gateId: "ci",
+          appliesTo: "code" as const,
+          witness: {
+            adapterId: "github-actions" as const,
+            adapterOptions: {
+              workflows: ["rewrite-ci"],
+              branch: "main",
+              event: "push",
+              coverage: "exact" as const,
+              selection: "newest" as const,
+            },
+          },
+        },
+      ],
+      complete: false,
+    }),
+    replayed = fixture.events.reduce(reduceTaskEvent, emptyTaskLifecycleSnapshot()),
+    current = replayed.executions[0]!,
+    { completionContract: _frozen, ...legacySubmission } = current.submission!,
+    legacyExecution = { ...current, submission: legacySubmission },
+    snapshot: TaskLifecycleSnapshot = { ...replayed, executions: [legacyExecution] },
+    verify = (witness: Record<string, unknown>): TaskEventV1 => ({
+      schema: "task-event/v1",
+      eventId: "event-witness",
+      workspaceRevision: snapshot.revision + 1,
+      opId: "op-legacy-ci",
+      taskId: snapshot.task!.taskId,
+      type: "completion_gate_verified",
+      actor: implementer,
+      source: "local",
+      occurredAt: "2026-08-11T00:04:30.000Z",
+      payload: {
+        task: snapshot.task!,
+        execution: legacyExecution,
+        witness: {
+          schema: "completion-gate-witness/v1",
+          witnessId: "gate-legacy",
+          taskId: snapshot.task!.taskId,
+          executionId: legacyExecution.executionId,
+          gateId: "ci",
+          checkerId: "standard",
+          receiptId: "op-legacy-ci",
+          commitSha: legacySubmission.commitSha,
+          iteration: legacyExecution.iteration,
+          result: "pass",
+          actor: implementer,
+          source: "local",
+          verifiedAt: "2026-08-11T00:04:30.000Z",
+          ...witness,
+        },
+        documentClaims: [],
+      },
+    });
+
+  const bound = reduceTaskEvent(snapshot, verify({}));
+  assert.equal(bound.gateWitnesses.length, 1);
+  assert.equal(bound.gateWitnesses[0]?.gateId, "ci");
+  for (const unbound of [
+    { gateId: "undeclared-gate" },
+    { commitSha: "b".repeat(40) },
+    { executionId: "other-execution" },
+    { iteration: legacyExecution.iteration + 1 },
+  ])
+    assert.throws(() => reduceTaskEvent(snapshot, verify(unbound)), /not bound to the execution cut/u);
+});
+
 test("a graph stored with the retired maxIterations field still validates strictly", () => {
   assert.deepEqual(validateTaskGraph({ ...REPLAY_TASK_GRAPH, maxIterations: 1 }), []);
   assert.equal(validateTaskGraph({ ...REPLAY_TASK_GRAPH, maxIterationz: 1 }).length, 1);

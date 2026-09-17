@@ -572,9 +572,12 @@ function assertReplay(snapshot: TaskLifecycleSnapshot, event: TaskEventV1, next:
     event.type === "completion_gate_verified" &&
     (() => {
       const submission = event.payload.execution.submission,
-        requirement = submission?.completionContract?.gates.find(
-          (gate) => gate.gateId === event.payload.witness.gateId,
-        );
+        declared = snapshot.task?.completionGateIds.includes(event.payload.witness.gateId) === true,
+        requirement =
+          submission?.completionContract?.gates.find((gate) => gate.gateId === event.payload.witness.gateId) ??
+          (submission && !submission.completionContract && declared
+            ? { gateId: event.payload.witness.gateId, appliesTo: "submission" as const }
+            : undefined);
       return (
         !snapshot.task?.completionGateIds.includes(event.payload.witness.gateId) ||
         event.payload.witness.executionId !== event.payload.execution.executionId ||
