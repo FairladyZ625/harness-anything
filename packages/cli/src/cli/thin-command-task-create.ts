@@ -105,7 +105,7 @@ export function parseSubtaskCreate(
       title,
       parentTaskId: parent,
       // The subtask shortcut defaults to the preset-declared lightweight profile; the daemon
-      // resolves it against the inherited preset and rejects if that preset has none.
+      // resolves it against the repository default preset and rejects if that preset has none.
       profileId: f.one.get("--profile") ?? "lightweight",
       ...Object.fromEntries(
         (route.inputs as readonly (ThinCliInput & { readonly field?: string })[]).flatMap((input) => {
