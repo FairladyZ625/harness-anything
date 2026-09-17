@@ -71,7 +71,9 @@ export function runAcpProviderSession(
     // session/load replays prior updates before responding; they are history,
     // not this turn's output, so they must not accumulate into finalText.
     replayingHistory = manifest.providerSessionId !== undefined,
-    finalText = "";
+    finalText = "",
+    // Set when the child closes: from then on no request can be answered.
+    exited: Error | null = null;
   const pending = new Map<JsonRpcId, { resolve: (value: unknown) => void; reject: (error: Error) => void }>();
   const send = (message: Record<string, unknown>): void => {
     try {
@@ -84,6 +86,10 @@ export function runAcpProviderSession(
   // long as the provider runs, same as the other runtime kinds.
   const request = (method: string, params: Record<string, unknown>, timeoutMs = handshakeTimeoutMs): Promise<unknown> =>
     new Promise((resolve, reject) => {
+      if (exited) {
+        reject(exited);
+        return;
+      }
       const id = nextId++;
       const timeout =
         timeoutMs > 0
@@ -182,6 +188,15 @@ export function runAcpProviderSession(
         append({ kind: "provider_output_invalid", output: scrubProviderValue(line) });
       }
     }
+  });
+  // Exit status says nothing about the turn: devin's ACP server exits 0 when it decides its host is gone. A
+  // request still unanswered at close fails the session instead of leaving it pending forever.
+  child.once("close", (code: number | null, signal: NodeJS.Signals | null) => {
+    exited = new Error(
+      `ACP provider exited before the session completed (exit ${String(code)}, signal ${String(signal)})`,
+    );
+    for (const entry of pending.values()) entry.reject(exited);
+    pending.clear();
   });
   const cancel = (): void => {
     if (sessionId) send({ jsonrpc: "2.0", method: "session/cancel", params: { sessionId } });
