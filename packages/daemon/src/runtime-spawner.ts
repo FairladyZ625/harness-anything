@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import path from "node:path";
-import type { AgentRuntimeEventV1, CanonicalEventStore, ExecutionV1, SessionIdentity } from "../../kernel/src/index.ts";
+import type { AgentRuntimeEventV1, CanonicalEventStore, SessionIdentity } from "../../kernel/src/index.ts";
 import {
   consumeKnownError,
   currentSubmittedExecutions,
@@ -91,47 +91,13 @@ import { isProviderFailureClassification } from "./runtime-fallback-contract.ts"
 import type { RuntimeAttemptOutcome, RuntimeFallbackAttempt } from "./runtime-fallback-contract.ts";
 import type { RuntimeEventOf, RuntimeEventType, RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
-import { assertReviewReturnBudgetAvailable } from "./review-dispatch-admission.ts";
+import { assertReviewReturnBudgetAvailable, selectReviewTarget } from "./review-dispatch-admission.ts";
 import { continuationMission, initialFallbackAttempt, requiredRuntimeFast } from "./runtime-spawn-fallback.ts";
 import { admitRuntimeResume, assertResumeAgent, resolveResumeCwd } from "./runtime-resume-admission.ts";
 export const resultMediaType = "text/plain; charset=utf-8" as const,
   providerErrorLimit = 64 * 1024,
   resumeAdmissionTimeoutMs = 30_000,
   exitNotificationTimeoutMs = 30_000;
-
-/** A reviewer dispatch binds to the task's submitted cut; anything else is a dispatch error, never a fallback to an implementation execution. */
-function selectReviewTarget(
-  taskId: string | null,
-  requestedExecutionId: string | undefined,
-  taskSnapshot: ReturnType<typeof requireCurrentTaskProjection>["snapshot"] | null,
-  remote: boolean,
-): ExecutionV1 | null {
-  if (taskId === null || remote || taskSnapshot === null) return null;
-  const candidates = currentSubmittedExecutions(taskSnapshot);
-  if (requestedExecutionId !== undefined) {
-    const match = candidates.find((candidate) => candidate.executionId === requestedExecutionId);
-    if (!match)
-      throw runtimeSpawnError(
-        "review_target_missing",
-        `Execution ${requestedExecutionId} is not a submitted cut on task ${taskId}'s current iteration.`,
-      );
-    return match;
-  }
-  if (candidates.length === 0)
-    throw runtimeSpawnError(
-      "review_target_missing",
-      `Task ${taskId} has no submitted execution to review; a reviewer dispatch binds to a submitted ` +
-        "cut, never to the active implementation execution. Submit the implementation first.",
-    );
-  if (candidates.length > 1)
-    throw runtimeSpawnError(
-      "invalid_runtime_spawn",
-      `Task ${taskId} has ${String(candidates.length)} submitted executions on its current iteration ` +
-        `(${candidates.map((candidate) => candidate.executionId).join(", ")}); ` +
-        "dispatch each review with an explicit executionId.",
-    );
-  return candidates[0]!;
-}
 
 export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
   const processes = new Map<string, ActiveRuntime>(),
