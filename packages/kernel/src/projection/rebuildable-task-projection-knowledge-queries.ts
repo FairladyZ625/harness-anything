@@ -5,6 +5,7 @@ import {
   listDecisionAgendaRowsPage,
   listDecisionRowsPage,
   readDecisionGraphRows,
+  readDecisionIncomingRelationRows,
   readDecisionRow,
   readDecisionRows,
 } from "./decision-event-projection.ts";
@@ -44,6 +45,7 @@ export function knowledgeQueryApi(
   | "listDecisions"
   | "listDecisionAgendaPage"
   | "readDecisionGraph"
+  | "readDecisionIncomingRelations"
   | "readDecisionCoverage"
 > {
   const { eventStore, limit, projectionPath, readHead } = context;
@@ -178,6 +180,8 @@ export function knowledgeQueryApi(
           sourceRevision: cut.sourceRevision,
         };
       }),
+    readDecisionIncomingRelations: (decisionId) =>
+      withDatabase(projectionPath, readHead, (db) => readDecisionIncomingRelationRows(db, decisionId)),
     readDecisionCoverage: (decisionIds) =>
       withDatabase(projectionPath, readHead, (db) => {
         const cut = readProjectionCut(db, readHead);

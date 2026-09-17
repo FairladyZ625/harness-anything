@@ -23,7 +23,7 @@ import type {
 import { ftsQuery } from "./fts-query.ts";
 import { queryRows, type ProjectionSqlRow } from "./rebuildable-task-projection-sql.ts";
 import { checkedPageLimit, decodePageCursor, encodePageCursor, type ProjectionPage } from "./task-query-projection.ts";
-import { readRelationProjectionRows } from "./relation-entity-projection.ts";
+import { readRelationProjectionRows, readRelationProjectionRowsTargetingEntity } from "./relation-entity-projection.ts";
 
 export function readDecisionRow(db: DatabaseSync, decisionId: string, withBody = true): DecisionProjectionRow | null {
   return readDecisionRows(db, [decisionId], withBody)[0] ?? null;
@@ -342,6 +342,16 @@ function compareDecisionIds(left: string, right: string): number {
       : a === undefined && b !== undefined
         ? 1
         : left.localeCompare(right);
+}
+
+/** Non-fact-owned relation edges targeting one Decision or its option/claim anchors. */
+export function readDecisionIncomingRelationRows(
+  db: DatabaseSync,
+  decisionId: string,
+): ReturnType<typeof readDecisionGraphRows>["edges"] {
+  return readRelationProjectionRowsTargetingEntity(db, `decision/${decisionId}`).filter(
+    (edge) => !edge.ownerRef.startsWith("fact/"),
+  );
 }
 
 export function readDecisionGraphRows(db: DatabaseSync): {
