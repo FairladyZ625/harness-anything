@@ -134,14 +134,7 @@ export { parseEntityRef } from "./entity-ref.ts";
 export type { EntityRef, EntityRefKind, ParsedEntityRef } from "./entity-ref.ts";
 
 export { buildCausalGraphView } from "./causal-graph-view.ts";
-export type {
-  CausalGraphBuildInput,
-  CausalGraphEdgeInput,
-  CausalGraphNodeInfo,
-  CausalGraphViaEdge,
-  CausalGraphView,
-  CausalGraphViewNode,
-} from "./causal-graph-view.ts";
+export type { CausalGraphEdgeInput, CausalGraphNodeInfo } from "./causal-graph-view.ts";
 
 export { projectDeclaredRoleBindings, roleBindingActorMatches, roleBindingExpired } from "./role-binding.ts";
 export type { RoleBinding } from "./role-binding.ts";
