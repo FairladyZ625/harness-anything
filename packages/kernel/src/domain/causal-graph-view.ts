@@ -20,7 +20,6 @@ export interface CausalGraphEdgeInput {
   readonly direction: string;
   readonly state: string;
   readonly freshness: string;
-  readonly current: boolean;
 }
 
 /** Display-side hydration for one ref; absent fields render as unknown. */

@@ -10,7 +10,6 @@ const edge = (
   direction: "directed",
   state: "active",
   freshness: "current",
-  current: true,
   ...partial,
 });
 

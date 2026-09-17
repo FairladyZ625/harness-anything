@@ -6,6 +6,7 @@ import {
   type CausalGraphNodeInfo,
   type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
+import { requireSameProjectionCut, type ProjectionCut } from "./task-query-read.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import type { TaskQueryCell } from "./repo-cell-task-query.ts";
 
@@ -22,7 +23,8 @@ const GRAPH_MAX_DEPTH = 16,
 export function graphView(cell: TaskQueryCell, action: RepoTaskAction, binding: RepoCellBinding): WriteReceipt {
   const rawRef = cell.requiredCellText(action.ref, "ref"),
     depth = graphDepth(cell, action.depth),
-    root = resolveGraphRoot(cell, rawRef),
+    initialCut = cell.projection.readCut(),
+    root = resolveGraphRoot(cell, rawRef, initialCut),
     // Relation edges hang off decision claim/choice anchors, never the bare decision ref, so a
     // decision root expands to one neighborhood read per anchor and merges them at the same cut.
     reads = [root.ref, ...root.anchors].map((seed) =>
@@ -52,6 +54,7 @@ export function graphView(cell: TaskQueryCell, action: RepoTaskAction, binding: 
     taskByRef = new Map(taskIndex.rows.map((row) => [`task/${row.taskId}`, row])),
     structuralChildren: Record<string, { ref: string; type: string }[]> = {},
     structuralParents: Record<string, { ref: string; type: string }> = {};
+  requireSameProjectionCut("graph", [initialCut, ...reads, taskIndex]);
   for (const row of taskIndex.rows)
     if (row.parentTaskId !== null) {
       const parentRef = `task/${row.parentTaskId}`;
@@ -69,6 +72,7 @@ export function graphView(cell: TaskQueryCell, action: RepoTaskAction, binding: 
     refs.add(edge.targetRef);
   }
   const nodes = hydrateGraphNodes(cell, refs, taskByRef, read);
+  requireSameProjectionCut("graph", [initialCut, cell.projection.readCut()]);
   const view = buildCausalGraphView({
     rootRef: root.ref,
     depth,
@@ -81,7 +85,6 @@ export function graphView(cell: TaskQueryCell, action: RepoTaskAction, binding: 
         direction: edge.direction,
         state: edge.state,
         freshness: edge.freshness,
-        current: edge.current,
       }),
     ),
     structuralChildren,
@@ -123,7 +126,7 @@ interface GraphRoot {
 }
 
 /** Normalize `task_x`, `dec_x[/C1]`, `F-x`, or a milestone/task slug to a canonical entity ref. */
-function resolveGraphRoot(cell: TaskQueryCell, raw: string): GraphRoot {
+function resolveGraphRoot(cell: TaskQueryCell, raw: string, cut: ProjectionCut): GraphRoot {
   const normalized = raw
       .replace(/^(task_[0-9A-Za-z_-]+)$/u, "task/$1")
       .replace(/^(dec_[0-9A-Za-z]+)((?:\/[A-Za-z0-9_-]+)*)$/u, "decision/$1$2")
@@ -135,7 +138,9 @@ function resolveGraphRoot(cell: TaskQueryCell, raw: string): GraphRoot {
     const witness = cell.projection.readEntityVersionWitness(normalized);
     if (witness?.currentVersion !== null) {
       if (parsed.kind === "decision" && parsed.anchor === undefined) {
-        const row = cell.projection.readDecision(parsed.id).decision;
+        const read = cell.projection.readDecision(parsed.id);
+        requireSameProjectionCut("graph", [cut, read]);
+        const row = read.decision;
         return {
           ref: normalized,
           anchors: [...(row?.claims ?? []), ...(row?.chosen ?? [])].map((anchor) => `${normalized}/${anchor.id}`),
@@ -149,7 +154,9 @@ function resolveGraphRoot(cell: TaskQueryCell, raw: string): GraphRoot {
     // before declaring the root unknown.
   }
   const slug = parsed !== null && parsed.kind === "task" ? parsed.id : raw,
-    matches = cell.projection.readTaskIndex({ slug }).rows;
+    read = cell.projection.readTaskIndex({ slug });
+  requireSameProjectionCut("graph", [cut, read]);
+  const matches = read.rows;
   if (matches.length > 1)
     throw cell.cellCodedError(
       "graph_root_ambiguous",
@@ -163,7 +170,9 @@ function hydrateGraphNodes(
   cell: TaskQueryCell,
   refs: ReadonlySet<string>,
   taskByRef: ReadonlyMap<string, { readonly title: string; readonly status: string; readonly taskClass: string }>,
-  read: { readonly facts: readonly { readonly ref: string; readonly statement: string; readonly liveness: string }[] },
+  read: ProjectionCut & {
+    readonly facts: readonly { readonly ref: string; readonly statement: string; readonly liveness: string }[];
+  },
 ): Record<string, CausalGraphNodeInfo> {
   const decisionIds = new Set<string>(),
     factInfo = new Map(read.facts.map((fact) => [fact.ref, fact] as const));
@@ -171,9 +180,9 @@ function hydrateGraphNodes(
     const decision = /^decision\/([^/]+)/u.exec(ref)?.[1];
     if (decision) decisionIds.add(decision);
   }
-  const decisions = new Map(
-    cell.projection.readDecisions([...decisionIds]).decisions.map((row) => [row.decisionId, row] as const),
-  );
+  const decisionRead = cell.projection.readDecisions([...decisionIds]);
+  requireSameProjectionCut("graph", [read, decisionRead]);
+  const decisions = new Map(decisionRead.decisions.map((row) => [row.decisionId, row] as const));
   return Object.fromEntries(
     [...refs].map((ref): readonly [string, CausalGraphNodeInfo] => {
       const parsed = parseEntityRef(ref),
