@@ -747,7 +747,11 @@ export function completionContext(
     invalid = scan.rows.find((row) => row.state === "blocked" || row.state === "conflict" || row.state === "deletion");
   return {
     ...canonical,
-    closeoutGates: effectiveCloseoutGates(cell.settings.readRepository().closeout, snapshot.task?.completionGateIds),
+    closeoutGates: effectiveCloseoutGates(
+      cell.settings.readRepository().closeout,
+      snapshot.task?.completionGateIds,
+      snapshot.task?.closeoutOverrides,
+    ),
     ...(assessment
       ? {
           closeout: assessment.ready ? ("ready" as const) : ("placeholder" as const),

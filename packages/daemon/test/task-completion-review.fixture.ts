@@ -77,7 +77,11 @@ export async function fixture(
   noInstances = false,
   hybridDelivery = false,
   reviewReturnBudget?: number,
-  options: { readonly autoSubmit?: boolean; readonly closeoutProfile?: "standard" | "strict" } = {},
+  options: {
+    readonly autoSubmit?: boolean;
+    readonly closeoutProfile?: "standard" | "strict";
+    readonly create?: Readonly<Record<string, unknown>>;
+  } = {},
 ) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-completion-review-")),
     repoId = workspaceId("completion-review");
@@ -192,6 +196,7 @@ export async function fixture(
     title: "Completion Review",
     presetId: artifactDelivery || hybridDelivery ? "standard-task" : "docs-task",
     ...(reviewReturnBudget === undefined ? {} : { reviewReturnBudget }),
+    ...options.create,
   });
   assert.equal(created.outcome, "applied", JSON.stringify(created));
   await waitForFixturePublication(cell, created.opId, owner);

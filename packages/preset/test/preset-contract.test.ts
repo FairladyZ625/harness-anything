@@ -9,6 +9,7 @@ import presetContract, {
   validatePresetRunReceiptV1,
   validatePresetSnapshotV1,
 } from "../src/preset.contract.ts";
+import { closeoutOverrideKeys } from "../../kernel/src/index.ts";
 import { parameterRelationHint, regexLength } from "../src/preset-command-contract.ts";
 import { decodePresetPackageV3, validateVerticalSource } from "../src/preset-resolver.ts";
 
@@ -33,6 +34,49 @@ test("preset contract accepts only the closed v3 wire shape", () => {
   assert.deepEqual(
     presetContract.schemas.map((schema) => schema.id),
     ["preset-manifest/v3", "preset-document/v1", "preset-snapshot/v1", "preset-run-receipt/v1"],
+  );
+});
+
+test("profile closeoutOverrides accepts exactly the kernel closeout gate vocabulary", () => {
+  const lightweight = {
+      id: "lightweight",
+      title: "Lightweight",
+      completionGates: [],
+      templateSelections: [],
+      closeoutOverrides: { review: false, consent: false },
+    },
+    withOverrides = { ...manifest, profiles: [lightweight], defaultProfile: "lightweight" };
+  assert.deepEqual(validatePresetManifestV3(withOverrides), []);
+  assert.match(
+    validatePresetManifestV3({
+      ...withOverrides,
+      profiles: [{ ...lightweight, closeoutOverrides: { review: "no" } }],
+    }).join("\n"),
+    /invalid|profile/u,
+  );
+  assert.match(
+    validatePresetManifestV3({
+      ...withOverrides,
+      profiles: [{ ...lightweight, closeoutOverrides: { notAGate: false } }],
+    }).join("\n"),
+    /invalid|profile/u,
+  );
+  // The contract leaf restates the kernel gate vocabulary; this parity assertion is the drift guard.
+  for (const key of closeoutOverrideKeys)
+    assert.deepEqual(
+      validatePresetManifestV3({
+        ...withOverrides,
+        profiles: [{ ...lightweight, closeoutOverrides: { [key]: true } }],
+      }),
+      [],
+      `kernel gate ${key} must be accepted in profile closeoutOverrides`,
+    );
+  assert.equal(
+    validatePresetManifestV3({
+      ...withOverrides,
+      profiles: [{ ...lightweight, closeoutOverrides: { [closeoutOverrideKeys[0]]: true, bogus: true } }],
+    }).length > 0,
+    true,
   );
 });
 

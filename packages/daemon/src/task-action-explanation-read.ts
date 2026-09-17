@@ -238,7 +238,11 @@ export function readTaskActionExplanation(
             entity: entityWitness,
             snapshot,
             evaluatedAtCut: cut,
-            closeoutGates: readEffectiveCloseoutGates(dependencies.projection, task.completionGateIds),
+            closeoutGates: readEffectiveCloseoutGates(
+              dependencies.projection,
+              task.completionGateIds,
+              task.closeoutOverrides,
+            ),
             completionContext: readCompletionContext(dependencies.projection, entity.id, snapshot, "ready"),
           }).subjects[0]!;
         }

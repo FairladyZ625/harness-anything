@@ -8,6 +8,7 @@ import {
 } from "./daemon-protocol-vocabulary.ts";
 import { isJsonObject, type JsonObject, validationValueSummary } from "./json-rpc-types.ts";
 import {
+  isValidCloseoutOverrides,
   mappedWitnessAdapterIds,
   validCompletionEvidenceOverride,
   validateFrozenCompletionContract,
@@ -239,6 +240,7 @@ export function task(value: unknown): boolean {
       "supersededBy",
       "contractVersion",
       "reviewReturnBudget",
+      "closeoutOverrides",
     ];
   return (
     recordWith(value, required) &&
@@ -261,7 +263,8 @@ export function task(value: unknown): boolean {
     (value.supersededBy === undefined || value.supersededBy === null || nonEmpty(value.supersededBy)) &&
     (value.contractVersion === undefined || (integer(value.contractVersion) && Number(value.contractVersion) > 0)) &&
     (value.reviewReturnBudget === undefined ||
-      (integer(value.reviewReturnBudget) && Number(value.reviewReturnBudget) > 0))
+      (integer(value.reviewReturnBudget) && Number(value.reviewReturnBudget) > 0)) &&
+    (value.closeoutOverrides === undefined || isValidCloseoutOverrides(value.closeoutOverrides))
   );
 }
 

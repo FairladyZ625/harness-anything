@@ -30,6 +30,7 @@ import { isTaskProgressEvent } from "../domain/task-progress-event.ts";
 import { isPresetSnapshotUpgradeEvent } from "../domain/preset-snapshot-upgrade-event.ts";
 import { isScheduleEvent } from "../domain/schedule-event.ts";
 import { isSettingsEvent } from "../domain/settings-event.ts";
+import { isValidCloseoutOverrides } from "../domain/settings-closeout.ts";
 import { isVerticalDeclarationEvent } from "../domain/vertical-declaration.ts";
 import { isPeopleEvent } from "../domain/people-event.ts";
 import { isCiRunObservationEvent } from "../domain/ci-run-observation-event.ts";
@@ -488,9 +489,17 @@ export function applyEvent(
       throw new Error(`preset snapshot upgrade basis mismatch for ${event.taskId}`);
     const snapshot = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(snapshotBytes)),
       changedPreset = current.task.metadata?.presetId !== snapshot.identity.id,
-      changed = {
+      // The task-bound closeout override set tracks the profile declaration on upgrade; a profile
+      // that no longer declares one drops the field entirely rather than freezing a stale value.
+      baseTask = { ...currentTaskForWrite(current.task) },
+      closeoutOverrides = (snapshot.profile as { readonly closeoutOverrides?: unknown }).closeoutOverrides;
+    if (closeoutOverrides !== undefined && !isValidCloseoutOverrides(closeoutOverrides))
+      throw new Error(`preset snapshot upgrade declared invalid closeoutOverrides for ${event.taskId}`);
+    if (closeoutOverrides === undefined) delete baseTask.closeoutOverrides;
+    const changed = {
         completionGateIds: snapshot.profile.completionGateIds,
         presetSnapshotDigest: snapshot.digest,
+        ...(closeoutOverrides === undefined ? {} : { closeoutOverrides }),
         ...(changedPreset && current.task.metadata
           ? {
               metadata: {
@@ -502,7 +511,7 @@ export function applyEvent(
             }
           : {}),
       },
-      currentShape = { ...currentTaskForWrite(current.task), ...changed };
+      currentShape = { ...baseTask, ...changed };
     if (canonicalJson(currentShape) !== canonicalJson(currentTaskForWrite(event.payload.task)))
       throw new Error(`preset snapshot upgrade changed immutable task fields for ${event.taskId}`);
     const contractBody = new TextDecoder("utf-8", { fatal: true }).decode(contractBytes),

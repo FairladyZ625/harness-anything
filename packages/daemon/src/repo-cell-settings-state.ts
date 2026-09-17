@@ -19,6 +19,7 @@ import {
   type CanonicalEventStore,
   type CanonicalEventV1,
   type CloseoutGate,
+  type CloseoutOverridesV1,
   type CloseoutSettingsV1,
   type RepositorySettingsV1,
   type SettingsLocale,
@@ -169,9 +170,10 @@ export function settingsLastChanged(
 export function readEffectiveCloseoutGates(
   projection: Pick<TaskProjectionQueries, "getEntity">,
   taskGateIds: readonly string[],
+  taskOverrides?: CloseoutOverridesV1,
 ): Readonly<Record<CloseoutGate, boolean>> {
   const projected = projection.getEntity("settings", "repository")?.value as
     | { readonly closeout?: CloseoutSettingsV1 }
     | undefined;
-  return effectiveCloseoutGates(projected?.closeout ?? DEFAULT_CLOSEOUT_SETTINGS, taskGateIds);
+  return effectiveCloseoutGates(projected?.closeout ?? DEFAULT_CLOSEOUT_SETTINGS, taskGateIds, taskOverrides);
 }
