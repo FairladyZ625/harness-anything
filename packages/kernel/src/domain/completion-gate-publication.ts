@@ -5,17 +5,18 @@ import { validateTaskEvent, type CompletionGateVerifiedEvent } from "./task-life
 import { TaskLifecycleContractError, type TaskLifecycleSnapshot } from "./task-lifecycle.contract.ts";
 import type { CompletionGateWitnessV1 } from "./completion-gate-witness.ts";
 import type { CompletionEvidenceV1 } from "./completion-evidence.ts";
+import { gateAppliesToSubmission } from "./completion-contract.ts";
 
 export function compileCompletionGateWitness(input: {
   readonly snapshot: TaskLifecycleSnapshot;
   readonly taskId: string;
   readonly executionId: string;
   readonly gateId: string;
-  readonly result: "pass";
+  readonly result: "pass" | "fail";
   readonly evidence?: CompletionEvidenceV1;
   readonly receiptId: string;
   readonly checkerId: string;
-  readonly commitSha: string;
+  readonly commitSha: string | null;
   readonly iteration: number;
   readonly actor: ActorAxes;
   readonly source: WriteSource;
@@ -29,15 +30,20 @@ export function compileCompletionGateWitness(input: {
   const task = input.snapshot.task,
     execution = input.snapshot.executions.find(
       (value) => value.executionId === input.executionId && value.iteration === task?.iteration,
-    );
+    ),
+    requirement = execution?.submission?.completionContract?.gates.find((gate) => gate.gateId === input.gateId);
   if (
     !task ||
     task.taskId !== input.taskId ||
     task.status !== "in_review" ||
     execution?.state !== "submitted" ||
     !execution.submission ||
-    !task.completionGateIds.includes(input.gateId) ||
-    input.gateId === "code-doc-reconciliation" ||
+    !requirement ||
+    // A gate outside this cut's declared scope cannot be witnessed at all — not_applicable is
+    // not a state a receipt can observe.
+    !gateAppliesToSubmission(requirement, execution.submission) ||
+    // The witness's actual source adapter must equal the adapter frozen into the submission contract.
+    input.evidence?.provenance.adapterId !== requirement.witness.adapterId ||
     input.commitSha !== execution.submission.commitSha ||
     input.iteration !== execution.iteration ||
     input.workspaceRevision <= input.snapshot.revision

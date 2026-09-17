@@ -1,12 +1,16 @@
 import {
   completionGuidance,
+  consumeKnownError,
   currentExecutionCuts,
   heldLeaseForExecutionActor,
+  isNativeExecution,
   isSameExecution,
   isSamePerson,
   isTaskEvent,
   ledgerGitPath,
+  resolveCompletionContract,
   resolveLedgerGitLayout,
+  reviewsForExecution,
   submissionFromCloseout,
   submissionDigest,
   sameWriteSource,
@@ -28,10 +32,16 @@ import { runDocAction } from "./doc-sync-actions.ts";
 import { makeGitReadinessSource, runProcessText } from "./process-port.ts";
 import { readTaskTransitionDocument } from "./transition-document-access.ts";
 import { isPresetSnapshotCurrent, prepareSubmissionEvidence } from "./repo-cell-task-progress.ts";
+import { actionWitnessCollections } from "./repo-cell-witness-adapters.ts";
+import { dispatchCompletionReview } from "./task-completion-review.ts";
+import { readEffectiveCloseoutGates } from "./repo-cell-settings-state.ts";
+
+/** Git resolves the empty-tree object id virtually; it exists in every repository. */
+const EMPTY_TREE_SHA = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 
 /** Summary selects one public delivery commit, center-accepted artifacts, or both. */
 export function deriveCloseoutSubmission(
-  cell: Pick<RepoCellOperationalContext, "rootDir" | "projection" | "store" | "cellCodedError">,
+  cell: Pick<RepoCellOperationalContext, "rootDir" | "projection" | "store" | "cellCodedError" | "settings">,
   taskId: string,
   executionId: string,
   snapshot: Snapshot,
@@ -43,8 +53,16 @@ export function deriveCloseoutSubmission(
       slot: "task.closeout",
       bodyOverrides,
     }),
+    frozen = snapshot.executions.find((execution) => execution.executionId === executionId)?.submission,
     // Parse/validate before reading any Git cut. No risk or verification line is filtered.
-    prose = submissionFromCloseout(document.body, { commitSha: "0".repeat(40), deliverables: [], outputs: [] }),
+    parsed = submissionFromCloseout(document.body, {
+      commitSha: "0".repeat(40),
+      deliverables: [],
+      outputs: [],
+      completionContract: { gates: [] },
+    }),
+    // The execution's first submission freezes the gate requirements; resumes and amendments keep them.
+    prose = { ...parsed, completionContract: frozen?.completionContract ?? freezeCompletionContract(cell, snapshot) },
     anchors = artifactAnchors(prose.completionClaim),
     named = [...new Set(removeArtifactAnchors(prose.completionClaim).match(/\b[0-9a-f]{40}\b/gu) ?? [])];
   if (named.length > 1)
@@ -111,7 +129,6 @@ export function deriveCloseoutSubmission(
       "invalid_submission",
       "Summary commit must be the bound worktree HEAD or its published merge commit.",
     );
-  const frozen = snapshot.executions.find((execution) => execution.executionId === executionId)?.submission;
   let deliverables: readonly string[], commitOutputs: readonly string[];
   if (frozen?.commitSha === commitSha) {
     // A submitted commit already owns its file manifest. Advancing main must not
@@ -119,12 +136,26 @@ export function deriveCloseoutSubmission(
     deliverables = frozen.deliverables;
     commitOutputs = frozen.outputs.filter((output) => !output.startsWith("Artifact-Anchor: "));
   } else {
-    const mergeBase = git.run(root, ["merge-base", "origin/main", commitSha]);
-    const base =
-      mergeBase.ok && mergeBase.stdout !== commitSha
-        ? mergeBase.stdout
-        : git.run(root, ["rev-parse", `${commitSha}^1`]).stdout;
-    if (!base) throw cell.cellCodedError("invalid_submission", "Delivery commit has no verifiable comparison cut.");
+    const execution = snapshot.executions.find((value) => value.executionId === executionId),
+      baseline = execution !== undefined && isNativeExecution(execution) ? execution.deliveryBaseline : undefined;
+    let base: string;
+    if (baseline === undefined) {
+      // Executions started before the baseline froze keep the comparison cut in force when they started
+      // (dec_D23B9787328EF7E0FACB70F9FE): the merge base with origin/main, else the commit's first parent.
+      const mergeBase = git.run(root, ["merge-base", "origin/main", commitSha]);
+      base =
+        mergeBase.ok && mergeBase.stdout !== commitSha
+          ? mergeBase.stdout
+          : git.run(root, ["rev-parse", `${commitSha}^1`]).stdout;
+      if (!base) throw cell.cellCodedError("invalid_submission", "Delivery commit has no verifiable comparison cut.");
+    } else {
+      base = baseline.kind === "commit" ? baseline.commitSha : EMPTY_TREE_SHA;
+      if (baseline.kind === "commit" && !git.run(root, ["cat-file", "-e", `${baseline.commitSha}^{commit}`]).ok)
+        throw cell.cellCodedError(
+          "invalid_submission",
+          `Frozen delivery baseline ${baseline.commitSha} is not readable in the delivery repository.`,
+        );
+    }
     deliverables = runProcessText(
       "git",
       ["diff", "--name-only", "-z", "--diff-filter=ACMRT", base, commitSha, "--"],
@@ -176,6 +207,55 @@ export function deriveCloseoutSubmission(
     deliverables,
     outputs: [...commitOutputs, ...artifacts.map((anchor) => `Artifact-Anchor: ${anchor.path}@${anchor.revision}`)],
   };
+}
+
+function freezeCompletionContract(
+  cell: Pick<RepoCellOperationalContext, "cellCodedError" | "settings">,
+  snapshot: Snapshot,
+): SubmissionV1["completionContract"] {
+  const resolved = resolveCompletionContract(snapshot.task?.completionGateIds ?? [], cell.settings.readRepository());
+  if (!resolved.ok) throw cell.cellCodedError("gate_mapping_invalid", resolved.message);
+  // The cut freezes the resolved reviewer declaration so a later settings change never redirects a
+  // cut already under review; cuts frozen before the field fall back to the repository default.
+  return {
+    ...resolved.contract,
+    reviewer: { agentId: cell.settings.readRepository().defaultReviewer ?? "closeout-reviewer" },
+  };
+}
+
+/**
+ * Submit-triggered review dispatch (dec_59FA45A407F850E2B167A192D7 CH2 §3): once the canonical
+ * submission is accepted and evidence preparation ran, the cut's frozen reviewer claim owns the
+ * dispatch — the same claim complete's review_missing branch reuses, keyed by task/execution/
+ * iteration/digest. The submission is already accepted, so a dispatch failure lands as a receipt
+ * step and never reports the accepted cut as unsubmitted. Tasks whose closeout profile disables
+ * review, and cuts that already carry a recorded review, dispatch nothing.
+ */
+async function dispatchSubmittedCutReview(
+  cell: RepoCellOperationalContext,
+  taskId: string,
+  executionId: string,
+  binding: RepoCellBinding,
+  opId: string,
+): Promise<WriteReceiptDraft | null> {
+  const current = await cell.service.read(taskId),
+    snapshot = current.snapshot,
+    execution = snapshot.executions.find(
+      (candidate) => candidate.executionId === executionId && candidate.iteration === snapshot.task?.iteration,
+    );
+  if (
+    !execution?.submission ||
+    !current.packagePath ||
+    !readEffectiveCloseoutGates(cell.projection, snapshot.task?.completionGateIds ?? []).review ||
+    reviewsForExecution(snapshot.reviews, execution).length > 0
+  )
+    return null;
+  try {
+    return await dispatchCompletionReview(cell, snapshot, execution, current.packagePath, binding, opId, []);
+  } catch (error) {
+    consumeKnownError(error);
+    return cell.failed(cell.errorOperationId(error) ?? opId, error);
+  }
 }
 
 /**
@@ -289,10 +369,11 @@ export async function submitTask(
       binding,
     );
     if (receipt.outcome !== "applied") return receipt;
-    const steps = await prepareSubmissionEvidence(cell, taskId, executionId, binding);
+    const steps = await prepareSubmissionEvidence(cell, taskId, executionId, binding, actionWitnessCollections(action)),
+      review = await dispatchSubmittedCutReview(cell, taskId, executionId, binding, receipt.opId);
     return {
       ...(steps.find((step) => !["applied", "no_changes"].includes(step.outcome)) ?? receipt),
-      steps,
+      steps: [...steps, ...(review === null ? [] : [review])],
     } as WriteReceiptDraft;
   }
   // Assignment callers carry their changed documents above. With no carried changes,
@@ -357,21 +438,23 @@ export async function submitTask(
       } as WriteReceiptDraft;
     const receipt = cell.receiptForOperation(event!.opId, binding);
     if (receipt.outcome !== "applied") return receipt;
-    const steps = await prepareSubmissionEvidence(cell, taskId, executionId, binding);
+    const steps = await prepareSubmissionEvidence(cell, taskId, executionId, binding, actionWitnessCollections(action)),
+      review = await dispatchSubmittedCutReview(cell, taskId, executionId, binding, receipt.opId);
     return {
       ...(steps.find((step) => !["applied", "no_changes"].includes(step.outcome)) ?? receipt),
-      steps,
+      steps: [...steps, ...(review === null ? [] : [review])],
     } as WriteReceiptDraft;
   }
   if (selected.submission && submissionDigest(selected.submission) === submissionDigest(submission))
     return submitTask(cell, { ...action, amend: false }, binding);
   const receipt = await cell.lifecycleAction({ ...action, executionId, submission }, binding);
   if (receipt.outcome !== "applied") return receipt;
-  const steps = await prepareSubmissionEvidence(cell, taskId, executionId, binding);
+  const steps = await prepareSubmissionEvidence(cell, taskId, executionId, binding, actionWitnessCollections(action)),
+    review = await dispatchSubmittedCutReview(cell, taskId, executionId, binding, receipt.opId);
   return {
     ...(steps.find((step) => !["applied", "no_changes"].includes(step.outcome)) ?? receipt),
     ...(anchorDriftWarnings.length ? { warnings: anchorDriftWarnings } : {}),
-    steps: [...(synced ? [synced] : []), ...steps],
+    steps: [...(synced ? [synced] : []), ...steps, ...(review === null ? [] : [review])],
   } as WriteReceiptDraft;
 }
 
@@ -433,6 +516,8 @@ export async function settleTask(
   return { ...submitted, steps: mergedSteps } as WriteReceiptDraft;
 }
 
+const submissionStopCodes = ["closeout_placeholder", "invalid_submission", "gate_mapping_invalid"];
+
 export function submissionStopped(
   cell: Pick<RepoCellOperationalContext, "rejected" | "operationId" | "input">,
   action: RepoTaskAction,
@@ -443,13 +528,8 @@ export function submissionStopped(
   error: unknown,
   steps: readonly WriteReceiptDraft[] = [],
 ): WriteReceiptDraft {
-  if (
-    !(error instanceof Error) ||
-    !("code" in error) ||
-    !["closeout_placeholder", "invalid_submission"].includes(String(error.code))
-  )
-    throw error;
-  const code = error.code === "closeout_placeholder" ? "closeout_placeholder" : "document_invalid";
+  if (!(error instanceof Error) || !("code" in error) || !submissionStopCodes.includes(String(error.code))) throw error;
+  const code = error.code === "invalid_submission" ? "document_invalid" : String(error.code);
   return {
     ...cell.rejected(cell.operationId(action, binding, cell.input.repoId, snapshot.revision), code),
     // The remapped code alone cannot say why the document was rejected; the guard's own message can.
@@ -458,8 +538,10 @@ export function submissionStopped(
       completionGuidance(
         snapshot,
         executionId,
-        `Fill harness/${packagePath}/closeout.md, run ha doc sync --submit --task ${String(action.taskId)}, ` +
-          `then run ha task submit ${String(action.taskId)}.`,
+        code === "gate_mapping_invalid"
+          ? `Map every declared gate in harness.yaml settings.gates, then run ha task submit ${String(action.taskId)}.`
+          : `Fill harness/${packagePath}/closeout.md, run ha doc sync --submit --task ${String(action.taskId)}, ` +
+              `then run ha task submit ${String(action.taskId)}.`,
         error.message,
       ),
     ],
@@ -473,11 +555,7 @@ export function readCloseoutSubmission(
   try {
     return { ok: true, submission: deriveCloseoutSubmission(...args) };
   } catch (error) {
-    if (
-      !(error instanceof Error) ||
-      !("code" in error) ||
-      !["closeout_placeholder", "invalid_submission"].includes(String(error.code))
-    )
+    if (!(error instanceof Error) || !("code" in error) || !submissionStopCodes.includes(String(error.code)))
       throw error;
     return { ok: false, error };
   }

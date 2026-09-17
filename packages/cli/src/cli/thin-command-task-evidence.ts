@@ -43,6 +43,27 @@ export function parseProgress(
   });
 }
 
+export function parseTaskAttest(
+  args: readonly string[],
+  rootDir: SafePath,
+  repoId: string | undefined,
+  json: boolean,
+  inputs: ThinCliInputDirectory,
+): ThinParseResult {
+  const taskId = args[2];
+  if (!nonEmpty(taskId)) return rejected("missing_field", "Run ha task attest <task-id>.", json);
+  const f = readFlags("task-attest", args.slice(3), inputs);
+  return f.ok
+    ? accepted(rootDir, repoId, json, {
+        kind: "task-attest",
+        taskId,
+        gateId: f.one.get("--gate"),
+        result: f.one.get("--result"),
+        ...(f.one.get("--note") ? { note: f.one.get("--note") } : {}),
+      })
+    : rejected(f.code, f.nextAction, json);
+}
+
 export function parseCodeDoc(
   rootDir: SafePath,
   repoId: string | undefined,

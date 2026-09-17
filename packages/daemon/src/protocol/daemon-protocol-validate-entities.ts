@@ -151,7 +151,9 @@ export function validateGuiSubmission(value: unknown): readonly string[] {
       ...(isJsonObject(value) && (value.commitSha === null || "artifacts" in value) ? ["artifacts"] : []),
     ],
     entityId = validationEntityId(value, ["commitSha"], "submission:<unknown>"),
-    shapeError = recordShapeError(entityId, value, fields),
+    // Submissions frozen before the completion contract carry none (dec_D23B9787328EF7E0FACB70F9FE); the kernel
+    // requires and fully validates it on every new submission, so the wire shape only checks its envelope.
+    shapeError = recordShapeError(entityId, value, fields, [...fields, "completionContract"]),
     anchorsOk = isJsonObject(value) && (value.artifacts === undefined || validArtifactDelivery(value.artifacts));
   if (shapeError) return [shapeError];
   if (!isJsonObject(value)) return [];
@@ -164,6 +166,13 @@ export function validateGuiSubmission(value: unknown): readonly string[] {
   if (value.commitSha === null ? !validArtifactDelivery(value.artifacts) : !sha(value.commitSha) || !anchorsOk)
     errors.push(
       validationError(entityId, "commitSha", value.commitSha, "must identify a commit or accepted artifact revisions"),
+    );
+  if (
+    value.completionContract !== undefined &&
+    !(recordWith(value.completionContract, ["gates"]) && Array.isArray(value.completionContract.gates))
+  )
+    errors.push(
+      validationError(entityId, "completionContract", value.completionContract, "must be an object with a gates array"),
     );
   return errors;
 }
@@ -251,8 +260,7 @@ export function task(value: unknown): boolean {
 }
 
 export function execution(value: unknown): boolean {
-  if (
-    exactRecord(value, [
+  const executionV1Required = [
       "schema",
       "executionId",
       "taskId",
@@ -264,7 +272,11 @@ export function execution(value: unknown): boolean {
       "submittedAt",
       "closedAt",
       "submission",
-    ])
+    ],
+    executionV1Optional = ["deliveryBaseline", "amendedBy", "annotations"];
+  if (
+    recordWith(value, executionV1Required) &&
+    Object.keys(value).every((field) => [...executionV1Required, ...executionV1Optional].includes(field))
   )
     return (
       value.schema === "execution/v1" &&
@@ -477,8 +489,8 @@ export function gate(value: unknown): boolean {
       value.executionId,
       value.verifiedAt,
     ].every(nonEmpty) &&
-    value.result === "pass" &&
-    sha(value.commitSha) &&
+    (value.result === "pass" || value.result === "fail") &&
+    (value.commitSha === null || sha(value.commitSha)) &&
     iteration(value.iteration) &&
     actor(value.actor) &&
     source(value.source) &&
@@ -493,6 +505,7 @@ export function gate(value: unknown): boolean {
     (value.provenance === undefined ||
       (recordWith(value.provenance, ["source", "runId", "rawResult"]) &&
         (value.provenance.source === "runner" || value.provenance.source === "human") &&
+        (value.provenance.adapterId === undefined || nonEmpty(value.provenance.adapterId)) &&
         nonEmpty(value.provenance.runId) &&
         nonEmpty(value.provenance.rawResult)))
   );

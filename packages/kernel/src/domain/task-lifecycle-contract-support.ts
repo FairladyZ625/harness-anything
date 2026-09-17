@@ -129,14 +129,14 @@ export function canonicalGateReceipts(
   snapshot: TaskLifecycleSnapshot,
   current: ExecutionV1,
 ): CompleteTaskProof["gateReceipts"] {
-  if (!current.submission?.commitSha) return [];
+  if (!current.submission) return [];
   const commitSha = current.submission.commitSha;
   const passed = new Set(
-    gateResults(snapshot, undefined, current.executionId, current.submission?.commitSha, current.iteration)
+    gateResults(snapshot, undefined, current.executionId, current.submission, current.iteration)
       .filter(({ status }) => status === "passed")
       .map(({ gateId }) => gateId),
   );
-  return completionGateIds(snapshot.task?.completionGateIds ?? [], current.submission.commitSha).flatMap((gateId) => {
+  return completionGateIds(snapshot.task?.completionGateIds ?? [], current.submission).flatMap((gateId) => {
     if (!passed.has(gateId)) return [];
     const codeDoc =
       gateId === "code-doc-reconciliation"
@@ -176,7 +176,7 @@ export function canonicalGateReceipts(
 }
 
 export function requiredGateWitnessCount(snapshot: TaskLifecycleSnapshot, current: ExecutionV1): number {
-  return completionGateIds(snapshot.task?.completionGateIds ?? [], current.submission?.commitSha).length;
+  return completionGateIds(snapshot.task?.completionGateIds ?? [], current.submission).length;
 }
 export { reviewDigest } from "./review.ts";
 export function canonicalDocumentPaths(value: unknown): value is readonly string[] {

@@ -1,4 +1,5 @@
 import { validateActorAxes, type ActorAxes, type ContractValidationIssue } from "./task.ts";
+import { mappedWitnessAdapterIds } from "./completion-contract.ts";
 import { isNativeCommitSha } from "./execution.ts";
 import type { CompletionEvidenceBasis, CompletionEvidenceProvenance } from "./completion-evidence.ts";
 import { hasRequiredFields, isNonEmptyString, validateWriteSource, type WriteSource } from "./write-chain.contract.ts";
@@ -15,7 +16,8 @@ export interface CompletionGateWitnessV1 {
   readonly provenance?: CompletionEvidenceProvenance;
   readonly taskId: string;
   readonly executionId: string;
-  readonly commitSha: string;
+  /** The cut's delivery commit, or null when the submission delivered accepted artifacts only. */
+  readonly commitSha: string | null;
   readonly iteration: number;
   readonly actor: ActorAxes;
   readonly source: WriteSource;
@@ -61,7 +63,7 @@ export function validateCompletionGateWitnessV1(
       record.verifiedAt,
     ].every(isNonEmptyString) ||
     !["pass", "fail", "advisory", "not_run"].includes(record.result as string) ||
-    !isNativeCommitSha(record.commitSha) ||
+    !(record.commitSha === null || isNativeCommitSha(record.commitSha)) ||
     !Number.isSafeInteger(record.iteration) ||
     Number(record.iteration) < 0 ||
     validateActorAxes(record.actor, allowUnknownFields).length ||
@@ -77,6 +79,12 @@ export function validateCompletionGateWitnessV1(
           (!Number.isSafeInteger(record.basis.ledgerCut) || record.basis.ledgerCut < 0)))) ||
     (record.provenance !== undefined &&
       (!["runner", "human"].includes(record.provenance.source) ||
+        // Witnesses recorded before the adapter registry carry no adapterId; they stay readable as history
+        // (dec_D23B9787328EF7E0FACB70F9FE) while every new witness must name a mapped adapter.
+        !(
+          (allowUnknownFields && record.provenance.adapterId === undefined) ||
+          (mappedWitnessAdapterIds as readonly string[]).includes(record.provenance.adapterId as string)
+        ) ||
         !isNonEmptyString(record.provenance.runId) ||
         !isNonEmptyString(record.provenance.rawResult)))
     ? [
@@ -86,4 +94,17 @@ export function validateCompletionGateWitnessV1(
         },
       ]
     : [];
+}
+
+/**
+ * The new-format representation of a historical evidence gap (dec_59FA45A407F850E2B167A192D7):
+ * migration keeps the accepted verdict but invents no observation — basis, provenance, and
+ * observed all stay absent. Replay may honor the preserved verdict on a historical completion;
+ * command admission never mints this shape (a witness write requires bound evidence), and it can
+ * never satisfy a new cut's gate.
+ */
+export function isPreservedVerdictWitness(
+  witness: Pick<CompletionGateWitnessV1, "basis" | "provenance" | "observed">,
+): boolean {
+  return witness.basis === undefined && witness.provenance === undefined && witness.observed === undefined;
 }

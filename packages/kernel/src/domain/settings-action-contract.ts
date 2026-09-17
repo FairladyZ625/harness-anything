@@ -238,6 +238,7 @@ export function compileSettingsUpdate(input: EntityActionCompileInput): Settings
         milliseconds: updatedPositiveInteger(input.action, "walFlushMilliseconds", current.walFlush.milliseconds),
       },
       ci: { workflows: updatedWorkflows(input.action, current.ci.workflows) },
+      gates: current.gates,
       closeout: {
         profile: updatedCloseoutProfile(input.action.closeoutProfile, current.closeout.profile),
         ...closeoutOverrides(input.action, current),

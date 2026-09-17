@@ -67,6 +67,23 @@ export function completionPreparationBlockers(
   return evaluateCompletion(snapshot, executionId, context, false);
 }
 
+/** The remediation command for a missing gate witness follows the adapter frozen into the contract. */
+function witnessCommand(
+  taskId: string,
+  gateId: string,
+  contract:
+    | { readonly gates: readonly { readonly gateId: string; readonly witness: { readonly adapterId: string } }[] }
+    | undefined,
+  executionId: string,
+): string {
+  const adapterId = contract?.gates.find((gate) => gate.gateId === gateId)?.witness.adapterId;
+  if (adapterId === "manual-attest") return `ha task attest ${taskId} --gate ${gateId} --result pass`;
+  if (adapterId === "local-command")
+    return `ha task submit ${taskId} (the local-command witness runs against the submitted cut)`;
+  if (adapterId === "github-actions" || gateId === "ci") return "ha ci observe pull";
+  return `Run the canonical ${gateId} checker to witness execution ${executionId}.`;
+}
+
 function evaluateCompletion(
   snapshot: TaskLifecycleSnapshot,
   executionId: string,
@@ -171,6 +188,7 @@ function evaluateCompletion(
   const gate = assessment.gates.find(
     ({ gateId, status }) =>
       status !== "passed" &&
+      status !== "not_applicable" &&
       (gateId !== "code-doc-reconciliation" || closeoutGates.codeDoc) &&
       !context.preparedGateIds?.includes(gateId),
   );
@@ -188,9 +206,7 @@ function evaluateCompletion(
       : one(
           gate.gateId === "ci" ? "ci_missing" : "gate_witness_missing",
           gate.gateId,
-          gate.gateId === "ci"
-            ? "ha ci observe pull"
-            : `Run the canonical ${gate.gateId} checker to witness execution ${executionId}.`,
+          witnessCommand(task.taskId, gate.gateId, execution.submission.completionContract, executionId),
           `Publish a passing canonical ${gate.gateId} checker witness for this execution cut.`,
         );
   if (lineageOrphan(task, snapshot.decisionRelations ?? []))

@@ -6,6 +6,9 @@ import { validateGuiSubmission } from "../src/protocol/daemon-protocol-validate-
 import { artifactAnchors, readSubmissionArtifact } from "../src/submission-artifacts.ts";
 import { deriveCloseoutSubmission } from "../src/repo-cell-submit.ts";
 
+const repositorySettingsStub = {
+  readRepository: () => ({ gates: [], ci: { workflows: [] } }),
+} as unknown as Parameters<typeof deriveCloseoutSubmission>[0]["settings"];
 const packagePath = "tasks/task-artifact",
   path = `${packagePath}/artifacts/report.md`;
 function fixture() {
@@ -58,10 +61,10 @@ function derive(summary: string) {
     }),
   } as unknown as Parameters<typeof deriveCloseoutSubmission>[0]["projection"];
   return deriveCloseoutSubmission(
-    { ...cell, rootDir: "/nonexistent", projection },
+    { ...cell, rootDir: "/nonexistent", projection, settings: repositorySettingsStub },
     "task-artifact",
     "execution",
-    {} as Parameters<typeof deriveCloseoutSubmission>[3],
+    { executions: [] } as unknown as Parameters<typeof deriveCloseoutSubmission>[3],
   );
 }
 

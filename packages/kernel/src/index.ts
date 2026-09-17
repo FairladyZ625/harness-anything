@@ -206,12 +206,24 @@ export type {
   ArtifactDelivery,
   ArchivedExecutionV0,
   ExecutionAnnotationKind,
+  ExecutionDeliveryBaseline,
   ExecutionV1,
   LeaseV1,
   ProjectedExecution,
   SubmissionV1,
 } from "./domain/execution.ts";
-export { executionAnnotationKinds, isNativeCommitSha, submissionDigest } from "./domain/execution.ts";
+export {
+  executionAnnotationKinds,
+  isNativeCommitSha,
+  isNativeExecution,
+  submissionDigest,
+} from "./domain/execution.ts";
+export {
+  gateAppliesToSubmission,
+  inferLegacyGateRequirements,
+  resolveCompletionContract,
+} from "./domain/completion-contract.ts";
+export type { FrozenGateRequirement, MappedWitnessAdapterId } from "./domain/completion-contract.ts";
 export { sha256Bytes, sha256Text, stablePayloadHash, stableStringify } from "./integrity/stable-hash.ts";
 export { eventObjectTarget } from "./layout/ledger-object-layout.ts";
 export {

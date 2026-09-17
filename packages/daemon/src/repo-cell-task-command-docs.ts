@@ -21,7 +21,7 @@ import { adjudicateDocIntent, claimBytes, recycleClaims, rejectDocSyncAction } f
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { readCompletionContext } from "./task-completion-read.ts";
 import { assertTaskTransitionDocumentReady } from "./transition-document-access.ts";
-import type { RepoCellActionContext } from "./repo-cell-action-context.ts";
+import type { RepoCellActionContext, RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 
 export type TaskCommandWithDocsAction = RepoTaskAction & {
   readonly docChanges: readonly {
@@ -47,7 +47,7 @@ export type TaskCommandWithDocsAction = RepoTaskAction & {
 // any conflict voids the whole command, so a task can never complete at the
 // center while its closing documents stay behind on the edge.
 export async function runTaskCommandWithDocs(
-  cell: RepoCellActionContext,
+  cell: RepoCellOperationalContext,
   action: TaskCommandWithDocsAction,
   binding: RepoCellBinding,
 ): Promise<WriteReceipt> {

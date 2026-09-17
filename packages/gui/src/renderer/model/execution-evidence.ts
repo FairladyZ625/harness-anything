@@ -123,14 +123,17 @@ function adaptExecution(
   const projections = row.executionEvidence.filter((item) => item.executionId === execution.executionId);
   const projection = projections.length === 1 ? projections[0] : undefined;
   const commitSha = text(execution.submission?.commitSha);
+  // Artifact-only cuts carry commitSha: null; match witnesses/reviews on the raw nullable value
+  // so their evidence is not dropped when no code commit exists.
+  const submissionCommit = execution.submission ? (execution.submission.commitSha ?? null) : undefined;
   const iteration = Number.isInteger(execution.iteration) ? execution.iteration : undefined;
   const reviews =
-    commitSha === undefined || iteration === undefined
+    submissionCommit === undefined || iteration === undefined
       ? []
       : row.snapshot.reviews.filter(
           (review) =>
             review.executionId === execution.executionId &&
-            review.commitSha === commitSha &&
+            review.commitSha === submissionCommit &&
             review.iteration === iteration,
         );
   const reviewIds = new Set(reviews.map(({ reviewId }) => reviewId));
@@ -139,12 +142,12 @@ function adaptExecution(
   );
   const selectedConsent = consents.at(-1);
   const gateWitnesses =
-    commitSha === undefined || iteration === undefined
+    submissionCommit === undefined || iteration === undefined
       ? []
       : row.snapshot.gateWitnesses.filter(
           (witness) =>
             witness.executionId === execution.executionId &&
-            witness.commitSha === commitSha &&
+            witness.commitSha === submissionCommit &&
             witness.iteration === iteration,
         );
   return {

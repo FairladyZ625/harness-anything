@@ -155,6 +155,7 @@ export const actionDeclarations = Object.freeze([
   canonical("task-annotate", null, "repo-write"),
   canonical("task-archive", "task/archive", "repo-write"),
   canonical("task-artifact-add", null, "repo-write"),
+  canonical("task-attest", null, "repo-write"),
   canonical("task-code-doc-reconcile", "task/reconcile", "repo-write"),
   canonical("task-code-doc-repoint", "task/repoint", "repo-write"),
   canonical("task-complete", "task/complete", "repo-write"),

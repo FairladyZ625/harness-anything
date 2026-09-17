@@ -351,7 +351,13 @@ function contextFor(
     tailAssignments = 0;
   const activeWriter = { workspaceId: "repository", generation: 1, ownerId: "daemon" },
     fixture = {
-      extracted: {},
+      // Pre-queue reads resolve gate requirements from settings; this fixture declares no gates or workflows.
+      extracted: {
+        settings: {
+          read: () => ({ ci: { workflows: [] } }),
+          readRepository: () => ({ gates: [], ci: { workflows: [] } }),
+        },
+      },
       mode: "local",
       fleetRoster: null,
       input: { repoId: "repository" },

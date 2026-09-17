@@ -12,6 +12,8 @@ import type { ExecutionAnnotatedEvent, ExecutionExecutorDeclaredEvent, TaskEvent
 import { isSameExecution, isSamePerson } from "./actor-domain-services.ts";
 import { codeDocRecordId, currentCodeDocRecord, currentCodeDocWitness } from "./code-doc-witness.ts";
 import { completionGateIds } from "./closeout-readiness.ts";
+import { gateAppliesToSubmission } from "./completion-contract.ts";
+import { isPreservedVerdictWitness } from "./completion-gate-witness.ts";
 import type {
   ProofFor,
   TaskLifecycleCommand,
@@ -568,10 +570,26 @@ function assertReplay(snapshot: TaskLifecycleSnapshot, event: TaskEventV1, next:
     ]);
   if (
     event.type === "completion_gate_verified" &&
-    (!snapshot.task?.completionGateIds.includes(event.payload.witness.gateId) ||
-      event.payload.witness.executionId !== event.payload.execution.executionId ||
-      event.payload.witness.commitSha !== event.payload.execution.submission?.commitSha ||
-      event.payload.witness.iteration !== event.payload.execution.iteration)
+    (() => {
+      const submission = event.payload.execution.submission,
+        declared = snapshot.task?.completionGateIds.includes(event.payload.witness.gateId) === true,
+        requirement =
+          submission?.completionContract?.gates.find((gate) => gate.gateId === event.payload.witness.gateId) ??
+          (submission && !submission.completionContract && declared
+            ? { gateId: event.payload.witness.gateId, appliesTo: "submission" as const }
+            : undefined);
+      return (
+        !snapshot.task?.completionGateIds.includes(event.payload.witness.gateId) ||
+        event.payload.witness.executionId !== event.payload.execution.executionId ||
+        event.payload.witness.commitSha !== submission?.commitSha ||
+        event.payload.witness.iteration !== event.payload.execution.iteration ||
+        // The replayed witness must name a contract requirement that applies to this cut:
+        // the same judgment the canonical write enforced.
+        !submission ||
+        !requirement ||
+        !gateAppliesToSubmission(requirement, submission)
+      );
+    })()
   )
     throw new TaskLifecycleContractError("invalid_proof", [
       lifecycleContractIssue("invalid_proof", "replayed checker witness is not bound to the execution cut"),
@@ -611,7 +629,7 @@ function acceptedCompletionWitnesses(
       !consentedApprovedReviewForExecution(snapshot.reviews, snapshot.consents, current))
   )
     return false;
-  return completionGateIds(snapshot.task.completionGateIds, current.submission.commitSha).every((gateId) => {
+  return completionGateIds(snapshot.task.completionGateIds, current.submission).every((gateId) => {
     if (gateId === "code-doc-reconciliation") {
       const witness = currentCodeDocWitness(snapshot.codeDocWitnesses, executionId);
       return (
@@ -629,7 +647,8 @@ function acceptedCompletionWitnesses(
       )
       .at(-1);
     if (!witness || witness.result !== "pass") return false;
-    if (witness.basis === undefined && witness.provenance === undefined && witness.observed === undefined) return true;
+    // Accepted history keeps its original gap: a preserved verdict carries no bound evidence.
+    if (isPreservedVerdictWitness(witness)) return true;
     return (
       witness.basis !== undefined &&
       witness.provenance !== undefined &&

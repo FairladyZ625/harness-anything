@@ -1,9 +1,15 @@
-import type { WriteReceiptDraft } from "../../kernel/src/index.ts";
+import {
+  gateAppliesToSubmission,
+  inferLegacyGateRequirements,
+  resolveCompletionContract,
+  type MappedWitnessAdapterId,
+  type WriteReceiptDraft,
+} from "../../kernel/src/index.ts";
 import { artifactImportSourceResolution, prepareArtifactEntityImportSource } from "./artifact-entity-action.ts";
 import { fetchCiObservations, ingestCiObservations } from "./ci-observation-actions.ts";
 import type { RepoCellApiContext } from "./repo-cell-api.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
-import { ciGateApplies, readLatestCiEvidence } from "./repo-cell-ci-evidence.ts";
+import { acceptedGateWitness, witnessAdapters, witnessCollections } from "./repo-cell-witness-adapters.ts";
 
 type QueuedPublication = (
   action: RepoTaskAction,
@@ -40,16 +46,58 @@ export function readBeforeWriteQueue(
           (action.executionId === undefined || action.executionId === candidate.executionId),
       );
     if (execution && context.projection.readTaskCompletion(action.taskId, execution.executionId)) return null;
-    if (
-      ciGateApplies(snapshot.task?.completionGateIds ?? [], execution?.submission?.commitSha) &&
-      (!execution || readLatestCiEvidence(context.extracted, execution) === null)
-    )
+    if (!execution?.submission) {
+      // A first submit has no frozen cut to judge yet. Refresh the GitHub runs its contract will be judged
+      // against, so the submit can witness CI in the same turn instead of waiting for completion.
+      if (action.kind !== "task-submit") return null;
+      const resolved = resolveCompletionContract(
+        snapshot.task?.completionGateIds ?? [],
+        context.extracted.settings.readRepository(),
+      );
+      if (!resolved.ok || !resolved.contract.gates.some((gate) => gate.witness.adapterId === "github-actions"))
+        return null;
       return fetchCiObservations(context.extracted, { kind: "ci-observe-pull" }).then(
         (fetched) => async (action, binding) => {
           ingestCiObservations(context.extracted, binding, fetched);
           return context.executeAction(action, binding);
         },
       );
+    }
+    // Every adapter that can collect its own observations runs here, outside the queue; inside the
+    // queue the collected values are re-judged against the frozen cut before any canonical write.
+    // Cuts frozen before the contract carry no requirement list; their effective gates are
+    // inferred from the rules in force at the time (ci -> github-actions, code-doc -> checker).
+    const pending = (
+      execution.submission.completionContract?.gates ??
+      inferLegacyGateRequirements(
+        snapshot.task?.completionGateIds ?? [],
+        context.extracted.settings.read().ci.workflows,
+      )
+    ).flatMap((requirement) => {
+      const adapter = witnessAdapters[requirement.witness.adapterId as MappedWitnessAdapterId];
+      return adapter?.collect &&
+        gateAppliesToSubmission(requirement, execution.submission!) &&
+        !acceptedGateWitness(snapshot, execution, requirement.gateId) &&
+        adapter.evaluate(context.extracted, requirement, execution, undefined) === null
+        ? [{ requirement, adapter }]
+        : [];
+    });
+    if (pending.length)
+      return Promise.all(
+        pending.map(async ({ requirement, adapter }) => {
+          const collected = await adapter.collect!(context.extracted, requirement, execution);
+          return [requirement.gateId, { adapter, collected }] as const;
+        }),
+      ).then((entries) => async (action, binding) => {
+        for (const [, { adapter, collected }] of entries) adapter.ingest?.(context.extracted, binding, collected);
+        return context.executeAction(
+          {
+            ...action,
+            [witnessCollections]: new Map(entries.map(([gateId, { collected }]) => [gateId, collected])),
+          },
+          binding,
+        );
+      });
   }
   return null;
 }

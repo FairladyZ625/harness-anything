@@ -12,12 +12,13 @@ import {
   submissionDigest,
   type CiRunObservationEventV3,
   type CompletionEvidenceV1,
+  type FrozenGateRequirement,
 } from "../../kernel/src/index.ts";
 import { compileRepoTaskPackage } from "../../preset/src/index.ts";
 import type { RepoCellOperationalContext } from "../src/repo-cell-action-context.ts";
 import type { RepoCellBinding, Snapshot } from "../src/repo-cell-types.ts";
 import { completeTask, prepareSubmissionEvidence } from "../src/repo-cell-task-progress.ts";
-import { readLatestCiEvidence } from "../src/repo-cell-ci-evidence.ts";
+import { githubActionsWitnessEvidence } from "../src/repo-cell-ci-evidence.ts";
 import { completionSettlement, completionStopped, projectionReady } from "../src/repo-cell-settlement.ts";
 import { deriveActionResult } from "../src/entity-action-catalog-executor.ts";
 
@@ -44,7 +45,32 @@ function init(root: string): string {
 const publicRoot = mkdtempSync(path.join(tmpdir(), "ha-public-evidence-"));
 const publicSha = init(publicRoot);
 after(() => rmSync(publicRoot, { recursive: true, force: true }));
-function execution(commitSha: string, deliverables: string[] = []): Snapshot["executions"][number] {
+const ciRequirement = (workflows: readonly string[] = ["rewrite-ci"]): FrozenGateRequirement => ({
+    gateId: "ci",
+    appliesTo: "code",
+    witness: {
+      adapterId: "github-actions",
+      adapterOptions: {
+        workflows,
+        branch: "main",
+        event: "push",
+        coverage: "descendant",
+        selection: "newest",
+      },
+    },
+  }),
+  codeDocRequirement: FrozenGateRequirement = {
+    gateId: "code-doc-reconciliation",
+    appliesTo: "code",
+    witness: { adapterId: "code-doc-reconciliation", adapterOptions: {} },
+  },
+  ci = (cell: RepoCellOperationalContext, current: Snapshot["executions"][number], workflows?: readonly string[]) =>
+    githubActionsWitnessEvidence(cell, ciRequirement(workflows), current);
+function execution(
+  commitSha: string,
+  deliverables: string[] = [],
+  requirements: readonly FrozenGateRequirement[] = [ciRequirement(), codeDocRequirement],
+): Snapshot["executions"][number] {
   return {
     schema: "execution/v1",
     executionId: "execution",
@@ -65,6 +91,7 @@ function execution(commitSha: string, deliverables: string[] = []): Snapshot["ex
       knownGaps: [],
       residualRisks: [],
       evidenceRefs: [],
+      completionContract: { gates: [...requirements] },
     },
   } as Snapshot["executions"][number];
 }
@@ -115,19 +142,12 @@ test("CI evidence follows GitHub run and attempt order instead of observation de
     firstAttemptRed = observation(publicSha, 5, "failure", "rewrite-ci", "main", "push", 400, 1),
     retryGreen = observation(publicSha, 4, "success", "rewrite-ci", "main", "push", 400, 2);
 
+  assert.equal(ci(fixture(publicRoot, current, [olderRedReimportedLater, newerGreen]).cell, current)?.result, "pass");
   assert.equal(
-    readLatestCiEvidence(fixture(publicRoot, current, [olderRedReimportedLater, newerGreen]).cell, current)?.result,
-    "pass",
-  );
-  assert.equal(
-    readLatestCiEvidence(fixture(publicRoot, current, [newerGreen, newestRed, olderRedReimportedLater]).cell, current)
-      ?.result,
+    ci(fixture(publicRoot, current, [newerGreen, newestRed, olderRedReimportedLater]).cell, current)?.result,
     "fail",
   );
-  assert.equal(
-    readLatestCiEvidence(fixture(publicRoot, current, [firstAttemptRed, retryGreen]).cell, current)?.result,
-    "pass",
-  );
+  assert.equal(ci(fixture(publicRoot, current, [firstAttemptRed, retryGreen]).cell, current)?.result, "pass");
 });
 
 test("scheduled failures do not override push delivery evidence, while push failures still reject", () => {
@@ -139,12 +159,9 @@ test("scheduled failures do not override push delivery evidence, while push fail
     ]),
     failedPush = fixture(publicRoot, current, [observation(publicSha, 3, "failure")]);
   delete legacy.payload.verification?.event;
-  assert.equal(readLatestCiEvidence(scheduledAfterPush.cell, current)?.result, "pass");
-  assert.equal(
-    readLatestCiEvidence(fixture(publicRoot, current, [legacy, observation(publicSha)]).cell, current)?.result,
-    "pass",
-  );
-  assert.equal(readLatestCiEvidence(failedPush.cell, current)?.result, "fail");
+  assert.equal(ci(scheduledAfterPush.cell, current)?.result, "pass");
+  assert.equal(ci(fixture(publicRoot, current, [legacy, observation(publicSha)]).cell, current)?.result, "pass");
+  assert.equal(ci(failedPush.cell, current)?.result, "fail");
 });
 function fixture(
   rootDir: string,
@@ -175,7 +192,7 @@ function fixture(
       calls.push(action);
       return { outcome: "applied", opId: "reconcile" };
     },
-    publishCiWitness: (
+    publishGateWitness: (
       _task: string,
       _execution: string,
       _snapshot: unknown,
@@ -197,22 +214,16 @@ test("automatic CI evidence selects exact and descendant main runs, excluding un
       current = execution(submitted);
     git(root, "commit", "--allow-empty", "-qm", "descendant");
     const descendant = git(root, "rev-parse", "HEAD");
-    assert.equal(readLatestCiEvidence(fixture(root, current, [observation(submitted)]).cell, current)?.result, "pass");
-    assert.equal(readLatestCiEvidence(fixture(root, current, [observation(descendant)]).cell, current)?.result, "pass");
+    assert.equal(ci(fixture(root, current, [observation(submitted)]).cell, current)?.result, "pass");
+    assert.equal(ci(fixture(root, current, [observation(descendant)]).cell, current)?.result, "pass");
     assert.equal(
-      readLatestCiEvidence(
-        fixture(root, current, [observation(descendant, 2, "cancelled"), observation(submitted)]).cell,
-        current,
-      )?.result,
+      ci(fixture(root, current, [observation(descendant, 2, "cancelled"), observation(submitted)]).cell, current)
+        ?.result,
       "pass",
     );
-    assert.equal(readLatestCiEvidence(fixture(root, current, [observation("f".repeat(40))]).cell, current), null);
+    assert.equal(ci(fixture(root, current, [observation("f".repeat(40))]).cell, current), null);
     assert.throws(
-      () =>
-        readLatestCiEvidence(
-          fixture(root, current, [observation(descendant, 1, "success", "rewrite-ci", "feature")]).cell,
-          current,
-        ),
+      () => ci(fixture(root, current, [observation(descendant, 1, "success", "rewrite-ci", "feature")]).cell, current),
       { code: "invalid_proof" },
     );
   } finally {
@@ -226,7 +237,7 @@ test("unverified latest observation rejects and latest real red never falls back
     observation(current.submission!.commitSha, 2, null),
     observation(current.submission!.commitSha),
   ]);
-  assert.throws(() => readLatestCiEvidence(unverified.cell, current), { code: "invalid_proof" });
+  assert.throws(() => ci(unverified.cell, current), { code: "invalid_proof" });
   const red = fixture(publicRoot, current, [
     observation(current.submission!.commitSha, 2, "failure"),
     observation(current.submission!.commitSha),
@@ -234,36 +245,36 @@ test("unverified latest observation rejects and latest real red never falls back
   Object.assign(red.snapshot, {
     gateWitnesses: [
       {
-        ...readLatestCiEvidence(
-          fixture(publicRoot, current, [observation(current.submission!.commitSha)]).cell,
-          current,
-        ),
+        ...ci(fixture(publicRoot, current, [observation(current.submission!.commitSha)]).cell, current),
         executionId: "execution",
         iteration: 0,
         commitSha: current.submission!.commitSha,
       },
     ],
   });
-  assert.equal(readLatestCiEvidence(red.cell, current)?.result, "fail");
-  await assert.rejects(prepareSubmissionEvidence(red.cell, "task", "execution", binding), { code: "invalid_proof" });
-  assert.deepEqual(red.calls, []);
+  assert.equal(ci(red.cell, current)?.result, "fail");
+  // Submit-time preparation runs after the submission is durable: the red is neither attached nor
+  // allowed to bounce the accepted cut. Completion judges it.
+  await prepareSubmissionEvidence(red.cell, "task", "execution", binding);
+  assert.deepEqual(
+    red.calls.map((call) => (call as { kind?: string }).kind),
+    ["task-code-doc-reconcile"],
+    "no CI witness is published for the red observation",
+  );
 });
 
 for (const conclusion of ["cancelled", "skipped"]) {
   test(`${conclusion} latest observation falls back to older success`, () => {
     const current = execution(publicSha),
       prepared = fixture(publicRoot, current, [observation(publicSha, 2, conclusion), observation(publicSha)]),
-      evidence = readLatestCiEvidence(prepared.cell, current);
+      evidence = ci(prepared.cell, current);
     assert.equal(evidence?.result, "pass");
     assert.equal(evidence?.provenance.rawResult, "event:op-1");
   });
 
   test(`${conclusion} observation without older evidence returns null`, () => {
     const current = execution(publicSha);
-    assert.equal(
-      readLatestCiEvidence(fixture(publicRoot, current, [observation(publicSha, 2, conclusion)]).cell, current),
-      null,
-    );
+    assert.equal(ci(fixture(publicRoot, current, [observation(publicSha, 2, conclusion)]).cell, current), null);
   });
 }
 
@@ -275,8 +286,8 @@ for (const conclusion of ["failure", "timed_out"]) {
         observation(publicSha, 2, conclusion),
         observation(publicSha),
       ]);
-    assert.equal(readLatestCiEvidence(prepared.cell, current)?.result, "fail");
-    assert.equal(readLatestCiEvidence(prepared.cell, current)?.provenance.rawResult, "event:op-2");
+    assert.equal(ci(prepared.cell, current)?.result, "fail");
+    assert.equal(ci(prepared.cell, current)?.provenance.rawResult, "event:op-2");
   });
 }
 
@@ -290,9 +301,9 @@ test("private ledger ancestor observation supports its cut and pending publicati
     git(ledger, "commit", "--allow-empty", "-qm", "published");
     const published = git(ledger, "rev-parse", "HEAD"),
       observed = fixture(root, current, [observation(published, 1, "success", "ledger-publication", "ledger")]);
-    assert.equal(readLatestCiEvidence(observed.cell, current)?.result, "pass");
+    assert.equal(ci(observed.cell, current)?.result, "pass");
     const pending = fixture(root, current, []);
-    assert.equal(readLatestCiEvidence(pending.cell, current), null);
+    assert.equal(ci(pending.cell, current), null);
     await prepareSubmissionEvidence(pending.cell, "task", "execution", binding);
     assert.deepEqual(pending.calls, [{ kind: "task-code-doc-reconcile", taskId: "task", paths: [] }]);
   } finally {
@@ -317,17 +328,13 @@ test("public and private cuts reject cross-kind exact and descendant witnesses",
     ]) {
       const current = execution(cut!);
       assert.throws(
-        () =>
-          readLatestCiEvidence(
-            fixture(root, current, [observation(sha!, 2, "success", workflow, branch)]).cell,
-            current,
-          ),
+        () => ci(fixture(root, current, [observation(sha!, 2, "success", workflow, branch)]).cell, current),
         { code: "invalid_proof" },
       );
     }
     const current = execution(privateCommit);
     assert.equal(
-      readLatestCiEvidence(
+      ci(
         fixture(root, current, [observation(privateCommit, 1, "success", "ledger-publication", "ledger")]).cell,
         current,
       )?.result,
@@ -337,7 +344,7 @@ test("public and private cuts reject cross-kind exact and descendant witnesses",
     git(root, "fetch", ledger, "HEAD");
     assert.throws(
       () =>
-        readLatestCiEvidence(
+        ci(
           fixture(root, current, [observation(privateCommit, 1, "success", "ledger-publication", "ledger")]).cell,
           current,
         ),
@@ -348,14 +355,12 @@ test("public and private cuts reject cross-kind exact and descendant witnesses",
   }
 });
 
-test("CI evidence follows the repository's configured workflow names, not only rewrite-ci", () => {
+test("CI evidence follows the workflows frozen into the contract, not only rewrite-ci", () => {
   const current = execution(publicSha),
     configured = fixture(publicRoot, current, [observation(publicSha, 1, "success", "ci")]);
-  Object.assign(configured.cell, { settings: settingsStub(["ci"]) });
-  assert.equal(readLatestCiEvidence(configured.cell, current)?.result, "pass");
+  assert.equal(ci(configured.cell, current, ["ci"])?.result, "pass");
   const unconfigured = fixture(publicRoot, current, [observation(publicSha, 2, "success", "rewrite-ci")]);
-  Object.assign(unconfigured.cell, { settings: settingsStub(["ci"]) });
-  assert.equal(readLatestCiEvidence(unconfigured.cell, current), null);
+  assert.equal(ci(unconfigured.cell, current, ["ci"]), null);
 });
 
 test("verified runs from non-configured workflows never shadow configured main runs", () => {
@@ -364,18 +369,9 @@ test("verified runs from non-configured workflows never shadow configured main r
     configuredGreen = observation(publicSha, 1, "success", "rewrite-ci", "main", "push", 35066679233),
     unrelatedRed = observation(publicSha, 4, "failure", "rebuild-gates", "main", "push", 35066679400),
     configuredRed = observation(publicSha, 3, "failure", "rewrite-ci", "main", "push", 35066679350);
-  assert.equal(
-    readLatestCiEvidence(fixture(publicRoot, current, [unrelatedGreen, configuredGreen]).cell, current)?.result,
-    "pass",
-  );
-  assert.equal(
-    readLatestCiEvidence(fixture(publicRoot, current, [unrelatedRed, configuredGreen]).cell, current)?.result,
-    "pass",
-  );
-  assert.equal(
-    readLatestCiEvidence(fixture(publicRoot, current, [unrelatedGreen, configuredRed]).cell, current)?.result,
-    "fail",
-  );
+  assert.equal(ci(fixture(publicRoot, current, [unrelatedGreen, configuredGreen]).cell, current)?.result, "pass");
+  assert.equal(ci(fixture(publicRoot, current, [unrelatedRed, configuredGreen]).cell, current)?.result, "pass");
+  assert.equal(ci(fixture(publicRoot, current, [unrelatedGreen, configuredRed]).cell, current)?.result, "fail");
 });
 
 test("pure deletion reconciles empty paths and surviving deliverables reconcile without deletion output", async () => {
@@ -394,7 +390,7 @@ test("pure deletion reconciles empty paths and surviving deliverables reconcile 
 test("retry after a lost response reuses canonical cut witnesses without another append", async () => {
   const current = execution(publicSha),
     prepared = fixture(publicRoot, current, [observation(current.submission!.commitSha)]),
-    evidence = readLatestCiEvidence(prepared.cell, current)!;
+    evidence = ci(prepared.cell, current)!;
   Object.assign(prepared.snapshot, {
     codeDocWitnesses: [
       {
@@ -418,7 +414,7 @@ test("pending projection cannot select stale green and failed reconciliation sto
   Object.assign(pending.cell.projection, {
     readCiRunObservations: () => ({ status: "pending", events: [], watermark: 1, sourceRevision: 2 }),
   });
-  assert.throws(() => readLatestCiEvidence(pending.cell, current), { code: "content_not_ready" });
+  assert.throws(() => ci(pending.cell, current), { code: "content_not_ready" });
   const rejected = fixture(publicRoot, current, [observation(current.submission!.commitSha)]);
   Object.assign(rejected.cell, {
     lifecycleAction: async () => ({ outcome: "commit_unknown", code: "publication_indeterminate", opId: "reconcile" }),
@@ -439,7 +435,7 @@ test("complete without a code-doc witness stops on code_doc_missing under its ow
     git(root, "commit", "-qm", "deliverable");
     const sha = git(root, "rev-parse", "HEAD"),
       deliverables = ["packages/daemon/src/live.ts"],
-      submitted = execution(sha, deliverables),
+      submitted = execution(sha, deliverables, [codeDocRequirement]),
       pinned = submissionDigest(submitted.submission!),
       review = {
         schema: "review/v1",

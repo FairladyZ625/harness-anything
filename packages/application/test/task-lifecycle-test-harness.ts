@@ -7,6 +7,7 @@ import {
   normalizeTaskLifecycleCommand,
   submissionDigest,
   type EventPublicationKillpoint,
+  type FrozenGateRequirement,
 } from "../../kernel/src/index.ts";
 import { reviewDigest } from "../../kernel/src/index.ts";
 import { makeTaskEventStore, makeTaskProjection } from "../../kernel/test/store/task-lifecycle-runtime.ts";
@@ -154,6 +155,7 @@ export function lifecycleHarness() {
       const next = revision() + 1;
       return service.execute(command(owner, next, { type: "StartExecution", taskId: "task-1", executionId }, opId), {
         actorBinding: owner,
+        deliveryBaseline: { kind: "commit", commitSha: "0".repeat(40) },
         reservation: {
           taskId: "task-1",
           executionId,
@@ -171,6 +173,7 @@ export function lifecycleHarness() {
       claim = "implemented",
       submittedCommitSha = commitSha,
       deliverables: readonly string[] = [],
+      gates: readonly FrozenGateRequirement[] = [],
     ) => {
       const next = revision() + 1;
       const leaseVersion = (await service.read("task-1")).snapshot.lease?.version;
@@ -191,6 +194,7 @@ export function lifecycleHarness() {
               knownGaps: [],
               residualRisks: [],
               commitSha: submittedCommitSha,
+              completionContract: { gates },
             },
           },
           opId,
@@ -222,6 +226,7 @@ export function lifecycleHarness() {
               knownGaps: [],
               residualRisks: [],
               commitSha: submittedCommitSha,
+              completionContract: { gates: [] },
             },
           },
           opId,

@@ -331,7 +331,7 @@ function renderIndex(
           value.iteration === current.iteration,
       );
     },
-    gatesForCut = completionGateIds(task.completionGateIds, current?.submission?.commitSha),
+    gatesForCut = completionGateIds(task.completionGateIds, current?.submission),
     missingGate = gatesForCut.find((gateId) => !gateStatus(gateId)),
     next =
       task.status === "active"
@@ -419,7 +419,7 @@ function renderExecution(value: ExecutionV1, snapshot: TaskLifecycleSnapshot): s
     reviews = snapshot.reviews.filter((candidate) => candidate.executionId === value.executionId),
     currentReviews = packet ? reviewsForExecution(snapshot.reviews, value) : [],
     selected = packet ? consentedApprovedReviewForExecution(snapshot.reviews, snapshot.consents, value) : undefined,
-    results = gateResults(snapshot, undefined, value.executionId, packet?.commitSha ?? null, value.iteration),
+    results = gateResults(snapshot, undefined, value.executionId, packet ?? null, value.iteration),
     checkerGateIds = results.filter(({ gateId }) => gateId !== "code-doc-reconciliation").map(({ gateId }) => gateId),
     gates = snapshot.gateWitnesses.filter(
       (candidate) =>

@@ -5,6 +5,7 @@ import { timestamp } from "./timestamp.ts";
 import { hasRequiredFields, validateWriteSource } from "./write-chain.contract.ts";
 import type { WriteSource } from "./write-chain.contract.ts";
 import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
+import { validateFrozenCompletionContract, type FrozenCompletionContract } from "./completion-contract.ts";
 
 export const executionStates = ["active", "submitted", "accepted", "changes_requested", "abandoned"] as const;
 export type ExecutionState = (typeof executionStates)[number];
@@ -37,6 +38,8 @@ export type SubmissionV1 = SubmissionDelivery & {
   readonly verificationNotes: readonly string[];
   readonly knownGaps: readonly string[];
   readonly residualRisks: readonly string[];
+  /** Gate requirements frozen at the execution's first submission; YAML edits never reach this cut. */
+  readonly completionContract: FrozenCompletionContract;
 };
 export const SUBMISSION_V1_SCHEMA = Object.freeze({
   id: "Submission/v1",
@@ -48,6 +51,7 @@ export const SUBMISSION_V1_SCHEMA = Object.freeze({
     "knownGaps",
     "residualRisks",
     "commitSha",
+    "completionContract",
   ] as const),
 });
 export type SubmissionDigest = `sha256:${string}`;
@@ -64,6 +68,11 @@ export function submissionId(value: SubmissionV1): SubmissionId {
 export function isSubmissionId(value: unknown): value is SubmissionId {
   return typeof value === "string" && /^submission:sha256:[0-9a-f]{64}$/u.test(value);
 }
+/** The project comparison point frozen when an execution first starts. */
+export type ExecutionDeliveryBaseline =
+  | { readonly kind: "commit"; readonly commitSha: string }
+  | { readonly kind: "empty-tree" };
+
 export interface ExecutionV1 {
   readonly schema: "execution/v1";
   readonly executionId: string;
@@ -76,6 +85,7 @@ export interface ExecutionV1 {
   readonly submittedAt: string | null;
   readonly closedAt: string | null;
   readonly submission: SubmissionV1 | null;
+  readonly deliveryBaseline?: ExecutionDeliveryBaseline;
   /** Actor that last replaced the submitted packet when it differs from the execution actor. */
   readonly amendedBy?: ActorAxes;
   /** Append-only correction/superseded-by notes projected back into the rendered Execution record. */
@@ -105,7 +115,9 @@ export interface ArchivedExecutionV0 {
   readonly outputs: readonly ArchivedExecutionOutputV0[];
   readonly submission: null;
   readonly archivedSubmission:
-    | (Omit<SubmissionV1, "commitSha" | "outputs"> & { readonly evidenceRefs: readonly string[] })
+    | (Omit<SubmissionV1, "commitSha" | "outputs" | "completionContract"> & {
+        readonly evidenceRefs: readonly string[];
+      })
     | null;
 }
 export type ProjectedExecution = ExecutionV1 | ArchivedExecutionV0;
@@ -188,11 +200,27 @@ export function validSubmissionDelivery(value: Record<string, unknown>): boolean
     );
   return validArtifactAnchors(value.artifacts);
 }
+export function validExecutionDeliveryBaseline(value: unknown): value is ExecutionDeliveryBaseline {
+  return (
+    isRecord(value) &&
+    ((hasOnlyFields(value, ["kind", "commitSha"]) && value.kind === "commit" && isNativeCommitSha(value.commitSha)) ||
+      (hasOnlyFields(value, ["kind"]) && value.kind === "empty-tree"))
+  );
+}
+
 export function validateSubmissionV1(value: unknown, allowUnknownFields = false): readonly ContractValidationIssue[] {
+  // Submissions written before the contract freeze carry no completionContract; they stay readable
+  // as history (dec_D23B9787328EF7E0FACB70F9FE), but every new submission must freeze one.
+  const frozen = isRecord(value) && Object.hasOwn(value, "completionContract");
+  if (isRecord(value) && !frozen && !allowUnknownFields)
+    return [{ code: "invalid_submission", message: "Submission lacks the completion contract frozen at submit" }];
+  const required = frozen
+    ? SUBMISSION_V1_SCHEMA.required
+    : SUBMISSION_V1_SCHEMA.required.filter((field) => field !== "completionContract");
   if (
     !isRecord(value) ||
     !(allowUnknownFields ? hasRequiredFields : hasOnlyFields)(value, [
-      ...SUBMISSION_V1_SCHEMA.required,
+      ...required,
       ...(value.commitSha === null || value.artifacts !== undefined ? ["artifacts"] : []),
     ]) ||
     !isNonEmptyString(value.completionClaim) ||
@@ -205,7 +233,7 @@ export function validateSubmissionV1(value: unknown, allowUnknownFields = false)
   ) {
     return [{ code: "invalid_submission", message: "Submission must name a commit or accepted artifact revisions" }];
   }
-  return [];
+  return frozen ? validateFrozenCompletionContract(value.completionContract, allowUnknownFields) : [];
 }
 export function validateExecutionV1(value: unknown, allowUnknownFields = false): readonly ContractValidationIssue[] {
   if (
@@ -214,7 +242,7 @@ export function validateExecutionV1(value: unknown, allowUnknownFields = false):
       ? hasRequiredFields(value, EXECUTION_V1_SCHEMA.required)
       : hasRequiredFields(value, EXECUTION_V1_SCHEMA.required) &&
         Object.keys(value).every((field) =>
-          [...EXECUTION_V1_SCHEMA.required, "amendedBy", "annotations"].includes(field),
+          [...EXECUTION_V1_SCHEMA.required, "deliveryBaseline", "amendedBy", "annotations"].includes(field),
         ))
   )
     return [{ code: "invalid_execution", message: "Execution/v1 fields are incomplete or unknown" }];
@@ -237,6 +265,8 @@ export function validateExecutionV1(value: unknown, allowUnknownFields = false):
   if (value.amendedBy !== undefined) issues.push(...validateActorAxes(value.amendedBy, allowUnknownFields));
   if (value.annotations !== undefined)
     issues.push(...validateExecutionAnnotationV1s(value.annotations, allowUnknownFields));
+  if (value.deliveryBaseline !== undefined && !validExecutionDeliveryBaseline(value.deliveryBaseline))
+    issues.push({ code: "invalid_execution", message: "execution delivery baseline is invalid" });
   if (value.submission !== null) issues.push(...validateSubmissionV1(value.submission, allowUnknownFields));
   return issues;
 }

@@ -316,7 +316,7 @@ test("non-read protocol, Policy, receipt, residency, and entity catalogs close o
     ),
     declaredKinds = new Set(actionDeclarations.map(({ kind }) => kind)),
     protocolKinds = new Set(protocol.keys());
-  assert.equal(actionDeclarations.length, 128);
+  assert.equal(actionDeclarations.length, 129);
   assert.deepEqual([...protocolKinds].sort(), [...declaredKinds].sort());
   for (const [kind, descriptor] of protocol) {
     const declaration = actionDeclarations.find((candidate) => candidate.kind === kind);

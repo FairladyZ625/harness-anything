@@ -10,6 +10,7 @@ import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import {
+  commitDelivery,
   git,
   initRepo,
   runtimeEvent,
@@ -80,6 +81,7 @@ test("#1541: each Execution Review refusal names its own cause and its own repai
     );
 
     assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, agent)).outcome, "applied");
+    commitDelivery(rootDir);
     writeCloseout(rootDir, (created as Record<string, unknown>).packagePath);
     assert.equal(submissionOutcome(await cell.run({ kind: "task-submit", taskId, executionId }, agent)), "applied");
     writeFileSync(
@@ -154,6 +156,7 @@ test("principal review independence rejects a different executor owned by the su
       cell!.run({ kind: "doc-submit", paths: [planPath] }, agent),
     );
     assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, agent)).outcome, "applied");
+    commitDelivery(rootDir);
     writeCloseout(rootDir, (created as Record<string, unknown>).packagePath);
     assert.equal(submissionOutcome(await cell.run({ kind: "task-submit", taskId, executionId }, agent)), "applied");
     writeFileSync(
@@ -521,11 +524,11 @@ test("a reviewed child execution cannot declare an executor when neither it nor 
       ).outcome,
       "applied",
     );
-    const packagePath = "tasks/task-bare-reviewed-bare-reviewed",
-      commitSha = git(rootDir, "rev-parse", "HEAD");
-
-    git(rootDir, "update-ref", "refs/remotes/origin/main", commitSha);
+    const packagePath = "tasks/task-bare-reviewed-bare-reviewed";
     assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, bare)).outcome, "applied");
+    commitDelivery(rootDir);
+    const commitSha = git(rootDir, "rev-parse", "HEAD");
+    git(rootDir, "update-ref", "refs/remotes/origin/main", commitSha);
     writeCloseout(rootDir, packagePath);
     const submitted = (await cell.run({ kind: "task-submit", taskId, executionId }, bare)) as Record<string, unknown>;
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
@@ -918,6 +921,7 @@ test("review binding permits independent runtimes but still rejects the executio
         .outcome,
       "applied",
     );
+    commitDelivery(rootDir);
     writeCloseout(rootDir, (directCreated as Record<string, unknown>).packagePath);
     assert.equal(
       submissionOutcome(

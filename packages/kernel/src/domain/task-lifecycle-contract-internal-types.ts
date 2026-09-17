@@ -1,5 +1,5 @@
 import { EXECUTION_V1_SCHEMA, LEASE_V1_SCHEMA } from "./execution.ts";
-import type { LeaseHolder, LeaseV1, ProjectedExecution, SubmissionV1 } from "./execution.ts";
+import type { ExecutionDeliveryBaseline, LeaseHolder, LeaseV1, ProjectedExecution, SubmissionV1 } from "./execution.ts";
 import { REVIEW_CONSENT_V1_SCHEMA, REVIEW_V1_SCHEMA } from "./review.ts";
 import type { ReviewConsentV1, ReviewV1, ReviewVerdict } from "./review.ts";
 import type { CodeDocWitnessRecord } from "./code-doc-witness.ts";
@@ -146,6 +146,7 @@ export interface CreateReplayTaskProof {
 }
 export interface StartExecutionProof {
   readonly actorBinding: ActorAxes;
+  readonly deliveryBaseline: ExecutionDeliveryBaseline;
   readonly reservation: {
     readonly taskId: string;
     readonly executionId: string;
@@ -196,7 +197,7 @@ export interface CompleteTaskProof {
     readonly receiptRef: string;
     readonly result: "pass";
     readonly executionId: string;
-    readonly commitSha: string;
+    readonly commitSha: string | null;
     readonly iteration: number;
   }[];
 }

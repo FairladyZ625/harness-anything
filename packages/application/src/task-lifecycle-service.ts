@@ -10,6 +10,7 @@ import {
   taskLifecycleWritePlan,
   validateTaskLifecycleCommandEnvelope,
   type DocEventChange,
+  type ExecutionDeliveryBaseline,
   type ExecutionV1,
   type FrozenWritePlan,
   type ProofFor,
@@ -71,7 +72,11 @@ type StartCommand = Extract<TaskLifecycleCommand, { readonly type: "StartExecuti
 type RequestedReservation = Pick<Lease, "taskId" | "executionId" | "expiresAt" | "ttlMs"> &
   Partial<Pick<ProofFor<StartCommand>["reservation"], "previousHolder" | "reason" | "version">>;
 export type TaskLifecycleServiceProof<C extends TaskLifecycleCommand> = C extends StartCommand
-  ? { readonly actorBinding: C["actor"]; readonly reservation: RequestedReservation }
+  ? {
+      readonly actorBinding: C["actor"];
+      readonly deliveryBaseline: ExecutionDeliveryBaseline;
+      readonly reservation: RequestedReservation;
+    }
   : ProofFor<C>;
 export interface TaskLeaseRenewInput {
   readonly taskId: string;
@@ -333,6 +338,7 @@ function planClaim(
     active,
     proof: {
       actorBinding: proof.actorBinding,
+      deliveryBaseline: proof.deliveryBaseline,
       reservation: {
         taskId: active.taskId,
         executionId: active.executionId,

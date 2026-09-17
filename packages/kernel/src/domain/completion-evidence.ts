@@ -1,4 +1,5 @@
 import { submissionDigest, type ExecutionV1 } from "./execution.ts";
+import { mappedWitnessAdapterIds, type MappedWitnessAdapterId } from "./completion-contract.ts";
 
 export const completionEvidenceResults = ["pass", "fail", "advisory", "not_run"] as const;
 export type CompletionEvidenceResult = (typeof completionEvidenceResults)[number];
@@ -13,6 +14,11 @@ export interface CompletionEvidenceBasis {
 
 export interface CompletionEvidenceProvenance {
   readonly source: "runner" | "human";
+  /**
+   * Which witness adapter produced this observation; the canonical write binds it to the declared one.
+   * Absent only on evidence recorded before the completion contract froze an adapter registry.
+   */
+  readonly adapterId?: MappedWitnessAdapterId;
   readonly runId: string;
   readonly rawResult: string;
 }
@@ -53,7 +59,13 @@ export function completionEvidenceBasis(execution: ExecutionV1): CompletionEvide
 
 export function judgeCompletionEvidence(
   evidence: CompletionEvidenceForJudgment | null | undefined,
-  expected: { readonly execution: ExecutionV1; readonly gateId: string; readonly ledgerCut?: number },
+  expected: {
+    readonly execution: ExecutionV1;
+    readonly gateId: string;
+    readonly ledgerCut?: number;
+    /** Canonical witness publication admits a binding-valid `fail` record; satisfaction still requires pass. */
+    readonly admitFail?: boolean;
+  },
 ): CompletionEvidenceJudgment {
   if (!evidence) return { accepted: false, result: "missing", reason: "no completion evidence was recorded" };
   if (evidence.gateId !== expected.gateId)
@@ -79,7 +91,17 @@ export function judgeCompletionEvidence(
     return { accepted: false, result: evidence.result, reason: "evidence ledgerCut is not the canonical cut" };
   if (!(evidence.provenance.source === "runner" || evidence.provenance.source === "human"))
     return { accepted: false, result: evidence.result, reason: "evidence provenance source is unsupported" };
-  if (!evidence.provenance.runId || !evidence.provenance.rawResult)
+  if (
+    !evidence.provenance.runId ||
+    !evidence.provenance.rawResult ||
+    // A cut frozen before the completion contract was judged before the adapter registry existed, so its
+    // evidence names no adapter (dec_D23B9787328EF7E0FACB70F9FE); every contract cut must name a mapped one.
+    !(
+      (expected.execution.submission?.completionContract === undefined &&
+        evidence.provenance.adapterId === undefined) ||
+      (mappedWitnessAdapterIds as readonly string[]).includes(evidence.provenance.adapterId as string)
+    )
+  )
     return { accepted: false, result: evidence.result, reason: "evidence provenance is incomplete" };
   if (evidence.result === "pass" && !evidence.observed)
     return { accepted: false, result: evidence.result, reason: "a pass must be observed by a runner or human" };
@@ -92,7 +114,7 @@ export function judgeCompletionEvidence(
   if (evidence.result === "not_run")
     return { accepted: false, result: evidence.result, reason: "the checker did not run" };
   return {
-    accepted: evidence.result === "pass",
+    accepted: evidence.result === "pass" || (expected.admitFail === true && evidence.result === "fail"),
     result: evidence.result,
     ...(evidence.result === "fail" ? { reason: "checker reported fail" } : {}),
   };

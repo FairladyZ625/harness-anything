@@ -5,6 +5,12 @@ import {
   replaceOptionalDefaultedScalar,
 } from "./settings-closeout.ts";
 import type { EntityDocumentJsonSchema } from "./entity-json-schema.ts";
+import {
+  gateAppliesTo,
+  gateWitnessMappingIssues,
+  mappedWitnessAdapterIds,
+  type GateWitnessMappingV1,
+} from "./completion-contract.ts";
 import { validateEntityJsonSchema } from "./entity-json-schema.ts";
 import {
   DEFAULT_CLOSEOUT_SETTINGS,
@@ -53,6 +59,7 @@ export const SETTINGS_FIELD_OWNERSHIP = Object.freeze({
   scaffolds: "repository",
   walFlush: "repository",
   ci: "repository",
+  gates: "repository",
   closeout: "repository",
   restoreDrillRetention: "repository",
 } as const);
@@ -81,6 +88,7 @@ export interface RepositorySettingsV1 {
   };
   readonly walFlush: WalFlushSettingsV1;
   readonly ci: { readonly workflows: readonly string[] };
+  readonly gates: readonly GateWitnessMappingV1[];
   readonly closeout: CloseoutSettingsV1;
   readonly restoreDrillRetention: number;
 }
@@ -106,6 +114,7 @@ export interface SettingsV1 {
   };
   readonly walFlush: WalFlushSettingsV1;
   readonly ci: { readonly workflows: readonly string[] };
+  readonly gates: readonly GateWitnessMappingV1[];
   readonly closeout: CloseoutSettingsV1;
   readonly restoreDrillRetention: number;
 }
@@ -137,6 +146,7 @@ export const INITIAL_SETTINGS_V1: SettingsV1 = Object.freeze({
   }),
   walFlush: DEFAULT_WAL_FLUSH_SETTINGS,
   ci: Object.freeze({ workflows: DEFAULT_CI_WORKFLOWS }),
+  gates: Object.freeze([]),
   closeout: DEFAULT_CLOSEOUT_SETTINGS,
   restoreDrillRetention: DEFAULT_RESTORE_DRILL_RETENTION,
 });
@@ -197,6 +207,7 @@ export const SETTINGS_V1_SCHEMA: EntityDocumentJsonSchema<SettingsV1> = {
     },
     walFlush: walFlushSchema(),
     ci: ciSettingsSchema(),
+    gates: gateSettingsSchema(),
     closeout: closeoutSettingsSchema(),
     restoreDrillRetention: ownedSchema("restoreDrillRetention", { type: "integer", minimum: 1 }),
   },
@@ -257,6 +268,7 @@ export const SETTINGS_REPOSITORY_V1_SCHEMA: EntityDocumentJsonSchema<RepositoryS
     },
     walFlush: walFlushSchema(),
     ci: ciSettingsSchema(),
+    gates: gateSettingsSchema(),
     closeout: closeoutSettingsSchema(),
     restoreDrillRetention: ownedSchema("restoreDrillRetention", { type: "integer", minimum: 1 }),
   },
@@ -265,7 +277,7 @@ export const SETTINGS_REPOSITORY_V1_SCHEMA: EntityDocumentJsonSchema<RepositoryS
 };
 
 export function validateSettingsV1(value: unknown): readonly string[] {
-  return validateEntityJsonSchema(SETTINGS_V1_SCHEMA, value, "settings");
+  return withGateMappingIssues(validateEntityJsonSchema(SETTINGS_V1_SCHEMA, value, "settings"), value);
 }
 
 export function repositorySettings(settings: SettingsV1 | RepositorySettingsV1): RepositorySettingsV1 {
@@ -281,6 +293,7 @@ export function repositorySettings(settings: SettingsV1 | RepositorySettingsV1):
     scaffolds: { task: settings.scaffolds.task, repository: settings.scaffolds.repository },
     walFlush: settings.walFlush ?? DEFAULT_WAL_FLUSH_SETTINGS,
     ci: settings.ci ?? INITIAL_SETTINGS_V1.ci,
+    gates: canonicalGateMappings(settings.gates ?? INITIAL_SETTINGS_V1.gates),
     closeout: settings.closeout ?? INITIAL_SETTINGS_V1.closeout,
     restoreDrillRetention: settings.restoreDrillRetention ?? DEFAULT_RESTORE_DRILL_RETENTION,
   };
@@ -319,6 +332,7 @@ export function readSettingsFacet(body: string): SettingsV1 {
     },
     walFlush: readWalFlushSettings(body),
     ci: readCiSettings(body),
+    gates: readGateSettings(body),
     closeout: readCloseoutSettings(body),
     restoreDrillRetention: readRestoreDrillRetention(body),
   };
@@ -430,6 +444,34 @@ function ciSettingsSchema() {
   };
 }
 
+function gateSettingsSchema() {
+  return {
+    ...ownedSchema("gates", {}),
+    type: "array" as const,
+    "x-unique-by": "gateId",
+    items: {
+      type: "object" as const,
+      properties: {
+        gateId: { type: "string" as const, pattern: settingValuePattern, minLength: 1 },
+        adapter: { type: "string" as const, enum: ["none", ...mappedWitnessAdapterIds] },
+        appliesTo: { type: "string" as const, enum: gateAppliesTo },
+        branch: { type: "string" as const, pattern: settingValuePattern, minLength: 1 },
+        event: { type: "string" as const, pattern: settingValuePattern, minLength: 1 },
+        command: { type: "string" as const, minLength: 1 },
+        coverage: { type: "string" as const, enum: ["exact", "descendant"] },
+        selection: { type: "string" as const, enum: ["newest"] },
+      },
+      required: ["gateId", "adapter"],
+      additionalProperties: false,
+    },
+  };
+}
+
+function withGateMappingIssues(errors: readonly string[], value: unknown): readonly string[] {
+  const gates = (value as { readonly gates?: readonly GateWitnessMappingV1[] } | null)?.gates;
+  return errors.length || gates === undefined ? errors : gateWitnessMappingIssues(gates);
+}
+
 function closeoutSettingsSchema() {
   return {
     ...ownedSchema("closeout", {}),
@@ -470,6 +512,39 @@ function readCiSettings(body: string): SettingsV1["ci"] {
   )
     throw new Error("settings.ci.workflows must contain unique workflow names without .yml");
   return { workflows };
+}
+
+/**
+ * `settings.gates` maps each gate id either inline to `none` or to a block naming its witness adapter:
+ * `    ci:` followed by six-space `appliesTo:`/`adapter:`/adapter option lines.
+ */
+function readGateSettings(body: string): readonly GateWitnessMappingV1[] {
+  if (!/^  gates:/mu.test(body)) return INITIAL_SETTINGS_V1.gates;
+  const section = /^  gates:[^\S\r\n]*(?:#[^\r\n]*)?\r?\n((?:    [^\r\n]*(?:\r?\n|$))*)/mu.exec(body)?.[1];
+  if (section === undefined) throw new Error("settings.gates must be a block of gate witness mappings");
+  const gates: Record<string, string>[] = [];
+  for (const line of section.split(/\r?\n/u)) {
+    const content = line.replace(/[^\S\r\n]*#.*$/u, "");
+    if (!content.trim()) continue;
+    const gate = /^    ([^\s:]+):[^\S\r\n]*(\S*)$/u.exec(content),
+      field = /^      ([A-Za-z]+):[^\S\r\n]*(\S.*?)[^\S\r\n]*$/u.exec(content),
+      current = gates.at(-1);
+    if (gate && (gate[2] === "" || gate[2] === "none"))
+      gates.push({ gateId: gate[1]!, ...(gate[2] === "none" ? { adapter: "none" } : {}) });
+    else if (field && current && current.adapter !== "none" && !Object.hasOwn(current, field[1]!))
+      current[field[1]!] = field[2]!;
+    else throw new Error(`settings.gates cannot read line: ${content.trim()}`);
+  }
+  return gates as unknown as readonly GateWitnessMappingV1[];
+}
+
+/** One key order for every mapping, so snapshots from YAML, events, and projections compare byte-equal. */
+function canonicalGateMappings(gates: readonly GateWitnessMappingV1[]): readonly GateWitnessMappingV1[] {
+  return gates.map(({ gateId, adapter, ...options }) => ({
+    gateId,
+    adapter,
+    ...Object.fromEntries(Object.entries(options).sort(([left], [right]) => left.localeCompare(right))),
+  }));
 }
 
 function readWalFlushSettings(body: string): WalFlushSettingsV1 {
@@ -542,5 +617,8 @@ function removeLegacyLocale(body: string): string {
 }
 
 export function validateRepositorySettings(value: unknown): readonly string[] {
-  return validateEntityJsonSchema(SETTINGS_REPOSITORY_V1_SCHEMA, value, "repository settings");
+  return withGateMappingIssues(
+    validateEntityJsonSchema(SETTINGS_REPOSITORY_V1_SCHEMA, value, "repository settings"),
+    value,
+  );
 }

@@ -36,8 +36,26 @@ const metadata = {
   fromLegacyId: null,
 };
 
-function executionReceipt(gateIds: readonly string[]): string {
-  const fixture = lifecycleFixture({ gateIds, complete: false }),
+function executionReceipt(gateIds: readonly ("ci" | "code-doc-reconciliation")[]): string {
+  const gates = gateIds.map((gateId) =>
+      gateId === "ci"
+        ? {
+            gateId,
+            appliesTo: "code" as const,
+            witness: {
+              adapterId: "github-actions" as const,
+              adapterOptions: {
+                workflows: ["rewrite-ci"],
+                branch: "main",
+                event: "push",
+                coverage: "exact" as const,
+                selection: "newest" as const,
+              },
+            },
+          }
+        : { gateId, appliesTo: "code" as const, witness: { adapterId: gateId, adapterOptions: {} } },
+    ),
+    fixture = lifecycleFixture({ gates, complete: false }),
     event = fixture.events.at(-1)!,
     compiled = compileTaskLifecycleWrite({
       event,
@@ -141,12 +159,31 @@ test("lease release replay ignores only the retired longRunning task metadata", 
 });
 
 function legacyCompletion() {
-  const fixture = lifecycleFixture();
-  let snapshot = fixture.events.slice(0, -1).reduce(reduceTaskEvent, emptyTaskLifecycleSnapshot());
+  // The gated fixture stops before CompleteTask: an unwitnessed cut cannot complete through the
+  // command path, which is exactly the historical-acceptance asymmetry this replay test exercises.
+  const fixture = lifecycleFixture({
+    gates: [
+      {
+        gateId: "ci",
+        appliesTo: "code" as const,
+        witness: {
+          adapterId: "github-actions" as const,
+          adapterOptions: {
+            workflows: ["rewrite-ci"],
+            branch: "main",
+            event: "push",
+            coverage: "exact" as const,
+            selection: "newest" as const,
+          },
+        },
+      },
+    ],
+    complete: false,
+  });
+  let snapshot = fixture.events.reduce(reduceTaskEvent, emptyTaskLifecycleSnapshot());
   const current = snapshot.executions[0]!;
   snapshot = {
     ...snapshot,
-    task: { ...snapshot.task!, completionGateIds: ["ci"] },
     gateWitnesses: [
       {
         schema: "completion-gate-witness/v1",
@@ -165,12 +202,25 @@ function legacyCompletion() {
       },
     ],
   };
-  const last = fixture.events.at(-1)!;
-  assert.equal(last.type, "task_completed");
-  const completed = {
-    ...last,
-    payload: { ...last.payload, task: { ...snapshot.task!, status: "done" } },
-  } as TaskEventV1;
+  // The accepted completion event is historical input: fabricate it the way a migrated ledger
+  // carries it, since the current command path would never admit this cut.
+  const completed: TaskEventV1 = {
+    schema: "task-event/v1",
+    eventId: "event-complete",
+    workspaceRevision: snapshot.revision + 1,
+    opId: "op-complete",
+    taskId: current.taskId,
+    type: "task_completed",
+    actor: implementer,
+    source: "local",
+    occurredAt: "2026-08-11T00:05:00.000Z",
+    payload: {
+      task: { ...snapshot.task!, status: "done" },
+      execution: { ...current, state: "accepted", closedAt: "2026-08-11T00:05:00.000Z" },
+      closeoutGates: { review: true, consent: true, factDisposition: true, codeDoc: true },
+      documentClaims: [],
+    },
+  };
   return { snapshot, completed, current };
 }
 
@@ -181,7 +231,9 @@ test("accepted completion keeps legacy receipts without admitting a new unbound 
   assert.equal(replayed.executions[0]?.state, "accepted");
   assert.deepEqual(replayed.gateWitnesses, snapshot.gateWitnesses);
   assert.equal(replayed.gateWitnesses[0]?.basis, undefined);
-  assert.equal(closeoutReadiness(snapshot).readiness, "incomplete");
+  // dec_D23B9787: an accepted historical verdict stays accepted on read — it reports its preserved
+  // result with the original evidence gap disclosed, instead of reading back as a missing gate.
+  assert.equal(closeoutReadiness(snapshot).readiness, "ready");
   const command = normalizeTaskLifecycleCommand(
     { workspaceId: "workspace-1", actor: implementer, source: "local", expectedRevision: snapshot.revision },
     { type: "CompleteTask", taskId: current.taskId, executionId: current.executionId },
@@ -211,6 +263,79 @@ test("accepted history still rejects missing approval and mismatched gate bindin
     { ...snapshot, gateWitnesses: snapshot.gateWitnesses.map((w) => ({ ...w, executionId: "other-execution" })) },
   ])
     assert.throws(() => reduceTaskEvent(invalid, completed), /accepted task and execution state/);
+});
+
+test("pre-freeze submissions replay declared-gate witnesses without a frozen contract", () => {
+  // dec_D23B9787: gen1/gen2 submissions carry no completionContract, so replay cannot look the
+  // gate requirement up in the contract. It infers the requirement from the declared gate ids
+  // and still enforces the witness-to-execution binding fields.
+  const fixture = lifecycleFixture({
+      gates: [
+        {
+          gateId: "ci",
+          appliesTo: "code" as const,
+          witness: {
+            adapterId: "github-actions" as const,
+            adapterOptions: {
+              workflows: ["rewrite-ci"],
+              branch: "main",
+              event: "push",
+              coverage: "exact" as const,
+              selection: "newest" as const,
+            },
+          },
+        },
+      ],
+      complete: false,
+    }),
+    replayed = fixture.events.reduce(reduceTaskEvent, emptyTaskLifecycleSnapshot()),
+    current = replayed.executions[0]!,
+    { completionContract: _frozen, ...legacySubmission } = current.submission!,
+    legacyExecution = { ...current, submission: legacySubmission },
+    snapshot: TaskLifecycleSnapshot = { ...replayed, executions: [legacyExecution] },
+    verify = (witness: Record<string, unknown>): TaskEventV1 => ({
+      schema: "task-event/v1",
+      eventId: "event-witness",
+      workspaceRevision: snapshot.revision + 1,
+      opId: "op-legacy-ci",
+      taskId: snapshot.task!.taskId,
+      type: "completion_gate_verified",
+      actor: implementer,
+      source: "local",
+      occurredAt: "2026-08-11T00:04:30.000Z",
+      payload: {
+        task: snapshot.task!,
+        execution: legacyExecution,
+        witness: {
+          schema: "completion-gate-witness/v1",
+          witnessId: "gate-legacy",
+          taskId: snapshot.task!.taskId,
+          executionId: legacyExecution.executionId,
+          gateId: "ci",
+          checkerId: "standard",
+          receiptId: "op-legacy-ci",
+          commitSha: legacySubmission.commitSha,
+          iteration: legacyExecution.iteration,
+          result: "pass",
+          actor: implementer,
+          source: "local",
+          verifiedAt: "2026-08-11T00:04:30.000Z",
+          ...witness,
+        },
+        documentClaims: [],
+      },
+    });
+
+  const bound = reduceTaskEvent(snapshot, verify({}));
+  assert.equal(bound.gateWitnesses.length, 1);
+  assert.equal(bound.gateWitnesses[0]?.gateId, "ci");
+  for (const unbound of [
+    { gateId: "undeclared-gate" },
+    { commitSha: "b".repeat(40) },
+    { executionId: "other-execution" },
+    { iteration: legacyExecution.iteration + 1 },
+  ])
+    assert.throws(() => reduceTaskEvent(snapshot, verify(unbound)), /not bound to the execution cut/u);
 });
 
 test("a graph stored with the retired maxIterations field still validates strictly", () => {

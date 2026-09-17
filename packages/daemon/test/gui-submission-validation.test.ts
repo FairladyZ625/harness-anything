@@ -11,10 +11,19 @@ const valid = Object.freeze({
   knownGaps: [],
   residualRisks: [],
   commitSha: "a".repeat(40),
+  completionContract: { gates: [] },
 });
 
 test("#1546: a valid submission has no issues", () => {
   assert.deepEqual(validateGuiSubmission(valid), []);
+});
+
+test("a submission frozen before the completion contract stays valid on the wire", () => {
+  const { completionContract: _frozen, ...preFreeze } = valid;
+  assert.deepEqual(validateGuiSubmission(preFreeze), []);
+  assert.deepEqual(validateGuiSubmission({ ...valid, completionContract: { gates: "ci" } }), [
+    "entity='aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' field=completionContract must be an object with a gates array; actual={ gates: 'ci' }",
+  ]);
 });
 
 test("#1546: a wrong-shape field is named with its expected shape, not a generic sentence", () => {

@@ -1,19 +1,19 @@
 import { type TaskLifecycleServiceProof } from "../../application/src/task-lifecycle-service.ts";
 import {
   canonicalGateReceipts,
-  completionGateIds,
   codeDocRecordId,
   consumeKnownError,
   consentedApprovedReviewForExecution,
   currentCodeDocWitness,
   effectiveCloseoutGates,
   evaluateTaskActionCapability,
+  gateResults,
   heldLeaseForExecutionActor,
   getTaskActionForTransition,
   isIndependentFrom,
+  isNativeExecution,
   isSameExecution,
   isSamePerson,
-  judgeCompletionEvidence,
   localGitObjectRefStore,
   makeTaskProjection,
   normalizeCommandEnvelope,
@@ -23,6 +23,7 @@ import {
   type ActorIdentity,
   type AuthorizationDecision,
   type CompleteTaskCommand,
+  type ExecutionDeliveryBaseline,
   type ProofFor,
   type SettingsV1,
   type TaskLifecycleCommand,
@@ -30,6 +31,7 @@ import {
   type WriteReceipt,
 } from "../../kernel/src/index.ts";
 import { cellCodedError, cellCriterionError } from "./repo-cell-errors.ts";
+import { makeGitReadinessSource } from "./process-port.ts";
 import { readDispatchStream } from "./dispatch-stream.ts";
 import { verifyCodeDocCommitPaths } from "./code-doc-path-verification.ts";
 import { completionReviewKey } from "./task-completion-review.ts";
@@ -41,6 +43,35 @@ const START_VALIDATION_CRITERION = "task-lifecycle-command-transitions/start.val
 const SUBMIT_PROOF_CRITERION = "repo-cell-proof/proofFor.SubmitExecution";
 const REVIEW_PROOF_CRITERION = "repo-cell-proof/proofFor.RecordReview";
 const COMPLETE_VALIDATION_CRITERION = "task-lifecycle-review-transitions/complete.validate";
+
+/**
+ * Observe the project comparison cut an execution will diff its delivery against. The project
+ * repository is the Git work tree containing the canonical root — a nested ledger repository is a
+ * different repository and never supplies this baseline. Only an unborn repository (no commit on
+ * any ref) may freeze `empty-tree`; a repository whose baseline cannot be read fails closed rather
+ * than guessing from `origin/main` or a moving `HEAD`.
+ */
+export function observeDeliveryBaseline(rootDir: string): ExecutionDeliveryBaseline {
+  const git = makeGitReadinessSource(),
+    top = git.run(rootDir, ["rev-parse", "--show-toplevel"]);
+  if (!top.ok || !top.stdout)
+    throw cellCriterionError(
+      "invalid_proof",
+      `Execution start requires a project Git repository containing ${rootDir}.`,
+      "start",
+      START_VALIDATION_CRITERION,
+    );
+  const head = git.run(top.stdout, ["rev-parse", "--verify", "HEAD^{commit}"]);
+  if (head.ok) return { kind: "commit", commitSha: head.stdout };
+  const commits = git.run(top.stdout, ["rev-list", "--all", "--count"]);
+  if (commits.ok && commits.stdout === "0") return { kind: "empty-tree" };
+  throw cellCriterionError(
+    "invalid_proof",
+    "The project repository has history but no readable HEAD baseline; resolve HEAD before starting an execution.",
+    "start",
+    START_VALIDATION_CRITERION,
+  );
+}
 
 /**
  * Resolve the dispatch role of a runtime-session actor, or null when the actor is not a runtime
@@ -99,8 +130,14 @@ export async function proofFor(
         START_VALIDATION_CRITERION,
       );
     const authorizationDecision = requiredAuthorizationDecision(binding);
+    // A rejoin re-proves the baseline the execution already froze; only a first start observes it.
+    const rejoined = snapshot.executions.find((execution) => execution.executionId === executionId);
     return {
       actorBinding: command.actor,
+      deliveryBaseline:
+        rejoined !== undefined && isNativeExecution(rejoined) && rejoined.deliveryBaseline !== undefined
+          ? rejoined.deliveryBaseline
+          : observeDeliveryBaseline(rootDir),
       reservation: {
         taskId: command.taskId,
         executionId,
@@ -544,12 +581,16 @@ export function gateChecks(snapshot: Snapshot, executionId: string) {
   const execution = snapshot.executions.find(
     (value) => value.executionId === executionId && value.iteration === snapshot.task?.iteration,
   );
-  const gates = completionGateIds(snapshot.task?.completionGateIds ?? [], execution?.submission?.commitSha);
-  if (gates.length === 0) return [{ gate: "none", status: "pass", witnessRef: null }];
-  return gates.map((gate) => {
-    const candidate =
+  // Status comes from the one domain judgment; not_applicable stays distinct from pass and
+  // blocked so an out-of-scope gate never reads as satisfied or missing.
+  const results = gateResults(snapshot, undefined, executionId, execution?.submission, execution?.iteration);
+  if (results.length === 0) return [{ gate: "none", status: "pass", witnessRef: null }];
+  return results.map(({ gateId: gate, status: gateStatus }) => {
+    const passed = gateStatus === "passed",
+      candidate =
         gate === "code-doc-reconciliation" ? currentCodeDocWitness(snapshot.codeDocWitnesses, executionId) : undefined,
       codeDoc =
+        passed &&
         candidate &&
         execution?.submission &&
         candidate.iteration === execution.iteration &&
@@ -557,26 +598,19 @@ export function gateChecks(snapshot: Snapshot, executionId: string) {
           ? candidate
           : undefined,
       witness =
-        gate !== "code-doc-reconciliation" && execution?.schema === "execution/v1"
+        passed && gate !== "code-doc-reconciliation" && execution?.schema === "execution/v1"
           ? snapshot.gateWitnesses.find(
               (value) =>
                 value.gateId === gate &&
                 value.executionId === executionId &&
                 value.commitSha === execution.submission?.commitSha &&
                 value.iteration === execution.iteration &&
-                value.result === "pass" &&
-                value.basis !== undefined &&
-                value.provenance !== undefined &&
-                value.observed !== undefined &&
-                judgeCompletionEvidence(
-                  { ...value, basis: value.basis, provenance: value.provenance, observed: value.observed },
-                  { execution, gateId: gate },
-                ).accepted,
+                value.result === "pass",
             )
           : undefined;
     return {
       gate,
-      status: codeDoc || witness ? "pass" : "blocked",
+      status: gateStatus === "passed" ? "pass" : gateStatus === "not_applicable" ? "not_applicable" : "blocked",
       witnessRef: codeDoc ? `event:${codeDocRecordId(codeDoc)}` : witness ? `event:${witness.receiptId}` : null,
     };
   });

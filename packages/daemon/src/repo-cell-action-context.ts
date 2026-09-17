@@ -20,7 +20,7 @@ import { decisionProposalAction, taskCreateAction } from "./repo-cell-action-par
 import { buildCommand, withServerMeta } from "./repo-cell-command.ts";
 import {
   completionKillpoint as completionKillpointImpl,
-  publishCiWitness as publishCiWitnessImpl,
+  publishGateWitness as publishGateWitnessImpl,
   showTask as showTaskImpl,
 } from "./repo-cell-completion.ts";
 import { cellCodedError, errorOperationId, publishGeneratedArtifact } from "./repo-cell-errors.ts";
@@ -193,7 +193,7 @@ export interface RepoCellActionContext extends TaskQueryCell {
   readonly completeRetryCommand: typeof completeRetryCommand;
   readonly failed: typeof failed;
   readonly completionSettlement: typeof completionSettlement;
-  readonly publishCiWitness: Bound<typeof publishCiWitnessImpl>;
+  readonly publishGateWitness: Bound<typeof publishGateWitnessImpl>;
   readonly errorOperationId: typeof errorOperationId;
   readonly completionStopped: typeof completionStopped;
   readonly completionKillpoint: Bound<typeof completionKillpointImpl>;
@@ -345,7 +345,7 @@ export function createRepoCellActionContext(bindings: {
     completeRetryCommand,
     failed,
     completionSettlement,
-    publishCiWitness: bind(publishCiWitnessImpl),
+    publishGateWitness: bind(publishGateWitnessImpl),
     errorOperationId,
     completionStopped,
     completionKillpoint: bind(completionKillpointImpl),
