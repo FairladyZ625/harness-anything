@@ -12,7 +12,7 @@ import {
   consumeProviderLine,
 } from "../src/runtime-spawn-provider-stream.ts";
 import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/dispatch-stream.ts";
-import { validateMissionCommands } from "../src/runtime-spawn-mission.ts";
+import { shellSegments, validateMissionCommands } from "../src/runtime-spawn-mission.ts";
 import {
   parseAcpFrame,
   parseAgyFrame,
@@ -681,6 +681,27 @@ test("frozen artifact JSON cannot open a shell fence", () => {
 test("a shell fence at a line boundary still rejects an unavailable path", () => {
   assert.throws(
     () => validateMissionCommands("```bash\nnode tools/missing-entry.mjs\n```", process.cwd(), "handwritten mission"),
+    { code: "runtime_mission_invalid" },
+  );
+});
+
+test("mission placeholders keep their delimiters and suffixes during tokenization", () => {
+  assert.deepEqual(shellSegments("cd <worker 仓>/packages/gui"), [["cd", "<worker 仓>/packages/gui"]]);
+  assert.deepEqual(shellSegments("cat docs/<topic name>/guide.md"), [["cat", "docs/<topic name>/guide.md"]]);
+  assert.doesNotThrow(() =>
+    validateMissionCommands("```sh\ncd <worker 仓>/packages/gui\n```", process.cwd(), "worker callback"),
+  );
+  assert.doesNotThrow(() => validateMissionCommands("```sh\ncd packages/gui\n```", process.cwd(), "literal mission"));
+});
+
+test("a placeholder does not exempt another concrete command in the same line", () => {
+  assert.throws(
+    () =>
+      validateMissionCommands(
+        "```sh\ncd <worker 仓>/packages/gui && node tools/missing-entry.mjs\n```",
+        process.cwd(),
+        "worker callback",
+      ),
     { code: "runtime_mission_invalid" },
   );
 });

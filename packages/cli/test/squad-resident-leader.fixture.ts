@@ -269,7 +269,7 @@ if (initialLeader) {
   if (luna) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 500);
   frame({
     type: "item.completed",
-    item: { type: "agent_message", text: "worker succeeded" },
+    item: { type: "agent_message", text: ${JSON.stringify("worker succeeded\n```sh\ncd <worker 仓>/packages/gui\n```")} },
   });
   frame({
     type: "item.completed",
