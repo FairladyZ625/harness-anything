@@ -4,6 +4,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { serializePersistedCanonicalEvent } from "../../src/domain/doc-sync.contract.ts";
 import { compileEntityDocumentRematerialization } from "../../src/domain/entity-document-event.ts";
 import { makeTaskProjection } from "../../src/projection/rebuildable-task-projection.ts";
 import { makeTaskEventStore } from "../../src/store/task-event-store.ts";
@@ -46,8 +47,22 @@ test("rematerialized document claims land on disk, project, and survive cold rep
       workspaceRevision: 1,
     });
     assert.notEqual(compiled, null);
-    store.append({ event: compiled!.event, plan: compiled!.plan, blobs: compiled!.blobs });
+    const first = store.append({ event: compiled!.event, plan: compiled!.plan, blobs: compiled!.blobs }),
+      replay = store.append({ event: compiled!.event, plan: compiled!.plan, blobs: compiled!.blobs });
+    assert.deepEqual(replay.cut, first.cut);
+    assert.equal(store.read().events.length, 1, "same-op replay must not append another batch event");
+    assert.deepEqual(store.readCommandOutcome(compiled!.event.opId)?.memberOpIds, [compiled!.event.opId]);
     assert.equal(store.readCommandOutcome(compiled!.event.opId)?.status, "accepted_durable");
+    assert.deepEqual(
+      JSON.parse(serializePersistedCanonicalEvent(compiled!.event)),
+      JSON.parse(
+        readFileSync(
+          path.join(import.meta.dirname, "../../fixtures/canonical-events/entity-document-event-v1/accepted.json"),
+          "utf8",
+        ),
+      ),
+      "the governed fixture is captured from this isolated accepted append",
+    );
     await store.settlePendingMaterialization?.("rematerialize test");
     assert.equal(readFileSync(path.join(rootDir, "harness", decisionPath), "utf8"), decisionBody);
     assert.equal(readFileSync(path.join(rootDir, "harness", factPath), "utf8"), factBody);
@@ -65,6 +80,11 @@ test("rematerialized document claims land on disk, project, and survive cold rep
     assert.equal(replay.readDocument(decisionPath).document?.body, decisionBody);
     assert.equal(replay.readDocument(factPath).document?.body, factBody);
     assert.equal(replayStore.readHead()?.opId, "op-rematerialize-store");
+    assert.equal(replayStore.read().events.length, 1);
+    const event = replayStore.read().events[0];
+    assert.equal(event?.schema, "entity-document-event/v1");
+    if (event?.schema === "entity-document-event/v1")
+      assert.deepEqual(event.payload.entityRefs, ["decision/dec_REMAT", "fact/F-00000001"]);
   } finally {
     await replayStore.drain();
     rmSync(rootDir, { recursive: true, force: true });
