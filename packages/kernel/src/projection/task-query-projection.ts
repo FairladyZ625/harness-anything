@@ -36,6 +36,7 @@ export interface TaskProjectionListQuery {
   readonly riskTier?: string;
   readonly urgency?: string;
   readonly search?: string;
+  readonly slug?: string;
   readonly activePackagesOnly?: boolean;
 }
 export interface TaskRelationQuery {
@@ -59,6 +60,8 @@ export interface TaskRelationNeighborhoodQuery {
   readonly maxDepth: number;
   readonly maxNodes: number;
   readonly state?: EntityRelationRecord["state"];
+  /** When true, a depth-boundary overflow is reported on the read instead of throwing. */
+  readonly allowTruncation?: boolean;
 }
 export interface TaskRelationProjectionRow {
   readonly relationId: string;
@@ -141,6 +144,10 @@ export function readTaskIndexRows(
     values.push(query.updatedBefore);
   }
   if (query.activePackagesOnly) where.push(`COALESCE(${field("$.task.packageDisposition")}, 'active') = 'active'`);
+  if (query.slug !== undefined) {
+    where.push(`${field("$.task.metadata.slug")} = ?`);
+    values.push(query.slug);
+  }
   if (query.search !== undefined) {
     where.push(
       `(lower(task_snapshot.task_id) LIKE ? ESCAPE '\\' OR lower(${field("$.task.title")}) LIKE ? ESCAPE '\\')`,
@@ -390,12 +397,20 @@ export function readTaskRelationsByTargets(
   return taskRelationRowsAtCut(db, queryRows(db, sql, JSON.stringify(targetRefs), relationType, relationType));
 }
 
-/** Indexed, cycle-safe graph neighborhood. Both budgets fail closed: callers never
- * receive a partial neighborhood represented as a complete result. */
-export function readTaskRelationNeighborhoodRows(
+export interface TaskRelationNeighborhoodWindow {
+  readonly rows: readonly TaskRelationProjectionRow[];
+  /** Edges exist beyond maxDepth inside the type/state filter — the window is a strict cut. */
+  readonly truncated: boolean;
+}
+
+/** Indexed, cycle-safe graph neighborhood. The node budget fails closed; the depth
+ * boundary is reported on the window so read views can mark the frontier instead of
+ * silently pretending it is complete. Callers that need the historical fail-closed
+ * contract keep using readTaskRelationNeighborhoodRows. */
+export function readTaskRelationNeighborhoodWindow(
   db: DatabaseSync,
   query: TaskRelationNeighborhoodQuery,
-): readonly TaskRelationProjectionRow[] {
+): TaskRelationNeighborhoodWindow {
   checkedRefs([query.seed], "relation neighborhood seed");
   if (query.relationTypes.length === 0) throw new Error("relation neighborhood types requires at least one ref");
   checkedRefs(query.relationTypes, "relation neighborhood types");
@@ -467,13 +482,24 @@ export function readTaskRelationNeighborhoodRows(
     sql,
     ...parameters,
   );
-  if (records[0]?.depth_overflow === 1) throw new Error(`relation neighborhood depth limit ${query.maxDepth} exceeded`);
   const nodeCount = records[0]?.node_count ?? 1;
   if (nodeCount > query.maxNodes) throw new Error(`relation neighborhood node budget ${query.maxNodes} exceeded`);
-  return taskRelationRowsAtCut(
-    db,
-    records.filter((record) => record.relation_id !== null),
-  );
+  return {
+    rows: taskRelationRowsAtCut(
+      db,
+      records.filter((record) => record.relation_id !== null),
+    ),
+    truncated: records[0]?.depth_overflow === 1,
+  };
+}
+
+export function readTaskRelationNeighborhoodRows(
+  db: DatabaseSync,
+  query: TaskRelationNeighborhoodQuery,
+): readonly TaskRelationProjectionRow[] {
+  const window = readTaskRelationNeighborhoodWindow(db, query);
+  if (window.truncated) throw new Error(`relation neighborhood depth limit ${query.maxDepth} exceeded`);
+  return window.rows;
 }
 
 /** Indexed transitive depends-on read. The path token prevents cycles from being traversed,

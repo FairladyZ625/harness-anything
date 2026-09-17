@@ -125,6 +125,7 @@ export async function executeAction(
     );
   }
   if (action.kind === "task-read-set") return cell.taskReadSet(action, binding);
+  if (action.kind === "graph") return cell.graphView(action, binding);
   if (action.kind === "task-review") return cell.reviewTask(action, binding);
   if (action.kind === "task-dispatch-review") return dispatchTaskReview(cell, action, binding);
   if (action.kind === "distill-candidate") {

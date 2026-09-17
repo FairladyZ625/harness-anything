@@ -504,6 +504,7 @@ export function makeTaskQueryReadModel(input: {
       warnings: relationFacetWarnings(cut.status),
       ...cut,
       ...(page.page ? { page: page.page } : {}),
+      ...("truncated" in page && page.truncated === true ? { truncated: true } : {}),
     };
   }
   return Object.freeze({ agenda, relationGraphNeighborhood, relationGraphFacet, relationGraphPage, guiTasks });
