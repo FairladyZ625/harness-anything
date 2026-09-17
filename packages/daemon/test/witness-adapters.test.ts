@@ -450,17 +450,18 @@ test("the wire validator admits pass/fail witnesses only with a mapped adapter i
   assert.equal(validateGateWitnessWire(witness), true);
   assert.equal(validateGateWitnessWire({ ...witness, result: "fail" }), true);
   assert.equal(validateGateWitnessWire({ ...witness, result: "advisory" }), false);
+  // Witnesses recorded before the adapter registry carry no adapterId and stay readable as history.
   assert.equal(
     validateGateWitnessWire({
       ...witness,
-      provenance: { source: "human", runId: "attest:owner", rawResult: "no adapter id" },
+      provenance: { source: "runner", runId: "12345", rawResult: "event:op_legacy" },
     }),
-    false,
+    true,
   );
   assert.equal(
     validateGateWitnessWire({
       ...witness,
-      provenance: { ...witness.provenance, adapterId: "code-doc-reconciliation" },
+      provenance: { ...witness.provenance, adapterId: "" },
     }),
     false,
   );

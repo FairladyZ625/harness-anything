@@ -7,7 +7,6 @@ import {
   taskStatusWords,
 } from "./daemon-protocol-vocabulary.ts";
 import { isJsonObject, type JsonObject, validationValueSummary } from "./json-rpc-types.ts";
-import { mappedWitnessAdapterIds, validateFrozenCompletionContract } from "../../../kernel/src/index.ts";
 
 export const recordWith = (value: unknown, fields: readonly string[]): value is JsonObject =>
     isJsonObject(value) && fields.every((field) => Object.hasOwn(value, field)),
@@ -149,11 +148,12 @@ export function validateGuiSubmission(value: unknown): readonly string[] {
       "completionClaim",
       ...arrayFields,
       "commitSha",
-      "completionContract",
       ...(isJsonObject(value) && (value.commitSha === null || "artifacts" in value) ? ["artifacts"] : []),
     ],
     entityId = validationEntityId(value, ["commitSha"], "submission:<unknown>"),
-    shapeError = recordShapeError(entityId, value, fields),
+    // Submissions frozen before the completion contract carry none (dec_D23B9787328EF7E0FACB70F9FE); the kernel
+    // requires and fully validates it on every new submission, so the wire shape only checks its envelope.
+    shapeError = recordShapeError(entityId, value, fields, [...fields, "completionContract"]),
     anchorsOk = isJsonObject(value) && (value.artifacts === undefined || validArtifactDelivery(value.artifacts));
   if (shapeError) return [shapeError];
   if (!isJsonObject(value)) return [];
@@ -167,14 +167,12 @@ export function validateGuiSubmission(value: unknown): readonly string[] {
     errors.push(
       validationError(entityId, "commitSha", value.commitSha, "must identify a commit or accepted artifact revisions"),
     );
-  if (validateFrozenCompletionContract(value.completionContract).length)
+  if (
+    value.completionContract !== undefined &&
+    !(recordWith(value.completionContract, ["gates"]) && Array.isArray(value.completionContract.gates))
+  )
     errors.push(
-      validationError(
-        entityId,
-        "completionContract",
-        value.completionContract,
-        "must list unique gate requirements bound to known witness adapters",
-      ),
+      validationError(entityId, "completionContract", value.completionContract, "must be an object with a gates array"),
     );
   return errors;
 }
@@ -505,9 +503,9 @@ export function gate(value: unknown): boolean {
         (value.basis.codeCommit === undefined || sha(value.basis.codeCommit)) &&
         (value.basis.ledgerCut === undefined || (integer(value.basis.ledgerCut) && value.basis.ledgerCut >= 0)))) &&
     (value.provenance === undefined ||
-      (recordWith(value.provenance, ["source", "adapterId", "runId", "rawResult"]) &&
+      (recordWith(value.provenance, ["source", "runId", "rawResult"]) &&
         (value.provenance.source === "runner" || value.provenance.source === "human") &&
-        mappedWitnessAdapterIds.includes(value.provenance.adapterId as never) &&
+        (value.provenance.adapterId === undefined || nonEmpty(value.provenance.adapterId)) &&
         nonEmpty(value.provenance.runId) &&
         nonEmpty(value.provenance.rawResult)))
   );
