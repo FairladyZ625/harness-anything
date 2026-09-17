@@ -4,7 +4,10 @@ import { writeProviderExecutable } from "./runtime-stub.ts";
 // answers the handshake, echoes a fixed session id, streams canonical update
 // notifications, and records the authenticate key plus server-initiated
 // request outcomes into `captureTarget` for assertions. `auth`/`models`
-// subcommands exit 0 so subscription probes pass.
+// subcommands exit 0 so subscription probes pass. Like devin 3000.10.x, the
+// server exits 0 without answering once the pid in WINDSURF_EXT_HOST_PID is
+// gone; `--model exit-before-session` and the `exit-mid-prompt` prompt exit 0
+// with the turn unanswered as well.
 export function writeAcpProviderStub(
   target: string,
   captureTarget: string,
@@ -46,6 +49,11 @@ const sessionExtras = ${JSON.stringify(
         },
       },
     )};
+const editorHostPid = Number(process.env.WINDSURF_EXT_HOST_PID ?? 0);
+const editorHostGone = () => {
+  if (!editorHostPid) return false;
+  try { process.kill(editorHostPid, 0); return false; } catch (error) { return error.code === "ESRCH"; }
+};
 let buffer = "", authenticated = false, pendingPromptId = null;
 const send = (message) => process.stdout.write(JSON.stringify(message) + "\\n");
 const update = (update) => send({ jsonrpc: "2.0", method: "session/update", params: { sessionId, update } });
@@ -83,7 +91,10 @@ process.stdin.on("data", (chunk) => {
         authenticated = true; record({ apiKey: key, methodId }); reply({});
       } else fail("api key required");
     } else if (!authenticated) fail("unauthenticated");
-    else if (message.method === "session/new") reply({ sessionId, modes, ...sessionExtras });
+    else if (message.method === "session/new") {
+      if (editorHostGone() || args.includes("exit-before-session")) process.exit(0);
+      reply({ sessionId, modes, ...sessionExtras });
+    }
     else if (message.method === "session/load") {
       // Real agents replay session history before answering session/load.
       update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "devin history " } });
@@ -97,6 +108,9 @@ process.stdin.on("data", (chunk) => {
         send({ jsonrpc: "2.0", id: "perm-1", method: "session/request_permission", params: { sessionId, toolCall: { toolCallId: "tc-9", title: "Write file" }, options: [{ optionId: "deny", kind: "reject_once", name: "Deny" }, { optionId: "allow", kind: "allow_once", name: "Allow" }] } });
       } else if (text === "hang") {
         pendingPromptId = message.id;
+      } else if (text === "exit-mid-prompt") {
+        update({ sessionUpdate: "tool_call", toolCallId: "tc-2", title: "Read file", kind: "read", status: "in_progress" });
+        process.stdout.write("", () => process.exit(0));
       } else finishPrompt(message.id);
     } else fail("unsupported");
   }
