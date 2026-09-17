@@ -14,8 +14,11 @@ export interface CompletionEvidenceBasis {
 
 export interface CompletionEvidenceProvenance {
   readonly source: "runner" | "human";
-  /** Which witness adapter produced this observation; the canonical write binds it to the declared one. */
-  readonly adapterId: MappedWitnessAdapterId;
+  /**
+   * Which witness adapter produced this observation; the canonical write binds it to the declared one.
+   * Absent only on evidence recorded before the completion contract froze an adapter registry.
+   */
+  readonly adapterId?: MappedWitnessAdapterId;
   readonly runId: string;
   readonly rawResult: string;
 }
@@ -91,7 +94,13 @@ export function judgeCompletionEvidence(
   if (
     !evidence.provenance.runId ||
     !evidence.provenance.rawResult ||
-    !(mappedWitnessAdapterIds as readonly string[]).includes(evidence.provenance.adapterId as string)
+    // A cut frozen before the completion contract was judged before the adapter registry existed, so its
+    // evidence names no adapter (dec_D23B9787328EF7E0FACB70F9FE); every contract cut must name a mapped one.
+    !(
+      (expected.execution.submission?.completionContract === undefined &&
+        evidence.provenance.adapterId === undefined) ||
+      (mappedWitnessAdapterIds as readonly string[]).includes(evidence.provenance.adapterId as string)
+    )
   )
     return { accepted: false, result: evidence.result, reason: "evidence provenance is incomplete" };
   if (evidence.result === "pass" && !evidence.observed)

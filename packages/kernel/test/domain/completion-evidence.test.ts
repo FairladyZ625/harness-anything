@@ -165,3 +165,52 @@ test("artifact evidence binds ledger revisions and only commit cuts carry code g
   assert.equal(commitResults.length, 3);
   assert.ok(commitResults.every((gate) => gate.status === "missing"));
 });
+
+test("a cut frozen before the completion contract keeps the evidence and gate rules it was judged by", async () => {
+  const { completionGateIds } = await import("../../src/domain/closeout-readiness.ts");
+  const { validateCompletionGateWitnessV1 } = await import("../../src/domain/completion-gate-witness.ts");
+  const { completionContract: _frozen, ...preFreezeSubmission } = execution.submission;
+  const preFreeze = { ...execution, submission: preFreezeSubmission } as unknown as ExecutionV1;
+  const legacyEvidence = {
+    ...evidence(),
+    basis: completionEvidenceBasis(preFreeze),
+    provenance: { source: "runner", runId: "run-1", rawResult: "event:receipt-1" },
+  } as unknown as CompletionEvidenceV1;
+  // Evidence recorded before the adapter registry names no adapter; only a pre-freeze cut accepts that.
+  assert.deepEqual(judgeCompletionEvidence(legacyEvidence, { execution: preFreeze, gateId: "ci" }), {
+    accepted: true,
+    result: "pass",
+  });
+  const contractJudgment = judgeCompletionEvidence(
+    { ...legacyEvidence, basis: completionEvidenceBasis(execution) },
+    { execution, gateId: "ci" },
+  );
+  assert.equal(contractJudgment.accepted, false);
+  assert.match(contractJudgment.reason ?? "", /provenance is incomplete/u);
+  const witness = {
+    schema: "completion-gate-witness/v1",
+    witnessId: "gate-1",
+    receiptId: "op-1",
+    checkerId: "ci",
+    gateId: "ci",
+    result: "pass",
+    taskId: execution.taskId,
+    executionId: execution.executionId,
+    commitSha: execution.submission.commitSha,
+    iteration: 0,
+    actor: execution.actor,
+    source: "local",
+    verifiedAt: "2026-09-09T00:02:00.000Z",
+    observed: true,
+    basis: completionEvidenceBasis(preFreeze),
+    provenance: { source: "runner", runId: "run-1", rawResult: "event:op-1" },
+  };
+  assert.deepEqual(validateCompletionGateWitnessV1(witness, true), []);
+  assert.equal(validateCompletionGateWitnessV1(witness, false).length, 1);
+  // Artifact-only delivery skipped the code gates before a contract could declare applicability.
+  assert.deepEqual(
+    completionGateIds(["ci", "code-doc-reconciliation", "attest"], { ...preFreezeSubmission, commitSha: null }),
+    ["attest"],
+  );
+  assert.deepEqual(completionGateIds(["ci", "attest"], preFreezeSubmission as never), ["ci", "attest"]);
+});

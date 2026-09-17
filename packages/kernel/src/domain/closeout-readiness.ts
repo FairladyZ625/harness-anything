@@ -218,8 +218,11 @@ export function gateResults(
  */
 export function completionGateIds(taskGateIds: readonly string[], submission?: SubmissionV1 | null): readonly string[] {
   const contract = submission?.completionContract;
-  return contract
-    ? contract.gates.flatMap((gate) => (submission && gateAppliesToSubmission(gate, submission) ? [gate.gateId] : []))
+  if (contract)
+    return contract.gates.flatMap((gate) => (gateAppliesToSubmission(gate, submission!) ? [gate.gateId] : []));
+  // Pre-freeze cuts keep the rule in force when they were judged: artifact-only delivery skipped the code gates.
+  return submission?.commitSha === null
+    ? taskGateIds.filter((gateId) => gateId !== "ci" && gateId !== "code-doc-reconciliation")
     : taskGateIds;
 }
 

@@ -79,7 +79,12 @@ export function validateCompletionGateWitnessV1(
           (!Number.isSafeInteger(record.basis.ledgerCut) || record.basis.ledgerCut < 0)))) ||
     (record.provenance !== undefined &&
       (!["runner", "human"].includes(record.provenance.source) ||
-        !(mappedWitnessAdapterIds as readonly string[]).includes(record.provenance.adapterId as string) ||
+        // Witnesses recorded before the adapter registry carry no adapterId; they stay readable as history
+        // (dec_D23B9787328EF7E0FACB70F9FE) while every new witness must name a mapped adapter.
+        !(
+          (allowUnknownFields && record.provenance.adapterId === undefined) ||
+          (mappedWitnessAdapterIds as readonly string[]).includes(record.provenance.adapterId as string)
+        ) ||
         !isNonEmptyString(record.provenance.runId) ||
         !isNonEmptyString(record.provenance.rawResult)))
     ? [
