@@ -219,11 +219,10 @@ export {
   submissionDigest,
 } from "./domain/execution.ts";
 export {
+  gateAppliesToSubmission,
   inferLegacyGateRequirements,
   resolveCompletionContract,
-  validateFrozenCompletionContract,
 } from "./domain/completion-contract.ts";
-export { gateAppliesToSubmission, mappedWitnessAdapterIds } from "./domain/completion-contract.ts";
 export type { FrozenGateRequirement, MappedWitnessAdapterId } from "./domain/completion-contract.ts";
 export { sha256Bytes, sha256Text, stablePayloadHash, stableStringify } from "./integrity/stable-hash.ts";
 export { eventObjectTarget } from "./layout/ledger-object-layout.ts";
