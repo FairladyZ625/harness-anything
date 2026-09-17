@@ -54,6 +54,7 @@ import {
   runtimeMissionName,
   validateMissionCommands,
 } from "./runtime-spawn-mission.ts";
+import { assembleTaskCausalContext } from "./dispatch-causal-context.ts";
 import {
   launchExitNotification,
   launchNative,
@@ -344,10 +345,21 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         "runtime_preconditions_unavailable",
         "Task-bound and scheduled runtime spawn require a sealed daemon route before dispatch.",
       );
-    const taskMission = taskId
-        ? (remoteTask ?? deriveTaskMission(input.rootDir, projection!, taskId, "runtime.run", missionName))
+    // One causal read at the dispatch cut serves both the derived task mission
+    // and an explicit caller prompt; remote-edge spawns have no canonical
+    // projection and deliberately get none rather than mirrored stale markdown.
+    const causalContext =
+        taskId && !input.remote ? assembleTaskCausalContext({ projection: projection!, taskId }) : null,
+      taskMission = taskId
+        ? (remoteTask ??
+          deriveTaskMission(input.rootDir, projection!, taskId, "runtime.run", missionName, causalContext))
         : null,
-      mission = explicitMission ?? taskMission?.mission ?? requiredRuntimeSpawnText(undefined, "prompt");
+      mission =
+        explicitMission === undefined
+          ? (taskMission?.mission ?? requiredRuntimeSpawnText(undefined, "prompt"))
+          : causalContext === null
+            ? explicitMission
+            : `${causalContext}\n\n${explicitMission}`;
     if (taskMission) validateMissionCommands(taskMission.plan, cwd, taskMission.planPath);
     if (taskMission?.missionBody && taskMission.missionPath)
       validateMissionCommands(taskMission.missionBody, cwd, taskMission.missionPath);
