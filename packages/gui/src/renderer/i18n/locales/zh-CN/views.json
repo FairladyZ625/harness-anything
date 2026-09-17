@@ -808,7 +808,7 @@
   "views.attestationPoolView.consentsEmpty": "没有待同意收口的任务。",
   "views.attestationPoolView.breakGlassEmpty": "没有允许人工特批的待处理验证项。",
   "views.attestationPoolView.breakGlassHint": "这里只显示允许人工特批的验证项。自动验证失败或未取得结果时，任务负责人可说明理由后放行。",
-  "views.attestationPoolView.consentHint": "独立评审已批准,记录一次人的同意即完成收口。",
+  "views.attestationPoolView.consentHint": "记录你的完成确认并提交任务收口。",
   "views.attestationPoolView.consentApprove": "同意完成",
   "views.attestationPoolView.openTask": "任务详情",
   "views.attestationPoolView.attest": "打勾签注",

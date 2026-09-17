@@ -808,7 +808,7 @@
   "views.attestationPoolView.consentsEmpty": "No tasks awaiting completion consent.",
   "views.attestationPoolView.breakGlassEmpty": "No pending checks allow an exception.",
   "views.attestationPoolView.breakGlassHint": "Only checks that allow exceptions appear here. The task owner can provide a reason to proceed when automated verification fails or produces no result.",
-  "views.attestationPoolView.consentHint": "Independent review approved; record the one human consent to close out.",
+  "views.attestationPoolView.consentHint": "Record your confirmation and submit the task for completion.",
   "views.attestationPoolView.consentApprove": "Consent & complete",
   "views.attestationPoolView.openTask": "Task detail",
   "views.attestationPoolView.attest": "Attest",
