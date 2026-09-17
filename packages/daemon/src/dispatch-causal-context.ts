@@ -9,27 +9,20 @@ import { requireSameProjectionCut, type ProjectionCut } from "./task-query-read.
  *
  * Every field is read from the canonical projection at one verified cut; the
  * block is task data for the worker, never an override of its role or safety
- * instructions. Fleet-edge dispatch has no canonical projection and gets no
- * block rather than a summary of stale mirrored markdown.
+ * instructions. Fleet-edge dispatch fetches the same block from the center's
+ * canonical read — a stale mirrored markdown is never summarized as fact.
  *
  * Token budget: no tokenizer ships in this dependency set, so the block is
- * capped by a conservative UTF-8 byte ceiling. CJK text encodes near one token
- * per character (≈3 bytes) and English near 4 bytes per token, so 1400 bytes
- * stays under ~500 tokens for either extreme. Canonical refs are never
- * truncated away — a worker can always re-query `ha graph task/<id>`.
+ * capped at 500 UTF-8 bytes — a provable hard bound the tests assert on real
+ * dispatch captures; byte↔token ratios are deliberately not claimed. Canonical
+ * refs are never truncated away — a worker can always re-query
+ * `ha graph <task-id>`.
  */
-const CAUSAL_CONTEXT_MAX_BYTES = 1400,
-  FIELD_MAX_BYTES = 200,
+const CAUSAL_CONTEXT_MAX_BYTES = 500,
   MAX_DECISIONS = 2,
   MAX_FACTS = 5,
   MAX_EVIDENCE_ANCHORS = 6,
-  HEADER = "# Task Causal Context & Architectural Rationale";
-
-interface ContextLine {
-  readonly text: string;
-  /** Structural lines stay even when optional detail must be dropped for budget. */
-  readonly required: boolean;
-}
+  HEADER = "# Task Causal Context";
 
 export function assembleTaskCausalContext(input: {
   readonly projection: TaskProjection;
@@ -102,95 +95,99 @@ export function assembleTaskCausalContext(input: {
   }
   requireSameProjectionCut("dispatch causal context", reads);
   if (milestone === null && parent === null && decisionIds.length === 0) return null;
-  const lines: ContextLine[] = [{ text: HEADER, required: true }];
-  if (milestone !== null) {
-    lines.push({ text: `- Milestone: ${field(milestone.title)} (${milestone.taskId})`, required: true });
-    if (milestoneGoal !== null) lines.push({ text: `  * Goal: ${milestoneGoal}`, required: false });
-  }
-  if (parent !== null && parent.taskId !== milestone?.taskId)
-    lines.push({ text: `- Parent task: ${field(parent.title)} (${parent.taskId})`, required: true });
+  // Priority order: identity lines first, then each decision's header, chosen
+  // anchor and load-bearing claims, then the evidence layer — a fat milestone
+  // title can never starve the facts of all budget. Goal, question and any
+  // second decision are detail tails the greedy fit may drop.
+  const details: string[] = [],
+    tails: string[] = [];
+  // The refs line already carries every canonical id, so identity lines stay
+  // title-only — repeating `(${id})` here would spend budget twice.
+  if (milestone !== null) details.push(`- Milestone: ${field(milestone.title, 48)}`);
+  if (parent !== null && parent.taskId !== milestone?.taskId) details.push(`- Parent: ${field(parent.title, 48)}`);
+  const decisionBlocks: string[][] = [];
   for (const decisionId of decisionIds) {
     const decision = decisions.get(decisionId);
     if (decision === undefined) continue;
-    lines.push({
-      text: `- Derived from Decision: ${decisionId} "${field(decision.title, 120)}"`,
-      required: true,
-    });
-    const anchorId = derivingAnchor.get(decisionId),
-      chosen = decision.chosen.find((entry) => entry.id === anchorId) ?? decision.chosen[0];
+    const block = [`- Decision: ${decisionId} "${field(decision.title, 48)}"`],
+      anchorId = derivingAnchor.get(decisionId),
+      chosen = decision.chosen.find((entry) => entry.id === anchorId) ?? decision.chosen[0],
+      claims = decision.claims.filter((claim) => claim.loadBearing);
     if (chosen !== undefined)
-      lines.push({
-        text:
-          `  * Chosen ${chosen.id}: ${field(chosen.text)}` +
-          (chosen.rationale ? ` — Rationale: ${field(chosen.rationale)}` : ""),
-        required: true,
-      });
-    if (decision.question.trim()) lines.push({ text: `  * Question: ${field(decision.question)}`, required: false });
-    const claims = decision.claims.filter((claim) => claim.loadBearing);
+      block.push(
+        `  * Chosen ${chosen.id}: ${field(chosen.text, 48)}` +
+          (chosen.rationale ? ` — ${field(chosen.rationale, 48)}` : ""),
+      );
     if (claims.length > 0)
-      lines.push({
-        text: "  * Load-bearing Claims: " + claims.map((claim) => `${claim.id} ${field(claim.text, 120)}`).join("; "),
-        required: false,
-      });
+      block.push("  * Claims: " + field(claims.map((claim) => `${claim.id} ${claim.text}`).join("; "), 96));
+    if (decision.question.trim()) tails.push(`  * Question: ${field(decision.question, 64)}`);
+    decisionBlocks.push(block);
   }
-  if (factRefs.length > 0) {
-    lines.push({ text: "- Evidenced by Facts:", required: false });
-    for (const ref of factRefs.slice(0, MAX_FACTS)) {
-      const fact = facts.get(ref);
-      lines.push({
-        text:
-          `  * ${ref.replace(/^fact\//u, "")}: ` +
-          (fact === undefined
-            ? "(statement not projected at this cut)"
-            : `${field(fact.statement)} (source: ${field(fact.evidenceSource, 120)})`),
-        required: false,
-      });
-    }
-  }
-  return renderWithinBudget(lines, taskId);
+  details.push(...(decisionBlocks[0] ?? []));
+  const factLines = factRefs.slice(0, MAX_FACTS).map((ref) => {
+    const fact = facts.get(ref);
+    return `  * ${ref.replace(/^fact\//u, "")}: ${
+      fact === undefined
+        ? "(statement not projected at this cut)"
+        : `${field(fact.statement, 64)} (src:${field(fact.evidenceSource, 35)})`
+    }`;
+  });
+  if (factLines.length > 0) details.push(`- Facts:\n${factLines[0]!}`, ...factLines.slice(1));
+  if (milestoneGoal !== null) tails.unshift(`  * Goal: ${field(milestoneGoal, 64)}`);
+  details.push(...(decisionBlocks[1] ?? []), ...tails);
+  const refs = [
+    ...(milestone === null ? [] : [`task/${milestone.taskId}`]),
+    ...(parent === null || parent.taskId === milestone?.taskId ? [] : [`task/${parent.taskId}`]),
+    ...decisionIds.map((decisionId) => `decision/${decisionId}`),
+    ...factRefs,
+  ];
+  return renderWithinBudget(details, refs, taskId);
 }
 
 /**
- * Greedy fit in render order: required structure always lands; optional detail
- * joins only while the byte ceiling plus room for the truncation note holds.
- * Required lines alone can still overflow (two fully populated decisions), so
- * the final check hard-truncates at the ceiling — the cap is a promise, not a
- * hope.
+ * Greedy fit in priority order under a reserved Refs line: the refs keep every
+ * layer's canonical id queryable even when the detail lines must drop. The
+ * byte cap is a promise, not a hope — if the header plus refs alone exceed it
+ * (only a pathological id set can do that), refs are shed from the tail and
+ * the output is hard-clamped to the ceiling on a character boundary.
  */
-function renderWithinBudget(lines: readonly ContextLine[], taskId: string): string {
-  const note = `  … truncated for budget; run \`ha graph ${taskId}\` for the full causal tree.`,
-    noteCost = byteLength(note) + 1,
-    kept: string[] = [];
-  let dropped = false;
-  for (const line of lines) {
-    if (line.required) {
-      kept.push(line.text);
-      continue;
-    }
-    if (byteLength(kept.concat(line.text).join("\n")) + noteCost > CAUSAL_CONTEXT_MAX_BYTES) {
+function renderWithinBudget(details: readonly string[], refs: readonly string[], taskId: string): string {
+  const kept: string[] = [],
+    mutable = [...refs];
+  let refsLine = `Refs: ${mutable.join(" ")} · ha graph ${taskId}`;
+  while (mutable.length > 0 && byteLength(`${HEADER}\n${refsLine}`) > CAUSAL_CONTEXT_MAX_BYTES) {
+    mutable.pop();
+    refsLine = `Refs: ${mutable.join(" ")} … · ha graph ${taskId}`;
+  }
+  let used = byteLength(HEADER) + 1 + byteLength(refsLine),
+    dropped = false;
+  for (const line of details) {
+    const cost = byteLength(line) + 1;
+    if (used + cost > CAUSAL_CONTEXT_MAX_BYTES) {
       dropped = true;
       continue;
     }
-    kept.push(line.text);
+    kept.push(line);
+    used += cost;
   }
-  const fitted = kept.join("\n");
-  if (byteLength(fitted) > CAUSAL_CONTEXT_MAX_BYTES) {
-    const room = CAUSAL_CONTEXT_MAX_BYTES - byteLength(`\n${note}`);
-    let out = "",
-      used = 0;
-    for (const char of fitted) {
-      const size = byteLength(char);
-      if (used + size > room) break;
-      out += char;
-      used += size;
+  let out = `${HEADER}\n${[...kept, refsLine].join("\n")}`;
+  if (dropped && byteLength(out) + 4 <= CAUSAL_CONTEXT_MAX_BYTES) out += " …";
+  if (byteLength(out) > CAUSAL_CONTEXT_MAX_BYTES) {
+    let clamped = "",
+      size = 0;
+    for (const char of out) {
+      const next = byteLength(char);
+      if (size + next > CAUSAL_CONTEXT_MAX_BYTES) break;
+      clamped += char;
+      size += next;
     }
-    return `${out}\n${note}`;
+    return clamped;
   }
-  return dropped ? `${fitted}\n${note}` : fitted;
+  return out;
 }
 
 /** Collapse whitespace and bound one free-text field so CJK prose cannot eat the block. */
-function field(text: string, maxBytes = FIELD_MAX_BYTES): string {
+function field(text: string, maxBytes = 96): string {
   const compact = text.replace(/\*\*/gu, "").replace(/\s+/gu, " ").trim();
   if (byteLength(compact) <= maxBytes) return compact;
   let out = "",
@@ -214,7 +211,7 @@ function planGoalSummary(body: string): string | null {
         .filter(Boolean)
         .slice(0, 2)
         .join(" ");
-    if (text) return field(text, 280);
+    if (text) return field(text, 120);
   }
   return null;
 }

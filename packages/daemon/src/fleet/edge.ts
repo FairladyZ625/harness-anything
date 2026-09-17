@@ -510,7 +510,7 @@ export async function runFleetRuntimeArchiveClient(
 export async function runFleetRuntimeReadClient(
   options: FleetPeerOptions & {
     readonly repoId: string;
-    readonly method: "repo.agentRuntime.overview" | "repo.agentRuntime.sessions.read";
+    readonly method: "repo.agentRuntime.overview" | "repo.agentRuntime.sessions.read" | "repo.tasks.causalContext.read";
     readonly payload: Readonly<Record<string, unknown>>;
   },
 ): Promise<Readonly<Record<string, unknown>>> {

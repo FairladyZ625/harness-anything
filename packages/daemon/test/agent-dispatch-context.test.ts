@@ -195,17 +195,16 @@ test("task-bound dispatch injects the milestone, deriving decision, and evidence
     assert.ok(prompt !== null, "the launch request captured a prompt");
     const block = causalBlock(prompt!);
     assert.ok(block !== null, `no causal block in prompt:\n${prompt}`);
-    assert.match(block, /- Milestone: Causal milestone \(task_ctx_root\)/u);
-    assert.match(block, /\* Goal: Produce the applied lifecycle receipts/u);
-    assert.match(block, new RegExp(`- Derived from Decision: ${decisionId} "Dispatch context decision"`, "u"));
-    assert.match(block, /\* Chosen CH1: Inject the causal slice at dispatch — Rationale: Agents do not run/u);
-    assert.match(block, /\* Load-bearing Claims: C1 94% of dispatches skip read-set\./u);
-    assert.match(block, /- Evidenced by Facts:/u);
+    assert.match(block, /- Milestone: Causal milestone\n/u);
+    assert.match(block, new RegExp(`- Decision: ${decisionId} "Dispatch context decision"`, "u"));
+    assert.match(block, /\* Chosen CH1: Inject the causal slice at dispatch — Agents do not run/u);
+    assert.match(block, /\* Claims: C1 94% of dispatches skip read-set\./u);
+    assert.match(block, /- Facts:/u);
     assert.match(
       block,
-      /\* F-00CA05A1: Dispatch prompts previously carried no causal topology\. \(source: packages\/daemon\/src\/runtime-spawner\.ts\)/u,
+      /\* F-00CA05A1: Dispatch prompts previously carried no causal topology\. \(src:packages\/daemon\/src\/runtime-spaw…\)/u,
     );
-    assert.ok(Buffer.byteLength(block, "utf8") <= 1400, "causal block exceeds the byte budget");
+    assert.ok(Buffer.byteLength(block, "utf8") <= 500, "causal block exceeds the byte budget");
 
     // An explicit prompt on a task-bound dispatch still gets the same block prepended.
     prompt = null;
@@ -374,8 +373,8 @@ test("oversized CJK causal context stays inside the byte budget on a real dispat
     assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
     const block = causalBlock(prompt!);
     assert.ok(block !== null, "long CJK causal context produced no block");
-    assert.ok(Buffer.byteLength(block, "utf8") <= 1400, `causal block is ${Buffer.byteLength(block, "utf8")} bytes`);
-    assert.match(block, /truncated/u);
+    assert.ok(Buffer.byteLength(block, "utf8") <= 500, `causal block is ${Buffer.byteLength(block, "utf8")} bytes`);
+    assert.match(block, /…/u);
     assert.match(block, new RegExp(decisionIds[0]!.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
   } finally {
     await cell?.close();

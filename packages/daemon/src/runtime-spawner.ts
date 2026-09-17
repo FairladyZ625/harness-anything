@@ -345,11 +345,12 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         "runtime_preconditions_unavailable",
         "Task-bound and scheduled runtime spawn require a sealed daemon route before dispatch.",
       );
-    // One causal read at the dispatch cut serves both the derived task mission
-    // and an explicit caller prompt; remote-edge spawns have no canonical
-    // projection and deliberately get none rather than mirrored stale markdown.
     const causalContext =
-        taskId && !input.remote ? assembleTaskCausalContext({ projection: projection!, taskId }) : null,
+        remoteTask === null
+          ? taskId === null
+            ? null
+            : assembleTaskCausalContext({ projection: projection!, taskId })
+          : remoteTask.causalContext,
       taskMission = taskId
         ? (remoteTask ??
           deriveTaskMission(input.rootDir, projection!, taskId, "runtime.run", missionName, causalContext))

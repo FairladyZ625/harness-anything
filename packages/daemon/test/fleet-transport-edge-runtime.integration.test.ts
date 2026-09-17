@@ -18,6 +18,7 @@ import { applyFleetMirrorCut, locateFleetMirrorView } from "../src/fleet-edge-mi
 import { listenFleetTls, type FleetAssignmentRecord, type FleetTlsCenter } from "../src/fleet/center.ts";
 import { runFleetReplicaPullClient } from "../src/fleet/edge.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
+import { evidence } from "./task-surface.fixtures.ts";
 import { parseFleetFrame, serializeFleetFrame, type FleetFrameV1 } from "../src/fleet/contract.ts";
 import type { RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
@@ -553,6 +554,264 @@ test("fleet runtime waits over five seconds for every configured overview page",
     true,
   );
 });
+test(
+  "remote-edge dispatch serves the causal block fresh from the center, never its stale mirror",
+  { timeout: 60_000 },
+  async (t) => {
+    const fixture = await fleetFixture(t, ["tasks/task-fleet-fleet"]);
+    t.after(() => fixture.close());
+    const center = await fixture.center(),
+      edgeRoot = path.join(fixture.root, "causal-edge"),
+      edgeUserRoot = path.join(fixture.root, "causal-edge-user"),
+      viewRoot = path.join(fixture.root, "causal-edge-view"),
+      rosterPath = path.join(fixture.root, "causal-roster.json"),
+      uid = process.getuid?.() ?? 0,
+      localAuth = {
+        transportKind: "unix-socket",
+        unixSocketOwnerBoundary: { ownerUid: uid, source: "unix-socket-filesystem-owner-boundary" },
+      } as const;
+    mkdirSync(path.join(edgeRoot, "harness"), { recursive: true });
+    initRepo(edgeRoot);
+    writeFileSync(
+      path.join(edgeRoot, "harness/harness.yaml"),
+      "schema: harness-anything/v1\nname: causal-edge\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
+    );
+    git(edgeRoot, "add", "harness");
+    git(edgeRoot, "commit", "-qm", "edge harness");
+    // The mirror is pulled BEFORE the causal neighborhood exists at the center,
+    // so the decision, fact, and relations recorded below cannot be present in
+    // any edge-local copy. If the provider prompt still carries them, the block
+    // provably came from the center's canonical cut on this dispatch.
+    await runFleetReplicaPullClient({
+      port: center.port,
+      ca: fixture.cert,
+      nodeId: fixture.assignment.nodeId,
+      credential: "machine-secret",
+      assignmentId: fixture.assignment.assignmentId,
+      viewRoot,
+      diskQuotaBytes: replicaQuota,
+    });
+    applyFleetMirrorCut(viewRoot, fixture.assignment.repoId, edgeRoot, "pull");
+    // Relation writes are admitted against the canonical vertical's relation
+    // direction registry, which reads the materialized declaration document —
+    // migrate publishes it through the real write path.
+    const vertical = await fixture.host.run(
+      fixture.assignment.repoId,
+      { kind: "vertical-declaration-migrate" },
+      localAuthFixture(),
+    );
+    assert.ok(vertical.outcome === "applied" || vertical.outcome === "no_changes", JSON.stringify(vertical));
+    if (vertical.outcome === "applied")
+      await waitForFleetPublication(fixture.host, fixture.assignment.repoId, vertical.opId, localAuthFixture());
+    const proposed = await fixture.host.run(
+        fixture.assignment.repoId,
+        {
+          kind: "decision-propose",
+          jsonInput: JSON.stringify({
+            title: "CENTERFRESH-ZQ decision",
+            question: "Does the edge see post-pull center context?",
+            riskTier: "low",
+            urgency: "low",
+            vertical: "software/coding",
+            preset: "standard-task",
+            decisionClass: "ordinary",
+            appliesTo: { modules: ["daemon"], productLines: [] },
+            chosen: [{ id: "CH1", text: "Serve the center cut over fleet reads", rationale: "Edge mirrors lag." }],
+            rejected: [{ id: "RJ1", text: "Summarize the mirror", whyNot: "Stale markdown is not canonical." }],
+            claims: [{ id: "C1", text: "Mirrors trail the center cut.", loadBearing: true }],
+            fulfillments: [],
+          }),
+          body: "# CENTERFRESH-ZQ decision\n\nServe the center cut.\n",
+        },
+        localAuthFixture(),
+      ),
+      decisionId = String(evidence(proposed).decisionId);
+    assert.equal(proposed.outcome, "applied", JSON.stringify(proposed));
+    await waitForFleetPublication(fixture.host, fixture.assignment.repoId, proposed.opId, localAuthFixture());
+    const fact = await fixture.host.run(
+      fixture.assignment.repoId,
+      {
+        kind: "fact-record",
+        factId: "F-C1EDFACE",
+        statement: "CENTERFRESH-ZQ evidence recorded post-pull.",
+        evidenceSource: "packages/daemon/src/fleet-edge-runtime.ts",
+        confidence: "high",
+        memoryClass: "semantic",
+      },
+      localAuthFixture(),
+    );
+    assert.equal(fact.outcome, "applied", JSON.stringify(fact));
+    await waitForFleetPublication(fixture.host, fixture.assignment.repoId, fact.opId, localAuthFixture());
+    for (const [sourceRef, targetRef, relationType] of [
+      [`decision/${decisionId}/CH1`, `task/${fixture.assignment.taskId}`, "derives"],
+      [`decision/${decisionId}/C1`, "fact/F-C1EDFACE", "evidenced-by"],
+    ] as const) {
+      const related = await fixture.host.run(
+        fixture.assignment.repoId,
+        { kind: "relation-relate", sourceRef, targetRef, relationType, rationale: "Fixture edge.", expectedVersion: 0 },
+        localAuthFixture(),
+      );
+      assert.equal(related.outcome, "applied", JSON.stringify(related));
+      await waitForFleetPublication(fixture.host, fixture.assignment.repoId, related.opId, localAuthFixture());
+    }
+    writeFileSync(
+      rosterPath,
+      `${JSON.stringify({ schema: "fleet-roster/v1", nodes: [{ nodeId: fixture.assignment.nodeId, credential: "machine-secret" }], assignments: [{ assignmentId: fixture.assignment.assignmentId, nodeId: fixture.assignment.nodeId, repoId: fixture.assignment.repoId, taskId: fixture.assignment.taskId, executionId: fixture.assignment.executionId, viewId: fixture.assignment.viewId, personId: fixture.assignment.actor.principal.personId, executorId: fixture.assignment.actor.executor?.id, expiresAt: fixture.assignment.expiresAt, paths: fixture.assignment.paths }] })}\n`,
+    );
+    registerDaemonRepo({
+      canonicalRoot: edgeRoot,
+      repoId: fixture.assignment.repoId,
+      mode: "remote-edge",
+      userRoot: edgeUserRoot,
+      createConvenienceLinks: false,
+    });
+    const runtimeDefinition: AgentDefinitionSnapshot = {
+        schema: "agent-definition-snapshot/v1",
+        configVersion: 1,
+        instanceId: "causal-edge-codex",
+        installationId: "causal-edge-installation",
+        kindId: "codex",
+        providerId: "openai",
+        model: "causal-edge-model",
+        reasoningEffort: "high",
+        baseUrl: null,
+        authMode: "subscription",
+      },
+      runtimeInstallation: RuntimeInstallationWitness = {
+        installationId: runtimeDefinition.installationId,
+        kindId: runtimeDefinition.kindId,
+        executablePath: "/usr/bin/true",
+        version: "1.0.0",
+        observedAt: "2026-08-23T00:00:00.000Z",
+      },
+      launchedPrompts: string[] = [];
+    const edgeHost = await openDaemonHost({
+      daemonId: "fleet-causal-edge",
+      userRoot: edgeUserRoot,
+      runtimeDiscover: () => [runtimeInstallation],
+      runtimeLaunch: (prepared) => {
+        launchedPrompts.push(prepared.prompt);
+        let output: ((chunk: string) => void) | null = null,
+          exit: ((code: number | null) => void) | null = null;
+        return {
+          pid: 91234 + launchedPrompts.length,
+          onOutput: (listener) => {
+            output = listener;
+          },
+          onErrorOutput: () => undefined,
+          onExit: (listener) => {
+            exit = listener;
+            queueMicrotask(() => {
+              output?.(
+                `${JSON.stringify({ type: "thread.started", thread_id: "causal-edge-provider" })}\n${JSON.stringify({ type: "item.completed", item: { id: "message", type: "agent_message", text: "edge done" } })}\n${JSON.stringify({ type: "turn.completed" })}\n`,
+              );
+              exit?.(0);
+            });
+          },
+          terminate: () => undefined,
+        };
+      },
+    });
+    t.after(() => edgeHost.close());
+    await edgeHost.attachmentsSettled();
+    await edgeHost.runtimeInstance(
+      "daemon.runtimeInstance.create",
+      {
+        instanceId: runtimeDefinition.instanceId,
+        name: "Causal Edge Codex",
+        kindId: runtimeDefinition.kindId,
+        installationId: runtimeDefinition.installationId,
+        providerId: runtimeDefinition.providerId,
+        models: [runtimeDefinition.model],
+        codex: { reasoningEffort: runtimeDefinition.reasoningEffort },
+        authMode: runtimeDefinition.authMode,
+      },
+      localAuth,
+    );
+    const causalBlock = (prompt: string) =>
+      /# Task Causal Context[\s\S]*?(?=\r?\n\r?\n|\r?\n# |\s*$)/u.exec(prompt)?.[0] ?? null;
+    // Explicit-prompt dispatch: the center block must be prepended to the caller text.
+    const explicit = await edgeHost.fleet.edgeRuntime(
+      {
+        host: "127.0.0.1",
+        port: center.port,
+        caPath: fixture.certFile,
+        nodeId: fixture.assignment.nodeId,
+        rosterPath,
+        assignmentId: fixture.assignment.assignmentId,
+        repoId: fixture.assignment.repoId,
+        viewRoot,
+        quotaBytes: replicaQuota,
+        workspaceRoot: edgeRoot,
+        method: "repo.agentRuntime.spawn",
+        action: {
+          runtimeInstanceId: runtimeDefinition.instanceId,
+          cwd: { scope: "repo-root" },
+          prompt: "Explicit edge mission.",
+          taskId: fixture.assignment.taskId,
+          idempotencyKey: "causal-edge-explicit",
+        },
+      },
+      localAuth,
+    );
+    assert.equal(explicit.outcome, "applied", JSON.stringify(explicit));
+    const explicitPrompt = launchedPrompts.at(-1);
+    assert.ok(explicitPrompt !== undefined, "the provider launch captured no prompt");
+    const explicitBlock = causalBlock(explicitPrompt);
+    assert.ok(explicitBlock !== null, `no causal block in remote-edge prompt:\n${explicitPrompt}`);
+    assert.match(explicitBlock, /CENTERFRESH-ZQ decision/u);
+    assert.match(explicitBlock, /CENTERFRESH-ZQ evidence recorded post-pull\./u);
+    assert.match(explicitBlock, /Refs: .*ha graph /u);
+    assert.ok(
+      Buffer.byteLength(explicitBlock, "utf8") <= 500,
+      `causal block is ${Buffer.byteLength(explicitBlock, "utf8")} bytes`,
+    );
+    // Wait for the first session to settle so the task lease frees, then prove
+    // the task-bound (no explicit prompt) remote path carries the same block.
+    const deadline = Date.now() + 20_000;
+    let settled: Awaited<ReturnType<typeof fixture.host.read>> | null = null;
+    do {
+      const candidate = await fixture.host.read(
+        fixture.assignment.repoId,
+        "repo.agentRuntime.sessions.read",
+        { runtimeSessionId: explicit.runtimeSessionId },
+        fixture.auth,
+      );
+      if (candidate.session.activity.outcome !== null) {
+        settled = candidate;
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    } while (Date.now() < deadline);
+    assert.equal(settled?.session.activity.outcome, "succeeded", JSON.stringify(fixture.runtimeArchiveReceipts));
+    const taskBound = await edgeHost.fleet.edgeRuntime(
+      {
+        host: "127.0.0.1",
+        port: center.port,
+        caPath: fixture.certFile,
+        nodeId: fixture.assignment.nodeId,
+        rosterPath,
+        assignmentId: fixture.assignment.assignmentId,
+        repoId: fixture.assignment.repoId,
+        viewRoot,
+        quotaBytes: replicaQuota,
+        workspaceRoot: edgeRoot,
+        method: "repo.agentRuntime.spawn",
+        action: {
+          runtimeInstanceId: runtimeDefinition.instanceId,
+          cwd: { scope: "repo-root" },
+          taskId: fixture.assignment.taskId,
+          idempotencyKey: "causal-edge-task-bound",
+        },
+      },
+      localAuth,
+    );
+    assert.equal(taskBound.outcome, "applied", JSON.stringify(taskBound));
+    const taskBoundBlock = causalBlock(launchedPrompts.at(-1) ?? "");
+    assert.ok(taskBoundBlock !== null, "task-bound remote-edge dispatch lost the causal block");
+    assert.match(taskBoundBlock, /CENTERFRESH-ZQ decision/u);
+  },
+);
 async function fleetFixture(t: TestContext, paths: readonly string[] = ["tasks/task-fleet-fleet/notes.md"]) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-fleet-one-")),
     repo = path.join(root, "repo"),

@@ -203,8 +203,17 @@ export function openFleetEdgeRuntime(input: {
             `Task ${taskId} requires exactly one current mirrored task package;` +
               " run ha daemon fleet edge sync, then retry.",
           );
-        const packageRoot = path.join(materializedRoot, ...candidates[0]!.split("/"));
-        const planPath = path.join(packageRoot, "task_plan.md");
+        const packageRoot = path.join(materializedRoot, ...candidates[0]!.split("/")),
+          planPath = path.join(packageRoot, "task_plan.md"),
+          // The causal block is assembled at the center's canonical cut in this
+          // same round trip — a stale edge mirror is never summarized as fact.
+          causalRead = await runFleetRuntimeReadClient({
+            ...runtimeReadPeer,
+            repoId: request.repoId,
+            method: "repo.tasks.causalContext.read",
+            payload: { taskId },
+          }),
+          causalContext = taskCausalContext(causalRead, taskId);
         let plan: string;
         try {
           plan = readFileSync(planPath, "utf8");
@@ -246,9 +255,14 @@ export function openFleetEdgeRuntime(input: {
           packageRoot,
           planPath,
           plan,
-          mission: mission ? `${baseMission}\n\n# Mission: ${missionName}\n\n${mission.body.trim()}` : baseMission,
+          mission: [
+            baseMission,
+            ...(causalContext === null ? [] : [causalContext]),
+            ...(mission ? [`# Mission: ${missionName}\n\n${mission.body.trim()}`] : []),
+          ].join("\n\n"),
           missionPath: mission?.path ?? null,
           missionBody: mission?.body ?? null,
+          causalContext,
         };
       },
       readRuntimeSessions: () =>
@@ -502,6 +516,20 @@ export function openFleetEdgeRuntime(input: {
     if (materialized.outcome === "pull_blocked")
       throw edgeRuntimeError("pull_blocked", "Schedule definition was canonical but its edge mirror is blocked.");
   }
+}
+
+// The wire result crossed a process boundary, so the edge re-judges the served
+// shape rather than trusting the peer's word — same posture as the paged
+// runtime overview reads.
+function taskCausalContext(read: Readonly<Record<string, unknown>>, taskId: string): string | null {
+  if (
+    read.schema === "task-causal-context-read/v1" &&
+    read.ok === true &&
+    read.taskId === taskId &&
+    (read.causalContext === null || typeof read.causalContext === "string")
+  )
+    return read.causalContext;
+  throw edgeRuntimeError("runtime_read_invalid", `Center returned an invalid causal context read for task ${taskId}.`);
 }
 
 function requiredScheduleText(value: unknown, field: string): string {
