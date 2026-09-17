@@ -7,6 +7,7 @@ import {
   withDefaultConsent,
 } from "./thin-command-decision-lifecycle.ts";
 import { parseDecisionRead } from "./thin-command-decision-read.ts";
+import { parseRematerialize } from "./thin-command-rematerialize.ts";
 import { accepted, nonEmpty, readFlags, rejectInput, rejected } from "./thin-command-flags.ts";
 import { parseProjected } from "./thin-command-projection.ts";
 import type { ProtocolCommand, ThinCliInputDirectory, ThinParseResult } from "./thin-command-types.ts";
@@ -22,6 +23,7 @@ export function parseDecision(
   const id = route.id;
   if (id === "decision-validate" || id === "decision-verify")
     return parseDecisionValidation(id, args, rootDir, repoId, json, inputs);
+  if (id === "decision-rematerialize") return parseRematerialize(id, "decisionId", args, rootDir, repoId, json, inputs);
   if (id === "decision-repin") return parseDecisionRepin(args, rootDir, repoId, json, inputs);
   if (id === "decision-transition") return parseDecisionTransition(args, rootDir, repoId, json, inputs);
   const noId = id === "decision-propose" || id === "decision-list",

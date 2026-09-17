@@ -53,6 +53,7 @@ import {
   artifactImportSourceResolution,
 } from "./artifact-entity-action.ts";
 import { executeRelationAction, publicationKillpoints, reject } from "./entity-action-relation.ts";
+import { decisionRelationLinkResolver } from "./entity-document-links.ts";
 
 type ExecutableAction = EntityActionContract & { readonly execution: EntityActionExecutionContract };
 type FactBundle = ReturnType<typeof compileFactWrite>;
@@ -615,6 +616,7 @@ function compileDraft(
     currentDecision: read.decision,
     currentRelations: relations,
     currentIncomingRelations: incomingRelations,
+    resolveLink: decisionRelationLinkResolver(projection),
     currentDocument: document.document,
   });
 }

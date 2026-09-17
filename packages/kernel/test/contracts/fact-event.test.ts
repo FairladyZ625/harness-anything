@@ -314,8 +314,8 @@ test("Decision compiler renders the exact single-file package and frozen write p
   );
   assert.match(decision.body, /^relations: \[/mu);
   assert.equal(decision.body.includes(initialRelation.relation_id), true);
-  assert.match(decision.body, /## Relation neighborhood[\s\S]*### Outgoing[\s\S]*### Incoming/u);
-  assert.equal(decision.body.endsWith("# Canonical Decision\n\n初始正文。\n"), true);
+  assert.match(decision.body, /## 关联图谱 \(Causal Graph\)[\s\S]*<!-- harness:relation-neighborhood:end -->\n$/u);
+  assert.equal(decision.body.includes("# Canonical Decision\n\n初始正文。"), true);
   assert.throws(
     () =>
       compileDecisionWrite({

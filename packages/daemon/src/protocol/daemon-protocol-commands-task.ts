@@ -155,6 +155,36 @@ export const taskExecutionProtocolCommands = Object.freeze([
       }),
     ],
   }),
+  defineLedgerWriteCommand({
+    id: "task-rematerialize",
+    phase: "W3",
+    path: ["task", "rematerialize"],
+    summary: "Re-render one Task's or every Task's managed lifecycle documents from the current canonical projection.",
+    method: "repo.task.run",
+    inputs: [
+      cliInput(
+        "--all",
+        "boolean",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { conflictsWith: ["--id"] },
+      ),
+      cliInput(
+        "--id",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { field: "taskId", conflictsWith: ["--all"] },
+      ),
+      cliInput("--dry-run", "boolean", false, {
+        code: "invalid_field",
+      }),
+    ],
+  }),
   defineCenterForwardReadCommand({
     id: "task-show",
     phase: "W3",

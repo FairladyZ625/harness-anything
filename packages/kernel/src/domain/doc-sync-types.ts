@@ -5,6 +5,7 @@ import type { CiRunObservationEventV3 } from "./ci-run-observation-event.ts";
 import { OPAQUE_TEXTUAL_POLICY_ID, type OpaqueTextualMediaType } from "./artifact-text-classification.ts";
 import type { DecisionEventV1 } from "./decision-event.ts";
 import type { LeaseV1 } from "./execution.ts";
+import type { EntityDocumentEventV1 } from "./entity-document-event.ts";
 import type { FactEventV1 } from "./fact-event.ts";
 import type { LedgerLayoutMigrationEventV1 } from "./ledger-layout-migration-event.ts";
 import type { MigrationDocumentClaim, MigrationImportEventV1 } from "./migration-import-event.ts";
@@ -190,6 +191,7 @@ export type CanonicalEventV1 =
   | TaskProgressEventV1
   | PresetSnapshotUpgradeEventV1
   | FactEventV1
+  | EntityDocumentEventV1
   | DecisionEventV1
   | RelationEventV1
   | MigrationImportEventV1

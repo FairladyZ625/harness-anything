@@ -24,6 +24,7 @@ import {
   type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
 import { relationDirectionRegistry } from "./artifact-entity-action.ts";
+import { decisionRelationLinkResolver } from "./entity-document-links.ts";
 import { noChanges, reject } from "./entity-action-write-helpers.ts";
 export { reject } from "./entity-action-write-helpers.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
@@ -246,6 +247,7 @@ function decisionDocumentUpdate(
       undefined,
       null,
       incoming,
+      decisionRelationLinkResolver(projection),
     ),
   };
 }

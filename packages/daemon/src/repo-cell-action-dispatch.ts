@@ -17,6 +17,7 @@ import {
 import { runPresetAction } from "../../preset/src/index.ts";
 import { compiledArtifactKinds, resolveEntityReadKind } from "./artifact-entity-action.ts";
 import { distillPromotionAction, prepareDistillCandidate, readDistillEntity } from "./distill-actions.ts";
+import { runEntityDocumentRematerialize } from "./entity-document-rematerialize.ts";
 import { isDocAction, runArtifactAdd, runDocAction } from "./doc-sync-actions.ts";
 import { runMigrationImport } from "./migration-import.ts";
 import { assertExecutionExecutorDeclarationEligible } from "./repo-cell-execution-selection.ts";
@@ -219,6 +220,12 @@ export async function executeAction(
       binding,
       cell.operationId(action, binding, cell.input.repoId, Number(action.expectedVersion ?? 0)),
     );
+  if (
+    action.kind === "decision-rematerialize" ||
+    action.kind === "fact-rematerialize" ||
+    action.kind === "task-rematerialize"
+  )
+    return runEntityDocumentRematerialize(cell, action, binding);
   if (action.kind.startsWith("fact-")) return runFactAction(cell, action, binding);
   if (action.kind.startsWith("decision-")) {
     const resolved = cell.decisionProposalAction(cell.rootDir, action, () => cell.settings.read());

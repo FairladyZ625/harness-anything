@@ -181,6 +181,7 @@ export type {
   DecisionState,
 } from "./decision-event.ts";
 export { DECISION_DOCUMENT_POLICY_ID } from "./decision-event.ts";
+export type { DecisionRelationLinkResolver, DecisionRelationLinkTarget } from "./decision-event.ts";
 export {
   compileFactWrite,
   FACT_DOCUMENT_POLICY_ID,
@@ -269,6 +270,20 @@ export {
   relationRecord,
 } from "./relation-event.ts";
 export type { RelationDocumentUpdate, RelationDocumentWrite, RelationEventV1 } from "./relation-event.ts";
+export {
+  assertEntityDocumentEventWritePlan,
+  compileEntityDocumentRematerialization,
+  entityDocumentEventWritePlan,
+  isEntityDocumentEvent,
+  validateCurrentEntityDocumentEvent,
+  validateEntityDocumentEvent,
+} from "./entity-document-event.ts";
+export type {
+  EntityDocumentEventV1,
+  EntityDocumentRematerializationWrite,
+  EntityDocumentUpdate,
+  RematerializedDocumentClaim,
+} from "./entity-document-event.ts";
 export { factLiveness } from "./fact-liveness.ts";
 export type {
   EntityRelationValidationIssue,
