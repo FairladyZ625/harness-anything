@@ -277,7 +277,14 @@ test(
       assert.equal(f.launches.length, 1);
       assert.match(f.launches[0]!.prompt, /Frozen artifact evidence/u);
       assert.match(f.launches[0]!.prompt, /Effective completion gates: none/u);
-      assert.match(f.launches[0]!.prompt, /artifact-only.*ci.*code-doc-reconciliation.*do not apply/u);
+      const submitted = f
+        .events()
+        .filter((event) => event.type === "execution_submitted")
+        .at(-1);
+      assert.ok(submitted?.type === "execution_submitted" && submitted.payload.execution.submission);
+      assert.equal(submitted.payload.execution.submission.commitSha, null);
+      assert.deepEqual(submitted.payload.execution.submission.deliverables, [`${f.packagePath}/artifacts/delivery.md`]);
+      assert.match(f.launches[0]!.prompt, /Declared gates not applicable.*code-doc-reconciliation/u);
       assert.doesNotMatch(f.launches[0]!.prompt, /Honor every gate declared by the task/u);
       assert.doesNotMatch(f.launches[0]!.prompt, /Latest replacement must not be reviewed/u);
       const submittedShow = JSON.parse(String((await f.run({ kind: "task-show", taskId })).evidence)) as {
