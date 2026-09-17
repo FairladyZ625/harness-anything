@@ -223,7 +223,11 @@ export {
   inferLegacyGateRequirements,
   resolveCompletionContract,
 } from "./domain/completion-contract.ts";
-export type { FrozenGateRequirement, MappedWitnessAdapterId } from "./domain/completion-contract.ts";
+export type {
+  FrozenGateRequirement,
+  GateWitnessMappingV1,
+  MappedWitnessAdapterId,
+} from "./domain/completion-contract.ts";
 export { isHumanAttestationWitness } from "./domain/completion-gate-witness.ts";
 export { sha256Bytes, sha256Text, stablePayloadHash, stableStringify } from "./integrity/stable-hash.ts";
 export { eventObjectTarget } from "./layout/ledger-object-layout.ts";

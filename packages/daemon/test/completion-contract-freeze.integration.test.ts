@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { after, before } from "node:test";
@@ -203,6 +203,42 @@ test("a declared gate without a harness.yaml witness mapping stops submit before
     assert.equal(rejected.code, "gate_mapping_invalid");
     assert.match(String(rejected.rejectionExplanation), /completion gate ci.*settings\.gates maps no witness/u);
     assert.deepEqual(submittedContracts(rootDir, repoId), []);
+  } finally {
+    await cell.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("declaring settings.gates after bootstrap unblocks submit through the settings write path", async () => {
+  const { rootDir, repoId, taskId, executionId, cell } = await submittedTask("contract-late-gates", "");
+  try {
+    const rejected = await submitOverTransport(cell, repoId, { taskId, executionId });
+    assert.equal(rejected.outcome, "op_rejected", JSON.stringify(rejected));
+    assert.equal(rejected.code, "gate_mapping_invalid");
+
+    // The repository predates the gates write path: the principal declares the mapping in the
+    // authored document, then `settings update --gates-from-document` mints it into the entity.
+    const configPath = path.join(rootDir, "harness/harness.yaml");
+    writeFileSync(configPath, `${readFileSync(configPath, "utf8")}${githubCiMapping}`);
+    const imported = await cell.run(
+      { kind: "settings-update", gatesFromDocument: true, idempotencyKey: "late-gates-import" },
+      owner,
+    );
+    assert.equal(imported.outcome, "applied", JSON.stringify(imported));
+    const settings = (await cell.read("repo.settings.read")) as {
+      readonly settings: { readonly gates: readonly { readonly gateId: string }[] };
+    };
+    assert.deepEqual(
+      settings.settings.gates.map((gate) => gate.gateId),
+      ["ci"],
+    );
+
+    const submitted = await submitOverTransport(cell, repoId, { taskId, executionId });
+    assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+    const contracts = submittedContracts(rootDir, repoId);
+    assert.equal(contracts.length, 1);
+    assert.equal(contracts[0]?.gates[0]?.gateId, "ci");
+    assert.equal(contracts[0]?.gates[0]?.witness.adapterId, "github-actions");
   } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });
