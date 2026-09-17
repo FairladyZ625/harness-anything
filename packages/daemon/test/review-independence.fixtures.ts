@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { makeTaskEventReader } from "../../kernel/src/index.ts";
 import type { RepoCell } from "../src/repo-cell.ts";
@@ -23,6 +23,12 @@ export function initRepo(rootDir: string): void {
 export function submissionOutcome<T extends { outcome: string }>(receipt: T): string {
   assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
   return receipt.outcome;
+}
+
+/** A submission delivers what was committed after the execution's frozen start baseline. */
+export function commitDelivery(rootDir: string): void {
+  appendFileSync(path.join(rootDir, "README.md"), "\nDelivered after execution start.\n");
+  git(rootDir, "commit", "--quiet", "-am", "delivery after execution start");
 }
 
 export function writeCloseout(rootDir: string, packagePath: unknown): void {

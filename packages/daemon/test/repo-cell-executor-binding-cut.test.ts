@@ -351,9 +351,13 @@ function contextFor(
     tailAssignments = 0;
   const activeWriter = { workspaceId: "repository", generation: 1, ownerId: "daemon" },
     fixture = {
-      // Submissions in this fixture predate the frozen contract, so pre-queue witness collection infers
-      // their gates from the configured CI workflows.
-      extracted: { settings: { read: () => ({ ci: { workflows: [] } }) } },
+      // Pre-queue reads resolve gate requirements from settings; this fixture declares no gates or workflows.
+      extracted: {
+        settings: {
+          read: () => ({ ci: { workflows: [] } }),
+          readRepository: () => ({ gates: [], ci: { workflows: [] } }),
+        },
+      },
       mode: "local",
       fleetRoster: null,
       input: { repoId: "repository" },

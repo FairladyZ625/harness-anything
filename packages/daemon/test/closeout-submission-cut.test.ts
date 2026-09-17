@@ -481,15 +481,17 @@ test("a multi-commit delivery lists every path changed since the frozen baseline
   assert.deepEqual(packet.deliverables, ["src/first.ts", "src/second.ts"]);
 });
 
-test("an execution without a frozen baseline fails closed instead of guessing one", (t) => {
+test("an execution started before the baseline froze keeps the comparison cut in force when it started", (t) => {
   const { root } = fixture(t);
+  put(root, "src/earlier.ts", "export const earlierValue = 8;\n");
+  commit(root);
   put(root, "src/live.ts", "export const liveValue = 9;\n");
   const sha = commit(root);
   dispatch(root, root);
-  assert.throws(() => derive(root, `Delivered ${sha}.`, undefined, ["ci"], undefined, null), {
-    code: "invalid_submission",
-    message: /no frozen delivery baseline/u,
-  });
+  // The pre-freeze rule compares against the merge base with origin/main, so both commits are delivered.
+  const packet = derive(root, `Delivered ${sha}.`, undefined, ["ci"], undefined, null);
+  assert.equal(packet.commitSha, sha);
+  assert.deepEqual(packet.deliverables, ["src/earlier.ts", "src/live.ts"]);
 });
 
 test("a frozen baseline unreadable in the delivery repository fails closed", (t) => {

@@ -101,6 +101,8 @@ test("a live installed-bin daemon refuses to declare an executor for a reviewed 
       run(root, userRoot, daemonId, ["task", "start", taskId, "--execution-id", executionId]).outcome,
       "applied",
     );
+    writeFileSync(path.join(root, "README.md"), "# Executor null live\n\nDelivered change.\n");
+    git(root, "commit", "--quiet", "-am", "executor null delivery");
     writeFileSync(
       path.join(root, "harness", closeoutPath),
       `# Closeout\n\n## Summary\n\nExecutor attribution recovered at ${git(root, "rev-parse", "HEAD")}.\n\n## Verification\n\nLive daemon route.\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nCovered by the executor declaration contract.\n`,
