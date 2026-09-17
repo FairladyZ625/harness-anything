@@ -2,11 +2,12 @@ import {
   completionGateIds,
   completionGuidance,
   createEntityStore,
+  reviewReturnBudgetSpent,
   submissionDigest,
   type ExecutionV1,
   type WriteReceiptDraft,
 } from "../../kernel/src/index.ts";
-import { isRuntimeEvent } from "./runtime-spawn-errors.ts";
+import { isRuntimeEvent, runtimeErrorCode, runtimeErrorMessage } from "./runtime-spawn-errors.ts";
 import { readDispatchStream } from "./dispatch-stream.ts";
 import { readAgentDeclarationResolution } from "./agent-entities.ts";
 import { authorizeRepoCellAction } from "./repo-cell-authorization.ts";
@@ -48,14 +49,13 @@ export async function dispatchCompletionReview(
   // Once the return budget is spent the ledger refuses a changes_requested RecordReview; the cut can
   // still be approved. The receipt must say both instead of promising a verdict that cannot land.
   const returnBudget = snapshot.task!.reviewReturnBudget ?? cell.settings.readRepository().reviewReturnBudget,
-    budgetNote =
-      snapshot.task!.iteration >= returnBudget
-        ? ` Return budget ${String(returnBudget)} is spent at iteration ${String(snapshot.task!.iteration)}: a ` +
-          "changes_requested RecordReview will be refused. Amend the submission so the reviewer can " +
-          "approve, or escalate to the dispatching principal to raise the review return budget — " +
-          `for this task with \`ha task amend ${taskId} --set reviewReturnBudget:<n>\`, or ` +
-          "repository-wide with `ha settings update --review-return-budget <n>`."
-        : "";
+    budgetNote = reviewReturnBudgetSpent(snapshot.task!.iteration, returnBudget)
+      ? ` Return budget ${String(returnBudget)} is spent at iteration ${String(snapshot.task!.iteration)}: a ` +
+        "changes_requested RecordReview will be refused. Amend the submission so the reviewer can " +
+        "approve, or escalate to the dispatching principal to raise the review return budget — " +
+        `for this task with \`ha task amend ${taskId} --set reviewReturnBudget:<n>\`, or ` +
+        "repository-wide with `ha settings update --review-return-budget <n>`."
+      : "";
   // Attempt 0 keeps the historical key; each retry appends ":retry<N>". The deterministic opId per
   // key stays the claim fence that makes concurrent completions share one dispatch per attempt.
   let replaced: { readonly dispatchId: string; readonly outcome: string } | null = null;
@@ -127,6 +127,14 @@ export async function dispatchCompletionReview(
       try {
         await cell.runtimeSpawner.spawn(payload, { ...binding, authorizationDecision });
       } catch (error) {
+        // The spawn admission refuses a fresh review attempt once the return budget is spent;
+        // surface that as the review gate's own stop instead of an indeterminate failure.
+        if (runtimeErrorCode(error) === "review_return_budget_exhausted")
+          return {
+            ...stopped(`ha task amend ${taskId} --set reviewReturnBudget:<n>`, runtimeErrorMessage(error)),
+            diagnostic: { kind: "failure", code: "review_return_budget_exhausted" },
+            rejectionExplanation: runtimeErrorMessage(error),
+          };
         if (
           !(error instanceof Error) ||
           !("code" in error) ||

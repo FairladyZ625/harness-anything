@@ -67,6 +67,12 @@ export interface FleetAssignmentBinding extends FleetAssignmentScope {
     readonly executor: { readonly kind: "agent"; readonly id: string } | null;
   };
 }
+/** Transient center admission context; it is validated but never copied into the canonical event. */
+export interface FleetRuntimeDispatchContext {
+  readonly role: string | null;
+  readonly taskId: string | null;
+  readonly executionId: string | null;
+}
 type Msg<S extends string, P extends object = object> = Readonly<{ schema: S; messageId: string }> & Readonly<P>;
 export type FleetFrameV1 =
   | Msg<"fleet.session.hello/v1", { protocolVersion: ContractVersion; nodeId: string; credential: string }>
@@ -181,6 +187,7 @@ export type FleetFrameV1 =
         eventType: string;
         payload: Readonly<Record<string, unknown>>;
         result: FleetDescriptor | null;
+        dispatchContext: FleetRuntimeDispatchContext | null;
       }
     >
   | Msg<
@@ -629,6 +636,7 @@ const runtimeEventType = one(
   "runtime_session_outcome_observed",
   "runtime_dispatch_outcome_unknown",
 );
+const runtimeDispatchContext = shape({ role: nullable(text), taskId: nullable(id), executionId: nullable(id) });
 const manifest = shape({ digest: sha64, entryCount: uint, totalBytes: uint }),
   entry = shape({ path: logicalPath, blob }),
   put = shape({ op: one("put"), path: logicalPath, blob }),
@@ -729,6 +737,7 @@ const schemas: Readonly<Record<string, Check>> = {
     eventType: runtimeEventType,
     payload: record,
     result: nullable(descriptor),
+    dispatchContext: nullable(runtimeDispatchContext),
   }),
   "fleet.runtime.event.result/v1": shape({ ...reply, event: record, receipt: record }),
   "fleet.runtime.archive/v1": shape({ ...common, assignmentId: id, writerEpoch: uint, repoId: id, archive: record }),

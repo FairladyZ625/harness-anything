@@ -1,6 +1,6 @@
 import type { SquadDispatchSelection } from "./agent-entities.ts";
 import type { DaemonLifecycleRecorder } from "./lifecycle-log.ts";
-import type { FleetAssignmentScope } from "./fleet/contract.ts";
+import type { FleetAssignmentScope, FleetRuntimeDispatchContext } from "./fleet/contract.ts";
 import type {
   CanonicalEventStore,
   SettingsV1,
@@ -271,6 +271,7 @@ export interface RemoteRuntimePersistence {
     readonly payload: Readonly<Record<string, unknown>>;
     readonly opId: string;
     readonly resultBody?: string;
+    readonly dispatchContext?: FleetRuntimeDispatchContext;
   }) => Promise<{
     readonly event: AgentRuntimeEventV1;
     readonly receipt: JsonObject;
@@ -295,6 +296,7 @@ export interface RuntimeSpawnerInput {
       readonly payload: Readonly<Record<string, unknown>>;
       readonly opId: string;
       readonly resultBody?: string;
+      readonly dispatchContext?: FleetRuntimeDispatchContext;
     },
     binding: RuntimeBinding,
   ) => Promise<{ readonly event?: AgentRuntimeEventV1; readonly receipt: JsonObject }>;
