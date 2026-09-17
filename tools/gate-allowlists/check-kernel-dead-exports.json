@@ -610,12 +610,6 @@
         "until": "2026-09-30"
       },
       {
-        "value": "relationRecord",
-        "ref": "task_75b563eb585e8afbfdc8939801",
-        "reason": "Relation entity-ization: application-tier lifecycle tests build canonical relation rows through this factory while production relation ingress derives rows from relation entity actions.",
-        "until": "2026-09-30"
-      },
-      {
         "value": "RelationStateSchema",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
         "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
