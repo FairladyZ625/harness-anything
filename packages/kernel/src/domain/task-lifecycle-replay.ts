@@ -1,7 +1,6 @@
 import { executionAnnotationKinds, isNativeExecution, submissionDigest, submissionId } from "./execution.ts";
 import type { ExecutionAnnotationKind, ExecutionAnnotationV1, ExecutionV1, LeaseV1 } from "./execution.ts";
 import { reviewDigest, consentedApprovedReviewForExecution } from "./review.ts";
-import { judgeCompletionEvidence } from "./completion-evidence.ts";
 import { currentTaskForWrite, type ActorAxes, type ContractValidationIssue } from "./task.ts";
 import { validateTaskGraph } from "./task-graph.ts";
 import { isNonEmptyString } from "./write-chain.contract.ts";
@@ -11,9 +10,9 @@ import { TaskLifecycleContractError, validateTaskEvent } from "./task-lifecycle-
 import type { ExecutionAnnotatedEvent, ExecutionExecutorDeclaredEvent, TaskEventV1 } from "./task-lifecycle-event.ts";
 import { isSameExecution, isSamePerson } from "./actor-domain-services.ts";
 import { codeDocRecordId, currentCodeDocRecord, currentCodeDocWitness } from "./code-doc-witness.ts";
-import { completionGateIds } from "./closeout-readiness.ts";
+import { completionGateIds, judgeGateWitnesses } from "./closeout-readiness.ts";
 import { gateAppliesToSubmission } from "./completion-contract.ts";
-import { isPreservedVerdictWitness } from "./completion-gate-witness.ts";
+import { sameGateWitnessLane } from "./completion-gate-witness.ts";
 import type {
   ProofFor,
   TaskLifecycleCommand,
@@ -368,10 +367,7 @@ export function reduceTaskEvent(snapshot: TaskLifecycleSnapshot, event: TaskEven
       ...snapshot,
       revision: event.workspaceRevision,
       gateWitnesses: [
-        ...snapshot.gateWitnesses.filter(
-          (value) =>
-            value.executionId !== event.payload.witness.executionId || value.gateId !== event.payload.witness.gateId,
-        ),
+        ...snapshot.gateWitnesses.filter((value) => !sameGateWitnessLane(value, event.payload.witness)),
         event.payload.witness,
       ],
     };
@@ -672,26 +668,14 @@ function acceptedCompletionWitnesses(
         (witness.schema === "code-doc-witness-repoint/v1" || witness.commitSha === current.submission!.commitSha)
       );
     }
-    const witness = snapshot.gateWitnesses
-      .filter(
-        (value) =>
-          value.gateId === gateId &&
-          value.executionId === executionId &&
-          value.commitSha === current.submission!.commitSha &&
-          value.iteration === current.iteration,
-      )
-      .at(-1);
-    if (!witness || witness.result !== "pass") return false;
     // Accepted history keeps its original gap: a preserved verdict carries no bound evidence.
-    if (isPreservedVerdictWitness(witness)) return true;
-    return (
-      witness.basis !== undefined &&
-      witness.provenance !== undefined &&
-      witness.observed !== undefined &&
-      judgeCompletionEvidence(
-        { ...witness, basis: witness.basis, provenance: witness.provenance, observed: witness.observed },
-        { execution: current, gateId },
-      ).accepted
+    const { status } = judgeGateWitnesses(
+      snapshot.gateWitnesses,
+      current,
+      gateId,
+      current.submission!.completionContract?.gates.find((gate) => gate.gateId === gateId),
+      true,
     );
+    return status === "passed" || status === "waived";
   });
 }

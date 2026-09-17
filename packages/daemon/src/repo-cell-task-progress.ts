@@ -42,17 +42,21 @@ import { dispatchCompletionReview } from "./task-completion-review.ts";
 import {
   acceptedGateWitness,
   actionWitnessCollections,
+  gateWaived,
+  recordedGateEvidence,
   witnessAdapters,
   type PendingWitnessCollections,
 } from "./repo-cell-witness-adapters.ts";
 
 /**
- * Judge each declared gate's witness adapter against the frozen cut. A `fail` verdict from any
- * adapter stops the write; a `pass` becomes a published gate witness. Internal checkers such as
- * code-doc-reconciliation are not in the adapter table and are skipped here.
+ * Judge each declared gate's witness adapter against the frozen cut. A `fail` verdict stops the
+ * write unless the gate allows override, whose fail is kept as canonical evidence the owner can
+ * waive; a `pass` becomes a published gate witness. A gate already waived on the cut is not
+ * re-observed. Internal checkers such as code-doc-reconciliation are not in the adapter table.
  */
 function evaluateGateEvidence(
   cell: RepoCellOperationalContext,
+  snapshot: Snapshot,
   requirements: readonly FrozenGateRequirement[],
   execution: Snapshot["executions"][number] | undefined,
   collections: PendingWitnessCollections | undefined,
@@ -62,10 +66,11 @@ function evaluateGateEvidence(
   for (const requirement of requirements) {
     const adapter = witnessAdapters[requirement.witness.adapterId as MappedWitnessAdapterId];
     if (!adapter || !execution?.submission || !gateAppliesToSubmission(requirement, execution.submission)) continue;
+    if (gateWaived(snapshot, execution, requirement)) continue;
     const evidence = adapter.evaluate(cell, requirement, execution, collections?.get(requirement.gateId));
     // Submit-time preparation attaches only passing evidence: a gate's verdict is judged at
     // completion, so a not-yet-satisfied observation must never bounce an already-accepted cut.
-    if (evidence?.result === "fail") {
+    if (evidence?.result === "fail" && !(failStops && requirement.allowOverride)) {
       if (!failStops) continue;
       throw cell.cellCodedError(
         "invalid_proof",
@@ -96,6 +101,7 @@ export async function prepareSubmissionEvidence(
     gates = completionGateIds(snapshot.task?.completionGateIds ?? [], execution.submission),
     evidenceByGate = evaluateGateEvidence(
       cell,
+      snapshot,
       execution.submission.completionContract.gates,
       execution,
       collections,
@@ -291,6 +297,7 @@ export async function completeTask(
   }
   const evidenceByGate = evaluateGateEvidence(
       cell,
+      initial.snapshot,
       submittedExecution?.submission?.completionContract?.gates ?? [],
       submittedExecution,
       actionWitnessCollections(action),
@@ -311,17 +318,28 @@ export async function completeTask(
       cell.input.repoId,
       initial.snapshot.revision,
     );
+  // An automated fail on a gate that allows override is recorded first, so the owner has a canonical
+  // receipt to waive; the preparation below then stops on that failed gate.
+  const recordedFailures: WriteReceipt[] = [];
+  for (const evidence of evidenceByGate.values()) {
+    const current = cell.projection.read(taskId);
+    if (evidence.result === "fail" && !recordedGateEvidence(current.snapshot, evidence))
+      recordedFailures.push(
+        cell.publishGateWitness(taskId, executionId, current.snapshot, current.packagePath, binding, evidence),
+      );
+  }
+  const prepared = recordedFailures.length ? await cell.service.read(taskId) : initial;
   // Read through every remaining preparation before publishing any witness or document; snapshots stay authoritative.
   const preparedContext = cell.completionContext(
     taskId,
-    initial.snapshot,
-    initial.packagePath,
+    prepared.snapshot,
+    prepared.packagePath,
     binding,
     currentPresetSnapshotDigest(
       cell,
       taskId,
-      initial.snapshot,
-      initial.packagePath,
+      prepared.snapshot,
+      prepared.packagePath,
       cell.completeRetryCommand(taskId, executionId, action),
     ),
   );
@@ -330,7 +348,7 @@ export async function completeTask(
       closeoutGates.codeDoc && submittedExecution?.submission?.commitSha
         ? verifyCodeDocCommitPaths({ rootDir: cell.rootDir, commitSha: submittedExecution.submission.commitSha, paths })
         : null;
-  const remaining = completionPreparationBlockers(initial.snapshot, executionId, {
+  const remaining = completionPreparationBlockers(prepared.snapshot, executionId, {
     ...preparedContext,
     preparedGateIds: [
       ...[...evidenceByGate.values()].flatMap((evidence) => (evidence.result === "pass" ? [evidence.gateId] : [])),
@@ -347,7 +365,7 @@ export async function completeTask(
       : {}),
   })[0];
   if (remaining && remaining.code !== "doc_sync_required")
-    return cell.completionStopped(facadeOpId, initial.snapshot, executionId, remaining, []);
+    return cell.completionStopped(facadeOpId, prepared.snapshot, executionId, remaining, recordedFailures);
   const retirement = factRetirementAssessment(cell, taskId, factRetirementAttestations);
   if (closeoutGates.factDisposition && !retirement.ready)
     return cell.completionStopped(
@@ -465,7 +483,8 @@ export async function completeTask(
     }
     if (
       (blocker.code === "ci_missing" || blocker.code === "gate_witness_missing") &&
-      evidenceByGate.has(blocker.gate)
+      evidenceByGate.has(blocker.gate) &&
+      !recordedGateEvidence(current.snapshot, evidenceByGate.get(blocker.gate)!)
     ) {
       const step = cell.publishGateWitness(
         taskId,

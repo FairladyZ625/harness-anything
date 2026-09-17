@@ -5,7 +5,13 @@ import path from "node:path";
 import {
   completionEvidenceBasis,
   gateAppliesToSubmission,
+  isHumanAttestationWitness,
+  isSamePerson,
   judgeCompletionEvidence,
+  judgeGateWitnesses,
+  OVERRIDE_RATIONALE_MIN_LENGTH,
+  validOverrideRationale,
+  waivableAutomatedFail,
   localGitObjectRefStore,
   submissionDigest,
   type CompletionEvidenceV1,
@@ -35,19 +41,59 @@ export function actionWitnessCollections(action: RepoTaskAction): PendingWitness
   return carried instanceof Map ? carried : undefined;
 }
 
+/** The latest automated (non-human-attestation) witness recorded for this gate on the cut. */
+function recordedAutomatedWitness(
+  snapshot: Snapshot,
+  execution: Execution,
+  gateId: string,
+): Snapshot["gateWitnesses"][number] | undefined {
+  return snapshot.gateWitnesses
+    .filter(
+      (candidate) =>
+        candidate.executionId === execution.executionId &&
+        candidate.gateId === gateId &&
+        candidate.commitSha === execution.submission?.commitSha &&
+        candidate.iteration === execution.iteration &&
+        !isHumanAttestationWitness(candidate),
+    )
+    .at(-1);
+}
+
+/** Automated evidence the cut already recorded verbatim: publishing it again would only append a duplicate. */
+export function recordedGateEvidence(snapshot: Snapshot, evidence: CompletionEvidenceV1): boolean {
+  const recorded = snapshot.gateWitnesses
+    .filter(
+      (candidate) =>
+        candidate.executionId === evidence.basis.executionId &&
+        candidate.iteration === evidence.basis.iteration &&
+        candidate.gateId === evidence.gateId &&
+        !isHumanAttestationWitness(candidate),
+    )
+    .at(-1);
+  return (
+    recorded?.result === evidence.result &&
+    recorded.basis?.submissionDigest === evidence.basis.submissionDigest &&
+    recorded.provenance?.runId === evidence.provenance.runId &&
+    recorded.provenance.rawResult === evidence.provenance.rawResult
+  );
+}
+
+/** A gate whose recorded automated fail is already waived on this cut needs no fresh observation. */
+export function gateWaived(snapshot: Snapshot, execution: Execution, requirement: FrozenGateRequirement): boolean {
+  return (
+    requirement.allowOverride === true &&
+    execution.schema === "execution/v1" &&
+    judgeGateWitnesses(snapshot.gateWitnesses, execution, requirement.gateId, requirement).status === "waived"
+  );
+}
+
 /** A witness the canonical write already accepted for this gate and cut needs no fresh evidence. */
 export function acceptedGateWitness(
   snapshot: Snapshot,
   execution: Execution,
   gateId: string,
 ): Snapshot["gateWitnesses"][number] | null {
-  const recorded = snapshot.gateWitnesses.find(
-    (candidate) =>
-      candidate.executionId === execution.executionId &&
-      candidate.gateId === gateId &&
-      candidate.commitSha === execution.submission?.commitSha &&
-      candidate.iteration === execution.iteration,
-  );
+  const recorded = recordedAutomatedWitness(snapshot, execution, gateId);
   return recorded?.basis &&
     recorded.provenance &&
     recorded.observed !== undefined &&
@@ -222,12 +268,16 @@ function localCommandWitnessEvidence(
   };
 }
 
-// -- manual-attest ------------------------------------------------------------
+// -- human attestation --------------------------------------------------------
+
+const attestFields = ["kind", "taskId", "gateId", "result", "mode", "note", "rationale"];
 
 /**
- * `ha task attest <task-id> --gate <gate-id> --result <pass|fail>`: a human's own witness for a
- * gate the contract declared `manual-attest`. The actor admission and the canonical write entry
- * (declared adapter === evidence provenance) stay exactly where they are.
+ * `ha task attest <task-id> --gate <gate-id> --result <pass|fail> [--mode approve|override]`: a human
+ * principal's witness. `approve` witnesses a manual-attest gate or signs off a dual-control gate over
+ * its recorded automated pass; `override` is the task owner's break-glass pass over the recorded
+ * automated fail of a gate that allows it. A runtime session carries an executor and never attests.
+ * The canonical write entry still judges the evidence against the frozen contract.
  */
 export function attestGateWitness(
   cell: RepoCellOperationalContext,
@@ -237,10 +287,28 @@ export function attestGateWitness(
   const taskId = cell.requiredCellText(action.taskId, "taskId"),
     gateId = cell.requiredCellText(action.gateId, "gateId"),
     result = String(action.result ?? ""),
+    mode = action.mode ?? "approve",
     read = cell.projection.read(taskId),
     snapshot = read.snapshot;
+  const unknown = Object.keys(action).filter((field) => !attestFields.includes(field));
+  if (unknown.length)
+    throw cell.cellCodedError("invalid_command", `task-attest does not accept: ${unknown.join(", ")}.`);
   if (result !== "pass" && result !== "fail")
     throw cell.cellCodedError("invalid_field", "--result must be pass or fail.");
+  if (mode !== "approve" && mode !== "override")
+    throw cell.cellCodedError("invalid_field", "--mode must be approve or override.");
+  if (mode === "override" && (result !== "pass" || !validOverrideRationale(action.rationale)))
+    throw cell.cellCodedError(
+      "invalid_field",
+      `--mode override requires --result pass and a --rationale of at least ${OVERRIDE_RATIONALE_MIN_LENGTH} characters.`,
+    );
+  if (mode === "approve" && action.rationale !== undefined)
+    throw cell.cellCodedError("invalid_field", "--rationale belongs to --mode override; use --note for approve.");
+  if (binding.actor.executor !== null)
+    throw cell.cellCodedError(
+      "actor_unauthorized",
+      `Gate attestation records a human principal; executor ${binding.actor.executor.id} cannot attest.`,
+    );
   if (!cell.projectionReady(read) || !snapshot.task)
     throw cell.cellCodedError("content_not_ready", `Task ${taskId} is not ready for attestation.`);
   const execution = snapshot.executions.find(
@@ -259,16 +327,42 @@ export function attestGateWitness(
       "invalid_transition",
       `Gate ${gateId} applies to ${requirement.appliesTo}, which this submission does not deliver.`,
     );
-  if (requirement.witness.adapterId !== "manual-attest")
-    throw cell.cellCodedError(
-      "invalid_command",
-      `Gate ${gateId} is witnessed by ${requirement.witness.adapterId}, not manual attestation.`,
-    );
-  const actorId = binding.actor.executor?.id ?? binding.actor.principal.personId,
+  let override: CompletionEvidenceV1["override"];
+  if (mode === "override") {
+    if (!requirement.allowOverride)
+      throw cell.cellCodedError("invalid_command", `Gate ${gateId} does not allow override in its frozen contract.`);
+    if (!isSamePerson(snapshot.task.createdBy, binding.actor))
+      throw cell.cellCodedError(
+        "actor_unauthorized",
+        `Override requires the task owner principal (personId=${snapshot.task.createdBy.principal.personId}).`,
+      );
+    const waivable =
+      execution.schema === "execution/v1"
+        ? waivableAutomatedFail(snapshot.gateWitnesses, execution, gateId)
+        : undefined;
+    if (!waivable)
+      throw cell.cellCodedError(
+        "invalid_transition",
+        `Gate ${gateId} has no recorded automated fail on this cut to override; run ha task complete ${taskId} first.`,
+      );
+    override = { rationale: String(action.rationale).trim(), waivedReceiptId: waivable.receiptId };
+  } else if (requirement.witness.adapterId !== "manual-attest") {
+    if (!requirement.mandatorySignoff)
+      throw cell.cellCodedError(
+        "invalid_command",
+        `Gate ${gateId} is witnessed by ${requirement.witness.adapterId}, not manual attestation.`,
+      );
+    if (!acceptedGateWitness(snapshot, execution, gateId))
+      throw cell.cellCodedError(
+        "invalid_transition",
+        `Gate ${gateId} signoff requires its recorded automated pass on this cut; run ha task complete ${taskId} first.`,
+      );
+  }
+  const actorId = binding.actor.principal.personId,
     note = typeof action.note === "string" && action.note ? `; ${action.note}` : "",
     evidence: CompletionEvidenceV1 = {
       schema: "completion-evidence/v1",
-      evidenceId: `attest-${createHash("sha256").update(`${taskId}\0${execution.executionId}\0${gateId}\0${result}`).digest("hex").slice(0, 24)}`,
+      evidenceId: `attest-${createHash("sha256").update(`${taskId}\0${execution.executionId}\0${gateId}\0${result}\0${mode}`).digest("hex").slice(0, 24)}`,
       checkerId: gateId,
       gateId,
       result,
@@ -277,9 +371,12 @@ export function attestGateWitness(
       provenance: {
         source: "human",
         adapterId: "manual-attest",
-        runId: `attest:${actorId}`,
-        rawResult: `${result} attested by ${actorId}${note}`,
+        runId: `${mode === "override" ? "override" : "attest"}:${actorId}`,
+        rawResult: override
+          ? `override of ${override.waivedReceiptId} by ${actorId}: ${override.rationale}`
+          : `${result} attested by ${actorId}${note}`,
       },
+      ...(override ? { override } : {}),
     };
   return cell.publishGateWitness(taskId, execution.executionId, snapshot, read.packagePath, binding, evidence);
 }

@@ -6,8 +6,14 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
+  canonicalGateReceipts,
   compileCompletionGateWitness,
+  completionBlockers,
+  gateResults,
+  judgeCompletionEvidence,
+  reduceTaskEvent,
   submissionDigest,
+  waivableAutomatedFail,
   type CompletionEvidenceV1,
   type FrozenGateRequirement,
 } from "../../kernel/src/index.ts";
@@ -577,4 +583,267 @@ test("the wire validator admits a null-commit witness for artifact-scoped gates"
     },
   };
   assert.equal(validateGateWitnessWire(witness), true);
+});
+
+// -- four governance modes (automated-only, manual-attest, dual control, break-glass override) ----
+
+/** The admission fixture with the governed gate also declared on the task, as replay requires. */
+function governedFixture(requirement: FrozenGateRequirement) {
+  const fixture = admissionFixture(requirement);
+  return {
+    ...fixture,
+    snapshot: {
+      ...fixture.snapshot,
+      task: { ...fixture.snapshot.task!, completionGateIds: [requirement.gateId] },
+    } as TaskLifecycleSnapshot,
+  };
+}
+
+function automatedEvidence(
+  execution: SubmittedExecutionRef,
+  gateId: string,
+  result: "pass" | "fail",
+  runId = "local-run-1",
+): CompletionEvidenceV1 {
+  return {
+    ...humanEvidence(execution, gateId, "manual-attest"),
+    result,
+    provenance: { source: "runner", adapterId: "local-command", runId, rawResult: `exit ${result === "pass" ? 0 : 1}` },
+  };
+}
+
+function overrideEvidence(
+  execution: SubmittedExecutionRef,
+  gateId: string,
+  waivedReceiptId: string,
+): CompletionEvidenceV1 {
+  return {
+    ...humanEvidence(execution, gateId, "manual-attest"),
+    provenance: { source: "human", adapterId: "manual-attest", runId: "override:owner", rawResult: "override" },
+    override: { rationale: "Runner host lost network mid-run", waivedReceiptId },
+  };
+}
+
+/** Publish through the canonical compile and fold the event with the replay reducer, as the projection does. */
+function record(snapshot: TaskLifecycleSnapshot, evidence: CompletionEvidenceV1, opId: string): TaskLifecycleSnapshot {
+  const execution = snapshot.executions.find((value) => value.state === "submitted")!,
+    compiled = compileCompletionGateWitness({
+      snapshot,
+      taskId: "task",
+      executionId: execution.executionId,
+      gateId: evidence.gateId,
+      result: evidence.result as "pass" | "fail",
+      evidence,
+      receiptId: opId,
+      checkerId: evidence.checkerId,
+      commitSha: execution.submission!.commitSha,
+      iteration: execution.iteration,
+      actor,
+      source: "local",
+      opId,
+      eventId: `event-${opId}`,
+      workspaceRevision: snapshot.revision + 1,
+      occurredAt: "2026-09-17T00:02:00.000Z",
+      packagePath: null,
+      currentDocuments: [],
+    });
+  return reduceTaskEvent(snapshot, compiled.event);
+}
+
+function gateStatus(snapshot: TaskLifecycleSnapshot, gateId: string): string | undefined {
+  const execution = snapshot.executions.find((value) => value.state === "submitted")!;
+  return gateResults(snapshot, undefined, execution.executionId, execution.submission, execution.iteration).find(
+    (gate) => gate.gateId === gateId,
+  )?.status;
+}
+
+test("automated-only and manual-attest gates keep one lane and admit no signoff or override", () => {
+  const automated = governedFixture(localRequirement("exit 0")),
+    failed = record(automated.snapshot, automatedEvidence(automated.execution, "lint", "fail"), "op-fail");
+  assert.equal(gateStatus(failed, "lint"), "failed");
+  assert.throws(() => record(failed, humanEvidence(automated.execution, "lint", "manual-attest"), "op-signoff"), {
+    code: "invalid_proof",
+  });
+  assert.throws(() => record(failed, overrideEvidence(automated.execution, "lint", "op-fail"), "op-override"), {
+    code: "invalid_proof",
+  });
+  const passed = record(automated.snapshot, automatedEvidence(automated.execution, "lint", "pass"), "op-pass");
+  assert.equal(gateStatus(passed, "lint"), "passed");
+
+  const manual = governedFixture(manualRequirement());
+  assert.equal(gateStatus(manual.snapshot, "signoff"), "missing");
+  const attested = record(manual.snapshot, humanEvidence(manual.execution, "signoff", "manual-attest"), "op-attest");
+  assert.equal(gateStatus(attested, "signoff"), "passed");
+});
+
+test("dual control needs the automated pass and a human signoff, kept as separate witnesses", () => {
+  const { snapshot, execution } = governedFixture({ ...localRequirement("exit 0"), mandatorySignoff: true }),
+    machinePassed = record(snapshot, automatedEvidence(execution, "lint", "pass"), "op-pass");
+  assert.equal(gateStatus(machinePassed, "lint"), "signoff_missing");
+  const blocker = completionBlockers(machinePassed, execution.executionId, {
+    closeout: "ready",
+    closeoutPath: "tasks/task/closeout.md",
+    eligibleDirtyPaths: [],
+    producesFactCount: 1,
+  })[0];
+  assert.equal(blocker?.gate, "lint");
+  assert.match(blocker?.next.action ?? "", /ha task attest task --gate lint --result pass$/u);
+
+  const signed = record(machinePassed, humanEvidence(execution, "lint", "manual-attest"), "op-signoff");
+  assert.equal(gateStatus(signed, "lint"), "passed");
+  assert.deepEqual(
+    signed.gateWitnesses.map((witness) => [witness.receiptId, witness.provenance?.source]),
+    [
+      ["op-pass", "runner"],
+      ["op-signoff", "human"],
+    ],
+  );
+  const rejected = record(
+    machinePassed,
+    { ...humanEvidence(execution, "lint", "manual-attest"), result: "fail" },
+    "op-no",
+  );
+  assert.equal(gateStatus(rejected, "lint"), "failed");
+  // A signoff never stands in for the automated witness itself.
+  const machineFailed = record(snapshot, automatedEvidence(execution, "lint", "fail"), "op-fail"),
+    signedOverFail = record(machineFailed, humanEvidence(execution, "lint", "manual-attest"), "op-signoff");
+  assert.equal(gateStatus(signedOverFail, "lint"), "failed");
+});
+
+test("break-glass override waives only the recorded automated fail it names and never erases it", () => {
+  const { snapshot, execution } = governedFixture({ ...localRequirement("exit 1"), allowOverride: true }),
+    failed = record(snapshot, automatedEvidence(execution, "lint", "fail"), "op-fail");
+  assert.equal(gateStatus(failed, "lint"), "failed");
+  assert.equal(waivableAutomatedFail(failed.gateWitnesses, execution as never, "lint")?.receiptId, "op-fail");
+
+  const waived = record(failed, overrideEvidence(execution, "lint", "op-fail"), "op-override");
+  assert.equal(gateStatus(waived, "lint"), "waived");
+  assert.deepEqual(
+    waived.gateWitnesses.map((witness) => [witness.receiptId, witness.result, witness.override?.waivedReceiptId]),
+    [
+      ["op-fail", "fail", undefined],
+      ["op-override", "pass", "op-fail"],
+    ],
+  );
+  const detail = gateResults(
+    waived,
+    undefined,
+    execution.executionId,
+    execution.submission as never,
+    execution.iteration,
+  )[0];
+  assert.equal(detail?.ok, true);
+  assert.match(detail?.detail ?? "", /op-fail waived by .*Runner host lost network/u);
+  assert.deepEqual(
+    canonicalGateReceipts(waived, waived.executions.find((value) => value.state === "submitted") as never).map(
+      (receipt) => receipt.receiptRef,
+    ),
+    ["event:op-override"],
+  );
+
+  // An override naming another receipt, or a newer automated fail, is not waived.
+  assert.equal(
+    gateStatus(record(failed, overrideEvidence(execution, "lint", "op-other"), "op-override"), "lint"),
+    "failed",
+  );
+  assert.equal(
+    gateStatus(record(waived, automatedEvidence(execution, "lint", "fail", "local-run-2"), "op-fail-2"), "lint"),
+    "failed",
+  );
+  // An automated pass supersedes the need for the waiver.
+  assert.equal(gateStatus(record(waived, automatedEvidence(execution, "lint", "pass"), "op-pass"), "lint"), "passed");
+
+  // Evidence-level fences: only a human pass with a real rationale can carry an override.
+  const override = overrideEvidence(execution, "lint", "op-fail"),
+    judge = (evidence: CompletionEvidenceV1) =>
+      judgeCompletionEvidence(evidence, { execution: execution as never, gateId: "lint" }).accepted;
+  assert.equal(judge(override), true);
+  assert.equal(judge({ ...override, override: { rationale: "  flaky  ", waivedReceiptId: "op-fail" } }), false);
+  assert.equal(judge({ ...override, provenance: { ...override.provenance, source: "runner" } }), false);
+  assert.equal(judge({ ...override, result: "fail" }), false);
+});
+
+function attestCell(snapshot: TaskLifecycleSnapshot) {
+  const execution = snapshot.executions.find((value) => value.state === "submitted")!,
+    { published, cell } = publishingCell(execution as never);
+  return {
+    published,
+    cell: {
+      ...cell,
+      projection: {
+        read: () => ({ status: "ready", watermark: 1, sourceRevision: 1, snapshot, packagePath: null }),
+      },
+    } as unknown as RepoCellOperationalContext,
+  };
+}
+
+test("attest admission: human principal, closed fields, owner-only override over recorded evidence", () => {
+  const overridable = governedFixture({ ...localRequirement("exit 1"), allowOverride: true }),
+    owner = {
+      actor: { principal: overridable.snapshot.task!.createdBy.principal, executor: null },
+      source: "local",
+    } as RepoCellBinding,
+    attest = (snapshot: TaskLifecycleSnapshot, action: Record<string, unknown>, as: RepoCellBinding = owner) => {
+      const target = attestCell(snapshot);
+      attestGateWitness(
+        target.cell,
+        { kind: "task-attest", taskId: "task", gateId: "lint", result: "pass", ...action },
+        as,
+      );
+      return target.published;
+    },
+    override = { mode: "override", rationale: "Runner host lost network mid-run" };
+  // A runtime session carries an executor: switching mode never grants it a human attestation.
+  assert.throws(
+    () =>
+      attest(overridable.snapshot, override, {
+        actor: { ...owner.actor, executor: { kind: "agent", id: "runtime-session:runtime-1" } },
+        source: "local",
+      } as RepoCellBinding),
+    { code: "actor_unauthorized" },
+  );
+  assert.throws(() => attest(overridable.snapshot, { ...override, executor: "none" }), { code: "invalid_command" });
+  assert.throws(() => attest(overridable.snapshot, { mode: "override", rationale: "flaky" }), {
+    code: "invalid_field",
+  });
+  assert.throws(() => attest(overridable.snapshot, { mode: "override" }), { code: "invalid_field" });
+  assert.throws(() => attest(overridable.snapshot, { ...override, result: "fail" }), { code: "invalid_field" });
+  assert.throws(() => attest(overridable.snapshot, { rationale: "Runner host lost network" }), {
+    code: "invalid_field",
+  });
+  // No recorded automated fail on the cut: nothing to waive.
+  assert.throws(() => attest(overridable.snapshot, override), { code: "invalid_transition" });
+  const failed = record(overridable.snapshot, automatedEvidence(overridable.execution, "lint", "fail"), "op-fail");
+  assert.throws(
+    () =>
+      attest(failed, override, {
+        actor: { principal: { personId: "not-owner" }, executor: null },
+        source: "local",
+      } as RepoCellBinding),
+    { code: "actor_unauthorized" },
+  );
+  const published = attest(failed, override);
+  assert.equal(published.length, 1);
+  assert.deepEqual(published[0]!.override, {
+    rationale: "Runner host lost network mid-run",
+    waivedReceiptId: "op-fail",
+  });
+  assert.equal(published[0]!.provenance.source, "human");
+  // The published override is exactly what the canonical write admits and the judgment waives.
+  assert.equal(gateStatus(record(failed, published[0]!, "op-override"), "lint"), "waived");
+
+  // A gate without allowOverride refuses override; a gate without mandatorySignoff refuses approve.
+  const plain = governedFixture(localRequirement("exit 1")),
+    plainFailed = record(plain.snapshot, automatedEvidence(plain.execution, "lint", "fail"), "op-fail");
+  assert.throws(() => attest(plainFailed, override), { code: "invalid_command" });
+  assert.throws(() => attest(plainFailed, {}), { code: "invalid_command" });
+
+  // Dual control: signoff only over the recorded automated pass of this cut.
+  const dual = governedFixture({ ...localRequirement("exit 0"), mandatorySignoff: true });
+  assert.throws(() => attest(dual.snapshot, { note: "looked at the diff" }), { code: "invalid_transition" });
+  const dualPassed = record(dual.snapshot, automatedEvidence(dual.execution, "lint", "pass"), "op-pass"),
+    signoff = attest(dualPassed, { note: "looked at the diff" });
+  assert.equal(signoff.length, 1);
+  assert.equal(signoff[0]!.override, undefined);
+  assert.equal(gateStatus(record(dualPassed, signoff[0]!, "op-signoff"), "lint"), "passed");
 });
