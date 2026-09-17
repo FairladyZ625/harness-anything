@@ -611,7 +611,7 @@ test(
 );
 
 test(
-  "a spent return budget is named in the receipt; raising it or approving still moves the task",
+  "a spent return budget refuses new review dispatches; raising it resumes review and approval completes",
   { timeout: 20_000 },
   async () => {
     const f = await fixture();
@@ -656,32 +656,30 @@ test(
       const roundTwo = "execution-budget-two";
       assert.equal((await f.run({ kind: "task-start", taskId, executionId: roundTwo })).outcome, "applied");
       assert.equal((await f.run({ kind: "task-submit", taskId, executionId: roundTwo })).outcome, "applied");
+      // Budget spent: complete stops at the review gate without spawning a reviewer worker.
       const second = (await f.run({ kind: "task-complete", taskId, executionId: roundTwo })) as Record<string, unknown>;
       assert.equal(second.code, "review_missing", JSON.stringify(second));
       assert.match(JSON.stringify(second.next), /Return budget 1 is spent at iteration 1/u);
       assert.match(JSON.stringify(second.next), /--review-return-budget/u);
       assert.match(JSON.stringify(second.next), /escalate to the dispatching principal/u);
+      assert.match(JSON.stringify(second.next), /ha task amend/u);
+      assert.deepEqual(second.diagnostic, { kind: "failure", code: "review_return_budget_exhausted" });
+      assert.equal(f.launches.length, 1, "no reviewer worker may spawn once the return budget is spent");
+      assert.equal(f.events().filter((event) => event.type === "runtime_dispatch_requested").length, 1);
       // Without a task-scoped override, inspection reports the repository setting as the source.
       const shown = (await f.run({ kind: "task-show", taskId })) as Record<string, unknown>,
         shownPayload = JSON.parse(String(shown.evidence)) as Record<string, unknown>;
       assert.equal(shownPayload.returnBudget, 1);
       assert.equal(shownPayload.returnBudgetSource, "repository");
-      const refused = await reviewExecution(
-        String(second.runtimeSessionId),
-        roundTwo,
-        "review-budget-two",
-        "changes_requested",
-      );
-      assert.equal(refused.outcome, "op_rejected");
-      assert.equal(refused.code, "manual_intervention_required");
-      assert.match(refused.rejectionExplanation ?? "", /return budget exhausted/u);
-      // The receipt's own exit is executable: raising the live budget unblocks the same verdict.
+      // The receipt's own exit is executable: raising the live budget unblocks the same cut.
       assert.equal((await f.runPrincipal({ kind: "settings-update", reviewReturnBudget: 2 })).outcome, "applied");
       const raised = (await f.run({ kind: "task-complete", taskId, executionId: roundTwo })) as Record<string, unknown>;
       assert.equal(raised.code, "review_missing", JSON.stringify(raised));
       assert.doesNotMatch(JSON.stringify(raised.next), /return budget/u);
+      assert.equal(typeof raised.runtimeSessionId, "string", JSON.stringify(raised));
+      assert.equal(f.launches.length, 2, "a raised budget dispatches a reviewer again");
       assert.equal(
-        (await reviewExecution(String(second.runtimeSessionId), roundTwo, "review-budget-three", "changes_requested"))
+        (await reviewExecution(String(raised.runtimeSessionId), roundTwo, "review-budget-three", "changes_requested"))
           .outcome,
         "applied",
       );
@@ -694,8 +692,17 @@ test(
       >;
       assert.equal(third.code, "review_missing", JSON.stringify(third));
       assert.match(JSON.stringify(third.next), /Return budget 2 is spent at iteration 2/u);
+      assert.equal(f.launches.length, 2, "the third round is also refused without a worker");
+      // Raising the budget again admits a fresh reviewer whose approval completes the task.
+      assert.equal((await f.runPrincipal({ kind: "settings-update", reviewReturnBudget: 3 })).outcome, "applied");
+      const reopened = (await f.run({ kind: "task-complete", taskId, executionId: roundThree })) as Record<
+        string,
+        unknown
+      >;
+      assert.equal(reopened.code, "review_missing", JSON.stringify(reopened));
+      assert.equal(typeof reopened.runtimeSessionId, "string", JSON.stringify(reopened));
       assert.equal(
-        (await reviewExecution(String(third.runtimeSessionId), roundThree, "review-budget-approved", "approved"))
+        (await reviewExecution(String(reopened.runtimeSessionId), roundThree, "review-budget-approved", "approved"))
           .outcome,
         "applied",
       );
@@ -777,11 +784,9 @@ test(
         unknown
       >;
       assert.equal(third.code, "review_missing", JSON.stringify(third));
-      // The spent note names the task-scoped budget, not the repository's.
+      // The refusal names the task-scoped budget, not the repository's, and spawns no worker.
       assert.match(JSON.stringify(third.next), /Return budget 2 is spent at iteration 2/u);
-      const refused = await reviewExecution(String(third.runtimeSessionId), roundThree, "review-task-budget-three");
-      assert.equal(refused.outcome, "op_rejected");
-      assert.match(refused.rejectionExplanation ?? "", /return budget exhausted/u);
+      assert.equal(f.launches.length, 2, "a spent task-scoped budget refuses the dispatch without a worker");
     } finally {
       await f.close();
     }

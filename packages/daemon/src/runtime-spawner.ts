@@ -7,6 +7,7 @@ import {
   isSameExecution,
   isSamePerson,
   resolveTaskBoundRuntimeBinding,
+  reviewReturnBudgetSpent,
   runtimeDefinitionSnapshotArtifact,
   runtimeSessionIdFromActor,
   type AuthorizationDecision,
@@ -91,6 +92,7 @@ import { isProviderFailureClassification } from "./runtime-fallback-contract.ts"
 import type { RuntimeAttemptOutcome, RuntimeFallbackAttempt } from "./runtime-fallback-contract.ts";
 import type { RuntimeEventOf, RuntimeEventType, RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
+import { readEffectiveReviewReturnBudget } from "./repo-cell-settings-state.ts";
 import { continuationMission, initialFallbackAttempt, requiredRuntimeFast } from "./runtime-spawn-fallback.ts";
 import { admitRuntimeResume, assertResumeAgent, resolveResumeCwd } from "./runtime-resume-admission.ts";
 export const resultMediaType = "text/plain; charset=utf-8" as const,
@@ -371,6 +373,26 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         ...applied(existing, store!.publication(existing), runtimeSessionId, newDispatchId),
         authorizationDecision: authorizationDecision as unknown as JsonObject | null,
       };
+    }
+    // Reviewer fail-fast: a new review attempt is refused before any dispatch event or worker
+    // process exists when the return budget is already spent, because the ledger can no longer
+    // record a changes_requested verdict for the cut. An already-claimed attempt returned above
+    // keeps its identity; an already-approved review completes unaffected. The judgment reads
+    // the latest center snapshot, so every entry (submit-time review, complete facade,
+    // dispatch-review, runtime.run, fallback continuation) enforces the same write-side rule.
+    if (reviewerBinding && reviewTarget !== null && taskSnapshot?.task) {
+      const returnBudget = readEffectiveReviewReturnBudget(projection!, taskSnapshot.task).value;
+      if (reviewReturnBudgetSpent(taskSnapshot.task.iteration, returnBudget))
+        throw runtimeSpawnError(
+          "review_return_budget_exhausted",
+          `Return budget ${String(returnBudget)} is spent at iteration ` +
+            `${String(taskSnapshot.task.iteration)}: a new review dispatch for task ${taskId} is ` +
+            "refused because a changes_requested RecordReview can no longer land. Amend the " +
+            "submission so the reviewer can approve, or escalate to the dispatching principal to " +
+            `raise the review return budget — for this task with \`ha task amend ${taskId} ` +
+            "--set reviewReturnBudget:<n>`, or repository-wide with `ha settings update " +
+            "--review-return-budget <n>`.",
+        );
     }
     const runtimeActor = `agent:runtime-session:${runtimeSessionId}`,
       squad =
