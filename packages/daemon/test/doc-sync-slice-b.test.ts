@@ -161,10 +161,14 @@ test("Decision prose is an explicit idempotent doc-sync region in the canonical 
         "\n# Body join\n\n## 背景\n\n说明需要裁定的问题与已知事实。\n\n## 权衡\n\n" +
         "说明所选方案、被拒方案与取舍理由。\n\n## 结论\n\n说明最终裁定及其适用范围。\n";
     assert.equal(initial.decision.body.body, initialBody);
+    // The authored document is frontmatter, doc-sync owned prose, then the daemon-managed relation block;
+    // an editor keeps the block in place and only rewrites the prose between them.
     const canonical = readFileSync(path.join(fixture.rootDir, "harness", relativePath), "utf8"),
-      machine = canonical.slice(0, -initialBody.length),
+      neighborhood = canonical.slice(canonical.indexOf("<!-- harness:relation-neighborhood:start -->")),
+      machine = canonical.slice(0, canonical.length - neighborhood.length - initialBody.length - 1),
+      withNeighborhood = (prose: string) => `${machine}${prose}\n${neighborhood}`,
       firstProse = "\n# Body join\n\nFirst paragraph.\n",
-      firstBody = `${machine}${firstProse}`,
+      firstBody = withNeighborhood(firstProse),
       firstHash = sha(firstBody);
     writeAuthored(fixture.rootDir, relativePath, firstBody);
     const firstAction = { kind: "doc-submit", executionId: "execution-doc", paths: [relativePath] } as const;
@@ -212,7 +216,7 @@ test("Decision prose is an explicit idempotent doc-sync region in the canonical 
       firstList.decisions.map(({ decisionId: id }) => id),
     );
     const secondProse = "\n# Body join\n\nReplacement needle.\n",
-      secondBody = `${machine}${secondProse}`;
+      secondBody = withNeighborhood(secondProse);
     writeAuthored(fixture.rootDir, relativePath, secondBody);
     const second = await fixture.cell.run(
       { kind: "doc-submit", executionId: "execution-doc", paths: [relativePath] },
