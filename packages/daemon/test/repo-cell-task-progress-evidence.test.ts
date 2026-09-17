@@ -633,7 +633,16 @@ test("completed receipt replay does not inspect a newer red or unavailable CI ob
   );
 });
 
-async function completeOverRedCi(requirement: FrozenGateRequirement) {
+async function completeOverRedCi(
+  requirement: FrozenGateRequirement,
+  observations:
+    | readonly CiRunObservationEventV3[]
+    | ((sha: string) => readonly CiRunObservationEventV3[])
+    | null = null,
+  witnesses:
+    | ((sha: string, submitted: Snapshot["executions"][number]) => readonly Snapshot["gateWitnesses"][number][])
+    | null = null,
+) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-complete-override-"));
   try {
     const sha = init(root),
@@ -662,7 +671,7 @@ async function completeOverRedCi(requirement: FrozenGateRequirement) {
         reviews: [],
         consents: [],
         codeDocWitnesses: [],
-        gateWitnesses: [],
+        gateWitnesses: witnesses?.(sha, submitted) ?? [],
         lease: null,
         decisionRelations: [],
       } as unknown as Snapshot,
@@ -713,7 +722,10 @@ async function completeOverRedCi(requirement: FrozenGateRequirement) {
           }),
           readCiRunObservations: () => ({
             status: "ready",
-            events: [observation(sha, 1, "failure")],
+            events:
+              typeof observations === "function"
+                ? observations(sha)
+                : (observations ?? [observation(sha, 1, "failure")]),
             watermark: 2,
             sourceRevision: 2,
           }),
@@ -721,7 +733,22 @@ async function completeOverRedCi(requirement: FrozenGateRequirement) {
         cellCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),
         lifecycleAction: async () => assert.fail("completion must stop before any lifecycle write"),
         publishGateWitness: (...args: unknown[]) => {
-          published.push(args[5] as CompletionEvidenceV1);
+          const evidence = args[5] as CompletionEvidenceV1;
+          published.push(evidence);
+          // The canonical write is durable before the read below re-judges the refreshed snapshot.
+          (snapshot.gateWitnesses as Snapshot["gateWitnesses"][number][]).push({
+            ...evidence,
+            schema: "completion-gate-witness/v1",
+            witnessId: `gate-witness-${published.length}`,
+            receiptId: `op-witness-${published.length}`,
+            taskId: "task",
+            executionId: submitted.executionId,
+            commitSha: sha,
+            iteration: submitted.iteration,
+            actor,
+            source: "local",
+            verifiedAt: "2026-09-12T00:06:00.000Z",
+          });
           return { outcome: "applied", opId: "witness-fail" };
         },
       } as unknown as RepoCellOperationalContext;
@@ -745,4 +772,82 @@ test("complete records the automated fail of an override-allowed gate and stops;
   assert.equal(receipt.code, "ci_missing");
   // Without allowOverride the automated fail still rejects the completion outright.
   await assert.rejects(completeOverRedCi(ciRequirement()), { code: "invalid_proof" });
+
+  // No covering CI observation at all: nothing is recorded, and the blocker offers the owner's
+  // break-glass override over the absent receipt.
+  const empty = await completeOverRedCi({ ...ciRequirement(), allowOverride: true }, []);
+  assert.equal(empty.published.length, 0);
+  assert.equal(empty.receipt.outcome, "op_rejected");
+  assert.equal(empty.receipt.code, "ci_missing");
+  assert.match(
+    String((empty.receipt.next as readonly { action: string }[])[0]?.action),
+    /ha task attest task --gate ci --result pass --mode override --rationale/u,
+  );
+});
+
+/** A human break-glass witness over the cut's absent automated receipt (`waivedReceiptId: null`). */
+function nullWaiver(sha: string, submitted: Snapshot["executions"][number]): Snapshot["gateWitnesses"][number] {
+  return {
+    schema: "completion-gate-witness/v1",
+    witnessId: "gate-op-waiver",
+    receiptId: "op-waiver",
+    checkerId: "ci",
+    gateId: "ci",
+    result: "pass",
+    observed: true,
+    basis: {
+      executionId: submitted.executionId,
+      iteration: submitted.iteration,
+      submissionDigest: submissionDigest(submitted.submission!),
+      codeCommit: sha,
+    },
+    provenance: {
+      source: "human",
+      adapterId: "manual-attest",
+      runId: "override:owner",
+      rawResult: "override with no automated receipt by owner: runner was unreachable",
+    },
+    override: { rationale: "CI runner host was unreachable during the window", waivedReceiptId: null },
+    taskId: "task",
+    executionId: submitted.executionId,
+    commitSha: sha,
+    iteration: submitted.iteration,
+    actor,
+    source: "local",
+    verifiedAt: "2026-09-12T00:05:00.000Z",
+  } as Snapshot["gateWitnesses"][number];
+}
+
+test("a no-receipt waiver is voided by a later automated receipt on the same cut", async () => {
+  // A red run lands after the waiver: the fail is recorded verbatim and blocks completion again.
+  const red = await completeOverRedCi(
+    { ...ciRequirement(), allowOverride: true },
+    (sha) => [observation(sha, 1, "failure")],
+    (sha, submitted) => [nullWaiver(sha, submitted)],
+  );
+  assert.deepEqual(
+    red.published.map((evidence) => [evidence.gateId, evidence.result, evidence.provenance.source]),
+    [["ci", "fail", "runner"]],
+  );
+  assert.equal(red.receipt.outcome, "op_rejected");
+  assert.equal(red.receipt.code, "ci_missing");
+
+  // A green run lands after the waiver: the pass is recorded, the gate still blocks on the
+  // mandatory signoff — the voided override never counts as one.
+  const green = await completeOverRedCi(
+    { ...ciRequirement(), allowOverride: true, mandatorySignoff: true },
+    (sha) => [observation(sha, 1, "success")],
+    (sha, submitted) => [nullWaiver(sha, submitted)],
+  );
+  assert.deepEqual(
+    green.published.map((evidence) => [evidence.gateId, evidence.result, evidence.provenance.source]),
+    [["ci", "pass", "runner"]],
+  );
+  assert.equal(green.receipt.outcome, "op_rejected");
+  assert.equal(green.receipt.code, "ci_missing");
+  assert.match(
+    String((green.receipt.next as readonly { action: string }[])[0]?.action),
+    /ha task attest task --gate ci --result pass$/u,
+    "the blocker must ask for a plain signoff, not another override",
+  );
 });

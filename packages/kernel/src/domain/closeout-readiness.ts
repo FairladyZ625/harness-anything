@@ -287,15 +287,27 @@ export function judgeGateWitnesses(
     human = cut.filter(isHumanAttestationWitness).at(-1),
     machine = judge(automated),
     waivable = requirement?.allowOverride === true ? waivableAutomatedFail(witnesses, execution, gateId) : undefined;
-  if (waivable && human?.override?.waivedReceiptId === waivable.receiptId && judge(human).status === "passed")
-    return {
-      status: "waived",
-      detail:
-        `receipt ${waivable.receiptId} waived by ${human.actor.principal.personId} ` +
-        `at ${human.verifiedAt}: ${human.override.rationale}`,
-    };
+  if (human?.override !== undefined && judge(human).status === "passed") {
+    // A receipt-bound waiver covers exactly the recorded fail it names; a null waiver stands only
+    // while the cut has no automated receipt at all — any later receipt voids it.
+    if (waivable && human.override.waivedReceiptId === waivable.receiptId)
+      return {
+        status: "waived",
+        detail:
+          `receipt ${waivable.receiptId} waived by ${human.actor.principal.personId} ` +
+          `at ${human.verifiedAt}: ${human.override.rationale}`,
+      };
+    if (requirement?.allowOverride === true && human.override.waivedReceiptId === null && automated === undefined)
+      return {
+        status: "waived",
+        detail:
+          `no automated witness on this cut; waived by ${human.actor.principal.personId} ` +
+          `at ${human.verifiedAt}: ${human.override.rationale}`,
+      };
+  }
   if (machine.status !== "passed" || requirement?.mandatorySignoff !== true) return machine;
-  const signoff = judge(human);
+  // An override is never a signoff: only a plain human attestation satisfies dual control.
+  const signoff = human !== undefined && human.override === undefined ? judge(human) : { status: "missing" as const };
   return signoff.status === "missing"
     ? { status: "signoff_missing", detail: "the automated witness passed; the mandatory human signoff is missing" }
     : signoff;

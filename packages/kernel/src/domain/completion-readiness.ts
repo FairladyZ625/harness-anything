@@ -84,11 +84,18 @@ function witnessCommand(
 ): string {
   const requirement = contract?.gates.find((gate) => gate.gateId === gateId),
     adapterId = requirement?.witness.adapterId;
-  if (status === "failed" && requirement?.allowOverride && adapterId !== "manual-attest")
-    return (
-      `ha task attest ${taskId} --gate ${gateId} --result pass --mode override ` +
-      "--rationale <why-the-recorded-fail-is-waived>"
-    );
+  if (requirement?.allowOverride && adapterId !== "manual-attest") {
+    if (status === "failed")
+      return (
+        `ha task attest ${taskId} --gate ${gateId} --result pass --mode override ` +
+        "--rationale <why-the-recorded-fail-is-waived>"
+      );
+    if (status === "missing")
+      return (
+        `ha task attest ${taskId} --gate ${gateId} --result pass --mode override ` +
+        "--rationale <why-no-automated-witness-is-acceptable>"
+      );
+  }
   if (adapterId === "manual-attest" || status === "signoff_missing")
     return `ha task attest ${taskId} --gate ${gateId} --result pass`;
   if (adapterId === "local-command")

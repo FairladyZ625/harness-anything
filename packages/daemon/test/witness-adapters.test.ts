@@ -11,6 +11,7 @@ import {
   completionBlockers,
   gateResults,
   judgeCompletionEvidence,
+  judgeGateWitnesses,
   reduceTaskEvent,
   submissionDigest,
   waivableAutomatedFail,
@@ -580,7 +581,7 @@ function automatedEvidence(
 function overrideEvidence(
   execution: SubmittedExecutionRef,
   gateId: string,
-  waivedReceiptId: string,
+  waivedReceiptId: string | null,
 ): CompletionEvidenceV1 {
   return {
     ...humanEvidence(execution, gateId, "manual-attest"),
@@ -776,8 +777,30 @@ test("attest admission: human principal, closed fields, owner-only override over
   assert.throws(() => attest(overridable.snapshot, { rationale: "Runner host lost network" }), {
     code: "invalid_field",
   });
-  // No recorded automated fail on the cut: nothing to waive.
-  assert.throws(() => attest(overridable.snapshot, override), { code: "invalid_transition" });
+  // No automated receipt on the cut at all: the owner waives the absent observation (waivedReceiptId
+  // null); a non-owner still cannot.
+  assert.throws(
+    () =>
+      attest(overridable.snapshot, override, {
+        actor: { principal: { personId: "not-owner" }, executor: null },
+        source: "local",
+      } as RepoCellBinding),
+    { code: "actor_unauthorized" },
+  );
+  const absent = attest(overridable.snapshot, override);
+  assert.deepEqual(absent[0]!.override, {
+    rationale: "Runner host lost network mid-run",
+    waivedReceiptId: null,
+  });
+  assert.match(absent[0]!.provenance.rawResult, /no automated receipt/u);
+  assert.equal(gateStatus(record(overridable.snapshot, absent[0]!, "op-override"), "lint"), "waived");
+  // A recorded automated pass cannot be overridden — there is nothing to break glass for.
+  const automatedPass = record(
+    overridable.snapshot,
+    automatedEvidence(overridable.execution, "lint", "pass"),
+    "op-pass",
+  );
+  assert.throws(() => attest(automatedPass, override), { code: "invalid_transition" });
   const failed = record(overridable.snapshot, automatedEvidence(overridable.execution, "lint", "fail"), "op-fail");
   assert.throws(
     () =>
@@ -801,6 +824,7 @@ test("attest admission: human principal, closed fields, owner-only override over
   const plain = governedFixture(localRequirement("exit 1")),
     plainFailed = record(plain.snapshot, automatedEvidence(plain.execution, "lint", "fail"), "op-fail");
   assert.throws(() => attest(plainFailed, override), { code: "invalid_command" });
+  assert.throws(() => attest(plain.snapshot, override), { code: "invalid_command" });
   assert.throws(() => attest(plainFailed, {}), { code: "invalid_command" });
 
   // Dual control: signoff only over the recorded automated pass of this cut.
@@ -811,4 +835,52 @@ test("attest admission: human principal, closed fields, owner-only override over
   assert.equal(signoff.length, 1);
   assert.equal(signoff[0]!.override, undefined);
   assert.equal(gateStatus(record(dualPassed, signoff[0]!, "op-signoff"), "lint"), "passed");
+});
+
+test("an override with no automated receipt is waived until any automated receipt lands", () => {
+  const requirement = { ...localRequirement("exit 1"), allowOverride: true } as const,
+    { snapshot, execution } = governedFixture(requirement),
+    waived = record(snapshot, overrideEvidence(execution, "lint", null), "op-override");
+  assert.equal(gateStatus(waived, "lint"), "waived");
+  const detail = gateResults(
+    waived,
+    undefined,
+    execution.executionId,
+    execution.submission as never,
+    execution.iteration,
+  )[0];
+  assert.equal(detail?.ok, true);
+  assert.match(detail?.detail ?? "", /no automated witness.*waived by owner/u);
+
+  // Any automated receipt that lands voids the null waiver and the gate is re-judged on it.
+  assert.equal(
+    gateStatus(record(waived, automatedEvidence(execution, "lint", "fail", "run-2"), "op-fail"), "lint"),
+    "failed",
+  );
+  assert.equal(gateStatus(record(waived, automatedEvidence(execution, "lint", "pass"), "op-pass"), "lint"), "passed");
+  // A new pass under dual control still needs a plain approve — the override is not a signoff.
+  const dualRequirement = { ...localRequirement("exit 0"), allowOverride: true, mandatorySignoff: true } as const,
+    dual = governedFixture(dualRequirement),
+    dualWaived = record(dual.snapshot, overrideEvidence(dual.execution, "lint", null), "op-override");
+  assert.equal(gateStatus(dualWaived, "lint"), "waived");
+  const dualPassed = record(dualWaived, automatedEvidence(dual.execution, "lint", "pass"), "op-pass");
+  assert.equal(gateStatus(dualPassed, "lint"), "signoff_missing");
+  assert.equal(
+    gateStatus(record(dualPassed, humanEvidence(dual.execution, "lint", "manual-attest"), "op-signoff"), "lint"),
+    "passed",
+  );
+
+  // A waived cut whose submission is amended judges the stale human evidence as missing again.
+  const amended = {
+    ...execution,
+    submission: { ...execution.submission!, completionClaim: "Amended." },
+  };
+  assert.equal(judgeGateWitnesses(waived.gateWitnesses, amended as never, "lint", requirement).status, "missing");
+
+  // Evidence-level fences: the waivedReceiptId field must exist; null and a real receipt both admit.
+  const absent = overrideEvidence(execution, "lint", null),
+    judge = (evidence: CompletionEvidenceV1) =>
+      judgeCompletionEvidence(evidence, { execution: execution as never, gateId: "lint" }).accepted;
+  assert.equal(judge(absent), true);
+  assert.equal(judge({ ...absent, override: { rationale: "Runner host lost network mid-run" } as never }), false);
 });
