@@ -267,6 +267,71 @@ test("settings writes reject catalog-inconsistent vertical, preset, and profile 
   }
 });
 
+test("settings update --gates-from-document mints authored harness.yaml gate mappings into the entity", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-settings-gates-"));
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    initRepo(root);
+    cell = await openRepoCell({
+      repoId: workspaceId("settings-gates"),
+      rootDir: canonicalRoot(root),
+      ownerId: "settings-gates-test",
+    });
+    const binding = { actor, source: "local" as const },
+      configPath = path.join(root, "harness/harness.yaml"),
+      before = await cell.run({ kind: "settings-read" }, binding);
+    assert.equal(before.outcome, "applied", JSON.stringify(before));
+    assert.deepEqual(
+      (before as typeof before & { readonly settings?: { readonly gates?: unknown } }).settings?.gates,
+      [],
+    );
+
+    // The authored document is the user-facing declaration surface: editing harness.yaml and
+    // running the write path is how an already-initialized repository declares gates.
+    writeFileSync(
+      configPath,
+      `${readFileSync(configPath, "utf8")}  gates:\n    ci:\n      adapter: github-actions\n` +
+        "      appliesTo: code\n      branch: main\n      event: push\n      coverage: descendant\n" +
+        "      selection: newest\n    code-doc-reconciliation: none\n",
+    );
+    const applied = await cell.run(
+      { kind: "settings-update", gatesFromDocument: true, idempotencyKey: "gates-import" },
+      binding,
+    );
+    assert.equal(applied.outcome, "applied", JSON.stringify(applied));
+    const after = await cell.run({ kind: "settings-read" }, binding);
+    assert.deepEqual((after as typeof after & { readonly settings?: { readonly gates?: unknown } }).settings?.gates, [
+      {
+        gateId: "ci",
+        adapter: "github-actions",
+        appliesTo: "code",
+        branch: "main",
+        event: "push",
+        coverage: "descendant",
+        selection: "newest",
+      },
+      { gateId: "code-doc-reconciliation", adapter: "none" },
+    ]);
+    // The facet write is symmetric: the canonical writer renders the block it parsed.
+    assert.match(
+      readFileSync(configPath, "utf8"),
+      /  gates:\n    ci:\n      adapter: github-actions\n[\s\S]*    code-doc-reconciliation: none\n/u,
+    );
+
+    // An unreadable gates block is a typed rejection, never a partial write.
+    writeFileSync(configPath, `${readFileSync(configPath, "utf8")}    lint: github-actions\n`);
+    const rejected = await cell.run(
+      { kind: "settings-update", gatesFromDocument: true, idempotencyKey: "gates-import-bad" },
+      binding,
+    );
+    assert.equal(rejected.outcome, "op_rejected", JSON.stringify(rejected));
+    assert.equal(rejected.code, "invalid_command");
+  } finally {
+    await cell?.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("settings writes from a runtime executor are refused and must escalate to the principal", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-settings-principal-"));
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;

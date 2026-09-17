@@ -393,6 +393,7 @@ export function writeRepositorySettingsFacet(body: string, settings: RepositoryS
   );
   next = writeWalFlushFacet(next, repository.walFlush);
   next = writeCiFacet(next, repository.ci);
+  next = writeGatesFacet(next, repository.gates);
   next = writeCloseoutFacet(next, repository.closeout);
   next = replaceOptionalDefaultedScalar(
     next,
@@ -521,7 +522,7 @@ function readCiSettings(body: string): SettingsV1["ci"] {
  * `settings.gates` maps each gate id either inline to `none` or to a block naming its witness adapter:
  * `    ci:` followed by six-space `appliesTo:`/`adapter:`/adapter option lines.
  */
-function readGateSettings(body: string): readonly GateWitnessMappingV1[] {
+export function readGateSettings(body: string): readonly GateWitnessMappingV1[] {
   if (!/^  gates:/mu.test(body)) return INITIAL_SETTINGS_V1.gates;
   const section = /^  gates:[^\S\r\n]*(?:#[^\r\n]*)?\r?\n((?:    [^\r\n]*(?:\r?\n|$))*)/mu.exec(body)?.[1];
   if (section === undefined) throw new Error("settings.gates must be a block of gate witness mappings");
@@ -608,6 +609,38 @@ function writeCiFacet(body: string, ci: RepositorySettingsV1["ci"]): string {
     isDefault = JSON.stringify(ci) === JSON.stringify(INITIAL_SETTINGS_V1.ci);
   if (!section.test(body) && isDefault) return body;
   const rendered = `  ci:\n    workflows: [${ci.workflows.join(", ")}]\n`;
+  if (section.test(body)) return body.replace(section, rendered);
+  const header = /^settings:[^\r\n]*(?:\r?\n|$)/mu;
+  if (!header.test(body)) throw new Error("Missing settings block in harness.yaml.");
+  return body.replace(header, (match) => `${match}${rendered}`);
+}
+
+/**
+ * Serialize `settings.gates` back into the authored facet: an empty mapping list removes the
+ * section outright (a bare `gates:` line has no block and `readGateSettings` rejects it), a
+ * non-empty list renders `    <id>: none` inline or a `    <id>:` block with six-space fields in
+ * canonical key order so the read-back is byte-equal to the entity value.
+ */
+function writeGatesFacet(body: string, gates: readonly GateWitnessMappingV1[]): string {
+  const section = /^  gates:[^\r\n]*(?:\r?\n)(?:    [^\r\n]*(?:\r?\n|$))*/mu;
+  if (gates.length === 0) return section.test(body) ? body.replace(section, "") : body;
+  const rendered =
+    "  gates:\n" +
+    gates
+      .map((gate) =>
+        gate.adapter === "none"
+          ? `    ${gate.gateId}: none`
+          : [
+              `    ${gate.gateId}:`,
+              `      adapter: ${gate.adapter}`,
+              ...Object.entries(gate)
+                .filter(([key]) => key !== "gateId" && key !== "adapter")
+                .sort(([left], [right]) => left.localeCompare(right))
+                .map(([key, value]) => `      ${key}: ${String(value)}`),
+            ].join("\n"),
+      )
+      .join("\n") +
+    "\n";
   if (section.test(body)) return body.replace(section, rendered);
   const header = /^settings:[^\r\n]*(?:\r?\n|$)/mu;
   if (!header.test(body)) throw new Error("Missing settings block in harness.yaml.");

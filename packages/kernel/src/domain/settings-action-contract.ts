@@ -52,6 +52,7 @@ const repositoryFieldNames = Object.freeze([
   "walFlushBytes",
   "walFlushMilliseconds",
   "ciWorkflows",
+  "gates",
   "closeoutProfile",
   "closeoutReview",
   "closeoutConsent",
@@ -92,6 +93,7 @@ export const settingsUpdateInputFields: readonly EntityActionInputField[] = Obje
   field("walFlushBytes", "number"),
   field("walFlushMilliseconds", "number"),
   field("ciWorkflows", "string-array"),
+  field("gatesFromDocument", "boolean"),
   field("closeoutProfile", "string", false, closeoutProfiles),
   field("closeoutReview", "boolean"),
   field("closeoutConsent", "boolean"),
@@ -204,6 +206,14 @@ export function compileSettingsUpdate(input: EntityActionCompileInput): Settings
     expectedVersion = input.action.expectedVersion,
     repositoryChangeRequested = repositoryFieldNames.some((name) => Object.hasOwn(input.action, name));
   settingsActionLocale(input.action.locale);
+  // The flag is a request to the daemon ingress, which mints `gates` from the authored
+  // harness.yaml before compile; reaching the compiler without it means a caller bypassed the
+  // read of the authored document and there is nothing honest to apply.
+  if (input.action.gatesFromDocument === true && !Object.hasOwn(input.action, "gates"))
+    rejectSettings(
+      "invalid_command",
+      "gatesFromDocument requires the settings-update ingress to mint gates from harness.yaml.",
+    );
   if (expectedVersion !== undefined && (!Number.isSafeInteger(expectedVersion) || Number(expectedVersion) < 0))
     rejectSettings("invalid_command", "expectedVersion must be a non-negative integer when supplied.");
   if (!repositoryChangeRequested) return { kind: "no-changes", settings: current, revision };
@@ -238,7 +248,7 @@ export function compileSettingsUpdate(input: EntityActionCompileInput): Settings
         milliseconds: updatedPositiveInteger(input.action, "walFlushMilliseconds", current.walFlush.milliseconds),
       },
       ci: { workflows: updatedWorkflows(input.action, current.ci.workflows) },
-      gates: current.gates,
+      gates: updatedGateMappings(input.action, current.gates),
       closeout: {
         profile: updatedCloseoutProfile(input.action.closeoutProfile, current.closeout.profile),
         ...closeoutOverrides(input.action, current),
@@ -361,6 +371,23 @@ function updatedWorkflows(action: Readonly<Record<string, unknown>>, current: re
   )
     rejectSettings("invalid_command", "ciWorkflows must contain unique workflow names without .yml.");
   return workflows;
+}
+
+/**
+ * `action.gates` is never a caller-declared input: the daemon's settings-update runtime mints it
+ * from the authored harness.yaml `settings.gates` block when `gatesFromDocument` is set, so the
+ * entity's single write path stays the only way gate mappings enter the ledger. Shape errors are
+ * still rejected here; field-level judgement belongs to `validateRepositorySettings` below.
+ */
+function updatedGateMappings(
+  action: Readonly<Record<string, unknown>>,
+  current: RepositorySettingsV1["gates"],
+): RepositorySettingsV1["gates"] {
+  if (!Object.hasOwn(action, "gates")) return current;
+  const value = action.gates;
+  if (!Array.isArray(value) || value.some((mapping) => typeof mapping !== "object" || mapping === null))
+    rejectSettings("invalid_command", "gates must be an array of gate witness mappings.");
+  return value as RepositorySettingsV1["gates"];
 }
 
 function rejectSettings(code: string, message: string): never {

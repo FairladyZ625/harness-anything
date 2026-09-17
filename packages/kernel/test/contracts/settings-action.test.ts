@@ -140,6 +140,63 @@ test("Settings update persists closeout profile and individual overrides", () =>
   });
 });
 
+test("Settings update mints gate mappings into the entity and rewrites the authored gates facet", () => {
+  const gates = [
+      {
+        gateId: "ci",
+        adapter: "github-actions",
+        appliesTo: "code",
+        branch: "main",
+        event: "push",
+        coverage: "descendant",
+        selection: "newest",
+      },
+      { gateId: "code-doc-reconciliation", adapter: "none" },
+    ],
+    draft = compile({ gatesFromDocument: true, gates });
+  assert.equal(draft.kind, "settings");
+  if (draft.kind !== "settings" || draft.result.kind !== "event") throw new Error("missing settings event");
+  assert.deepEqual(draft.result.bundle.event.payload.settings.gates, gates);
+  const body = draft.result.bundle.blobs[0].body;
+  assert.match(body, /  gates:\n    ci:\n      adapter: github-actions\n/u);
+  assert.match(body, /    code-doc-reconciliation: none\n/u);
+  assert.deepEqual(readSettingsFacet(body).gates, gates);
+  assertSettingsEventInputs(draft.result.bundle.event, draft.result.bundle.plan, draft.result.bundle.blobs);
+});
+
+test("Settings update removes the authored gates block when the minted mapping list empties", () => {
+  const gated = gatedFixture(),
+    draft = compile({ gatesFromDocument: true, gates: [] }, gated);
+  assert.equal(draft.kind, "settings");
+  if (draft.kind !== "settings" || draft.result.kind !== "event") throw new Error("missing settings event");
+  assert.deepEqual(draft.result.bundle.event.payload.settings.gates, []);
+  const body = draft.result.bundle.blobs[0].body;
+  assert.doesNotMatch(body, /^  gates:/mu);
+  assert.deepEqual(readSettingsFacet(body).gates, []);
+});
+
+test("Settings update rejects gatesFromDocument without a daemon-minted gates array", () => {
+  assert.throws(
+    () => compile({ gatesFromDocument: true }),
+    (error: unknown) => error instanceof SettingsActionError && error.code === "invalid_command",
+  );
+});
+
+test("Settings update rejects malformed gate mappings", () => {
+  for (const gates of [
+    "ci",
+    ["ci"],
+    [{ gateId: "ci", adapter: "bogus-adapter" }],
+    [{ gateId: "ci", adapter: "github-actions" }],
+  ]) {
+    assert.throws(
+      () => compile({ gates }),
+      (error: unknown) => error instanceof SettingsActionError && error.code === "invalid_command",
+      JSON.stringify(gates),
+    );
+  }
+});
+
 test("Settings update rejects malformed CI workflow name lists", () => {
   for (const ciWorkflows of [["ci", "ci"], ["ci.yml"], ["ci.yaml"], [""]]) {
     assert.throws(
@@ -214,6 +271,7 @@ test("settings update field surface has one source: the catalog input is the exp
     "walFlushBytes",
     "walFlushMilliseconds",
     "ciWorkflows",
+    "gatesFromDocument",
     "closeoutProfile",
     "closeoutReview",
     "closeoutConsent",
@@ -235,7 +293,7 @@ test("repositorySettingsActionValues covers every repository field for a fully p
   for (const key of Object.keys(values)) assert.ok(names.has(key), `${key} is not an action field`);
   const repositoryFields = settingsUpdateInputFields
     .map(({ field }) => field)
-    .filter((field) => !["locale", "expectedVersion", "idempotencyKey"].includes(field));
+    .filter((field) => !["locale", "expectedVersion", "idempotencyKey", "gatesFromDocument"].includes(field));
   for (const field of repositoryFields) assert.ok(Object.hasOwn(values, field), `${field} has no flat action value`);
   // closeout 门布尔承载生效值:strict 基线即无覆写时的值。
   assert.equal(repositorySettingsActionValues(current).closeoutReview, false);
@@ -250,5 +308,14 @@ test("repositorySettingsActionValues covers every repository field for a fully p
 /** Clearing is only a change for a repository that already witnesses CI runs. */
 function witnessed(): { readonly currentEntity: unknown; readonly currentDocumentBody: string } {
   const body = `${documentBody}  ci:\n    workflows: [ci]\n`;
+  return { currentEntity: repositorySettings(readSettingsFacet(body)), currentDocumentBody: body };
+}
+
+/** A repository whose authored document already declares a github-actions mapping for `ci`. */
+function gatedFixture(): { readonly currentEntity: unknown; readonly currentDocumentBody: string } {
+  const body =
+    `${documentBody}  ci:\n    workflows: [ci]\n` +
+    "  gates:\n    ci:\n      adapter: github-actions\n      appliesTo: code\n      branch: main\n" +
+    "      event: push\n      coverage: descendant\n      selection: newest\n";
   return { currentEntity: repositorySettings(readSettingsFacet(body)), currentDocumentBody: body };
 }

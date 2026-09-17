@@ -308,6 +308,7 @@ export {
   SETTINGS_ID,
   SETTINGS_LOCAL_PATH,
   parseLocalSettings,
+  readGateSettings,
   readSettingsFacet,
   repositorySettings,
   serializeLocalSettings,

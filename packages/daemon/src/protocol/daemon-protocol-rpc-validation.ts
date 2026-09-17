@@ -288,14 +288,20 @@ export function validateGuiActionPayload(method: DaemonGuiActionMethod, value: u
         "defaultVertical defaultPreset defaultProfile defaultReviewer reviewIndependence reviewReturnBudget " +
         "closeoutProfile closeoutReview closeoutConsent closeoutFactDisposition closeoutCodeDoc " +
         "locale taskScaffold repositoryScaffold walFlushAdaptive walFlushEvents " +
-        "walFlushBytes walFlushMilliseconds ciWorkflows"
+        "walFlushBytes walFlushMilliseconds ciWorkflows gatesFromDocument"
       ).split(" "),
       changed = settingFields.filter((field) => value[field] !== undefined),
       identifier = /^[A-Za-z0-9][A-Za-z0-9/_.@-]*$/u;
     if (
       changed.length === 0 ||
       changed
-        .filter((field) => !field.startsWith("walFlush") && !field.startsWith("closeout") && field !== "ciWorkflows")
+        .filter(
+          (field) =>
+            !field.startsWith("walFlush") &&
+            !field.startsWith("closeout") &&
+            field !== "ciWorkflows" &&
+            field !== "gatesFromDocument",
+        )
         .some((field) => typeof value[field] !== "string" || !identifier.test(String(value[field]))) ||
       [value.walFlushEvents, value.walFlushBytes, value.walFlushMilliseconds, value.reviewReturnBudget].some(
         (item) => item !== undefined && (!Number.isSafeInteger(item) || Number(item) < 1),
@@ -304,7 +310,9 @@ export function validateGuiActionPayload(method: DaemonGuiActionMethod, value: u
       (value.reviewIndependence !== undefined &&
         !["execution", "principal"].includes(String(value.reviewIndependence))) ||
       changed
-        .filter((field) => /^(walFlushAdaptive|closeout(Review|Consent|FactDisposition|CodeDoc))$/u.test(field))
+        .filter((field) =>
+          /^(walFlushAdaptive|closeout(Review|Consent|FactDisposition|CodeDoc)|gatesFromDocument)$/u.test(field),
+        )
         .some((field) => typeof value[field] !== "boolean")
     )
       errors.push("settings update is invalid");

@@ -1,9 +1,14 @@
+import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
 import {
   SETTINGS_ID,
   attributeEntityActionCriterion,
   isSettingsEvent,
+  readGateSettings,
+  resolveHarnessLayout,
   settingsActionLocale,
   type EntityActionCompileInput,
+  type GateWitnessMappingV1,
   type SettingsActionDraft,
   type SettingsV1,
   type WriteReceiptDraft as WriteReceipt,
@@ -52,22 +57,42 @@ export function makeSettingsActionRuntime(
     const document = cell.projection.readDocument("harness.yaml"),
       compile = contract.execution.compile;
     if (!compile) throw cell.cellCodedError("invalid_command", `${action.kind} has no Settings event compiler.`);
-    const compiled = compile({
-      action,
-      actor: binding.actor,
-      source: binding.source,
-      session: resolveWriteSessionIdentity(binding, cell.projection),
-      opId,
-      occurredAt: cell.now(),
-      workspaceRevision: (cell.store.readHead()?.revision ?? 0) + 1,
-      currentEntity: row?.value,
-      entityRevision: revision,
-      ...(document.document?.body === undefined ? {} : { currentDocumentBody: document.document.body }),
-    } satisfies EntityActionCompileInput);
+    // `--gates-from-document` mints the entity value from the authored harness.yaml on disk —
+    // the user-facing declaration surface — instead of trusting a caller-supplied `gates` array.
+    const gates = action.gatesFromDocument === true ? authoredGateMappings(cell) : undefined,
+      compiled = compile({
+        action: gates === undefined ? action : { ...action, gates },
+        actor: binding.actor,
+        source: binding.source,
+        session: resolveWriteSessionIdentity(binding, cell.projection),
+        opId,
+        occurredAt: cell.now(),
+        workspaceRevision: (cell.store.readHead()?.revision ?? 0) + 1,
+        currentEntity: row?.value,
+        entityRevision: revision,
+        ...(document.document?.body === undefined ? {} : { currentDocumentBody: document.document.body }),
+      } satisfies EntityActionCompileInput);
     if (compiled.kind !== "settings")
       throw cell.cellCodedError("invalid_store", `${action.kind} compiled a non-Settings action draft.`);
     return publishSettingsDraft(cell, settingsState, opId, compiled.result, locale, targetRef);
   };
+}
+
+function authoredGateMappings(cell: RepoCellRuntimeContext): readonly GateWitnessMappingV1[] {
+  const configPath = path.join(resolveHarnessLayout(cell.rootDir).authoredRoot, "harness.yaml");
+  if (!existsSync(configPath))
+    throw cell.cellCodedError(
+      "invalid_command",
+      "gatesFromDocument requires the authored harness.yaml document to exist.",
+    );
+  try {
+    return readGateSettings(readFileSync(configPath, "utf8"));
+  } catch (error) {
+    throw cell.cellCodedError(
+      "invalid_command",
+      `harness.yaml settings.gates is invalid: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
 }
 
 function readSettings(

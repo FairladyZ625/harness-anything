@@ -75,3 +75,11 @@ test("Settings CLI forwards CI workflow names and the none opt-out to the settin
     if (parsed.ok) assert.deepEqual(parsed.command.action, { kind: "settings-update", ciWorkflows });
   }
 });
+
+test("Settings CLI forwards --gates-from-document as a boolean action field", () => {
+  const parsed = parseThinCommand(["settings", "update", "--gates-from-document"]);
+  assert.equal(parsed.ok, true);
+  if (parsed.ok) assert.deepEqual(parsed.command.action, { kind: "settings-update", gatesFromDocument: true });
+  // The flag carries no value: gate mappings are minted by the daemon from harness.yaml.
+  assert.equal(parseThinCommand(["settings", "update", "--gates-from-document", "ci"]).ok, false);
+});

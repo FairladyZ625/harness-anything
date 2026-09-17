@@ -121,6 +121,15 @@ const settingsWriteTopology = {
           },
         ),
         cliInput(
+          "--gates-from-document",
+          "boolean",
+          false,
+          { code: "invalid_field" },
+          {
+            format: "import the settings.gates block declared in harness.yaml",
+          },
+        ),
+        cliInput(
           "--expected-version",
           "single",
           false,
