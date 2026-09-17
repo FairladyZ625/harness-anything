@@ -32,13 +32,46 @@ export async function settleWriteReceipt(
   )
     return receipt;
   if (!canonicalSettlementActions.has(action.kind) && action.kind !== "receipt-show") return receipt;
-  const read = () => attachReceiptAcceptance(receipt, context.store, context.projection);
+  const read = () =>
+    relationWorktreeSettlement(
+      action,
+      attachReceiptAcceptance(receipt, context.store, context.projection),
+      context.store,
+    );
   if (action.kind === "task-create" && receipt.proof?.durable === true) return settleTaskCreateScaffold(context, read);
+  if (isRelationWrite(action) && receipt.proof?.durable === true) {
+    await context.store.settlePendingMaterialization?.("relation document write");
+    return read();
+  }
   return action.kind === "receipt-show" && action.waitFor !== undefined
     ? waitForReceiptAcceptance(read, action.waitFor, action.timeoutMs, signal, async () => {
         await context.store.settlePendingMaterialization?.("receipt wait");
       })
     : read();
+}
+
+function relationWorktreeSettlement<R extends WriteReceipt>(
+  action: RepoTaskAction,
+  receipt: R,
+  store: CanonicalEventStore,
+): R {
+  const relationAction =
+    isRelationWrite(action) ||
+    (action.kind === "receipt-show" && store.readEvent(receipt.opId)?.schema === "relation-event/v1");
+  if (!relationAction) return receipt;
+  if (receipt.outcome !== "applied" || !("worktree" in receipt) || receipt.worktree.state === "verified")
+    return receipt;
+  return {
+    ...receipt,
+    outcome: "pending",
+    nextAction: `ha receipt show ${receipt.opId} --wait worktree_visible`,
+  } as R;
+}
+
+function isRelationWrite(action: RepoTaskAction): boolean {
+  return (
+    action.kind === "relation-relate" || action.kind === "relation-unrelate" || action.kind === "relation-reconfirm"
+  );
 }
 
 /**

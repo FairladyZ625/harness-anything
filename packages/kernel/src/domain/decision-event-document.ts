@@ -16,6 +16,7 @@ import {
   type DecisionTransitionType,
 } from "./decision-event-types.ts";
 import { type EntityRelationRecord } from "./entity-relation.ts";
+import { parseEntityRef } from "./entity-ref.ts";
 import { assertTransitionDocumentReady, requireTransitionDocumentKind } from "./transition-document-readiness.ts";
 import {
   freezeDeclaredWritePlan,
@@ -29,6 +30,7 @@ export function compileDecisionWrite(input: {
   readonly approval?: Pick<DecisionJudgmentConsentV1, "approvedBy" | "at" | "channel">;
   readonly currentDecision: Omit<DecisionDocumentState, "relations"> | null;
   readonly currentRelations: readonly EntityRelationRecord[];
+  readonly currentIncomingRelations?: readonly EntityRelationRecord[];
   readonly currentDocument: {
     readonly blobSha256: string;
     readonly body: string;
@@ -73,7 +75,19 @@ export function compileDecisionWrite(input: {
         ? (input.event.payload.body ?? undefined)
         : undefined,
     judgment = input.event.type === "decision_accepted" ? input.event.payload.judgmentOnlyRationale : null,
-    body = renderDecisionDocument(next, input.currentDocument?.body ?? null, replacementBody, judgment),
+    incomingRelations =
+      input.currentIncomingRelations ??
+      next.relations.filter((relation) => {
+        const target = parseEntityRef(relation.target);
+        return target?.kind === "decision" && target.id === input.event.decisionId;
+      }),
+    body = renderDecisionDocument(
+      next,
+      input.currentDocument?.body ?? null,
+      replacementBody,
+      judgment,
+      incomingRelations,
+    ),
     claim: DecisionDocumentClaim = {
       path,
       sha256: sha256Text(body),
@@ -162,6 +176,7 @@ export function renderDecisionDocument(
   current: string | null,
   replacementBody?: string,
   judgmentOnlyRationale: string | null = null,
+  incomingRelations: readonly EntityRelationRecord[] = [],
 ): string {
   const baseProse = replacementBody ?? (current === null ? `\n# ${value.title}\n` : decisionDocumentProse(current)),
     prose = judgmentOnlyRationale
@@ -193,16 +208,55 @@ export function renderDecisionDocument(
       `chosen: ${stableStringify(value.chosen)}`,
       `rejected: ${stableStringify(value.rejected)}`,
       `claims: ${stableStringify(value.claims)}`,
+      `relations: ${stableStringify(value.relations)}`,
       `judgmentConsents: ${stableStringify(value.judgmentConsents)}`,
       ...history,
       "---",
-    ].join("\n");
-  return `${frontmatter}\n${prose}`;
+    ].join("\n"),
+    neighborhood = renderDecisionRelationNeighborhood(value.relations, incomingRelations);
+  return `${frontmatter}\n${neighborhood}${prose}`;
 }
 export function decisionDocumentProse(body: string): string {
   const match = /^---\n[\s\S]*?\n---\n/u.exec(body);
   if (!match) throw new Error("decision document frontmatter is invalid");
-  return body.slice(match[0].length);
+  return body
+    .slice(match[0].length)
+    .replace(
+      /^<!-- harness:relation-neighborhood:start -->\n[\s\S]*?<!-- harness:relation-neighborhood:end -->\n/u,
+      "",
+    );
+}
+
+function renderDecisionRelationNeighborhood(
+  outgoing: readonly EntityRelationRecord[],
+  incoming: readonly EntityRelationRecord[],
+): string {
+  const lines = (relations: readonly EntityRelationRecord[]) =>
+    relations.length
+      ? [...relations]
+          .sort((left, right) => left.relation_id.localeCompare(right.relation_id))
+          .map(
+            (relation) =>
+              `- ${relation.relation_id}: ${stableStringify(relation.source)} --${relation.type}--> ` +
+              `${stableStringify(relation.target)} ` +
+              `[${relation.state}] (${stableStringify(relation.rationale)})`,
+          )
+          .join("\n")
+      : "- none";
+  return [
+    "<!-- harness:relation-neighborhood:start -->",
+    "## Relation neighborhood",
+    "",
+    "### Outgoing",
+    "",
+    lines(outgoing),
+    "",
+    "### Incoming",
+    "",
+    lines(incoming),
+    "<!-- harness:relation-neighborhood:end -->",
+    "",
+  ].join("\n");
 }
 export function reduceDecisionDocument(
   current: DecisionDocumentState | null,

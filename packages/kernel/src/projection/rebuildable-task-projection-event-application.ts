@@ -46,6 +46,7 @@ import {
   projectFact,
   projectMigration,
   projectProgress,
+  projectRelationDocuments,
 } from "./rebuildable-task-projection-write-model.ts";
 import {
   deleteEntityProjectionRow,
@@ -161,6 +162,7 @@ export function applyEvent(
       eventJson,
     );
     applyRelationProjectionEvent(db, event);
+    projectRelationDocuments(db, event, readBlob);
     return;
   }
   if (isEntityEvent(event)) {
