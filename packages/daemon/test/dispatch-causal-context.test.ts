@@ -95,14 +95,14 @@ test("the block carries milestone, decision, and fact refs at one cut", () => {
   });
   const block = assembleTaskCausalContext({ projection, taskId: "task_leaf" });
   assert.ok(block !== null);
-  assert.match(block, /# Task Causal Context & Architectural Rationale/u);
-  assert.match(block, /Milestone: Milestone goal \(task_root\)/u);
+  assert.match(block, /^# Task Causal Context\n/u);
+  assert.match(block, /- Milestone: Milestone goal\n/u);
   assert.match(block, /Goal: Ship the causal tree\./u);
-  assert.match(block, /Derived from Decision: dec_ABC "Completion generalization"/u);
-  assert.match(block, /Chosen CH1: Declarative evidence set — Rationale: Verifiable without merge/u);
+  assert.match(block, /- Decision: dec_ABC "Completion generalization"/u);
+  assert.match(block, /Chosen CH1: Declarative evidence set — Verifiable without merge/u);
   assert.match(block, /C1 submit supports artifact-only/u);
-  assert.match(block, /F-0001: submit persists artifact-only receipts \(source: packages\/x.ts\)/u);
-  assert.ok(Buffer.byteLength(block, "utf8") <= 1400);
+  assert.match(block, /F-0001: submit persists artifact-only receipts \(src:packages\/x.ts\)/u);
+  assert.ok(Buffer.byteLength(block, "utf8") <= 500);
 });
 
 test("a cut advancing mid-read is rejected instead of serving a mixed view", () => {
@@ -174,7 +174,82 @@ test("oversized CJK content truncates inside the byte budget and keeps refs", ()
   });
   const block = assembleTaskCausalContext({ projection, taskId: "task_leaf" });
   assert.ok(block !== null);
-  assert.ok(Buffer.byteLength(block, "utf8") <= 1400, `block is ${Buffer.byteLength(block, "utf8")} bytes`);
+  assert.ok(Buffer.byteLength(block, "utf8") <= 500, `block is ${Buffer.byteLength(block, "utf8")} bytes`);
   assert.match(block, /dec_0/u);
-  assert.match(block, /truncated/u);
+  assert.match(block, /…/u, "dropped detail is honestly marked");
+  assert.match(block, /Refs: .*ha graph task_leaf/u, "canonical refs stay queryable");
+});
+
+test("ASCII noise, long ids, and long source paths stay inside the byte budget", () => {
+  const noise = "x9Qz".repeat(300),
+    longId = `dec_${"A".repeat(120)}`,
+    longPath = `packages/${"deep/".repeat(40)}source.ts`;
+  const projection = stub({
+    readTaskIndex: () => ({
+      ...cut(),
+      rows: [
+        {
+          taskId: "task_root",
+          title: noise,
+          taskClass: "milestone",
+          parentTaskId: null,
+          packagePath: "tasks/root",
+        },
+        {
+          taskId: "task_leaf",
+          title: "Leaf",
+          taskClass: "standard",
+          parentTaskId: "task_root",
+          packagePath: "tasks/leaf",
+        },
+      ],
+    }),
+    readTaskRelationsByTargets: () => ({
+      ...cut(),
+      rows: [
+        {
+          relationId: "rel_1",
+          sourceRef: `decision/${longId}/CH1`,
+          targetRef: "task/task_leaf",
+          relationType: "derives",
+          direction: "directed",
+          state: "active",
+        },
+      ],
+    }),
+    readDecisions: () => ({
+      ...cut(),
+      decisions: [
+        {
+          decisionId: longId,
+          title: noise,
+          question: noise,
+          chosen: [{ id: "CH1", text: noise, rationale: noise }],
+          claims: [{ id: "C1", text: noise, loadBearing: true }],
+        },
+      ],
+    }),
+    readRelationQuery: () => ({
+      ...cut(),
+      rows: [
+        {
+          relationId: "rel_f",
+          sourceRef: `decision/${longId}/C1`,
+          targetRef: "fact/F-long",
+          relationType: "evidenced-by",
+          direction: "directed",
+          state: "active",
+        },
+      ],
+    }),
+    searchFacts: () => ({
+      ...cut(),
+      facts: [{ ref: "fact/F-long", statement: noise, evidenceSource: longPath }],
+    }),
+  });
+  const block = assembleTaskCausalContext({ projection, taskId: "task_leaf" });
+  assert.ok(block !== null);
+  assert.ok(Buffer.byteLength(block, "utf8") <= 500, `block is ${Buffer.byteLength(block, "utf8")} bytes`);
+  assert.match(block, /^# Task Causal Context\n/u);
+  assert.match(block, /ha graph task_leaf/u);
 });
