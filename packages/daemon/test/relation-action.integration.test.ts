@@ -212,7 +212,10 @@ test("immediate relate observes all newly created endpoints across twenty writer
       ),
       targetFrontmatter = targetBody.slice(0, targetBody.indexOf("\n---\n", 4));
     assert.equal(targetFrontmatter.includes(decisionRelationId), false);
-    assert.match(targetBody, new RegExp(`### Incoming[\\s\\S]*${decisionRelationId}`, "u"));
+    assert.match(
+      targetBody,
+      new RegExp(`### 演进与关联决策 \\(Related Decisions\\)[\\s\\S]*${decisionId}[^\\n]*\\(incoming refines\\)`, "u"),
+    );
     const decisionRelationEvent = reader.readEvent(String(relatedDecisions.opId));
     assert.equal(decisionRelationEvent?.schema, "relation-event/v1");
     if (decisionRelationEvent?.schema === "relation-event/v1")

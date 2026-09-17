@@ -1,6 +1,7 @@
 import type { SafePath } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { accepted, nonEmpty, readFlags, rejected } from "./thin-command-flags.ts";
 import { parseProjected } from "./thin-command-projection.ts";
+import { parseRematerialize } from "./thin-command-rematerialize.ts";
 import type { ThinCliInputDirectory, ThinParseResult } from "./thin-command-types.ts";
 
 export function parseFact(
@@ -12,6 +13,7 @@ export function parseFact(
   inputs: ThinCliInputDirectory,
 ): ThinParseResult {
   if (id === "fact-record") return parseFactRecord(args, rootDir, repoId, json, inputs);
+  if (id === "fact-rematerialize") return parseRematerialize(id, "factId", args, rootDir, repoId, json, inputs);
   if (id === "fact-reclassify") {
     const factId = args[2]?.startsWith("--") ? undefined : args[2],
       f = readFlags(id, args.slice(factId ? 3 : 2), inputs);

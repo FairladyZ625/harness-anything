@@ -573,6 +573,45 @@ test("Decision F06 and distill leaf commands preserve their complete structured 
   assert.equal(parseThinCommand(["decision", "amend", "dec_1"]).ok, false);
 });
 
+test("entity rematerialize commands parse exactly one of --all or --id plus --dry-run", () => {
+  const decision = parseThinCommand(["decision", "rematerialize", "--id", "dec_1"]),
+    decisionAll = parseThinCommand(["decision", "rematerialize", "--all", "--dry-run"]),
+    fact = parseThinCommand(["fact", "rematerialize", "--id", "F-ABCDEFGH"]),
+    task = parseThinCommand(["task", "rematerialize", "--all"]);
+  assert.equal(
+    [decision, decisionAll, fact, task].every((result) => result.ok),
+    true,
+    JSON.stringify([decision, decisionAll, fact, task]),
+  );
+  if (decision.ok)
+    assert.deepEqual(decision.command.action, {
+      kind: "decision-rematerialize",
+      decisionId: "dec_1",
+      dryRun: false,
+    });
+  if (decisionAll.ok)
+    assert.deepEqual(decisionAll.command.action, {
+      kind: "decision-rematerialize",
+      all: true,
+      dryRun: true,
+    });
+  if (fact.ok)
+    assert.deepEqual(fact.command.action, {
+      kind: "fact-rematerialize",
+      factId: "F-ABCDEFGH",
+      dryRun: false,
+    });
+  if (task.ok)
+    assert.deepEqual(task.command.action, {
+      kind: "task-rematerialize",
+      all: true,
+      dryRun: false,
+    });
+  assert.equal(parseThinCommand(["decision", "rematerialize"]).ok, false);
+  assert.equal(parseThinCommand(["decision", "rematerialize", "--all", "--id", "dec_1"]).ok, false);
+  assert.equal(parseThinCommand(["fact", "rematerialize"]).ok, false);
+});
+
 test("Decision file-flag help and the workspace read rejection state one shared path rule", () => {
   const fileFlagHelpLine = (commandId: string, flag: string) =>
     daemonProtocolCommands
