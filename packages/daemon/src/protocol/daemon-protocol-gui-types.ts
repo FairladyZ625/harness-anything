@@ -561,6 +561,8 @@ export type DaemonRelationGraphFullResult = { readonly ok: true } & EventProject
      * Optional so older daemons and every persisted record shape stay valid. */
     readonly coverageRows: readonly ServedCoverageRow[];
     readonly page?: ProjectionPage;
+    /** Set only on neighborhood reads: edges exist beyond the served depth window. */
+    readonly truncated?: boolean;
   };
 
 type EmptyRelationFacetRows = {

@@ -126,6 +126,9 @@ export const decisionRelationProtocolCommands = Object.freeze([
     summary: "Show one canonical Decision by id or E-number.",
     method: "repo.task.read",
     inputs: [
+      // <id> and --id are the same field in two spellings; the parser rejects both-at-once
+      // and reports a missing id itself, so the flag stays optional in the declaration.
+      cliInput("--id", "single", false, { code: "invalid_field" }),
       cliInput("--include-body", "boolean", false, {
         code: "invalid_field",
       }),

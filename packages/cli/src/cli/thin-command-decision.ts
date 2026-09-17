@@ -27,6 +27,8 @@ export function parseDecision(
   const noId = id === "decision-propose" || id === "decision-list",
     nested = route.path[1] === "claim",
     decisionId = noId ? undefined : args[nested ? 3 : 2];
+  if (id === "decision-list" || id === "decision-show")
+    return parseDecisionRead(id, args, rootDir, repoId, json, inputs);
   if (!noId && !nonEmpty(decisionId)) return rejected("missing_field", "Decision id is required.", json);
   if (id === "decision-propose") return parseProposal(args, rootDir, repoId, json, inputs);
   if (["decision-accept", "decision-reject", "decision-defer"].includes(id))
@@ -50,8 +52,6 @@ export function parseDecision(
     return parseProjected(id, args.slice(3), rootDir, repoId, json, inputs, {
       decisionId,
     });
-  if (id === "decision-list" || id === "decision-show")
-    return parseDecisionRead(id, decisionId, args, rootDir, repoId, json, inputs);
   return rejected("unsupported_command", "Use a canonical Decision command.", json);
 }
 

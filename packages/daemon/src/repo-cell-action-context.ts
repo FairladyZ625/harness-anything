@@ -84,6 +84,7 @@ import {
   taskWipEnteringAction as taskWipEnteringActionImpl,
   wipSnapshotEntries as wipSnapshotEntriesImpl,
 } from "./repo-cell-task-query.ts";
+import { graphView as graphViewImpl } from "./repo-cell-graph-view.ts";
 import type { TaskQueryCell } from "./repo-cell-task-query.ts";
 import { listEvents as listEventsImpl, showEvent as showEventImpl } from "./repo-cell-event-query.ts";
 import { type PublicPublication, type RepoTaskAction } from "./repo-cell-types.ts";
@@ -135,6 +136,7 @@ export interface RepoCellActionContext extends TaskQueryCell {
   readonly showEvent: Bound<typeof showEventImpl>;
   readonly reviewTask: Bound<typeof reviewTaskImpl>;
   readonly taskReadSet: Bound<typeof taskReadSetImpl>;
+  readonly graphView: Bound<typeof graphViewImpl>;
   readonly publishGeneratedArtifact: typeof publishGeneratedArtifact;
   readonly entityActionExecutor: ReturnType<typeof makeEntityActionCatalogExecutor>;
   readonly entityActionRuntimes: EntityActionCatalogRuntimes;
@@ -273,6 +275,7 @@ export function createRepoCellActionContext(bindings: {
     showEvent: bind(showEventImpl),
     reviewTask: bind(reviewTaskImpl),
     taskReadSet: bind(taskReadSetImpl),
+    graphView: bind(graphViewImpl),
     taskListQueryFromAction: (_action: RepoTaskAction) => unavailableTaskQuery(),
     relationQueryFromAction: (_action: RepoTaskAction) => unavailableTaskQuery(),
     queryRead: (): TaskQueryReadModel => unavailableTaskQuery(),

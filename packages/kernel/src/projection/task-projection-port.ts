@@ -29,6 +29,7 @@ import type {
   TaskProgressProjectionRead,
   TaskProjectionListRead,
   TaskProjectionRead,
+  TaskRelationNeighborhoodRead,
   TaskRelationProjectionRead,
   TaskRuntimeBatchQuery,
   TaskRuntimeBatchRead,
@@ -88,7 +89,7 @@ export interface TaskProjection {
   readonly readTaskRelations: () => TaskRelationProjectionRead;
   readonly readTaskRelationNeighborhood: (
     query: import("./task-query-projection.ts").TaskRelationNeighborhoodQuery,
-  ) => TaskRelationProjectionRead;
+  ) => TaskRelationNeighborhoodRead;
   readonly readTaskDependencyClosure: (sourceRefs: readonly string[], maxDepth?: number) => TaskRelationProjectionRead;
   readonly readTaskRelationsByTargets: (
     targetRefs: readonly string[],

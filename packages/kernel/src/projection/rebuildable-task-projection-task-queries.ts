@@ -7,6 +7,7 @@ import { localRuntimeStateFileSystem } from "../local/local-layout-file-system.t
 import {
   readTaskDependencyClosureRows,
   readTaskRelationNeighborhoodRows,
+  readTaskRelationNeighborhoodWindow,
   readTaskChildCounts,
   readTaskIndexRows,
   readTaskRelationPage,
@@ -192,10 +193,15 @@ export function taskQueryApi(
       }),
     readTaskRelationNeighborhood: (query) =>
       withDatabase(projectionPath, readHead, (db) => {
-        const cut = readProjectionCut(db, readHead);
+        const cut = readProjectionCut(db, readHead),
+          rows =
+            query.allowTruncation === true
+              ? readTaskRelationNeighborhoodWindow(db, query)
+              : { rows: readTaskRelationNeighborhoodRows(db, query), truncated: false };
         return {
           status: cut.status,
-          rows: readTaskRelationNeighborhoodRows(db, query),
+          rows: rows.rows,
+          truncated: rows.truncated,
           watermark: cut.watermark,
           sourceRevision: cut.sourceRevision,
         };

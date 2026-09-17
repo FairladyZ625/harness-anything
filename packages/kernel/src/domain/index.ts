@@ -148,6 +148,9 @@ export type { TaskWipRootRow, TaskWipSnapshotEntryV1 } from "./task-wip-policy.t
 export { parseEntityRef } from "./entity-ref.ts";
 export type { EntityRef, EntityRefKind, ParsedEntityRef } from "./entity-ref.ts";
 
+export { buildCausalGraphView } from "./causal-graph-view.ts";
+export type { CausalGraphEdgeInput, CausalGraphNodeInfo } from "./causal-graph-view.ts";
+
 export { projectDeclaredRoleBindings, roleBindingActorMatches, roleBindingExpired } from "./role-binding.ts";
 export type { RoleBinding } from "./role-binding.ts";
 export type { DelegatedExecutionToken } from "./delegated-execution-token.ts";
