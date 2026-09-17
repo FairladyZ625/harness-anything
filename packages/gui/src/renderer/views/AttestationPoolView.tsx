@@ -49,9 +49,9 @@ const TAB_LABEL_KEY: Record<AttestationPoolTabId, MessageKey> = {
 /**
  * 待办签发总池:人类治理动作的集中大厅。五个 lane——待裁决策(既有决策池的快速
  * 批复能力原样保留)、待签门禁(manual-attest 打勾签注与自动已过的双控缺签)、
- * 待同意收口(consent)、阻断需特批(契约声明 allowOverride 的自动门失败)——
- * 数据源只来自投影行真实状态。Tab 由 AppLocation 携带(poolTab),URL/刷新可寻址;
- * 动作全部行内展开,不出全局模态。
+ * 待同意收口(consent)、阻断需特批(契约声明 allowOverride 的自动门 failed 或
+ * missing)——数据源只来自投影行真实状态。Tab 由 AppLocation 携带(poolTab),
+ * URL/刷新可寻址;动作全部行内展开,不出全局模态。
  */
 export function AttestationPoolView({
   repoId,
@@ -365,6 +365,7 @@ function GateAttestRow({
       {open && (
         <GateAttestForm
           mode={mode}
+          gateStatus={item.gateStatus}
           pending={pending}
           onCancel={() => setOpen(false)}
           onSubmit={(rationale) => {

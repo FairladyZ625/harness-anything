@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { CheckCircle, ClockCounterClockwise, WarningCircle, XCircle } from "@phosphor-icons/react";
-import type { TaskRow } from "../../model/types.ts";
+import type { GateStatus, TaskRow } from "../../model/types.ts";
 import { taskGateAttestations } from "../../model/attestation-pool.ts";
 import type { TaskMutationFeedback } from "../../task-actions.ts";
 import { t } from "../../i18n/index.tsx";
@@ -12,18 +12,22 @@ const focusRing = "focus-visible:outline-2 focus-visible:outline-offset-[-2px] f
 /** 打勾签注/特批的行内表单(任务卡与总池共用):评语输入 + 校验 + 提交,不出模态。 */
 export function GateAttestForm({
   mode,
+  gateStatus,
   pending,
   onSubmit,
   onCancel,
 }: {
   readonly mode: GateAttestMode;
+  /** override 的对象状态:failed=豁免已记录的失败回执;missing=本 cut 未取得自动见证。 */
+  readonly gateStatus?: GateStatus;
   readonly pending: boolean;
   readonly onSubmit: (rationale: string) => void;
   readonly onCancel: () => void;
 }) {
   const [rationale, setRationale] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const override = mode === "override";
+  const override = mode === "override",
+    noWitness = override && gateStatus === "missing";
   const submit = () => {
     const note = rationale.trim();
     // 特批理由 trim 后 ≥10 字符(daemon 权威校验);approve 评语可空。
@@ -37,7 +41,15 @@ export function GateAttestForm({
     <div
       className={`mt-1.5 rounded-md border p-2.5 ${override ? "border-danger/40 bg-danger/5" : "border-border bg-surface-raised/50"}`}
     >
-      {override && <p className="ui-micro text-danger">{t("components.taskGateAttestCard.overrideHint")}</p>}
+      {override && (
+        <p className="ui-micro text-danger">
+          {t(
+            noWitness
+              ? "components.taskGateAttestCard.overrideMissingHint"
+              : "components.taskGateAttestCard.overrideHint",
+          )}
+        </p>
+      )}
       <label className={`block ui-micro font-semibold ${override ? "mt-1.5 text-text-muted" : "text-text-muted"}`}>
         {t(
           override
@@ -49,9 +61,11 @@ export function GateAttestForm({
         value={rationale}
         onChange={(event) => setRationale(event.target.value)}
         placeholder={t(
-          override
-            ? "components.taskGateAttestCard.overrideRationalePlaceholder"
-            : "components.taskGateAttestCard.rationalePlaceholder",
+          noWitness
+            ? "components.taskGateAttestCard.overrideMissingRationalePlaceholder"
+            : override
+              ? "components.taskGateAttestCard.overrideRationalePlaceholder"
+              : "components.taskGateAttestCard.rationalePlaceholder",
         )}
         rows={2}
         maxLength={199}
@@ -103,9 +117,10 @@ export function AttestFeedbackRow({ feedback }: { readonly feedback: TaskMutatio
  * 收口页签的 Gate 签注卡:按投影状态动态渲染每个完成门(判据见
  * model/attestation-pool.ts,与 kernel 四形态同一条)。manual-attest 缺见证与
  * 自动已 pass 的 signoff_missing 给【打勾签注】+ 评语(approve,评语走 note);
- * 契约声明 allowOverride 的自动门失败给【特批放行】(override,理由走 rationale,
- * trim 后 ≥10 字符)。waived 是人为放行不是自动通过,单独标注;done/历史接受与
- * 未声明 allowOverride 的失败门只读展示。行内展开,不出全局模态。
+ * 契约声明 allowOverride 的自动门 failed(豁免已记录失败)或 missing(本 cut
+ * 未取得自动见证)给【特批放行】(override,理由走 rationale,trim 后 ≥10 字符,
+ * 两种对象各配说明)。waived 是人为放行不是自动通过,单独标注;done/历史接受与
+ * 未声明 allowOverride 的门只读展示。行内展开,不出全局模态。
  */
 export function TaskGateAttestCard({
   task,
@@ -175,6 +190,7 @@ export function TaskGateAttestCard({
                     {openGate === gate.name ? (
                       <GateAttestForm
                         mode={mode}
+                        gateStatus={gate.status}
                         pending={pending}
                         onCancel={() => setOpenGate(null)}
                         onSubmit={(rationale) => {
