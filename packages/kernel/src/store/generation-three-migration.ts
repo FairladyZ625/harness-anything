@@ -205,7 +205,7 @@ export class GenerationThreeMigration {
               workflows: this.#workflows,
               branch: "main",
               event: "push",
-              coverage: "exact" as const,
+              coverage: "descendant" as const,
               selection: "newest" as const,
             },
           },

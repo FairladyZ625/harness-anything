@@ -15,8 +15,6 @@ export function runOfflineStorageCommand(argv: readonly string[]): number {
     if (generationOption !== undefined && !/^[1-9][0-9]*$/u.test(generationOption))
       throw new Error("--generation must be a positive integer");
     const rootInput = option(argv, "--root") ?? process.cwd();
-    const generation =
-      generationOption === undefined ? resolveActiveGeneration({ rootInput }) : Number(generationOption);
     const commandIndex = firstCommandIndex(argv);
     if (argv[commandIndex] === "migrate" && argv[commandIndex + 1] === "ledger") {
       if (argv.includes("--help")) {
@@ -61,7 +59,8 @@ export function runOfflineStorageCommand(argv: readonly string[]): number {
         numeric = since === undefined ? undefined : Number(since),
         events = readOfflineLedgerEvents({
           rootInput,
-          generation,
+          generation:
+            generationOption === undefined ? resolveActiveGeneration({ rootInput }) : Number(generationOption),
           ...(since !== undefined && Number.isSafeInteger(numeric) ? { sinceRevision: numeric } : {}),
           ...(since !== undefined && !Number.isSafeInteger(numeric) ? { sinceTime: since } : {}),
           ...(option(argv, "--grep") ? { grep: option(argv, "--grep") } : {}),

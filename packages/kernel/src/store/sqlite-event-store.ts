@@ -107,6 +107,12 @@ export interface SqliteEventStore {
   /** Hand the ledger back when an offline holder stops writing, so a live writer is not fenced out. */
   readonly releaseWriter: (fence: SqliteWriterFence) => void;
   readonly writerFence: () => SqliteWriterFence | null;
+  /** Offline cutover holds the SQLite exclusive lock through checkpoint and source retirement. */
+  readonly retireForConversion: (input: {
+    readonly head: SqliteEventIdentity | null;
+    readonly writer: SqliteWriterFence | null;
+    readonly destinationPath: string;
+  }) => void;
   readonly appendCommand: (input: {
     readonly fence: SqliteWriterFence;
     readonly intent: SqliteCommandIntent;
@@ -583,6 +589,31 @@ export function openSqliteEventStore(options: {
     writerFence: () => {
       const writer = readWriter(db, repoId);
       return writer ? { repoId, ...writer } : null;
+    },
+    retireForConversion: (input) => {
+      if (options.readOnly) throw new Error("source retirement requires a writable offline connection");
+      query("PRAGMA locking_mode=EXCLUSIVE");
+      transaction(() => {
+        const head = readEventIdentity(query, "revision", readRevision(db)),
+          writer = readWriter(db, repoId),
+          fence = writer ? { repoId, ...writer } : null;
+        if (
+          stableStringify(head) !== stableStringify(input.head) ||
+          stableStringify(fence) !== stableStringify(input.writer)
+        )
+          throw new Error("conversion source head or writer fence changed; take a new backup");
+      });
+      // EXCLUSIVE locking mode retains the lock after COMMIT, including throughout the checkpoint.
+      const checkpoint = query("PRAGMA wal_checkpoint(TRUNCATE)")[0];
+      if (!checkpoint || Number(checkpoint.busy) !== 0)
+        throw new Error("conversion source checkpoint is busy; drain all source connections");
+      if (localRuntimeStateFileSystem.exists(input.destinationPath))
+        throw new Error("retired conversion source already exists");
+      localRuntimeStateFileSystem.rename(databasePath, input.destinationPath);
+      for (const suffix of ["-wal", "-shm"])
+        if (localRuntimeStateFileSystem.exists(`${databasePath}${suffix}`))
+          localRuntimeStateFileSystem.rename(`${databasePath}${suffix}`, `${input.destinationPath}${suffix}`);
+      localRuntimeStateFileSystem.syncDirectory(path.dirname(databasePath));
     },
     appendCommand,
     appendValidatedBundle: ({ events, intent, ...input }) => {

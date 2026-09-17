@@ -1,6 +1,6 @@
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { consumeKnownError } from "../error-consumption.ts";
-import { publishConvertedGeneration, readCertifiedGitFollower } from "./sqlite-task-event-publication.ts";
 import { makeTaskProjection } from "../projection/rebuildable-task-projection-factory.ts";
 import { ciRunObservationV3Migration, ciWorkflowVerificationMigration } from "./event-shape-migration.ts";
 import {
@@ -21,6 +21,8 @@ import {
   type GenerationActivationV2,
   type SqliteEventStore,
   type SqliteEventRow,
+  type SqliteEventIdentity,
+  type SqliteWriterFence,
 } from "./sqlite-event-store.ts";
 
 export interface GenerationConversionMapping {
@@ -37,6 +39,8 @@ export interface GenerationConversionMapping {
 export interface GenerationConversionPlan {
   readonly schema: "generation-conversion-plan/v1";
   readonly repoId: string;
+  readonly sourceHead: SqliteEventIdentity | null;
+  readonly sourceWriter: SqliteWriterFence | null;
   readonly sourceGeneration: number;
   readonly destinationGeneration: number;
   readonly sourceDigest: string;
@@ -50,7 +54,7 @@ export interface GenerationConversionPlan {
   readonly mappings: readonly GenerationConversionMapping[];
 }
 
-/** Offline operator entry. The input is a verified, self-contained backup, never a live repository. */
+/** Offline operator entry: immutable backup input, drained in-place destination or new rehearsal copy. */
 export function runGenerationConversion(input: {
   readonly backupDir: string;
   readonly mode: "dry-run" | "convert" | "verify" | "activate";
@@ -90,12 +94,29 @@ export function runGenerationConversion(input: {
     if (relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".."))
       throw new Error("conversion destination must be outside the immutable backup");
     if (input.mode === "convert") {
-      drillLedgerBackup({
-        backupDir,
-        shadowParent: path.dirname(destinationRoot),
-        destinationRoot,
-        verifiedManifest: manifest,
+      if (!files.exists(destinationRoot))
+        drillLedgerBackup({
+          backupDir,
+          shadowParent: path.dirname(destinationRoot),
+          destinationRoot,
+          verifiedManifest: manifest,
+        });
+      const current = openSqliteEventStore({
+        databasePath: sqliteLedgerPath(destinationRoot, sourceGeneration),
+        generation: sourceGeneration,
+        readOnly: true,
       });
+      try {
+        if (
+          stableStringify(current.eventIdentityAtRevision(current.revision())) !== stableStringify(plan.sourceHead) ||
+          stableStringify(current.writerFence()) !== stableStringify(plan.sourceWriter)
+        )
+          throw new Error("conversion source head or writer fence changed; take a new backup");
+      } finally {
+        current.close();
+      }
+      if (files.exists(sqliteLedgerPath(destinationRoot, destinationGeneration)))
+        throw new Error("conversion candidate already exists; verify it or discard the uncertified draft");
       convert(source, destinationRoot, plan, events, rows, migratedBlobs);
     }
     // Activation follows verification, never precedes it: a destination that fails verification
@@ -151,10 +172,16 @@ function retireConvertedSource(rootDir: string, plan: GenerationConversionPlan):
   const sourcePath = sqliteLedgerPath(rootDir, plan.sourceGeneration),
     retiredPath = retiredSourceLedgerPath(rootDir, plan);
   if (files.exists(sourcePath)) {
-    files.rename(sourcePath, retiredPath);
-    for (const suffix of ["-wal", "-shm"])
-      if (files.exists(`${sourcePath}${suffix}`)) files.rename(`${sourcePath}${suffix}`, `${retiredPath}${suffix}`);
-    files.syncDirectory(path.dirname(sourcePath));
+    const source = openSqliteEventStore({
+      repoId: plan.repoId,
+      databasePath: sourcePath,
+      generation: plan.sourceGeneration,
+    });
+    try {
+      source.retireForConversion({ head: plan.sourceHead, writer: plan.sourceWriter, destinationPath: retiredPath });
+    } finally {
+      source.close();
+    }
   } else if (!files.exists(retiredPath)) throw new Error("conversion source ledger is neither active nor retired");
   for (const candidate of [
     path.join(rootDir, ".harness", "cache", "task.sqlite"),
@@ -240,7 +267,7 @@ function planConversion(source: SqliteEventStore, sourceGeneration: number, dest
           throw new Error(`corrupt accepted content ${claim.sha256}`);
         if (!bytes) throw new Error(`missing accepted content ${claim.sha256}`);
       }
-      const candidateEvent = { ...event, workspaceRevision: events.length + 1 } as CanonicalEventV1;
+      const candidateEvent = { ...event, workspaceRevision: row.revision } as CanonicalEventV1;
       candidate = candidateEvent;
       // Preserving every source record keeps revisions aligned. Once anything is dropped, every
       // later cut and digest reference shifts, and a blind string rewrite cannot repair that.
@@ -251,8 +278,10 @@ function planConversion(source: SqliteEventStore, sourceGeneration: number, dest
       const reason = error instanceof Error ? error.message : String(error);
       if (reason.startsWith("corrupt accepted content ")) throw error;
       reasons.push(reason);
-      candidate = historicalWitness(original, row, source);
-      reasons.push("source-witness-only: original event bytes retained as a read-only content object");
+      if (sourceGeneration === 1) {
+        candidate = historicalWitness(original, row, source);
+        reasons.push("source-witness-only: original event bytes retained as a read-only content object");
+      }
     }
     if (candidate) events.push(candidate);
     mappings.push({
@@ -271,7 +300,7 @@ function planConversion(source: SqliteEventStore, sourceGeneration: number, dest
     });
   }
   const invalidations =
-    generationThree?.invalidations(
+    (mappings.some((mapping) => mapping.disposition === "unsupported") ? null : generationThree)?.invalidations(
       rows.length + 1,
       new Date(Date.parse(rows.at(-1)?.occurredAt ?? "1970-01-01T00:00:00.000Z") + 1).toISOString(),
     ) ?? [];
@@ -279,19 +308,31 @@ function planConversion(source: SqliteEventStore, sourceGeneration: number, dest
     events.push(invalidation.event);
     for (const blob of invalidation.blobs) migratedBlobs.set(blob.sha256, new TextEncoder().encode(blob.body));
   }
-  const sourceSnapshot = {
-    metadata: source.metadata(),
-    rows,
-    outcomes,
-    objects: source.contentObjectDigests(),
-  };
-  const sourceDigest = `sha256:${sha256Text(stableStringify(sourceSnapshot))}`;
+  // Hash the same sorted JSON bytes incrementally; full histories exceed V8's single-string limit.
+  const sourceHash = createHash("sha256");
+  sourceHash.update(`{"metadata":${stableStringify(source.metadata())},"objects":`);
+  sourceHash.update(stableStringify(source.contentObjectDigests()));
+  for (const [name, values] of [
+    ["outcomes", outcomes],
+    ["rows", rows],
+  ] as const) {
+    sourceHash.update(`,"${name}":[`);
+    for (const [index, value] of values.entries()) {
+      if (index !== 0) sourceHash.update(",");
+      sourceHash.update(stableStringify(value));
+    }
+    sourceHash.update("]");
+  }
+  sourceHash.update("}");
+  const sourceDigest = `sha256:${sourceHash.digest("hex")}`;
   const plan: GenerationConversionPlan = {
     schema: "generation-conversion-plan/v1",
     repoId: source.metadata().repoId,
     sourceGeneration,
     destinationGeneration,
     sourceDigest,
+    sourceHead: source.eventIdentityAtRevision(source.revision()),
+    sourceWriter: source.writerFence(),
     sourceEvents: rows.length,
     convertedEvents: events.length,
     retainedEvents: mappings.filter((row) => row.disposition === "retained-read-only").length,
@@ -467,7 +508,6 @@ function convert(
         historicalRecord: { recordedAt: event.occurredAt, eventRecordedAt: [event.occurredAt] },
       });
     }
-    publishConvertedGeneration({ rootInput: root, repoId: plan.repoId, store: destination });
     const reportPath = `${sqliteLedgerPath(root, plan.destinationGeneration)}.conversion.json`;
     if (!files.createExclusiveText(reportPath, `${JSON.stringify(plan, null, 2)}\n`))
       throw new Error("generation conversion report already exists");
@@ -553,8 +593,7 @@ function verify(
       if (stableStringify(result) !== stableStringify(expected))
         throw new Error(`command outcome differs: ${original.opId}`);
     }
-    const git = readCertifiedGitFollower({ rootInput: root, repoId: plan.repoId, store: destination }),
-      eventStore = {
+    const eventStore = {
         readHead: () => {
           const last = actual.at(-1);
           return last ? { revision: last.revision, eventDigest: last.digest } : null;
@@ -598,7 +637,6 @@ function verify(
     }
     return {
       matches: true as const,
-      gitCommit: git.commitSha,
       projection: rebuild,
       sourceEvents: rows.length,
       convertedEvents: actual.length,

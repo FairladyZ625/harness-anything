@@ -25,6 +25,13 @@ test("the frozen lifecycle suite migrates digest bindings and invalidates all th
     source = events("f-lifecycle-suite"),
     migrated = source.map((event) => migration.rewrite(event));
   for (const rewrite of migrated) assert.deepEqual(validateCurrentCanonicalEvent(rewrite.event), []);
+  const submitted = migrated.flatMap(({ event }) =>
+    event.type === "execution_submitted" ? [event.payload.execution.submission!] : [],
+  );
+  assert.ok(submitted.length > 0);
+  for (const submission of submitted)
+    for (const gate of submission.completionContract.gates)
+      if (gate.witness.adapterId === "github-actions") assert.equal(gate.witness.adapterOptions.coverage, "descendant");
 
   const lastOccurredAt = source.at(-1)!.occurredAt,
     invalidations = migration.invalidations(source.length + 1, lastOccurredAt);

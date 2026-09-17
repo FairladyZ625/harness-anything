@@ -17,7 +17,6 @@ import {
   rmSync,
   statSync,
   symlinkSync,
-  unlinkSync,
   writeFileSync,
   writeSync,
 } from "node:fs";
@@ -71,25 +70,16 @@ export const localRuntimeStateFileSystem = {
     killpoint?: (point: "temporary-synced" | "linked" | "directory-synced") => void,
   ): boolean => {
     const temporaryPath = `${inputPath}.atomic-certificate-${randomUUID()}`;
-    let descriptor: number;
     try {
-      descriptor =
-        /* @gate-identity check-bypass-write-boundary/bypass-write-136 */
-        openSync(temporaryPath, "wx");
-      try {
-        writeFileSync(descriptor, value);
-        syncDescriptor(descriptor);
-        killpoint?.("temporary-synced");
-      } finally {
-        closeSync(descriptor);
-      }
+      if (!localRuntimeStateFileSystem.createExclusiveText(temporaryPath, value, false))
+        throw new Error(`atomic certificate temporary path already exists: ${temporaryPath}`);
+      killpoint?.("temporary-synced");
       try {
         /* @gate-identity check-bypass-write-boundary/bypass-write-137 */
         linkSync(temporaryPath, inputPath);
         killpoint?.("linked");
       } catch (error) {
         if (isExclusiveCreateConflict(error)) {
-          consumeKnownError(error);
           return false;
         }
         throw error;
@@ -98,9 +88,7 @@ export const localRuntimeStateFileSystem = {
       killpoint?.("directory-synced");
       return true;
     } finally {
-      if (existsSync(temporaryPath))
-        /* @gate-identity check-bypass-write-boundary/bypass-write-138 */
-        unlinkSync(temporaryPath);
+      if (existsSync(temporaryPath)) localEventFileSystem.remove(temporaryPath);
     }
   },
   createExclusiveText: (inputPath: string, value: string | Uint8Array, syncParents = true): boolean => {

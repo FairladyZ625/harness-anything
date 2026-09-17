@@ -51,12 +51,7 @@ export function publishConvertedGeneration(input: {
       ...legacyRetirements(ledger, parent),
     ],
     directories = followerDirectories(ledger, closureEvents),
-    manifestTarget = ledgerGitPath(ledger, followerManifestPath),
-    alreadyCertified =
-      localGitObjectRefStore.readPath(ledger.rootDir, parent, manifestTarget) !== null &&
-      JSON.parse(localGitObjectRefStore.readPath(ledger.rootDir, parent, manifestTarget)!.toString("utf8"))
-        .generation === input.store.metadata().generation &&
-      certifiedFollowerRevision(ledger, parent, input.store) === revision;
+    alreadyCertified = certifiedFollowerRevision(ledger, parent, input.store) === revision;
   if (alreadyCertified) {
     const baseline = captureConversionBaseline(input.rootInput, ledger.rootDir, parent, files);
     localGitWorktreeSettlement.index(ledger.rootDir, files);

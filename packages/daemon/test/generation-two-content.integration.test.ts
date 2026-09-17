@@ -13,13 +13,19 @@ import {
   openSqliteEventStore,
   sha256Bytes,
 } from "../../kernel/test/store/canonical-generation.fixtures.ts";
-import { makeTaskEventReader, serializePersistedCanonicalEvent, sha256Text } from "../../kernel/src/index.ts";
+import {
+  makeTaskEventReader,
+  makeTaskEventStore,
+  runGenerationConversion,
+  serializePersistedCanonicalEvent,
+  sha256Text,
+} from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { openBootstrappedRepoCell } from "./repo-settings.fixture.ts";
 import { initRepo } from "./task-surface.fixtures.ts";
 
-test("real Entity import survives gen2 CLI conversion, Git recovery and a fresh gen2 backup restore", async () => {
+test("real Entity content survives consecutive 1 to 2 to 3 conversion, publication and backup restore", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-gen2-entity-")),
     root = path.join(parent, "source"),
     backupDir = path.join(parent, "backup"),
@@ -64,7 +70,7 @@ test("real Entity import survives gen2 CLI conversion, Git recovery and a fresh 
     assert.equal(JSON.parse(String(upgraded.evidence)).kindVersion, 2);
     await cell.close();
     cell = undefined;
-    const active = makeTaskEventReader({ repoId, rootDir: root, generation: 2 });
+    const active = makeTaskEventReader({ repoId, rootDir: root, generation: 3 });
     const historical = openSqliteEventStore({ repoId, rootInput: root, generation: 1 });
     for (const event of active.read().events) {
       historical.appendCommand({
@@ -82,7 +88,7 @@ test("real Entity import survives gen2 CLI conversion, Git recovery and a fresh 
       });
     }
     await active.drain();
-    rmSync(path.join(root, ".harness/store/generations/2"), { recursive: true, force: true });
+    rmSync(path.join(root, ".harness/store/generations/3"), { recursive: true, force: true });
     historical.close();
     createLedgerBackup({ rootInput: root, backupDir, generation: 1 });
     const run = spawnSync(
@@ -105,7 +111,27 @@ test("real Entity import survives gen2 CLI conversion, Git recovery and a fresh 
     const receipt = JSON.parse(run.stdout);
     assert.equal(receipt.verification.matches, true);
     assert.equal(receipt.verification.projection.watermark, receipt.plan.convertedEvents);
-    const target = openSqliteEventStore({ rootInput: destination, generation: 2, readOnly: true });
+    assert.equal(runGenerationConversion({ backupDir, destinationRoot: destination, mode: "activate" }).active, true);
+    const intermediateBackup = path.join(parent, "gen2-backup");
+    createLedgerBackup({ rootInput: destination, backupDir: intermediateBackup, generation: 2 });
+    const converted = runGenerationConversion({
+      backupDir: intermediateBackup,
+      destinationRoot: destination,
+      mode: "convert",
+    });
+    assert.equal(converted.plan.ready, true);
+    assert.equal(converted.verification?.matches, true);
+    assert.equal(
+      runGenerationConversion({
+        backupDir: intermediateBackup,
+        destinationRoot: destination,
+        mode: "activate",
+      }).active,
+      true,
+    );
+    const follower = makeTaskEventStore({ rootDir: destination, repoId });
+    await follower.drain();
+    const target = openSqliteEventStore({ rootInput: destination, generation: 3, readOnly: true });
     try {
       assert.deepEqual(Buffer.from(target.readContentObject(hash)!), binary);
       const event = target
@@ -121,16 +147,16 @@ test("real Entity import survives gen2 CLI conversion, Git recovery and a fresh 
     } finally {
       target.close();
     }
-    const secondBackup = path.join(parent, "gen2-backup");
-    const manifest = createLedgerBackup({ rootInput: destination, backupDir: secondBackup, generation: 2 });
-    assert.equal(manifest.sqlite.generation, 2);
-    assert.equal(manifest.files.filter((file) => file.method === "vacuum-into").length, 2);
+    const secondBackup = path.join(parent, "gen3-backup");
+    const manifest = createLedgerBackup({ rootInput: destination, backupDir: secondBackup, generation: 3 });
+    assert.equal(manifest.sqlite.generation, 3);
+    assert.equal(manifest.files.filter((file) => file.method === "vacuum-into").length, 1);
     rmSync(root, { recursive: true });
     rmSync(destination, { recursive: true });
     rmSync(backupDir, { recursive: true });
     const restore = drillLedgerBackup({ backupDir: secondBackup, shadowParent: path.join(parent, "restore") });
     assert.equal(existsSync(root), false);
-    const restored = openSqliteEventStore({ rootInput: restore.shadowRoot, generation: 2, readOnly: true });
+    const restored = openSqliteEventStore({ rootInput: restore.shadowRoot, generation: 3, readOnly: true });
     try {
       assert.deepEqual(Buffer.from(restored.readContentObject(hash)!), binary);
     } finally {
