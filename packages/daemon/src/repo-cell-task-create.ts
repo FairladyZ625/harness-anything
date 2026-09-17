@@ -175,20 +175,24 @@ export function prepareTaskCreateAt(
   if (cell.projection.readTaskExists(taskId)) return cell.rejected(opId, "task_exists");
   if (typeof canonicalAction.parentTaskId === "string" && !cell.projection.readTaskExists(canonicalAction.parentTaskId))
     return cell.rejected(opId, "parent_not_found");
-  const parentMetadata =
-    typeof canonicalAction.parentTaskId === "string"
-      ? cell.projection.read(canonicalAction.parentTaskId).snapshot.task?.metadata
-      : undefined;
-  // A subtask inherits the parent's preset context: explicit flags still win, and the operation
-  // id stays keyed on the caller's literal action rather than the derived fields.
+  const parent =
+      typeof canonicalAction.parentTaskId === "string" ? cell.projection.read(canonicalAction.parentTaskId) : undefined,
+    parentMetadata = parent?.snapshot.task?.metadata,
+    parentContract = parent?.packagePath
+      ? cell.projection.readDocument(`${parent.packagePath}/task-contract.json`).document
+      : null,
+    parentContractBody = parentContract ? (JSON.parse(parentContract.body) as Record<string, unknown>) : null,
+    parentLocale = typeof parentContractBody?.locale === "string" ? parentContractBody.locale : undefined;
+  // A subtask inherits the parent's vertical and locale context; its preset/profile resolve
+  // from repository defaults or explicit flags, never from the parent's own preset identity.
+  // The operation id stays keyed on the caller's literal action rather than the derived fields.
   const createInput =
     parentMetadata === undefined
       ? canonicalAction
       : {
           ...canonicalAction,
           verticalId: canonicalAction.verticalId ?? parentMetadata.verticalId,
-          presetId: canonicalAction.presetId ?? parentMetadata.presetId,
-          profileId: canonicalAction.profileId ?? parentMetadata.profileId,
+          locale: canonicalAction.locale ?? parentLocale,
         };
   const currentRevision = cell.store.readHead()?.revision ?? 0,
     workspaceRevision = assigned?.workspaceRevision ?? currentRevision + 1,
