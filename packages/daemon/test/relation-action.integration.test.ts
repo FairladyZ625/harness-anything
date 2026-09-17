@@ -306,18 +306,37 @@ test("supersedes-fact relation create and final retirement publish current Fact 
           memoryTags: ["pattern"],
         },
         binding,
+      ),
+      third = await cell.run(
+        {
+          kind: "fact-record",
+          statement: "An independent replacement observation remains active.",
+          evidenceSource: "test:third",
+          confidence: "high",
+          memoryClass: "semantic",
+          memoryTags: ["pattern"],
+        },
+        binding,
       );
     assert.equal((await waitForAcceptedReceipt(cell, first)).wait?.state, "satisfied");
     assert.equal((await waitForAcceptedReceipt(cell, second)).wait?.state, "satisfied");
+    assert.equal((await waitForAcceptedReceipt(cell, third)).wait?.state, "satisfied");
     const firstId = String(first.factId),
       secondId = String(second.factId),
-      relationId = deriveRelationId({
+      thirdId = String(third.factId),
+      secondRelationId = deriveRelationId({
         source: `fact/${secondId}`,
         target: `fact/${firstId}`,
         type: "supersedes-fact",
         direction: "directed",
       }),
-      related = await cell.run(
+      thirdRelationId = deriveRelationId({
+        source: `fact/${thirdId}`,
+        target: `fact/${firstId}`,
+        type: "supersedes-fact",
+        direction: "directed",
+      }),
+      secondRelated = await cell.run(
         {
           kind: "relation-relate",
           sourceRef: `fact/${secondId}`,
@@ -327,25 +346,54 @@ test("supersedes-fact relation create and final retirement publish current Fact 
           expectedVersion: 0,
         },
         binding,
+      ),
+      thirdRelated = await cell.run(
+        {
+          kind: "relation-relate",
+          sourceRef: `fact/${thirdId}`,
+          targetRef: `fact/${firstId}`,
+          relationType: "supersedes-fact",
+          rationale: "The independent replacement remains valid if the other edge retires.",
+          expectedVersion: 0,
+        },
+        binding,
       );
-    assert.equal(related.outcome, "applied", JSON.stringify(related));
-    assert.equal((await waitForAcceptedReceipt(cell, related)).wait?.state, "satisfied");
+    assert.equal(secondRelated.outcome, "applied", JSON.stringify(secondRelated));
+    assert.equal(thirdRelated.outcome, "applied", JSON.stringify(thirdRelated));
+    assert.equal((await waitForAcceptedReceipt(cell, secondRelated)).wait?.state, "satisfied");
+    assert.equal((await waitForAcceptedReceipt(cell, thirdRelated)).wait?.state, "satisfied");
     const firstPath = path.join(rootDir, "harness", `facts/${firstId}.md`),
       superseded = readFileSync(firstPath, "utf8");
     assert.match(superseded, /State: superseded_fact/u);
     assert.match(superseded, new RegExp(`Superseded by: fact/${secondId}`, "u"));
+    assert.match(superseded, new RegExp(`Superseded by: fact/${thirdId}`, "u"));
     assert.match(superseded, /corrected source/u);
-    const retired = await cell.run(
+    const firstRetired = await cell.run(
       {
         kind: "relation-unrelate",
-        relationId,
+        relationId: secondRelationId,
         reason: "The replacement evidence was withdrawn.",
-        expectedVersion: related.revision,
+        expectedVersion: secondRelated.revision,
       },
       binding,
     );
-    assert.equal(retired.outcome, "applied", JSON.stringify(retired));
-    assert.equal((await waitForAcceptedReceipt(cell, retired)).wait?.state, "satisfied");
+    assert.equal(firstRetired.outcome, "applied", JSON.stringify(firstRetired));
+    assert.equal((await waitForAcceptedReceipt(cell, firstRetired)).wait?.state, "satisfied");
+    const stillSuperseded = readFileSync(firstPath, "utf8");
+    assert.match(stillSuperseded, /State: superseded_fact/u);
+    assert.doesNotMatch(stillSuperseded, new RegExp(`Superseded by: fact/${secondId}`, "u"));
+    assert.match(stillSuperseded, new RegExp(`Superseded by: fact/${thirdId}`, "u"));
+    const finalRetired = await cell.run(
+      {
+        kind: "relation-unrelate",
+        relationId: thirdRelationId,
+        reason: "The final active replacement evidence was withdrawn.",
+        expectedVersion: thirdRelated.revision,
+      },
+      binding,
+    );
+    assert.equal(finalRetired.outcome, "applied", JSON.stringify(finalRetired));
+    assert.equal((await waitForAcceptedReceipt(cell, finalRetired)).wait?.state, "satisfied");
     const restored = readFileSync(firstPath, "utf8");
     assert.match(restored, /State: standing/u);
     assert.doesNotMatch(restored, /Superseded by:/u);
