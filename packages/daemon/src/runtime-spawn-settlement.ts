@@ -25,7 +25,8 @@ export async function publishExit(
   context.exiting.add(active.runtimeSessionId);
   const cancelled = active.cancelRequested,
     cancelBinding = cancelled && active.cancelBinding ? active.cancelBinding : active.binding,
-    terminalBinding = runtimeSessionBinding(active.binding, active.runtimeSessionId);
+    terminalBinding = runtimeSessionBinding(active.binding, active.runtimeSessionId),
+    squadLeaderControl = active.squadId !== null && active.delegatedBy === null;
   try {
     if (!cancelled && code === null)
       context.input.stream.publish(active.runtimeSessionId, {
@@ -69,7 +70,9 @@ export async function publishExit(
       context.input.now(),
     );
     let body = context.runtimeResultText(active, code, outcome);
-    if (active.task && outcome === "succeeded") {
+    // A squad leader returns machine-readable control JSON, not a worker delivery. Appending branch
+    // publication prose would corrupt the value before the coordinator can execute its fanout.
+    if (active.task && outcome === "succeeded" && !squadLeaderControl) {
       try {
         const env = await context.prepareWorkerGitEnvironment(active.instanceId),
           push = await pushWorkerBranch({ cwd: active.cwd, canonicalRoot: context.input.rootDir, env });
