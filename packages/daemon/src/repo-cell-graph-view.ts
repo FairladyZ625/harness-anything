@@ -11,7 +11,10 @@ import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import type { TaskQueryCell } from "./repo-cell-task-query.ts";
 
 const GRAPH_MAX_DEPTH = 16,
-  GRAPH_NODE_BUDGET = 500;
+  GRAPH_NODE_BUDGET = 500,
+  // Neighborhood reads are indexed per seed; this caps how many seeds (root + decision
+  // anchors discovered along the way) one graph call may expand.
+  GRAPH_SEED_BUDGET = 128;
 
 /**
  * `ha graph <ref>`: one read-only causal tree over Milestone/Task → Decision/claim → Fact.
@@ -27,7 +30,7 @@ export function graphView(cell: TaskQueryCell, action: RepoTaskAction, binding: 
     root = resolveGraphRoot(cell, rawRef, initialCut),
     // Relation edges hang off decision claim/choice anchors, never the bare decision ref, so a
     // decision root expands to one neighborhood read per anchor and merges them at the same cut.
-    reads = [root.ref, ...root.anchors].map((seed) =>
+    neighborhood = (seed: string) =>
       cell.queryRead().relationGraphNeighborhood({
         seed,
         direction: "both",
@@ -38,35 +41,84 @@ export function graphView(cell: TaskQueryCell, action: RepoTaskAction, binding: 
         maxNodes: GRAPH_NODE_BUDGET,
         allowTruncation: true,
       }),
-    ),
-    read = {
-      status: reads[0]!.status,
-      watermark: reads[0]!.watermark,
-      sourceRevision: reads[0]!.sourceRevision,
-      edges: [
-        ...new Map(reads.flatMap((entry) => entry.edges.map((edge) => [edge.relationId, edge] as const))).values(),
-      ],
-      facts: [...new Map(reads.flatMap((entry) => entry.facts.map((fact) => [fact.ref, fact] as const))).values()],
-      truncated: reads.some((entry) => entry.truncated === true),
-      warnings: [...new Set(reads.flatMap((entry) => entry.warnings))],
-    },
+    reads = [root.ref, ...root.anchors].map(neighborhood),
+    edges = new Map(reads.flatMap((entry) => entry.edges.map((edge) => [edge.relationId, edge] as const))),
     taskIndex = cell.projection.readTaskIndex({}),
     taskByRef = new Map(taskIndex.rows.map((row) => [`task/${row.taskId}`, row])),
     structuralChildren: Record<string, { ref: string; type: string }[]> = {},
-    structuralParents: Record<string, { ref: string; type: string }> = {};
-  requireSameProjectionCut("graph", [initialCut, ...reads, taskIndex]);
+    structuralParents: Record<string, { ref: string; type: string }> = {},
+    anchorRefs = new Set<string>(),
+    linkAnchors = (decisionRef: string, anchors: readonly string[]) => {
+      for (const anchorRef of anchors) {
+        (structuralChildren[decisionRef] ??= []).push({ ref: anchorRef, type: "anchor" });
+        structuralParents[anchorRef] = { ref: decisionRef, type: "anchor" };
+        anchorRefs.add(anchorRef);
+      }
+    },
+    decisionIdOf = (ref: string) => /^decision\/([^/]+)/u.exec(ref)?.[1];
+  linkAnchors(root.ref, root.anchors);
+  // The root read alone cannot see edges hanging off sibling anchors of a decision it touches:
+  // a task derived from decision/<id>/CH1 never reaches decision/<id>/C1 through relation edges.
+  // Expand the anchors of every decision the edge set references — indexed seed reads, bounded
+  // by GRAPH_SEED_BUDGET — so a task root also serves the claims that evidence its decision.
+  const expandedDecisions = new Set<string>(root.anchors.length === 0 ? [] : [decisionIdOf(root.ref)!]),
+    cutReads: ProjectionCut[] = [...reads, taskIndex];
+  for (;;) {
+    const pending = [
+      ...new Set(
+        [root.ref, ...[...edges.values()].flatMap((edge) => [edge.sourceRef, edge.targetRef])]
+          .map(decisionIdOf)
+          .filter((id): id is string => id !== undefined && !expandedDecisions.has(id)),
+      ),
+    ];
+    if (pending.length === 0 || reads.length >= GRAPH_SEED_BUDGET) break;
+    const decisionRead = cell.projection.readDecisions(pending);
+    cutReads.push(decisionRead);
+    const rows = new Map(decisionRead.decisions.map((row) => [row.decisionId, row] as const));
+    for (const decisionId of pending) {
+      const row = rows.get(decisionId);
+      if (row === undefined) {
+        expandedDecisions.add(decisionId);
+        continue;
+      }
+      const anchors = [...row.claims, ...row.chosen].map((anchor) => `decision/${decisionId}/${anchor.id}`);
+      if (reads.length + anchors.length > GRAPH_SEED_BUDGET) break;
+      expandedDecisions.add(decisionId);
+      linkAnchors(`decision/${decisionId}`, anchors);
+      for (const entry of anchors.map(neighborhood)) {
+        reads.push(entry);
+        cutReads.push(entry);
+        for (const edge of entry.edges) edges.set(edge.relationId, edge);
+      }
+    }
+  }
+  // Decisions left unexpanded by the seed budget stay honest: their refs render truncated.
+  const unexpandedRefs = new Set(
+    [...edges.values()]
+      .flatMap((edge) => [edge.sourceRef, edge.targetRef])
+      .filter((ref) => {
+        const id = decisionIdOf(ref);
+        return id !== undefined && !expandedDecisions.has(id);
+      }),
+  );
+  requireSameProjectionCut("graph", [initialCut, ...cutReads]);
+  const read = {
+    status: reads[0]!.status,
+    watermark: reads[0]!.watermark,
+    sourceRevision: reads[0]!.sourceRevision,
+    edges: [...edges.values()],
+    facts: [...new Map(reads.flatMap((entry) => entry.facts.map((fact) => [fact.ref, fact] as const))).values()],
+    truncated: reads.some((entry) => entry.truncated === true) || unexpandedRefs.size > 0,
+    warnings: [...new Set(reads.flatMap((entry) => entry.warnings))],
+  };
   for (const row of taskIndex.rows)
     if (row.parentTaskId !== null) {
       const parentRef = `task/${row.parentTaskId}`;
       structuralParents[`task/${row.taskId}`] = { ref: parentRef, type: "child" };
       (structuralChildren[parentRef] ??= []).push({ ref: `task/${row.taskId}`, type: "child" });
     }
-  for (const anchorRef of root.anchors) {
-    (structuralChildren[root.ref] ??= []).push({ ref: anchorRef, type: "anchor" });
-    structuralParents[anchorRef] = { ref: root.ref, type: "anchor" };
-  }
   for (const list of Object.values(structuralChildren)) list.sort((a, b) => a.ref.localeCompare(b.ref));
-  const refs = new Set<string>([root.ref, ...root.anchors]);
+  const refs = new Set<string>([root.ref, ...root.anchors, ...anchorRefs]);
   for (const edge of read.edges) {
     refs.add(edge.sourceRef);
     refs.add(edge.targetRef);
@@ -91,6 +143,7 @@ export function graphView(cell: TaskQueryCell, action: RepoTaskAction, binding: 
     structuralParents,
     nodes,
     frontierTruncated: read.truncated,
+    unexpandedRefs,
   });
   const payload = {
     schema: "causal-graph/v1" as const,
@@ -112,7 +165,9 @@ export function graphView(cell: TaskQueryCell, action: RepoTaskAction, binding: 
 }
 
 function graphDepth(cell: TaskQueryCell, value: unknown): number {
-  if (value === undefined) return 3;
+  // Default spans the Task -> anchor -> Decision -> anchor -> Fact chain: each anchor hop
+  // costs two rendered levels because the owning decision renders between sibling anchors.
+  if (value === undefined) return 4;
   const depth = typeof value === "number" ? value : Number.NaN;
   if (!Number.isSafeInteger(depth) || depth < 1 || depth > GRAPH_MAX_DEPTH)
     throw cell.cellCodedError("invalid_field", `graph depth must be an integer between 1 and ${GRAPH_MAX_DEPTH}.`);

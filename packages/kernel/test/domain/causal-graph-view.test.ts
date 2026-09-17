@@ -87,6 +87,25 @@ test("depth bound truncates frontier nodes instead of hiding them", () => {
   assert.equal(view.stats.truncated >= 1, true);
 });
 
+test("budget-cut refs render as truncated even with no hidden adjacency", () => {
+  const view = buildCausalGraphView({
+    rootRef: "task/task_root",
+    depth: 4,
+    edges: [
+      edge({ relationId: "rel_1", sourceRef: "task/task_root", targetRef: "decision/dec_1", relationType: "relates" }),
+      edge({ relationId: "rel_2", sourceRef: "decision/dec_1", targetRef: "fact/F-1", relationType: "evidenced-by" }),
+    ],
+    structuralChildren: {},
+    structuralParents: {},
+    nodes,
+    frontierTruncated: false,
+    unexpandedRefs: new Set(["decision/dec_1"]),
+  });
+  const decision = view.root.children[0]!;
+  assert.equal(decision.children.length > 0, true);
+  assert.equal(decision.truncated, true);
+});
+
 test("duplicate reachability marks repeats rather than re-expanding", () => {
   const view = buildCausalGraphView({
     rootRef: "task/task_root",

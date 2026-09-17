@@ -90,7 +90,7 @@ test("ha graph serves the task→decision→fact causal tree through the repo re
     assert.equal(fact.outcome, "applied", JSON.stringify(fact));
     await waitForFixturePublication(cell, fact.opId, binding);
     for (const relation of [
-      { sourceRef: `decision/${decisionId}/C1`, targetRef: "task/task_leaf", relationType: "derives" },
+      { sourceRef: `decision/${decisionId}/CH1`, targetRef: "task/task_leaf", relationType: "derives" },
       { sourceRef: `decision/${decisionId}/C1`, targetRef: "fact/F-0000ABCD", relationType: "evidenced-by" },
     ]) {
       const related = await cell.run(
@@ -112,12 +112,20 @@ test("ha graph serves the task→decision→fact causal tree through the repo re
     assert.equal(payload.schema, "causal-graph/v1");
     assert.equal(payload.query.resolvedRef, "task/task_leaf");
     assert.equal(typeof payload.watermark === "number" || typeof payload.root === "object", true);
-    const anchor = find(payload.root, `decision/${decisionId}/C1`),
-      parent = find(payload.root, "task/task_root");
+    const anchor = find(payload.root, `decision/${decisionId}/CH1`),
+      parent = find(payload.root, "task/task_root"),
+      decision = find(payload.root, `decision/${decisionId}`);
     assert.equal(anchor?.viaEdge?.traversal, "upstream");
-    assert.equal(anchor?.viaEdge?.sourceRef, `decision/${decisionId}/C1`);
+    assert.equal(anchor?.viaEdge?.sourceRef, `decision/${decisionId}/CH1`);
     assert.equal(anchor?.viaEdge?.targetRef, "task/task_leaf");
     assert.equal(parent?.viaEdge?.relationType, "child");
+    // The owning decision renders between sibling anchors as a structural "anchor" edge.
+    assert.equal(decision?.viaEdge?.relationType, "anchor");
+    assert.equal(decision?.viaEdge?.traversal, "upstream");
+    assert.ok(
+      find(payload.root, "fact/F-0000ABCD"),
+      "default task graph must reach evidence on the decision claim, not only its chosen anchor",
+    );
 
     const fromDecision = await cell.run({ kind: "graph", ref: decisionId, depth: 2 }, binding);
     assert.equal(fromDecision.outcome, "applied", JSON.stringify(fromDecision));
@@ -126,6 +134,18 @@ test("ha graph serves the task→decision→fact causal tree through the repo re
     assert.equal(claim !== undefined, true);
     assert.equal(find(decisionPayload.root, "fact/F-0000ABCD")?.ref, "fact/F-0000ABCD");
     assert.equal(find(decisionPayload.root, "task/task_leaf")?.ref, "task/task_leaf");
+
+    const fromFact = await cell.run({ kind: "graph", ref: "F-0000ABCD" }, binding);
+    assert.equal(fromFact.outcome, "applied", JSON.stringify(fromFact));
+    const factPayload = evidence(fromFact) as { root: GraphNode },
+      factClaim = find(factPayload.root, `decision/${decisionId}/C1`);
+    assert.equal(factClaim?.viaEdge?.traversal, "upstream");
+    assert.equal(factClaim?.viaEdge?.sourceRef, `decision/${decisionId}/C1`);
+    assert.ok(
+      find(factPayload.root, `decision/${decisionId}/CH1`),
+      "fact root must reach the sibling chosen anchor through the owning decision",
+    );
+    assert.ok(find(factPayload.root, "task/task_leaf"), "fact root must reach the derived task");
 
     const unknown = await cell.run({ kind: "graph", ref: "task_does_not_exist" }, binding);
     assert.equal(unknown.outcome, "op_rejected");

@@ -69,6 +69,8 @@ export interface CausalGraphBuildInput {
   readonly nodes: Readonly<Record<string, CausalGraphNodeInfo>>;
   /** True when the serving projection reported edges beyond the returned window. */
   readonly frontierTruncated: boolean;
+  /** Refs whose serving read was budget-cut before their neighborhoods were fetched. */
+  readonly unexpandedRefs?: ReadonlySet<string>;
   readonly maxOccurrences?: number;
 }
 
@@ -221,7 +223,7 @@ export function buildCausalGraphView(input: CausalGraphBuildInput): CausalGraphV
         expand(childNode, new Set([...path, child.ref]));
       }
     const hidden = adjacent.length - children.length;
-    if (hidden > 0 || (atDepthLimit && input.frontierTruncated)) {
+    if (hidden > 0 || (atDepthLimit && input.frontierTruncated) || input.unexpandedRefs?.has(node.ref)) {
       (node as { truncated: boolean }).truncated = true;
       stats.truncated += 1;
     }
