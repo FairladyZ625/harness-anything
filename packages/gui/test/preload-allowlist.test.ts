@@ -177,16 +177,16 @@ test("preload exposes only the approved API methods", () => {
   );
   assert.throws(() => assertPreloadPayload("getTasks", { repoId: "repo-a", staleRepoId: "repo-b" }), /not allowed/u);
   assert.throws(() => assertPreloadPayload("getSystemStatus", { repoId: "repo-a" }), /not allowed/u);
-  // 38 explicit actions plus the complete declaration read are the 39 editing-facing facets.
+  // 39 explicit actions plus the complete declaration read are the 40 editing-facing facets.
   const editingFacets = [
     ...daemonGuiActionMethods.map(({ guiBridgeMethod }) => guiBridgeMethod),
     "readVerticalDeclaration",
   ];
-  assert.equal(editingFacets.length, 39);
+  assert.equal(editingFacets.length, 40);
   assert.equal(preloadAllowlist.includes("readVerticalDeclaration"), true);
   // entity.update / entity.archive / entity.delete plus vertical kind upsert / publish-schema / retire
   // are explicit GUI facets.
-  assert.equal(daemonGuiActionMethods.length, 38);
+  assert.equal(daemonGuiActionMethods.length, 39);
   assert.equal(
     daemonGuiActionMethods.some(({ method }) => method === "repo.entity.delete"),
     true,
@@ -207,6 +207,13 @@ test("preload exposes only the approved API methods", () => {
   // 载荷(taskId/executionId/consent),不加任何 GUI 侧业务判定。
   assert.equal(assertPreloadPayload("completeTask", { repoId: "repo-a", taskId: "task-a", consent: true }), true);
   assert.equal(assertPreloadPayload("completeTask", { repoId: "repo-a", taskId: "task-a" }), true);
+  // taskAttest 是 Gate 签注/特批的 GUI 写通道,与 `ha task attest` 同一个 task-attest 动作;
+  // mode/rationale 与人类 principal 的准入只在 daemon handler 判定。
+  assert.equal(preloadAllowlist.includes("taskAttest"), true);
+  assert.equal(
+    daemonGuiActionMethods.find(({ guiBridgeMethod }) => guiBridgeMethod === "taskAttest")?.actionKind,
+    "task-attest",
+  );
   assert.equal(
     daemonGuiActionMethods.some(({ method }) => method === "repo.agentRuntime.cancel"),
     true,

@@ -132,4 +132,22 @@ export const taskCompletionGuiActions = Object.freeze([
     "/api/tasks/:taskId/complete",
     "repo-write",
   ),
+  // Named ingress onto the same `task-attest` action as `ha task attest`: the closed payload mirrors the
+  // CLI inputs, and mode/rationale/human-principal admission stays in the one daemon handler.
+  guiAction(
+    "task.attest",
+    "repo.task.attest",
+    "task-attest",
+    shape({
+      taskId: "string",
+      gateId: "string",
+      result: "string",
+      mode: "string?",
+      note: "string?",
+      rationale: "string?",
+    }),
+    "taskAttest",
+    "/api/tasks/:taskId/attest",
+    "repo-write",
+  ),
 ]);

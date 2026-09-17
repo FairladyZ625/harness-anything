@@ -7,6 +7,7 @@ import {
 import type { EntityDocumentJsonSchema } from "./entity-json-schema.ts";
 import {
   gateAppliesTo,
+  gateGovernanceFields,
   gateWitnessMappingIssues,
   mappedWitnessAdapterIds,
   type GateWitnessMappingV1,
@@ -460,6 +461,8 @@ function gateSettingsSchema() {
         command: { type: "string" as const, minLength: 1 },
         coverage: { type: "string" as const, enum: ["exact", "descendant"] },
         selection: { type: "string" as const, enum: ["newest"] },
+        mandatorySignoff: { type: "boolean" as const },
+        allowOverride: { type: "boolean" as const },
       },
       required: ["gateId", "adapter"],
       additionalProperties: false,
@@ -522,7 +525,7 @@ function readGateSettings(body: string): readonly GateWitnessMappingV1[] {
   if (!/^  gates:/mu.test(body)) return INITIAL_SETTINGS_V1.gates;
   const section = /^  gates:[^\S\r\n]*(?:#[^\r\n]*)?\r?\n((?:    [^\r\n]*(?:\r?\n|$))*)/mu.exec(body)?.[1];
   if (section === undefined) throw new Error("settings.gates must be a block of gate witness mappings");
-  const gates: Record<string, string>[] = [];
+  const gates: Record<string, string | boolean>[] = [];
   for (const line of section.split(/\r?\n/u)) {
     const content = line.replace(/[^\S\r\n]*#.*$/u, "");
     if (!content.trim()) continue;
@@ -532,10 +535,17 @@ function readGateSettings(body: string): readonly GateWitnessMappingV1[] {
     if (gate && (gate[2] === "" || gate[2] === "none"))
       gates.push({ gateId: gate[1]!, ...(gate[2] === "none" ? { adapter: "none" } : {}) });
     else if (field && current && current.adapter !== "none" && !Object.hasOwn(current, field[1]!))
-      current[field[1]!] = field[2]!;
+      current[field[1]!] = governanceFlag(field[1]!, field[2]!);
     else throw new Error(`settings.gates cannot read line: ${content.trim()}`);
   }
   return gates as unknown as readonly GateWitnessMappingV1[];
+}
+
+/** Governance modifiers are YAML booleans; any other spelling stays a string for the schema to reject. */
+function governanceFlag(field: string, raw: string): string | boolean {
+  return (gateGovernanceFields as readonly string[]).includes(field) && (raw === "true" || raw === "false")
+    ? raw === "true"
+    : raw;
 }
 
 /** One key order for every mapping, so snapshots from YAML, events, and projections compare byte-equal. */

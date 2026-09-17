@@ -59,7 +59,9 @@ export function parseTaskAttest(
         taskId,
         gateId: f.one.get("--gate"),
         result: f.one.get("--result"),
+        ...(f.one.get("--mode") ? { mode: f.one.get("--mode") } : {}),
         ...(f.one.get("--note") ? { note: f.one.get("--note") } : {}),
+        ...(f.one.get("--rationale") !== undefined ? { rationale: f.one.get("--rationale") } : {}),
       })
     : rejected(f.code, f.nextAction, json);
 }

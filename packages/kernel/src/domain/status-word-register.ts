@@ -1,4 +1,5 @@
 import type { StatusWordRegistration } from "./status-vocabulary.ts";
+import { closeoutStatusWordRegister } from "./status-word-register-closeout.ts";
 
 /** Ordered cross-entity status registrations, assembled from bounded domains. */
 export const statusWordRegister: readonly StatusWordRegistration[] = [
@@ -214,34 +215,6 @@ export const statusWordRegister: readonly StatusWordRegistration[] = [
     entity: "FactRecord",
     field: "liveness",
     meaning: "factLiveness verdict: an active supersedes-fact edge targets this fact.",
-    divergence: "entity-scoped",
-  },
-  {
-    word: "passed",
-    entity: "TaskCloseout",
-    field: "gate status",
-    meaning: "The matching completion-gate witness on the current cut has result pass.",
-    divergence: "entity-scoped",
-  },
-  {
-    word: "failed",
-    entity: "TaskCloseout",
-    field: "gate status",
-    meaning: "A matching witness exists on the current cut but its result is not pass.",
-    divergence: "entity-scoped",
-  },
-  {
-    word: "missing",
-    entity: "TaskCloseout",
-    field: "gate status",
-    meaning: "No witness matches the current execution cut.",
-    divergence: "entity-scoped",
-  },
-  {
-    word: "unknown",
-    entity: "TaskCloseout",
-    field: "gate status",
-    meaning: "Witness availability could not be read.",
     divergence: "entity-scoped",
   },
   // ---- CodeDocWitness.disposition (append-only evidence backfill) ----
@@ -954,49 +927,8 @@ export const statusWordRegister: readonly StatusWordRegistration[] = [
     divergence: "entity-scoped",
   },
 
-  // ---- TaskCloseout.readiness (closeout judgment result) ----
-  {
-    word: "not_required",
-    entity: "TaskCloseout",
-    field: "readiness",
-    meaning: "Closeout gate does not apply to this task.",
-    divergence: "entity-scoped",
-  },
-  {
-    word: "missing",
-    entity: "TaskCloseout",
-    field: "readiness",
-    meaning: "Required closeout material is absent.",
-    divergence: "entity-scoped",
-  },
-  {
-    word: "incomplete",
-    entity: "TaskCloseout",
-    field: "readiness",
-    meaning: "Closeout material exists but is not complete.",
-    divergence: "entity-scoped",
-  },
-  {
-    word: "ready",
-    entity: "TaskCloseout",
-    field: "readiness",
-    meaning: "Closeout material is ready for the gate.",
-    divergence: "entity-scoped",
-  },
-  {
-    word: "passed",
-    entity: "TaskCloseout",
-    field: "readiness",
-    meaning: "Completion gate witness passed.",
-    divergence: "entity-scoped",
-  },
-  {
-    word: "failed",
-    entity: "TaskCloseout",
-    field: "readiness",
-    meaning: "Completion gate witness failed.",
-    divergence: "entity-scoped",
-  },
+  // ---- TaskCloseout gate status and readiness (status-word-register-closeout.ts) ----
+  ...closeoutStatusWordRegister,
 
   // ---- Task.sessionBinding disposition (witness availability) ----
   {

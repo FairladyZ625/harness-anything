@@ -1014,3 +1014,46 @@ test("task create rejects the retired legacy flag and still accepts a title", ()
   assert.equal(parseThinCommand(["task", "create", "--title", "New task", "--from-legacy", "legacy-1"]).ok, false);
   assert.equal(parseThinCommand(["task", "create", "--title", "New task"]).ok, true);
 });
+
+test("task attest assembles approve and override into the closed task-attest action", () => {
+  const override = parseThinCommand([
+      "task",
+      "attest",
+      "task-1",
+      "--gate",
+      "ci",
+      "--result",
+      "pass",
+      "--mode",
+      "override",
+      "--rationale",
+      "Runner host lost network mid-run",
+    ]),
+    approve = parseThinCommand(["task", "attest", "task-1", "--gate", "review", "--result", "pass", "--note", "ok"]);
+  assert.equal(override.ok, true);
+  if (override.ok)
+    assert.deepEqual(override.command.action, {
+      kind: "task-attest",
+      taskId: "task-1",
+      gateId: "ci",
+      result: "pass",
+      mode: "override",
+      rationale: "Runner host lost network mid-run",
+    });
+  if (approve.ok)
+    assert.deepEqual(approve.command.action, {
+      kind: "task-attest",
+      taskId: "task-1",
+      gateId: "review",
+      result: "pass",
+      note: "ok",
+    });
+  assert.equal(
+    parseThinCommand(["task", "attest", "task-1", "--gate", "ci", "--result", "pass", "--mode", "waive"]).ok,
+    false,
+  );
+  assert.equal(
+    parseThinCommand(["task", "attest", "task-1", "--gate", "ci", "--result", "pass", "--executor", "x"]).ok,
+    false,
+  );
+});

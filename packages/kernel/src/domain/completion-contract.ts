@@ -39,10 +39,21 @@ export type FrozenGateWitness =
   | { readonly adapterId: "manual-attest"; readonly adapterOptions: Readonly<Record<string, never>> }
   | { readonly adapterId: typeof CODE_DOC_GATE_ID; readonly adapterOptions: Readonly<Record<string, never>> };
 
+/**
+ * Human responsibility layered orthogonally on an automated witness. Both are present only as `true`,
+ * so a contract without them keeps its automated-only meaning and its submission digest.
+ * `mandatorySignoff`: an automated pass still needs a human signoff (dual control).
+ * `allowOverride`: a recorded automated fail may be waived by the task owner with a rationale.
+ * A manual-attest gate is already human-witnessed and accepts neither.
+ */
+export const gateGovernanceFields = ["mandatorySignoff", "allowOverride"] as const;
+
 export interface FrozenGateRequirement {
   readonly gateId: string;
   readonly appliesTo: GateAppliesTo;
   readonly witness: FrozenGateWitness;
+  readonly mandatorySignoff?: true;
+  readonly allowOverride?: true;
 }
 
 /**
@@ -83,6 +94,8 @@ export interface GateWitnessMappingV1 {
   readonly command?: string;
   readonly coverage?: "exact" | "descendant";
   readonly selection?: "newest";
+  readonly mandatorySignoff?: boolean;
+  readonly allowOverride?: boolean;
 }
 
 const adapterOptionFields: Readonly<Record<FrozenGateWitness["adapterId"], readonly string[]>> = {
@@ -121,9 +134,11 @@ export function validateFrozenCompletionContract(
 }
 
 function frozenRequirement(value: unknown, fields: typeof hasOnlyFields): boolean {
+  const governance = isRecord(value) ? gateGovernanceFields.filter((field) => Object.hasOwn(value, field)) : [];
   if (
     !isRecord(value) ||
-    !fields(value, ["gateId", "appliesTo", "witness"]) ||
+    !fields(value, ["gateId", "appliesTo", "witness", ...governance]) ||
+    !governance.every((field) => value[field] === true) ||
     !isNonEmptyString(value.gateId) ||
     !(gateAppliesTo as readonly unknown[]).includes(value.appliesTo) ||
     !isRecord(value.witness) ||
@@ -136,6 +151,7 @@ function frozenRequirement(value: unknown, fields: typeof hasOnlyFields): boolea
     options = value.witness.adapterOptions,
     internal = adapterId === CODE_DOC_GATE_ID;
   return (
+    (governance.length === 0 || (adapterId !== "manual-attest" && !internal)) &&
     fields(options, adapterOptionFields[adapterId]) &&
     internal === (value.gateId === CODE_DOC_GATE_ID) &&
     (!internal || value.appliesTo === "code") &&
@@ -156,9 +172,14 @@ function frozenRequirement(value: unknown, fields: typeof hasOnlyFields): boolea
 
 /** Adapter-specific field sets that the flat settings schema cannot express. */
 export function gateWitnessMappingIssues(mappings: readonly GateWitnessMappingV1[]): readonly string[] {
-  return mappings.flatMap(({ gateId, adapter, ...options }) => {
+  return mappings.flatMap(({ gateId, adapter, mandatorySignoff, allowOverride, ...options }) => {
     const expected = mappingFields[adapter],
       actual = Object.keys(options);
+    if ((mandatorySignoff !== undefined || allowOverride !== undefined) && !humanGovernable(adapter))
+      return [
+        `settings.gates.${gateId} with adapter ${adapter} cannot declare mandatorySignoff or allowOverride; ` +
+          "only github-actions and local-command witnesses carry human governance",
+      ];
     if (actual.length !== expected.length || !expected.every((field) => actual.includes(field)))
       return [
         `settings.gates.${gateId} with adapter ${adapter} must declare exactly: ${expected.join(", ") || "none"}`,
@@ -210,6 +231,10 @@ export function inferLegacyGateRequirements(
   });
 }
 
+function humanGovernable(adapter: GateWitnessMappingV1["adapter"]): boolean {
+  return adapter === "github-actions" || adapter === "local-command";
+}
+
 export type CompletionContractResolution =
   | { readonly ok: true; readonly contract: FrozenCompletionContract }
   | { readonly ok: false; readonly message: string };
@@ -236,7 +261,11 @@ export function resolveCompletionContract(
         `Task declares completion gate ${gateId}, but harness.yaml settings.gates maps no witness for it; ` +
           "declare its adapter or map it to none.",
       );
-    const appliesTo = mapping.appliesTo!;
+    const appliesTo = mapping.appliesTo!,
+      governance = {
+        ...(mapping.mandatorySignoff === true ? { mandatorySignoff: true as const } : {}),
+        ...(mapping.allowOverride === true ? { allowOverride: true as const } : {}),
+      };
     if (mapping.adapter === "github-actions") {
       // settings.ci.workflows stays the repository's single GitHub Actions workflow registry.
       if (settings.ci.workflows.length === 0)
@@ -258,12 +287,14 @@ export function resolveCompletionContract(
             selection: mapping.selection,
           },
         },
+        ...governance,
       });
     } else if (mapping.adapter === "local-command")
       gates.push({
         gateId,
         appliesTo,
         witness: { adapterId: "local-command", adapterOptions: { command: mapping.command! } },
+        ...governance,
       });
     else gates.push({ gateId, appliesTo, witness: { adapterId: "manual-attest", adapterOptions: {} } });
   }
