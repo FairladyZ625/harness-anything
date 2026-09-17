@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import {
   completionEvidenceBasis,
-  consumeKnownError,
   gateAppliesToSubmission,
   judgeCompletionEvidence,
   localGitObjectRefStore,
@@ -19,7 +18,7 @@ import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import { fetchCiObservations, ingestCiObservations } from "./ci-observation-actions.ts";
 import { githubActionsWitnessEvidence } from "./repo-cell-ci-evidence.ts";
 import { readDispatchStreamHeaders } from "./dispatch-stream.ts";
-import { runProcessTextAsync } from "./process-port.ts";
+import { runProcessExitAsync, runProcessTextAsync } from "./process-port.ts";
 
 type Execution = Snapshot["executions"][number];
 
@@ -162,35 +161,24 @@ async function collectLocalCommand(
       cell.rootDir,
       { PATH: process.env.PATH },
     );
-    let exitCode: number, output: string;
-    try {
-      output = await runProcessTextAsync(
-        "sh",
-        ["-c", `${command} 2>&1`],
-        workdir,
-        {
-          PATH: process.env.PATH,
-          HARNESS_WITNESS_CUT: cutSha,
-          HARNESS_WITNESS_GATE: requirement.gateId,
-          // Repository-scoped observations (e.g. merged-to ancestry) read the source repo through
-          // this handle; the extracted workdir carries no .git.
-          HARNESS_WITNESS_REPO: root,
-        },
-        undefined,
-        undefined,
-        { timeoutMs: localCommandTimeoutMs },
-      );
-      exitCode = 0;
-    } catch (error) {
-      const failure = error as { status?: number; stdout?: string },
-        spawnExit = typeof failure.status === "number" ? failure.status : undefined;
-      // Spawn failure, signal, or timeout is unavailable evidence, never a verdict.
-      if (spawnExit === undefined) throw error;
-      // A nonzero exit is the command's verdict — consumed as evidence, not a swallowed failure.
-      consumeKnownError(error);
-      exitCode = spawnExit;
-      output = typeof failure.stdout === "string" ? failure.stdout : "";
-    }
+    // A nonzero exit is the command's verdict — returned as a result, not thrown. Spawn failure,
+    // signal, and timeout still reject as unavailable evidence, never a verdict.
+    const { exitCode, stdout: output } = await runProcessExitAsync(
+      "sh",
+      ["-c", `${command} 2>&1`],
+      workdir,
+      {
+        PATH: process.env.PATH,
+        HARNESS_WITNESS_CUT: cutSha,
+        HARNESS_WITNESS_GATE: requirement.gateId,
+        // Repository-scoped observations (e.g. merged-to ancestry) read the source repo through
+        // this handle; the extracted workdir carries no .git.
+        HARNESS_WITNESS_REPO: root,
+      },
+      undefined,
+      undefined,
+      { timeoutMs: localCommandTimeoutMs },
+    );
     return {
       kind: "local-command",
       submissionDigest: submissionDigest(submission),

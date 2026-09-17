@@ -106,19 +106,25 @@ export function runProcessText(
     })
   );
 }
-export function runProcessTextAsync(
+interface ProcessTextOutcome {
+  readonly error: (Error & { code?: number | string | null; status?: number; stdout: string; stderr: string }) | null;
+  readonly stdout: string;
+  readonly stderr: string;
+}
+
+function launchProcessText(
   command: string,
   args: readonly string[],
-  cwd?: string,
-  env?: NodeJS.ProcessEnv,
-  input?: string,
-  signal?: AbortSignal,
+  cwd: string | undefined,
+  env: NodeJS.ProcessEnv | undefined,
+  input: string | undefined,
+  signal: AbortSignal | undefined,
   options: {
     readonly timeoutMs?: number;
     readonly windowsVerbatimArguments?: boolean;
-  } = {},
-): Promise<string> {
-  return new Promise((resolve, reject) => {
+  },
+): Promise<ProcessTextOutcome> {
+  return new Promise((resolve) => {
     // execFile's own AbortSignal handling fires the callback as soon as the signal aborts,
     // while SIGTERM is still in flight — settling then would release the caller (and any
     // queue slot it holds) before the child has actually exited. Settle only once the child
@@ -138,23 +144,77 @@ export function runProcessTextAsync(
         windowsHide: true,
       },
       (error, stdout, stderr) => {
-        if (error) {
-          Object.assign(error, {
+        const settle = () =>
+          resolve({
+            error: error
+              ? Object.assign(error, {
+                  stdout,
+                  stderr,
+                  ...(typeof error.code === "number" ? { status: error.code } : {}),
+                })
+              : null,
             stdout,
             stderr,
-            ...(typeof error.code === "number" ? { status: error.code } : {}),
           });
-          if (child.exitCode === null && child.signalCode === null) {
-            child.once("close", () => reject(error));
-            return;
-          }
-          reject(error);
+        if (error && child.exitCode === null && child.signalCode === null) {
+          child.once("close", settle);
           return;
         }
-        resolve(stdout);
+        settle();
       },
     );
     child.stdin?.end(input);
+  });
+}
+
+export function runProcessTextAsync(
+  command: string,
+  args: readonly string[],
+  cwd?: string,
+  env?: NodeJS.ProcessEnv,
+  input?: string,
+  signal?: AbortSignal,
+  options: {
+    readonly timeoutMs?: number;
+    readonly windowsVerbatimArguments?: boolean;
+  } = {},
+): Promise<string> {
+  return launchProcessText(command, args, cwd, env, input, signal, options).then((outcome) => {
+    if (outcome.error) throw outcome.error;
+    return outcome.stdout;
+  });
+}
+
+export interface ProcessExitResult {
+  readonly exitCode: number;
+  readonly stdout: string;
+  readonly stderr: string;
+}
+
+/**
+ * The verdict-carrying variant of runProcessTextAsync: a child that exits normally — whatever the
+ * code — resolves with it. Spawn failure, signal, timeout, and abort produce no verdict and
+ * still reject.
+ */
+export function runProcessExitAsync(
+  command: string,
+  args: readonly string[],
+  cwd?: string,
+  env?: NodeJS.ProcessEnv,
+  input?: string,
+  signal?: AbortSignal,
+  options: {
+    readonly timeoutMs?: number;
+    readonly windowsVerbatimArguments?: boolean;
+  } = {},
+): Promise<ProcessExitResult> {
+  return launchProcessText(command, args, cwd, env, input, signal, options).then((outcome) => {
+    if (outcome.error && typeof outcome.error.code !== "number") throw outcome.error;
+    return {
+      exitCode: typeof outcome.error?.code === "number" ? outcome.error.code : 0,
+      stdout: outcome.stdout,
+      stderr: outcome.stderr,
+    };
   });
 }
 export function makeGitReadinessSource() {
