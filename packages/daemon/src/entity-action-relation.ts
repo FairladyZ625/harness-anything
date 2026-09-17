@@ -234,10 +234,12 @@ function decisionDocumentUpdate(
       const owner = parseEntityRef(source);
       return owner?.kind === "decision" && owner.id === decisionId;
     }),
-    incoming = overlayRelation(relationRows(projection.readDecisionGraph().edges), next).filter(({ target }) => {
-      const owner = parseEntityRef(target);
-      return owner?.kind === "decision" && owner.id === decisionId;
-    });
+    incoming = overlayRelation(relationRows(projection.readDecisionIncomingRelations(decisionId)), next).filter(
+      ({ target }) => {
+        const owner = parseEntityRef(target);
+        return owner?.kind === "decision" && owner.id === decisionId;
+      },
+    );
   return {
     path,
     policyId: DECISION_DOCUMENT_POLICY_ID,

@@ -246,7 +246,7 @@ function decisionDocumentUpdates(
         return owner?.kind === "decision" && owner.id === decisionId;
       },
     ),
-    incoming = relationRecords(projection.readDecisionGraph().edges).filter(({ target }) => {
+    incoming = relationRecords(projection.readDecisionIncomingRelations(decisionId)).filter(({ target }) => {
       const owner = parseEntityRef(target);
       return owner?.kind === "decision" && owner.id === decisionId;
     });

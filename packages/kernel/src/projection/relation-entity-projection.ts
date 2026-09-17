@@ -239,6 +239,23 @@ export function readRelationProjectionRows(
   );
 }
 
+/** Relation rows targeting one entity or any of its anchors (`<ref>/<anchor>`), through the target index. */
+export function readRelationProjectionRowsTargetingEntity(
+  db: DatabaseSync,
+  entityRef: string,
+): readonly VersionedRelationProjectionRow[] {
+  return relationProjectionRowsAtCut(
+    db,
+    queryRows<{ readonly row_json: string }>(
+      db,
+      "SELECT row_json FROM relation_edge WHERE target_ref = ? OR (target_ref >= ? AND target_ref < ?) ORDER BY relation_id",
+      entityRef,
+      `${entityRef}/`,
+      `${entityRef}0`,
+    ),
+  );
+}
+
 export function readRelationProjectionRowsForTargets(
   db: DatabaseSync,
   targetRefs: readonly string[],

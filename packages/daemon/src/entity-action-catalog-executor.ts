@@ -594,8 +594,8 @@ function compileDraft(
         state: edge.state,
       })),
     incomingRelations = projection
-      .readDecisionGraph()
-      .edges.filter((edge) => {
+      .readDecisionIncomingRelations(draft.event.decisionId)
+      .filter((edge) => {
         const target = parseEntityRef(edge.targetRef);
         return target?.kind === "decision" && target.id === draft.event.decisionId;
       })
