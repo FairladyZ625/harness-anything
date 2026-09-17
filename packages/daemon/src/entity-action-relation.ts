@@ -106,8 +106,8 @@ export function executeRelationAction(input: {
     reject("invalid_command", `${action.kind} did not compile a Relation event.`);
   const relationId = compiled.relationId;
   if (relationId !== requestedRelationId) reject("invalid_command", "Relation action identity changed during compile.");
-  if (!replay && (lookupCut.status !== "ready" || lookupCut.watermark !== headRevision))
-    reject("content_not_ready", `Relation dependencies are pending${lookupNote}`);
+  const dependenciesCaughtUp = lookupCut.status === "ready" && lookupCut.watermark === headRevision;
+  if (!replay && !dependenciesCaughtUp) reject("content_not_ready", `Relation dependencies are pending${lookupNote}`);
   if (compiled.type === "relation_created" && current) {
     const candidate = compiled.payload.relation,
       same =

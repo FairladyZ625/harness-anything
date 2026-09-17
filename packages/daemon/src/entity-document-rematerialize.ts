@@ -47,8 +47,9 @@ export function runEntityDocumentRematerialize(
     throw cell.cellCodedError("invalid_field", `ha ${entityKind} rematerialize requires exactly one of --all or --id.`);
   const headRevision = cell.store.readHead()?.revision ?? 0,
     opId = cell.operationId(action, binding, cell.input.repoId, headRevision),
-    pendingCut = cell.projection.readCut();
-  if (pendingCut.status !== "ready" || pendingCut.watermark !== headRevision)
+    pendingCut = cell.projection.readCut(),
+    projectionCaughtUp = pendingCut.status === "ready" && pendingCut.watermark === headRevision;
+  if (!projectionCaughtUp)
     throw cell.cellCodedError(
       "content_not_ready",
       `Entity document rematerialization requires a caught-up projection ` +
@@ -311,8 +312,8 @@ function factDocumentUpdates(projection: TaskProjection, factId: string): readon
 function taskDocumentUpdates(projection: TaskProjection, taskId: string): readonly EntityDocumentUpdate[] {
   const read = projection.read(taskId),
     packagePath = read.packagePath;
-  if (read.status !== "ready" || read.snapshot.task === null || packagePath === null)
-    reject("content_not_ready", `Task ${taskId} package is unavailable.`);
+  const taskReadable = read.status === "ready" && read.snapshot.task !== null && packagePath !== null;
+  if (!taskReadable) reject("content_not_ready", `Task ${taskId} package is unavailable.`);
   const prefix = `${packagePath}/`,
     candidates = [
       `${prefix}INDEX.md`,
