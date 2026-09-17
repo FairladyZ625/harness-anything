@@ -1,5 +1,19 @@
 import type { StatusWordRegistration } from "./status-vocabulary.ts";
 
+/**
+ * `waived`: a recorded automated fail covered by a human override — satisfied, never reported as passed.
+ * `signoff_missing`: the automated witness passed but the gate's mandatory human signoff is absent.
+ */
+export const closeoutGateStatuses = [
+  "passed",
+  "waived",
+  "failed",
+  "missing",
+  "signoff_missing",
+  "unknown",
+  "not_applicable",
+] as const;
+export type CloseoutGateStatus = (typeof closeoutGateStatuses)[number];
 /** TaskCloseout registrations: the per-gate witness verdict and the readiness label that aggregates it. */
 export const closeoutStatusWordRegister: readonly StatusWordRegistration[] = [
   // ---- TaskCloseout.gate status (per-gate witness judgment) ----

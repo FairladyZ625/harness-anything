@@ -11,7 +11,7 @@ import {
   mappedWitnessAdapterIds,
   validCompletionEvidenceOverride,
   validateFrozenCompletionContract,
-} from "../../../kernel/src/index.ts";
+} from "../../../kernel/src/browser.ts";
 
 export const recordWith = (value: unknown, fields: readonly string[]): value is JsonObject =>
     isJsonObject(value) && fields.every((field) => Object.hasOwn(value, field)),
