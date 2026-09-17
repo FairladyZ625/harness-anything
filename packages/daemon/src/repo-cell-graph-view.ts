@@ -41,7 +41,7 @@ export function graphView(cell: TaskQueryCell, action: RepoTaskAction, binding: 
         maxNodes: GRAPH_NODE_BUDGET,
         allowTruncation: true,
       }),
-    reads = [root.ref, ...root.anchors].map(neighborhood),
+    reads = [root.ref, ...root.anchors].slice(0, GRAPH_SEED_BUDGET).map(neighborhood),
     edges = new Map(reads.flatMap((entry) => entry.edges.map((edge) => [edge.relationId, edge] as const))),
     taskIndex = cell.projection.readTaskIndex({}),
     taskByRef = new Map(taskIndex.rows.map((row) => [`task/${row.taskId}`, row])),
@@ -61,9 +61,11 @@ export function graphView(cell: TaskQueryCell, action: RepoTaskAction, binding: 
   // a task derived from decision/<id>/CH1 never reaches decision/<id>/C1 through relation edges.
   // Expand the anchors of every decision the edge set references — indexed seed reads, bounded
   // by GRAPH_SEED_BUDGET — so a task root also serves the claims that evidence its decision.
-  const expandedDecisions = new Set<string>(root.anchors.length === 0 ? [] : [decisionIdOf(root.ref)!]),
+  const expandedDecisions = new Set<string>(
+      root.anchors.length === 0 || root.anchors.length + 1 > GRAPH_SEED_BUDGET ? [] : [decisionIdOf(root.ref)!],
+    ),
     cutReads: ProjectionCut[] = [...reads, taskIndex];
-  for (;;) {
+  expandAnchors: for (;;) {
     const pending = [
       ...new Set(
         [root.ref, ...[...edges.values()].flatMap((edge) => [edge.sourceRef, edge.targetRef])]
@@ -82,7 +84,7 @@ export function graphView(cell: TaskQueryCell, action: RepoTaskAction, binding: 
         continue;
       }
       const anchors = [...row.claims, ...row.chosen].map((anchor) => `decision/${decisionId}/${anchor.id}`);
-      if (reads.length + anchors.length > GRAPH_SEED_BUDGET) break;
+      if (reads.length + anchors.length > GRAPH_SEED_BUDGET) break expandAnchors;
       expandedDecisions.add(decisionId);
       linkAnchors(`decision/${decisionId}`, anchors);
       for (const entry of anchors.map(neighborhood)) {
@@ -94,12 +96,12 @@ export function graphView(cell: TaskQueryCell, action: RepoTaskAction, binding: 
   }
   // Decisions left unexpanded by the seed budget stay honest: their refs render truncated.
   const unexpandedRefs = new Set(
-    [...edges.values()]
-      .flatMap((edge) => [edge.sourceRef, edge.targetRef])
-      .filter((ref) => {
+    [root.ref, ...anchorRefs, ...[...edges.values()].flatMap((edge) => [edge.sourceRef, edge.targetRef])].filter(
+      (ref) => {
         const id = decisionIdOf(ref);
         return id !== undefined && !expandedDecisions.has(id);
-      }),
+      },
+    ),
   );
   requireSameProjectionCut("graph", [initialCut, ...cutReads]);
   const read = {

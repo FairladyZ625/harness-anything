@@ -43,3 +43,55 @@ for (const [name, revisions] of [
   test(`graph rejects ${name}`, () =>
     assert.throws(() => read(fixture(...revisions)), /graph spans multiple event projection cuts/u));
 }
+
+function budgetFixture(rootAnchors: number, discoveredAnchors: number) {
+  const cell = fixture(),
+    cut = { status: "ready" as const, watermark: 1, sourceRevision: 1 },
+    claims = (count: number) => Array.from({ length: count }, (_, index) => ({ id: `C${index + 1}`, text: "Claim" }));
+  let neighborhoodReads = 0,
+    decisionReads = 0;
+  Object.assign(cell.projection, {
+    readDecision: () => ({ ...cut, decision: { claims: claims(rootAnchors), chosen: [] } }),
+    readDecisions: () => {
+      assert.ok(++decisionReads <= 2, "anchor expansion repeated without progress");
+      return { ...cut, decisions: [{ decisionId: "dec_2", claims: claims(discoveredAnchors), chosen: [] }] };
+    },
+  });
+  Object.assign(cell, {
+    readResult: (_op: unknown, payload: unknown) => payload,
+    queryRead: () => ({
+      relationGraphNeighborhood: () => {
+        assert.ok(++neighborhoodReads <= 128, "root anchor reads exceeded the seed budget");
+        return {
+          ...cut,
+          facts: [],
+          warnings: [],
+          edges: discoveredAnchors
+            ? [
+                {
+                  relationId: "r1",
+                  sourceRef: "decision/dec_1/C1",
+                  targetRef: "decision/dec_2/C1",
+                  relationType: "relates",
+                  direction: "directed",
+                  state: "active",
+                  freshness: "current",
+                },
+              ]
+            : [],
+        };
+      },
+    }),
+  });
+  return cell;
+}
+
+test("graph stops when a discovered decision cannot fit the remaining seed budget", () => {
+  const payload = read(budgetFixture(1, 200)) as unknown as { stats: { truncated: number } };
+  assert.ok(payload.stats.truncated > 0);
+});
+
+test("graph applies the same seed budget to initial root anchors and reports truncation", () => {
+  const payload = read(budgetFixture(200, 0)) as unknown as { stats: { truncated: number } };
+  assert.ok(payload.stats.truncated > 0);
+});
