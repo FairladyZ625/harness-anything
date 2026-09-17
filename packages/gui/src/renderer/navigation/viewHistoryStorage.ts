@@ -1,4 +1,5 @@
 import { DEFAULT_TASK_FILTERS, type TaskFilters } from "../model/taskFilters.ts";
+import { ATTESTATION_POOL_TABS, type AttestationPoolTabId } from "../model/attestation-pool.ts";
 import { consumeKnownError } from "../../api/error-consumption.ts";
 import { createViewHistory, type AppLocation, type ViewId, type ViewHistoryState } from "./viewHistory.ts";
 import { isRendererRecord } from "../result-validation.ts";
@@ -81,6 +82,9 @@ function isAppLocation(value: unknown): value is AppLocation {
     !isTaskFilters(value.taskFilters)
   )
     return false;
+  // poolTab 是后加字段:旧存储没有它照样可读,消费侧按 "all" 解释。
+  if (value.poolTab !== undefined && !ATTESTATION_POOL_TABS.includes(value.poolTab as AttestationPoolTabId))
+    return false;
   const drill = value.drill;
   return (
     drill === null ||
@@ -116,6 +120,7 @@ export function initialLocation(filters?: TaskFilters): AppLocation {
     focusedEntityRef: null,
     taskFilters: filters ?? { ...DEFAULT_TASK_FILTERS },
     drill: null,
+    poolTab: "all",
   };
 }
 

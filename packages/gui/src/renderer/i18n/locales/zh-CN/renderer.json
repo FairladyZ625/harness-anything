@@ -1,5 +1,5 @@
 {
-  "renderer.shellConfig.decisionPool": "决策池",
+  "renderer.shellConfig.decisionPool": "待办签发",
   "firstRun.stepProvider": "第 2/3 步 · Provider 与模型",
   "firstRun.providerTitle": "选择 Provider 与模型",
   "firstRun.providerHint": "在向导后方的 Provider 工作区添加已检测到的 Claude、Codex 或 AGY 安装，并选择模型；也可以暂时跳过。",
