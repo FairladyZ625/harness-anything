@@ -27,6 +27,7 @@ async function withAcpDaemon(
     readonly host: Awaited<ReturnType<typeof openDaemonHost>>;
     readonly root: string;
     readonly capture: string;
+    readonly executablePath: string;
   }) => Promise<void>,
 ): Promise<void> {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-acp-")),
@@ -72,7 +73,7 @@ async function withAcpDaemon(
       },
       auth,
     );
-    await body({ host, root, capture });
+    await body({ host, root, capture, executablePath });
   } finally {
     await host.close();
     rmSync(parent, { recursive: true, force: true });
@@ -220,5 +221,19 @@ test("the worker host does not bind the ACP provider to the editor host the daem
     assert.equal((read.session as { activity: Record<string, unknown> }).activity.outcome, "succeeded");
     assert.equal((read.result as Record<string, unknown>).text, "devin live content");
     assert.equal(streamOrder(records).at(-3), "acp.result");
+  });
+});
+
+test("a registered ACP executable removed before spawn reports its failure before process exit", async () => {
+  await withAcpDaemon(process.env, async ({ host, root, executablePath }) => {
+    rmSync(executablePath);
+    const { read, records } = await spawnSettled(host, root, {
+      prompt: "do work",
+      idempotencyKey: "devin-acp-missing-executable",
+    });
+    assert.equal((read.session as { activity: { outcome: unknown } }).activity.outcome, "failed");
+    assert.deepEqual(streamOrder(records), ["acp.error", "process_exit", "attempt_outcome"]);
+    assert.equal(records.find((record) => record.kind === "process_exit")?.exitCode, null);
+    assert.equal(records.find((record) => record.kind === "attempt_outcome")?.classification, "provider_fault");
   });
 });

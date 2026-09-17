@@ -98,7 +98,6 @@ export async function runRuntimeWorkerHost(): Promise<void> {
     };
     child.once("error", (error) => {
       append({ kind: "provider_stderr", chunk: scrubProviderValue(error.message) as string });
-      finish(null, null);
     });
     process.once("SIGTERM", () => {
       if (!settled) {
@@ -112,7 +111,7 @@ export async function runRuntimeWorkerHost(): Promise<void> {
     );
     // The daemon stops reading at process_exit, so the ACP session's last frame must land first.
     await acp?.done;
-    finish(exitCode, signal);
+    finish(child.pid === undefined ? null : exitCode, signal);
   } finally {
     appender.close();
     await relay?.stop();
