@@ -1,5 +1,4 @@
 import { useMemo } from "react";
-import { CheckCircle, ClockCounterClockwise, XCircle } from "@phosphor-icons/react";
 import type { TaskCompletionRead } from "../../../api/renderer-dto.ts";
 import type { TaskMutationFeedback } from "../../task-actions.ts";
 import { useTaskCompletionQuery } from "../../task-data.ts";
@@ -15,6 +14,7 @@ import {
 import { CloseoutBadge } from "../badges.tsx";
 import { CopyContextButton } from "../CopyContextButton.tsx";
 import { TaskControlPanel } from "../TaskControlPanel.tsx";
+import { TaskGateAttestCard } from "./TaskGateAttestCard.tsx";
 import { ReadError, SectionHeading, Timestamp } from "./TaskDetailSections.tsx";
 
 const asideClass = "grid content-start gap-7 border-t border-border pt-6 xl:border-t-0 xl:border-l xl:pt-0 xl:pl-6";
@@ -28,6 +28,13 @@ export interface TaskActionProps {
   readonly onSubmit?: () => Promise<unknown>;
   /** 收口销账:true=同意完成,false=提交完成(请中心派发独立评审)。 */
   readonly onComplete?: (consent: boolean) => Promise<unknown>;
+  /** Gate 签注:manual-attest 打勾(approve)或失败关卡特批(override)。 */
+  readonly onAttest?: (
+    task: Pick<TaskRow, "taskId">,
+    gateId: string,
+    mode: "approve" | "override",
+    rationale?: string,
+  ) => Promise<TaskMutationFeedback>;
 }
 
 export function TaskCloseoutTab({
@@ -36,6 +43,7 @@ export function TaskCloseoutTab({
   onProgress,
   onSubmit,
   onComplete,
+  onAttest,
 }: { readonly task: TaskRow } & TaskActionProps) {
   const completion = useTaskCompletionQuery(task.projectId, task.taskId),
     completionNext = completion.data?.completionNext,
@@ -145,30 +153,7 @@ export function TaskCloseoutTab({
         </div>
 
         <aside className={asideClass}>
-          <div>
-            <h3 className="ui-body font-semibold text-text">Gate assessment</h3>
-            {task.gates.length === 0 ? (
-              <p className="mt-3 ui-meta text-text-faint">没有 completion gate。</p>
-            ) : (
-              <div className="mt-3 grid gap-2">
-                {task.gates.map((gate) => (
-                  <div key={gate.name} className="grid grid-cols-[1rem_minmax(0,1fr)] gap-2 ui-micro">
-                    {gate.ok === true ? (
-                      <CheckCircle weight="bold" className="mt-0.5 text-status-done" />
-                    ) : gate.ok === false ? (
-                      <XCircle weight="bold" className="mt-0.5 text-danger" />
-                    ) : (
-                      <ClockCounterClockwise weight="bold" className="mt-0.5 text-stale" />
-                    )}
-                    <div>
-                      <p className="font-mono text-text-muted">{gate.name}</p>
-                      {gate.detail ? <p className="mt-0.5 leading-5 text-text-faint">{gate.detail}</p> : null}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+          <TaskGateAttestCard task={task} feedback={mutationFeedback} onAttest={onAttest} />
           <TaskControlPanel task={task} feedback={mutationFeedback} onProgress={onProgress} onSubmit={onSubmit} />
         </aside>
       </div>
