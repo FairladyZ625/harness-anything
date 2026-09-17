@@ -394,7 +394,11 @@ export async function dispatchClaimedSchedule<
       claimFence: active.claimFence,
       outcome: "failed",
       endedAt: input.now(),
-      detail: [error instanceof Error ? error.message : String(error), cleanup.retainedDetail]
+      detail: [
+        input.workspace.runtime.worktree?.note,
+        error instanceof Error ? error.message : String(error),
+        cleanup.retainedDetail,
+      ]
         .filter(Boolean)
         .join(" "),
       idempotencyKey: `${input.idempotencyKey}:dispatch-failed`,
