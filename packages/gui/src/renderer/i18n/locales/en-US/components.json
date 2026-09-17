@@ -248,12 +248,12 @@
   "components.taskGateAttestCard.override": "Break-glass override",
   "components.taskGateAttestCard.cancel": "Cancel",
   "components.taskGateAttestCard.rationaleLabel": "Attestation note (optional)",
-  "components.taskGateAttestCard.rationalePlaceholder": "Stored as the note alongside the witness…",
+  "components.taskGateAttestCard.rationalePlaceholder": "Your comment will be saved with the sign-off…",
   "components.taskGateAttestCard.overrideRationaleLabel": "Override rationale (required, ≥10 chars)",
-  "components.taskGateAttestCard.overrideRationalePlaceholder": "Why this failure is waived (external flake / environment)…",
+  "components.taskGateAttestCard.overrideRationalePlaceholder": "Explain why proceeding is acceptable, for example an unavailable test environment…",
   "components.taskGateAttestCard.overrideMissingRationalePlaceholder": "Why no automated witness is acceptable (environment blocked / collection unavailable)…",
   "components.taskGateAttestCard.overrideRationaleRequired": "Override rationale needs at least 10 characters.",
-  "components.taskGateAttestCard.overrideHint": "Break-glass is submitted by the task owner and the rationale is recorded with the witness; daemon rejections surface verbatim with code and reason.",
+  "components.taskGateAttestCard.overrideHint": "Only the task owner can approve an exception. The reason is saved in the record, and any submission failure shows its cause.",
   "components.taskGateAttestCard.overrideMissingHint": "No automated verification result is available for this submission. You can approve an exception with a reason. Any later automated result invalidates this exception and requires a new decision.",
   "components.taskGateAttestCard.waivedLabel": "Waived by human override — not an automated pass"
 }
