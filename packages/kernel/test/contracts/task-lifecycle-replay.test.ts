@@ -3,13 +3,16 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   REPLAY_TASK_GRAPH,
+  canStartExecution,
   compileExecutionAnnotation,
   compileTaskLifecycleWrite,
   currentTaskForWrite,
   lifecycleDocumentPaths,
   reduceTaskEvent,
+  submissionDigest,
   type TaskEventV1,
   type TaskLifecycleSnapshot,
+  type TaskLifecycleCommand,
 } from "../../src/index.ts";
 import { lifecycleFixture, implementer, twoRoundLifecycleEvents } from "../store/task-lifecycle-fixture.ts";
 import { closeoutReadiness } from "../../src/domain/closeout-readiness.ts";
@@ -18,6 +21,7 @@ import {
   applyTransition,
   normalizeTaskLifecycleCommand,
   emptyTaskLifecycleSnapshot,
+  validateTransition,
 } from "../../src/domain/task-lifecycle.contract.ts";
 
 const actor = { principal: { personId: "person-owner" }, executor: null } as const;
@@ -35,6 +39,21 @@ const metadata = {
   surfaces: [] as readonly string[],
   fromLegacyId: null,
 };
+
+function lifecycleCommand(
+  snapshot: TaskLifecycleSnapshot,
+  intent: Parameters<typeof normalizeTaskLifecycleCommand>[1],
+): TaskLifecycleCommand {
+  return {
+    ...normalizeTaskLifecycleCommand(
+      { workspaceId: "workspace-1", actor: implementer, source: "local", expectedRevision: snapshot.revision },
+      intent,
+    ),
+    eventId: `event-${snapshot.revision + 1}`,
+    workspaceRevision: snapshot.revision + 1,
+    occurredAt: "2026-09-17T03:00:00.000Z",
+  } as TaskLifecycleCommand;
+}
 
 test("lease release replay ignores only the retired longRunning task metadata", () => {
   const task = {
@@ -110,6 +129,147 @@ test("lease release replay ignores only the retired longRunning task metadata", 
       }),
     /replayed lease release is incomplete/u,
   );
+});
+
+test("migration invalidation atomically abandons the execution and advances the task", () => {
+  const task = {
+      schema: "task/v2",
+      taskId: "task-migration-invalidation",
+      title: "Migration invalidation",
+      taskClass: "standard",
+      status: "active",
+      graph: REPLAY_TASK_GRAPH,
+      currentNode: "implementation",
+      iteration: 0,
+      createdBy: actor,
+      completionGateIds: [],
+      presetSnapshotDigest: null,
+      pinned: false,
+      metadata,
+    } as const,
+    execution = {
+      schema: "execution/v1",
+      executionId: "execution-migration-invalidation",
+      taskId: task.taskId,
+      nodeId: "implementation",
+      iteration: 0,
+      state: "active",
+      actor,
+      claimedAt: "2026-09-17T00:00:00.000Z",
+      submittedAt: null,
+      closedAt: null,
+      submission: null,
+    } as const,
+    lease = {
+      schema: "lease/v1",
+      taskId: task.taskId,
+      executionId: execution.executionId,
+      actor,
+      source: "local",
+      phase: "held",
+      expiresAt: "2026-09-18T00:00:00.000Z",
+      ttlMs: 86_400_000,
+      version: 1,
+    } as const,
+    snapshot: TaskLifecycleSnapshot = {
+      ...emptyTaskLifecycleSnapshot(1),
+      task,
+      executions: [execution],
+      lease,
+    },
+    invalidated: TaskEventV1 = {
+      schema: "task-event/v1",
+      eventId: "event-migration-invalidation",
+      workspaceRevision: 2,
+      opId: "op-migration-invalidation",
+      taskId: task.taskId,
+      type: "execution_invalidated",
+      actor,
+      source: "local",
+      occurredAt: "2026-09-17T01:00:00.000Z",
+      payload: {
+        task: { ...task, status: "active", currentNode: "implementation", iteration: 1 },
+        execution: { ...execution, state: "abandoned", closedAt: "2026-09-17T01:00:00.000Z" },
+        reason: "generation-migration",
+        releasedLease: lease,
+        documentClaims: [],
+      },
+    };
+
+  const replayed = reduceTaskEvent(snapshot, invalidated);
+  assert.equal(replayed.executions[0]?.state, "abandoned");
+  assert.equal(replayed.executions[0]?.closedAt, invalidated.occurredAt);
+  assert.equal(replayed.task?.status, "active");
+  assert.equal(replayed.task?.currentNode, "implementation");
+  assert.equal(replayed.task?.iteration, 1);
+  assert.equal(replayed.lease, null);
+  assert.deepEqual(replayed.reviews, []);
+  for (const payload of [
+    { ...invalidated.payload, releasedLease: null },
+    { ...invalidated.payload, execution: { ...invalidated.payload.execution, state: "submitted" as const } },
+    { ...invalidated.payload, task: { ...invalidated.payload.task, iteration: 0 } },
+  ])
+    assert.throws(
+      () => reduceTaskEvent(snapshot, { ...invalidated, payload } as TaskEventV1),
+      /invalidation is incomplete/u,
+    );
+});
+
+test("migration invalidation closes a submitted in-review execution without inventing a Review", () => {
+  const fixture = lifecycleFixture({ complete: false });
+  const snapshot = fixture.events.reduce(reduceTaskEvent, emptyTaskLifecycleSnapshot());
+  const execution = snapshot.executions[0]!;
+  const invalidated: TaskEventV1 = {
+    schema: "task-event/v1",
+    eventId: "event-migration-invalidation-submitted",
+    workspaceRevision: snapshot.revision + 1,
+    opId: "op-migration-invalidation-submitted",
+    taskId: snapshot.task!.taskId,
+    type: "execution_invalidated",
+    actor,
+    source: "local",
+    occurredAt: "2026-09-17T02:00:00.000Z",
+    payload: {
+      task: { ...snapshot.task!, status: "active", currentNode: "implementation", iteration: 1 },
+      execution: { ...execution, state: "abandoned", closedAt: "2026-09-17T02:00:00.000Z" },
+      reason: "generation-migration",
+      releasedLease: null,
+      documentClaims: [],
+    },
+  };
+  const replayed = reduceTaskEvent(snapshot, invalidated);
+  assert.equal(replayed.executions[0]?.state, "abandoned");
+  assert.equal(replayed.reviews.length, snapshot.reviews.length);
+  assert.equal(replayed.task?.status, "active");
+  assert.equal(replayed.task?.iteration, 1);
+  assert.equal(canStartExecution(replayed, execution.executionId), false, "the invalidated executor cannot reconnect");
+  const submission = execution.submission!;
+  const rejected = [
+    lifecycleCommand(replayed, {
+      type: "SubmitExecution",
+      taskId: execution.taskId,
+      executionId: execution.executionId,
+      submission,
+    }),
+    lifecycleCommand(replayed, {
+      type: "RecordReview",
+      taskId: execution.taskId,
+      executionId: execution.executionId,
+      reviewId: "review-stale-worker",
+      verdict: "approved",
+      reason: "stale result",
+      evidenceChecked: ["stale result"],
+      commitSha: submission.commitSha,
+      iteration: execution.iteration,
+      contentDigest: `sha256:${"a".repeat(64)}`,
+      submissionDigest: submissionDigest(submission),
+    }),
+  ];
+  for (const command of rejected)
+    assert.ok(
+      validateTransition(replayed, command, {} as never).some((issue) => issue.code === "invalid_transition"),
+      `${command.type} must reject an invalidated execution`,
+    );
 });
 
 function legacyCompletion() {

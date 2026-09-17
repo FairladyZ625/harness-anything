@@ -239,7 +239,7 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     field: "state",
     module: "packages/kernel/src/domain/execution.ts",
     anchor: "executionV1States",
-    words: ["active", "submitted", "changes_requested", "accepted"],
+    words: ["active", "submitted", "changes_requested", "accepted", "abandoned"],
     subsetOf: "execution.state",
     note: "Native execution/v1 subset (archived v0 adds abandoned).",
   },
@@ -563,7 +563,7 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     field: "state",
     module: "packages/daemon/src/protocol/daemon-protocol-vocabulary.ts",
     anchor: "executionV1StateWords",
-    words: ["active", "submitted", "changes_requested", "accepted"],
+    words: ["active", "submitted", "changes_requested", "accepted", "abandoned"],
     mirrorOf: "execution.state.v1",
   },
   {

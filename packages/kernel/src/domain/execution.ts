@@ -12,7 +12,7 @@ export type ExecutionState = (typeof executionStates)[number];
 export const leasePhases = ["reserving", "held", "orphaned", "released"] as const;
 export type LeasePhase = (typeof leasePhases)[number];
 
-export const executionV1States = ["active", "submitted", "changes_requested", "accepted"] as const;
+export const executionV1States = ["active", "submitted", "changes_requested", "accepted", "abandoned"] as const;
 export type ExecutionV1State = (typeof executionV1States)[number];
 export const executionAnnotationKinds = ["correction", "superseded-by"] as const;
 export type ExecutionAnnotationKind = (typeof executionAnnotationKinds)[number];

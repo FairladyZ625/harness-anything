@@ -44,6 +44,7 @@ export const taskEventTypes = [
   "execution_submitted",
   "execution_executor_declared",
   "execution_annotated",
+  "execution_invalidated",
   "review_recorded",
   "review_consent_recorded",
   "code_doc_reconciled",
@@ -144,6 +145,17 @@ export type ExecutionAnnotatedEvent = TaskEventEnvelope<
     readonly annotation: ExecutionAnnotationV1;
   }
 >;
+export const executionInvalidationReasons = ["generation-migration"] as const;
+export type ExecutionInvalidationReason = (typeof executionInvalidationReasons)[number];
+export type ExecutionInvalidatedEvent = TaskEventEnvelope<
+  "execution_invalidated",
+  {
+    readonly task: TaskV2;
+    readonly execution: ExecutionV1;
+    readonly reason: ExecutionInvalidationReason;
+    readonly releasedLease: LeaseV1 | null;
+  }
+>;
 export type ReviewRecordedEvent = TaskEventEnvelope<
   "review_recorded",
   {
@@ -226,6 +238,7 @@ export type TaskMutationEventType = Exclude<
   | "execution_submitted"
   | "execution_executor_declared"
   | "execution_annotated"
+  | "execution_invalidated"
   | "review_recorded"
   | "review_consent_recorded"
   | "code_doc_reconciled"
@@ -245,6 +258,7 @@ export type TaskEventV1 =
   | ExecutionSubmittedEvent
   | ExecutionExecutorDeclaredEvent
   | ExecutionAnnotatedEvent
+  | ExecutionInvalidatedEvent
   | ReviewRecordedEvent
   | ReviewConsentRecordedEvent
   | CodeDocReconciledEvent
@@ -366,6 +380,7 @@ function validateTaskEventFields(value: unknown, allowUnknownFields: boolean): r
       "execution_submitted",
       "execution_executor_declared",
       "execution_annotated",
+      "execution_invalidated",
       "review_recorded",
       "review_consent_recorded",
       "code_doc_reconciled",
@@ -422,6 +437,12 @@ function validateTaskEventFields(value: unknown, allowUnknownFields: boolean): r
     )
       issues.push(invalidEventPayloadIssue("execution annotation must be pinned to its canonical event envelope"));
   }
+  if (
+    value.type === "execution_invalidated" &&
+    (!executionInvalidationReasons.includes(payload.reason as ExecutionInvalidationReason) ||
+      (payload.releasedLease !== null && validateLeaseV1(payload.releasedLease, allowUnknownFields).length > 0))
+  )
+    issues.push(invalidEventPayloadIssue("execution invalidation reason or released lease is invalid"));
   if (value.type === "review_recorded") issues.push(...validateReviewV1(payload.review, allowUnknownFields));
   if (value.type === "review_consent_recorded")
     issues.push(
@@ -514,6 +535,7 @@ function lifecyclePayloadFields(
   if (type === "execution_executor_declared")
     return [...common, "previousActor", ...(dispatchTaskId ? ["dispatchTaskId"] : []), "reason"];
   if (type === "execution_annotated") return [...common, "annotation"];
+  if (type === "execution_invalidated") return [...common, "reason", "releasedLease"];
   if (type === "review_recorded") return [...common, "review", ...(edge ? ["edge"] : [])];
   if (type === "review_consent_recorded") return [...common, "review", "consent"];
   if (type === "code_doc_reconciled" || type === "completion_gate_verified") return [...common, "witness"];

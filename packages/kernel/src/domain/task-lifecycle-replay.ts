@@ -324,6 +324,14 @@ export function reduceTaskEvent(snapshot: TaskLifecycleSnapshot, event: TaskEven
       task: event.payload.task,
       executions: replaceExecution(snapshot.executions, event.payload.execution),
     };
+  else if (event.type === "execution_invalidated")
+    next = {
+      ...snapshot,
+      revision: event.workspaceRevision,
+      task: event.payload.task,
+      executions: replaceExecution(snapshot.executions, event.payload.execution),
+      lease: null,
+    };
   else if (event.type === "review_recorded")
     next = {
       ...snapshot,
@@ -536,6 +544,36 @@ function assertReplay(snapshot: TaskLifecycleSnapshot, event: TaskEventV1, next:
           "invalid_transition",
           "replayed execution annotation must append exactly one envelope-pinned note to an existing Execution",
         ),
+      ]);
+  }
+  if (event.type === "execution_invalidated") {
+    const current = execution(snapshot, event.payload.execution.executionId),
+      expectedExecution = current ? { ...current, state: "abandoned" as const, closedAt: event.occurredAt } : null,
+      expectedTask = snapshot.task
+        ? {
+            ...snapshot.task,
+            status: "active" as const,
+            currentNode: "implementation" as const,
+            iteration: snapshot.task.iteration + 1,
+          }
+        : null,
+      releasedLeaseMatches =
+        snapshot.lease === null
+          ? event.payload.releasedLease === null
+          : event.payload.releasedLease !== null && sameReleasedLease(snapshot.lease, event.payload.releasedLease);
+    if (
+      !current ||
+      !["active", "submitted"].includes(current.state) ||
+      current.iteration !== snapshot.task?.iteration ||
+      !["active", "in_review", "blocked"].includes(String(snapshot.task?.status)) ||
+      event.payload.reason !== "generation-migration" ||
+      stableStringify(event.payload.execution) !== stableStringify(expectedExecution) ||
+      !sameReplayTask(event.payload.task, expectedTask) ||
+      !releasedLeaseMatches ||
+      next.lease !== null
+    )
+      throw new TaskLifecycleContractError("invalid_transition", [
+        lifecycleContractIssue("invalid_invalidation_atomicity", "replayed execution invalidation is incomplete"),
       ]);
   }
   if (
