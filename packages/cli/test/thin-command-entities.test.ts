@@ -338,9 +338,10 @@ test("Decision CLI maps every canonical command and keeps the five local error c
       "--cursor",
       "WyJkZWNfTEVER0VSX0UxIl0",
     ]),
-    show = parseThinCommand(["decision", "show", "E12", "--include-body"]);
+    show = parseThinCommand(["decision", "show", "E12", "--include-body"]),
+    showFlag = parseThinCommand(["decision", "show", "--id", "E12", "--include-body"]);
   assert.equal(
-    [propose, stdin, accept, claim, fulfill, reckon, list, show].every((result) => result.ok),
+    [propose, stdin, accept, claim, fulfill, reckon, list, show, showFlag].every((result) => result.ok),
     true,
   );
   if (propose.ok)
@@ -379,16 +380,28 @@ test("Decision CLI maps every canonical command and keeps the five local error c
       decisionId: "E12",
       includeBody: true,
     });
+  // decision show accepts the id positionally or as --id; both spellings produce the same Action.
+  if (show.ok && showFlag.ok) assert.deepEqual(showFlag.command.action, show.command.action);
   const failures = [
     parseThinCommand(["decision", "accept", "dec_1", "--rationale", "a", "--rationale", "b"]),
     parseThinCommand(["decision", "accept", "dec_1", "--rationale", "valid", "--judgment-only", "x".repeat(200)]),
     parseThinCommand(["decision", "accept"]),
+    parseThinCommand(["decision", "show", "dec_1", "--id", "dec_1"]),
+    parseThinCommand(["decision", "show"]),
     parseThinCommand(["decision", "show", "dec_1", "--body"]),
     parseThinCommand(["decision", "search"]),
   ];
   assert.deepEqual(
     failures.map((result) => (result.ok ? "ok" : result.code)),
-    ["duplicate_field", "invalid_field", "missing_field", "unknown_field", "unsupported_command"],
+    [
+      "duplicate_field",
+      "invalid_field",
+      "missing_field",
+      "duplicate_field",
+      "missing_field",
+      "unknown_field",
+      "unsupported_command",
+    ],
   );
   assert.equal(
     parseThinCommand(["decision", "propose", "--from-file", "proposal.json", "--json-input", packet]).ok,
