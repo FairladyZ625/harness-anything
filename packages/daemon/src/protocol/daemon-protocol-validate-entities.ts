@@ -512,7 +512,7 @@ export function gate(value: unknown): boolean {
     (value.override === undefined ||
       (exactRecord(value.override, ["rationale", "waivedReceiptId"]) &&
         nonEmpty(value.override.rationale) &&
-        nonEmpty(value.override.waivedReceiptId)))
+        (value.override.waivedReceiptId === null || nonEmpty(value.override.waivedReceiptId))))
   );
 }
 

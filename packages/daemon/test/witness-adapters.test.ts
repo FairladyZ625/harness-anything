@@ -472,6 +472,13 @@ test("the wire validator admits pass/fail witnesses only with a mapped adapter i
     }),
     false,
   );
+  // An override rides the wire as an envelope: a named receipt or null (no automated receipt), nothing else.
+  const override = (value: unknown) => validateGateWitnessWire({ ...witness, override: value });
+  assert.equal(override({ rationale: "Runner host lost network", waivedReceiptId: "op-fail" }), true);
+  assert.equal(override({ rationale: "Runner host lost network", waivedReceiptId: null }), true);
+  assert.equal(override({ rationale: "Runner host lost network" }), false);
+  assert.equal(override({ rationale: "Runner host lost network", waivedReceiptId: "" }), false);
+  assert.equal(override({ rationale: "", waivedReceiptId: null }), false);
 });
 
 // -- artifact-only and mixed cuts ----------------------------------------------
