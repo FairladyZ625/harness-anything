@@ -62,7 +62,11 @@ export function readCompletionContext(
     closeout: assessment.ready ? "ready" : "placeholder",
     closeoutPath: document.path,
     closeoutMissingSections: assessment.missingSections,
-    closeoutGates: readEffectiveCloseoutGates(projection, snapshot.task?.completionGateIds ?? []),
+    closeoutGates: readEffectiveCloseoutGates(
+      projection,
+      snapshot.task?.completionGateIds ?? [],
+      snapshot.task?.closeoutOverrides,
+    ),
     eligibleDirtyPaths: [],
     producesFactCount: facts.rows.filter((row) => row.targetRef.startsWith("fact/")).length,
     projectionStatus: facts.status,

@@ -390,7 +390,12 @@ function renderIndex(
 function renderContract(snapshot: TaskLifecycleSnapshot, base: string | null, packagePath: string): string {
   const task = snapshot.task!,
     current = base ? (JSON.parse(base) as Record<string, unknown>) : {},
-    { relations: _legacyRelations, reviewReturnBudget: _staleBudget, ...withoutHostedRelations } = current,
+    {
+      relations: _legacyRelations,
+      reviewReturnBudget: _staleBudget,
+      closeoutOverrides: _staleOverrides,
+      ...withoutHostedRelations
+    } = current,
     metadata = JSON.parse(stableStringify(task.metadata ?? null)) as unknown;
   return `${JSON.stringify(
     {
@@ -404,6 +409,7 @@ function renderContract(snapshot: TaskLifecycleSnapshot, base: string | null, pa
       pinned: task.pinned,
       presetSnapshotDigest: task.presetSnapshotDigest,
       ...(task.reviewReturnBudget === undefined ? {} : { reviewReturnBudget: task.reviewReturnBudget }),
+      ...(task.closeoutOverrides === undefined ? {} : { closeoutOverrides: task.closeoutOverrides }),
       metadata,
     },
     null,

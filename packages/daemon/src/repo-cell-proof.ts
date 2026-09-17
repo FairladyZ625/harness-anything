@@ -505,7 +505,11 @@ export function completeProof(
     capabilityRef: authorizationDecision.policyRef,
     actorRole: "owner",
     noActiveLease: true,
-    closeoutGates: effectiveCloseoutGates(getSettings().closeout, snapshot.task.completionGateIds),
+    closeoutGates: effectiveCloseoutGates(
+      getSettings().closeout,
+      snapshot.task.completionGateIds,
+      snapshot.task.closeoutOverrides,
+    ),
     gateReceipts: supplied,
     authorizationDecision,
   };

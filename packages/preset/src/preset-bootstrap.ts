@@ -225,6 +225,9 @@ export function compileTaskPackage(input: CompileTaskPackageInput): CompiledTask
           metadata,
           registerModule: input.registerModule ?? null,
           ...(input.reviewReturnBudget === undefined ? {} : { reviewReturnBudget: input.reviewReturnBudget }),
+          ...(snapshot.profile.closeoutOverrides === undefined
+            ? {}
+            : { closeoutOverrides: snapshot.profile.closeoutOverrides }),
           completionGates: snapshot.profile.completionGateIds,
           presetSnapshotDigest: snapshot.digest,
           scaffold: {
@@ -324,6 +327,9 @@ export function compileTaskBootstrap(input: CompileTaskBootstrapInput): Compiled
         supersededBy: null,
         contractVersion: 1,
         ...(input.reviewReturnBudget === undefined ? {} : { reviewReturnBudget: input.reviewReturnBudget }),
+        ...(compiled.snapshot.profile.closeoutOverrides === undefined
+          ? {}
+          : { closeoutOverrides: compiled.snapshot.profile.closeoutOverrides }),
       },
       presetSnapshotClaim: snapshotClaim,
       initialDocumentClaims,
@@ -371,6 +377,7 @@ export function compilePresetSnapshotUpgrade(input: CompilePresetSnapshotUpgrade
   )
     throw bootstrapFailure("invalid_task_contract", "Task contract metadata does not match the canonical task.");
   const currentTask = currentTaskForWrite(input.task),
+    { closeoutOverrides: _staleCloseoutOverrides, ...taskWithoutOverrides } = currentTask,
     compiled = compileTaskPackage({
       ...input,
       taskId: input.task.taskId,
@@ -446,7 +453,7 @@ export function compilePresetSnapshotUpgrade(input: CompilePresetSnapshotUpgrade
       payload: {
         previousDigest: previousDigest as `sha256:${string}`,
         task: {
-          ...currentTask,
+          ...taskWithoutOverrides,
           ...(input.toPresetId && input.toPresetId !== presetId ? { iteration: input.task.iteration + 1 } : {}),
           ...(input.toPresetId && currentTask.metadata
             ? {
@@ -459,6 +466,9 @@ export function compilePresetSnapshotUpgrade(input: CompilePresetSnapshotUpgrade
             : {}),
           completionGateIds: compiled.snapshot.profile.completionGateIds,
           presetSnapshotDigest: compiled.snapshot.digest,
+          ...(compiled.snapshot.profile.closeoutOverrides === undefined
+            ? {}
+            : { closeoutOverrides: compiled.snapshot.profile.closeoutOverrides }),
         },
         presetSnapshotClaim: snapshotClaim,
         taskContractClaim,

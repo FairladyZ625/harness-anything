@@ -238,6 +238,23 @@ export const presetCommands = Object.freeze([
     method: "repo.task.create",
     inputs: taskCreateCliInputs,
   }),
+  defineCenterForwardWriteCommand({
+    id: "subtask-create",
+    phase: "Preset-A",
+    path: ["subtask", "create"],
+    summary: "Create a lightweight child task under an existing parent task.",
+    method: "repo.task.create",
+    inputs: [
+      cliInput("--parent", "single", true, { code: "missing_field" }, { field: "parentTaskId" }),
+      cliInput("--title", "single", true, { code: "missing_field" }, { field: "title" }),
+      cliInput("--profile", "single", false, { code: "invalid_field" }, { field: "profileId" }),
+      cliInput("--preset", "single", false, { code: "invalid_field" }, { field: "presetId" }),
+      cliInput("--vertical", "single", false, { code: "invalid_field" }, { field: "verticalId" }),
+      cliInput("--locale", "single", false, { code: "invalid_field" }, { field: "locale", enum: ["zh-CN", "en-US"] }),
+      cliInput("--idempotency-key", "single", false, { code: "invalid_field" }, { field: "idempotencyKey" }),
+      cliInput("--dry-run", "boolean", false, { code: "invalid_field" }, { field: "dryRun" }),
+    ],
+  }),
   defineRepoReadCommand({
     id: "preset-list",
     phase: "Preset-A",
@@ -423,36 +440,40 @@ const taskCreateRpcFields: RpcShape["fields"] = Object.fromEntries([
   ["dryRun", "boolean?"],
 ]);
 export const presetMethods = Object.freeze([
-  ...presetCommands.map((command) => {
-    const positional = "positional" in command ? command.positional : undefined,
-      positionalFields = "positionalFields" in command ? command.positionalFields : positional ? [positional] : [],
-      derived: RpcShape["fields"] = Object.fromEntries([
-        ...positionalFields.map((field) => [field, "string"]),
-        ...command.inputs.map((input) => [
-          input.field,
-          input.kind === "boolean"
-            ? "boolean?"
-            : input.kind === "repeated"
-              ? "array?"
-              : "codec" in input && input.codec === "json"
-                ? "json?"
-                : input.required
-                  ? "string"
-                  : "string?",
+  ...presetCommands
+    // CLI aliases share one RPC method (subtask-create forwards to repo.task.create); the method
+    // table keeps the first declaration so the wire surface stays one entry per method id.
+    .filter((command, index) => presetCommands.findIndex((candidate) => candidate.method === command.method) === index)
+    .map((command) => {
+      const positional = "positional" in command ? command.positional : undefined,
+        positionalFields = "positionalFields" in command ? command.positionalFields : positional ? [positional] : [],
+        derived: RpcShape["fields"] = Object.fromEntries([
+          ...positionalFields.map((field) => [field, "string"]),
+          ...command.inputs.map((input) => [
+            input.field,
+            input.kind === "boolean"
+              ? "boolean?"
+              : input.kind === "repeated"
+                ? "array?"
+                : "codec" in input && input.codec === "json"
+                  ? "json?"
+                  : input.required
+                    ? "string"
+                    : "string?",
+          ]),
         ]),
-      ]),
-      fields = { ...(command.id === "task-create" ? taskCreateRpcFields : derived), executor: "json?" as const };
-    return {
-      id: command.method,
-      phase: command.phase,
-      method: command.method,
-      requiresRepo: true,
-      actionKind: command.id,
-      commandClass: command.commandClass,
-      admission: command.admission,
-      params: shape({ repo, payload: shape(fields) }),
-    };
-  }),
+        fields = { ...(command.id === "task-create" ? taskCreateRpcFields : derived), executor: "json?" as const };
+      return {
+        id: command.method,
+        phase: command.phase,
+        method: command.method,
+        requiresRepo: true,
+        actionKind: command.id,
+        commandClass: command.commandClass,
+        admission: command.admission,
+        params: shape({ repo, payload: shape(fields) }),
+      };
+    }),
   {
     id: "repo.preset.run.status",
     phase: "Preset-B",

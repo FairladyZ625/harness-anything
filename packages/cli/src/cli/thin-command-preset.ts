@@ -1,7 +1,7 @@
 import type { SafePath } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { accepted, nonEmpty, promptInput, readFlags, rejectInput, rejected } from "./thin-command-flags.ts";
 import { projectFlags } from "./thin-command-projection.ts";
-import { parseTaskCreate } from "./thin-command-task-create.ts";
+import { parseSubtaskCreate, parseTaskCreate } from "./thin-command-task-create.ts";
 import type { ProtocolCommand, ThinCliInput, ThinCliInputDirectory, ThinParseResult } from "./thin-command-types.ts";
 
 export function parsePreset(
@@ -13,6 +13,7 @@ export function parsePreset(
   inputs: ThinCliInputDirectory,
 ): ThinParseResult {
   if (route.id === "task-create") return parseTaskCreate(route, args, rootDir, repoId, json, inputs);
+  if (route.id === "subtask-create") return parseSubtaskCreate(route, args, rootDir, repoId, json, inputs);
   if (route.id === "squad-run") {
     const squadId = args[2],
       f = readFlags(route.id, args.slice(3), inputs);

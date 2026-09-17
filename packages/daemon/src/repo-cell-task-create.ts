@@ -175,6 +175,21 @@ export function prepareTaskCreateAt(
   if (cell.projection.readTaskExists(taskId)) return cell.rejected(opId, "task_exists");
   if (typeof canonicalAction.parentTaskId === "string" && !cell.projection.readTaskExists(canonicalAction.parentTaskId))
     return cell.rejected(opId, "parent_not_found");
+  const parentMetadata =
+    typeof canonicalAction.parentTaskId === "string"
+      ? cell.projection.read(canonicalAction.parentTaskId).snapshot.task?.metadata
+      : undefined;
+  // A subtask inherits the parent's preset context: explicit flags still win, and the operation
+  // id stays keyed on the caller's literal action rather than the derived fields.
+  const createInput =
+    parentMetadata === undefined
+      ? canonicalAction
+      : {
+          ...canonicalAction,
+          verticalId: canonicalAction.verticalId ?? parentMetadata.verticalId,
+          presetId: canonicalAction.presetId ?? parentMetadata.presetId,
+          profileId: canonicalAction.profileId ?? parentMetadata.profileId,
+        };
   const currentRevision = cell.store.readHead()?.revision ?? 0,
     workspaceRevision = assigned?.workspaceRevision ?? currentRevision + 1,
     eventId = `event-${createHash("sha256").update(opId).digest("hex")}`,
@@ -182,7 +197,7 @@ export function prepareTaskCreateAt(
     baseCompiled = compileRepoTaskBootstrap({
       rootDir: cell.rootDir,
       settings: cell.settings.read(),
-      action: canonicalAction,
+      action: createInput,
       taskId,
       actor: binding.actor,
       source: binding.source,
