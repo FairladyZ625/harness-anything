@@ -152,7 +152,7 @@ test("Git follower preserves unrelated index and worktree bytes while leaving ca
   try {
     const receipt = store.append(docBundle(store, "# Git readback\n", 1, "contract-doc", "context/contract.md"));
     assert.equal(receipt.commitSha, null);
-    assert.equal(store.canonicalRef, "sqlite:generation-2");
+    assert.equal(store.canonicalRef, "sqlite:generation-3");
     assert.equal(store.followerStatus().git.status, "pending");
     assert.equal(git(rootDir, "rev-parse", "HEAD"), beforeHead);
     assert.equal(git(rootDir, "for-each-ref", "--format=%(objectname)", "refs/ha/canonical"), beforeCanonical);
@@ -168,7 +168,7 @@ test("Git follower preserves unrelated index and worktree bytes while leaving ca
     for (const [relative, bytes] of beforeBytes)
       assert.deepEqual(readFileSync(path.join(rootDir, relative)), bytes, `${relative} bytes changed`);
     assert.equal(statSync(path.join(rootDir, "notes/prose.md")).mode & 0o777, beforeMode);
-    const sqlite = openSqliteEventStore({ repoId, rootInput: rootDir, generation: 2, readOnly: true });
+    const sqlite = openSqliteEventStore({ repoId, rootInput: rootDir, generation: 3, readOnly: true });
     try {
       const certified = readCertifiedGitFollower({ rootInput: rootDir, repoId, store: sqlite }),
         document = certified.documents.find((candidate) => candidate.path.endsWith("context/contract.md"));

@@ -14,7 +14,7 @@ import { localUserDaemonEndpoint } from "../src/daemon/client.ts";
 
 const cli = path.resolve("packages/cli/src/index.ts");
 
-test("local CLI initializes and accepts the native generation-2 SQLite ledger", async (context) => {
+test("local CLI initializes and accepts the native generation-3 SQLite ledger", async (context) => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-cli-sqlite-reconcile-")),
     root = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
@@ -48,12 +48,12 @@ test("local CLI initializes and accepts the native generation-2 SQLite ledger", 
     );
     assert.equal(
       absentGenerationOne.receipt.rejectionExplanation,
-      "This repository started at generation 2; there is no generation 1 import to reconcile.",
+      "This repository started at generation 3; there is no generation 1 import to reconcile.",
     );
     const databasePath = path.join(root, ".harness/store/generations/2/ledger.sqlite"),
       activationPath = `${databasePath}.activation.json`;
-    assert.equal(existsSync(databasePath), true, "init must activate the native generation-2 SQLite ledger");
-    assert.equal(existsSync(activationPath), true, "init must publish the generation-2 activation certificate");
+    assert.equal(existsSync(databasePath), true, "init must activate the native generation-3 SQLite ledger");
+    assert.equal(existsSync(activationPath), true, "init must publish the generation-3 activation certificate");
     for (const title of ["Initial SQLite", "After acceptance one", "After acceptance two"])
       waitForAcceptedReceipt(root, userRoot, run(root, userRoot, ["task", "create", "--title", title]));
 
@@ -73,7 +73,7 @@ test("local CLI initializes and accepts the native generation-2 SQLite ledger", 
     assert.ok(counts.events > 0, "accepted commands must extend the immutable empty prefix");
     assert.ok(counts.objects > 0, "accepted document claims must have content-object closure");
     assert.equal(manifest.schema, "sqlite-ledger-segment-manifest/v1");
-    assert.equal(manifest.generation, 2);
+    assert.equal(manifest.generation, 3);
     assert.equal(manifest.cut.repoId, repoId);
     assert.equal(manifest.cut.revision, counts.events);
     assert.match(manifest.cut.headDigest, /^sha256:[0-9a-f]{64}$/u);
@@ -88,7 +88,7 @@ test("local CLI initializes and accepts the native generation-2 SQLite ledger", 
       readFileSync(daemonStdioLogPath(userRoot, "default"), "utf8"),
       /writer epoch fence is unavailable/u,
     );
-    context.diagnostic(JSON.stringify({ generation: 2, sqliteEvents: counts.events, sqliteObjects: counts.objects }));
+    context.diagnostic(JSON.stringify({ generation: 3, sqliteEvents: counts.events, sqliteObjects: counts.objects }));
     assert.equal(run(root, userRoot, ["daemon", "start", "--service"]).ok, true);
 
     generateCertificate(keyFile, certFile);

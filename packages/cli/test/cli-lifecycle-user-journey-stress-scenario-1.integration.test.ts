@@ -286,13 +286,13 @@ test("CLI accepted receipt and daemon restart recover an in-flight task", async 
         environment,
       );
     const acceptanceCut = receipt.acceptance?.cut as { readonly generation?: number } | undefined;
-    assert.equal(acceptanceCut?.generation, 2, JSON.stringify(receipt));
+    assert.equal(acceptanceCut?.generation, 3, JSON.stringify(receipt));
     for (const facet of ["projection", "git", "worktree", "replica"] as const) {
       const value = receipt[facet] as {
         readonly state?: string;
         readonly cut?: { readonly generation?: number } | null;
       };
-      if (value.state === "verified") assert.equal(value.cut?.generation, 2, `${facet}: ${JSON.stringify(receipt)}`);
+      if (value.state === "verified") assert.equal(value.cut?.generation, 3, `${facet}: ${JSON.stringify(receipt)}`);
     }
     assert.deepEqual(receipt.wait, { state: "satisfied", unsatisfied: [] });
     assert.equal((receipt.git as { readonly state?: string }).state, "verified");

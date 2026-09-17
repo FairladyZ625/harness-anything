@@ -3,7 +3,7 @@ import {
   readOfflineLedgerEvents,
   restoreLedgerBackup,
   resolveActiveGeneration,
-  runGenerationTwoConversion,
+  runGenerationConversion,
 } from "../../kernel/src/index.ts";
 import { daemonUserRoot } from "./client/local-daemon-target.ts";
 import { generationMigrationCommand } from "./offline-storage-command.ts";
@@ -12,11 +12,11 @@ import { openPersistentWriterEpoch } from "./writer-epoch.ts";
 export function runOfflineStorageCommand(argv: readonly string[]): number {
   try {
     const generationOption = option(argv, "--generation");
-    if (generationOption !== undefined && generationOption !== "1" && generationOption !== "2")
-      throw new Error("--generation must be 1 or 2");
+    if (generationOption !== undefined && !/^[1-9][0-9]*$/u.test(generationOption))
+      throw new Error("--generation must be a positive integer");
     const rootInput = option(argv, "--root") ?? process.cwd();
     const generation =
-      generationOption === undefined ? resolveActiveGeneration({ rootInput }) : (Number(generationOption) as 1 | 2);
+      generationOption === undefined ? resolveActiveGeneration({ rootInput }) : Number(generationOption);
     const commandIndex = firstCommandIndex(argv);
     if (argv[commandIndex] === "migrate" && argv[commandIndex + 1] === "ledger") {
       if (argv.includes("--help")) {
@@ -24,7 +24,7 @@ export function runOfflineStorageCommand(argv: readonly string[]): number {
         return 0;
       }
       const flags = migrationFlags(argv.slice(commandIndex + 2));
-      const result = runGenerationTwoConversion({
+      const result = runGenerationConversion({
         backupDir: flags.source,
         mode: flags.mode,
         ...(flags.destination ? { destinationRoot: flags.destination } : {}),

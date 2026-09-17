@@ -1,9 +1,11 @@
+import { randomUUID } from "node:crypto";
 import {
   closeSync,
   cpSync,
   existsSync,
   fsyncSync,
   lstatSync,
+  linkSync,
   mkdirSync,
   mkdtempSync,
   openSync,
@@ -15,11 +17,13 @@ import {
   rmSync,
   statSync,
   symlinkSync,
+  unlinkSync,
   writeFileSync,
   writeSync,
 } from "node:fs";
 import path from "node:path";
 import type { LayoutFileSystem } from "../layout/file-system.ts";
+import { consumeKnownError } from "../error-consumption.ts";
 
 export const localLayoutFileSystem: LayoutFileSystem = {
   exists: (inputPath) => existsSync(inputPath),
@@ -61,6 +65,44 @@ export const localEventFileSystem = {
 };
 
 export const localRuntimeStateFileSystem = {
+  createAtomicExclusiveText: (
+    inputPath: string,
+    value: string | Uint8Array,
+    killpoint?: (point: "temporary-synced" | "linked" | "directory-synced") => void,
+  ): boolean => {
+    const temporaryPath = `${inputPath}.atomic-certificate-${randomUUID()}`;
+    let descriptor: number;
+    try {
+      descriptor =
+        /* @gate-identity check-bypass-write-boundary/bypass-write-136 */
+        openSync(temporaryPath, "wx");
+      try {
+        writeFileSync(descriptor, value);
+        syncDescriptor(descriptor);
+        killpoint?.("temporary-synced");
+      } finally {
+        closeSync(descriptor);
+      }
+      try {
+        /* @gate-identity check-bypass-write-boundary/bypass-write-137 */
+        linkSync(temporaryPath, inputPath);
+        killpoint?.("linked");
+      } catch (error) {
+        if (isExclusiveCreateConflict(error)) {
+          consumeKnownError(error);
+          return false;
+        }
+        throw error;
+      }
+      syncDirectories([path.dirname(inputPath)]);
+      killpoint?.("directory-synced");
+      return true;
+    } finally {
+      if (existsSync(temporaryPath))
+        /* @gate-identity check-bypass-write-boundary/bypass-write-138 */
+        unlinkSync(temporaryPath);
+    }
+  },
   createExclusiveText: (inputPath: string, value: string | Uint8Array, syncParents = true): boolean => {
     let descriptor: number;
     try {

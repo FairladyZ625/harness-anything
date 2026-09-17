@@ -21,7 +21,7 @@ export async function runLedgerReconcileAction(
   if (!existsSync(databasePath))
     throw cell.cellCodedError(
       "legacy_source_missing",
-      "This repository started at generation 2; there is no generation 1 import to reconcile.",
+      "This repository started at generation 3; there is no generation 1 import to reconcile.",
     );
   const revision = cell.store.readHead()?.revision ?? 0,
     sqlite = openSqliteEventStore({
@@ -40,6 +40,7 @@ export async function runLedgerReconcileAction(
         repoId: cell.input.repoId,
         rootDir: cell.rootDir,
         snapshotPath: legacyGenerationSnapshotPath(cell.rootDir),
+        generation: 1,
         gitReadback,
       });
     return cell.readResult(

@@ -61,7 +61,7 @@ test("release acceptance: attributed lifecycle chain create→start→fact→sub
       settled = settle(root, userRoot, String(created.opId));
     assert.equal((settled.git as { state: string }).state, "verified");
     assert.equal((settled.worktree as { state: string }).state, "verified");
-    assert.equal((settled.acceptance as { cut: { generation: number } }).cut.generation, 2, JSON.stringify(settled));
+    assert.equal((settled.acceptance as { cut: { generation: number } }).cut.generation, 3, JSON.stringify(settled));
 
     writeFileSync(path.join(root, "harness", packagePath, "task_plan.md"), realizedPlan("Release Acceptance Chain"));
     run(root, userRoot, ["doc", "sync", "--submit", "--path", `${packagePath}/task_plan.md`]);

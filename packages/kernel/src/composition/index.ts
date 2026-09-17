@@ -23,6 +23,7 @@ export type { DispatchRecordLeaseSettlement } from "../store/dispatch-record-lea
 export { ledgerGitPath, resolveLedgerGitLayout } from "../store/ledger-git-layout.ts";
 export { eventShapeMigrations } from "../store/event-shape-migration.ts";
 export {
+  generationActivationPath,
   migrateEventsToSqlite,
   openSqliteEventStore,
   resolveActiveGeneration,
@@ -35,7 +36,7 @@ export {
   restoreLedgerBackup,
   readOfflineLedgerEvents,
   restoreDrillRetentionFor,
-  runGenerationTwoConversion,
+  runGenerationConversion,
 } from "../store/ledger-backup.ts";
 export {
   activateEmptyCanonicalGeneration,

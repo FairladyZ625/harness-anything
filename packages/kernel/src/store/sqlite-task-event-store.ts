@@ -74,7 +74,7 @@ export interface SqliteTaskEventStoreOptions {
   readonly withAppendFence?: <T>(operation: () => T) => T;
   readonly onMaterializationHealthChange?: (health: MaterializationHealth) => void;
   readonly mutable?: boolean;
-  readonly generation?: 1 | 2;
+  readonly generation?: number;
   readonly killpoint?: (point: import("./task-event-store-types.ts").EventPublicationKillpoint) => void;
 }
 
