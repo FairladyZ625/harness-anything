@@ -185,7 +185,9 @@ test("accepted completion keeps legacy receipts without admitting a new unbound 
   assert.equal(replayed.executions[0]?.state, "accepted");
   assert.deepEqual(replayed.gateWitnesses, snapshot.gateWitnesses);
   assert.equal(replayed.gateWitnesses[0]?.basis, undefined);
-  assert.equal(closeoutReadiness(snapshot).readiness, "incomplete");
+  // dec_D23B9787: an accepted historical verdict stays accepted on read — it reports its preserved
+  // result with the original evidence gap disclosed, instead of reading back as a missing gate.
+  assert.equal(closeoutReadiness(snapshot).readiness, "ready");
   const command = normalizeTaskLifecycleCommand(
     { workspaceId: "workspace-1", actor: implementer, source: "local", expectedRevision: snapshot.revision },
     { type: "CompleteTask", taskId: current.taskId, executionId: current.executionId },

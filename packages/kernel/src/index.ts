@@ -217,7 +217,11 @@ export {
   submissionDigest,
   validExecutionDeliveryBaseline,
 } from "./domain/execution.ts";
-export { resolveCompletionContract, validateFrozenCompletionContract } from "./domain/completion-contract.ts";
+export {
+  inferLegacyGateRequirements,
+  resolveCompletionContract,
+  validateFrozenCompletionContract,
+} from "./domain/completion-contract.ts";
 export { gateAppliesToSubmission, mappedWitnessAdapterIds, CODE_DOC_GATE_ID } from "./domain/completion-contract.ts";
 export type {
   FrozenCompletionContract,

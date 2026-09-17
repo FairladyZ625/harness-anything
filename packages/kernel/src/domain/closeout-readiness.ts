@@ -195,7 +195,7 @@ export function gateResults(
             )
           : witness
             ? {
-                accepted: false,
+                accepted: isPreservedVerdictWitness(witness) && witness.result === "pass",
                 result: witness.result,
                 reason: isPreservedVerdictWitness(witness)
                   ? "preserved historical verdict carries no bound evidence"

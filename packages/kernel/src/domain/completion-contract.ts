@@ -174,6 +174,42 @@ export function gateWitnessMappingIssues(mappings: readonly GateWitnessMappingV1
   });
 }
 
+/**
+ * Read-time inference for submissions frozen before the contract (dec_D23B9787328EF7E0FACB70F9FE):
+ * historical cuts carry no completionContract, so their effective requirements are reconstructed
+ * from the rules in force when they were accepted — `ci` ran through the github-actions adapter
+ * with the repository's workflow registry on main/push with descendant coverage, and
+ * code-doc-reconciliation through the internal checker. Inferred requirements judge history and
+ * already-accepted cuts only; they can never satisfy a new submission.
+ */
+export function inferLegacyGateRequirements(
+  declaredGateIds: readonly string[],
+  workflows: readonly string[],
+): readonly FrozenGateRequirement[] {
+  return declaredGateIds.flatMap((gateId): readonly FrozenGateRequirement[] => {
+    if (gateId === CODE_DOC_GATE_ID)
+      return [{ gateId, appliesTo: "code", witness: { adapterId: CODE_DOC_GATE_ID, adapterOptions: {} } }];
+    if (gateId === "ci" && workflows.length)
+      return [
+        {
+          gateId,
+          appliesTo: "code",
+          witness: {
+            adapterId: "github-actions",
+            adapterOptions: {
+              workflows,
+              branch: "main",
+              event: "push",
+              coverage: "descendant",
+              selection: "newest",
+            },
+          },
+        },
+      ];
+    return [];
+  });
+}
+
 export type CompletionContractResolution =
   | { readonly ok: true; readonly contract: FrozenCompletionContract }
   | { readonly ok: false; readonly message: string };

@@ -209,13 +209,18 @@ export function validExecutionDeliveryBaseline(value: unknown): value is Executi
 }
 
 export function validateSubmissionV1(value: unknown, allowUnknownFields = false): readonly ContractValidationIssue[] {
-  // Submissions written before the frozen completion contract are migration input, never current cuts.
-  if (isRecord(value) && !Object.hasOwn(value, "completionContract"))
+  // Submissions written before the contract freeze carry no completionContract; they stay readable
+  // as history (dec_D23B9787328EF7E0FACB70F9FE), but every new submission must freeze one.
+  const frozen = isRecord(value) && Object.hasOwn(value, "completionContract");
+  if (isRecord(value) && !frozen && !allowUnknownFields)
     return [{ code: "invalid_submission", message: "Submission lacks the completion contract frozen at submit" }];
+  const required = frozen
+    ? SUBMISSION_V1_SCHEMA.required
+    : SUBMISSION_V1_SCHEMA.required.filter((field) => field !== "completionContract");
   if (
     !isRecord(value) ||
     !(allowUnknownFields ? hasRequiredFields : hasOnlyFields)(value, [
-      ...SUBMISSION_V1_SCHEMA.required,
+      ...required,
       ...(value.commitSha === null || value.artifacts !== undefined ? ["artifacts"] : []),
     ]) ||
     !isNonEmptyString(value.completionClaim) ||
@@ -228,7 +233,7 @@ export function validateSubmissionV1(value: unknown, allowUnknownFields = false)
   ) {
     return [{ code: "invalid_submission", message: "Submission must name a commit or accepted artifact revisions" }];
   }
-  return validateFrozenCompletionContract(value.completionContract, allowUnknownFields);
+  return frozen ? validateFrozenCompletionContract(value.completionContract, allowUnknownFields) : [];
 }
 export function validateExecutionV1(value: unknown, allowUnknownFields = false): readonly ContractValidationIssue[] {
   if (

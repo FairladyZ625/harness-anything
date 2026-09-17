@@ -75,7 +75,7 @@ export async function dispatchCompletionReview(
       // The cut's frozen declaration wins over the live repository setting so a settings change
       // never redirects a cut already under review.
       const reviewerId =
-        execution.submission!.completionContract.reviewer?.agentId ??
+        execution.submission!.completionContract?.reviewer?.agentId ??
         cell.settings.readRepository().defaultReviewer ??
         "closeout-reviewer";
       const resolved = readAgentDeclarationResolution({

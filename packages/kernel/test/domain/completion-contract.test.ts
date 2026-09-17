@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  inferLegacyGateRequirements,
   resolveCompletionContract,
   validateFrozenCompletionContract,
   type FrozenCompletionContract,
@@ -200,6 +201,15 @@ test("a submission carries its frozen completion contract as a required field", 
 
   assert.deepEqual(validateSubmissionV1(submission), []);
   assert.equal(validateSubmissionV1(legacy).length, 1);
-  assert.equal(validateSubmissionV1(legacy, true).length, 1);
+  // dec_D23B9787: pre-freeze submissions stay readable as history but cannot be written.
+  assert.equal(validateSubmissionV1(legacy, true).length, 0);
   assert.equal(validateSubmissionV1({ ...submission, completionContract: { gates: [], reviewer: "x" } }).length, 1);
+});
+
+test("pre-freeze submissions infer their effective requirements from the rules then in force", () => {
+  const inferred = inferLegacyGateRequirements(["ci", "code-doc-reconciliation", "unknown-gate"], ["rewrite-ci"]);
+
+  assert.deepEqual(inferred, currentPresetContract.gates);
+  assert.equal(inferLegacyGateRequirements(["ci"], []).length, 0);
+  assert.equal(inferLegacyGateRequirements([], ["rewrite-ci"]).length, 0);
 });

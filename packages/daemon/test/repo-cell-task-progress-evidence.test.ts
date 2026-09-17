@@ -253,8 +253,14 @@ test("unverified latest observation rejects and latest real red never falls back
     ],
   });
   assert.equal(ci(red.cell, current)?.result, "fail");
-  await assert.rejects(prepareSubmissionEvidence(red.cell, "task", "execution", binding), { code: "invalid_proof" });
-  assert.deepEqual(red.calls, []);
+  // Submit-time preparation runs after the submission is durable: the red is neither attached nor
+  // allowed to bounce the accepted cut. Completion judges it.
+  await prepareSubmissionEvidence(red.cell, "task", "execution", binding);
+  assert.deepEqual(
+    red.calls.map((call) => (call as { kind?: string }).kind),
+    ["task-code-doc-reconcile"],
+    "no CI witness is published for the red observation",
+  );
 });
 
 for (const conclusion of ["cancelled", "skipped"]) {

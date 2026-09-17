@@ -14,6 +14,7 @@ import {
   currentCodeDocWitness,
   consumeKnownError,
   gateAppliesToSubmission,
+  inferLegacyGateRequirements,
   isTaskProgressEvent,
   requireTransitionDocumentKind,
   resolveTaskBoundRuntimeBinding,
@@ -96,7 +97,8 @@ export async function prepareSubmissionEvidence(
     gates = completionGateIds(snapshot.task?.completionGateIds ?? [], execution.submission),
     evidenceByGate = evaluateGateEvidence(
       cell,
-      execution.submission.completionContract.gates,
+      execution.submission.completionContract?.gates ??
+        inferLegacyGateRequirements(gates, cell.settings.read().ci.workflows),
       execution,
       collections,
       false,
@@ -291,7 +293,8 @@ export async function completeTask(
   }
   const evidenceByGate = evaluateGateEvidence(
       cell,
-      submittedExecution?.submission?.completionContract?.gates ?? [],
+      submittedExecution?.submission?.completionContract?.gates ??
+        inferLegacyGateRequirements(initial.snapshot.task?.completionGateIds ?? [], cell.settings.read().ci.workflows),
       submittedExecution,
       actionWitnessCollections(action),
     ),

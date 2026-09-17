@@ -1,5 +1,6 @@
 import {
   gateAppliesToSubmission,
+  inferLegacyGateRequirements,
   type MappedWitnessAdapterId,
   type WriteReceiptDraft,
 } from "../../kernel/src/index.ts";
@@ -47,7 +48,15 @@ export function readBeforeWriteQueue(
     if (!execution?.submission) return null;
     // Every adapter that can collect its own observations runs here, outside the queue; inside the
     // queue the collected values are re-judged against the frozen cut before any canonical write.
-    const pending = (execution.submission.completionContract?.gates ?? []).flatMap((requirement) => {
+    // Cuts frozen before the contract carry no requirement list; their effective gates are
+    // inferred from the rules in force at the time (ci -> github-actions, code-doc -> checker).
+    const pending = (
+      execution.submission.completionContract?.gates ??
+      inferLegacyGateRequirements(
+        snapshot.task?.completionGateIds ?? [],
+        context.extracted.settings.read().ci.workflows,
+      )
+    ).flatMap((requirement) => {
       const adapter = witnessAdapters[requirement.witness.adapterId as MappedWitnessAdapterId];
       return adapter?.collect &&
         gateAppliesToSubmission(requirement, execution.submission!) &&
