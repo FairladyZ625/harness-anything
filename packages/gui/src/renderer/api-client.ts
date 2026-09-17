@@ -34,7 +34,6 @@ import {
 import { isSettingsSuccess } from "./settings-payload.ts";
 import type { SettingsFieldValue } from "./settings-form.ts";
 import { invoke } from "./api-client-invoke.ts";
-import { guiTransport } from "./gui-transport.ts";
 import { readGuiActionResult } from "./command-receipt.ts";
 import { daemonBridgeError } from "./daemon-startup.ts";
 import { readCatalogPreset, readCatalogRereadReceipt, readCatalogSnapshot } from "./api-client-catalog.ts";
@@ -389,36 +388,29 @@ export const harnessClient = {
     return readGuiActionResult(await invoke("repo.task.unpin", payload, "unpinTask"));
   },
   /**
-   * Gate 签发的唯一 GUI 写通道,与 `ha task attest` 同一条 `repo.task.run` 动作
-   * (kind=task-attest)。mode=approve 记录 manual-attest 打勾签注;mode=override 是
-   * break-glass 特批——daemon 尚未声明该字段时会被动作输入校验如实拒绝,错误原样
-   * 上抛,由调用方透传。`repo.task.run` 是 CLI 的一般 ingress,不在 GUI facet 注册
-   * 表里:这里直接走通用 transport 发真实方法与载荷,Electron 桥在准入补齐前会以
-   * "method is not allowed" 拒绝——不伪造成功,上游注册 `taskAttest` ingress 后此
-   * 调用零改动点亮。
+   * Gate 签发的唯一 GUI 写通道:正式 facet `repo.task.attest`(bridge `taskAttest`),
+   * 与 `ha task attest` 同一条 task-attest 动作。payload 是闭形状,daemon 按
+   * ActionDeclaration 展开:approve 不带 mode,可选评语走 `note`;override 必须
+   * `mode`+`rationale`(trim 后 ≥10 字符,daemon 权威校验)。错误码原样上抛,
+   * 由调用方透传,不伪造成功。
    */
   async taskAttest(
     payload: RepoScope & {
       readonly taskId: string;
       readonly gateId: string;
       readonly mode: "approve" | "override";
+      readonly note?: string;
       readonly rationale?: string;
     },
   ): Promise<GuiActionResult> {
-    const { repoId, taskId, gateId, mode, rationale } = payload;
-    // repo.task.run 的 action 形状在协议上是开放的(kind 之外由 ActionDeclaration 校验),
-    // 索引签名让载荷按字面传入,类型不再挡字段。
-    const action: { kind: string; [field: string]: unknown } = {
-      kind: "task-attest",
-      taskId,
-      gateId,
-      ...(mode === "approve" ? {} : { mode }),
-      result: "pass",
-      ...(rationale ? { note: rationale } : {}),
-    };
-    return readGuiActionResult(
-      await guiTransport().request("repo.task.run", { repo: { repoId }, payload: { action } }, "taskAttest"),
-    );
+    const { repoId, taskId, gateId, mode, note, rationale } = payload;
+    // invoke 的传参沿用本文件既有惯例:先落成变量再传(facet 注册表在 guiAction 边界
+    // 把 payload 类型放宽为索引签名,新鲜字面量会被 excess-property 检查误伤)。
+    const request =
+      mode === "override"
+        ? { repoId, taskId, gateId, result: "pass" as const, mode, ...(rationale ? { rationale } : {}) }
+        : { repoId, taskId, gateId, result: "pass" as const, ...(note ? { note } : {}) };
+    return readGuiActionResult(await invoke("repo.task.attest", request, "taskAttest"));
   },
   /** 只读的 canonical receipt 查询,不是重放。 */
   async showReceipt(payload: RepoScope & { readonly opId: string }): Promise<GuiActionResult> {

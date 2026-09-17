@@ -23,7 +23,12 @@ afterEach(async () => {
   document.body.replaceChildren();
 });
 
-function contractExecution(taskId: string, gateId: string, adapterId: string) {
+function contractExecution(
+  taskId: string,
+  gateId: string,
+  adapterId: string,
+  governance: { readonly allowOverride?: true; readonly mandatorySignoff?: true } = {},
+) {
   return {
     schema: "execution/v1",
     executionId: `execution-${taskId}`,
@@ -44,7 +49,15 @@ function contractExecution(taskId: string, gateId: string, adapterId: string) {
       residualRisks: [],
       commitSha: "a".repeat(40),
       completionContract: {
-        gates: [{ gateId, appliesTo: "submission", witness: { adapterId, adapterOptions: {} } }],
+        gates: [
+          {
+            gateId,
+            appliesTo: "submission",
+            witness: { adapterId, adapterOptions: {} },
+            ...(governance.allowOverride ? { allowOverride: true } : {}),
+            ...(governance.mandatorySignoff ? { mandatorySignoff: true } : {}),
+          },
+        ],
       },
     },
   };
@@ -150,11 +163,11 @@ describe("TaskGateAttestCard", () => {
     );
   });
 
-  it("offers the override entry only for failed gates and enforces the 10-char rationale", async () => {
+  it("offers the override entry only for contract-declared overridable gates and enforces the 10-char rationale", async () => {
     const attest = await mountCard(
       cardTask(
         [{ name: "ci-gate", ok: false, status: "failed" }],
-        contractExecution("task-card", "ci-gate", "github-actions"),
+        contractExecution("task-card", "ci-gate", "github-actions", { allowOverride: true }),
       ),
     );
     expect(document.querySelector('[data-testid="task-gate-approve-ci-gate"]')).toBeNull();
@@ -178,6 +191,80 @@ describe("TaskGateAttestCard", () => {
     );
   });
 
+  it("attests a signoff_missing gate (automated pass, missing dual-control signoff) as approve", async () => {
+    const attest = await mountCard(
+      cardTask(
+        [
+          {
+            name: "e2e",
+            ok: false,
+            status: "signoff_missing",
+            detail: "the automated witness passed; the mandatory human signoff is missing",
+          },
+        ],
+        contractExecution("task-card", "e2e", "local-command", { mandatorySignoff: true }),
+      ),
+    );
+    await act(async () => {
+      byTestId("task-gate-approve-e2e").click();
+    });
+    await typeInto(document.querySelector<HTMLTextAreaElement>("textarea")!, "复核通过,同意放行。");
+    await act(async () => {
+      byTestId("gate-attest-submit-approve").click();
+    });
+    expect(attest).toHaveBeenCalledWith(
+      expect.objectContaining({ taskId: "task-card" }),
+      "e2e",
+      "approve",
+      "复核通过,同意放行。",
+    );
+  });
+
+  it("keeps a failed gate without declared allowOverride read-only", async () => {
+    await mountCard(
+      cardTask(
+        [{ name: "ci-gate", ok: false, status: "failed" }],
+        contractExecution("task-card", "ci-gate", "github-actions"),
+      ),
+    );
+    const row = byTestId("task-gate-row-ci-gate");
+    expect(row.textContent).toContain("failed");
+    expect(row.querySelector("button")).toBeNull();
+  });
+
+  it("marks a waived gate as a human override, not an automated pass, with no CTA", async () => {
+    await mountCard(
+      cardTask(
+        [
+          {
+            name: "ci-gate",
+            ok: true,
+            status: "waived",
+            detail: "receipt op-7 waived by person-owner at 2026-09-17: 外部环境阻断",
+          },
+        ],
+        contractExecution("task-card", "ci-gate", "github-actions", { allowOverride: true }),
+      ),
+    );
+    const row = byTestId("task-gate-row-ci-gate");
+    expect(row.textContent).toContain("waived");
+    expect(byTestId("task-gate-waived-ci-gate").textContent).toContain("人为放行");
+    expect(row.querySelector("button")).toBeNull();
+  });
+
+  it("keeps gates on a done task read-only even when a witness is missing", async () => {
+    const doneTask: TaskRow = {
+      ...cardTask(
+        [{ name: "ux-signoff", ok: null, status: "missing" }],
+        contractExecution("task-card", "ux-signoff", "manual-attest"),
+      ),
+      canonicalStatus: "done",
+    };
+    await mountCard(doneTask);
+    expect(document.querySelector('[data-testid="task-gate-approve-ux-signoff"]')).toBeNull();
+    expect(byTestId("task-gate-row-ux-signoff").querySelector("button")).toBeNull();
+  });
+
   it("renders passed gates read-only with no sign-off affordance", async () => {
     await mountCard(
       cardTask(
@@ -190,17 +277,28 @@ describe("TaskGateAttestCard", () => {
     expect(row.querySelector("button")).toBeNull();
   });
 
+  it("disables the CTA while an attest write is in flight", async () => {
+    await mountCard(
+      cardTask(
+        [{ name: "ux-signoff", ok: null, status: "missing" }],
+        contractExecution("task-card", "ux-signoff", "manual-attest"),
+      ),
+      { state: "pending", kind: "attest", opId: "op-inflight", hint: "正在提交打勾签注…" },
+    );
+    expect((byTestId("task-gate-approve-ux-signoff") as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it("shows an attest rejection verbatim instead of swallowing it", async () => {
     await mountCard(cardTask([{ name: "ux-signoff", ok: null, status: "missing" }]), {
       state: "error",
       kind: "attest",
       opId: "op-9",
-      code: "invalid_field",
-      hint: "action.mode is not declared by the Action input schema",
+      code: "invalid_transition",
+      hint: "this cut has no recorded automated fail or pass yet; run ha task complete first",
     });
     const feedback = byTestId("task-attest-feedback");
-    expect(feedback.textContent).toContain("invalid_field");
-    expect(feedback.textContent).toContain("action.mode is not declared by the Action input schema");
+    expect(feedback.textContent).toContain("invalid_transition");
+    expect(feedback.textContent).toContain("no recorded automated fail or pass");
   });
 
   it("keeps non-attest task feedback out of the card", async () => {

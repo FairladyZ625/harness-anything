@@ -263,14 +263,14 @@ export function useTaskActions(repoId: string) {
     [once, reread],
   );
   // Gate 签发的 GUI 写通道:与 `ha task attest` 同一条 daemon 动作(kind=task-attest)。
-  // mode=override(break-glass)在 daemon 声明该字段前会被如实拒绝——错误码/原因
-  // 原样进反馈,不伪造成功、不乐观失效缓存。
+  // 表单里的一段人话按 mode 分字段:approve 的可选评语走 note,override 的特批理由
+  // 走 rationale——daemon 对字段错位/理由过短是 invalid_field 拒收,错误原样进反馈。
   const attestGate = useCallback(
     (
       task: Pick<TaskRow, "taskId">,
       gateId: string,
       mode: "approve" | "override",
-      rationale?: string,
+      comment?: string,
     ): Promise<TaskMutationFeedback> =>
       once(`attest:${task.taskId}:${gateId}:${mode}`, task.taskId, async () => {
         publish(task.taskId, {
@@ -285,7 +285,7 @@ export function useTaskActions(repoId: string) {
             taskId: task.taskId,
             gateId,
             mode,
-            ...(rationale ? { rationale } : {}),
+            ...(comment ? (mode === "override" ? { rationale: comment } : { note: comment }) : {}),
           }),
         );
         return reread(task.taskId, "attest", settlement);
