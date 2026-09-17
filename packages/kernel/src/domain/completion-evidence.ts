@@ -113,7 +113,7 @@ export function judgeCompletionEvidence(
     return {
       accepted: false,
       result: evidence.result,
-      reason: "an override must be a human pass naming the waived receipt with a rationale",
+      reason: "an override must be a human pass with a rationale naming the waived receipt, or none",
     };
   if (evidence.result === "pass" && !evidence.observed)
     return { accepted: false, result: evidence.result, reason: "a pass must be observed by a runner or human" };

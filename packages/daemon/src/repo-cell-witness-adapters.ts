@@ -288,7 +288,8 @@ const attestFields = ["kind", "taskId", "gateId", "result", "mode", "note", "rat
  * `ha task attest <task-id> --gate <gate-id> --result <pass|fail> [--mode approve|override]`: a human
  * principal's witness. `approve` witnesses a manual-attest gate or signs off a dual-control gate over
  * its recorded automated pass; `override` is the task owner's break-glass pass over the recorded
- * automated fail of a gate that allows it. A runtime session carries an executor and never attests.
+ * automated fail of a gate that allows it — or over the cut's absent automated receipt when the
+ * environment never produced one. A runtime session carries an executor and never attests.
  * The canonical write entry still judges the evidence against the frozen contract.
  */
 export function attestGateWitness(
@@ -352,12 +353,18 @@ export function attestGateWitness(
       execution.schema === "execution/v1"
         ? waivableAutomatedFail(snapshot.gateWitnesses, execution, gateId)
         : undefined;
-    if (!waivable)
+    if (waivable) {
+      override = { rationale: String(action.rationale).trim(), waivedReceiptId: waivable.receiptId };
+    } else if (recordedAutomatedWitness(snapshot, execution, gateId) === undefined) {
+      // The environment never produced an automated receipt for this cut: the owner explicitly
+      // waives the absent observation. Any receipt that lands later voids this waiver.
+      override = { rationale: String(action.rationale).trim(), waivedReceiptId: null };
+    } else {
       throw cell.cellCodedError(
         "invalid_transition",
-        `Gate ${gateId} has no recorded automated fail on this cut to override; run ha task complete ${taskId} first.`,
+        `Gate ${gateId} already has an automated witness on this cut; only a recorded fail can be waived.`,
       );
-    override = { rationale: String(action.rationale).trim(), waivedReceiptId: waivable.receiptId };
+    }
   } else if (requirement.witness.kind !== "adapter" || requirement.witness.adapterId !== "manual-attest") {
     if (!requirement.mandatorySignoff)
       throw cell.cellCodedError(
@@ -387,7 +394,9 @@ export function attestGateWitness(
         adapterId: "manual-attest",
         runId: `${mode === "override" ? "override" : "attest"}:${actorId}`,
         rawResult: override
-          ? `override of ${override.waivedReceiptId} by ${actorId}: ${override.rationale}`
+          ? override.waivedReceiptId === null
+            ? `override with no automated receipt by ${actorId}: ${override.rationale}`
+            : `override of ${override.waivedReceiptId} by ${actorId}: ${override.rationale}`
           : `${result} attested by ${actorId}${note}`,
       },
       ...(override ? { override } : {}),

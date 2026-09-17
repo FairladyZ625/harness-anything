@@ -71,18 +71,26 @@ function evaluateGateEvidence(
           ? witnessAdapters[witness.adapterId]
           : undefined;
     if (!adapter || !execution?.submission || !gateAppliesToSubmission(requirement, execution.submission)) continue;
-    if (gateWaived(snapshot, execution, requirement)) continue;
-    const evidence = adapter.evaluate(cell, requirement, execution, collections?.get(requirement.gateId));
-    // A real red on a gate without an override lane always stops the write — an older green or a
-    // recorded pass never masks it. An override-allowed fail is attached as the canonical receipt
-    // the owner can waive at completion; submit-time preparation leaves it to that judgment.
-    if (evidence?.result === "fail") {
-      if (!requirement.allowOverride)
-        throw cell.cellCodedError(
-          "invalid_proof",
-          `Gate ${requirement.gateId} receipt ${evidence.provenance.rawResult} reported fail.`,
-        );
+    // A waived gate is never re-collected, but its already-recorded observations are still
+    // re-judged so a newer automated receipt voids the waiver and re-decides the gate.
+    const waived = gateWaived(snapshot, execution, requirement),
+      evidence = adapter.evaluate(
+        cell,
+        requirement,
+        execution,
+        waived ? undefined : collections?.get(requirement.gateId),
+      );
+    if (waived && (!evidence || recordedGateEvidence(snapshot, evidence))) continue;
+    // Submit-time preparation runs after the submission is durable and attaches only passing
+    // evidence: a gate's verdict is judged at completion, so a not-yet-satisfied observation must
+    // never bounce an already-accepted cut. Completion rejects a real red on a gate without an
+    // override lane, and records an override-allowed fail as the receipt the owner can waive.
+    if (evidence?.result === "fail" && !(failStops && requirement.allowOverride)) {
       if (!failStops) continue;
+      throw cell.cellCodedError(
+        "invalid_proof",
+        `Gate ${requirement.gateId} receipt ${evidence.provenance.rawResult} reported fail.`,
+      );
     }
     if (evidence) evidenceByGate.set(requirement.gateId, evidence);
   }
@@ -326,16 +334,23 @@ export async function completeTask(
       initial.snapshot.revision,
     );
   // An automated fail on a gate that allows override is recorded first, so the owner has a canonical
-  // receipt to waive; the preparation below then stops on that failed gate.
-  const recordedFailures: WriteReceipt[] = [];
+  // receipt to waive; the preparation below then stops on that failed gate. A waived gate's fresh
+  // verdict is likewise recorded first — a newer receipt voids the waiver.
+  const recordedWitnesses: WriteReceipt[] = [],
+    gates = submittedExecution?.submission?.completionContract?.gates ?? [];
   for (const evidence of evidenceByGate.values()) {
-    const current = cell.projection.read(taskId);
-    if (evidence.result === "fail" && !recordedGateEvidence(current.snapshot, evidence))
-      recordedFailures.push(
+    const current = cell.projection.read(taskId),
+      requirement = gates.find((gate) => gate.gateId === evidence.gateId),
+      waived =
+        requirement !== undefined &&
+        submittedExecution !== undefined &&
+        gateWaived(current.snapshot, submittedExecution, requirement);
+    if (!recordedGateEvidence(current.snapshot, evidence) && (evidence.result === "fail" || waived))
+      recordedWitnesses.push(
         cell.publishGateWitness(taskId, executionId, current.snapshot, current.packagePath, binding, evidence),
       );
   }
-  const prepared = recordedFailures.length ? await cell.service.read(taskId) : initial;
+  const prepared = recordedWitnesses.length ? await cell.service.read(taskId) : initial;
   // Read through every remaining preparation before publishing any witness or document; snapshots stay authoritative.
   const preparedContext = cell.completionContext(
     taskId,
@@ -372,7 +387,7 @@ export async function completeTask(
       : {}),
   })[0];
   if (remaining && remaining.code !== "doc_sync_required")
-    return cell.completionStopped(facadeOpId, prepared.snapshot, executionId, remaining, recordedFailures);
+    return cell.completionStopped(facadeOpId, prepared.snapshot, executionId, remaining, recordedWitnesses);
   const retirement = factRetirementAssessment(cell, taskId, factRetirementAttestations);
   if (closeoutGates.factDisposition && !retirement.ready)
     return cell.completionStopped(

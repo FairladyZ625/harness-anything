@@ -316,15 +316,27 @@ export function judgeGateWitnesses(
     machine = judge(automated),
     waivable = requirement?.allowOverride === true ? waivableAutomatedFail(witnesses, execution, gateId) : undefined,
     humanOverride = human?.evidence.kind === "observed" ? human.evidence.override : undefined;
-  if (waivable && humanOverride?.waivedReceiptId === waivable.receiptId && judge(human).status === "passed")
-    return {
-      status: "waived",
-      detail:
-        `receipt ${waivable.receiptId} waived by ${human!.actor.principal.personId} ` +
-        `at ${human!.verifiedAt}: ${humanOverride.rationale}`,
-    };
+  if (humanOverride !== undefined && judge(human).status === "passed") {
+    // A receipt-bound waiver covers exactly the recorded fail it names; a null waiver stands only
+    // while the cut has no automated receipt at all — any later receipt voids it.
+    if (waivable && humanOverride.waivedReceiptId === waivable.receiptId)
+      return {
+        status: "waived",
+        detail:
+          `receipt ${waivable.receiptId} waived by ${human!.actor.principal.personId} ` +
+          `at ${human!.verifiedAt}: ${humanOverride.rationale}`,
+      };
+    if (requirement?.allowOverride === true && humanOverride.waivedReceiptId === null && automated === undefined)
+      return {
+        status: "waived",
+        detail:
+          `no automated witness on this cut; waived by ${human!.actor.principal.personId} ` +
+          `at ${human!.verifiedAt}: ${humanOverride.rationale}`,
+      };
+  }
   if (machine.status !== "passed" || requirement?.mandatorySignoff !== true) return machine;
-  const signoff = judge(human);
+  // An override is never a signoff: only a plain human attestation satisfies dual control.
+  const signoff = human !== undefined && humanOverride === undefined ? judge(human) : { status: "missing" as const };
   return signoff.status === "missing"
     ? { status: "signoff_missing", detail: "the automated witness passed; the mandatory human signoff is missing" }
     : signoff;

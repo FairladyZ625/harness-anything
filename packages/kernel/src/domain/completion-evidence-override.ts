@@ -1,10 +1,12 @@
 /**
- * A break-glass waiver: a human pass over one recorded automated `fail` on the same cut. The
- * waived fail witness stays recorded; the override only names it.
+ * A break-glass waiver: a human pass that assumes responsibility for this cut. `waivedReceiptId`
+ * names the recorded automated `fail` it covers; `null` records that the cut has no automated
+ * receipt at all (the environment never produced one). The waived fail witness stays recorded —
+ * the override only names it — and a null waiver is voided by any automated receipt that lands.
  */
 export interface CompletionEvidenceOverride {
   readonly rationale: string;
-  readonly waivedReceiptId: string;
+  readonly waivedReceiptId: string | null;
 }
 
 export const OVERRIDE_RATIONALE_MIN_LENGTH = 10;
@@ -20,7 +22,7 @@ export function validCompletionEvidenceOverride(value: unknown): value is Comple
     record !== null &&
     Object.keys(record).every((field) => field === "rationale" || field === "waivedReceiptId") &&
     validOverrideRationale(record.rationale) &&
-    typeof record.waivedReceiptId === "string" &&
-    record.waivedReceiptId.length > 0
+    (record.waivedReceiptId === null ||
+      (typeof record.waivedReceiptId === "string" && record.waivedReceiptId.length > 0))
   );
 }
