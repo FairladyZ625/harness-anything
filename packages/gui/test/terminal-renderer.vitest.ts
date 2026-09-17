@@ -122,27 +122,18 @@ describe("terminal renderer control", () => {
   });
 
   it("sends a closed repo-scoped terminal packet without secret or environment fields", async () => {
-    const spawnTerminal = vi.fn(async () => ({
-      schema: "terminal-control-receipt/v1",
-      ok: true,
-      outcome: "applied",
-      operationId: "terminal-op-a",
-      sessionId: "terminal-a",
-      daemonGeneration: 7,
-      state: "running",
-      error: null,
-    }));
-    vi.stubGlobal("window", {
-      harness: {
-        listTerminalSessions: vi.fn(),
-        spawnTerminal,
-        attachTerminal: vi.fn(),
-        sendTerminalInput: vi.fn(),
-        resizeTerminal: vi.fn(),
-        detachTerminal: vi.fn(),
-        terminateTerminal: vi.fn(),
+    const receipt = {
+        schema: "terminal-control-receipt/v1",
+        ok: true,
+        outcome: "applied",
+        operationId: "terminal-op-a",
+        sessionId: "terminal-a",
+        daemonGeneration: 7,
+        state: "running",
+        error: null,
       },
-    });
+      request = vi.fn(async () => receipt);
+    vi.stubGlobal("window", { harness: { request, attachTerminal: vi.fn() } });
     await terminalClient.spawn("repo-a", {
       idempotencyKey: "terminal-gui-a",
       backend: "tmux",
@@ -151,7 +142,7 @@ describe("terminal renderer control", () => {
       shellProfileId: "zsh",
       taskId: "TASK-9",
     });
-    expect(spawnTerminal).toHaveBeenCalledWith({
+    expect(request).toHaveBeenCalledWith("spawnTerminal", {
       repoId: "repo-a",
       idempotencyKey: "terminal-gui-a",
       backend: "tmux",
@@ -160,7 +151,45 @@ describe("terminal renderer control", () => {
       shellProfileId: "zsh",
       taskId: "TASK-9",
     });
-    expect(JSON.stringify(spawnTerminal.mock.calls[0]?.[0])).not.toMatch(/secret|token|password|env/iu);
+    expect(JSON.stringify(request.mock.calls[0]?.[1])).not.toMatch(/secret|token|password|env/iu);
+  });
+
+  it("routes every terminal method through the generic request transport", async () => {
+    const receipts: Record<string, unknown> = {
+        listTerminalSessions: {
+          schema: "terminal-session-list/v1",
+          ok: true,
+          repoId: "repo-a",
+          daemonGeneration: 7,
+          sessions: [],
+        },
+        sendTerminalInput: { schema: "terminal-input-ack/v1", ok: true, acceptedThrough: 4 },
+        detachTerminal: { schema: "terminal-detach-ack/v1", ok: true, state: "detached" },
+      },
+      controlReceipt = {
+        schema: "terminal-control-receipt/v1",
+        ok: true,
+        outcome: "applied",
+        operationId: "terminal-op-a",
+        sessionId: "terminal-a",
+        daemonGeneration: 7,
+        state: "running",
+        error: null,
+      },
+      request = vi.fn(async (method: string) => receipts[method] ?? controlReceipt);
+    vi.stubGlobal("window", { harness: { request, attachTerminal: vi.fn() } });
+    await terminalClient.list("repo-a");
+    await terminalClient.input("repo-a", "terminal-a", 4, "ls\n");
+    await terminalClient.resize("repo-a", "terminal-a", 120, 40);
+    await terminalClient.detach("repo-a", "terminal-a", "attach-a");
+    await terminalClient.terminate("repo-a", "terminal-a", true);
+    expect(request.mock.calls.map(([method, payload]) => [method, payload])).toEqual([
+      ["listTerminalSessions", { repoId: "repo-a" }],
+      ["sendTerminalInput", { repoId: "repo-a", sessionId: "terminal-a", clientSeq: 4, utf8: "ls\n" }],
+      ["resizeTerminal", { repoId: "repo-a", sessionId: "terminal-a", cols: 120, rows: 40 }],
+      ["detachTerminal", { repoId: "repo-a", sessionId: "terminal-a", attachmentId: "attach-a" }],
+      ["terminateTerminal", { repoId: "repo-a", sessionId: "terminal-a", confirmed: true }],
+    ]);
   });
 
   it("round-trips the versioned terminal backend preference and ignores retired dock-era fields", () => {
