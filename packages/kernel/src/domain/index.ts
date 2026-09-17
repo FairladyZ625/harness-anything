@@ -69,12 +69,9 @@ export type { LifecycleBinding, BindingInvariantResult, ImmutableBindingField } 
 export {
   closeoutReadiness,
   closeoutReadinesses,
-  closeoutGateOk,
-  closeoutGateStatuses,
   completionGateIds,
   currentExecutionCuts,
   gateResults,
-  gateSatisfied,
   judgeGateWitnesses,
   waivableAutomatedFail,
   currentSubmittedExecutions,
@@ -86,12 +83,10 @@ export {
   completionEvidenceResults,
   judgeCompletionEvidence,
   OVERRIDE_RATIONALE_MIN_LENGTH,
-  validCompletionEvidenceOverride,
   validOverrideRationale,
 } from "./completion-evidence.ts";
 export type {
   CompletionEvidenceBasis,
-  CompletionEvidenceOverride,
   CompletionEvidenceJudgment,
   CompletionEvidenceProvenance,
   CompletionEvidenceResult,
