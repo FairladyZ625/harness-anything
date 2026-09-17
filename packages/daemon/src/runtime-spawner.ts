@@ -7,7 +7,6 @@ import {
   isSameExecution,
   isSamePerson,
   resolveTaskBoundRuntimeBinding,
-  reviewReturnBudgetSpent,
   runtimeDefinitionSnapshotArtifact,
   runtimeSessionIdFromActor,
   type AuthorizationDecision,
@@ -39,7 +38,6 @@ import { adoptRuntimes } from "./runtime-spawn-adoption.ts";
 import {
   isRuntimeEvent,
   requiredRuntimeSpawnText,
-  runtimeErrorCode,
   runtimeErrorMessage,
   runtimeSpawnError,
   runtimeTaskLeaseRequiredMessage,
@@ -59,7 +57,7 @@ import { assembleTaskCausalContext } from "./dispatch-causal-context.ts";
 import {
   launchExitNotification,
   launchNative,
-  observeResumeProcess,
+  launchRuntimeProcess,
   requiredRuntimeProjection,
   requiredRuntimeStore,
 } from "./runtime-spawn-process.ts";
@@ -93,7 +91,7 @@ import { isProviderFailureClassification } from "./runtime-fallback-contract.ts"
 import type { RuntimeAttemptOutcome, RuntimeFallbackAttempt } from "./runtime-fallback-contract.ts";
 import type { RuntimeEventOf, RuntimeEventType, RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
-import { readEffectiveReviewReturnBudget } from "./repo-cell-settings-state.ts";
+import { assertReviewReturnBudgetAvailable } from "./review-dispatch-admission.ts";
 import { continuationMission, initialFallbackAttempt, requiredRuntimeFast } from "./runtime-spawn-fallback.ts";
 import { admitRuntimeResume, assertResumeAgent, resolveResumeCwd } from "./runtime-resume-admission.ts";
 export const resultMediaType = "text/plain; charset=utf-8" as const,
@@ -394,18 +392,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     // the latest center snapshot, so every entry (submit-time review, complete facade,
     // dispatch-review, runtime.run, fallback continuation) enforces the same write-side rule.
     if (reviewerBinding && reviewTarget !== null && taskSnapshot?.task) {
-      const returnBudget = readEffectiveReviewReturnBudget(projection!, taskSnapshot.task).value;
-      if (reviewReturnBudgetSpent(taskSnapshot.task.iteration, returnBudget))
-        throw runtimeSpawnError(
-          "review_return_budget_exhausted",
-          `Return budget ${String(returnBudget)} is spent at iteration ` +
-            `${String(taskSnapshot.task.iteration)}: a new review dispatch for task ${taskId} is ` +
-            "refused because a changes_requested RecordReview can no longer land. Amend the " +
-            "submission so the reviewer can approve, or escalate to the dispatching principal to " +
-            `raise the review return budget — for this task with \`ha task amend ${taskId} ` +
-            "--set reviewReturnBudget:<n>`, or repository-wide with `ha settings update " +
-            "--review-return-budget <n>`.",
-        );
+      assertReviewReturnBudgetAvailable(projection!, taskId!, taskSnapshot.task);
     }
     const runtimeActor = `agent:runtime-session:${runtimeSessionId}`,
       squad =
@@ -683,7 +670,11 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             }
           : {}),
       }));
-    const settleFailedHandoff = async (error: unknown): Promise<void> => {
+    const cleanupFailedLaunch = async (error: unknown): Promise<void> => {
+      process?.terminate();
+      process?.release?.();
+      cleanupCallbackRelay();
+      if (stream) removeDispatchStream(input.rootDir, newDispatchId);
       if (!taskLeaseHandoff || !taskBinding) return;
       await input.onAttemptTerminal?.({
         runtimeSessionId,
@@ -700,28 +691,25 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     const cleanupCallbackRelay = (): void => {
       if (callbackRelay) removeRuntimeCallbackRelay(input.rootDir, newDispatchId);
     };
-    if (providerSessionId)
-      try {
-        openStream();
-        process = launch(workerLaunch, {
+    const launchPreparedProcess = () =>
+      launchRuntimeProcess(
+        launch,
+        workerLaunch,
+        {
           rootDir: input.rootDir,
           dispatchId: newDispatchId,
           ...(callbackRelay ? { callbackRelay } : {}),
-        });
-        resumeObservation = observeResumeProcess(process, definition.kindId, providerSessionId);
-        await resumeObservation.ready;
+        },
+        providerSessionId,
+      );
+    // Remote resumes must first win center admission, just like fresh provider launches.
+    if (providerSessionId && !input.remote)
+      try {
+        openStream();
+        ({ process, resumeObservation } = await launchPreparedProcess());
       } catch (error) {
-        process?.terminate();
-        process?.release?.();
-        cleanupCallbackRelay();
-        removeDispatchStream(input.rootDir, newDispatchId);
-        await settleFailedHandoff(error);
-        if (runtimeErrorCode(error) === "runtime_resume_failed") throw error;
-        consumeKnownError(error);
-        throw runtimeSpawnError(
-          "runtime_resume_failed",
-          `${definition.kindId} session ${providerSessionId} could not be resumed: ${runtimeErrorMessage(error)}`,
-        );
+        await cleanupFailedLaunch(error);
+        throw error;
       }
     let requested!: Awaited<ReturnType<typeof publishRuntimeEvent>>;
     try {
@@ -754,14 +742,25 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         dispatchOpId,
         binding,
         definitionArtifact.body,
+        {
+          role: role ?? null,
+          taskId: taskBinding?.taskId ?? null,
+          executionId: taskBinding?.executionId ?? null,
+        },
       );
     } catch (error) {
-      process?.terminate();
-      process?.release?.();
-      cleanupCallbackRelay();
-      if (stream) removeDispatchStream(input.rootDir, newDispatchId);
-      await settleFailedHandoff(error);
+      await cleanupFailedLaunch(error);
       throw error;
+    }
+    // The center queue owns the claim: another edge can win after our initial receipt read.
+    if (input.remote && requested.receipt?.replayed === true) {
+      cleanupCallbackRelay();
+      return {
+        ...requested.receipt,
+        runtimeSessionId,
+        dispatchId: newDispatchId,
+        authorizationDecision: authorizationDecision as unknown as JsonObject | null,
+      };
     }
     // Publish the canonical session before starting the provider. A provider can
     // immediately call back through the sealed daemon route; its task+dispatch
@@ -783,25 +782,15 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         binding,
       );
     } catch (error) {
-      process?.terminate();
-      process?.release?.();
-      cleanupCallbackRelay();
-      if (stream) removeDispatchStream(input.rootDir, newDispatchId);
-      await settleFailedHandoff(error);
+      await cleanupFailedLaunch(error);
       throw error;
     }
     if (!process)
       try {
         openStream();
-        process = launch(workerLaunch, {
-          rootDir: input.rootDir,
-          dispatchId: newDispatchId,
-          ...(callbackRelay ? { callbackRelay } : {}),
-        });
+        ({ process, resumeObservation } = await launchPreparedProcess());
       } catch (error) {
-        cleanupCallbackRelay();
-        removeDispatchStream(input.rootDir, newDispatchId);
-        await settleFailedHandoff(error);
+        await cleanupFailedLaunch(error);
         await publishRuntimeEvent(
           "runtime_dispatch_outcome_unknown",
           { dispatchId: newDispatchId, runtimeSessionId },
@@ -916,12 +905,13 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     opId: string,
     binding: RuntimeBinding,
     resultBody?: string,
+    dispatchContext?: import("./fleet/contract.ts").FleetRuntimeDispatchContext,
   ): Promise<{
     readonly event: RuntimeEventOf<T>;
     readonly publication?: ReturnType<CanonicalEventStore["append"]>;
     readonly receipt?: JsonObject;
   }> {
-    return publishRuntimeEventImpl<T>(extracted, type, payload, opId, binding, resultBody);
+    return publishRuntimeEventImpl<T>(extracted, type, payload, opId, binding, resultBody, dispatchContext);
   }
   async function consumeChunk(active: ActiveRuntime, chunk: string, flush: boolean, persisted = false): Promise<void> {
     return consumeProviderChunk(extracted, active, chunk, flush, persisted);

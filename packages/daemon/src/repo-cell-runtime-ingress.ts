@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import {
   canonicalEventWritePlan,
+  currentSubmittedExecutions,
   runtimeEventContentClaims,
   stableStringify,
   type AgentRuntimeEventV1,
@@ -9,6 +10,8 @@ import { archiveRuntimeDispatch } from "./doc-sync-actions.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import type { RepoCellBinding, RuntimeIngressAction } from "./repo-cell-types.ts";
 import type { RepoCellActionContext } from "./repo-cell-action-context.ts";
+import { requireCurrentTaskProjection } from "./projection-readiness.ts";
+import { assertReviewReturnBudgetAvailable } from "./review-dispatch-admission.ts";
 
 const auxiliaryEventTypes = Object.freeze([
   "runtime_installation_observed",
@@ -60,9 +63,51 @@ export function appendAuxiliaryRuntimeIngress(
       stableStringify(existing.payload) !== stableStringify(action.payload)
     )
       throw cell.cellCodedError("op_conflict", `Runtime opId ${action.opId} belongs to another canonical event.`);
-    return runtimeIngressReceipt(cell, existing as AgentRuntimeEventV1);
+    return { ...runtimeIngressReceipt(cell, existing as AgentRuntimeEventV1), replayed: true };
   }
+  if (action.dispatchContext !== undefined && action.type !== "runtime_dispatch_requested")
+    throw cell.cellCodedError(
+      "invalid_runtime_event",
+      "Runtime dispatch admission context is only valid on runtime_dispatch_requested.",
+    );
   if (action.type === "runtime_dispatch_requested") {
+    if (scope && action.dispatchContext === undefined)
+      throw cell.cellCodedError("invalid_runtime_event", "Remote runtime dispatch requires center admission context.");
+    const dispatch = action.dispatchContext;
+    if (scope && dispatch) {
+      const taskScope = scope.scope.kind === "task" ? scope.scope : null,
+        taskMatches =
+          taskScope === null
+            ? dispatch.taskId === null && dispatch.executionId === null
+            : dispatch.taskId === taskScope.taskId && dispatch.executionId === taskScope.executionId;
+      if (!taskMatches)
+        throw cell.cellCodedError(
+          "assignment_scope_mismatch",
+          "Runtime dispatch task and execution must match the authenticated assignment.",
+        );
+      if (dispatch.role === "reviewer") {
+        if (taskScope === null)
+          throw cell.cellCodedError(
+            "assignment_scope_mismatch",
+            "A remote reviewer dispatch requires an authenticated task assignment.",
+          );
+        const snapshot = requireCurrentTaskProjection(
+            cell.projection,
+            taskScope.taskId,
+            "remote reviewer dispatch",
+          ).snapshot,
+          submitted = currentSubmittedExecutions(snapshot).find(
+            (execution) => execution.executionId === taskScope.executionId,
+          );
+        if (!submitted)
+          throw cell.cellCodedError(
+            "task_not_submitted",
+            `Task ${taskScope.taskId} has no current submitted cut for execution ${taskScope.executionId}; ` +
+              "submit the implementation at the center, refresh the assignment, then retry reviewer dispatch.",
+          );
+        assertReviewReturnBudgetAvailable(cell.projection, taskScope.taskId, snapshot.task!);
+      }
+    }
     const key = cell.requiredCellText(action.payload.idempotencyKey, "idempotencyKey"),
       hash = createHash("sha256").update(`${cell.input.repoId}\0${key}`).digest("hex");
     if (
