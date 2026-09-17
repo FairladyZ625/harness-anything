@@ -11,4 +11,5 @@ export {
   reduceDecisionDocument,
   renderDecisionDocument,
 } from "./decision-event-document.ts";
+export type { DecisionRelationLinkResolver, DecisionRelationLinkTarget } from "./decision-event-document.ts";
 export { isDecisionEvent, validateCurrentDecisionEvent, validateDecisionEvent } from "./decision-event-validation.ts";

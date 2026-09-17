@@ -14,6 +14,7 @@ import {
   type CanonicalEventV1,
   type DocumentState,
 } from "../domain/doc-sync.contract.ts";
+import { isEntityDocumentEvent } from "../domain/entity-document-event.ts";
 import { isLedgerLayoutMigrationEvent } from "../domain/ledger-layout-migration-event.ts";
 import { currentTaskForWrite } from "../domain/task.ts";
 import {
@@ -43,9 +44,11 @@ import type { EventContentPrefetch, EventStreamPort } from "./rebuildable-task-p
 import type { ProjectionApplyReceipt } from "./projection-reads.ts";
 import {
   projectDecision,
+  projectEntityDocumentRematerialization,
   projectFact,
   projectMigration,
   projectProgress,
+  projectRelationDocuments,
 } from "./rebuildable-task-projection-write-model.ts";
 import {
   deleteEntityProjectionRow,
@@ -152,6 +155,10 @@ export function applyEvent(
     projectMigration(db, event, eventJson, readBlob);
     return;
   }
+  if (isEntityDocumentEvent(event)) {
+    projectEntityDocumentRematerialization(db, event, eventJson, readBlob);
+    return;
+  }
   if (isRelationEvent(event)) {
     runSql(
       db,
@@ -161,6 +168,7 @@ export function applyEvent(
       eventJson,
     );
     applyRelationProjectionEvent(db, event);
+    projectRelationDocuments(db, event, readBlob);
     return;
   }
   if (isEntityEvent(event)) {

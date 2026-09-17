@@ -204,7 +204,9 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
       "^---\\nschema: decision-package/v1[\\s\\S]*\\nstate: proposed[\\s\\S]*\\n---\\n\\n" +
         "# Canonical Decision from CLI\\n\\n## 背景\\n\\n说明需要裁定的问题与已知事实。\\n\\n" +
         "## 权衡\\n\\n说明所选方案、被拒方案与取舍理由。\\n\\n" +
-        "## 结论\\n\\n说明最终裁定及其适用范围。\\n$",
+        "## 结论\\n\\n说明最终裁定及其适用范围。\\n\\n" +
+        "<!-- harness:relation-neighborhood:start -->\\n## 关联图谱 \\(Causal Graph\\)\\n\\n- none\\n\\n\\n" +
+        "<!-- harness:relation-neighborhood:end -->\\n$",
       "u",
     );
     assert.match(readFileSync(path.join(fixture.alpha, "harness", decisionPath), "utf8"), scaffoldPattern);

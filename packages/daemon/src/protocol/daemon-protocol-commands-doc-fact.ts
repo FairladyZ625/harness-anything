@@ -168,6 +168,37 @@ export const docFactProtocolCommands = Object.freeze([
     ],
   }),
   defineLedgerWriteCommand({
+    id: "fact-rematerialize",
+    phase: "DecisionFact-A",
+    path: ["fact", "rematerialize"],
+    summary:
+      "Re-render one Fact's or every Fact's managed document from the current canonical projection, including liveness.",
+    method: "repo.task.run",
+    inputs: [
+      cliInput(
+        "--all",
+        "boolean",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { conflictsWith: ["--id"] },
+      ),
+      cliInput(
+        "--id",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { field: "factId", conflictsWith: ["--all"], regex: "^F-[0-9A-HJKMNP-TV-Z]{8}$" },
+      ),
+      cliInput("--dry-run", "boolean", false, {
+        code: "invalid_field",
+      }),
+    ],
+  }),
+  defineLedgerWriteCommand({
     id: "fact-type-register",
     phase: "DecisionFact-A",
     path: ["fact", "type", "register"],

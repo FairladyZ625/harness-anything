@@ -164,9 +164,26 @@ export type {
   DecisionEventV1,
   DecisionState,
 } from "./decision-event.ts";
-export { compileFactWrite, factConfidenceLevels, factMemoryClasses, factWritePlan, isFactId } from "./fact-event.ts";
+export { DECISION_DOCUMENT_POLICY_ID } from "./decision-event.ts";
+export type { DecisionRelationLinkResolver } from "./decision-event.ts";
+export {
+  compileFactWrite,
+  FACT_DOCUMENT_POLICY_ID,
+  factConfidenceLevels,
+  factMemoryClasses,
+  factWritePlan,
+  isFactId,
+} from "./fact-event.ts";
 export { validDomainType } from "./fact-event.ts";
-export type { FactConfidence, FactDomainType, FactEventV1, FactMemoryClass } from "./fact-event.ts";
+export type {
+  FactConfidence,
+  FactContentBlob,
+  FactDomainType,
+  FactEventDraftV1,
+  FactEventV1,
+  FactMemoryClass,
+  SupersededFactDocumentSource,
+} from "./fact-event.ts";
 
 export { CONTRACT_VERSION_1_0, isContractVersion, isContractVersionCompatible } from "./contract-version.ts";
 export type { ContractVersion } from "./contract-version.ts";
@@ -229,7 +246,17 @@ export {
   relationStrengthForType,
   relationTypes,
 } from "./entity-relation.ts";
-export { isRelationEvent, relationEventWritePlan, relationRecord } from "./relation-event.ts";
+export {
+  compileRelationDocumentWrite,
+  isRelationEvent,
+  reduceRelationEntity,
+  relationEventWritePlan,
+  relationRecord,
+} from "./relation-event.ts";
+export type { RelationDocumentUpdate, RelationEventV1 } from "./relation-event.ts";
+export { compileEntityDocumentRematerialization } from "./entity-document-event.ts";
+export type { EntityDocumentUpdate } from "./entity-document-event.ts";
+export { factLiveness } from "./fact-liveness.ts";
 export type {
   EntityRelationValidationIssue,
   EntityRelationValidationIssueCode,

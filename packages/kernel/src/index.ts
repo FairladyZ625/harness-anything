@@ -66,8 +66,10 @@ export {
   compileTaskLifecycleWrite,
   lifecycleDocumentFetchPaths,
   lifecycleDocumentPaths,
+  rematerializeTaskDocuments,
   taskLifecycleWritePlan,
 } from "./domain/task-lifecycle-publication.ts";
+export type { LifecycleDocumentState } from "./domain/task-lifecycle-publication.ts";
 export {
   completionBlockers,
   completionPreparationBlockers,

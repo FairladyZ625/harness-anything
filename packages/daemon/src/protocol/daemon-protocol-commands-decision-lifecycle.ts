@@ -37,6 +37,36 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
     ],
   }),
   defineLedgerWriteCommand({
+    id: "decision-rematerialize",
+    phase: "DecisionFact-B",
+    path: ["decision", "rematerialize"],
+    summary: "Re-render one Decision's or every Decision's managed document from the current canonical projection.",
+    method: "repo.task.run",
+    inputs: [
+      cliInput(
+        "--all",
+        "boolean",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { conflictsWith: ["--id"] },
+      ),
+      cliInput(
+        "--id",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { field: "decisionId", conflictsWith: ["--all"] },
+      ),
+      cliInput("--dry-run", "boolean", false, {
+        code: "invalid_field",
+      }),
+    ],
+  }),
+  defineLedgerWriteCommand({
     id: "decision-repin",
     phase: "DecisionFact-B",
     path: ["decision", "repin", "[id]"],

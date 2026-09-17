@@ -489,16 +489,24 @@ test("a CLI write returns its daemon receipt after one command round trip and ke
       code: "invalid_field",
       nextAction: "Fix the title.",
     };
-  const methods: string[] = [];
+  const methods: string[] = [],
+    actions: Record<string, unknown>[] = [];
   let reply: Record<string, unknown> = accepted;
   const server = createServer((socket) => {
     let buffered = "";
     socket.on("data", (chunk) => {
       buffered += String(chunk);
       for (let newline = buffered.indexOf("\n"); newline >= 0; newline = buffered.indexOf("\n")) {
-        const request = JSON.parse(buffered.slice(0, newline)) as { readonly id: number; readonly method: string };
+        const request = JSON.parse(buffered.slice(0, newline)) as {
+          readonly id: number;
+          readonly method: string;
+          readonly params?: { readonly payload?: { readonly action?: Record<string, unknown> } };
+        };
         buffered = buffered.slice(newline + 1);
-        if (request.method !== "protocol.hello") methods.push(request.method);
+        if (request.method !== "protocol.hello") {
+          methods.push(request.method);
+          if (request.params?.payload?.action) actions.push(request.params.payload.action);
+        }
         const result = request.method === "protocol.hello" ? { protocolVersion: { major: 1, minor: 0 } } : reply;
         socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, result })}\n`);
       }
@@ -514,6 +522,13 @@ test("a CLI write returns its daemon receipt after one command round trip and ke
     assert.equal(written.status, 0, `${written.stderr}\n${written.stdout}`);
     assert.deepEqual(JSON.parse(written.stdout), accepted);
     assert.deepEqual(methods, ["repo.task.create"]);
+
+    methods.length = 0;
+    actions.length = 0;
+    const previewed = await spawnCli(root, userRoot, ["decision", "rematerialize", "--all", "--dry-run"]);
+    assert.equal(previewed.status, 0, `${previewed.stderr}\n${previewed.stdout}`);
+    assert.deepEqual(methods, ["repo.task.run"]);
+    assert.deepEqual(actions, [{ kind: "decision-rematerialize", all: true, dryRun: true }]);
 
     methods.length = 0;
     reply = rejected;

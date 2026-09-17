@@ -72,7 +72,9 @@ test("the default Policy covers the frozen durable inventory exactly once", () =
   // a first-class task action that spawns reviewer dispatches bound to submitted cuts, gated under repo-write alongside
   // the other task lifecycle actions, 117 → 118.
   // PR #2785: CEO confirms one repo-write task-settle entry, reusing existing submission authority: 118 → 119.
-  assert.equal(durablePolicyActions.length, 119);
+  // task_f603213ecf586dcb87d9c99649: CEO confirms decision-, fact-, and task-rematerialize as repo-write Actions that
+  // re-render existing entity documents from the canonical projection, alongside the other entity writes, 119 → 122.
+  assert.equal(durablePolicyActions.length, 122);
   assert.equal(port.authorize(action("task-settle"), roleContext("repo-write")).outcome, "allowed");
   assert.equal(port.authorize(action("task-settle"), roleContext("repo-read")).outcome, "denied");
   // 其余两条是自洽不变量,不需要第二个硬编码数字:清单内无重复(三个角色分段互不重叠),

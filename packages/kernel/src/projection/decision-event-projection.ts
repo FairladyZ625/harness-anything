@@ -17,6 +17,7 @@ export {
   listDecisionAgendaRowsPage,
   listDecisionRowsPage,
   readDecisionGraphRows,
+  readDecisionIncomingRelationRows,
   readDecisionRow,
   readDecisionRows,
 } from "./decision-projection-reads.ts";

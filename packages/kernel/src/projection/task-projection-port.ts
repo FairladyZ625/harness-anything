@@ -168,6 +168,7 @@ export interface TaskProjection {
   readonly listDecisions: (filters: DecisionListFilters) => DecisionProjectionListRead;
   readonly listDecisionAgendaPage: (query: DecisionPageQuery) => DecisionAgendaProjectionPageRead;
   readonly readDecisionGraph: () => DecisionGraphProjectionRead;
+  readonly readDecisionIncomingRelations: (decisionId: string) => DecisionGraphProjectionRead["edges"];
   readonly readDecisionCoverage: (decisionIds: readonly string[]) => DecisionCoverageProjectionRead;
   readonly readLeaseIntervals: (taskId: string) => readonly LeaseInterval[];
   readonly currentLease: (taskId: string, now?: string) => LeaseV1 | null;
