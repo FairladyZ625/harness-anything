@@ -1,0 +1,14 @@
+# Go 仓库：无 GitHub CI，vet + test 本地命令见证（build-test 为自定义 gate id，需 preset 声明）。
+# 沙箱环境只有 PATH 与 HARNESS_WITNESS_* 三个变量，没有 HOME：Go 必须显式给 GOCACHE，
+# 否则报 "GOCACHE is not defined and $HOME is not defined"。缓存目录落在沙箱内，每次重建。
+# 预期行为：`go vet ./...` 或 `go test ./...` 非零退出 = fail，阻塞 complete；
+# 退出码 0 = pass，见证绑定提交 SHA + submissionDigest，cut 变更后自动重采。
+schema: harness-anything/v1
+settings:
+  ci:
+    workflows: []
+  gates:
+    build-test:
+      appliesTo: code
+      adapter: local-command
+      command: export GOCACHE="$PWD/.gocache" && go vet ./... && go test ./...
