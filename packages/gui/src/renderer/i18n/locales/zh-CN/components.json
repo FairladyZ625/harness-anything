@@ -252,5 +252,6 @@
   "components.taskGateAttestCard.overrideRationaleLabel": "特批理由(必填,至少 10 字符)",
   "components.taskGateAttestCard.overrideRationalePlaceholder": "说明为什么放行(外部 flake / 环境阻断)…",
   "components.taskGateAttestCard.overrideRationaleRequired": "特批理由至少 10 个字符。",
-  "components.taskGateAttestCard.overrideHint": "特批(break-glass)写入口尚未在 daemon 落地;提交会被如实拒绝,错误码与原因原样展示。"
+  "components.taskGateAttestCard.overrideHint": "特批(break-glass)由任务 owner 提交,理由随见证存证;daemon 拒收时错误码与原因原样展示。",
+  "components.taskGateAttestCard.waivedLabel": "特批放行 · 人为放行,不是自动通过"
 }

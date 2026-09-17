@@ -3,15 +3,15 @@ import type { TaskRow } from "./types.ts";
 /**
  * 待办签发总池的任务侧 lane 派生(纯函数)。判据只消费 daemon 投影行已有的状态:
  * `closeoutAssessment.blocker`(consent=评审已批待同意)与 `gates[].status`
- * (failed/missing),加上冻结在 submission 里的 `completionContract` 见证适配器
- * (manual-attest)。renderer 不发明第二套门禁判定——缺契约的 legacy cut 不猜
- * 适配器,不进「待签门禁」。
+ * (failed/missing/signoff_missing),加上冻结在 submission 里的 `completionContract`
+ * (witness.adapterId 与 allowOverride)。renderer 不发明第二套门禁判定——缺契约的
+ * legacy cut 不猜适配器,不进任何 lane。
  */
 
 export const ATTESTATION_POOL_TABS = ["all", "decisions", "gates", "consents", "breakGlass"] as const;
 export type AttestationPoolTabId = (typeof ATTESTATION_POOL_TABS)[number];
 
-/** gate 签发动作:approve=manual-attest 打勾签注;override=自动化失败的特批放行。 */
+/** gate 签发动作:approve=打勾签注(纯人工门或双控缺签);override=可特批失败的放行。 */
 export type GateAttestMode = "approve" | "override";
 
 export interface GateAttestationItem {
@@ -19,8 +19,8 @@ export interface GateAttestationItem {
   readonly taskTitle: string;
   readonly gateId: string;
   readonly mode: GateAttestMode;
-  /** 投影里的真实 gate 状态:missing=缺见证,failed=机器失败。 */
-  readonly gateStatus: "missing" | "failed";
+  /** 投影里的真实 gate 状态:missing=缺见证,signoff_missing=机器已过缺人签,failed=机器失败。 */
+  readonly gateStatus: "missing" | "signoff_missing" | "failed";
   /** 冻结契约声明的见证适配器;legacy 无契约时为 null(如实展示,不猜)。 */
   readonly adapterId: string | null;
   readonly detail?: string;
@@ -40,6 +40,7 @@ export interface AttestationPoolLanes {
 
 interface FrozenContractGate {
   readonly adapterId: string | null;
+  readonly allowOverride: boolean;
   readonly executionId: string;
 }
 
@@ -61,33 +62,43 @@ function currentCutContractGates(task: TaskRow): ReadonlyMap<string, FrozenContr
   for (const requirement of cut.submission?.completionContract?.gates ?? []) {
     gates.set(requirement.gateId, {
       adapterId: requirement.witness.adapterId,
+      allowOverride: requirement.allowOverride === true,
       executionId: cut.executionId,
     });
   }
   return gates;
 }
 
-/** 单任务的人签动作:manual-attest 缺见证 → approve;任何 failed gate → override。 */
+/**
+ * 单任务的人签动作,判据与 kernel `judgeGateWitnesses`/`witnessCommand` 同一条
+ * (dec_59FA45A407 四形态):待签 = manual-attest 的 missing,或自动已 pass 的
+ * signoff_missing(双控缺人签);特批 = 非 manual-attest 且契约声明 allowOverride
+ * 的 failed——未声明 allowOverride 的 failed 门 daemon 必拒(invalid_command),
+ * 不给 CTA。done/历史接受的门只读;waived 只在展示层标注人为放行,不进任何 lane。
+ */
 export function taskGateAttestations(task: TaskRow): {
   readonly gates: readonly GateAttestationItem[];
   readonly breakGlass: readonly GateAttestationItem[];
 } {
-  const contract = currentCutContractGates(task),
-    gates: GateAttestationItem[] = [],
+  const gates: GateAttestationItem[] = [],
     breakGlass: GateAttestationItem[] = [];
+  if (task.canonicalStatus === "done") return { gates, breakGlass };
+  const contract = currentCutContractGates(task);
   for (const gate of task.gates) {
-    const frozen = contract.get(gate.name) ?? null;
+    const frozen = contract.get(gate.name) ?? null,
+      adapterId = frozen?.adapterId ?? null;
     const base = {
       taskId: task.taskId,
       taskTitle: task.title,
       gateId: gate.name,
-      adapterId: frozen?.adapterId ?? null,
+      adapterId,
       executionId: frozen?.executionId ?? null,
       ...(gate.detail ? { detail: gate.detail } : {}),
     };
-    if (gate.status === "missing" && frozen?.adapterId === "manual-attest")
-      gates.push({ ...base, mode: "approve", gateStatus: "missing" });
-    else if (gate.status === "failed") breakGlass.push({ ...base, mode: "override", gateStatus: "failed" });
+    if ((gate.status === "missing" && adapterId === "manual-attest") || gate.status === "signoff_missing")
+      gates.push({ ...base, mode: "approve", gateStatus: gate.status });
+    else if (gate.status === "failed" && frozen?.allowOverride === true && adapterId !== "manual-attest")
+      breakGlass.push({ ...base, mode: "override", gateStatus: "failed" });
   }
   return { gates, breakGlass };
 }

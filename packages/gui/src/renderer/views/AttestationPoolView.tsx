@@ -48,9 +48,10 @@ const TAB_LABEL_KEY: Record<AttestationPoolTabId, MessageKey> = {
 
 /**
  * 待办签发总池:人类治理动作的集中大厅。五个 lane——待裁决策(既有决策池的快速
- * 批复能力原样保留)、待签门禁(manual-attest 打勾签注)、待同意收口(consent)、
- * 阻断需特批(失败关卡 break-glass)——数据源只来自投影行真实状态。Tab 由
- * AppLocation 携带(poolTab),URL/刷新可寻址;动作全部行内展开,不出全局模态。
+ * 批复能力原样保留)、待签门禁(manual-attest 打勾签注与自动已过的双控缺签)、
+ * 待同意收口(consent)、阻断需特批(契约声明 allowOverride 的自动门失败)——
+ * 数据源只来自投影行真实状态。Tab 由 AppLocation 携带(poolTab),URL/刷新可寻址;
+ * 动作全部行内展开,不出全局模态。
  */
 export function AttestationPoolView({
   repoId,
@@ -296,7 +297,7 @@ function LaneEmpty({ text }: { readonly text: string }) {
   );
 }
 
-/** 门禁 lane 行:manual-attest 待签 / 失败待特批共用,按 item.mode 分支交互。 */
+/** 门禁 lane 行:待签(approve)/可特批失败(override)共用,按 item.mode 分支交互。 */
 function GateAttestRow({
   item,
   feedback,
@@ -354,7 +355,7 @@ function GateAttestRow({
           data-testid={`pool-gate-${mode}-${item.taskId}-${item.gateId}`}
           onClick={() => setOpen((value) => !value)}
           disabled={pending}
-          className={`ml-auto inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 font-semibold transition-colors duration-100 disabled:opacity-50 ${mode === "approve" ? "bg-accent text-accent-fg hover:bg-accent/85" : "border border-danger/50 text-danger hover:bg-danger/10"}`}
+          className={`ml-auto inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 font-semibold transition-colors duration-100 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent disabled:opacity-50 ${mode === "approve" ? "bg-accent text-accent-fg hover:bg-accent/85" : "border border-danger/50 text-danger hover:bg-danger/10"}`}
         >
           {mode === "approve" ? <CheckCircle weight="bold" /> : <XCircle weight="bold" />}
           {t(mode === "approve" ? "views.attestationPoolView.attest" : "views.attestationPoolView.override")}
