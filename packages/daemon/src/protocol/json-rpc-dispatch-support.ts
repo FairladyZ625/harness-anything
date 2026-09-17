@@ -17,7 +17,13 @@ import { isJsonObject, type JsonObject, type JsonRpcId, type JsonRpcResponse } f
 type DaemonRpcCallFor<Method extends DaemonRpcMethod> = Extract<DaemonRpcCall, { readonly method: Method }>;
 type RuntimeInstanceMethod = Extract<DaemonRpcMethod, `daemon.runtimeInstance.${string}`>;
 type RuntimeInstanceAuthMethod = Extract<DaemonRpcMethod, `repo.runtimeInstance.auth.${string}`>;
-type RepoGuiReadMethod = Exclude<DaemonGuiRpcReadMethod, "daemon.gui.system.read" | "daemon.gui.control.receipt">;
+// repo.tasks.causalContext.read is a cell/fleet-internal read: it is served by
+// host.read and the fleet runtime-read channel, not by the socket RPC catalog,
+// so it is excluded here just as the runtime membership check excludes it.
+type RepoGuiReadMethod = Exclude<
+  DaemonGuiRpcReadMethod,
+  "daemon.gui.system.read" | "daemon.gui.control.receipt" | "repo.tasks.causalContext.read"
+>;
 type TerminalActionMethod = "repo.gui.catalog.reread" | Extract<DaemonGuiActionMethod, `repo.terminal.${string}`>;
 type WithRepoPayload<Call> = Call extends {
   readonly params: {

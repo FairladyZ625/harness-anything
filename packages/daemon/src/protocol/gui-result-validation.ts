@@ -113,12 +113,23 @@ export const validateDaemonSettingsRead: ResultValidator = (value) =>
           "must be a valid daemon settings read",
         ),
       ];
+const validateTaskCausalContextRead: ResultValidator = (value) =>
+  isJsonObject(value) &&
+  Object.keys(value).length === 4 &&
+  value.schema === "task-causal-context-read/v1" &&
+  value.ok === true &&
+  typeof value.taskId === "string" &&
+  value.taskId.length > 0 &&
+  (value.causalContext === null || typeof value.causalContext === "string")
+    ? []
+    : [validationError("task-causal-context", "result", value, "must be a valid task causal context read")];
 const resultValidators = {
   "daemon.gui.system.read": validateSystemStatus,
   "daemon.gui.control.receipt": validateDaemonControlReceipt,
   "observe.tail": validateObserveTailResult,
   "repo.tasks.list": validateDaemonTaskSnapshotListServed,
   "repo.tasks.completion.read": validateDaemonTaskCompletion,
+  "repo.tasks.causalContext.read": validateTaskCausalContextRead,
   "repo.tasks.wip": validateDaemonTaskWip,
   "repo.projection.read": validateDaemonUseCaseProjection,
   "repo.entity.actions.explain": validateEntityActionExplanationSet,

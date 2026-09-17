@@ -54,6 +54,7 @@ import {
   runtimeMissionName,
   validateMissionCommands,
 } from "./runtime-spawn-mission.ts";
+import { assembleTaskCausalContext } from "./dispatch-causal-context.ts";
 import {
   launchExitNotification,
   launchNative,
@@ -344,10 +345,22 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         "runtime_preconditions_unavailable",
         "Task-bound and scheduled runtime spawn require a sealed daemon route before dispatch.",
       );
-    const taskMission = taskId
-        ? (remoteTask ?? deriveTaskMission(input.rootDir, projection!, taskId, "runtime.run", missionName))
+    const causalContext =
+        remoteTask === null
+          ? taskId === null
+            ? null
+            : assembleTaskCausalContext({ projection: projection!, taskId })
+          : remoteTask.causalContext,
+      taskMission = taskId
+        ? (remoteTask ??
+          deriveTaskMission(input.rootDir, projection!, taskId, "runtime.run", missionName, causalContext))
         : null,
-      mission = explicitMission ?? taskMission?.mission ?? requiredRuntimeSpawnText(undefined, "prompt");
+      mission =
+        explicitMission === undefined
+          ? (taskMission?.mission ?? requiredRuntimeSpawnText(undefined, "prompt"))
+          : causalContext === null
+            ? explicitMission
+            : `${causalContext}\n\n${explicitMission}`;
     if (taskMission) validateMissionCommands(taskMission.plan, cwd, taskMission.planPath);
     if (taskMission?.missionBody && taskMission.missionPath)
       validateMissionCommands(taskMission.missionBody, cwd, taskMission.missionPath);
