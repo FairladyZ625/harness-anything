@@ -31,7 +31,11 @@ test("the frozen lifecycle suite migrates digest bindings and invalidates all th
   assert.ok(submitted.length > 0);
   for (const submission of submitted)
     for (const gate of submission.completionContract.gates)
-      if (gate.witness.adapterId === "github-actions") assert.equal(gate.witness.adapterOptions.coverage, "descendant");
+      assert.ok(
+        gate.witness.kind === "historical-policy-unavailable" ||
+          (gate.witness.kind === "adapter" && gate.witness.adapterId === "code-doc-reconciliation"),
+        `${gate.gateId}: historical gates materialize as preserved policy, never a guessed adapter`,
+      );
 
   const lastOccurredAt = source.at(-1)!.occurredAt,
     invalidations = migration.invalidations(source.length + 1, lastOccurredAt);
@@ -58,11 +62,50 @@ test("the frozen lifecycle suite migrates digest bindings and invalidates all th
   );
 });
 
-test("migration rejects malformed historical witnesses instead of inventing evidence", () => {
-  for (const fixture of ["s-x27-witness-missing-fields", "s-x27-witness-non-ci-gate", "s-x27-witness-non-pass"]) {
-    const migration = processor();
-    assert.throws(() => migration.rewrite(events(fixture)[0]!), /gate|submission|workflow|witness/u, fixture);
+test("migration preserves verdicts as explicit history and still rejects malformed witnesses", () => {
+  // A witness whose identity fields are absent stays malformed — nothing is invented.
+  const malformed = processor();
+  assert.throws(
+    () => malformed.rewrite(events("s-x27-witness-missing-fields")[0]!),
+    /witness/u,
+    "s-x27-witness-missing-fields",
+  );
+
+  // Bound evidence without a recorded adapter becomes adapter-not-recorded: basis and the
+  // runner/human provenance survive, the adapter identity is never guessed from gateId.
+  for (const fixture of ["s-x27-witness-non-ci-gate", "s-x27-witness-non-pass"]) {
+    const migration = processor(),
+      rewritten = migration.rewrite(events(fixture)[0]!).event;
+    assert.deepEqual(validateCurrentCanonicalEvent(rewritten), [], fixture);
+    const witness = (rewritten as { payload: { witness: Record<string, unknown> } }).payload.witness,
+      evidence = witness.evidence as Record<string, unknown>,
+      submission = (rewritten as { payload: { execution: { submission: any } } }).payload.execution.submission;
+    assert.equal(evidence.kind, "historical-verdict", fixture);
+    assert.equal(evidence.gap, "adapter-not-recorded", fixture);
+    assert.equal("adapterId" in (evidence.provenance as object), false, fixture);
+    assert.equal(witness.result === "fail" || witness.result === "pass", true, fixture);
+    const contract = submission.completionContract.gates;
+    assert.equal(
+      contract.find((gate: any) => gate.gateId === "ci").witness.kind,
+      "historical-policy-unavailable",
+      fixture,
+    );
+    assert.equal(
+      contract.find((gate: any) => gate.gateId === "code-doc-reconciliation").witness.kind,
+      "adapter",
+      fixture,
+    );
   }
+
+  // A verdict recorded with no evidence fields at all becomes binding-not-recorded.
+  const bindingMissing = processor(),
+    bare = bindingMissing.rewrite(
+      events("h-x9-unprovenanced-witness").find((event) => event.type === "completion_gate_verified")!,
+    ).event;
+  assert.equal(
+    (bare as { payload: { witness: { evidence: { kind: string } } } }).payload.witness.evidence.kind,
+    "historical-verdict",
+  );
 });
 
 test("X18 reviewer dispatch history remains opaque and unchanged", () => {

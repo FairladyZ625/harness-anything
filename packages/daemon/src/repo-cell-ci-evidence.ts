@@ -24,7 +24,12 @@ export function githubActionsWitnessEvidence(
   requirement: FrozenGateRequirement,
   execution: Snapshot["executions"][number] | undefined,
 ): CompletionEvidenceV1 | null {
-  if (requirement.witness.adapterId !== "github-actions" || !execution?.submission?.commitSha) return null;
+  if (
+    requirement.witness.kind !== "adapter" ||
+    requirement.witness.adapterId !== "github-actions" ||
+    !execution?.submission?.commitSha
+  )
+    return null;
   const options = requirement.witness.adapterOptions;
   const observations = cell.projection.readCiRunObservations(2000);
   if (!cell.projectionReady(observations))

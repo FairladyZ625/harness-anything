@@ -15,7 +15,7 @@ function admittedWitnessSource(
   requirement: FrozenGateRequirement,
   evidence: CompletionEvidenceV1 | undefined,
 ): boolean {
-  if (!evidence) return false;
+  if (!evidence || requirement.witness.kind !== "adapter") return false;
   const human = evidence.provenance.source === "human" && evidence.provenance.adapterId === "manual-attest";
   if (evidence.override !== undefined) return human && requirement.allowOverride === true;
   if (evidence.provenance.adapterId === requirement.witness.adapterId) return true;
@@ -80,14 +80,15 @@ export function compileCompletionGateWitness(input: {
       actor: input.actor,
       source: input.source,
       verifiedAt: input.occurredAt,
-      ...(input.evidence
-        ? {
-            observed: input.evidence.observed,
-            basis: input.evidence.basis,
-            provenance: input.evidence.provenance,
-            ...(input.evidence.override ? { override: input.evidence.override } : {}),
-          }
-        : {}),
+      // Command admission requires bound evidence (admittedWitnessSource above), so the only
+      // shape a write ever mints is `observed`; historical-verdict exists only as migration output.
+      evidence: {
+        kind: "observed",
+        observed: input.evidence!.observed,
+        basis: input.evidence!.basis,
+        provenance: input.evidence!.provenance,
+        ...(input.evidence!.override ? { override: input.evidence!.override } : {}),
+      },
     },
     event: CompletionGateVerifiedEvent = {
       schema: "task-event/v1",

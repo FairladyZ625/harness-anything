@@ -62,7 +62,10 @@ export function deriveCloseoutSubmission(
       completionContract: { gates: [] },
     }),
     // The execution's first submission freezes the gate requirements; resumes and amendments keep them.
-    prose = { ...parsed, completionContract: frozen?.completionContract ?? freezeCompletionContract(cell, snapshot) },
+    prose = {
+      ...parsed,
+      completionContract: carriedCompletionContract(cell, frozen) ?? freezeCompletionContract(cell, snapshot),
+    },
     anchors = artifactAnchors(prose.completionClaim),
     named = [...new Set(removeArtifactAnchors(prose.completionClaim).match(/\b[0-9a-f]{40}\b/gu) ?? [])];
   if (named.length > 1)
@@ -200,6 +203,24 @@ export function deriveCloseoutSubmission(
     deliverables,
     outputs: [...commitOutputs, ...artifacts.map((anchor) => `Artifact-Anchor: ${anchor.path}@${anchor.revision}`)],
   };
+}
+
+/**
+ * A carried contract is the execution's frozen requirement list: adapter-backed requirements carry
+ * forward to resumes and amendments; a migration-preserved historical requirement is read-only
+ * history and can never accept a new submission (dec_ED8A4E774FA7A96820D32D171D).
+ */
+function carriedCompletionContract(
+  cell: Pick<RepoCellOperationalContext, "cellCodedError">,
+  submission: SubmissionV1 | null | undefined,
+): SubmissionV1["completionContract"] | undefined {
+  const contract = submission?.completionContract;
+  if (contract?.gates.some((gate) => gate.witness.kind !== "adapter"))
+    throw cell.cellCodedError(
+      "invalid_submission",
+      "The frozen completion contract is migration-preserved history and cannot accept a new submission.",
+    );
+  return contract;
 }
 
 function freezeCompletionContract(

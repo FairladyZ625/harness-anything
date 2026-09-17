@@ -16,6 +16,7 @@ import { eventObjectTarget } from "../layout/ledger-object-layout.ts";
 import { currentTaskForWrite } from "./task.ts";
 import { codeDocRecordId, currentCodeDocRecord, currentCodeDocWitness } from "./code-doc-witness.ts";
 import { completionGateIds, gateResults } from "./closeout-readiness.ts";
+import { isHistoricalVerdictWitness } from "./completion-gate-witness.ts";
 export interface LifecycleDocumentState {
   readonly path: string;
   readonly body: string;
@@ -270,25 +271,27 @@ function renderIndex(event: TaskEventV1, snapshot: TaskLifecycleSnapshot, path: 
     selected = current?.submission
       ? consentedApprovedReviewForExecution(snapshot.reviews, snapshot.consents, current)
       : undefined,
-    gateStatus = (gateId: string) => {
-      if (!current?.submission) return false;
+    gateStatus = (gateId: string): "pass" | "historical_accepted" | "blocked" => {
+      if (!current?.submission) return "blocked";
       if (gateId === "code-doc-reconciliation") {
         const witness = currentCodeDocWitness(snapshot.codeDocWitnesses, executionId);
-        return (
-          witness?.iteration === current.iteration &&
+        return witness?.iteration === current.iteration &&
           (witness.schema === "code-doc-witness-repoint/v1" || witness.commitSha === current.submission.commitSha)
-        );
+          ? "pass"
+          : "blocked";
       }
-      return snapshot.gateWitnesses.some(
+      const matching = snapshot.gateWitnesses.filter(
         (value) =>
           value.executionId === executionId &&
           value.gateId === gateId &&
           value.commitSha === current.submission?.commitSha &&
           value.iteration === current.iteration,
       );
+      if (!matching.length) return "blocked";
+      return matching.some((value) => !isHistoricalVerdictWitness(value)) ? "pass" : "historical_accepted";
     },
     gatesForCut = completionGateIds(task.completionGateIds, current?.submission),
-    missingGate = gatesForCut.find((gateId) => !gateStatus(gateId)),
+    missingGate = gatesForCut.find((gateId) => gateStatus(gateId) === "blocked"),
     next =
       task.status === "active"
         ? `Run \`ha task submit ${task.taskId}\`.`
@@ -304,7 +307,7 @@ function renderIndex(event: TaskEventV1, snapshot: TaskLifecycleSnapshot, path: 
                   ? "Task cancelled; create follow-up work with `ha task supersede`."
                   : `Run \`ha task complete ${task.taskId}\`.`,
     gates = gatesForCut.length
-      ? gatesForCut.map((gateId) => `- ${gateId}: ${gateStatus(gateId) ? "pass" : "blocked"}`).join("\n")
+      ? gatesForCut.map((gateId) => `- ${gateId}: ${gateStatus(gateId)}`).join("\n")
       : "- none",
     metadata = task.metadata;
   let initial =
@@ -422,7 +425,13 @@ function renderExecution(value: ExecutionV1, snapshot: TaskLifecycleSnapshot): s
       checkerGateIds.length === 0
         ? "not_required"
         : gates.length
-          ? gates.map((value) => `${value.gateId}/${value.receiptId}`).join(", ")
+          ? gates
+              .map(
+                (value) =>
+                  `${value.gateId}/${value.receiptId}` +
+                  (isHistoricalVerdictWitness(value) ? " (historical-verdict)" : ""),
+              )
+              .join(", ")
           : "pending"
     }\n`,
     `- Code-doc witness: ${codeDocRequired ? (validCodeDocWitness ? codeDocRecordId(validCodeDocWitness) : "pending") : "not_required"}${

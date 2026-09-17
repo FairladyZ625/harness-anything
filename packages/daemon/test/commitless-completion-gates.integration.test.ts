@@ -57,6 +57,7 @@ function snapshot(commitSha: string | null): TaskLifecycleSnapshot {
                 gateId: "ci",
                 appliesTo: "code",
                 witness: {
+                  kind: "adapter",
                   adapterId: "github-actions",
                   adapterOptions: {
                     workflows: ["rewrite-ci"],
@@ -70,7 +71,7 @@ function snapshot(commitSha: string | null): TaskLifecycleSnapshot {
               {
                 gateId: "code-doc-reconciliation",
                 appliesTo: "code",
-                witness: { adapterId: "code-doc-reconciliation", adapterOptions: {} },
+                witness: { kind: "adapter", adapterId: "code-doc-reconciliation", adapterOptions: {} },
               },
             ],
           },

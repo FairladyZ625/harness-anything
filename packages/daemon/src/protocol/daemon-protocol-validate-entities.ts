@@ -467,24 +467,63 @@ export const codeDocRecord = (value: unknown): boolean => codeDoc(value) || code
 
 export function gate(value: unknown): boolean {
   const required = [
-      "schema",
-      "witnessId",
-      "receiptId",
-      "checkerId",
-      "gateId",
-      "result",
-      "taskId",
-      "executionId",
-      "commitSha",
-      "iteration",
-      "actor",
-      "source",
-      "verifiedAt",
-    ],
-    optional = ["observed", "basis", "provenance", "override"];
+    "schema",
+    "witnessId",
+    "receiptId",
+    "checkerId",
+    "gateId",
+    "result",
+    "taskId",
+    "executionId",
+    "commitSha",
+    "iteration",
+    "actor",
+    "source",
+    "verifiedAt",
+    "evidence",
+  ];
+  const validBasis = (basis: unknown) =>
+      recordWith(basis, ["executionId", "iteration", "submissionDigest"]) &&
+      nonEmpty(basis.executionId) &&
+      iteration(basis.iteration) &&
+      digest(basis.submissionDigest) &&
+      (basis.codeCommit === undefined || sha(basis.codeCommit)) &&
+      (basis.ledgerCut === undefined || (integer(basis.ledgerCut) && basis.ledgerCut >= 0)),
+    validEvidence = (evidence: unknown): boolean => {
+      if (!isJsonObject(evidence)) return false;
+      const record = evidence as Record<string, unknown>;
+      if (record.kind === "observed")
+        return (
+          recordWith(record, ["kind", "observed", "basis", "provenance"]) &&
+          Object.keys(record).every((field) =>
+            ["kind", "observed", "basis", "provenance", "override"].includes(field),
+          ) &&
+          typeof record.observed === "boolean" &&
+          validBasis(record.basis) &&
+          recordWith(record.provenance, ["source", "adapterId", "runId", "rawResult"]) &&
+          ((record.provenance as Record<string, unknown>).source === "runner" ||
+            (record.provenance as Record<string, unknown>).source === "human") &&
+          mappedWitnessAdapterIds.includes((record.provenance as Record<string, unknown>).adapterId as never) &&
+          nonEmpty((record.provenance as Record<string, unknown>).runId) &&
+          nonEmpty((record.provenance as Record<string, unknown>).rawResult) &&
+          (record.override === undefined || validCompletionEvidenceOverride(record.override))
+        );
+      if (record.kind === "historical-verdict" && record.gap === "binding-not-recorded")
+        return exactRecord(record, ["kind", "gap"]);
+      if (record.kind === "historical-verdict" && record.gap === "adapter-not-recorded")
+        return (
+          exactRecord(record, ["kind", "gap", "basis", "provenance"]) &&
+          validBasis(record.basis) &&
+          isJsonObject(record.provenance) &&
+          ((record.provenance as Record<string, unknown>).source === "runner" ||
+            (record.provenance as Record<string, unknown>).source === "human") &&
+          nonEmpty((record.provenance as Record<string, unknown>).runId) &&
+          nonEmpty((record.provenance as Record<string, unknown>).rawResult)
+        );
+      return false;
+    };
   return (
-    recordWith(value, required) &&
-    Object.keys(value).every((field) => required.includes(field) || optional.includes(field)) &&
+    exactRecord(value, required) &&
     value.schema === "completion-gate-witness/v1" &&
     [
       value.witnessId,
@@ -500,21 +539,7 @@ export function gate(value: unknown): boolean {
     iteration(value.iteration) &&
     actor(value.actor) &&
     source(value.source) &&
-    (value.observed === undefined || typeof value.observed === "boolean") &&
-    (value.basis === undefined ||
-      (recordWith(value.basis, ["executionId", "iteration", "submissionDigest"]) &&
-        nonEmpty(value.basis.executionId) &&
-        iteration(value.basis.iteration) &&
-        digest(value.basis.submissionDigest) &&
-        (value.basis.codeCommit === undefined || sha(value.basis.codeCommit)) &&
-        (value.basis.ledgerCut === undefined || (integer(value.basis.ledgerCut) && value.basis.ledgerCut >= 0)))) &&
-    (value.provenance === undefined ||
-      (recordWith(value.provenance, ["source", "adapterId", "runId", "rawResult"]) &&
-        (value.provenance.source === "runner" || value.provenance.source === "human") &&
-        mappedWitnessAdapterIds.includes(value.provenance.adapterId as never) &&
-        nonEmpty(value.provenance.runId) &&
-        nonEmpty(value.provenance.rawResult))) &&
-    (value.override === undefined || validCompletionEvidenceOverride(value.override))
+    validEvidence(value.evidence)
   );
 }
 

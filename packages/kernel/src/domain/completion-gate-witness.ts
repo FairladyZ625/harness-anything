@@ -7,7 +7,41 @@ import {
   type CompletionEvidenceOverride,
   type CompletionEvidenceProvenance,
 } from "./completion-evidence.ts";
-import { hasRequiredFields, isNonEmptyString, validateWriteSource, type WriteSource } from "./write-chain.contract.ts";
+import {
+  hasRequiredFields,
+  isNonEmptyString,
+  isRecord,
+  validateWriteSource,
+  type WriteSource,
+} from "./write-chain.contract.ts";
+
+/**
+ * The evidence bound to a recorded gate verdict (dec_ED8A4E774FA7A96820D32D171D):
+ * `observed` carries a real adapter observation with its basis, provenance, and optional override;
+ * `historical-verdict` is a read-only migration fact for a verdict accepted before the completion
+ * chain existed — `binding-not-recorded` preserves a verdict with no evidence fields at all,
+ * `adapter-not-recorded` preserves basis and the human/runner provenance of an accepted verdict whose
+ * adapter identity was never persisted. Command admission never mints a historical-verdict shape.
+ */
+export type CompletionWitnessEvidence =
+  | {
+      readonly kind: "observed";
+      readonly observed: boolean;
+      readonly basis: CompletionEvidenceBasis;
+      readonly provenance: CompletionEvidenceProvenance;
+      readonly override?: CompletionEvidenceOverride;
+    }
+  | { readonly kind: "historical-verdict"; readonly gap: "binding-not-recorded" }
+  | {
+      readonly kind: "historical-verdict";
+      readonly gap: "adapter-not-recorded";
+      readonly basis: CompletionEvidenceBasis;
+      readonly provenance: {
+        readonly source: "runner" | "human";
+        readonly runId: string;
+        readonly rawResult: string;
+      };
+    };
 
 export interface CompletionGateWitnessV1 {
   readonly schema: "completion-gate-witness/v1";
@@ -16,10 +50,7 @@ export interface CompletionGateWitnessV1 {
   readonly checkerId: string;
   readonly gateId: string;
   readonly result: "pass" | "fail" | "advisory" | "not_run";
-  readonly observed?: boolean;
-  readonly basis?: CompletionEvidenceBasis;
-  readonly provenance?: CompletionEvidenceProvenance;
-  readonly override?: CompletionEvidenceOverride;
+  readonly evidence: CompletionWitnessEvidence;
   readonly taskId: string;
   readonly executionId: string;
   /** The cut's delivery commit, or null when the submission delivered accepted artifacts only. */
@@ -29,6 +60,58 @@ export interface CompletionGateWitnessV1 {
   readonly source: WriteSource;
   readonly verifiedAt: string;
 }
+
+function validBasis(basis: CompletionEvidenceBasis | undefined): boolean {
+  return (
+    isRecord(basis) &&
+    isNonEmptyString(basis.executionId) &&
+    Number.isSafeInteger(basis.iteration) &&
+    basis.iteration >= 0 &&
+    /^sha256:[0-9a-f]{64}$/u.test(basis.submissionDigest) &&
+    (basis.codeCommit === undefined || isNativeCommitSha(basis.codeCommit)) &&
+    (basis.ledgerCut === undefined || (Number.isSafeInteger(basis.ledgerCut) && basis.ledgerCut >= 0))
+  );
+}
+
+function validProvenance(provenance: CompletionEvidenceProvenance | undefined): boolean {
+  return (
+    isRecord(provenance) &&
+    ["runner", "human"].includes(provenance.source) &&
+    (mappedWitnessAdapterIds as readonly string[]).includes(provenance.adapterId as string) &&
+    isNonEmptyString(provenance.runId) &&
+    isNonEmptyString(provenance.rawResult)
+  );
+}
+
+function validEvidence(evidence: CompletionWitnessEvidence | undefined, allowUnknownFields: boolean): boolean {
+  const fields = allowUnknownFields
+    ? hasRequiredFields
+    : (candidate: Record<string, unknown>, required: readonly string[]) =>
+        hasRequiredFields(candidate, required) &&
+        Object.keys(candidate).every((field) => required.includes(field) || field === "override");
+  if (!isRecord(evidence)) return false;
+  if (evidence.kind === "observed")
+    return (
+      fields(evidence as Record<string, unknown>, ["kind", "observed", "basis", "provenance"]) &&
+      typeof evidence.observed === "boolean" &&
+      validBasis(evidence.basis) &&
+      validProvenance(evidence.provenance) &&
+      (evidence.override === undefined || validCompletionEvidenceOverride(evidence.override))
+    );
+  if (evidence.kind === "historical-verdict" && evidence.gap === "binding-not-recorded")
+    return fields(evidence as Record<string, unknown>, ["kind", "gap"]);
+  if (evidence.kind === "historical-verdict" && evidence.gap === "adapter-not-recorded")
+    return (
+      fields(evidence as Record<string, unknown>, ["kind", "gap", "basis", "provenance"]) &&
+      validBasis(evidence.basis) &&
+      isRecord(evidence.provenance) &&
+      ["runner", "human"].includes(evidence.provenance.source) &&
+      isNonEmptyString(evidence.provenance.runId) &&
+      isNonEmptyString(evidence.provenance.rawResult)
+    );
+  return false;
+}
+
 export function validateCompletionGateWitnessV1(
   value: unknown,
   allowUnknownFields = false,
@@ -41,6 +124,7 @@ export function validateCompletionGateWitnessV1(
       "checkerId",
       "gateId",
       "result",
+      "evidence",
       "taskId",
       "executionId",
       "commitSha",
@@ -49,12 +133,10 @@ export function validateCompletionGateWitnessV1(
       "source",
       "verifiedAt",
     ],
-    optionalFields = ["observed", "basis", "provenance", "override"],
     hasFields = allowUnknownFields
       ? hasRequiredFields
       : (candidate: Record<string, unknown>, required: readonly string[]) =>
-          hasRequiredFields(candidate, required) &&
-          Object.keys(candidate).every((field) => required.includes(field) || optionalFields.includes(field));
+          hasRequiredFields(candidate, required) && Object.keys(candidate).every((field) => required.includes(field));
   return !record ||
     typeof record !== "object" ||
     !hasFields(record as Record<string, unknown>, fields) ||
@@ -69,26 +151,12 @@ export function validateCompletionGateWitnessV1(
       record.verifiedAt,
     ].every(isNonEmptyString) ||
     !["pass", "fail", "advisory", "not_run"].includes(record.result as string) ||
+    !validEvidence(record.evidence, allowUnknownFields) ||
     !(record.commitSha === null || isNativeCommitSha(record.commitSha)) ||
     !Number.isSafeInteger(record.iteration) ||
     Number(record.iteration) < 0 ||
     validateActorAxes(record.actor, allowUnknownFields).length ||
-    validateWriteSource(record.source, allowUnknownFields).length ||
-    (record.observed !== undefined && typeof record.observed !== "boolean") ||
-    (record.basis !== undefined &&
-      (!isNonEmptyString(record.basis.executionId) ||
-        !Number.isSafeInteger(record.basis.iteration) ||
-        Number(record.basis.iteration) < 0 ||
-        !/^sha256:[0-9a-f]{64}$/u.test(record.basis.submissionDigest) ||
-        (record.basis.codeCommit !== undefined && !isNativeCommitSha(record.basis.codeCommit)) ||
-        (record.basis.ledgerCut !== undefined &&
-          (!Number.isSafeInteger(record.basis.ledgerCut) || record.basis.ledgerCut < 0)))) ||
-    (record.provenance !== undefined &&
-      (!["runner", "human"].includes(record.provenance.source) ||
-        !(mappedWitnessAdapterIds as readonly string[]).includes(record.provenance.adapterId as string) ||
-        !isNonEmptyString(record.provenance.runId) ||
-        !isNonEmptyString(record.provenance.rawResult))) ||
-    (record.override !== undefined && !validCompletionEvidenceOverride(record.override))
+    validateWriteSource(record.source, allowUnknownFields).length
     ? [
         {
           code: "invalid_gate_witness",
@@ -103,8 +171,12 @@ export function validateCompletionGateWitnessV1(
  * break-glass override) is kept apart from that adapter's witness: recording one never replaces the
  * other, so an automated fail stays on the cut after it is waived. A manual-attest gate has one lane.
  */
-export function isHumanAttestationWitness(witness: Pick<CompletionGateWitnessV1, "provenance">): boolean {
-  return witness.provenance?.source === "human" && witness.provenance.adapterId === "manual-attest";
+export function isHumanAttestationWitness(witness: Pick<CompletionGateWitnessV1, "evidence">): boolean {
+  return (
+    witness.evidence?.kind === "observed" &&
+    witness.evidence.provenance.source === "human" &&
+    witness.evidence.provenance.adapterId === "manual-attest"
+  );
 }
 
 /** Snapshot replacement key: a newer witness replaces the older one only within its own lane. */
@@ -117,14 +189,11 @@ export function sameGateWitnessLane(left: CompletionGateWitnessV1, right: Comple
 }
 
 /**
- * The new-format representation of a historical evidence gap (dec_59FA45A407F850E2B167A192D7):
- * migration keeps the accepted verdict but invents no observation — basis, provenance, and
- * observed all stay absent. Replay may honor the preserved verdict on a historical completion;
- * command admission never mints this shape (a witness write requires bound evidence), and it can
- * never satisfy a new cut's gate.
+ * A migration-preserved historical verdict (dec_ED8A4E774FA7A96820D32D171D): the accepted result
+ * stands as history, but no bound observation exists. Replay may honor it on an already-accepted
+ * historical completion; it never satisfies a current cut's gate, signoff, override, or adapter
+ * dispatch.
  */
-export function isPreservedVerdictWitness(
-  witness: Pick<CompletionGateWitnessV1, "basis" | "provenance" | "observed">,
-): boolean {
-  return witness.basis === undefined && witness.provenance === undefined && witness.observed === undefined;
+export function isHistoricalVerdictWitness(witness: Pick<CompletionGateWitnessV1, "evidence">): boolean {
+  return witness.evidence?.kind === "historical-verdict";
 }

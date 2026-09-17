@@ -49,6 +49,7 @@ const ciRequirement = (workflows: readonly string[] = ["rewrite-ci"]): FrozenGat
     gateId: "ci",
     appliesTo: "code",
     witness: {
+      kind: "adapter",
       adapterId: "github-actions",
       adapterOptions: {
         workflows,
@@ -62,7 +63,7 @@ const ciRequirement = (workflows: readonly string[] = ["rewrite-ci"]): FrozenGat
   codeDocRequirement: FrozenGateRequirement = {
     gateId: "code-doc-reconciliation",
     appliesTo: "code",
-    witness: { adapterId: "code-doc-reconciliation", adapterOptions: {} },
+    witness: { kind: "adapter", adapterId: "code-doc-reconciliation", adapterOptions: {} },
   },
   ci = (cell: RepoCellOperationalContext, current: Snapshot["executions"][number], workflows?: readonly string[]) =>
     githubActionsWitnessEvidence(cell, ciRequirement(workflows), current);
@@ -242,13 +243,20 @@ test("unverified latest observation rejects and latest real red never falls back
     observation(current.submission!.commitSha, 2, "failure"),
     observation(current.submission!.commitSha),
   ]);
+  const recorded = ci(fixture(publicRoot, current, [observation(current.submission!.commitSha)]).cell, current)!;
   Object.assign(red.snapshot, {
     gateWitnesses: [
       {
-        ...ci(fixture(publicRoot, current, [observation(current.submission!.commitSha)]).cell, current),
+        ...recorded,
         executionId: "execution",
         iteration: 0,
         commitSha: current.submission!.commitSha,
+        evidence: {
+          kind: "observed",
+          observed: recorded.observed,
+          basis: recorded.basis,
+          provenance: recorded.provenance,
+        },
       },
     ],
   });
@@ -396,7 +404,20 @@ test("retry after a lost response reuses canonical cut witnesses without another
         witnessId: "reconciled",
       },
     ],
-    gateWitnesses: [{ ...evidence, executionId: "execution", iteration: 0, commitSha: current.submission!.commitSha }],
+    gateWitnesses: [
+      {
+        ...evidence,
+        executionId: "execution",
+        iteration: 0,
+        commitSha: current.submission!.commitSha,
+        evidence: {
+          kind: "observed",
+          observed: evidence.observed,
+          basis: evidence.basis,
+          provenance: evidence.provenance,
+        },
+      },
+    ],
   });
   assert.deepEqual(await prepareSubmissionEvidence(prepared.cell, "task", "execution", binding), []);
   assert.deepEqual(prepared.calls, []);

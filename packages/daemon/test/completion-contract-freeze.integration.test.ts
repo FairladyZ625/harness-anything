@@ -135,6 +135,7 @@ test("submit freezes the resolved gate contract into the cut; later harness.yaml
           gateId: "ci",
           appliesTo: "code",
           witness: {
+            kind: "adapter",
             adapterId: "github-actions",
             adapterOptions: {
               workflows: ["rewrite-ci"],
@@ -148,7 +149,7 @@ test("submit freezes the resolved gate contract into the cut; later harness.yaml
         {
           gateId: "code-doc-reconciliation",
           appliesTo: "code",
-          witness: { adapterId: "code-doc-reconciliation", adapterOptions: {} },
+          witness: { kind: "adapter", adapterId: "code-doc-reconciliation", adapterOptions: {} },
         },
       ],
       reviewer: { agentId: "closeout-reviewer" },

@@ -124,12 +124,13 @@ test("completion next is one pure judgment across lifecycle and unavailable-inpu
 const codeDocRequirement = {
     gateId: "code-doc-reconciliation",
     appliesTo: "code" as const,
-    witness: { adapterId: "code-doc-reconciliation" as const, adapterOptions: {} },
+    witness: { kind: "adapter", adapterId: "code-doc-reconciliation" as const, adapterOptions: {} },
   },
   ciRequirement = {
     gateId: "ci",
     appliesTo: "code" as const,
     witness: {
+      kind: "adapter",
       adapterId: "github-actions" as const,
       adapterOptions: {
         workflows: ["rewrite-ci"],

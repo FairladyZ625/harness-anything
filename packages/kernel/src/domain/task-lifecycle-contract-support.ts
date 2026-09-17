@@ -151,12 +151,18 @@ export function canonicalGateReceipts(
               value.commitSha === current.submission?.commitSha &&
               value.iteration === current.iteration &&
               value.result === "pass" &&
-              (value.basis === undefined || value.provenance === undefined || value.observed === undefined
-                ? true
-                : judgeCompletionEvidence(
-                    { ...value, basis: value.basis, provenance: value.provenance, observed: value.observed },
+              (value.evidence.kind === "observed"
+                ? judgeCompletionEvidence(
+                    {
+                      ...value,
+                      observed: value.evidence.observed,
+                      basis: value.evidence.basis,
+                      provenance: value.evidence.provenance,
+                      override: value.evidence.override,
+                    },
                     { execution: current, gateId },
-                  ).accepted),
+                  ).accepted
+                : false),
           )
         : undefined;
     const receiptRef = codeDoc ? `event:${codeDocRecordId(codeDoc)}` : gate ? `event:${gate.receiptId}` : null;

@@ -668,7 +668,8 @@ function acceptedCompletionWitnesses(
         (witness.schema === "code-doc-witness-repoint/v1" || witness.commitSha === current.submission!.commitSha)
       );
     }
-    // Accepted history keeps its original gap: a preserved verdict carries no bound evidence.
+    // Accepted history keeps its original gap: a preserved verdict carries no bound evidence,
+    // and reports historical_accepted rather than passed.
     const { status } = judgeGateWitnesses(
       snapshot.gateWitnesses,
       current,
@@ -676,6 +677,6 @@ function acceptedCompletionWitnesses(
       current.submission!.completionContract?.gates.find((gate) => gate.gateId === gateId),
       true,
     );
-    return status === "passed" || status === "waived";
+    return status === "passed" || status === "waived" || status === "historical_accepted";
   });
 }

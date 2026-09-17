@@ -9,7 +9,12 @@ import { resolveHarnessLayout, type HarnessLayoutInput } from "../layout/index.t
 import { localLedgerBackupFileSystem as fileSystem } from "../local/local-layout-file-system.ts";
 import { decodeLegacyEventBytes, readStoppedLegacyGeneration } from "./legacy-generation-source.ts";
 import { localGitText } from "./local-version-control-system.ts";
-import { openSqliteEventStore, resolveActiveGeneration, sqliteLedgerPath } from "./sqlite-event-store.ts";
+import {
+  CURRENT_SQLITE_GENERATION,
+  openSqliteEventStore,
+  resolveActiveGeneration,
+  sqliteLedgerPath,
+} from "./sqlite-event-store.ts";
 
 export interface LedgerBackupManifestV1 {
   readonly schema: "ledger-backup/v1";
@@ -352,8 +357,10 @@ function inspectSqlite(databasePath: string): {
     if (Number(counts.events) !== Number(counts.revision) || Number(counts.events) !== Number(counts.op_ids))
       throw new Error("SQLite accepted revision/opId counts differ");
     for (const row of db.prepare("SELECT event_json FROM event ORDER BY revision").all()) {
-      if (Number(metadata.generation) === 1) decodeLegacyEventBytes(String(row.event_json), "generation 1 backup");
-      else parseCanonicalEvent(String(row.event_json));
+      // Only the current generation carries current-schema events; earlier generations are
+      // integrity-checked as canonical envelopes through the offline legacy decoder.
+      if (Number(metadata.generation) === CURRENT_SQLITE_GENERATION) parseCanonicalEvent(String(row.event_json));
+      else decodeLegacyEventBytes(String(row.event_json), `generation ${Number(metadata.generation)} backup`);
     }
     return { revision: Number(counts.revision), opIds: Number(counts.op_ids), integrity };
   } finally {

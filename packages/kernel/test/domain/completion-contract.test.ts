@@ -26,6 +26,7 @@ const currentPresetContract: FrozenCompletionContract = {
       gateId: "ci",
       appliesTo: "code",
       witness: {
+        kind: "adapter",
         adapterId: "github-actions",
         adapterOptions: {
           workflows: ["rewrite-ci"],
@@ -39,7 +40,7 @@ const currentPresetContract: FrozenCompletionContract = {
     {
       gateId: "code-doc-reconciliation",
       appliesTo: "code",
-      witness: { adapterId: "code-doc-reconciliation", adapterOptions: {} },
+      witness: { kind: "adapter", adapterId: "code-doc-reconciliation", adapterOptions: {} },
     },
   ],
 };
@@ -105,9 +106,13 @@ test("none removes a declared requirement without minting a witness, and undecla
         {
           gateId: "lint",
           appliesTo: "code",
-          witness: { adapterId: "local-command", adapterOptions: { command: "npm run lint" } },
+          witness: { kind: "adapter", adapterId: "local-command", adapterOptions: { command: "npm run lint" } },
         },
-        { gateId: "signoff", appliesTo: "artifacts", witness: { adapterId: "manual-attest", adapterOptions: {} } },
+        {
+          gateId: "signoff",
+          appliesTo: "artifacts",
+          witness: { kind: "adapter", adapterId: "manual-attest", adapterOptions: {} },
+        },
       ],
     },
   });
@@ -164,14 +169,16 @@ test("the frozen contract schema fails closed on unknown fields and foreign adap
     1,
   );
   assert.equal(
-    validateFrozenCompletionContract({ gates: [{ ...ci, witness: { adapterId: "none", adapterOptions: {} } }] }, true)
-      .length,
+    validateFrozenCompletionContract(
+      { gates: [{ ...ci, witness: { kind: "adapter", adapterId: "none", adapterOptions: {} } }] },
+      true,
+    ).length,
     1,
   );
   assert.equal(validateFrozenCompletionContract({ gates: [ci, ci] }).length, 1);
   assert.equal(
     validateFrozenCompletionContract({
-      gates: [{ ...ci, witness: { adapterId: "manual-attest", adapterOptions: {} } }],
+      gates: [{ ...ci, witness: { kind: "adapter", adapterId: "manual-attest", adapterOptions: {} } }],
     }).length,
     0,
   );
@@ -179,7 +186,7 @@ test("the frozen contract schema fails closed on unknown fields and foreign adap
   assert.equal(validateFrozenCompletionContract({ gates: [{ ...ci, witness: codeDoc.witness }] }).length, 1);
   assert.equal(
     validateFrozenCompletionContract({
-      gates: [{ ...codeDoc, witness: { adapterId: "manual-attest", adapterOptions: {} } }],
+      gates: [{ ...codeDoc, witness: { kind: "adapter", adapterId: "manual-attest", adapterOptions: {} } }],
     }).length,
     1,
   );

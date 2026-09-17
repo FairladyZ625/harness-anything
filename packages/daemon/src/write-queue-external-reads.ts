@@ -1,8 +1,4 @@
-import {
-  gateAppliesToSubmission,
-  type MappedWitnessAdapterId,
-  type WriteReceiptDraft,
-} from "../../kernel/src/index.ts";
+import { CODE_DOC_GATE_ID, gateAppliesToSubmission, type WriteReceiptDraft } from "../../kernel/src/index.ts";
 import { artifactImportSourceResolution, prepareArtifactEntityImportSource } from "./artifact-entity-action.ts";
 import { fetchCiObservations, ingestCiObservations } from "./ci-observation-actions.ts";
 import type { RepoCellApiContext } from "./repo-cell-api.ts";
@@ -48,7 +44,12 @@ export function readBeforeWriteQueue(
     // Every adapter that can collect its own observations runs here, outside the queue; inside the
     // queue the collected values are re-judged against the frozen cut before any canonical write.
     const pending = (execution.submission.completionContract?.gates ?? []).flatMap((requirement) => {
-      const adapter = witnessAdapters[requirement.witness.adapterId as MappedWitnessAdapterId];
+      const witness = requirement.witness,
+        // A migration-preserved historical requirement has no adapter and is never collected.
+        adapter =
+          witness.kind === "adapter" && witness.adapterId !== CODE_DOC_GATE_ID
+            ? witnessAdapters[witness.adapterId]
+            : undefined;
       return adapter?.collect &&
         gateAppliesToSubmission(requirement, execution.submission!) &&
         !acceptedGateWitness(snapshot, execution, requirement.gateId) &&

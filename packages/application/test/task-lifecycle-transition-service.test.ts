@@ -61,6 +61,7 @@ test("completion blocker matrix returns one canonical next for every substantive
         witness:
           gateId === "ci"
             ? {
+                kind: "adapter" as const,
                 adapterId: "github-actions" as const,
                 adapterOptions: {
                   workflows: ["rewrite-ci"],
@@ -71,8 +72,8 @@ test("completion blocker matrix returns one canonical next for every substantive
                 },
               }
             : gateId === "code-doc-reconciliation"
-              ? { adapterId: "code-doc-reconciliation" as const, adapterOptions: {} }
-              : { adapterId: "manual-attest" as const, adapterOptions: {} },
+              ? { kind: "adapter" as const, adapterId: "code-doc-reconciliation" as const, adapterOptions: {} }
+              : { kind: "adapter" as const, adapterId: "manual-attest" as const, adapterOptions: {} },
       }),
       withGates = (gateIds: readonly string[]) => {
         const execution = {
@@ -217,7 +218,8 @@ test("canonical checker receipt becomes a content-cut gate witness before Comple
           gateId: "ci",
           appliesTo: "code",
           witness: {
-            adapterId: "github-actions",
+            kind: "adapter" as const,
+            adapterId: "github-actions" as const,
             adapterOptions: {
               workflows: ["rewrite-ci"],
               branch: "main",
@@ -285,9 +287,14 @@ test("canonical checker receipt becomes a content-cut gate witness before Comple
       actor,
       source: "local",
       verifiedAt: "2026-08-11T00:10:00.000Z",
-      observed: true,
-      basis: completionEvidenceBasis(snapshot.executions.find((execution) => execution.executionId === "execution-1")!),
-      provenance: { source: "runner", adapterId: "github-actions", runId: "run-ci", rawResult: "event:op-ci" },
+      evidence: {
+        kind: "observed",
+        observed: true,
+        basis: completionEvidenceBasis(
+          snapshot.executions.find((execution) => execution.executionId === "execution-1")!,
+        ),
+        provenance: { source: "runner", adapterId: "github-actions", runId: "run-ci", rawResult: "event:op-ci" },
+      },
     });
     const verified = reduceTaskEvent(snapshot, compiled.event),
       complete = command(

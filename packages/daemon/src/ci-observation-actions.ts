@@ -6,7 +6,7 @@ import {
   ciRunObservationWritePlan,
   consumeKnownError,
   isNativeCommitSha,
-  validateCurrentCiRunObservationEvent,
+  validateCiRunObservationEvent,
   type CiRunObservationEventV2,
   type CiRunObservationEventV3,
   type TaskProjection,
@@ -285,7 +285,7 @@ export function ingestCiObservations(
                   : null,
           },
         },
-        errors = validateCurrentCiRunObservationEvent(event);
+        errors = validateCiRunObservationEvent(event);
       if (errors.length) throw cell.cellCodedError("invalid_command", errors.join("; "));
       const plan = ciRunObservationWritePlan(event),
         appended = cell.store.append({ event, plan, blobs: [] });

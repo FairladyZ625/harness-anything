@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import {
+  CODE_DOC_GATE_ID,
   assessFactRetirement,
   canStartExecution,
   assessTransitionDocument,
@@ -27,7 +28,6 @@ import {
   type TaskProgressEventV1,
   type CompletionEvidenceV1,
   type FrozenGateRequirement,
-  type MappedWitnessAdapterId,
   type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
 import { compileRepoTaskPackage } from "../../preset/src/index.ts";
@@ -64,18 +64,25 @@ function evaluateGateEvidence(
 ): ReadonlyMap<string, CompletionEvidenceV1> {
   const evidenceByGate = new Map<string, CompletionEvidenceV1>();
   for (const requirement of requirements) {
-    const adapter = witnessAdapters[requirement.witness.adapterId as MappedWitnessAdapterId];
+    const witness = requirement.witness,
+      // A migration-preserved historical requirement has no adapter and is never dispatched.
+      adapter =
+        witness.kind === "adapter" && witness.adapterId !== CODE_DOC_GATE_ID
+          ? witnessAdapters[witness.adapterId]
+          : undefined;
     if (!adapter || !execution?.submission || !gateAppliesToSubmission(requirement, execution.submission)) continue;
     if (gateWaived(snapshot, execution, requirement)) continue;
     const evidence = adapter.evaluate(cell, requirement, execution, collections?.get(requirement.gateId));
-    // Submit-time preparation attaches only passing evidence: a gate's verdict is judged at
-    // completion, so a not-yet-satisfied observation must never bounce an already-accepted cut.
-    if (evidence?.result === "fail" && !(failStops && requirement.allowOverride)) {
+    // A real red on a gate without an override lane always stops the write — an older green or a
+    // recorded pass never masks it. An override-allowed fail is attached as the canonical receipt
+    // the owner can waive at completion; submit-time preparation leaves it to that judgment.
+    if (evidence?.result === "fail") {
+      if (!requirement.allowOverride)
+        throw cell.cellCodedError(
+          "invalid_proof",
+          `Gate ${requirement.gateId} receipt ${evidence.provenance.rawResult} reported fail.`,
+        );
       if (!failStops) continue;
-      throw cell.cellCodedError(
-        "invalid_proof",
-        `Gate ${requirement.gateId} receipt ${evidence.provenance.rawResult} reported fail.`,
-      );
     }
     if (evidence) evidenceByGate.set(requirement.gateId, evidence);
   }

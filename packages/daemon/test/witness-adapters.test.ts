@@ -39,25 +39,26 @@ function git(root: string, ...args: string[]): string {
 const localRequirement = (command: string, gateId = "lint"): FrozenGateRequirement => ({
   gateId,
   appliesTo: "code",
-  witness: { adapterId: "local-command", adapterOptions: { command } },
+  witness: { kind: "adapter", adapterId: "local-command", adapterOptions: { command } },
 });
 
 const manualRequirement = (gateId = "signoff"): FrozenGateRequirement => ({
   gateId,
   appliesTo: "code",
-  witness: { adapterId: "manual-attest", adapterOptions: {} },
+  witness: { kind: "adapter", adapterId: "manual-attest", adapterOptions: {} },
 });
 
 const artifactRequirement = (gateId = "signoff"): FrozenGateRequirement => ({
   gateId,
   appliesTo: "artifacts",
-  witness: { adapterId: "manual-attest", adapterOptions: {} },
+  witness: { kind: "adapter", adapterId: "manual-attest", adapterOptions: {} },
 });
 
 const githubRequirement = (gateId = "ci"): FrozenGateRequirement => ({
   gateId,
   appliesTo: "code",
   witness: {
+    kind: "adapter",
     adapterId: "github-actions",
     adapterOptions: {
       workflows: ["rewrite-ci"],
@@ -372,7 +373,9 @@ test("the canonical write entry binds the witness source adapter to the frozen d
     );
   assert.equal(compiled.event.type, "completion_gate_verified");
   assert.equal(compiled.event.payload.witness.result, "pass");
-  assert.equal(compiled.event.payload.witness.provenance?.adapterId, "manual-attest");
+  const minted = compiled.event.payload.witness.evidence;
+  assert.equal(minted.kind, "observed");
+  assert.equal(minted.kind === "observed" && minted.provenance.adapterId, "manual-attest");
   // A gate that is not part of the frozen contract cannot be witnessed at all.
   const stray = admissionFixture(manualRequirement()),
     strayEvidence = humanEvidence(stray.execution, "other-gate", "manual-attest");
@@ -439,18 +442,21 @@ test("the wire validator admits pass/fail witnesses only with a mapped adapter i
     actor: { principal: { personId: "owner" }, executor: null },
     source: "local",
     verifiedAt: "2026-09-12T00:02:00.000Z",
-    observed: true,
-    basis: {
-      executionId: "execution-1",
-      iteration: 0,
-      submissionDigest: `sha256:${"1".repeat(64)}`,
-      codeCommit: "a".repeat(40),
-    },
-    provenance: {
-      source: "human",
-      adapterId: "manual-attest",
-      runId: "attest:owner",
-      rawResult: "pass attested by owner",
+    evidence: {
+      kind: "observed",
+      observed: true,
+      basis: {
+        executionId: "execution-1",
+        iteration: 0,
+        submissionDigest: `sha256:${"1".repeat(64)}`,
+        codeCommit: "a".repeat(40),
+      },
+      provenance: {
+        source: "human",
+        adapterId: "manual-attest",
+        runId: "attest:owner",
+        rawResult: "pass attested by owner",
+      },
     },
   };
   assert.equal(validateGateWitnessWire(witness), true);
@@ -459,16 +465,30 @@ test("the wire validator admits pass/fail witnesses only with a mapped adapter i
   assert.equal(
     validateGateWitnessWire({
       ...witness,
-      provenance: { source: "human", runId: "attest:owner", rawResult: "no adapter id" },
+      evidence: {
+        ...witness.evidence,
+        provenance: { source: "human", runId: "attest:owner", rawResult: "no adapter id" },
+      },
     }),
     false,
   );
   assert.equal(
     validateGateWitnessWire({
       ...witness,
-      provenance: { ...witness.provenance, adapterId: "code-doc-reconciliation" },
+      evidence: {
+        ...witness.evidence,
+        provenance: { ...witness.evidence.provenance, adapterId: "code-doc-reconciliation" },
+      },
     }),
     false,
+  );
+  // A preserved historical verdict reads on the wire but carries no bound adapter observation.
+  assert.equal(
+    validateGateWitnessWire({
+      ...witness,
+      evidence: { kind: "historical-verdict", gap: "binding-not-recorded" },
+    }),
+    true,
   );
 });
 
@@ -519,7 +539,8 @@ test("manual attestation witnesses an artifact-only cut, bound to its ledger cut
   // The canonical write admits the null-commit witness: the requirement applies to this cut.
   const compiled = compileWitness(snapshot, execution, humanEvidence(execution, "signoff", "manual-attest"));
   assert.equal(compiled.event.payload.witness.commitSha, null);
-  assert.equal(compiled.event.payload.witness.basis?.ledgerCut, 7);
+  const artifactEvidence = compiled.event.payload.witness.evidence;
+  assert.equal(artifactEvidence.kind === "observed" && artifactEvidence.basis.ledgerCut, 7);
 });
 
 test("a code-scoped gate is not_applicable on an artifact-only cut and cannot be witnessed", () => {
@@ -568,18 +589,21 @@ test("the wire validator admits a null-commit witness for artifact-scoped gates"
     actor: { principal: { personId: "owner" }, executor: null },
     source: "local",
     verifiedAt: "2026-09-12T00:02:00.000Z",
-    observed: true,
-    basis: {
-      executionId: "execution-1",
-      iteration: 0,
-      submissionDigest: `sha256:${"2".repeat(64)}`,
-      ledgerCut: 7,
-    },
-    provenance: {
-      source: "human",
-      adapterId: "manual-attest",
-      runId: "attest:owner",
-      rawResult: "pass attested by owner",
+    evidence: {
+      kind: "observed",
+      observed: true,
+      basis: {
+        executionId: "execution-1",
+        iteration: 0,
+        submissionDigest: `sha256:${"2".repeat(64)}`,
+        ledgerCut: 7,
+      },
+      provenance: {
+        source: "human",
+        adapterId: "manual-attest",
+        runId: "attest:owner",
+        rawResult: "pass attested by owner",
+      },
     },
   };
   assert.equal(validateGateWitnessWire(witness), true);
@@ -692,7 +716,10 @@ test("dual control needs the automated pass and a human signoff, kept as separat
   const signed = record(machinePassed, humanEvidence(execution, "lint", "manual-attest"), "op-signoff");
   assert.equal(gateStatus(signed, "lint"), "passed");
   assert.deepEqual(
-    signed.gateWitnesses.map((witness) => [witness.receiptId, witness.provenance?.source]),
+    signed.gateWitnesses.map((witness) => [
+      witness.receiptId,
+      witness.evidence.kind === "observed" ? witness.evidence.provenance.source : "historical",
+    ]),
     [
       ["op-pass", "runner"],
       ["op-signoff", "human"],
@@ -719,7 +746,11 @@ test("break-glass override waives only the recorded automated fail it names and 
   const waived = record(failed, overrideEvidence(execution, "lint", "op-fail"), "op-override");
   assert.equal(gateStatus(waived, "lint"), "waived");
   assert.deepEqual(
-    waived.gateWitnesses.map((witness) => [witness.receiptId, witness.result, witness.override?.waivedReceiptId]),
+    waived.gateWitnesses.map((witness) => [
+      witness.receiptId,
+      witness.result,
+      witness.evidence.kind === "observed" ? witness.evidence.override?.waivedReceiptId : undefined,
+    ]),
     [
       ["op-fail", "fail", undefined],
       ["op-override", "pass", "op-fail"],

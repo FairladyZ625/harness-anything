@@ -33,6 +33,7 @@ import { isSettingsEvent } from "../domain/settings-event.ts";
 import { isVerticalDeclarationEvent } from "../domain/vertical-declaration.ts";
 import { isPeopleEvent } from "../domain/people-event.ts";
 import { isCiRunObservationEvent } from "../domain/ci-run-observation-event.ts";
+import { isTaskEvent } from "../domain/doc-sync-canonical-events.ts";
 import { parsePeopleRosterDocument } from "../domain/people-roster.ts";
 import { scheduleDefinition, validateScheduleDefinitionV1 } from "../domain/schedule.ts";
 import { lifecycleDocumentPaths } from "../domain/task-lifecycle-publication.ts";
@@ -120,16 +121,6 @@ export function applyEvent(
   readBlob: EventStreamPort["readContentBlob"],
 ): void {
   if (isCiRunObservationEvent(event)) {
-    runSql(
-      db,
-      "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, NULL, ?)",
-      event.opId,
-      event.workspaceRevision,
-      eventJson,
-    );
-    return;
-  }
-  if (event.schema === "ci-run-observation/v2") {
     runSql(
       db,
       "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, NULL, ?)",
@@ -629,7 +620,7 @@ export function applyEvent(
     }
     return;
   }
-  applyTaskEvent(db, event, eventJson, readBlob);
+  if (isTaskEvent(event)) applyTaskEvent(db, event, eventJson, readBlob);
 }
 
 // Lifecycle task-event reduction, document claims, and materialized task rows.
@@ -639,7 +630,14 @@ export function applyTaskEvent(
   eventJson: string,
   readBlob: EventStreamPort["readContentBlob"],
 ): void {
-  const snapshot = reduceTaskEvent(readSnapshot(db, event.taskId), event);
+  let snapshot: ReturnType<typeof reduceTaskEvent>;
+  try {
+    snapshot = reduceTaskEvent(readSnapshot(db, event.taskId), event);
+  } catch (error) {
+    throw Object.assign(error instanceof Error ? error : new Error(String(error)), {
+      message: `${error instanceof Error ? error.message : String(error)} [event ${event.opId} rev ${event.workspaceRevision} type ${event.type}]`,
+    });
+  }
   runSql(
     db,
     "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, ?, ?)",

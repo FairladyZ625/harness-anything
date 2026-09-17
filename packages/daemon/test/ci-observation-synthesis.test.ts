@@ -18,6 +18,7 @@ const ciRequirement: FrozenGateRequirement = {
   gateId: "ci",
   appliesTo: "code",
   witness: {
+    kind: "adapter",
     adapterId: "github-actions",
     adapterOptions: {
       workflows: ["ci"],

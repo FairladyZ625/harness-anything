@@ -83,7 +83,9 @@ function witnessCommand(
   executionId: string,
 ): string {
   const requirement = contract?.gates.find((gate) => gate.gateId === gateId),
-    adapterId = requirement?.witness.adapterId;
+    adapterId = requirement?.witness.kind === "adapter" ? requirement.witness.adapterId : undefined;
+  if (requirement?.witness.kind === "historical-policy-unavailable")
+    return `gate ${gateId} is migration-preserved history; no witness command can satisfy it`;
   if (status === "failed" && requirement?.allowOverride && adapterId !== "manual-attest")
     return (
       `ha task attest ${taskId} --gate ${gateId} --result pass --mode override ` +

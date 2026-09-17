@@ -9,6 +9,10 @@ import {
 } from "../domain/doc-sync-canonical-events.ts";
 import type { CanonicalEventV1 } from "../domain/doc-sync-types.ts";
 import type { MigrationImportEventV1 } from "../domain/migration-import-event.ts";
+import { isPresetSnapshotUpgradeEvent } from "../domain/preset-snapshot-upgrade-event.ts";
+import { currentTaskForWrite, type TaskV2 } from "../domain/task.ts";
+import { isRecord } from "../domain/write-chain.contract.ts";
+import { canonicalJson } from "../projection/rebuildable-task-projection-sql.ts";
 import { sha256Bytes, sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 import { localRuntimeStateFileSystem as files } from "../local/local-layout-file-system.ts";
 import { drillLedgerBackup, readVerifiedLedgerBackup } from "./ledger-backup.ts";
@@ -211,6 +215,9 @@ function planConversion(source: SqliteEventStore, sourceGeneration: number, dest
     events: CanonicalEventV1[] = [],
     mappings: GenerationConversionMapping[] = [],
     installations = new Map<string, string>(),
+    // Replay-applied task copies, used to normalize gen-1 preset upgrades whose writers recorded
+    // stale task snapshots. Only the offline converter maintains this; runtime replay never guesses.
+    appliedTasks = new Map<string, TaskV2>(),
     generationThree = sourceGeneration === 2 ? new GenerationThreeMigration(source) : null,
     migratedBlobs = new Map<string, Uint8Array>();
   for (const row of rows) {
@@ -238,8 +245,9 @@ function planConversion(source: SqliteEventStore, sourceGeneration: number, dest
       // Historical CI observations walk the same v1 → v2 → v3 chain replay applies.
       const verified = ciWorkflowVerificationMigration.rewrite(original)?.event ?? original,
         observed = ciRunObservationV3Migration.rewrite(verified)?.event ?? verified,
-        migrated = generationThree?.rewrite(observed),
-        event = migrated?.event ?? observed;
+        migrated = generationThree?.rewrite(observed);
+      let event = migrated?.event ?? observed;
+      if (sourceGeneration === 1) event = normalizeLegacyPresetUpgrade(event, source, appliedTasks, reasons);
       for (const blob of migrated?.blobs ?? []) migratedBlobs.set(blob.sha256, new TextEncoder().encode(blob.body));
       reasons.push(...(migrated?.reasons ?? []));
       if (event.opId !== row.opId || event.workspaceRevision !== row.revision || event.occurredAt !== row.occurredAt)
@@ -283,7 +291,15 @@ function planConversion(source: SqliteEventStore, sourceGeneration: number, dest
         reasons.push("source-witness-only: original event bytes retained as a read-only content object");
       }
     }
-    if (candidate) events.push(candidate);
+    if (candidate) {
+      events.push(candidate);
+      const appliedTask = (candidate.payload as { readonly task?: unknown } | undefined)?.task;
+      if (isRecord(appliedTask) && typeof (candidate as { taskId?: unknown }).taskId === "string")
+        appliedTasks.set(
+          (candidate as { taskId: string }).taskId,
+          currentTaskForWrite(appliedTask as unknown as TaskV2),
+        );
+    }
     mappings.push({
       sourceRevision: row.revision,
       sourceOpId: row.opId,
@@ -345,6 +361,51 @@ function planConversion(source: SqliteEventStore, sourceGeneration: number, dest
   };
   assertOutcomeCoverage(outcomes, rows);
   return { plan, events, rows, migratedBlobs };
+}
+
+// A generation-1 preset upgrade may carry a stale embedded task snapshot: old writers recorded
+// whatever task copy they held, including fields the upgrade is not allowed to change. The event's
+// semantic content is the digest move, so the derived copy is normalized to the replayed cut —
+// the same regeneration the migration already applies to embedded execution copies and machine
+// documents. An upgrade whose basis does not chain to the replayed state is never reinterpreted;
+// it throws into the retained-read-only fallback.
+function normalizeLegacyPresetUpgrade(
+  event: CanonicalEventV1,
+  source: SqliteEventStore,
+  appliedTasks: ReadonlyMap<string, TaskV2>,
+  reasons: string[],
+): CanonicalEventV1 {
+  if (!isPresetSnapshotUpgradeEvent(event)) return event;
+  const payload = event.payload as unknown as {
+      readonly task: TaskV2;
+      readonly previousDigest: string;
+      readonly presetSnapshotClaim: { readonly sha256: string; readonly size: number };
+    },
+    current = appliedTasks.get(event.taskId);
+  if (!current || current.presetSnapshotDigest !== payload.previousDigest)
+    throw new Error("preset snapshot upgrade basis does not chain to the replayed task cut");
+  const bytes = source.readContentObject(payload.presetSnapshotClaim.sha256);
+  if (!bytes || bytes.byteLength !== payload.presetSnapshotClaim.size) return event;
+  const snapshot = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)),
+    changedPreset = current.metadata?.presetId !== snapshot.identity.id,
+    changed = {
+      completionGateIds: snapshot.profile.completionGateIds,
+      presetSnapshotDigest: snapshot.digest,
+      ...(changedPreset && current.metadata
+        ? {
+            metadata: {
+              ...currentTaskForWrite(current).metadata,
+              presetId: snapshot.identity.id,
+              profileId: snapshot.profile.id,
+            },
+            iteration: current.iteration + 1,
+          }
+        : {}),
+    },
+    expected = { ...currentTaskForWrite(current), ...changed };
+  if (canonicalJson(expected) === canonicalJson(currentTaskForWrite(payload.task))) return event;
+  reasons.push("preset upgrade embedded task snapshot normalized to the replayed cut");
+  return { ...event, payload: { ...event.payload, task: expected } } as CanonicalEventV1;
 }
 
 function historicalWitness(

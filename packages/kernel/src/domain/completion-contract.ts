@@ -23,6 +23,7 @@ export const CODE_DOC_GATE_ID = "code-doc-reconciliation";
 
 export type FrozenGateWitness =
   | {
+      readonly kind: "adapter";
       readonly adapterId: "github-actions";
       readonly adapterOptions: {
         readonly workflows: readonly string[];
@@ -34,9 +35,28 @@ export type FrozenGateWitness =
         readonly selection: "newest";
       };
     }
-  | { readonly adapterId: "local-command"; readonly adapterOptions: { readonly command: string } }
-  | { readonly adapterId: "manual-attest"; readonly adapterOptions: Readonly<Record<string, never>> }
-  | { readonly adapterId: typeof CODE_DOC_GATE_ID; readonly adapterOptions: Readonly<Record<string, never>> };
+  | {
+      readonly kind: "adapter";
+      readonly adapterId: "local-command";
+      readonly adapterOptions: { readonly command: string };
+    }
+  | {
+      readonly kind: "adapter";
+      readonly adapterId: "manual-attest";
+      readonly adapterOptions: Readonly<Record<string, never>>;
+    }
+  | {
+      readonly kind: "adapter";
+      readonly adapterId: typeof CODE_DOC_GATE_ID;
+      readonly adapterOptions: Readonly<Record<string, never>>;
+    }
+  // Migration-preserved history: the accepted cut predates frozen policy, so no adapter
+  // contract can be honestly reconstructed. Read-only — never dispatched, fulfilled,
+  // signed off, or overridden.
+  | {
+      readonly kind: "historical-policy-unavailable";
+      readonly reason: "not-recorded";
+    };
 
 /**
  * Human responsibility layered orthogonally on an automated witness. Both are present only as `true`,
@@ -97,7 +117,9 @@ export interface GateWitnessMappingV1 {
   readonly allowOverride?: boolean;
 }
 
-const adapterOptionFields: Readonly<Record<FrozenGateWitness["adapterId"], readonly string[]>> = {
+type FrozenAdapterId = Exclude<FrozenGateWitness, { readonly kind: "historical-policy-unavailable" }>["adapterId"];
+
+const adapterOptionFields: Readonly<Record<FrozenAdapterId, readonly string[]>> = {
   "github-actions": ["workflows", "branch", "event", "coverage", "selection"],
   "local-command": ["command"],
   "manual-attest": [],
@@ -140,13 +162,26 @@ function frozenRequirement(value: unknown, fields: typeof hasOnlyFields): boolea
     !governance.every((field) => value[field] === true) ||
     !isNonEmptyString(value.gateId) ||
     !(gateAppliesTo as readonly unknown[]).includes(value.appliesTo) ||
-    !isRecord(value.witness) ||
-    !fields(value.witness, ["adapterId", "adapterOptions"]) ||
+    !isRecord(value.witness)
+  )
+    return false;
+  if (value.witness.kind === "historical-policy-unavailable")
+    // A preserved-historical requirement never carries governance: it cannot be signed
+    // off or overridden, and the internal checker always materializes to an adapter.
+    return (
+      governance.length === 0 &&
+      fields(value.witness, ["kind", "reason"]) &&
+      value.witness.reason === "not-recorded" &&
+      value.gateId !== CODE_DOC_GATE_ID
+    );
+  if (
+    !fields(value.witness, ["kind", "adapterId", "adapterOptions"]) ||
+    value.witness.kind !== "adapter" ||
     !Object.hasOwn(adapterOptionFields, String(value.witness.adapterId)) ||
     !isRecord(value.witness.adapterOptions)
   )
     return false;
-  const adapterId = value.witness.adapterId as FrozenGateWitness["adapterId"],
+  const adapterId = value.witness.adapterId as FrozenAdapterId,
     options = value.witness.adapterOptions,
     internal = adapterId === CODE_DOC_GATE_ID;
   return (
@@ -216,7 +251,11 @@ export function resolveCompletionContract(
     const mapping = settings.gates.find((candidate) => candidate.gateId === gateId);
     if (mapping?.adapter === "none") continue;
     if (gateId === CODE_DOC_GATE_ID) {
-      gates.push({ gateId, appliesTo: "code", witness: { adapterId: CODE_DOC_GATE_ID, adapterOptions: {} } });
+      gates.push({
+        gateId,
+        appliesTo: "code",
+        witness: { kind: "adapter", adapterId: CODE_DOC_GATE_ID, adapterOptions: {} },
+      });
       continue;
     }
     if (!mapping)
@@ -241,6 +280,7 @@ export function resolveCompletionContract(
         gateId,
         appliesTo,
         witness: {
+          kind: "adapter",
           adapterId: "github-actions",
           adapterOptions: {
             workflows: settings.ci.workflows,
@@ -256,10 +296,19 @@ export function resolveCompletionContract(
       gates.push({
         gateId,
         appliesTo,
-        witness: { adapterId: "local-command", adapterOptions: { command: mapping.command! } },
+        witness: {
+          kind: "adapter",
+          adapterId: "local-command",
+          adapterOptions: { command: mapping.command! },
+        },
         ...governance,
       });
-    else gates.push({ gateId, appliesTo, witness: { adapterId: "manual-attest", adapterOptions: {} } });
+    else
+      gates.push({
+        gateId,
+        appliesTo,
+        witness: { kind: "adapter", adapterId: "manual-attest", adapterOptions: {} },
+      });
   }
   return { ok: true, contract: { gates } };
 }

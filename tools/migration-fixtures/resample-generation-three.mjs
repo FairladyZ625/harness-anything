@@ -8,6 +8,8 @@ import { GenerationThreeMigration } from "../../packages/kernel/src/store/genera
 
 const root = "packages/kernel/fixtures/canonical-events/task-event-v1";
 
+// Mirrors GenerationThreeMigration.#completionContract: only the internal code-doc checker
+// keeps an adapter requirement; every other declared gate becomes read-only preserved history.
 function completionContract(gateIds) {
   return {
     gates: [...new Set(gateIds)].map((gateId) =>
@@ -15,21 +17,12 @@ function completionContract(gateIds) {
         ? {
             gateId,
             appliesTo: "code",
-            witness: { adapterId: "code-doc-reconciliation", adapterOptions: {} },
+            witness: { kind: "adapter", adapterId: "code-doc-reconciliation", adapterOptions: {} },
           }
         : {
             gateId,
             appliesTo: "code",
-            witness: {
-              adapterId: "github-actions",
-              adapterOptions: {
-                workflows: ["fixture-ci"],
-                branch: "main",
-                event: "push",
-                coverage: "exact",
-                selection: "newest",
-              },
-            },
+            witness: { kind: "historical-policy-unavailable", reason: "not-recorded" },
           },
     ),
   };
@@ -39,7 +32,7 @@ for (const name of readdirSync(root).filter((candidate) => candidate.endsWith(".
   const file = path.join(root, name),
     event = JSON.parse(readFileSync(file, "utf8")),
     execution = event.payload?.execution;
-  if (!execution?.submission || execution.submission.completionContract) continue;
+  if (!execution?.submission) continue;
   const submission = {
       ...execution.submission,
       completionContract: completionContract(event.payload.task.completionGateIds),
@@ -52,17 +45,36 @@ for (const name of readdirSync(root).filter((candidate) => candidate.endsWith(".
       submissionDigest: submissionDigest(submission),
       reviewDigest: reviewDigest(payload.review),
     };
-  if (payload.witness) {
-    if (payload.witness.basis)
-      payload.witness = {
-        ...payload.witness,
-        basis: { ...payload.witness.basis, submissionDigest: submissionDigest(submission) },
-      };
-    if (payload.witness.provenance && !payload.witness.provenance.adapterId)
-      payload.witness = {
-        ...payload.witness,
-        provenance: { ...payload.witness.provenance, adapterId: "github-actions" },
-      };
+  if (payload.witness?.schema === "completion-gate-witness/v1") {
+    // Mirrors GenerationThreeMigration's witness rewrite: legacy top-level observed/basis/
+    // provenance move under the tagged evidence union; an absent binding is preserved as an
+    // explicit historical gap, never guessed.
+    const { observed, basis, provenance, override, evidence: existing, ...identity } = payload.witness;
+    let evidence = existing;
+    if (evidence === undefined) {
+      if (basis === undefined && provenance === undefined)
+        evidence = { kind: "historical-verdict", gap: "binding-not-recorded" };
+      else if (basis === undefined || provenance === undefined)
+        throw new Error(`witness ${payload.witness.witnessId} carries a partial evidence binding`);
+      else {
+        const rePinned = { ...basis, submissionDigest: submissionDigest(submission) };
+        evidence = Object.hasOwn(provenance, "adapterId")
+          ? {
+              kind: "observed",
+              observed: observed ?? true,
+              basis: rePinned,
+              provenance,
+              ...(override !== undefined ? { override } : {}),
+            }
+          : {
+              kind: "historical-verdict",
+              gap: "adapter-not-recorded",
+              basis: rePinned,
+              provenance: { source: provenance.source, runId: provenance.runId, rawResult: provenance.rawResult },
+            };
+      }
+    }
+    payload.witness = { ...identity, evidence };
   }
   writeFileSync(file, serializeCanonicalEvent({ ...event, payload }));
 }

@@ -83,14 +83,22 @@ function closeout(gateResult: "pass" | "fail" = "pass"): CloseoutSnapshot {
         actor,
         source: "local",
         verifiedAt: "2026-08-18T00:04:00.000Z",
-        observed: true,
-        basis: {
-          executionId: "exe-1",
-          iteration: 0,
-          submissionDigest: submissionDigest(execution.submission!),
-          codeCommit: commitSha,
+        evidence: {
+          kind: "observed" as const,
+          observed: true,
+          basis: {
+            executionId: "exe-1",
+            iteration: 0,
+            submissionDigest: submissionDigest(execution.submission!),
+            codeCommit: commitSha,
+          },
+          provenance: {
+            source: "runner" as const,
+            adapterId: "github-actions",
+            runId: "run-1",
+            rawResult: "event:receipt-1",
+          },
         },
-        provenance: { source: "runner", adapterId: "github-actions", runId: "run-1", rawResult: "event:receipt-1" },
       } as CloseoutSnapshot["gateWitnesses"][number],
     ],
   };

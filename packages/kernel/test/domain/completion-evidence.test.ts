@@ -103,6 +103,7 @@ test("artifact evidence binds ledger revisions and only commit cuts carry code g
             gateId: "ci",
             appliesTo: "code" as const,
             witness: {
+              kind: "adapter" as const,
               adapterId: "github-actions" as const,
               adapterOptions: {
                 workflows: ["rewrite-ci"],
@@ -116,12 +117,16 @@ test("artifact evidence binds ledger revisions and only commit cuts carry code g
           {
             gateId: "code-doc-reconciliation",
             appliesTo: "code" as const,
-            witness: { adapterId: "code-doc-reconciliation" as const, adapterOptions: {} },
+            witness: {
+              kind: "adapter" as const,
+              adapterId: "code-doc-reconciliation" as const,
+              adapterOptions: {},
+            },
           },
           {
             gateId: "attest",
             appliesTo: "artifacts" as const,
-            witness: { adapterId: "manual-attest" as const, adapterOptions: {} },
+            witness: { kind: "adapter" as const, adapterId: "manual-attest" as const, adapterOptions: {} },
           },
         ],
       },

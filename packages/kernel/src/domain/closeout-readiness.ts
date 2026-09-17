@@ -3,12 +3,12 @@ export const closeoutReadinesses = ["not_required", "missing", "incomplete", "re
 export type CloseoutReadiness = (typeof closeoutReadinesses)[number];
 
 import { approvedReviewsForExecution, consentedApprovedReviewForExecution } from "./review.ts";
-import { isNativeExecution } from "./execution.ts";
+import { isNativeExecution, submissionDigest } from "./execution.ts";
 import type { ExecutionV1, ProjectedExecution, SubmissionV1 } from "./execution.ts";
 import type { ReviewConsentV1, ReviewV1 } from "./review.ts";
 import { currentCodeDocWitness } from "./code-doc-witness.ts";
 import type { CodeDocWitnessRecord } from "./code-doc-witness.ts";
-import { isHumanAttestationWitness, isPreservedVerdictWitness } from "./completion-gate-witness.ts";
+import { isHumanAttestationWitness, isHistoricalVerdictWitness } from "./completion-gate-witness.ts";
 import type { CompletionGateWitnessV1 } from "./completion-gate-witness.ts";
 import { CODE_DOC_GATE_ID, gateAppliesToSubmission, type FrozenGateRequirement } from "./completion-contract.ts";
 import type { CoverageRelation } from "./decision-coverage.ts";
@@ -69,7 +69,7 @@ export function closeoutReadiness(
         blocker: "execution",
         gates: gateResults(snapshot, availability),
       };
-    const gates = gateResults(snapshot, availability, cut?.executionId, cut?.submission, cut?.iteration),
+    const gates = gateResults(snapshot, availability, cut?.executionId, cut?.submission, cut?.iteration, true),
       missing = gates.some(({ status }) => !gateSatisfied(status));
     return {
       readiness: missing ? "incomplete" : "passed",
@@ -139,6 +139,7 @@ export function gateResults(
   executionId?: string,
   submission?: SubmissionV1 | null,
   iteration?: number,
+  admitHistoricalVerdict = false,
 ): readonly CloseoutGateResult[] {
   const submitted = executionId
       ? (snapshot.executions ?? []).find((value) => value.executionId === executionId && value.iteration === iteration)
@@ -188,6 +189,7 @@ export function gateResults(
       ) as ExecutionV1 | undefined) ?? ({ executionId, iteration, submission: cut } as ExecutionV1),
       gateId,
       requirement,
+      admitHistoricalVerdict,
     );
     return gateResult(gateId, judged.status, judged.detail);
   });
@@ -209,12 +211,17 @@ export function waivableAutomatedFail(
         !isHumanAttestationWitness(value),
     )
     .at(-1);
+  const evidence = automated?.evidence;
   return automated?.result === "fail" &&
-    automated.basis &&
-    automated.provenance &&
-    automated.observed !== undefined &&
+    evidence?.kind === "observed" &&
     judgeCompletionEvidence(
-      { ...automated, basis: automated.basis, provenance: automated.provenance, observed: automated.observed },
+      {
+        ...automated,
+        observed: evidence.observed,
+        basis: evidence.basis,
+        provenance: evidence.provenance,
+        override: evidence.override,
+      },
       { execution, gateId, admitFail: true },
     ).accepted
     ? automated
@@ -222,7 +229,7 @@ export function waivableAutomatedFail(
 }
 
 export function gateSatisfied(status: CloseoutGateStatus): boolean {
-  return status === "passed" || status === "waived" || status === "not_applicable";
+  return status === "passed" || status === "waived" || status === "not_applicable" || status === "historical_accepted";
 }
 
 type GateWitnessJudgment = {
@@ -234,14 +241,16 @@ type GateWitnessJudgment = {
  * The one per-gate witness judgment for a submitted cut (dec_59FA45A407F850E2B167A192D7 four modes):
  * manual-attest judges its human witness; an automated adapter judges its own witness, then a
  * recorded fail may be waived by an override naming that receipt, and a pass may still need the
- * mandatory human signoff. `admitPreservedVerdict` lets replay honor accepted historical gaps.
+ * mandatory human signoff. `admitHistoricalVerdict` lets replay honor verdicts already accepted
+ * before the completion chain existed (dec_ED8A4E774FA7A96820D32D171D); a historical verdict is
+ * never a current pass.
  */
 export function judgeGateWitnesses(
   witnesses: readonly CompletionGateWitnessV1[],
   execution: ExecutionV1,
   gateId: string,
   requirement: FrozenGateRequirement | undefined,
-  admitPreservedVerdict = false,
+  admitHistoricalVerdict = false,
 ): GateWitnessJudgment {
   const cut = witnesses.filter(
       (value) =>
@@ -252,36 +261,66 @@ export function judgeGateWitnesses(
     ),
     judge = (witness: CompletionGateWitnessV1 | undefined): GateWitnessJudgment => {
       if (!witness) return { status: "missing", detail: "current execution cut has no gate witness" };
-      if (admitPreservedVerdict && isPreservedVerdictWitness(witness))
-        return witness.result === "pass" ? { status: "passed" } : { status: "missing" };
+      const evidence = witness.evidence;
+      if (isHistoricalVerdictWitness(witness))
+        return { status: "missing", detail: "preserved historical verdict is not evidence for a current cut" };
       const judgment =
-        witness.basis && witness.provenance && witness.observed !== undefined
+        evidence?.kind === "observed"
           ? judgeCompletionEvidence(
-              { ...witness, basis: witness.basis, provenance: witness.provenance, observed: witness.observed },
+              {
+                ...witness,
+                observed: evidence.observed,
+                basis: evidence.basis,
+                provenance: evidence.provenance,
+                override: evidence.override,
+              },
               { execution, gateId },
             )
-          : {
-              accepted: false,
-              reason: isPreservedVerdictWitness(witness)
-                ? "preserved historical verdict carries no bound evidence"
-                : "completion witness has no bound evidence",
-            };
+          : { accepted: false, reason: "completion witness has no bound evidence" };
       if (judgment.accepted) return { status: "passed" };
       return witness.result === "fail"
         ? { status: "failed", detail: judgment.reason ?? "current execution cut did not pass" }
         : { status: "missing", detail: judgment.reason ?? "current execution cut has no gate witness" };
     };
-  if (requirement?.witness.adapterId === "manual-attest") return judge(cut.at(-1));
+  const latest = cut.at(-1);
+  if (requirement?.witness.kind === "historical-policy-unavailable") {
+    // The frozen requirement is migration-preserved history: it can never be dispatched,
+    // signed off, overridden, or fulfilled by a new witness — only a preserved verdict
+    // may be honored, and only while replaying already-accepted history.
+    if (!latest || !isHistoricalVerdictWitness(latest))
+      return {
+        status: "missing",
+        detail: "the gate's frozen requirement is migration-preserved history and cannot satisfy a current cut",
+      };
+  }
+  if (latest && isHistoricalVerdictWitness(latest)) {
+    if (!admitHistoricalVerdict || latest.result !== "pass")
+      return { status: "missing", detail: "preserved historical verdict is not evidence for a current cut" };
+    const evidence = latest.evidence;
+    if (evidence.kind === "historical-verdict" && evidence.gap === "adapter-not-recorded") {
+      const bound =
+        evidence.basis.executionId === execution.executionId &&
+        evidence.basis.iteration === execution.iteration &&
+        evidence.basis.submissionDigest === submissionDigest(execution.submission!) &&
+        (evidence.basis.codeCommit === undefined || evidence.basis.codeCommit === execution.submission?.commitSha);
+      if (!bound)
+        return { status: "missing", detail: "the preserved historical verdict's basis does not match this cut" };
+    }
+    return { status: "historical_accepted" };
+  }
+  if (requirement?.witness.kind === "adapter" && requirement.witness.adapterId === "manual-attest")
+    return judge(cut.at(-1));
   const automated = cut.filter((value) => !isHumanAttestationWitness(value)).at(-1),
     human = cut.filter(isHumanAttestationWitness).at(-1),
     machine = judge(automated),
-    waivable = requirement?.allowOverride === true ? waivableAutomatedFail(witnesses, execution, gateId) : undefined;
-  if (waivable && human?.override?.waivedReceiptId === waivable.receiptId && judge(human).status === "passed")
+    waivable = requirement?.allowOverride === true ? waivableAutomatedFail(witnesses, execution, gateId) : undefined,
+    humanOverride = human?.evidence.kind === "observed" ? human.evidence.override : undefined;
+  if (waivable && humanOverride?.waivedReceiptId === waivable.receiptId && judge(human).status === "passed")
     return {
       status: "waived",
       detail:
-        `receipt ${waivable.receiptId} waived by ${human.actor.principal.personId} ` +
-        `at ${human.verifiedAt}: ${human.override.rationale}`,
+        `receipt ${waivable.receiptId} waived by ${human!.actor.principal.personId} ` +
+        `at ${human!.verifiedAt}: ${humanOverride.rationale}`,
     };
   if (machine.status !== "passed" || requirement?.mandatorySignoff !== true) return machine;
   const signoff = judge(human);
@@ -304,7 +343,9 @@ export function completionGateIds(taskGateIds: readonly string[], submission?: S
 }
 
 export function closeoutGateOk(status: CloseoutGateStatus): boolean | null {
-  return status === "unknown" || status === "not_applicable" ? null : status === "passed" || status === "waived";
+  return status === "unknown" || status === "not_applicable" || status === "historical_accepted"
+    ? null
+    : status === "passed" || status === "waived";
 }
 
 function gateResult(gateId: string, status: CloseoutGateStatus, detail?: string): CloseoutGateResult {

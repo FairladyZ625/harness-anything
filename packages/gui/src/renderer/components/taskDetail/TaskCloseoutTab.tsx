@@ -135,7 +135,11 @@ export function TaskCloseoutTab({
               <AuditRow
                 key={witness.witnessId}
                 id={witness.gateId}
-                state={witness.result}
+                state={
+                  (witness as { evidence?: { kind?: string } }).evidence?.kind === "historical-verdict"
+                    ? "historical"
+                    : witness.result
+                }
                 summary={`${witness.checkerId} · ${witness.receiptId}`}
                 at={witness.verifiedAt}
               />

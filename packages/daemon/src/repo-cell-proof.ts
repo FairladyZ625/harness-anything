@@ -583,10 +583,20 @@ export function gateChecks(snapshot: Snapshot, executionId: string) {
   );
   // Status comes from the one domain judgment; not_applicable stays distinct from pass and
   // blocked so an out-of-scope gate never reads as satisfied or missing.
-  const results = gateResults(snapshot, undefined, executionId, execution?.submission, execution?.iteration);
+  // Done executions replay with their accepted history: a migration-preserved verdict reads
+  // historical_accepted, never pass.
+  const results = gateResults(
+    snapshot,
+    undefined,
+    executionId,
+    execution?.submission,
+    execution?.iteration,
+    execution?.state === "accepted",
+  );
   if (results.length === 0) return [{ gate: "none", status: "pass", witnessRef: null }];
   return results.map(({ gateId: gate, status: gateStatus }) => {
     const passed = gateStatus === "passed" || gateStatus === "waived",
+      historical = gateStatus === "historical_accepted",
       candidate =
         gate === "code-doc-reconciliation" ? currentCodeDocWitness(snapshot.codeDocWitnesses, executionId) : undefined,
       codeDoc =
@@ -598,7 +608,7 @@ export function gateChecks(snapshot: Snapshot, executionId: string) {
           ? candidate
           : undefined,
       witness =
-        passed && gate !== "code-doc-reconciliation" && execution?.schema === "execution/v1"
+        (passed || historical) && gate !== "code-doc-reconciliation" && execution?.schema === "execution/v1"
           ? snapshot.gateWitnesses.find(
               (value) =>
                 value.gateId === gate &&
@@ -610,7 +620,13 @@ export function gateChecks(snapshot: Snapshot, executionId: string) {
           : undefined;
     return {
       gate,
-      status: passed ? "pass" : gateStatus === "not_applicable" ? "not_applicable" : "blocked",
+      status: passed
+        ? "pass"
+        : historical
+          ? "historical_accepted"
+          : gateStatus === "not_applicable"
+            ? "not_applicable"
+            : "blocked",
       witnessRef: codeDoc ? `event:${codeDocRecordId(codeDoc)}` : witness ? `event:${witness.receiptId}` : null,
     };
   });

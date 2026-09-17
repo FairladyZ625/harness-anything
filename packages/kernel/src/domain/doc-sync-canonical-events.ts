@@ -1,9 +1,5 @@
 import { validateCurrentEntityEvent, validateEntityEvent } from "./entity-event.ts";
-import {
-  validateCiRunObservationEvent,
-  validateCiRunObservationEventV2,
-  validateCurrentCiRunObservationEvent,
-} from "./ci-run-observation-event.ts";
+import { validateCiRunObservationEvent } from "./ci-run-observation-event.ts";
 import { validateAgentRuntimeEvent, validateCurrentAgentRuntimeEvent } from "./agent-runtime.ts";
 import { validateCurrentDecisionEvent, validateDecisionEvent } from "./decision-event.ts";
 import type { CanonicalEventV1, DocEventV1, PersistedCanonicalEventV1 } from "./doc-sync-types.ts";
@@ -37,13 +33,11 @@ interface CanonicalEventSchemaRegistration {
 
 export const canonicalEventSchemas: readonly CanonicalEventSchemaRegistration[] = Object.freeze([
   {
-    schema: "ci-run-observation/v2",
-    validate: validateCiRunObservationEventV2,
-  },
-  {
+    // ci-run-observation/v2 is retired: it decodes only inside the offline generation migrator
+    // (validateCiRunObservationEventV2), never through the runtime registry.
     schema: "ci-run-observation/v3",
-    validate: validateCiRunObservationEvent,
-    validateCurrent: validateCurrentCiRunObservationEvent,
+    validate: (value: unknown) => validateCiRunObservationEvent(value, true),
+    validateCurrent: validateCiRunObservationEvent,
   },
   {
     schema: "task-event/v1",

@@ -12,6 +12,7 @@ export const closeoutGateStatuses = [
   "signoff_missing",
   "unknown",
   "not_applicable",
+  "historical_accepted",
 ] as const;
 export type CloseoutGateStatus = (typeof closeoutGateStatuses)[number];
 /** TaskCloseout registrations: the per-gate witness verdict and the readiness label that aggregates it. */
@@ -64,6 +65,15 @@ export const closeoutStatusWordRegister: readonly StatusWordRegistration[] = [
     entity: "TaskCloseout",
     field: "gate status",
     meaning: "The frozen requirement's declared scope has no delivery part in the current cut.",
+    divergence: "entity-scoped",
+  },
+  {
+    word: "historical_accepted",
+    entity: "TaskCloseout",
+    field: "gate status",
+    meaning:
+      "The requirement and its verdict are migration-preserved history: the accepted verdict stands " +
+      "but no bound current-schema evidence exists; never reported as passed.",
     divergence: "entity-scoped",
   },
   // ---- TaskCloseout.readiness (closeout judgment result) ----

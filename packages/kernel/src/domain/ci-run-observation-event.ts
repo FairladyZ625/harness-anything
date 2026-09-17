@@ -48,15 +48,31 @@ export type CiRunObservationGateV2 = {
   readonly metrics: Readonly<Record<string, number>>;
 };
 
-export type CiWorkflowVerification = {
-  readonly source: "github-actions" | "write-coordinator";
-  readonly workflow: string;
-  readonly runId: string;
-  readonly attempt: number;
-  readonly headSha: string;
-  readonly conclusion: string;
-  readonly event?: string;
-};
+/**
+ * The observed workflow verdict. `github-actions` names the real run and its trigger event;
+ * `event: null` is a migration-preserved gap — the run was observed before trigger collection
+ * (dec_ED8A4E774FA7A96820D32D171D) and the fact stays unavailable, never guessed. New writers
+ * must record a non-empty event (serializeCiRunObservationEvent enforces it).
+ * `write-coordinator` is the ledger's own publication observation and carries no trigger event.
+ */
+export type CiWorkflowVerification =
+  | {
+      readonly source: "github-actions";
+      readonly workflow: string;
+      readonly runId: string;
+      readonly attempt: number;
+      readonly headSha: string;
+      readonly conclusion: string;
+      readonly event: string | null;
+    }
+  | {
+      readonly source: "write-coordinator";
+      readonly workflow: "ledger-publication";
+      readonly runId: string;
+      readonly attempt: 1;
+      readonly headSha: string;
+      readonly conclusion: "success";
+    };
 
 export type CiRunObservationEventV2 = EventEnvelope<
   "ci-run-observation/v2",
@@ -109,12 +125,9 @@ export class CiRunObservationContractError extends Error {
 const tiers = ["fast", "contract", "integration", "gui", "nightly", "unknown"] as const;
 const statuses = ["passed", "failed", "skipped"] as const;
 
-export function validateCiRunObservationEvent(value: unknown): readonly string[] {
-  return validateFields(value, true, CI_RUN_OBSERVATION_SCHEMA.id, "result");
-}
-
-export function validateCurrentCiRunObservationEvent(value: unknown): readonly string[] {
-  return validateFields(value, false, CI_RUN_OBSERVATION_SCHEMA.id, "result");
+/** The single current-schema parser; ci-run-observation/v2 decodes only through the offline migrator. */
+export function validateCiRunObservationEvent(value: unknown, allowUnknownFields = false): readonly string[] {
+  return validateFields(value, allowUnknownFields, CI_RUN_OBSERVATION_SCHEMA.id, "result");
 }
 
 export function validateCiRunObservationEventV2(value: unknown): readonly string[] {
@@ -135,7 +148,7 @@ function validateFields(
     !isRecord(value.payload) ||
     !hasContractFields(value.payload, ["run", "tests", "gates", "verification"], allowUnknownFields) ||
     !validRun(value.payload.run, allowUnknownFields) ||
-    !validVerification(value.payload.verification, value.payload.run, allowUnknownFields) ||
+    !validVerification(value.payload.verification, value.payload.run, allowUnknownFields, gateField) ||
     !Array.isArray(value.payload.tests) ||
     value.payload.tests.some((test) => !validTest(test, allowUnknownFields)) ||
     !Array.isArray(value.payload.gates) ||
@@ -147,7 +160,12 @@ function validateFields(
     : [];
 }
 
-function validVerification(value: unknown, run: unknown, allowUnknownFields: boolean): boolean {
+function validVerification(
+  value: unknown,
+  run: unknown,
+  allowUnknownFields: boolean,
+  gateField: "pass" | "result",
+): boolean {
   if (value === null) return true;
   if (
     isRecord(value) &&
@@ -169,7 +187,8 @@ function validVerification(value: unknown, run: unknown, allowUnknownFields: boo
     isRecord(run) &&
     hasContractFields(
       value,
-      ["source", "workflow", "runId", "attempt", "headSha", "conclusion", ...(allowUnknownFields ? [] : ["event"])],
+      // v3 always carries the trigger event explicitly — null marks a migration-preserved gap.
+      ["source", "workflow", "runId", "attempt", "headSha", "conclusion", ...(gateField === "result" ? ["event"] : [])],
       allowUnknownFields,
     ) &&
     value.source === "github-actions" &&
@@ -180,7 +199,7 @@ function validVerification(value: unknown, run: unknown, allowUnknownFields: boo
     Number(value.attempt) > 0 &&
     nonEmpty(value.headSha) &&
     nonEmpty(value.conclusion) &&
-    (allowUnknownFields || nonEmpty(value.event)) &&
+    (gateField === "pass" || value.event === null || nonEmpty(value.event)) &&
     run.runId === `${value.runId}.${value.attempt}` &&
     run.sha === value.headSha &&
     run.branch === "main"
@@ -250,8 +269,14 @@ export function isCiRunObservationEvent(event: { readonly schema: string }): eve
 }
 
 export function serializeCiRunObservationEvent(event: CiRunObservationEventV3): string {
-  const errors = validateCurrentCiRunObservationEvent(event);
+  const errors = validateCiRunObservationEvent(event);
   if (errors.length) throw new CiRunObservationContractError(errors.join("; "));
+  const verification = event.payload.verification;
+  if (verification !== null && verification.source === "github-actions" && verification.event === null)
+    throw new CiRunObservationContractError(
+      "a new github-actions observation must record the run's trigger event; " +
+        "event:null is reserved for migration-preserved history",
+    );
   return serializeEventEnvelope(event);
 }
 

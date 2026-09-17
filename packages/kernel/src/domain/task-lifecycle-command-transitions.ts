@@ -426,6 +426,19 @@ export const submit: Transition = {
         issues.push(lifecycleContractIssue("invalid_proof", "submit must own and atomically release the active lease"));
     }
     issues.push(...validateSubmissionV1(command.submission));
+    // A migration-preserved historical requirement is read-only history: it exists only inside
+    // replayed stored submissions, and a new SubmitExecution must never freeze one.
+    if (
+      command.submission.completionContract?.gates.some(
+        (gate) => (gate as { witness?: { kind?: string } }).witness?.kind === "historical-policy-unavailable",
+      )
+    )
+      issues.push(
+        lifecycleContractIssue(
+          "invalid_submission",
+          "completionContract contains a migration-preserved historical requirement",
+        ),
+      );
     return issues;
   },
   reduce: (snapshot, raw) => {

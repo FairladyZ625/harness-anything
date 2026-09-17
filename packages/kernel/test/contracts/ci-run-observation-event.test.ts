@@ -2,9 +2,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  CiRunObservationContractError,
   serializeCiRunObservationEvent,
   validateCiRunObservationEvent,
-  validateCurrentCiRunObservationEvent,
   validateCiRunObservationEventV2,
   type CiRunObservationEventV2,
   type CiRunObservationEventV3,
@@ -35,38 +35,37 @@ const event: CiRunObservationEventV3 = {
   payload: { ...base.payload, gates: [{ gate: "G32", result: "pass", metrics: { count: 1 } }] },
 };
 
-test("v2 retains the legacy boolean gate shape", () => {
+test("v2 decodes only through the offline migrator's legacy validator", () => {
   assert.deepEqual(validateCiRunObservationEventV2(v2), []);
-  assert.notDeepEqual(validateCurrentCiRunObservationEvent(v2), []);
+  assert.notDeepEqual(validateCiRunObservationEvent(v2), []);
 });
 
 test("v3 accepts semantic gate results and serializes as current", () => {
   assert.deepEqual(validateCiRunObservationEvent(event), []);
-  assert.deepEqual(validateCurrentCiRunObservationEvent(event), []);
   assert.equal(JSON.parse(serializeCiRunObservationEvent(event)).schema, "ci-run-observation/v3");
 });
 
 test("v3 rejects legacy boolean gates", () => {
   assert.notDeepEqual(
-    validateCurrentCiRunObservationEvent({ ...event, payload: { ...event.payload, gates: v2.payload.gates } }),
+    validateCiRunObservationEvent({ ...event, payload: { ...event.payload, gates: v2.payload.gates } }),
     [],
   );
 });
 
-test("current validation rejects unknown schema generations", () => {
-  assert.notDeepEqual(validateCurrentCiRunObservationEvent({ ...event, schema: "ci-run-observation/v2" }), []);
+test("the single parser rejects unknown schema generations", () => {
+  assert.notDeepEqual(validateCiRunObservationEvent({ ...event, schema: "ci-run-observation/v2" }), []);
 });
 
 test("ci run observation rejects invalid retry and metric values", () => {
   assert.match(
-    validateCurrentCiRunObservationEvent({
+    validateCiRunObservationEvent({
       ...event,
       payload: { ...event.payload, tests: [{ ...event.payload.tests[0]!, retry: -1 }] },
     }).join("\n"),
     /invalid/u,
   );
   assert.match(
-    validateCurrentCiRunObservationEvent({
+    validateCiRunObservationEvent({
       ...event,
       payload: { ...event.payload, gates: [{ gate: "G32", result: "pass", metrics: { count: Number.NaN } }] },
     }).join("\n"),
@@ -74,7 +73,6 @@ test("ci run observation rejects invalid retry and metric values", () => {
   );
 });
 
-/* legacy workflow verification cases continue to exercise the v3 validator. */
 const verified = {
   ...event,
   payload: {
@@ -92,12 +90,27 @@ const verified = {
   },
 };
 
-test("v3 requires matching workflow verification when present", () => {
-  assert.deepEqual(validateCurrentCiRunObservationEvent(verified), []);
-  const legacy = structuredClone(verified);
+test("github verification carries an explicit trigger event; null marks migration-preserved history", () => {
+  assert.deepEqual(validateCiRunObservationEvent(verified), []);
+  // The field is always present: null is the explicit historical-unobserved representation.
+  const historical = structuredClone(verified) as {
+    payload: { verification: { event: string | null } };
+  };
+  historical.payload.verification.event = null;
+  assert.deepEqual(validateCiRunObservationEvent(historical), []);
+  // A missing field is the retired permissive shape and fails closed.
+  const legacy = structuredClone(verified) as { payload: { verification: Record<string, unknown> } };
   delete legacy.payload.verification.event;
-  assert.deepEqual(validateCiRunObservationEvent(legacy), []);
-  assert.notDeepEqual(validateCurrentCiRunObservationEvent(legacy), []);
+  assert.notDeepEqual(validateCiRunObservationEvent(legacy), []);
+  // Migration output validates, but a current writer can never serialize event:null.
+  assert.throws(
+    () => serializeCiRunObservationEvent(historical as CiRunObservationEventV3),
+    (error: unknown) => {
+      assert.ok(error instanceof CiRunObservationContractError);
+      assert.match(error.message, /trigger event/u);
+      return true;
+    },
+  );
   for (const candidate of [
     { ...verified, schema: "ci-run-observation/v1" },
     {
@@ -111,7 +124,7 @@ test("v3 requires matching workflow verification when present", () => {
     { ...verified, payload: { ...verified.payload, verification: { ...verified.payload.verification, attempt: 3 } } },
     {
       ...verified,
-      payload: { ...verified.payload, verification: { ...verified.payload.verification, event: undefined } },
+      payload: { ...verified.payload, verification: { ...verified.payload.verification, event: 42 } },
     },
     {
       ...verified,
@@ -119,5 +132,31 @@ test("v3 requires matching workflow verification when present", () => {
     },
     { ...verified, payload: { ...verified.payload, run: { ...verified.payload.run, branch: "feature" } } },
   ])
-    assert.notDeepEqual(validateCurrentCiRunObservationEvent(candidate), []);
+    assert.notDeepEqual(validateCiRunObservationEvent(candidate), []);
+});
+
+test("write-coordinator verification carries exactly its own field set", () => {
+  const coordinator = {
+    ...event,
+    payload: {
+      ...event.payload,
+      run: { ...event.payload.run, runId: "ledger-abc", sha: "abc" },
+      verification: {
+        source: "write-coordinator" as const,
+        workflow: "ledger-publication" as const,
+        runId: "ledger-abc",
+        attempt: 1,
+        headSha: "abc",
+        conclusion: "success",
+      },
+    },
+  };
+  assert.deepEqual(validateCiRunObservationEvent(coordinator), []);
+  assert.notDeepEqual(
+    validateCiRunObservationEvent({
+      ...coordinator,
+      payload: { ...coordinator.payload, verification: { ...coordinator.payload.verification, event: "push" } },
+    }),
+    [],
+  );
 });

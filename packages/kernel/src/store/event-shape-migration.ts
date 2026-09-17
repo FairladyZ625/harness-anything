@@ -1,6 +1,6 @@
 import {
+  validateCiRunObservationEvent,
   validateCiRunObservationEventV2,
-  validateCurrentCiRunObservationEvent,
   type CiRunObservationEventV2,
 } from "../domain/ci-run-observation-event.ts";
 import { tmpdir } from "node:os";
@@ -630,7 +630,7 @@ export const ciWorkflowVerificationMigration = {
       ...event,
       schema: "ci-run-observation/v2",
       payload: { ...event.payload, verification: null },
-    } as CanonicalEventV1;
+    } as unknown as CanonicalEventV1;
     const issues = validateCiRunObservationEventV2(rewritten);
     if (issues.length) throw new Error(`Invalid historical CI observation ${event.opId}: ${issues.join("; ")}`);
     return {
@@ -642,25 +642,56 @@ export const ciWorkflowVerificationMigration = {
   },
 } satisfies EventShapeMigrationSpec;
 
+// A github-actions verification whose trigger event was never recorded migrates to the explicit
+// null marker (dec_ED8A4E774FA7A96820D32D171D) — never to a guessed "push". A write-coordinator
+// verification is projected to its exact current field set.
+function migratedCiVerification(verification: unknown): unknown {
+  if (verification === null || !isRecord(verification)) return verification;
+  if (verification.source === "write-coordinator")
+    return {
+      source: "write-coordinator",
+      workflow: "ledger-publication",
+      runId: verification.runId,
+      attempt: verification.attempt,
+      headSha: verification.headSha,
+      conclusion: verification.conclusion,
+    };
+  return {
+    ...verification,
+    event: Object.hasOwn(verification, "event") ? verification.event : null,
+  };
+}
+
 export const ciRunObservationV3Migration = {
   name: "ci-run-observation-v3",
-  matches: (event: CanonicalEventV1) => event.schema === "ci-run-observation/v2",
+  matches: (event: CanonicalEventV1) =>
+    String(event.schema) === "ci-run-observation/v2" ||
+    (event.schema === "ci-run-observation/v3" &&
+      isRecord(event.payload) &&
+      isRecord(event.payload.verification) &&
+      event.payload.verification.source === "github-actions" &&
+      !Object.hasOwn(event.payload.verification, "event")),
   rewrite: (event: CanonicalEventV1) => {
-    if (event.schema !== "ci-run-observation/v2") return null;
-    const payload = event.payload as CiRunObservationEventV2["payload"],
-      gates = payload.gates.map(({ gate, pass, metrics }) => ({ gate, result: pass ? "pass" : "fail", metrics })),
+    if (String(event.schema) !== "ci-run-observation/v2" && event.schema !== "ci-run-observation/v3") return null;
+    const payload = event.payload as unknown as CiRunObservationEventV2["payload"],
+      verification = migratedCiVerification(payload.verification),
+      gates = payload.gates.map((gate) =>
+        Object.hasOwn(gate, "result")
+          ? gate
+          : { gate: gate.gate, result: gate.pass ? "pass" : "fail", metrics: gate.metrics },
+      ),
       rewritten = {
         ...event,
         schema: "ci-run-observation/v3",
-        payload: { ...payload, gates },
+        payload: { ...payload, verification, gates },
       } as CanonicalEventV1,
-      issues = validateCurrentCiRunObservationEvent(rewritten);
+      issues = validateCiRunObservationEvent(rewritten);
     if (issues.length) throw new Error(`Invalid historical CI observation ${event.opId}: ${issues.join("; ")}`);
     return {
       event: rewritten,
-      category: "historical CI gate pass values normalized to semantic results",
-      before: { schema: event.schema },
-      after: { schema: rewritten.schema },
+      category: "historical CI observation normalized to the current schema",
+      before: { schema: event.schema, verification: payload.verification },
+      after: { schema: rewritten.schema, verification },
     };
   },
 } satisfies EventShapeMigrationSpec;

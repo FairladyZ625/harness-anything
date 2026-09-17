@@ -59,6 +59,7 @@ const ciRequirement = {
     gateId: "ci",
     appliesTo: "code" as const,
     witness: {
+      kind: "adapter",
       adapterId: "github-actions" as const,
       adapterOptions: {
         workflows: ["rewrite-ci"],
@@ -72,7 +73,7 @@ const ciRequirement = {
   codeDocRequirement = {
     gateId: "code-doc-reconciliation",
     appliesTo: "code" as const,
-    witness: { adapterId: "code-doc-reconciliation" as const, adapterOptions: {} },
+    witness: { kind: "adapter", adapterId: "code-doc-reconciliation" as const, adapterOptions: {} },
   };
 
 function executionReceipt(gates: readonly (typeof ciRequirement | typeof codeDocRequirement)[]): string {
@@ -329,6 +330,7 @@ function legacyCompletion() {
         gateId: "ci",
         appliesTo: "code" as const,
         witness: {
+          kind: "adapter",
           adapterId: "github-actions" as const,
           adapterOptions: {
             workflows: ["rewrite-ci"],
@@ -361,6 +363,7 @@ function legacyCompletion() {
         actor: implementer,
         source: "local",
         verifiedAt: "2026-08-11T00:04:30.000Z",
+        evidence: { kind: "historical-verdict", gap: "binding-not-recorded" },
       },
     ],
   };
@@ -392,7 +395,7 @@ test("accepted completion keeps legacy receipts without admitting a new unbound 
   assert.equal(replayed.task?.status, "done");
   assert.equal(replayed.executions[0]?.state, "accepted");
   assert.deepEqual(replayed.gateWitnesses, snapshot.gateWitnesses);
-  assert.equal(replayed.gateWitnesses[0]?.basis, undefined);
+  assert.equal(replayed.gateWitnesses[0]?.evidence.kind, "historical-verdict");
   assert.equal(closeoutReadiness(snapshot).readiness, "incomplete");
   const command = normalizeTaskLifecycleCommand(
     { workspaceId: "workspace-1", actor: implementer, source: "local", expectedRevision: snapshot.revision },

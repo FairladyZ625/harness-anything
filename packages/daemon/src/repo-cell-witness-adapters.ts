@@ -62,19 +62,21 @@ function recordedAutomatedWitness(
 /** Automated evidence the cut already recorded verbatim: publishing it again would only append a duplicate. */
 export function recordedGateEvidence(snapshot: Snapshot, evidence: CompletionEvidenceV1): boolean {
   const recorded = snapshot.gateWitnesses
-    .filter(
-      (candidate) =>
-        candidate.executionId === evidence.basis.executionId &&
-        candidate.iteration === evidence.basis.iteration &&
-        candidate.gateId === evidence.gateId &&
-        !isHumanAttestationWitness(candidate),
-    )
-    .at(-1);
+      .filter(
+        (candidate) =>
+          candidate.executionId === evidence.basis.executionId &&
+          candidate.iteration === evidence.basis.iteration &&
+          candidate.gateId === evidence.gateId &&
+          !isHumanAttestationWitness(candidate),
+      )
+      .at(-1),
+    recordedEvidence = recorded?.evidence;
   return (
     recorded?.result === evidence.result &&
-    recorded.basis?.submissionDigest === evidence.basis.submissionDigest &&
-    recorded.provenance?.runId === evidence.provenance.runId &&
-    recorded.provenance.rawResult === evidence.provenance.rawResult
+    recordedEvidence?.kind === "observed" &&
+    recordedEvidence.basis.submissionDigest === evidence.basis.submissionDigest &&
+    recordedEvidence.provenance.runId === evidence.provenance.runId &&
+    recordedEvidence.provenance.rawResult === evidence.provenance.rawResult
   );
 }
 
@@ -94,14 +96,18 @@ export function acceptedGateWitness(
   gateId: string,
 ): Snapshot["gateWitnesses"][number] | null {
   const recorded = recordedAutomatedWitness(snapshot, execution, gateId);
-  return recorded?.basis &&
-    recorded.provenance &&
-    recorded.observed !== undefined &&
-    execution.schema === "execution/v1" &&
-    judgeCompletionEvidence(
-      { ...recorded, basis: recorded.basis, provenance: recorded.provenance, observed: recorded.observed },
-      { execution, gateId },
-    ).accepted
+  if (!recorded || recorded.evidence.kind !== "observed" || execution.schema !== "execution/v1") return null;
+  const evidence = recorded.evidence;
+  return judgeCompletionEvidence(
+    {
+      ...recorded,
+      observed: evidence.observed,
+      basis: evidence.basis,
+      provenance: evidence.provenance,
+      override: evidence.override,
+    },
+    { execution, gateId },
+  ).accepted
     ? recorded
     : null;
 }
@@ -177,7 +183,13 @@ async function collectLocalCommand(
   execution: Execution,
 ): Promise<LocalCommandCollection> {
   const submission = execution.submission!,
-    command = (requirement.witness.adapterOptions as { readonly command: string }).command,
+    witness = requirement.witness;
+  if (witness.kind !== "adapter" || witness.adapterId !== "local-command")
+    throw cell.cellCodedError(
+      "invalid_command",
+      `Gate ${requirement.gateId} has no local-command requirement in its frozen contract.`,
+    );
+  const command = witness.adapterOptions.command,
     cutSha = submission.commitSha;
   if (cutSha === null)
     throw cell.cellCodedError(
@@ -346,11 +358,13 @@ export function attestGateWitness(
         `Gate ${gateId} has no recorded automated fail on this cut to override; run ha task complete ${taskId} first.`,
       );
     override = { rationale: String(action.rationale).trim(), waivedReceiptId: waivable.receiptId };
-  } else if (requirement.witness.adapterId !== "manual-attest") {
+  } else if (requirement.witness.kind !== "adapter" || requirement.witness.adapterId !== "manual-attest") {
     if (!requirement.mandatorySignoff)
       throw cell.cellCodedError(
         "invalid_command",
-        `Gate ${gateId} is witnessed by ${requirement.witness.adapterId}, not manual attestation.`,
+        requirement.witness.kind === "adapter"
+          ? `Gate ${gateId} is witnessed by ${requirement.witness.adapterId}, not manual attestation.`
+          : `Gate ${gateId} is a migration-preserved historical requirement; it cannot be attested.`,
       );
     if (!acceptedGateWitness(snapshot, execution, gateId))
       throw cell.cellCodedError(

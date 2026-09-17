@@ -1,4 +1,5 @@
 import { CODE_DOC_GATE_ID, type FrozenCompletionContract } from "../domain/completion-contract.ts";
+import { validateCompletionGateWitnessV1 } from "../domain/completion-gate-witness.ts";
 import { submissionDigest, submissionId, type ExecutionV1, type SubmissionV1 } from "../domain/execution.ts";
 import { reviewDigest, type ReviewConsentV1, type ReviewV1 } from "../domain/review.ts";
 import {
@@ -25,18 +26,34 @@ export interface GenerationThreeRewrite {
 export class GenerationThreeMigration {
   readonly #source: SqliteEventStore;
   readonly #submissions = new Map<string, SubmissionV1>();
+  readonly #submissionGateIds = new Map<string, readonly string[]>();
   readonly #snapshots = new Map<string, TaskLifecycleSnapshot>();
   readonly #documents = new Map<string, LifecycleDocumentState>();
   readonly #packagePaths = new Map<string, string>();
-  #workflows: readonly string[] = [];
 
   constructor(source: SqliteEventStore) {
     this.#source = source;
+    // A submission's frozen contract must name every requirement that governed its cut — including
+    // gates a mid-flight preset upgrade or contract migration attached after submit. Prepass the
+    // stream once and union each old submission's gateIds over every event that embeds it.
+    for (const row of source.eventRows?.() ?? []) {
+      const parsed = JSON.parse(row.eventJson) as CanonicalEventV1;
+      if (!isTaskEvent(parsed)) continue;
+      const submission = (parsed.payload as { execution?: ExecutionV1 }).execution?.submission,
+        gateIds = (parsed.payload as { task?: { completionGateIds?: unknown } }).task?.completionGateIds;
+      if (!submission || !Array.isArray(gateIds)) continue;
+      const id = submissionId(submission);
+      this.#submissionGateIds.set(id, [
+        ...new Set([
+          ...(this.#submissionGateIds.get(id) ?? []),
+          ...gateIds.filter((gateId): gateId is string => typeof gateId === "string"),
+        ]),
+      ]);
+    }
   }
 
   rewrite(original: CanonicalEventV1): GenerationThreeRewrite {
     this.#captureDocuments(original);
-    this.#captureSettings(original);
     if (!isTaskEvent(original)) return { event: original, blobs: [], reasons: [] };
     this.#observePackagePath(original);
     const rewritten = this.#rewriteTaskEvent(original),
@@ -68,7 +85,10 @@ export class GenerationThreeMigration {
   invalidations(startRevision: number, occurredAt: string): readonly GenerationThreeRewrite[] {
     const rewrites: GenerationThreeRewrite[] = [];
     for (const [taskId, snapshot] of [...this.#snapshots].sort(([left], [right]) => left.localeCompare(right))) {
-      if (!snapshot.task || ["done", "cancelled"].includes(snapshot.task.status)) continue;
+      // C8 closes only genuinely in-flight executions: replayed invalidation requires the task to
+      // still sit in an active review loop. Terminal tasks and superseded tasks already returned to
+      // planned keep their suspended historical execution untouched.
+      if (!snapshot.task || !["active", "in_review", "blocked"].includes(snapshot.task.status)) continue;
       const execution = snapshot.executions.find(
         (candidate) =>
           candidate.schema === "execution/v1" &&
@@ -154,21 +174,42 @@ export class GenerationThreeMigration {
         };
     }
     if (event.type === "completion_gate_verified" && submission) {
-      const witness = event.payload.witness,
-        basis = witness.basis ? { ...witness.basis, submissionDigest: submissionDigest(submission) } : undefined,
-        historicalProvenance = witness.provenance as unknown as Record<string, unknown> | undefined,
-        provenance =
-          historicalProvenance && !("adapterId" in historicalProvenance)
-            ? { ...historicalProvenance, adapterId: witness.gateId === "ci" ? "github-actions" : "manual-attest" }
-            : witness.provenance;
-      next = {
-        ...next,
-        witness: {
-          ...witness,
-          ...(basis ? { basis } : {}),
-          ...(provenance ? { provenance } : {}),
-        },
-      };
+      const witness = event.payload.witness as unknown as Readonly<Record<string, unknown>>,
+        { observed, basis, provenance, override, ...identity } = witness;
+      let evidence: unknown;
+      if (basis === undefined && provenance === undefined)
+        evidence = { kind: "historical-verdict", gap: "binding-not-recorded" };
+      else if (basis === undefined || provenance === undefined)
+        throw new Error(`witness ${witness.witnessId} carries a partial evidence binding`);
+      else {
+        const rePinned = { ...(basis as Record<string, unknown>), submissionDigest: submissionDigest(submission) },
+          legacyProvenance = provenance as Record<string, unknown>;
+        evidence = Object.hasOwn(legacyProvenance, "adapterId")
+          ? {
+              kind: "observed",
+              observed: observed ?? true,
+              basis: rePinned,
+              provenance: legacyProvenance,
+              ...(override !== undefined ? { override } : {}),
+            }
+          : {
+              kind: "historical-verdict",
+              gap: "adapter-not-recorded",
+              basis: rePinned,
+              provenance: {
+                source: legacyProvenance.source,
+                runId: legacyProvenance.runId,
+                rawResult: legacyProvenance.rawResult,
+              },
+            };
+      }
+      const migratedWitness = { ...identity, evidence },
+        witnessIssues = validateCompletionGateWitnessV1(migratedWitness);
+      if (witnessIssues.length)
+        throw new Error(
+          `witness ${String(witness.witnessId)} cannot be migrated: ${witnessIssues.map((issue) => issue.message).join("; ")}`,
+        );
+      next = { ...next, witness: migratedWitness };
     }
     return { ...event, payload: next } as TaskEventV1;
   }
@@ -177,41 +218,41 @@ export class GenerationThreeMigration {
     const oldId = submissionId(value);
     const existing = this.#submissions.get(oldId);
     if (existing) return existing;
-    const migrated = Object.hasOwn(value, "completionContract")
-      ? value
-      : { ...value, completionContract: this.#completionContract(gateIds) };
+    // A generation-2 submission cannot already carry a completion contract: the frozen contract is
+    // the generation-3 feature. Anything present here is an unsupported input, never a shape to guess.
+    if (Object.hasOwn(value, "completionContract"))
+      throw new Error("generation-2 submission carries a completion contract; refusing to reinterpret it");
+    const migrated = {
+      ...value,
+      completionContract: this.#completionContract(this.#submissionGateIds.get(oldId) ?? gateIds),
+    };
     this.#submissions.set(oldId, migrated);
     return migrated;
   }
 
+  /**
+   * Materialize the declared gates into the frozen contract (dec_ED8A4E774FA7A96820D32D171D):
+   * code-doc reconciliation is Harness's internal checker and keeps its adapter requirement;
+   * every other declared gate was witnessed before frozen policy existed, so it becomes the
+   * read-only `historical-policy-unavailable` requirement — the historical adapter identity is
+   * not recorded anywhere and is never guessed from the gate id.
+   */
   #completionContract(gateIds: readonly string[]): FrozenCompletionContract {
     const gates: FrozenCompletionContract["gates"][number][] = [];
-    for (const gateId of new Set(gateIds)) {
-      if (gateId === CODE_DOC_GATE_ID)
-        gates.push({
-          gateId,
-          appliesTo: "code" as const,
-          witness: { adapterId: CODE_DOC_GATE_ID, adapterOptions: {} },
-        });
-      else {
-        if (gateId !== "ci") throw new Error(`legacy completion gate ${gateId} has no generation migration mapping`);
-        if (this.#workflows.length === 0) throw new Error("legacy ci gate has no workflow selection at its cut");
-        gates.push({
-          gateId,
-          appliesTo: "code" as const,
-          witness: {
-            adapterId: "github-actions" as const,
-            adapterOptions: {
-              workflows: this.#workflows,
-              branch: "main",
-              event: "push",
-              coverage: "descendant" as const,
-              selection: "newest" as const,
+    for (const gateId of new Set(gateIds))
+      gates.push(
+        gateId === CODE_DOC_GATE_ID
+          ? {
+              gateId,
+              appliesTo: "code" as const,
+              witness: { kind: "adapter" as const, adapterId: CODE_DOC_GATE_ID, adapterOptions: {} },
+            }
+          : {
+              gateId,
+              appliesTo: "code" as const,
+              witness: { kind: "historical-policy-unavailable" as const, reason: "not-recorded" as const },
             },
-          },
-        });
-      }
-    }
+      );
     return { gates };
   }
 
@@ -258,14 +299,6 @@ export class GenerationThreeMigration {
     };
     this.#snapshots.set(event.taskId, snapshot);
     return snapshot;
-  }
-
-  #captureSettings(event: CanonicalEventV1): void {
-    if (event.schema !== "settings-event/v1") return;
-    const settings = (event.payload as { readonly settings?: { readonly ci?: { readonly workflows?: unknown } } })
-      .settings;
-    if (Array.isArray(settings?.ci?.workflows) && settings.ci.workflows.every((value) => typeof value === "string"))
-      this.#workflows = settings.ci.workflows;
   }
 
   #captureDocuments(event: CanonicalEventV1): void {
