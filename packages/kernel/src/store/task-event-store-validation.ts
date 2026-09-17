@@ -17,6 +17,7 @@ import {
 } from "../domain/ledger-layout-migration-event.ts";
 import { assertDecisionWritePlan } from "../domain/decision-event.ts";
 import { assertFactWritePlan } from "../domain/fact-event.ts";
+import { assertEntityDocumentEventWritePlan, isEntityDocumentEvent } from "../domain/entity-document-event.ts";
 import { assertRelationEventWritePlan, isRelationEvent } from "../domain/relation-event.ts";
 import { assertTaskLifecycleWritePlan } from "../domain/task-lifecycle-publication.ts";
 import {
@@ -149,6 +150,15 @@ export function assertBundle(bundle: CanonicalEventWriteBundle): void {
       throw new TaskEventStoreError(
         "invalid_write_plan",
         "decision write plan must exactly declare event, document, blob, and projection targets",
+      );
+    }
+  if (isEntityDocumentEvent(event))
+    try {
+      assertEntityDocumentEventWritePlan(event, plan);
+    } catch {
+      throw new TaskEventStoreError(
+        "invalid_write_plan",
+        "entity document rematerialization plan must exactly declare event, documents, blobs, and projections",
       );
     }
   if (isRelationEvent(event))

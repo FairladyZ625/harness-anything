@@ -554,7 +554,7 @@ function receiptJson(receipt: { readonly evidence?: string }): Record<string, un
 }
 function monotonicClock(): () => string {
   let second = 0;
-  return () => `2026-08-15T00:00:${String(second++).padStart(2, "0")}.000Z`;
+  return () => new Date(Date.UTC(2026, 7, 15, 0, 0, 0) + second++ * 1000).toISOString();
 }
 function initRepo(rootDir: string): void {
   git(rootDir, "init", "-q");

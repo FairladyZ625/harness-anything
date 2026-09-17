@@ -11,6 +11,7 @@ import {
   entityOwnedDocumentClaims,
   entityRetiredDirectories,
 } from "../domain/entity-owned-content.ts";
+import { isEntityDocumentEvent } from "../domain/entity-document-event.ts";
 import { isScheduleEvent } from "../domain/schedule-event.ts";
 import { isSettingsEvent } from "../domain/settings-event.ts";
 import { isVerticalDeclarationEvent } from "../domain/vertical-declaration.ts";
@@ -36,6 +37,7 @@ export function canonicalDocumentClaims(event: PersistedCanonicalEventV1): reado
   readonly size: number;
   readonly mediaType: string;
 }[] {
+  if (isEntityDocumentEvent(event)) return event.payload.documentClaims;
   if (isEntityEvent(event))
     return isEntityDeclarationEvent(event) ? entityOwnedDocumentClaims(ownedContentForDeclarationEvent(event)) : [];
   if (isScheduleEvent(event))
@@ -139,6 +141,8 @@ export function contentClaims(event: CanonicalEventV1): readonly {
   readonly size: number;
   readonly mediaType: string;
 }[] {
+  if (isEntityDocumentEvent(event))
+    return [...new Map(event.payload.documentClaims.map((claim) => [claim.sha256, claim])).values()];
   if (isScheduleEvent(event))
     return "declarationDocumentClaim" in event.payload ? [event.payload.declarationDocumentClaim] : [];
   if (isSettingsEvent(event)) return [event.payload.harnessDocumentClaim];

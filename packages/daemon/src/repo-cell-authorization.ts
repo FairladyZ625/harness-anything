@@ -125,6 +125,8 @@ export function authorizeDurableRepoCellAction(
       return authorizeRepoCellAction(input);
     case "decision-reject":
       return authorizeRepoCellAction(input);
+    case "decision-rematerialize":
+      return authorizeRepoCellAction(input);
     case "decision-repin":
       return authorizeRepoCellAction(input);
     case "decision-retire":
@@ -160,6 +162,8 @@ export function authorizeDurableRepoCellAction(
     case "fact-reclassify":
       return authorizeRepoCellAction(input);
     case "fact-record":
+      return authorizeRepoCellAction(input);
+    case "fact-rematerialize":
       return authorizeRepoCellAction(input);
     case "fact-type-register":
       return authorizeRepoCellAction(input);
@@ -280,6 +284,8 @@ export function authorizeDurableRepoCellAction(
     case "task-dispatch-review":
       return authorizeRepoCellAction(input);
     case "task-pin":
+      return authorizeRepoCellAction(input);
+    case "task-rematerialize":
       return authorizeRepoCellAction(input);
     case "task-progress-append":
       return authorizeRepoCellAction(input);

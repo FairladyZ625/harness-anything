@@ -205,6 +205,46 @@ export function taskLifecycleWritePlan(event: TaskEventV1): FrozenWritePlan {
     targets.push(lease(event.taskId, "release"));
   return freezeDeclaredWritePlan({ commandType: event.type, targets }, [event.type]);
 }
+/**
+ * Re-renders the lifecycle-managed documents that already exist under one task package from the
+ * current snapshot alone: INDEX/contract/module plus every published execution and review record.
+ * Authored prose (task_plan.md), progress logs, code-doc anchors, and raw artifacts are owned by
+ * other writers and are intentionally not listed here.
+ */
+export function rematerializeTaskDocuments(input: {
+  readonly snapshot: TaskLifecycleSnapshot;
+  readonly packagePath: string;
+  readonly paths: readonly string[];
+  readonly currentDocuments: readonly LifecycleDocumentState[];
+}): readonly { readonly path: string; readonly body: string }[] {
+  const current = new Map(input.currentDocuments.map((document) => [document.path, document.body])),
+    packagePath = input.packagePath,
+    prefix = `${packagePath}/`,
+    rendered: { readonly path: string; readonly body: string }[] = [];
+  for (const path of input.paths) {
+    if (!path.startsWith(prefix)) throw new Error(`task rematerialization path ${path} is outside ${prefix}`);
+    const base = current.get(path) ?? null;
+    if (path === `${prefix}INDEX.md`) rendered.push({ path, body: renderIndex(undefined, input.snapshot, path, base) });
+    else if (path === `${prefix}task-contract.json`)
+      rendered.push({ path, body: renderContract(input.snapshot, base, packagePath) });
+    else if (path === `${prefix}module.md`) rendered.push({ path, body: renderModule(input.snapshot) });
+    else if (path.startsWith(`${prefix}executions/`) && path.endsWith(".md")) {
+      const executionId = path.slice(`${prefix}executions/`.length, -".md".length),
+        execution = input.snapshot.executions.find((value) => value.executionId === executionId);
+      if (!execution) throw new Error(`task rematerialization found no execution for ${path}`);
+      rendered.push({ path, body: renderExecution(execution as ExecutionV1, input.snapshot) });
+    } else if (path.startsWith(`${prefix}reviews/`) && path.endsWith(".md")) {
+      const reviewId = path.slice(`${prefix}reviews/`.length, -".md".length),
+        review = input.snapshot.reviews.find((value) => value.reviewId === reviewId);
+      if (!review) throw new Error(`task rematerialization found no review for ${path}`);
+      rendered.push({
+        path,
+        body: renderReview(review, input.snapshot.consents.find((value) => value.reviewId === review.reviewId) ?? null),
+      });
+    }
+  }
+  return rendered;
+}
 export function assertTaskLifecycleWritePlan(event: TaskEventV1, plan: FrozenWritePlan | undefined): void {
   const expected = taskLifecycleWritePlan(event);
   if (
@@ -223,7 +263,8 @@ export function renderLifecycleDocument(
   path: string,
   base: string | null,
 ): string {
-  if (path.endsWith("/INDEX.md")) return renderIndex(event, snapshot, path, base);
+  if (path.endsWith("/INDEX.md"))
+    return renderIndex("execution" in event.payload ? event.payload.execution : undefined, snapshot, path, base);
   if (path.endsWith("/task-contract.json"))
     return renderContract(snapshot, base, path.slice(0, -"/task-contract.json".length));
   if (path.endsWith("/module.md")) return renderModule(snapshot);
@@ -258,12 +299,16 @@ function renderTaskPlan(snapshot: TaskLifecycleSnapshot, path: string, base: str
   if (base === null) throw new Error(`cannot retitle an unpublished task plan: ${path}`);
   return base.replace(/^# .*$/mu, `# ${task.title}`);
 }
-function renderIndex(event: TaskEventV1, snapshot: TaskLifecycleSnapshot, path: string, base: string | null): string {
+function renderIndex(
+  currentExecution: ExecutionV1 | undefined,
+  snapshot: TaskLifecycleSnapshot,
+  path: string,
+  base: string | null,
+): string {
   const task = snapshot.task!,
     current =
-      "execution" in event.payload
-        ? event.payload.execution
-        : snapshot.executions.find((value) => value.iteration === task.iteration && value.state === "submitted"),
+      currentExecution ??
+      snapshot.executions.find((value) => value.iteration === task.iteration && value.state === "submitted"),
     executionId = current?.executionId ?? "",
     approved = current?.submission ? approvedReviewsForExecution(snapshot.reviews, current) : [],
     selected = current?.submission

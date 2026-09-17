@@ -9,6 +9,7 @@ import { isTaskBoundRuntimeWriter, resolveTaskBoundRuntimeBinding } from "../dom
 import { isSamePerson } from "../domain/actor-domain-services.ts";
 import { type DecisionEventV1 } from "../domain/decision-event.ts";
 import { type FactEventV1 } from "../domain/fact-event.ts";
+import { type EntityDocumentEventV1 } from "../domain/entity-document-event.ts";
 import { type RelationEventV1 } from "../domain/relation-event.ts";
 import { type MigrationDocumentClaim, type MigrationImportEventV1 } from "../domain/migration-import-event.ts";
 import {
@@ -222,6 +223,36 @@ export function projectDecision(
   refreshDecisionDocumentSearch(db, document);
 }
 
+export function projectEntityDocumentRematerialization(
+  db: DatabaseSync,
+  event: EntityDocumentEventV1,
+  eventJson: string,
+  readBlob: EventStreamPort["readContentBlob"],
+): void {
+  runSql(
+    db,
+    "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, NULL, ?)",
+    event.opId,
+    event.workspaceRevision,
+    eventJson,
+  );
+  for (const claim of event.payload.documentClaims) {
+    const bytes = readBlob(claim.sha256);
+    if (!bytes || bytes.byteLength !== claim.size)
+      throw new Error(`rematerialized document blob ${claim.sha256} is unavailable`);
+    const document: DocumentState = {
+      path: claim.path as DocumentState["path"],
+      blobSha256: claim.sha256,
+      body: new TextDecoder("utf-8", { fatal: true }).decode(bytes),
+      size: docByteLength(claim.size),
+      mediaType: claim.mediaType,
+      policyId: claim.policyId,
+      workspaceRevision: event.workspaceRevision,
+    };
+    runSql(db, UPSERT_DOCUMENT_SQL, claim.path, event.workspaceRevision, canonicalJson(document));
+    if (claim.policyId === "markdown-body-replaceable/v1") refreshDecisionDocumentSearch(db, document);
+  }
+}
 export function projectRelationDocuments(
   db: DatabaseSync,
   event: RelationEventV1,

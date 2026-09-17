@@ -8,6 +8,7 @@ import { validateAgentRuntimeEvent, validateCurrentAgentRuntimeEvent } from "./a
 import { validateCurrentDecisionEvent, validateDecisionEvent } from "./decision-event.ts";
 import type { CanonicalEventV1, DocEventV1, PersistedCanonicalEventV1 } from "./doc-sync-types.ts";
 import { validateCurrentDocEvent } from "./doc-sync-validation.ts";
+import { validateCurrentEntityDocumentEvent, validateEntityDocumentEvent } from "./entity-document-event.ts";
 import { validateCurrentFactEvent, validateFactEvent } from "./fact-event.ts";
 import {
   validateCurrentLedgerLayoutMigrationEvent,
@@ -108,6 +109,11 @@ export const canonicalEventSchemas: readonly CanonicalEventSchemaRegistration[] 
     schema: "fact-event/v1",
     validate: validateFactEvent,
     validateCurrent: validateCurrentFactEvent,
+  },
+  {
+    schema: "entity-document-event/v1",
+    validate: validateEntityDocumentEvent,
+    validateCurrent: validateCurrentEntityDocumentEvent,
   },
   {
     schema: "decision-event/v1",
