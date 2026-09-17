@@ -118,6 +118,10 @@ test("attempt-bound classification falls back only before tools or for recognize
     outcome: "failed",
     classification: "provider_fault",
   });
+  assert.deepEqual(pick(classifyRuntimeExit(active({ toolCallObserved: false, providerOutcome: "failed" }), null)), {
+    outcome: "failed",
+    classification: "provider_fault",
+  });
   assert.deepEqual(pick(classifyRuntimeExit(active({ toolCallObserved: true }), null)), {
     outcome: "unknown",
     classification: "provider_fault",

@@ -152,6 +152,18 @@ test("missing delivery paths identify the Summary instead of a JSON closeout rec
   assert.doesNotMatch(result.next!.action, /packet.json|task closeout/);
 });
 
+test("missing facts guide an observable change while a recorded fact clears the blocker", () => {
+  const snapshot = at(5),
+    missing = taskCompletionNext(snapshot, { ...context, producesFactCount: 0 });
+  assert.equal(missing.blocker?.code, "fact_missing");
+  assert.match(missing.next!.action, /ha fact record --task task-1/);
+  assert.match(missing.next!.action, /--statement "<what changed and why it matters>"/);
+  assert.match(missing.next!.action, /--source "<evidence path or observation>" --confidence high/);
+  assert.match(missing.next!.reason, /observable change.*evidence/);
+  assert.match(missing.next!.reason, /execution recaps and test counts in closeout Verification/);
+  assert.equal(taskCompletionNext(snapshot, context).blocker, null);
+});
+
 test("missing CI witness precedes independent review and requests canonical observation", () => {
   const result = taskCompletionNext(gatedAt([ciRequirement], 3), context);
   assert.equal(result.blocker?.code, "ci_missing");

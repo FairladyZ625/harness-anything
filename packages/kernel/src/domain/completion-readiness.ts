@@ -234,8 +234,9 @@ function evaluateCompletion(
     return one(
       "fact_missing",
       "facts",
-      `ha fact record --task ${task.taskId} --statement <observation> --source <source>`,
-      "A task requires at least one active task→fact produces edge before completion.",
+      `ha fact record --task ${task.taskId} --statement "<what changed and why it matters>" --source "<evidence path or observation>" --confidence high`,
+      "Describe the system's observable change and cite its evidence in a Fact. " +
+        "Keep execution recaps and test counts in closeout Verification; the Fact should explain what is now true.",
     );
   if (context.closeout !== "ready" && context.closeout !== "dirty_eligible")
     return one(

@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -469,6 +469,73 @@ test("acp worker session fails closed when the agent rejects the offered credent
     assert.equal(frames.length, 1);
     assert.equal(frames[0]!.type, "acp.error");
     assert.match(String(frames[0]!.message), /api key required/i);
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("acp worker session fails when the provider exits 0 before the session exists", async () => {
+  const { parent, executablePath } = fixture();
+  try {
+    const { records, append } = collect(),
+      // devin shuts its ACP server down with exit 0 once this pid is gone.
+      editorHostPid = spawnSync(process.execPath, ["-e", ""]).pid,
+      child = launch(executablePath, ["acp"], {
+        HOME: parent,
+        PATH: process.env.PATH,
+        WINDSURF_EXT_HOST_PID: String(editorHostPid),
+      }),
+      session = runAcpProviderSession(
+        child,
+        { kindId: "devin", cwd: "/tmp", env: { HOME: parent }, prompt: "do work", acpApiKey: "test-manifest-key" },
+        append,
+      );
+    const exit = closed(child);
+    await session.done;
+    assert.equal(await exit, 0);
+    const frames = records
+      .filter((record) => record.kind === "provider_event")
+      .map((record) => record.event as Record<string, unknown>);
+    assert.deepEqual(frames, [
+      { type: "acp.error", message: "ACP provider exited before the session completed (exit 0, signal null)" },
+    ]);
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("acp worker session fails when the provider exits 0 in the middle of the prompt", async () => {
+  const { parent, executablePath } = fixture();
+  try {
+    const { records, append } = collect(),
+      child = launch(executablePath, ["acp"], { HOME: parent, PATH: process.env.PATH }),
+      session = runAcpProviderSession(
+        child,
+        {
+          kindId: "devin",
+          cwd: "/tmp",
+          env: { HOME: parent },
+          prompt: "exit-mid-prompt",
+          permissionMode: "bypass",
+          acpApiKey: "test-manifest-key",
+        },
+        append,
+      );
+    const exit = closed(child);
+    await session.done;
+    assert.equal(await exit, 0);
+    const frames = records
+      .filter((record) => record.kind === "provider_event")
+      .map((record) => record.event as Record<string, unknown>);
+    assert.deepEqual(
+      frames.map((frame) => frame.type),
+      ["acp.session", "acp.mode", "acp.update", "acp.error"],
+    );
+    assert.deepEqual(frames.at(-1), {
+      sessionId: "devin-acp-session",
+      type: "acp.error",
+      message: "ACP provider exited before the session completed (exit 0, signal null)",
+    });
   } finally {
     rmSync(parent, { recursive: true, force: true });
   }
