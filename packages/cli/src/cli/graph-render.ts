@@ -1,5 +1,4 @@
 /** ASCII renderer for the causal-graph/v1 read payload served by `ha graph`. */
-import { consumeKnownError } from "../daemon/client.ts";
 
 interface GraphNode {
   readonly ref: string;
@@ -70,13 +69,7 @@ function renderChildren(node: GraphNode, prefix: string, lines: string[]): void 
 
 export function renderCausalGraph(receipt: Record<string, unknown>): string | null {
   if (typeof receipt.evidence !== "string") return null;
-  let payload: unknown;
-  try {
-    payload = JSON.parse(receipt.evidence);
-  } catch (error) {
-    consumeKnownError(error);
-    return null;
-  }
+  const payload: unknown = JSON.parse(receipt.evidence);
   if (!isRecord(payload) || payload.schema !== "causal-graph/v1") return null;
   const root = asNode(payload.root),
     stats = isRecord(payload.stats) ? payload.stats : {};
