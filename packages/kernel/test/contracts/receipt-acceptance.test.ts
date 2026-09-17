@@ -35,7 +35,7 @@ test("D4 accepts a committed interval while Git and worktree remain pending", ()
   ]);
 });
 test("D4 preserves the accepting store generation across every receipt cut", () => {
-  const generationTwoCut = { ...cut, generation: 2 } as const,
+  const generationThreeCut = { ...cut, generation: 3 } as const,
     receipt = attachReceiptAcceptance(
       { outcome: "no_changes", opId: "command", evidence: "same-result:command" },
       {
@@ -48,7 +48,7 @@ test("D4 preserves the accepting store generation across every receipt cut", () 
         }),
         readEvent: () => ({ opId: "command" }),
         publication: () => ({ cut }),
-        ledgerMetadata: () => ({ repoId: "repo", generation: 2, revision: 2 }),
+        ledgerMetadata: () => ({ repoId: "repo", generation: 3, revision: 2 }),
         followerStatus: () => ({
           git: { status: "verified", cut, commitSha: "a".repeat(40) },
           worktree: { status: "verified", cut, commitSha: "a".repeat(40) },
@@ -56,10 +56,10 @@ test("D4 preserves the accepting store generation across every receipt cut", () 
       } as never,
       { readCut: () => ({ watermark: 2 }) } as never,
     );
-  assert.deepEqual(receipt.acceptance?.cut, generationTwoCut);
-  assert.deepEqual(receipt.projection.cut, generationTwoCut);
-  assert.deepEqual(receipt.git.cut, generationTwoCut);
-  assert.deepEqual(receipt.worktree.cut, generationTwoCut);
+  assert.deepEqual(receipt.acceptance?.cut, generationThreeCut);
+  assert.deepEqual(receipt.projection.cut, generationThreeCut);
+  assert.deepEqual(receipt.git.cut, generationThreeCut);
+  assert.deepEqual(receipt.worktree.cut, generationThreeCut);
   assert.deepEqual(validateReceiptAcceptance(receipt), []);
 });
 test("D4 refuses applied before commit, invented intervals, and Git SHA without verified cut", () => {
