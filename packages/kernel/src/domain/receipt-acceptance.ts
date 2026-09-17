@@ -6,7 +6,7 @@ export const receiptFacetStates = Object.freeze(["pending", "verified", "not_con
 export const receiptWaitStates = Object.freeze(["satisfied", "timed_out"] as const);
 
 export interface ReceiptConsumerCut extends LedgerCutIdentity {
-  readonly generation: 1 | 2;
+  readonly generation: number;
 }
 export interface ReceiptAcceptance {
   readonly storage: "sqlite";
@@ -160,7 +160,8 @@ function consumerCut(value: unknown): value is ReceiptConsumerCut {
     receiptRecord(value) &&
     receiptExactFields(value, ["repoId", "generation", "revision", "headDigest"]) &&
     isNonEmptyString(value.repoId) &&
-    (value.generation === 1 || value.generation === 2) &&
+    Number.isSafeInteger(value.generation) &&
+    Number(value.generation) >= 1 &&
     revision(value.revision) &&
     typeof value.headDigest === "string" &&
     /^sha256:[0-9a-f]{64}$/u.test(value.headDigest)

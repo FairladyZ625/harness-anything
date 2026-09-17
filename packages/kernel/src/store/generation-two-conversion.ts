@@ -13,11 +13,12 @@ import { sha256Bytes, sha256Text, stableStringify } from "../integrity/stable-ha
 import { localRuntimeStateFileSystem as files } from "../local/local-layout-file-system.ts";
 import { drillLedgerBackup, readVerifiedLedgerBackup } from "./ledger-backup.ts";
 import { contentClaims } from "./task-event-store-claims-layout.ts";
+import { GenerationThreeMigration } from "./generation-three-migration.ts";
 import {
-  generationTwoActivationPath,
+  generationActivationPath,
   openSqliteEventStore,
   sqliteLedgerPath,
-  type GenerationTwoActivationV2,
+  type GenerationActivationV2,
   type SqliteEventStore,
   type SqliteEventRow,
 } from "./sqlite-event-store.ts";
@@ -36,38 +37,50 @@ export interface GenerationConversionMapping {
 export interface GenerationConversionPlan {
   readonly schema: "generation-conversion-plan/v1";
   readonly repoId: string;
-  readonly sourceGeneration: 1;
-  readonly destinationGeneration: 2;
+  readonly sourceGeneration: number;
+  readonly destinationGeneration: number;
   readonly sourceDigest: string;
   readonly sourceEvents: number;
   readonly convertedEvents: number;
   readonly retainedEvents: number;
   /** Converted one-to-one but carrying no new fact; kept so no later revision or cut is renumbered. */
   readonly preservedHistoricalEvents: number;
+  readonly appendedInvalidations: number;
   readonly ready: boolean;
   readonly mappings: readonly GenerationConversionMapping[];
 }
 
 /** Offline operator entry. The input is a verified, self-contained backup, never a live repository. */
-export function runGenerationTwoConversion(input: {
+export function runGenerationConversion(input: {
   readonly backupDir: string;
   readonly mode: "dry-run" | "convert" | "verify" | "activate";
   readonly destinationRoot?: string;
 }) {
   const backupDir = path.resolve(input.backupDir),
     manifest = readVerifiedLedgerBackup(backupDir),
-    sourcePath = path.join(backupDir, "payload", ".harness", "store", "generations", "1", "ledger.sqlite");
+    sourceGeneration = manifest.sqlite.generation;
+  if (!sourceGeneration || sourceGeneration < 1)
+    throw new Error("generation conversion requires a SQLite backup; legacy generation 0 uses the legacy converter");
+  const destinationGeneration = sourceGeneration + 1,
+    sourcePath = path.join(
+      backupDir,
+      "payload",
+      ".harness",
+      "store",
+      "generations",
+      String(sourceGeneration),
+      "ledger.sqlite",
+    );
   if (
     !manifest.files.some(
-      (file) => file.path === ".harness/store/generations/1/ledger.sqlite" && file.method === "vacuum-into",
+      (file) =>
+        file.path === `.harness/store/generations/${sourceGeneration}/ledger.sqlite` && file.method === "vacuum-into",
     )
   )
-    throw new Error(
-      "generation 1 conversion requires a SQLite backup; legacy generation 0 uses the existing legacy converter",
-    );
-  const source = openSqliteEventStore({ databasePath: sourcePath, generation: 1, readOnly: true });
+    throw new Error(`generation ${sourceGeneration} conversion requires its SQLite backup`);
+  const source = openSqliteEventStore({ databasePath: sourcePath, generation: sourceGeneration, readOnly: true });
   try {
-    const { plan, events, rows } = planConversion(source);
+    const { plan, events, rows, migratedBlobs } = planConversion(source, sourceGeneration, destinationGeneration);
     if (input.mode === "dry-run") return { plan, active: false as const };
     if (!plan.ready) return { plan, active: false as const };
     if (!input.destinationRoot || !path.isAbsolute(input.destinationRoot))
@@ -83,60 +96,96 @@ export function runGenerationTwoConversion(input: {
         destinationRoot,
         verifiedManifest: manifest,
       });
-      convert(source, destinationRoot, plan, events, rows);
+      convert(source, destinationRoot, plan, events, rows, migratedBlobs);
     }
     // Activation follows verification, never precedes it: a destination that fails verification
     // must be left without a certificate, so no process can select it.
     const verification = verify(source, destinationRoot, plan, events, rows);
     if (input.mode !== "activate") return { plan, destinationRoot, verification, active: false as const };
-    activateGenerationTwo({ rootDir: destinationRoot, plan });
+    activateConvertedGeneration({ rootDir: destinationRoot, plan });
     return { plan, destinationRoot, verification, active: true as const };
   } finally {
     source.close();
   }
 }
 
-export function activateGenerationTwo(input: {
+export function activateConvertedGeneration(input: {
   readonly rootDir: string;
   readonly plan: GenerationConversionPlan;
 }): void {
-  if (!input.plan.ready) throw new Error("cannot activate an unready generation 2 conversion");
-  const databasePath = sqliteLedgerPath(input.rootDir, 2),
+  if (!input.plan.ready) throw new Error("cannot activate an unready generation conversion");
+  const databasePath = sqliteLedgerPath(input.rootDir, input.plan.destinationGeneration),
     reportPath = `${databasePath}.conversion.json`;
-  if (!files.exists(databasePath) || !files.exists(reportPath)) throw new Error("generation 2 conversion is missing");
+  if (!files.exists(databasePath) || !files.exists(reportPath)) throw new Error("generation conversion is missing");
   // The offline converter stops being the writer here; otherwise its lease fences out the first
   // ordinary writer of the activated generation.
-  const released = openSqliteEventStore({ repoId: input.plan.repoId, databasePath, generation: 2 });
+  const released = openSqliteEventStore({
+    repoId: input.plan.repoId,
+    databasePath,
+    generation: input.plan.destinationGeneration,
+  });
   try {
     released.releaseWriter(offlineConverterFence(input.plan.repoId));
   } finally {
     released.close();
   }
-  const activation: GenerationTwoActivationV2 = {
+  retireConvertedSource(input.rootDir, input.plan);
+  const activation: GenerationActivationV2 = {
       schema: "generation-activation/v2",
       repoId: input.plan.repoId,
       sourceDigest: input.plan.sourceDigest,
       importedPrefixRevision: input.plan.convertedEvents,
-      generation: 2,
+      generation: input.plan.destinationGeneration,
     },
-    certificatePath = generationTwoActivationPath(input.rootDir);
-  if (!files.createExclusiveText(certificatePath, `${JSON.stringify(activation)}\n`)) {
+    certificatePath = generationActivationPath(input.rootDir, input.plan.destinationGeneration),
+    createCertificate =
+      input.plan.destinationGeneration >= 3 ? files.createAtomicExclusiveText : files.createExclusiveText;
+  if (!createCertificate(certificatePath, `${JSON.stringify(activation)}\n`)) {
     const existing = JSON.parse(files.readText(certificatePath));
     if (stableStringify(existing) !== stableStringify(activation))
-      throw new Error("generation 2 activation certificate differs");
+      throw new Error(`generation ${input.plan.destinationGeneration} activation certificate differs`);
   }
 }
 
-function offlineConverterFence(repoId: string) {
-  return { repoId, holder: "offline-generation-2-converter", epoch: 1 };
+function retireConvertedSource(rootDir: string, plan: GenerationConversionPlan): void {
+  const sourcePath = sqliteLedgerPath(rootDir, plan.sourceGeneration),
+    retiredPath = retiredSourceLedgerPath(rootDir, plan);
+  if (files.exists(sourcePath)) {
+    files.rename(sourcePath, retiredPath);
+    for (const suffix of ["-wal", "-shm"])
+      if (files.exists(`${sourcePath}${suffix}`)) files.rename(`${sourcePath}${suffix}`, `${retiredPath}${suffix}`);
+    files.syncDirectory(path.dirname(sourcePath));
+  } else if (!files.exists(retiredPath)) throw new Error("conversion source ledger is neither active nor retired");
+  for (const candidate of [
+    path.join(rootDir, ".harness", "cache", "task.sqlite"),
+    path.join(rootDir, ".harness", "cache", "task.sqlite-wal"),
+    path.join(rootDir, ".harness", "cache", "task.sqlite-shm"),
+    path.join(rootDir, ".harness", "replica", "repos", plan.repoId),
+  ]) {
+    if (!files.exists(candidate)) continue;
+    const retired = `${candidate}.retired-generation-${plan.destinationGeneration}`;
+    if (files.exists(retired)) throw new Error(`retired derived state already exists: ${retired}`);
+    files.rename(candidate, retired);
+    files.syncDirectory(path.dirname(candidate));
+  }
 }
 
-function planConversion(source: SqliteEventStore) {
+function retiredSourceLedgerPath(rootDir: string, plan: GenerationConversionPlan): string {
+  return `${sqliteLedgerPath(rootDir, plan.sourceGeneration)}.retired-generation-${plan.destinationGeneration}`;
+}
+
+function offlineConverterFence(repoId: string) {
+  return { repoId, holder: "offline-generation-converter", epoch: 1 };
+}
+
+function planConversion(source: SqliteEventStore, sourceGeneration: number, destinationGeneration: number) {
   const rows = source.eventRows(),
     outcomes = source.outcomes(),
     events: CanonicalEventV1[] = [],
     mappings: GenerationConversionMapping[] = [],
-    installations = new Map<string, string>();
+    installations = new Map<string, string>(),
+    generationThree = sourceGeneration === 2 ? new GenerationThreeMigration(source) : null,
+    migratedBlobs = new Map<string, Uint8Array>();
   for (const row of rows) {
     let candidate: CanonicalEventV1 | undefined;
     const reasons: string[] = [];
@@ -161,7 +210,11 @@ function planConversion(source: SqliteEventStore) {
     try {
       // Historical CI observations walk the same v1 → v2 → v3 chain replay applies.
       const verified = ciWorkflowVerificationMigration.rewrite(original)?.event ?? original,
-        event = ciRunObservationV3Migration.rewrite(verified)?.event ?? verified;
+        observed = ciRunObservationV3Migration.rewrite(verified)?.event ?? verified,
+        migrated = generationThree?.rewrite(observed),
+        event = migrated?.event ?? observed;
+      for (const blob of migrated?.blobs ?? []) migratedBlobs.set(blob.sha256, new TextEncoder().encode(blob.body));
+      reasons.push(...(migrated?.reasons ?? []));
       if (event.opId !== row.opId || event.workspaceRevision !== row.revision || event.occurredAt !== row.occurredAt)
         throw new Error("source event identity or occurredAt column differs");
       // Root's history ruling: these observations really happened, so generation 2 keeps them as
@@ -182,15 +235,16 @@ function planConversion(source: SqliteEventStore) {
       const issues = validateCurrentCanonicalEvent(event);
       if (issues.length) throw new Error(issues.join("; "));
       for (const claim of contentClaims(event)) {
-        const bytes = source.readContentObject(claim.sha256);
+        const bytes = migratedBlobs.get(claim.sha256) ?? source.readContentObject(claim.sha256);
         if (bytes && (bytes.byteLength !== claim.size || sha256Bytes(bytes) !== claim.sha256))
           throw new Error(`corrupt accepted content ${claim.sha256}`);
         if (!bytes) throw new Error(`missing accepted content ${claim.sha256}`);
       }
-      candidate = { ...event, workspaceRevision: events.length + 1 };
+      const candidateEvent = { ...event, workspaceRevision: events.length + 1 } as CanonicalEventV1;
+      candidate = candidateEvent;
       // Preserving every source record keeps revisions aligned. Once anything is dropped, every
       // later cut and digest reference shifts, and a blind string rewrite cannot repair that.
-      if (candidate.workspaceRevision !== row.revision)
+      if (candidateEvent.workspaceRevision !== row.revision)
         throw new Error("a dropped earlier record shifted this revision/cut; it requires an explicit mapping");
     } catch (error) {
       consumeKnownError(error);
@@ -216,6 +270,15 @@ function planConversion(source: SqliteEventStore) {
       reasons,
     });
   }
+  const invalidations =
+    generationThree?.invalidations(
+      rows.length + 1,
+      new Date(Date.parse(rows.at(-1)?.occurredAt ?? "1970-01-01T00:00:00.000Z") + 1).toISOString(),
+    ) ?? [];
+  for (const invalidation of invalidations) {
+    events.push(invalidation.event);
+    for (const blob of invalidation.blobs) migratedBlobs.set(blob.sha256, new TextEncoder().encode(blob.body));
+  }
   const sourceSnapshot = {
     metadata: source.metadata(),
     rows,
@@ -226,8 +289,8 @@ function planConversion(source: SqliteEventStore) {
   const plan: GenerationConversionPlan = {
     schema: "generation-conversion-plan/v1",
     repoId: source.metadata().repoId,
-    sourceGeneration: 1,
-    destinationGeneration: 2,
+    sourceGeneration,
+    destinationGeneration,
     sourceDigest,
     sourceEvents: rows.length,
     convertedEvents: events.length,
@@ -235,11 +298,12 @@ function planConversion(source: SqliteEventStore) {
     preservedHistoricalEvents: mappings.filter(
       (row) => row.disposition === "converted" && row.reasons.some((reason) => reason.includes("preserved read-only")),
     ).length,
+    appendedInvalidations: invalidations.length,
     ready: mappings.every((row) => row.disposition !== "unsupported"),
     mappings,
   };
   assertOutcomeCoverage(outcomes, rows);
-  return { plan, events, rows };
+  return { plan, events, rows, migratedBlobs };
 }
 
 function historicalWitness(
@@ -338,12 +402,13 @@ function convert(
   plan: GenerationConversionPlan,
   events: readonly CanonicalEventV1[],
   rows: readonly SqliteEventRow[],
+  migratedBlobs: ReadonlyMap<string, Uint8Array>,
 ) {
   const destination = openSqliteEventStore({
       repoId: plan.repoId,
       rootInput: root,
-      generation: 2,
-      conversionSourceGeneration: 1,
+      generation: plan.destinationGeneration,
+      conversionSourceGeneration: plan.sourceGeneration,
     }),
     fence = offlineConverterFence(plan.repoId),
     byOpId = new Map(plan.mappings.map((mapping) => [mapping.sourceOpId, mapping]));
@@ -363,7 +428,7 @@ function convert(
                 claim.sha256 === event.payload.entity.documentClaim.sha256;
               const body = witness
                 ? new TextEncoder().encode(rows[members[index]!.sourceRevision - 1]!.eventJson)
-                : source.readContentObject(claim.sha256)!;
+                : (migratedBlobs.get(claim.sha256) ?? source.readContentObject(claim.sha256)!);
               return [claim.sha256, { ...claim, body }] as const;
             }),
           ),
@@ -380,8 +445,30 @@ function convert(
         },
       });
     }
+    for (const event of events.slice(rows.length)) {
+      const blobs = contentClaims(event).map((claim) => ({
+        ...claim,
+        body: migratedBlobs.get(claim.sha256)!,
+      }));
+      destination.appendCommand({
+        fence,
+        intent: {
+          opId: event.opId,
+          intentDigest: `sha256:${sha256Text(
+            stableStringify({
+              type: event.type,
+              taskId: "taskId" in event ? event.taskId : null,
+            }),
+          )}`,
+          summary: "Invalidate in-flight execution for generation migration",
+        },
+        events: [event],
+        blobs,
+        historicalRecord: { recordedAt: event.occurredAt, eventRecordedAt: [event.occurredAt] },
+      });
+    }
     publishConvertedGeneration({ rootInput: root, repoId: plan.repoId, store: destination });
-    const reportPath = `${sqliteLedgerPath(root, 2)}.conversion.json`;
+    const reportPath = `${sqliteLedgerPath(root, plan.destinationGeneration)}.conversion.json`;
     if (!files.createExclusiveText(reportPath, `${JSON.stringify(plan, null, 2)}\n`))
       throw new Error("generation conversion report already exists");
   } finally {
@@ -400,22 +487,38 @@ function verify(
   events: readonly CanonicalEventV1[],
   rows: readonly SqliteEventRow[],
 ) {
-  const destination = openSqliteEventStore({ repoId: plan.repoId, rootInput: root, generation: 2, readOnly: true }),
-    retained = openSqliteEventStore({ repoId: plan.repoId, rootInput: root, generation: 1, readOnly: true }),
+  const destination = openSqliteEventStore({
+      repoId: plan.repoId,
+      rootInput: root,
+      generation: plan.destinationGeneration,
+      readOnly: true,
+    }),
+    retainedPath = files.exists(sqliteLedgerPath(root, plan.sourceGeneration))
+      ? sqliteLedgerPath(root, plan.sourceGeneration)
+      : retiredSourceLedgerPath(root, plan),
+    retained = openSqliteEventStore({
+      repoId: plan.repoId,
+      databasePath: retainedPath,
+      generation: plan.sourceGeneration,
+      readOnly: true,
+    }),
     byOpId = new Map(plan.mappings.map((mapping) => [mapping.sourceOpId, mapping]));
   try {
     const sourceOutcomes = source.outcomes(),
       destinationOutcomes = destination.outcomes();
-    if (stableStringify(planConversion(retained).plan) !== stableStringify(plan))
+    if (
+      stableStringify(planConversion(retained, plan.sourceGeneration, plan.destinationGeneration).plan) !==
+      stableStringify(plan)
+    )
       throw new Error("retained generation differs from immutable source");
-    const report = JSON.parse(files.readText(`${sqliteLedgerPath(root, 2)}.conversion.json`));
+    const report = JSON.parse(files.readText(`${sqliteLedgerPath(root, plan.destinationGeneration)}.conversion.json`));
     if (stableStringify(report) !== stableStringify(plan))
       throw new Error("conversion report differs from source plan");
     const actual = destination.eventRows(),
       mappings = plan.mappings.filter((mapping) => mapping.disposition !== "unsupported");
     if (actual.length !== events.length || destination.revision() !== events.length)
       throw new Error("converted event count differs");
-    for (const [index, event] of events.entries()) {
+    for (const [index, event] of events.slice(0, rows.length).entries()) {
       const row = actual[index]!,
         original = rows[mappings[index]!.sourceRevision - 1]!;
       if (
@@ -431,7 +534,13 @@ function verify(
           throw new Error(`converted content closure differs: ${claim.sha256}`);
       }
     }
-    if (destinationOutcomes.length !== sourceOutcomes.length) throw new Error("command outcome count differs");
+    for (const [offset, event] of events.slice(rows.length).entries()) {
+      const row = actual[rows.length + offset]!;
+      if (row.eventJson !== serializePersistedCanonicalEvent(event))
+        throw new Error(`appended migration event differs at revision ${row.revision}`);
+    }
+    if (destinationOutcomes.length !== sourceOutcomes.length + plan.appendedInvalidations)
+      throw new Error("command outcome count differs");
     for (const original of sourceOutcomes) {
       const members = mappedMembers(byOpId, original.memberOpIds),
         result = destination.outcome(original.opId),
@@ -483,7 +592,7 @@ function verify(
       const first = projection.rebuild();
       rebuild = projection.rebuild();
       if (first.stateDigest !== rebuild.stateDigest || rebuild.watermark !== events.length)
-        throw new Error("generation 2 cold rebuild differs at the converted cut");
+        throw new Error(`generation ${plan.destinationGeneration} cold rebuild differs at the converted cut`);
     } finally {
       projection.close();
     }

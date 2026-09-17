@@ -42,7 +42,7 @@ export function createLedgerBackup(input: {
   readonly rootInput: HarnessLayoutInput;
   readonly backupDir: string;
   readonly now?: Date;
-  readonly generation?: 1 | 2;
+  readonly generation?: number;
   readonly registration?: LedgerBackupRegistrationV1;
 }): LedgerBackupManifestV1 {
   const backupDir = path.resolve(input.backupDir);
@@ -57,7 +57,7 @@ export function createLedgerBackup(input: {
   fileSystem.mkdir(payloadRoot, { recursive: true });
   copyWorkingTree(layout.rootDir, layout.authoredRoot, payloadRoot);
   for (const sourcePath of sourcePaths) copySource(layout.rootDir, sourcePath, payloadRoot);
-  for (const generation of [1, 2]) {
+  for (const generation of [1, 2, 3]) {
     const database = sqliteLedgerPath(input.rootInput, generation);
     if (fileSystem.exists(database)) vacuumSqlite(layout.rootDir, database, payloadRoot);
   }
@@ -65,7 +65,7 @@ export function createLedgerBackup(input: {
     legacy = sqlitePresent ? null : readStoppedLegacyGeneration({ rootInput: input.rootInput }),
     files = inventory(payloadRoot).map((backupFile) => {
       const relative = portable(path.relative(payloadRoot, backupFile)),
-        vacuumed = /^\.harness\/store\/generations\/[12]\/ledger\.sqlite$/u.test(relative),
+        vacuumed = /^\.harness\/store\/generations\/[123]\/ledger\.sqlite$/u.test(relative),
         backup = entryDigest(backupFile);
       return {
         path: relative,
@@ -171,7 +171,7 @@ export function restoreDrillRetentionFor(rootInput: HarnessLayoutInput): number 
 
 export function readOfflineLedgerEvents(input: {
   readonly rootInput: HarnessLayoutInput;
-  readonly generation?: 1 | 2;
+  readonly generation?: number;
   readonly sinceRevision?: number;
   readonly sinceTime?: string;
   readonly grep?: string;
@@ -201,7 +201,7 @@ function existingBackupSources(rootDir: string, authoredRoot: string): readonly 
     path.join(rootDir, ".harness", "wal"),
     path.join(rootDir, ".harness", "store", "imports"),
   ];
-  for (const generation of [1, 2]) {
+  for (const generation of [1, 2, 3]) {
     const generationRoot = path.join(rootDir, ".harness", "store", "generations", String(generation));
     if (fileSystem.exists(generationRoot))
       for (const name of fileSystem.readDirectory(generationRoot))
@@ -465,5 +465,5 @@ export function readVerifiedLedgerBackup(backupDir: string): LedgerBackupManifes
   return manifest;
 }
 
-export { runGenerationTwoConversion } from "./generation-two-conversion.ts";
+export { runGenerationConversion } from "./generation-two-conversion.ts";
 export { resolveActiveGeneration } from "./sqlite-event-store.ts";

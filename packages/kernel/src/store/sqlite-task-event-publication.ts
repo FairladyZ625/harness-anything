@@ -255,8 +255,10 @@ export function physicalWorktreeRevision(
 function manifestRevision(bytes: Buffer, sqlite: ReturnType<typeof openSqliteEventStore>): number {
   const parsed = decodeFollowerManifest(bytes),
     revision = Number(parsed.cut?.revision);
+  // A follower certified for another canonical generation is simply unauthenticated for this
+  // store. Returning the genesis cut makes the ordinary publisher rebuild the complete closure.
+  if (parsed.generation !== sqlite.metadata().generation) return 0;
   if (
-    parsed.generation !== sqlite.metadata().generation ||
     parsed.cut?.repoId !== sqlite.metadata().repoId ||
     !Number.isSafeInteger(revision) ||
     revision < 0 ||

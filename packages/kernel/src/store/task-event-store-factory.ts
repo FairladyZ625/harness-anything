@@ -1,5 +1,9 @@
 import { makeSqliteTaskEventStore, type SqliteTaskEventStoreOptions } from "./sqlite-task-event-store.ts";
-import { activateEmptyCanonicalGeneration, resolveActiveGeneration } from "./sqlite-event-store.ts";
+import {
+  activateEmptyCanonicalGeneration,
+  CURRENT_SQLITE_GENERATION,
+  resolveActiveGeneration,
+} from "./sqlite-event-store.ts";
 
 // Writers and readers must land on the same generation, or a restart would read a ledger nobody
 // is writing. An explicit generation always wins so an operator can still audit the retained one.
@@ -13,7 +17,7 @@ export const makeTaskEventStore = (options: SqliteTaskEventStoreOptions) => {
   const selected = selectGeneration(options);
   return makeSqliteTaskEventStore({
     ...selected,
-    ...(options.activationPreflight === undefined && selected.generation === 2
+    ...(options.activationPreflight === undefined && selected.generation === CURRENT_SQLITE_GENERATION
       ? { activationPreflight: activateEmptyCanonicalGeneration }
       : {}),
   });
