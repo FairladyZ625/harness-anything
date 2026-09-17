@@ -4,7 +4,7 @@ import { act } from "react";
 import { createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { AttestationPoolView } from "../src/renderer/views/AttestationPoolView.tsx";
 import type { AttestationPoolTabId } from "../src/renderer/model/attestation-pool.ts";
 import type { DecisionRow, TaskRow } from "../src/renderer/model/types.ts";
@@ -29,7 +29,12 @@ afterEach(async () => {
   document.body.replaceChildren();
 });
 
-function submittedExecution(taskId: string, gateId: string, adapterId: string) {
+function submittedExecution(
+  taskId: string,
+  gateId: string,
+  adapterId: string,
+  governance: { readonly allowOverride?: true; readonly mandatorySignoff?: true } = {},
+) {
   return {
     schema: "execution/v1",
     executionId: `execution-${taskId}`,
@@ -51,7 +56,15 @@ function submittedExecution(taskId: string, gateId: string, adapterId: string) {
       commitSha: null,
       artifacts: [{ locator: "artifacts/report.md", accepted: true }],
       completionContract: {
-        gates: [{ gateId, appliesTo: "submission", witness: { adapterId, adapterOptions: {} } }],
+        gates: [
+          {
+            gateId,
+            appliesTo: "submission",
+            witness: { adapterId, adapterOptions: {} },
+            ...(governance.allowOverride ? { allowOverride: true } : {}),
+            ...(governance.mandatorySignoff ? { mandatorySignoff: true } : {}),
+          },
+        ],
       },
     },
   };
@@ -83,7 +96,7 @@ const failedTask: TaskRow = {
   taskId: "task-failed",
   title: "CI 失败任务",
   gates: [{ name: "ci-gate", ok: false, status: "failed", detail: "current execution cut did not pass" }],
-  executions: [submittedExecution("task-failed", "ci-gate", "github-actions")],
+  executions: [submittedExecution("task-failed", "ci-gate", "github-actions", { allowOverride: true })],
 } as TaskRow;
 
 const consentTask: TaskRow = {
@@ -127,7 +140,10 @@ interface PoolHarness {
   readonly judged: { decisionId: string; action: string; rationale: string }[];
 }
 
-async function mountPool(initialTab: AttestationPoolTabId = "all"): Promise<PoolHarness> {
+async function mountPool(
+  initialTab: AttestationPoolTabId = "all",
+  tasks: readonly TaskRow[] = [attestTask, failedTask, consentTask],
+): Promise<PoolHarness> {
   const harness: PoolHarness = { tabChanges: [], attestCalls: [], consentCalls: [], judged: [] };
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
     container = document.createElement("div"),
@@ -145,15 +161,15 @@ async function mountPool(initialTab: AttestationPoolTabId = "all"): Promise<Pool
           summary,
           facts: [],
           relations: [],
-          tasks: [attestTask, failedTask, consentTask],
+          tasks,
           onAttest: (task, gateId, mode, rationale) => {
             harness.attestCalls.push({ taskId: task.taskId, gateId, mode, ...(rationale ? { rationale } : {}) });
             return Promise.resolve({
               state: "error",
               kind: "attest",
               opId: "op-1",
-              code: "invalid_field",
-              hint: "action.mode is not declared by the Action input schema",
+              code: "invalid_transition",
+              hint: "this cut has no recorded automated fail or pass yet",
             });
           },
           onCompleteTask: (task, consent) => {
@@ -163,7 +179,7 @@ async function mountPool(initialTab: AttestationPoolTabId = "all"): Promise<Pool
           onNavigateTask: () => undefined,
           onNavigateDecision: () => undefined,
           onJudge: (decision, action, input) => {
-            judged.push({ decisionId: decision.decisionId, action, rationale: input.rationale });
+            harness.judged.push({ decisionId: decision.decisionId, action, rationale: input.rationale });
             return Promise.resolve({ state: "success", kind: action, opId: "op-j", hint: "ok" });
           },
           poolTab: initialTab,
@@ -233,7 +249,7 @@ describe("AttestationPoolView", () => {
     expect(document.querySelector('[data-testid="decision-card-dec-pool"]')).toBeNull();
   });
 
-  it("dispatches a manual-attest sign-off with the note as rationale", async () => {
+  it("dispatches a manual-attest sign-off with the typed comment", async () => {
     const harness = await mountPool("gates");
     await act(async () => {
       byTestId("pool-gate-approve-task-attest-ux-signoff").click();
@@ -245,6 +261,47 @@ describe("AttestationPoolView", () => {
     expect(harness.attestCalls).toEqual([
       { taskId: "task-attest", gateId: "ux-signoff", mode: "approve", rationale: "体验走查通过,可以放行。" },
     ]);
+  });
+
+  it("offers the sign-off lane for a passed automated gate missing its dual-control signoff", async () => {
+    const dualControl: TaskRow = {
+      ...attestTask,
+      taskId: "task-dual",
+      title: "双控缺签任务",
+      gates: [
+        {
+          name: "e2e",
+          ok: false,
+          status: "signoff_missing",
+          detail: "the automated witness passed; the mandatory human signoff is missing",
+        },
+      ],
+      executions: [submittedExecution("task-dual", "e2e", "local-command", { mandatorySignoff: true })],
+    } as TaskRow;
+    const harness = await mountPool("gates", [dualControl]);
+    await act(async () => {
+      byTestId("pool-gate-approve-task-dual-e2e").click();
+    });
+    await typeInto(document.querySelector<HTMLTextAreaElement>("textarea")!, "复核通过,同意放行。");
+    await act(async () => {
+      byTestId("gate-attest-submit-approve").click();
+    });
+    expect(harness.attestCalls).toEqual([
+      { taskId: "task-dual", gateId: "e2e", mode: "approve", rationale: "复核通过,同意放行。" },
+    ]);
+  });
+
+  it("keeps a failed gate without declared allowOverride out of the break-glass lane", async () => {
+    const locked: TaskRow = {
+      ...attestTask,
+      taskId: "task-locked",
+      title: "不可特批的失败任务",
+      gates: [{ name: "ci-gate", ok: false, status: "failed" }],
+      executions: [submittedExecution("task-locked", "ci-gate", "github-actions")],
+    } as TaskRow;
+    await mountPool("breakGlass", [locked]);
+    expect(document.querySelector('[data-testid="pool-gate-row-task-locked-ci-gate"]')).toBeNull();
+    expect(byTestId("attestation-pool-tab-breakGlass").textContent).toMatch(/\S+\s*·\s*0(?=\s|$)/);
   });
 
   it("requires a 10+ char rationale before dispatching a break-glass override", async () => {
@@ -274,7 +331,7 @@ describe("AttestationPoolView", () => {
   });
 
   it("keeps the decision quick-judgment surface on the decisions tab", async () => {
-    const harness = await mountPool("decisions");
+    await mountPool("decisions");
     const card = document.getElementById("decision-card-dec-pool");
     expect(card, "decision card missing").toBeTruthy();
     expect(card!.textContent).toContain("总池里的待裁决策");
