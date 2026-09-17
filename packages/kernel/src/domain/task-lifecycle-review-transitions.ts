@@ -2,7 +2,7 @@ import { isNativeCommitSha, submissionDigest } from "./execution.ts";
 import { digest } from "./digest.ts";
 import { sameCodeDocPaths } from "./code-doc-witness.ts";
 import type { ExecutionV1 } from "./execution.ts";
-import { reviewDigest } from "./review.ts";
+import { reviewDigest, reviewReturnBudgetSpent } from "./review.ts";
 import type { ReviewConsentV1, ReviewV1 } from "./review.ts";
 import type { CodeDocWitnessV1 } from "./code-doc-witness.ts";
 import type { ContractValidationIssue, TaskV2 } from "./task.ts";
@@ -78,7 +78,7 @@ function reviewIssues(
       lifecycleContractIssue("invalid_proof", "transport-bound execution review proof and content digest are required"),
     );
   const iteration = snapshot.task?.iteration ?? 0;
-  if (command.verdict === "changes_requested" && iteration >= (proof.returnBudget ?? 0))
+  if (command.verdict === "changes_requested" && reviewReturnBudgetSpent(iteration, proof.returnBudget ?? 0))
     issues.push(
       lifecycleContractIssue(
         "manual_intervention_required",

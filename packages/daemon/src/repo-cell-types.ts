@@ -15,7 +15,7 @@ import {
 import { type PresetRunReceiptV1 } from "../../preset/src/index.ts";
 import { type AgentRuntimeAttachSubscription, type AgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
 import { type RuntimeDispatchArchive } from "./doc-sync-actions.ts";
-import type { FleetAssignmentScope } from "./fleet/contract.ts";
+import type { FleetAssignmentScope, FleetRuntimeDispatchContext } from "./fleet/contract.ts";
 import { type ReplicaCutSource } from "./fleet/replica-cut-store.ts";
 import { openGuiCatalog } from "./gui-catalog.ts";
 import {
@@ -56,6 +56,7 @@ export type RuntimeIngressAction =
       readonly payload: Readonly<Record<string, unknown>>;
       readonly opId: string;
       readonly resultBody?: string;
+      readonly dispatchContext?: FleetRuntimeDispatchContext;
     }
   | { readonly kind: "archive"; readonly archive: RuntimeDispatchArchive };
 
