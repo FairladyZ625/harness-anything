@@ -60,6 +60,8 @@ function currentCutContractGates(task: TaskRow): ReadonlyMap<string, FrozenContr
   // archival 变体的 submission 不带冻结契约(Omit<SubmissionV1, "completionContract">):
   // 缺契约即无可判定适配器,与「没有 cut」同样处理,不猜。
   for (const requirement of cut.submission?.completionContract?.gates ?? []) {
+    // 迁移保留的历史要求没有适配器,永远不能签注或特批,不进任何 lane。
+    if (requirement.witness.kind !== "adapter") continue;
     gates.set(requirement.gateId, {
       adapterId: requirement.witness.adapterId,
       allowOverride: requirement.allowOverride === true,

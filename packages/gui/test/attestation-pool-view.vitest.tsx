@@ -60,7 +60,7 @@ function submittedExecution(
           {
             gateId,
             appliesTo: "submission",
-            witness: { adapterId, adapterOptions: {} },
+            witness: { kind: "adapter", adapterId, adapterOptions: {} },
             ...(governance.allowOverride ? { allowOverride: true } : {}),
             ...(governance.mandatorySignoff ? { mandatorySignoff: true } : {}),
           },

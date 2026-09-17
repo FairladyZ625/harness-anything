@@ -40,7 +40,7 @@ function submittedExecution(
         gates: gates.map((gate) => ({
           gateId: gate.gateId,
           appliesTo: "submission",
-          witness: { adapterId: gate.adapterId, adapterOptions: {} },
+          witness: { kind: "adapter", adapterId: gate.adapterId, adapterOptions: {} },
           ...(gate.allowOverride ? { allowOverride: true } : {}),
         })),
       },
