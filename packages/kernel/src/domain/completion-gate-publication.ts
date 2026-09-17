@@ -3,9 +3,24 @@ import type { WriteSource } from "./write-chain.contract.ts";
 import { compileTaskLifecycleWrite, type LifecycleDocumentState } from "./task-lifecycle-publication.ts";
 import { validateTaskEvent, type CompletionGateVerifiedEvent } from "./task-lifecycle-event.ts";
 import { TaskLifecycleContractError, type TaskLifecycleSnapshot } from "./task-lifecycle.contract.ts";
-import type { CompletionGateWitnessV1 } from "./completion-gate-witness.ts";
+import { sameGateWitnessLane, type CompletionGateWitnessV1 } from "./completion-gate-witness.ts";
 import type { CompletionEvidenceV1 } from "./completion-evidence.ts";
-import { gateAppliesToSubmission } from "./completion-contract.ts";
+import { gateAppliesToSubmission, type FrozenGateRequirement } from "./completion-contract.ts";
+
+/**
+ * The witness source the frozen contract admits for this evidence: the declared adapter itself, or a
+ * human attestation the requirement's governance asks for (signoff) or permits (override).
+ */
+function admittedWitnessSource(
+  requirement: FrozenGateRequirement,
+  evidence: CompletionEvidenceV1 | undefined,
+): boolean {
+  if (!evidence) return false;
+  const human = evidence.provenance.source === "human" && evidence.provenance.adapterId === "manual-attest";
+  if (evidence.override !== undefined) return human && requirement.allowOverride === true;
+  if (evidence.provenance.adapterId === requirement.witness.adapterId) return true;
+  return human && requirement.mandatorySignoff === true;
+}
 
 export function compileCompletionGateWitness(input: {
   readonly snapshot: TaskLifecycleSnapshot;
@@ -42,8 +57,8 @@ export function compileCompletionGateWitness(input: {
     // A gate outside this cut's declared scope cannot be witnessed at all — not_applicable is
     // not a state a receipt can observe.
     !gateAppliesToSubmission(requirement, execution.submission) ||
-    // The witness's actual source adapter must equal the adapter frozen into the submission contract.
-    input.evidence?.provenance.adapterId !== requirement.witness.adapterId ||
+    // The witness's actual source must be one the submission's frozen contract admits for this gate.
+    !admittedWitnessSource(requirement, input.evidence) ||
     input.commitSha !== execution.submission.commitSha ||
     input.iteration !== execution.iteration ||
     input.workspaceRevision <= input.snapshot.revision
@@ -70,6 +85,7 @@ export function compileCompletionGateWitness(input: {
             observed: input.evidence.observed,
             basis: input.evidence.basis,
             provenance: input.evidence.provenance,
+            ...(input.evidence.override ? { override: input.evidence.override } : {}),
           }
         : {}),
     },
@@ -88,12 +104,7 @@ export function compileCompletionGateWitness(input: {
     snapshot: TaskLifecycleSnapshot = {
       ...input.snapshot,
       revision: input.workspaceRevision,
-      gateWitnesses: [
-        ...input.snapshot.gateWitnesses.filter(
-          (value) => value.executionId !== input.executionId || value.gateId !== input.gateId,
-        ),
-        witness,
-      ],
+      gateWitnesses: [...input.snapshot.gateWitnesses.filter((value) => !sameGateWitnessLane(value, witness)), witness],
     };
   const issues = validateTaskEvent(event);
   if (issues.length) throw new TaskLifecycleContractError("invalid_schema", issues);

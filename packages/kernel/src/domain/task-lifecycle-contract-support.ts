@@ -133,7 +133,7 @@ export function canonicalGateReceipts(
   const commitSha = current.submission.commitSha;
   const passed = new Set(
     gateResults(snapshot, undefined, current.executionId, current.submission, current.iteration)
-      .filter(({ status }) => status === "passed")
+      .filter(({ status }) => status === "passed" || status === "waived")
       .map(({ gateId }) => gateId),
   );
   return completionGateIds(snapshot.task?.completionGateIds ?? [], current.submission).flatMap((gateId) => {

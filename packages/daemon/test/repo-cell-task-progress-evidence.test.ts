@@ -254,7 +254,7 @@ test("unverified latest observation rejects and latest real red never falls back
   });
   assert.equal(ci(red.cell, current)?.result, "fail");
   // Submit-time preparation runs after the submission is durable: the red is neither attached nor
-  // allowed to bounce the accepted cut. Completion judges it.
+  // allowed to bounce the accepted cut. Completion judges it (completeOverRedCi below).
   await prepareSubmissionEvidence(red.cell, "task", "execution", binding);
   assert.deepEqual(
     red.calls.map((call) => (call as { kind?: string }).kind),
@@ -636,5 +636,230 @@ test("completed receipt replay does not inspect a newer red or unavailable CI ob
       authorizationDecision: { outcome: "allowed" },
     } as RepoCellBinding),
     receipt,
+  );
+});
+
+async function completeOverRedCi(
+  requirement: FrozenGateRequirement,
+  observations:
+    | readonly CiRunObservationEventV3[]
+    | ((sha: string) => readonly CiRunObservationEventV3[])
+    | null = null,
+  witnesses:
+    | ((sha: string, submitted: Snapshot["executions"][number]) => readonly Snapshot["gateWitnesses"][number][])
+    | null = null,
+) {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-complete-override-"));
+  try {
+    const sha = init(root),
+      submitted = execution(sha, [], [requirement]),
+      settings = readSettingsFacet(""),
+      packagePath = "tasks/task-complete-override",
+      presetSnapshotDigest = compileRepoTaskPackage({
+        rootDir: root,
+        settings,
+        taskId: "task",
+        action: { kind: "task-create", title: "Complete Override" },
+      }).snapshot.digest,
+      snapshot = {
+        revision: 1,
+        task: {
+          taskId: "task",
+          status: "in_review",
+          currentNode: "review",
+          iteration: 0,
+          completionGateIds: ["ci"],
+          createdBy: actor,
+          taskClass: "standard",
+          presetSnapshotDigest,
+        },
+        executions: [submitted],
+        reviews: [],
+        consents: [],
+        codeDocWitnesses: [],
+        gateWitnesses: witnesses?.(sha, submitted) ?? [],
+        lease: null,
+        decisionRelations: [],
+      } as unknown as Snapshot,
+      read = { snapshot, packagePath, status: "ready", watermark: 2, sourceRevision: 2 },
+      published: CompletionEvidenceV1[] = [],
+      cell = {
+        rootDir: root,
+        projectionReady,
+        input: { repoId: "repo" },
+        settings: { read: () => settings, readRepository: () => settings },
+        requiredCellText: (value: string) => value,
+        operationId: () => "facade-op",
+        completeRetryCommand: () => "ha task complete task",
+        completionContext: () => ({
+          closeout: "ready",
+          closeoutPath: `${packagePath}/closeout.md`,
+          eligibleDirtyPaths: [],
+          producesFactCount: 1,
+          projectionStatus: "ready",
+          closeoutGates: { review: false, consent: false, factDisposition: false, codeDoc: false },
+        }),
+        completionStopped,
+        completionSettlement,
+        service: { read: async () => read },
+        projection: {
+          read: () => read,
+          readTaskCompletion: () => null,
+          getEntity: () => null,
+          readRelationQuery: (query: { readonly relationType?: string }) =>
+            query.relationType === "produces"
+              ? { rows: [{ targetRef: "fact/one", state: "active" }], status: "ready" }
+              : { rows: [], status: "ready" },
+          readDecisions: () => ({ decisions: [], status: "ready" }),
+          readDocument: (target: string) => ({
+            watermark: 2,
+            sourceRevision: 2,
+            document: {
+              path: target,
+              blobSha256: "0".repeat(64),
+              body: target.endsWith("task-contract.json")
+                ? JSON.stringify({
+                    title: "Complete Override",
+                    documents: [{ slot: "task.closeout", path: "closeout.md" }],
+                  })
+                : "## Summary\nDone.\n## Verification\nVerified.\n## Residual Risk\nNone.\n" +
+                  "## Same Mechanism Elsewhere\nChecked.\n",
+            },
+          }),
+          readCiRunObservations: () => ({
+            status: "ready",
+            events:
+              typeof observations === "function"
+                ? observations(sha)
+                : (observations ?? [observation(sha, 1, "failure")]),
+            watermark: 2,
+            sourceRevision: 2,
+          }),
+        },
+        cellCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),
+        lifecycleAction: async () => assert.fail("completion must stop before any lifecycle write"),
+        publishGateWitness: (...args: unknown[]) => {
+          const evidence = args[5] as CompletionEvidenceV1;
+          published.push(evidence);
+          // The canonical write is durable before the read below re-judges the refreshed snapshot.
+          (snapshot.gateWitnesses as Snapshot["gateWitnesses"][number][]).push({
+            gateId: evidence.gateId,
+            checkerId: evidence.checkerId,
+            result: evidence.result as "pass" | "fail",
+            observed: evidence.observed,
+            basis: evidence.basis,
+            provenance: evidence.provenance,
+            ...(evidence.override ? { override: evidence.override } : {}),
+            schema: "completion-gate-witness/v1",
+            witnessId: `gate-witness-${published.length}`,
+            receiptId: `op-witness-${published.length}`,
+            taskId: "task",
+            executionId: submitted.executionId,
+            commitSha: sha,
+            iteration: submitted.iteration,
+            actor,
+            source: "local",
+            verifiedAt: "2026-09-12T00:06:00.000Z",
+          });
+          return { outcome: "applied", opId: "witness-fail" };
+        },
+      } as unknown as RepoCellOperationalContext;
+    const receipt = (await completeTask(cell, { kind: "task-complete", taskId: "task", executionId: "execution" }, {
+      ...binding,
+      authorizationDecision: { outcome: "allowed" },
+    } as RepoCellBinding)) as unknown as Record<string, unknown>;
+    return { receipt, published };
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+test("complete records the automated fail of an override-allowed gate and stops; other gates still reject", async () => {
+  const { receipt, published } = await completeOverRedCi({ ...ciRequirement(), allowOverride: true });
+  assert.deepEqual(
+    published.map((evidence) => [evidence.gateId, evidence.result, evidence.provenance.source]),
+    [["ci", "fail", "runner"]],
+  );
+  assert.equal(receipt.outcome, "op_rejected");
+  assert.equal(receipt.code, "ci_missing");
+  // Without allowOverride the automated fail still rejects the completion outright.
+  await assert.rejects(completeOverRedCi(ciRequirement()), { code: "invalid_proof" });
+
+  // No covering CI observation at all: nothing is recorded, and the blocker offers the owner's
+  // break-glass override over the absent receipt.
+  const empty = await completeOverRedCi({ ...ciRequirement(), allowOverride: true }, []);
+  assert.equal(empty.published.length, 0);
+  assert.equal(empty.receipt.outcome, "op_rejected");
+  assert.equal(empty.receipt.code, "ci_missing");
+  assert.match(
+    String((empty.receipt.next as readonly { action: string }[])[0]?.action),
+    /ha task attest task --gate ci --result pass --mode override --rationale/u,
+  );
+});
+
+/** A human break-glass witness over the cut's absent automated receipt (`waivedReceiptId: null`). */
+function nullWaiver(sha: string, submitted: Snapshot["executions"][number]): Snapshot["gateWitnesses"][number] {
+  return {
+    schema: "completion-gate-witness/v1",
+    witnessId: "gate-op-waiver",
+    receiptId: "op-waiver",
+    checkerId: "ci",
+    gateId: "ci",
+    result: "pass",
+    observed: true,
+    basis: {
+      executionId: submitted.executionId,
+      iteration: submitted.iteration,
+      submissionDigest: submissionDigest(submitted.submission!),
+      codeCommit: sha,
+    },
+    provenance: {
+      source: "human",
+      adapterId: "manual-attest",
+      runId: "override:owner",
+      rawResult: "override with no automated receipt by owner: runner was unreachable",
+    },
+    override: { rationale: "CI runner host was unreachable during the window", waivedReceiptId: null },
+    taskId: "task",
+    executionId: submitted.executionId,
+    commitSha: sha,
+    iteration: submitted.iteration,
+    actor,
+    source: "local",
+    verifiedAt: "2026-09-12T00:05:00.000Z",
+  } as Snapshot["gateWitnesses"][number];
+}
+
+test("a no-receipt waiver is voided by a later automated receipt on the same cut", async () => {
+  // A red run lands after the waiver: the fail is recorded verbatim and blocks completion again.
+  const red = await completeOverRedCi(
+    { ...ciRequirement(), allowOverride: true },
+    (sha) => [observation(sha, 1, "failure")],
+    (sha, submitted) => [nullWaiver(sha, submitted)],
+  );
+  assert.deepEqual(
+    red.published.map((evidence) => [evidence.gateId, evidence.result, evidence.provenance.source]),
+    [["ci", "fail", "runner"]],
+  );
+  assert.equal(red.receipt.outcome, "op_rejected");
+  assert.equal(red.receipt.code, "ci_missing");
+
+  // A green run lands after the waiver: the pass is recorded, the gate still blocks on the
+  // mandatory signoff — the voided override never counts as one.
+  const green = await completeOverRedCi(
+    { ...ciRequirement(), allowOverride: true, mandatorySignoff: true },
+    (sha) => [observation(sha, 1, "success")],
+    (sha, submitted) => [nullWaiver(sha, submitted)],
+  );
+  assert.deepEqual(
+    green.published.map((evidence) => [evidence.gateId, evidence.result, evidence.provenance.source]),
+    [["ci", "pass", "runner"]],
+  );
+  assert.equal(green.receipt.outcome, "op_rejected");
+  assert.equal(green.receipt.code, "ci_missing");
+  assert.match(
+    String((green.receipt.next as readonly { action: string }[])[0]?.action),
+    /ha task attest task --gate ci --result pass$/u,
+    "the blocker must ask for a plain signoff, not another override",
   );
 });

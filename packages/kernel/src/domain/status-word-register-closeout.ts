@@ -32,6 +32,20 @@ export const closeoutStatusWordRegister: readonly StatusWordRegistration[] = [
     divergence: "entity-scoped",
   },
   {
+    word: "waived",
+    entity: "TaskCloseout",
+    field: "gate status",
+    meaning: "A recorded automated fail on the current cut is covered by a human override that names it.",
+    divergence: "entity-scoped",
+  },
+  {
+    word: "signoff_missing",
+    entity: "TaskCloseout",
+    field: "gate status",
+    meaning: "The automated witness passed, but the gate's mandatory human signoff is absent on the current cut.",
+    divergence: "entity-scoped",
+  },
+  {
     word: "not_applicable",
     entity: "TaskCloseout",
     field: "gate status",

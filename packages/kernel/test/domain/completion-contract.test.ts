@@ -213,3 +213,44 @@ test("pre-freeze submissions infer their effective requirements from the rules t
   assert.equal(inferLegacyGateRequirements(["ci"], []).length, 0);
   assert.equal(inferLegacyGateRequirements([], ["rewrite-ci"]).length, 0);
 });
+
+test("governance modifiers freeze only as true, only on automated witnesses, and absence keeps automated-only", () => {
+  const governedYaml =
+      "  gates:\n" +
+      "    ci:\n      adapter: github-actions\n      appliesTo: code\n      event: push\n" +
+      "      coverage: descendant\n      selection: newest\n      branch: main\n      mandatorySignoff: true\n" +
+      "    lint:\n      adapter: local-command\n      appliesTo: code\n      command: npm test\n" +
+      "      allowOverride: true\n      mandatorySignoff: false\n" +
+      "    review:\n      adapter: manual-attest\n      appliesTo: artifacts\n",
+    resolved = resolveCompletionContract(["ci", "lint", "review"], readSettingsFacet(repositoryYaml(governedYaml)));
+  assert.equal(resolved.ok, true);
+  if (!resolved.ok) return;
+  const [ci, lint, review] = resolved.contract.gates;
+  assert.equal(ci?.mandatorySignoff, true);
+  assert.equal(Object.hasOwn(ci!, "allowOverride"), false);
+  assert.equal(lint?.allowOverride, true);
+  // `false` is the absent modifier: the frozen shape and its digest do not change.
+  assert.equal(Object.hasOwn(lint!, "mandatorySignoff"), false);
+  assert.deepEqual(Object.keys(review!).sort(), ["appliesTo", "gateId", "witness"]);
+  assert.deepEqual(validateFrozenCompletionContract(resolved.contract), []);
+  assert.deepEqual(validateFrozenCompletionContract(currentPresetContract), []);
+
+  const invalid = (patch: Record<string, unknown>, index = 0) =>
+    validateFrozenCompletionContract({
+      gates: resolved.contract.gates.map((gate, at) => (at === index ? { ...gate, ...patch } : gate)),
+    }).length > 0;
+  assert.equal(invalid({ allowOverride: false }), true);
+  assert.equal(invalid({ mandatorySignoff: "true" }), true);
+  assert.equal(invalid({ mandatorySignoff: true }, 2), true);
+
+  const rejects = (gates: string, pattern: RegExp) =>
+    assert.throws(() => readSettingsFacet(repositoryYaml(`  gates:\n${gates}`)), pattern);
+  rejects(
+    `    review:\n      adapter: manual-attest\n      appliesTo: code\n      mandatorySignoff: true\n`,
+    /human governance/u,
+  );
+  rejects(
+    `    lint:\n      adapter: local-command\n      appliesTo: code\n      command: x\n      allowOverride: yes\n`,
+    /allowOverride/u,
+  );
+});

@@ -69,6 +69,7 @@ export interface StatusVocabulary {
 
 import { decisionStates } from "./decision-event-types.ts";
 import { relationStates } from "./entity-relation.ts";
+import { closeoutGateStatuses } from "./closeout-readiness.ts";
 import { factLivenessStates } from "./fact-liveness.ts";
 import { domainStatuses } from "./lifecycle-status.ts";
 import { statusWordRegister } from "./status-word-register.ts";
@@ -291,12 +292,13 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     entity: "TaskCloseout",
     field: "gate status",
     module: "packages/kernel/src/domain/closeout-readiness.ts",
-    anchor: "CloseoutGateStatus",
-    words: ["passed", "failed", "missing", "unknown", "not_applicable"],
+    anchor: "closeoutGateStatuses",
+    words: closeoutGateStatuses,
     note:
       "Per-gate verdict inside closeoutReadiness; the readiness label aggregates these. " +
       "not_applicable marks a frozen requirement whose declared scope this cut does not deliver — " +
-      "it is not a pass and never counts as missing.",
+      "it is not a pass and never counts as missing. waived satisfies the gate through a human override " +
+      "of a recorded automated fail; signoff_missing is an automated pass still awaiting mandatory signoff.",
   },
   {
     id: "task-blocking.availability",

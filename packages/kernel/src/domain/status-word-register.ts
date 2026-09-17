@@ -927,6 +927,7 @@ export const statusWordRegister: readonly StatusWordRegistration[] = [
     divergence: "entity-scoped",
   },
 
+  // ---- TaskCloseout gate status and readiness (status-word-register-closeout.ts) ----
   ...closeoutStatusWordRegister,
 
   // ---- Task.sessionBinding disposition (witness availability) ----
