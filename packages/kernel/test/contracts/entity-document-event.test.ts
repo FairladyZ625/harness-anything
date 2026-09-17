@@ -82,6 +82,26 @@ test("empty and duplicate-path updates are rejected before any write", () => {
   );
 });
 
+test("invalid batch subjects and write-plan drift are rejected", () => {
+  const compiled = compileEntityDocumentRematerialization({ ...baseInput, updates: [decisionUpdate("# D\n")] });
+  assert.notEqual(compiled, null);
+  assert.notDeepEqual(
+    validateCurrentEntityDocumentEvent({
+      ...compiled.event,
+      payload: { ...compiled.event.payload, entityRefs: ["decision/dec_FIXTURE", "decision/dec_FIXTURE"] },
+    }),
+    [],
+  );
+  assert.throws(
+    () =>
+      assertEntityDocumentEventWritePlan(compiled.event, {
+        ...compiled.plan,
+        targets: compiled.plan.targets.slice(0, -1),
+      }),
+    /must exactly declare/u,
+  );
+});
+
 test("the strict current validator rejects extra payload fields while the fixture stays readable", () => {
   const compiled = compileEntityDocumentRematerialization({ ...baseInput, updates: [decisionUpdate("# D\n")] })!,
     widened = { ...compiled.event, payload: { ...compiled.event.payload, futureField: true } };

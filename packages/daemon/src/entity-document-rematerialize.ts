@@ -1,4 +1,5 @@
-import { createHash } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
 import {
   compileEntityDocumentRematerialization,
   DECISION_DOCUMENT_POLICY_ID,
@@ -9,6 +10,7 @@ import {
   rematerializeTaskDocuments,
   renderDecisionDocument,
   renderFactsDocument,
+  resolveHarnessLayout,
   sha256Text,
   type DecisionRelationLinkResolver,
   type EntityDocumentUpdate,
@@ -16,7 +18,7 @@ import {
   type TaskProjection,
   type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
-import { noChanges, reject } from "./entity-action-write-helpers.ts";
+import { reject } from "./entity-action-write-helpers.ts";
 import { decisionRelationLinkResolver } from "./entity-document-links.ts";
 import { publicationKillpoints } from "./entity-action-relation.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
@@ -26,9 +28,11 @@ type RematerializeEntityKind = "decision" | "fact" | "task";
 
 /**
  * Explicitly re-renders the current managed documents of Decisions, Facts, and Tasks from the
- * canonical SQLite projection and appends the result as one entity-document/v1 event per entity
+ * canonical SQLite projection and appends every changed document in one entity-document/v1 event
  * through the central write queue. Historical events, blobs, prose, pins, and business state are
- * untouched; documents that already match the current render produce no writes at all.
+ * untouched; documents that already match the current render produce no writes at all. A path whose
+ * authored file is dirty relative to the canonical document is excluded from the write set and
+ * reported as a conflict instead of being clobbered by follower publication.
  */
 export function runEntityDocumentRematerialize(
   cell: RepoCellOperationalContext,
@@ -48,7 +52,8 @@ export function runEntityDocumentRematerialize(
     throw cell.cellCodedError(
       "content_not_ready",
       `Entity document rematerialization requires a caught-up projection ` +
-        `(watermark ${pendingCut.watermark}, write head ${headRevision}); run ha daemon projection rebuild, then retry.`,
+        `(watermark ${pendingCut.watermark}, write head ${headRevision}); ` +
+        "run ha daemon projection rebuild, then retry.",
     );
   const authorizationDecision = binding.authorizationDecision,
     existingOutcome = readAcceptedCommandOutcome(cell.store, opId),
@@ -72,56 +77,78 @@ export function runEntityDocumentRematerialize(
       ...(authorizationDecision ? { authorizationDecision } : {}),
     };
   if (existingOutcome !== null) return { outcome: "applied", ...base };
-  const entityIds = resolveEntityIds(cell, entityKind, all, entityId);
-  if (entityIds.length === 0) return { outcome: "no_changes", ...base };
-  const occurredAt = cell.now(),
+  const entityIds = resolveEntityIds(cell, entityKind, all, entityId),
     linkResolver = decisionRelationLinkResolver(cell.projection),
-    changed = entityIds.flatMap((id) => {
-      const updates = currentEntityDocumentUpdates(cell.projection, entityKind, id, linkResolver).filter(
-        (update) => cell.projection.readDocument(update.path).document?.blobSha256 !== sha256Text(update.body),
-      );
-      return updates.length === 0 ? [] : [{ id, updates }];
+    targets = entityIds.map((id) => {
+      const entityRef = `${entityKind}/${id}`,
+        updates = currentEntityDocumentUpdates(cell.projection, entityKind, id, linkResolver),
+        conflictPaths = worktreeConflictPaths(cell, updates),
+        conflicts = new Set(conflictPaths),
+        changed = updates.filter(
+          (update) =>
+            !conflicts.has(update.path) &&
+            cell.projection.readDocument(update.path).document?.blobSha256 !== sha256Text(update.body),
+        ),
+        changedPaths = new Set(changed.map(({ path: target }) => target));
+      return {
+        entityRef,
+        updates: changed,
+        paths: updates.map(({ path: target }) => target),
+        changedPaths: [...changedPaths],
+        unchangedPaths: updates.flatMap(({ path: target }) =>
+          changedPaths.has(target) || conflicts.has(target) ? [] : [target],
+        ),
+        conflictPaths,
+      };
     }),
-    bundles = changed.map(({ id, updates }, index) =>
-      compileEntityDocumentRematerialization({
-        opId:
-          index === changed.length - 1 ? opId : `${opId}-${createHash("sha256").update(id).digest("hex").slice(0, 12)}`,
-        entityRefs: [`${entityKind}/${id}`],
-        updates,
-        rationale: "rematerialize current entity documents from the canonical projection",
-        actor: binding.actor,
-        source: binding.source,
-        occurredAt,
-        workspaceRevision: headRevision + index + 1,
-      }),
-    );
-  if (bundles.length === 0)
-    return noChanges({
+    updates = targets.flatMap((target) => target.updates),
+    report = {
+      ...evidenceBase,
+      mode: action.dryRun === true ? "preview" : "apply",
+      writeStatus: action.dryRun === true ? "not_requested" : updates.length === 0 ? "not_needed" : "accepted",
+      targetCount: targets.length,
+      pathCount: targets.reduce((count, target) => count + target.paths.length, 0),
+      changedCount: updates.length,
+      unchangedCount: targets.reduce((count, target) => count + target.unchangedPaths.length, 0),
+      conflictCount: targets.reduce((count, target) => count + target.conflictPaths.length, 0),
+      targets: targets.map(({ updates: _updates, ...target }) => target),
+    };
+  if (updates.length === 0)
+    return {
+      outcome: report.conflictCount === 0 ? "no_changes" : "pending",
+      ...base,
       opId: `noop:${opId}`,
-      revision: headRevision,
-      headRevision,
-      evidence: JSON.stringify({ ...evidenceBase, entityIds, unchanged: true }),
-      ...(authorizationDecision ? { authorizationDecision } : {}),
-    }) as WriteReceipt;
+      evidence: JSON.stringify(report),
+      proof: {
+        committedRevision: headRevision,
+        appliedCut: pendingCut.watermark,
+        durable: true,
+        canonicalVisible: true,
+        worktreeVisible: report.conflictCount === 0,
+      },
+    };
   if (action.dryRun === true)
     return {
       outcome: "pending",
       ...base,
-      evidence: JSON.stringify({
-        ...evidenceBase,
-        dryRun: true,
-        entityIds,
-        changes: bundles.flatMap((bundle) =>
-          bundle.event.payload.documentClaims.map((claim) => ({ path: claim.path, sha256: claim.sha256 })),
-        ),
-      }),
+      opId: `preview:${opId}`,
+      evidence: JSON.stringify(report),
     };
-  const terminal = bundles.at(-1)!;
-  cell.store.append({ ...terminal, preceding: bundles.slice(0, -1) });
-  for (const bundle of bundles) cell.projection.apply(bundle.event, bundle.plan);
+  const bundle = compileEntityDocumentRematerialization({
+    opId,
+    entityRefs: targets.flatMap(({ entityRef, updates: changed }) => (changed.length === 0 ? [] : [entityRef])),
+    updates,
+    rationale: "rematerialize current entity documents from the canonical projection",
+    actor: binding.actor,
+    source: binding.source,
+    occurredAt: cell.now(),
+    workspaceRevision: headRevision + 1,
+  });
+  cell.store.append(bundle);
+  cell.projection.apply(bundle.event, bundle.plan);
   publicationKillpoints(cell.input.killpoint);
   const outcome = readAcceptedCommandOutcome(cell.store, opId),
-    revision = outcome?.lastRevision ?? terminal.event.workspaceRevision,
+    revision = outcome?.lastRevision ?? bundle.event.workspaceRevision,
     appliedCut = cell.projection.readCut().watermark,
     canonicalVisible = appliedCut >= revision;
   return {
@@ -129,9 +156,8 @@ export function runEntityDocumentRematerialize(
     ...base,
     revision,
     evidence: JSON.stringify({
-      ...evidenceBase,
-      entityIds,
-      changedPaths: bundles.flatMap((bundle) => bundle.event.payload.documentClaims.map((claim) => claim.path)),
+      ...report,
+      changedPaths: bundle.event.payload.documentClaims.map((claim) => claim.path),
     }),
     proof: {
       committedRevision: revision,
@@ -141,6 +167,19 @@ export function runEntityDocumentRematerialize(
       worktreeVisible: false,
     },
   };
+}
+
+function worktreeConflictPaths(
+  cell: RepoCellOperationalContext,
+  updates: readonly EntityDocumentUpdate[],
+): readonly string[] {
+  const authoredRoot = resolveHarnessLayout(cell.rootDir).authoredRoot;
+  return updates.flatMap((update) => {
+    const current = cell.projection.readDocument(update.path).document,
+      absolute = path.join(authoredRoot, ...update.path.split("/"));
+    if (!current || !existsSync(absolute)) return [];
+    return readFileSync(absolute, "utf8") === current.body ? [] : [update.path];
+  });
 }
 
 function resolveEntityIds(

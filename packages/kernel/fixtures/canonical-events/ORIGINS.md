@@ -185,4 +185,6 @@ These registered schemas do not occur at the sampled canonical cut and retain th
 - `ci-run-observation/v2`: historical converted CI artifact ingestion contract fixture with no verified verdict inferred from the historical measurement.
 - `ci-run-observation/v3`: current CI artifact ingestion contract fixture with semantic gate results.
 - `ledger-layout-event/v1`: de-identified canonical layout migration event `op_73c908af…`.
-- `entity-document-event/v1`: synthetic current-entity document rematerialization event `op_fixture_entity_documents_rematerialized`; the schema postdates the sampled cut.
+- `entity-document-event/v1`: captured from the isolated real store append in
+  `packages/kernel/test/store/entity-document-rematerialize.test.ts` (`op-rematerialize-store`);
+  the schema postdates the sampled canonical cut, so this is not represented as a production-ledger sample.
