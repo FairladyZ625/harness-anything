@@ -53,6 +53,7 @@ export function TaskDetailView({
   onProgress,
   onSubmit,
   onComplete,
+  onAttest,
   onSetPin,
   onFocusGraph,
 }: {
@@ -78,6 +79,13 @@ export function TaskDetailView({
   onSubmit?: () => Promise<unknown>;
   /** 收口销账写通道(`ha task complete` 同一动作);缺省时完成面板只读。 */
   onComplete?: (consent: boolean) => Promise<unknown>;
+  /** Gate 签注写通道(`ha task attest` 同一动作);缺省时签注卡只读。 */
+  onAttest?: (
+    task: Pick<TaskRow, "taskId">,
+    gateId: string,
+    mode: "approve" | "override",
+    rationale?: string,
+  ) => Promise<TaskMutationFeedback>;
   /** 台账 pin 写通道(`ha task pin` 同一动作);缺省时只显示 📌 状态。 */
   onSetPin?: (task: TaskRow, pinned: boolean) => void;
   /** 统一「在关系图中查看」入口(task_89d324b5);缺省不渲染。 */
@@ -359,6 +367,7 @@ export function TaskDetailView({
                 onProgress={onProgress}
                 onSubmit={onSubmit}
                 onComplete={onComplete}
+                onAttest={onAttest}
               />
             ) : (
               <TaskFilesTab task={task} activeDoc={activeDoc} onOpenDoc={openDocument} />

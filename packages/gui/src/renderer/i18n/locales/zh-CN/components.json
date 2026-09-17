@@ -243,5 +243,14 @@
   "components.repoMode.remoteProxy": "纯展示",
   "components.repoMode.remoteCenter": "中心",
   "components.repoMode.remoteEdge": "边缘",
-  "components.localDoc.remoteProxyDisabled": "该仓库为纯展示(remote-proxy)模式:本机文件不属于它,本机文件链接已禁用。"
+  "components.localDoc.remoteProxyDisabled": "该仓库为纯展示(remote-proxy)模式:本机文件不属于它,本机文件链接已禁用。",
+  "components.taskGateAttestCard.attest": "打勾签注",
+  "components.taskGateAttestCard.override": "特批放行",
+  "components.taskGateAttestCard.cancel": "取消",
+  "components.taskGateAttestCard.rationaleLabel": "签注评语(可选)",
+  "components.taskGateAttestCard.rationalePlaceholder": "评语会作为 note 随签注存证…",
+  "components.taskGateAttestCard.overrideRationaleLabel": "特批理由(必填,至少 10 字符)",
+  "components.taskGateAttestCard.overrideRationalePlaceholder": "说明为什么放行(外部 flake / 环境阻断)…",
+  "components.taskGateAttestCard.overrideRationaleRequired": "特批理由至少 10 个字符。",
+  "components.taskGateAttestCard.overrideHint": "特批(break-glass)写入口尚未在 daemon 落地;提交会被如实拒绝,错误码与原因原样展示。"
 }

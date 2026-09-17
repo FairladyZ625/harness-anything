@@ -9,7 +9,7 @@ import { OverviewView } from "../src/renderer/views/OverviewView.tsx";
 import { deriveRuntimeHealth } from "../src/renderer/model/runtime-health.ts";
 import { BoardView } from "../src/renderer/views/BoardView.tsx";
 import { DecisionsView } from "../src/renderer/views/DecisionsView.tsx";
-import { DecisionPoolView } from "../src/renderer/views/DecisionPoolView.tsx";
+import { AttestationPoolView } from "../src/renderer/views/AttestationPoolView.tsx";
 import { FactDetailView } from "../src/renderer/views/EntityDetailView.tsx";
 import { DecisionDetailView } from "../src/renderer/components/decisionDetail/DecisionDetailView.tsx";
 import { FreshnessView } from "../src/renderer/views/FreshnessView.tsx";
@@ -625,8 +625,11 @@ const VIEW_RENDERERS = {
       coverageRows: [],
     }),
   decisionPool: () =>
-    createElement(DecisionPoolView, {
+    createElement(AttestationPoolView, {
       repoId: REPO_ID,
+      tasks: [],
+      poolTab: "decisions",
+      onPoolTabChange: noop,
       decisions: FIXTURE_DECISIONS,
       summary: FIXTURE_WORKSPACE_SUMMARY.decisions,
       facts: FIXTURE_FACTS,

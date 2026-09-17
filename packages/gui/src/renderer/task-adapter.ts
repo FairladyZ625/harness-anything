@@ -25,6 +25,8 @@ function adaptProjectionRow(
     name: gate.gateId,
     // 三态 gate 结论(kernel `closeoutGateOk`):unknown 投影为 null,不是第三种通过。
     ok: gate.ok,
+    // 签发总池按 status 区分 failed/missing(ok 三态压平了这一层),原样透传。
+    status: gate.status,
     ...(gate.detail ? { detail: gate.detail } : {}),
   }));
   const blocking = row.blockingAssessment;

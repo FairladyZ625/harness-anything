@@ -19,7 +19,8 @@ export interface AppSidebarProps {
   readonly view: ViewId;
   /** 任务详情占用主区时导航不点亮任何一项(与旧 App.tsx 判定一致)。 */
   readonly hasSelection: boolean;
-  readonly inboxCount: number | undefined;
+  /** 待办签发总池的待办角标(决策待裁 + 门禁待签 + 收口待同意 + 阻断待特批)。 */
+  readonly poolBadgeCount: number | undefined;
   readonly projectSwitcherOpen: boolean;
   readonly onProjectSwitcherToggle: () => void;
   readonly onOpenProject: (repoId: string) => void;
@@ -49,7 +50,7 @@ export function AppSidebar({
   activeRepoId,
   view,
   hasSelection,
-  inboxCount,
+  poolBadgeCount,
   projectSwitcherOpen,
   onProjectSwitcherToggle,
   onOpenProject,
@@ -144,7 +145,7 @@ export function AppSidebar({
                   onClick={() => onNavigate(item.id)}
                   icon={item.icon}
                   label={navLabel(item.id)}
-                  badge={item.id === "decisions" ? inboxCount : undefined}
+                  badge={item.id === "decisionPool" ? poolBadgeCount : undefined}
                 />
               ))}
             </nav>

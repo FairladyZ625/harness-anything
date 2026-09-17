@@ -1,5 +1,5 @@
 {
-  "renderer.shellConfig.decisionPool": "Decision Pool",
+  "renderer.shellConfig.decisionPool": "Sign-offs",
   "firstRun.stepProvider": "Step 2 of 3 · Provider and model",
   "firstRun.providerTitle": "Choose a provider and model",
   "firstRun.providerHint": "Use the Provider workspace behind this guide to add a detected Claude, Codex, or AGY installation and select its model. You may continue without one.",

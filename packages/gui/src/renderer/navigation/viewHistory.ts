@@ -1,4 +1,5 @@
 import type { TaskFilters } from "../model/taskFilters.ts";
+import type { AttestationPoolTabId } from "../model/attestation-pool.ts";
 import type { SnapshotStatus } from "../model/types.ts";
 import type { LaneGroupBy } from "../views/SwimlaneBoard.tsx";
 
@@ -55,6 +56,8 @@ export interface AppLocation {
   focusedEntityRef: string | null;
   taskFilters: TaskFilters;
   drill: DrillState | null;
+  /** 待办签发总池的当前 Tab(可寻址、刷新不丢);缺省 "all"。 */
+  poolTab?: AttestationPoolTabId;
 }
 
 export interface ViewHistoryState {
@@ -97,7 +100,8 @@ export function locationsEqual(a: AppLocation, b: AppLocation): boolean {
     a.previewId === b.previewId &&
     a.focusedEntityRef === b.focusedEntityRef &&
     JSON.stringify(a.taskFilters) === JSON.stringify(b.taskFilters) &&
-    JSON.stringify(a.drill) === JSON.stringify(b.drill)
+    JSON.stringify(a.drill) === JSON.stringify(b.drill) &&
+    (a.poolTab ?? "all") === (b.poolTab ?? "all")
   );
 }
 

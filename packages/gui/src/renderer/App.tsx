@@ -6,7 +6,7 @@ import { HomeView } from "./views/HomeView.tsx";
 import { OverviewView } from "./views/OverviewView.tsx";
 import { BoardView } from "./views/BoardView.tsx";
 import { DecisionsView } from "./views/DecisionsView.tsx";
-import { DecisionPoolView } from "./views/DecisionPoolView.tsx";
+import { AttestationPoolView } from "./views/AttestationPoolView.tsx";
 import { FactDetailView } from "./views/EntityDetailView.tsx";
 import { DecisionDetailView } from "./components/decisionDetail/DecisionDetailView.tsx";
 import { FreshnessView } from "./views/FreshnessView.tsx";
@@ -26,6 +26,7 @@ import { useEntityNavigation } from "./navigation/useEntityNavigation.ts";
 import { useAppShortcuts } from "./navigation/useAppShortcuts.ts";
 import { applyTaskFilters, type TaskFilters } from "./model/taskFilters.ts";
 import { adaptProjectionRows } from "./task-adapter.ts";
+import { deriveAttestationLanes, type AttestationPoolTabId } from "./model/attestation-pool.ts";
 import { invalidateLedgerDependents, useTasksQuery, useTaskWipQuery } from "./task-data.ts";
 import { useAgendaQuery } from "./agenda-data.ts";
 import {
@@ -142,6 +143,8 @@ function AppShell() {
   // 其他视图不挂载这条读,避免把已删除的独立议程页变成后台读取。
   const agendaQuery = useAgendaQuery(activeRepoId !== null && view === "overview" ? activeRepoId : null);
   const setTaskFilters = useCallback((next: TaskFilters) => updateLocation({ taskFilters: next }), [updateLocation]);
+  // 总池 Tab 走 AppLocation(可寻址、刷新不丢),与看板筛选同一「原地改,不推栈」路径。
+  const setPoolTab = useCallback((tab: AttestationPoolTabId) => updateLocation({ poolTab: tab }), [updateLocation]);
   // 看板 memo 的比较键里不能有每次渲染都换的函数引用(W9):pin 写通道与
   // mutation feedback 查询在这里收敛为稳定引用,顺着各视图传到每张卡片。
   const handleSetPin = useCallback(
@@ -255,8 +258,17 @@ function AppShell() {
     void prewarmRuntimeInstanceCatalog(queryClient);
   }, [queryClient, systemQuery.isSuccess, tasksQuery.isSuccess]);
 
-  // The badge is the daemon's canonical inbox count; renderer rows are not a second census.
-  const inboxCount = workspaceSummaryQuery.data?.decisions.inboxCount;
+  // The badge is the pool's own pending census: the daemon's canonical decision inbox
+  // count plus the task-side lanes derived from the same projection rows the pool renders.
+  const poolBadgeCount = useMemo(() => {
+    const lanes = deriveAttestationLanes(projectTasks);
+    return (
+      (workspaceSummaryQuery.data?.decisions.inboxCount ?? 0) +
+      lanes.gates.length +
+      lanes.consents.length +
+      lanes.breakGlass.length
+    );
+  }, [projectTasks, workspaceSummaryQuery.data?.decisions.inboxCount]);
 
   // 系统运行区输入(口径见 model/runtime-health.ts;原总览第四格,2026-08-31 收纳进
   // 侧栏后改为常驻派生):daemon 响应折算自 systemQuery 成败 + observedAt 年龄;
@@ -395,7 +407,7 @@ function AppShell() {
           activeRepoId={activeRepoId}
           view={view}
           hasSelection={selected !== null}
-          inboxCount={inboxCount}
+          poolBadgeCount={poolBadgeCount}
           projectSwitcherOpen={projectSwitcherOpen}
           onProjectSwitcherToggle={() => setProjectSwitcherOpen((open) => !open)}
           onOpenProject={(repoId) => {
@@ -439,6 +451,7 @@ function AppShell() {
                   onProgress={(input) => taskActions.appendProgress(selected, input)}
                   onSubmit={() => taskActions.submitTask(selected)}
                   onComplete={(consent) => taskActions.completeTask(selected, consent)}
+                  onAttest={taskActions.attestGate}
                   onSetPin={handleSetPin}
                   onOpenTerminal={(task) => {
                     setTerminalLaunch({ requestId: crypto.randomUUID(), taskId: task.taskId, title: task.title });
@@ -579,7 +592,7 @@ function AppShell() {
                 />
               ) : view === "decisionPool" ? (
                 workspaceSummaryQuery.data ? (
-                  <DecisionPoolView
+                  <AttestationPoolView
                     repoId={projectId}
                     decisions={decisions}
                     summary={workspaceSummaryQuery.data.decisions}
@@ -594,6 +607,13 @@ function AppShell() {
                     onCheckReceipt={(key) => {
                       void decisionActions.checkReceipt(key);
                     }}
+                    tasks={projectTasks}
+                    onAttest={taskActions.attestGate}
+                    taskFeedback={feedbackOf}
+                    onCompleteTask={(task, consent) => taskActions.completeTask(task, consent)}
+                    onNavigateTask={navigateToTask}
+                    poolTab={location.poolTab ?? "all"}
+                    onPoolTabChange={setPoolTab}
                     focusedDecisionId={
                       focusedEntityRef?.startsWith("decision/") ? focusedEntityRef.split("/")[1] : null
                     }

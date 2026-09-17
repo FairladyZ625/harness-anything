@@ -243,5 +243,14 @@
   "components.repoMode.remoteProxy": "view-only",
   "components.repoMode.remoteCenter": "center",
   "components.repoMode.remoteEdge": "edge",
-  "components.localDoc.remoteProxyDisabled": "This repository is view-only (remote-proxy): files on this device are not part of it, so local file links are disabled."
+  "components.localDoc.remoteProxyDisabled": "This repository is view-only (remote-proxy): files on this device are not part of it, so local file links are disabled.",
+  "components.taskGateAttestCard.attest": "Attest",
+  "components.taskGateAttestCard.override": "Break-glass override",
+  "components.taskGateAttestCard.cancel": "Cancel",
+  "components.taskGateAttestCard.rationaleLabel": "Attestation note (optional)",
+  "components.taskGateAttestCard.rationalePlaceholder": "Stored as the note alongside the witness…",
+  "components.taskGateAttestCard.overrideRationaleLabel": "Override rationale (required, ≥10 chars)",
+  "components.taskGateAttestCard.overrideRationalePlaceholder": "Why this failure is waived (external flake / environment)…",
+  "components.taskGateAttestCard.overrideRationaleRequired": "Override rationale needs at least 10 characters.",
+  "components.taskGateAttestCard.overrideHint": "The break-glass write entry is not on the daemon yet; submissions are rejected verbatim with code and reason."
 }
