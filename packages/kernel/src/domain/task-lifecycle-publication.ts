@@ -15,7 +15,7 @@ import { normalizeRelativeDocumentPath } from "../layout/portable-path.ts";
 import { eventObjectTarget } from "../layout/ledger-object-layout.ts";
 import { currentTaskForWrite } from "./task.ts";
 import { codeDocRecordId, currentCodeDocRecord, currentCodeDocWitness } from "./code-doc-witness.ts";
-import { completionGateIds } from "./closeout-readiness.ts";
+import { completionGateIds, gateResults } from "./closeout-readiness.ts";
 export interface LifecycleDocumentState {
   readonly path: string;
   readonly body: string;
@@ -374,8 +374,22 @@ function renderExecution(value: ExecutionV1, snapshot: TaskLifecycleSnapshot): s
     reviews = snapshot.reviews.filter((candidate) => candidate.executionId === value.executionId),
     currentReviews = packet ? reviewsForExecution(snapshot.reviews, value) : [],
     selected = packet ? consentedApprovedReviewForExecution(snapshot.reviews, snapshot.consents, value) : undefined,
-    witness = currentCodeDocRecord(snapshot.codeDocWitnesses, value.executionId),
-    gates = snapshot.gateWitnesses.filter((candidate) => candidate.executionId === value.executionId);
+    results = gateResults(snapshot, undefined, value.executionId, packet?.commitSha ?? null, value.iteration),
+    checkerGateIds = results.filter(({ gateId }) => gateId !== "code-doc-reconciliation").map(({ gateId }) => gateId),
+    gates = snapshot.gateWitnesses.filter(
+      (candidate) =>
+        checkerGateIds.includes(candidate.gateId) &&
+        candidate.executionId === value.executionId &&
+        candidate.iteration === value.iteration &&
+        candidate.commitSha === packet?.commitSha,
+    ),
+    codeDocRequired = results.some(({ gateId }) => gateId === "code-doc-reconciliation"),
+    witness = codeDocRequired ? currentCodeDocRecord(snapshot.codeDocWitnesses, value.executionId) : undefined,
+    validCodeDocWitness =
+      witness?.iteration === value.iteration &&
+      (witness.schema === "code-doc-witness-repoint/v1" || witness.commitSha === packet?.commitSha)
+        ? witness
+        : undefined;
   return [
     `# Execution ${value.executionId}\n\n`,
     "Managed by `ha task start/submit`; hand edits are rejected.\n\n",
@@ -400,10 +414,15 @@ function renderExecution(value: ExecutionV1, snapshot: TaskLifecycleSnapshot): s
     `- Selected review: ${selected?.review.reviewId ?? "pending"}\n`,
     `- Consent: ${selected?.consent.consentId ?? "pending"}\n`,
     `- Checker witnesses: ${
-      gates.length ? gates.map((value) => `${value.gateId}/${value.receiptId}`).join(", ") : "pending"
+      checkerGateIds.length === 0
+        ? "not_required"
+        : gates.length
+          ? gates.map((value) => `${value.gateId}/${value.receiptId}`).join(", ")
+          : "pending"
     }\n`,
-    `- Code-doc witness: ${witness ? codeDocRecordId(witness) : "pending"}${
-      witness?.schema === "code-doc-witness-repoint/v1" && witness.disposition === "known-invalid"
+    `- Code-doc witness: ${codeDocRequired ? (validCodeDocWitness ? codeDocRecordId(validCodeDocWitness) : "pending") : "not_required"}${
+      validCodeDocWitness?.schema === "code-doc-witness-repoint/v1" &&
+      validCodeDocWitness.disposition === "known-invalid"
         ? " (known-invalid)"
         : ""
     }\n`,

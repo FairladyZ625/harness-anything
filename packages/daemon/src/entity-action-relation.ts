@@ -1,14 +1,24 @@
 import {
+  compileRelationDocumentWrite,
+  DECISION_DOCUMENT_POLICY_ID,
   deriveRelationId,
+  FACT_DOCUMENT_POLICY_ID,
+  factLiveness,
   isRelationEvent,
   parseEntityRef,
+  reduceRelationEntity,
+  relationRecord,
   relationEventWritePlan,
   relationStrengthForType,
+  renderDecisionDocument,
+  renderFactsDocument,
   type AuthorizationDecision,
   type CanonicalEventStore,
   type EntityActionContract,
   type EntityActionExecutionContract,
   type EventPublicationKillpoint,
+  type RelationDocumentUpdate,
+  type RelationEventV1,
   type SessionIdentity,
   type TaskProjection,
   type WriteReceiptDraft as WriteReceipt,
@@ -95,6 +105,8 @@ export function executeRelationAction(input: {
     reject("invalid_command", `${action.kind} did not compile a Relation event.`);
   const relationId = compiled.relationId;
   if (relationId !== requestedRelationId) reject("invalid_command", "Relation action identity changed during compile.");
+  if (!replay && (lookupCut.status !== "ready" || lookupCut.watermark !== headRevision))
+    reject("content_not_ready", `Relation dependencies are pending${lookupNote}`);
   if (compiled.type === "relation_created" && current) {
     const candidate = compiled.payload.relation,
       same =
@@ -144,9 +156,13 @@ export function executeRelationAction(input: {
     hasRelationPath(input.projection, compiled.payload.relation.target, compiled.payload.relation.source)
   )
     reject("relation_cycle", "The requested depends-on Relation would create a blocking cycle.");
-  const plan = relationEventWritePlan(compiled),
-    appended = input.store.append({ event: compiled, plan, blobs: [] });
-  if (replay === null) input.projection.apply(compiled, plan);
+  const bundle = replay
+      ? relationReplayBundle(input.store, compiled)
+      : compileRelationDocumentWrite(compiled, relationDocumentUpdates(input.projection, compiled, current)),
+    plan = bundle.plan,
+    published = bundle.event,
+    appended = input.store.append({ event: published, plan, blobs: bundle.blobs });
+  if (replay === null) input.projection.apply(published, plan);
   publicationKillpoints(input.killpoint);
   const projected = input.projection.readRelationEdge(relationId),
     visible =
@@ -176,6 +192,160 @@ export function executeRelationAction(input: {
     authorizationDecision,
     relationId,
   } as WriteReceipt;
+}
+
+function relationDocumentUpdates(
+  projection: TaskProjection,
+  event: RelationEventV1,
+  current: ReturnType<TaskProjection["readRelationEdge"]>,
+): readonly RelationDocumentUpdate[] {
+  const next = reduceRelationEntity(current?.entity ?? null, event),
+    endpoints = [current?.entity, next].filter((value) => value !== undefined),
+    decisionIds = new Set<string>(),
+    factIds = new Set<string>();
+  for (const endpoint of endpoints) {
+    const source = parseEntityRef(endpoint.source),
+      target = parseEntityRef(endpoint.target);
+    if (source?.kind === "decision") decisionIds.add(source.id);
+    if (target?.kind === "decision") decisionIds.add(target.id);
+    if (endpoint.type === "supersedes-fact" && target?.kind === "fact") factIds.add(target.id);
+  }
+  return [
+    ...[...decisionIds].sort().map((decisionId) => decisionDocumentUpdate(projection, event, next, decisionId)),
+    ...[...factIds].sort().map((factId) => factDocumentUpdate(projection, event, next, factId)),
+  ];
+}
+
+function decisionDocumentUpdate(
+  projection: TaskProjection,
+  event: RelationEventV1,
+  next: ReturnType<typeof reduceRelationEntity>,
+  decisionId: string,
+): RelationDocumentUpdate {
+  const state = projection.readDecisionDocumentState?.(decisionId),
+    path = `decisions/decision-${decisionId}/decision.md`,
+    document = projection.readDocument(path).document;
+  if (!state || !document) reject("content_not_ready", `Decision document ${path} is unavailable.`);
+  const relations = overlayRelation(
+      relationRows(projection.readRelationQuery({ ownerRef: `decision/${decisionId}` }).rows),
+      next,
+    ).filter(({ source }) => {
+      const owner = parseEntityRef(source);
+      return owner?.kind === "decision" && owner.id === decisionId;
+    }),
+    incoming = overlayRelation(relationRows(projection.readDecisionGraph().edges), next).filter(({ target }) => {
+      const owner = parseEntityRef(target);
+      return owner?.kind === "decision" && owner.id === decisionId;
+    });
+  return {
+    path,
+    policyId: DECISION_DOCUMENT_POLICY_ID,
+    body: renderDecisionDocument(
+      { ...state, workspaceRevision: event.workspaceRevision, relations },
+      document.body,
+      undefined,
+      null,
+      incoming,
+    ),
+  };
+}
+
+function factDocumentUpdate(
+  projection: TaskProjection,
+  event: RelationEventV1,
+  next: ReturnType<typeof reduceRelationEntity>,
+  factId: string,
+): RelationDocumentUpdate {
+  const fact = projection.readFact(factId).fact,
+    path = `facts/${factId}.md`;
+  if (!fact || !projection.readDocument(path).document)
+    reject("content_not_ready", `Fact document ${path} is unavailable.`);
+  const incoming = overlayRelation(
+      relationRows(projection.readRelationQuery({ target: `fact/${factId}`, relationType: "supersedes-fact" }).rows),
+      next,
+    ).filter(
+      ({ target, type, state }) => target === `fact/${factId}` && type === "supersedes-fact" && state === "active",
+    ),
+    state = factLiveness(
+      { ref: fact.ref },
+      incoming.map(({ source, target, type, state: relationState }) => ({
+        sourceRef: source,
+        targetRef: target,
+        relationType: type,
+        state: relationState,
+      })),
+    );
+  return {
+    path,
+    policyId: FACT_DOCUMENT_POLICY_ID,
+    body: renderFactsDocument([
+      {
+        factId,
+        ...(fact.taskId ? { taskId: fact.taskId } : {}),
+        statement: fact.statement,
+        evidenceSource: fact.evidenceSource,
+        observedAt: fact.observedAt,
+        confidence: fact.confidence,
+        state,
+        supersededBy: incoming.map(({ source, rationale }) => ({ factRef: source, rationale })),
+        workspaceRevision: event.workspaceRevision,
+      },
+    ]),
+  };
+}
+
+type RelationRowSource = Pick<
+  ReturnType<TaskProjection["readRelationQuery"]>["rows"][number],
+  | "relationId"
+  | "sourceRef"
+  | "targetRef"
+  | "relationType"
+  | "strength"
+  | "direction"
+  | "origin"
+  | "rationale"
+  | "state"
+>;
+
+function relationRows(rows: readonly RelationRowSource[]) {
+  return rows.map((edge) => ({
+    relation_id: edge.relationId,
+    source: edge.sourceRef,
+    target: edge.targetRef,
+    type: edge.relationType,
+    strength: edge.strength,
+    direction: edge.direction,
+    origin: edge.origin,
+    rationale: edge.rationale,
+    state: edge.state,
+  }));
+}
+
+function overlayRelation(
+  relations: ReturnType<typeof relationRows>,
+  next: ReturnType<typeof reduceRelationEntity>,
+): ReturnType<typeof relationRows> {
+  const { targetObservedVersion: _targetObservedVersion, ...record } = relationRecord(next);
+  return [...relations.filter(({ relation_id }) => relation_id !== record.relation_id), record].sort((left, right) =>
+    left.relation_id.localeCompare(right.relation_id),
+  );
+}
+
+function relationReplayBundle(
+  store: Pick<CanonicalEventStore, "readContentBlob">,
+  event: RelationEventV1,
+): ReturnType<typeof compileRelationDocumentWrite> {
+  const blobs = (event.payload.documentClaims ?? []).map((claim) => {
+    const bytes = store.readContentBlob(claim.sha256);
+    if (!bytes) reject("content_not_ready", `Relation content for ${claim.path} is unavailable.`);
+    return {
+      sha256: claim.sha256,
+      size: claim.size,
+      mediaType: claim.mediaType,
+      body: new TextDecoder("utf-8", { fatal: true }).decode(bytes),
+    };
+  });
+  return { event, plan: relationEventWritePlan(event), blobs };
 }
 
 function relationNoChanges(input: {

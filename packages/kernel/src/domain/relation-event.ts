@@ -16,7 +16,9 @@ import type { EntityVersion } from "./entity-freshness.ts";
 import { parseEntityRef } from "./entity-ref.ts";
 import { canonicalRelationDirections, type CanonicalRelationDirection } from "./relation-direction.ts";
 import type { DecisionEventV1 } from "./decision-event.ts";
-import { factRef, type FactEventV1 } from "./fact-event.ts";
+import type { DecisionDocumentClaim } from "./decision-event-types.ts";
+import { factRef, type FactEventV1, type FactsDocumentClaim } from "./fact-event.ts";
+import { sha256Text } from "../integrity/stable-hash.ts";
 import type { MigrationImportEventV1 } from "./migration-import-event.ts";
 import type { TaskEventV1 } from "./task-lifecycle-event.ts";
 import { timestamp } from "./timestamp.ts";
@@ -29,6 +31,7 @@ import {
   type ActorIdentity,
   type EventEnvelope,
   type FrozenWritePlan,
+  type WriteTarget,
   type WriteSource,
 } from "./write-chain.contract.ts";
 import { eventObjectTarget } from "../layout/ledger-object-layout.ts";
@@ -49,19 +52,24 @@ type RelationCreated = EventEnvelope<
   "relation-event/v1",
   "relation_created",
   ActorIdentity,
-  { readonly relation: RelationEventRecord }
+  { readonly relation: RelationEventRecord; readonly documentClaims?: readonly RelationDocumentClaim[] }
 > & { readonly relationId: string };
 type RelationRetired = EventEnvelope<
   "relation-event/v1",
   "relation_retired",
   ActorIdentity,
-  { readonly reason: string }
+  { readonly reason: string; readonly documentClaims?: readonly RelationDocumentClaim[] }
 > & { readonly relationId: string };
 type RelationReplaced = EventEnvelope<
   "relation-event/v1",
   "relation_replaced",
   ActorIdentity,
-  { readonly previousRelationId: string; readonly relation: RelationEventRecord; readonly reason: string }
+  {
+    readonly previousRelationId: string;
+    readonly relation: RelationEventRecord;
+    readonly reason: string;
+    readonly documentClaims?: readonly RelationDocumentClaim[];
+  }
 > & { readonly relationId: string };
 type RelationReconfirmed = EventEnvelope<
   "relation-event/v1",
@@ -71,9 +79,26 @@ type RelationReconfirmed = EventEnvelope<
     readonly priorTargetVersion: EntityVersion | null;
     readonly targetObservedVersion: EntityVersion;
     readonly rationale: string;
+    readonly documentClaims?: readonly RelationDocumentClaim[];
   }
 > & { readonly relationId: string };
 export type RelationEventV1 = RelationCreated | RelationRetired | RelationReplaced | RelationReconfirmed;
+export type RelationDocumentClaim = DecisionDocumentClaim | FactsDocumentClaim;
+export interface RelationDocumentUpdate {
+  readonly path: string;
+  readonly body: string;
+  readonly policyId: RelationDocumentClaim["policyId"];
+}
+export interface RelationDocumentWrite {
+  readonly event: RelationEventV1;
+  readonly plan: FrozenWritePlan;
+  readonly blobs: readonly {
+    readonly sha256: string;
+    readonly size: number;
+    readonly mediaType: "text/markdown";
+    readonly body: string;
+  }[];
+}
 export type RelationInitialEvent =
   | RelationCreated
   | Extract<MigrationImportEventV1, { readonly type: "entity_migrated" }>;
@@ -225,8 +250,10 @@ function validateRelationEventFields(value: unknown, allowUnknownFields: boolean
     !isRecord(value.payload)
   )
     return ["relation event envelope is invalid"];
+  if (!validRelationDocumentClaims(value.payload.documentClaims, allowUnknownFields))
+    return ["relation document claims are invalid"];
   if (value.type === "relation_retired")
-    return hasTextPayload(value.payload, ["reason"], allowUnknownFields)
+    return hasTextPayload(value.payload, ["reason"], allowUnknownFields, ["documentClaims"])
       ? []
       : ["relation retirement payload is invalid"];
   if (value.type === "relation_reconfirmed")
@@ -234,7 +261,10 @@ function validateRelationEventFields(value: unknown, allowUnknownFields: boolean
       ? []
       : ["relation reconfirmation payload is invalid"];
   if (value.type === "relation_created") {
-    if (!payloadFields(value.payload, ["relation"], allowUnknownFields) || !isRecord(value.payload.relation))
+    if (
+      !payloadFields(value.payload, ["relation"], allowUnknownFields, ["documentClaims"]) ||
+      !isRecord(value.payload.relation)
+    )
       return ["relation creation payload is invalid"];
     try {
       assertRelationEventRecord(value.payload.relation, allowUnknownFields);
@@ -244,7 +274,9 @@ function validateRelationEventFields(value: unknown, allowUnknownFields: boolean
     }
   }
   if (
-    !payloadFields(value.payload, ["previousRelationId", "relation", "reason"], allowUnknownFields) ||
+    !payloadFields(value.payload, ["previousRelationId", "relation", "reason"], allowUnknownFields, [
+      "documentClaims",
+    ]) ||
     typeof value.payload.previousRelationId !== "string" ||
     typeof value.payload.reason !== "string" ||
     !value.payload.reason.trim() ||
@@ -262,17 +294,69 @@ function validateRelationEventFields(value: unknown, allowUnknownFields: boolean
 }
 
 export function relationEventWritePlan(event: RelationEventV1): FrozenWritePlan {
+  const claims = event.payload.documentClaims ?? [],
+    targets: WriteTarget[] = [
+      { kind: "event_file", path: eventObjectTarget(event.opId), operation: "create" },
+      { kind: "event_head", path: "harness/events/head.json", operation: "replace" },
+      ...claims.map(
+        (claim): WriteTarget => ({
+          kind: "authored_file",
+          path: claim.path,
+          operation: "replace",
+          sha256: claim.sha256,
+          size: claim.size,
+          mediaType: claim.mediaType,
+        }),
+      ),
+      ...claims.map(
+        (claim): WriteTarget => ({
+          kind: "content_blob",
+          sha256: claim.sha256,
+          size: claim.size,
+          mediaType: claim.mediaType,
+        }),
+      ),
+      { kind: "projection_invalidation", projection: "relation/v1", key: event.relationId },
+      ...claims.map(
+        (claim): WriteTarget => ({
+          kind: "projection_invalidation",
+          projection: "document/v1",
+          key: claim.path,
+        }),
+      ),
+    ];
   return freezeDeclaredWritePlan(
     {
       commandType: event.type,
-      targets: [
-        { kind: "event_file", path: eventObjectTarget(event.opId), operation: "create" },
-        { kind: "event_head", path: "harness/events/head.json", operation: "replace" },
-        { kind: "projection_invalidation", projection: "relation/v1", key: event.relationId },
-      ],
+      targets,
     },
     relationEventTypes,
   );
+}
+
+export function compileRelationDocumentWrite(
+  event: RelationEventV1,
+  updates: readonly RelationDocumentUpdate[],
+): RelationDocumentWrite {
+  const unique = new Map(updates.map((update) => [update.path, update]));
+  if (unique.size !== updates.length) throw new Error("relation document updates must have unique paths");
+  const compiled = [...unique.values()].map((update) => {
+      const sha256 = sha256Text(update.body),
+        size = Buffer.byteLength(update.body),
+        claim: RelationDocumentClaim = {
+          path: update.path,
+          sha256,
+          size,
+          mediaType: "text/markdown",
+          policyId: update.policyId,
+        } as RelationDocumentClaim;
+      return { claim, blob: { sha256, size, mediaType: "text/markdown" as const, body: update.body } };
+    }),
+    published = {
+      ...event,
+      payload: { ...event.payload, documentClaims: compiled.map(({ claim }) => claim) },
+    } as RelationEventV1;
+  return { event: published, plan: relationEventWritePlan(published), blobs: compiled.map(({ blob }) => blob) };
 }
 
 export function assertRelationEventWritePlan(event: RelationEventV1, plan: FrozenWritePlan | undefined): void {
@@ -665,7 +749,7 @@ function validReconfirmationPayload(payload: Readonly<Record<string, unknown>>, 
   const fields = ["priorTargetVersion", "targetObservedVersion", "rationale"],
     validVersion = (value: unknown): boolean => typeof value === "string" || Number.isSafeInteger(value);
   return (
-    payloadFields(payload, fields, allowUnknownFields) &&
+    payloadFields(payload, fields, allowUnknownFields, ["documentClaims"]) &&
     (payload.priorTargetVersion === null || validVersion(payload.priorTargetVersion)) &&
     validVersion(payload.targetObservedVersion) &&
     typeof payload.rationale === "string" &&
@@ -677,16 +761,48 @@ function payloadFields(
   value: Readonly<Record<string, unknown>>,
   fields: readonly string[],
   allowUnknown: boolean,
+  optional: readonly string[] = [],
 ): boolean {
-  return allowUnknown ? fields.every((field) => Object.hasOwn(value, field)) : hasOnlyFields(value, fields);
+  return allowUnknown
+    ? fields.every((field) => Object.hasOwn(value, field))
+    : fields.every((field) => Object.hasOwn(value, field)) &&
+        Object.keys(value).every((field) => fields.includes(field) || optional.includes(field));
 }
 function hasTextPayload(
   value: Readonly<Record<string, unknown>>,
   fields: readonly string[],
   allowUnknown: boolean,
+  optional: readonly string[] = [],
 ): boolean {
   return (
-    payloadFields(value, fields, allowUnknown) &&
+    payloadFields(value, fields, allowUnknown, optional) &&
     fields.every((field) => typeof value[field] === "string" && value[field].trim())
   );
+}
+
+function validRelationDocumentClaims(value: unknown, allowUnknownFields: boolean): boolean {
+  if (value === undefined) return true;
+  if (!Array.isArray(value)) return false;
+  const paths = new Set<string>();
+  for (const claim of value) {
+    if (
+      !isRecord(claim) ||
+      !(allowUnknownFields
+        ? ["path", "sha256", "size", "mediaType", "policyId"].every((field) => Object.hasOwn(claim, field))
+        : hasOnlyFields(claim, ["path", "sha256", "size", "mediaType", "policyId"])) ||
+      typeof claim.path !== "string" ||
+      paths.has(claim.path) ||
+      !/^[0-9a-f]{64}$/u.test(String(claim.sha256)) ||
+      !Number.isSafeInteger(claim.size) ||
+      Number(claim.size) < 0 ||
+      claim.mediaType !== "text/markdown" ||
+      (claim.policyId !== "markdown-body-replaceable/v1" && claim.policyId !== "typed-machine-writer/v1") ||
+      (claim.policyId === "markdown-body-replaceable/v1" &&
+        !/^decisions\/decision-[^/]+\/decision\.md$/u.test(claim.path)) ||
+      (claim.policyId === "typed-machine-writer/v1" && !/^facts\/F-[0-9A-HJKMNP-TV-Z]{8}\.md$/u.test(claim.path))
+    )
+      return false;
+    paths.add(claim.path);
+  }
+  return true;
 }

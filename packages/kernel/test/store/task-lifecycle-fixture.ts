@@ -48,6 +48,9 @@ export function lifecycleFixture(
     readonly taskId?: string;
     readonly executionId?: string;
     readonly reviewId?: string;
+    readonly gateIds?: readonly string[];
+    /** False stops after the consent event: an unwitnessed gated cut cannot complete. */
+    readonly complete?: boolean;
   } = {},
 ): {
   readonly events: readonly TaskEventV1[];
@@ -73,7 +76,7 @@ export function lifecycleFixture(
       title: "Fixture",
       taskClass: "standard",
       graph: REPLAY_TASK_GRAPH,
-      completionGateIds: [],
+      completionGateIds: options.gateIds ?? [],
       presetSnapshotDigest: null,
     }),
     { taskIdUnique: true, actorBinding: implementer },
@@ -133,14 +136,15 @@ export function lifecycleFixture(
     }),
     { actorBinding: implementer, capability: "execution-consent@v1", capabilityRef: "cap-consent" } as never,
   );
-  run(command(implementer, 6, { type: "CompleteTask", taskId, executionId }), {
-    capability: "task-complete@v1",
-    capabilityRef: "cap-complete",
-    actorRole: "owner",
-    noActiveLease: true,
-    closeoutGates: { review: true, consent: true, factDisposition: true, codeDoc: true },
-    gateReceipts: [],
-  });
+  if (options.complete !== false)
+    run(command(implementer, 6, { type: "CompleteTask", taskId, executionId }), {
+      capability: "task-complete@v1",
+      capabilityRef: "cap-complete",
+      actorRole: "owner",
+      noActiveLease: true,
+      closeoutGates: { review: true, consent: true, factDisposition: true, codeDoc: true },
+      gateReceipts: [],
+    });
   return { events, snapshot };
 }
 
