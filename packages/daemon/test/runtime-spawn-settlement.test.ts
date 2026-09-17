@@ -313,6 +313,31 @@ test("terminal settlement reports the branch and head its worker push published"
   assert.ok(git(fixture.bare, "show-ref", "--verify", "refs/heads/codex/settle-push").trim().startsWith(`${head} `));
 });
 
+test("squad leader settlement preserves its machine-readable control result", async (context) => {
+  const fixture = workerGitFixture(context, "squad-leader-control", { reachableRemote: true }),
+    controlResult = JSON.stringify({
+      schema: "runtime-batch/v1",
+      dispatches: [{ to: "terra", prompt: "Review the runtime boundary." }],
+    }),
+    runtime = workerSettlementRuntime(fixture, {
+      agent: { id: "fable", name: "Fable" },
+      delegatedBy: null,
+      squadId: "core-squad",
+      finalText: controlResult,
+    }),
+    outcomeBodies: string[] = [],
+    settleContext = workerSettlementContext(
+      fixture,
+      async (type, _payload = {}, _opId?, _binding?, body?) => {
+        if (type === "runtime_session_outcome_observed") outcomeBodies.push(String(body));
+        return {};
+      },
+      controlResult,
+    );
+  await publishExit(settleContext, runtime, 0);
+  assert.deepEqual(outcomeBodies, [controlResult]);
+});
+
 test("terminal settlement names the branch when the worker push fails", async (context) => {
   const fixture = workerGitFixture(context, "settle-fail", { reachableRemote: false }),
     runtime = workerSettlementRuntime(fixture, { finalText: "worker delivery" }),
@@ -442,6 +467,7 @@ function workerSettlementContext(
     binding?: unknown,
     resultBody?: string,
   ) => Promise<unknown>,
+  resultText = "worker delivery",
 ): RuntimeSpawnerContext {
   return {
     exiting: new Set<string>(),
@@ -454,7 +480,7 @@ function workerSettlementContext(
       remote: { archive: async () => ({ outcome: "applied" }) },
     },
     resultMediaType: "text/markdown",
-    runtimeResultText: () => "worker delivery",
+    runtimeResultText: () => resultText,
     markProtocolError: () => undefined,
     settleFallback: async () => undefined,
     prepareWorkerGitEnvironment: async () => ({}),

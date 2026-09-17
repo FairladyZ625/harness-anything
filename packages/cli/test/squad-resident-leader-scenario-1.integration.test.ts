@@ -61,6 +61,10 @@ test("each worker outcome calls back into a new leader turn and a failed worker 
 
   run(root, env, ["daemon", "start", "--service"]);
   run(root, env, ["init", "--repo-id", "squad-resident", "--person-id", "owner", "--display-name", "Owner"]);
+  const remote = path.join(parent, "remote.git");
+  git(parent, ["init", "--bare", remote]);
+  git(root, ["switch", "-c", "codex/squad-control-result"]);
+  git(root, ["remote", "add", "origin", remote]);
   run(root, env, [
     "runtime",
     "instance",
@@ -238,6 +242,11 @@ test("each worker outcome calls back into a new leader turn and a failed worker 
     })}\n`,
   );
 });
+
+function git(cwd: string, args: readonly string[]): void {
+  const result = spawnSync("git", ["-C", cwd, ...args], { encoding: "utf8" });
+  assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`);
+}
 
 test("a Claude leader dispatches Codex workers by each worker declaration and reports a missing kind", () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-squad-mixed-runtime-")),
