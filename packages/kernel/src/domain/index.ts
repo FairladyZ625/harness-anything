@@ -47,6 +47,7 @@ export {
   approvedReviewHistoryForExecution,
   approvedReviewsForExecution,
   consentedApprovedReviewForExecution,
+  reviewReturnBudgetSpent,
   reviewsForExecution,
   reviewVerdicts,
 } from "./review.ts";
@@ -72,11 +73,19 @@ export {
   completionGateIds,
   currentExecutionCuts,
   gateResults,
+  judgeGateWitnesses,
+  waivableAutomatedFail,
   currentSubmittedExecutions,
   isCloseoutReadiness,
 } from "./closeout-readiness.ts";
 export type { CloseoutReadiness } from "./closeout-readiness.ts";
-export { completionEvidenceBasis, completionEvidenceResults, judgeCompletionEvidence } from "./completion-evidence.ts";
+export {
+  completionEvidenceBasis,
+  completionEvidenceResults,
+  judgeCompletionEvidence,
+  OVERRIDE_RATIONALE_MIN_LENGTH,
+  validOverrideRationale,
+} from "./completion-evidence.ts";
 export type {
   CompletionEvidenceBasis,
   CompletionEvidenceJudgment,

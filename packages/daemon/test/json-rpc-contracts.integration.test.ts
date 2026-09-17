@@ -143,6 +143,7 @@ test("GUI action facets are exact, typed, and exclude the generic runner", () =>
     ["repo.task.start", { taskId: "task-a", executionId: "execution-a" }],
     ["repo.task.progress.append", { taskId: "task-a", executionId: "execution-a", text: "Progress", evidence: [{ type: "test", path: "report.txt", summary: "Passed" }] }],
     ["repo.task.submit", { taskId: "task-a", executionId: "execution-a" }], ["repo.task.complete", { taskId: "task-a", consent: true }],
+    ["repo.task.attest", { taskId: "task-a", gateId: "ci", result: "pass", mode: "override", rationale: "Upstream runner outage" }],
     ["repo.task.pin", { taskId: "task-a" }],
     ["repo.task.unpin", { taskId: "task-a" }],
     ["repo.decision.list", { state: "proposed", legacyRange: { start: 1, end: 4 }, limit: 25, cursor: "WyJkZWNfQSJd" }],
@@ -197,6 +198,10 @@ test("GUI action facets are exact, typed, and exclude the generic runner", () =>
   assert.throws(() => serializeDaemonRpcCall(retiredPacket), /submission/u);
   assert.equal(parseDaemonRpcParams("repo.task.submit", { repo: { repoId: "alpha" }, payload: { taskId: "task-a", amend: "true" } }).ok, false);
   assert.deepEqual(actionForDaemonMethod("repo.task.submit", cases.get("repo.task.submit")!), { kind: "task-submit", ...cases.get("repo.task.submit")! }); assert.deepEqual(actionForDaemonMethod("repo.task.complete", cases.get("repo.task.complete")!), { kind: "task-complete", ...cases.get("repo.task.complete")! });
+  // The GUI attest facet is the same closed task-attest action the CLI builds; admission stays in the daemon handler.
+  assert.deepEqual(actionForDaemonMethod("repo.task.attest", cases.get("repo.task.attest")!), { kind: "task-attest", ...cases.get("repo.task.attest")! });
+  assert.equal(parseDaemonRpcParams("repo.task.attest", { repo: { repoId: "alpha" }, payload: { taskId: "task-a", gateId: "ci" } }).ok, false);
+  assert.equal(parseDaemonRpcParams("repo.task.attest", { repo: { repoId: "alpha" }, payload: { taskId: "task-a", gateId: "ci", result: "pass", executor: { kind: "agent", id: "runtime" } } }).ok, false);
 });
 // prettier-ignore
 

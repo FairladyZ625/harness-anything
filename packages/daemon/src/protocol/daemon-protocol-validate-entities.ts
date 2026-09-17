@@ -475,7 +475,7 @@ export function gate(value: unknown): boolean {
       "source",
       "verifiedAt",
     ],
-    optional = ["observed", "basis", "provenance"];
+    optional = ["observed", "basis", "provenance", "override"];
   return (
     recordWith(value, required) &&
     Object.keys(value).every((field) => required.includes(field) || optional.includes(field)) &&
@@ -507,7 +507,12 @@ export function gate(value: unknown): boolean {
         (value.provenance.source === "runner" || value.provenance.source === "human") &&
         (value.provenance.adapterId === undefined || nonEmpty(value.provenance.adapterId)) &&
         nonEmpty(value.provenance.runId) &&
-        nonEmpty(value.provenance.rawResult)))
+        nonEmpty(value.provenance.rawResult))) &&
+    // Envelope only: the rationale length and the waived receipt stay judged on the kernel write path.
+    (value.override === undefined ||
+      (exactRecord(value.override, ["rationale", "waivedReceiptId"]) &&
+        nonEmpty(value.override.rationale) &&
+        (value.override.waivedReceiptId === null || nonEmpty(value.override.waivedReceiptId))))
   );
 }
 

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import path from "node:path";
-import type { AgentRuntimeEventV1, CanonicalEventStore, ExecutionV1, SessionIdentity } from "../../kernel/src/index.ts";
+import type { AgentRuntimeEventV1, CanonicalEventStore, SessionIdentity } from "../../kernel/src/index.ts";
 import {
   consumeKnownError,
   currentSubmittedExecutions,
@@ -38,7 +38,6 @@ import { adoptRuntimes } from "./runtime-spawn-adoption.ts";
 import {
   isRuntimeEvent,
   requiredRuntimeSpawnText,
-  runtimeErrorCode,
   runtimeErrorMessage,
   runtimeSpawnError,
   runtimeTaskLeaseRequiredMessage,
@@ -58,7 +57,7 @@ import { assembleTaskCausalContext } from "./dispatch-causal-context.ts";
 import {
   launchExitNotification,
   launchNative,
-  observeResumeProcess,
+  launchRuntimeProcess,
   requiredRuntimeProjection,
   requiredRuntimeStore,
 } from "./runtime-spawn-process.ts";
@@ -92,46 +91,13 @@ import { isProviderFailureClassification } from "./runtime-fallback-contract.ts"
 import type { RuntimeAttemptOutcome, RuntimeFallbackAttempt } from "./runtime-fallback-contract.ts";
 import type { RuntimeEventOf, RuntimeEventType, RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
+import { assertReviewReturnBudgetAvailable, selectReviewTarget } from "./review-dispatch-admission.ts";
 import { continuationMission, initialFallbackAttempt, requiredRuntimeFast } from "./runtime-spawn-fallback.ts";
 import { admitRuntimeResume, assertResumeAgent, resolveResumeCwd } from "./runtime-resume-admission.ts";
 export const resultMediaType = "text/plain; charset=utf-8" as const,
   providerErrorLimit = 64 * 1024,
   resumeAdmissionTimeoutMs = 30_000,
   exitNotificationTimeoutMs = 30_000;
-
-/** A reviewer dispatch binds to the task's submitted cut; anything else is a dispatch error, never a fallback to an implementation execution. */
-function selectReviewTarget(
-  taskId: string | null,
-  requestedExecutionId: string | undefined,
-  taskSnapshot: ReturnType<typeof requireCurrentTaskProjection>["snapshot"] | null,
-  remote: boolean,
-): ExecutionV1 | null {
-  if (taskId === null || remote || taskSnapshot === null) return null;
-  const candidates = currentSubmittedExecutions(taskSnapshot);
-  if (requestedExecutionId !== undefined) {
-    const match = candidates.find((candidate) => candidate.executionId === requestedExecutionId);
-    if (!match)
-      throw runtimeSpawnError(
-        "review_target_missing",
-        `Execution ${requestedExecutionId} is not a submitted cut on task ${taskId}'s current iteration.`,
-      );
-    return match;
-  }
-  if (candidates.length === 0)
-    throw runtimeSpawnError(
-      "review_target_missing",
-      `Task ${taskId} has no submitted execution to review; a reviewer dispatch binds to a submitted ` +
-        "cut, never to the active implementation execution. Submit the implementation first.",
-    );
-  if (candidates.length > 1)
-    throw runtimeSpawnError(
-      "invalid_runtime_spawn",
-      `Task ${taskId} has ${String(candidates.length)} submitted executions on its current iteration ` +
-        `(${candidates.map((candidate) => candidate.executionId).join(", ")}); ` +
-        "dispatch each review with an explicit executionId.",
-    );
-  return candidates[0]!;
-}
 
 export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
   const processes = new Map<string, ActiveRuntime>(),
@@ -384,6 +350,15 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         ...applied(existing, store!.publication(existing), runtimeSessionId, newDispatchId),
         authorizationDecision: authorizationDecision as unknown as JsonObject | null,
       };
+    }
+    // Reviewer fail-fast: a new review attempt is refused before any dispatch event or worker
+    // process exists when the return budget is already spent, because the ledger can no longer
+    // record a changes_requested verdict for the cut. An already-claimed attempt returned above
+    // keeps its identity; an already-approved review completes unaffected. The judgment reads
+    // the latest center snapshot, so every entry (submit-time review, complete facade,
+    // dispatch-review, runtime.run, fallback continuation) enforces the same write-side rule.
+    if (reviewerBinding && reviewTarget !== null && taskSnapshot?.task) {
+      assertReviewReturnBudgetAvailable(projection!, taskId!, taskSnapshot.task);
     }
     const runtimeActor = `agent:runtime-session:${runtimeSessionId}`,
       squad =
@@ -661,7 +636,11 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             }
           : {}),
       }));
-    const settleFailedHandoff = async (error: unknown): Promise<void> => {
+    const cleanupFailedLaunch = async (error: unknown): Promise<void> => {
+      process?.terminate();
+      process?.release?.();
+      cleanupCallbackRelay();
+      if (stream) removeDispatchStream(input.rootDir, newDispatchId);
       if (!taskLeaseHandoff || !taskBinding) return;
       await input.onAttemptTerminal?.({
         runtimeSessionId,
@@ -678,28 +657,25 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     const cleanupCallbackRelay = (): void => {
       if (callbackRelay) removeRuntimeCallbackRelay(input.rootDir, newDispatchId);
     };
-    if (providerSessionId)
-      try {
-        openStream();
-        process = launch(workerLaunch, {
+    const launchPreparedProcess = () =>
+      launchRuntimeProcess(
+        launch,
+        workerLaunch,
+        {
           rootDir: input.rootDir,
           dispatchId: newDispatchId,
           ...(callbackRelay ? { callbackRelay } : {}),
-        });
-        resumeObservation = observeResumeProcess(process, definition.kindId, providerSessionId);
-        await resumeObservation.ready;
+        },
+        providerSessionId,
+      );
+    // Remote resumes must first win center admission, just like fresh provider launches.
+    if (providerSessionId && !input.remote)
+      try {
+        openStream();
+        ({ process, resumeObservation } = await launchPreparedProcess());
       } catch (error) {
-        process?.terminate();
-        process?.release?.();
-        cleanupCallbackRelay();
-        removeDispatchStream(input.rootDir, newDispatchId);
-        await settleFailedHandoff(error);
-        if (runtimeErrorCode(error) === "runtime_resume_failed") throw error;
-        consumeKnownError(error);
-        throw runtimeSpawnError(
-          "runtime_resume_failed",
-          `${definition.kindId} session ${providerSessionId} could not be resumed: ${runtimeErrorMessage(error)}`,
-        );
+        await cleanupFailedLaunch(error);
+        throw error;
       }
     let requested!: Awaited<ReturnType<typeof publishRuntimeEvent>>;
     try {
@@ -732,14 +708,25 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         dispatchOpId,
         binding,
         definitionArtifact.body,
+        {
+          role: role ?? null,
+          taskId: taskBinding?.taskId ?? null,
+          executionId: taskBinding?.executionId ?? null,
+        },
       );
     } catch (error) {
-      process?.terminate();
-      process?.release?.();
-      cleanupCallbackRelay();
-      if (stream) removeDispatchStream(input.rootDir, newDispatchId);
-      await settleFailedHandoff(error);
+      await cleanupFailedLaunch(error);
       throw error;
+    }
+    // The center queue owns the claim: another edge can win after our initial receipt read.
+    if (input.remote && requested.receipt?.replayed === true) {
+      cleanupCallbackRelay();
+      return {
+        ...requested.receipt,
+        runtimeSessionId,
+        dispatchId: newDispatchId,
+        authorizationDecision: authorizationDecision as unknown as JsonObject | null,
+      };
     }
     // Publish the canonical session before starting the provider. A provider can
     // immediately call back through the sealed daemon route; its task+dispatch
@@ -761,25 +748,15 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         binding,
       );
     } catch (error) {
-      process?.terminate();
-      process?.release?.();
-      cleanupCallbackRelay();
-      if (stream) removeDispatchStream(input.rootDir, newDispatchId);
-      await settleFailedHandoff(error);
+      await cleanupFailedLaunch(error);
       throw error;
     }
     if (!process)
       try {
         openStream();
-        process = launch(workerLaunch, {
-          rootDir: input.rootDir,
-          dispatchId: newDispatchId,
-          ...(callbackRelay ? { callbackRelay } : {}),
-        });
+        ({ process, resumeObservation } = await launchPreparedProcess());
       } catch (error) {
-        cleanupCallbackRelay();
-        removeDispatchStream(input.rootDir, newDispatchId);
-        await settleFailedHandoff(error);
+        await cleanupFailedLaunch(error);
         await publishRuntimeEvent(
           "runtime_dispatch_outcome_unknown",
           { dispatchId: newDispatchId, runtimeSessionId },
@@ -894,12 +871,13 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     opId: string,
     binding: RuntimeBinding,
     resultBody?: string,
+    dispatchContext?: import("./fleet/contract.ts").FleetRuntimeDispatchContext,
   ): Promise<{
     readonly event: RuntimeEventOf<T>;
     readonly publication?: ReturnType<CanonicalEventStore["append"]>;
     readonly receipt?: JsonObject;
   }> {
-    return publishRuntimeEventImpl<T>(extracted, type, payload, opId, binding, resultBody);
+    return publishRuntimeEventImpl<T>(extracted, type, payload, opId, binding, resultBody, dispatchContext);
   }
   async function consumeChunk(active: ActiveRuntime, chunk: string, flush: boolean, persisted = false): Promise<void> {
     return consumeProviderChunk(extracted, active, chunk, flush, persisted);

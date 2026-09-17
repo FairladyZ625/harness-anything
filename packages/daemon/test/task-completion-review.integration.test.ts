@@ -1,17 +1,20 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { readFileSync, writeFileSync } from "node:fs";
-import path from "node:path";
-import test from "node:test";
-import { waitForFixturePublication } from "./repo-settings.fixture.ts";
-import { executionId, fixture, owner, taskId } from "./task-completion-review.fixture.ts";
 import { randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { mkdirSync } from "node:fs";
+import { cpSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import path from "node:path";
+import test from "node:test";
+import type { AgentDefinitionSnapshot } from "../../kernel/src/index.ts";
+import { waitForFixturePublication } from "./repo-settings.fixture.ts";
+import { executionId, fixture, owner, taskId } from "./task-completion-review.fixture.ts";
+import type { RuntimeInstanceSummary } from "../src/agent-runtime-instances.ts";
 import { readDispatchStream, readDispatchStreamHeaders } from "../src/dispatch-stream.ts";
 import { binding as transportBinding } from "../src/daemon-host-binding.ts";
+import { openFleetEdgeRuntime } from "../src/fleet-edge-runtime.ts";
+import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
 import { listenFleetTls, type FleetAssignmentRecord, type FleetCenterOptions } from "../src/fleet/center.ts";
-import { runFleetTaskCommandClient } from "../src/fleet/edge.ts";
+import { runFleetReplicaPullClient, runFleetTaskCommandClient } from "../src/fleet/edge.ts";
 import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
 
 test(
@@ -583,6 +586,378 @@ test(
 );
 
 test(
+  "remote reviewer admission uses the latest center cut before any edge provider starts",
+  { timeout: 60_000 },
+  async () => {
+    const f = await fixture(false, true, false, false, false, 1, { autoSubmit: false });
+    let center: Awaited<ReturnType<typeof listenFleetTls>> | undefined;
+    const edgeRuntimes: Array<ReturnType<typeof openFleetEdgeRuntime>> = [];
+    try {
+      await f.install();
+      const keyFile = path.join(f.root, "remote-review-tls.key"),
+        certFile = path.join(f.root, "remote-review-tls.crt");
+      execFileSync(
+        "openssl",
+        [
+          "req",
+          "-x509",
+          "-newkey",
+          "rsa:2048",
+          "-nodes",
+          "-keyout",
+          keyFile,
+          "-out",
+          certFile,
+          "-subj",
+          "/CN=localhost",
+          "-days",
+          "1",
+          "-addext",
+          "subjectAltName=DNS:localhost",
+        ],
+        { stdio: "ignore" },
+      );
+      const cert = readFileSync(certFile),
+        writerEpochStateRoot = path.join(f.root, ".harness", "fixture-writer-epochs"),
+        authority = openPersistentWriterEpoch({ stateRoot: writerEpochStateRoot });
+      const lease = authority.current("completion-review");
+      authority.close();
+      assert.ok(lease);
+      let assignedExecutionId = executionId;
+      const assignment = (nodeId: string): FleetAssignmentRecord => ({
+          nodeId,
+          assignmentId: `assignment-${nodeId}`,
+          repoId: "completion-review",
+          viewId: "remote-review-view",
+          expiresAt: "2099-01-01T00:00:00.000Z",
+          actor: owner.actor,
+          scope: { kind: "task", taskId, executionId: assignedExecutionId, paths: [f.packagePath] },
+        }),
+        host: FleetCenterOptions["host"] = {
+          run: async (repoId, action, auth) => {
+            assert.equal(repoId, "completion-review");
+            return f.cell().run(action, await transportBinding(f.root, auth));
+          },
+          read: async (repoId, method, payload, auth) => {
+            assert.equal(repoId, "completion-review");
+            if (method === "repo.agentRuntime.overview") {
+              const cut = f.cell().status();
+              return {
+                ok: true,
+                status: "ready",
+                installations: [],
+                instances: [],
+                sessions: [],
+                page: {
+                  limit: Number(payload.limit),
+                  cursor: null,
+                  nextCursor: null,
+                  remainingCount: 0,
+                },
+                watermark: cut.projectionWatermark ?? 0,
+                sourceRevision: cut.ledgerRevision ?? 0,
+              } as never;
+            }
+            return f.cell().read(method, payload, await transportBinding(f.root, auth));
+          },
+          runtimeIngress: async (repoId, action, auth) => {
+            assert.equal(repoId, "completion-review");
+            return f.cell().runtimeIngress(action, await transportBinding(f.root, auth));
+          },
+          replica: () => f.cell().replica,
+          settleMaterialization: async (_repoId, context) => f.cell().settlePendingMaterialization(context),
+          status: () => ({ repos: [f.cell().status()] }) as ReturnType<FleetCenterOptions["host"]["status"]>,
+        };
+      center = await listenFleetTls({
+        host,
+        stateRoot: path.join(f.root, "remote-review-center"),
+        writerEpochStateRoot,
+        writerEpochLease: () => lease,
+        key: readFileSync(keyFile),
+        cert,
+        replicaDiskQuotaBytes: 64 * 1024 * 1024,
+        authenticate: (nodeId, credential) => credential === `secret-${nodeId}`,
+        resolveAssignment: (id) => {
+          const nodeId = id.startsWith("assignment-") ? id.slice("assignment-".length) : "";
+          return nodeId ? assignment(nodeId) : null;
+        },
+      });
+      const viewRoot = path.join(f.root, "remote-review-view");
+      await f.cell().settlePendingMaterialization("prepare remote reviewer mirror");
+      const pulled = await runFleetReplicaPullClient({
+        port: center.port,
+        ca: cert,
+        servername: "localhost",
+        nodeId: "edge-one",
+        credential: "secret-edge-one",
+        assignmentId: "assignment-edge-one",
+        viewRoot,
+        diskQuotaBytes: 64 * 1024 * 1024,
+      });
+      const installation = {
+          installationId: "remote-review-installation",
+          kindId: "codex" as const,
+          executablePath: "/usr/bin/true",
+          version: "1.0.0",
+          observedAt: "2026-09-17T00:00:00.000Z",
+        },
+        definition: AgentDefinitionSnapshot = {
+          schema: "agent-definition-snapshot/v1",
+          configVersion: 1,
+          instanceId: "remote-review-instance",
+          installationId: installation.installationId,
+          kindId: installation.kindId,
+          providerId: "openai",
+          model: "review-model",
+          reasoningEffort: null,
+          baseUrl: null,
+          authMode: "subscription",
+        },
+        instance = {
+          schemaVersion: 2,
+          instanceId: definition.instanceId,
+          name: "Remote Reviewer",
+          kindId: definition.kindId,
+          installationId: definition.installationId,
+          providerId: definition.providerId,
+          models: [definition.model],
+          defaultModel: definition.model,
+          enabled: true,
+          permissionMode: "read-only",
+          codex: {
+            reasoningEffort: null,
+            fast: false,
+            baseUrl: null,
+            baseUrlConfigured: false,
+            wire_api: null,
+            requires_openai_auth: null,
+            http_headers: null,
+          },
+          authMode: "subscription",
+          authState: "configured",
+          authReadiness: { status: "ready", code: null, hint: null },
+          isolationState: "enforced",
+        } satisfies RuntimeInstanceSummary;
+      let prepareBarrier: (() => Promise<void>) | undefined;
+      const openEdge = (nodeId: string, launched: string[]) => {
+        const edgeRoot = path.join(f.root, nodeId),
+          edgeViewRoot = path.join(f.root, `${nodeId}-view`);
+        // Each edge owns its replica and materialization marker, including on replay.
+        cpSync(viewRoot, edgeViewRoot, { recursive: true });
+        mkdirSync(path.join(edgeRoot, "harness"), { recursive: true });
+        execFileSync("git", ["-C", edgeRoot, "init", "-q"]);
+        execFileSync("git", ["-C", edgeRoot, "config", "user.name", "Remote Review Test"]);
+        execFileSync("git", ["-C", edgeRoot, "config", "user.email", "review@example.invalid"]);
+        writeFileSync(
+          path.join(edgeRoot, "harness/harness.yaml"),
+          readFileSync(path.join(f.root, "harness/harness.yaml"), "utf8"),
+        );
+        execFileSync("git", ["-C", edgeRoot, "add", "harness"]);
+        execFileSync("git", ["-C", edgeRoot, "commit", "-qm", "test: edge root"]);
+        assert.equal(
+          applyFleetMirrorCut(edgeViewRoot, "completion-review", edgeRoot, "pull", {
+            viewId: pulled.replica.viewId,
+          }).outcome,
+          "applied",
+        );
+        assert.match(
+          readFileSync(path.join(edgeRoot, "harness", f.packagePath, "INDEX.md"), "utf8"),
+          new RegExp(`task_id: ${taskId}|taskId: ${taskId}`, "u"),
+        );
+        const runtime = openFleetEdgeRuntime({
+          request: {
+            host: "127.0.0.1",
+            port: center!.port,
+            caPath: certFile,
+            servername: "localhost",
+            nodeId,
+            credential: `secret-${nodeId}`,
+            assignmentId: `assignment-${nodeId}`,
+            repoId: "completion-review",
+            viewRoot: edgeViewRoot,
+            quotaBytes: 64 * 1024 * 1024,
+            workspaceRoot: edgeRoot,
+            method: "repo.agentRuntime.spawn",
+            action: {},
+          },
+          daemonGeneration: 1,
+          daemonRoute: {
+            userRoot: path.join(f.root, `${nodeId}-user`),
+            daemonId: nodeId,
+            endpoint: path.join(f.root, `${nodeId}.sock`),
+          },
+          ports: {
+            runtimeInstances: () => [instance],
+            prepareRuntimeLaunch: async (_instanceId, request) => {
+              await prepareBarrier?.();
+              return {
+                definition,
+                installation,
+                executablePath: installation.executablePath,
+                args: request.providerSessionId ? ["resume", request.providerSessionId] : ["exec", "--json", "-"],
+                env: {},
+                cwd: request.cwd,
+                prompt: request.prompt,
+              };
+            },
+            prepareWorkerGitEnvironment: async () => null,
+          },
+          launch: (prepared) => {
+            launched.push(nodeId);
+            return {
+              pid: 80_000 + launched.length,
+              onOutput: (listener) => {
+                if (prepared.args[0] === "resume")
+                  queueMicrotask(() =>
+                    listener(JSON.stringify({ type: "thread.started", thread_id: prepared.args[1] }) + "\n"),
+                  );
+              },
+              onErrorOutput: () => undefined,
+              onExit: () => undefined,
+              terminate: () => undefined,
+            };
+          },
+        });
+        edgeRuntimes.push(runtime);
+        return runtime;
+      };
+      const edgeOneLaunches: string[] = [],
+        edgeOne = openEdge("edge-one", edgeOneLaunches),
+        spawnReviewer = (
+          runtime: ReturnType<typeof openFleetEdgeRuntime>,
+          idempotencyKey: string,
+          providerSessionId?: string,
+        ) =>
+          runtime.run("repo.agentRuntime.spawn", {
+            runtimeInstanceId: definition.instanceId,
+            role: "reviewer",
+            taskId,
+            cwd: { scope: "repo-root" },
+            prompt: "Review the current submitted cut.",
+            idempotencyKey,
+            ...(providerSessionId === undefined ? {} : { providerSessionId }),
+          });
+      await assert.rejects(spawnReviewer(edgeOne, "remote-review-unsubmitted"), (error: unknown) => {
+        assert.equal((error as { code?: string }).code, "task_not_submitted");
+        return true;
+      });
+      assert.equal(edgeOneLaunches.length, 0, "an unsubmitted task must not start an edge provider");
+      assert.equal(f.events().filter((event) => event.type === "runtime_dispatch_requested").length, 0);
+
+      const submitted = await f.submit();
+      assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+      const first = (await f.complete()) as Record<string, unknown>,
+        packet = `${f.packagePath}/artifacts/reports/remote-return.json`;
+      mkdirSync(path.dirname(path.join(f.root, "harness", packet)), { recursive: true });
+      writeFileSync(
+        path.join(f.root, "harness", packet),
+        JSON.stringify({
+          verdict: "changes_requested",
+          reason: "Exercise the next review iteration.",
+          evidenceChecked: ["closeout.md"],
+        }),
+      );
+      const returned = await f.cell().run(
+        {
+          kind: "task-review-execution",
+          taskId,
+          executionId,
+          reviewId: "remote-return",
+          fromFile: `harness/${packet}`,
+        },
+        {
+          actor: {
+            principal: owner.actor.principal,
+            executor: { kind: "agent", id: `runtime-session:${String(first.runtimeSessionId)}` },
+          },
+          source: "local",
+        },
+      );
+      assert.equal(returned.outcome, "applied", JSON.stringify(returned));
+      assignedExecutionId = "execution-remote-review-two";
+      assert.equal((await f.run({ kind: "task-start", taskId, executionId: assignedExecutionId })).outcome, "applied");
+      assert.equal((await f.run({ kind: "task-submit", taskId, executionId: assignedExecutionId })).outcome, "applied");
+      const dispatchesBeforeSpentProbe = f
+        .events()
+        .filter((event) => event.type === "runtime_dispatch_requested").length;
+      await assert.rejects(spawnReviewer(edgeOne, "remote-review-spent"), (error: unknown) => {
+        assert.equal((error as { code?: string }).code, "review_return_budget_exhausted");
+        return true;
+      });
+      await assert.rejects(
+        spawnReviewer(edgeOne, "remote-review-spent-resume", "remote-existing-provider"),
+        (error: unknown) => {
+          assert.equal((error as { code?: string }).code, "review_return_budget_exhausted");
+          return true;
+        },
+      );
+      assert.equal(edgeOneLaunches.length, 0, "a spent center budget must not start an edge provider");
+      assert.equal(
+        f.events().filter((event) => event.type === "runtime_dispatch_requested").length,
+        dispatchesBeforeSpentProbe,
+        "a spent center budget must not append a dispatch",
+      );
+
+      assert.equal(
+        (
+          await f.run({
+            kind: "task-amend",
+            taskId,
+            patches: [{ field: "reviewReturnBudget", value: "2" }],
+          })
+        ).outcome,
+        "applied",
+      );
+      const admitted = await spawnReviewer(edgeOne, "remote-review-admitted");
+      assert.equal(admitted.outcome, "applied", JSON.stringify(admitted));
+      assert.equal(edgeOneLaunches.length, 1, "the latest center budget admits the stale-mirror edge");
+      const edgeTwoLaunches: string[] = [],
+        edgeTwo = openEdge("edge-two", edgeTwoLaunches);
+      let arrivals = 0,
+        release!: () => void;
+      const bothPrepared = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      prepareBarrier = async () => {
+        if (++arrivals === 2) release();
+        await bothPrepared;
+      };
+      // Both edges already observed no existing op before either can ask the center to claim it.
+      const concurrent = await Promise.all([
+        spawnReviewer(edgeOne, "remote-review-race"),
+        spawnReviewer(edgeTwo, "remote-review-race"),
+      ]);
+      prepareBarrier = undefined;
+      assert.equal(concurrent[0]!.runtimeSessionId, concurrent[1]!.runtimeSessionId);
+      assert.equal(edgeOneLaunches.length + edgeTwoLaunches.length, 2, "only one edge wins a new attempt");
+      assert.equal(
+        (
+          await f.run({
+            kind: "task-amend",
+            taskId,
+            patches: [{ field: "reviewReturnBudget", value: "1" }],
+          })
+        ).outcome,
+        "applied",
+      );
+      const launchesBeforeReplay = edgeTwoLaunches.length,
+        replay = await spawnReviewer(edgeTwo, "remote-review-admitted");
+      assert.equal(replay.runtimeSessionId, admitted.runtimeSessionId);
+      assert.equal(edgeTwoLaunches.length, launchesBeforeReplay, "the second edge reuses the center claim");
+      assert.equal(
+        f.events().filter((event) => event.type === "runtime_dispatch_requested").length,
+        dispatchesBeforeSpentProbe + 2,
+        "the shared cut and idempotency key own exactly one remote dispatch",
+      );
+    } finally {
+      for (const runtime of edgeRuntimes) runtime.close();
+      await center?.close();
+      await f.close();
+    }
+  },
+);
+
+test(
   "a cancelled reviewer dispatch is replaced on the next complete and the replacement review completes the task",
   { timeout: 20_000 },
   async () => {
@@ -618,7 +993,7 @@ test(
 );
 
 test(
-  "a spent return budget is named in the receipt; raising it or approving still moves the task",
+  "a spent return budget refuses new review dispatches; raising it resumes review and approval completes",
   { timeout: 20_000 },
   async () => {
     const f = await fixture();
@@ -663,32 +1038,30 @@ test(
       const roundTwo = "execution-budget-two";
       assert.equal((await f.run({ kind: "task-start", taskId, executionId: roundTwo })).outcome, "applied");
       assert.equal((await f.run({ kind: "task-submit", taskId, executionId: roundTwo })).outcome, "applied");
+      // Budget spent: complete stops at the review gate without spawning a reviewer worker.
       const second = (await f.run({ kind: "task-complete", taskId, executionId: roundTwo })) as Record<string, unknown>;
       assert.equal(second.code, "review_missing", JSON.stringify(second));
       assert.match(JSON.stringify(second.next), /Return budget 1 is spent at iteration 1/u);
       assert.match(JSON.stringify(second.next), /--review-return-budget/u);
       assert.match(JSON.stringify(second.next), /escalate to the dispatching principal/u);
+      assert.match(JSON.stringify(second.next), /ha task amend/u);
+      assert.deepEqual(second.diagnostic, { kind: "failure", code: "review_return_budget_exhausted" });
+      assert.equal(f.launches.length, 1, "no reviewer worker may spawn once the return budget is spent");
+      assert.equal(f.events().filter((event) => event.type === "runtime_dispatch_requested").length, 1);
       // Without a task-scoped override, inspection reports the repository setting as the source.
       const shown = (await f.run({ kind: "task-show", taskId })) as Record<string, unknown>,
         shownPayload = JSON.parse(String(shown.evidence)) as Record<string, unknown>;
       assert.equal(shownPayload.returnBudget, 1);
       assert.equal(shownPayload.returnBudgetSource, "repository");
-      const refused = await reviewExecution(
-        String(second.runtimeSessionId),
-        roundTwo,
-        "review-budget-two",
-        "changes_requested",
-      );
-      assert.equal(refused.outcome, "op_rejected");
-      assert.equal(refused.code, "manual_intervention_required");
-      assert.match(refused.rejectionExplanation ?? "", /return budget exhausted/u);
-      // The receipt's own exit is executable: raising the live budget unblocks the same verdict.
+      // The receipt's own exit is executable: raising the live budget unblocks the same cut.
       assert.equal((await f.runPrincipal({ kind: "settings-update", reviewReturnBudget: 2 })).outcome, "applied");
       const raised = (await f.run({ kind: "task-complete", taskId, executionId: roundTwo })) as Record<string, unknown>;
       assert.equal(raised.code, "review_missing", JSON.stringify(raised));
       assert.doesNotMatch(JSON.stringify(raised.next), /return budget/u);
+      assert.equal(typeof raised.runtimeSessionId, "string", JSON.stringify(raised));
+      assert.equal(f.launches.length, 2, "a raised budget dispatches a reviewer again");
       assert.equal(
-        (await reviewExecution(String(second.runtimeSessionId), roundTwo, "review-budget-three", "changes_requested"))
+        (await reviewExecution(String(raised.runtimeSessionId), roundTwo, "review-budget-three", "changes_requested"))
           .outcome,
         "applied",
       );
@@ -701,8 +1074,17 @@ test(
       >;
       assert.equal(third.code, "review_missing", JSON.stringify(third));
       assert.match(JSON.stringify(third.next), /Return budget 2 is spent at iteration 2/u);
+      assert.equal(f.launches.length, 2, "the third round is also refused without a worker");
+      // Raising the budget again admits a fresh reviewer whose approval completes the task.
+      assert.equal((await f.runPrincipal({ kind: "settings-update", reviewReturnBudget: 3 })).outcome, "applied");
+      const reopened = (await f.run({ kind: "task-complete", taskId, executionId: roundThree })) as Record<
+        string,
+        unknown
+      >;
+      assert.equal(reopened.code, "review_missing", JSON.stringify(reopened));
+      assert.equal(typeof reopened.runtimeSessionId, "string", JSON.stringify(reopened));
       assert.equal(
-        (await reviewExecution(String(third.runtimeSessionId), roundThree, "review-budget-approved", "approved"))
+        (await reviewExecution(String(reopened.runtimeSessionId), roundThree, "review-budget-approved", "approved"))
           .outcome,
         "applied",
       );
@@ -784,11 +1166,9 @@ test(
         unknown
       >;
       assert.equal(third.code, "review_missing", JSON.stringify(third));
-      // The spent note names the task-scoped budget, not the repository's.
+      // The refusal names the task-scoped budget, not the repository's, and spawns no worker.
       assert.match(JSON.stringify(third.next), /Return budget 2 is spent at iteration 2/u);
-      const refused = await reviewExecution(String(third.runtimeSessionId), roundThree, "review-task-budget-three");
-      assert.equal(refused.outcome, "op_rejected");
-      assert.match(refused.rejectionExplanation ?? "", /return budget exhausted/u);
+      assert.equal(f.launches.length, 2, "a spent task-scoped budget refuses the dispatch without a worker");
     } finally {
       await f.close();
     }

@@ -586,7 +586,7 @@ export function gateChecks(snapshot: Snapshot, executionId: string) {
   const results = gateResults(snapshot, undefined, executionId, execution?.submission, execution?.iteration);
   if (results.length === 0) return [{ gate: "none", status: "pass", witnessRef: null }];
   return results.map(({ gateId: gate, status: gateStatus }) => {
-    const passed = gateStatus === "passed",
+    const passed = gateStatus === "passed" || gateStatus === "waived",
       candidate =
         gate === "code-doc-reconciliation" ? currentCodeDocWitness(snapshot.codeDocWitnesses, executionId) : undefined,
       codeDoc =
@@ -610,7 +610,7 @@ export function gateChecks(snapshot: Snapshot, executionId: string) {
           : undefined;
     return {
       gate,
-      status: gateStatus === "passed" ? "pass" : gateStatus === "not_applicable" ? "not_applicable" : "blocked",
+      status: passed ? "pass" : gateStatus === "not_applicable" ? "not_applicable" : "blocked",
       witnessRef: codeDoc ? `event:${codeDocRecordId(codeDoc)}` : witness ? `event:${witness.receiptId}` : null,
     };
   });

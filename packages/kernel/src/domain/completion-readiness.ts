@@ -1,5 +1,12 @@
 import type { TaskLifecycleSnapshot } from "./task-lifecycle.contract.ts";
-import { closeoutReadiness, currentExecutionCuts, lineageOrphan } from "./closeout-readiness.ts";
+import {
+  closeoutReadiness,
+  currentExecutionCuts,
+  gateSatisfied,
+  lineageOrphan,
+  type CloseoutGateStatus,
+} from "./closeout-readiness.ts";
+import type { FrozenCompletionContract } from "./completion-contract.ts";
 import type { TransitionDocumentMissingSection } from "./transition-document-readiness.ts";
 import type { CloseoutGate } from "./settings-closeout.ts";
 
@@ -67,17 +74,30 @@ export function completionPreparationBlockers(
   return evaluateCompletion(snapshot, executionId, context, false);
 }
 
-/** The remediation command for a missing gate witness follows the adapter frozen into the contract. */
+/** The remediation command for an unsatisfied gate follows its judged status and the frozen contract. */
 function witnessCommand(
   taskId: string,
   gateId: string,
-  contract:
-    | { readonly gates: readonly { readonly gateId: string; readonly witness: { readonly adapterId: string } }[] }
-    | undefined,
+  status: CloseoutGateStatus,
+  contract: FrozenCompletionContract | undefined,
   executionId: string,
 ): string {
-  const adapterId = contract?.gates.find((gate) => gate.gateId === gateId)?.witness.adapterId;
-  if (adapterId === "manual-attest") return `ha task attest ${taskId} --gate ${gateId} --result pass`;
+  const requirement = contract?.gates.find((gate) => gate.gateId === gateId),
+    adapterId = requirement?.witness.adapterId;
+  if (requirement?.allowOverride && adapterId !== "manual-attest") {
+    if (status === "failed")
+      return (
+        `ha task attest ${taskId} --gate ${gateId} --result pass --mode override ` +
+        "--rationale <why-the-recorded-fail-is-waived>"
+      );
+    if (status === "missing")
+      return (
+        `ha task attest ${taskId} --gate ${gateId} --result pass --mode override ` +
+        "--rationale <why-no-automated-witness-is-acceptable>"
+      );
+  }
+  if (adapterId === "manual-attest" || status === "signoff_missing")
+    return `ha task attest ${taskId} --gate ${gateId} --result pass`;
   if (adapterId === "local-command")
     return `ha task submit ${taskId} (the local-command witness runs against the submitted cut)`;
   if (adapterId === "github-actions" || gateId === "ci") return "ha ci observe pull";
@@ -187,8 +207,7 @@ function evaluateCompletion(
     assessment = closeoutReadiness(snapshot, undefined, closeoutGates);
   const gate = assessment.gates.find(
     ({ gateId, status }) =>
-      status !== "passed" &&
-      status !== "not_applicable" &&
+      !gateSatisfied(status) &&
       (gateId !== "code-doc-reconciliation" || closeoutGates.codeDoc) &&
       !context.preparedGateIds?.includes(gateId),
   );
@@ -206,8 +225,10 @@ function evaluateCompletion(
       : one(
           gate.gateId === "ci" ? "ci_missing" : "gate_witness_missing",
           gate.gateId,
-          witnessCommand(task.taskId, gate.gateId, execution.submission.completionContract, executionId),
-          `Publish a passing canonical ${gate.gateId} checker witness for this execution cut.`,
+          witnessCommand(task.taskId, gate.gateId, gate.status, execution.submission.completionContract, executionId),
+          gate.status === "signoff_missing"
+            ? `Gate ${gate.gateId} passed its automated witness and requires a human signoff for this execution cut.`
+            : `Publish a passing canonical ${gate.gateId} checker witness for this execution cut.`,
         );
   if (lineageOrphan(task, snapshot.decisionRelations ?? []))
     return one(

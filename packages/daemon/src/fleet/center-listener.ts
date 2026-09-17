@@ -15,6 +15,7 @@ import { resolveHarnessLayout, sha256Bytes } from "../../../kernel/src/index.ts"
 import { readFileWindow, syncDirectory, syncFile } from "../durable-file.ts";
 import { openFleetLeaseBroker } from "../lease-broker.ts";
 import { openPersistentWriterEpoch, readLedgerWriterEpoch, type PersistentWriterEpoch } from "../writer-epoch.ts";
+import { runtimeErrorCode, runtimeErrorMessage } from "../runtime-spawn-errors.ts";
 import {
   brokerHost as brokerHostImpl,
   discardOwnedClaims as discardOwnedClaimsImpl,
@@ -506,6 +507,11 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           "Runtime event repository must match the authenticated assignment.",
         );
       assertFrameEpoch(a.repoId, frame.writerEpoch);
+      if ((frame.eventType === "runtime_dispatch_requested") !== (frame.dispatchContext !== null))
+        throw new FleetFault(
+          "invalid_runtime_event",
+          "Only a runtime dispatch carries its center admission context, and every remote dispatch must carry it.",
+        );
       let resultBody: string | undefined, uploadId: string | undefined;
       if (frame.result) {
         const owned = Object.entries(state.uploads).find(
@@ -523,17 +529,25 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           throw new FleetFault("content_claim_mismatch", "Runtime result bytes do not match the staged descriptor.");
         resultBody = bytes.toString("utf8");
       }
-      const receipt = await options.host.runtimeIngress(
-        a.repoId,
-        {
-          kind: "event",
-          type: frame.eventType as import("../../../kernel/src/index.ts").AgentRuntimeEventV1["type"],
-          payload: frame.payload,
-          opId: frame.opId,
-          ...(resultBody === undefined ? {} : { resultBody }),
-        },
-        auth(a),
-      );
+      let receipt: Awaited<ReturnType<typeof options.host.runtimeIngress>>;
+      try {
+        receipt = await options.host.runtimeIngress(
+          a.repoId,
+          {
+            kind: "event",
+            type: frame.eventType as import("../../../kernel/src/index.ts").AgentRuntimeEventV1["type"],
+            payload: frame.payload,
+            opId: frame.opId,
+            ...(resultBody === undefined ? {} : { resultBody }),
+            ...(frame.dispatchContext === null ? {} : { dispatchContext: frame.dispatchContext }),
+          },
+          auth(a),
+        );
+      } catch (error) {
+        const code = runtimeErrorCode(error);
+        if (code) throw new FleetFault(code, runtimeErrorMessage(error));
+        throw error;
+      }
       if (uploadId && receipt.outcome === "applied") {
         discardOwnedClaims(nodeId, a.assignmentId, [{ candidate: frame.result! }]);
       }

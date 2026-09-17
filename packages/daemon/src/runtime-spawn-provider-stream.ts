@@ -7,6 +7,7 @@ import { consumeKnownError } from "../../kernel/src/index.ts";
 import { dispatchStreamPath, parseRecord, readDispatchStreamIncrement, scrubProviderValue } from "./dispatch-stream.ts";
 import { observeRuntimeModels } from "./agent-runtime-installation-discovery.ts";
 import type { ActiveRuntime, ProviderFrame, RuntimeBinding } from "./runtime-spawn-types.ts";
+import type { FleetRuntimeDispatchContext } from "./fleet/contract.ts";
 import { transcriptRefForSessionIdentity } from "./session-identity/index.ts";
 import { observeProviderFault } from "./runtime-provider-fault.ts";
 import {
@@ -24,6 +25,7 @@ export async function publishRuntimeEvent<T extends RuntimeEventType>(
   opId: string,
   binding: RuntimeBinding,
   resultBody?: string,
+  dispatchContext?: FleetRuntimeDispatchContext,
 ): Promise<RuntimeEventPublication<T>> {
   const authorizedBinding = context.input.authorizeRuntimeEvent?.({ type, payload, opId, binding }) ?? binding,
     published = context.input.remote
@@ -32,6 +34,7 @@ export async function publishRuntimeEvent<T extends RuntimeEventType>(
           payload,
           opId,
           ...(resultBody === undefined ? {} : { resultBody }),
+          ...(dispatchContext === undefined ? {} : { dispatchContext }),
         })
       : context.input.commitRuntimeEvent
         ? await context.input.commitRuntimeEvent(
@@ -40,6 +43,7 @@ export async function publishRuntimeEvent<T extends RuntimeEventType>(
               payload,
               opId,
               ...(resultBody === undefined ? {} : { resultBody }),
+              ...(dispatchContext === undefined ? {} : { dispatchContext }),
             },
             authorizedBinding,
           )

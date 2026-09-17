@@ -67,6 +67,9 @@ test("the center queue admits one RuntimeSession adoption generation and rejects
         kind: "event",
         type: "runtime_dispatch_requested",
         opId: dispatchOpId,
+        // A remote dispatch declares the admission context the center judges it by; a worker
+        // dispatch names its task scope and no reviewer role.
+        dispatchContext: { role: null, taskId: "task-runtime-action", executionId: "exe-runtime-action" },
         payload: {
           dispatchId,
           runtimeSessionId,

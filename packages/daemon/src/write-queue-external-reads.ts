@@ -9,7 +9,7 @@ import { artifactImportSourceResolution, prepareArtifactEntityImportSource } fro
 import { fetchCiObservations, ingestCiObservations } from "./ci-observation-actions.ts";
 import type { RepoCellApiContext } from "./repo-cell-api.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
-import { acceptedGateWitness, witnessAdapters, witnessCollections } from "./repo-cell-witness-adapters.ts";
+import { acceptedGateWitness, gateWaived, witnessAdapters, witnessCollections } from "./repo-cell-witness-adapters.ts";
 
 type QueuedPublication = (
   action: RepoTaskAction,
@@ -78,6 +78,7 @@ export function readBeforeWriteQueue(
       return adapter?.collect &&
         gateAppliesToSubmission(requirement, execution.submission!) &&
         !acceptedGateWitness(snapshot, execution, requirement.gateId) &&
+        !gateWaived(snapshot, execution, requirement) &&
         adapter.evaluate(context.extracted, requirement, execution, undefined) === null
         ? [{ requirement, adapter }]
         : [];
@@ -85,7 +86,18 @@ export function readBeforeWriteQueue(
     if (pending.length)
       return Promise.all(
         pending.map(async ({ requirement, adapter }) => {
-          const collected = await adapter.collect!(context.extracted, requirement, execution);
+          const collected = await adapter.collect!(context.extracted, requirement, execution).catch(
+            (error: unknown) => {
+              if (requirement.allowOverride !== true) throw error;
+              throw context.extracted.cellCodedError(
+                (error as { readonly code?: string }).code ?? "witness_unavailable",
+                `${error instanceof Error ? error.message : String(error)} ` +
+                  `The task owner may still break-glass this gate: ha task attest ${execution.taskId} ` +
+                  `--gate ${requirement.gateId} --result pass --mode override ` +
+                  "--rationale <why-no-automated-witness-is-acceptable>.",
+              );
+            },
+          );
           return [requirement.gateId, { adapter, collected }] as const;
         }),
       ).then((entries) => async (action, binding) => {

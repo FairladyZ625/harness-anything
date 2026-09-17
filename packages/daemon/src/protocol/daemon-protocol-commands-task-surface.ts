@@ -94,8 +94,9 @@ export const taskSurfaceProtocolCommands = Object.freeze([
     phase: "W3",
     path: ["task", "attest", "<task-id>"],
     summary:
-      "Record a human pass/fail witness for a completion gate the submission contract declared " +
-      "manual-attest; only the adapter declared in the frozen contract is admitted.",
+      "Record a human witness for a completion gate: approve a manual-attest gate or sign off a " +
+      "mandatorySignoff gate over its automated pass; the task owner may override a recorded automated " +
+      "fail of an allowOverride gate with --mode override --rationale. Runtime executors cannot attest.",
     method: "repo.task.run",
     inputs: [
       cliInput("--gate", "single", true, {
@@ -110,7 +111,19 @@ export const taskSurfaceProtocolCommands = Object.freeze([
         },
         { enum: ["pass", "fail"] },
       ),
+      cliInput(
+        "--mode",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { enum: ["approve", "override"] },
+      ),
       cliInput("--note", "single", false, {
+        code: "invalid_field",
+      }),
+      cliInput("--rationale", "single", false, {
         code: "invalid_field",
       }),
     ],

@@ -247,11 +247,13 @@ export function closeoutAssessment(value: unknown): boolean {
       Object.keys(gate).every((key) => ["gateId", "status", "ok", "detail"].includes(key)) &&
       Object.hasOwn(gate, "ok") &&
       nonEmpty(gate.gateId) &&
-      ["passed", "failed", "missing", "unknown", "not_applicable"].includes(String(gate.status)) &&
+      ["passed", "waived", "failed", "missing", "signoff_missing", "unknown", "not_applicable"].includes(
+        String(gate.status),
+      ) &&
       (typeof gate.ok === "boolean" || gate.ok === null) &&
       (gate.status === "unknown" || gate.status === "not_applicable"
         ? gate.ok === null
-        : gate.ok === (gate.status === "passed")) &&
+        : gate.ok === (gate.status === "passed" || gate.status === "waived")) &&
       (gate.detail === undefined || nonEmpty(gate.detail)),
   );
 }
