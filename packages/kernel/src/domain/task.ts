@@ -4,6 +4,7 @@ import type { TaskGraphV1, TaskNodeId } from "./task-graph.ts";
 import { isNonEmptyString, isRecord, validateActorIdentity } from "./write-chain.contract.ts";
 import { validateSessionProvenance, type SessionProvenanceV1 } from "./agent-runtime.ts";
 import type { BaseEntityPinState } from "./base-entity.ts";
+import { isValidCloseoutOverrides, type CloseoutOverridesV1 } from "./settings-closeout.ts";
 export {
   canonicalizeWriteValue as canonicalizeContractValue,
   hasOnlyFields,
@@ -74,6 +75,7 @@ export interface TaskV2 extends BaseEntityPinState {
   readonly supersededBy?: string | null;
   readonly contractVersion?: number;
   readonly reviewReturnBudget?: number;
+  readonly closeoutOverrides?: CloseoutOverridesV1;
 }
 export interface ContractValidationIssue {
   readonly code: string;
@@ -111,6 +113,7 @@ export function validateTaskV2(value: unknown, allowUnknownFields = false): read
       "supersededBy",
       "contractVersion",
       "reviewReturnBudget",
+      "closeoutOverrides",
     ];
   if (
     !isRecord(value) ||
@@ -166,6 +169,11 @@ export function validateTaskV2(value: unknown, allowUnknownFields = false): read
     (!Number.isSafeInteger(value.reviewReturnBudget) || (value.reviewReturnBudget as number) < 1)
   )
     issues.push({ code: "invalid_task", message: "reviewReturnBudget must be a positive integer" });
+  if (value.closeoutOverrides !== undefined && !isValidCloseoutOverrides(value.closeoutOverrides))
+    issues.push({
+      code: "invalid_task",
+      message: "closeoutOverrides must map closeout gate ids to booleans",
+    });
   issues.push(
     ...validateActorAxes(value.createdBy, allowUnknownFields),
     ...validateTaskGraph(value.graph, allowUnknownFields),

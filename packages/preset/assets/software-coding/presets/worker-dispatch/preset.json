@@ -22,6 +22,21 @@
           "localePolicy": { "prefer": "project", "fallback": "en-US" }
         }
       ]
+    },
+    {
+      "id": "lightweight",
+      "title": "Lightweight",
+      "checkerProfile": "standard",
+      "completionGates": [],
+      "templateSelections": [
+        {
+          "slot": "task.worker.flow",
+          "templateRef": "template://planning/worker-flow@1",
+          "materializeAs": "worker-flow.md",
+          "localePolicy": { "prefer": "project", "fallback": "en-US" }
+        }
+      ],
+      "closeoutOverrides": { "review": false, "consent": false }
     }
   ],
   "defaultProfile": "baseline"

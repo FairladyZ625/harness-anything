@@ -206,6 +206,7 @@ export function createRuntime(options: PresetResolverOptions): {
             options.ciWorkflows !== undefined && options.ciWorkflows.length === 0
               ? profile.completionGates.filter((gateId) => gateId !== "ci")
               : profile.completionGates,
+          ...(profile.closeoutOverrides === undefined ? {} : { closeoutOverrides: profile.closeoutOverrides }),
         },
         guidance: {
           description: leaf.document.description,

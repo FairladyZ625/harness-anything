@@ -48,7 +48,11 @@ export function repoCellTaskQueryJudgmentsFor(projection: TaskProjectionQueries)
       closeoutReadiness(
         snapshot,
         availability,
-        readEffectiveCloseoutGates(projection, snapshot.task?.completionGateIds ?? []),
+        readEffectiveCloseoutGates(
+          projection,
+          snapshot.task?.completionGateIds ?? [],
+          snapshot.task?.closeoutOverrides,
+        ),
       ),
     blocking: (tasks, relations, state) => blockingOf(tasks, relations, state),
   };

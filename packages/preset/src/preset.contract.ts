@@ -36,6 +36,7 @@ export interface PresetProfileV3 {
   readonly completionGates: readonly string[];
   readonly templateSelections: readonly TemplateSelectionV1[];
   readonly capabilityImports?: readonly CapabilityRefV1[];
+  readonly closeoutOverrides?: Readonly<Record<string, boolean>>;
 }
 type RuntimeContractSchema<T> = Readonly<{ readonly id: string; readonly required: readonly string[] }> & {
   readonly Type: T;
@@ -101,6 +102,7 @@ export interface PresetSnapshotV1 {
     readonly id: string;
     readonly outputShape: string;
     readonly completionGateIds: readonly string[];
+    readonly closeoutOverrides?: Readonly<Record<string, boolean>>;
   };
   readonly guidance: { readonly description: string; readonly whenToUse: string; readonly bodySha256: string };
   readonly scaffold: {
@@ -415,12 +417,32 @@ function serialize(value: unknown, validate: (input: unknown) => readonly string
   if (errors.length) throw new PresetContractError(errors.join("; "));
   return `${canonicalPresetBytes(value)}\n`;
 }
+// This file is a zero-dependency contract leaf (thin CLI and daemon transport reach it), so the
+// closeout gate vocabulary is restated here; packages/preset/test keeps it equal to the kernel's
+// closeoutOverrideKeys.
+const closeoutOverrideKeys = ["review", "consent", "factDisposition", "codeDoc"] as const;
+function closeoutOverrides(value: unknown): boolean {
+  return (
+    isPresetContractRecord(value) &&
+    Object.entries(value).every(
+      ([key, entry]) => (closeoutOverrideKeys as readonly string[]).includes(key) && typeof entry === "boolean",
+    )
+  );
+}
 function profile(value: unknown): boolean {
   return (
     isPresetContractRecord(value) &&
     allowed(
       value,
-      ["id", "title", "checkerProfile", "completionGates", "templateSelections", "capabilityImports"],
+      [
+        "id",
+        "title",
+        "checkerProfile",
+        "completionGates",
+        "templateSelections",
+        "capabilityImports",
+        "closeoutOverrides",
+      ],
       ["id", "title", "completionGates", "templateSelections"],
     ) &&
     nonEmpty(value.id) &&
@@ -430,7 +452,8 @@ function profile(value: unknown): boolean {
     Array.isArray(value.templateSelections) &&
     value.templateSelections.every(selection) &&
     (value.capabilityImports === undefined ||
-      (Array.isArray(value.capabilityImports) && value.capabilityImports.every((item) => capability(item, false))))
+      (Array.isArray(value.capabilityImports) && value.capabilityImports.every((item) => capability(item, false)))) &&
+    (value.closeoutOverrides === undefined || closeoutOverrides(value.closeoutOverrides))
   );
 }
 function selection(value: unknown): boolean {
@@ -495,10 +518,15 @@ function snapshotIdentity(value: unknown): boolean {
 function snapshotProfile(value: unknown): boolean {
   return (
     isPresetContractRecord(value) &&
-    allowed(value, ["id", "outputShape", "completionGateIds"], ["id", "outputShape", "completionGateIds"]) &&
+    allowed(
+      value,
+      ["id", "outputShape", "completionGateIds", "closeoutOverrides"],
+      ["id", "outputShape", "completionGateIds"],
+    ) &&
     nonEmpty(value.id) &&
     nonEmpty(value.outputShape) &&
-    hasNonEmptyContractStrings(value.completionGateIds)
+    hasNonEmptyContractStrings(value.completionGateIds) &&
+    (value.closeoutOverrides === undefined || closeoutOverrides(value.closeoutOverrides))
   );
 }
 function snapshotGuidance(value: unknown): boolean {
