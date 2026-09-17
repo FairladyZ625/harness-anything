@@ -9,6 +9,9 @@ export function runOfflineCommandThroughDaemonBin(
     result = spawnSync(process.execPath, [daemonServeEntry(), "offline", ...argv, ...(json ? [] : ["--json"])], {
       encoding: "utf8",
       env: process.env,
+      // Offline receipts scale with the ledger: a conversion plan maps every source event and an
+      // events tail returns every event, so the default 1 MiB buffer aborts real repositories.
+      maxBuffer: Number.POSITIVE_INFINITY,
       windowsHide: true,
     });
   if (result.error) throw result.error;

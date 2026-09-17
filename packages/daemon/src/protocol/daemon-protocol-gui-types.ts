@@ -382,6 +382,14 @@ export type DaemonGuiReadResultMap = {
     readonly sourceRevision: number;
   };
   readonly "repo.tasks.completion.read": DaemonTaskCompletionResult;
+  /** The bounded causal-context block a task-bound dispatch prepends to the worker prompt;
+   * assembled at the serving cut — fleet edges read it through `fleet.runtime.read/v1`. */
+  readonly "repo.tasks.causalContext.read": {
+    readonly schema: "task-causal-context-read/v1";
+    readonly ok: true;
+    readonly taskId: string;
+    readonly causalContext: string | null;
+  };
   readonly "repo.tasks.documents.list": DaemonTaskDocumentListResult;
   readonly "repo.artifacts.list": ArtifactsListResult;
   readonly "repo.agentRuntime.overview": AgentRuntimeOverviewResult;
@@ -442,6 +450,7 @@ export type DaemonGuiReadPayloadMap = {
     readonly path: string;
   };
   readonly "repo.tasks.completion.read": { readonly taskId: string };
+  readonly "repo.tasks.causalContext.read": { readonly taskId: string };
   readonly "repo.tasks.documents.list": { readonly taskId: string };
   /** absent kind = html(时间线默认面);md 是显式 opt-in。 */
   readonly "repo.artifacts.list": { readonly kind?: "html" | "md" | "raw" };

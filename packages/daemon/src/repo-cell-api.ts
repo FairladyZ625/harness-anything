@@ -1,4 +1,5 @@
 import { readTaskCompletion } from "./task-completion-read.ts";
+import { assembleTaskCausalContext } from "./dispatch-causal-context.ts";
 import { enqueueRuntimePublication } from "./runtime-publication-queue.ts";
 import {
   executeSquadControl,
@@ -610,6 +611,15 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
     "repo.decisions.list": (payload: Readonly<Record<string, unknown>>) => decisionListFromPayload(payload),
     "repo.tasks.completion.read": (payload) =>
       readTaskCompletion(context.projection, context.requiredCellText(payload.taskId, "taskId")),
+    "repo.tasks.causalContext.read": (payload) => {
+      const taskId = context.requiredCellText(payload.taskId, "taskId");
+      return {
+        schema: "task-causal-context-read/v1" as const,
+        ok: true as const,
+        taskId,
+        causalContext: assembleTaskCausalContext({ projection: context.projection, taskId }),
+      };
+    },
     "repo.tasks.document.read": (payload) => readProjectedDocument(context, payload),
     "repo.tasks.documents.list": (payload) => listProjectedTaskDocuments(context.rootDir, context.projection, payload),
     "repo.artifacts.list": (payload) =>
