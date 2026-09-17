@@ -1,5 +1,6 @@
 // harness-test-tier: contract
-import { describe, expect, it, vi } from "vitest";
+// @vitest-environment happy-dom
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { TaskRow } from "../src/renderer/model/types.ts";
 import { projectedTaskFields } from "./task-projection-fields.ts";
 import {
@@ -12,7 +13,10 @@ import { harnessClient } from "../src/renderer/api-client.ts";
 import { resetGuiTransportForTest } from "../src/renderer/gui-transport.ts";
 
 /** 带冻结契约的 submitted execution(镜像 submission.completionContract 的真实形状)。 */
-function submittedExecution(taskId: string, gates: readonly { gateId: string; adapterId: string }[]) {
+function submittedExecution(
+  taskId: string,
+  gates: readonly { gateId: string; adapterId: string; allowOverride?: true }[],
+) {
   return {
     schema: "execution/v1",
     executionId: `execution-${taskId}`,
@@ -37,6 +41,7 @@ function submittedExecution(taskId: string, gates: readonly { gateId: string; ad
           gateId: gate.gateId,
           appliesTo: "submission",
           witness: { adapterId: gate.adapterId, adapterOptions: {} },
+          ...(gate.allowOverride ? { allowOverride: true } : {}),
         })),
       },
     },
@@ -93,12 +98,41 @@ describe("attestation pool lane derivation", () => {
     });
   });
 
-  it("routes a failed gate to the break-glass lane regardless of adapter", () => {
+  it("routes a signoff_missing gate (automated pass, dual control pending) to the sign-off lane", () => {
+    const task = poolTask({
+      taskId: "task-dual",
+      iteration: 0,
+      gates: [
+        {
+          name: "e2e",
+          ok: false,
+          status: "signoff_missing",
+          detail: "the automated witness passed; the mandatory human signoff is missing",
+        },
+      ],
+      executions: [submittedExecution("task-dual", [{ gateId: "e2e", adapterId: "local-command" }])],
+    });
+    expect(taskGateAttestations(task)).toEqual({
+      gates: [
+        expect.objectContaining({
+          gateId: "e2e",
+          mode: "approve",
+          gateStatus: "signoff_missing",
+          adapterId: "local-command",
+        }),
+      ],
+      breakGlass: [],
+    });
+  });
+
+  it("routes a failed gate to break-glass only when the frozen contract declared allowOverride", () => {
     const task = poolTask({
       taskId: "task-ci",
       iteration: 0,
       gates: [{ name: "ci-gate", ok: false, status: "failed", detail: "current execution cut did not pass" }],
-      executions: [submittedExecution("task-ci", [{ gateId: "ci-gate", adapterId: "github-actions" }])],
+      executions: [
+        submittedExecution("task-ci", [{ gateId: "ci-gate", adapterId: "github-actions", allowOverride: true }]),
+      ],
     });
     const lanes = taskGateAttestations(task);
     expect(lanes.gates).toEqual([]);
@@ -110,6 +144,27 @@ describe("attestation pool lane derivation", () => {
         adapterId: "github-actions",
       }),
     ]);
+  });
+
+  it("keeps a failed gate without declared allowOverride out of every lane (daemon would reject)", () => {
+    const task = poolTask({
+      taskId: "task-locked",
+      iteration: 0,
+      gates: [{ name: "ci-gate", ok: false, status: "failed" }],
+      executions: [submittedExecution("task-locked", [{ gateId: "ci-gate", adapterId: "github-actions" }])],
+    });
+    expect(taskGateAttestations(task)).toEqual({ gates: [], breakGlass: [] });
+  });
+
+  it("keeps a done task read-only even with a missing manual-attest witness", () => {
+    const task = poolTask({
+      taskId: "task-done",
+      canonicalStatus: "done",
+      iteration: 0,
+      gates: [{ name: "ux-signoff", ok: null, status: "missing" }],
+      executions: [submittedExecution("task-done", [{ gateId: "ux-signoff", adapterId: "manual-attest" }])],
+    });
+    expect(taskGateAttestations(task)).toEqual({ gates: [], breakGlass: [] });
   });
 
   it("does not guess manual-attest for legacy cuts without a frozen contract", () => {
@@ -157,7 +212,9 @@ describe("attestation pool lane derivation", () => {
         taskId: "task-b",
         iteration: 0,
         gates: [{ name: "ci-gate", ok: false, status: "failed" }],
-        executions: [submittedExecution("task-b", [{ gateId: "ci-gate", adapterId: "local-command" }])],
+        executions: [
+          submittedExecution("task-b", [{ gateId: "ci-gate", adapterId: "local-command", allowOverride: true }]),
+        ],
       }),
     ]);
     expect(lanes.gates.map(({ taskId }) => taskId)).toEqual(["task-a"]);
@@ -167,45 +224,75 @@ describe("attestation pool lane derivation", () => {
   });
 });
 
-describe("taskAttest client shape", () => {
-  it("rides the existing repo.task.run task-attest action, not a second write path", async () => {
+describe("taskAttest protocol wiring", () => {
+  const appliedReceipt = {
+    schema: "command-receipt/v2",
+    ok: true,
+    command: "task-attest",
+    outcome: "applied",
+    opId: "op-attest",
+  };
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
     resetGuiTransportForTest();
-    const request = vi.fn(async () => ({
-      schema: "command-receipt/v2",
-      ok: true,
-      command: "task-attest",
-      outcome: "applied",
-      opId: "op-attest",
-    }));
-    vi.stubGlobal("window", { harness: { request } });
-    try {
-      await harnessClient.taskAttest({
-        repoId: "repo-a",
-        taskId: "task-1",
-        gateId: "ux-signoff",
-        mode: "approve",
-        rationale: "体验达标",
-      });
-      await harnessClient.taskAttest({ repoId: "repo-a", taskId: "task-1", gateId: "ci-gate", mode: "override" });
-      expect(request.mock.calls[0]![0]).toBe("taskAttest");
-      expect(request.mock.calls[0]![1]).toEqual({
-        repoId: "repo-a",
-        action: {
-          kind: "task-attest",
-          taskId: "task-1",
-          gateId: "ux-signoff",
+    window.sessionStorage.clear();
+  });
+
+  it("posts the formal repo.task.attest method with note for approve and rationale for override on the wire", async () => {
+    window.sessionStorage.setItem("harness.browser.access-token", "wire-token");
+    const fetch = vi.fn(
+      async (_url: unknown, _init: unknown) => new Response(JSON.stringify(appliedReceipt), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetch);
+    await harnessClient.taskAttest({
+      repoId: "repo-a",
+      taskId: "task-1",
+      gateId: "ux-signoff",
+      mode: "approve",
+      note: "体验达标",
+    });
+    await harnessClient.taskAttest({
+      repoId: "repo-a",
+      taskId: "task-2",
+      gateId: "ci-gate",
+      mode: "override",
+      rationale: "外部 CI flake,重跑两次同错。",
+    });
+    expect(fetch.mock.calls.length).toBe(2);
+    const bodies = fetch.mock.calls.map((call) => JSON.parse(String((call[1] as RequestInit).body)));
+    expect(bodies[0]).toEqual({
+      method: "repo.task.attest",
+      params: {
+        repo: { repoId: "repo-a" },
+        payload: { taskId: "task-1", gateId: "ux-signoff", result: "pass", note: "体验达标" },
+      },
+    });
+    expect(bodies[1]).toEqual({
+      method: "repo.task.attest",
+      params: {
+        repo: { repoId: "repo-a" },
+        payload: {
+          taskId: "task-2",
+          gateId: "ci-gate",
           result: "pass",
-          note: "体验达标",
+          mode: "override",
+          rationale: "外部 CI flake,重跑两次同错。",
         },
-      });
-      // override 携带未声明的 mode 字段:今天的 daemon 会在动作输入校验处如实拒绝。
-      expect(request.mock.calls[1]![1]).toEqual({
-        repoId: "repo-a",
-        action: { kind: "task-attest", taskId: "task-1", gateId: "ci-gate", result: "pass", mode: "override" },
-      });
-    } finally {
-      vi.unstubAllGlobals();
-      resetGuiTransportForTest();
-    }
+      },
+    });
+  });
+
+  it("omits mode and empty note for a bare approve and rides the registered taskAttest bridge method", async () => {
+    const request = vi.fn(async (_method: unknown, _payload: unknown) => appliedReceipt);
+    vi.stubGlobal("window", { harness: { request } });
+    await harnessClient.taskAttest({ repoId: "repo-a", taskId: "task-1", gateId: "ux-signoff", mode: "approve" });
+    expect(request.mock.calls[0]![0]).toBe("taskAttest");
+    expect(request.mock.calls[0]![1]).toEqual({
+      repoId: "repo-a",
+      taskId: "task-1",
+      gateId: "ux-signoff",
+      result: "pass",
+    });
   });
 });

@@ -252,5 +252,6 @@
   "components.taskGateAttestCard.overrideRationaleLabel": "Override rationale (required, ≥10 chars)",
   "components.taskGateAttestCard.overrideRationalePlaceholder": "Why this failure is waived (external flake / environment)…",
   "components.taskGateAttestCard.overrideRationaleRequired": "Override rationale needs at least 10 characters.",
-  "components.taskGateAttestCard.overrideHint": "The break-glass write entry is not on the daemon yet; submissions are rejected verbatim with code and reason."
+  "components.taskGateAttestCard.overrideHint": "Break-glass is submitted by the task owner and the rationale is recorded with the witness; daemon rejections surface verbatim with code and reason.",
+  "components.taskGateAttestCard.waivedLabel": "Waived by human override — not an automated pass"
 }
