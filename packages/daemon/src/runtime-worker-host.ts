@@ -48,12 +48,15 @@ export async function runRuntimeWorkerHost(): Promise<void> {
   let settled = false;
   try {
     await relay?.start();
-    const {
+    // This host owns the provider's lifetime. WINDSURF_EXT_HOST_PID comes from the editor terminal that started
+    // the daemon, and devin's ACP server exits 0 as soon as that editor process is gone.
+    const { WINDSURF_EXT_HOST_PID: _editorHostPid, ...hostEnvironment } = manifest.env,
+      {
         HARNESS_DAEMON_USER_ROOT: _daemonUserRoot,
         HARNESS_DAEMON_ID: _daemonId,
         ...providerEnvironment
-      } = manifest.env,
-      providerEnv = relay ? { ...providerEnvironment, HARNESS_DAEMON_ENDPOINT: relay.endpoint } : manifest.env;
+      } = hostEnvironment,
+      providerEnv = relay ? { ...providerEnvironment, HARNESS_DAEMON_ENDPOINT: relay.endpoint } : hostEnvironment;
     child = spawn(manifest.executablePath, [...manifest.args], {
       cwd: manifest.cwd,
       env: providerEnv,
@@ -95,9 +98,7 @@ export async function runRuntimeWorkerHost(): Promise<void> {
     };
     child.once("error", (error) => {
       append({ kind: "provider_stderr", chunk: scrubProviderValue(error.message) as string });
-      finish(null, null);
     });
-    child.once("close", finish);
     process.once("SIGTERM", () => {
       if (!settled) {
         if (acp) acp.cancel();
@@ -105,7 +106,12 @@ export async function runRuntimeWorkerHost(): Promise<void> {
       }
     });
     if (!acp) child.stdin!.end(manifest.prompt);
-    await new Promise<void>((resolve) => child?.once("close", () => resolve()));
+    const [exitCode, signal] = await new Promise<[number | null, NodeJS.Signals | null]>((resolve) =>
+      child!.once("close", (code: number | null, closeSignal: NodeJS.Signals | null) => resolve([code, closeSignal])),
+    );
+    // The daemon stops reading at process_exit, so the ACP session's last frame must land first.
+    await acp?.done;
+    finish(child.pid === undefined ? null : exitCode, signal);
   } finally {
     appender.close();
     await relay?.stop();
