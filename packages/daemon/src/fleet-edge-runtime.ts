@@ -268,6 +268,7 @@ export function openFleetEdgeRuntime(input: {
           eventType: draft.type,
           payload: draft.payload,
           ...(draft.resultBody === undefined ? {} : { resultBody: draft.resultBody }),
+          ...(draft.dispatchContext === undefined ? {} : { dispatchContext: draft.dispatchContext }),
         });
         return { event: response.event as unknown as AgentRuntimeEventV1, receipt: response.receipt as JsonObject };
       },

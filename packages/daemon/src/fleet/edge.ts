@@ -445,6 +445,7 @@ export async function runFleetRuntimeEventClient(
     readonly eventType: string;
     readonly payload: Readonly<Record<string, unknown>>;
     readonly resultBody?: string;
+    readonly dispatchContext?: import("./contract.ts").FleetRuntimeDispatchContext;
   },
 ): Promise<Extract<FleetFrameV1, { schema: "fleet.runtime.event.result/v1" }>> {
   const session = await openPeer(options);
@@ -473,6 +474,7 @@ export async function runFleetRuntimeEventClient(
         eventType: options.eventType,
         payload: options.payload,
         result,
+        dispatchContext: options.dispatchContext ?? null,
       });
     if (response.schema !== "fleet.runtime.event.result/v1") throw new Error("runtime event result expected");
     return response;
