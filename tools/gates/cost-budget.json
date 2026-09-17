@@ -54,23 +54,23 @@
       "decision-propose": {
         "sqlRowsRead": 469,
         "sha256Calls": 29,
-        "sha256Bytes": 17018,
+        "sha256Bytes": 17748,
         "gitProcesses": 6,
-        "fileReadBytes": 2911
+        "fileReadBytes": 3199
       },
       "decision-reject": {
         "sqlRowsRead": 501,
         "sha256Calls": 42,
-        "sha256Bytes": 29393,
+        "sha256Bytes": 30555,
         "gitProcesses": 6,
         "fileReadBytes": 8386
       },
       "relation-relate": {
         "sqlRowsRead": 301,
-        "sha256Calls": 27,
-        "sha256Bytes": 5905,
+        "sha256Calls": 34,
+        "sha256Bytes": 29739,
         "gitProcesses": 6,
-        "fileReadBytes": 495
+        "fileReadBytes": 10527
       },
       "decision-reckon": {
         "sqlRowsRead": 219,
@@ -154,23 +154,23 @@
       "decision-propose": {
         "sqlRowsRead": 469,
         "sha256Calls": 29,
-        "sha256Bytes": 17018,
+        "sha256Bytes": 17748,
         "gitProcesses": 6,
-        "fileReadBytes": 2911
+        "fileReadBytes": 3199
       },
       "decision-reject": {
         "sqlRowsRead": 501,
         "sha256Calls": 42,
-        "sha256Bytes": 29393,
+        "sha256Bytes": 30555,
         "gitProcesses": 6,
         "fileReadBytes": 8386
       },
       "relation-relate": {
         "sqlRowsRead": 301,
-        "sha256Calls": 27,
-        "sha256Bytes": 5905,
+        "sha256Calls": 34,
+        "sha256Bytes": 29739,
         "gitProcesses": 6,
-        "fileReadBytes": 495
+        "fileReadBytes": 10527
       },
       "decision-reckon": {
         "sqlRowsRead": 219,

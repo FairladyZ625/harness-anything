@@ -16,6 +16,7 @@ import {
   type DecisionTransitionType,
 } from "./decision-event-types.ts";
 import { type EntityRelationRecord } from "./entity-relation.ts";
+import { parseEntityRef } from "./entity-ref.ts";
 import { assertTransitionDocumentReady, requireTransitionDocumentKind } from "./transition-document-readiness.ts";
 import {
   freezeDeclaredWritePlan,
@@ -29,6 +30,8 @@ export function compileDecisionWrite(input: {
   readonly approval?: Pick<DecisionJudgmentConsentV1, "approvedBy" | "at" | "channel">;
   readonly currentDecision: Omit<DecisionDocumentState, "relations"> | null;
   readonly currentRelations: readonly EntityRelationRecord[];
+  readonly currentIncomingRelations?: readonly EntityRelationRecord[];
+  readonly resolveLink?: DecisionRelationLinkResolver;
   readonly currentDocument: {
     readonly blobSha256: string;
     readonly body: string;
@@ -73,7 +76,20 @@ export function compileDecisionWrite(input: {
         ? (input.event.payload.body ?? undefined)
         : undefined,
     judgment = input.event.type === "decision_accepted" ? input.event.payload.judgmentOnlyRationale : null,
-    body = renderDecisionDocument(next, input.currentDocument?.body ?? null, replacementBody, judgment),
+    incomingRelations =
+      input.currentIncomingRelations ??
+      next.relations.filter((relation) => {
+        const target = parseEntityRef(relation.target);
+        return target?.kind === "decision" && target.id === input.event.decisionId;
+      }),
+    body = renderDecisionDocument(
+      next,
+      input.currentDocument?.body ?? null,
+      replacementBody,
+      judgment,
+      incomingRelations,
+      input.resolveLink,
+    ),
     claim: DecisionDocumentClaim = {
       path,
       sha256: sha256Text(body),
@@ -157,11 +173,23 @@ export function assertDecisionWritePlan(event: DecisionEventV1, plan: FrozenWrit
   if (!plan || !isFrozenWritePlan(plan))
     throw new Error("decision write plan must exactly declare event, document, blob, and projections");
 }
+/**
+ * Resolves one neighborhood ref to its canonical document and a human label so the causal graph
+ * block can emit a self-contained relative link. Callers with projection access supply it;
+ * unresolved refs render as plain text.
+ */
+export interface DecisionRelationLinkTarget {
+  readonly path: string;
+  readonly label: string;
+}
+export type DecisionRelationLinkResolver = (ref: string) => DecisionRelationLinkTarget | null;
 export function renderDecisionDocument(
   value: DecisionDocumentState,
   current: string | null,
   replacementBody?: string,
   judgmentOnlyRationale: string | null = null,
+  incomingRelations: readonly EntityRelationRecord[] = [],
+  resolveLink: DecisionRelationLinkResolver | null = null,
 ): string {
   const baseProse = replacementBody ?? (current === null ? `\n# ${value.title}\n` : decisionDocumentProse(current)),
     prose = judgmentOnlyRationale
@@ -193,16 +221,102 @@ export function renderDecisionDocument(
       `chosen: ${stableStringify(value.chosen)}`,
       `rejected: ${stableStringify(value.rejected)}`,
       `claims: ${stableStringify(value.claims)}`,
+      `relations: ${stableStringify(value.relations)}`,
       `judgmentConsents: ${stableStringify(value.judgmentConsents)}`,
       ...history,
       "---",
-    ].join("\n");
-  return `${frontmatter}\n${prose}`;
+    ].join("\n"),
+    neighborhood = renderDecisionRelationNeighborhood(
+      value.decisionId,
+      value.relations,
+      incomingRelations,
+      resolveLink ?? null,
+    );
+  return `${frontmatter}\n${prose.replace(/\s*$/u, "")}\n\n${neighborhood}`;
 }
 export function decisionDocumentProse(body: string): string {
   const match = /^---\n[\s\S]*?\n---\n/u.exec(body);
   if (!match) throw new Error("decision document frontmatter is invalid");
-  return body.slice(match[0].length);
+  return body
+    .slice(match[0].length)
+    .replace(
+      /\n?<!-- harness:relation-neighborhood:start -->\n[\s\S]*?<!-- harness:relation-neighborhood:end -->\n?/u,
+      "",
+    );
+}
+
+function renderDecisionRelationNeighborhood(
+  decisionId: string,
+  outgoing: readonly EntityRelationRecord[],
+  incoming: readonly EntityRelationRecord[],
+  resolveLink: DecisionRelationLinkResolver | null,
+): string {
+  const docDir = `decisions/decision-${decisionId}`,
+    otherRef = (relation: EntityRelationRecord, direction: "outgoing" | "incoming") =>
+      direction === "outgoing" ? relation.target : relation.source,
+    refKind = (ref: string) => ref.split("/", 1)[0],
+    line = (relation: EntityRelationRecord, direction: "outgoing" | "incoming", annotateDirection: boolean): string => {
+      const ref = otherRef(relation, direction),
+        link = resolveLink?.(ref) ?? null,
+        stateMark = relation.state === "active" ? "" : ` [${relation.state}]`,
+        head = link
+          ? `[${ref.slice(ref.indexOf("/") + 1)}](${relativeDocumentPath(docDir, link.path)}): ${link.label}`
+          : `${ref}: ${stableStringify(relation.rationale)}`;
+      return annotateDirection ? `- ${head} (${direction} ${relation.type})${stateMark}` : `- ${head}${stateMark}`;
+    },
+    sort = (edges: readonly { relation: EntityRelationRecord; direction: "outgoing" | "incoming" }[]) =>
+      [...edges].sort((left, right) => left.relation.relation_id.localeCompare(right.relation.relation_id)),
+    out = outgoing.map((relation) => ({ relation, direction: "outgoing" as const })),
+    inc = incoming.map((relation) => ({ relation, direction: "incoming" as const })),
+    evidenced = out.filter(({ relation }) => relation.type === "evidenced-by"),
+    derives = out.filter(({ relation }) => relation.type === "derives"),
+    related = sort(
+      [...out, ...inc].filter(
+        ({ relation, direction }) =>
+          (direction === "incoming" || (relation.type !== "evidenced-by" && relation.type !== "derives")) &&
+          refKind(otherRef(relation, direction)) === "decision",
+      ),
+    ),
+    relatedIds = new Set(related.map(({ relation }) => relation.relation_id)),
+    sections = [
+      ["### 支撑事实 (Evidenced by)", sort(evidenced).map((entry) => line(entry.relation, entry.direction, false))],
+      ["### 派生任务 (Derives)", sort(derives).map((entry) => line(entry.relation, entry.direction, false))],
+      ["### 演进与关联决策 (Related Decisions)", related.map((entry) => line(entry.relation, entry.direction, true))],
+      [
+        "### 反向关联 (Incoming)",
+        sort(inc.filter(({ relation }) => !relatedIds.has(relation.relation_id))).map((entry) =>
+          line(entry.relation, entry.direction, true),
+        ),
+      ],
+      [
+        "### 其他关联 (Other)",
+        sort(
+          out.filter(
+            ({ relation }) =>
+              relation.type !== "evidenced-by" && relation.type !== "derives" && !relatedIds.has(relation.relation_id),
+          ),
+        ).map((entry) => line(entry.relation, entry.direction, true)),
+      ],
+    ] as const,
+    body = sections
+      .filter(([, rows]) => rows.length > 0)
+      .map(([title, rows]) => `${title}\n\n${rows.join("\n")}\n\n`)
+      .join("");
+  return [
+    "<!-- harness:relation-neighborhood:start -->",
+    "## 关联图谱 (Causal Graph)",
+    "",
+    body || "- none\n\n",
+    "<!-- harness:relation-neighborhood:end -->",
+    "",
+  ].join("\n");
+}
+function relativeDocumentPath(fromDir: string, toPath: string): string {
+  const from = fromDir.split("/"),
+    to = toPath.split("/");
+  let shared = 0;
+  while (shared < from.length && shared < to.length && from[shared] === to[shared]) shared += 1;
+  return [...from.slice(shared).map(() => ".."), ...to.slice(shared)].join("/");
 }
 export function reduceDecisionDocument(
   current: DecisionDocumentState | null,

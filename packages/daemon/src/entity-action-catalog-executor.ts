@@ -8,10 +8,10 @@ import {
   decisionWritePlan,
   entityUpsertWritePlan,
   entityDeletedWritePlan,
-  factWritePlan,
   getExecutableEntityAction,
   isEntityDeclarationEvent,
   isSameExecution,
+  parseEntityRef,
   requireEntityStoreKindContract,
   readAcceptedCommandOutcome,
   timestamp,
@@ -37,6 +37,7 @@ import {
   type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
 import { prepareDecisionAmend, validateDecisionPackages } from "./decision-surface-actions.ts";
+import { factReplayBundle, supersededFactDocumentSource } from "./fact-supersede-document.ts";
 import { unknownFieldViolation } from "./protocol/json-rpc-types.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import {
@@ -52,6 +53,7 @@ import {
   artifactImportSourceResolution,
 } from "./artifact-entity-action.ts";
 import { executeRelationAction, publicationKillpoints, reject } from "./entity-action-relation.ts";
+import { decisionRelationLinkResolver } from "./entity-document-links.ts";
 
 type ExecutableAction = EntityActionContract & { readonly execution: EntityActionExecutionContract };
 type FactBundle = ReturnType<typeof compileFactWrite>;
@@ -550,7 +552,11 @@ function compileDraft(
   event: Omit<Parameters<typeof compileEntityUpsert>[0], "entityKind" | "entity">,
   approval?: Parameters<typeof compileDecisionWrite>[0]["approval"],
 ): CatalogBundle {
-  if (draft.kind === "fact") return compileFactWrite({ event: draft.event });
+  if (draft.kind === "fact")
+    return compileFactWrite({
+      event: draft.event,
+      supersededFact: supersededFactDocumentSource(projection, draft.event),
+    });
   if (draft.kind === "entity")
     return compileEntityUpsert({ ...event, entityKind: draft.entityKind, entity: draft.entity });
   if (draft.kind === "entity-delete")
@@ -575,23 +581,42 @@ function compileDraft(
   if (document.watermark !== document.sourceRevision)
     reject("content_not_ready", `Decision document ${path} is pending.`);
   const relations = projection
-    .readRelationQuery({ ownerRef: `decision/${draft.event.decisionId}` })
-    .rows.map((edge) => ({
-      relation_id: edge.relationId,
-      source: edge.sourceRef,
-      target: edge.targetRef,
-      type: edge.relationType,
-      strength: edge.strength,
-      direction: edge.direction,
-      origin: edge.origin,
-      rationale: edge.rationale,
-      state: edge.state,
-    }));
+      .readRelationQuery({ ownerRef: `decision/${draft.event.decisionId}` })
+      .rows.map((edge) => ({
+        relation_id: edge.relationId,
+        source: edge.sourceRef,
+        target: edge.targetRef,
+        type: edge.relationType,
+        strength: edge.strength,
+        direction: edge.direction,
+        origin: edge.origin,
+        rationale: edge.rationale,
+        state: edge.state,
+      })),
+    incomingRelations = projection
+      .readDecisionIncomingRelations(draft.event.decisionId)
+      .filter((edge) => {
+        const target = parseEntityRef(edge.targetRef);
+        return target?.kind === "decision" && target.id === draft.event.decisionId;
+      })
+      .map((edge) => ({
+        relation_id: edge.relationId,
+        source: edge.sourceRef,
+        target: edge.targetRef,
+        type: edge.relationType,
+        strength: edge.strength,
+        direction: edge.direction,
+        origin: edge.origin,
+        rationale: edge.rationale,
+        state: edge.state,
+      }));
   return compileDecisionWrite({
     event: draft.event,
     ...(approval ? { approval } : {}),
     currentDecision: read.decision,
     currentRelations: relations,
+    currentIncomingRelations: incomingRelations,
+    resolveLink: decisionRelationLinkResolver(projection),
     currentDocument: document.document,
   });
 }
@@ -633,26 +658,7 @@ function matchingReplayBundle(
     existing.payload.entityKind === contract.target.kind
   )
     return { event: existing, plan: entityDeletedWritePlan(existing), blobs: [] };
-  if (existing?.schema === "fact-event/v1" && writesFact) {
-    const claim = existing.payload.factsDocumentClaim,
-      bytes = store.readContentBlob(claim.sha256);
-    if (!bytes) reject("content_not_ready", `Facts content for ${existing.taskId} is unavailable.`);
-    const body = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-    return {
-      event: existing,
-      plan: factWritePlan(existing),
-      blobs: [
-        {
-          sha256: claim.sha256,
-          size: claim.size,
-          mediaType: claim.mediaType,
-          body,
-        },
-      ],
-      path: claim.path,
-      body,
-    };
-  }
+  if (existing?.schema === "fact-event/v1" && writesFact) return factReplayBundle(store, existing);
   if (existing?.schema === "decision-event/v1" && !writesFact) {
     const claim = existing.payload.decisionDocumentClaim,
       bytes = store.readContentBlob(claim.sha256);

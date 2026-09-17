@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -36,6 +36,21 @@ const binding = withRoleBinding(
     "repo-write",
   );
 
+async function waitForAcceptedReceipt(
+  cell: Awaited<ReturnType<typeof openRepoCell>>,
+  accepted: { readonly opId: string; readonly acceptance?: { readonly revisionTo?: number } | null },
+) {
+  return cell.run(
+    {
+      kind: "receipt-show",
+      opId: accepted.opId,
+      waitFor: ["accepted_durable", "projection_visible", "git_verified", "worktree_visible"],
+      timeoutMs: 5_000,
+    },
+    binding,
+  );
+}
+
 test("immediate relate observes all newly created endpoints across twenty writer turns", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-relation-immediate-"));
   initRepo(rootDir);
@@ -68,7 +83,8 @@ test("immediate relate observes all newly created endpoints across twenty writer
       binding,
     );
     assert.equal(decision.outcome, "applied", JSON.stringify(decision));
-    const decisionId = (JSON.parse(String(decision.evidence)) as { decisionId: string }).decisionId;
+    const decisionId = (JSON.parse(String(decision.evidence)) as { decisionId: string }).decisionId,
+      anchoredRelationIds: string[] = [];
     for (let index = 0; index < 20; index += 1) {
       const sourceRef = `task/task_immediate_source_${index}`,
         targetRef = `task/task_immediate_target_${index}`;
@@ -102,6 +118,14 @@ test("immediate relate observes all newly created endpoints across twenty writer
         }),
       );
       assert.equal(anchored.outcome, "applied", JSON.stringify(anchored));
+      anchoredRelationIds.push(
+        deriveRelationId({
+          source: anchoredSourceRef,
+          target: targetRef,
+          type: "derives",
+          direction: "directed",
+        }),
+      );
       assert.equal(anchorCut.watermark, anchorWriteRevision);
       const cut = projection.readCut(),
         writeRevision = reader.readHead()?.revision ?? 0,
@@ -128,6 +152,77 @@ test("immediate relate observes all newly created endpoints across twenty writer
       assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
       assert.equal(cut.watermark, writeRevision);
     }
+    const lastEvent = reader.read().events.at(-2);
+    assert.equal(lastEvent?.schema, "relation-event/v1");
+    if (lastEvent?.schema === "relation-event/v1")
+      assert.deepEqual(
+        lastEvent.payload.documentClaims?.map(({ path: target }) => target),
+        [`decisions/decision-${decisionId}/decision.md`],
+      );
+    const decisionPath = path.join(rootDir, "harness", `decisions/decision-${decisionId}/decision.md`),
+      decisionBody = readFileSync(decisionPath, "utf8");
+    for (const relationId of anchoredRelationIds) assert.equal(decisionBody.includes(relationId), true, relationId);
+    projection.rebuild();
+    assert.equal(projection.readDocument(`decisions/decision-${decisionId}/decision.md`).document?.body, decisionBody);
+    const targetDecision = await cell.run(
+        {
+          kind: "decision-propose",
+          jsonInput: JSON.stringify({
+            title: "Incoming relation target",
+            question: "Does the target preserve canonical relation direction?",
+            riskTier: "medium",
+            urgency: "medium",
+            vertical: "software/coding",
+            preset: "standard-task",
+            decisionClass: "ordinary",
+            appliesTo: { modules: ["daemon"], productLines: [] },
+            chosen: [{ id: "CH1", text: "Keep incoming edges in the neighborhood" }],
+            rejected: [{ id: "RJ1", text: "Reverse the edge", whyNot: "That changes canonical meaning" }],
+            claims: [{ id: "C1", text: "Direction remains canonical.", loadBearing: true }],
+            fulfillments: [],
+          }),
+        },
+        binding,
+      ),
+      targetDecisionId = (JSON.parse(String(targetDecision.evidence)) as { decisionId: string }).decisionId;
+    assert.equal(targetDecision.outcome, "applied", JSON.stringify(targetDecision));
+    assert.equal((await waitForAcceptedReceipt(cell, targetDecision)).wait?.state, "satisfied");
+    const decisionRelationId = deriveRelationId({
+        source: `decision/${decisionId}`,
+        target: `decision/${targetDecisionId}`,
+        type: "refines",
+        direction: "directed",
+      }),
+      relatedDecisions = await cell.run(
+        {
+          kind: "relation-relate",
+          sourceRef: `decision/${decisionId}`,
+          targetRef: `decision/${targetDecisionId}`,
+          relationType: "refines",
+          rationale: "The source decision sharpens the target policy.",
+          expectedVersion: 0,
+        },
+        secondNodeBinding,
+      );
+    assert.equal(relatedDecisions.outcome, "applied", JSON.stringify(relatedDecisions));
+    assert.equal((await waitForAcceptedReceipt(cell, relatedDecisions)).wait?.state, "satisfied");
+    const targetBody = readFileSync(
+        path.join(rootDir, "harness", `decisions/decision-${targetDecisionId}/decision.md`),
+        "utf8",
+      ),
+      targetFrontmatter = targetBody.slice(0, targetBody.indexOf("\n---\n", 4));
+    assert.equal(targetFrontmatter.includes(decisionRelationId), false);
+    assert.match(
+      targetBody,
+      new RegExp(`### 演进与关联决策 \\(Related Decisions\\)[\\s\\S]*${decisionId}[^\\n]*\\(incoming refines\\)`, "u"),
+    );
+    const decisionRelationEvent = reader.readEvent(String(relatedDecisions.opId));
+    assert.equal(decisionRelationEvent?.schema, "relation-event/v1");
+    if (decisionRelationEvent?.schema === "relation-event/v1")
+      assert.deepEqual(
+        decisionRelationEvent.payload.documentClaims?.map(({ path: target }) => target).sort(),
+        [`decisions/decision-${decisionId}/decision.md`, `decisions/decision-${targetDecisionId}/decision.md`].sort(),
+      );
     for (const missing of ["source", "target"] as const) {
       const receipt = await cell.run(
         {
@@ -151,8 +246,158 @@ test("immediate relate observes all newly created endpoints across twenty writer
       assert.ok(cut.watermark <= cut.writeHead, JSON.stringify(cut));
       assert.equal(cut.writeHead, reader.readHead()?.revision ?? 0);
     }
+    const dirtyBody = `${readFileSync(decisionPath, "utf8")}\nUser-authored draft that must not be overwritten.\n`;
+    writeFileSync(decisionPath, dirtyBody);
+    const dirtyRelation = await cell.run(
+      {
+        kind: "relation-relate",
+        sourceRef: `decision/${decisionId}`,
+        targetRef: "task/task_immediate_target_19",
+        relationType: "derives",
+        rationale: "The accepted relation remains durable while the draft blocks materialization.",
+        expectedVersion: 0,
+      },
+      binding,
+    );
+    assert.equal(dirtyRelation.outcome, "pending", JSON.stringify(dirtyRelation));
+    assert.equal(readFileSync(decisionPath, "utf8"), dirtyBody);
+    const dirtyEvent = reader.readEvent(String(dirtyRelation.opId));
+    assert.equal(dirtyEvent?.schema, "relation-event/v1");
+    if (dirtyEvent?.schema === "relation-event/v1")
+      assert.equal(
+        dirtyEvent.payload.documentClaims?.some(
+          ({ path: target }) => target === `decisions/decision-${decisionId}/decision.md`,
+        ),
+        true,
+      );
+    const dirtyReceipt = await cell.run({ kind: "receipt-show", opId: dirtyRelation.opId }, binding);
+    assert.equal(dirtyReceipt.outcome, "pending", JSON.stringify(dirtyReceipt));
   } finally {
     projection.close();
+    await cell.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("supersedes-fact relation create and final retirement publish current Fact liveness", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-relation-fact-document-"));
+  initRepo(rootDir);
+  const repoId = workspaceId("relation-fact-document"),
+    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "relation-fact-document-test" });
+  try {
+    const first = await cell.run(
+        {
+          kind: "fact-record",
+          statement: "The first observation remains historically available.",
+          evidenceSource: "test:first",
+          confidence: "high",
+          memoryClass: "semantic",
+          memoryTags: ["pattern"],
+        },
+        binding,
+      ),
+      second = await cell.run(
+        {
+          kind: "fact-record",
+          statement: "The replacement observation has stronger evidence.",
+          evidenceSource: "test:second",
+          confidence: "high",
+          memoryClass: "semantic",
+          memoryTags: ["pattern"],
+        },
+        binding,
+      ),
+      third = await cell.run(
+        {
+          kind: "fact-record",
+          statement: "An independent replacement observation remains active.",
+          evidenceSource: "test:third",
+          confidence: "high",
+          memoryClass: "semantic",
+          memoryTags: ["pattern"],
+        },
+        binding,
+      );
+    assert.equal((await waitForAcceptedReceipt(cell, first)).wait?.state, "satisfied");
+    assert.equal((await waitForAcceptedReceipt(cell, second)).wait?.state, "satisfied");
+    assert.equal((await waitForAcceptedReceipt(cell, third)).wait?.state, "satisfied");
+    const firstId = String(first.factId),
+      secondId = String(second.factId),
+      thirdId = String(third.factId),
+      secondRelationId = deriveRelationId({
+        source: `fact/${secondId}`,
+        target: `fact/${firstId}`,
+        type: "supersedes-fact",
+        direction: "directed",
+      }),
+      thirdRelationId = deriveRelationId({
+        source: `fact/${thirdId}`,
+        target: `fact/${firstId}`,
+        type: "supersedes-fact",
+        direction: "directed",
+      }),
+      secondRelated = await cell.run(
+        {
+          kind: "relation-relate",
+          sourceRef: `fact/${secondId}`,
+          targetRef: `fact/${firstId}`,
+          relationType: "supersedes-fact",
+          rationale: "The second observation uses the corrected source.",
+          expectedVersion: 0,
+        },
+        binding,
+      ),
+      thirdRelated = await cell.run(
+        {
+          kind: "relation-relate",
+          sourceRef: `fact/${thirdId}`,
+          targetRef: `fact/${firstId}`,
+          relationType: "supersedes-fact",
+          rationale: "The independent replacement remains valid if the other edge retires.",
+          expectedVersion: 0,
+        },
+        binding,
+      );
+    assert.equal(secondRelated.outcome, "applied", JSON.stringify(secondRelated));
+    assert.equal(thirdRelated.outcome, "applied", JSON.stringify(thirdRelated));
+    assert.equal((await waitForAcceptedReceipt(cell, secondRelated)).wait?.state, "satisfied");
+    assert.equal((await waitForAcceptedReceipt(cell, thirdRelated)).wait?.state, "satisfied");
+    const firstPath = path.join(rootDir, "harness", `facts/${firstId}.md`),
+      superseded = readFileSync(firstPath, "utf8");
+    assert.match(superseded, /State: superseded_fact/u);
+    assert.match(superseded, new RegExp(`Superseded by: fact/${secondId}`, "u"));
+    assert.match(superseded, new RegExp(`Superseded by: fact/${thirdId}`, "u"));
+    assert.match(superseded, /corrected source/u);
+    const firstRetired = await cell.run(
+      {
+        kind: "relation-unrelate",
+        relationId: secondRelationId,
+        reason: "The replacement evidence was withdrawn.",
+        expectedVersion: secondRelated.revision,
+      },
+      binding,
+    );
+    assert.equal(firstRetired.outcome, "applied", JSON.stringify(firstRetired));
+    assert.equal((await waitForAcceptedReceipt(cell, firstRetired)).wait?.state, "satisfied");
+    const stillSuperseded = readFileSync(firstPath, "utf8");
+    assert.match(stillSuperseded, /State: superseded_fact/u);
+    assert.doesNotMatch(stillSuperseded, new RegExp(`Superseded by: fact/${secondId}`, "u"));
+    assert.match(stillSuperseded, new RegExp(`Superseded by: fact/${thirdId}`, "u"));
+    const finalRetired = await cell.run(
+      {
+        kind: "relation-unrelate",
+        relationId: thirdRelationId,
+        reason: "The final active replacement evidence was withdrawn.",
+        expectedVersion: thirdRelated.revision,
+      },
+      binding,
+    );
+    assert.equal(finalRetired.outcome, "applied", JSON.stringify(finalRetired));
+    assert.equal((await waitForAcceptedReceipt(cell, finalRetired)).wait?.state, "satisfied");
+    const restored = readFileSync(firstPath, "utf8");
+    assert.match(restored, /State: standing/u);
+    assert.doesNotMatch(restored, /Superseded by:/u);
+  } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });
   }
