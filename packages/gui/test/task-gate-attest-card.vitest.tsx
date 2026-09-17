@@ -220,6 +220,52 @@ describe("TaskGateAttestCard", () => {
     );
   });
 
+  it("offers break-glass for a missing automated witness on an allowOverride gate with the no-receipt explanation", async () => {
+    const attest = await mountCard(
+      cardTask(
+        [{ name: "e2e", ok: null, status: "missing", detail: "runner unreachable; no gate witness" }],
+        contractExecution("task-card", "e2e", "local-command", { allowOverride: true }),
+      ),
+    );
+    expect(document.querySelector('[data-testid="task-gate-approve-e2e"]')).toBeNull();
+    await act(async () => {
+      byTestId("task-gate-override-e2e").click();
+    });
+    expect(document.body.textContent).toContain("未取得任何自动见证");
+    await typeInto(document.querySelector<HTMLTextAreaElement>("textarea")!, "采集链路阻断,人工验收放行。");
+    await act(async () => {
+      byTestId("gate-attest-submit-override").click();
+    });
+    expect(attest).toHaveBeenCalledWith(
+      expect.objectContaining({ taskId: "task-card" }),
+      "e2e",
+      "override",
+      "采集链路阻断,人工验收放行。",
+    );
+  });
+
+  it("keeps a missing automated gate without declared allowOverride read-only", async () => {
+    await mountCard(
+      cardTask([{ name: "e2e", ok: null, status: "missing" }], contractExecution("task-card", "e2e", "local-command")),
+    );
+    const row = byTestId("task-gate-row-e2e");
+    expect(row.textContent).toContain("missing");
+    expect(row.querySelector("button")).toBeNull();
+  });
+
+  it("keeps a missing automated gate on a done task read-only even when overridable", async () => {
+    const doneTask: TaskRow = {
+      ...cardTask(
+        [{ name: "e2e", ok: null, status: "missing" }],
+        contractExecution("task-card", "e2e", "local-command", { allowOverride: true }),
+      ),
+      canonicalStatus: "done",
+    };
+    await mountCard(doneTask);
+    expect(document.querySelector('[data-testid="task-gate-override-e2e"]')).toBeNull();
+    expect(byTestId("task-gate-row-e2e").querySelector("button")).toBeNull();
+  });
+
   it("keeps a failed gate without declared allowOverride read-only", async () => {
     await mountCard(
       cardTask(

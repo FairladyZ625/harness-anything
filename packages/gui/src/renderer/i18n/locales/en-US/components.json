@@ -251,7 +251,9 @@
   "components.taskGateAttestCard.rationalePlaceholder": "Stored as the note alongside the witness…",
   "components.taskGateAttestCard.overrideRationaleLabel": "Override rationale (required, ≥10 chars)",
   "components.taskGateAttestCard.overrideRationalePlaceholder": "Why this failure is waived (external flake / environment)…",
+  "components.taskGateAttestCard.overrideMissingRationalePlaceholder": "Why no automated witness is acceptable (environment blocked / collection unavailable)…",
   "components.taskGateAttestCard.overrideRationaleRequired": "Override rationale needs at least 10 characters.",
   "components.taskGateAttestCard.overrideHint": "Break-glass is submitted by the task owner and the rationale is recorded with the witness; daemon rejections surface verbatim with code and reason.",
+  "components.taskGateAttestCard.overrideMissingHint": "No automated witness exists for this cut (e.g. runner unreachable / collection unavailable); the override records \"no automated witness\". Any automated receipt arriving later voids this override and requires fresh handling.",
   "components.taskGateAttestCard.waivedLabel": "Waived by human override — not an automated pass"
 }

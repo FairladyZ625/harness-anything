@@ -251,7 +251,9 @@
   "components.taskGateAttestCard.rationalePlaceholder": "评语会作为 note 随签注存证…",
   "components.taskGateAttestCard.overrideRationaleLabel": "特批理由(必填,至少 10 字符)",
   "components.taskGateAttestCard.overrideRationalePlaceholder": "说明为什么放行(外部 flake / 环境阻断)…",
+  "components.taskGateAttestCard.overrideMissingRationalePlaceholder": "说明为什么缺少自动见证也可接受(环境阻断 / 采集不可用)…",
   "components.taskGateAttestCard.overrideRationaleRequired": "特批理由至少 10 个字符。",
   "components.taskGateAttestCard.overrideHint": "特批(break-glass)由任务 owner 提交,理由随见证存证;daemon 拒收时错误码与原因原样展示。",
+  "components.taskGateAttestCard.overrideMissingHint": "本 cut 未取得任何自动见证(如 runner 不可达 / 采集不可用),特批将记录为「未取得自动见证」;之后到达的任何自动回执都会使本次特批失效,需重新处理。",
   "components.taskGateAttestCard.waivedLabel": "特批放行 · 人为放行,不是自动通过"
 }

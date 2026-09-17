@@ -99,6 +99,14 @@ const failedTask: TaskRow = {
   executions: [submittedExecution("task-failed", "ci-gate", "github-actions", { allowOverride: true })],
 } as TaskRow;
 
+const missingWitnessTask: TaskRow = {
+  ...attestTask,
+  taskId: "task-unavailable",
+  title: "无自动见证任务",
+  gates: [{ name: "e2e", ok: null, status: "missing", detail: "runner unreachable; no gate witness" }],
+  executions: [submittedExecution("task-unavailable", "e2e", "local-command", { allowOverride: true })],
+} as TaskRow;
+
 const consentTask: TaskRow = {
   ...attestTask,
   taskId: "task-consent",
@@ -320,6 +328,40 @@ describe("AttestationPoolView", () => {
     expect(harness.attestCalls).toEqual([
       { taskId: "task-failed", gateId: "ci-gate", mode: "override", rationale: "外部 CI flake,重跑两次同错。" },
     ]);
+  });
+
+  it("routes a missing automated witness into break-glass and dispatches the no-receipt override", async () => {
+    const harness = await mountPool("breakGlass", [missingWitnessTask]);
+    expect(byTestId("pool-gate-row-task-unavailable-e2e").textContent).toContain("missing");
+    await act(async () => {
+      byTestId("pool-gate-override-task-unavailable-e2e").click();
+    });
+    expect(document.body.textContent).toContain("未取得任何自动见证");
+    await typeInto(document.querySelector<HTMLTextAreaElement>("textarea")!, "采集链路阻断,人工验收放行。");
+    await act(async () => {
+      byTestId("gate-attest-submit-override").click();
+    });
+    expect(harness.attestCalls).toEqual([
+      {
+        taskId: "task-unavailable",
+        gateId: "e2e",
+        mode: "override",
+        rationale: "采集链路阻断,人工验收放行。",
+      },
+    ]);
+  });
+
+  it("keeps a missing automated gate without declared allowOverride out of the break-glass lane", async () => {
+    const locked: TaskRow = {
+      ...attestTask,
+      taskId: "task-missing-locked",
+      title: "不可特批的缺见证任务",
+      gates: [{ name: "e2e", ok: null, status: "missing" }],
+      executions: [submittedExecution("task-missing-locked", "e2e", "local-command")],
+    } as TaskRow;
+    await mountPool("breakGlass", [locked]);
+    expect(document.querySelector('[data-testid="pool-gate-row-task-missing-locked-e2e"]')).toBeNull();
+    expect(byTestId("attestation-pool-tab-breakGlass").textContent).toMatch(/\S+\s*·\s*0(?=\s|$)/);
   });
 
   it("signs a consent straight from the pool through the complete write path", async () => {

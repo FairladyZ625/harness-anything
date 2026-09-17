@@ -11,7 +11,7 @@ import type { TaskRow } from "./types.ts";
 export const ATTESTATION_POOL_TABS = ["all", "decisions", "gates", "consents", "breakGlass"] as const;
 export type AttestationPoolTabId = (typeof ATTESTATION_POOL_TABS)[number];
 
-/** gate 签发动作:approve=打勾签注(纯人工门或双控缺签);override=可特批失败的放行。 */
+/** gate 签发动作:approve=打勾签注(纯人工门或双控缺签);override=特批放行(豁免已记录失败或未取得自动见证)。 */
 export type GateAttestMode = "approve" | "override";
 
 export interface GateAttestationItem {
@@ -73,8 +73,10 @@ function currentCutContractGates(task: TaskRow): ReadonlyMap<string, FrozenContr
  * 单任务的人签动作,判据与 kernel `judgeGateWitnesses`/`witnessCommand` 同一条
  * (dec_59FA45A407 四形态):待签 = manual-attest 的 missing,或自动已 pass 的
  * signoff_missing(双控缺人签);特批 = 非 manual-attest 且契约声明 allowOverride
- * 的 failed——未声明 allowOverride 的 failed 门 daemon 必拒(invalid_command),
- * 不给 CTA。done/历史接受的门只读;waived 只在展示层标注人为放行,不进任何 lane。
+ * 的 failed(豁免已记录的失败回执)或 missing(本 cut 未取得任何自动见证,如
+ * runner 不可达/采集不可用,daemon 记 waivedReceiptId:null)——未声明
+ * allowOverride 的门 daemon 必拒(invalid_command),不给 CTA。done/历史接受的门
+ * 只读;waived 只在展示层标注人为放行,不进任何 lane。
  */
 export function taskGateAttestations(task: TaskRow): {
   readonly gates: readonly GateAttestationItem[];
@@ -97,8 +99,12 @@ export function taskGateAttestations(task: TaskRow): {
     };
     if ((gate.status === "missing" && adapterId === "manual-attest") || gate.status === "signoff_missing")
       gates.push({ ...base, mode: "approve", gateStatus: gate.status });
-    else if (gate.status === "failed" && frozen?.allowOverride === true && adapterId !== "manual-attest")
-      breakGlass.push({ ...base, mode: "override", gateStatus: "failed" });
+    else if (
+      (gate.status === "failed" || gate.status === "missing") &&
+      frozen?.allowOverride === true &&
+      adapterId !== "manual-attest"
+    )
+      breakGlass.push({ ...base, mode: "override", gateStatus: gate.status });
   }
   return { gates, breakGlass };
 }
