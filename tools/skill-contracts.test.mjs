@@ -27,6 +27,7 @@ test("repository skills are discoverable with agent metadata", () => {
     .sort();
 
   assert.deepEqual(skillNames, [
+    "gate-customization",
     "harness-ceo",
     "harness-contributing",
     "harness-download",

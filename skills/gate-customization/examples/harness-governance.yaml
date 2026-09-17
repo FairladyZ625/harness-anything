@@ -1,0 +1,29 @@
+# 治理字段示例：CI 双控签注 + e2e 特批。
+# - ci 门挂 mandatorySignoff：GitHub run 变绿后门状态是 signoff_missing，须人工
+#   ha task attest <task-id> --gate ci --result pass
+#   签注后才算满足（approve 要求本 cut 已有被接受的自动 pass）。
+# - e2e 门挂 allowOverride：e2e 是自定义 gate id，需 preset 在 profile
+#   completionGates 里声明。自动 fail 会作为正式回执落库，任务 owner 可特批：
+#   ha task attest <task-id> --gate e2e --result pass --mode override --rationale "<至少 10 字符的理由>"
+#   本 cut 无任何自动回执时同样可特批（waivedReceiptId 记 null）；
+#   之后到达的任何自动回执都使旧特批失效，override 永远不算 signoff。
+# - 两个治理字段只许挂在 github-actions / local-command 上；manual-attest 与
+#   none 声明它们会报 cannot declare mandatorySignoff or allowOverride。
+schema: harness-anything/v1
+settings:
+  ci:
+    workflows: [ci]
+  gates:
+    ci:
+      adapter: github-actions
+      appliesTo: code
+      branch: main
+      event: push
+      coverage: descendant
+      selection: newest
+      mandatorySignoff: true
+    e2e:
+      appliesTo: code
+      adapter: local-command
+      command: npm ci && npm run e2e
+      allowOverride: true
