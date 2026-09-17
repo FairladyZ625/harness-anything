@@ -101,6 +101,14 @@ test("in-place conversion leaves followers unchanged until activation and ordina
     } finally {
       target.close();
     }
+    const currentBackup = path.join(parent, "generation-3-backup");
+    createLedgerBackup({ rootInput: root, backupDir: currentBackup, generation: 3 });
+    assert.throws(
+      () => runGenerationConversion({ backupDir: currentBackup, destinationRoot: root, mode: "convert" }),
+      /generation 1 or 2 SQLite backup/u,
+    );
+    assert.equal(existsSync(sqliteLedgerPath(root, 3)), true);
+    assert.equal(existsSync(sqliteLedgerPath(root, 4)), false);
   } finally {
     rmSync(parent, { recursive: true, force: true });
   }

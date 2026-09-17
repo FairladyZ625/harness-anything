@@ -158,12 +158,12 @@ test("stopped legacy Git plus accepted WAL suffix converts with a certified cold
     assert.equal(convertLegacyGeneration({ rootDir: root, snapshotPath, databasePath }).migratedEvents, 0);
     assert.equal(git(root, "rev-parse", "HEAD"), publishedHead);
     assert.equal(physicalSourceBytes(root), sourceBefore);
-    const store = openSqliteEventStore({ repoId, databasePath });
+    const store = openSqliteEventStore({ repoId, databasePath, generation: 1 });
     const events = store.events();
     assert.equal(Object.hasOwn(events[0]!.payload.relation, "strength"), false);
     assert.equal(Object.hasOwn(events[1]!.payload.settings, "walFlush"), true);
     const destinationObject = store.contentObjectDigests().find((digest) => digest === second.blobs[0]!.sha256)!,
-      destinationObjectPath = sqliteContentObjectPath(root, destinationObject),
+      destinationObjectPath = sqliteContentObjectPath(root, destinationObject, 1),
       destinationBytes = store.readContentObject(destinationObject)!;
     assert.equal(
       readCertifiedGitFollower({ rootInput: root, repoId, store }).cut.revision,
@@ -235,7 +235,7 @@ test("attach leaves a revision-zero generation over legacy history inactive and 
     initRepo(root);
     mkdirSync(path.join(root, "harness/events"), { recursive: true });
     writeFileSync(path.join(root, "harness/events/head.json"), '{"revision":1}\n');
-    const store = openSqliteEventStore({ repoId, databasePath });
+    const store = openSqliteEventStore({ repoId, databasePath, generation: 1 });
     store.close();
     assert.throws(
       () => preflightCanonicalGeneration({ rootInput: root, repoId }),
@@ -244,7 +244,7 @@ test("attach leaves a revision-zero generation over legacy history inactive and 
     assert.equal(existsSync(snapshotPath), false);
     assert.equal(existsSync(`${databasePath}.import-source.json`), false);
     assert.equal(existsSync(`${databasePath}.activation.json`), false);
-    const unchanged = openSqliteEventStore({ repoId, databasePath, readOnly: true });
+    const unchanged = openSqliteEventStore({ repoId, databasePath, generation: 1, readOnly: true });
     assert.equal(unchanged.revision(), 0);
     unchanged.close();
   } finally {
@@ -256,15 +256,15 @@ test("explicit bootstrap activation creates an empty canonical generation only f
   const root = mkdtempSync(path.join(tmpdir(), "ha-empty-bootstrap-generation-")),
     repoId = "empty-bootstrap-generation",
     databasePath = path.join(root, ".harness/store/generations/1/ledger.sqlite"),
-    generationTwoPath = path.join(root, ".harness/store/generations/2/ledger.sqlite"),
+    currentGenerationPath = path.join(root, ".harness/store/generations/3/ledger.sqlite"),
     snapshotPath = path.join(root, ".harness/store/imports/generation-0.snapshot.json");
   try {
     initRepo(root);
     activateEmptyCanonicalGeneration({ rootInput: root, repoId });
     assert.equal(existsSync(snapshotPath), false);
     assert.equal(existsSync(databasePath), false);
-    assert.equal(existsSync(generationTwoPath), true);
-    assert.equal(existsSync(`${generationTwoPath}.activation.json`), true);
+    assert.equal(existsSync(currentGenerationPath), true);
+    assert.equal(existsSync(`${currentGenerationPath}.activation.json`), true);
     activateEmptyCanonicalGeneration({ rootInput: root, repoId });
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -373,7 +373,7 @@ test("immutable generation-0 conversion retries into inactive generation-1 witho
     assert.throws(() => convertLegacyGeneration({ rootDir: root, snapshotPath, databasePath }), /active generation/u);
     assert.equal(seeded.eventBytes, originalBytes);
 
-    const sqlite = openSqliteEventStore({ repoId, databasePath }),
+    const sqlite = openSqliteEventStore({ repoId, databasePath, generation: 1 }),
       converted = sqlite.events(),
       convertedSource = arrayStore(converted, (sha256) => sqlite.readContentObject(sha256));
     assert.equal(Object.hasOwn(converted[0]!.payload.settings, "walFlush"), true);
@@ -391,7 +391,14 @@ test("immutable generation-0 conversion retries into inactive generation-1 witho
         documents: [],
         retirements: [],
       },
-      reconciliation = reconcileSqliteEvents({ repoId, rootDir: root, snapshotPath, databasePath, gitReadback });
+      reconciliation = reconcileSqliteEvents({
+        repoId,
+        rootDir: root,
+        snapshotPath,
+        databasePath,
+        generation: 1,
+        gitReadback,
+      });
     assert.equal(reconciliation.matches, true, JSON.stringify(reconciliation));
     assert.equal(
       reconcileSqliteEvents({
@@ -399,16 +406,18 @@ test("immutable generation-0 conversion retries into inactive generation-1 witho
         rootDir: root,
         snapshotPath,
         databasePath,
+        generation: 1,
         gitReadback: { ...gitReadback, commitSha: "" },
       }).matches,
       false,
     );
     const objectDigest = sqlite.contentObjectDigests()[0]!,
-      objectPath = sqliteContentObjectPath(root, objectDigest),
+      objectPath = sqliteContentObjectPath(root, objectDigest, 1),
       objectBytes = sqlite.readContentObject(objectDigest)!;
     writeFileSync(objectPath, Buffer.alloc(objectBytes.byteLength, 0x78));
     assert.equal(
-      reconcileSqliteEvents({ repoId, rootDir: root, snapshotPath, databasePath, gitReadback }).objectMatches,
+      reconcileSqliteEvents({ repoId, rootDir: root, snapshotPath, databasePath, generation: 1, gitReadback })
+        .objectMatches,
       false,
     );
     writeFileSync(objectPath, objectBytes);
@@ -431,7 +440,8 @@ test("immutable generation-0 conversion retries into inactive generation-1 witho
     sqlite.close();
     rmSync(objectPath, { force: true });
     assert.equal(
-      reconcileSqliteEvents({ repoId, rootDir: root, snapshotPath, databasePath, gitReadback }).objectMatches,
+      reconcileSqliteEvents({ repoId, rootDir: root, snapshotPath, databasePath, generation: 1, gitReadback })
+        .objectMatches,
       false,
     );
     assert.throws(
@@ -600,7 +610,7 @@ test("inactive generation conversion repairs schedule definition bytes without r
     assert.equal(converted.active, false);
     assert.equal(convertLegacyGeneration({ rootDir: root, snapshotPath, databasePath }).migratedEvents, 0);
     assert.equal(readFileSync(snapshotPath, "utf8"), immutableBytes);
-    const sqlite = openSqliteEventStore({ repoId, databasePath });
+    const sqlite = openSqliteEventStore({ repoId, databasePath, generation: 1 });
     try {
       const migrated = sqlite.events()[0]! as typeof compiled.event,
         claim = migrated.payload.declarationDocumentClaim,
@@ -683,7 +693,7 @@ test("inactive generation conversion witnesses separated legacy relations at the
     await bump(2);
     await cell.close();
     cell = undefined;
-    const sourceSqlite = openSqliteEventStore({ repoId, rootInput: sourceRoot, generation: 2, readOnly: true });
+    const sourceSqlite = openSqliteEventStore({ repoId, rootInput: sourceRoot, generation: 3, readOnly: true });
     let expected: readonly (readonly [string, number])[];
     try {
       const original = sourceSqlite.events(),
@@ -719,7 +729,7 @@ test("inactive generation conversion witnesses separated legacy relations at the
     assert.equal(report.active, false);
     assert.equal(report.rewrittenEvents, 2);
     assert.equal(convertLegacyGeneration({ rootDir: root, snapshotPath, databasePath }).migratedEvents, 0);
-    const sqlite = openSqliteEventStore({ repoId, databasePath });
+    const sqlite = openSqliteEventStore({ repoId, databasePath, generation: 1 });
     try {
       const events = sqlite.events(),
         relations = events.filter((event) => event.opId === first.opId || event.opId === second.opId);

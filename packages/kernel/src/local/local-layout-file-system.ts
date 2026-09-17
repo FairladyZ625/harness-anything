@@ -22,7 +22,6 @@ import {
 } from "node:fs";
 import path from "node:path";
 import type { LayoutFileSystem } from "../layout/file-system.ts";
-import { consumeKnownError } from "../error-consumption.ts";
 
 export const localLayoutFileSystem: LayoutFileSystem = {
   exists: (inputPath) => existsSync(inputPath),

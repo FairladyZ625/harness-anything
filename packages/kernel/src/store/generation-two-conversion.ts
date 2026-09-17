@@ -63,8 +63,8 @@ export function runGenerationConversion(input: {
   const backupDir = path.resolve(input.backupDir),
     manifest = readVerifiedLedgerBackup(backupDir),
     sourceGeneration = manifest.sqlite.generation;
-  if (!sourceGeneration || sourceGeneration < 1)
-    throw new Error("generation conversion requires a SQLite backup; legacy generation 0 uses the legacy converter");
+  if (sourceGeneration !== 1 && sourceGeneration !== 2)
+    throw new Error("one-time generation conversion requires a generation 1 or 2 SQLite backup");
   const destinationGeneration = sourceGeneration + 1,
     sourcePath = path.join(
       backupDir,
