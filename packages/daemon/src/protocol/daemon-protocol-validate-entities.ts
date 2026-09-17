@@ -36,6 +36,10 @@ export const sha = (value: unknown): boolean => typeof value === "string" && /^[
 export const statusWord = (vocabulary: readonly string[], value: unknown): boolean =>
   vocabulary.includes(String(value));
 
+// Envelope only: a record of boolean flags. Key vocabulary is judged by the kernel strict-write path.
+const closeoutOverridesEnvelope = (value: unknown): value is JsonObject =>
+  isJsonObject(value) && Object.values(value).every((entry) => typeof entry === "boolean");
+
 export function validationError(entityId: string, field: string, actual: unknown, expectation: string): string {
   return (
     `entity=${validationValueSummary(entityId)} field=${field} ${expectation}; ` +
@@ -233,6 +237,7 @@ export function task(value: unknown): boolean {
       "supersededBy",
       "contractVersion",
       "reviewReturnBudget",
+      "closeoutOverrides",
     ];
   return (
     recordWith(value, required) &&
@@ -255,7 +260,8 @@ export function task(value: unknown): boolean {
     (value.supersededBy === undefined || value.supersededBy === null || nonEmpty(value.supersededBy)) &&
     (value.contractVersion === undefined || (integer(value.contractVersion) && Number(value.contractVersion) > 0)) &&
     (value.reviewReturnBudget === undefined ||
-      (integer(value.reviewReturnBudget) && Number(value.reviewReturnBudget) > 0))
+      (integer(value.reviewReturnBudget) && Number(value.reviewReturnBudget) > 0)) &&
+    (value.closeoutOverrides === undefined || closeoutOverridesEnvelope(value.closeoutOverrides))
   );
 }
 

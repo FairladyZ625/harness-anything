@@ -39,6 +39,30 @@ test("closeout profiles default consistently and task gates can only tighten", (
   assert.equal(effectiveCloseoutGates({ profile: "strict", overrides: { consent: false } }).consent, false);
 });
 
+test("task-level closeout overrides take precedence over repository settings", () => {
+  assert.deepEqual(effectiveCloseoutGates({ profile: "strict" }, [], { review: false, consent: false }), {
+    review: false,
+    consent: false,
+    factDisposition: true,
+    codeDoc: true,
+  });
+  // A task override wins over a repository override on the same key.
+  assert.equal(
+    effectiveCloseoutGates({ profile: "standard", overrides: { review: true } }, [], { review: false }).review,
+    false,
+  );
+  // An absent task key falls through to the repository override, then the profile baseline.
+  assert.equal(
+    effectiveCloseoutGates({ profile: "standard", overrides: { review: true } }, [], { consent: false }).review,
+    true,
+  );
+  // The task completion gate contract still forces codeDoc on even when the task disables it.
+  assert.equal(
+    effectiveCloseoutGates({ profile: "standard" }, ["code-doc-reconciliation"], { codeDoc: false }).codeDoc,
+    true,
+  );
+});
+
 test("Settings exposes executable singleton read and update contracts", () => {
   const explanation = explainEntityKind("settings"),
     byId = new Map(explanation.transitions.actions.map((action) => [action.id, action])),

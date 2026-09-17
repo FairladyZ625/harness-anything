@@ -81,3 +81,41 @@ export function parseTaskCreate(
     route.method,
   );
 }
+
+export function parseSubtaskCreate(
+  route: ProtocolCommand,
+  args: readonly string[],
+  rootDir: SafePath,
+  repoId: string | undefined,
+  json: boolean,
+  inputs: ThinCliInputDirectory,
+): ThinParseResult {
+  const f = readFlags(route.id, args.slice(2), inputs);
+  if (!f.ok) return rejected(f.code, f.nextAction, json);
+  const parent = f.one.get("--parent"),
+    title = f.one.get("--title");
+  if (!parent) return rejectInput(inputs, route.id, "--parent", json);
+  if (!title) return rejectInput(inputs, route.id, "--title", json);
+  return accepted(
+    rootDir,
+    repoId,
+    json,
+    {
+      kind: "task-create",
+      title,
+      parentTaskId: parent,
+      // The subtask shortcut defaults to the preset-declared lightweight profile; the daemon
+      // resolves it against the repository default preset and rejects if that preset has none.
+      profileId: f.one.get("--profile") ?? "lightweight",
+      ...Object.fromEntries(
+        (route.inputs as readonly (ThinCliInput & { readonly field?: string })[]).flatMap((input) => {
+          if (!input.field || ["title", "parentTaskId", "profileId", "dryRun"].includes(input.field)) return [];
+          const value = input.kind === "single" ? f.one.get(input.name) : undefined;
+          return value ? [[input.field, value]] : [];
+        }),
+      ),
+      ...(f.booleans.has("--dry-run") ? { dryRun: true } : {}),
+    },
+    route.method,
+  );
+}

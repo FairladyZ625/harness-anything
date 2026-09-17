@@ -499,6 +499,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
       "squad-status",
       "squad-validate",
     ],
+    subtask: ["subtask-create"],
     task: [
       "task-amend",
       "task-annotate",
@@ -894,6 +895,52 @@ test("thin parser derives closed preset and task-create payloads from descriptor
     assert.deepEqual(upgrade.command.action, {
       kind: "preset-upgrade",
       taskId: "task-1",
+    });
+});
+
+test("subtask create forwards a task-create action with parent and lightweight profile default", () => {
+  assert.equal(parseThinCommand(["subtask", "create", "--title", "slice"]).ok, false);
+  assert.equal(parseThinCommand(["subtask", "create", "--parent", "task-root"]).ok, false);
+  const subtask = parseThinCommand([
+      "subtask",
+      "create",
+      "--parent",
+      "task-root",
+      "--title",
+      "slice one",
+      "--locale",
+      "zh-CN",
+    ]),
+    overridden = parseThinCommand([
+      "subtask",
+      "create",
+      "--parent",
+      "task-root",
+      "--title",
+      "slice two",
+      "--profile",
+      "baseline",
+      "--dry-run",
+    ]);
+  assert.equal(subtask.ok, true, JSON.stringify(subtask));
+  if (subtask.ok) {
+    assert.equal(subtask.command.method, "repo.task.create");
+    assert.deepEqual(subtask.command.action, {
+      kind: "task-create",
+      title: "slice one",
+      parentTaskId: "task-root",
+      profileId: "lightweight",
+      locale: "zh-CN",
+    });
+  }
+  assert.equal(overridden.ok, true, JSON.stringify(overridden));
+  if (overridden.ok)
+    assert.deepEqual(overridden.command.action, {
+      kind: "task-create",
+      title: "slice two",
+      parentTaskId: "task-root",
+      profileId: "baseline",
+      dryRun: true,
     });
 });
 

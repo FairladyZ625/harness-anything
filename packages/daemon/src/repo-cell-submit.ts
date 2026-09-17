@@ -246,7 +246,11 @@ async function dispatchSubmittedCutReview(
   if (
     !execution?.submission ||
     !current.packagePath ||
-    !readEffectiveCloseoutGates(cell.projection, snapshot.task?.completionGateIds ?? []).review ||
+    !readEffectiveCloseoutGates(
+      cell.projection,
+      snapshot.task?.completionGateIds ?? [],
+      snapshot.task?.closeoutOverrides,
+    ).review ||
     reviewsForExecution(snapshot.reviews, execution).length > 0
   )
     return null;

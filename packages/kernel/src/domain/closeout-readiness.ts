@@ -13,7 +13,7 @@ import type { CompletionGateWitnessV1 } from "./completion-gate-witness.ts";
 import { CODE_DOC_GATE_ID, gateAppliesToSubmission, type FrozenGateRequirement } from "./completion-contract.ts";
 import type { CoverageRelation } from "./decision-coverage.ts";
 import { judgeCompletionEvidence } from "./completion-evidence.ts";
-import type { CloseoutGate } from "./settings-closeout.ts";
+import type { CloseoutGate, CloseoutOverridesV1 } from "./settings-closeout.ts";
 
 /**
  * `waived`: a recorded automated fail covered by a human override — satisfied, never reported as passed.
@@ -52,6 +52,7 @@ export interface CloseoutSnapshot {
     readonly status: string;
     readonly iteration: number;
     readonly completionGateIds: readonly string[];
+    readonly closeoutOverrides?: CloseoutOverridesV1;
     readonly taskId?: string;
     readonly taskClass?: string;
   } | null;

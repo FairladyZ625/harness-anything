@@ -1,5 +1,6 @@
 import { settingBlockValue } from "../layout/harness-settings.ts";
 import { setting } from "../layout/harness-settings.ts";
+import { isRecord } from "./write-chain.contract.ts";
 
 function replaceScalar(body: string, indent: string, key: string, value: string): string {
   const line = new RegExp(`^(${indent}${key}:[^\\S\\r\\n]*)[^#\\r\\n]*?([^\\S\\r\\n]*(?:#[^\\r\\n]*)?)$`, "mu");
@@ -60,16 +61,33 @@ export type CloseoutGate = CloseoutOverrideKey;
 
 export const DEFAULT_CLOSEOUT_SETTINGS: CloseoutSettingsV1 = Object.freeze({ profile: "standard" });
 
+export function isValidCloseoutOverrides(value: unknown): value is CloseoutOverridesV1 {
+  return (
+    isRecord(value) &&
+    Object.entries(value).every(
+      ([key, entry]) => (closeoutOverrideKeys as readonly string[]).includes(key) && typeof entry === "boolean",
+    )
+  );
+}
+
+/**
+ * The one effective closeout gate set every submit/complete judgment shares: a task-bound
+ * override (declared by the preset profile and frozen onto the task at creation) wins over the
+ * repository profile and its overrides, which fill the rest. `codeDoc` additionally stays on
+ * whenever the task's own completion gates declare code-doc reconciliation.
+ */
 export function effectiveCloseoutGates(
   closeout: CloseoutSettingsV1,
   taskGateIds: readonly string[] = [],
+  taskOverrides?: CloseoutOverridesV1,
 ): Readonly<Record<CloseoutGate, boolean>> {
-  const baseline = closeout.profile === "strict";
+  const baseline = closeout.profile === "strict",
+    gate = (key: CloseoutOverrideKey) => taskOverrides?.[key] ?? closeout.overrides?.[key] ?? baseline;
   return Object.freeze({
-    review: closeout.overrides?.review ?? baseline,
-    consent: closeout.overrides?.consent ?? baseline,
-    factDisposition: closeout.overrides?.factDisposition ?? baseline,
-    codeDoc: (closeout.overrides?.codeDoc ?? baseline) || taskGateIds.includes("code-doc-reconciliation"),
+    review: gate("review"),
+    consent: gate("consent"),
+    factDisposition: gate("factDisposition"),
+    codeDoc: gate("codeDoc") || taskGateIds.includes("code-doc-reconciliation"),
   });
 }
 
