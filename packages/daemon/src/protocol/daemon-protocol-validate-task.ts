@@ -3,6 +3,7 @@ import {
   type GeneratedTaskActionProtocolDeclaration,
 } from "./daemon-protocol-commands-task.ts";
 import type { artifactEntityImportActionInput } from "../../../kernel/src/index.ts";
+import { closeoutGateOk, closeoutGateStatuses } from "../../../kernel/src/index.ts";
 import { DAEMON_TASK_SNAPSHOT_LIST_SCHEMA } from "./daemon-protocol-schema-ids.ts";
 import {
   codeDocRecord,
@@ -247,11 +248,9 @@ export function closeoutAssessment(value: unknown): boolean {
       Object.keys(gate).every((key) => ["gateId", "status", "ok", "detail"].includes(key)) &&
       Object.hasOwn(gate, "ok") &&
       nonEmpty(gate.gateId) &&
-      ["passed", "failed", "missing", "unknown", "not_applicable"].includes(String(gate.status)) &&
+      (closeoutGateStatuses as readonly string[]).includes(String(gate.status)) &&
       (typeof gate.ok === "boolean" || gate.ok === null) &&
-      (gate.status === "unknown" || gate.status === "not_applicable"
-        ? gate.ok === null
-        : gate.ok === (gate.status === "passed")) &&
+      gate.ok === closeoutGateOk(gate.status as never) &&
       (gate.detail === undefined || nonEmpty(gate.detail)),
   );
 }

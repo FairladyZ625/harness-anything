@@ -1,7 +1,12 @@
 import { validateActorAxes, type ActorAxes, type ContractValidationIssue } from "./task.ts";
 import { mappedWitnessAdapterIds } from "./completion-contract.ts";
 import { isNativeCommitSha } from "./execution.ts";
-import type { CompletionEvidenceBasis, CompletionEvidenceProvenance } from "./completion-evidence.ts";
+import {
+  validCompletionEvidenceOverride,
+  type CompletionEvidenceBasis,
+  type CompletionEvidenceOverride,
+  type CompletionEvidenceProvenance,
+} from "./completion-evidence.ts";
 import { hasRequiredFields, isNonEmptyString, validateWriteSource, type WriteSource } from "./write-chain.contract.ts";
 
 export interface CompletionGateWitnessV1 {
@@ -14,6 +19,7 @@ export interface CompletionGateWitnessV1 {
   readonly observed?: boolean;
   readonly basis?: CompletionEvidenceBasis;
   readonly provenance?: CompletionEvidenceProvenance;
+  readonly override?: CompletionEvidenceOverride;
   readonly taskId: string;
   readonly executionId: string;
   /** The cut's delivery commit, or null when the submission delivered accepted artifacts only. */
@@ -43,7 +49,7 @@ export function validateCompletionGateWitnessV1(
       "source",
       "verifiedAt",
     ],
-    optionalFields = ["observed", "basis", "provenance"],
+    optionalFields = ["observed", "basis", "provenance", "override"],
     hasFields = allowUnknownFields
       ? hasRequiredFields
       : (candidate: Record<string, unknown>, required: readonly string[]) =>
@@ -81,7 +87,8 @@ export function validateCompletionGateWitnessV1(
       (!["runner", "human"].includes(record.provenance.source) ||
         !(mappedWitnessAdapterIds as readonly string[]).includes(record.provenance.adapterId as string) ||
         !isNonEmptyString(record.provenance.runId) ||
-        !isNonEmptyString(record.provenance.rawResult)))
+        !isNonEmptyString(record.provenance.rawResult))) ||
+    (record.override !== undefined && !validCompletionEvidenceOverride(record.override))
     ? [
         {
           code: "invalid_gate_witness",
@@ -89,6 +96,24 @@ export function validateCompletionGateWitnessV1(
         },
       ]
     : [];
+}
+
+/**
+ * A human attestation on a gate whose frozen witness is an automated adapter (dual-control signoff or
+ * break-glass override) is kept apart from that adapter's witness: recording one never replaces the
+ * other, so an automated fail stays on the cut after it is waived. A manual-attest gate has one lane.
+ */
+export function isHumanAttestationWitness(witness: Pick<CompletionGateWitnessV1, "provenance">): boolean {
+  return witness.provenance?.source === "human" && witness.provenance.adapterId === "manual-attest";
+}
+
+/** Snapshot replacement key: a newer witness replaces the older one only within its own lane. */
+export function sameGateWitnessLane(left: CompletionGateWitnessV1, right: CompletionGateWitnessV1): boolean {
+  return (
+    left.executionId === right.executionId &&
+    left.gateId === right.gateId &&
+    isHumanAttestationWitness(left) === isHumanAttestationWitness(right)
+  );
 }
 
 /**

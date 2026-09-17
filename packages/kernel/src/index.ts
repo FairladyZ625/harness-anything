@@ -226,7 +226,7 @@ export type {
   FrozenReviewerDeclaration,
   MappedWitnessAdapterId,
 } from "./domain/completion-contract.ts";
-export { isPreservedVerdictWitness } from "./domain/completion-gate-witness.ts";
+export { isHumanAttestationWitness, isPreservedVerdictWitness } from "./domain/completion-gate-witness.ts";
 export { sha256Bytes, sha256Text, stablePayloadHash, stableStringify } from "./integrity/stable-hash.ts";
 export { eventObjectTarget } from "./layout/ledger-object-layout.ts";
 export {

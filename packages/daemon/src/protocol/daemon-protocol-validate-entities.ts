@@ -7,7 +7,11 @@ import {
   taskStatusWords,
 } from "./daemon-protocol-vocabulary.ts";
 import { isJsonObject, type JsonObject, validationValueSummary } from "./json-rpc-types.ts";
-import { mappedWitnessAdapterIds, validateFrozenCompletionContract } from "../../../kernel/src/index.ts";
+import {
+  mappedWitnessAdapterIds,
+  validCompletionEvidenceOverride,
+  validateFrozenCompletionContract,
+} from "../../../kernel/src/index.ts";
 
 export const recordWith = (value: unknown, fields: readonly string[]): value is JsonObject =>
     isJsonObject(value) && fields.every((field) => Object.hasOwn(value, field)),
@@ -477,7 +481,7 @@ export function gate(value: unknown): boolean {
       "source",
       "verifiedAt",
     ],
-    optional = ["observed", "basis", "provenance"];
+    optional = ["observed", "basis", "provenance", "override"];
   return (
     recordWith(value, required) &&
     Object.keys(value).every((field) => required.includes(field) || optional.includes(field)) &&
@@ -509,7 +513,8 @@ export function gate(value: unknown): boolean {
         (value.provenance.source === "runner" || value.provenance.source === "human") &&
         mappedWitnessAdapterIds.includes(value.provenance.adapterId as never) &&
         nonEmpty(value.provenance.runId) &&
-        nonEmpty(value.provenance.rawResult)))
+        nonEmpty(value.provenance.rawResult))) &&
+    (value.override === undefined || validCompletionEvidenceOverride(value.override))
   );
 }
 

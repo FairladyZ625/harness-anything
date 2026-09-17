@@ -632,3 +632,117 @@ test("completed receipt replay does not inspect a newer red or unavailable CI ob
     receipt,
   );
 });
+
+async function completeOverRedCi(requirement: FrozenGateRequirement) {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-complete-override-"));
+  try {
+    const sha = init(root),
+      submitted = execution(sha, [], [requirement]),
+      settings = readSettingsFacet(""),
+      packagePath = "tasks/task-complete-override",
+      presetSnapshotDigest = compileRepoTaskPackage({
+        rootDir: root,
+        settings,
+        taskId: "task",
+        action: { kind: "task-create", title: "Complete Override" },
+      }).snapshot.digest,
+      snapshot = {
+        revision: 1,
+        task: {
+          taskId: "task",
+          status: "in_review",
+          currentNode: "review",
+          iteration: 0,
+          completionGateIds: ["ci"],
+          createdBy: actor,
+          taskClass: "standard",
+          presetSnapshotDigest,
+        },
+        executions: [submitted],
+        reviews: [],
+        consents: [],
+        codeDocWitnesses: [],
+        gateWitnesses: [],
+        lease: null,
+        decisionRelations: [],
+      } as unknown as Snapshot,
+      read = { snapshot, packagePath, status: "ready", watermark: 2, sourceRevision: 2 },
+      published: CompletionEvidenceV1[] = [],
+      cell = {
+        rootDir: root,
+        projectionReady,
+        input: { repoId: "repo" },
+        settings: { read: () => settings, readRepository: () => settings },
+        requiredCellText: (value: string) => value,
+        operationId: () => "facade-op",
+        completeRetryCommand: () => "ha task complete task",
+        completionContext: () => ({
+          closeout: "ready",
+          closeoutPath: `${packagePath}/closeout.md`,
+          eligibleDirtyPaths: [],
+          producesFactCount: 1,
+          projectionStatus: "ready",
+          closeoutGates: { review: false, consent: false, factDisposition: false, codeDoc: false },
+        }),
+        completionStopped,
+        completionSettlement,
+        service: { read: async () => read },
+        projection: {
+          read: () => read,
+          readTaskCompletion: () => null,
+          getEntity: () => null,
+          readRelationQuery: (query: { readonly relationType?: string }) =>
+            query.relationType === "produces"
+              ? { rows: [{ targetRef: "fact/one", state: "active" }], status: "ready" }
+              : { rows: [], status: "ready" },
+          readDecisions: () => ({ decisions: [], status: "ready" }),
+          readDocument: (target: string) => ({
+            watermark: 2,
+            sourceRevision: 2,
+            document: {
+              path: target,
+              blobSha256: "0".repeat(64),
+              body: target.endsWith("task-contract.json")
+                ? JSON.stringify({
+                    title: "Complete Override",
+                    documents: [{ slot: "task.closeout", path: "closeout.md" }],
+                  })
+                : "## Summary\nDone.\n## Verification\nVerified.\n## Residual Risk\nNone.\n" +
+                  "## Same Mechanism Elsewhere\nChecked.\n",
+            },
+          }),
+          readCiRunObservations: () => ({
+            status: "ready",
+            events: [observation(sha, 1, "failure")],
+            watermark: 2,
+            sourceRevision: 2,
+          }),
+        },
+        cellCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),
+        lifecycleAction: async () => assert.fail("completion must stop before any lifecycle write"),
+        publishGateWitness: (...args: unknown[]) => {
+          published.push(args[5] as CompletionEvidenceV1);
+          return { outcome: "applied", opId: "witness-fail" };
+        },
+      } as unknown as RepoCellOperationalContext;
+    const receipt = (await completeTask(cell, { kind: "task-complete", taskId: "task", executionId: "execution" }, {
+      ...binding,
+      authorizationDecision: { outcome: "allowed" },
+    } as RepoCellBinding)) as unknown as Record<string, unknown>;
+    return { receipt, published };
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+test("complete records the automated fail of an override-allowed gate and stops; other gates still reject", async () => {
+  const { receipt, published } = await completeOverRedCi({ ...ciRequirement(), allowOverride: true });
+  assert.deepEqual(
+    published.map((evidence) => [evidence.gateId, evidence.result, evidence.provenance.source]),
+    [["ci", "fail", "runner"]],
+  );
+  assert.equal(receipt.outcome, "op_rejected");
+  assert.equal(receipt.code, "ci_missing");
+  // Without allowOverride the automated fail still rejects the completion outright.
+  await assert.rejects(completeOverRedCi(ciRequirement()), { code: "invalid_proof" });
+});
