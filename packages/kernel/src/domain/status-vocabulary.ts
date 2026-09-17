@@ -69,7 +69,7 @@ export interface StatusVocabulary {
 
 import { decisionStates } from "./decision-event-types.ts";
 import { relationStates } from "./entity-relation.ts";
-import { closeoutGateStatuses } from "./closeout-readiness.ts";
+import { closeoutGateStatuses } from "./status-word-register-closeout.ts";
 import { factLivenessStates } from "./fact-liveness.ts";
 import { domainStatuses } from "./lifecycle-status.ts";
 import { statusWordRegister } from "./status-word-register.ts";
@@ -291,7 +291,7 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     id: "closeout.gate-status",
     entity: "TaskCloseout",
     field: "gate status",
-    module: "packages/kernel/src/domain/closeout-readiness.ts",
+    module: "packages/kernel/src/domain/status-word-register-closeout.ts",
     anchor: "closeoutGateStatuses",
     words: closeoutGateStatuses,
     note:

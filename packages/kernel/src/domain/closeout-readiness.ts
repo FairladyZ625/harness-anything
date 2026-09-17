@@ -15,20 +15,9 @@ import type { CoverageRelation } from "./decision-coverage.ts";
 import { judgeCompletionEvidence } from "./completion-evidence.ts";
 import type { CloseoutGate, CloseoutOverridesV1 } from "./settings-closeout.ts";
 
-/**
- * `waived`: a recorded automated fail covered by a human override — satisfied, never reported as passed.
- * `signoff_missing`: the automated witness passed but the gate's mandatory human signoff is absent.
- */
-export const closeoutGateStatuses = [
-  "passed",
-  "waived",
-  "failed",
-  "missing",
-  "signoff_missing",
-  "unknown",
-  "not_applicable",
-] as const;
-export type CloseoutGateStatus = (typeof closeoutGateStatuses)[number];
+import type { CloseoutGateStatus } from "./status-word-register-closeout.ts";
+export { closeoutGateStatuses, type CloseoutGateStatus } from "./status-word-register-closeout.ts";
+
 export interface CloseoutGateResult {
   readonly gateId: string;
   readonly status: CloseoutGateStatus;

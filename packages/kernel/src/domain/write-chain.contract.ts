@@ -1,11 +1,11 @@
 import { stablePayloadHash } from "../integrity/stable-hash.ts";
 import { validateActorIdentity, type ActorIdentity } from "./actor-identity.ts";
-import { isNonEmptyString } from "./contract-validation.ts";
+import { hasOnlyFields, hasRequiredFields, isRecord, isNonEmptyString } from "./contract-validation.ts";
 import { validateWriteReceipt, type WriteReceipt, type WriteReceiptDraft } from "./receipt-domain-registry.ts";
 import { timestamp } from "./timestamp.ts";
 export { validateActorIdentity } from "./actor-identity.ts";
 export type { ActorIdentity } from "./actor-identity.ts";
-export { isNonEmptyString } from "./contract-validation.ts";
+export { hasOnlyFields, hasRequiredFields, isRecord, isNonEmptyString } from "./contract-validation.ts";
 export {
   isReceiptDiagnostic,
   isReceiptGuidance,
@@ -195,19 +195,6 @@ export class WriteChainContractError extends Error {
   }
 }
 
-export function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-export function hasOnlyFields(value: Readonly<Record<string, unknown>>, fields: readonly string[]): boolean {
-  return (
-    Object.keys(value).every((field) => fields.includes(field)) && fields.every((field) => Object.hasOwn(value, field))
-  );
-}
-
-export function hasRequiredFields(value: Readonly<Record<string, unknown>>, fields: readonly string[]): boolean {
-  return fields.every((field) => Object.hasOwn(value, field));
-}
 export function hasContractFields(
   value: Readonly<Record<string, unknown>>,
   fields: readonly string[],
