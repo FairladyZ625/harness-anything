@@ -1,0 +1,15 @@
+# 无自动化环境的仓库：免除代码-文档对账门，owner 人工签字卡点。
+# owner-signoff 是自定义 gate id，需要 preset 在 profile completionGates 里声明。
+# 预期行为：submit 冻结契约后，complete 前 owner 执行
+#   ha task attest <task-id> --gate owner-signoff --result pass --note "复核意见"
+# 未签字时任务停在 incomplete（blocker: gate）；--result fail 同样阻塞并留痕。
+# appliesTo: submission 对每个提交 cut 都生效，代码与 artifact 交付都可签。
+schema: harness-anything/v1
+settings:
+  ci:
+    workflows: []
+  gates:
+    code-doc-reconciliation: none
+    owner-signoff:
+      appliesTo: submission
+      adapter: manual-attest
