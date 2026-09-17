@@ -75,6 +75,7 @@
     "packages/daemon/src/repo-cache-purge.ts",
     "packages/daemon/src/repo-cell-errors.ts",
     "packages/daemon/src/repo-cell-lock.ts",
+    "packages/daemon/src/repo-cell-witness-adapters.ts",
     "packages/daemon/src/request-log.ts",
     "packages/daemon/src/runtime-callback-relay.ts",
     "packages/daemon/src/runtime.ts",
