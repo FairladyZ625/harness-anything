@@ -146,6 +146,51 @@ describe("attestation pool lane derivation", () => {
     ]);
   });
 
+  it("routes a missing automated gate with allowOverride to break-glass (no-receipt override)", () => {
+    const task = poolTask({
+      taskId: "task-unavailable",
+      iteration: 0,
+      gates: [{ name: "e2e", ok: null, status: "missing", detail: "runner unreachable; no gate witness" }],
+      executions: [
+        submittedExecution("task-unavailable", [{ gateId: "e2e", adapterId: "local-command", allowOverride: true }]),
+      ],
+    });
+    const lanes = taskGateAttestations(task);
+    expect(lanes.gates).toEqual([]);
+    expect(lanes.breakGlass).toEqual([
+      expect.objectContaining({
+        taskId: "task-unavailable",
+        gateId: "e2e",
+        mode: "override",
+        gateStatus: "missing",
+        adapterId: "local-command",
+      }),
+    ]);
+  });
+
+  it("keeps a missing automated gate without declared allowOverride out of every lane (daemon would reject)", () => {
+    const task = poolTask({
+      taskId: "task-missing-locked",
+      iteration: 0,
+      gates: [{ name: "e2e", ok: null, status: "missing" }],
+      executions: [submittedExecution("task-missing-locked", [{ gateId: "e2e", adapterId: "local-command" }])],
+    });
+    expect(taskGateAttestations(task)).toEqual({ gates: [], breakGlass: [] });
+  });
+
+  it("keeps a done task read-only even with an overridable missing automated gate", () => {
+    const task = poolTask({
+      taskId: "task-done-missing",
+      canonicalStatus: "done",
+      iteration: 0,
+      gates: [{ name: "e2e", ok: null, status: "missing" }],
+      executions: [
+        submittedExecution("task-done-missing", [{ gateId: "e2e", adapterId: "local-command", allowOverride: true }]),
+      ],
+    });
+    expect(taskGateAttestations(task)).toEqual({ gates: [], breakGlass: [] });
+  });
+
   it("keeps a failed gate without declared allowOverride out of every lane (daemon would reject)", () => {
     const task = poolTask({
       taskId: "task-locked",
