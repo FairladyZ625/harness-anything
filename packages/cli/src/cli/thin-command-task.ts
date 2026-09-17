@@ -2,7 +2,7 @@ import type { SafePath } from "../../../daemon/src/protocol/daemon-protocol.cont
 import { accepted, nonEmpty, readFlags, rejected } from "./thin-command-flags.ts";
 import { parseProjected } from "./thin-command-projection.ts";
 import { parseContractMigrate, parseTaskArchive, parseTaskDelete } from "./thin-command-task-admin.ts";
-import { parseCodeDoc, parseCodeDocRepoint, parseProgress } from "./thin-command-task-evidence.ts";
+import { parseCodeDoc, parseCodeDocRepoint, parseProgress, parseTaskAttest } from "./thin-command-task-evidence.ts";
 import { parseAmend, parseSupersede } from "./thin-command-task-relations.ts";
 import { renderCliGuidance } from "./guidance-plane.ts";
 import type { ThinCliInputDirectory, ThinParseResult } from "./thin-command-types.ts";
@@ -22,6 +22,7 @@ export function parseTask(
       "task-delete": () => parseTaskDelete(args, rootDir, repoId, json, inputs),
       "task-archive": () => parseTaskArchive(args, rootDir, repoId, json, inputs),
       "task-dispatch-review": () => parseTaskDispatchReview(args, rootDir, repoId, json, inputs),
+      "task-attest": () => parseTaskAttest(args, rootDir, repoId, json, inputs),
     },
     delegatedParse = delegated[id]?.();
   if (delegatedParse !== undefined) return delegatedParse;
@@ -79,18 +80,6 @@ export function parseTask(
       patches: [{ field: "pinned", value: id === "task-pin" ? "true" : "false" }],
     });
   if (id === "task-supersede") return parseSupersede(args, taskId, rootDir, repoId, json, inputs);
-  if (id === "task-attest") {
-    const f = readFlags(id, args.slice(3), inputs);
-    return f.ok
-      ? accepted(rootDir, repoId, json, {
-          kind: id,
-          taskId,
-          gateId: f.one.get("--gate"),
-          result: f.one.get("--result"),
-          ...(f.one.get("--note") ? { note: f.one.get("--note") } : {}),
-        })
-      : rejected(f.code, f.nextAction, json);
-  }
   if (id === "task-annotate") {
     const f = readFlags(id, args.slice(3), inputs);
     return f.ok
