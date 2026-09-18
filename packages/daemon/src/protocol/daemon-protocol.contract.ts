@@ -202,6 +202,35 @@ export const daemonProtocolMethods = Object.freeze([
       payload: shape({ action: shape({ kind: "string" }, true) }),
     }),
   },
+  {
+    id: "repo.agentRuntime.batch",
+    phase: "Runtime-B",
+    method: "repo.agentRuntime.batch",
+    requiresRepo: true,
+    params: shape({
+      repo: shape({ repoId: "string" }),
+      payload: shape({ declaration: "string", executor: "json?" }),
+    }),
+  },
+  {
+    id: "repo.agent.create",
+    phase: "Runtime-B",
+    method: "repo.agent.create",
+    requiresRepo: true,
+    params: shape({
+      repo: shape({ repoId: "string" }),
+      payload: shape({
+        runtimeInstanceId: "string",
+        agentId: "string",
+        prompt: "string",
+        effort: "string?",
+        model: "string?",
+        cwd: "json?",
+        taskId: "string-null?",
+        executor: "json?",
+      }),
+    }),
+  },
 ] as const);
 
 export const runtimeInstanceMethods = Object.freeze([

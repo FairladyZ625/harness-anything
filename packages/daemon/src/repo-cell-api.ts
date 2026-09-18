@@ -153,6 +153,8 @@ export interface RepoCellApiContext {
   readonly presetProcess: ReturnType<typeof createPresetProcessService>;
   readonly runtimeReads: ReturnType<typeof makeAgentRuntimeReadModel>;
   readonly runtimeSpawner: ReturnType<typeof makeRuntimeSpawner>;
+  /** Resolves when the session's projected outcome is settled per the domain settle predicate. */
+  readonly awaitRuntimeOutcome: (runtimeSessionId: string) => Promise<void>;
   readonly settings: RepoCellSettingsState;
   readonly appendAuxiliaryRuntimeIngress: RepoCellOperationalContext["appendAuxiliaryRuntimeIngress"];
   bootstrapReceipt: RepoBootstrapReceipt | undefined;
@@ -165,6 +167,19 @@ export interface RepoCellApiContext {
 }
 
 export const repoCellSynchronousRead = Symbol("repoCellSynchronousRead");
+
+/** The squad run phase is the canonical outcome; the daemon stamps the terminal verdict on the
+ * squad-status receipt so transports never re-derive exit semantics from the phase themselves. */
+function withSquadTerminalOutcome(action: RepoTaskAction, receipt: WriteReceipt): WriteReceipt {
+  if (action.kind !== "squad-status") return receipt;
+  const run = (receipt as unknown as { readonly run?: unknown }).run,
+    phase =
+      run && typeof run === "object" && !Array.isArray(run)
+        ? String((run as { readonly phase?: unknown }).phase)
+        : null;
+  if (phase !== "converged" && phase !== "failed" && phase !== "cancelled") return receipt;
+  return { ...receipt, outcome: phase, exitCode: phase === "converged" ? 0 : 1 } as unknown as WriteReceipt;
+}
 
 export interface RepoCellSynchronousRead {
   readonly [repoCellSynchronousRead]: <M extends RepoCellReadMethod>(
@@ -981,17 +996,19 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
       return context.appendAuxiliaryRuntimeIngress(action, authorizedBinding);
     });
   };
+  const runCommand: RepoCell["run"] = async (action, binding, signal) => {
+    const receipt = await run(action, binding, signal);
+    if (isSquadControlResult(receipt)) return receipt;
+    if (isSquadControlCommand(action.kind)) return squadControlRejected(action.kind, receipt);
+    return withSquadTerminalOutcome(action, await settleWriteReceipt(context, action, receipt, signal));
+  };
   return {
     bootstrapReceipt: context.bootstrapReceipt,
-    run: async (action, binding, signal) => {
-      const receipt = await run(action, binding, signal);
-      if (isSquadControlResult(receipt)) return receipt;
-      if (isSquadControlCommand(action.kind)) return squadControlRejected(action.kind, receipt);
-      return settleWriteReceipt(context, action, receipt, signal);
-    },
+    run: runCommand,
     presetRun,
     spawnRuntime,
     cancelRuntime,
+    awaitRuntimeOutcome: context.awaitRuntimeOutcome,
     runtimeIngress,
     catalog: context.catalog,
     terminal: context.terminal,

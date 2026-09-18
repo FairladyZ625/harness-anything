@@ -123,7 +123,7 @@ export const runtimeFleetProtocolCommands = Object.freeze([
       "Run a runtime-batch/v1 declaration through bounded concurrent runtime ",
       "dispatches and wait for every entry to settle.",
     ].join(""),
-    method: "repo.agentRuntime.spawn",
+    method: "repo.agentRuntime.batch",
     inputs: [],
   }),
   defineRepoReadCommand({

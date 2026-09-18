@@ -2,8 +2,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { parseRuntimeBatchEntry } from "../src/cli-runtime-batch-input.ts";
-import { runtimeBatchSpawnAction } from "../src/cli-runtime-batch.ts";
+import { parseRuntimeBatchEntry, runtimeBatchSpawnPayload } from "../../daemon/src/runtime-orchestration.ts";
 import { firstCliCommand, firstCliCommandIndex, parseThinCommand } from "../src/cli/thin-command.ts";
 
 test("lifecycle CLI maps explicit selectors and accepts every derivable execution or Review selector", () => {
@@ -1020,7 +1019,7 @@ test("runtime batch uses the same prompt, mission, and task input union as runti
   });
   const fast = parseRuntimeBatchEntry({ instance: "codex-fast", prompt: "inspect", fast: true }, 0);
   assert.equal(fast.fast, true);
-  assert.equal(runtimeBatchSpawnAction(fast).fast, true);
+  assert.equal(runtimeBatchSpawnPayload(fast, "test-key").fast, true);
   assert.throws(
     () => parseRuntimeBatchEntry({ instance: "worker", prompt: "inspect", fast: "yes" }, 0),
     /field fast must be a boolean/u,

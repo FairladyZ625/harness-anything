@@ -225,8 +225,12 @@ test("agent create runs and ontology-squad reinstall stays on the canonical Enti
       .split("\n")
       .map((line) => JSON.parse(line) as Record<string, unknown>);
     assert.equal(
-      requests.some((row) => row.command === "agent-validate"),
+      requests.some((row) => row.method === "repo.agent.create"),
       true,
+    );
+    assert.equal(
+      requests.some((row) => row.command === "agent-validate"),
+      false,
     );
     const inspected = JSON.parse(String(run(root, env, ["agent", "inspect", "mechanic-agent"]).evidence)) as Record<
       string,

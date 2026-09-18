@@ -150,7 +150,7 @@ export const agentProtocolCommands = Object.freeze([
       "Ask a declared Agent designer for one structured Agent declaration, ",
       "validate it, and install it without overwriting an existing Agent.",
     ].join(""),
-    method: "repo.agentRuntime.spawn",
+    method: "repo.agent.create",
     positional: "runtimeInstanceId",
     inputs: [
       cliInput(

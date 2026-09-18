@@ -367,6 +367,20 @@ export async function eventually<T>(read: () => T): Promise<T> {
   }
   throw new Error(`dispatch did not settle: ${JSON.stringify(last)}`);
 }
+export async function eventuallyTerminal(
+  root: string,
+  env: NodeJS.ProcessEnv,
+  args: readonly string[],
+): Promise<Record<string, unknown>> {
+  let last: Record<string, unknown> = {};
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    last = runMaybe(root, env, args).receipt;
+    const rows = last.dispatches;
+    if (Array.isArray(rows) && rows.some((row) => (row as Record<string, unknown>).status === "cancelled")) return last;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error(`dispatch did not settle: ${JSON.stringify(last)}`);
+}
 export async function eventuallyRuntimeStatus(
   root: string,
   env: NodeJS.ProcessEnv,

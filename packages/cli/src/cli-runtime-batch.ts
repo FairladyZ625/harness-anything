@@ -1,145 +1,22 @@
 import type { JsonObject } from "../../daemon/src/protocol/json-rpc-types.ts";
 import { cliErrorMessage } from "./cli-error.ts";
 import { runtimeRejected } from "./cli-runtime-auth.ts";
-import { readRuntimeBatch } from "./cli-runtime-batch-input.ts";
-import { runRuntimeFacadeCommand } from "./cli-runtime-command.ts";
-import type { RuntimeBatchDeclaration, RuntimeBatchEntry, RuntimeBatchResult } from "./cli-types.ts";
+import { readRuntimeBatchFile } from "./cli-runtime-batch-input.ts";
 import type { ThinCommand } from "./cli/thin-command.ts";
-import { humanError } from "./cli/guidance-plane.ts";
-import { consumeKnownError } from "./daemon/client.ts";
-import { randomUUID } from "node:crypto";
+import { consumeKnownError, runCommandThroughDaemon } from "./daemon/client.ts";
 
-export async function runRuntimeBatch(
-  command: ThinCommand,
-  writeActivity: (text: string) => void,
-): Promise<JsonObject> {
-  let declaration: RuntimeBatchDeclaration;
+/** runtime-batch is one daemon request: the declaration crosses the wire verbatim and the
+ * RepoCell owns the concurrency window, per-entry settlement, and the aggregate receipt. */
+export async function runRuntimeBatch(command: ThinCommand): Promise<JsonObject> {
+  let declaration: string;
   try {
-    declaration = readRuntimeBatch(command);
+    declaration = readRuntimeBatchFile(command);
   } catch (error) {
     consumeKnownError(error);
     return runtimeRejected("runtime-batch", "batch_file_invalid", cliErrorMessage(error));
   }
-  return runRuntimeBatchDeclaration(command, declaration, writeActivity);
-}
-
-export async function runRuntimeBatchDeclaration(
-  command: ThinCommand,
-  declaration: RuntimeBatchDeclaration,
-  writeActivity: (text: string) => void,
-): Promise<JsonObject> {
-  const results: RuntimeBatchResult[] = [];
-  let next = 0;
-  const spawn = (entry: RuntimeBatchEntry, idempotencyKey: string): Promise<JsonObject> =>
-    runRuntimeFacadeCommand(
-      {
-        ...command,
-        method: "repo.agentRuntime.spawn",
-        action: { ...runtimeBatchSpawnAction(entry), idempotencyKey },
-      },
-      writeActivity,
-    );
-  const worker = async (): Promise<void> => {
-    while (true) {
-      const index = next++;
-      if (index >= declaration.dispatches.length) return;
-      const entry = declaration.dispatches[index]!;
-      let receipt: JsonObject;
-      try {
-        receipt = await spawn(entry, `runtime-batch-${randomUUID()}`);
-      } catch (error) {
-        consumeKnownError(error);
-        receipt = runtimeRejected("runtime-run", "batch_dispatch_failed", cliErrorMessage(error));
-      }
-      results[index] = runtimeBatchResult(index, entry, receipt);
-    }
-  };
-  await Promise.all(
-    Array.from({ length: Math.min(declaration.maxConcurrency, declaration.dispatches.length) }, () => worker()),
-  );
-  const failed = results.filter((result) => result.status !== "succeeded"),
-    unknown = results.some((result) => result.status === "unknown"),
-    outcome = failed.length === 0 ? "succeeded" : unknown ? "unknown" : "partial_failure";
-  return {
-    schema: "command-receipt/v2",
-    ok: true,
-    command: "runtime-batch",
-    outcome,
-    dispatches: results,
-    maxConcurrency: declaration.maxConcurrency,
-    summary: `runtime-batch: ${results.length - failed.length} succeeded, ${failed.length} failed`,
-    exitCode: failed.length ? 1 : 0,
-  };
-}
-
-export function runtimeBatchSpawnAction(entry: RuntimeBatchEntry): ThinCommand["action"] {
-  return {
-    kind: "runtime-run",
-    runtimeInstanceId: entry.instance,
-    ...(entry.agent ? { agentId: entry.agent } : {}),
-    ...(entry.to ? { targetAgentId: entry.to } : {}),
-    ...(entry.model ? { model: entry.model } : {}),
-    ...(entry.effort ? { effort: entry.effort } : {}),
-    ...(entry.fast === undefined ? {} : { fast: entry.fast }),
-    ...(entry.permissionMode ? { permissionMode: entry.permissionMode } : {}),
-    ...(entry.prompt ? { prompt: entry.prompt } : entry.mission ? { missionName: entry.mission } : {}),
-    cwd:
-      typeof entry.cwd === "object"
-        ? entry.cwd
-        : entry.cwd && entry.cwd !== "."
-          ? { scope: "repo-relative", path: entry.cwd }
-          : { scope: "repo-root" },
-    taskId: entry.task ?? null,
-    noStream: true,
-  };
-}
-
-export function runtimeBatchResult(index: number, entry: RuntimeBatchEntry, receipt: JsonObject): RuntimeBatchResult {
-  const spawn =
-      receipt.spawn && typeof receipt.spawn === "object" ? (receipt.spawn as Record<string, unknown>) : receipt,
-    result =
-      receipt.result && typeof receipt.result === "object" ? (receipt.result as Record<string, unknown>) : undefined,
-    outcome = typeof receipt.outcome === "string" ? receipt.outcome : null,
-    status =
-      receipt.ok !== true
-        ? "rejected"
-        : outcome === "succeeded"
-          ? "succeeded"
-          : outcome === "unknown"
-            ? "unknown"
-            : "failed",
-    failure = status === "succeeded" ? null : humanError(receipt);
-  return {
-    index,
-    instance: entry.instance,
-    agent: entry.agent ?? null,
-    to: entry.to ?? null,
-    status,
-    outcome,
-    dispatchId: typeof spawn.dispatchId === "string" ? spawn.dispatchId : null,
-    runtimeSessionId:
-      typeof receipt.runtimeSessionId === "string"
-        ? receipt.runtimeSessionId
-        : typeof spawn.runtimeSessionId === "string"
-          ? spawn.runtimeSessionId
-          : null,
-    code:
-      typeof receipt.code === "string"
-        ? receipt.code
-        : failure?.code && failure.code !== "unknown"
-          ? failure.code
-          : status === "failed" || status === "unknown"
-            ? "runtime_failed"
-            : null,
-    reason:
-      typeof receipt.reason === "string"
-        ? receipt.reason
-        : failure
-          ? failure.hint
-          : typeof receipt.summary === "string"
-            ? receipt.summary
-            : null,
-    reportPath: null,
-    resultText: typeof result?.text === "string" ? result.text : null,
-  };
+  return runCommandThroughDaemon({
+    ...command,
+    action: { kind: "runtime-batch", declaration },
+  });
 }

@@ -512,6 +512,19 @@ export function createJsonRpcProtocolServer(options: {
         return reply(method, protocolFailure(method, error));
       }
     }
+    if (method === "repo.agentRuntime.batch" || method === "repo.agent.create") {
+      const repo = params.repo.repoId;
+      try {
+        return reply(
+          method,
+          method === "repo.agentRuntime.batch"
+            ? await options.host.batchRuntime(repo, params.payload, options.authContext)
+            : await options.host.createAgent(repo, params.payload, options.authContext),
+        );
+      } catch (error) {
+        return reply(method, protocolFailure(method, error));
+      }
+    }
     if (isTerminalActionCall(call)) {
       const { method, params } = call,
         repo = params.repo.repoId;

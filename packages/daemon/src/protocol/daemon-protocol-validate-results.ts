@@ -301,6 +301,13 @@ export function validateDaemonTaskDispatches(value: unknown): readonly string[] 
     ["ok", value.ok, value.ok === true, "must be true"],
     ["status", value.status, value.status === "ready" || value.status === "pending", "must be ready or pending"],
     ["dispatches", value.dispatches, Array.isArray(value.dispatches), "must be an array"],
+    [
+      "outcome",
+      value.outcome,
+      ["succeeded", "failed", "cancelled", "unknown"].includes(String(value.outcome)),
+      "must be a terminal outcome",
+    ],
+    ["exitCode", value.exitCode, integer(value.exitCode), "must be an integer"],
     ["watermark", value.watermark, integer(value.watermark), "must be an integer"],
     ["sourceRevision", value.sourceRevision, integer(value.sourceRevision), "must be an integer"],
   ] as const)
@@ -309,7 +316,16 @@ export function validateDaemonTaskDispatches(value: unknown): readonly string[] 
     unavailableTaskIds = Array.isArray(value.unavailableTaskIds) ? value.unavailableTaskIds : [],
     single =
       nonEmpty(value.taskId) &&
-      exactRecord(value, ["ok", "status", "taskId", "dispatches", "watermark", "sourceRevision"]),
+      exactRecord(value, [
+        "ok",
+        "status",
+        "taskId",
+        "dispatches",
+        "outcome",
+        "exitCode",
+        "watermark",
+        "sourceRevision",
+      ]),
     batch =
       stringArray(taskIds) &&
       taskIds.length > 0 &&
@@ -324,6 +340,8 @@ export function validateDaemonTaskDispatches(value: unknown): readonly string[] 
         "taskIds",
         "unavailableTaskIds",
         "dispatches",
+        "outcome",
+        "exitCode",
         "page",
         "watermark",
         "sourceRevision",

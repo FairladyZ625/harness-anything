@@ -30,6 +30,7 @@ import {
   type AgentRuntimeStreamHub,
 } from "./agent-runtime-stream.ts";
 import { readRuntimeSessionActivityEvidence } from "./dispatch-read.ts";
+import { runtimeOutcomeSettled, runtimeSettlementGraceMs } from "./runtime-settlement.ts";
 import { openGuiCatalog } from "./gui-catalog.ts";
 import type { FleetRoster } from "./fleet-center-admission.ts";
 import { readDefaultVerticalDefinition } from "./vertical-declaration-action.ts";
@@ -237,8 +238,36 @@ export async function openRepoWriterCell(
       publish: (runtimeSessionId, signal) => {
         const event = workerRuntimeStream.publish(runtimeSessionId, signal);
         input.onRuntimeSignal?.(runtimeSessionId, signal);
+        if (signal.type === "exit") notifyOutcomeWaiters();
         return event;
       },
+    };
+  // Orchestration waiters (runtime batch, agent create) park on this set instead of polling the
+  // projection on a client cadence; every terminal signal re-checks the domain settle predicate.
+  const outcomeWaiters = new Set<() => void>(),
+    notifyOutcomeWaiters = (): void => {
+      const waiters = [...outcomeWaiters];
+      outcomeWaiters.clear();
+      for (const waiter of waiters) waiter();
+    },
+    awaitRuntimeOutcome = async (runtimeSessionId: string): Promise<void> => {
+      while (!runtimeOutcomeSettled(projection.readRuntimeSession(runtimeSessionId), now())) {
+        await new Promise<void>((resolve) => {
+          const waiter = () => {
+            outcomeWaiters.delete(waiter);
+            clearTimeout(timer);
+            resolve();
+          };
+          // The settle predicate is also time-based (post-exit grace), so a missed event cannot
+          // park a waiter forever; each wake re-reads the projection and either returns or rearms.
+          const timer = setTimeout(() => {
+            outcomeWaiters.delete(waiter);
+            resolve();
+          }, runtimeSettlementGraceMs);
+          timer.unref?.();
+          outcomeWaiters.add(waiter);
+        });
+      }
     };
   // The ledger core is rebuildable in place: the variables below are rebound wholesale by
   // attemptRecovery, so a latched cell re-attaches to repaired data without reopening.
@@ -509,11 +538,13 @@ export async function openRepoWriterCell(
       }),
     onRuntimeOutcome: (event) => {
       schedule(() => squadCoordinator.observeOutcome(event));
+      notifyOutcomeWaiters();
       input.onRuntimeOutcome?.(event);
     },
     onAttemptTerminal: async (terminal) => {
       if (terminal.task) await settleExecutionLease(terminal);
       if (terminal.schedule) schedule(() => settleScheduledOutcome(terminal), terminal.binding);
+      notifyOutcomeWaiters();
       input.onAttemptTerminal?.(terminal);
     },
     handoffTaskLease: (handoff) => handoffTaskLease(handoff),
@@ -810,11 +841,12 @@ export async function openRepoWriterCell(
           heldRuntimeSessionId === fromRuntimeSessionId &&
           isSamePerson(lease.actor, binding.actor);
       // An orphaned lease is past expiresAt; the release rule decides who may reclaim it.
-      if (lease.phase === "held" && !dispatcherOwnsLease && !trustedRuntimeHandoff)
+      if (lease.phase === "held" && !dispatcherOwnsLease && !trustedRuntimeHandoff) {
         throw cellCodedError(
           "lease_conflict",
           `Task ${taskId} is held by another RuntimeSession; wait for it to settle before dispatching again.`,
         );
+      }
       const releaseAction = {
           kind: "task-release",
           taskId,
@@ -1057,6 +1089,7 @@ export async function openRepoWriterCell(
     get runtimeReads() {
       return runtimeReads;
     },
+    awaitRuntimeOutcome,
     runtimeSpawner,
     settings,
     appendAuxiliaryRuntimeIngress: extracted.appendAuxiliaryRuntimeIngress,

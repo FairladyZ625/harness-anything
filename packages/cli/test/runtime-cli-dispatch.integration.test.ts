@@ -513,7 +513,7 @@ test("Provider failures preserve reasons, redact secrets and publish failed task
   assert.equal(failedRow?.dispatchPath, `${packagePath}/artifacts/dispatches/${detachedFailure.dispatchId}.json`);
   await eventuallyFile(path.join(artifactRoot, "reports", `${detachedFailure.dispatchId}.md`));
   const publishedFailureRow = (
-    run(root, env, ["task", "dispatches", taskId]).dispatches as Array<Record<string, unknown>>
+    runMaybe(root, env, ["task", "dispatches", taskId]).receipt.dispatches as Array<Record<string, unknown>>
   ).find((row) => row.dispatchId === detachedFailure.dispatchId);
   assert.equal(publishedFailureRow?.reportPath, `${packagePath}/artifacts/reports/${detachedFailure.dispatchId}.md`);
   const healthAfterRuntimeFailure = (run(root, env, ["daemon", "status"]).repos as Array<Record<string, unknown>>)[0]

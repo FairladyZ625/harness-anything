@@ -154,7 +154,8 @@ export function readTaskDispatches(
     );
   }
   removeDispatchLiveIndexEntries(input.rootDir, [...staleIndexEntries.values()]);
-  const dispatches = [...rows.values()].sort((left, right) => left.startedAt.localeCompare(right.startedAt));
+  const dispatches = [...rows.values()].sort((left, right) => left.startedAt.localeCompare(right.startedAt)),
+    terminal = taskDispatchesOutcome(dispatches, resumedDispatches);
   return singleTaskId === undefined
     ? {
         ok: true,
@@ -162,6 +163,8 @@ export function readTaskDispatches(
         taskIds: batch.taskIds,
         unavailableTaskIds: batch.taskIds.filter((taskId) => !tasks.get(taskId)?.packagePath),
         dispatches,
+        outcome: terminal.outcome,
+        exitCode: terminal.exitCode,
         page: batch.page,
         watermark: batch.watermark,
         sourceRevision: batch.sourceRevision,
@@ -171,9 +174,38 @@ export function readTaskDispatches(
         status: batch.status,
         taskId: singleTaskId,
         dispatches,
+        outcome: terminal.outcome,
+        exitCode: terminal.exitCode,
         watermark: batch.watermark,
         sourceRevision: batch.sourceRevision,
       };
+}
+
+/** The aggregate terminal verdict for a task's dispatch list, computed once beside the rows so
+ * transports render it instead of re-deriving outcome semantics per caller. A still-dispatched
+ * fallback attempt is not a verdict; its successor row is. */
+export function taskDispatchesOutcome(
+  dispatches: readonly TaskDispatchRow[],
+  resumedDispatches: ReadonlyMap<string, string>,
+): {
+  readonly outcome: "succeeded" | "failed" | "cancelled" | "unknown";
+  readonly exitCode: number;
+} {
+  const finalRows = dispatches.filter(
+      (row) => row.fallbackState !== "dispatched" && !resumedDispatches.has(row.dispatchId),
+    ),
+    unsettled =
+      finalRows.length === 0 ||
+      finalRows.some((row) => !["succeeded", "failed", "cancelled", "lost", "unknown"].includes(row.status)),
+    outcome =
+      unsettled || finalRows.some((row) => row.status === "lost" || row.status === "unknown")
+        ? "unknown"
+        : finalRows.some((row) => row.status === "failed")
+          ? "failed"
+          : finalRows.some((row) => row.status === "cancelled")
+            ? "cancelled"
+            : "succeeded";
+  return { outcome, exitCode: unsettled || outcome === "succeeded" ? 0 : 1 };
 }
 
 /** Single-dispatch point read: resolves (taskId, dispatchId) to its session straight from the

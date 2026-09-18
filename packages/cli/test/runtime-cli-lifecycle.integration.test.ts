@@ -10,11 +10,11 @@ import { realizedTaskPlan as realizedPlan } from "../../../tools/fixtures/task-p
 import {
   assertTaskMissionPrompt,
   createRuntimeFixture,
-  eventually,
   eventuallyFile,
   eventuallyNotification,
   eventuallyRuntimeReaderReuse,
   eventuallyRuntimeStatus,
+  eventuallyTerminal,
   installIdentities,
   processAlive,
   published,
@@ -131,7 +131,7 @@ test("Cancellation is idempotent, notifies once and resumes the archived provide
   );
   assert.equal(run(root, env, ["runtime", "cancel", detachedSessionId]).detail, "cancelled");
   assert.equal(run(root, env, ["runtime", "cancel", detachedSessionId]).detail, "already-exited");
-  const cancelled = await eventually(() => run(root, env, ["task", "dispatches", taskId])),
+  const cancelled = await eventuallyTerminal(root, env, ["task", "dispatches", taskId]),
     cancelledRow = (cancelled.dispatches as Array<Record<string, unknown>>).find(
       (row) => row.dispatchId === detachedDispatchId,
     )!;
