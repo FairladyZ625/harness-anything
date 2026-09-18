@@ -29,8 +29,24 @@ const streamSchema = "runtime-dispatch-stream/v1" as const;
 const dispatchStreamReadLimitBytes = 200 * 1024 * 1024;
 const dispatchStreamWriteLimitBytes = 500 * 1024 * 1024;
 const liveIndexSchema = "runtime-dispatch-live-index/v1" as const;
-const forbiddenKey =
-  /(?:token|credential|password|secret|authorization|executablepath|api[-_ ]?key|private[-_ ]?key|cookie)/iu;
+// Credential tokens are qualifier compounds (sessionToken, AUTH_TOKEN, apiToken, access_token)
+// plus the other secret-name families. Bare token names are LLM usage telemetry (input_tokens,
+// totalTokens, token_count); the durable replay path re-feeds persisted provider events after a
+// daemon restart, so dropping telemetry keys would erase adopted sessions' usage at settlement.
+const forbiddenKey = new RegExp(
+  [
+    "(?:access|auth|session|refresh|api|client|operator)[_-]?tokens?",
+    "credential",
+    "password",
+    "secret",
+    "authorization",
+    "executablepath",
+    "api[-_ ]?key",
+    "private[-_ ]?key",
+    "cookie",
+  ].join("|"),
+  "iu",
+);
 const bearer = /\bBearer\s+[^\s,;]+/giu;
 const knownToken = /\b(?:sk|rk|ghp|github_pat|xox[baprs])[-_A-Za-z0-9]{8,}\b/giu;
 const sensitiveAssignment =
@@ -510,7 +526,7 @@ function openStreamAppender(
 export function openDispatchStreamAppender(target: string): DispatchStreamAppender {
   return openStreamAppender(target, {
     invalidateSummary: () => summaryCache.delete(target),
-    scrub: scrubDispatchRecord,
+    scrub: scrubProviderValue,
     unbounded: unboundedDispatchRecord,
     warnDroppedOutput: () =>
       warnOnce(
@@ -610,31 +626,6 @@ function appendJsonl(target: string, value: unknown): void {
   } finally {
     appender.close();
   }
-}
-
-function scrubDispatchRecord(value: unknown): unknown {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return scrubProviderValue(value);
-  const record = value as Record<string, unknown>;
-  if (record.kind !== "runtime_metrics") return scrubProviderValue(value);
-  const scrubbed = scrubProviderValue(value) as Record<string, unknown>;
-  for (const key of ["inputTokens", "cacheReadTokens", "outputTokens", "totalTokens", "toolCallCount"])
-    if (Number.isInteger(record[key])) scrubbed[key] = record[key];
-  if (record.raw && typeof record.raw === "object" && !Array.isArray(record.raw)) {
-    const originalRaw = record.raw as Record<string, unknown>,
-      raw = scrubProviderValue(originalRaw) as Record<string, unknown>;
-    for (const key of [
-      "input_tokens",
-      "cached_input_tokens",
-      "cache_read_input_tokens",
-      "cache_creation_input_tokens",
-      "output_tokens",
-      "inputTokens",
-      "outputTokens",
-    ])
-      if (Number.isFinite(originalRaw[key])) raw[key] = originalRaw[key];
-    scrubbed.raw = raw;
-  }
-  return scrubbed;
 }
 
 function unboundedDispatchRecord(value: unknown): boolean {

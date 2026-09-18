@@ -145,8 +145,8 @@ function observeRuntimeMetrics(active: ActiveRuntime, value: unknown): void {
         : null;
   if (usage) {
     active.rawUsage = { ...active.rawUsage, ...usage };
-    // ACP frames rename usage fields (input/output/total/used) because the
-    // dispatch-stream scrubber drops every key containing "token".
+    // ACP frames carry usage under neutral names (input/output/total/used); token-named
+    // fields also survive dispatch-stream persistence, so both shapes feed the counters.
     const input = numberValue(usage.input_tokens) ?? numberValue(usage.inputTokens) ?? numberValue(usage.input),
       cacheRead = numberValue(usage.cached_input_tokens) ?? numberValue(usage.cache_read_input_tokens),
       cacheCreation = numberValue(usage.cache_creation_input_tokens),
