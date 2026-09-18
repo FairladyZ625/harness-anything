@@ -158,6 +158,9 @@ export const DAEMON_AGENT_RUNTIME_OVERVIEW_SCHEMA = Object.freeze({
   DAEMON_AGENT_RUNTIME_TOKEN_USAGE_SCHEMA = Object.freeze({
     id: "daemon.agent-runtime-token-usage/v1",
   }),
+  DAEMON_AGENT_RUNTIME_TOKEN_USAGE_DETAIL_SCHEMA = Object.freeze({
+    id: "daemon.agent-runtime-token-usage-detail/v1",
+  }),
   DAEMON_AGENT_RUNTIME_EVENTS_SCHEMA = Object.freeze({
     id: "daemon.agent-runtime-events/v1",
   }),
@@ -281,6 +284,20 @@ export const daemonTaskQueryPayloadShape = shape({
   updatedBefore: "string?",
   limit: "number?",
   cursor: "string?",
+});
+
+/** The token consumption reads' window range vocabulary. The words live here (wire truth,
+ * renderer-safe: no daemon read-module value import); `agent-runtime-token-usage.ts` derives
+ * its type and runtime list from this tuple so the two cannot drift. The member detail read
+ * adds the exactly-one-of identity pair, closed in its cell handler. */
+export const agentRuntimeTokenUsageRangeWords = Object.freeze(["today", "7d", "30d"]);
+export const daemonTokenUsagePayloadShape = shape({
+  range: optionalEnum(agentRuntimeTokenUsageRangeWords),
+});
+export const daemonTokenUsageDetailPayloadShape = shape({
+  range: optionalEnum(agentRuntimeTokenUsageRangeWords),
+  agentId: "string?",
+  squadId: "string?",
 });
 
 export const daemonRelationQueryPayloadShape = shape({

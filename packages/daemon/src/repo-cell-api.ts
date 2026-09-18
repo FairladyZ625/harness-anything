@@ -53,7 +53,7 @@ import { readEntityContent, type EntityContentSource } from "./entity-content-re
 import { readEntityLocator } from "./entity-locator-read.ts";
 import { readAgentSkillsGui } from "./agent-skills.ts";
 import { readTaskDispatches } from "./dispatch-read.ts";
-import { agentRuntimeTokenUsageHandler } from "./agent-runtime-token-usage.ts";
+import { agentRuntimeTokenUsageReadHandlers } from "./agent-runtime-token-usage.ts";
 import {
   admitUseCaseProjectionSelector,
   type DaemonUseCaseProjectionResult,
@@ -647,7 +647,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
     "repo.agentRuntime.overview": (payload) => context.runtimeReads.overview(payload),
     "repo.agentRuntime.sessions.read": (payload) => context.runtimeReads.session(payload),
     "repo.agentRuntime.events.read": (payload) => context.runtimeReads.events(payload),
-    "repo.agentRuntime.tokenUsage": () => agentRuntimeTokenUsageHandler(context),
+    ...agentRuntimeTokenUsageReadHandlers(context),
     "repo.task.dispatches": (payload: Readonly<Record<string, unknown>>) =>
       readTaskDispatches({
         rootDir: context.rootDir,

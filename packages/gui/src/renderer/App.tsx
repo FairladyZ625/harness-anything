@@ -690,7 +690,14 @@ function AppShell() {
                   onSelectEntity={selectRuntimeEntity}
                 />
               ) : view === "tokenUsage" ? (
-                <TokenUsageView repoId={projectId} />
+                <TokenUsageView
+                  repoId={projectId}
+                  // tokenAgent/<id> · tokenSquad/<id>:详情推栈,前进后退原路返回(与 schedule 同构)。
+                  focusedEntityRef={focusedEntityRef}
+                  onFocusMember={(ref) => navigate({ focusedEntityRef: ref })}
+                  onSelectEntity={selectRuntimeEntity}
+                  onOpenTask={navigateToTask}
+                />
               ) : view === "terminal" ? (
                 <TerminalRoute
                   repoId={projectId}
