@@ -1,4 +1,5 @@
 import type { TaskProjection } from "../../kernel/src/index.ts";
+import { agentRuntimeTokenUsageRangeWords } from "./protocol/daemon-protocol-schema-ids.ts";
 import { readDispatchStreamHeaders, readDispatchStreamSummary } from "./dispatch-stream.ts";
 import type { DispatchStreamHeader, DispatchStreamSummary } from "./dispatch-stream.ts";
 
@@ -29,8 +30,8 @@ export interface AgentRuntimeTokenUsageSquadRow extends AgentRuntimeTokenUsageTo
   readonly squadId: string;
   readonly squadName: string;
 }
-export type AgentRuntimeTokenUsageRange = "today" | "7d" | "30d";
-export const agentRuntimeTokenUsageRanges: readonly AgentRuntimeTokenUsageRange[] = ["today", "7d", "30d"];
+export type AgentRuntimeTokenUsageRange = (typeof agentRuntimeTokenUsageRangeWords)[number];
+export const agentRuntimeTokenUsageRanges: readonly AgentRuntimeTokenUsageRange[] = agentRuntimeTokenUsageRangeWords;
 /** One time-slice of the window: `today` slices by local hour, multi-day ranges by local day.
  * `dispatchCount` counts dispatches started in the slice (session ids repeat across attempts). */
 export interface AgentRuntimeTokenUsageBucket extends AgentRuntimeTokenUsageReporting {
@@ -299,6 +300,60 @@ export function agentRuntimeTokenUsageDetailHandler(context: {
     cut,
   });
 }
+/** Payload selector parsers for the repo-cell handlers: they return null on an invalid
+ * selector so the cell layer owns the error envelope; the vocabulary stays with the read. */
+export function agentRuntimeTokenUsageRangeOf(
+  value: Readonly<Record<string, unknown>>,
+): AgentRuntimeTokenUsageRange | null {
+  if (value.range === undefined) return "today";
+  return agentRuntimeTokenUsageRanges.includes(value.range as AgentRuntimeTokenUsageRange)
+    ? (value.range as AgentRuntimeTokenUsageRange)
+    : null;
+}
+export function agentRuntimeTokenUsageMemberOf(
+  value: Readonly<Record<string, unknown>>,
+): AgentRuntimeTokenUsageMemberIdentity | null {
+  const fields = Object.keys(value).filter((field) => field !== "range");
+  if (fields.length !== 1 || !["agentId", "squadId"].includes(fields[0] ?? "")) return null;
+  const id = typeof value[fields[0]!] === "string" && value[fields[0]!] !== "" ? (value[fields[0]!] as string) : null;
+  return id === null ? null : fields[0] === "agentId" ? { kind: "agent", agentId: id } : { kind: "squad", squadId: id };
+}
+
+/** The repo-cell handler pair for both token usage reads, selector validation included:
+ * the read module owns its wire selectors end to end; the cell layer only registers them. */
+export function agentRuntimeTokenUsageReadHandlers(context: {
+  readonly rootDir: string;
+  readonly now: () => string;
+  readonly projection: Pick<TaskProjection, "readCut" | "getEntity">;
+  readonly cellCodedError: (code: string, text: string) => Error;
+}): {
+  readonly "repo.agentRuntime.tokenUsage": (payload: Readonly<Record<string, unknown>>) => AgentRuntimeTokenUsageResult;
+  readonly "repo.agentRuntime.tokenUsageDetail": (
+    payload: Readonly<Record<string, unknown>>,
+  ) => AgentRuntimeTokenUsageDetailResult;
+} {
+  return {
+    "repo.agentRuntime.tokenUsage": (payload) => {
+      const range = agentRuntimeTokenUsageRangeOf(payload);
+      if (range === null)
+        throw context.cellCodedError("invalid_command", "Token usage range must be today, 7d or 30d.");
+      return agentRuntimeTokenUsageHandler({ ...context, range });
+    },
+    "repo.agentRuntime.tokenUsageDetail": (payload) => {
+      const range = agentRuntimeTokenUsageRangeOf(payload),
+        member = agentRuntimeTokenUsageMemberOf(payload);
+      if (range === null)
+        throw context.cellCodedError("invalid_command", "Token usage range must be today, 7d or 30d.");
+      if (member === null)
+        throw context.cellCodedError(
+          "invalid_command",
+          "Token usage detail requires exactly one of agentId or squadId.",
+        );
+      return agentRuntimeTokenUsageDetailHandler({ ...context, range, member });
+    },
+  };
+}
+
 function entityLabelOf(
   cut: { readonly status: string },
   projection: Pick<TaskProjection, "getEntity">,

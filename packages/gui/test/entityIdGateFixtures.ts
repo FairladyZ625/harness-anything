@@ -368,7 +368,32 @@ export const FRESHNESS_COVERAGE_ROWS: readonly RelationCoverageRow[] = [
 export const TOKEN_USAGE_READ: AgentRuntimeTokenUsageResult = {
   ok: true,
   status: "ready",
+  range: "today",
   since: AT,
+  bucketMs: 3_600_000,
+  totals: {
+    sessionCount: 1,
+    inputTokens: 100,
+    cacheReadTokens: 0,
+    outputTokens: 20,
+    totalTokens: 120,
+    toolCallCount: 2,
+    usageReportedDispatches: 1,
+    usageUnavailableDispatches: 0,
+  },
+  buckets: [
+    {
+      bucketStart: AT,
+      dispatchCount: 1,
+      inputTokens: 100,
+      cacheReadTokens: 0,
+      outputTokens: 20,
+      totalTokens: 120,
+      toolCallCount: 2,
+      usageReportedDispatches: 1,
+      usageUnavailableDispatches: 0,
+    },
+  ],
   agents: [
     {
       agentId: "usage-worker",
@@ -379,6 +404,8 @@ export const TOKEN_USAGE_READ: AgentRuntimeTokenUsageResult = {
       outputTokens: 20,
       totalTokens: 120,
       toolCallCount: 2,
+      usageReportedDispatches: 1,
+      usageUnavailableDispatches: 0,
     },
   ],
   squads: [],

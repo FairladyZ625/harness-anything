@@ -5,7 +5,12 @@ import type {
   AgentRuntimeSessionGroupStatus,
   AgentRuntimeSessionResult,
 } from "../../../daemon/src/agent-runtime-contract.ts";
-import type { AgentRuntimeTokenUsageResult } from "../../../daemon/src/agent-runtime-token-usage.ts";
+import type {
+  AgentRuntimeTokenUsageDetailResult,
+  AgentRuntimeTokenUsageMemberIdentity,
+  AgentRuntimeTokenUsageRange,
+  AgentRuntimeTokenUsageResult,
+} from "../../../daemon/src/agent-runtime-token-usage.ts";
 import type { DaemonGuiReadPayloadMap } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { isRendererRecord, rendererErrorHint } from "./result-validation.ts";
 import { readUseCaseProjection } from "./use-case-projection-client.ts";
@@ -43,6 +48,13 @@ export const runtimeQueryKeys = {
   squadRunDetailAll: (repoId: string) => ["squad-run-detail", repoId] as const,
   relatedDispatchesAll: (repoId: string) => ["related-dispatches", repoId] as const,
   tokenUsageAll: (repoId: string) => ["runtime-token-usage", repoId] as const,
+  tokenUsage: (repoId: string, range: AgentRuntimeTokenUsageRange) => ["runtime-token-usage", repoId, range] as const,
+  tokenUsageDetailAll: (repoId: string) => ["runtime-token-usage-detail", repoId] as const,
+  tokenUsageDetail: (
+    repoId: string,
+    member: AgentRuntimeTokenUsageMemberIdentity,
+    range: AgentRuntimeTokenUsageRange,
+  ) => ["runtime-token-usage-detail", repoId, member.kind, memberIdOf(member), range] as const,
 };
 
 export const agentRuntimeClient = {
@@ -96,18 +108,42 @@ export const agentRuntimeClient = {
       ),
       "events",
     ) as AgentRuntimeEventsResult,
-  tokenUsage: async (repoId: string): Promise<AgentRuntimeTokenUsageResult> =>
+  tokenUsage: async (
+    repoId: string,
+    range: AgentRuntimeTokenUsageRange = "today",
+  ): Promise<AgentRuntimeTokenUsageResult> =>
     checked(
       await invoke(
         "repo.agentRuntime.tokenUsage",
         {
           repoId,
+          range,
         } as DaemonGuiReadPayloadMap["repo.agentRuntime.tokenUsage"] & RepoScope,
         "getAgentRuntimeTokenUsage",
       ),
       "agents",
     ) as AgentRuntimeTokenUsageResult,
+  tokenUsageDetail: async (
+    repoId: string,
+    member: AgentRuntimeTokenUsageMemberIdentity,
+    range: AgentRuntimeTokenUsageRange = "today",
+  ): Promise<AgentRuntimeTokenUsageDetailResult> =>
+    checked(
+      await invoke(
+        "repo.agentRuntime.tokenUsageDetail",
+        {
+          repoId,
+          range,
+          ...(member.kind === "agent" ? { agentId: member.agentId } : { squadId: member.squadId }),
+        } as DaemonGuiReadPayloadMap["repo.agentRuntime.tokenUsageDetail"] & RepoScope,
+        "getAgentRuntimeTokenUsageDetail",
+      ),
+      "sessions",
+    ) as AgentRuntimeTokenUsageDetailResult,
 };
+function memberIdOf(member: AgentRuntimeTokenUsageMemberIdentity): string {
+  return member.kind === "agent" ? member.agentId : member.squadId;
+}
 function checked(value: unknown, field: string): Record<string, unknown> {
   if (!isRendererRecord(value) || value.ok !== true || !Object.hasOwn(value, field))
     throw new Error(rendererErrorHint(value, "Agent runtime bridge returned an invalid result."));

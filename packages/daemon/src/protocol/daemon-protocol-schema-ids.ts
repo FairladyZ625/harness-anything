@@ -1,6 +1,5 @@
 import { optionalEnum, shape, type RpcShape } from "./daemon-protocol-gui-types.ts";
 import { useCaseProjectionNameWords } from "./daemon-protocol-vocabulary.ts";
-import { agentRuntimeTokenUsageRanges } from "../agent-runtime-token-usage.ts";
 
 export const DAEMON_TASK_SNAPSHOT_LIST_SCHEMA = Object.freeze({
   id: "daemon.task-snapshot-list/v1",
@@ -287,14 +286,16 @@ export const daemonTaskQueryPayloadShape = shape({
   cursor: "string?",
 });
 
-/** The token consumption reads' shared selector: the window range, owned by the read model.
- * The member detail read adds the exactly-one-of identity pair, closed in
- * `tokenUsageMemberFromPayload` (repo-cell). */
+/** The token consumption reads' window range vocabulary. The words live here (wire truth,
+ * renderer-safe: no daemon read-module value import); `agent-runtime-token-usage.ts` derives
+ * its type and runtime list from this tuple so the two cannot drift. The member detail read
+ * adds the exactly-one-of identity pair, closed in its cell handler. */
+export const agentRuntimeTokenUsageRangeWords = Object.freeze(["today", "7d", "30d"]);
 export const daemonTokenUsagePayloadShape = shape({
-  range: optionalEnum(agentRuntimeTokenUsageRanges),
+  range: optionalEnum(agentRuntimeTokenUsageRangeWords),
 });
 export const daemonTokenUsageDetailPayloadShape = shape({
-  range: optionalEnum(agentRuntimeTokenUsageRanges),
+  range: optionalEnum(agentRuntimeTokenUsageRangeWords),
   agentId: "string?",
   squadId: "string?",
 });

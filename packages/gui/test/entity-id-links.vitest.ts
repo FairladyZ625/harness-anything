@@ -688,7 +688,14 @@ const VIEW_RENDERERS = {
   artifacts: () => createElement(ArtifactsView, { repoId: REPO_ID, onNavigateTask: noop }),
   // Token 消耗页:行 id 是 daemon 聚合行的归因文本(非可导航实体链接),fixture 用
   // 非 needle id,死 ID 扫描按文本处理。
-  tokenUsage: () => createElement(TokenUsageView, { repoId: REPO_ID }),
+  tokenUsage: () =>
+    createElement(TokenUsageView, {
+      repoId: REPO_ID,
+      focusedEntityRef: null,
+      onFocusMember: noop,
+      onSelectEntity: noop,
+      onOpenTask: noop,
+    }),
   entities: () =>
     createElement(EntitiesView, {
       repoId: REPO_ID,

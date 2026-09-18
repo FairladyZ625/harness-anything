@@ -53,13 +53,7 @@ import { readEntityContent, type EntityContentSource } from "./entity-content-re
 import { readEntityLocator } from "./entity-locator-read.ts";
 import { readAgentSkillsGui } from "./agent-skills.ts";
 import { readTaskDispatches } from "./dispatch-read.ts";
-import {
-  agentRuntimeTokenUsageDetailHandler,
-  agentRuntimeTokenUsageHandler,
-  agentRuntimeTokenUsageRanges,
-  type AgentRuntimeTokenUsageMemberIdentity,
-  type AgentRuntimeTokenUsageRange,
-} from "./agent-runtime-token-usage.ts";
+import { agentRuntimeTokenUsageReadHandlers } from "./agent-runtime-token-usage.ts";
 import {
   admitUseCaseProjectionSelector,
   type DaemonUseCaseProjectionResult,
@@ -653,14 +647,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
     "repo.agentRuntime.overview": (payload) => context.runtimeReads.overview(payload),
     "repo.agentRuntime.sessions.read": (payload) => context.runtimeReads.session(payload),
     "repo.agentRuntime.events.read": (payload) => context.runtimeReads.events(payload),
-    "repo.agentRuntime.tokenUsage": (payload: Readonly<Record<string, unknown>>) =>
-      agentRuntimeTokenUsageHandler({ ...context, range: tokenUsageRangeFromPayload(context, payload) }),
-    "repo.agentRuntime.tokenUsageDetail": (payload: Readonly<Record<string, unknown>>) =>
-      agentRuntimeTokenUsageDetailHandler({
-        ...context,
-        range: tokenUsageRangeFromPayload(context, payload),
-        member: tokenUsageMemberFromPayload(context, payload),
-      }),
+    ...agentRuntimeTokenUsageReadHandlers(context),
     "repo.task.dispatches": (payload: Readonly<Record<string, unknown>>) =>
       readTaskDispatches({
         rootDir: context.rootDir,
@@ -668,28 +655,6 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
         ...taskDispatchesPayloadFromCell(context, payload),
       }),
   } satisfies DaemonGuiReadHandlers;
-  function tokenUsageRangeFromPayload(
-    context: RepoCellApiContext,
-    payload: Readonly<Record<string, unknown>>,
-  ): AgentRuntimeTokenUsageRange {
-    if (payload.range === undefined) return "today";
-    if (agentRuntimeTokenUsageRanges.includes(payload.range as AgentRuntimeTokenUsageRange))
-      return payload.range as AgentRuntimeTokenUsageRange;
-    throw context.cellCodedError(
-      "invalid_command",
-      `Token usage range must be one of ${agentRuntimeTokenUsageRanges.join(", ")}.`,
-    );
-  }
-  function tokenUsageMemberFromPayload(
-    context: RepoCellApiContext,
-    payload: Readonly<Record<string, unknown>>,
-  ): AgentRuntimeTokenUsageMemberIdentity {
-    const fields = Object.keys(payload).filter((field) => field !== "range");
-    if (fields.length !== 1 || !["agentId", "squadId"].includes(fields[0] ?? ""))
-      throw context.cellCodedError("invalid_command", "Token usage detail requires exactly one of agentId or squadId.");
-    const id = context.requiredCellText(payload[fields[0]!], fields[0]!);
-    return fields[0] === "agentId" ? { kind: "agent", agentId: id } : { kind: "squad", squadId: id };
-  }
   function decisionListFromPayload(payload: Readonly<Record<string, unknown>>): DaemonDecisionListResult {
     if (
       Object.keys(payload).some((field) => field !== "projection") ||
