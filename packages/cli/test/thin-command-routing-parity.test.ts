@@ -1264,6 +1264,8 @@ const reviewedExecutorSurface = Object.freeze([
   "repo.preset.run.start",
   "repo.preset.run.status",
   "repo.agentRuntime.spawn",
+  "repo.agentRuntime.batch",
+  "repo.agent.create",
   "repo.entity.actions.explain",
 ] as const);
 const agent = Object.freeze({ kind: "agent", id: "parity-probe" });
