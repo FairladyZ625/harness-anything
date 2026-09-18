@@ -161,7 +161,7 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
             'Runtime spawn payload contains an unknown field "permission_mode"; allowed fields: "runtimeInstanceId", ' +
               '"dispatchId", "agentId", "targetAgentId", "squadId", "role", "model", "effort", "fast", "permissionMode", "cwd", ' +
               '"prompt", "promptSource", "missionName", "onExitCommand", "taskId", "executionId", "idempotencyKey", ' +
-              '"providerSessionId".',
+              '"providerSessionId", "dryRun".',
       );
       await assert.rejects(
         cell.cancelRuntime({ runtimeSessionId: "missing", force: true }, binding),
