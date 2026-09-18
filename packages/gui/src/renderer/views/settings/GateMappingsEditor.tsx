@@ -17,7 +17,9 @@ const ISSUE_COPY: Readonly<Record<GateMappingIssue, MessageKey>> = {
 
 const focusRing = "focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent",
   fieldInput = "w-full rounded border border-border bg-surface-raised px-2 py-1 font-mono ui-meta text-text",
-  fieldLabel = "block ui-micro text-text-faint";
+  fieldLabel = "block ui-micro text-text-faint",
+  // SettingSelect 固定 w-72:单元格内撑满列宽,标签才落在控件上方、两列等宽。
+  selectCell = `${fieldLabel} [&_select]:w-full [&_select]:mt-0.5`;
 
 /**
  * 门映射编辑面:每个声明的门一行草稿,adapter 四选一(含 none=移除声明的门),option
@@ -87,7 +89,7 @@ export function GateMappingsEditor({
                     onChange={(event) => updateRow(row, { gateId: event.currentTarget.value.trim() })}
                   />
                 </label>
-                <label className={fieldLabel}>
+                <label className={selectCell}>
                   {t("views.settingsView.gateAdapterLabel")}
                   <SettingSelect
                     label={`gate-${row}-adapter`}
@@ -99,7 +101,7 @@ export function GateMappingsEditor({
                   />
                 </label>
                 {fields.includes("appliesTo") && (
-                  <label className={fieldLabel}>
+                  <label className={selectCell}>
                     {t("views.settingsView.gateAppliesToLabel")}
                     <SettingSelect
                       label={`gate-${row}-appliesTo`}
@@ -145,7 +147,7 @@ export function GateMappingsEditor({
                   </label>
                 )}
                 {fields.includes("coverage") && (
-                  <label className={fieldLabel}>
+                  <label className={selectCell}>
                     {t("views.settingsView.gateCoverageLabel")}
                     <SettingSelect
                       label={`gate-${row}-coverage`}
@@ -161,7 +163,7 @@ export function GateMappingsEditor({
                   </label>
                 )}
                 {fields.includes("selection") && (
-                  <label className={fieldLabel}>
+                  <label className={selectCell}>
                     {t("views.settingsView.gateSelectionLabel")}
                     <SettingSelect
                       label={`gate-${row}-selection`}
@@ -173,47 +175,47 @@ export function GateMappingsEditor({
                     />
                   </label>
                 )}
+                {governable && (
+                  <>
+                    <label
+                      data-testid={`gate-mapping-${row}-mandatorySignoff`}
+                      className="inline-flex items-start gap-1.5 ui-micro text-text-muted"
+                    >
+                      <Toggle
+                        checked={draft.mandatorySignoff === true}
+                        disabled={disabled}
+                        onChange={(enabled) =>
+                          updateRow(row, enabled ? { mandatorySignoff: true } : { mandatorySignoff: undefined })
+                        }
+                      />
+                      {t("views.settingsView.gateMandatorySignoffLabel")}
+                    </label>
+                    <label
+                      data-testid={`gate-mapping-${row}-allowOverride`}
+                      className="inline-flex items-start gap-1.5 ui-micro text-text-muted"
+                    >
+                      <Toggle
+                        checked={draft.allowOverride === true}
+                        disabled={disabled}
+                        onChange={(enabled) =>
+                          updateRow(row, enabled ? { allowOverride: true } : { allowOverride: undefined })
+                        }
+                      />
+                      {t("views.settingsView.gateAllowOverrideLabel")}
+                    </label>
+                  </>
+                )}
               </div>
               <button
                 type="button"
                 data-testid={`gate-mapping-${row}-remove`}
                 disabled={disabled}
                 onClick={() => onChange(drafts.filter((_draft, index) => index !== row))}
-                className={`mt-4 rounded px-2 py-1 ui-micro text-text-faint transition-colors duration-100 hover:bg-surface-raised hover:text-danger disabled:opacity-40 ${focusRing}`}
+                className={`rounded px-2 py-1 ui-micro text-text-faint transition-colors duration-100 hover:bg-surface-raised hover:text-danger disabled:opacity-40 ${focusRing}`}
               >
                 {t("views.settingsView.gateRemoveLabel")}
               </button>
             </div>
-            {governable && (
-              <div className="mt-2 flex gap-4 border-t border-border/60 pt-2">
-                <label
-                  data-testid={`gate-mapping-${row}-mandatorySignoff`}
-                  className="inline-flex items-center gap-1.5 ui-micro text-text-muted"
-                >
-                  <Toggle
-                    checked={draft.mandatorySignoff === true}
-                    disabled={disabled}
-                    onChange={(enabled) =>
-                      updateRow(row, enabled ? { mandatorySignoff: true } : { mandatorySignoff: undefined })
-                    }
-                  />
-                  {t("views.settingsView.gateMandatorySignoffLabel")}
-                </label>
-                <label
-                  data-testid={`gate-mapping-${row}-allowOverride`}
-                  className="inline-flex items-center gap-1.5 ui-micro text-text-muted"
-                >
-                  <Toggle
-                    checked={draft.allowOverride === true}
-                    disabled={disabled}
-                    onChange={(enabled) =>
-                      updateRow(row, enabled ? { allowOverride: true } : { allowOverride: undefined })
-                    }
-                  />
-                  {t("views.settingsView.gateAllowOverrideLabel")}
-                </label>
-              </div>
-            )}
             {rowIssues.length > 0 && (
               <ul data-testid={`gate-mapping-${row}-issues`} className="mt-1.5 ui-micro text-danger">
                 {rowIssues.map((issue, index) => (
