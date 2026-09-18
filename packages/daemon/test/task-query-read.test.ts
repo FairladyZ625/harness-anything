@@ -728,7 +728,20 @@ test("single-task completion read carries the canonical next and validates its r
       taskId,
       completionNext: null,
       completionBlocker: null,
+      factRetirement: null,
     }),
-    { ok: true, taskId, completionNext: null, completionBlocker: null },
+    { ok: true, taskId, completionNext: null, completionBlocker: null, factRetirement: null },
+  );
+  // factRetirement is additive: absent on older producers it parses through, present it is
+  // validated shape-by-shape.
+  const legacy = { ok: true, taskId, completionNext: null, completionBlocker: null };
+  assert.deepEqual(parseDaemonGuiReadResult("repo.tasks.completion.read", legacy), legacy);
+  assert.throws(
+    () =>
+      parseDaemonGuiReadResult("repo.tasks.completion.read", {
+        ...legacy,
+        factRetirement: { undischarged: [{ factRef: 1 }] },
+      }),
+    /factRetirement/,
   );
 });

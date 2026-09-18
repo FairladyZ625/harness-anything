@@ -11,17 +11,46 @@ export type DaemonTaskCompletionResult = {
     Exclude<ReturnType<typeof taskCompletionNext>["blocker"], null>,
     "code" | "gate"
   > | null;
+  /**
+   * Upstream Facts still needing an explicit still-holds/superseded disposition at completion,
+   * exposed before the write so fact_retirement_undeclared is never a surprise. Null when the
+   * gate is off, nothing is undischarged, or the relation neighborhood is not projected yet.
+   */
+  readonly factRetirement: {
+    readonly undischarged: readonly {
+      readonly factRef: string;
+      readonly viaClaim: string;
+      readonly viaDecision: string;
+    }[];
+  } | null;
 };
 
 export function validateDaemonTaskCompletion(value: unknown): readonly string[] {
   if (
     !isJsonObject(value) ||
-    Object.keys(value).length !== 4 ||
     value.ok !== true ||
     typeof value.taskId !== "string" ||
-    !value.taskId
+    !value.taskId ||
+    !("completionNext" in value) ||
+    !("completionBlocker" in value)
   )
     return ["Invalid task completion read"];
+  // factRetirement is an additive field: absent on older producers, validated when present.
+  if (
+    "factRetirement" in value &&
+    value.factRetirement !== null &&
+    (!isJsonObject(value.factRetirement) ||
+      !Array.isArray(value.factRetirement.undischarged) ||
+      value.factRetirement.undischarged.some(
+        (entry) =>
+          !isJsonObject(entry) ||
+          typeof entry.factRef !== "string" ||
+          !entry.factRef ||
+          typeof entry.viaClaim !== "string" ||
+          typeof entry.viaDecision !== "string",
+      ))
+  )
+    return ["Invalid factRetirement"];
   const blocker = value.completionBlocker;
   if (
     (blocker === null) !== (value.completionNext === null) ||

@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
 import {
-  assessFactRetirement,
   canStartExecution,
   assessTransitionDocument,
   compileTaskProgress,
@@ -36,7 +35,12 @@ import { runDocAction } from "./doc-sync-actions.ts";
 import { scanDocCandidates } from "./doc-sync-candidate-scanner.ts";
 import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 import { verifyCodeDocCommitPaths } from "./code-doc-path-verification.ts";
-import { readCompletionContext, completionBlockersForAction } from "./task-completion-read.ts";
+import {
+  readCompletionContext,
+  completionBlockersForAction,
+  factRetirementAssessment,
+} from "./task-completion-read.ts";
+import { cellErrorCode } from "./repo-cell-errors.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 
 import { dispatchCompletionReview } from "./task-completion-review.ts";
@@ -349,17 +353,37 @@ export async function completeTask(
       );
   }
   const prepared = recordedWitnesses.length ? await cell.service.read(taskId) : initial;
-  // Read through every remaining preparation before publishing any witness or document; snapshots stay authoritative.
-  const preparedContext = cell.completionContext(
+  // A preset catalog that moved since the task was packaged used to bounce the whole completion
+  // on preset_snapshot_mismatch and make the agent run ha preset upgrade by hand. Re-running that
+  // same atomic upgrade here is safe, not a digest forgery: it recompiles the package against the
+  // live catalog, refuses added document slots, and writes a real preset_snapshot_upgraded event.
+  // When the upgrade itself cannot compile (contract drift, added documents) the mismatch check
+  // below still stops the write with the canonical code.
+  const upgraded = upgradeDriftedPresetSnapshot(
+    cell,
     taskId,
     prepared.snapshot,
     prepared.packagePath,
     binding,
+    cell.completeRetryCommand(taskId, executionId, action),
+  );
+  if (upgraded !== null) {
+    steps.push(upgraded);
+    if (upgraded.outcome !== "applied")
+      return cell.completionSettlement(upgraded, prepared.snapshot, executionId, steps, "preset-upgrade-settlement");
+  }
+  const refreshed = upgraded === null ? prepared : await cell.service.read(taskId);
+  // Read through every remaining preparation before publishing any witness or document; snapshots stay authoritative.
+  const preparedContext = cell.completionContext(
+    taskId,
+    refreshed.snapshot,
+    refreshed.packagePath,
+    binding,
     currentPresetSnapshotDigest(
       cell,
       taskId,
-      prepared.snapshot,
-      prepared.packagePath,
+      refreshed.snapshot,
+      refreshed.packagePath,
       cell.completeRetryCommand(taskId, executionId, action),
     ),
   );
@@ -368,7 +392,7 @@ export async function completeTask(
       closeoutGates.codeDoc && submittedExecution?.submission?.commitSha
         ? verifyCodeDocCommitPaths({ rootDir: cell.rootDir, commitSha: submittedExecution.submission.commitSha, paths })
         : null;
-  const remaining = completionPreparationBlockers(prepared.snapshot, executionId, {
+  const remaining = completionPreparationBlockers(refreshed.snapshot, executionId, {
     ...preparedContext,
     preparedGateIds: [
       ...[...evidenceByGate.values()].flatMap((evidence) => (evidence.result === "pass" ? [evidence.gateId] : [])),
@@ -385,8 +409,8 @@ export async function completeTask(
       : {}),
   })[0];
   if (remaining && remaining.code !== "doc_sync_required")
-    return cell.completionStopped(facadeOpId, prepared.snapshot, executionId, remaining, recordedWitnesses);
-  const retirement = factRetirementAssessment(cell, taskId, factRetirementAttestations);
+    return cell.completionStopped(facadeOpId, refreshed.snapshot, executionId, remaining, recordedWitnesses);
+  const retirement = factRetirementAssessment(cell.projection, taskId, factRetirementAttestations);
   if (closeoutGates.factDisposition && !retirement.ready)
     return cell.completionStopped(
       facadeOpId,
@@ -426,7 +450,7 @@ export async function completeTask(
     );
     const blocker = completionBlockersForAction(current.snapshot, executionId, completion, action.consent)[0];
     if (!blocker) {
-      const retirement = factRetirementAssessment(cell, taskId, factRetirementAttestations);
+      const retirement = factRetirementAssessment(cell.projection, taskId, factRetirementAttestations);
       if (completion.closeoutGates?.factDisposition && !retirement.ready)
         return cell.completionStopped(
           facadeOpId,
@@ -571,107 +595,23 @@ function stillHoldsAttestations(
   return Object.freeze(attestations);
 }
 
-function factRetirementAssessment(
-  cell: RepoCellOperationalContext,
-  taskId: string,
-  stillHoldsAttestations: readonly FactStillHoldsAttestation[],
-): FactRetirementAssessment {
-  const taskRef = `task/${taskId}`,
-    taskRelationReads = [
-      cell.projection.readRelationQuery({ source: taskRef, state: "active", limit: 500 }),
-      cell.projection.readRelationQuery({ target: taskRef, state: "active", limit: 500 }),
-    ];
-  if (taskRelationReads.some((read) => read.page?.nextCursor))
-    throw cell.cellCodedError("content_not_ready", `Task ${taskId} exceeds the 500-edge Fact retirement budget.`);
-  const relationRead = {
-      ...taskRelationReads[0],
-      rows: [
-        ...new Map(taskRelationReads.flatMap((read) => read.rows).map((edge) => [edge.relationId, edge])).values(),
-      ],
-    },
-    relationReady = taskRelationReads.every((read) => read.status === "ready");
-  if (!relationReady)
-    throw cell.cellCodedError(
-      "content_not_ready",
-      `Relation projection is not ready for Fact retirement assessment on Task ${taskId}.`,
-    );
-  const decisionIds = [
-      ...new Set(
-        relationRead.rows.flatMap((edge) => {
-          if (
-            edge.state !== "active" ||
-            edge.relationType !== "derives" ||
-            edge.targetRef !== taskRef ||
-            typeof edge.sourceRef !== "string"
-          )
-            return [];
-          const source = /^decision\/([A-Za-z0-9][A-Za-z0-9_-]{0,127})(?:\/[A-Za-z0-9][A-Za-z0-9_-]*)?$/u.exec(
-            edge.sourceRef,
-          );
-          return source?.[1] ? [source[1]] : [];
-        }),
-      ),
-    ],
-    decisionRead = cell.projection.readDecisions(decisionIds),
-    decisionReady = decisionRead.status === "ready";
-  if (!decisionReady)
-    throw cell.cellCodedError(
-      "content_not_ready",
-      `Decision projection is not ready for Fact retirement assessment on Task ${taskId}.`,
-    );
-  const claimRefs = decisionRead.decisions.flatMap((decision) =>
-      decision.claims
-        .filter((claim) => claim.loadBearing)
-        .map((claim) => `decision/${decision.decisionId}/${claim.id}`),
-    ),
-    producedFactRefs = relationRead.rows
-      .filter((edge) => edge.relationType === "produces" && edge.sourceRef === taskRef)
-      .map((edge) => edge.targetRef),
-    narrowReads = [...claimRefs, ...producedFactRefs].map((source) =>
-      cell.projection.readRelationQuery({ source, state: "active", limit: 500 }),
-    );
-  if (narrowReads.some((read) => read.status !== "ready" || read.page?.nextCursor))
-    throw cell.cellCodedError(
-      "content_not_ready",
-      `Task ${taskId} Fact retirement neighborhood is not ready or exceeds budget.`,
-    );
-  const upstreamFactRefs = narrowReads
-      .flatMap((read) => read.rows)
-      .filter((edge) => edge.relationType === "evidenced-by")
-      .map((edge) => edge.targetRef),
-    livenessReads = upstreamFactRefs.map((target) =>
-      cell.projection.readRelationQuery({ target, relationType: "supersedes-fact", state: "active", limit: 500 }),
-    );
-  if (livenessReads.some((read) => read.status !== "ready" || read.page?.nextCursor))
-    throw cell.cellCodedError(
-      "content_not_ready",
-      `Task ${taskId} Fact liveness neighborhood is not ready or exceeds budget.`,
-    );
-  return assessFactRetirement({
-    taskId,
-    decisions: decisionRead.decisions,
-    relations: [
-      ...relationRead.rows,
-      ...narrowReads.flatMap((read) => read.rows),
-      ...livenessReads.flatMap((read) => read.rows),
-    ],
-    stillHoldsAttestations,
-  });
-}
-
 function factRetirementBlocker(snapshot: Snapshot, executionId: string, assessment: FactRetirementAssessment) {
   const details = assessment.undischarged
-      .map(({ factRef, viaClaim, viaDecision }) => `- ${factRef} via ${viaClaim} (${viaDecision})`)
+      .map(
+        ({ factRef, viaClaim, viaDecision }) =>
+          `- ${factRef} via ${viaClaim} (${viaDecision}): still holds → --fact-holds "${factRef}:<rationale>"; ` +
+          "superseded → record a task Fact with a supersedes-fact relation to it",
+      )
       .join("\n"),
-    first = assessment.undischarged[0]!.factRef;
+    holdsFlags = assessment.undischarged.map(({ factRef }) => `--fact-holds "${factRef}:<rationale>"`).join(" ");
   return {
     code: assessment.code,
     gate: "fact-retirement",
     next: completionGuidance(
       snapshot,
       executionId,
-      `Declare the disposition of ${first}: run ha task complete --fact-holds "${first}:<rationale>" ` +
-        "if it still holds, or record a task Fact with a supersedes-fact relation to it if superseded; " +
+      `Declare every standing upstream Fact's disposition: ha task complete ${holdsFlags} ` +
+        "for each that still holds, or record task Facts with supersedes-fact relations for superseded ones; " +
         "closeout prose only records and does not discharge.",
       "Standing upstream evidencing Facts lack an explicit retirement disposition:\n" + details,
     ),
@@ -713,6 +653,35 @@ function currentPresetSnapshotDigest(
       },
     });
   return current.snapshot.digest;
+}
+
+export function upgradeDriftedPresetSnapshot(
+  cell: RepoCellOperationalContext,
+  taskId: string,
+  snapshot: Snapshot,
+  packagePath: string | null,
+  binding: RepoCellBinding,
+  retryCommand: string,
+): WriteReceipt | null {
+  if (!snapshot.task?.presetSnapshotDigest) return null;
+  const live = currentPresetSnapshotDigest(cell, taskId, snapshot, packagePath, retryCommand);
+  if (live === snapshot.task.presetSnapshotDigest) return null;
+  try {
+    return cell.upgradePresetSnapshot({ kind: "preset-upgrade", taskId }, binding);
+  } catch (error) {
+    // The upgrade may legitimately fail — contract drift, a changed document set, a race that
+    // already settled current. Those all fall back to the canonical preset_snapshot_mismatch
+    // stop below, which still carries the manual-upgrade guidance. Unknown errors propagate.
+    if (
+      ["snapshot_current", "upgrade_document_set_changed", "invalid_task_contract", "invalid_upgrade"].includes(
+        cellErrorCode(error),
+      )
+    ) {
+      consumeKnownError(error);
+      return null;
+    }
+    throw error;
+  }
 }
 
 export function isPresetSnapshotCurrent(

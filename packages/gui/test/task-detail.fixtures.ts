@@ -225,6 +225,7 @@ export function installBridge({
     getTaskCompletion: vi.fn(async ({ taskId }: { taskId: string }) => ({
       ok: true,
       taskId,
+      factRetirement: null,
       ...(completionAction === null
         ? { completionNext: null, completionBlocker: null }
         : {
