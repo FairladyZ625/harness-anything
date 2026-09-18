@@ -118,10 +118,18 @@ function authorize(
     return;
   }
   if (isSettingsEvent(event)) {
-    const base = current(event.payload.harnessDocumentClaim.path);
-    if (base === null || base.sha256 !== event.payload.baseDocumentSha256)
-      throw new TaskEventStoreError("revision_conflict", "harness.yaml changed before the Settings write committed");
-    const body = readBody(event.payload.harnessDocumentClaim.path);
+    const target = event.payload.harnessDocumentClaim.path;
+    let body: string | Uint8Array | null;
+    if (current(target)?.sha256 === event.payload.baseDocumentSha256) body = readBody(target);
+    else {
+      // A Settings write may also base itself on the live authored bytes — harness.yaml is its
+      // declaration surface — when they diverge from the ledger head. Anything else moved
+      // mid-write and is a conflict.
+      const node = local(target);
+      if (node === null || node.sha256 !== event.payload.baseDocumentSha256)
+        throw new TaskEventStoreError("revision_conflict", "harness.yaml changed before the Settings write committed");
+      body = node.body;
+    }
     if (body === null) throw new TaskEventStoreError("invalid_store", "Missing settings base content");
     const baseBody =
         typeof body === "string" ? body : new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(body),

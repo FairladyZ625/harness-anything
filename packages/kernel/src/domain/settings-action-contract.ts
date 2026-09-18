@@ -9,10 +9,12 @@ import {
   type EntityActionCompileHook,
   type EntityActionCompileInput,
 } from "./entity-action-execution.ts";
+import { consumeKnownError } from "../error-consumption.ts";
 import { compileSettingsChangedEvent, type SettingsEventBundle } from "./settings-event.ts";
 import { closeoutProfiles } from "./settings-closeout.ts";
 import {
   SETTINGS_ID,
+  readSettingsFacet,
   repositorySettings,
   DEFAULT_RESTORE_DRILL_RETENTION,
   reviewIndependenceLevels,
@@ -216,7 +218,28 @@ export function compileSettingsUpdate(input: EntityActionCompileInput): Settings
     );
   if (expectedVersion !== undefined && (!Number.isSafeInteger(expectedVersion) || Number(expectedVersion) < 0))
     rejectSettings("invalid_command", "expectedVersion must be a non-negative integer when supplied.");
-  if (!repositoryChangeRequested) return { kind: "no-changes", settings: current, revision };
+  if (!repositoryChangeRequested) {
+    const committed = input.currentDocumentBody;
+    if (typeof committed === "string") {
+      const authoredBase = authoredDocumentBase(input.action, current, committed);
+      if (authoredBase !== committed)
+        return {
+          kind: "event",
+          bundle: compileSettingsChangedEvent({
+            settings: current,
+            baseDocumentBody: authoredBase,
+            candidateDocumentBody: writeRepositorySettingsFacet(authoredBase, current),
+            eventId: `event-${sha256Text(input.opId)}`,
+            opId: input.opId,
+            workspaceRevision: input.workspaceRevision,
+            actor: input.actor,
+            source: input.source,
+            occurredAt: input.occurredAt,
+          }),
+        };
+    }
+    return { kind: "no-changes", settings: current, revision };
+  }
   if (expectedVersion !== undefined && Number(expectedVersion) !== revision)
     throw attributeEntityActionCriterion(
       new SettingsActionError(
@@ -264,14 +287,15 @@ export function compileSettingsUpdate(input: EntityActionCompileInput): Settings
   const baseDocumentBody = input.currentDocumentBody;
   if (typeof baseDocumentBody !== "string")
     rejectSettings("content_not_ready", "The projected harness.yaml Settings document is unavailable.");
-  const candidateDocumentBody = writeRepositorySettingsFacet(baseDocumentBody, candidate);
+  const authoredBase = authoredDocumentBase(input.action, current, baseDocumentBody),
+    candidateDocumentBody = writeRepositorySettingsFacet(authoredBase, candidate);
   if (candidateDocumentBody === baseDocumentBody && stableStringify(candidate) === stableStringify(current))
     return { kind: "no-changes", settings: current, revision };
   return {
     kind: "event",
     bundle: compileSettingsChangedEvent({
       settings: candidate,
-      baseDocumentBody,
+      baseDocumentBody: authoredBase,
       candidateDocumentBody,
       eventId: `event-${sha256Text(input.opId)}`,
       opId: input.opId,
@@ -388,6 +412,30 @@ function updatedGateMappings(
   if (!Array.isArray(value) || value.some((mapping) => typeof mapping !== "object" || mapping === null))
     rejectSettings("invalid_command", "gates must be an array of gate witness mappings.");
   return value as RepositorySettingsV1["gates"];
+}
+
+/**
+ * `action.authoredDocumentBody` is the live harness.yaml bytes the daemon ingress read — never a
+ * caller input. When its settings facet parses to exactly the current projected settings, the file
+ * carries no uncommitted semantic edits, so the write bases itself on it: the flag delta lands on
+ * the authored bytes and a diverged-but-equal document (key order, formatting, comments) is
+ * committed by the event instead of staying a permanent uncommittable worktree edit. A file that
+ * parses to different settings keeps the committed base — its edits are imported through flags or
+ * `--gates-from-document`, never silently reverted.
+ */
+function authoredDocumentBase(
+  action: Readonly<Record<string, unknown>>,
+  current: RepositorySettingsV1,
+  committedBody: string,
+): string {
+  const body = action.authoredDocumentBody;
+  if (typeof body !== "string" || body === committedBody) return committedBody;
+  try {
+    if (stableStringify(repositorySettings(readSettingsFacet(body))) === stableStringify(current)) return body;
+  } catch (error) {
+    consumeKnownError(error);
+  }
+  return committedBody;
 }
 
 function rejectSettings(code: string, message: string): never {

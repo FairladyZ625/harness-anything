@@ -1,4 +1,5 @@
 import { setting, settingBlockValue } from "../layout/harness-settings.ts";
+import { stableStringify } from "../integrity/stable-hash.ts";
 import {
   replaceDefaultedBlockScalar,
   replaceDefaultedScalar,
@@ -410,7 +411,7 @@ export function writeRepositorySettingsFacet(body: string, settings: RepositoryS
     INITIAL_SETTINGS_V1.scaffolds.repository,
   );
   next = removeLegacyLocale(next);
-  if (JSON.stringify(repositorySettings(readSettingsFacet(next))) !== JSON.stringify(repository))
+  if (stableStringify(repositorySettings(readSettingsFacet(next))) !== stableStringify(repository))
     throw new Error("repository settings facet replacement did not round-trip exactly");
   return next;
 }
