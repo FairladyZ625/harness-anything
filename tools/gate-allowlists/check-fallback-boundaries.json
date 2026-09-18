@@ -5,10 +5,8 @@
   "entries": {
     "consumeKnownError": [
       "packages/application/src/task-lifecycle-service.ts#releaseReservation",
-      "packages/cli/src/cli-agent-create.ts#runAgentCreate",
       "packages/cli/src/cli-render.ts#contractMigrationDryRunSummary",
       "packages/cli/src/cli-runtime-batch.ts#runRuntimeBatch",
-      "packages/cli/src/cli-runtime-batch.ts#worker",
       "packages/cli/src/cli-runtime-wait.ts#readDaemonSubscription",
       "packages/cli/src/cli-runtime-wait.ts#waitForStreamedRuntime",
       "packages/cli/src/cli/gui-launch.ts#canonicalGuiInstallation",
@@ -152,6 +150,9 @@
       "packages/daemon/src/request-log.ts#commandClassOrNull",
       "packages/daemon/src/request-log.ts#rotate",
       "packages/daemon/src/request-log.ts#writeRequestLogLine",
+      "packages/daemon/src/runtime-orchestration.ts#orchestrateAgentCreate",
+      "packages/daemon/src/runtime-orchestration.ts#orchestrateRuntimeBatch",
+      "packages/daemon/src/runtime-orchestration.ts#worker",
       "packages/daemon/src/runtime-spawn-process.ts#drain",
       "packages/daemon/src/runtime-spawn-process.ts#launchExitNotification",
       "packages/daemon/src/runtime-spawn-process.ts#observeResumeProcess",
@@ -348,10 +349,8 @@
     ],
     "catchSubstitutions": [
       "packages/application/src/task-lifecycle-service.ts#executeInternal",
-      "packages/cli/src/cli-agent-create.ts#runAgentCreate",
       "packages/cli/src/cli-runtime-auth.ts#runRuntimeAuthCommand",
       "packages/cli/src/cli-runtime-batch.ts#runRuntimeBatch",
-      "packages/cli/src/cli-runtime-batch.ts#worker",
       "packages/cli/src/cli-vertical-kind.ts#runVerticalKindFacadeCommand",
       "packages/cli/src/cli/gui-launch.ts#runGuiLaunch",
       "packages/cli/src/cli/thin-command-preset.ts#parsePreset",
