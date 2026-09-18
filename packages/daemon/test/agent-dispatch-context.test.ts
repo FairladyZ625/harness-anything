@@ -10,6 +10,7 @@ import {
   type RuntimeInstallationWitness,
 } from "../../kernel/src/index.ts";
 import type { RuntimeInstanceSummary } from "../src/agent-runtime-instances.ts";
+import { CAUSAL_CONTEXT_MAX_BYTES } from "../src/dispatch-causal-context.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import type { RepoCellBinding } from "../src/repo-cell-types.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
@@ -208,7 +209,7 @@ test("task-bound dispatch injects the milestone, deriving decision, and evidence
       block,
       /\* F-00CA05A1: Dispatch prompts previously carried no causal topology\. \(src:packages\/daemon\/src\/runtime-spaw…\)/u,
     );
-    assert.ok(Buffer.byteLength(block, "utf8") <= 500, "causal block exceeds the byte budget");
+    assert.ok(Buffer.byteLength(block, "utf8") <= CAUSAL_CONTEXT_MAX_BYTES, "causal block exceeds the byte budget");
 
     // An explicit prompt on a task-bound dispatch still gets the same block prepended.
     prompt = null;
@@ -527,7 +528,10 @@ test("oversized CJK causal context stays inside the byte budget on a real dispat
     assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
     const block = causalBlock(prompt!);
     assert.ok(block !== null, "long CJK causal context produced no block");
-    assert.ok(Buffer.byteLength(block, "utf8") <= 500, `causal block is ${Buffer.byteLength(block, "utf8")} bytes`);
+    assert.ok(
+      Buffer.byteLength(block, "utf8") <= CAUSAL_CONTEXT_MAX_BYTES,
+      `causal block is ${Buffer.byteLength(block, "utf8")} bytes`,
+    );
     assert.match(block, /…/u);
     assert.match(block, new RegExp(decisionIds[0]!.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
   } finally {

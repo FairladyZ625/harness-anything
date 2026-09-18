@@ -31,7 +31,11 @@ import { readDispatchStreamHeaders } from "./dispatch-stream.ts";
 import { runDocAction } from "./doc-sync-actions.ts";
 import { makeGitReadinessSource, runProcessText } from "./process-port.ts";
 import { readTaskTransitionDocument } from "./transition-document-access.ts";
-import { isPresetSnapshotCurrent, prepareSubmissionEvidence } from "./repo-cell-task-progress.ts";
+import {
+  isPresetSnapshotCurrent,
+  prepareSubmissionEvidence,
+  upgradeDriftedPresetSnapshot,
+} from "./repo-cell-task-progress.ts";
 import { actionWitnessCollections } from "./repo-cell-witness-adapters.ts";
 import { dispatchCompletionReview } from "./task-completion-review.ts";
 import { readEffectiveCloseoutGates } from "./repo-cell-settings-state.ts";
@@ -503,6 +507,22 @@ export async function settleTask(
   const fresh = await cell.service.read(taskId),
     submittedExecutionId =
       currentExecutionCuts(fresh.snapshot).find((execution) => execution.state === "submitted")?.executionId ?? "";
+  // Preset drift used to stop settle on preset_snapshot_mismatch after the submitted cut was
+  // already recorded. Run the same atomic upgrade `ha preset upgrade` performs — a real
+  // preset_snapshot_upgraded event, never a forged digest — then let completion continue.
+  // When the upgrade cannot compile, the canonical mismatch receipt below still stands.
+  const upgrade = upgradeDriftedPresetSnapshot(
+    cell,
+    taskId,
+    fresh.snapshot,
+    fresh.packagePath,
+    binding,
+    `ha task settle ${taskId}`,
+  );
+  if (upgrade !== null) {
+    if (upgrade.outcome !== "applied") return { ...upgrade, steps: [...mergedSteps, upgrade] } as WriteReceiptDraft;
+    return { ...submitted, steps: [...mergedSteps, upgrade] } as WriteReceiptDraft;
+  }
   if (
     fresh.snapshot.task?.presetSnapshotDigest &&
     !isPresetSnapshotCurrent(cell, taskId, fresh.snapshot, fresh.packagePath, `ha task settle ${taskId}`)

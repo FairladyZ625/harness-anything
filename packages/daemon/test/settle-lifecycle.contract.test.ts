@@ -255,7 +255,7 @@ test("settle refuses to resume another holder's submitted cut", async () => {
   }
 });
 
-test("settle submits then stops with structured guidance when the preset snapshot drifted", async () => {
+test("settle submits then migrates a drifted preset snapshot with a real upgrade event", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-settle-preset-")),
     repoId = workspaceId("settle-preset"),
     taskId = "task_settle_preset",
@@ -349,7 +349,8 @@ test("settle submits then stops with structured guidance when the preset snapsho
       "applied",
     );
     // The recorded snapshot is still the 3.1.0 package; reinstalling 3.2.0 moves the
-    // compiled digest, so the post-submit preset check must stop with upgrade guidance.
+    // compiled digest, so settle runs the same atomic preset upgrade itself instead of
+    // bouncing the agent on preset_snapshot_mismatch.
     writeFileSync(path.join(source, "preset.json"), packageBody("3.2.0"));
     assert.equal(
       (await cell.run({ kind: "preset-install", packageSource: "source/upgrade-task" }, workerBinding)).outcome,
@@ -357,15 +358,15 @@ test("settle submits then stops with structured guidance when the preset snapsho
     );
 
     const settled = (await cell.run({ kind: "task-settle", taskId }, workerBinding)) as Record<string, unknown>;
-    assert.equal(settled.outcome, "op_rejected", JSON.stringify(settled));
-    assert.equal(settled.code, "preset_snapshot_mismatch", JSON.stringify(settled));
-    const next = (settled.next as readonly { readonly action: string }[] | undefined)?.map((entry) => entry.action);
-    assert.ok(
-      next?.some((action) => action.includes(`ha preset upgrade ${taskId}`)),
-      JSON.stringify(settled.next),
+    assert.equal(settled.outcome, "applied", JSON.stringify(settled));
+    const reader = makeTaskEventReader({ repoId, rootDir }),
+      events = reader.read().events;
+    assert.equal(events.filter((event) => event.type === "execution_submitted").length, 1);
+    assert.equal(
+      events.filter((event) => event.type === "preset_snapshot_upgraded").length,
+      1,
+      "settle migrates the drifted snapshot with a real upgrade event, not a forged digest",
     );
-    const reader = makeTaskEventReader({ repoId, rootDir });
-    assert.equal(reader.read().events.filter((event) => event.type === "execution_submitted").length, 1);
     await reader.drain();
   } finally {
     await cell?.close();

@@ -365,10 +365,21 @@ test("the real WIP producer output passes the protocol validator, with or withou
   ]);
   assert.deepEqual(parseDaemonGuiReadResult("repo.tasks.wip", withRoots), withRoots);
 
-  // Contrast 3 — undeclared field: a root row carrying anything beyond the declared fields is
-  // refused. The old length-only check accepted exactly this row (five keys, four checked).
-  const drifted = { ...withRoots, roots: [{ ...withRoots.roots[0]!, undeclared: true }] };
-  assert.throws(() => parseDaemonGuiReadResult("repo.tasks.wip", drifted), /must be a valid task WIP snapshot/u);
+  // Contrast 3 — forward-compat: self-describing extension fields pass at every level while the
+  // declared fields keep their mapping; the client ignores what it does not know.
+  const extended = {
+    ...withRoots,
+    schema: "task-wip/v2",
+    counted: withRoots.counted.map((row) => ({ ...row, annotation: "newer-daemon" })),
+    roots: [{ ...withRoots.roots[0]!, diagnostic: { deferred: 1 } }],
+  };
+  assert.deepEqual(parseDaemonGuiReadResult("repo.tasks.wip", extended), extended);
+
+  // Contrast 4 — fail closed: a missing required field is still refused, extra keys or not.
+  const { threshold: _threshold, ...missingField } = extended;
+  assert.throws(() => parseDaemonGuiReadResult("repo.tasks.wip", missingField), /task WIP fields/u);
+  const missingRowField = { ...withRoots, roots: [{ taskId: "task_milestone", reason: "declared" }] };
+  assert.throws(() => parseDaemonGuiReadResult("repo.tasks.wip", missingRowField), /task WIP snapshot/u);
 });
 
 test("relation graph validator accepts the canonical cut and rejects invented fields", () => {
@@ -717,7 +728,20 @@ test("single-task completion read carries the canonical next and validates its r
       taskId,
       completionNext: null,
       completionBlocker: null,
+      factRetirement: null,
     }),
-    { ok: true, taskId, completionNext: null, completionBlocker: null },
+    { ok: true, taskId, completionNext: null, completionBlocker: null, factRetirement: null },
+  );
+  // factRetirement is additive: absent on older producers it parses through, present it is
+  // validated shape-by-shape.
+  const legacy = { ok: true, taskId, completionNext: null, completionBlocker: null };
+  assert.deepEqual(parseDaemonGuiReadResult("repo.tasks.completion.read", legacy), legacy);
+  assert.throws(
+    () =>
+      parseDaemonGuiReadResult("repo.tasks.completion.read", {
+        ...legacy,
+        factRetirement: { undischarged: [{ factRef: 1 }] },
+      }),
+    /factRetirement/,
   );
 });

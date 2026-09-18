@@ -192,6 +192,16 @@ test("task complete enumerates every undischarged upstream Fact in the blocker",
     await reachGreenInReview(cell, rootDir, taskId, executionId);
     const first = await linkUpstreamFact(cell, taskId, "first"),
       second = await linkUpstreamFact(cell, taskId, "second");
+    // The completion read surfaces the pending dispositions before the write, so
+    // fact_retirement_undeclared never arrives as a surprise.
+    const completionRead = (await cell.read("repo.tasks.completion.read", { taskId })) as unknown as {
+      readonly factRetirement: { readonly undischarged: readonly { readonly factRef: string }[] } | null;
+    };
+    assert.deepEqual(
+      completionRead.factRetirement?.undischarged.map(({ factRef }) => factRef).sort(),
+      [first.factRef, second.factRef].sort(),
+      JSON.stringify(completionRead),
+    );
     const blocked = (await cell.run({ kind: "task-complete", taskId, executionId }, binding)) as Record<
       string,
       unknown

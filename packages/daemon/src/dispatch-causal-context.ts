@@ -13,13 +13,18 @@ import { requireSameProjectionCut, type ProjectionCut } from "./task-query-read.
  * canonical read — a stale mirrored markdown is never summarized as fact.
  *
  * Token budget: no tokenizer ships in this dependency set, so the block is
- * capped at 500 UTF-8 bytes — a provable hard bound the tests assert on real
- * dispatch captures; byte↔token ratios are deliberately not claimed. Canonical
- * refs are never truncated away — a worker can always re-query
- * `ha graph <task-id>`.
+ * capped at 2,048 UTF-8 bytes — a provable hard bound the tests assert on real
+ * dispatch captures; byte↔token ratios are deliberately not claimed. The size
+ * is measured, not guessed: over the production ledger's 1,541 parented tasks
+ * (2026-09-18) a full block is 351 B mean, 776 B p90, 1,709 B max, while the
+ * old 500 B cap dropped at least one line in 16% of blocks — usually the
+ * evidence Facts or the milestone Goal under CJK text. 2 KiB covers the
+ * observed maximum with headroom. Canonical refs are never truncated away —
+ * a worker can always re-query `ha graph <task-id>`.
  */
-const CAUSAL_CONTEXT_MAX_BYTES = 500,
-  MAX_DECISIONS = 2,
+export const CAUSAL_CONTEXT_MAX_BYTES = 2048;
+
+const MAX_DECISIONS = 2,
   MAX_FACTS = 5,
   MAX_EVIDENCE_ANCHORS = 6,
   HEADER = "# Task Causal Context";
