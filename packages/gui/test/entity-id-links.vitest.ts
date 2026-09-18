@@ -8,7 +8,6 @@ import { HomeView } from "../src/renderer/views/HomeView.tsx";
 import { OverviewView } from "../src/renderer/views/OverviewView.tsx";
 import { deriveRuntimeHealth } from "../src/renderer/model/runtime-health.ts";
 import { BoardView } from "../src/renderer/views/BoardView.tsx";
-import { DecisionsView } from "../src/renderer/views/DecisionsView.tsx";
 import { AttestationPoolView } from "../src/renderer/views/AttestationPoolView.tsx";
 import { FactDetailView } from "../src/renderer/views/EntityDetailView.tsx";
 import { DecisionDetailView } from "../src/renderer/components/decisionDetail/DecisionDetailView.tsx";
@@ -609,21 +608,6 @@ const VIEW_RENDERERS = {
       entries: [],
       onOpenPalette: noop,
     }),
-  decisions: () =>
-    createElement(DecisionsView, {
-      decisions: FIXTURE_DECISIONS,
-      tasks: FIXTURE_TASKS,
-      relations: FIXTURE_RELATIONS,
-      facts: FIXTURE_FACTS,
-      onJudge: () => Promise.resolve({ state: "success", kind: "accept", opId: "op-g10", hint: "fixture" } as never),
-      mutationFeedback: noop,
-      onCheckReceipt: noop,
-      relationState: "ready",
-      onNavigateDecision: noop,
-      onNavigateTask: noop,
-      onFocusGraph: noop,
-      coverageRows: [],
-    }),
   decisionPool: () =>
     createElement(AttestationPoolView, {
       repoId: REPO_ID,
@@ -643,6 +627,7 @@ const VIEW_RENDERERS = {
       onCheckReceipt: noop,
       focusedDecisionId: DECISION_ID,
       onFocusGraph: noop,
+      onNavigateDecision: noop,
     }),
   freshness: () =>
     createElement(FreshnessView, {
@@ -794,6 +779,21 @@ describe("G10 entity-id-links 行为判据:视图渲染出的实体 ID 必须可
       await Promise.resolve();
     });
     expect(scanDeadEntityIds(container, "overview+decisionPreviewDrawer", ENTITY_ID_NEEDLES)).toEqual([]);
+  });
+
+  it("额外表面:总池决策域进入专注裁决模式后无死 ID", async () => {
+    // 决策批准不再是独立视图:DecisionsView(VerdictCard/FactInspector 的实体 ID 面)
+    // 只经总池决策域的专注模式触达,死 ID 扫描跟着唯一入口走。
+    const container = await mountSurface(VIEW_RENDERERS.decisionPool());
+    const entry = container.querySelector<HTMLButtonElement>('[data-testid="attestation-pool-focus-entry"]');
+    expect(entry).not.toBeNull();
+    await act(async () => {
+      entry!.click();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(scanDeadEntityIds(container, "decisionPool+focusMode", ENTITY_ID_NEEDLES)).toEqual([]);
   });
 
   it("额外表面:Task 详情 / 预览抽屉 / 命令面板", async () => {

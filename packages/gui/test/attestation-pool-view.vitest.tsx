@@ -149,7 +149,7 @@ interface PoolHarness {
 }
 
 async function mountPool(
-  initialTab: AttestationPoolTabId = "all",
+  initialTab: AttestationPoolTabId = "taskCloseout",
   tasks: readonly TaskRow[] = [attestTask, failedTask, consentTask],
 ): Promise<PoolHarness> {
   const harness: PoolHarness = { tabChanges: [], attestCalls: [], consentCalls: [], judged: [] };
@@ -209,10 +209,42 @@ async function flushEffects() {
   }
 }
 
+/** 同一测试内多次挂载前清场,避免旧池还留在 DOM 里把行数数翻倍。 */
+async function unmountAll() {
+  await act(async () => {
+    for (const { root, client } of mounted.splice(0)) {
+      root.unmount();
+      client.clear();
+    }
+  });
+  document.body.replaceChildren();
+}
+
 function byTestId(testId: string): HTMLElement {
   const element = document.querySelector(`[data-testid="${testId}"]`);
   expect(element, `missing data-testid=${testId}`).toBeInstanceOf(HTMLElement);
   return element as HTMLElement;
+}
+
+/** 从 tab/徽标文本尾部取计数(「<label> · N」/「共 N 项待办」)。 */
+function tabCount(testId: string): number {
+  const match = /(\d+)\s*(?:项待办)?\s*$/.exec(byTestId(testId).textContent ?? "");
+  expect(match, `tab ${testId} text has no trailing count`).toBeTruthy();
+  return Number(match![1]);
+}
+
+function totalCount(): number {
+  const match = /共\s*(\d+)/.exec(byTestId("attestation-pool-total").textContent ?? "");
+  expect(match, "pool total chip has no count").toBeTruthy();
+  return Number(match![1]);
+}
+
+/** 当前视图实际渲染的 lane 行数(gates/breakGlass 行共用前缀,按动作按钮区分)。 */
+function laneRowCounts(): { total: number; gates: number; consents: number; breakGlass: number } {
+  const gates = document.querySelectorAll('[data-testid^="pool-gate-approve-"]').length,
+    consents = document.querySelectorAll('[data-testid^="pool-consent-card-"]').length,
+    breakGlass = document.querySelectorAll('[data-testid^="pool-gate-override-"]').length;
+  return { total: gates + consents + breakGlass, gates, consents, breakGlass };
 }
 
 async function typeInto(textarea: HTMLTextAreaElement, value: string) {
@@ -224,11 +256,14 @@ async function typeInto(textarea: HTMLTextAreaElement, value: string) {
 }
 
 describe("AttestationPoolView", () => {
-  it("renders the five addressable tabs with real counts and all lanes on all", async () => {
-    await mountPool("all");
+  it("renders the two-level domains with real counts and all lanes on the closeout overview", async () => {
+    await mountPool("taskCloseout");
+    // 第一级按域分:决策待裁(计数=kernel proposed 判定,与侧栏角标同读面)与任务收口。
+    expect(byTestId("attestation-pool-domain-decisions").textContent).toMatch(/决策待裁\s*·\s*1(?=\s|$)/);
+    expect(byTestId("attestation-pool-domain-taskCloseout").textContent).toMatch(/任务收口\s*·\s*3(?=\s|$)/);
+    // 第二级只在任务收口域内:全览(三 lane 之和)+ 三个聚焦 lane。
     for (const [tab, count] of [
-      ["all", 4],
-      ["decisions", 1],
+      ["taskCloseout", 3],
       ["gates", 1],
       ["consents", 1],
       ["breakGlass", 1],
@@ -240,13 +275,38 @@ describe("AttestationPoolView", () => {
     expect(byTestId("pool-gate-row-task-failed-ci-gate")).toBeTruthy();
   });
 
+  it("keeps every displayed count equal to its rendered list rows", async () => {
+    // 决策域:域计数 == 默认 proposed 组渲染的决策卡数(计数与列表同源同判据)。
+    await mountPool("decisions");
+    expect(tabCount("attestation-pool-domain-decisions")).toBe(
+      document.querySelectorAll('[id^="decision-card-"]').length,
+    );
+    expect(totalCount()).toBe(
+      tabCount("attestation-pool-domain-decisions") + tabCount("attestation-pool-domain-taskCloseout"),
+    );
+    // 任务收口域:全览计数 == 三 lane 行数之和;每个聚焦 lane 计数 == 该 lane 行数。
+    await unmountAll();
+    await mountPool("taskCloseout");
+    expect(tabCount("attestation-pool-domain-taskCloseout")).toBe(laneRowCounts().total);
+    expect(tabCount("attestation-pool-tab-taskCloseout")).toBe(laneRowCounts().total);
+    await unmountAll();
+    await mountPool("gates");
+    expect(tabCount("attestation-pool-tab-gates")).toBe(laneRowCounts().gates);
+    await unmountAll();
+    await mountPool("consents");
+    expect(tabCount("attestation-pool-tab-consents")).toBe(laneRowCounts().consents);
+    await unmountAll();
+    await mountPool("breakGlass");
+    expect(tabCount("attestation-pool-tab-breakGlass")).toBe(laneRowCounts().breakGlass);
+  });
+
   it("keeps tab switches on the addressable location path, not internal state", async () => {
-    const harness = await mountPool("all");
+    const harness = await mountPool("taskCloseout");
     await act(async () => {
       byTestId("attestation-pool-tab-consents").click();
     });
     expect(harness.tabChanges).toEqual(["consents"]);
-    // 受控组件:poolTab 仍是 "all" 时 UI 不自行切换渲染。
+    // 受控组件:poolTab 仍是 "taskCloseout" 时 UI 不自行切换渲染。
     expect(byTestId("pool-gate-row-task-attest-ux-signoff")).toBeTruthy();
   });
 
@@ -372,7 +432,7 @@ describe("AttestationPoolView", () => {
     expect(harness.consentCalls).toEqual([{ taskId: "task-consent", consent: true }]);
   });
 
-  it("keeps the decision quick-judgment surface on the decisions tab", async () => {
+  it("keeps the quick-judgment surface and the focus mode on the decisions domain", async () => {
     await mountPool("decisions");
     const card = document.getElementById("decision-card-dec-pool");
     expect(card, "decision card missing").toBeTruthy();
@@ -383,5 +443,18 @@ describe("AttestationPoolView", () => {
     );
     expect(accept).toBeInstanceOf(HTMLButtonElement);
     expect(document.querySelector('[data-testid="pool-gate-row-task-attest-ux-signoff"]')).toBeNull();
+    // 决策域的专注处理模式:入口 → 内嵌 DecisionsView(队列计数 + 判定历史面),可返回。
+    await act(async () => {
+      byTestId("attestation-pool-focus-entry").click();
+    });
+    expect(document.body.textContent).toContain("决策待裁 · 专注模式");
+    expect(document.body.textContent).toContain("1 / 1");
+    expect(document.body.textContent).toContain("返回总池");
+    expect(document.querySelector('[data-testid="attestation-pool-focus-entry"]')).toBeNull();
+    await act(async () => {
+      document.querySelector<HTMLButtonElement>('button[title="返回总池"]')!.click();
+    });
+    expect(document.getElementById("decision-card-dec-pool")).toBeTruthy();
+    expect(byTestId("attestation-pool-focus-entry")).toBeTruthy();
   });
 });

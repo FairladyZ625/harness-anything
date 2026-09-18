@@ -436,7 +436,7 @@ const decisionDoc: EntityKindDoc = {
     { type: "evidenced-by", sourceKind: "decision", targetKind: "fact" },
     { type: "refuted-by", sourceKind: "decision", targetKind: "fact" },
   ],
-  guiEntry: { view: "decisions", note: "决策批准 / 决策池;详情从决策行进入" },
+  guiEntry: { view: "decisionPool", note: "待办签发总池的决策待裁域(专注裁决从域内进入);详情从决策行进入" },
   liveCount: "decisions",
 };
 

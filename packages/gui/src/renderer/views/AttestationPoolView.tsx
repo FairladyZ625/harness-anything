@@ -1,6 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowRight, CheckCircle, Graph, GitBranch, Plus, XCircle } from "@phosphor-icons/react";
+import {
+  ArrowRight,
+  CheckCircle,
+  Crosshair,
+  Graph,
+  GitBranch,
+  Handshake,
+  Plus,
+  Scales,
+  SealCheck,
+  Stack,
+  XCircle,
+} from "@phosphor-icons/react";
 import type { RelationCoverageRow, WorkspaceSummaryRead } from "../../api/renderer-dto.ts";
 import { harnessClient, type DecisionProposalInput } from "../api-client.ts";
 import { DecisionJudgmentPanel } from "../components/DecisionJudgmentPanel.tsx";
@@ -8,6 +20,7 @@ import { EntityRefLink } from "../components/EntityRefLink.tsx";
 import { DecisionProposalForm } from "../components/DecisionProposalForm.tsx";
 import { AttestFeedbackRow, GateAttestForm } from "../components/taskDetail/TaskGateAttestCard.tsx";
 import type { GateAttestMode } from "../components/taskDetail/TaskGateAttestCard.tsx";
+import { DecisionsView } from "./DecisionsView.tsx";
 import type { DecisionAction, DecisionMutationFeedback } from "../decision-actions.ts";
 import { computeReadinessSignals, worstColor } from "../model/readiness-signals.ts";
 import {
@@ -23,8 +36,8 @@ import { DecisionStateBadge, RiskTierBadge, UrgencyBadge } from "../components/b
 import { triadicQueryKeys } from "../triadic-data.ts";
 import { groupDecisions, type PoolGroupBy } from "../model/decision-pool-grouping.ts";
 import {
-  ATTESTATION_POOL_TABS,
   deriveAttestationLanes,
+  TASK_CLOSEOUT_TABS,
   type AttestationPoolTabId,
   type GateAttestationItem,
 } from "../model/attestation-pool.ts";
@@ -38,20 +51,22 @@ type RelationState = "ready" | "loading" | "error";
 const selectClass =
   "rounded-md border border-border bg-surface px-2 py-1 font-mono ui-meta text-text-muted outline-none transition-colors duration-100 hover:border-border-strong focus-visible:border-border-strong";
 
-const TAB_LABEL_KEY: Record<AttestationPoolTabId, MessageKey> = {
-  all: "views.attestationPoolView.tabAll",
-  decisions: "views.attestationPoolView.tabDecisions",
+/** 任务收口域的第二级 tab 文案;决策域的浏览分组由 DecisionPoolSection 自带。 */
+const LANE_LABEL_KEY: Record<(typeof TASK_CLOSEOUT_TABS)[number], MessageKey> = {
+  taskCloseout: "views.attestationPoolView.laneAllCloseout",
   gates: "views.attestationPoolView.tabGates",
   consents: "views.attestationPoolView.tabConsents",
   breakGlass: "views.attestationPoolView.tabBreakGlass",
 };
 
 /**
- * 待办签发总池:人类治理动作的集中大厅。五个 lane——待裁决策(既有决策池的快速
- * 批复能力原样保留)、待签门禁(manual-attest 打勾签注与自动已过的双控缺签)、
- * 待同意收口(consent)、阻断需特批(契约声明 allowOverride 的自动门 failed 或
- * missing)——数据源只来自投影行真实状态。Tab 由 AppLocation 携带(poolTab),
- * URL/刷新可寻址;动作全部行内展开,不出全局模态。
+ * 待办签发总池:人类治理动作的唯一收件箱。内部两级分组——第一级按域分:「决策待裁」
+ * (decision 域,DecisionPoolSection 的过滤/分组/快速批复保留,并可进入专注裁决模式)
+ * 与「任务收口」(task 域);第二级只在任务收口域内分:待我签门禁(manual-attest 打勾
+ * 签注与双控缺签)、待我同意收口(consent)、阻断需特批(契约声明 allowOverride 的
+ * failed/missing)。数据源只来自投影行真实状态;Tab 由 AppLocation 携带(poolTab),
+ * URL/刷新可寻址;动作全部行内展开,不出全局模态。域与 lane 的区分一律图标+文字,
+ * 不只靠颜色。
  */
 export function AttestationPoolView({
   repoId,
@@ -64,6 +79,7 @@ export function AttestationPoolView({
   focusedDecisionId,
   onFocusGraph,
   onNavigateDecision,
+  onNavigateEntity,
   onPropose,
   proposalFeedback,
   onJudge,
@@ -88,6 +104,8 @@ export function AttestationPoolView({
   onFocusGraph?: (ref: string) => void;
   /** G10 实体互链:卡头/supersede 链的 decision ID 必须有路。 */
   onNavigateDecision: (decisionId: string) => void;
+  /** 专注裁决模式(内嵌 DecisionsView)的实体互链出口。 */
+  onNavigateEntity?: (ref: string) => void;
   onPropose?: (input: DecisionProposalInput) => Promise<DecisionMutationFeedback>;
   proposalFeedback?: DecisionMutationFeedback;
   onJudge?: (
@@ -113,26 +131,51 @@ export function AttestationPoolView({
   onPoolTabChange: (tab: AttestationPoolTabId) => void;
 }) {
   const lanes = useMemo(() => deriveAttestationLanes(tasks), [tasks]),
-    pendingDecisionCount = useMemo(
-      () => decisions.filter((decision) => decisionCan(decision, "accept")).length,
-      [decisions],
-    ),
+    // 计数口径与侧栏角标统一:决策待裁读 workspace summary 的 kernel proposed 判定
+    // (kernel decisionCapabilities 的 accept 前置就是 proposed,两个词表恒等),
+    // 与 App 的 poolBadgeCount 同一 query key 同一缓存对象,结构性相等;行级动作
+    // 门仍走 decisionCan 行能力投影。任务侧计数 = lane 长度。
+    taskCloseoutCount = lanes.gates.length + lanes.consents.length + lanes.breakGlass.length,
     counts: Record<AttestationPoolTabId, number> = {
-      all: pendingDecisionCount + lanes.gates.length + lanes.consents.length + lanes.breakGlass.length,
-      decisions: pendingDecisionCount,
+      decisions: summary.inboxCount,
+      taskCloseout: taskCloseoutCount,
       gates: lanes.gates.length,
       consents: lanes.consents.length,
       breakGlass: lanes.breakGlass.length,
-    };
-  // 深链聚焦一条决策时,决策 lane 是落点(与 openDecisionInPool 的推栈路径一致)。
+    },
+    total = counts.decisions + counts.taskCloseout;
+  // 深链聚焦一条决策时,决策域是落点(与 openDecisionInPool 的推栈路径一致)。
   useEffect(() => {
     if (focusedDecisionId && poolTab !== "decisions") onPoolTabChange("decisions");
   }, [focusedDecisionId, onPoolTabChange, poolTab]);
 
-  const showDecisions = poolTab === "all" || poolTab === "decisions",
-    showGates = poolTab === "all" || poolTab === "gates",
-    showConsents = poolTab === "all" || poolTab === "consents",
-    showBreakGlass = poolTab === "all" || poolTab === "breakGlass";
+  const inDecisionDomain = poolTab === "decisions",
+    // 专注裁决是决策域的模式:整个池体让位给 DecisionsView(J/K 键盘流 + 判定历史)。
+    [focusMode, setFocusMode] = useState(false);
+  const showGates = poolTab === "taskCloseout" || poolTab === "gates",
+    showConsents = poolTab === "taskCloseout" || poolTab === "consents",
+    showBreakGlass = poolTab === "taskCloseout" || poolTab === "breakGlass";
+
+  if (inDecisionDomain && focusMode && onJudge) {
+    return (
+      <DecisionsView
+        decisions={decisions}
+        tasks={tasks}
+        relations={relations}
+        facts={facts}
+        onJudge={onJudge}
+        mutationFeedback={mutationFeedback}
+        onCheckReceipt={(decisionId) => onCheckReceipt?.(decisionId)}
+        relationState={relationState}
+        onNavigateDecision={onNavigateDecision}
+        onNavigateTask={onNavigateTask}
+        onFocusGraph={onFocusGraph}
+        onNavigateEntity={onNavigateEntity}
+        coverageRows={coverageRows}
+        onExit={() => setFocusMode(false)}
+      />
+    );
+  }
 
   return (
     <div className="flex h-full flex-col">
@@ -145,7 +188,7 @@ export function AttestationPoolView({
           data-testid="attestation-pool-total"
           className="ml-auto rounded-full bg-accent/15 px-2.5 py-1 font-mono ui-meta font-semibold text-accent-fg"
         >
-          {t("views.attestationPoolView.totalCount", { count: counts.all })}
+          {t("views.attestationPoolView.totalCount", { count: total })}
         </span>
       </header>
       <div
@@ -153,129 +196,181 @@ export function AttestationPoolView({
         aria-label={t("views.attestationPoolView.tablist")}
         className="flex flex-wrap items-center gap-1.5 border-b border-border bg-surface/50 px-4 py-2"
       >
-        {ATTESTATION_POOL_TABS.map((id) => (
-          <button
-            key={id}
-            role="tab"
-            aria-selected={poolTab === id}
-            data-testid={`attestation-pool-tab-${id}`}
-            onClick={() => onPoolTabChange(id)}
-            className={`rounded-md px-3 py-1.5 font-mono ui-meta tabular-nums transition-colors duration-100 ${poolTab === id ? "bg-accent text-accent-fg" : "bg-surface-raised text-text-muted hover:text-text"}`}
-          >
-            {t(TAB_LABEL_KEY[id])} · {counts[id]}
-          </button>
-        ))}
+        <button
+          role="tab"
+          aria-selected={inDecisionDomain}
+          data-testid="attestation-pool-domain-decisions"
+          onClick={() => onPoolTabChange("decisions")}
+          className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 font-mono ui-meta tabular-nums transition-colors duration-100 ${inDecisionDomain ? "bg-accent text-accent-fg" : "bg-surface-raised text-text-muted hover:text-text"}`}
+        >
+          <Scales weight="bold" />
+          {t("views.attestationPoolView.domainDecisions")} · {counts.decisions}
+        </button>
+        <button
+          role="tab"
+          aria-selected={!inDecisionDomain}
+          data-testid="attestation-pool-domain-taskCloseout"
+          onClick={() => onPoolTabChange("taskCloseout")}
+          className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 font-mono ui-meta tabular-nums transition-colors duration-100 ${!inDecisionDomain ? "bg-accent text-accent-fg" : "bg-surface-raised text-text-muted hover:text-text"}`}
+        >
+          <SealCheck weight="bold" />
+          {t("views.attestationPoolView.domainTaskCloseout")} · {counts.taskCloseout}
+        </button>
       </div>
-      <div className="min-h-0 flex-1 overflow-auto p-4">
-        <div className="space-y-6">
-          {showDecisions && (
-            <section aria-label={t("views.attestationPoolView.tabDecisions")} className="space-y-2">
-              <LaneHeading title={t("views.attestationPoolView.tabDecisions")} count={counts.decisions} />
-              <DecisionPoolSection
-                repoId={repoId}
-                decisions={decisions}
-                summary={summary}
-                facts={facts}
-                relations={relations}
-                coverageRows={coverageRows}
-                relationState={relationState}
-                focusedDecisionId={focusedDecisionId}
-                onFocusGraph={onFocusGraph}
-                onNavigateDecision={onNavigateDecision}
-                onPropose={onPropose}
-                proposalFeedback={proposalFeedback}
-                onJudge={onJudge}
-                mutationFeedback={mutationFeedback}
-                onCheckReceipt={onCheckReceipt}
-              />
-            </section>
-          )}
-          {showGates && (
-            <section aria-label={t("views.attestationPoolView.tabGates")} className="space-y-2">
-              <LaneHeading title={t("views.attestationPoolView.tabGates")} count={counts.gates} />
-              {lanes.gates.length === 0 ? (
-                <LaneEmpty text={t("views.attestationPoolView.gatesEmpty")} />
-              ) : (
-                lanes.gates.map((item) => (
-                  <GateAttestRow
-                    key={`${item.taskId}:${item.gateId}`}
-                    item={item}
-                    feedback={taskFeedback?.(item.taskId)}
-                    onAttest={onAttest}
-                    onNavigateTask={onNavigateTask}
-                  />
-                ))
-              )}
-            </section>
-          )}
-          {showConsents && (
-            <section aria-label={t("views.attestationPoolView.tabConsents")} className="space-y-2">
-              <LaneHeading title={t("views.attestationPoolView.tabConsents")} count={counts.consents} />
-              {lanes.consents.length === 0 ? (
-                <LaneEmpty text={t("views.attestationPoolView.consentsEmpty")} />
-              ) : (
-                lanes.consents.map((item) => {
-                  const task = tasks.find((candidate) => candidate.taskId === item.taskId),
-                    feedback = taskFeedback?.(item.taskId),
-                    consentFeedback = feedback?.kind === "complete" ? feedback : undefined;
-                  return (
-                    <article
-                      key={item.taskId}
-                      data-testid={`pool-consent-card-${item.taskId}`}
-                      className="rounded-lg border border-border bg-surface px-3.5 py-3 transition-colors duration-100 hover:border-border-strong"
-                    >
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-mono ui-meta text-text-faint">{item.taskId}</span>
-                        <span className="ui-prose font-semibold text-text">{item.taskTitle}</span>
-                        {onNavigateTask && (
-                          <button
-                            onClick={() => onNavigateTask(item.taskId)}
-                            className="font-mono ui-micro text-accent hover:underline"
-                          >
-                            {t("views.attestationPoolView.openTask")}
-                          </button>
-                        )}
-                      </div>
-                      <p className="mt-1 ui-meta text-text-muted">{t("views.attestationPoolView.consentHint")}</p>
-                      <div className="mt-2">
-                        <button
-                          type="button"
-                          data-testid={`pool-consent-approve-${item.taskId}`}
-                          disabled={!onCompleteTask || !task || consentFeedback?.state === "pending"}
-                          onClick={() => task && void onCompleteTask?.(task, true)}
-                          className="rounded-md bg-accent px-2.5 py-1.5 ui-meta font-semibold text-accent-fg transition-colors duration-100 hover:bg-accent/85 disabled:opacity-50"
-                        >
-                          {t("views.attestationPoolView.consentApprove")}
-                        </button>
-                      </div>
-                      <AttestFeedbackRow feedback={consentFeedback} />
-                    </article>
-                  );
-                })
-              )}
-            </section>
-          )}
-          {showBreakGlass && (
-            <section aria-label={t("views.attestationPoolView.tabBreakGlass")} className="space-y-2">
-              <LaneHeading title={t("views.attestationPoolView.tabBreakGlass")} count={counts.breakGlass} />
-              <p className="ui-micro text-text-faint">{t("views.attestationPoolView.breakGlassHint")}</p>
-              {lanes.breakGlass.length === 0 ? (
-                <LaneEmpty text={t("views.attestationPoolView.breakGlassEmpty")} />
-              ) : (
-                lanes.breakGlass.map((item) => (
-                  <GateAttestRow
-                    key={`${item.taskId}:${item.gateId}`}
-                    item={item}
-                    feedback={taskFeedback?.(item.taskId)}
-                    onAttest={onAttest}
-                    onNavigateTask={onNavigateTask}
-                  />
-                ))
-              )}
-            </section>
-          )}
+      {inDecisionDomain ? (
+        <div className="min-h-0 flex-1 overflow-auto p-4">
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            {onJudge && (
+              <button
+                type="button"
+                data-testid="attestation-pool-focus-entry"
+                onClick={() => setFocusMode(true)}
+                title={t("views.attestationPoolView.focusEntryTitle")}
+                className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface-raised px-3 py-1.5 ui-meta font-semibold text-text transition-colors duration-100 hover:border-border-strong hover:text-accent"
+              >
+                <Crosshair weight="bold" />
+                {t("views.attestationPoolView.focusEntry")} · {counts.decisions}
+              </button>
+            )}
+            <span className="ui-micro text-text-faint">{t("views.attestationPoolView.focusEntryHint")}</span>
+          </div>
+          <DecisionPoolSection
+            repoId={repoId}
+            decisions={decisions}
+            summary={summary}
+            facts={facts}
+            relations={relations}
+            coverageRows={coverageRows}
+            relationState={relationState}
+            focusedDecisionId={focusedDecisionId}
+            onFocusGraph={onFocusGraph}
+            onNavigateDecision={onNavigateDecision}
+            onPropose={onPropose}
+            proposalFeedback={proposalFeedback}
+            onJudge={onJudge}
+            mutationFeedback={mutationFeedback}
+            onCheckReceipt={onCheckReceipt}
+          />
         </div>
-      </div>
+      ) : (
+        <>
+          <div
+            role="tablist"
+            aria-label={t("views.attestationPoolView.closeoutTablist")}
+            className="flex flex-wrap items-center gap-1.5 border-b border-border bg-surface/60 px-4 py-1.5"
+          >
+            {TASK_CLOSEOUT_TABS.map((id) => (
+              <button
+                key={id}
+                role="tab"
+                aria-selected={poolTab === id}
+                data-testid={`attestation-pool-tab-${id}`}
+                onClick={() => onPoolTabChange(id)}
+                className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 font-mono ui-meta tabular-nums transition-colors duration-100 ${poolTab === id ? "bg-accent text-accent-fg" : "bg-surface-raised text-text-muted hover:text-text"}`}
+              >
+                {id === "taskCloseout" ? (
+                  <Stack weight="bold" />
+                ) : id === "gates" ? (
+                  <CheckCircle weight="bold" />
+                ) : id === "consents" ? (
+                  <Handshake weight="bold" />
+                ) : (
+                  <XCircle weight="bold" />
+                )}
+                {t(LANE_LABEL_KEY[id])} · {counts[id]}
+              </button>
+            ))}
+          </div>
+          <div className="min-h-0 flex-1 overflow-auto p-4">
+            <div className="space-y-6">
+              {showGates && (
+                <section aria-label={t("views.attestationPoolView.tabGates")} className="space-y-2">
+                  <LaneHeading title={t("views.attestationPoolView.tabGates")} count={counts.gates} />
+                  {lanes.gates.length === 0 ? (
+                    <LaneEmpty text={t("views.attestationPoolView.gatesEmpty")} />
+                  ) : (
+                    lanes.gates.map((item) => (
+                      <GateAttestRow
+                        key={`${item.taskId}:${item.gateId}`}
+                        item={item}
+                        feedback={taskFeedback?.(item.taskId)}
+                        onAttest={onAttest}
+                        onNavigateTask={onNavigateTask}
+                      />
+                    ))
+                  )}
+                </section>
+              )}
+              {showConsents && (
+                <section aria-label={t("views.attestationPoolView.tabConsents")} className="space-y-2">
+                  <LaneHeading title={t("views.attestationPoolView.tabConsents")} count={counts.consents} />
+                  {lanes.consents.length === 0 ? (
+                    <LaneEmpty text={t("views.attestationPoolView.consentsEmpty")} />
+                  ) : (
+                    lanes.consents.map((item) => {
+                      const task = tasks.find((candidate) => candidate.taskId === item.taskId),
+                        feedback = taskFeedback?.(item.taskId),
+                        consentFeedback = feedback?.kind === "complete" ? feedback : undefined;
+                      return (
+                        <article
+                          key={item.taskId}
+                          data-testid={`pool-consent-card-${item.taskId}`}
+                          className="rounded-lg border border-border bg-surface px-3.5 py-3 transition-colors duration-100 hover:border-border-strong"
+                        >
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-mono ui-meta text-text-faint">{item.taskId}</span>
+                            <span className="ui-prose font-semibold text-text">{item.taskTitle}</span>
+                            {onNavigateTask && (
+                              <button
+                                onClick={() => onNavigateTask(item.taskId)}
+                                className="font-mono ui-micro text-accent hover:underline"
+                              >
+                                {t("views.attestationPoolView.openTask")}
+                              </button>
+                            )}
+                          </div>
+                          <p className="mt-1 ui-meta text-text-muted">{t("views.attestationPoolView.consentHint")}</p>
+                          <div className="mt-2">
+                            <button
+                              type="button"
+                              data-testid={`pool-consent-approve-${item.taskId}`}
+                              disabled={!onCompleteTask || !task || consentFeedback?.state === "pending"}
+                              onClick={() => task && void onCompleteTask?.(task, true)}
+                              className="rounded-md bg-accent px-2.5 py-1.5 ui-meta font-semibold text-accent-fg transition-colors duration-100 hover:bg-accent/85 disabled:opacity-50"
+                            >
+                              {t("views.attestationPoolView.consentApprove")}
+                            </button>
+                          </div>
+                          <AttestFeedbackRow feedback={consentFeedback} />
+                        </article>
+                      );
+                    })
+                  )}
+                </section>
+              )}
+              {showBreakGlass && (
+                <section aria-label={t("views.attestationPoolView.tabBreakGlass")} className="space-y-2">
+                  <LaneHeading title={t("views.attestationPoolView.tabBreakGlass")} count={counts.breakGlass} />
+                  <p className="ui-micro text-text-faint">{t("views.attestationPoolView.breakGlassHint")}</p>
+                  {lanes.breakGlass.length === 0 ? (
+                    <LaneEmpty text={t("views.attestationPoolView.breakGlassEmpty")} />
+                  ) : (
+                    lanes.breakGlass.map((item) => (
+                      <GateAttestRow
+                        key={`${item.taskId}:${item.gateId}`}
+                        item={item}
+                        feedback={taskFeedback?.(item.taskId)}
+                        onAttest={onAttest}
+                        onNavigateTask={onNavigateTask}
+                      />
+                    ))
+                  )}
+                </section>
+              )}
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

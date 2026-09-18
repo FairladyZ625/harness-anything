@@ -22,7 +22,6 @@ const VIEW_IDS: ReadonlySet<string> = new Set<ViewId>([
   "home",
   "overview",
   "board",
-  "decisions",
   "decisionPool",
   "decisionDetail",
   "factDetail",
@@ -82,7 +81,7 @@ function isAppLocation(value: unknown): value is AppLocation {
     !isTaskFilters(value.taskFilters)
   )
     return false;
-  // poolTab 是后加字段:旧存储没有它照样可读,消费侧按 "all" 解释。
+  // poolTab 是后加字段:旧存储没有它照样可读,消费侧按 "decisions" 解释。
   if (value.poolTab !== undefined && !ATTESTATION_POOL_TABS.includes(value.poolTab as AttestationPoolTabId))
     return false;
   const drill = value.drill;
@@ -120,7 +119,7 @@ export function initialLocation(filters?: TaskFilters): AppLocation {
     focusedEntityRef: null,
     taskFilters: filters ?? { ...DEFAULT_TASK_FILTERS },
     drill: null,
-    poolTab: "all",
+    poolTab: "decisions",
   };
 }
 

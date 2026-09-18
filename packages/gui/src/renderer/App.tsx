@@ -5,7 +5,6 @@ import { ThemeProvider } from "./theme.tsx";
 import { HomeView } from "./views/HomeView.tsx";
 import { OverviewView } from "./views/OverviewView.tsx";
 import { BoardView } from "./views/BoardView.tsx";
-import { DecisionsView } from "./views/DecisionsView.tsx";
 import { AttestationPoolView } from "./views/AttestationPoolView.tsx";
 import { FactDetailView } from "./views/EntityDetailView.tsx";
 import { DecisionDetailView } from "./components/decisionDetail/DecisionDetailView.tsx";
@@ -76,7 +75,6 @@ import { DaemonStartupGate } from "./components/DaemonStartupGate.tsx";
  */
 const FULL_TRIADIC_PROJECTION_VIEWS: ReadonlySet<ViewId> = new Set([
   "graph",
-  "decisions",
   "decisionPool",
   "decisionDetail",
   "factDetail",
@@ -260,6 +258,8 @@ function AppShell() {
 
   // The badge is the pool's own pending census: the daemon's canonical decision inbox
   // count plus the task-side lanes derived from the same projection rows the pool renders.
+  // 决策侧与池内「决策待裁」域计数同读面同判据(workspace summary 的 kernel proposed
+  // 判定),角标与域 tab 共享同一 query 缓存,结构性相等。
   const poolBadgeCount = useMemo(() => {
     const lanes = deriveAttestationLanes(projectTasks);
     return (
@@ -490,7 +490,17 @@ function AppShell() {
                     }
                     onSelect={openTaskPreview}
                     onDrill={(status) => drillToBoard("__all__", status, "root")}
-                    onOpenInbox={() => goto("decisions")}
+                    onOpenInbox={() =>
+                      // 决策收件箱 = 总池的决策待裁域(专注裁决从域内进入)。
+                      navigate({
+                        view: "decisionPool",
+                        poolTab: "decisions",
+                        focusedEntityRef: null,
+                        selectedId: null,
+                        previewId: null,
+                        drill: null,
+                      })
+                    }
                     onOpenDecision={navigateToDecision}
                     onNavigateEntity={navigateToEntity}
                     onDecisionPreviewChange={setOverviewDecisionPreviewId}
@@ -572,24 +582,6 @@ function AppShell() {
                   onNavigateTask={navigateToTask}
                   onFocusGraph={focusEntityInGraph}
                 />
-              ) : view === "decisions" ? (
-                <DecisionsView
-                  decisions={decisions}
-                  tasks={tasks}
-                  relations={relations}
-                  facts={facts}
-                  onJudge={decisionActions.judge}
-                  mutationFeedback={(decisionId) => decisionActions.feedback.get(decisionId)}
-                  onCheckReceipt={(decisionId) => {
-                    void decisionActions.checkReceipt(decisionId);
-                  }}
-                  relationState={triadicQuery.relationState}
-                  onNavigateDecision={navigateToDecision}
-                  onNavigateTask={navigateToTask}
-                  onNavigateEntity={navigateToEntity}
-                  onFocusGraph={focusEntityInGraph}
-                  coverageRows={coverageRows}
-                />
               ) : view === "decisionPool" ? (
                 workspaceSummaryQuery.data ? (
                   <AttestationPoolView
@@ -612,13 +604,14 @@ function AppShell() {
                     taskFeedback={feedbackOf}
                     onCompleteTask={(task, consent) => taskActions.completeTask(task, consent)}
                     onNavigateTask={navigateToTask}
-                    poolTab={location.poolTab ?? "all"}
+                    poolTab={location.poolTab ?? "decisions"}
                     onPoolTabChange={setPoolTab}
                     focusedDecisionId={
                       focusedEntityRef?.startsWith("decision/") ? focusedEntityRef.split("/")[1] : null
                     }
                     onFocusGraph={focusEntityInGraph}
                     onNavigateDecision={navigateToDecision}
+                    onNavigateEntity={navigateToEntity}
                   />
                 ) : (
                   <WorkspaceSummaryPending error={workspaceSummaryQuery.error} />

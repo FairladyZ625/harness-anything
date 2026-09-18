@@ -129,7 +129,7 @@ describe("view navigation history (HISTORY-002)", () => {
     expect(currentLocation(state).view).toBe("board");
     expect(currentLocation(state).drill?.lane).toBe("root-1");
     // 从中间推新位置:forward 栈作废。
-    state = pushLocation(state, loc({ view: "decisions" }));
+    state = pushLocation(state, loc({ view: "freshness" }));
     expect(viewCanForward(state)).toBe(false);
     state = viewGoBack(state);
     state = viewGoBack(state);
