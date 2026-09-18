@@ -3,10 +3,12 @@ import path from "node:path";
 import {
   SETTINGS_ID,
   attributeEntityActionCriterion,
+  gateWitnessMappingIssues,
   isSettingsEvent,
   readGateSettings,
   resolveHarnessLayout,
   settingsActionLocale,
+  writeGatesFacet,
   type EntityActionCompileInput,
   type GateWitnessMappingV1,
   type SettingsActionDraft,
@@ -57,11 +59,22 @@ export function makeSettingsActionRuntime(
     const document = cell.projection.readDocument("harness.yaml"),
       compile = contract.execution.compile;
     if (!compile) throw cell.cellCodedError("invalid_command", `${action.kind} has no Settings event compiler.`);
+    if (action.gatesFromDocument === true && action.gatesDraft !== undefined)
+      throw cell.cellCodedError(
+        "invalid_command",
+        "gatesFromDocument and gatesDraft are alternative ways to declare the authored " +
+          "settings.gates facet; supply one, not both.",
+      );
     // The authored harness.yaml on disk is the user-facing declaration surface: `--gates-from-document`
     // mints the entity value from it instead of trusting a caller-supplied `gates` array, and the compiler
-    // may base the rewritten document on its bytes when they carry the same settings.
+    // may base the rewritten document on its bytes when they carry the same settings. `gatesDraft` is a
+    // structured draft of that same facet (the GUI gate editor): the ingress splices it into the authored
+    // document and mints `gates` from the result, so the document stays the only declaration surface.
     const authoredDocumentBody = readAuthoredDocument(cell),
-      gates = action.gatesFromDocument === true ? authoredGateMappings(cell, authoredDocumentBody) : undefined,
+      gates =
+        action.gatesFromDocument === true
+          ? authoredGateMappings(cell, authoredDocumentBody)
+          : draftedGateMappings(cell, action.gatesDraft, authoredDocumentBody ?? document.document?.body),
       compiled = compile({
         action: { ...action, ...(gates === undefined ? {} : { gates }), authoredDocumentBody },
         actor: binding.actor,
@@ -100,6 +113,38 @@ function authoredGateMappings(
     throw cell.cellCodedError(
       "invalid_command",
       `harness.yaml settings.gates is invalid: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
+/**
+ * A caller-declared draft of the authored `settings.gates` facet: spliced into the authored
+ * document with the kernel's serializer, then minted by reading the document back — the same
+ * provenance as `--gates-from-document`, with the facet bytes supplied instead of edited on
+ * disk. Semantics (adapter field sets, governance modifiers) are judged downstream by
+ * `validateRepositorySettings`; anything the document cannot express fails the round-trip.
+ */
+function draftedGateMappings(
+  cell: RepoCellRuntimeContext,
+  draft: unknown,
+  documentBody: string | undefined,
+): readonly GateWitnessMappingV1[] | undefined {
+  if (draft === undefined) return undefined;
+  if (!Array.isArray(draft) || draft.some((mapping) => typeof mapping !== "object" || mapping === null))
+    throw cell.cellCodedError("invalid_command", "gatesDraft must be an array of gate witness mappings.");
+  if (documentBody === undefined)
+    throw cell.cellCodedError("invalid_command", "gatesDraft requires the authored harness.yaml document to exist.");
+  // Judge the draft before splicing: a `none` mapping renders inline and would silently drop
+  // option fields the adapter cannot carry.
+  const issues = gateWitnessMappingIssues(draft as readonly GateWitnessMappingV1[]);
+  if (issues.length) throw cell.cellCodedError("invalid_command", issues.join("; "));
+  try {
+    return readGateSettings(writeGatesFacet(documentBody, draft as readonly GateWitnessMappingV1[]));
+  } catch (error) {
+    throw cell.cellCodedError(
+      "invalid_command",
+      `gatesDraft cannot be expressed in settings.gates: ` +
+        `${error instanceof Error ? error.message : String(error)}`,
     );
   }
 }

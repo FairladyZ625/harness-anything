@@ -470,6 +470,7 @@ export function validateCatalogSnapshot(value: unknown): readonly string[] {
       ciWorkflows: "array",
       bundledAgents: "array",
       settingsFields: "array",
+      gateMappings: "object",
       adapters: "array",
     },
     "catalog snapshot",
@@ -499,6 +500,37 @@ export function validateCatalogSnapshot(value: unknown): readonly string[] {
         "catalog defaults",
       ),
     );
+  if (record(value.gateMappings)) {
+    errors.push(
+      ...closed(
+        value.gateMappings,
+        {
+          adapters: "array",
+          appliesTo: "array",
+          adapterFields: "object",
+          governanceFields: "array",
+          governableAdapters: "array",
+          internalGateId: "string",
+        },
+        "catalog gate mappings",
+      ),
+    );
+    const descriptor = value.gateMappings;
+    if (
+      !stringArray(descriptor.adapters) ||
+      !stringArray(descriptor.appliesTo) ||
+      !stringArray(descriptor.governanceFields) ||
+      !stringArray(descriptor.governableAdapters)
+    )
+      errors.push("catalog gate mappings enum is invalid");
+    if (record(descriptor.adapterFields)) {
+      for (const key of Object.keys(descriptor.adapterFields))
+        if (!stringArray(descriptor.adapterFields[key]))
+          errors.push("catalog gate mappings adapter fields are invalid");
+      if (!Array.isArray(descriptor.adapterFields.none) || descriptor.adapterFields.none.length > 0)
+        errors.push("catalog gate mappings none adapter must declare no fields");
+    }
+  }
   for (const row of Array.isArray(value.presets) ? value.presets : []) {
     errors.push(
       ...closed(

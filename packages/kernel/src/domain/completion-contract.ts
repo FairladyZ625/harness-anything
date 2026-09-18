@@ -105,12 +105,21 @@ const adapterOptionFields: Readonly<Record<FrozenGateWitness["adapterId"], reado
   [CODE_DOC_GATE_ID]: [],
 };
 
-const mappingFields: Readonly<Record<GateWitnessMappingV1["adapter"], readonly string[]>> = {
+/**
+ * The exact option field set each adapter's `settings.gates` mapping must declare — the flat
+ * settings schema cannot express per-adapter required fields, so `gateWitnessMappingIssues`
+ * judges them here. Editing surfaces (daemon GUI catalog) project this list instead of
+ * hand-copying it.
+ */
+export const gateMappingAdapterFields: Readonly<Record<GateWitnessMappingV1["adapter"], readonly string[]>> = {
   none: [],
   "github-actions": ["appliesTo", "branch", "event", "coverage", "selection"],
   "local-command": ["appliesTo", "command"],
   "manual-attest": ["appliesTo"],
 };
+
+/** Adapters that may carry `mandatorySignoff`/`allowOverride`; manual-attest is already human-witnessed. */
+export const governableWitnessAdapterIds = ["github-actions", "local-command"] as const;
 
 export function validateFrozenCompletionContract(
   value: unknown,
@@ -173,7 +182,7 @@ function frozenRequirement(value: unknown, fields: typeof hasOnlyFields): boolea
 /** Adapter-specific field sets that the flat settings schema cannot express. */
 export function gateWitnessMappingIssues(mappings: readonly GateWitnessMappingV1[]): readonly string[] {
   return mappings.flatMap(({ gateId, adapter, mandatorySignoff, allowOverride, ...options }) => {
-    const expected = mappingFields[adapter],
+    const expected = gateMappingAdapterFields[adapter],
       actual = Object.keys(options);
     if ((mandatorySignoff !== undefined || allowOverride !== undefined) && !humanGovernable(adapter))
       return [
@@ -232,7 +241,7 @@ export function inferLegacyGateRequirements(
 }
 
 function humanGovernable(adapter: GateWitnessMappingV1["adapter"]): boolean {
-  return adapter === "github-actions" || adapter === "local-command";
+  return (governableWitnessAdapterIds as readonly string[]).includes(adapter);
 }
 
 export type CompletionContractResolution =

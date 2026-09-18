@@ -622,7 +622,7 @@ function writeCiFacet(body: string, ci: RepositorySettingsV1["ci"]): string {
  * non-empty list renders `    <id>: none` inline or a `    <id>:` block with six-space fields in
  * canonical key order so the read-back is byte-equal to the entity value.
  */
-function writeGatesFacet(body: string, gates: readonly GateWitnessMappingV1[]): string {
+export function writeGatesFacet(body: string, gates: readonly GateWitnessMappingV1[]): string {
   const section = /^  gates:[^\r\n]*(?:\r?\n)(?:    [^\r\n]*(?:\r?\n|$))*/mu;
   if (gates.length === 0) return section.test(body) ? body.replace(section, "") : body;
   const rendered =

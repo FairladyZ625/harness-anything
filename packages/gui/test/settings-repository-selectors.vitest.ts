@@ -17,7 +17,15 @@ import { SettingsView } from "../src/renderer/views/SettingsView.tsx";
 import { catalogQueryKeys } from "../src/renderer/catalog-data.ts";
 import { settingsQueryKeys } from "../src/renderer/settings-data.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
-import { settingsUpdateInputFields } from "../../kernel/src/index.ts";
+import {
+  CODE_DOC_GATE_ID,
+  gateAppliesTo,
+  gateGovernanceFields,
+  gateMappingAdapterFields,
+  governableWitnessAdapterIds,
+  mappedWitnessAdapterIds,
+  settingsUpdateInputFields,
+} from "../../kernel/src/index.ts";
 
 const REPO_ID = "settings-selectors-probe";
 const AT = "2026-08-27T00:00:00.000Z";
@@ -168,6 +176,15 @@ const SNAPSHOT = {
   // 验收人取值面的 bundled 层;已安装层走 agent 目录共享缓存。
   bundledAgents: ["closeout-reviewer"],
   adapters: [],
+  // 门映射描述面:与 daemon gui-catalog 同一映射,源直接 import kernel 单源。
+  gateMappings: {
+    adapters: [...mappedWitnessAdapterIds, "none"],
+    appliesTo: [...gateAppliesTo],
+    adapterFields: gateMappingAdapterFields,
+    governanceFields: [...gateGovernanceFields],
+    governableAdapters: [...governableWitnessAdapterIds],
+    internalGateId: CODE_DOC_GATE_ID,
+  },
 };
 /** agent 目录(listAgents)的已安装层行:available 行进取值面,degraded 行不进。 */
 const AGENT_ROWS = [

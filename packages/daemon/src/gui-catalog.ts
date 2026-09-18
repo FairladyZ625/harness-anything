@@ -1,7 +1,16 @@
 import { createHash } from "node:crypto";
 import { localAdapterProviderMetadata } from "../../adapters/local/src/index.ts";
 import { multicaAdapterProviderMetadata } from "../../adapters/multica/src/index.ts";
-import { settingsUpdateInputFields, type SettingsV1 } from "../../kernel/src/index.ts";
+import {
+  CODE_DOC_GATE_ID,
+  gateAppliesTo,
+  gateGovernanceFields,
+  gateMappingAdapterFields,
+  governableWitnessAdapterIds,
+  mappedWitnessAdapterIds,
+  settingsUpdateInputFields,
+  type SettingsV1,
+} from "../../kernel/src/index.ts";
 import {
   listBundledAgentDeclarationIds,
   listGovernanceScaffoldOverlays,
@@ -110,6 +119,17 @@ export function openGuiCatalog(input: {
         required,
         ...(values ? { enum: [...values] } : {}),
       })),
+      // 门映射编辑面的合法组合契约:adapter 四选一(含 none)、每个 adapter 必须声明的
+      // option 字段、治理修饰字段与可承载它们的 adapter,全部投影 kernel 单源——界面据此
+      // 挡住中心会拒绝的组合,不手抄规则。
+      gateMappings: {
+        adapters: ["none", ...mappedWitnessAdapterIds],
+        appliesTo: [...gateAppliesTo],
+        adapterFields: gateMappingAdapterFields,
+        governanceFields: [...gateGovernanceFields],
+        governableAdapters: [...governableWitnessAdapterIds],
+        internalGateId: CODE_DOC_GATE_ID,
+      },
       adapters: [localAdapterProviderMetadata, multicaAdapterProviderMetadata].map((adapter) => ({
         adapterId: adapter.id,
         registered: true,

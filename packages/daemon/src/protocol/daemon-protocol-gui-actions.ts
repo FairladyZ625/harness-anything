@@ -214,6 +214,7 @@ export const daemonGuiActionMethods = Object.freeze([
       walFlushMilliseconds: "number?",
       ciWorkflows: "array?",
       gatesFromDocument: "boolean?",
+      gatesDraft: "array?",
       restoreDrillRetention: "number?",
       expectedVersion: "number?",
       idempotencyKey: "string",

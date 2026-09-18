@@ -253,6 +253,13 @@ test("Settings update rejects gatesFromDocument without a daemon-minted gates ar
   );
 });
 
+test("Settings update rejects gatesDraft that bypassed the ingress minting", () => {
+  assert.throws(
+    () => compile({ gatesDraft: [{ gateId: "ci", adapter: "none" }] }),
+    (error: unknown) => error instanceof SettingsActionError && error.code === "invalid_command",
+  );
+});
+
 test("Settings update rejects malformed gate mappings", () => {
   for (const gates of [
     "ci",
@@ -364,7 +371,11 @@ test("repositorySettingsActionValues covers every repository field for a fully p
   for (const key of Object.keys(values)) assert.ok(names.has(key), `${key} is not an action field`);
   const repositoryFields = settingsUpdateInputFields
     .map(({ field }) => field)
-    .filter((field) => !["locale", "expectedVersion", "idempotencyKey", "gatesFromDocument"].includes(field));
+    // locale/expectedVersion/idempotencyKey 是机械项;gatesFromDocument 与 gatesDraft 是
+    // 写侧草稿命令——经 ingress 铸造进 authored 文档,不产生扁平读值。
+    .filter(
+      (field) => !["locale", "expectedVersion", "idempotencyKey", "gatesFromDocument", "gatesDraft"].includes(field),
+    );
   for (const field of repositoryFields) assert.ok(Object.hasOwn(values, field), `${field} has no flat action value`);
   // closeout 门布尔承载生效值:strict 基线即无覆写时的值。
   assert.equal(repositorySettingsActionValues(current).closeoutReview, false);

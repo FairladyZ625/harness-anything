@@ -96,6 +96,10 @@ export const settingsUpdateInputFields: readonly EntityActionInputField[] = Obje
   field("walFlushMilliseconds", "number"),
   field("ciWorkflows", "string-array"),
   field("gatesFromDocument", "boolean"),
+  // Not a persisted setting and not a caller-declared `gates` value: a draft for the authored
+  // `settings.gates` facet, which the daemon ingress splices into the authored harness.yaml and
+  // mints `gates` from — the document stays the only declaration surface.
+  field("gatesDraft", "json-object-array"),
   field("closeoutProfile", "string", false, closeoutProfiles),
   field("closeoutReview", "boolean"),
   field("closeoutConsent", "boolean"),
@@ -215,6 +219,12 @@ export function compileSettingsUpdate(input: EntityActionCompileInput): Settings
     rejectSettings(
       "invalid_command",
       "gatesFromDocument requires the settings-update ingress to mint gates from harness.yaml.",
+    );
+  if (Object.hasOwn(input.action, "gatesDraft") && !Object.hasOwn(input.action, "gates"))
+    rejectSettings(
+      "invalid_command",
+      "gatesDraft requires the settings-update ingress to splice it into the authored " +
+        "harness.yaml and mint gates from the document.",
     );
   if (expectedVersion !== undefined && (!Number.isSafeInteger(expectedVersion) || Number(expectedVersion) < 0))
     rejectSettings("invalid_command", "expectedVersion must be a non-negative integer when supplied.");
