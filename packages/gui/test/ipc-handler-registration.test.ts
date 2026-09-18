@@ -122,6 +122,7 @@ test("main process registers one IPC handler for each preload allowlist method",
               ? {
                   repoId: "repo-a",
                   scheduleId: "heartbeat-probe",
+                  mode: "detect",
                   name: "Heartbeat probe",
                   everyMs: 300_000,
                   agentId: "probe-agent",
