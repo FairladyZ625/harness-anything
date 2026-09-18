@@ -219,12 +219,20 @@ export {
   submissionDigest,
 } from "./domain/execution.ts";
 export {
+  CODE_DOC_GATE_ID,
+  gateAppliesTo,
   gateAppliesToSubmission,
+  gateGovernanceFields,
+  gateMappingAdapterFields,
+  gateWitnessMappingIssues,
+  governableWitnessAdapterIds,
   inferLegacyGateRequirements,
+  mappedWitnessAdapterIds,
   resolveCompletionContract,
 } from "./domain/completion-contract.ts";
 export type {
   FrozenGateRequirement,
+  GateAppliesTo,
   GateWitnessMappingV1,
   MappedWitnessAdapterId,
 } from "./domain/completion-contract.ts";

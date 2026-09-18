@@ -39,6 +39,19 @@ export interface CatalogAdapterRow {
   readonly defaultProvider: boolean;
   readonly unavailableReason: string | null;
 }
+/** 目录快照的门映射契约面(kernel completion-contract 投影):编辑面据此渲染合法组合。 */
+export interface CatalogGateMappingsDescriptor {
+  /** 见证 adapter 取值面,含 "none"(移除已声明的门)。 */
+  readonly adapters: ReadonlyArray<string>;
+  readonly appliesTo: ReadonlyArray<string>;
+  /** 每个 adapter 必须恰好声明的 option 字段集(kernel gateMappingAdapterFields)。 */
+  readonly adapterFields: Readonly<Record<string, readonly string[]>>;
+  readonly governanceFields: ReadonlyArray<string>;
+  /** 可承载 mandatorySignoff/allowOverride 的 adapter。 */
+  readonly governableAdapters: ReadonlyArray<string>;
+  /** 内建对账门 id:只能映射到 none。 */
+  readonly internalGateId: string;
+}
 export interface CatalogSnapshotSuccess {
   readonly schema: "gui-catalog-snapshot/v1";
   readonly ok: true;
@@ -66,6 +79,7 @@ export interface CatalogSnapshotSuccess {
     readonly required: boolean;
     readonly enum?: readonly string[];
   }>;
+  readonly gateMappings: CatalogGateMappingsDescriptor;
   readonly adapters: ReadonlyArray<CatalogAdapterRow>;
 }
 export interface CatalogPresetDocument {
@@ -142,6 +156,7 @@ function isCatalogSnapshotSuccess(value: unknown): value is CatalogSnapshotSucce
     Array.isArray(value.ciWorkflows) &&
     Array.isArray(value.bundledAgents) &&
     Array.isArray(value.settingsFields) &&
+    isGateMappingsDescriptor(value.gateMappings) &&
     value.presets.every(
       (row) =>
         isRendererRecord(row) &&
@@ -150,6 +165,19 @@ function isCatalogSnapshotSuccess(value: unknown): value is CatalogSnapshotSucce
           (profile) => isRendererRecord(profile) && typeof profile.id === "string" && typeof profile.title === "string",
         ),
     )
+  );
+}
+
+function isGateMappingsDescriptor(value: unknown): value is CatalogGateMappingsDescriptor {
+  return (
+    isRendererRecord(value) &&
+    Array.isArray(value.adapters) &&
+    Array.isArray(value.appliesTo) &&
+    isRendererRecord(value.adapterFields) &&
+    Object.values(value.adapterFields).every(Array.isArray) &&
+    Array.isArray(value.governanceFields) &&
+    Array.isArray(value.governableAdapters) &&
+    typeof value.internalGateId === "string"
   );
 }
 

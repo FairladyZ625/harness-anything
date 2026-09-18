@@ -315,6 +315,7 @@ export {
   settingValuePattern,
   validateRepositorySettings,
   validateSettingsV1,
+  writeGatesFacet,
   writeRepositorySettingsFacet,
 } from "./settings.ts";
 export type { RepositorySettingsV1, SettingsLocale, SettingsV1 } from "./settings.ts";

@@ -12,6 +12,13 @@ import {
   type SettingsDraft,
   type SettingsFieldValue,
 } from "../../settings-form.ts";
+import {
+  gateMappingDrafts,
+  gateMappingRowIssues,
+  gatesDraftValue,
+  type GateMappingDraft,
+} from "../../gate-mapping-form.ts";
+import { GateMappingsEditor } from "./GateMappingsEditor.tsx";
 
 // 字段文案注册表:只登记文案,不登记结构——字段集合、控件类型、取值面全部从
 // catalog snapshot 的 settingsFields(daemon 与 settings 动作目录同一单源)派生。
@@ -72,10 +79,6 @@ export const FIELD_COPY: Readonly<Record<string, { readonly labelKey: MessageKey
     labelKey: "views.settingsView.ciWorkflowsLabel",
     descKey: "views.settingsView.ciWorkflowsDescription",
   },
-  gatesFromDocument: {
-    labelKey: "views.settingsView.gatesFromDocumentLabel",
-    descKey: "views.settingsView.gatesFromDocumentDescription",
-  },
   closeoutProfile: {
     labelKey: "views.settingsView.closeoutProfileLabel",
     descKey: "views.settingsView.closeoutProfileDescription",
@@ -121,11 +124,15 @@ export function RepositorySettingsPanel({
     enabled: repoId !== null,
     staleTime: 4_000,
   });
-  const [draft, setDraft] = useState<SettingsDraft>({});
+  const [draft, setDraft] = useState<SettingsDraft>({}),
+    // 门映射草稿独立于字段草稿:它是 authored settings.gates facet 的编辑面,不来自
+    // values 扁平面(那里永远没有它);提交时以 gatesDraft 载荷走 ingress 铸造。
+    [gateDrafts, setGateDrafts] = useState<readonly GateMappingDraft[] | null>(null);
 
   useEffect(() => {
     if (!settingsQuery.data) return;
     setDraft(settingsQuery.data.values);
+    setGateDrafts(gateMappingDrafts(settingsQuery.data.settings.gates ?? []));
     onLocaleLoaded(settingsQuery.data.settings.locale);
   }, [settingsQuery.data]);
 
@@ -182,7 +189,13 @@ export function RepositorySettingsPanel({
       ],
       typeof draft.defaultReviewer === "string" ? draft.defaultReviewer : undefined,
     ),
-    reviewerBlocked = agentsQuery.isPending || !!agentsQuery.error;
+    reviewerBlocked = agentsQuery.isPending || !!agentsQuery.error,
+    gateDescriptor = snapshot?.gateMappings ?? null,
+    gateIssues = gateDrafts !== null && gateDescriptor !== null ? gateMappingRowIssues(gateDrafts, gateDescriptor) : [],
+    gatesPayload =
+      gateDrafts !== null && settingsQuery.data
+        ? gatesDraftValue(settingsQuery.data.settings.gates ?? [], gateDrafts)
+        : undefined;
 
   const updateDraft = (field: string, value: SettingsFieldValue | undefined) =>
     setDraft((current) => ({ ...current, [field]: value }));
@@ -231,8 +244,15 @@ export function RepositorySettingsPanel({
       action={
         <button
           className={BTN}
-          disabled={settingsMutation.isPending}
-          onClick={() => settingsMutation.mutate(settingsPayloadFromDraft(draft, snapshot?.settingsFields ?? []))}
+          // 门映射草稿有未解决的非法组合时整表不让提交——约束在界面上表达,
+          // 不靠提交后报错。
+          disabled={settingsMutation.isPending || gateIssues.length > 0}
+          onClick={() =>
+            settingsMutation.mutate({
+              ...settingsPayloadFromDraft(draft, snapshot?.settingsFields ?? []),
+              ...(gatesPayload !== undefined ? { gatesDraft: gatesPayload } : {}),
+            })
+          }
         >
           {settingsMutation.isPending
             ? t("views.settingsView.submitPending")
@@ -272,6 +292,34 @@ export function RepositorySettingsPanel({
           );
         })
       )}
+      {/* 门映射:settings.gates facet 的编辑面。gatesFromDocument 不是持久设置,
+          渲染成开关永远显示"关"——它是一次性导入命令,这里按动作的样子呈现,
+          说明它会覆盖什么。 */}
+      <Row label={t("views.settingsView.gatesSectionLabel")} desc={t("views.settingsView.gatesSectionDescription")}>
+        <button
+          type="button"
+          className={BTN}
+          data-testid="settings-gates-import"
+          disabled={settingsMutation.isPending}
+          title={t("views.settingsView.gatesFromDocumentDescription")}
+          onClick={() => settingsMutation.mutate({ gatesFromDocument: true })}
+        >
+          {t("views.settingsView.gatesFromDocumentLabel")}
+        </button>
+      </Row>
+      <div className="border-b border-border px-3 py-2 last:border-b-0">
+        {gateDrafts === null || gateDescriptor === null ? (
+          <div className="ui-meta text-text-faint">{t("views.settingsView.readingSettings")}</div>
+        ) : (
+          <GateMappingsEditor
+            drafts={gateDrafts}
+            descriptor={gateDescriptor}
+            issues={gateIssues}
+            disabled={catalogBlocked || settingsMutation.isPending}
+            onChange={setGateDrafts}
+          />
+        )}
+      </div>
       <Row label={t("views.settingsView.ownershipLabel")} desc={t("views.settingsView.ownershipDescription")}>
         <span className="font-mono ui-meta text-text-muted">
           settings/{settingsQuery.data.settings.settingsId} · {settingsQuery.data.settings.schema}

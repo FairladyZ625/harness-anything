@@ -12,6 +12,8 @@
  * 猜出来的控件,人填的值会在中心被拒,那比不摆更糟。
  */
 
+import type { GateMappingDraft } from "./gate-mapping-form.ts";
+
 /** 契约字段描述,形状对齐 daemon catalog snapshot 的 settingsFields 行。 */
 export interface SettingsFieldDescriptor {
   readonly field: string;
@@ -20,7 +22,7 @@ export interface SettingsFieldDescriptor {
   readonly enum?: readonly string[];
 }
 
-export type SettingsFieldValue = string | number | boolean | readonly string[];
+export type SettingsFieldValue = string | number | boolean | readonly string[] | readonly GateMappingDraft[];
 
 /** 表单草稿:扁平 action 值,键 = 契约字段名,来源 daemon settings read 的 values。 */
 export type SettingsDraft = Readonly<Record<string, SettingsFieldValue | undefined>>;
@@ -54,7 +56,15 @@ export const CATALOG_SELECT_FIELDS: ReadonlySet<string> = new Set([
 /** 目录多选的字段:CI 工作流(取值面 = .github/workflows 的 *.yml 基名,空集合合法)。 */
 export const CATALOG_MULTI_SELECT_FIELDS: ReadonlySet<string> = new Set(["ciWorkflows"]);
 
-const EXCLUDED_FIELDS: ReadonlySet<string> = new Set(["locale", "expectedVersion", "idempotencyKey"]);
+// gatesFromDocument 是一次性导入命令(经 ingress 从 authored harness.yaml 铸造 gates),
+// 不是持久设置——settings read 的 values 永远没有它,渲染成开关会永远显示"关"。它归
+// 门映射编辑区的导入按钮,不进字段行。gatesDraft(json-object-array)认不出类型,自然豁免。
+const EXCLUDED_FIELDS: ReadonlySet<string> = new Set([
+  "locale",
+  "expectedVersion",
+  "idempotencyKey",
+  "gatesFromDocument",
+]);
 
 export function settingsFormRows(fields: readonly SettingsFieldDescriptor[]): readonly SettingsFieldRow[] {
   return fields.flatMap((descriptor): SettingsFieldRow[] => {

@@ -288,7 +288,7 @@ export function validateGuiActionPayload(method: DaemonGuiActionMethod, value: u
         "defaultVertical defaultPreset defaultProfile defaultReviewer reviewIndependence reviewReturnBudget " +
         "closeoutProfile closeoutReview closeoutConsent closeoutFactDisposition closeoutCodeDoc " +
         "locale taskScaffold repositoryScaffold walFlushAdaptive walFlushEvents " +
-        "walFlushBytes walFlushMilliseconds ciWorkflows gatesFromDocument restoreDrillRetention"
+        "walFlushBytes walFlushMilliseconds ciWorkflows gatesFromDocument gatesDraft restoreDrillRetention"
       ).split(" "),
       changed = settingFields.filter((field) => value[field] !== undefined),
       identifier = /^[A-Za-z0-9][A-Za-z0-9/_.@-]*$/u;
@@ -301,6 +301,7 @@ export function validateGuiActionPayload(method: DaemonGuiActionMethod, value: u
             !field.startsWith("closeout") &&
             field !== "ciWorkflows" &&
             field !== "gatesFromDocument" &&
+            field !== "gatesDraft" &&
             field !== "reviewReturnBudget" &&
             field !== "restoreDrillRetention",
         )
@@ -312,6 +313,8 @@ export function validateGuiActionPayload(method: DaemonGuiActionMethod, value: u
         value.reviewReturnBudget,
         value.restoreDrillRetention,
       ].some((item) => item !== undefined && (!Number.isSafeInteger(item) || Number(item) < 1)) ||
+      (value.gatesDraft !== undefined &&
+        (!Array.isArray(value.gatesDraft) || value.gatesDraft.some((mapping) => !isJsonObject(mapping)))) ||
       (value.locale !== undefined && !["en-US", "zh-CN"].includes(String(value.locale))) ||
       (value.reviewIndependence !== undefined &&
         !["execution", "principal"].includes(String(value.reviewIndependence))) ||

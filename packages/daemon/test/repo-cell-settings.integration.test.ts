@@ -332,6 +332,104 @@ test("settings update --gates-from-document mints authored harness.yaml gate map
   }
 });
 
+test("settings update gatesDraft splices the declared facet into the authored document and mints it", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-settings-gates-draft-"));
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    initRepo(root);
+    cell = await openRepoCell({
+      repoId: workspaceId("settings-gates-draft"),
+      rootDir: canonicalRoot(root),
+      ownerId: "settings-gates-draft-test",
+    });
+    const binding = { actor, source: "local" as const },
+      configPath = path.join(root, "harness/harness.yaml"),
+      before = await cell.run({ kind: "settings-read" }, binding);
+    assert.equal(before.outcome, "applied", JSON.stringify(before));
+    assert.deepEqual(
+      (before as typeof before & { readonly settings?: { readonly gates?: unknown } }).settings?.gates,
+      [],
+    );
+
+    // The structured edit surface declares a draft of the authored settings.gates facet; the
+    // ingress splices it into harness.yaml and mints the entity value from the document — same
+    // provenance as --gates-from-document, with the facet bytes supplied instead of edited on disk.
+    const gatesDraft = [
+        {
+          gateId: "ci",
+          adapter: "github-actions",
+          appliesTo: "code",
+          branch: "main",
+          event: "push",
+          coverage: "descendant",
+          selection: "newest",
+          mandatorySignoff: true,
+        },
+        { gateId: "code-doc-reconciliation", adapter: "none" },
+      ],
+      applied = await cell.run({ kind: "settings-update", gatesDraft, idempotencyKey: "gates-draft" }, binding);
+    assert.equal(applied.outcome, "applied", JSON.stringify(applied));
+    const after = await cell.run({ kind: "settings-read" }, binding);
+    assert.deepEqual(
+      (after as typeof after & { readonly settings?: { readonly gates?: unknown } }).settings?.gates,
+      gatesDraft,
+    );
+    const visible = await cell.run(
+      { kind: "receipt-show", opId: applied.opId, waitFor: ["worktree_visible"], timeoutMs: 5000 },
+      binding,
+    );
+    assert.equal(visible.wait?.state, "satisfied", JSON.stringify(visible));
+    assert.match(
+      readFileSync(configPath, "utf8"),
+      /  gates:\n    ci:\n      adapter: github-actions\n[\s\S]*mandatorySignoff: true\n[\s\S]*    code-doc-reconciliation: none\n/u,
+    );
+
+    // An unchanged draft compiles to no-changes.
+    const unchanged = await cell.run(
+      { kind: "settings-update", gatesDraft, idempotencyKey: "gates-draft-unchanged" },
+      binding,
+    );
+    assert.equal(unchanged.outcome, "no_changes", JSON.stringify(unchanged));
+
+    // Combinations the document cannot carry are typed rejections, never silent rewrites.
+    for (const [idempotencyKey, action] of [
+      [
+        "gates-draft-governance",
+        {
+          kind: "settings-update",
+          gatesDraft: [{ gateId: "lint", adapter: "manual-attest", appliesTo: "submission", allowOverride: true }],
+          idempotencyKey: "gates-draft-governance",
+        },
+      ],
+      [
+        "gates-draft-none-fields",
+        {
+          kind: "settings-update",
+          gatesDraft: [{ gateId: "lint", adapter: "none", appliesTo: "code" }],
+          idempotencyKey: "gates-draft-none-fields",
+        },
+      ],
+      [
+        "gates-draft-both",
+        { kind: "settings-update", gatesFromDocument: true, gatesDraft, idempotencyKey: "gates-draft-both" },
+      ],
+      ["gates-draft-shape", { kind: "settings-update", gatesDraft: "ci", idempotencyKey: "gates-draft-shape" }],
+    ] as const) {
+      const rejected = await cell.run(action, binding);
+      assert.equal(rejected.outcome, "op_rejected", `${idempotencyKey}: ${JSON.stringify(rejected)}`);
+      assert.equal(rejected.code, "invalid_command", idempotencyKey);
+    }
+    const stable = await cell.run({ kind: "settings-read" }, binding);
+    assert.deepEqual(
+      (stable as typeof stable & { readonly settings?: { readonly gates?: unknown } }).settings?.gates,
+      gatesDraft,
+    );
+  } finally {
+    await cell?.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("settings update commits an authored harness.yaml that drifted from the ledger with equal settings", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-settings-authored-"));
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
