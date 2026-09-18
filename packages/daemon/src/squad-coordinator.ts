@@ -12,6 +12,7 @@ import {
   type TaskProjection,
 } from "../../kernel/src/index.ts";
 import { appendRuntimeWorkerRecord, readDispatchStreamSummaries } from "./dispatch-stream.ts";
+import { storedAgentDeclarationOutcome } from "./agent-declaration-resolution.ts";
 import { readTaskDispatches } from "./dispatch-read.ts";
 import type { TaskDispatchRow } from "./protocol/daemon-protocol.contract.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
@@ -294,22 +295,19 @@ export function makeSquadCoordinator(input: {
       missing = [...new Set([squad.leader, ...squad.workers])]
         .map((agentId) => {
           // The store read itself throws invalid_entity_contract for a stored declaration the
-          // current schema rejects, so both failure shapes funnel through one catch.
-          try {
-            const agent = entityStore.get("agent", agentId);
-            if (agent === null) return { agentId, hint: `Install agent/${agentId}` };
-            parseAgentDeclarationV1(agent.value);
-            return null;
-          } catch (error) {
-            if ((error as { readonly code?: unknown }).code !== "invalid_entity_contract") throw error;
-            consumeKnownError(error);
-            return {
-              agentId,
-              hint:
-                `Rewrite harness/agents/${agentId}.json to the current declaration shape and run ` +
-                `ha agent install --source harness/agents/${agentId}.json`,
-            };
-          }
+          // current schema rejects; storedAgentDeclarationOutcome isolates both failure shapes.
+          const outcome = storedAgentDeclarationOutcome({
+            agentId,
+            read: () => {
+              const agent = entityStore.get("agent", agentId);
+              return agent === null ? null : parseAgentDeclarationV1(agent.value);
+            },
+          });
+          if (outcome.status === "ok") return null;
+          return {
+            agentId,
+            hint: outcome.status === "invalid" ? outcome.error.message : `Install agent/${agentId}`,
+          };
         })
         .filter((entry): entry is { readonly agentId: string; readonly hint: string } => entry !== null);
     if (missing.length)

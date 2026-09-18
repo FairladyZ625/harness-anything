@@ -109,7 +109,7 @@ test("GUI entity write channel validates then installs an Agent and preserves a 
         agentId: "gui-created-agent",
       }),
     );
-    assert.equal(shownAgent.agent.model, "gpt-5.6-terra");
+    assert.deepEqual(shownAgent.agent.runtimes, [{ type: "codex", model: "gpt-5.6-terra" }]);
     assert.equal(shownAgent.agent.role, "commander");
     const shown = parseDaemonGuiReadResult(
       "repo.squad.entity.read",

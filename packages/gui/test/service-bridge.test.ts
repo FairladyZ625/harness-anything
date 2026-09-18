@@ -406,7 +406,7 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
         layer: agentCatalog.agents[0].layer,
       },
       {
-        runtimes: [{ type: "codex" }],
+        runtimes: [{ type: "codex", model: "gpt-5.6-terra" }],
         role: "worker",
         layer: "user",
       },

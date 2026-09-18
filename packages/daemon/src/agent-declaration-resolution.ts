@@ -1,5 +1,6 @@
 import { readBundledAgentDeclaration } from "../../preset/src/index.ts";
 import {
+  consumeKnownError,
   entitySlug,
   openEntityStore,
   parseAgentDeclarationV1,
@@ -41,6 +42,44 @@ export function isAgentDeclarationInvalid(error: unknown): boolean {
     error !== null &&
     (error as { readonly code?: unknown }).code === agentDeclarationInvalidCode
   );
+}
+
+export type AgentDeclarationInvalid = Error & { readonly code: typeof agentDeclarationInvalidCode };
+
+export type StoredAgentDeclarationOutcome<T> =
+  | { readonly status: "ok"; readonly value: T }
+  | { readonly status: "missing" }
+  | { readonly status: "invalid"; readonly error: AgentDeclarationInvalid };
+
+function asAgentDeclarationInvalid(agentId: string, error: unknown): AgentDeclarationInvalid | null {
+  if (isAgentDeclarationInvalid(error)) return error as AgentDeclarationInvalid;
+  if ((error as { readonly code?: unknown })?.code === "invalid_entity_contract")
+    return agentDeclarationInvalidError(agentId, error);
+  return null;
+}
+
+/**
+ * The one place a stored agent declaration is allowed to fail: `read` produces the declaration (or
+ * the resolution carrying it) and may throw `invalid_entity_contract` (validated entity-store get,
+ * schema parse) or `agent_declaration_invalid` (readAgentDeclarationResolution). Either shape is
+ * one agent's reinstall need, so it degrades to a typed `invalid` outcome carrying the reinstall
+ * command instead of escaping into the surrounding read. A null/undefined yield means the agent is
+ * not installed; anything else still throws.
+ */
+export function storedAgentDeclarationOutcome<T>(input: {
+  readonly agentId: string;
+  readonly read: () => T | null | undefined;
+}): StoredAgentDeclarationOutcome<T> {
+  let value: T | null | undefined;
+  try {
+    value = input.read();
+  } catch (error) {
+    const invalid = asAgentDeclarationInvalid(input.agentId, error);
+    if (invalid === null) throw error;
+    consumeKnownError(error);
+    return { status: "invalid", error: invalid };
+  }
+  return value === null || value === undefined ? { status: "missing" } : { status: "ok", value };
 }
 
 export function readAgentDeclarationResolution(input: {

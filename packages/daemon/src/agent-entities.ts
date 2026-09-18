@@ -8,7 +8,11 @@ import {
   type EntityStore,
   type TaskProjection,
 } from "../../kernel/src/index.ts";
-import { agentDeclarationInvalidError, readAgentDeclaration } from "./agent-declaration-resolution.ts";
+import {
+  agentDeclarationInvalidError,
+  readAgentDeclaration,
+  storedAgentDeclarationOutcome,
+} from "./agent-declaration-resolution.ts";
 import {
   agentRuntimeTargetForKind,
   agentRuntimeTargetSummary,
@@ -21,6 +25,7 @@ export {
   isAgentDeclarationInvalid,
   readAgentDeclaration,
   readAgentDeclarationResolution,
+  storedAgentDeclarationOutcome,
 } from "./agent-declaration-resolution.ts";
 import {
   entitySlug,
@@ -271,27 +276,30 @@ function invalidEntityCatalogRow(row: AgentEntityProjectionRow, error: unknown):
 
 function agentEntityCatalogRow(row: AgentEntityProjectionRow): AgentEntityGuiRow {
   if (row.freshness !== "current") return degradedAgentCatalogRow(row);
-  try {
-    const agent = parseAgentDeclarationV1(row.value);
-    return {
-      id: agent.id,
-      name: agent.name,
-      runtimes: agent.runtimes,
-      instance: agent.instance ?? null,
-      permissionMode: agent.permissionMode ?? null,
-      role: agent.role ?? "worker",
-      layer: "user",
-    };
-  } catch (error) {
-    if ((error as { readonly code?: unknown })?.code !== "invalid_entity_contract") throw error;
-    consumeKnownError(error);
+  const outcome = storedAgentDeclarationOutcome({
+    agentId: row.id,
+    read: () => parseAgentDeclarationV1(row.value),
+  });
+  if (outcome.status !== "ok")
     return {
       id: row.id,
       layer: "user",
       state: "invalid",
-      error: { code: "invalid_entity_contract", hint: agentDeclarationInvalidError(row.id, error).message },
+      error: {
+        code: "invalid_entity_contract",
+        hint: outcome.status === "invalid" ? outcome.error.message : `${row.id} is not an installed agent.`,
+      },
     };
-  }
+  const agent = outcome.value;
+  return {
+    id: agent.id,
+    name: agent.name,
+    runtimes: agent.runtimes,
+    instance: agent.instance ?? null,
+    permissionMode: agent.permissionMode ?? null,
+    role: agent.role ?? "worker",
+    layer: "user",
+  };
 }
 
 /**
@@ -308,13 +316,11 @@ function degradedAgentCatalogRow(row: AgentEntityProjectionRow): AgentEntityGuiD
       error: { code: "agent_not_found", hint: `${row.id} is not an installed agent.` },
     };
   let hint = `Agent projection ${row.id} is not current.`;
-  try {
-    parseAgentDeclarationV1(row.value);
-  } catch (error) {
-    if ((error as { readonly code?: unknown })?.code !== "invalid_entity_contract") throw error;
-    consumeKnownError(error);
-    hint = agentDeclarationInvalidError(row.id, error).message;
-  }
+  const outcome = storedAgentDeclarationOutcome({
+    agentId: row.id,
+    read: () => parseAgentDeclarationV1(row.value),
+  });
+  if (outcome.status === "invalid") hint = outcome.error.message;
   return { id: row.id, layer: "user", state: "invalid", error: { code: "invalid_entity_projection", hint } };
 }
 

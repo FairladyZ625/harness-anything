@@ -1,7 +1,6 @@
 import {
   completionGateIds,
   completionGuidance,
-  consumeKnownError,
   createEntityStore,
   reviewReturnBudgetSpent,
   submissionDigest,
@@ -10,7 +9,7 @@ import {
 } from "../../kernel/src/index.ts";
 import { isRuntimeEvent, runtimeErrorCode, runtimeErrorMessage } from "./runtime-spawn-errors.ts";
 import { readDispatchStream } from "./dispatch-stream.ts";
-import { isAgentDeclarationInvalid, readAgentDeclarationResolution } from "./agent-entities.ts";
+import { readAgentDeclarationResolution, storedAgentDeclarationOutcome } from "./agent-entities.ts";
 import { agentDeclaresExplicitModels, agentRuntimeTargetSummary } from "./agent-runtime-contract.ts";
 import { authorizeRepoCellAction } from "./repo-cell-authorization.ts";
 import { reviewDispatchIds, reviewDispatchPrompt } from "./task-review-dispatch.ts";
@@ -80,30 +79,26 @@ export async function dispatchCompletionReview(
         execution.submission!.completionContract?.reviewer?.agentId ??
         cell.settings.readRepository().defaultReviewer ??
         "closeout-reviewer";
-      let resolved: ReturnType<typeof readAgentDeclarationResolution> = null,
-        invalidReviewer: string | null = null;
-      try {
-        resolved = readAgentDeclarationResolution({
-          rootDir: cell.rootDir,
-          agentId: reviewerId,
-          entityStore: createEntityStore(cell.store),
-        });
-      } catch (error) {
-        // A reviewer whose stored declaration fails the current schema (the rewrite window) stops
-        // the review gate with the reinstall command; the raw contract message never surfaces.
-        if (!isAgentDeclarationInvalid(error)) throw error;
-        consumeKnownError(error);
-        invalidReviewer = error instanceof Error ? error.message : `${error}`;
-      }
-      if (invalidReviewer !== null)
-        return stopped(`ha agent install --source harness/agents/${reviewerId}.json`, invalidReviewer);
-      if (!resolved)
+      // A reviewer whose stored declaration fails the current schema (the rewrite window) stops
+      // the review gate with the reinstall command; the raw contract message never surfaces.
+      const outcome = storedAgentDeclarationOutcome({
+        agentId: reviewerId,
+        read: () =>
+          readAgentDeclarationResolution({
+            rootDir: cell.rootDir,
+            agentId: reviewerId,
+            entityStore: createEntityStore(cell.store),
+          }),
+      });
+      if (outcome.status === "invalid")
+        return stopped(`ha agent install --source harness/agents/${reviewerId}.json`, outcome.error.message);
+      if (outcome.status === "missing")
         return stopped(
           "ha agent install --source <closeout-reviewer-declaration>",
           `Reviewer ${reviewerId} is not bundled or installed. Install a repository override, or select an available ` +
             "reviewer with ha settings update --default-reviewer <agent-id>, then retry completion.",
         );
-      const { declaration: agent, layer } = resolved;
+      const { declaration: agent, layer } = outcome.value;
       if (layer === "installed" && !agentDeclaresExplicitModels(agent.runtimes))
         return stopped(
           "ha agent install --source <closeout-reviewer-declaration>",
