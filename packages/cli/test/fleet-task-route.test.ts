@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { fleetDocRoute, fleetRuntimeRoute, fleetTaskRoute } from "../src/daemon/client.ts";
+import { fleetDocRoute, fleetRuntimeRoute, fleetTaskRoute } from "../src/daemon/fleet-command-route.ts";
 
 test("fleet task routing requires both edge config and remote-edge registry mode", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-fleet-task-route-")),
