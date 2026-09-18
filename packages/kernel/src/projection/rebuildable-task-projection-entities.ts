@@ -128,6 +128,23 @@ export function markEntityProjectionMissing(
   );
 }
 
+/**
+ * A declaration blob the current kind schema rejects (for example a stored pre-runtimes Agent
+ * shape during the declaration-rewrite window) keeps its row, recorded as uninterpretable: the
+ * rebuild continues, every read surface degrades the row instead of failing, and a newer
+ * current-shape event for the same entity overwrites it through the ordinary upsert fence.
+ */
+export function markEntityProjectionUninterpretable(
+  db: DatabaseSync,
+  entityKind: string,
+  entityId: string,
+  workspaceRevision: number,
+  value: unknown,
+): void {
+  const record = value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
+  runSql(db, UPSERT_ENTITY_SQL, entityKind, entityId, "", workspaceRevision, "unknown", null, canonicalJson(record));
+}
+
 function entityProjectionRow(row: Readonly<Record<string, unknown>>): EntityProjectionRow {
   const value = JSON.parse(String(row.value_json)) as unknown;
   if (typeof value !== "object" || value === null || Array.isArray(value))
