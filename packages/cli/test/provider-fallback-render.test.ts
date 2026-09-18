@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { cliDispatchError, humanError, renderDispatchRow } from "../src/cli-render.ts";
 import { renderRuntimeStatus } from "../src/cli-runtime-auth.ts";
+import { renderCliReceipt } from "../src/cli/receipt-render-registry.ts";
 
 test("task dispatch and runtime status renders expose provider attempt chains", () => {
   assert.match(
@@ -122,13 +123,18 @@ test("CLI dispatch and nested receipt errors are handled by closed tagged branch
   );
 });
 
-test("a review-dispatch step carries no status, so its row names the task it reviewed", () => {
-  const row = renderDispatchRow({
-    taskId: "task_one",
-    dispatchId: "review-dispatch-one",
-    runtimeSessionId: "runtime-one",
-    outcome: "dispatched",
+test("a dispatch-review receipt names the reviewed task on every row", () => {
+  const { text } = renderCliReceipt({
+    ok: true,
+    command: "task-dispatch-review",
+    outcome: "applied",
+    summary: "dispatch-review: 1 of 2 task(s) have a review dispatch.",
+    dispatches: [
+      { taskId: "task_one", dispatchId: "review-dispatch-one", runtimeSessionId: "runtime-one", outcome: "dispatched" },
+      { taskId: "task_two", outcome: "failed", error: "no submitted execution" },
+    ],
   });
-  assert.match(row, /^review-dispatch-one\ttask_one\truntime-one\tdispatched\t/u);
-  assert.doesNotMatch(row, /undefined/u);
+  assert.match(text, /^task_one\tdispatched\treview-dispatch-one\truntime-one$/mu);
+  assert.match(text, /^task_two\tfailed\tno submitted execution$/mu);
+  assert.doesNotMatch(text, /undefined/u);
 });

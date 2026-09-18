@@ -25,6 +25,7 @@ const schemaRenderers = new Map<string, ReceiptRenderer>([
 
 const commandRenderers = new Map<string, ReceiptRenderer>([
   ["task-create", renderTaskCreate],
+  ["task-dispatch-review", renderReviewDispatches],
   ["task-show", renderTaskShow],
   ["decision-propose", renderDecisionPropose],
   ["preset-list", renderPresetListReceipt],
@@ -183,6 +184,20 @@ function renderPresetListReceipt(receipt: Record<string, unknown>): string {
 function renderRuntimeBatchReceipt(receipt: Record<string, unknown>): string {
   const dispatches = Array.isArray(receipt.dispatches) ? receipt.dispatches : [];
   return dispatches.length ? dispatches.map(renderRuntimeBatchRow).join("\n") : "No batch dispatches.";
+}
+
+/** Review-dispatch steps carry the reviewed task and an outcome, never a dispatch status. */
+function renderReviewDispatches(receipt: Record<string, unknown>): string {
+  const steps = (Array.isArray(receipt.dispatches) ? receipt.dispatches : []) as readonly Record<string, unknown>[];
+  return [
+    String(receipt.summary),
+    ...steps.map((step) =>
+      [step.taskId, step.outcome, step.dispatchId, step.runtimeSessionId, step.error]
+        .filter((cell) => cell !== undefined)
+        .map(String)
+        .join("\t"),
+    ),
+  ].join("\n");
 }
 
 function renderDispatches(dispatches: readonly unknown[]): string {
