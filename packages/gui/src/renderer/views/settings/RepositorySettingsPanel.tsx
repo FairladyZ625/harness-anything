@@ -15,8 +15,11 @@ import {
 
 // 字段文案注册表:只登记文案,不登记结构——字段集合、控件类型、取值面全部从
 // catalog snapshot 的 settingsFields(daemon 与 settings 动作目录同一单源)派生。
-// 未登记文案的字段回落显示字段名(mono),新字段零改动即可用。
-const FIELD_COPY: Readonly<Record<string, { readonly labelKey: MessageKey; readonly descKey: MessageKey }>> = {
+// 覆盖面由 settings-field-copy.vitest.ts 锁死:契约渲染字段与这里的登记必须双向一致,
+// 新契约字段不登记文案 = 测试红,不允许以裸 camelCase 字段名进界面。
+// 下方渲染处对 mono 字段名的回落只防御 GUI 与 daemon 版本错位(旧 GUI 连新 daemon),
+// 树内同一提交内不可达。
+export const FIELD_COPY: Readonly<Record<string, { readonly labelKey: MessageKey; readonly descKey: MessageKey }>> = {
   defaultVertical: {
     labelKey: "views.settingsView.defaultVerticalLabel",
     descKey: "views.settingsView.verticalDescription",
@@ -69,25 +72,29 @@ const FIELD_COPY: Readonly<Record<string, { readonly labelKey: MessageKey; reado
     labelKey: "views.settingsView.ciWorkflowsLabel",
     descKey: "views.settingsView.ciWorkflowsDescription",
   },
+  gatesFromDocument: {
+    labelKey: "views.settingsView.gatesFromDocumentLabel",
+    descKey: "views.settingsView.gatesFromDocumentDescription",
+  },
   closeoutProfile: {
     labelKey: "views.settingsView.closeoutProfileLabel",
     descKey: "views.settingsView.closeoutProfileDescription",
   },
   closeoutReview: {
     labelKey: "views.settingsView.closeoutReviewLabel",
-    descKey: "views.settingsView.closeoutGateDescription",
+    descKey: "views.settingsView.closeoutReviewDescription",
   },
   closeoutConsent: {
     labelKey: "views.settingsView.closeoutConsentLabel",
-    descKey: "views.settingsView.closeoutGateDescription",
+    descKey: "views.settingsView.closeoutConsentDescription",
   },
   closeoutFactDisposition: {
     labelKey: "views.settingsView.closeoutFactDispositionLabel",
-    descKey: "views.settingsView.closeoutGateDescription",
+    descKey: "views.settingsView.closeoutFactDispositionDescription",
   },
   closeoutCodeDoc: {
     labelKey: "views.settingsView.closeoutCodeDocLabel",
-    descKey: "views.settingsView.closeoutGateDescription",
+    descKey: "views.settingsView.closeoutCodeDocDescription",
   },
   restoreDrillRetention: {
     labelKey: "views.settingsView.restoreDrillRetentionLabel",
