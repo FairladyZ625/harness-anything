@@ -22,16 +22,18 @@ export function initialFallbackAttempt(
   sessions: readonly RuntimeSessionSelection[] = [],
 ): RuntimeFallbackAttempt | undefined {
   if (providerSessionId) return undefined;
-  const declared = agent?.fallback,
-    anchorId =
-      requestedInstance ??
-      resolveRuntimeInstanceCandidates({
-        requested: undefined,
-        agent,
-        model: requestedModel,
-        instances,
-        sessions,
-      })[0],
+  // The candidate list is computed even when an instance is pinned: it is where a declaration
+  // whose model or kind no enabled instance can serve fails with agent_model_unavailable, before
+  // the pin would otherwise bypass that check entirely.
+  const candidatesForAnchor = resolveRuntimeInstanceCandidates({
+      requested: undefined,
+      agent,
+      model: requestedModel,
+      instances,
+      sessions,
+    }),
+    declared = agent?.fallback,
+    anchorId = requestedInstance ?? candidatesForAnchor[0],
     anchor = instances.find((instance) => instance.instanceId === anchorId);
   // Each candidate kind resolves its own model: --model override > the runtimes row for
   // that kind > the instance default, so a cross-kind fallback still launches a valid model.
