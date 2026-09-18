@@ -21,6 +21,46 @@ export function runtimeOutcomeSettled(
   return Number.isFinite(elapsed) && elapsed >= runtimeSettlementGraceMs;
 }
 
+/**
+ * Orchestration waiters (runtime batch, agent create) park here instead of polling the projection
+ * on a client cadence; every terminal signal re-checks the domain settle predicate. The predicate
+ * is also time-based (post-exit grace), so a missed event cannot park a waiter forever: each wake
+ * re-reads the session and either returns or rearms.
+ */
+export function createRuntimeOutcomeWaiters(input: {
+  readonly readSession: (runtimeSessionId: string) => Parameters<typeof runtimeOutcomeSettled>[0];
+  readonly now: () => string;
+}): {
+  readonly notify: () => void;
+  readonly awaitOutcome: (runtimeSessionId: string) => Promise<void>;
+} {
+  const waiters = new Set<() => void>();
+  return {
+    notify: () => {
+      const pending = [...waiters];
+      waiters.clear();
+      for (const waiter of pending) waiter();
+    },
+    awaitOutcome: async (runtimeSessionId) => {
+      while (!runtimeOutcomeSettled(input.readSession(runtimeSessionId), input.now())) {
+        await new Promise<void>((resolve) => {
+          const waiter = () => {
+            waiters.delete(waiter);
+            clearTimeout(timer);
+            resolve();
+          };
+          const timer = setTimeout(() => {
+            waiters.delete(waiter);
+            resolve();
+          }, runtimeSettlementGraceMs);
+          timer.unref?.();
+          waiters.add(waiter);
+        });
+      }
+    },
+  };
+}
+
 /** The daemon-authoritative terminal receipt fields for one runtime session read. Null while the
  * session is still running or inside the post-exit settlement grace window. */
 export function runtimeSessionSettlement(
