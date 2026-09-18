@@ -7,6 +7,7 @@ import { repositorySettingsActionValues } from "../../src/domain/settings-action
 import { assertSettingsEventInputs } from "../../src/domain/settings-event.ts";
 import { effectiveCloseoutGates } from "../../src/domain/settings-closeout.ts";
 import { readSettingsFacet, repositorySettings } from "../../src/domain/settings.ts";
+import { sha256Text } from "../../src/integrity/stable-hash.ts";
 
 const documentBody = [
   "schema: harness-anything/v1",
@@ -197,6 +198,52 @@ test("Settings update removes the authored gates block when the minted mapping l
   const body = draft.result.bundle.blobs[0].body;
   assert.doesNotMatch(body, /^  gates:/mu);
   assert.deepEqual(readSettingsFacet(body).gates, []);
+});
+
+test("Settings update commits a diverged-but-equal authored document through the event", () => {
+  // Same settings, different text: key order churn and comments are committed verbatim so the
+  // authored file stops sitting dirty with no sanctioned write path.
+  const authoredBody = documentBody.replace(
+      "  defaultVertical: software/coding\n",
+      "  # Operator annotation\n  defaultVertical: software/coding\n",
+    ),
+    draft = compile({ authoredDocumentBody: authoredBody });
+  assert.equal(draft.kind, "settings");
+  if (draft.kind !== "settings" || draft.result.kind !== "event") throw new Error("missing settings event");
+  assert.equal(draft.result.bundle.blobs[0].body, authoredBody);
+  assert.equal(draft.result.bundle.event.payload.baseDocumentSha256, sha256Text(authoredBody));
+  assertSettingsEventInputs(draft.result.bundle.event, draft.result.bundle.plan, draft.result.bundle.blobs);
+});
+
+test("Settings update applies flags on top of a diverged-but-equal authored document", () => {
+  const authoredBody = documentBody.replace(
+      "  defaultVertical: software/coding\n",
+      "  # Operator annotation\n  defaultVertical: software/coding\n",
+    ),
+    draft = compile({ authoredDocumentBody: authoredBody, defaultPreset: "docs-task" });
+  assert.equal(draft.kind, "settings");
+  if (draft.kind !== "settings" || draft.result.kind !== "event") throw new Error("missing settings event");
+  // The authored file's settings equal the current settings, so the flag delta is applied on top
+  // of its bytes and the whole authored document is committed by the event.
+  assert.equal(draft.result.bundle.event.payload.baseDocumentSha256, sha256Text(authoredBody));
+  assert.match(draft.result.bundle.blobs[0].body, /  # Operator annotation\n/u);
+  assert.match(draft.result.bundle.blobs[0].body, /defaultPreset: docs-task/u);
+});
+
+test("Settings update ignores an authored document whose settings diverge from the result", () => {
+  const authoredBody = documentBody.replace("  defaultPreset: standard-task", "  defaultPreset: docs-task"),
+    draft = compile({ authoredDocumentBody: authoredBody, walFlushEvents: 512 });
+  assert.equal(draft.kind, "settings");
+  if (draft.kind !== "settings" || draft.result.kind !== "event") throw new Error("missing settings event");
+  assert.equal(draft.result.bundle.event.payload.baseDocumentSha256, sha256Text(documentBody));
+  assert.match(draft.result.bundle.blobs[0].body, /defaultPreset: standard-task/u);
+});
+
+test("Settings update falls back to the committed document when the authored one does not parse", () => {
+  const draft = compile({ authoredDocumentBody: "settings:\n  gates: [", walFlushEvents: 512 });
+  assert.equal(draft.kind, "settings");
+  if (draft.kind !== "settings" || draft.result.kind !== "event") throw new Error("missing settings event");
+  assert.equal(draft.result.bundle.event.payload.baseDocumentSha256, sha256Text(documentBody));
 });
 
 test("Settings update rejects gatesFromDocument without a daemon-minted gates array", () => {

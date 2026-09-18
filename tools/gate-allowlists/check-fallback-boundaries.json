@@ -248,6 +248,7 @@
       "packages/kernel/src/domain/doc-sync-writer.ts#decideDocWriteInternal",
       "packages/kernel/src/domain/entity-action-descriptor.ts#validateEntityActionDescriptor",
       "packages/kernel/src/domain/runtime-session-action-contract.ts#compileRuntimeSessionAction",
+      "packages/kernel/src/domain/settings-action-contract.ts#authoredDocumentBase",
       "packages/kernel/src/projection/cold-rebuild-source.ts#parseLegacyFactEvent",
       "packages/kernel/src/projection/cold-rebuild-source.ts#readAuthoredEvents",
       "packages/kernel/src/projection/decision-projection-admission.ts#assertDecisionAdmission",

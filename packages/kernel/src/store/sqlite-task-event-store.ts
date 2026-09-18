@@ -1,5 +1,6 @@
 import { type EventHead, type LedgerCutIdentity } from "../domain/write-chain.contract.ts";
 import { isTaskEvent, ledgerCommitSha } from "../domain/doc-sync.contract.ts";
+import { isSettingsEvent } from "../domain/settings-event.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
 import { resolveHarnessLayout, type HarnessLayoutInput } from "../layout/index.ts";
 import { consumeKnownError } from "../error-consumption.ts";
@@ -127,7 +128,8 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
     latestAppendLayout = appendLayout;
     assertAuthorizedReplacements(sqlite, input, members);
     for (const event of appended) {
-      const task = isTaskEvent(event);
+      const task = isTaskEvent(event),
+        settings = isSettingsEvent(event);
       for (const claim of canonicalDocumentClaims(event)) {
         const prose =
           !task &&
@@ -135,12 +137,15 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
           event.payload.changes.some(
             (change) => change.path === claim.path && change.policyId === "markdown-body-replaceable/v1",
           );
-        if (!task && !prose) continue;
+        if (!task && !prose && !settings) continue;
         const node = localGitWorktreeSettlement.readNode(`${authoredRoot}/${claim.path}`);
         if (!node || node.mode !== "100644") continue;
         const matches =
           task ||
-          (node.body.includes("\r\n") ? sha256Text(node.body.replace(/\r\n/gu, "\n")) : node.sha256) === claim.sha256;
+          (node.body.includes("\r\n") ? sha256Text(node.body.replace(/\r\n/gu, "\n")) : node.sha256) === claim.sha256 ||
+          // A Settings write may declare the live authored bytes as its base; settling that base
+          // to the event's claim is the write the event was built for, not a concurrent edit.
+          (settings && node.sha256 === event.payload.baseDocumentSha256);
         if (matches) acceptedBaseline.set(claim.path, { fingerprint: worktreeFingerprint(node), preserve: task });
       }
     }

@@ -332,6 +332,50 @@ test("settings update --gates-from-document mints authored harness.yaml gate map
   }
 });
 
+test("settings update commits an authored harness.yaml that drifted from the ledger with equal settings", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-settings-authored-"));
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    initRepo(root);
+    cell = await openRepoCell({
+      repoId: workspaceId("settings-authored"),
+      rootDir: canonicalRoot(root),
+      ownerId: "settings-authored-test",
+    });
+    const binding = { actor, source: "local" as const },
+      configPath = path.join(root, "harness/harness.yaml"),
+      authored = readFileSync(configPath, "utf8"),
+      // Same settings, different text: the kind of drift that left the ledger permanently dirty.
+      diverged = authored.replace("  walFlush:", "  # operator note\n  walFlush:");
+    writeFileSync(configPath, diverged);
+    assert.equal(
+      execFileSync("git", ["-C", root, "status", "--short", "--", "harness/harness.yaml"], {
+        encoding: "utf8",
+      }).trim(),
+      "M harness/harness.yaml",
+    );
+
+    const applied = await cell.run({ kind: "settings-update", idempotencyKey: "authored-absorb" }, binding);
+    assert.equal(applied.outcome, "applied", JSON.stringify(applied));
+    const visible = await cell.run(
+      { kind: "receipt-show", opId: applied.opId, waitFor: ["worktree_visible"], timeoutMs: 5000 },
+      binding,
+    );
+    assert.equal(visible.wait?.state, "satisfied", JSON.stringify(visible));
+    // The authored bytes are now the committed document: worktree unchanged and clean.
+    assert.equal(readFileSync(configPath, "utf8"), diverged);
+    assert.equal(
+      execFileSync("git", ["-C", root, "status", "--short", "--", "harness/harness.yaml"], {
+        encoding: "utf8",
+      }).trim(),
+      "",
+    );
+  } finally {
+    await cell?.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("settings writes from a runtime executor are refused and must escalate to the principal", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-settings-principal-"));
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;

@@ -57,11 +57,13 @@ export function makeSettingsActionRuntime(
     const document = cell.projection.readDocument("harness.yaml"),
       compile = contract.execution.compile;
     if (!compile) throw cell.cellCodedError("invalid_command", `${action.kind} has no Settings event compiler.`);
-    // `--gates-from-document` mints the entity value from the authored harness.yaml on disk —
-    // the user-facing declaration surface — instead of trusting a caller-supplied `gates` array.
-    const gates = action.gatesFromDocument === true ? authoredGateMappings(cell) : undefined,
+    // The authored harness.yaml on disk is the user-facing declaration surface: `--gates-from-document`
+    // mints the entity value from it instead of trusting a caller-supplied `gates` array, and the compiler
+    // may base the rewritten document on its bytes when they carry the same settings.
+    const authoredDocumentBody = readAuthoredDocument(cell),
+      gates = action.gatesFromDocument === true ? authoredGateMappings(cell, authoredDocumentBody) : undefined,
       compiled = compile({
-        action: gates === undefined ? action : { ...action, gates },
+        action: { ...action, ...(gates === undefined ? {} : { gates }), authoredDocumentBody },
         actor: binding.actor,
         source: binding.source,
         session: resolveWriteSessionIdentity(binding, cell.projection),
@@ -78,15 +80,22 @@ export function makeSettingsActionRuntime(
   };
 }
 
-function authoredGateMappings(cell: RepoCellRuntimeContext): readonly GateWitnessMappingV1[] {
+function readAuthoredDocument(cell: RepoCellRuntimeContext): string | undefined {
   const configPath = path.join(resolveHarnessLayout(cell.rootDir).authoredRoot, "harness.yaml");
-  if (!existsSync(configPath))
+  return existsSync(configPath) ? readFileSync(configPath, "utf8") : undefined;
+}
+
+function authoredGateMappings(
+  cell: RepoCellRuntimeContext,
+  authoredDocumentBody: string | undefined,
+): readonly GateWitnessMappingV1[] {
+  if (authoredDocumentBody === undefined)
     throw cell.cellCodedError(
       "invalid_command",
       "gatesFromDocument requires the authored harness.yaml document to exist.",
     );
   try {
-    return readGateSettings(readFileSync(configPath, "utf8"));
+    return readGateSettings(authoredDocumentBody);
   } catch (error) {
     throw cell.cellCodedError(
       "invalid_command",
