@@ -98,7 +98,9 @@ test("Task execution rejects with the exact Action criterion and performs no rej
       () => cell!.run({ kind: "task-start", taskId, executionId, expectedVersion: 0 }, owner),
       ["task-lifecycle-contract-support/revisionIssues"],
     );
-    assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, owner)).outcome, "applied");
+    const started = await cell.run({ kind: "task-start", taskId, executionId }, owner);
+    assert.equal(started.outcome, "applied", JSON.stringify(started));
+    await waitForFixturePublication(cell, started.opId, owner);
 
     const missingCloseout = await assertRejectedWithoutMutation(
       rootDir,

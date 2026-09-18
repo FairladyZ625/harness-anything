@@ -26,7 +26,10 @@ export function submissionOutcome<T extends { outcome: string }>(receipt: T): st
 }
 
 /** A submission delivers what was committed after the execution's frozen start baseline. */
-export function commitDelivery(rootDir: string): void {
+export async function commitDelivery(cell: RepoCell, rootDir: string): Promise<void> {
+  // The cell publishes ledger cuts to the same repo Git; drain its writer queue before this fixture
+  // commit, or the two HEAD writers race and git dies with `cannot lock ref 'HEAD'`.
+  await cell.settlePendingMaterialization("delivery after execution start");
   appendFileSync(path.join(rootDir, "README.md"), "\nDelivered after execution start.\n");
   git(rootDir, "commit", "--quiet", "-am", "delivery after execution start");
 }

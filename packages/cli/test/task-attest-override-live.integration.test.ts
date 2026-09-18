@@ -92,10 +92,12 @@ test("an owner break-glasses a gate with no automated receipt; a later receipt v
       ]).outcome,
       "applied",
     );
-    assert.equal(
-      run(root, userRoot, daemonId, ["task", "start", taskId, "--execution-id", executionId]).outcome,
-      "applied",
-    );
+    const started = run(root, userRoot, daemonId, ["task", "start", taskId, "--execution-id", executionId]);
+    assert.equal(started.outcome, "applied", JSON.stringify(started));
+    // The delivery commit below writes repo Git directly, so the daemon must finish publishing the
+    // cuts of the writes above first; otherwise the two HEAD writers race and git dies with
+    // `cannot lock ref 'HEAD'`.
+    published(root, userRoot, daemonId, started);
     // The delivery cut diffs the public repo against the baseline frozen at task start.
     writeFileSync(path.join(root, "delivery.txt"), "delivered\n");
     git(root, "add", "delivery.txt");

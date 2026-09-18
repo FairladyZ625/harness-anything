@@ -1020,16 +1020,16 @@ for (const commandKind of ["task-submit", "task-settle"] as const)
         "task_HHHH000000000000000000000H",
         "Closing docs ride submit",
       );
-      assert.equal(
-        (
-          await fixture.edgeTask("node-one", {
-            kind: "task-start",
-            taskId: created.taskId,
-            executionId: "exe-a-submit",
-          })
-        ).ok,
-        true,
-      );
+      const started = await fixture.edgeTask("node-one", {
+        kind: "task-start",
+        taskId: created.taskId,
+        executionId: "exe-a-submit",
+      });
+      assert.equal(started.ok, true, JSON.stringify(started).slice(0, 400));
+      // The delivery commit below writes repo Git directly, so the center must finish publishing the
+      // task-start cut first; otherwise the two HEAD writers race and git dies with
+      // `cannot lock ref 'HEAD'`.
+      await fixture.waitPublished(String(started.opId));
       const planPath = `${created.packagePath}/task_plan.md`,
         closeoutPath = `${created.packagePath}/closeout.md`,
         original = readFileSync(fixture.worktree("node-one", planPath), "utf8");
