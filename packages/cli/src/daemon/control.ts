@@ -14,10 +14,10 @@ import {
   runtimeDaemonStartRefusal,
   writeDaemonStoppedMarker,
 } from "../../../daemon/src/client/daemon-autostart.ts";
-import { readDaemonPid } from "../../../daemon/src/runtime.ts";
 import {
   daemonProcessAlive,
   daemonSocketProbe,
+  readDaemonPid,
   readDaemonSingletonLockPid,
   releaseDaemonPidFile,
   releaseDaemonSingletonLock,
