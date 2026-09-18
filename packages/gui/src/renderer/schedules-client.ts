@@ -83,10 +83,15 @@ export interface ScheduleActionReceipt {
   readonly scheduleId: string | null;
 }
 
+/** 触发二选一:interval 载荷带 `everyMs`,cron 载荷带 `cronExpression`+`timezone`,两者互斥
+ * (kernel `schedule-action-contract.ts` 的 exactlyOneOf 与 update 合并规则)。 */
 export interface ScheduleDefinitionInput {
   readonly scheduleId: string;
   readonly name: string;
-  readonly everyMs: number;
+  readonly mode: ScheduleModeWord;
+  readonly everyMs?: number;
+  readonly cronExpression?: string;
+  readonly timezone?: string;
   readonly agentId: string;
   readonly runtimeInstanceId: string;
   readonly mission: string;
