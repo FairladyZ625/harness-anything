@@ -72,11 +72,14 @@ export function relationStrengthForType(type: RelationType): RelationStrength {
  * Which endpoint's cut verdict each relation type's freshness follows
  * (dec_D6970DC1303EF90E8B4855FC80/CH1). `derives` anchors on the source: "this task is
  * derived from that decision" stays true while the source decision remains in force, no
- * matter how far the target task's own version advances. Every other type keeps the
- * pinned-target comparison — a changed target is exactly what makes those edges suspect.
+ * matter how far the target task's own version advances. `depends-on` anchors on the
+ * target's presence alone (dec_EB379558A2B33134197859FECF/CH1): "this task depends on
+ * that task" holds while the target exists, however many versions it advances; losing
+ * the target is what orphans the edge. Every other type keeps the pinned-target
+ * comparison — a changed target is exactly what makes those edges suspect.
  */
 export function relationFreshnessAnchorForType(type: RelationType): RelationFreshnessAnchor {
-  return type === "derives" ? "source" : "target";
+  return type === "derives" ? "source" : type === "depends-on" ? "target-presence" : "target";
 }
 
 function relationTripleKey(sourceKind: string, type: RelationType, targetKind: string): string {
