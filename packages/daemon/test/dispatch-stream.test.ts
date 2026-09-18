@@ -614,6 +614,12 @@ test("dispatch scrubbing keeps token usage telemetry and drops credential-shaped
     AUTH_TOKEN: "opaque",
     refreshToken: "opaque",
     operator_token: "opaque",
+    // Token-named keys the qualifier list would never enumerate: the value type is the line.
+    id_token: "opaque",
+    github_token: "opaque",
+    botToken: "opaque",
+    token: "opaque",
+    usageWithStringToken: { input_tokens: 3, next_page_token: "opaque" },
     authorization: "Bearer abc123",
     apiKey: "opaque",
     password: "opaque",
@@ -632,6 +638,8 @@ test("dispatch scrubbing keeps token usage telemetry and drops credential-shaped
   assert.deepEqual(scrubbed.tokenUsage, { input: 7 });
   assert.deepEqual(scrubbed.token_count, { total_tokens: 15 });
   assert.equal(scrubbed.bearerText, "header Bearer [REDACTED]");
+  // Inside one object the numeric counter survives and the string under a token-named key does not.
+  assert.deepEqual(scrubbed.usageWithStringToken, { input_tokens: 3 });
   // Credential-shaped keys are still dropped, and bearer material inside kept string
   // values is still redacted.
   for (const key of [
@@ -642,6 +650,10 @@ test("dispatch scrubbing keeps token usage telemetry and drops credential-shaped
     "AUTH_TOKEN",
     "refreshToken",
     "operator_token",
+    "id_token",
+    "github_token",
+    "botToken",
+    "token",
     "authorization",
     "apiKey",
     "password",

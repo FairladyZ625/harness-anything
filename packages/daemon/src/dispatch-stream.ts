@@ -29,13 +29,14 @@ const streamSchema = "runtime-dispatch-stream/v1" as const;
 const dispatchStreamReadLimitBytes = 200 * 1024 * 1024;
 const dispatchStreamWriteLimitBytes = 500 * 1024 * 1024;
 const liveIndexSchema = "runtime-dispatch-live-index/v1" as const;
-// Credential tokens are qualifier compounds (sessionToken, AUTH_TOKEN, apiToken, access_token)
-// plus the other secret-name families. Bare token names are LLM usage telemetry (input_tokens,
-// totalTokens, token_count); the durable replay path re-feeds persisted provider events after a
-// daemon restart, so dropping telemetry keys would erase adopted sessions' usage at settlement.
+// A key naming a token carries a credential when its value is a string, and LLM usage telemetry
+// (input_tokens, totalTokens, token_count) when it is a number or a structure of numbers. The value
+// type is the line: the durable replay path re-feeds persisted provider events after a daemon
+// restart, so dropping the counters would erase an adopted session's usage at settlement, while a
+// string under any token-named key (id_token, github_token, a bare token) never reaches disk.
+const tokenKey = /token/iu;
 const forbiddenKey = new RegExp(
   [
-    "(?:access|auth|session|refresh|api|client|operator)[_-]?tokens?",
     "credential",
     "password",
     "secret",
@@ -551,7 +552,7 @@ export function scrubProviderValue(value: unknown): unknown {
   if (value !== null && typeof value === "object")
     return Object.fromEntries(
       Object.entries(value)
-        .filter(([key]) => !forbiddenKey.test(key))
+        .filter(([key, entry]) => !forbiddenKey.test(key) && !(tokenKey.test(key) && typeof entry === "string"))
         .map(([key, entry]) => [key, scrubProviderValue(entry)]),
     );
   if (typeof value !== "string") return value;
