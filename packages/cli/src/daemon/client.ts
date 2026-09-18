@@ -477,6 +477,8 @@ export async function relayRuntimeAuthTerminal(
 // this long is queued behind a long write. Naming that deadline turns an open-ended silent socket into one classified
 // failure; writes stay unbounded because their honest duration is not knowable from here.
 const readResponseDeadlineMs = (kind: string): number | undefined => {
+  // A parked await answers when a runtime settles — minutes or hours — not within a read budget.
+  if (kind === "runtime-sessions-await") return undefined;
   try {
     return commandClassForAction(kind) === "repo-read" ? 30_000 : undefined;
   } catch (error) {
