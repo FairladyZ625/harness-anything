@@ -49,7 +49,7 @@
   "tierDefinitions": {
     "pr-required": "Runs in a GitHub branch-protection required context for pull requests.",
     "pr-advisory": "Runs on pull requests in a non-required, continue-on-error observation job.",
-    "main-only": "Does not run in a PR required context; runs through full-check on main push, scheduled nightly, and manual workflow dispatch unless noted.",
+    "main-only": "Does not run in a PR required context; runs through full-check on the scheduled nightly run and manual workflow dispatch unless noted.",
     "nightly-only": "Runs only on scheduled full-check.",
     "manual-only": "Runs only by explicit local or workflow-dispatch invocation."
   },
@@ -171,7 +171,15 @@
         "node26-compatibility",
         "windows-integration-shard",
         "nightly-daemon-soak",
-        "nightly-cli-command-timing"
+        "nightly-cli-command-timing",
+        "typecheck",
+        "fast-contract",
+        "integration-shard",
+        "boundaries",
+        "ontology-advisory",
+        "package-policy",
+        "supply-chain",
+        "gui-build"
       ]
     },
     "prBody": {
@@ -235,7 +243,7 @@
       "allowlistPolicy": { "allowed": true, "location": "tools/gate-allowlists/check-fallback-boundaries.json", "adrOrDecisionRequired": true, "notes": "Exact file and function list with reachable scenario or deletion task." },
       "changeControl": { "ordinaryImplementationMayModify": false, "requiresGovernanceEvidence": true, "protectedSurfaces": ["tools/check-fallback-boundaries.mjs", "tools/gates/eslint-rules/no-swallowed-failure.js", "tools/gate-allowlists/check-fallback-boundaries.json", "tools/gate-manifest.json"] },
       "bypassFixtureRequired": true,
-      "executionSurfaces": { "packageJson": { "check": true, "checkPr": true, "script": "harness:check-fallback-boundaries" }, "rewriteCi": { "pullRequestJobs": ["boundaries"], "nonPullRequestJobs": [] }, "branchProtection": { "required": true, "contexts": ["boundaries"] }, "classes": ["local", "pr"] },
+      "executionSurfaces": { "packageJson": { "check": true, "checkPr": true, "script": "harness:check-fallback-boundaries" }, "rewriteCi": { "pullRequestJobs": ["boundaries"], "nonPullRequestJobs": ["boundaries"] }, "branchProtection": { "required": true, "contexts": ["boundaries"] }, "classes": ["local", "pr"] },
       "deterministic": true,
       "positiveControl": { "status": "covered", "evidence": ["tools/gates/test/syntax-boundaries.test.mjs"] }
     },
@@ -245,7 +253,7 @@
       "command": "npm run check",
       "category": "meta-governance",
       "tier": "main-only",
-      "tierReason": "Full aggregate check is intentionally not a pull_request job; rewrite-ci runs it on main push, schedule, and workflow_dispatch.",
+      "tierReason": "Full aggregate check is intentionally not a pull_request or push job; rewrite-ci runs it on schedule and workflow_dispatch, where a single-process run still covers shard-boundary effects.",
       "authoritySource": [
         "package.json:scripts.check",
         ".github/workflows/rewrite-ci.yml:jobs.full-check"
@@ -657,7 +665,8 @@
           ],
           "nonPullRequestJobs": [
             "full-check",
-            "node26-compatibility"
+            "node26-compatibility",
+            "typecheck"
           ]
         },
         "branchProtection": {
@@ -895,7 +904,7 @@
         },
         "rewriteCi": {
           "pullRequestJobs": ["boundaries"],
-          "nonPullRequestJobs": []
+          "nonPullRequestJobs": ["boundaries"]
         },
         "branchProtection": {
           "required": true,
@@ -964,7 +973,8 @@
           ],
           "nonPullRequestJobs": [
             "node26-compatibility",
-            "crlf-checkout"
+            "crlf-checkout",
+            "fast-contract"
           ]
         },
         "branchProtection": {
@@ -1047,7 +1057,8 @@
           ],
           "nonPullRequestJobs": [
             "node26-compatibility",
-            "crlf-checkout"
+            "crlf-checkout",
+            "fast-contract"
           ]
         },
         "branchProtection": {
@@ -1132,7 +1143,8 @@
             "integration-shard"
           ],
           "nonPullRequestJobs": [
-            "windows-integration-shard"
+            "windows-integration-shard",
+            "integration-shard"
           ]
         },
         "branchProtection": {
@@ -1213,7 +1225,8 @@
             "gui-build"
           ],
           "nonPullRequestJobs": [
-            "full-check"
+            "full-check",
+            "gui-build"
           ],
           "pathFiltered": true
         },
@@ -1287,7 +1300,7 @@
           "pullRequestJobs": [
             "gui-build"
           ],
-          "nonPullRequestJobs": [],
+          "nonPullRequestJobs": ["gui-build"],
           "pathFiltered": true
         },
         "branchProtection": {
@@ -1427,7 +1440,8 @@
             "boundaries"
           ],
           "nonPullRequestJobs": [
-            "full-check"
+            "full-check",
+            "boundaries"
           ]
         },
         "branchProtection": {
@@ -1506,7 +1520,8 @@
             "boundaries"
           ],
           "nonPullRequestJobs": [
-            "full-check"
+            "full-check",
+            "boundaries"
           ]
         },
         "branchProtection": {
@@ -1585,7 +1600,8 @@
             "boundaries"
           ],
           "nonPullRequestJobs": [
-            "full-check"
+            "full-check",
+            "boundaries"
           ]
         },
         "branchProtection": {
@@ -1661,7 +1677,8 @@
             "boundaries"
           ],
           "nonPullRequestJobs": [
-            "full-check"
+            "full-check",
+            "boundaries"
           ]
         },
         "branchProtection": {
@@ -1738,7 +1755,8 @@
             "boundaries"
           ],
           "nonPullRequestJobs": [
-            "full-check"
+            "full-check",
+            "boundaries"
           ]
         },
         "branchProtection": {
@@ -1816,7 +1834,8 @@
             "boundaries"
           ],
           "nonPullRequestJobs": [
-            "full-check"
+            "full-check",
+            "boundaries"
           ]
         },
         "branchProtection": {
@@ -1893,7 +1912,8 @@
             "boundaries"
           ],
           "nonPullRequestJobs": [
-            "full-check"
+            "full-check",
+            "boundaries"
           ]
         },
         "branchProtection": {
@@ -1973,7 +1993,8 @@
             "boundaries"
           ],
           "nonPullRequestJobs": [
-            "full-check"
+            "full-check",
+            "boundaries"
           ]
         },
         "branchProtection": {
@@ -2056,7 +2077,8 @@
             "boundaries"
           ],
           "nonPullRequestJobs": [
-            "full-check"
+            "full-check",
+            "boundaries"
           ]
         },
         "branchProtection": {
@@ -2137,7 +2159,8 @@
             "boundaries"
           ],
           "nonPullRequestJobs": [
-            "full-check"
+            "full-check",
+            "boundaries"
           ]
         },
         "branchProtection": {
@@ -2213,7 +2236,8 @@
             "boundaries"
           ],
           "nonPullRequestJobs": [
-            "full-check"
+            "full-check",
+            "boundaries"
           ]
         },
         "branchProtection": {
@@ -2293,7 +2317,8 @@
             "boundaries"
           ],
           "nonPullRequestJobs": [
-            "full-check"
+            "full-check",
+            "boundaries"
           ]
         },
         "branchProtection": {
@@ -2373,7 +2398,8 @@
             "boundaries"
           ],
           "nonPullRequestJobs": [
-            "full-check"
+            "full-check",
+            "boundaries"
           ]
         },
         "branchProtection": {
@@ -2451,7 +2477,8 @@
             "boundaries"
           ],
           "nonPullRequestJobs": [
-            "full-check"
+            "full-check",
+            "boundaries"
           ]
         },
         "branchProtection": {
@@ -2598,7 +2625,8 @@
             "boundaries"
           ],
           "nonPullRequestJobs": [
-            "full-check"
+            "full-check",
+            "boundaries"
           ]
         },
         "branchProtection": {
@@ -2674,7 +2702,8 @@
             "boundaries"
           ],
           "nonPullRequestJobs": [
-            "full-check"
+            "full-check",
+            "boundaries"
           ]
         },
         "branchProtection": {
@@ -2749,7 +2778,8 @@
             "boundaries"
           ],
           "nonPullRequestJobs": [
-            "full-check"
+            "full-check",
+            "boundaries"
           ]
         },
         "branchProtection": {
@@ -2830,7 +2860,8 @@
             "boundaries"
           ],
           "nonPullRequestJobs": [
-            "full-check"
+            "full-check",
+            "boundaries"
           ]
         },
         "branchProtection": {
@@ -2905,7 +2936,7 @@
           "pullRequestJobs": [
             "boundaries"
           ],
-          "nonPullRequestJobs": []
+          "nonPullRequestJobs": ["boundaries"]
         },
         "branchProtection": {
           "required": true,
@@ -2983,7 +3014,8 @@
             "boundaries"
           ],
           "nonPullRequestJobs": [
-            "full-check"
+            "full-check",
+            "boundaries"
           ]
         },
         "branchProtection": {
@@ -3069,7 +3101,8 @@
             "boundaries"
           ],
           "nonPullRequestJobs": [
-            "full-check"
+            "full-check",
+            "boundaries"
           ]
         },
         "branchProtection": {
@@ -3156,7 +3189,8 @@
             "boundaries"
           ],
           "nonPullRequestJobs": [
-            "full-check"
+            "full-check",
+            "boundaries"
           ]
         },
         "branchProtection": {
@@ -3225,7 +3259,8 @@
             "boundaries"
           ],
           "nonPullRequestJobs": [
-            "full-check"
+            "full-check",
+            "boundaries"
           ]
         },
         "branchProtection": {
@@ -3300,7 +3335,8 @@
             "boundaries"
           ],
           "nonPullRequestJobs": [
-            "full-check"
+            "full-check",
+            "boundaries"
           ]
         },
         "branchProtection": {
@@ -3375,7 +3411,8 @@
             "boundaries"
           ],
           "nonPullRequestJobs": [
-            "full-check"
+            "full-check",
+            "boundaries"
           ]
         },
         "branchProtection": {
@@ -3454,7 +3491,8 @@
             "boundaries"
           ],
           "nonPullRequestJobs": [
-            "full-check"
+            "full-check",
+            "boundaries"
           ]
         },
         "branchProtection": {
@@ -3531,7 +3569,8 @@
             "package-policy"
           ],
           "nonPullRequestJobs": [
-            "full-check"
+            "full-check",
+            "package-policy"
           ]
         },
         "branchProtection": {
@@ -3609,7 +3648,8 @@
             "boundaries"
           ],
           "nonPullRequestJobs": [
-            "full-check"
+            "full-check",
+            "boundaries"
           ]
         },
         "branchProtection": {
@@ -3686,7 +3726,8 @@
             "boundaries"
           ],
           "nonPullRequestJobs": [
-            "full-check"
+            "full-check",
+            "boundaries"
           ]
         },
         "branchProtection": {
@@ -3766,7 +3807,8 @@
             "boundaries"
           ],
           "nonPullRequestJobs": [
-            "full-check"
+            "full-check",
+            "boundaries"
           ]
         },
         "branchProtection": {
@@ -3841,7 +3883,8 @@
             "boundaries"
           ],
           "nonPullRequestJobs": [
-            "full-check"
+            "full-check",
+            "boundaries"
           ]
         },
         "branchProtection": {
@@ -3917,7 +3960,8 @@
             "boundaries"
           ],
           "nonPullRequestJobs": [
-            "full-check"
+            "full-check",
+            "boundaries"
           ]
         },
         "branchProtection": {
@@ -3996,7 +4040,8 @@
             "boundaries"
           ],
           "nonPullRequestJobs": [
-            "full-check"
+            "full-check",
+            "boundaries"
           ]
         },
         "branchProtection": {
@@ -4071,7 +4116,8 @@
             "supply-chain"
           ],
           "nonPullRequestJobs": [
-            "full-check"
+            "full-check",
+            "supply-chain"
           ]
         },
         "branchProtection": {
@@ -4147,7 +4193,8 @@
             "boundaries"
           ],
           "nonPullRequestJobs": [
-            "full-check"
+            "full-check",
+            "boundaries"
           ]
         },
         "branchProtection": {
@@ -4221,7 +4268,8 @@
             "package-policy"
           ],
           "nonPullRequestJobs": [
-            "full-check"
+            "full-check",
+            "package-policy"
           ]
         },
         "branchProtection": {
@@ -4444,7 +4492,8 @@
             "windows-first-run"
           ],
           "nonPullRequestJobs": [
-            "full-check"
+            "full-check",
+            "package-policy"
           ]
         },
         "branchProtection": {
@@ -4536,7 +4585,8 @@
             "boundaries"
           ],
           "nonPullRequestJobs": [
-            "full-check"
+            "full-check",
+            "boundaries"
           ]
         },
         "branchProtection": {
@@ -4618,7 +4668,8 @@
             "boundaries"
           ],
           "nonPullRequestJobs": [
-            "full-check"
+            "full-check",
+            "boundaries"
           ]
         },
         "branchProtection": {
@@ -4696,7 +4747,8 @@
             "boundaries"
           ],
           "nonPullRequestJobs": [
-            "full-check"
+            "full-check",
+            "boundaries"
           ]
         },
         "branchProtection": {
@@ -4758,7 +4810,7 @@
       "bypassFixtureRequired": false,
       "executionSurfaces": {
         "packageJson": { "check": false, "checkPr": false, "script": null },
-        "rewriteCi": { "pullRequestJobs": ["ontology-advisory"], "nonPullRequestJobs": [] },
+        "rewriteCi": { "pullRequestJobs": ["ontology-advisory"], "nonPullRequestJobs": ["ontology-advisory"] },
         "branchProtection": { "required": false, "contexts": [] },
         "classes": ["pr"]
       },
@@ -4805,7 +4857,7 @@
       "bypassFixtureRequired": true,
       "executionSurfaces": {
         "packageJson": { "check": false, "checkPr": false, "script": null },
-        "rewriteCi": { "pullRequestJobs": ["ontology-advisory"], "nonPullRequestJobs": [] },
+        "rewriteCi": { "pullRequestJobs": ["ontology-advisory"], "nonPullRequestJobs": ["ontology-advisory"] },
         "branchProtection": { "required": false, "contexts": [] },
         "classes": ["pr"]
       },
@@ -4856,7 +4908,7 @@
       "bypassFixtureRequired": true,
       "executionSurfaces": {
         "packageJson": { "check": false, "checkPr": false, "script": null },
-        "rewriteCi": { "pullRequestJobs": ["boundaries"], "nonPullRequestJobs": [] },
+        "rewriteCi": { "pullRequestJobs": ["boundaries"], "nonPullRequestJobs": ["boundaries"] },
         "branchProtection": { "required": true, "contexts": ["boundaries"] },
         "classes": ["pr"]
       },
@@ -4904,7 +4956,7 @@
       "bypassFixtureRequired": true,
       "executionSurfaces": {
         "packageJson": { "check": false, "checkPr": false, "script": null },
-        "rewriteCi": { "pullRequestJobs": ["boundaries"], "nonPullRequestJobs": [] },
+        "rewriteCi": { "pullRequestJobs": ["boundaries"], "nonPullRequestJobs": ["boundaries"] },
         "branchProtection": { "required": true, "contexts": ["boundaries"] },
         "classes": ["pr"]
       },
@@ -4951,7 +5003,7 @@
       "bypassFixtureRequired": true,
       "executionSurfaces": {
         "packageJson": { "check": false, "checkPr": false, "script": null },
-        "rewriteCi": { "pullRequestJobs": ["boundaries"], "nonPullRequestJobs": [] },
+        "rewriteCi": { "pullRequestJobs": ["boundaries"], "nonPullRequestJobs": ["boundaries"] },
         "branchProtection": { "required": true, "contexts": ["boundaries"] },
         "classes": ["pr"]
       },
@@ -4998,7 +5050,7 @@
       "bypassFixtureRequired": true,
       "executionSurfaces": {
         "packageJson": { "check": false, "checkPr": false, "script": null },
-        "rewriteCi": { "pullRequestJobs": ["boundaries"], "nonPullRequestJobs": [] },
+        "rewriteCi": { "pullRequestJobs": ["boundaries"], "nonPullRequestJobs": ["boundaries"] },
         "branchProtection": { "required": true, "contexts": ["boundaries"] },
         "classes": ["pr"]
       },
@@ -5045,7 +5097,7 @@
       "bypassFixtureRequired": true,
       "executionSurfaces": {
         "packageJson": { "check": false, "checkPr": false, "script": null },
-        "rewriteCi": { "pullRequestJobs": ["boundaries"], "nonPullRequestJobs": [] },
+        "rewriteCi": { "pullRequestJobs": ["boundaries"], "nonPullRequestJobs": ["boundaries"] },
         "branchProtection": { "required": true, "contexts": ["boundaries"] },
         "classes": ["pr"]
       },

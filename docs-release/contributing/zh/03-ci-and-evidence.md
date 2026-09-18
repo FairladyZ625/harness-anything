@@ -12,7 +12,7 @@
 替代 manifest，因为 manifest 和 workflow 都会演进。
 
 GitHub required PR contexts 始终是权威。本地通过是 review evidence，不是跳过 CI 的
-许可。同样，给 `main`、schedule 或 manual dispatch 使用的 aggregate full-check lane
+许可。同样，给 schedule 或 manual dispatch 使用的 aggregate full-check lane
 不是标准 pre-PR loop。
 
 ## 证据标准

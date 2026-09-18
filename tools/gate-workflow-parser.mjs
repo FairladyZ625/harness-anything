@@ -38,14 +38,18 @@ export function parseGateWorkflow(text) {
   for (const job of jobs.values()) {
     // A job whose conditions never mention the event runs on every event the workflow declares
     // (step-level `if: always()` does not gate the job), so it is both a pull-request job and a
-    // non-pull-request job; the manifest runner picks the gate set per event.
+    // non-pull-request job; the manifest runner picks the gate set per event. A positive
+    // `== '<non-PR event>'` clause (push, schedule, workflow_dispatch) marks a non-PR job the
+    // same way `!= 'pull_request'` does: the job executes on at least one non-PR event.
     const unconditional = !job.ifExpressions.some((expression) => expression.includes("github.event_name"));
     job.isPullRequestJob =
       unconditional ||
       job.ifExpressions.some((expression) => expression.includes("github.event_name == 'pull_request'"));
     job.isNonPullRequestJob =
       unconditional ||
-      job.ifExpressions.some((expression) => expression.includes("github.event_name != 'pull_request'"));
+      job.ifExpressions.some((expression) =>
+        /github\.event_name\s*(?:!=\s*'pull_request'|==\s*'(?:push|schedule|workflow_dispatch)')/u.test(expression),
+      );
   }
   return jobs;
 }
