@@ -311,6 +311,7 @@ export {
   drillLedgerBackup,
   restoreLedgerBackup,
   configureLedgerMaintenance,
+  HARNESS_LEDGER_WRITER_ENV,
   localGitObjectRefStore,
   createEntityStore,
   ledgerGitPath,

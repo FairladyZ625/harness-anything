@@ -8,6 +8,7 @@ import {
   applyPeopleRosterAction,
   configureLedgerMaintenance,
   DEFAULT_TASK_WIP_LIMIT,
+  HARNESS_LEDGER_WRITER_ENV,
   INITIAL_SETTINGS_V1,
   readSettingsFacet,
   resolveHarnessLayout,
@@ -274,21 +275,30 @@ export function bootstrapRepo(
   let commit: string | null = null;
   if (authoredDocuments.length) {
     git(ledgerRoot, ["add", "-A", "--", ...authoredDocuments.map(({ ledgerPath }) => ledgerPath)]);
-    git(ledgerRoot, [
-      "-c",
-      "user.name=Harness Bootstrap",
-      "-c",
-      "user.email=harness-bootstrap@local.invalid",
-      "commit",
-      "--quiet",
-      "--only",
-      "-m",
-      "Initialize harness workspace",
-      "-m",
-      `${repositoryPlanTrailer}${JSON.stringify(trackedPaths)}`,
-      "--",
-      ...authoredDocuments.map(({ ledgerPath }) => ledgerPath),
-    ]);
+    // The ledger commit guard (installed by configureLedgerMaintenance above)
+    // refuses every commit without the daemon's writer env marker.
+    runProcessText(
+      "git",
+      [
+        "-C",
+        ledgerRoot,
+        "-c",
+        "user.name=Harness Bootstrap",
+        "-c",
+        "user.email=harness-bootstrap@local.invalid",
+        "commit",
+        "--quiet",
+        "--only",
+        "-m",
+        "Initialize harness workspace",
+        "-m",
+        `${repositoryPlanTrailer}${JSON.stringify(trackedPaths)}`,
+        "--",
+        ...authoredDocuments.map(({ ledgerPath }) => ledgerPath),
+      ],
+      undefined,
+      { ...process.env, [HARNESS_LEDGER_WRITER_ENV]: "1" },
+    );
     commit = git(ledgerRoot, ["rev-parse", "HEAD"]).trim();
   }
   const visibleCommit = commit ?? before,

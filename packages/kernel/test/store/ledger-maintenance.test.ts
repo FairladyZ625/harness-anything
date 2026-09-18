@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { configureLedgerMaintenance } from "../../src/index.ts";
@@ -143,12 +143,123 @@ test("ledger maintenance keeps blobs byte-identical under a global core.autocrlf
         target = path.join(repoRoot, "crlf.md");
       writeFileSync(target, body, "utf8");
       git(repoRoot, "add", "crlf.md");
-      git(repoRoot, "-c", "user.name=Ledger", "-c", "user.email=ledger@example.com", "commit", "--quiet", "-m", "crlf");
+      // The installed commit guard refuses commits without the daemon's writer env marker.
+      execFileSync(
+        "git",
+        [
+          "-C",
+          repoRoot,
+          "-c",
+          "user.name=Ledger",
+          "-c",
+          "user.email=ledger@example.com",
+          "commit",
+          "--quiet",
+          "-m",
+          "crlf",
+        ],
+        { encoding: "utf8", env: { ...process.env, HARNESS_LEDGER_WRITER: "1" } },
+      );
       const blob = execFileSync("git", ["-C", repoRoot, "show", "HEAD:crlf.md"], { encoding: "buffer" });
       assert.deepEqual(new Uint8Array(blob), new Uint8Array(Buffer.from(body)));
     } finally {
       if (previous === undefined) delete process.env.GIT_CONFIG_GLOBAL;
       else process.env.GIT_CONFIG_GLOBAL = previous;
     }
+  });
+});
+
+test("ledger commit guard refuses a manual commit and points at ha doc sync --submit", () => {
+  withTempStore((rootDir) => {
+    const repoRoot = ledger(rootDir);
+    configureLedgerMaintenance(repoRoot);
+    writeFileSync(path.join(repoRoot, "note.md"), "manual\n", "utf8");
+    git(repoRoot, "add", "note.md");
+
+    const attempt = spawnSync(
+      "git",
+      ["-C", repoRoot, "-c", "user.name=Manual", "-c", "user.email=manual@example.com", "commit", "-m", "manual"],
+      { encoding: "utf8" },
+    );
+    assert.equal(attempt.status, 1);
+    assert.match(attempt.stderr, /Refusing a manual commit in the Harness ledger repository/u);
+    assert.match(attempt.stderr, /ha doc sync --submit --task <task-id>/u);
+    assert.throws(() => git(repoRoot, "rev-parse", "--verify", "--quiet", "HEAD"));
+  });
+});
+
+test("ledger commit guard lets a daemon-marked commit through", () => {
+  withTempStore((rootDir) => {
+    const repoRoot = ledger(rootDir);
+    configureLedgerMaintenance(repoRoot);
+    writeFileSync(path.join(repoRoot, "note.md"), "daemon\n", "utf8");
+    git(repoRoot, "add", "note.md");
+
+    execFileSync(
+      "git",
+      [
+        "-C",
+        repoRoot,
+        "-c",
+        "user.name=Daemon",
+        "-c",
+        "user.email=daemon@example.com",
+        "commit",
+        "--quiet",
+        "-m",
+        "daemon",
+      ],
+      { encoding: "utf8", env: { ...process.env, HARNESS_LEDGER_WRITER: "1" } },
+    );
+    assert.equal(git(repoRoot, "log", "-1", "--format=%s"), "daemon");
+  });
+});
+
+test("ledger commit guard preserves a foreign hook as pre-commit.local and reinstall is idempotent", () => {
+  withTempStore((rootDir) => {
+    const repoRoot = ledger(rootDir),
+      hooksDir = path.join(repoRoot, ".git", "hooks"),
+      foreignPath = path.join(rootDir, "foreign-ran"),
+      foreignBody = `#!/bin/sh\necho foreign > "${foreignPath}"\n`;
+    writeFileSync(path.join(hooksDir, "pre-commit"), foreignBody, { mode: 0o755 });
+
+    const first = configureLedgerMaintenance(repoRoot);
+    assert.ok(first.applied.includes("hooks/pre-commit=harness-ledger-commit-guard/v1"));
+    assert.equal(readFileSync(path.join(hooksDir, "pre-commit.local"), "utf8"), foreignBody);
+
+    const second = configureLedgerMaintenance(repoRoot);
+    assert.ok(!second.applied.includes("hooks/pre-commit=harness-ledger-commit-guard/v1"));
+
+    // The chained foreign hook still runs for the daemon's marked commit.
+    writeFileSync(path.join(repoRoot, "note.md"), "daemon\n", "utf8");
+    git(repoRoot, "add", "note.md");
+    execFileSync(
+      "git",
+      [
+        "-C",
+        repoRoot,
+        "-c",
+        "user.name=Daemon",
+        "-c",
+        "user.email=daemon@example.com",
+        "commit",
+        "--quiet",
+        "-m",
+        "daemon",
+      ],
+      { encoding: "utf8", env: { ...process.env, HARNESS_LEDGER_WRITER: "1" } },
+    );
+    assert.equal(readFileSync(foreignPath, "utf8").trim(), "foreign");
+
+    // And it still refuses a manual commit.
+    writeFileSync(path.join(repoRoot, "more.md"), "manual\n", "utf8");
+    git(repoRoot, "add", "more.md");
+    const attempt = spawnSync(
+      "git",
+      ["-C", repoRoot, "-c", "user.name=Manual", "-c", "user.email=manual@example.com", "commit", "-m", "manual"],
+      { encoding: "utf8" },
+    );
+    assert.equal(attempt.status, 1);
+    assert.match(attempt.stderr, /ha doc sync --submit/u);
   });
 });
