@@ -173,6 +173,8 @@ export function stubBridge(
         verticals: [],
         templates: [],
         scaffolds: { task: [], repository: [] },
+        ciWorkflows: [],
+        bundledAgents: [],
         adapters: [
           {
             adapterId: "claude",
@@ -436,6 +438,8 @@ export function stubCrudBridge(
         verticals: [],
         templates: [],
         scaffolds: { task: [], repository: [] },
+        ciWorkflows: [],
+        bundledAgents: [],
         adapters: [],
       })),
       listAgents: vi.fn(async () => ({ schema: "agent-entity-catalog/v1", ok: true, agents: [] })),

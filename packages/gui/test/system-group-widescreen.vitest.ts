@@ -150,6 +150,8 @@ function seedQueries(client: QueryClient): void {
       task: ["governance/task-scaffold.json"],
       repository: ["governance/repository-scaffold.json"],
     },
+    ciWorkflows: [],
+    bundledAgents: ["closeout-reviewer"],
     adapters: [1, 2, 3].map((n) => ({
       adapterId: `adapter-g5-${n}`,
       registered: true as const,

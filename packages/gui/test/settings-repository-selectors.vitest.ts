@@ -2,11 +2,13 @@
 // @vitest-environment happy-dom
 // Settings → 仓库:字段面由 settings 动作契约派生(catalog snapshot 的 settingsFields,与 kernel
 // 单源同源 import),取值面可枚举的字段是选择器,枚举来源是 daemon 目录快照
-// (verticals / presets[].profiles / scaffolds),不是手打字符串。
+// (verticals / presets[].profiles / scaffolds / ciWorkflows / bundledAgents)与 agent 目录
+// 共享缓存(已安装层),不是手打字符串。
 // 覆盖:①字段集合 == 契约仓库字段(含 defaultReviewer/reviewIndependence/reviewReturnBudget/
-// ciWorkflows 四个历史缺失项);②五个目录字段都是 <select> 且选项来自目录;③当前值不在目录时
-// 并入选项、不静默丢值;④换 preset 时 profile 落到新 preset 的默认 profile;⑤目录读面失败时
-// 表单不渲染(fail closed),不回退成自由文本;⑥「终端」假面板已删除。
+// ciWorkflows 四个历史缺失项);②目录字段都是点选控件且选项来自目录(验收人单选 = bundled ∪
+// 已安装,CI 工作流多选 checkbox,空集合合法);③当前值不在目录时并入选项/照实勾选、不静默
+// 丢值;④换 preset 时 profile 落到新 preset 的默认 profile;⑤目录读面失败时选择器停用
+// (fail closed),不回退成自由文本;⑥「终端」假面板已删除。
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -161,8 +163,25 @@ const SNAPSHOT = {
     task: ["governance/task-scaffold.json", "governance/task-scaffold-strict.json"],
     repository: ["governance/repository-scaffold.json"],
   },
+  // CI 工作流取值面:.github/workflows 的 *.yml 基名(不带后缀——kernel 拒绝带 .yml 的值)。
+  ciWorkflows: ["gui-release", "issue-intake", "pr-body"],
+  // 验收人取值面的 bundled 层;已安装层走 agent 目录共享缓存。
+  bundledAgents: ["closeout-reviewer"],
   adapters: [],
 };
+/** agent 目录(listAgents)的已安装层行:available 行进取值面,degraded 行不进。 */
+const AGENT_ROWS = [
+  {
+    id: "arch-reviewer",
+    name: "Arch Reviewer",
+    runtimeType: "codex",
+    instance: null,
+    permissionMode: null,
+    role: "worker",
+    layer: "installed",
+  },
+  { id: "broken-reviewer", layer: "user", state: "invalid", error: { code: "invalid_declaration", hint: "broken" } },
+];
 const mounted: { root: Root; container: HTMLElement }[] = [];
 
 beforeAll(() => {
@@ -182,8 +201,16 @@ afterEach(() => {
 });
 
 async function mountView(
-  options: { readonly snapshot?: unknown | null; readonly catalogBridge?: () => Promise<unknown> } = {},
+  options: {
+    readonly snapshot?: unknown | null;
+    readonly catalogBridge?: () => Promise<unknown>;
+    /** 覆盖 settings values(默认 SETTINGS_VALUES);用于并集分支的既有值注入。 */
+    readonly values?: Record<string, unknown>;
+    /** agent 目录种子;null = 不种(桥缺失 → agents 读面失败,验 fail closed)。 */
+    readonly agents?: readonly unknown[] | null;
+  } = {},
 ): Promise<HTMLElement> {
+  const values = { ...SETTINGS_VALUES, ...options.values };
   const updateSettings = vi.fn(async (payload: Record<string, unknown>) => ({
     schema: "command-receipt/v2",
     ok: true,
@@ -199,7 +226,7 @@ async function mountView(
         schema: "daemon.settings-read/v1",
         ok: true,
         settings: SETTINGS,
-        values: SETTINGS_VALUES,
+        values,
         lastChanged: "initial",
       }),
       ...(options.catalogBridge ? { getCatalogSnapshot: options.catalogBridge } : {}),
@@ -210,12 +237,13 @@ async function mountView(
     schema: "daemon.settings-read/v1",
     ok: true,
     settings: SETTINGS,
-    values: SETTINGS_VALUES,
+    values,
     lastChanged: "initial",
   });
-  // 目录快照走缓存种子(与 preset-detail/system-group-widescreen 同一模式),桥只承担写面;
-  // 显式传 null 表示「不种」,用于让目录读面真的失败。
+  // 目录快照与 agent 目录都走缓存种子(与 preset-detail/system-group-widescreen 同一模式),
+  // 桥只承担写面;显式传 null 表示「不种」,用于让对应读面真的失败。
   if (options.snapshot !== null) client.setQueryData(catalogQueryKeys.snapshot(REPO_ID), options.snapshot ?? SNAPSHOT);
+  if (options.agents !== null) client.setQueryData(["agents", REPO_ID], options.agents ?? AGENT_ROWS);
   const container = document.createElement("div");
   document.body.append(container);
   const root = createRoot(container);
@@ -251,6 +279,17 @@ function optionValues(element: HTMLSelectElement): string[] {
   return [...element.querySelectorAll("option")].map((option) => (option as HTMLOptionElement).value);
 }
 
+/** CI 工作流多选的面:每个 checkbox 的值(去 option- 前缀)与勾选态。 */
+function checkboxValues(container: HTMLElement): { value: string; checked: boolean; label: string }[] {
+  return [...container.querySelectorAll<HTMLInputElement>('[data-testid^="settings-ciWorkflows-option-"]')].map(
+    (box) => ({
+      value: (box.getAttribute("data-testid") ?? "").slice("settings-ciWorkflows-option-".length),
+      checked: box.checked,
+      label: box.closest("label")?.textContent ?? "",
+    }),
+  );
+}
+
 /** 选项文案:目录外的当前值在这里露出「目录中不存在」标记,value 仍是原值,可原样提交。 */
 function optionLabels(element: HTMLSelectElement): string[] {
   return [...element.querySelectorAll("option")].map((option) => (option as HTMLOptionElement).textContent ?? "");
@@ -279,7 +318,7 @@ function lastUpdatePayload(): Record<string, unknown> {
 }
 
 describe("Settings 仓库字段是目录喂的选择器", () => {
-  it("五个目录字段全部是 select,选项来自目录快照,且没有自由文本输入", async () => {
+  it("目录字段全部是点选控件,选项来自目录快照与 agent 目录,且没有自由文本输入", async () => {
     const container = await mountView();
     // 目录选择器字段不得回退成自由文本。
     expect(
@@ -302,6 +341,19 @@ describe("Settings 仓库字段是目录喂的选择器", () => {
     expect(optionValues(select(container, "settings-repository-scaffold-select"))).toEqual([
       "governance/repository-scaffold.json",
     ]);
+    // 验收人 = 已安装层 ∪ bundled 层;degraded 安装行不进取值面(由当前值并集兜底)。
+    expect(optionValues(select(container, "settings-defaultReviewer-select"))).toEqual([
+      "",
+      "arch-reviewer",
+      "closeout-reviewer",
+    ]);
+    // CI 工作流 = 快照的 *.yml 基名,checkbox 多选,值一律不带 .yml/.yaml 后缀。
+    const ciBoxes = checkboxValues(container);
+    expect(ciBoxes.map(({ value }) => value)).toEqual(["gui-release", "issue-intake", "pr-body"]);
+    expect(ciBoxes.every(({ value }) => !/\.ya?ml$/u.test(value))).toBe(true);
+    expect(ciBoxes.every(({ checked }) => checked === false)).toBe(true);
+    expect(container.querySelector('[data-testid="settings-ciWorkflows-input"]')).toBeNull();
+    expect(container.querySelector('[data-testid="settings-defaultReviewer-input"]')).toBeNull();
     expect((container.querySelector('[data-testid="settings-wal-flush-events"]') as HTMLInputElement).value).toBe(
       "256",
     );
@@ -309,19 +361,18 @@ describe("Settings 仓库字段是目录喂的选择器", () => {
 
   it("字段面从契约派生:历史缺失的四个字段全部出现且类型正确,提交时进 payload", async () => {
     const container = await mountView();
-    const reviewer = container.querySelector('[data-testid="settings-defaultReviewer-input"]') as HTMLInputElement;
-    expect(reviewer, "默认验收人输入框未渲染").toBeTruthy();
+    const reviewer = select(container, "settings-defaultReviewer-select");
     expect(reviewer.value).toBe("");
     expect(optionValues(select(container, "settings-reviewIndependence-select"))).toEqual(["execution", "principal"]);
     expect(select(container, "settings-reviewIndependence-select").value).toBe("execution");
     expect(
       (container.querySelector('[data-testid="settings-reviewReturnBudget-input"]') as HTMLInputElement).value,
     ).toBe("3");
-    expect((container.querySelector('[data-testid="settings-ciWorkflows-input"]') as HTMLInputElement).value).toBe("");
+    expect(checkboxValues(container).every(({ checked }) => !checked)).toBe(true);
     // closeout 档位与四个门也来自契约(此前由 CloseoutRows 硬编码渲染)。
     expect(optionValues(select(container, "settings-closeoutProfile-select"))).toEqual(["standard", "strict"]);
     await act(async () => {
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(reviewer, "arch-reviewer");
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!.call(reviewer, "arch-reviewer");
       reviewer.dispatchEvent(new Event("change", { bubbles: true }));
       saveButton(container).click();
     });
@@ -349,10 +400,12 @@ describe("Settings 仓库字段是目录喂的选择器", () => {
         scaffolds: { task: ["governance/task-scaffold-strict.json"], repository: [] },
         presets: SNAPSHOT.presets.filter((row) => row.id !== "standard-task"),
       },
+      values: { defaultReviewer: "ghost-reviewer", ciWorkflows: ["gui-release", "gone-flow"] },
     });
     const taskScaffold = select(container, "settings-task-scaffold-select"),
       repositoryScaffold = select(container, "settings-repository-scaffold-select"),
-      preset = select(container, "settings-preset-select");
+      preset = select(container, "settings-preset-select"),
+      reviewer = select(container, "settings-defaultReviewer-select");
     expect(optionValues(taskScaffold)).toEqual([
       "governance/task-scaffold-strict.json",
       "governance/task-scaffold.json",
@@ -363,11 +416,26 @@ describe("Settings 仓库字段是目录喂的选择器", () => {
     expect(preset.value).toBe("standard-task");
     expect(optionValues(preset)).toEqual(["docs-task", "review-task", "standard-task"]);
     expect(optionLabels(preset).at(-1)).toBe("standard-task · 目录中不存在");
+    // 验收人当前值不在面里:并入选项、照实选中、可提交。
+    expect(reviewer.value).toBe("ghost-reviewer");
+    expect(optionValues(reviewer)).toEqual(["", "arch-reviewer", "closeout-reviewer", "ghost-reviewer"]);
+    expect(optionLabels(reviewer).at(-1)).toBe("ghost-reviewer · 目录中不存在");
+    // ciWorkflows 当前值含已消失的工作流:照实列出并保持勾选。
+    const ciBoxes = checkboxValues(container);
+    expect(ciBoxes.map(({ value, checked }) => [value, checked])).toEqual([
+      ["gui-release", true],
+      ["issue-intake", false],
+      ["pr-body", false],
+      ["gone-flow", true],
+    ]);
+    expect(ciBoxes.at(-1)!.label).toBe("gone-flow · 目录中不存在");
     await act(async () => {
       saveButton(container).click();
     });
     expect(lastUpdatePayload()).toMatchObject({
       defaultPreset: "standard-task",
+      defaultReviewer: "ghost-reviewer",
+      ciWorkflows: ["gui-release", "gone-flow"],
       taskScaffold: "governance/task-scaffold.json",
       repositoryScaffold: "governance/repository-scaffold.json",
       walFlushAdaptive: true,
@@ -375,6 +443,55 @@ describe("Settings 仓库字段是目录喂的选择器", () => {
       walFlushBytes: 8_388_608,
       walFlushMilliseconds: 3_600_000,
     });
+  });
+
+  it("CI 工作流勾选/取消可任意组合,空集合是合法可提交值(退出 CI 见证)", async () => {
+    const container = await mountView();
+    const box = (value: string) =>
+      container.querySelector<HTMLInputElement>(`[data-testid="settings-ciWorkflows-option-${value}"]`)!;
+    await act(async () => {
+      box("issue-intake").click();
+      box("pr-body").click();
+    });
+    await act(async () => {
+      saveButton(container).click();
+    });
+    expect(lastUpdatePayload().ciWorkflows).toEqual(["issue-intake", "pr-body"]);
+    await act(async () => {
+      box("issue-intake").click();
+      box("pr-body").click();
+    });
+    await act(async () => {
+      saveButton(container).click();
+    });
+    expect(lastUpdatePayload().ciWorkflows).toEqual([]);
+  });
+
+  it("并集里的目录外工作流也能被取消勾选,不会永久钉在表单里", async () => {
+    const container = await mountView({ values: { ciWorkflows: ["gui-release", "gone-flow"] } });
+    const box = (value: string) =>
+      container.querySelector<HTMLInputElement>(`[data-testid="settings-ciWorkflows-option-${value}"]`)!;
+    expect(box("gone-flow").checked).toBe(true);
+    await act(async () => {
+      box("gone-flow").click();
+    });
+    // 取消勾选后,目录外的并集项从表单消失(不再钉在选项里)。
+    expect(container.querySelector('[data-testid="settings-ciWorkflows-option-gone-flow"]')).toBeNull();
+    await act(async () => {
+      saveButton(container).click();
+    });
+    expect(lastUpdatePayload().ciWorkflows).toEqual(["gui-release"]);
+  });
+
+  it("agent 目录读面失败时验收人选择器停用并显示错误,不回退成自由文本(fail closed)", async () => {
+    const container = await mountView({ agents: null });
+    const reviewer = select(container, "settings-defaultReviewer-select");
+    expect(reviewer.disabled).toBe(true);
+    expect(container.querySelector('[data-testid="settings-defaultReviewer-input"]')).toBeNull();
+    await vi.waitFor(() => expect(container.textContent).toContain("取值目录不可用"));
+    // 其它目录选择器不因 agent 目录失败而停用。
+    expect(select(container, "settings-vertical-select").disabled).toBe(false);
+    expect(select(container, "settings-task-scaffold-select").disabled).toBe(false);
   });
 
   it("换 preset 时当前 profile 不在新 preset 清单里,落到该 preset 的默认 profile", async () => {
@@ -418,7 +535,7 @@ describe("Settings 仓库字段是目录喂的选择器", () => {
       },
     });
     await vi.waitFor(() => expect(container.textContent).toContain("取值目录不可用"));
-    // 字段面来自目录快照:目录读不到就没有可派生的字段,五个选择器一律不存在,
+    // 字段面来自目录快照:目录读不到就没有可派生的字段,选择器一律不存在,
     // 也不出现任何冒充这些字段的自由文本输入。
     for (const testId of [
       "settings-vertical-select",
@@ -426,6 +543,8 @@ describe("Settings 仓库字段是目录喂的选择器", () => {
       "settings-profile-select",
       "settings-task-scaffold-select",
       "settings-repository-scaffold-select",
+      "settings-defaultReviewer-select",
+      "settings-ciWorkflows",
     ])
       expect(container.querySelector(`[data-testid="${testId}"]`), `${testId} 不应渲染`).toBeNull();
     expect(container.textContent).toContain("catalog bridge down");

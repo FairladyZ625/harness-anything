@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { projectDecisionReadiness } from "../../kernel/src/index.ts";
+import { projectDecisionReadiness, settingsUpdateInputFields } from "../../kernel/src/index.ts";
 import {
   actionForDaemonMethod,
   daemonGuiActionMethods,
@@ -321,6 +321,43 @@ test("every declared ha init flag survives the daemon.repo.bootstrap wire params
     const parsed = parseDaemonRpcParams("daemon.repo.bootstrap", { ...base, [field]: input.kind === "boolean" ? true : "value" });
     assert.equal(parsed.ok, true, `${input.name} reaches the daemon as params.${field}, which the wire shape rejects`);
   }
+});
+
+test("repo.settings.update accepts every settings-contract field and nothing else", () => {
+  // 契约(kernel 单源)加字段而 wire 白名单没跟上时,GUI 整表提交会被 unknown_field 静默拒收
+  // (2026-09-18 实测:restoreDrillRetention/gatesFromDocument 漂移让每次提交都 op_rejected)。
+  const route = daemonGuiActionMethods.find((candidate) => candidate.method === "repo.settings.update");
+  assert.ok(route, "the settings update route must stay declared");
+  const allowed = new Set(Object.keys(route.params.fields.payload!.fields)),
+    expected = new Set([...settingsUpdateInputFields.map(({ field }) => field), "idempotencyKey"]);
+  assert.deepEqual(
+    [...allowed].sort(),
+    [...expected].sort(),
+    "wire whitelist must equal the kernel contract fields plus the transport key",
+  );
+  const sample = (descriptor: { readonly type: string; readonly enum?: readonly string[] }): unknown =>
+    descriptor.enum?.[0] ??
+    (descriptor.type === "boolean"
+      ? true
+      : descriptor.type === "number"
+        ? 3
+        : descriptor.type === "string-array"
+          ? []
+          : "value");
+  for (const descriptor of settingsUpdateInputFields) {
+    // 基础字段保证「至少一个真实设置字段」语义成立;transport 字段(expectedVersion)单独发
+    // 本就应当被拒。
+    const parsed = parseDaemonRpcParams("repo.settings.update", {
+      repo: { repoId: "alpha" },
+      payload: { defaultReviewer: "probe", [descriptor.field]: sample(descriptor), idempotencyKey: "probe" },
+    });
+    assert.equal(parsed.ok, true, `contract field ${descriptor.field} must survive the wire shape`);
+  }
+  const rejected = parseDaemonRpcParams("repo.settings.update", {
+    repo: { repoId: "alpha" },
+    payload: { notASettingsField: true, idempotencyKey: "probe" },
+  });
+  assert.equal(rejected.ok, false);
 });
 function decisionList(readiness: unknown): Record<string, unknown> {
   return {

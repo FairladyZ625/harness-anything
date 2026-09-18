@@ -117,6 +117,7 @@
   "views.settingsView.defaultProfileLabel": "默认配置",
   "views.settingsView.defaultReviewerDescription": "complete 自动派出的独立收口验收 Agent 声明 id；未设置回落 closeout-reviewer",
   "views.settingsView.defaultReviewerLabel": "默认验收人",
+  "views.settingsView.defaultReviewerUnsetOption": "未设置",
   "views.settingsView.defaultVerticalLabel": "默认垂直",
   "views.settingsView.english": "English",
   "views.settingsView.exportAction": "导出",

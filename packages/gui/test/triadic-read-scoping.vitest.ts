@@ -207,6 +207,8 @@ async function mountApp(options: { readonly view: string; readonly decisionResul
       presets: [],
       templates: [],
       scaffolds: { task: [], repository: [] },
+      ciWorkflows: [],
+      bundledAgents: [],
       adapters: [],
     }),
     getAgenda: async (payload) => {

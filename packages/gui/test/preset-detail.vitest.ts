@@ -79,6 +79,8 @@ function seedQueries(client: QueryClient): void {
     verticals: [],
     templates: [],
     scaffolds: { task: [], repository: [] },
+    ciWorkflows: [],
+    bundledAgents: [],
     adapters: [],
   });
   client.setQueryData(catalogQueryKeys.preset(REPO_ID, PRESET_ID, "zh-CN"), {
