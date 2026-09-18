@@ -56,7 +56,6 @@ export function deriveCloseoutSubmission(
       taskId,
       slot: "task.closeout",
       bodyOverrides,
-      readBlob: cell.store.readContentBlob,
     }),
     frozen = snapshot.executions.find((execution) => execution.executionId === executionId)?.submission,
     // Parse/validate before reading any Git cut. No risk or verification line is filtered.

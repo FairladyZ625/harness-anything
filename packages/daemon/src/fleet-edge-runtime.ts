@@ -565,9 +565,9 @@ function edgeBinding(request: Pick<FleetEdgeRuntimeRequest["payload"], "nodeId" 
   };
 }
 /**
- * The mirrored package's plan scaffold is the contract source. Edge mirrors carry no content
- * blobs, so the scaffold comes from the bundled catalog the descriptor's templateRef names; an
- * unresolvable contract fails closed here.
+ * The mirrored task contract carries the plan's readiness contract in its descriptor; packages
+ * materialized before descriptors carried it resolve through the bundled catalog their
+ * templateRef names. An unresolvable contract fails closed here.
  */
 function mirroredPlanContract(packageRoot: string, taskId: string) {
   let contractJson: unknown;

@@ -269,13 +269,7 @@ export async function completeTask(
 ): Promise<WriteReceipt> {
   const taskId = cell.requiredCellText(action.taskId, "taskId"),
     initial = await cell.service.read(taskId),
-    initialContext = readCompletionContext(
-      cell.projection,
-      taskId,
-      initial.snapshot,
-      initial.status,
-      cell.store.readContentBlob,
-    ),
+    initialContext = readCompletionContext(cell.projection, taskId, initial.snapshot, initial.status),
     decision = taskCompletionNext(
       initial.snapshot,
       { ...initialContext, authorization: binding.authorizationDecision?.outcome === "allowed" ? "allowed" : "denied" },
@@ -711,7 +705,7 @@ export function completionContext(
 ): CompletionReadinessContext {
   if (presetSnapshotDigest !== snapshot.task?.presetSnapshotDigest)
     throw cell.cellCodedError("preset_snapshot_mismatch", `Run ha preset upgrade ${taskId} before completion.`);
-  const canonical = readCompletionContext(cell.projection, taskId, snapshot, "ready", cell.store.readContentBlob),
+  const canonical = readCompletionContext(cell.projection, taskId, snapshot, "ready"),
     scan = scanDocCandidates({
       rootDir: cell.rootDir,
       workspaceId: cell.input.repoId,

@@ -66,7 +66,7 @@ export async function runTaskCommandWithDocs(
     const current = await cell.service.read(taskId),
       decision = taskCompletionNext(
         current.snapshot,
-        readCompletionContext(cell.projection, taskId, current.snapshot, current.status, cell.store.readContentBlob),
+        readCompletionContext(cell.projection, taskId, current.snapshot, current.status),
         typeof taskAction.executionId === "string" ? taskAction.executionId : undefined,
       );
     if (decision.blocker && decision.blocker.code !== "closeout_placeholder")
@@ -182,7 +182,6 @@ export async function runTaskCommandWithDocs(
         slot: "task.plan",
         transition: "task.start",
         bodyOverrides,
-        readBlob: cell.store.readContentBlob,
       });
     } catch (error) {
       recycleClaims(cell.rootDir, intent);
@@ -191,13 +190,7 @@ export async function runTaskCommandWithDocs(
   const current = await cell.service.read(taskId);
   let completionExecutionId: string | null = null;
   if (taskAction.kind === "task-complete") {
-    const context = readCompletionContext(
-        cell.projection,
-        taskId,
-        current.snapshot,
-        current.status,
-        cell.store.readContentBlob,
-      ),
+    const context = readCompletionContext(cell.projection, taskId, current.snapshot, current.status),
       body = bodyOverrides.get(context.closeoutPath),
       assessment =
         body === undefined

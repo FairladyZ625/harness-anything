@@ -3,7 +3,6 @@ import path from "node:path";
 import {
   assessTransitionDocument,
   assertTransitionDocumentReady,
-  consumeKnownError,
   normalizeRelativeDocumentPath,
   requireTransitionDocumentKind,
   resolveHarnessLayout,
@@ -15,7 +14,7 @@ import {
   type TransitionDocumentMissingSection,
 } from "../../kernel/src/index.ts";
 import { loadCanonicalAssets } from "../../preset/src/preset-assets.ts";
-import { requiredRegularFile, safeTemplatePath } from "../../preset/src/preset-materialization.ts";
+import { safeTemplatePath } from "../../preset/src/preset-materialization.ts";
 import { defaultAssets } from "../../preset/src/preset-resolver-common.ts";
 import type { CatalogSource } from "../../preset/src/preset-resolver-types.ts";
 
@@ -32,43 +31,38 @@ export interface TaskTransitionDocument {
   readonly contract: MarkdownDocumentContract | null;
 }
 
-export type TransitionDocumentBlobReader = (sha256: string) => Uint8Array | null;
-
 interface TransitionDocumentDescriptor {
   readonly slot: string;
   readonly path: string;
   readonly templateRef?: unknown;
   readonly locale?: unknown;
-  readonly contentSha256?: unknown;
-  readonly bodyDigest?: unknown;
+  readonly readiness?: unknown;
 }
 
 /**
- * Resolves the readiness contract a task package's scaffold declared: the materialized scaffold
- * blob the descriptor's recorded sha addresses first, then — for mirrored packages without blob
- * access (fleet edge) — the bundled template catalog the descriptor's `templateRef` names.
- * Returns null when no source yields the scaffold.
+ * Resolves the readiness contract a task package's scaffold declared: the contract frozen into the
+ * descriptor at materialization first, then — for packages materialized before descriptors carried
+ * it — the bundled template catalog the descriptor's `templateRef` names. Returns null when no
+ * source yields the contract.
  */
 export function transitionDocumentReadinessContract(input: {
   readonly contract: unknown;
   readonly descriptor: TransitionDocumentDescriptor;
-  readonly readBlob?: TransitionDocumentBlobReader;
 }): MarkdownDocumentContract | null {
-  const sha = scaffoldSha256(input.descriptor);
-  if (sha && input.readBlob) {
-    const bytes = input.readBlob(sha);
-    if (bytes) return transitionDocumentContract(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
-  }
+  const embedded = embeddedReadinessContract(input.descriptor.readiness);
+  if (embedded) return embedded;
   const catalogBody = catalogScaffoldBody(input.contract, input.descriptor);
   return catalogBody === null ? null : transitionDocumentContract(catalogBody);
 }
 
-function scaffoldSha256(descriptor: TransitionDocumentDescriptor): string | null {
-  if (typeof descriptor.contentSha256 === "string" && /^[0-9a-f]{64}$/u.test(descriptor.contentSha256))
-    return descriptor.contentSha256;
-  if (typeof descriptor.bodyDigest === "string" && /^sha256:[0-9a-f]{64}$/u.test(descriptor.bodyDigest))
-    return descriptor.bodyDigest.slice("sha256:".length);
-  return null;
+function embeddedReadinessContract(value: unknown): MarkdownDocumentContract | null {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
+  const scaffoldBySection: Record<string, readonly string[]> = {};
+  for (const [section, lines] of Object.entries(value)) {
+    if (!Array.isArray(lines) || lines.some((line) => typeof line !== "string")) return null;
+    scaffoldBySection[section] = lines;
+  }
+  return { requiredSections: Object.keys(scaffoldBySection), scaffoldBySection };
 }
 
 function catalogScaffoldBody(contract: unknown, descriptor: TransitionDocumentDescriptor): string | null {
@@ -85,25 +79,18 @@ function catalogScaffoldBody(contract: unknown, descriptor: TransitionDocumentDe
   const document = assets.catalog.documents.find((item) => `template://${item.id}@${item.version}` === templateRef),
     variant = document?.locales.find((item) => item.locale === locale) ?? document?.locales[0];
   if (!variant) return null;
-  try {
-    return requiredRegularFile(safeTemplatePath(assets.root, variant.bodyPath, templateRef), "missing_template");
-  } catch (error) {
-    consumeKnownError(error);
-    return null;
-  }
+  const target = safeTemplatePath(assets.root, variant.bodyPath, templateRef),
+    stat = existsSync(target) ? lstatSync(target) : undefined;
+  return stat?.isFile() && !stat.isSymbolicLink() ? readFileSync(target, "utf8") : null;
 }
 
 let bundledCatalog: CatalogSource | null | undefined;
 
 function loadCatalogAssets(): CatalogSource | null {
-  if (bundledCatalog === undefined) {
-    try {
-      bundledCatalog = loadCanonicalAssets(defaultAssets).catalog;
-    } catch (error) {
-      consumeKnownError(error);
-      bundledCatalog = null;
-    }
-  }
+  if (bundledCatalog === undefined)
+    bundledCatalog = existsSync(path.join(defaultAssets, "template-catalog.json"))
+      ? loadCanonicalAssets(defaultAssets).catalog
+      : null;
   return bundledCatalog;
 }
 
@@ -112,7 +99,6 @@ export function readTaskTransitionDocument(input: {
   readonly taskId: string;
   readonly slot: TaskTransitionDocumentSlot;
   readonly bodyOverrides?: ReadonlyMap<string, string>;
-  readonly readBlob?: TransitionDocumentBlobReader;
 }): TaskTransitionDocument {
   const task = input.projection.read(input.taskId);
   if (task.watermark < task.sourceRevision || !task.snapshot.task || !task.packagePath)
@@ -173,11 +159,7 @@ export function readTaskTransitionDocument(input: {
     blobSha256: overridden === undefined ? documentRead.document.blobSha256 : sha256Text(overridden),
     workspaceRevision: documentRead.document.workspaceRevision,
     source: overridden === undefined ? "canonical projection" : "submitted candidate",
-    contract: transitionDocumentReadinessContract({
-      contract,
-      descriptor,
-      ...(input.readBlob ? { readBlob: input.readBlob } : {}),
-    }),
+    contract: transitionDocumentReadinessContract({ contract, descriptor }),
   };
 }
 
@@ -188,7 +170,6 @@ export function assertTaskTransitionDocumentReady(input: {
   readonly slot: TaskTransitionDocumentSlot;
   readonly transition: string;
   readonly bodyOverrides?: ReadonlyMap<string, string>;
-  readonly readBlob?: TransitionDocumentBlobReader;
 }): TaskTransitionDocument {
   const kind = requireTransitionDocumentKind(input.transition);
   if (kind !== input.slot)

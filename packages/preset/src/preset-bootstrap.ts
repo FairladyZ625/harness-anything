@@ -7,6 +7,7 @@ import {
   sha256Text,
   slugifyTaskTitle,
   taskBootstrapWritePlan,
+  transitionDocumentContract,
   validatePresetSnapshotUpgradeEvent,
   validateTaskBootstrapEvent,
   validateTaskIdSyntax,
@@ -512,6 +513,12 @@ function descriptor(document: CompiledTaskDocument) {
     requiredAnchors: document.requiredAnchors,
     templateRef: document.templateRef,
     contentSha256: document.contentSha256,
+    // The readiness contract this scaffold declares, frozen at materialization so judging a
+    // transition document never needs the scaffold blob or the bundled catalog. Only the
+    // readiness-judged slots carry it; the map's ordered keys are the required sections.
+    ...(document.slot === "task.plan" || document.slot === "task.closeout"
+      ? { readiness: transitionDocumentContract(document.body).scaffoldBySection }
+      : {}),
   };
 }
 function descriptorStub(slot: string, path: string, owner: TaskDocumentOwner) {
