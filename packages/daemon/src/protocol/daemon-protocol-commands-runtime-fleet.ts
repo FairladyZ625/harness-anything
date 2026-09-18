@@ -150,7 +150,7 @@ export const runtimeFleetProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineRuntimeLocalWriteCommand({
+  defineRepoReadCommand({
     id: "runtime-sessions-await",
     actionKind: "runtime-sessions-await",
     internal: true,
