@@ -25,7 +25,11 @@ import type {
   AgentRuntimeOverviewResult,
   AgentRuntimeSessionResult,
 } from "../agent-runtime-contract.ts";
-import type { AgentRuntimeTokenUsageResult } from "../agent-runtime-token-usage.ts";
+import type {
+  AgentRuntimeTokenUsageDetailResult,
+  AgentRuntimeTokenUsageRange,
+  AgentRuntimeTokenUsageResult,
+} from "../agent-runtime-token-usage.ts";
 import type {
   DaemonUseCaseProjectionPayload,
   DaemonUseCaseProjectionResult,
@@ -396,6 +400,7 @@ export type DaemonGuiReadResultMap = {
   readonly "repo.agentRuntime.sessions.read": AgentRuntimeSessionResult;
   readonly "repo.agentRuntime.events.read": AgentRuntimeEventsResult;
   readonly "repo.agentRuntime.tokenUsage": AgentRuntimeTokenUsageResult;
+  readonly "repo.agentRuntime.tokenUsageDetail": AgentRuntimeTokenUsageDetailResult;
   readonly "repo.task.dispatches": DaemonTaskDispatchesResult;
   readonly "repo.agent.entities.list": Extract<AgentEntityGuiRead, { readonly schema: "agent-entity-catalog/v1" }>;
   readonly "repo.agent.entity.read": Extract<AgentEntityGuiRead, { readonly schema: "agent-entity-detail/v1" }>;
@@ -466,7 +471,13 @@ export type DaemonGuiReadPayloadMap = {
     readonly runtimeSessionId: string;
     readonly afterCursor: string;
   };
-  readonly "repo.agentRuntime.tokenUsage": Readonly<Record<string, never>>;
+  readonly "repo.agentRuntime.tokenUsage": { readonly range?: AgentRuntimeTokenUsageRange };
+  /** Exactly one of agentId/squadId scopes the member detail read. */
+  readonly "repo.agentRuntime.tokenUsageDetail": {
+    readonly range?: AgentRuntimeTokenUsageRange;
+    readonly agentId?: string;
+    readonly squadId?: string;
+  };
   readonly "repo.task.dispatches": DaemonTaskDispatchesPayload;
   readonly "repo.agent.entities.list": Readonly<Record<string, never>>;
   readonly "repo.agent.entity.read": { readonly agentId: string };

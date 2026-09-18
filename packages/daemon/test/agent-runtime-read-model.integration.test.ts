@@ -54,6 +54,7 @@ test("runtime read facets expose safe overview/session/events through the shared
         "repo.agentRuntime.sessions.read",
         "repo.agentRuntime.events.read",
         "repo.agentRuntime.tokenUsage",
+        "repo.agentRuntime.tokenUsageDetail",
         "repo.task.dispatches",
         "repo.agent.entities.list",
         "repo.agent.entity.read",

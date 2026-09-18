@@ -73,13 +73,15 @@ test("the folded per-store reads are gone and the net read count fell", () => {
   // task_dbbc1760bb then added repo.tasks.wip: the WIP gate's own count, limit and roots, so the
   // GUI renders the gate's numbers instead of re-deriving a different count from the task list.
   // P1.3 (task_53c8d0c8) then added repo.agentRuntime.tokenUsage: today's per-agent/per-squad
-  // dispatch consumption aggregate, one daemon-side read instead of renderer-side fan-out.
+  // dispatch consumption aggregate, one daemon-side read instead of renderer-side fan-out. The
+  // token page redesign then added its member-scoped companion repo.agentRuntime.tokenUsageDetail
+  // (trend + per-dispatch rows for one agent or squad).
   assert.equal(
     daemonGuiReadMethods.length,
-    37,
+    38,
     "31 array entries minus 3 folded plus 1 unified plus 3 entity reads plus 1 vertical " +
       "declaration read plus 1 artifact read plus 1 task WIP read plus 1 single-task completion read " +
-      "plus 1 token usage aggregate read",
+      "plus 1 token usage aggregate read plus 1 token usage member detail read",
   );
 });
 
