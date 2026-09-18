@@ -10,6 +10,7 @@ import {
   type DispatchSubject,
 } from "../src/renderer/dispatch-flow.ts";
 import { DispatchDialog } from "../src/renderer/components/DispatchDialog.tsx";
+import { DispatchPreviewModal } from "../src/renderer/components/DispatchPreviewModal.tsx";
 import { AgentCard } from "../src/renderer/components/runtime/AgentCard.tsx";
 import { SessionGroupList } from "../src/renderer/components/sessions/SessionGroupList.tsx";
 import type { SessionGroup } from "../src/renderer/sessions-model.ts";
@@ -232,6 +233,7 @@ describe("agent dispatch flow", () => {
         notice: null,
         onCancel: () => undefined,
         onSubmit: () => undefined,
+        onPreview: () => Promise.resolve(null),
       }),
     );
     for (const text of [
@@ -263,6 +265,7 @@ describe("agent dispatch flow", () => {
         notice: null,
         onCancel: () => undefined,
         onSubmit: () => undefined,
+        onPreview: () => Promise.resolve(null),
       }),
     );
     const missionStep = markup.slice(markup.indexOf("What to say"));
@@ -283,6 +286,7 @@ describe("agent dispatch flow", () => {
         notice: null,
         onCancel: () => undefined,
         onSubmit: () => undefined,
+        onPreview: () => Promise.resolve(null),
       }),
     );
     expect(markup).toContain("prompt://review");
@@ -299,6 +303,7 @@ describe("agent dispatch flow", () => {
         notice: null,
         onCancel: () => undefined,
         onSubmit: () => undefined,
+        onPreview: () => Promise.resolve(null),
       }),
     );
     for (const text of [
@@ -330,6 +335,7 @@ describe("agent dispatch flow", () => {
         onSubmit: (request) => {
           submitted.push(request);
         },
+        onPreview: () => Promise.resolve(null),
       }),
     );
     expect(markup).toContain('data-testid="dispatch-submit"');
@@ -463,5 +469,89 @@ describe("agent dispatch flow", () => {
     expect(settlement.runtimeSessionId).toBe("runtime-2");
     expect(settlement.dispatchId).toBe("dispatch-2");
     expect(spawn).toHaveBeenCalledWith(expect.objectContaining({ agentId: "terra", taskId: "task-dispatch" }));
+  });
+  it("asks the same spawn action for a dispatch context preview with dryRun forced", async () => {
+    const spawnAgentRuntime = vi.fn(async () => ({
+      schema: "agent-dispatch-preview/v1",
+      ok: true,
+      command: "runtime-spawn",
+      dispatchId: "dispatch-preview",
+      runtimeSessionId: "runtime-preview",
+      prompt: "assembled prompt",
+      mission: "Verify the auth cleanup diff.",
+    }));
+    vi.stubGlobal("window", { harness: { spawnAgentRuntime } });
+    const preview = await runtimeCommandClient.preview(
+      "repo-a",
+      buildDispatchSpawnInput({ ...baseRequest, subject: agentSubject }, [codexInstance]),
+    );
+    expect(spawnAgentRuntime).toHaveBeenCalledTimes(1);
+    expect(spawnAgentRuntime).toHaveBeenCalledWith(
+      expect.objectContaining({
+        repoId: "repo-a",
+        dryRun: true,
+        agentId: "terra",
+        taskId: "task-dispatch",
+        prompt: "Verify the auth cleanup diff.",
+      }),
+    );
+    expect(preview).toEqual({
+      dispatchId: "dispatch-preview",
+      runtimeSessionId: "runtime-preview",
+      prompt: "assembled prompt",
+      mission: "Verify the auth cleanup diff.",
+    });
+  });
+  it("rejects a spawn receipt where the dispatch context preview is expected", async () => {
+    const spawnAgentRuntime = vi.fn(async () => ({
+      schema: "command-receipt/v2",
+      ok: true,
+      command: "runtime-spawn",
+      outcome: "applied",
+      opId: "runtime-op-3",
+    }));
+    vi.stubGlobal("window", { harness: { spawnAgentRuntime } });
+    await expect(
+      runtimeCommandClient.preview(
+        "repo-a",
+        buildDispatchSpawnInput({ ...baseRequest, subject: agentSubject }, [codexInstance]),
+      ),
+    ).rejects.toThrow();
+  });
+  it("offers the dispatch context preview entry beside the submit, gated on the same readiness", () => {
+    const markup = renderToStaticMarkup(
+      createElement(DispatchDialog, {
+        subject: agentSubject,
+        instances: [codexInstance],
+        tasks: [{ taskId: "task-dispatch", title: "Dispatch task", heldLease: false }],
+        prompts: [],
+        busy: false,
+        notice: null,
+        onCancel: () => undefined,
+        onSubmit: () => undefined,
+        onPreview: () => Promise.resolve(null),
+      }),
+    );
+    expect(markup).toContain('data-testid="dispatch-preview-entry"');
+    // No task is selected in a fresh dialog, so both actions stay disabled together.
+    const previewButton = markup.slice(markup.indexOf("dispatch-preview-entry"));
+    expect(previewButton).toContain("disabled");
+  });
+  it("renders the previewed mission and prompt verbatim in the read-only modal", () => {
+    const markup = renderToStaticMarkup(
+      createElement(DispatchPreviewModal, {
+        preview: {
+          dispatchId: "dispatch-preview",
+          runtimeSessionId: "runtime-preview",
+          prompt: '# Mission\n\nassembled prompt with\nmultiple lines and "quotes"',
+          mission: "Verify the auth cleanup diff.",
+        },
+        onClose: () => undefined,
+      }),
+    );
+    expect(markup).toContain('data-testid="dispatch-preview-mission"');
+    expect(markup).toContain("Verify the auth cleanup diff.");
+    expect(markup).toContain('data-testid="dispatch-preview-prompt"');
+    expect(markup).toContain("# Mission\n\nassembled prompt with\nmultiple lines and &quot;quotes&quot;");
   });
 });

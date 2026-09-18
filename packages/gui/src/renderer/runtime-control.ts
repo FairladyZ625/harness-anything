@@ -38,6 +38,34 @@ export function resumeRuntimeSpawnInput(dispatchId: string, idempotencyKey: stri
   return { dispatchId, idempotencyKey };
 }
 
+// agent-dispatch-preview/v1: the daemon returns the fully assembled prompt exactly at the
+// launch boundary when a spawn payload carries dryRun. It is not a command receipt — the
+// renderer never settles or polls it.
+export interface AgentDispatchPreview {
+  readonly dispatchId: string;
+  readonly runtimeSessionId: string;
+  readonly prompt: string;
+  readonly mission: string;
+}
+export function parseAgentDispatchPreview(value: unknown): AgentDispatchPreview {
+  if (
+    !isRendererRecord(value) ||
+    value.schema !== "agent-dispatch-preview/v1" ||
+    value.ok !== true ||
+    typeof value.dispatchId !== "string" ||
+    typeof value.runtimeSessionId !== "string" ||
+    typeof value.prompt !== "string" ||
+    typeof value.mission !== "string"
+  )
+    throw new Error(rendererErrorHint(value, "Dispatch preview returned an invalid receipt."));
+  return {
+    dispatchId: value.dispatchId,
+    runtimeSessionId: value.runtimeSessionId,
+    prompt: value.prompt,
+    mission: value.mission,
+  };
+}
+
 export async function submitRuntimeSpawn(
   input: RuntimeSpawnInput,
   deps: {
