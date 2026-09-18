@@ -126,9 +126,12 @@ function installLedgerCommitGuard(repoRoot: string): {
         degraded:
           "ledger commit guard not installed: both hooks/pre-commit and hooks/pre-commit.local are occupied by foreign hooks.",
       };
+    /* @gate-identity check-bypass-write-boundary/bypass-write-136 */
     renameSync(hookPath, chainedPath);
   }
+  /* @gate-identity check-bypass-write-boundary/bypass-write-137 */
   mkdirSync(hooksDir, { recursive: true });
+  /* @gate-identity check-bypass-write-boundary/bypass-write-138 */
   writeFileSync(hookPath, ledgerCommitGuardHook, { mode: 0o755 });
   return { applied: ["hooks/pre-commit=harness-ledger-commit-guard/v1"], degraded: null };
 }
