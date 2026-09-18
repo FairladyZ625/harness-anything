@@ -98,6 +98,7 @@ export function createDaemonHostRuntimeApi(
         readTaskDispatches: (taskIds) =>
           context.host.read(repoId, "repo.task.dispatches", { taskIds: taskIds as string[] }, auth),
         awaitSignal: cell.awaitRuntimeSignal,
+        connectionSignal: auth.connectionSignal,
         codedError: context.hostCodedError,
       });
     },

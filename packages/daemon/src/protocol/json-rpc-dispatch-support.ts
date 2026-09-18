@@ -162,6 +162,13 @@ export function protocolErrorMessage(error: unknown): string {
 // the shutdown window then had to guess at. Status stays served because it is the one answer that
 // reports what is still draining; stop stays served because it is idempotent.
 const methodsServedWhileDraining: ReadonlySet<DaemonRpcMethod> = new Set(["daemon.status", "daemon.stop"]);
+// Parked waits: read-only requests whose reply is deferred until an external runtime settles. They
+// hold no incomplete write — abandoning one is always safe because the client replays the same
+// idempotent read — so neither the build-drain gate nor the shutdown drain window waits on them.
+// Stream calls are the same safety class but answer immediately and pump events in the background,
+// so only the await family parks a reply.
+const daemonParkedWaitMethods: ReadonlySet<string> = new Set(["repo.agentRuntime.sessions.await"]);
+export const isDaemonParkedWaitMethod = (method: string): boolean => daemonParkedWaitMethods.has(method);
 // `stopping` is the runtime's own shutdown flag, handed in by the composition that owns the drain;
 // the daemon has no second opinion about whether it is stopping.
 export function daemonStoppingRefusal(method: DaemonRpcMethod, stopping: boolean): DaemonProtocolErrorResult | null {

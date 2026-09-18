@@ -20,6 +20,7 @@ import { daemonStreamFacetByMethod } from "./daemon-protocol-gui-actions.ts";
 import {
   declaredExecutorOrNull,
   daemonRequestLogEntry,
+  isDaemonParkedWaitMethod,
   isDaemonStreamCall,
   isRepoGuiReadCall,
   isRuntimeInstanceAuthCall,
@@ -44,7 +45,7 @@ import {
 import { isJsonObject, type JsonObject, type JsonRpcRequest, type JsonRpcResponse } from "./json-rpc-types.ts";
 import { currentDaemonProtocolVersion } from "./version.ts";
 import { isContractVersionCompatible } from "../../../kernel/src/domain/contract-version.ts";
-import type { CoreDomainError } from "../../../kernel/src/index.ts";
+import { consumeKnownError, type CoreDomainError } from "../../../kernel/src/index.ts";
 import type { DaemonBuildObserver, DaemonBuildStamp } from "../build-identity.ts";
 import { diagnosticForError } from "../receipt-guidance.ts";
 import { remoteProxyEventMethod } from "../remote-proxy.ts";
@@ -87,6 +88,9 @@ export function createJsonRpcProtocolServer(options: {
     readonly detach: () => void;
   };
   const subscriptions = new Set<Subscription>();
+  // Abandonment hooks for parked waits: called when this server closes, so a parked reply never
+  // holds the shutdown drain window open.
+  const parkedWaitAborts = new Set<() => void>();
   const run = async (request: JsonRpcRequest, frameReceivedAt = Date.now()): Promise<JsonRpcResponse | undefined> => {
     const id = request.id ?? null,
       startedAt = Date.now(),
@@ -528,7 +532,15 @@ export function createJsonRpcProtocolServer(options: {
     if (method === "repo.agentRuntime.sessions.await") {
       const repo = params.repo.repoId;
       try {
-        return reply(method, await options.host.awaitRuntimeSessions(repo, params.payload, options.authContext));
+        const settled = await raceParkedWait(
+          options.host.awaitRuntimeSessions(repo, params.payload, options.authContext),
+          parkedWaitAborts,
+          options.authContext.connectionSignal,
+        );
+        // Abandonment answers with silence: the connection is closing either way, and the client's
+        // reconnect budget re-issues this idempotent read on the daemon that survives.
+        if (settled === parkedWaitAbandoned) return undefined;
+        return reply(method, settled);
       } catch (error) {
         return reply(method, protocolFailure(method, error));
       }
@@ -571,6 +583,9 @@ export function createJsonRpcProtocolServer(options: {
   };
   const one = async (request: JsonRpcRequest, frameReceivedAt = Date.now()): Promise<JsonRpcResponse | undefined> => {
     const method = typeof request.method === "string" ? request.method : "";
+    // Parked waits are observers, not work: counting one would pin a superseded daemon resident for
+    // as long as any --wait client cares to watch, which is exactly what the drain exists to end.
+    if (isDaemonParkedWaitMethod(method)) return run(request, frameReceivedAt);
     options.onRequestStarted?.(method);
     try {
       return await run(request, frameReceivedAt);
@@ -588,6 +603,11 @@ export function createJsonRpcProtocolServer(options: {
     close: () => {
       for (const subscription of subscriptions) subscription.detach();
       subscriptions.clear();
+      // Parked waits hold no work, so teardown owes them no drain window: settle them now, in
+      // silence, instead of parking each one through the shutdown drain deadline.
+      const abandoned = [...parkedWaitAborts];
+      parkedWaitAborts.clear();
+      for (const abort of abandoned) abort();
     },
   };
   async function pump(subscription: Subscription, eventMethod: string): Promise<void> {
@@ -660,6 +680,46 @@ function protocolFailure(command: string, error: unknown) {
   const code = rpcServerErrorCode(error),
     message = protocolErrorMessage(error);
   return daemonProtocolError(command, code, message, diagnosticForError(error), error);
+}
+
+/** Sentinel resolution for a parked wait the server gave up on: the connection that asked for it
+ *  closed (the reply has nowhere to land) or this server is tearing down (the daemon is going away
+ *  by design). Either way the wait holds no daemon-side work that a drain must protect, and the
+ *  abandonment answers with silence — the transport close is the signal, and the client re-issues
+ *  this idempotent read after reconnecting. */
+const parkedWaitAbandoned: unique symbol = Symbol("parked-wait-abandoned");
+
+function raceParkedWait<T>(
+  parked: Promise<T>,
+  abandonments: Set<() => void>,
+  connectionSignal: AbortSignal | undefined,
+): Promise<T | typeof parkedWaitAbandoned> {
+  // The abandoned park can still reject later — its settle loop wakes against a closing host — and
+  // nobody observes that outcome anymore; the abandonment already settled the request.
+  parked.catch(consumeKnownError);
+  return new Promise<T | typeof parkedWaitAbandoned>((resolve, reject) => {
+    const release = () => {
+      abandonments.delete(abandon);
+      connectionSignal?.removeEventListener("abort", onConnectionAbort);
+    };
+    const onConnectionAbort = () => abandon();
+    const abandon = () => {
+      release();
+      resolve(parkedWaitAbandoned);
+    };
+    abandonments.add(abandon);
+    connectionSignal?.addEventListener("abort", onConnectionAbort, { once: true });
+    parked.then(
+      (value) => {
+        release();
+        resolve(value);
+      },
+      (error) => {
+        release();
+        reject(error);
+      },
+    );
+  });
 }
 
 function isContractedDaemonRpcMethod(method: string): method is DaemonRpcMethod {

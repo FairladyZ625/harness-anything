@@ -60,6 +60,7 @@ function awaitContext(input: {
   readonly sessions?: Readonly<Record<string, AgentRuntimeSessionResult[]>>;
   readonly missing?: readonly string[];
   readonly dispatches?: DaemonTaskDispatchesResult[];
+  readonly connectionSignal?: AbortSignal;
 }) {
   const sessionReads = new Map(Object.entries(input.sessions ?? {}).map(([id, reads]) => [id, [...reads]])),
     missing = new Set(input.missing ?? []),
@@ -92,6 +93,7 @@ function awaitContext(input: {
         // signal wake, never a poll.
         await new Promise<void>((resolve) => signals.pending.push(resolve));
       },
+      ...(input.connectionSignal ? { connectionSignal: input.connectionSignal } : {}),
       codedError: (code, message) => Object.assign(new Error(message), { code }),
     };
   return { context, signals };
@@ -281,4 +283,43 @@ test("taskDispatchRowSettled honours fallback chains and the unknown-outcome gra
   assert.equal(taskDispatchRowSettled(succeeded, ids), true);
   assert.equal(taskDispatchRowsSettled([succeeded, unknownTerminal]), true);
   assert.equal(taskDispatchRowsSettled([succeeded, running]), false);
+});
+
+test("a parked sessions.await ends when the connection that asked for it closes", async () => {
+  const connection = new AbortController(),
+    { context } = awaitContext({
+      sessions: { "sess-live": [sessionResult("sess-live", null)] },
+      connectionSignal: connection.signal,
+    });
+  const pending = orchestrateRuntimeSessionsAwait({ runtimeSessionIds: ["sess-live"] }, context);
+  await new Promise((resolve) => setImmediate(resolve));
+  connection.abort();
+  const verdict = await Promise.race([
+    pending.then(
+      () => "settled",
+      (error: unknown) =>
+        (error as { readonly code?: unknown }).code === "client_disconnected" ? "abandoned" : "unexpected",
+    ),
+    new Promise((resolve) => {
+      const timer = setTimeout(() => resolve("still-parked"), 500);
+      timer.unref?.();
+    }),
+  ]);
+  assert.equal(verdict, "abandoned", "the parked wait must end at the connection, not keep settle reads alive");
+});
+
+test("a sessions.await on an already-closed connection answers client_disconnected immediately", async () => {
+  const connection = new AbortController(),
+    { context } = awaitContext({
+      sessions: { "sess-live": [sessionResult("sess-live", null)] },
+      connectionSignal: connection.signal,
+    });
+  connection.abort();
+  await assert.rejects(
+    orchestrateRuntimeSessionsAwait({ runtimeSessionIds: ["sess-live"] }, context),
+    (error: unknown) => {
+      assert.equal((error as { readonly code?: unknown }).code, "client_disconnected");
+      return true;
+    },
+  );
 });

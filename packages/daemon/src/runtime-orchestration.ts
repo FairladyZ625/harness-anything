@@ -65,6 +65,9 @@ export interface RuntimeAwaitContext {
   readonly readTaskDispatches: (taskIds: readonly string[]) => Promise<DaemonTaskDispatchesResult>;
   /** Resolves on the next runtime signal/outcome notification or the settlement grace backstop. */
   readonly awaitSignal: () => Promise<void>;
+  /** Aborts when the connection that parked the wait closes; the wait holds no work, so it ends
+   *  instead of keeping its settle re-reads alive for the runtime's whole life. */
+  readonly connectionSignal?: AbortSignal;
   readonly codedError: (code: string, message: string) => Error;
 }
 
@@ -529,7 +532,7 @@ async function awaitSessionSet(
     // absent from this node's projection are reported, never waited on — otherwise the request
     // would hang on a session only another edge node can see.
     if (inFlight.length === 0 || (mode === "any" && settled.length > 0)) break;
-    await context.awaitSignal();
+    await parkAwait(context);
   }
   const winner = settled[0],
     outcome =
@@ -608,6 +611,32 @@ async function awaitTaskDispatches(
         exitCode: mode === "all" ? (read.exitCode ?? 0) : (winner?.exitCode ?? read.exitCode ?? 0),
       };
     }
-    await context.awaitSignal();
+    await parkAwait(context);
   }
+}
+
+/** The park between settle re-reads. The connection signal is not a settle input: it ends the wait
+ *  outright, because a reply to a closed connection has nowhere to land. */
+async function parkAwait(context: RuntimeAwaitContext): Promise<void> {
+  const signal = context.connectionSignal;
+  if (signal?.aborted) throw context.codedError("client_disconnected", "The connection that parked this wait closed.");
+  if (!signal) return context.awaitSignal();
+  const wake = context.awaitSignal();
+  return new Promise<void>((resolve, reject) => {
+    const onAbort = () => {
+      signal.removeEventListener("abort", onAbort);
+      reject(context.codedError("client_disconnected", "The connection that parked this wait closed."));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    wake.then(
+      () => {
+        signal.removeEventListener("abort", onAbort);
+        resolve();
+      },
+      (error) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(error);
+      },
+    );
+  });
 }
