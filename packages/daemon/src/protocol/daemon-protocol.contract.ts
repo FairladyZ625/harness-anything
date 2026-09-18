@@ -202,6 +202,9 @@ export const daemonProtocolMethods = Object.freeze([
       payload: shape({ action: shape({ kind: "string" }, true) }),
     }),
   },
+] as const);
+
+export const runtimeInstanceMethods = Object.freeze([
   {
     id: "repo.agentRuntime.batch",
     phase: "Runtime-B",
@@ -231,9 +234,6 @@ export const daemonProtocolMethods = Object.freeze([
       }),
     }),
   },
-] as const);
-
-export const runtimeInstanceMethods = Object.freeze([
   {
     id: "daemon.runtimeInstance.create",
     phase: "Runtime-Instances-S1",
