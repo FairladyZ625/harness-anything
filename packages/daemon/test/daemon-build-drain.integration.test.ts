@@ -427,7 +427,9 @@ test("a superseded exit restarts the disk build, which re-adopts the live runtim
         (record) => record.event === "process_exit" && record.outcome === "build_superseded",
       ),
     );
-    assert.ok(successorStart, "the superseded exit must hand the slot to a successor daemon");
+    // The lifecycle record lands before teardown finishes; the slot hand-off is the last step of
+    // that teardown, so the successor's start is what must be awaited, not guessed.
+    await waitUntil(() => successorStart !== undefined, 5_000);
     await successorStart;
     await waitUntil(repoAttached, 10_000);
     const current = await requestDaemonJsonRpcAt(endpoint, "daemon.status", {}, 2_000, 2_000);
@@ -472,8 +474,13 @@ test("a superseded exit restarts the disk build, which re-adopts the live runtim
       }
     });
   } finally {
-    await replacement?.stop();
+    // A failed assertion can leave the successor mid-start: the drifted daemon's own teardown is
+    // what calls onSupersededExit, so stop it first, settle the in-flight successor start, and only
+    // then stop the successor — otherwise removing the user root underneath a starting daemon ends
+    // the test with an unhandled ENOENT on the singleton lock.
     await daemon?.stop();
+    await successorStart?.catch((error: unknown) => consumeKnownError(error));
+    await replacement?.stop();
     for (const cell of cells) await cell.close().catch((error: unknown) => consumeKnownError(error));
     rmSync(release, { force: true });
     rmSync(parent, { recursive: true, force: true });
@@ -669,8 +676,11 @@ test("a superseded exit hands the slot over while a --wait client's parked await
     assert.equal(verdict.receipt.runtimeSessionId, runtimeSessionId);
   } finally {
     waitClient?.stop();
-    await replacement?.stop();
+    // Same settle-before-remove contract as the re-adopt test: a timed-out hand-off leaves the
+    // successor mid-start when the fixture user root is about to disappear.
     await daemon?.stop();
+    await successorStart?.catch((error: unknown) => consumeKnownError(error));
+    await replacement?.stop();
     for (const cell of cells) await cell.close().catch((error: unknown) => consumeKnownError(error));
     rmSync(release, { force: true });
     rmSync(parent, { recursive: true, force: true });
