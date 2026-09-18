@@ -203,7 +203,11 @@ test("Runtime report is archived after the worker submits its execution", async 
   published(root, env, submittedTask);
   writeFileSync(path.join(root, "harness", submittedPlanPath), realizedPlan("Submitted runtime archive"));
   run(root, env, ["doc", "sync", "--submit", "--path", submittedPlanPath]);
-  run(root, env, ["task", "start", submittedTaskId, "--execution-id", submittedExecutionId]);
+  const started = run(root, env, ["task", "start", submittedTaskId, "--execution-id", submittedExecutionId]);
+  // The delivery commits below write repo Git directly, so the daemon must finish publishing the
+  // cuts of the writes above first; otherwise the two HEAD writers race and git dies with
+  // `cannot lock ref 'HEAD'`.
+  published(root, env, started);
   // This standard task submits a public code cut bound to the runtime cwd.
   const deliveryGit = (args: string[]) => {
     const result = spawnSync("git", args, { cwd: root, env, encoding: "utf8" });

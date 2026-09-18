@@ -97,10 +97,12 @@ test("a live installed-bin daemon refuses to declare an executor for a reviewed 
       ]).outcome,
       "applied",
     );
-    assert.equal(
-      run(root, userRoot, daemonId, ["task", "start", taskId, "--execution-id", executionId]).outcome,
-      "applied",
-    );
+    const started = run(root, userRoot, daemonId, ["task", "start", taskId, "--execution-id", executionId]);
+    assert.equal(started.outcome, "applied", JSON.stringify(started));
+    // The delivery commit below writes repo Git directly, so the daemon must finish publishing the
+    // cuts of the writes above first; otherwise the two HEAD writers race and git dies with
+    // `cannot lock ref 'HEAD'`.
+    published(root, userRoot, daemonId, started);
     writeFileSync(path.join(root, "README.md"), "# Executor null live\n\nDelivered change.\n");
     git(root, "commit", "--quiet", "-am", "executor null delivery");
     writeFileSync(

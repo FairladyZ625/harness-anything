@@ -227,6 +227,10 @@ export async function fixture(
     delivery = `artifact:${report}@${accepted.revision}`;
   }
   if (hybridDelivery) {
+    // The hybrid delivery commits repo Git directly, so the cell must finish publishing the cuts of
+    // the writes above first; otherwise the two HEAD writers race and git dies with
+    // `cannot lock ref 'HEAD'`.
+    await cell.settlePendingMaterialization("hybrid fixture delivery");
     writeFileSync(path.join(root, "README.md"), "# Reviewed hybrid delivery\n");
     git(root, "add", "README.md");
     git(root, "commit", "-qm", "docs: update hybrid fixture delivery");
