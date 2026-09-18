@@ -15,7 +15,7 @@ equivalent, because the manifest and workflow can evolve.
 
 GitHub's required PR contexts remain authoritative. A local pass is evidence
 for review, not permission to waive CI. Likewise, the aggregate full-check lane
-used on `main`, schedules, or manual dispatch is not the standard pre-PR loop.
+used on schedules or manual dispatch is not the standard pre-PR loop.
 
 ## Evidence standard
 

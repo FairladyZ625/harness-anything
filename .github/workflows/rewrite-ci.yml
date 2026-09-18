@@ -25,8 +25,12 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Push to main runs the same tiered lanes as pull_request (see below); the serial
+  # aggregate survives only on the nightly schedule and manual dispatch, where a
+  # single-process `npm run check` still covers shard-boundary effects the lanes
+  # cannot see (and runs the Node 26 arm and scheduled quarantine).
   full-check:
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && github.event_name != 'push'
     runs-on: ubuntu-latest
     env:
       HARNESS_CI_JOB: full-check (${{ matrix.node-version }})
@@ -59,7 +63,7 @@ jobs:
           retention-days: 14
 
   typecheck:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -83,7 +87,7 @@ jobs:
           retention-days: 14
 
   fast-contract:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -94,6 +98,7 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      - run: git diff --check
       - run: node tools/run-manifest-gates.mjs --workflow-job fast-contract
       - name: Upload structured CI observation artifact
         if: always()
@@ -164,7 +169,7 @@ jobs:
           retention-days: 14
 
   integration-shard:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
     name: integration-shard (${{ matrix.shard }})
     runs-on: ubuntu-latest
     strategy:
@@ -289,7 +294,7 @@ jobs:
           retention-days: 14
 
   boundaries:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
     permissions:
       contents: read
     runs-on: ubuntu-latest
@@ -317,7 +322,7 @@ jobs:
           retention-days: 14
 
   ontology-advisory:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
     continue-on-error: true
     runs-on: ubuntu-latest
     steps:
@@ -341,7 +346,7 @@ jobs:
           retention-days: 14
 
   package-policy:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -350,6 +355,9 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      # The windows-first-run smoke (folded into this lane on push) needs the packaged bin.
+      - if: github.event_name == 'push'
+        run: npm run build -w @harness-anything/cli
       - run: node tools/run-manifest-gates.mjs --workflow-job package-policy
       - name: Upload structured CI observation artifact
         if: always()
@@ -361,7 +369,7 @@ jobs:
           retention-days: 14
 
   supply-chain:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -381,7 +389,7 @@ jobs:
           retention-days: 14
 
   gui-build:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -391,7 +399,7 @@ jobs:
         id: filter
         with:
           token: ""
-          base: ${{ github.event.pull_request.base.sha }}
+          base: ${{ github.event.pull_request.base.sha || github.event.before }}
           filters: |
             gui:
               - 'packages/gui/**'
