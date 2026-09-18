@@ -66,9 +66,10 @@ export function createDaemonHostLifecycleApi(
               `${observedBuild.loadedBuildId ?? "missing"}`,
               " while disk has ",
               `${observedBuild.diskBuildId ?? "missing"}`,
-              "; it will keep serving the loaded build until live runtime sessions and ",
-              "queued writes drain, then exit; no `ha daemon stop` is required. ",
-              "The next command will autostart the disk build.",
+              "; it will keep serving the loaded build until queued writes drain, then exit and ",
+              "restart on the disk build, re-adopting its live runtime sessions; ",
+              "no `ha daemon stop` is required. ",
+              "The next command finds the disk build running or autostarts it.",
             ].join("")
           : base;
       return {

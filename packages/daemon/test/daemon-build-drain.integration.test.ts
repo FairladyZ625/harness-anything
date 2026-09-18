@@ -1,17 +1,24 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import {
+  consumeKnownError,
+  makeTaskEventReader,
+  makeTaskProjection,
+  type AgentDefinitionSnapshot,
+} from "../../kernel/src/index.ts";
 import { ensureLocalDaemonRunning, type DaemonLaunchSpec } from "../src/client/daemon-autostart.ts";
 import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
 import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
-import { readDaemonLifecycleRecords, type DaemonLifecycleRecorder } from "../src/lifecycle-log.ts";
+import { readDaemonLifecycleRecords } from "../src/lifecycle-log.ts";
 import { daemonSingletonLockPath } from "../src/daemon-singleton.ts";
 import { daemonPidPath, readDaemonPid, startDaemon, type RunningDaemon } from "../src/runtime.ts";
 import { openBootstrappedRepoCell, registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
+import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 
 test("the daemon binds and serves status and queued commands before repository attachment settles", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-daemon-bind-before-attach-")),
@@ -68,7 +75,9 @@ test("the daemon binds and serves status and queued commands before repository a
   }
 });
 
-test("a drifted daemon serves a command and reports its old build while a runtime session is live", async () => {
+test("a drifted daemon exits on its own while a runtime session is live", async () => {
+  // A live runtime session is not work this daemon owns: the worker runs detached and the next
+  // daemon re-adopts it by pid, so only queued writes and attaching repositories hold the exit.
   const parent = mkdtempSync(path.join(tmpdir(), "ha-daemon-live-build-drain-")),
     rootDir = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
@@ -76,7 +85,7 @@ test("a drifted daemon serves a command and reports its old build while a runtim
     runtimeFile = builtRuntime(runtimeRoot, "build-a"),
     buildIdPath = path.join(runtimeRoot, "packages/cli/dist/build-id.txt"),
     repoId = "live-build-drain";
-  let daemon: RunningDaemon | undefined, recordLifecycle: DaemonLifecycleRecorder | undefined;
+  let daemon: RunningDaemon | undefined;
   rosterRepo(rootDir, repoId);
   registerBootstrappedDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
   try {
@@ -88,7 +97,6 @@ test("a drifted daemon serves a command and reports its old build while a runtim
         runtimeFile,
         openCell: async (input) => {
           const cell = await openBootstrappedRepoCell(input);
-          recordLifecycle = input.recordLifecycle;
           input.recordLifecycle?.({
             event: "runtime_spawn",
             runtimeSessionId: "runtime-still-live",
@@ -131,17 +139,66 @@ test("a drifted daemon serves a command and reports its old build while a runtim
       },
       { code: "daemon_build_stale", loadedBuildId: "build-a", diskBuildId: "build-b", liveRuntimeSessions: 1 },
     );
+    await waitUntil(() => readDaemonPid(userRoot, repoId) === null && !existsSync(daemon!.endpoint));
+    assert.notEqual(readDaemonPid(userRoot, repoId), originalPid);
+    assert.equal(
+      readDaemonLifecycleRecords(userRoot, repoId).some(
+        (record) => record.event === "process_exit" && record.outcome === "build_superseded",
+      ),
+      true,
+    );
+  } finally {
+    await daemon?.stop();
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("a drifted daemon stays resident while a write is queued behind an unfinished attachment", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-daemon-drain-queued-write-")),
+    rootDir = path.join(parent, "repo"),
+    userRoot = path.join(parent, "user"),
+    runtimeRoot = path.join(parent, "runtime"),
+    runtimeFile = builtRuntime(runtimeRoot, "build-a"),
+    buildIdPath = path.join(runtimeRoot, "packages/cli/dist/build-id.txt"),
+    repoId = "drain-queued-write",
+    attachmentGate = deferred<void>(),
+    attachmentStarted = deferred<void>();
+  let daemon: RunningDaemon | undefined,
+    attachmentReleased = false;
+  rosterRepo(rootDir, repoId);
+  registerBootstrappedDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
+  try {
+    daemon = runningDaemon(
+      await startDaemon({
+        daemonId: repoId,
+        userRoot,
+        endpoint: localUserDaemonEndpoint(userRoot, repoId),
+        runtimeFile,
+        openCell: async (input) => {
+          attachmentStarted.resolve();
+          await attachmentGate.promise;
+          return openBootstrappedRepoCell(input);
+        },
+      }),
+    );
+    await attachmentStarted.promise;
+    writeFileSync(buildIdPath, "build-b\n", "utf8");
+    const queuedWrite = requestDaemonJsonRpcAt(
+      daemon.endpoint,
+      "repo.task.create",
+      { repo: { repoId }, payload: { taskId: "task-drain-queued", title: "Queued behind attachment" } },
+      2_000,
+      5_000,
+      undefined,
+      true,
+    );
     await eventLoopTurn();
     await eventLoopTurn();
-    assert.equal(readDaemonPid(userRoot, repoId), originalPid, "the live runtime keeps the loaded daemon resident");
+    assert.equal(readDaemonPid(userRoot, repoId) !== null, true, "queued work keeps the drifted daemon resident");
     assert.equal(existsSync(daemon.endpoint), true);
-    recordLifecycle?.({
-      event: "runtime_exit",
-      runtimeSessionId: "runtime-still-live",
-      dispatchId: "dispatch-still-live",
-      pid: process.pid,
-      outcome: "succeeded",
-    });
+    attachmentReleased = true;
+    attachmentGate.resolve();
+    assert.equal((await queuedWrite).outcome, "applied");
     await waitUntil(() => readDaemonPid(userRoot, repoId) === null && !existsSync(daemon!.endpoint));
     assert.equal(
       readDaemonLifecycleRecords(userRoot, repoId).some(
@@ -150,6 +207,7 @@ test("a drifted daemon serves a command and reports its old build while a runtim
       true,
     );
   } finally {
+    if (!attachmentReleased) attachmentGate.resolve();
     await daemon?.stop();
     rmSync(parent, { recursive: true, force: true });
   }
@@ -211,6 +269,213 @@ test("a drained superseded daemon exits and the next autostart loads the disk bu
   } finally {
     await replacement?.stop();
     await daemon?.stop();
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("a superseded exit restarts the disk build, which re-adopts the live runtime and settles its exit", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-daemon-superseded-readopt-")),
+    rootDir = path.join(parent, "repo"),
+    userRoot = path.join(parent, "user"),
+    runtimeRoot = path.join(parent, "runtime"),
+    runtimeFile = builtRuntime(runtimeRoot, "build-a"),
+    buildIdPath = path.join(runtimeRoot, "packages/cli/dist/build-id.txt"),
+    repoId = "superseded-readopt",
+    release = path.join(parent, "release"),
+    providerPidFile = path.join(parent, "provider.pid"),
+    endpoint = localUserDaemonEndpoint(userRoot, repoId),
+    executablePath = writeProviderExecutable(
+      path.join(parent, "readopt-provider.mjs"),
+      `import fs from "node:fs";\nfs.readFileSync(0, "utf8");\nfs.writeFileSync(${JSON.stringify(providerPidFile)}, String(process.pid));\nconsole.log(JSON.stringify({ type: "thread.started", thread_id: "provider-readopt-session" }));\nconst timer = setInterval(() => { if (!fs.existsSync(${JSON.stringify(release)})) return; clearInterval(timer); console.log(JSON.stringify({ type: "item.completed", item: { id: "write", type: "file_change", changes: [{ path: "result.txt", kind: "add" }], status: "completed" } })); console.log(JSON.stringify({ type: "item.completed", item: { id: "message", type: "agent_message", text: "survived daemon supersession" } })); console.log(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } })); }, 10);\n`,
+    ),
+    installation = {
+      installationId: "installation-superseded-readopt",
+      kindId: "codex" as const,
+      executablePath,
+      version: "1.0.0",
+      observedAt: "2026-09-18T00:00:00.000Z",
+    },
+    definition: AgentDefinitionSnapshot = {
+      schema: "agent-definition-snapshot/v1",
+      configVersion: 1,
+      instanceId: "codex-superseded-readopt",
+      installationId: installation.installationId,
+      kindId: "codex",
+      providerId: "openai",
+      model: "codex-model",
+      reasoningEffort: null,
+      baseUrl: null,
+      authMode: "subscription",
+    },
+    instance = {
+      schemaVersion: 2 as const,
+      instanceId: definition.instanceId,
+      name: "Codex Superseded Re-adopt",
+      kindId: "codex" as const,
+      installationId: installation.installationId,
+      providerId: "openai",
+      models: ["codex-model"],
+      defaultModel: "codex-model",
+      enabled: true,
+      permissionMode: "workspace-write" as const,
+      codex: {},
+      authMode: "subscription" as const,
+      authState: "configured" as const,
+      authReadiness: { status: "ready" as const, code: null, hint: null },
+      isolationState: "enforced" as const,
+    },
+    prepareRuntimeLaunch = async (_instanceId: string, request: { readonly cwd: string; readonly prompt: string }) => ({
+      definition,
+      installation,
+      executablePath,
+      args: ["exec", "--json", "--model", "codex-model", "-"],
+      env: process.env,
+      cwd: request.cwd,
+      prompt: request.prompt,
+    });
+  let daemon: RunningDaemon | undefined,
+    replacement: RunningDaemon | undefined,
+    successorStart: Promise<void> | undefined,
+    spawnReceipt: Awaited<ReturnType<Awaited<ReturnType<typeof openBootstrappedRepoCell>>["spawnRuntime"]>> | undefined;
+  const cells: Awaited<ReturnType<typeof openBootstrappedRepoCell>>[] = [],
+    openCell = async (input: Parameters<typeof openBootstrappedRepoCell>[0]) => {
+      const cell = await openBootstrappedRepoCell({
+        ...input,
+        runtimeInstances: () => [instance],
+        prepareRuntimeLaunch,
+      });
+      cells.push(cell);
+      return cell;
+    },
+    repoAttached = async () => {
+      try {
+        const status = await requestDaemonJsonRpcAt(endpoint, "daemon.status", {}, 2_000, 2_000);
+        return (status.repos as { readonly state: string }[])[0]?.state === "attached";
+      } catch (error) {
+        consumeKnownError(error);
+        return false;
+      }
+    },
+    readSession = (projectionName: string) => {
+      const projection = makeTaskProjection({
+        rootDir,
+        projectionPath: path.join(parent, projectionName),
+        eventStore: makeTaskEventReader({ repoId, rootDir }),
+      });
+      try {
+        projection.catchUp();
+        return projection.readRuntimeSession(String(spawnReceipt!.runtimeSessionId))!;
+      } finally {
+        projection.close();
+      }
+    };
+  rosterRepo(rootDir, repoId);
+  registerBootstrappedDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
+  try {
+    daemon = runningDaemon(
+      await startDaemon({
+        daemonId: repoId,
+        userRoot,
+        endpoint,
+        runtimeFile,
+        openCell,
+        onSupersededExit: () => {
+          successorStart = (async () => {
+            replacement = runningDaemon(
+              await startDaemon({ daemonId: repoId, userRoot, endpoint, runtimeFile, openCell }),
+            );
+          })();
+        },
+      }),
+    );
+    await waitUntil(repoAttached, 10_000);
+    spawnReceipt = await cells[0]!.spawnRuntime(
+      {
+        runtimeInstanceId: instance.instanceId,
+        cwd: { scope: "repo-root" },
+        prompt: "Stay alive across the supersession exit",
+        taskId: null,
+        idempotencyKey: "superseded-readopt",
+      },
+      { actor: { principal: { personId: "person-superseded-readopt" }, executor: null }, source: "local" },
+    );
+    assert.equal(spawnReceipt.outcome, "applied", JSON.stringify(spawnReceipt));
+    const providerPid = await eventuallyValue(() => {
+      try {
+        const value = Number(readFileSync(providerPidFile, "utf8"));
+        return Number.isInteger(value) && value > 0 ? value : null;
+      } catch (error) {
+        consumeKnownError(error);
+        return null;
+      }
+    });
+    writeFileSync(buildIdPath, "build-b\n", "utf8");
+    const served = await requestDaemonJsonRpcAt(
+      daemon.endpoint,
+      "repo.task.create",
+      { repo: { repoId }, payload: { taskId: "task-superseded-readopt", title: "Served by old build" } },
+      2_000,
+      5_000,
+      undefined,
+      true,
+    );
+    assert.equal(served.outcome, "applied", JSON.stringify(served));
+    // The successor rebinds this endpoint within milliseconds of the exit, so the authoritative
+    // exit witness is the lifecycle record, not the transiently empty pid file or socket.
+    await waitUntil(() =>
+      readDaemonLifecycleRecords(userRoot, repoId).some(
+        (record) => record.event === "process_exit" && record.outcome === "build_superseded",
+      ),
+    );
+    assert.ok(successorStart, "the superseded exit must hand the slot to a successor daemon");
+    await successorStart;
+    await waitUntil(repoAttached, 10_000);
+    const current = await requestDaemonJsonRpcAt(endpoint, "daemon.status", {}, 2_000, 2_000);
+    assert.deepEqual(current.build, {
+      ...(current.build as Record<string, unknown>),
+      loadedBuildId: "build-b",
+      diskBuildId: "build-b",
+      drifted: false,
+    });
+    const records = readDaemonLifecycleRecords(userRoot, repoId),
+      spawnsForSession = records.filter(
+        (record) => record.event === "runtime_spawn" && record.runtimeSessionId === spawnReceipt.runtimeSessionId,
+      );
+    assert.equal(spawnsForSession.length, 2, "the successor generation must re-record the live session at adoption");
+    const adopted = readSession("superseded-readopt-live.sqlite");
+    assert.deepEqual({ liveness: adopted.liveness, outcome: adopted.outcome }, { liveness: "live", outcome: null });
+    assert.doesNotThrow(() => process.kill(providerPid, 0), "the adopted runtime worker must still be alive");
+    writeFileSync(release, "release");
+    await waitUntil(
+      () =>
+        makeTaskEventReader({ repoId, rootDir })
+          .read()
+          .events.some(
+            (event) =>
+              event.type === "runtime_session_outcome_observed" &&
+              event.payload.runtimeSessionId === spawnReceipt!.runtimeSessionId,
+          ),
+      10_000,
+    );
+    const settled = readSession("superseded-readopt-exited.sqlite");
+    assert.deepEqual(
+      { liveness: settled.liveness, outcome: settled.outcome, exitCode: settled.exitCode },
+      { liveness: "exited", outcome: "succeeded", exitCode: 0 },
+    );
+    await waitUntil(() => {
+      try {
+        process.kill(providerPid, 0);
+        return false;
+      } catch (error) {
+        consumeKnownError(error);
+        return true;
+      }
+    });
+  } finally {
+    await replacement?.stop();
+    await daemon?.stop();
+    for (const cell of cells) await cell.close().catch((error: unknown) => consumeKnownError(error));
+    rmSync(release, { force: true });
     rmSync(parent, { recursive: true, force: true });
   }
 });
@@ -438,6 +703,16 @@ async function waitUntil(predicate: () => boolean | Promise<boolean>, timeoutMs 
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   assert.fail(`condition did not settle within ${String(timeoutMs)}ms`);
+}
+
+async function eventuallyValue<T>(read: () => T | null, timeoutMs = 10_000): Promise<T> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const value = read();
+    if (value !== null) return value;
+    if (Date.now() >= deadline) assert.fail(`condition did not settle within ${String(timeoutMs)}ms`);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
 }
 
 function eventLoopTurn(): Promise<void> {
