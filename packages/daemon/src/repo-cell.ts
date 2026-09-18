@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { makeTaskLifecycleService } from "../../application/src/task-lifecycle-service.ts";
 import {
@@ -95,10 +96,16 @@ export interface RepoCellCore {
 
 export async function initializeRepoCell(context: RepoCellCoreInput): Promise<RepoCellCore> {
   let projection: ReturnType<typeof makeTaskProjection> | null = null;
-  configureLedgerMaintenance(context.rootDir);
-  // The commit guard belongs to the ledger repository, never the project repository the cell
-  // maintains above: refusing a project commit is the exact harm the guard exists to prevent.
-  installLedgerCommitGuard(resolveHarnessLayout(context.rootDir).authoredRoot);
+  // Maintenance pins and the commit guard both belong to the ledger repository, never the project
+  // repository around it: the pins tune the WAL write path, and refusing a project commit is the
+  // exact harm the guard exists to prevent.
+  const ledgerRoot = resolveHarnessLayout(context.rootDir).authoredRoot;
+  // A repository attached before its first authored write has no ledger directory yet; bootstrap
+  // pins it on creation.
+  if (existsSync(ledgerRoot)) {
+    configureLedgerMaintenance(ledgerRoot);
+    installLedgerCommitGuard(ledgerRoot);
+  }
   const store = makeTaskEventStore({
     repoId: context.input.repoId,
     rootDir: context.rootDir,

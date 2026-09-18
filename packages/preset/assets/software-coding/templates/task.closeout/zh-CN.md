@@ -4,7 +4,7 @@
 
 ## Summary
 
-总结完成的行为变化。
+总结完成的行为变化。必须点名恰好一个交付 commit 的完整 40 位小写 SHA（合入 PR 的交付写 merge commit），或至少一个 `artifact:<path>@<revision>` 锚点；缺了 `ha task submit` / `ha task settle` 会以 `document_invalid` 拒收。
 
 ## Verification
 

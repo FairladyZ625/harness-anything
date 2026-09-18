@@ -74,6 +74,9 @@ test("the ledger commit guard protects the ledger repository and leaves the proj
     // Drop the hook bootstrap installed, then attach again: the attach path itself must
     // reinstall it in the ledger repository, never in the project repository.
     rmSync(path.join(ledgerRoot, ".git", "hooks", "pre-commit"));
+    // Same for the WAL maintenance pins: unset one in the ledger, and attach must restore it there
+    // while the project repository's own Git config stays untouched.
+    git(ledgerRoot, "config", "--unset", "core.splitIndex");
     await cell.close();
     cell = await openRepoCell({
       repoId: normalizedRepoId,
@@ -84,6 +87,12 @@ test("the ledger commit guard protects the ledger repository and leaves the proj
     assert.match(
       readFileSync(path.join(ledgerRoot, ".git", "hooks", "pre-commit"), "utf8"),
       /harness-ledger-commit-guard\/v1/u,
+    );
+
+    assert.equal(git(ledgerRoot, "config", "--local", "--get", "core.splitIndex"), "false");
+    assert.equal(
+      spawnSync("git", ["-C", rootDir, "config", "--local", "--get", "core.splitIndex"], { encoding: "utf8" }).stdout,
+      "",
     );
 
     // Negative control 1: a project commit passes untouched, with no guard installed there.
