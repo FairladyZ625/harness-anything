@@ -6,8 +6,10 @@ import {
   configureLedgerMaintenance,
   consumeKnownError,
   activateEmptyCanonicalGeneration,
+  installLedgerCommitGuard,
   makeTaskEventStore,
   makeTaskProjection,
+  resolveHarnessLayout,
   type DaemonRepoMode,
   type TaskProjectionQueries,
 } from "../../kernel/src/index.ts";
@@ -94,6 +96,9 @@ export interface RepoCellCore {
 export async function initializeRepoCell(context: RepoCellCoreInput): Promise<RepoCellCore> {
   let projection: ReturnType<typeof makeTaskProjection> | null = null;
   configureLedgerMaintenance(context.rootDir);
+  // The commit guard belongs to the ledger repository, never the project repository the cell
+  // maintains above: refusing a project commit is the exact harm the guard exists to prevent.
+  installLedgerCommitGuard(resolveHarnessLayout(context.rootDir).authoredRoot);
   const store = makeTaskEventStore({
     repoId: context.input.repoId,
     rootDir: context.rootDir,

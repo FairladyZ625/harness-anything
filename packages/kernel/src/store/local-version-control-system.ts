@@ -97,9 +97,6 @@ export function configureLedgerMaintenance(repoRoot: string): LedgerMaintenanceR
     degraded.push(
       `git ${version?.text ?? "(version unreadable)"} predates the 2.52.0 geometric maintenance strategy; this ledger keeps Git's default repack cadence.`,
     );
-  const guard = installLedgerCommitGuard(repoRoot);
-  applied.push(...guard.applied);
-  if (guard.degraded !== null) degraded.push(guard.degraded);
   return {
     gitVersion: version?.text ?? null,
     strategy: geometric ? "geometric" : null,
@@ -107,13 +104,25 @@ export function configureLedgerMaintenance(repoRoot: string): LedgerMaintenanceR
     degraded: degraded.length ? degraded.join(" ") : null,
   };
 }
-/** Installs the ledger pre-commit commit guard once; a foreign hook is preserved as pre-commit.local and chained. */
-function installLedgerCommitGuard(repoRoot: string): {
+export interface LedgerCommitGuardReceipt {
   readonly applied: readonly string[];
   readonly degraded: string | null;
-} {
+}
+/**
+ * Installs the pre-commit guard that refuses a manual commit in the ledger repository, once; a
+ * foreign hook is preserved as pre-commit.local and chained. Only a standalone ledger repository
+ * (the shape bootstrap creates) is guarded: where the ledger root is a plain directory of the
+ * project's own repository, every commit there is a project commit and none may be refused.
+ */
+export function installLedgerCommitGuard(repoRoot: string): LedgerCommitGuardReceipt {
   const gitDir = readGitText(repoRoot, ["rev-parse", "--git-dir"]);
   if (gitDir === null) return { applied: [], degraded: "ledger commit guard not installed: not a Git work tree." };
+  const topLevel = readGitText(repoRoot, ["rev-parse", "--show-toplevel"]);
+  if (topLevel !== null && normalizeLocalPath(topLevel) !== normalizeLocalPath(repoRoot))
+    return {
+      applied: [],
+      degraded: "ledger commit guard not installed: the ledger root is not a standalone Git repository.",
+    };
   const hooksDir = path.join(path.resolve(repoRoot, gitDir), "hooks"),
     hookPath = path.join(hooksDir, "pre-commit"),
     chainedPath = path.join(hooksDir, "pre-commit.local"),
