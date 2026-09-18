@@ -69,6 +69,15 @@ export async function runRuntimeFacadeCommand(
         idempotencyKey: action.idempotencyKey ?? `runtime-cli-${randomUUID()}`,
       },
     });
+  // --dry-run: the daemon returned the assembled dispatch preview; print the
+  // injected prompt verbatim and never enter the wait/attach path.
+  if (spawned.ok === true && spawned.schema === "agent-dispatch-preview/v1")
+    return {
+      ...spawned,
+      command: "runtime-run",
+      summary: String(spawned.prompt),
+      exitCode: 0,
+    };
   if (spawned.ok !== true || typeof spawned.runtimeSessionId !== "string") return spawned;
   if (detach === true) {
     const nextAction = `ha runtime status ${spawned.runtimeSessionId} --wait`;

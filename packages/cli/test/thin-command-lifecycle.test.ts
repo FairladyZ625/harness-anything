@@ -703,6 +703,26 @@ test("runtime work commands parse into closed daemon facade actions", () => {
     reviewer = parseThinCommand(["runtime", "run", "worker", "--task", "task-1", "--role", "reviewer"]),
     file = parseThinCommand(["runtime", "run", "worker", "--prompt-file", "prompt.txt"]),
     mission = parseThinCommand(["agent", "run", "terra", "--task", "task-1", "--mission", "api-review"]),
+    dryRun = parseThinCommand(["agent", "run", "terra", "--task", "task-1", "--dry-run"]),
+    dryRunResume = parseThinCommand([
+      "agent",
+      "run",
+      "terra",
+      "--resume-dispatch",
+      "dispatch_0123456789abcdef01234567",
+      "--dry-run",
+    ]),
+    dryRunOnExit = parseThinCommand([
+      "agent",
+      "run",
+      "terra",
+      "--task",
+      "task-1",
+      "--detach",
+      "--on-exit",
+      "./notify.sh",
+      "--dry-run",
+    ]),
     missionJson = parseThinCommand(["agent", "run", "terra", "--task", "task-1", "--mission", "api-review", "--json"]),
     batch = parseThinCommand(["runtime", "batch", "dispatches.json"]),
     detached = parseThinCommand([
@@ -734,6 +754,8 @@ test("runtime work commands parse into closed daemon facade actions", () => {
     modeled,
     mission,
     missionJson,
+    dryRun,
+    dryRunResume,
     batch,
     detached,
     resumed,
@@ -745,6 +767,25 @@ test("runtime work commands parse into closed daemon facade actions", () => {
   ])
     assert.equal(parsed.ok, true, JSON.stringify(parsed));
   assert.equal(file.ok, false);
+  assert.equal(dryRunOnExit.ok, false, "--dry-run cannot pair with --on-exit");
+  if (dryRun.ok)
+    assert.deepEqual(dryRun.command.action, {
+      kind: "runtime-run",
+      agentId: "terra",
+      dryRun: true,
+      cwd: { scope: "repo-root" },
+      taskId: "task-1",
+      detach: true,
+    });
+  if (dryRunResume.ok)
+    assert.deepEqual(dryRunResume.command.action, {
+      kind: "runtime-run",
+      agentId: "terra",
+      dispatchId: "dispatch_0123456789abcdef01234567",
+      taskId: undefined,
+      dryRun: true,
+      detach: true,
+    });
   if (run.ok)
     assert.deepEqual(run.command.action, {
       kind: "runtime-run",

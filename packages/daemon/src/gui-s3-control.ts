@@ -285,6 +285,26 @@ export function validateRuntimeSpawnReceipt(value: unknown): readonly string[] {
   return errors;
 }
 
+export function validateAgentDispatchPreview(value: unknown): readonly string[] {
+  const errors = closed(
+    value,
+    {
+      schema: "string",
+      ok: "boolean",
+      command: "string",
+      dispatchId: "string",
+      runtimeSessionId: "string",
+      prompt: "string",
+      mission: "string",
+    },
+    "agent dispatch preview",
+  );
+  if (!record(value)) return errors;
+  if (value.schema !== "agent-dispatch-preview/v1" || value.ok !== true)
+    errors.push("agent dispatch preview schema is invalid");
+  return errors;
+}
+
 export function validateTerminalSessionList(value: unknown): readonly string[] {
   const errors = closed(
     value,

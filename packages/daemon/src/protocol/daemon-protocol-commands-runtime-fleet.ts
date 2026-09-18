@@ -38,6 +38,7 @@ export const agentRunProtocolCommand = defineRuntimeLocalWriteCommand({
     cliInput("--detach", "boolean", false, { code: "invalid_field" }, { conflictsWith: ["--no-stream"] }),
     cliInput("--on-exit", "single", false, { code: "invalid_field" }, { requires: ["--detach"] }),
     cliInput("--no-stream", "boolean", false, { code: "invalid_field" }, { conflictsWith: ["--detach"] }),
+    cliInput("--dry-run", "boolean", false, { code: "invalid_field" }, { conflictsWith: ["--on-exit"] }),
   ],
 });
 
