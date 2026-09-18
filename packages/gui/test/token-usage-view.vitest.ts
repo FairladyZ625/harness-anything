@@ -260,6 +260,8 @@ describe("TokenUsageView", () => {
       '[data-testid="token-usage-session-dispatch_00000000000000000000aa01"]',
     );
     expect(sessionRow).toBeTruthy();
+    // 每一条文案的插值都要被填上:locale 的占位名与调用方传的键不一致时,页面会把 `{name}` 原样显示出来。
+    expect(rerendered.textContent).not.toMatch(/\{[a-zA-Z]+\}/u);
     expect(sessionRow!.textContent).toContain("runtime-terra");
     expect(sessionRow!.textContent).toContain("task-tokens");
     const unreportedRow = rerendered.querySelector(

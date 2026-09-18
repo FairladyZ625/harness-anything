@@ -471,7 +471,7 @@
   "agentRuntime.tokenUsageColOutcome": "结果",
   "agentRuntime.tokenUsageUnreported": "未上报",
   "agentRuntime.tokenUsageUnreportedTip": "这些派工的 provider 没有上报 token 用量;这里的 0 表示缺数,不是真的花了 0。",
-  "agentRuntime.tokenUsageReportedCount": "已上报 {reported} / 未上报 {unreported}",
+  "agentRuntime.tokenUsageReportedCount": "已上报 {reported} / 未上报 {unavailable}",
   "agentRuntime.tokenUsageUsageReported": "已上报",
   "agentRuntime.tokenUsageUsagePending": "待结算",
   "agentRuntime.tokenUsageOpenDetail": "打开 {name} 的消耗详情",

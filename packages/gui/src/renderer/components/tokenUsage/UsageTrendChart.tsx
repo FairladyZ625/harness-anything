@@ -122,6 +122,25 @@ export function UsageTrendChart({
           );
         })}
       </svg>
+      {/* 图例:三段颜色各自是什么,复用表格视图的列名。 */}
+      <ul data-testid="token-usage-trend-legend" className="mt-1 flex gap-3 font-mono ui-micro text-text-muted">
+        {(
+          [
+            ["input", "agentRuntime.tokenUsageColInput"],
+            ["cacheRead", "agentRuntime.tokenUsageColCacheRead"],
+            ["output", "agentRuntime.tokenUsageColOutput"],
+          ] as const
+        ).map(([layer, label]) => (
+          <li key={layer} className="flex items-center gap-1">
+            <span
+              aria-hidden="true"
+              className="inline-block h-2 w-2 rounded-[1px]"
+              style={{ background: LAYER_COLORS[layer] }}
+            />
+            {t(label)}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

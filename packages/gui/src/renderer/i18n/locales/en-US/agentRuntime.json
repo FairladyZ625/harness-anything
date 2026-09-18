@@ -471,7 +471,7 @@
   "agentRuntime.tokenUsageColOutcome": "Outcome",
   "agentRuntime.tokenUsageUnreported": "Not reported",
   "agentRuntime.tokenUsageUnreportedTip": "The provider reported no token usage for these dispatches; zeros here mean missing data, not zero consumption.",
-  "agentRuntime.tokenUsageReportedCount": "{reported} reported / {unreported} not",
+  "agentRuntime.tokenUsageReportedCount": "{reported} reported / {unavailable} not",
   "agentRuntime.tokenUsageUsageReported": "Reported",
   "agentRuntime.tokenUsageUsagePending": "Pending",
   "agentRuntime.tokenUsageOpenDetail": "Open {name} consumption detail",
