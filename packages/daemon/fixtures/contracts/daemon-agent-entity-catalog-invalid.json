@@ -5,7 +5,7 @@
     {
       "id": "terra",
       "name": "Terra",
-      "runtimeType": "codex",
+      "runtimes": [{ "type": "codex" }],
       "role": "worker",
       "layer": "user",
       "validity": "valid",

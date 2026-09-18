@@ -90,7 +90,7 @@ export function AgentSquadView({
     if (!row) return;
     setDialog({
       kind: "dispatch",
-      subject: { kind: "agent", agent: { agentId: row.id, agentName: row.name, runtimeType: row.runtimeType } },
+      subject: { kind: "agent", agent: { agentId: row.id, agentName: row.name, runtimes: row.runtimes } },
       prompts: [],
       mission,
     });
@@ -116,7 +116,7 @@ export function AgentSquadView({
         leader: {
           agentId: detail.leader,
           agentName: leaderRow?.name ?? detail.leader,
-          runtimeType: leaderRow?.runtimeType ?? "",
+          runtimes: leaderRow?.runtimes ?? [],
         },
       },
       prompts: [],
@@ -130,8 +130,7 @@ export function AgentSquadView({
         : {
             name: request.name,
             role: "worker" as const,
-            runtimeType: "any",
-            model: "",
+            runtimes: [],
             preset: "",
             skills: [],
             instructions: t("agentRuntime.blankInstructions"),

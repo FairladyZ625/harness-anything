@@ -25,9 +25,8 @@ test("every bundled catalog body exists and contains its required anchors", () =
 test("bundled closeout reviewer is machine-independent and leaves instance model selection open", () => {
   const reviewer = readBundledAgentDeclaration("closeout-reviewer");
   assert.ok(reviewer);
-  assert.equal(reviewer.runtime_type, "any");
+  assert.deepEqual(reviewer.runtimes, []);
   assert.equal(reviewer.instance, undefined);
-  assert.equal(reviewer.model, undefined);
   assert.match(reviewer.instructions, /artifact delivery does not require a Git commit or ancestry/u);
   assert.match(reviewer.instructions, /only the completion gates declared by the task/u);
   assert.doesNotMatch(reviewer.instructions, /(?:\/Users\/|harness\/tasks\/|\\Users\\)/u);

@@ -80,7 +80,7 @@ function dto(
     viewerNodeId: "local",
     actions: { create: { available: true, code: null, nextAction: null } },
     options: {
-      agents: [{ agentId: "probe-agent", name: "Probe Agent", runtimeType: "codex" }],
+      agents: [{ agentId: "probe-agent", name: "Probe Agent", runtimes: [{ type: "codex" }] }],
       instances: [
         {
           instanceId: "codex-schedule",
@@ -165,7 +165,7 @@ describe("schedules plane (S4) — matrix list (M1)", () => {
             ...dto().options,
             agents: [
               { agentId: "ghost-agent", state: "missing", error: { code: "agent_not_found", hint } },
-              { agentId: "probe-agent", name: "Probe Agent", runtimeType: "codex" },
+              { agentId: "probe-agent", name: "Probe Agent", runtimes: [{ type: "codex" }] },
             ],
           },
         },

@@ -3,7 +3,7 @@
   "agent": {
     "id": "terra",
     "name": "Terra",
-    "runtimeType": "codex",
+    "runtimes": [{ "type": "codex" }],
     "role": "worker",
     "instructions": "Review precisely.",
     "skills": ["review"],

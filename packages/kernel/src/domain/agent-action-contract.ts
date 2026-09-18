@@ -85,7 +85,7 @@ export function createAgentActionCatalog(
           {
             ref: "agent/runtime-compatibility",
             failureCode: "agent_runtime_type_unavailable",
-            explain: "Generated Agent runtime_type must resolve to an enabled runtime instance.",
+            explain: "Generated Agent runtimes must resolve to an enabled runtime instance.",
           },
           {
             ref: "agent/model-compatibility",

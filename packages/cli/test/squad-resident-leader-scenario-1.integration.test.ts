@@ -440,13 +440,16 @@ test("a Claude leader dispatches Codex workers by each worker declaration and re
     callback = leaderCalls.find(
       (call) => call.kind === "callback" && String(call.prompt).includes(String(negative.squadRunId)),
     );
-  assert.equal(rejection, "Agent mixed-missing requires agy, but no enabled agy instance is available on this node.");
+  assert.equal(
+    rejection,
+    "Agent mixed-missing requires agy, but no enabled instance of those runtime kinds is available on this node.",
+  );
   assert.deepEqual((negativeStatus.leaders as Array<Record<string, unknown>>)[1]?.trigger, {
     kind: "worker_rejected",
     attemptId: "worker-1",
   });
   assert.match(String(callback?.prompt), /worker_rejected/u);
-  assert.match(String(callback?.prompt), /no enabled agy instance is available on this node/u);
+  assert.match(String(callback?.prompt), /no enabled instance of those runtime kinds is available on this node/u);
   const negativeCancellation = run(root, env, ["squad", "cancel", String(negative.squadRunId)]);
   assert.equal(negativeCancellation.outcome, "completed");
   for (const field of ["opId", "acceptance", "proof", "status"])

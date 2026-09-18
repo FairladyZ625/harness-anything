@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { RuntimeInstanceSummary } from "../../../../../daemon/src/agent-runtime-instances.ts";
 import { runtimeIsolationState, runtimePermissionMode } from "../../../../../daemon/src/runtime-permissions.ts";
 import { runtimeKindForId } from "../../../../../daemon/src/runtime-inventory.ts";
-import { runtimeTypeMatchesKind } from "../../../../../daemon/src/agent-runtime-contract.ts";
+import { agentRuntimeKindMatches } from "../../../../../daemon/src/agent-runtime-contract.ts";
 import type { AgentEntityAvailableRow } from "../../agent-entity-client.ts";
 import type { RuntimeInstallationRow, RuntimeInstanceUpdateInput } from "../../runtime-instance-client.ts";
 import {
@@ -103,7 +103,7 @@ export function RuntimeCard({
     setEditing(false);
   }, [instance.instanceId]);
   const plane = runtimeProviderPlane(instance.kindId),
-    compatible = agents.filter((agent) => runtimeTypeMatchesKind(agent.runtimeType, instance.kindId));
+    compatible = agents.filter((agent) => agentRuntimeKindMatches(agent.runtimes, instance.kindId));
   const apiMode = instance.authMode === "api-key",
     auth = runtimeAuthPresentation(instance, authProbeState),
     authText = runtimeAuthPresentationText(instance, auth);

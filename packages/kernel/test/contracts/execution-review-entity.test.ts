@@ -55,7 +55,7 @@ test("execution and review are dependency-free EntityKindContracts with lifecycl
       id: "agent-valid",
       name: "Valid Agent",
       instructions: "Work precisely.",
-      runtime_type: "codex",
+      runtimes: [{ type: "codex" }],
     },
     squad = {
       schema: "squad-declaration/v1",

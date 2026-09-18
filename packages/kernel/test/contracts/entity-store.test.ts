@@ -28,7 +28,7 @@ const agent = {
   id: "terra",
   name: "Terra",
   instructions: "Review precisely.",
-  runtime_type: "codex",
+  runtimes: [{ type: "codex" }],
 };
 const squad = {
   schema: "squad-declaration/v1",
@@ -100,7 +100,7 @@ test("registered declaration Entity kinds explain the same contract shape from t
       declared: ["install", "delete", "validate", "list", "inspect", "run", "status", "cancel"],
     },
   );
-  assert.equal(explanations[0]!.documentSchema.fields.find(({ name }) => name === "runtime_type")?.required, true);
+  assert.equal(explanations[0]!.documentSchema.fields.find(({ name }) => name === "runtimes")?.required, true);
   assert.match(
     validateAgentDeclarationV1({
       schema: agent.schema,
@@ -108,8 +108,19 @@ test("registered declaration Entity kinds explain the same contract shape from t
       name: agent.name,
       instructions: agent.instructions,
     }).join("\n"),
-    /missing required field "runtime_type"/u,
+    /missing required field "runtimes"/u,
   );
+  // The legacy single-value shape is not a compat input: a string runtime_type is an unknown
+  // field and the declaration is missing the required runtimes array.
+  const legacyIssues = validateAgentDeclarationV1({
+    schema: agent.schema,
+    id: agent.id,
+    name: agent.name,
+    instructions: agent.instructions,
+    runtime_type: "codex",
+  }).join("\n");
+  assert.match(legacyIssues, /missing required field "runtimes"/u);
+  assert.match(legacyIssues, /field "runtime_type" is unknown/u);
   assert.throws(
     () => explainEntityKind("unknown"),
     (error: unknown) => {
@@ -267,8 +278,8 @@ test("EntityStore rejects pre-budget squad declarations at the schema boundary",
 test("Entity upsert rejects schema-invalid declarations and tampered declaration bundles", () => {
   const store = createEntityStore(entitySource([], new Map()));
   assert.throws(
-    () => upsert(store, "agent", { ...agent, runtime_type: undefined }, 1),
-    /missing required field "runtime_type"/u,
+    () => upsert(store, "agent", { ...agent, runtimes: undefined }, 1),
+    /missing required field "runtimes"/u,
   );
   const bundle = upsert(store, "agent", agent, 1),
     tampered = [{ ...bundle.blobs[0], body: `${bundle.blobs[0].body} ` }];

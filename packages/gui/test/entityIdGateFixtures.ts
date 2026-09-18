@@ -260,7 +260,7 @@ export const FIXTURE_RUNTIME_OVERVIEW: AgentRuntimeOverviewResult = {
 export const FIXTURE_AGENT_ROW: AgentEntityRow = {
   id: AGENT_ID,
   name: "G10 Agent",
-  runtimeType: "codex",
+  runtimes: [{ type: "codex" }],
   role: "commander",
   layer: "user",
 };
@@ -274,10 +274,9 @@ export const FIXTURE_SQUAD_ROW: SquadEntityRow = {
 export const FIXTURE_AGENT_DETAIL: AgentEntityDetail = {
   id: AGENT_ID,
   name: "G10 Agent",
-  runtimeType: "codex",
+  runtimes: [{ type: "codex" }],
   role: "worker",
   instructions: "run the g10 probe",
-  model: null,
   skills: [],
   prompts: [],
   preset: null,

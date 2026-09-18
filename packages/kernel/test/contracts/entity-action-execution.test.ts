@@ -118,7 +118,7 @@ test("Agent catalog exposes reads while install owns its write contracts", () =>
       id: "contract-agent",
       name: "Contract Agent",
       instructions: "Execute the assigned contract.",
-      runtime_type: "codex",
+      runtimes: [{ type: "codex" }],
     }),
     {
       kind: "entity",
@@ -128,7 +128,7 @@ test("Agent catalog exposes reads while install owns its write contracts", () =>
         id: "contract-agent",
         name: "Contract Agent",
         instructions: "Execute the assigned contract.",
-        runtime_type: "codex",
+        runtimes: [{ type: "codex" }],
       },
     },
   );
@@ -139,7 +139,7 @@ test("Agent catalog exposes reads while install owns its write contracts", () =>
         id: "placeholder-agent",
         name: "Placeholder Agent",
         instructions: "(To be written: this text becomes the agent's system prompt verbatim.)",
-        runtime_type: "codex",
+        runtimes: [{ type: "codex" }],
       }),
     (error: unknown) => (error as { readonly code?: unknown }).code === "instructions_placeholder",
   );

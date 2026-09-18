@@ -179,10 +179,10 @@ describe("graph entry on each graph-focusable detail surface", () => {
         detail: {
           id: "terra",
           name: "terra",
-          runtimeType: "codex",
+          runtimes: [{ type: "codex" }],
           role: "worker",
           instructions: "Work the mission.",
-          model: null,
+
           skills: [],
           prompts: [],
           preset: null,
@@ -206,10 +206,10 @@ describe("graph entry on each graph-focusable detail surface", () => {
         detail: {
           id: "terra",
           name: "terra",
-          runtimeType: "codex",
+          runtimes: [{ type: "codex" }],
           role: "worker",
           instructions: "Work the mission.",
-          model: null,
+
           skills: [],
           prompts: [],
           preset: null,
@@ -295,7 +295,7 @@ function scheduleRow(overrides: Partial<ScheduleGuiRowDto> = {}): ScheduleGuiRow
 
 function scheduleOptions() {
   return {
-    agents: [{ agentId: "probe-agent", name: "Probe Agent", runtimeType: "codex" }],
+    agents: [{ agentId: "probe-agent", name: "Probe Agent", runtimes: [{ type: "codex" }] }],
     instances: [
       {
         instanceId: "codex-schedule",

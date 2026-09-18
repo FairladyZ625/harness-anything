@@ -28,7 +28,7 @@ const declaration = {
   id: "unified-agent",
   name: "Unified Agent",
   instructions: "Execute the assigned mission through the canonical action route.",
-  runtime_type: "codex",
+  runtimes: [{ type: "codex" }],
 };
 
 test("Agent install uses the executable catalog with CAS, replay, readiness, and ActionResult", async () => {
@@ -191,7 +191,7 @@ test("Agent install uses the executable catalog with CAS, replay, readiness, and
           schema: declaration.schema,
           id: declaration.id,
           name: "Unified Agent Updated",
-          runtime_type: declaration.runtime_type,
+          runtimes: declaration.runtimes,
           layer: "user",
           source: "agents/unified-agent.json",
         },

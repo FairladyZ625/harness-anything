@@ -1,4 +1,9 @@
-import { runtimeTypeMatchesKind, type AgentRuntimeInstanceDto } from "../../../daemon/src/agent-runtime-contract.ts";
+import {
+  agentRuntimeTargetForKind,
+  agentRuntimeKindMatches,
+  type AgentRuntimeInstanceDto,
+  type AgentRuntimeTargetV1,
+} from "../../../daemon/src/agent-runtime-contract.ts";
 import type { RuntimeSpawnInput } from "./runtime-control.ts";
 
 // Dispatch flow for the runtime dispatch surface: one Agent or one Squad is selected in
@@ -13,7 +18,7 @@ export type RuntimeKindWord = string;
 export interface DispatchAgentRef {
   readonly agentId: string;
   readonly agentName: string;
-  readonly runtimeType: string;
+  readonly runtimes: readonly AgentRuntimeTargetV1[];
 }
 export type DispatchSubject =
   | { readonly kind: "agent"; readonly agent: DispatchAgentRef }
@@ -36,16 +41,21 @@ export interface DispatchRequest {
 }
 export const dispatchExecutorRef = (request: Pick<DispatchRequest, "subject">): DispatchAgentRef | undefined =>
   request.subject.kind === "agent" ? request.subject.agent : request.subject.leader;
-export const dispatchRuntimeType = (request: DispatchRequest): string =>
-  dispatchExecutorRef(request)?.runtimeType ?? "";
 export function compatibleDispatchInstances(
-  runtimeType: string,
+  runtimes: readonly AgentRuntimeTargetV1[],
   instances: readonly AgentRuntimeInstanceDto[],
 ): readonly AgentRuntimeInstanceDto[] {
-  return instances.filter((instance) => instance.enabled && runtimeTypeMatchesKind(runtimeType, instance.kindId));
+  return instances.filter((instance) => instance.enabled && agentRuntimeKindMatches(runtimes, instance.kindId));
 }
 export function compatibleDispatchModels(instances: readonly AgentRuntimeInstanceDto[]): readonly string[] {
   return [...new Set(instances.flatMap((instance) => instance.models))].sort();
+}
+/** The declaration model bound to an instance kind, or undefined to use the instance default. */
+export function dispatchTargetModel(
+  runtimes: readonly AgentRuntimeTargetV1[],
+  instance: AgentRuntimeInstanceDto,
+): string | undefined {
+  return agentRuntimeTargetForKind(runtimes, instance.kindId)?.model;
 }
 export function requireCompatibleDispatchInstance(
   request: Pick<DispatchRequest, "subject" | "runtimeInstanceId">,
@@ -54,7 +64,7 @@ export function requireCompatibleDispatchInstance(
   const executor = dispatchExecutorRef(request),
     instance = instances.find((row) => row.instanceId === request.runtimeInstanceId);
   if (!executor) throw new Error("dispatch_executor_missing");
-  if (!instance || !instance.enabled || !runtimeTypeMatchesKind(executor.runtimeType, instance.kindId))
+  if (!instance || !instance.enabled || !agentRuntimeKindMatches(executor.runtimes, instance.kindId))
     throw new Error("dispatch_runtime_type_mismatch");
   return instance;
 }

@@ -371,6 +371,7 @@ export type {
   AgentFallbackDeclarationV1,
   AgentPermissionMode,
   AgentRole,
+  AgentRuntimeTargetV1,
   AgentSkillDeclarationV1,
   SquadDeclarationV1,
 } from "./agent-squad-schema.ts";

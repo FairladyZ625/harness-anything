@@ -4,6 +4,7 @@ import {
   compatibleDispatchInstances,
   compatibleDispatchModels,
   dispatchExecutorRef,
+  dispatchTargetModel,
   type DispatchRequest,
   type DispatchSubject,
 } from "../dispatch-flow.ts";
@@ -61,12 +62,17 @@ export function DispatchDialog({
     [previewing, setPreviewing] = useState(false),
     [previewFailed, setPreviewFailed] = useState(false);
   const executor = dispatchExecutorRef({ subject }),
-    runtimeType = executor?.runtimeType ?? "";
-  const compatible = useMemo(() => compatibleDispatchInstances(runtimeType, instances), [runtimeType, instances]);
+    executorRuntimes = executor?.runtimes ?? [];
+  const compatible = useMemo(
+    () => compatibleDispatchInstances(executorRuntimes, instances),
+    [executorRuntimes, instances],
+  );
   const instance =
       runtimeMode === "manual"
         ? (compatible.find((row) => row.instanceId === runtimeInstanceId) ?? null)
         : (compatible[0] ?? null),
+    // The declaration row for the resolved kind supplies the model; an explicit pick overrides it.
+    declaredModel = instance ? (dispatchTargetModel(executorRuntimes, instance) ?? null) : null,
     modelOptions = compatibleDispatchModels(runtimeMode === "manual" && instance ? [instance] : compatible);
   const task = tasks.find((row) => row.taskId === taskId) ?? null;
   const ready = Boolean(instance && task && mission.trim()) && (cwdScope === "repo-root" || cwdPath.trim().length > 0);
@@ -157,7 +163,14 @@ export function DispatchDialog({
                 <Avatar id={subject.agent.agentId} />
                 <b>{subject.agent.agentName}</b>
                 <Badge>{subject.agent.agentId}</Badge>
-                <Hint>{t("agentRuntime.runtimeConstraintIs", { kind: subject.agent.runtimeType || "any" })}</Hint>
+                <Hint>
+                  {t("agentRuntime.runtimeConstraintIs", {
+                    kind:
+                      subject.agent.runtimes.length === 0
+                        ? t("agentRuntime.anyRuntime")
+                        : subject.agent.runtimes.map((target) => target.type).join(", "),
+                  })}
+                </Hint>
               </>
             ) : (
               <>
@@ -300,7 +313,8 @@ export function DispatchDialog({
                 {t("agentRuntime.model")}
                 <select value={model} onChange={(event) => setModel(event.target.value)} className="control">
                   <option value="">
-                    {runtimeMode === "manual" ? instance.defaultModel : t("agentRuntime.providerDefault")}
+                    {declaredModel ??
+                      (runtimeMode === "manual" ? instance.defaultModel : t("agentRuntime.providerDefault"))}
                   </option>
                   {modelOptions.map((entry) => (
                     <option key={entry} value={entry}>

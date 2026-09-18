@@ -26,6 +26,13 @@ import {
   validateSquadEntityCatalog,
 } from "../src/protocol/agent-entity-gui-contract.ts";
 import { discoverAgentSkills, resolveAgentSkills } from "../src/agent-skills.ts";
+import {
+  agentRuntimeKindMatches,
+  agentRuntimeTargetForKind,
+  agentRuntimeTargetSummary,
+} from "../src/agent-runtime-contract.ts";
+import { resolveRuntimeInstanceCandidates } from "../src/runtime-spawn-mission.ts";
+import type { RuntimeAgent } from "../src/runtime-spawn-types.ts";
 import { validateAgentDeclarationV1, validateSquadDeclarationV1 } from "../../kernel/src/index.ts";
 import { agent, install, run, squad, writeEntity } from "./agent-entities.fixtures.ts";
 
@@ -53,10 +60,14 @@ test("Agent and Squad entities prepare, list, inspect, and replace declarations 
     assert.deepEqual(
       (
         run({ rootDir, kind: "agent-list" }) as {
-          agents: Array<{ id: string; runtime_type: string; layer: string }>;
+          agents: Array<{
+            id: string;
+            runtimes: readonly { readonly type: string; readonly model?: string }[];
+            layer: string;
+          }>;
         }
-      ).agents.map(({ id, runtime_type, layer }) => ({ id, runtime_type, layer })),
-      [{ id: "terra", runtime_type: "codex", layer: "user" }],
+      ).agents.map(({ id, runtimes, layer }) => ({ id, runtimes, layer })),
+      [{ id: "terra", runtimes: [{ type: "codex", model: "gpt-5.6-terra" }], layer: "user" }],
     );
     assert.deepEqual(
       (
@@ -109,19 +120,19 @@ test("Squad install rejects the canonical blank roster scaffold", async () => {
   }
 });
 
-test("runtime_type is an open identifier: third-party runtimes validate while traversal and whitespace stay rejected", async () => {
+test("runtime kind is an open identifier: third-party runtimes validate while traversal and whitespace stay rejected", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-agent-runtime-type-")),
     source = path.join(rootDir, "source");
   try {
-    for (const runtime_type of ["any", "opencode", "dsh", "grok", "kiro", "glm"])
-      assert.deepEqual(validateAgentDeclarationV1({ ...agent, id: "worker", runtime_type }), [], runtime_type);
-    for (const runtime_type of ["../etc/passwd", "claude codex", " ", "Claude", "claude/../../bin", ""])
+    for (const kind of ["opencode", "dsh", "grok", "kiro", "glm"])
+      assert.deepEqual(validateAgentDeclarationV1({ ...agent, id: "worker", runtimes: [{ type: kind }] }), [], kind);
+    for (const kind of ["../etc/passwd", "claude codex", " ", "Claude", "claude/../../bin", ""])
       assert.match(
-        validateAgentDeclarationV1({ ...agent, id: "worker", runtime_type }).join("\n"),
-        /runtime_type.*lowercase runtime identifier/u,
-        runtime_type,
+        validateAgentDeclarationV1({ ...agent, id: "worker", runtimes: [{ type: kind }] }).join("\n"),
+        /type.*lowercase runtime identifier/u,
+        kind,
       );
-    const opencode = { ...agent, id: "opencode-worker", name: "Opencode Worker", runtime_type: "opencode" };
+    const opencode = { ...agent, id: "opencode-worker", name: "Opencode Worker", runtimes: [{ type: "opencode" }] };
     writeEntity(source, "opencode-worker", "agent", opencode);
     const report = run({ rootDir, kind: "agent-validate", packageSource: path.join(source, "opencode-worker") }) as {
       valid: boolean;
@@ -132,10 +143,13 @@ test("runtime_type is an open identifier: third-party runtimes validate while tr
       { valid: true, entity: { id: "opencode-worker" } },
     );
     await install({ rootDir, kind: "agent-install", packageSource: path.join(source, "opencode-worker") });
-    assert.equal(
-      (run({ rootDir, kind: "agent-inspect", agentId: "opencode-worker" }) as { agent: { runtime_type: string } }).agent
-        .runtime_type,
-      "opencode",
+    assert.deepEqual(
+      (
+        run({ rootDir, kind: "agent-inspect", agentId: "opencode-worker" }) as {
+          agent: { runtimes: readonly { readonly type: string }[] };
+        }
+      ).agent.runtimes,
+      [{ type: "opencode" }],
     );
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
@@ -164,10 +178,14 @@ test("direct authored-file writes never enter the canonical Agent read surface",
   }
 });
 
-test("agent model is optional but must be non-empty when declared", () => {
-  assert.deepEqual(validateAgentDeclarationV1({ ...agent, model: undefined }), []);
+test("a runtime-row model is optional but must be non-empty when declared", () => {
+  assert.deepEqual(validateAgentDeclarationV1({ ...agent, runtimes: [{ type: "codex" }] }), []);
   for (const model of ["", " ", 42, []])
-    assert.match(validateAgentDeclarationV1({ ...agent, model }).join("\n"), /model.*non-empty string/u);
+    assert.match(
+      validateAgentDeclarationV1({ ...agent, runtimes: [{ type: "codex", model }] }).join("\n"),
+      /model.*non-empty string/u,
+    );
+  assert.match(validateAgentDeclarationV1({ ...agent, model: "orphan-model" }).join("\n"), /field "model" is unknown/u);
 });
 
 test("daemon Agent fallback validation mirrors the kernel authority", () => {
@@ -434,7 +452,7 @@ test("generated Agent output reuses validation, admits only runnable declaration
         (error as { code?: string; message?: string }).code === "agent_id_conflict" &&
         /ha agent inspect generated.*ha agent create/u.test(String((error as Error).message)),
     );
-    const unknown = { ...generated, id: "unknown-generated", runtime_type: "opencode" };
+    const unknown = { ...generated, id: "unknown-generated", runtimes: [{ type: "opencode" }] };
     writeEntity(source, unknown.id, "agent", unknown);
     await assert.rejects(
       () =>
@@ -450,7 +468,11 @@ test("generated Agent output reuses validation, admits only runnable declaration
         (error as { code?: string; message?: string }).code === "agent_runtime_type_unavailable" &&
         /ha runtime instance list/u.test(String((error as Error).message)),
     );
-    const unsupported = { ...generated, id: "unsupported-generated", model: "missing-model" };
+    const unsupported = {
+      ...generated,
+      id: "unsupported-generated",
+      runtimes: [{ type: "codex", model: "missing-model" }],
+    };
     writeEntity(source, unsupported.id, "agent", unsupported);
     await assert.rejects(
       () =>
@@ -540,7 +562,7 @@ test("entity validation names every malformed manifest and refuses squads that r
       issues: Array<{ message: string }>;
     };
     assert.equal(missing.valid, false);
-    assert.match(missing.issues.map(({ message }) => message).join("\n"), /missing required field "runtime_type"/u);
+    assert.match(missing.issues.map(({ message }) => message).join("\n"), /missing required field "runtimes"/u);
     writeEntity(source, "wrong-kind", "squad", squad);
     const mismatch = run({ rootDir, kind: "agent-validate", packageSource: path.join(source, "wrong-kind") }) as {
       valid: boolean;
@@ -586,13 +608,13 @@ test("the GUI entity projection lists closed rows and reads closed declarations"
     assert.equal(agentRows.schema, "agent-entity-catalog/v1");
     assert.equal(agentRows.ok, true);
     assert.deepEqual(
-      agentRows.agents.map(({ id, runtimeType, role, layer }) => ({
+      agentRows.agents.map(({ id, runtimes, role, layer }) => ({
         id,
-        runtimeType,
+        runtimes,
         role,
         layer,
       })),
-      [{ id: "terra", runtimeType: "codex", role: "worker", layer: "user" }],
+      [{ id: "terra", runtimes: [{ type: "codex", model: "gpt-5.6-terra" }], role: "worker", layer: "user" }],
     );
     assert.deepEqual(Object.keys(agentRows.agents[0]!).sort(), [
       "id",
@@ -601,7 +623,7 @@ test("the GUI entity projection lists closed rows and reads closed declarations"
       "name",
       "permissionMode",
       "role",
-      "runtimeType",
+      "runtimes",
     ]);
     assert.equal(squadRows.schema, "squad-entity-catalog/v1");
     assert.equal(squadRows.ok, true);
@@ -625,12 +647,11 @@ test("the GUI entity projection lists closed rows and reads closed declarations"
     assert.deepEqual(agentDetail.agent, {
       id: "terra",
       name: "Terra",
-      runtimeType: "codex",
+      runtimes: [{ type: "codex", model: "gpt-5.6-terra" }],
       instance: null,
       permissionMode: null,
       role: "worker",
       instructions: "Review precisely.",
-      model: "gpt-5.6-terra",
       skills: [{ id: "review", path: "skills/review" }],
       prompts: ["prompt://review"],
       preset: "standard-task",
@@ -669,7 +690,7 @@ test("GUI Agent and Squad catalogs isolate invalid and missing projection rows",
       id: "broken-agent",
       workspaceRevision: 4,
       currentVersion: 4,
-      value: { ...agent, id: "broken-agent", runtime_type: "NOT VALID" },
+      value: { ...agent, id: "broken-agent", runtimes: [{ type: "NOT VALID" }] },
     },
     currentSquad = {
       kind: "squad",
@@ -702,7 +723,7 @@ test("GUI Agent and Squad catalogs isolate invalid and missing projection rows",
   assert.deepEqual(agents.agents[0], {
     id: "terra",
     name: "Terra",
-    runtimeType: "codex",
+    runtimes: [{ type: "codex", model: "gpt-5.6-terra" }],
     instance: null,
     permissionMode: null,
     role: "worker",
@@ -714,7 +735,7 @@ test("GUI Agent and Squad catalogs isolate invalid and missing projection rows",
     state: "invalid",
     error: {
       code: "invalid_entity_contract",
-      hint: 'agent declaration field "runtime_type" must be a non-empty lowercase runtime identifier such as claude, codex, or opencode.',
+      hint: 'agent declaration field "runtimes"[0] field "type" must be a non-empty lowercase runtime identifier such as claude, codex, or opencode.',
     },
   });
   assert.equal(squads.squads.length, 2);
@@ -880,4 +901,57 @@ test("single-file declaration sources validate and install like package director
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
+});
+
+test("runtimes rows gate each runtime kind, select per-kind models, and an empty set accepts every kind", () => {
+  const runtimes = [
+      { type: "zcode", model: "GLM-5.3" },
+      { type: "claude", model: "GLM-5.3[1m]" },
+    ] as const,
+    instance = (instanceId: string, kindId: string, models: readonly string[]) =>
+      ({
+        instanceId,
+        kindId,
+        models,
+        enabled: true,
+        providerId: "local",
+        authReadiness: { status: "ready", code: null, hint: null },
+      }) as never;
+  assert.equal(agentRuntimeKindMatches(runtimes, "zcode"), true);
+  assert.equal(agentRuntimeKindMatches(runtimes, "claude"), true);
+  assert.equal(agentRuntimeKindMatches(runtimes, "codex"), false);
+  assert.equal(agentRuntimeTargetForKind(runtimes, "claude")?.model, "GLM-5.3[1m]");
+  assert.equal(agentRuntimeTargetForKind(runtimes, "zcode")?.model, "GLM-5.3");
+  assert.equal(agentRuntimeTargetForKind(runtimes, "codex"), undefined);
+  assert.equal(agentRuntimeTargetSummary(runtimes), "zcode, claude");
+  assert.equal(agentRuntimeKindMatches([], "codex"), true);
+  assert.equal(agentRuntimeKindMatches([], "agy"), true);
+  assert.equal(agentRuntimeTargetSummary([]), "any");
+
+  const instances = [
+      instance("zcode-one", "zcode", ["GLM-5.3"]),
+      instance("claude-one", "claude", ["GLM-5.3[1m]"]),
+      instance("codex-one", "codex", ["gpt-5.6"]),
+    ],
+    declaration = { id: "glm", runtimes } as RuntimeAgent;
+  assert.deepEqual(resolveRuntimeInstanceCandidates({ agent: declaration, instances, sessions: [] }).sort(), [
+    "claude-one",
+    "zcode-one",
+  ]);
+  assert.deepEqual(
+    resolveRuntimeInstanceCandidates({
+      agent: { id: "open", runtimes: [] } as RuntimeAgent,
+      instances,
+      sessions: [],
+    }).sort(),
+    ["claude-one", "codex-one", "zcode-one"],
+  );
+  assert.deepEqual(
+    resolveRuntimeInstanceCandidates({ agent: declaration, model: "GLM-5.3", instances, sessions: [] }),
+    ["zcode-one"],
+  );
+  assert.throws(
+    () => resolveRuntimeInstanceCandidates({ agent: declaration, model: "missing-model", instances, sessions: [] }),
+    (error: unknown) => (error as { code?: string }).code === "agent_model_unavailable",
+  );
 });

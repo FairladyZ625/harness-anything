@@ -140,7 +140,7 @@ const sessionGroups = {
   ],
 };
 const tasks = [{ taskId: "task-bound", title: "Bound task title" }] as const;
-const agents = [{ id: "terra", name: "terra", runtimeType: "codex", role: "worker", layer: "user" }] as const;
+const agents = [{ id: "terra", name: "terra", runtimes: [{ type: "codex" }], role: "worker", layer: "user" }] as const;
 const squads = [
   {
     id: "core-squad",
@@ -263,7 +263,10 @@ describe("runtime entry split (W6 IA)", () => {
             "data-testid": "dispatch-binding-probe",
             onClick: () => {
               dispatchPromise = workspace.dispatch({
-                subject: { kind: "agent", agent: { agentId: "terra", agentName: "terra", runtimeType: "codex" } },
+                subject: {
+                  kind: "agent",
+                  agent: { agentId: "terra", agentName: "terra", runtimes: [{ type: "codex" }] },
+                },
                 mission: "binding probe",
                 cwd: { scope: "repo-root" },
                 taskId: "task-bound",
@@ -315,7 +318,10 @@ describe("runtime entry split (W6 IA)", () => {
             "data-testid": "preview-probe",
             onClick: () => {
               previewPromise = workspace.preview({
-                subject: { kind: "agent", agent: { agentId: "terra", agentName: "terra", runtimeType: "codex" } },
+                subject: {
+                  kind: "agent",
+                  agent: { agentId: "terra", agentName: "terra", runtimes: [{ type: "codex" }] },
+                },
                 mission: "preview probe",
                 cwd: { scope: "repo-root" },
                 taskId: "task-bound",
@@ -350,7 +356,7 @@ describe("runtime entry split (W6 IA)", () => {
     const onSubmit = vi.fn();
     await mountView(
       createElement(DispatchDialog, {
-        subject: { kind: "agent", agent: { agentId: "terra", agentName: "terra", runtimeType: "codex" } },
+        subject: { kind: "agent", agent: { agentId: "terra", agentName: "terra", runtimes: [{ type: "codex" }] } },
         instances: [providerInstance],
         tasks: [{ taskId: "task-bound", title: "Bound task title", heldLease: false }],
         prompts: [],
@@ -886,10 +892,10 @@ function seedQueries(client: QueryClient) {
   client.setQueryData(["agent-detail", "repo-a", "terra"], {
     id: "terra",
     name: "terra",
-    runtimeType: "codex",
+    runtimes: [{ type: "codex" }],
     role: "worker",
     instructions: "Do the work.",
-    model: null,
+
     skills: [],
     prompts: [],
     preset: null,

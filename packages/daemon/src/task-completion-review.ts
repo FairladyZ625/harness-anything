@@ -10,6 +10,7 @@ import {
 import { isRuntimeEvent, runtimeErrorCode, runtimeErrorMessage } from "./runtime-spawn-errors.ts";
 import { readDispatchStream } from "./dispatch-stream.ts";
 import { readAgentDeclarationResolution } from "./agent-entities.ts";
+import { agentDeclaresExplicitModels, agentRuntimeTargetSummary } from "./agent-runtime-contract.ts";
 import { authorizeRepoCellAction } from "./repo-cell-authorization.ts";
 import { reviewDispatchIds, reviewDispatchPrompt } from "./task-review-dispatch.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
@@ -90,10 +91,10 @@ export async function dispatchCompletionReview(
             "reviewer with ha settings update --default-reviewer <agent-id>, then retry completion.",
         );
       const { declaration: agent, layer } = resolved;
-      if (layer === "installed" && !agent.model)
+      if (layer === "installed" && !agentDeclaresExplicitModels(agent.runtimes))
         return stopped(
           "ha agent install --source <closeout-reviewer-declaration>",
-          `Declare an explicit model for reviewer ${reviewerId}, then retry completion. ` +
+          `Declare an explicit model on every runtimes row for reviewer ${reviewerId}, then retry completion. ` +
             "Installed reviewer overrides must not select an instance default model.",
         );
       const payload = {
@@ -150,10 +151,12 @@ export async function dispatchCompletionReview(
           ...stopped(
             "ha runtime instance list",
             layer === "bundled"
-              ? `Bundled reviewer ${reviewerId} needs a ready ${agent.runtime_type} runtime instance; configure one, ` +
+              ? `Bundled reviewer ${reviewerId} needs a ready runtime instance matching ` +
+                  `${agentRuntimeTargetSummary(agent.runtimes)}; configure one, ` +
                   "then retry completion. Its configured default model will be used."
-              : `Reviewer ${reviewerId} requires model ${agent.model}; configure a ready compatible instance, ` +
-                  "then retry completion. The declared model is not replaced by an instance default.",
+              : `Reviewer ${reviewerId} requires a ready runtime instance matching ` +
+                  `${agentRuntimeTargetSummary(agent.runtimes)} and its declared models; ` +
+                  "configure one, then retry completion.",
           ),
           diagnostic: { kind: "failure", code: String(error.code) },
           rejectionExplanation: error.message,

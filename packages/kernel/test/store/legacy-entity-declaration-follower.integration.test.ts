@@ -28,7 +28,7 @@ function agentUpsert() {
       id: "synthetic-worker",
       name: "Synthetic Worker",
       instructions: "Synthetic fixture agent.",
-      runtime_type: "claude",
+      runtimes: [{ type: "claude" }],
     },
   });
 }

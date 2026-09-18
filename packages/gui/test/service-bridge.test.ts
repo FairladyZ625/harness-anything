@@ -401,12 +401,12 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
     );
     assert.deepEqual(
       agentCatalog.agents[0] && {
-        runtimeType: agentCatalog.agents[0].runtimeType,
+        runtimes: agentCatalog.agents[0].runtimes,
         role: agentCatalog.agents[0].role,
         layer: agentCatalog.agents[0].layer,
       },
       {
-        runtimeType: "codex",
+        runtimes: [{ type: "codex" }],
         role: "worker",
         layer: "user",
       },

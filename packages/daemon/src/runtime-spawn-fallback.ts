@@ -3,6 +3,7 @@ import { runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import type { RuntimeAgent, RuntimeSessionSelection } from "./runtime-spawn-types.ts";
 import type { RuntimeAttemptOutcome, RuntimeFallbackAttempt } from "./runtime-fallback-contract.ts";
 import { resolveRuntimeInstanceCandidates } from "./runtime-spawn-mission.ts";
+import { agentRuntimeTargetForKind, agentRuntimeKindMatches } from "./agent-runtime-contract.ts";
 import type { RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
 
 export function requiredRuntimeFast(value: unknown): boolean {
@@ -27,32 +28,41 @@ export function initialFallbackAttempt(
       resolveRuntimeInstanceCandidates({
         requested: undefined,
         agent,
-        model: requestedModel ?? agent?.model,
+        model: requestedModel,
         instances,
         sessions,
       })[0],
     anchor = instances.find((instance) => instance.instanceId === anchorId);
-  const model = requestedModel ?? agent?.model ?? anchor?.defaultModel;
+  // Each candidate kind resolves its own model: --model override > the runtimes row for
+  // that kind > the instance default, so a cross-kind fallback still launches a valid model.
+  // A bare dispatch (no Agent declaration) instead pins the anchor's model for the whole
+  // chain — provider fallback must never silently change the model.
+  const chainModel = requestedModel ?? (agent === null ? anchor?.defaultModel : undefined);
+  const candidateModel = (instance: RuntimeInstanceSummary): string =>
+    chainModel ?? agentRuntimeTargetForKind(agent?.runtimes ?? [], instance.kindId)?.model ?? instance.defaultModel;
+  const model = anchor === undefined ? undefined : candidateModel(anchor);
   if (!anchor || !model) return undefined;
-  const runtimeType = agent?.runtime_type === "any" ? anchor.kindId : (agent?.runtime_type ?? anchor.kindId);
   if (
     requestedInstance &&
     (!anchor.enabled ||
       !anchor.models.includes(model) ||
       (anchor.authReadiness.status !== "ready" && anchor.authReadiness.code !== "runtime_auth_not_checked") ||
-      (runtimeType !== "any" && runtimeType !== anchor.kindId))
+      (agent !== null && !agentRuntimeKindMatches(agent.runtimes, anchor.kindId)))
   )
     return undefined;
   const derivedInstances = resolveRuntimeInstanceCandidates({
       requested: undefined,
       agent,
-      model,
-      runtimeType,
+      model: chainModel,
+      runtimeKind: agent === null ? anchor.kindId : undefined,
       instances,
       sessions,
     }),
     requestedIndex = requestedInstance ? derivedInstances.indexOf(requestedInstance) : 0,
-    candidates = derivedInstances.slice(requestedIndex).map((instance) => ({ instance, model }));
+    candidates = derivedInstances.slice(requestedIndex).map((instanceId) => ({
+      instance: instanceId,
+      model: candidateModel(instances.find((row) => row.instanceId === instanceId)!),
+    }));
   if (requestedIndex < 0) return undefined;
   if (candidates.length < 2) return undefined;
   const backoff = declared?.backoff ?? { baseMs: 0, maxMs: 0 },

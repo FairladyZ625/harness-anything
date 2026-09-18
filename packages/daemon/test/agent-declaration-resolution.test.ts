@@ -9,8 +9,7 @@ const installed: AgentDeclarationV1 = {
   id: "closeout-reviewer",
   name: "Repository reviewer",
   instructions: "Review precisely.",
-  runtime_type: "codex",
-  model: "review-model",
+  runtimes: [{ type: "codex", model: "review-model" }],
   role: "worker",
 };
 
@@ -42,7 +41,7 @@ test("installed Agent declarations shadow the bundled product declaration", () =
   });
   assert.ok(bundled);
   assert.equal(bundled.layer, "bundled");
-  assert.equal(bundled.declaration.model, undefined);
+  assert.deepEqual(bundled.declaration.runtimes, []);
 
   const resolved = readAgentDeclarationResolution({
     rootDir: "/unused",
@@ -52,10 +51,10 @@ test("installed Agent declarations shadow the bundled product declaration", () =
   assert.ok(resolved);
   assert.equal(resolved.layer, "installed");
   assert.equal(resolved.declaration.name, "Repository reviewer");
-  assert.equal(
+  assert.deepEqual(
     readAgentDeclaration({ rootDir: "/unused", agentId: "closeout-reviewer", entityStore: entityStore(installed) })
-      .model,
-    "review-model",
+      .runtimes,
+    [{ type: "codex", model: "review-model" }],
   );
 });
 

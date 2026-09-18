@@ -46,7 +46,7 @@ function task(taskId: string): TaskRow {
 const agentRow = (id: string): AgentEntityGuiRow => ({
   id,
   name: `Agent ${id}`,
-  runtimeType: "codex",
+  runtimes: [{ type: "codex" }],
   role: "worker",
   layer: "identity",
 });

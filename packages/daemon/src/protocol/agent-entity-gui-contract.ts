@@ -1,6 +1,6 @@
 import { entityNonEmpty, entitySlug } from "../../../kernel/src/index.ts";
 import { EntitySchemaContractError } from "../../../kernel/src/index.ts";
-import type { AgentSkillDeclarationV1 } from "../../../kernel/src/index.ts";
+import type { AgentRuntimeTargetV1, AgentSkillDeclarationV1 } from "../../../kernel/src/index.ts";
 
 function isEntityRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -86,26 +86,17 @@ function entityReadRowErrors(value: unknown, fields: readonly string[], prefix: 
     errors.push(`${prefix} carries a forbidden credential-shaped key.`);
   return errors;
 }
-const agentCatalogRowFields = Object.freeze([
-    "id",
-    "name",
-    "runtimeType",
-    "instance",
-    "permissionMode",
-    "role",
-    "layer",
-  ]),
+const agentCatalogRowFields = Object.freeze(["id", "name", "runtimes", "instance", "permissionMode", "role", "layer"]),
   squadCatalogRowFields = Object.freeze(["id", "name", "leader", "workers", "layer"]),
   degradedCatalogRowFields = Object.freeze(["id", "layer", "state", "error"]),
   agentDetailFields = Object.freeze([
     "id",
     "name",
-    "runtimeType",
+    "runtimes",
     "instance",
     "permissionMode",
     "role",
     "instructions",
-    "model",
     "skills",
     "prompts",
     "preset",
@@ -164,26 +155,41 @@ function detailErrors(
     ...rowChecks(value[field] as Record<string, unknown>),
   ];
 }
+function agentRuntimeTargets(value: unknown): value is readonly AgentRuntimeTargetV1[] {
+  return (
+    Array.isArray(value) &&
+    value.every(
+      (item) =>
+        isEntityRecord(item) &&
+        Object.keys(item).every((key) => ["type", "model"].includes(key)) &&
+        entitySlug(item.type) &&
+        (item.model === undefined || entityNonEmpty(item.model)),
+    ) &&
+    new Set(value.map((item) => (item as AgentRuntimeTargetV1).type)).size === value.length
+  );
+}
 const catalogRowChecks = (row: Record<string, unknown>): readonly string[] =>
   !(entityNonEmpty(row.id) && entityNonEmpty(row.name)) ? ["catalog rows need non-empty id and name."] : [];
 const agentCatalogRowChecks = (row: Record<string, unknown>): readonly string[] =>
   [
     ...catalogRowChecks(row),
     !["worker", "commander"].includes(String(row.role)) ? "agent catalog row role must be worker or commander." : [],
+    !agentRuntimeTargets(row.runtimes)
+      ? "agent catalog row runtimes must be an array of unique {type, model?} targets."
+      : [],
   ].flat();
 const agentDetailChecks = (row: Record<string, unknown>): readonly string[] =>
   [
     !(
       entityNonEmpty(row.id) &&
       entityNonEmpty(row.name) &&
-      entityNonEmpty(row.runtimeType) &&
       ["worker", "commander"].includes(String(row.role)) &&
       entityNonEmpty(row.instructions)
     )
-      ? ["agent detail needs non-empty id, name, runtimeType, role, and instructions."]
+      ? ["agent detail needs non-empty id, name, role, and instructions."]
       : [],
-    row.model !== null && row.model !== undefined && !entityNonEmpty(row.model)
-      ? ["agent detail model must be null or a non-empty model id."]
+    !agentRuntimeTargets(row.runtimes)
+      ? ["agent detail runtimes must be an array of unique {type, model?} targets."]
       : [],
     row.skills !== undefined && !agentSkills(row.skills)
       ? ["agent detail skills must be an array of unique {id, path} references."]

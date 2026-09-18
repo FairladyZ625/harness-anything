@@ -9,7 +9,11 @@ import {
   type TaskProjection,
 } from "../../kernel/src/index.ts";
 import { readAgentDeclaration } from "./agent-declaration-resolution.ts";
-import { runtimeTypeMatchesKind } from "./agent-runtime-contract.ts";
+import {
+  agentRuntimeTargetForKind,
+  agentRuntimeTargetSummary,
+  agentRuntimeKindMatches,
+} from "./agent-runtime-contract.ts";
 
 export { readAgentDeclaration, readAgentDeclarationResolution } from "./agent-declaration-resolution.ts";
 import {
@@ -20,13 +24,14 @@ import {
   validateSquadDeclarationV1,
   type AgentDeclarationV1,
   type AgentEntityKind,
+  type AgentRuntimeTargetV1,
   type SquadDeclarationV1,
 } from "../../kernel/src/index.ts";
 
 export interface AgentEntityGuiAvailableRow {
   readonly id: string;
   readonly name: string;
-  readonly runtimeType: string;
+  readonly runtimes: readonly AgentRuntimeTargetV1[];
   readonly instance: string | null;
   readonly permissionMode: AgentDeclarationV1["permissionMode"] | null;
   readonly role: "worker" | "commander";
@@ -58,10 +63,9 @@ export function isAvailableSquadEntityGuiRow(row: SquadEntityGuiRow): row is Squ
 export interface AgentEntityGuiDetail {
   readonly id: string;
   readonly name: string;
-  readonly runtimeType: string;
+  readonly runtimes: readonly AgentRuntimeTargetV1[];
   readonly role: "worker" | "commander";
   readonly instructions: string;
-  readonly model: string | null;
   readonly skills: readonly { readonly id: string; readonly path: string }[];
   readonly prompts: readonly string[];
   readonly preset: string | null;
@@ -176,12 +180,11 @@ export function readAgentEntityGuiProjection<
       agent: {
         id: agent.id,
         name: agent.name,
-        runtimeType: agent.runtime_type,
+        runtimes: agent.runtimes,
         instance: agent.instance ?? null,
         permissionMode: agent.permissionMode ?? null,
         role: agent.role ?? "worker",
         instructions: agent.instructions,
-        model: agent.model ?? null,
         skills: agent.skills ?? [],
         prompts: agent.prompts ?? [],
         preset: agent.preset ?? null,
@@ -260,7 +263,7 @@ function agentEntityCatalogRow(row: AgentEntityProjectionRow): AgentEntityGuiRow
     return {
       id: agent.id,
       name: agent.name,
-      runtimeType: agent.runtime_type,
+      runtimes: agent.runtimes,
       instance: agent.instance ?? null,
       permissionMode: agent.permissionMode ?? null,
       role: agent.role ?? "worker",
@@ -648,10 +651,11 @@ function agentRuntimeSelectionIssue(
 ): { readonly code: string; readonly message: string } | null {
   if (runtimeInstances === undefined) return null;
   const available = (runtimeInstances ?? []).filter((instance) => instance.enabled),
-    kindCompatible = available.filter((instance) => runtimeTypeMatchesKind(agent.runtime_type, instance.kindId)),
-    compatible = kindCompatible.filter(
-      (instance) => agent.model === undefined || instance.models.includes(agent.model),
-    );
+    kindCompatible = available.filter((instance) => agentRuntimeKindMatches(agent.runtimes, instance.kindId)),
+    compatible = kindCompatible.filter((instance) => {
+      const target = agentRuntimeTargetForKind(agent.runtimes, instance.kindId);
+      return target?.model === undefined || instance.models.includes(target.model);
+    });
   if (agent.instance !== undefined) {
     const selected = available.find((instance) => instance.instanceId === agent.instance);
     if (!selected)
@@ -664,7 +668,7 @@ function agentRuntimeSelectionIssue(
         code: "agent_instance_incompatible",
         message:
           `Agent ${agent.id} declares instance ${agent.instance}, ` +
-          "which does not match its runtime_type and model.",
+          "which does not match its runtimes and their models.",
       };
     return null;
   }
@@ -676,14 +680,18 @@ function agentRuntimeSelectionIssue(
     return {
       code: "agent_runtime_type_unavailable",
       message:
-        `Agent ${agent.id} requires runtime_type ${agent.runtime_type}, ` +
-        "but no enabled instance provides it; run ha runtime instance list.",
+        `Agent ${agent.id} requires runtime kinds ${agentRuntimeTargetSummary(agent.runtimes)}, ` +
+        "but no enabled instance provides them; run ha runtime instance list.",
     };
   return {
     code: "agent_model_unavailable",
     message:
-      `Agent ${agent.id} requests model ${agent.model}, ` +
-      "but no compatible enabled instance supports it; run ha runtime instance list.",
+      `Agent ${agent.id} declares models on its runtime kinds ` +
+      `(${agent.runtimes
+        .filter((target) => target.model !== undefined)
+        .map((target) => `${target.type}:${target.model}`)
+        .join(", ")}), ` +
+      "but no compatible enabled instance supports them; run ha runtime instance list.",
   };
 }
 

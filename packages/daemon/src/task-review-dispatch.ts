@@ -11,6 +11,7 @@ import {
 } from "../../kernel/src/index.ts";
 import { readSubmissionArtifact } from "./submission-artifacts.ts";
 import { readAgentDeclarationResolution } from "./agent-entities.ts";
+import { agentDeclaresExplicitModels } from "./agent-runtime-contract.ts";
 import { authorizeRepoCellAction } from "./repo-cell-authorization.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
@@ -124,10 +125,10 @@ export async function dispatchTaskReview(
         "available reviewer with ha task dispatch-review <task-id> --agent <agent-id>.",
     );
   const { declaration: agent, layer } = resolved;
-  if (layer === "installed" && !agent.model && typeof action.model !== "string")
+  if (layer === "installed" && !agentDeclaresExplicitModels(agent.runtimes) && typeof action.model !== "string")
     throw cell.cellCodedError(
       "review_dispatch_failed",
-      `Declare an explicit model for reviewer ${reviewerId}, or pass --model <model>. ` +
+      `Declare an explicit model on every runtimes row for reviewer ${reviewerId}, or pass --model <model>. ` +
         "Installed reviewer overrides must not select an instance default model.",
     );
   const revision = cell.store.readHead()?.revision ?? 0,

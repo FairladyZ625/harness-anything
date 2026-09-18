@@ -334,7 +334,8 @@ function agentDesignerPrompt(requirement: string): string {
     `# Agent declaration protocol`,
     `Return exactly one JSON object and no Markdown, code fences, or prose.`,
     `The object must contain schema exactly "agent-declaration/v1", plus id, name, instructions, ` +
-      `runtime_type, and optional role (worker or commander) and model. Do not omit schema.`,
+      `runtimes (an array of {type, model?} targets; empty array accepts any compatible runtime kind), ` +
+      `and optional role (worker or commander). Do not omit schema.`,
     `The harness will validate and install the declaration; do not run commands or install it yourself.`,
     `# Agent requirement`,
     requirement,

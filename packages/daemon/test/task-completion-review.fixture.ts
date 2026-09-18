@@ -289,10 +289,9 @@ export async function fixture(
           id: "closeout-reviewer",
           name: "Independent reviewer",
           instructions: "Inspect submitted bytes and record your independent verdict.",
-          runtime_type: "codex",
+          runtimes: [{ type: "codex", model: "review-model" }],
           instance: "review-first",
           role: "worker",
-          model: "review-model",
           fallback: { providerPriority: ["review-first", "review-second"], backoff: { baseMs: 1, maxMs: 2 } },
         },
       });

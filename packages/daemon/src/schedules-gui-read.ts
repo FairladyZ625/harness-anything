@@ -398,7 +398,7 @@ function scheduleAgentOptions(context: SchedulesGuiReadContext): readonly Schedu
       };
     try {
       const agent = parseAgentDeclarationV1(row.value);
-      return { agentId: agent.id, name: agent.name, runtimeType: agent.runtime_type };
+      return { agentId: agent.id, name: agent.name, runtimes: agent.runtimes };
     } catch (error) {
       if ((error as { readonly code?: unknown })?.code !== "invalid_entity_contract") throw error;
       return {

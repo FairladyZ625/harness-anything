@@ -185,7 +185,7 @@ test("bundled reviewer without a ready instance returns configuration guidance",
 test("completion requires a declared reviewer model instead of selecting the ambient default", async () => {
   const f = await fixture(false, true, false, false, false, undefined, { autoSubmit: false });
   try {
-    // Omit model entirely, as in an unconstrained runtime_type=any declaration.
+    // Omit model entirely, as in an unconstrained runtimes=[] declaration.
     const installed = await f.run({
       kind: "agent-install",
       declaration: {
@@ -193,7 +193,7 @@ test("completion requires a declared reviewer model instead of selecting the amb
         id: "closeout-reviewer",
         name: "Unconstrained reviewer",
         instructions: "Review the submitted delivery.",
-        runtime_type: "any",
+        runtimes: [],
         instance: "ambient-first",
       },
     });
@@ -252,7 +252,7 @@ test("completion with an unavailable declared model returns guidance without lau
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
     const result = await f.complete();
     assert.equal(result.code, "review_missing", JSON.stringify(result));
-    assert.match(JSON.stringify((result as Record<string, unknown>).next), /ready compatible instance/u);
+    assert.match(JSON.stringify((result as Record<string, unknown>).next), /ready runtime instance matching/u);
     assert.deepEqual(result.diagnostic, { kind: "failure", code: "agent_model_unavailable" });
     assert.match(result.rejectionExplanation ?? "", /No enabled runtime instance declares model review-model/u);
     assert.equal(f.launches.length, 0);

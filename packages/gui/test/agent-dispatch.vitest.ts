@@ -60,21 +60,21 @@ const agyInstance = {
 } as never;
 const agentSubject: DispatchSubject = {
   kind: "agent",
-  agent: { agentId: "terra", agentName: "terra", runtimeType: "codex" },
+  agent: { agentId: "terra", agentName: "terra", runtimes: [{ type: "codex" }] },
 };
 const anyAgentSubject: DispatchSubject = {
   kind: "agent",
-  agent: { agentId: "any-worker", agentName: "any-worker", runtimeType: "any" },
+  agent: { agentId: "any-worker", agentName: "any-worker", runtimes: [] },
 };
 const openCodeAgentSubject: DispatchSubject = {
   kind: "agent",
-  agent: { agentId: "opencode-worker", agentName: "opencode-worker", runtimeType: "opencode-worker" },
+  agent: { agentId: "opencode-worker", agentName: "opencode-worker", runtimes: [{ type: "opencode-worker" }] },
 };
 const squadSubject: DispatchSubject = {
   kind: "squad",
   squadId: "core-squad",
   squadName: "Core Squad",
-  leader: { agentId: "fable", agentName: "fable", runtimeType: "claude" },
+  leader: { agentId: "fable", agentName: "fable", runtimes: [{ type: "claude" }] },
 };
 const baseRequest = {
   runtimeInstanceId: "w4c-verify-codex",
@@ -182,12 +182,16 @@ describe("agent dispatch flow", () => {
   });
   it("offers only enabled instances of the executor's runtime type", () => {
     expect(
-      compatibleDispatchInstances("codex", [codexInstance, claudeInstance]).map((instance) => instance.instanceId),
+      compatibleDispatchInstances([{ type: "codex" }], [codexInstance, claudeInstance]).map(
+        (instance) => instance.instanceId,
+      ),
     ).toEqual(["w4c-verify-codex"]);
     expect(
-      compatibleDispatchInstances("claude", [codexInstance, claudeInstance]).map((instance) => instance.instanceId),
+      compatibleDispatchInstances([{ type: "claude" }], [codexInstance, claudeInstance]).map(
+        (instance) => instance.instanceId,
+      ),
     ).toEqual(["claude-one"]);
-    expect(compatibleDispatchInstances("agy", [codexInstance, claudeInstance])).toEqual([]);
+    expect(compatibleDispatchInstances([{ type: "agy" }], [codexInstance, claudeInstance])).toEqual([]);
   });
   it("offers the model union of every compatible automatic-routing candidate", () => {
     const second = {
@@ -200,24 +204,24 @@ describe("agent dispatch flow", () => {
   });
   it("lets an any Agent filter and dispatch through every supported enabled runtime kind", () => {
     for (const instance of [codexInstance, claudeInstance, agyInstance]) {
-      expect(compatibleDispatchInstances("any", [instance]).map((row) => row.instanceId)).toEqual([
-        instance.instanceId,
-      ]);
+      expect(compatibleDispatchInstances([], [instance]).map((row) => row.instanceId)).toEqual([instance.instanceId]);
       expect(
         buildDispatchSpawnInput({ ...baseRequest, subject: anyAgentSubject, runtimeInstanceId: instance.instanceId }, [
           instance,
         ]),
       ).toMatchObject({ agentId: "any-worker", runtimeInstanceId: instance.instanceId });
     }
-    expect(compatibleDispatchInstances("any", [{ ...codexInstance, enabled: false }])).toEqual([]);
+    expect(compatibleDispatchInstances([], [{ ...codexInstance, enabled: false }])).toEqual([]);
   });
   it("keeps unknown open runtime identifiers fail-closed", () => {
-    expect(compatibleDispatchInstances("opencode-worker", [codexInstance, claudeInstance, agyInstance])).toEqual([]);
+    expect(
+      compatibleDispatchInstances([{ type: "opencode-worker" }], [codexInstance, claudeInstance, agyInstance]),
+    ).toEqual([]);
     expect(() => buildDispatchSpawnInput({ ...baseRequest, subject: openCodeAgentSubject }, [codexInstance])).toThrow(
       "dispatch_runtime_type_mismatch",
     );
   });
-  it("rejects a runtime instance whose kindId does not match the selected executor runtime_type", () => {
+  it("rejects a runtime instance whose kindId is absent from the selected executor runtimes", () => {
     expect(() => buildDispatchSpawnInput({ ...baseRequest, subject: agentSubject }, [claudeInstance])).toThrow(
       "dispatch_runtime_type_mismatch",
     );
@@ -347,10 +351,9 @@ describe("agent dispatch flow", () => {
         detail: {
           id: "terra",
           name: "terra",
-          runtimeType: "codex",
+          runtimes: [{ type: "codex" }],
           role: "worker",
           instructions: "Work the mission.",
-          model: null,
           skills: [],
           prompts: [],
           preset: null,
@@ -358,7 +361,7 @@ describe("agent dispatch flow", () => {
         row: {
           id: "terra",
           name: "terra",
-          runtimeType: "codex",
+          runtimes: [{ type: "codex" }],
           role: "worker",
           layer: "user",
         },
