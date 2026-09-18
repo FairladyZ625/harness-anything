@@ -424,20 +424,25 @@ export async function eventuallyRuntimeReaderReuse(
         const key = `${String(record.pid)}:${record.conn}`;
         (observed[key] ??= []).push(record.method);
       }
-    const reused = Object.entries(observed).find(
-      ([, methods]) =>
-        methods.filter((method) => method === "repo.agentRuntime.sessions.read").length >= 2 &&
-        methods.filter((method) => method === "protocol.hello").length === 1,
-    );
-    if (reused)
+    // The wait is one parked sessions.await on one connection; the retired sessions.read polling
+    // pattern (2+ reads on a single connection) must not appear anywhere.
+    const parked = Object.entries(observed).find(
+        ([, methods]) =>
+          methods.filter((method) => method === "repo.agentRuntime.sessions.await").length === 1 &&
+          methods.filter((method) => method === "protocol.hello").length === 1,
+      ),
+      polled = Object.entries(observed).find(
+        ([, methods]) => methods.filter((method) => method === "repo.agentRuntime.sessions.read").length >= 2,
+      );
+    if (parked && !polled)
       return {
-        conn: reused[0],
+        conn: parked[0],
         helloCount: 1,
-        statusReads: reused[1].filter((method) => method === "repo.agentRuntime.sessions.read").length,
+        awaits: parked[1].filter((method) => method === "repo.agentRuntime.sessions.await").length,
       };
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
-  throw new Error(`runtime status wait did not reuse one daemon connection: ${JSON.stringify(observed)}`);
+  throw new Error(`runtime status wait did not park one daemon await: ${JSON.stringify(observed)}`);
 }
 export function assertTaskMissionPrompt(
   prompt: string,

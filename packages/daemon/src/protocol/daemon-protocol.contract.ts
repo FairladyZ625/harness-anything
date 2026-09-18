@@ -216,6 +216,20 @@ export const runtimeInstanceMethods = Object.freeze([
     }),
   },
   {
+    id: "repo.agentRuntime.sessions.await",
+    phase: "Runtime-B",
+    method: "repo.agentRuntime.sessions.await",
+    requiresRepo: true,
+    params: shape({
+      repo: shape({ repoId: "string" }),
+      payload: shape({
+        runtimeSessionIds: "array?",
+        taskIds: "array?",
+        mode: optionalEnum(["any", "all"] as const),
+      }),
+    }),
+  },
+  {
     id: "repo.agent.create",
     phase: "Runtime-B",
     method: "repo.agent.create",

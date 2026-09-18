@@ -21,6 +21,7 @@ import { requireAuthorizedHostAction } from "./host-action-authorization.ts";
 import {
   orchestrateAgentCreate,
   orchestrateRuntimeBatch,
+  orchestrateRuntimeSessionsAwait,
   type RuntimeOrchestrationContext,
 } from "./runtime-orchestration.ts";
 
@@ -32,6 +33,7 @@ export function createDaemonHostRuntimeApi(
   | "spawnRuntime"
   | "cancelRuntime"
   | "batchRuntime"
+  | "awaitRuntimeSessions"
   | "createAgent"
   | "runtimeIngress"
   | "terminalAttach"
@@ -85,6 +87,19 @@ export function createDaemonHostRuntimeApi(
         payload,
         hostOrchestration(repoId, cell, await context.binding(cell.status().rootDir, auth, undefined, repoId), auth),
       );
+    },
+    awaitRuntimeSessions: async (repoId, payload, auth) => {
+      context.requireHostMode(repoId, commandDescriptorForAction("runtime-sessions-await"), auth);
+      await context.attemptHostRecovery(repoId);
+      const cell = context.requiredCell(context.cells, context.warming, context.unavailable, repoId);
+      return orchestrateRuntimeSessionsAwait(payload, {
+        readSession: (runtimeSessionId) =>
+          context.host.read(repoId, "repo.agentRuntime.sessions.read", { runtimeSessionId }, auth),
+        readTaskDispatches: (taskIds) =>
+          context.host.read(repoId, "repo.task.dispatches", { taskIds: taskIds as string[] }, auth),
+        awaitSignal: cell.awaitRuntimeSignal,
+        codedError: context.hostCodedError,
+      });
     },
     createAgent: async (repoId, payload, auth) => {
       context.requireHostMode(repoId, commandDescriptorForAction("agent-create"), auth);

@@ -130,19 +130,35 @@ export const runtimeFleetProtocolCommands = Object.freeze([
     id: "runtime-status",
     phase: "Runtime-B",
     path: ["runtime", "status", "[<runtime-session-id>]"],
-    summary: "List runtime sessions, show one session, or use --wait to stream and wait for its final result.",
+    summary: [
+      "List runtime sessions, show one session, or use --wait to wait for terminal results. ",
+      "--wait accepts several session ids (first to settle wins unless --all) and repeated --task.",
+    ].join(""),
     method: "repo.agentRuntime.overview",
     inputs: [
-      cliInput("--task", "single", false, {
+      cliInput("--task", "repeated", false, {
         code: "invalid_field",
       }),
       cliInput("--wait", "boolean", false, {
+        code: "invalid_field",
+      }),
+      cliInput("--all", "boolean", false, {
         code: "invalid_field",
       }),
       cliInput("--no-stream", "boolean", false, {
         code: "invalid_field",
       }),
     ],
+  }),
+  defineRuntimeLocalWriteCommand({
+    id: "runtime-sessions-await",
+    actionKind: "runtime-sessions-await",
+    internal: true,
+    phase: "Runtime-B",
+    path: ["runtime", "_await"],
+    summary: "Daemon-side long wait over a set of runtime sessions or task dispatches.",
+    method: "repo.agentRuntime.sessions.await",
+    inputs: [],
   }),
   defineRuntimeLocalWriteCommand({
     id: "runtime-cancel",

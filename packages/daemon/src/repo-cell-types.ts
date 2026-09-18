@@ -152,6 +152,8 @@ export interface RepoCell {
   readonly cancelRuntime: (payload: JsonObject, binding: RepoCellBinding) => Promise<JsonObject>;
   /** Resolves when the session's projected outcome is settled per the domain settle predicate. */
   readonly awaitRuntimeOutcome: (runtimeSessionId: string) => Promise<void>;
+  /** Resolves on the next runtime signal/outcome notification or the settlement grace backstop. */
+  readonly awaitRuntimeSignal: () => Promise<void>;
   readonly runtimeIngress: (action: RuntimeIngressAction, binding: RepoCellBinding) => Promise<JsonObject>;
   readonly catalog: ReturnType<typeof openGuiCatalog>;
   readonly terminal: RepoCellTerminal;

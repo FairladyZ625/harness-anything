@@ -1067,6 +1067,7 @@ export async function openRepoWriterCell(
       return runtimeReads;
     },
     awaitRuntimeOutcome: outcomeWaiters.awaitOutcome,
+    awaitRuntimeSignal: outcomeWaiters.awaitSignal,
     runtimeSpawner,
     settings,
     appendAuxiliaryRuntimeIngress: extracted.appendAuxiliaryRuntimeIngress,

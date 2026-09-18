@@ -2,7 +2,7 @@ import type { JsonObject } from "../../daemon/src/protocol/json-rpc-types.ts";
 import { runAgentCreate } from "./cli-agent-create.ts";
 import { renderRuntimeStatus, runRuntimeAuthCommand } from "./cli-runtime-auth.ts";
 import { runRuntimeBatch } from "./cli-runtime-batch.ts";
-import { waitForRuntime, waitForTaskDispatches } from "./cli-runtime-wait.ts";
+import { waitForRuntimeSessions } from "./cli-runtime-wait.ts";
 import { runSquadRun } from "./cli-squad-run.ts";
 import type { ThinCommand } from "./cli/thin-command.ts";
 import { runCommandThroughDaemon } from "./daemon/client.ts";
@@ -26,16 +26,8 @@ export async function runRuntimeFacadeCommand(
   if (action.kind === "runtime-batch") return runRuntimeBatch(command);
   if (action.kind === "squad-run") return runSquadRun(command, writeActivity);
   if (action.kind === "agent-create") return runAgentCreate(command);
+  if (action.kind === "runtime-sessions-await") return waitForRuntimeSessions(command, writeActivity);
   if (action.kind === "runtime-status") {
-    if (action.wait === true)
-      return typeof action.taskId === "string"
-        ? waitForTaskDispatches(command, action.taskId)
-        : waitForRuntime(
-            command,
-            String(action.runtimeSessionId),
-            !command.json && action.noStream !== true,
-            writeActivity,
-          );
     const { wait: _wait, noStream: _noStream, ...readAction } = action,
       result = await runCommandThroughDaemon({
         ...command,
@@ -91,10 +83,16 @@ export async function runRuntimeFacadeCommand(
       exitCode: 0,
     };
   }
-  return waitForRuntime(
-    command,
-    spawned.runtimeSessionId,
-    !command.json && action.noStream !== true,
+  return waitForRuntimeSessions(
+    {
+      ...command,
+      method: "repo.agentRuntime.sessions.await",
+      action: {
+        kind: "runtime-sessions-await",
+        runtimeSessionIds: [spawned.runtimeSessionId],
+        ...(action.noStream === true ? { noStream: true } : {}),
+      },
+    },
     writeActivity,
     spawned,
     typeof action.taskId === "string" && typeof spawned.dispatchId === "string"

@@ -525,6 +525,14 @@ export function createJsonRpcProtocolServer(options: {
         return reply(method, protocolFailure(method, error));
       }
     }
+    if (method === "repo.agentRuntime.sessions.await") {
+      const repo = params.repo.repoId;
+      try {
+        return reply(method, await options.host.awaitRuntimeSessions(repo, params.payload, options.authContext));
+      } catch (error) {
+        return reply(method, protocolFailure(method, error));
+      }
+    }
     if (isTerminalActionCall(call)) {
       const { method, params } = call,
         repo = params.repo.repoId;

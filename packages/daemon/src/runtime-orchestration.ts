@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { consumeKnownError } from "../../kernel/src/index.ts";
 import type { AgentRuntimeSessionResult, AgentRuntimeSettlement } from "./agent-runtime-contract.ts";
+import { taskDispatchRowSettled, taskDispatchRowsSettled } from "./dispatch-read.ts";
 import { daemonProtocolCommands } from "./protocol/daemon-protocol-commands.ts";
+import type { DaemonTaskDispatchesResult } from "./protocol/daemon-protocol.contract.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import type { RepoTaskAction } from "./repo-cell-types.ts";
 
@@ -55,6 +57,14 @@ export interface RuntimeOrchestrationContext {
   readonly run: (action: RepoTaskAction) => Promise<JsonObject>;
   readonly awaitRuntimeOutcome: (runtimeSessionId: string) => Promise<void>;
   readonly readSession: (runtimeSessionId: string) => Promise<AgentRuntimeSessionResult>;
+  readonly codedError: (code: string, message: string) => Error;
+}
+
+export interface RuntimeAwaitContext {
+  readonly readSession: (runtimeSessionId: string) => Promise<AgentRuntimeSessionResult>;
+  readonly readTaskDispatches: (taskIds: readonly string[]) => Promise<DaemonTaskDispatchesResult>;
+  /** Resolves on the next runtime signal/outcome notification or the settlement grace backstop. */
+  readonly awaitSignal: () => Promise<void>;
   readonly codedError: (code: string, message: string) => Error;
 }
 
@@ -428,4 +438,178 @@ export async function orchestrateAgentCreate(
     summary: `agent-create: installed ${String(declaration.id)}`,
     exitCode: 0,
   };
+}
+
+/** One parked long wait over a set of runtime sessions or task dispatches. The daemon owns the
+ * settle decision: each wake re-reads the authoritative projection verdicts (session settlement,
+ * dispatch rows) and the CLI only renders what comes back — no client-side polling or outcome
+ * derivation. Read-only: the wait takes no lease and writes no ledger entries. */
+export async function orchestrateRuntimeSessionsAwait(
+  payload: Readonly<Record<string, unknown>>,
+  context: RuntimeAwaitContext,
+): Promise<JsonObject> {
+  const mode = payload.mode === undefined ? undefined : String(payload.mode);
+  if (mode !== undefined && mode !== "any" && mode !== "all")
+    throw context.codedError("invalid_field", "sessions.await mode must be any or all.");
+  const runtimeSessionIds = requiredIdList(payload.runtimeSessionIds, "runtimeSessionIds", context),
+    taskIds = requiredIdList(payload.taskIds, "taskIds", context);
+  if (runtimeSessionIds !== null && taskIds !== null)
+    throw context.codedError("invalid_field", "sessions.await accepts runtimeSessionIds or taskIds, not both.");
+  if (runtimeSessionIds === null && taskIds === null)
+    throw context.codedError("invalid_field", "sessions.await requires runtimeSessionIds or taskIds.");
+  if (taskIds !== null) return awaitTaskDispatches(taskIds, mode ?? "all", context);
+  return awaitSessionSet(runtimeSessionIds!, mode ?? "any", context);
+}
+
+function requiredIdList(
+  value: unknown,
+  field: string,
+  context: Pick<RuntimeAwaitContext, "codedError">,
+): readonly string[] | null {
+  if (value === undefined) return null;
+  if (
+    !Array.isArray(value) ||
+    value.length === 0 ||
+    value.length > 500 ||
+    value.some((item) => typeof item !== "string" || item.length === 0) ||
+    new Set(value).size !== value.length
+  )
+    throw context.codedError("invalid_field", `sessions.await ${field} must be 1..500 unique non-empty strings.`);
+  return value as readonly string[];
+}
+
+type AwaitedSessionRow = {
+  readonly runtimeSessionId: string;
+  readonly outcome: string;
+  readonly exitCode: number;
+  readonly code: string | null;
+  readonly reason: string | null;
+  readonly resultText: string | null;
+};
+
+async function awaitSessionSet(
+  runtimeSessionIds: readonly string[],
+  mode: "any" | "all",
+  context: RuntimeAwaitContext,
+): Promise<JsonObject> {
+  const unavailable: string[] = [];
+  let settled: readonly AwaitedSessionRow[],
+    inFlight: readonly { readonly runtimeSessionId: string; readonly liveness: string }[],
+    lastRead: AgentRuntimeSessionResult | undefined;
+  for (;;) {
+    const reads = await Promise.allSettled(runtimeSessionIds.map((id) => context.readSession(id))),
+      settledNext: AwaitedSessionRow[] = [],
+      inFlightNext: { readonly runtimeSessionId: string; readonly liveness: string }[] = [];
+    reads.forEach((read, index) => {
+      const runtimeSessionId = runtimeSessionIds[index]!;
+      if (!("value" in read)) {
+        if (errorCode(read.reason) !== "runtime_session_not_found") throw read.reason;
+        if (!unavailable.includes(runtimeSessionId)) unavailable.push(runtimeSessionId);
+        return;
+      }
+      const result = read.value,
+        settlement = result.settlement;
+      lastRead = result;
+      if (settlement === null) {
+        inFlightNext.push({ runtimeSessionId, liveness: result.session.liveness });
+        return;
+      }
+      settledNext.push({
+        runtimeSessionId,
+        outcome: settlement.outcome,
+        exitCode: settlement.exitCode,
+        code: settlement.code,
+        reason: settlement.reason,
+        resultText: result.result?.text ?? null,
+      });
+    });
+    settled = settledNext;
+    inFlight = inFlightNext;
+    // any: the first settled session answers; all: every known session must settle. Sessions
+    // absent from this node's projection are reported, never waited on — otherwise the request
+    // would hang on a session only another edge node can see.
+    if (inFlight.length === 0 || (mode === "any" && settled.length > 0)) break;
+    await context.awaitSignal();
+  }
+  const winner = settled[0],
+    outcome =
+      mode === "any"
+        ? (winner?.outcome ?? "unknown")
+        : unavailable.length === 0 && settled.length > 0 && settled.every((row) => row.outcome === "succeeded")
+          ? "succeeded"
+          : settled.some((row) => row.outcome === "unknown") || settled.length === 0
+            ? "unknown"
+            : "failed",
+    exitCode = mode === "any" ? (winner?.exitCode ?? 1) : outcome === "succeeded" ? 0 : 1,
+    hint =
+      unavailable.length > 0
+        ? `${unavailable.length} session${unavailable.length === 1 ? " is" : "s are"} not in this ` +
+          "node's runtime projection; wait on the node that owns them or check the session ids."
+        : null,
+    diagnosed = settled.find((row) => row.reason !== null),
+    // The N=1 receipt keeps the old sessions.read fields (session/result/settlement/watermark)
+    // alongside the multi-target split, so a single-session wait reads exactly like before.
+    single = runtimeSessionIds.length === 1 ? lastRead : undefined;
+  return {
+    ...(single as unknown as JsonObject | undefined),
+    schema: "command-receipt/v2",
+    ok: true,
+    command: "runtime-status",
+    mode,
+    outcome,
+    ...(single ? { runtimeSessionId: runtimeSessionIds[0] } : {}),
+    ...(diagnosed ? { code: diagnosed.code, reason: diagnosed.reason } : {}),
+    sessions: settled as unknown as JsonObject[],
+    inFlight: inFlight as unknown as JsonObject[],
+    unavailable: unavailable.map((runtimeSessionId) => ({
+      runtimeSessionId,
+      code: "runtime_session_not_found",
+    })) as unknown as JsonObject[],
+    ...(hint ? { nextAction: hint } : {}),
+    summary:
+      // A single-target wait keeps the old receipt's text-first summary; multi-target waits name
+      // the settled session and count what is still outstanding.
+      winner && runtimeSessionIds.length === 1
+        ? (winner.resultText ?? winner.reason ?? `runtime-status: ${winner.outcome}`)
+        : mode === "any" && winner
+          ? `runtime-status: ${winner.runtimeSessionId} settled ${winner.outcome}` +
+            (inFlight.length ? `; ${inFlight.length} still in flight` : "")
+          : `runtime-status: ${settled.length} settled, ${inFlight.length} in flight` +
+            (unavailable.length ? `, ${unavailable.length} unavailable` : ""),
+    exitCode,
+  };
+}
+
+async function awaitTaskDispatches(
+  taskIds: readonly string[],
+  mode: "any" | "all",
+  context: RuntimeAwaitContext,
+): Promise<JsonObject> {
+  for (;;) {
+    const read = await context.readTaskDispatches(taskIds);
+    if (read.ok !== true) return read as unknown as JsonObject;
+    const rows = read.dispatches,
+      dispatchIds = rows.map((row) => row.dispatchId),
+      settled = rows.filter((row) => taskDispatchRowSettled(row, dispatchIds)),
+      // The batch projection reporting "pending" is still catching up; keep waiting for it.
+      done = !["ready"].includes(read.status)
+        ? false
+        : mode === "all"
+          ? taskDispatchRowsSettled(rows)
+          : settled.length > 0 || rows.length === 0;
+    if (done) {
+      const winner = settled[0];
+      return {
+        ...(read as unknown as JsonObject),
+        command: "runtime-status",
+        mode,
+        taskIds: taskIds as unknown as JsonObject[],
+        summary:
+          `runtime-status task ${taskIds.join(",")}: ${rows.length} ` +
+          `dispatch${rows.length === 1 ? "" : "es"}, ${String(read.outcome)}`,
+        exitCode: mode === "all" ? (read.exitCode ?? 0) : (winner?.exitCode ?? read.exitCode ?? 0),
+      };
+    }
+    await context.awaitSignal();
+  }
 }
