@@ -2,7 +2,7 @@ export const entityFreshnesses = ["current", "orphaned", "unknown"] as const;
 export const relationFreshnesses = ["current", "suspect", "orphaned"] as const;
 /** Which endpoint's cut verdict a relation freshness judgment follows; each relation
  * type declares its anchor through `relationFreshnessAnchorForType` (entity-relation.ts). */
-export const relationFreshnessAnchors = ["source", "target"] as const;
+export const relationFreshnessAnchors = ["source", "target", "target-presence"] as const;
 
 export type EntityFreshness = (typeof entityFreshnesses)[number];
 export type RelationFreshness = (typeof relationFreshnesses)[number];
@@ -27,6 +27,7 @@ export function relationFreshnessAtCut(input: {
   if (input.anchor === "source") return sourceAnchoredFreshnessAtCut(input.source);
   const target = input.target;
   if (target.freshness === "orphaned") return "orphaned";
+  if (input.anchor === "target-presence") return target.freshness === "current" ? "current" : "suspect";
   if (target.freshness !== "current" || target.currentVersion === null || input.targetObservedVersion === null)
     return "suspect";
   return target.currentVersion === input.targetObservedVersion ? "current" : "suspect";

@@ -27,6 +27,7 @@ import {
   RELATION_PROJECTION_VERSION,
 } from "../../src/projection/relation-entity-projection.ts";
 import { markEntityProjectionMissing } from "../../src/projection/rebuildable-task-projection-entities.ts";
+import { blockingOf } from "../../src/domain/task-blocking.ts";
 
 const actor = {
   principal: { personId: "person-relation-contract" },
@@ -421,6 +422,72 @@ test("an entity_target_missing projection makes every inbound Relation orphaned 
   );
   assert.equal(
     orphaned.every(({ currentTargetVersion }) => currentTargetVersion === null),
+    true,
+  );
+  db.close();
+});
+
+test("a depends-on edge follows target presence: version drift stays current, loss turns orphaned", () => {
+  // dec_EB379558A2B33134197859FECF/CH1: the blocking consumer must keep reading a
+  // depends-on edge while the target task exists, and stop only when it is gone.
+  const db = new DatabaseSync(":memory:");
+  createRelationGraphProjectionTables(db);
+  db.exec(
+    "CREATE TABLE entity_projection (entity_kind TEXT NOT NULL, entity_id TEXT NOT NULL, task_id TEXT NOT NULL, " +
+      "workspace_revision INTEGER NOT NULL, freshness TEXT NOT NULL, current_version, value_json TEXT NOT NULL, " +
+      "PRIMARY KEY(entity_kind, task_id, entity_id))",
+  );
+  db.prepare("INSERT INTO entity_projection VALUES ('task', 'task_dep_target', '', 4, 'current', 4, '{}')").run();
+  const identity = {
+      source: "task/task_dep_source",
+      target: "task/task_dep_target",
+      type: "depends-on" as const,
+      direction: "directed" as const,
+    },
+    relation = { ...record(), ...identity, relation_id: deriveRelationId(identity), type: "depends-on" as const },
+    created = compileRelationCreatedEvent({
+      record: eventRecord(relation, 4),
+      actor,
+      source,
+      opId: "relation-depends-on-presence",
+      occurredAt: "2026-08-31T07:00:00.000Z",
+      workspaceRevision: 5,
+    });
+  applyRelationProjectionEvent(db, created);
+
+  // The target task advances its version; the edge stays current and blocks the source.
+  db.prepare(
+    "UPDATE entity_projection SET workspace_revision = 9, current_version = 9 WHERE entity_id = 'task_dep_target'",
+  ).run();
+  const drifted = readRelationProjectionRows(db).find((row) => row.relationId === relation.relation_id)!;
+  assert.equal(drifted.freshness, "current");
+  const blocked = blockingOf(
+    [
+      { taskId: "task_dep_source", status: "active" },
+      { taskId: "task_dep_target", status: "active" },
+    ],
+    [drifted],
+  ).find((assessment) => assessment.taskId === "task_dep_source")!;
+  assert.equal(blocked.state, "blocked");
+  assert.deepEqual(
+    blocked.blockers.map((blocker) => blocker.targetTaskId),
+    ["task_dep_target"],
+  );
+
+  // Losing the target is what orphans the edge; a strong orphaned edge is refused, not consumed.
+  markEntityProjectionMissing(db, "task", "task_dep_target", 12);
+  const orphaned = readRelationProjectionRows(db).find((row) => row.relationId === relation.relation_id)!;
+  assert.equal(orphaned.freshness, "orphaned");
+  const released = blockingOf(
+    [
+      { taskId: "task_dep_source", status: "active" },
+      { taskId: "task_dep_target", status: "active" },
+    ],
+    [orphaned],
+  ).find((assessment) => assessment.taskId === "task_dep_source")!;
+  assert.equal(released.blockers.length, 0);
+  assert.equal(
+    released.warnings.some((warning) => warning.includes(orphaned.relationId)),
     true,
   );
   db.close();

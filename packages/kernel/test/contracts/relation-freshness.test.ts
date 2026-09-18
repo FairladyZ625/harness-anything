@@ -47,10 +47,41 @@ test("relation freshness compares a pinned witness with the target at one cut", 
   );
 });
 
-test("only derives anchors its freshness on the source; every other type keeps the target", () => {
+test("derives anchors on the source, depends-on on target presence; every other type keeps the pinned target", () => {
   assert.deepEqual(
     relationTypes.map((type) => [type, relationFreshnessAnchorForType(type)]),
-    relationTypes.map((type) => [type, type === "derives" ? "source" : "target"]),
+    relationTypes.map((type) => [
+      type,
+      type === "derives" ? "source" : type === "depends-on" ? "target-presence" : "target",
+    ]),
+  );
+});
+
+test("a target-presence edge stays current while the target exists, orphaned only when it is gone", () => {
+  // dec_EB379558A2B33134197859FECF/CH1: "task A depends on task B" holds no matter how
+  // far B's own version advances; only losing B turns the edge orphaned.
+  const target = { entityRef: "task/task_target", freshness: "current" as const, currentVersion: 42 };
+  for (const observed of [8, 41, 42, null])
+    assert.equal(
+      relationFreshnessAtCut({ anchor: "target-presence", target, targetObservedVersion: observed }),
+      "current",
+      `observed ${String(observed)}`,
+    );
+  assert.equal(
+    relationFreshnessAtCut({
+      anchor: "target-presence",
+      target: { ...target, freshness: "orphaned", currentVersion: null },
+      targetObservedVersion: 8,
+    }),
+    "orphaned",
+  );
+  assert.equal(
+    relationFreshnessAtCut({
+      anchor: "target-presence",
+      target: { ...target, freshness: "unknown", currentVersion: null },
+      targetObservedVersion: 8,
+    }),
+    "suspect",
   );
 });
 
