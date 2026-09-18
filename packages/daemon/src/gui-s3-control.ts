@@ -527,7 +527,7 @@ export function validateCatalogSnapshot(value: unknown): readonly string[] {
       for (const key of Object.keys(descriptor.adapterFields))
         if (!stringArray(descriptor.adapterFields[key]))
           errors.push("catalog gate mappings adapter fields are invalid");
-      for (const key of Array.isArray(descriptor.adapterFields.none) ? descriptor.adapterFields.none : ["__missing__"])
+      if (!Array.isArray(descriptor.adapterFields.none) || descriptor.adapterFields.none.length > 0)
         errors.push("catalog gate mappings none adapter must declare no fields");
     }
   }

@@ -341,7 +341,7 @@ test("repo.settings.update accepts every settings-contract field and nothing els
       ? true
       : descriptor.type === "number"
         ? 3
-        : descriptor.type === "string-array"
+        : descriptor.type === "string-array" || descriptor.type === "json-object-array"
           ? []
           : "value");
   for (const descriptor of settingsUpdateInputFields) {

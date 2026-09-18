@@ -232,7 +232,6 @@ export {
 } from "./domain/completion-contract.ts";
 export type {
   FrozenGateRequirement,
-  GateAppliesTo,
   GateWitnessMappingV1,
   MappedWitnessAdapterId,
 } from "./domain/completion-contract.ts";
