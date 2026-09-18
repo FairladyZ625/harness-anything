@@ -9,7 +9,11 @@ import type { DecisionEventV1 } from "../domain/decision-event.ts";
 import type { FactEventV1 } from "../domain/fact-event.ts";
 import { entityKindContracts } from "../domain/entity-kind-registry.ts";
 import { interpretEmbeddedEntityProjections } from "../domain/entity-kind-projection.ts";
-import { relationOwnerRef, type EntityRelationRecord } from "../domain/entity-relation.ts";
+import {
+  relationFreshnessAnchorForType,
+  relationOwnerRef,
+  type EntityRelationRecord,
+} from "../domain/entity-relation.ts";
 import type { TaskEventV1 } from "../domain/task-lifecycle-event.ts";
 import {
   assertRelationRecord,
@@ -287,9 +291,19 @@ export function relationProjectionRowsAtCut(
     );
   const witnesses = readEntityVersionWitnesses(
     db,
-    rows.map(({ entity }) => entity.target),
+    rows.flatMap(({ entity }) =>
+      relationFreshnessAnchorForType(entity.type) === "source" ? [entity.target, entity.source] : [entity.target],
+    ),
   );
-  return rows.map((row) => relationProjectionRow(db, row.entity, row.sourcePath, witnesses.get(row.entity.target)));
+  return rows.map((row) =>
+    relationProjectionRow(
+      db,
+      row.entity,
+      row.sourcePath,
+      witnesses.get(row.entity.target),
+      witnesses.get(row.entity.source),
+    ),
+  );
 }
 
 export function relationProjectionRow(
@@ -297,9 +311,17 @@ export function relationProjectionRow(
   entity: RelationEntity,
   sourcePath: string,
   targetWitness?: EntityVersionWitness,
+  sourceWitness?: EntityVersionWitness,
 ): VersionedRelationProjectionRow {
-  const target = targetWitness ?? readEntityVersionWitness(db, entity.target),
-    freshness = relationFreshnessAtCut({ target, targetObservedVersion: entity.targetObservedVersion });
+  const anchor = relationFreshnessAnchorForType(entity.type),
+    target = targetWitness ?? readEntityVersionWitness(db, entity.target),
+    source = anchor === "source" ? (sourceWitness ?? readEntityVersionWitness(db, entity.source)) : undefined,
+    freshness = relationFreshnessAtCut({
+      anchor,
+      target,
+      targetObservedVersion: entity.targetObservedVersion,
+      source,
+    });
   return Object.freeze({
     schema: RELATION_PROJECTION_VERSION,
     entity,

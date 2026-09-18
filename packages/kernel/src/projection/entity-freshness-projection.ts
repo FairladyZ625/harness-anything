@@ -47,6 +47,11 @@ export function readEntityVersionWitnesses(
       .filter(({ table }) => tables.has(table))
       .map(({ kind }) => `${kind}_version.workspace_revision`),
     coreVersion = coreVersions.length > 1 ? `COALESCE(${coreVersions.join(", ")})` : (coreVersions[0] ?? "NULL"),
+    // A decision's lifecycle state word rides the same join its version already used, so
+    // source-anchored relation freshness can read "still in force" without a second scan.
+    decisionState = tables.has("decision")
+      ? "CASE WHEN requested.kind='decision' THEN decision_version.state ELSE NULL END"
+      : "NULL",
     rows = prepareQuery(
       db,
       `WITH requested AS (
@@ -59,18 +64,21 @@ export function readEntityVersionWitnesses(
         SELECT requested.ref,
           CASE WHEN ${projectedPresent} THEN ${projectedFreshness}
                WHEN ${coreVersion} IS NOT NULL THEN 'current' ELSE 'unknown' END AS freshness,
-          CASE WHEN ${projectedPresent} THEN ${projectedVersion} ELSE ${coreVersion} END AS current_version
+          CASE WHEN ${projectedPresent} THEN ${projectedVersion} ELSE ${coreVersion} END AS current_version,
+          ${decisionState} AS state
         FROM requested ${joins.join(" ")} ORDER BY requested.position`,
     ).all(JSON.stringify(requests)) as unknown as readonly {
       readonly ref: string;
       readonly freshness: EntityFreshness;
       readonly current_version: string | number | null;
+      readonly state: string | null;
     }[];
   for (const row of rows)
     witnesses.set(row.ref, {
       entityRef: row.ref,
       freshness: row.freshness,
       currentVersion: row.current_version,
+      ...(row.state === null ? {} : { state: row.state }),
     });
   return witnesses;
 }

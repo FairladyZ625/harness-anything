@@ -3,7 +3,7 @@ import { compiledPattern } from "./entity-json-schema.ts";
 import { parseEntityRef } from "./entity-ref.ts";
 import type { ParsedEntityRef } from "./entity-ref.ts";
 import { canonicalRelationDirections, type CanonicalRelationDirection } from "./relation-direction.ts";
-import type { RelationFreshness } from "./entity-freshness.ts";
+import type { RelationFreshness, RelationFreshnessAnchor } from "./entity-freshness.ts";
 import { isRecord } from "./write-chain.contract.ts";
 
 export const relationTypes = [
@@ -66,6 +66,17 @@ export interface GovernedRelationRegistryWitness {
 
 export function relationStrengthForType(type: RelationType): RelationStrength {
   return type === "relates" ? "weak" : "strong";
+}
+
+/**
+ * Which endpoint's cut verdict each relation type's freshness follows
+ * (dec_D6970DC1303EF90E8B4855FC80/CH1). `derives` anchors on the source: "this task is
+ * derived from that decision" stays true while the source decision remains in force, no
+ * matter how far the target task's own version advances. Every other type keeps the
+ * pinned-target comparison — a changed target is exactly what makes those edges suspect.
+ */
+export function relationFreshnessAnchorForType(type: RelationType): RelationFreshnessAnchor {
+  return type === "derives" ? "source" : "target";
 }
 
 function relationTripleKey(sourceKind: string, type: RelationType, targetKind: string): string {

@@ -3,7 +3,11 @@
 // from rebuildable-task-projection.ts, which owns the governed writable open.
 import type { DatabaseSync } from "node:sqlite";
 import type { RuntimeSession } from "../domain/agent-runtime.ts";
-import type { EntityRelationRecord, RelationType } from "../domain/entity-relation.ts";
+import {
+  relationFreshnessAnchorForType,
+  type EntityRelationRecord,
+  type RelationType,
+} from "../domain/entity-relation.ts";
 import type { EntityVersion, EntityVersionWitness, RelationFreshness } from "../domain/entity-freshness.ts";
 import { validateTaskV2, type ReplayTaskStatus, type TaskV2 } from "../domain/task.ts";
 import type { TaskIndexProjectionRow } from "./projection-reads.ts";
@@ -799,11 +803,10 @@ export function readTaskRelationPage(
     if (pageLimit !== null) sqlValues.push(pageLimit + 1);
   }
   const selected = queryRows(db, sql, ...sqlValues),
-    witnesses = readEntityVersionWitnesses(
-      db,
-      selected.map((row) => String(row.target_ref)),
+    witnesses = readEntityVersionWitnesses(db, relationWitnessRefs(selected)),
+    raw = selected.map((row) =>
+      taskRelationRow(row, witnesses.get(String(row.target_ref))!, witnesses.get(String(row.source_ref))),
     ),
-    raw = selected.map((row) => taskRelationRow(row, witnesses.get(String(row.target_ref))!)),
     filtered = query.freshness === undefined ? raw : raw.filter((row) => row.freshness === query.freshness),
     visible = pageLimit === null ? filtered : filtered.slice(0, pageLimit),
     rows = visible;
@@ -819,20 +822,34 @@ export function readTaskRelationPage(
   };
 }
 
+/** Every endpoint the freshness cut needs a witness for: always the target, plus the
+ * source when the relation type anchors its freshness there (`derives`). */
+function relationWitnessRefs(rows: readonly Record<string, unknown>[]): readonly string[] {
+  return rows.flatMap((row) =>
+    relationFreshnessAnchorForType(String(row.relation_type) as RelationType) === "source"
+      ? [String(row.target_ref), String(row.source_ref)]
+      : [String(row.target_ref)],
+  );
+}
+
 function taskRelationRowsAtCut(
   db: DatabaseSync,
   rows: readonly Record<string, unknown>[],
 ): readonly TaskRelationProjectionRow[] {
-  const witnesses = readEntityVersionWitnesses(
-    db,
-    rows.map((row) => String(row.target_ref)),
+  const witnesses = readEntityVersionWitnesses(db, relationWitnessRefs(rows));
+  return rows.map((row) =>
+    taskRelationRow(row, witnesses.get(String(row.target_ref))!, witnesses.get(String(row.source_ref))),
   );
-  return rows.map((row) => taskRelationRow(row, witnesses.get(String(row.target_ref))!));
 }
 
-function taskRelationRow(row: Record<string, unknown>, target: EntityVersionWitness): TaskRelationProjectionRow {
+function taskRelationRow(
+  row: Record<string, unknown>,
+  target: EntityVersionWitness,
+  source?: EntityVersionWitness,
+): TaskRelationProjectionRow {
   const relationId = String(row.relation_id),
     targetRef = String(row.target_ref),
+    relationType = String(row.relation_type) as TaskRelationProjectionRow["relationType"],
     targetObservedVersion =
       typeof row.target_observed_version === "string" || typeof row.target_observed_version === "number"
         ? row.target_observed_version
@@ -841,14 +858,19 @@ function taskRelationRow(row: Record<string, unknown>, target: EntityVersionWitn
     relationId,
     sourceRef: String(row.source_ref),
     targetRef,
-    relationType: String(row.relation_type) as TaskRelationProjectionRow["relationType"],
+    relationType,
     direction: String(row.direction) as TaskRelationProjectionRow["direction"],
     strength: String(row.strength) as TaskRelationProjectionRow["strength"],
     origin: String(row.origin) as TaskRelationProjectionRow["origin"],
     state: String(row.state) as TaskRelationProjectionRow["state"],
     targetObservedVersion,
     currentTargetVersion: target.currentVersion,
-    freshness: relationFreshnessAtCut({ target, targetObservedVersion }),
+    freshness: relationFreshnessAtCut({
+      anchor: relationFreshnessAnchorForType(relationType),
+      target,
+      targetObservedVersion,
+      source,
+    }),
     rationale: String(row.rationale ?? ""),
     ownerRef: String(row.owner_ref),
     sourcePath: String(row.source_path),
