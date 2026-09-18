@@ -40,7 +40,6 @@ import {
   completionBlockersForAction,
   factRetirementAssessment,
 } from "./task-completion-read.ts";
-import { cellErrorCode } from "./repo-cell-errors.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 
 import { dispatchCompletionReview } from "./task-completion-review.ts";
@@ -357,8 +356,8 @@ export async function completeTask(
   // on preset_snapshot_mismatch and make the agent run ha preset upgrade by hand. Re-running that
   // same atomic upgrade here is safe, not a digest forgery: it recompiles the package against the
   // live catalog, refuses added document slots, and writes a real preset_snapshot_upgraded event.
-  // When the upgrade itself cannot compile (contract drift, added documents) the mismatch check
-  // below still stops the write with the canonical code.
+  // When the upgrade itself cannot compile (contract drift, added documents) its own coded error
+  // stops the write and names the real blocker.
   const upgraded = upgradeDriftedPresetSnapshot(
     cell,
     taskId,
@@ -666,22 +665,11 @@ export function upgradeDriftedPresetSnapshot(
   if (!snapshot.task?.presetSnapshotDigest) return null;
   const live = currentPresetSnapshotDigest(cell, taskId, snapshot, packagePath, retryCommand);
   if (live === snapshot.task.presetSnapshotDigest) return null;
-  try {
-    return cell.upgradePresetSnapshot({ kind: "preset-upgrade", taskId }, binding);
-  } catch (error) {
-    // The upgrade may legitimately fail — contract drift, a changed document set, a race that
-    // already settled current. Those all fall back to the canonical preset_snapshot_mismatch
-    // stop below, which still carries the manual-upgrade guidance. Unknown errors propagate.
-    if (
-      ["snapshot_current", "upgrade_document_set_changed", "invalid_task_contract", "invalid_upgrade"].includes(
-        cellErrorCode(error),
-      )
-    ) {
-      consumeKnownError(error);
-      return null;
-    }
-    throw error;
-  }
+  // An upgrade that cannot compile — contract drift, an added document slot — raises its own coded
+  // error, and that error is the honest stop: it names what actually blocks the task. Falling back
+  // to preset_snapshot_mismatch would tell the agent to run `ha preset upgrade`, which is the same
+  // compilation and would fail with the same code one step later.
+  return cell.upgradePresetSnapshot({ kind: "preset-upgrade", taskId }, binding);
 }
 
 export function isPresetSnapshotCurrent(
