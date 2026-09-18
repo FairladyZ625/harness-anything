@@ -19,6 +19,13 @@ export async function withAutostart(
   },
 ): Promise<JsonObject> {
   const startedAt = Date.now();
+  // The pid before the request is the only daemon this request can legitimately be answered by.
+  // Reading it after a daemon_stopping answer instead races the replacement: a build-superseded
+  // handoff answers a parked request and its successor rewrites the pid file within milliseconds,
+  // so the post-answer read can already name the new generation and the generation wait below would
+  // never observe a change.
+  const { readDaemonPid } = await import("../../../daemon/src/daemon-singleton.ts"),
+    outgoingPid = options.userRoot && options.daemonId ? readDaemonPid(options.userRoot, options.daemonId) : null;
   try {
     const result = await request();
     if (
@@ -28,11 +35,9 @@ export async function withAutostart(
       !options.daemonId
     )
       return result;
-    const { readDaemonPid } = await import("../../../daemon/src/daemon-singleton.ts"),
-      { DaemonAutostartError, ensureLocalDaemonRunning, waitForDaemonGenerationChange } = await import(
+    const { DaemonAutostartError, ensureLocalDaemonRunning, waitForDaemonGenerationChange } = await import(
         "../../../daemon/src/client/daemon-autostart.ts"
       ),
-      outgoingPid = readDaemonPid(options.userRoot, options.daemonId),
       budgetMs = options.restartBudgetMs ?? 30_000,
       changed = await waitForDaemonGenerationChange({
         previousPid: outgoingPid,

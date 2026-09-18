@@ -8,6 +8,7 @@ import path from "node:path";
 import test from "node:test";
 import { daemonPidPath } from "../../daemon/src/daemon-singleton.ts";
 import { localUserDaemonEndpoint } from "../../daemon/src/client/local-daemon-target.ts";
+import { writeDaemonStoppedMarker } from "../../daemon/src/client/daemon-autostart.ts";
 
 const cli = path.resolve("packages/cli/src/index.ts"),
   runtimeSessionId = "runtime-wait-reconnect";
@@ -244,6 +245,81 @@ test("runtime status --wait returns daemon_gone with the last-known dispatch aft
       classification: null,
       fallbackState: null,
     });
+  } finally {
+    invocation.stop();
+    await fixture.close();
+  }
+});
+
+test("runtime status --wait bridges a daemon_stopping handoff whose successor pid is already written", async () => {
+  // The pid baseline must come from before the request: a build-superseded handoff answers a
+  // parked request and its successor rewrites the pid file within milliseconds, so a baseline read
+  // after the answer can already name the new generation and the wait would never see a change.
+  const fixture = await openFixtureDaemon("stopping-handoff");
+  let awaitRequests = 0;
+  writeFileSync(daemonPidPath(fixture.userRoot, fixture.daemonId), "424242\n");
+  fixture.onRequest = (socket, request) => {
+    if (request.method === "protocol.hello") {
+      reply(socket, request.id, { ok: true });
+      return;
+    }
+    if (request.method === "repo.agentRuntime.sessions.await") {
+      awaitRequests += 1;
+      if (awaitRequests === 1) {
+        // The refused wait lands after the successor already wrote its pid: answer, then rebind.
+        writeFileSync(daemonPidPath(fixture.userRoot, fixture.daemonId), "424243\n");
+        reply(socket, request.id, { ok: false, code: "daemon_stopping", error: { code: "daemon_stopping" } });
+        void fixture.restart();
+        return;
+      }
+      reply(socket, request.id, awaitReceipt());
+      return;
+    }
+    assert.equal(request.method, "repo.agentRuntime.sessions.read");
+    reply(socket, request.id, runtimeStatus(false));
+  };
+  const invocation = runWait(fixture);
+  try {
+    const result = await invocation.result(12_000);
+    assert.equal(result.code, 0, result.stderr);
+    assert.equal(result.receipt.outcome, "succeeded");
+    assert.equal(awaitRequests, 2, "the daemon_stopping bridge must reissue the idempotent await");
+  } finally {
+    invocation.stop();
+    await fixture.close();
+  }
+});
+
+test("runtime status --wait reports an operator stop honestly instead of burning its reconnect budget", async () => {
+  const fixture = await openFixtureDaemon("operator-stop");
+  const pendingAwait: { socket: net.Socket; id: number }[] = [];
+  let awaitRequests = 0;
+  fixture.onRequest = (socket, request) => {
+    if (request.method === "protocol.hello") {
+      reply(socket, request.id, { ok: true });
+      return;
+    }
+    if (request.method === "repo.agentRuntime.sessions.await") {
+      awaitRequests += 1;
+      pendingAwait.push({ socket, id: request.id });
+      return;
+    }
+    assert.equal(request.method, "repo.agentRuntime.sessions.read");
+    reply(socket, request.id, runtimeStatus(false));
+  };
+  const invocation = runWait(fixture);
+  try {
+    for (const deadline = Date.now() + 4_000; pendingAwait.length === 0 && Date.now() < deadline; ) await delay(20);
+    assert.equal(pendingAwait.length, 1, "the daemon-side await must be parked");
+    // The operator's stop writes the marker before the daemon drains, so the wait can tell a stop
+    // apart from a restart handoff: it reports the stop and never tries to reconnect.
+    writeDaemonStoppedMarker(fixture.userRoot, fixture.daemonId);
+    fixture.die();
+    const result = await invocation.result(4_000);
+    assert.equal(result.code, 1, result.stderr);
+    assert.equal(result.receipt.code, "daemon_stopped_by_operator");
+    assert.match(String((result.receipt.error as Record<string, unknown>).hint), /stopped by the operator/u);
+    assert.equal(awaitRequests, 1);
   } finally {
     invocation.stop();
     await fixture.close();

@@ -10,6 +10,8 @@ import {
 } from "./daemon/client.ts";
 
 type DaemonGone = { readonly kind: "daemon-gone"; readonly cause: string };
+type DaemonStoppedByOperator = { readonly kind: "daemon-stopped"; readonly stoppedAt: string };
+type DaemonWaitFailure = DaemonGone | DaemonStoppedByOperator;
 
 const subscriptionReconnectAttemptLimit = 5;
 
@@ -17,7 +19,8 @@ const subscriptionReconnectAttemptLimit = 5;
  * long-lived repo.agentRuntime.sessions.await request. The daemon owns the settle decision and
  * answers with the settled/in-flight/unavailable split plus the authoritative outcome and exit
  * code; this side only attaches the optional activity stream, retries the idempotent request
- * across daemon restarts, and renders the receipt. */
+ * across daemon restarts, reports an operator stop honestly without reconnecting, and renders the
+ * receipt. */
 export async function waitForRuntimeSessions(
   command: ThinCommand,
   writeActivity: (text: string) => void,
@@ -44,7 +47,9 @@ export async function waitForRuntimeSessions(
           statusReader?.close();
           statusReader = undefined;
         },
+        operatorStoppedAt,
       );
+      if (isDaemonStopped(initial)) return runtimeWaitFailureReceipt(initial, undefined, singleId, target, spawned);
       if (isDaemonGone(initial)) return runtimeDaemonGoneReceipt(initial, undefined, singleId, target, spawned);
       if (initial.ok !== true) return initial;
       lastKnown = initial as unknown as AgentRuntimeSessionResult;
@@ -57,10 +62,24 @@ export async function waitForRuntimeSessions(
         detach = await waitForStreamedRuntime(command, singleId, writeActivity);
     }
     const { noStream: _noStream, ...rpcAction } = action,
-      result = await readDaemonSubscription(() =>
-        // The wait is a parked read, not an operator launch: it must never spawn a daemon.
-        runCommandThroughDaemon({ ...command, action: rpcAction }, () => undefined, { autostart: false }),
+      result = await readDaemonSubscription(
+        () =>
+          // The wait is a parked read, not an operator launch: it must never spawn a daemon.
+          runCommandThroughDaemon({ ...command, action: rpcAction }, () => undefined, { autostart: false }),
+        () => undefined,
+        operatorStoppedAt,
       );
+    if (isDaemonStopped(result))
+      return spawned || singleId
+        ? runtimeWaitFailureReceipt(result, lastKnown, singleId ?? String(runtimeSessionIds[0] ?? ""), target, spawned)
+        : daemonStoppedReceipt(
+            "runtime-status",
+            "unknown",
+            {
+              ...(taskIds.length > 0 ? { taskIds } : { runtimeSessionIds }),
+            },
+            result.stoppedAt,
+          );
     if (isDaemonGone(result))
       return spawned || singleId
         ? runtimeDaemonGoneReceipt(result, lastKnown, singleId ?? String(runtimeSessionIds[0] ?? ""), target, spawned)
@@ -72,6 +91,15 @@ export async function waitForRuntimeSessions(
     statusReader?.close();
     detach?.();
   }
+}
+
+/** The operator's stop marker, when present, is the honest verdict for a lost connection: the
+ * daemon is not coming back until the operator says so, and reconnecting would only burn the
+ * budget before saying the same thing. */
+async function operatorStoppedAt(): Promise<string | null> {
+  const { readDaemonStoppedAt } = await import("../../daemon/src/client/daemon-autostart.ts"),
+    { daemonIdFromEnv, daemonUserRoot } = await import("../../daemon/src/client/local-daemon-target.ts");
+  return readDaemonStoppedAt(daemonUserRoot(), daemonIdFromEnv());
 }
 
 /** The daemon receipt is already authoritative; the only decoration left is the runtime-run
@@ -134,6 +162,54 @@ function runtimeDaemonGoneReceipt(
   });
 }
 
+function runtimeWaitFailureReceipt(
+  stopped: DaemonStoppedByOperator,
+  current: JsonObject | AgentRuntimeSessionResult | undefined,
+  runtimeSessionId: string,
+  target: { readonly taskId: string; readonly dispatchId: string } | undefined,
+  spawned: JsonObject | undefined,
+): JsonObject {
+  const runtime = current as unknown as AgentRuntimeSessionResult | undefined,
+    status = runtime?.settlement?.outcome ?? (runtime?.session ? "running" : "unknown"),
+    commandName = spawned ? "runtime-run" : "runtime-status";
+  return daemonStoppedReceipt(
+    commandName,
+    status,
+    {
+      runtimeSessionId,
+      ...(target ?? {}),
+      ...(spawned ? { spawn: spawned } : {}),
+      lastKnownDispatch: lastKnownRuntimeDispatch(runtimeSessionId, target, runtime, status),
+    },
+    stopped.stoppedAt,
+  );
+}
+
+function daemonStoppedReceipt(
+  command: string,
+  lastKnownStatus: string,
+  details: JsonObject,
+  stoppedAt: string,
+): JsonObject {
+  const hint =
+    `The daemon was stopped by the operator at ${stoppedAt}. Run \`ha daemon start --service\` to start it, ` +
+    "then inspect the recorded dispatch status before deciding whether to wait again.";
+  return {
+    schema: "command-receipt/v2",
+    ok: false,
+    command: command,
+    outcome: "op_rejected",
+    origin: "cli",
+    code: "daemon_stopped_by_operator",
+    evidence: "rejection:daemon_stopped_by_operator",
+    ...details,
+    error: { code: "daemon_stopped_by_operator", hint },
+    nextAction: hint,
+    summary: `${command}: daemon_stopped_by_operator; last known dispatch status ${lastKnownStatus}`,
+    exitCode: 1,
+  };
+}
+
 export async function waitForSquadRun(command: ThinCommand, squadRunId: string): Promise<JsonObject> {
   const readCommand = {
     ...command,
@@ -144,6 +220,7 @@ export async function waitForSquadRun(command: ThinCommand, squadRunId: string):
     const status = await readDaemonSubscription(() =>
       runCommandThroughDaemon(readCommand, () => undefined, { autostart: false }),
     );
+    if (isDaemonStopped(status)) return daemonStoppedReceipt("squad-run", "running", { squadRunId }, status.stoppedAt);
     if (isDaemonGone(status))
       return daemonGoneReceipt("squad-run", status.cause, "running", { squadRunId }, `squad-run ${squadRunId}`);
     if (status.ok !== true) return status;
@@ -158,7 +235,8 @@ export async function waitForSquadRun(command: ThinCommand, squadRunId: string):
 async function readDaemonSubscription(
   read: () => Promise<JsonObject>,
   reset: () => void = () => undefined,
-): Promise<JsonObject | DaemonGone> {
+  stopped: () => Promise<string | null> = async () => null,
+): Promise<JsonObject | DaemonWaitFailure> {
   let attempt = 0;
   for (;;) {
     try {
@@ -166,6 +244,8 @@ async function readDaemonSubscription(
     } catch (error) {
       consumeKnownError(error);
       reset();
+      const stoppedAt = await stopped();
+      if (stoppedAt !== null) return { kind: "daemon-stopped", stoppedAt };
       if (!recoverableSubscriptionFailure(error)) throw error;
       if (attempt >= subscriptionReconnectAttemptLimit)
         return {
@@ -190,8 +270,12 @@ function recoverableSubscriptionFailure(error: unknown): boolean {
   );
 }
 
-function isDaemonGone(value: JsonObject | DaemonGone): value is DaemonGone {
+function isDaemonGone(value: JsonObject | DaemonWaitFailure): value is DaemonGone {
   return "kind" in value && value.kind === "daemon-gone";
+}
+
+function isDaemonStopped(value: JsonObject | DaemonWaitFailure): value is DaemonStoppedByOperator {
+  return "kind" in value && value.kind === "daemon-stopped";
 }
 
 function lastKnownRuntimeDispatch(
