@@ -621,6 +621,7 @@ export interface DaemonProtocolHelloResult {
 }
 
 export interface DaemonBuildDrainStatus {
+  /** Informational: live workers the exit leaves behind for the next daemon to adopt; not a drain condition. */
   readonly liveRuntimeSessions: number;
   readonly pendingWrites: number;
   readonly attachingRepositories: number;

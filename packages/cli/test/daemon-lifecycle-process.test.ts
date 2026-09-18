@@ -311,7 +311,7 @@ test("a drain longer than the stop budget is reported as draining, not as a time
 
     const reported = JSON.parse(status.stdout) as Record<string, unknown>;
     assert.equal(reported.ok, true, JSON.stringify(reported));
-    assert.match(String(reported.summary), /Stopping: draining \d+ live runtime session\(s\)/u);
+    assert.match(String(reported.summary), /Stopping: draining \d+ queued write\(s\)/u);
     assert.ok(
       stopping.elapsedMs < drainMs,
       `a draining daemon must answer at once, not be waited out: ${stopping.elapsedMs}ms`,

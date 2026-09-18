@@ -47,6 +47,9 @@ export async function startDaemon(input: {
   readonly openCell?: DaemonHostOpenInput["openCell"];
   readonly runtimeDiscover?: DaemonHostOpenInput["runtimeDiscover"];
   readonly runtimeEnv?: NodeJS.ProcessEnv;
+  /** Called after a build-superseded exit released everything, so the resident entry can hand the
+   * slot to the disk build. */
+  readonly onSupersededExit?: () => void;
 }): Promise<DaemonServeStart> {
   const endpoint = input.endpoint ?? localUserDaemonEndpoint(input.userRoot, input.daemonId);
   // The singleton claim precedes every workspace attachment and the socket
@@ -76,6 +79,8 @@ export async function startDaemon(input: {
   const buildDrainStatus = (): DaemonBuildDrainStatus => {
     const repos = host?.status().repos ?? [];
     return {
+      // Informational only: it answers "how many live workers is the exit leaving behind for the
+      // next daemon to adopt", not "what is still holding the daemon".
       liveRuntimeSessions: [...runtimeProcessPids.values()].filter(runtimePidIsAlive).length,
       pendingWrites: repos.reduce((total, repo) => total + (repo.queueDepth ?? 0), 0),
       attachingRepositories: repos.filter((repo) => repo.state === "warming").length,
@@ -109,6 +114,9 @@ export async function startDaemon(input: {
         // Same shape for the pid file: an unremovable pid file must not strand the lock behind it.
         await settleTeardownStep(async () => rmSync(pidPath, { force: true }));
         singleton.release();
+        // Only the supersession outcome restarts itself: an operator stop means stop, and the
+        // stopped marker the CLI wrote for it blocks autostart until the operator says otherwise.
+        if (outcome === "build_superseded") input.onSupersededExit?.();
       }
     })();
     return stopPromise;
@@ -120,7 +128,9 @@ export async function startDaemon(input: {
       drainCheckScheduled = false;
       if (stopPromise || activeRequests > 0 || !buildObserver.status().drifted) return;
       const drain = buildDrainStatus();
-      if (drain.liveRuntimeSessions > 0 || drain.pendingWrites > 0 || drain.attachingRepositories > 0) return;
+      // Live runtime sessions are deliberately absent: workers run detached and the next daemon
+      // re-adopts them by pid, so waiting for them would only keep superseded code resident.
+      if (drain.pendingWrites > 0 || drain.attachingRepositories > 0) return;
       void stop("build_superseded").catch((error: unknown) => {
         console.error(
           `daemon build-supersession drain failed: ${error instanceof Error ? error.message : String(error)}`,

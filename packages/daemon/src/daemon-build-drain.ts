@@ -16,10 +16,10 @@ export function daemonBuildStaleNotice(
     ...drain,
     message:
       `Daemon loaded old build ${build.loadedBuildId ?? "missing"}; disk has ${build.diskBuildId ?? "missing"}. ` +
-      `It is serving ${drain.liveRuntimeSessions} live runtime session(s), ` +
-      `${drain.pendingWrites} queued write(s), and ` +
-      `${drain.attachingRepositories} attaching repository/repositories; it will exit after they drain, and the next ` +
-      "CLI command will autostart the disk build.",
+      `It is serving ${drain.liveRuntimeSessions} live runtime session(s), which its replacement re-adopts, ` +
+      `and will exit after ${drain.pendingWrites} queued write(s) and ` +
+      `${drain.attachingRepositories} attaching repository/repositories drain, then restart on the disk build; ` +
+      "the next CLI command finds the disk build running or autostarts it.",
   };
 }
 
@@ -33,12 +33,11 @@ export function withDaemonDrainSummary(
   const drain = shutdown?.stopping?.() === true ? (shutdown.buildDrainStatus?.() ?? null) : null;
   if (!warning && !drain) return status;
   const stale = warning
-    ? ` Drain status: ${warning.liveRuntimeSessions} live runtime session(s), ` +
+    ? ` Drain status: ${warning.liveRuntimeSessions} live runtime session(s) to be re-adopted, ` +
       `${warning.pendingWrites} queued write(s), ${warning.attachingRepositories} attaching repository/repositories.`
     : "";
   const stopping = drain
-    ? ` Stopping: draining ${drain.liveRuntimeSessions} live runtime session(s), ` +
-      `${drain.pendingWrites} queued write(s), ${drain.attachingRepositories} attaching ` +
+    ? ` Stopping: draining ${drain.pendingWrites} queued write(s), ${drain.attachingRepositories} attaching ` +
       "repository/repositories before exit."
     : "";
   return { ...status, summary: `${status.summary}${stale}${stopping}` };
