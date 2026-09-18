@@ -7,6 +7,7 @@ import {
   sha256Text,
   slugifyTaskTitle,
   taskBootstrapWritePlan,
+  transitionDocumentContract,
   validatePresetSnapshotUpgradeEvent,
   validateTaskBootstrapEvent,
   validateTaskIdSyntax,
@@ -228,6 +229,9 @@ export function compileTaskPackage(input: CompileTaskPackageInput): CompiledTask
           ...(snapshot.profile.closeoutOverrides === undefined
             ? {}
             : { closeoutOverrides: snapshot.profile.closeoutOverrides }),
+          ...(snapshot.profile.archiveOnComplete === undefined
+            ? {}
+            : { archiveOnComplete: snapshot.profile.archiveOnComplete }),
           completionGates: snapshot.profile.completionGateIds,
           presetSnapshotDigest: snapshot.digest,
           scaffold: {
@@ -330,6 +334,9 @@ export function compileTaskBootstrap(input: CompileTaskBootstrapInput): Compiled
         ...(compiled.snapshot.profile.closeoutOverrides === undefined
           ? {}
           : { closeoutOverrides: compiled.snapshot.profile.closeoutOverrides }),
+        ...(compiled.snapshot.profile.archiveOnComplete === undefined
+          ? {}
+          : { archiveOnComplete: compiled.snapshot.profile.archiveOnComplete }),
       },
       presetSnapshotClaim: snapshotClaim,
       initialDocumentClaims,
@@ -377,7 +384,11 @@ export function compilePresetSnapshotUpgrade(input: CompilePresetSnapshotUpgrade
   )
     throw bootstrapFailure("invalid_task_contract", "Task contract metadata does not match the canonical task.");
   const currentTask = currentTaskForWrite(input.task),
-    { closeoutOverrides: _staleCloseoutOverrides, ...taskWithoutOverrides } = currentTask,
+    {
+      closeoutOverrides: _staleCloseoutOverrides,
+      archiveOnComplete: _staleArchiveOnComplete,
+      ...taskWithoutOverrides
+    } = currentTask,
     compiled = compileTaskPackage({
       ...input,
       taskId: input.task.taskId,
@@ -469,6 +480,9 @@ export function compilePresetSnapshotUpgrade(input: CompilePresetSnapshotUpgrade
           ...(compiled.snapshot.profile.closeoutOverrides === undefined
             ? {}
             : { closeoutOverrides: compiled.snapshot.profile.closeoutOverrides }),
+          ...(compiled.snapshot.profile.archiveOnComplete === undefined
+            ? {}
+            : { archiveOnComplete: compiled.snapshot.profile.archiveOnComplete }),
         },
         presetSnapshotClaim: snapshotClaim,
         taskContractClaim,
@@ -499,6 +513,12 @@ function descriptor(document: CompiledTaskDocument) {
     requiredAnchors: document.requiredAnchors,
     templateRef: document.templateRef,
     contentSha256: document.contentSha256,
+    // The readiness contract this scaffold declares, frozen at materialization so judging a
+    // transition document never needs the scaffold blob or the bundled catalog. Only the
+    // readiness-judged slots carry it; the map's ordered keys are the required sections.
+    ...(document.slot === "task.plan" || document.slot === "task.closeout"
+      ? { readiness: transitionDocumentContract(document.body).scaffoldBySection }
+      : {}),
   };
 }
 function descriptorStub(slot: string, path: string, owner: TaskDocumentOwner) {

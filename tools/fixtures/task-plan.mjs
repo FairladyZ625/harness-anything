@@ -32,8 +32,23 @@ export function realizedDecisionBody(title = "Fixture decision") {
 export async function realizeTaskPlanFixture(rootDir, packagePath, submit, title, appendix = "") {
   const planPath = `${packagePath}/task_plan.md`,
     authoredPath = path.join(rootDir, "harness", planPath),
-    currentTitle = readFileSync(authoredPath, "utf8").split(/\r?\n/u)[0].replace(/^#\s*/u, "");
-  writeFileSync(authoredPath, realizedTaskPlan(title ?? currentTitle, appendix));
+    scaffold = readFileSync(authoredPath, "utf8"),
+    currentTitle = scaffold.split(/\r?\n/u)[0].replace(/^#\s*/u, ""),
+    // The scaffold is the readiness contract: a preset whose plan template names other sections
+    // (a milestone's Mission, Exit Criteria, ...) is judged on those, so the fixture fills them too.
+    known = new Set(fixtureSections.map(([heading]) => heading)),
+    presetSections = [...scaffold.matchAll(/^##[ \t]+(.+?)[ \t]*$/gmu)]
+      .map((match) => match[1])
+      .filter((heading) => !known.has(heading))
+      .map(
+        (heading) =>
+          `## ${heading}\n\nThe fixture states this preset section concretely for the lifecycle it exercises.`,
+      )
+      .join("\n\n");
+  writeFileSync(
+    authoredPath,
+    realizedTaskPlan(title ?? currentTitle, [presetSections, appendix].filter(Boolean).join("\n\n")),
+  );
   const submitted = await submit(planPath);
   assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
   return planPath;

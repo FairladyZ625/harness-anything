@@ -37,6 +37,8 @@ export interface PresetProfileV3 {
   readonly templateSelections: readonly TemplateSelectionV1[];
   readonly capabilityImports?: readonly CapabilityRefV1[];
   readonly closeoutOverrides?: Readonly<Record<string, boolean>>;
+  /** When true, a successful task completion archives the package through the existing archive action. */
+  readonly archiveOnComplete?: boolean;
 }
 type RuntimeContractSchema<T> = Readonly<{ readonly id: string; readonly required: readonly string[] }> & {
   readonly Type: T;
@@ -103,6 +105,7 @@ export interface PresetSnapshotV1 {
     readonly outputShape: string;
     readonly completionGateIds: readonly string[];
     readonly closeoutOverrides?: Readonly<Record<string, boolean>>;
+    readonly archiveOnComplete?: boolean;
   };
   readonly guidance: { readonly description: string; readonly whenToUse: string; readonly bodySha256: string };
   readonly scaffold: {
@@ -442,6 +445,7 @@ function profile(value: unknown): boolean {
         "templateSelections",
         "capabilityImports",
         "closeoutOverrides",
+        "archiveOnComplete",
       ],
       ["id", "title", "completionGates", "templateSelections"],
     ) &&
@@ -453,7 +457,8 @@ function profile(value: unknown): boolean {
     value.templateSelections.every(selection) &&
     (value.capabilityImports === undefined ||
       (Array.isArray(value.capabilityImports) && value.capabilityImports.every((item) => capability(item, false)))) &&
-    (value.closeoutOverrides === undefined || closeoutOverrides(value.closeoutOverrides))
+    (value.closeoutOverrides === undefined || closeoutOverrides(value.closeoutOverrides)) &&
+    (value.archiveOnComplete === undefined || typeof value.archiveOnComplete === "boolean")
   );
 }
 function selection(value: unknown): boolean {
@@ -520,13 +525,14 @@ function snapshotProfile(value: unknown): boolean {
     isPresetContractRecord(value) &&
     allowed(
       value,
-      ["id", "outputShape", "completionGateIds", "closeoutOverrides"],
+      ["id", "outputShape", "completionGateIds", "closeoutOverrides", "archiveOnComplete"],
       ["id", "outputShape", "completionGateIds"],
     ) &&
     nonEmpty(value.id) &&
     nonEmpty(value.outputShape) &&
     hasNonEmptyContractStrings(value.completionGateIds) &&
-    (value.closeoutOverrides === undefined || closeoutOverrides(value.closeoutOverrides))
+    (value.closeoutOverrides === undefined || closeoutOverrides(value.closeoutOverrides)) &&
+    (value.archiveOnComplete === undefined || typeof value.archiveOnComplete === "boolean")
   );
 }
 function snapshotGuidance(value: unknown): boolean {

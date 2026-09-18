@@ -7,7 +7,7 @@ import {
   type CloseoutGateStatus,
 } from "./closeout-readiness.ts";
 import type { FrozenCompletionContract } from "./completion-contract.ts";
-import type { TransitionDocumentMissingSection } from "./transition-document-readiness.ts";
+import type { MarkdownDocumentContract, TransitionDocumentMissingSection } from "./transition-document-readiness.ts";
 import type { CloseoutGate } from "./settings-closeout.ts";
 
 export type CompletionBlockerCode =
@@ -55,6 +55,7 @@ export interface CompletionReadinessContext {
   readonly authorization?: "allowed" | "denied";
   readonly invalidDocument?: { readonly path: string; readonly reason: string };
   readonly closeoutGates?: Readonly<Record<CloseoutGate, boolean>>;
+  readonly closeoutContract?: MarkdownDocumentContract | null;
 }
 
 export function completionBlockers(

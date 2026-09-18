@@ -9,6 +9,7 @@ import {
   assertTransitionDocumentReady,
   getTaskActionForTransition,
   requireTransitionDocumentKind,
+  transitionDocumentContract,
 } from "../src/index.ts";
 
 const planHeadings = [
@@ -27,6 +28,24 @@ const planHeadings = [
   "Evidence Protocol",
   "Verification",
 ] as const;
+
+const planTemplate = readFileSync(
+    new URL("../../preset/assets/software-coding/templates/task.plan/en-US.md", import.meta.url),
+    "utf8",
+  ),
+  closeoutTemplate = readFileSync(
+    new URL("../../preset/assets/software-coding/templates/task.closeout/zh-CN.md", import.meta.url),
+    "utf8",
+  ),
+  lightweightPlanTemplate = readFileSync(
+    new URL("../../preset/assets/software-coding/templates/task.plan.lightweight/en-US.md", import.meta.url),
+    "utf8",
+  ),
+  planContract = transitionDocumentContract(planTemplate),
+  closeoutContract = transitionDocumentContract(closeoutTemplate),
+  lightweightPlanContract = transitionDocumentContract(lightweightPlanTemplate),
+  plan = (body: string) => assessTransitionDocument("task.plan", body, planContract),
+  closeout = (body: string) => assessTransitionDocument("task.closeout", body, closeoutContract);
 
 test("transition document bindings enumerate canonical consumers and omit milestone without a transition", () => {
   assert.deepEqual(
@@ -67,7 +86,7 @@ test("task plan rejects pure scaffolds but accepts a retained scaffold sentence 
     new URL("../../preset/assets/software-coding/templates/task.plan/en-US.md", import.meta.url),
     "utf8",
   );
-  const scaffold = assessTransitionDocument("task.plan", template);
+  const scaffold = plan(template);
   assert.equal(scaffold.ready, false);
   assert.equal(scaffold.code, "plan_placeholder");
   assert.deepEqual(
@@ -81,80 +100,68 @@ test("task plan rejects pure scaffolds but accepts a retained scaffold sentence 
   });
 
   const emptyGoal = realizedPlan().replace("## Goal\n\nImplemented Goal.", "## Goal\n\n");
-  assert.deepEqual(assessTransitionDocument("task.plan", emptyGoal).missingSections, [
-    { section: "Goal", reason: "empty" },
-  ]);
+  assert.deepEqual(plan(emptyGoal).missingSections, [{ section: "Goal", reason: "empty" }]);
 
   const retainedScaffold = realizedPlan().replace(
     "## Brief\n\nImplemented Brief.",
     "## Brief\n\nOne-line statement of the task objective and scope. Implement task-index/v1 for CLI consumers.",
   );
-  assert.equal(assessTransitionDocument("task.plan", retainedScaffold).ready, true);
-  const pureScaffoldSection = realizedPlan().replace(
-    "## Verification\n\nImplemented Verification.",
-    "## Verification\n\nThe full gate matrix is GitHub CI's job, not this machine's.",
-  );
-  assert.deepEqual(assessTransitionDocument("task.plan", pureScaffoldSection).missingSections, [
+  assert.equal(plan(retainedScaffold).ready, true);
+  const verificationScaffold = "- List any review and human acceptance conditions this task additionally requires.",
+    pureScaffoldSection = realizedPlan().replace(
+      "## Verification\n\nImplemented Verification.",
+      `## Verification\n\n${verificationScaffold}`,
+    );
+  assert.deepEqual(plan(pureScaffoldSection).missingSections, [
     {
       section: "Verification",
       reason: "scaffold",
-      retainedScaffold: "The full gate matrix is GitHub CI's job, not this machine's.",
+      retainedScaffold: verificationScaffold.slice(0, 60),
     },
   ]);
-  assert.equal(assessTransitionDocument("task.plan", realizedPlan()).ready, true);
+  assert.equal(plan(realizedPlan()).ready, true);
 });
 
 test("task plan accepts explanatory suffixes on every required heading", () => {
   for (const suffix of [" (context)", "（说明）", " - details", " – details", "—说明"]) {
     const body = planHeadings.map((heading) => `## ${heading}${suffix}\n\nImplemented ${heading}.`).join("\n\n");
-    assert.deepEqual(assessTransitionDocument("task.plan", body).missingSections, [], suffix);
+    assert.deepEqual(plan(body).missingSections, [], suffix);
   }
 });
 
 test("task plan suffixes preserve empty and scaffold detection", () => {
   for (const suffix of [" (context)", "（说明）", " — details"]) {
     const body = realizedPlan().replace("## Required Reading", `## Required Reading${suffix}`);
-    assert.deepEqual(
-      assessTransitionDocument("task.plan", body.replace("Implemented Required Reading.", "")).missingSections,
-      [{ section: "Required Reading", reason: "empty" }],
-    );
-    const scaffold = "List concrete code, document, and contract paths in reading order";
-    assert.deepEqual(
-      assessTransitionDocument("task.plan", body.replace("Implemented Required Reading.", scaffold)).missingSections,
-      [{ section: "Required Reading", reason: "scaffold", retainedScaffold: scaffold.slice(0, 60) }],
-    );
+    assert.deepEqual(plan(body.replace("Implemented Required Reading.", "")).missingSections, [
+      { section: "Required Reading", reason: "empty" },
+    ]);
+    const scaffold =
+      "List concrete code, document, and contract paths in reading order, with an authority level for each item. Resolve source conflicts explicitly instead of presenting contradictory inputs as peers.";
+    assert.deepEqual(plan(body.replace("Implemented Required Reading.", scaffold)).missingSections, [
+      { section: "Required Reading", reason: "scaffold", retainedScaffold: scaffold.slice(0, 60) },
+    ]);
   }
   const template = readFileSync(
     new URL("../../preset/assets/software-coding/templates/task.plan/en-US.md", import.meta.url),
     "utf8",
   ).replace(/^(## .+)$/gmu, "$1 (details)");
   assert.deepEqual(
-    assessTransitionDocument("task.plan", template).missingSections.map(({ section, reason }) => ({ section, reason })),
+    plan(template).missingSections.map(({ section, reason }) => ({ section, reason })),
     planHeadings.map((section) => ({ section, reason: "scaffold" })),
   );
 });
 
 test("task plan suffix matching respects heading boundaries and fenced examples", () => {
   for (const heading of ["Required ReadingList", "Required Reading Optional", "Required Reading: optional"]) {
-    assert.deepEqual(
-      assessTransitionDocument("task.plan", realizedPlan().replace("## Required Reading", `## ${heading}`))
-        .missingSections,
-      [{ section: "Required Reading", reason: "empty" }],
-    );
+    assert.deepEqual(plan(realizedPlan().replace("## Required Reading", `## ${heading}`)).missingSections, [
+      { section: "Required Reading", reason: "empty" },
+    ]);
   }
   const body = realizedPlan().replace("## Required Reading\n\nImplemented Required Reading.", "");
-  assert.deepEqual(
-    assessTransitionDocument("task.plan", body + "\n```md\n## Required Reading (example)\nRead file.\n```")
-      .missingSections,
-    [{ section: "Required Reading", reason: "empty" }],
-  );
-  assert.equal(
-    assessTransitionDocument(
-      "task.plan",
-      body + "\n## Required Reading (first)\nRead file.\n## Required Reading—second\n",
-    ).ready,
-    true,
-  );
+  assert.deepEqual(plan(body + "\n```md\n## Required Reading (example)\nRead file.\n```").missingSections, [
+    { section: "Required Reading", reason: "empty" },
+  ]);
+  assert.equal(plan(body + "\n## Required Reading (first)\nRead file.\n## Required Reading—second\n").ready, true);
 });
 
 test("closeout uses the same required-section and scaffold rules", () => {
@@ -163,7 +170,7 @@ test("closeout uses the same required-section and scaffold rules", () => {
     "utf8",
   );
   assert.deepEqual(
-    assessTransitionDocument("task.closeout", template).missingSections.map(({ section, reason }) => ({
+    closeout(template).missingSections.map(({ section, reason }) => ({
       section,
       reason,
     })),
@@ -175,16 +182,14 @@ test("closeout uses the same required-section and scaffold rules", () => {
     ],
   );
   assert.equal(
-    assessTransitionDocument(
-      "task.closeout",
+    closeout(
       "# Closeout\n\n## Summary\n\nDone.\n\n## Verification\n\nTests passed.\n\n" +
         "## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nSearched the shared validator; no siblings.",
     ).ready,
     true,
   );
   assert.deepEqual(
-    assessTransitionDocument(
-      "task.closeout",
+    closeout(
       "# Closeout\n\n## Summary（交付了什么）\n\nDone.\n\n## Verification\n\nTests passed.\n\n" +
         "## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nNot applicable.",
     ).missingSections.map(({ section }) => section),
@@ -238,6 +243,67 @@ function realizedPlan(): string {
   return `# Plan\n\n${planHeadings.map((heading) => `## ${heading}\n\nImplemented ${heading}.`).join("\n\n")}\n`;
 }
 
+test("the readiness contract derives required sections and scaffold phrases from the scaffold itself", () => {
+  const contract = transitionDocumentContract(
+    "# Title\n\n## Alpha\n\nWrite something.\n\n```md\n## Hidden\nignore me\n```\n\n## Beta\n\nLine one.\nLine two.\n",
+  );
+  assert.deepEqual(contract.requiredSections, ["Alpha", "Beta"]);
+  assert.deepEqual(contract.scaffoldBySection["Alpha"], ["Write something."]);
+  assert.deepEqual(contract.scaffoldBySection["Beta"], ["Line one.", "Line two."]);
+  assert.throws(() => assessTransitionDocument("task.plan", realizedPlan()), {
+    code: "scaffold_unavailable",
+  });
+  assert.throws(() => assertTransitionDocumentReady("task.closeout", "## Summary\nDone."), {
+    code: "scaffold_unavailable",
+  });
+});
+
+test("the lightweight three-section scaffold passes once filled and rejects retained placeholders", () => {
+  assert.deepEqual(lightweightPlanContract.requiredSections, ["Brief", "Context", "Verification"]);
+  const untouched = assessTransitionDocument("task.plan", lightweightPlanTemplate, lightweightPlanContract);
+  assert.equal(untouched.ready, false);
+  assert.deepEqual(
+    untouched.missingSections.map(({ section, reason }) => ({ section, reason })),
+    [
+      { section: "Brief", reason: "scaffold" },
+      { section: "Context", reason: "scaffold" },
+      { section: "Verification", reason: "scaffold" },
+    ],
+  );
+  const filled = lightweightPlanTemplate
+      .replace(
+        "State the task's goal and scope in one line, plus the deliverable's shape and landing point.",
+        "Fix plan readiness for lightweight tasks.",
+      )
+      .replace(
+        "Record inputs, known facts, and constraints: relevant code and document paths, out-of-bounds areas, stop conditions.",
+        "Kernel readiness judged a hardcoded 14-section list.",
+      )
+      .replace(
+        "List acceptance: the targeted tests and checks that must go green, required negative controls, and the stop point.",
+        "Dispatch and settle both accept the three-section plan.",
+      ),
+    retained = filled.replace(
+      "Dispatch and settle both accept the three-section plan.",
+      "List acceptance: the targeted tests and checks that must go green, required negative controls, and the stop point.",
+    );
+  assert.equal(assessTransitionDocument("task.plan", filled, lightweightPlanContract).ready, true);
+  assert.deepEqual(
+    assessTransitionDocument("task.plan", retained, lightweightPlanContract).missingSections.map(
+      ({ section, reason }) => ({ section, reason }),
+    ),
+    [{ section: "Verification", reason: "scaffold" }],
+  );
+});
+
+test("a filled three-section plan still fails the baseline fourteen-section contract", () => {
+  const missing = plan(
+    "## Brief\n\nFix it.\n\n## Context\n\nFacts.\n\n## Verification\n\nTests green.",
+  ).missingSections;
+  assert.equal(missing.length, planHeadings.length - 3);
+  assert.ok(missing.every(({ reason }) => reason === "empty"));
+});
+
 test("section reader preserves repeated risk sections and fenced heading examples", () => {
   const body = [
     "## Summary",
@@ -262,15 +328,13 @@ test("section reader preserves repeated risk sections and fenced heading example
     sections.get("residual risk"),
     "已知缺口：first unresolved issue.\n\n已知缺口：second unresolved issue.",
   );
-  assert.equal(assessTransitionDocument("task.closeout", body).ready, true);
+  assert.equal(closeout(body).ready, true);
 });
 
 test("fenced required headings cannot make a missing closeout section ready", () => {
   const body =
     "## Summary\nDelivery\n## Verification\n~~~\n## Residual Risk\nExample only\n~~~\n## Same Mechanism Elsewhere\nInspected.";
-  assert.deepEqual(assessTransitionDocument("task.closeout", body).missingSections, [
-    { section: "Residual Risk", reason: "empty" },
-  ]);
+  assert.deepEqual(closeout(body).missingSections, [{ section: "Residual Risk", reason: "empty" }]);
 });
 
 test("closeout submission preserves all prose, repeated sections, gaps and fenced headings", () => {
@@ -283,7 +347,7 @@ test("closeout submission preserves all prose, repeated sections, gaps and fence
       `## Residual Risk\n${risk}\n## Same Mechanism Elsewhere\n${mechanism}\n` +
       "## Residual Risk\nAnother known gap.",
     cut = { commitSha: "a".repeat(40), deliverables: [], outputs: ["Deleted-Production-Paths: src/old.ts"] },
-    packet = submissionFromCloseout(body, cut),
+    packet = submissionFromCloseout(body, cut, closeoutContract),
     allRisks = [risk + "\n\nAnother known gap.", mechanism];
   assert.deepEqual(packet, {
     ...cut,
@@ -295,12 +359,13 @@ test("closeout submission preserves all prose, repeated sections, gaps and fence
 });
 
 test("closeout submission fails closed on missing or scaffold sections", () => {
-  const cut = { commitSha: "a".repeat(40), deliverables: [], outputs: [] };
+  const cut = { commitSha: "a".repeat(40), deliverables: [], outputs: [] },
+    summaryScaffold = closeoutContract.scaffoldBySection["Summary"]![0]!;
   for (const body of [
     "## Summary\nCompleted.\n## Verification\nTests pass.\n## Residual Risk\nKnown gap.",
-    "## Summary\nSummarize the completed behavior change.\n## Verification\nTests pass.\n" +
+    `## Summary\n${summaryScaffold}\n## Verification\nTests pass.\n` +
       "## Residual Risk\nNo residual risks.\n## Same Mechanism Elsewhere\nSibling checked.",
   ]) {
-    assert.throws(() => submissionFromCloseout(body, cut), { code: "closeout_placeholder" });
+    assert.throws(() => submissionFromCloseout(body, cut, closeoutContract), { code: "closeout_placeholder" });
   }
 });

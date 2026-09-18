@@ -15,8 +15,17 @@
       "title": "Lightweight",
       "checkerProfile": "standard",
       "completionGates": [],
-      "templateSelections": [],
-      "closeoutOverrides": { "review": false, "consent": false }
+      "capabilityImports": [{ "id": "policy:template-override/lightweight-task-plan/v1", "kind": "command", "version": "1" }],
+      "templateSelections": [
+        {
+          "slot": "task.plan",
+          "templateRef": "template://planning/task-plan-lightweight@1",
+          "materializeAs": "task_plan.md",
+          "localePolicy": { "prefer": "project", "fallback": "en-US" }
+        }
+      ],
+      "closeoutOverrides": { "review": false, "consent": false },
+      "archiveOnComplete": true
     }
   ],
   "defaultProfile": "baseline"

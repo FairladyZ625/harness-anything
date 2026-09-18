@@ -61,10 +61,15 @@ export function readCompletionContext(
       projectionStatus: "pending",
     };
   const document = readTaskTransitionDocument({ projection, taskId, slot: "task.closeout" }),
-    assessment = assessTransitionDocument(requireTransitionDocumentKind("task.complete"), document.body ?? ""),
+    assessment = assessTransitionDocument(
+      requireTransitionDocumentKind("task.complete"),
+      document.body ?? "",
+      document.contract ?? undefined,
+    ),
     facts = projection.readRelationQuery({ source: `task/${taskId}`, relationType: "produces", state: "active" });
   return {
     closeout: assessment.ready ? "ready" : "placeholder",
+    closeoutContract: document.contract,
     closeoutPath: document.path,
     closeoutMissingSections: assessment.missingSections,
     closeoutGates: readEffectiveCloseoutGates(

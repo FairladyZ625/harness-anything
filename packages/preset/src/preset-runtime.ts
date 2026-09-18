@@ -207,6 +207,7 @@ export function createRuntime(options: PresetResolverOptions): {
               ? profile.completionGates.filter((gateId) => gateId !== "ci")
               : profile.completionGates,
           ...(profile.closeoutOverrides === undefined ? {} : { closeoutOverrides: profile.closeoutOverrides }),
+          ...(profile.archiveOnComplete === undefined ? {} : { archiveOnComplete: profile.archiveOnComplete }),
         },
         guidance: {
           description: leaf.document.description,

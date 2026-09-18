@@ -41,6 +41,7 @@ import {
   factRetirementAssessment,
 } from "./task-completion-read.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
+import { archiveTaskOnComplete } from "./repo-cell-task-auto-archive.ts";
 
 import { dispatchCompletionReview } from "./task-completion-review.ts";
 import {
@@ -297,18 +298,20 @@ export async function completeTask(
     return cell.completionStopped(initialOpId, initial.snapshot, executionId, decision.blocker!, []);
   const completedEvent = cell.projection.readTaskCompletion(taskId, executionId);
   if (completedEvent) {
-    const publication = cell.publicPublication(cell.store.publication(completedEvent));
-    return cell.completionApplied(
-      cell.lifecycleReceipt(
-        completedEvent,
+    const publication = cell.publicPublication(cell.store.publication(completedEvent)),
+      archive = archiveTaskOnComplete(cell, taskId, initial.snapshot, binding),
+      receipt = cell.completionApplied(
+        cell.lifecycleReceipt(
+          completedEvent,
+          initial.snapshot,
+          publication,
+          cell.receiptProof(completedEvent, publication),
+        ),
         initial.snapshot,
-        publication,
-        cell.receiptProof(completedEvent, publication),
-      ),
-      initial.snapshot,
-      executionId,
-      [],
-    );
+        executionId,
+        archive.receipt ? [archive.receipt] : [],
+      );
+    return archive.warning ? { ...receipt, warnings: [...(receipt.warnings ?? []), archive.warning] } : receipt;
   }
   const evidenceByGate = evaluateGateEvidence(
       cell,
@@ -487,9 +490,16 @@ export async function completeTask(
           "complete-settlement",
         );
       }
-      return completed.outcome === "applied"
-        ? cell.completionApplied(completed, cell.projection.read(taskId).snapshot, executionId, [...steps, completed])
-        : cell.completionSettlement(completed, current.snapshot, executionId, steps, "complete-settlement");
+      if (completed.outcome !== "applied")
+        return cell.completionSettlement(completed, current.snapshot, executionId, steps, "complete-settlement");
+      const settled = cell.projection.read(taskId).snapshot,
+        archive = archiveTaskOnComplete(cell, taskId, settled, binding),
+        applied = cell.completionApplied(completed, settled, executionId, [
+          ...steps,
+          completed,
+          ...(archive.receipt ? [archive.receipt] : []),
+        ]);
+      return archive.warning ? { ...applied, warnings: [...(applied.warnings ?? []), archive.warning] } : applied;
     }
     if (blocker.code === "review_missing") {
       const execution = current.snapshot.executions.find(
@@ -712,6 +722,7 @@ export function completionContext(
       ? assessTransitionDocument(
           requireTransitionDocumentKind("task.complete"),
           Buffer.from(closeoutCandidate.bytes).toString("utf8"),
+          canonical.closeoutContract ?? undefined,
         )
       : null,
     invalid = scan.rows.find((row) => row.state === "blocked" || row.state === "conflict" || row.state === "deletion");

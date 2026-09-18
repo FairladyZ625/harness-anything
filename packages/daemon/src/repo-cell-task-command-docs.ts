@@ -22,6 +22,7 @@ import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { readCompletionContext } from "./task-completion-read.ts";
 import { assertTaskTransitionDocumentReady } from "./transition-document-access.ts";
 import type { RepoCellActionContext, RepoCellOperationalContext } from "./repo-cell-action-context.ts";
+import { archiveTaskOnComplete } from "./repo-cell-task-auto-archive.ts";
 
 export type TaskCommandWithDocsAction = RepoTaskAction & {
   readonly docChanges: readonly {
@@ -192,7 +193,13 @@ export async function runTaskCommandWithDocs(
     const context = readCompletionContext(cell.projection, taskId, current.snapshot, current.status),
       body = bodyOverrides.get(context.closeoutPath),
       assessment =
-        body === undefined ? null : assessTransitionDocument(requireTransitionDocumentKind("task.complete"), body),
+        body === undefined
+          ? null
+          : assessTransitionDocument(
+              requireTransitionDocumentKind("task.complete"),
+              body,
+              context.closeoutContract ?? undefined,
+            ),
       decision = taskCompletionNext(
         current.snapshot,
         {
@@ -276,10 +283,16 @@ export async function runTaskCommandWithDocs(
         publication,
         transition.proof,
         proof.authorizationDecision,
-      );
+      ),
+      archive =
+        taskAction.kind === "task-complete"
+          ? archiveTaskOnComplete(cell, taskId, transition.snapshot, binding)
+          : { receipt: null, warning: null },
+      warnings = [...anchorDriftWarnings, ...(archive.warning ? [archive.warning] : [])];
     return {
       ...receipt,
-      ...(anchorDriftWarnings.length ? { warnings: anchorDriftWarnings } : {}),
+      ...(warnings.length ? { warnings } : {}),
+      ...(archive.receipt ? { steps: [archive.receipt] } : {}),
       taskId,
       docSync: {
         outcome: "applied",

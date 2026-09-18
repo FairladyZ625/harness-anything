@@ -76,6 +76,8 @@ export interface TaskV2 extends BaseEntityPinState {
   readonly contractVersion?: number;
   readonly reviewReturnBudget?: number;
   readonly closeoutOverrides?: CloseoutOverridesV1;
+  /** Set from the preset profile; a successful completion archives the package. */
+  readonly archiveOnComplete?: boolean;
 }
 export interface ContractValidationIssue {
   readonly code: string;
@@ -114,6 +116,7 @@ export function validateTaskV2(value: unknown, allowUnknownFields = false): read
       "contractVersion",
       "reviewReturnBudget",
       "closeoutOverrides",
+      "archiveOnComplete",
     ];
   if (
     !isRecord(value) ||
@@ -174,6 +177,8 @@ export function validateTaskV2(value: unknown, allowUnknownFields = false): read
       code: "invalid_task",
       message: "closeoutOverrides must map closeout gate ids to booleans",
     });
+  if (value.archiveOnComplete !== undefined && typeof value.archiveOnComplete !== "boolean")
+    issues.push({ code: "invalid_task", message: "archiveOnComplete must be a boolean" });
   issues.push(
     ...validateActorAxes(value.createdBy, allowUnknownFields),
     ...validateTaskGraph(value.graph, allowUnknownFields),

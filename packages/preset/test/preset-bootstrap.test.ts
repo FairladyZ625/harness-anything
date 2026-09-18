@@ -211,6 +211,48 @@ test("standard and milestone bootstrap compile one exact canonical birth and reb
   }
 });
 
+test("the lightweight profile materializes the three-section plan and freezes archiveOnComplete", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-preset-lightweight-"));
+  try {
+    git(rootDir, "init", "-q");
+    git(rootDir, "config", "user.name", "Preset Test");
+    git(rootDir, "config", "user.email", "preset@example.invalid");
+    git(rootDir, "commit", "--allow-empty", "-qm", "base");
+    const common = {
+      userRoot: path.join(rootDir, ".harness/presets"),
+      verticalId: "software/coding",
+      profileId: "lightweight",
+      locale: "en-US",
+      actor: { principal: { personId: "person-1" }, executor: null },
+      source: "local",
+      occurredAt: "2026-09-18T00:00:00.000Z",
+    } as const;
+    for (const presetId of ["standard-task", "worker-dispatch"] as const) {
+      const compiled = compileTaskBootstrap({
+        ...common,
+        taskId: `task-${presetId}`,
+        title: "Lightweight",
+        presetId,
+        workspaceRevision: 1,
+        eventId: `event-${presetId}`,
+        opId: `op-${presetId}`,
+      });
+      const plan = compiled.documents.find((document) => document.relativePath === "task_plan.md")!;
+      assert.deepEqual(
+        [...plan.body.matchAll(/^## .+$/gmu)].map((match) => match[0]),
+        ["## Brief", "## Context", "## Verification"],
+      );
+      assert.equal(compiled.event.payload.task.archiveOnComplete, true);
+      assert.deepEqual(compiled.event.payload.task.closeoutOverrides, { review: false, consent: false });
+      const contract = JSON.parse(compiled.documents[1]!.body) as Record<string, unknown>;
+      assert.equal(contract.archiveOnComplete, true);
+      assert.deepEqual(contract.closeoutOverrides, { review: false, consent: false });
+    }
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("reopen recovers bootstrap machine views while preserving bootstrap prose and user drafts", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-bootstrap-recovery-"));
   git(rootDir, "init", "-q");
