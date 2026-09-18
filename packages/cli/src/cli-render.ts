@@ -86,7 +86,7 @@ export function renderDispatchRow(value: unknown): string {
   };
   return [
     String(row.dispatchId),
-    String(row.status),
+    String(row.status ?? row.taskId ?? "-"),
     String(row.runtimeSessionId),
     String(row.outcome ?? "-"),
     `attempt:${String(row.attemptIndex ?? 0)}`,

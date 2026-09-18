@@ -121,3 +121,14 @@ test("CLI dispatch and nested receipt errors are handled by closed tagged branch
     },
   );
 });
+
+test("a review-dispatch step carries no status, so its row names the task it reviewed", () => {
+  const row = renderDispatchRow({
+    taskId: "task_one",
+    dispatchId: "review-dispatch-one",
+    runtimeSessionId: "runtime-one",
+    outcome: "dispatched",
+  });
+  assert.match(row, /^review-dispatch-one\ttask_one\truntime-one\tdispatched\t/u);
+  assert.doesNotMatch(row, /undefined/u);
+});
