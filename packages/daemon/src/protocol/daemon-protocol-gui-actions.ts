@@ -213,6 +213,8 @@ export const daemonGuiActionMethods = Object.freeze([
       walFlushBytes: "number?",
       walFlushMilliseconds: "number?",
       ciWorkflows: "array?",
+      gatesFromDocument: "boolean?",
+      restoreDrillRetention: "number?",
       expectedVersion: "number?",
       idempotencyKey: "string",
     }),

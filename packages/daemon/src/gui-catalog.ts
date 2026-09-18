@@ -2,7 +2,12 @@ import { createHash } from "node:crypto";
 import { localAdapterProviderMetadata } from "../../adapters/local/src/index.ts";
 import { multicaAdapterProviderMetadata } from "../../adapters/multica/src/index.ts";
 import { settingsUpdateInputFields, type SettingsV1 } from "../../kernel/src/index.ts";
-import { listGovernanceScaffoldOverlays, runPresetAction } from "../../preset/src/index.ts";
+import {
+  listBundledAgentDeclarationIds,
+  listGovernanceScaffoldOverlays,
+  listRepositoryWorkflowNames,
+  runPresetAction,
+} from "../../preset/src/index.ts";
 import { presetRuntimeDefaults } from "../../preset/src/preset-system.ts";
 import {
   writeCatalogPreset,
@@ -91,6 +96,12 @@ export function openGuiCatalog(input: {
       templates,
       // 仓库设置选择器的取值面:governance 根下已存在的 overlay 文档,authored-root 相对路径。
       scaffolds: listGovernanceScaffoldOverlays(input.rootDir),
+      // CI 见证工作流取值面:.github/workflows 下的 *.yml 基名(不带扩展名——观察路径自己补
+      // .yml,settings 契约拒绝带后缀的值),与 scaffolds 同型:目录枚举供选择器点选。
+      ciWorkflows: listRepositoryWorkflowNames(input.rootDir),
+      // 验收人取值面的 bundled 层;已安装层由 GUI 复用 repo.agent.entities.list 的共享缓存,
+      // 不进快照——实体写不应搅动 catalog digest。
+      bundledAgents: listBundledAgentDeclarationIds(),
       // 设置字段契约面:与 settings 动作目录同一单源派生,GUI 仓库设置表单据此渲染,
       // kernel 加字段不再需要 GUI 手写字段清单。
       settingsFields: settingsUpdateInputFields.map(({ field, type, required, enum: values }) => ({

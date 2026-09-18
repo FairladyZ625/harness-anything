@@ -312,6 +312,7 @@ export {
   readSettingsFacet,
   repositorySettings,
   serializeLocalSettings,
+  settingValuePattern,
   validateRepositorySettings,
   validateSettingsV1,
   writeRepositorySettingsFacet,

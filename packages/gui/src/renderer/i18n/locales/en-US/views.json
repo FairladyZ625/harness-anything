@@ -117,6 +117,7 @@
   "views.settingsView.defaultProfileLabel": "Default profile",
   "views.settingsView.defaultReviewerDescription": "Agent declaration id dispatched as the independent closeout reviewer; unset falls back to closeout-reviewer",
   "views.settingsView.defaultReviewerLabel": "Default reviewer",
+  "views.settingsView.defaultReviewerUnsetOption": "Unset",
   "views.settingsView.defaultVerticalLabel": "Default vertical",
   "views.settingsView.english": "English",
   "views.settingsView.exportAction": "Export",

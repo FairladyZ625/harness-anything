@@ -55,6 +55,10 @@ export interface CatalogSnapshotSuccess {
   readonly verticals: ReadonlyArray<CatalogVerticalRow>;
   readonly templates: ReadonlyArray<CatalogTemplateRow>;
   readonly scaffolds: { readonly task: ReadonlyArray<string>; readonly repository: ReadonlyArray<string> };
+  /** CI 工作流多选取值面:.github/workflows 的 *.yml 基名,不带扩展名。 */
+  readonly ciWorkflows: ReadonlyArray<string>;
+  /** 验收人取值面的 bundled 层;已安装层走 agent 目录共享缓存,不进快照。 */
+  readonly bundledAgents: ReadonlyArray<string>;
   /** settings 动作契约字段表(daemon 侧校验行 shape):仓库设置表单的派生源。 */
   readonly settingsFields: ReadonlyArray<{
     readonly field: string;
@@ -135,6 +139,8 @@ function isCatalogSnapshotSuccess(value: unknown): value is CatalogSnapshotSucce
     isRendererRecord(value.scaffolds) &&
     Array.isArray(value.scaffolds.task) &&
     Array.isArray(value.scaffolds.repository) &&
+    Array.isArray(value.ciWorkflows) &&
+    Array.isArray(value.bundledAgents) &&
     Array.isArray(value.settingsFields) &&
     value.presets.every(
       (row) =>
