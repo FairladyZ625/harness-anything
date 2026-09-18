@@ -185,7 +185,7 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
                           runtimeSessionId: "runtime-gui",
                           afterCursor: "lifecycle:0",
                         }
-                      : contract.id === "agent.entity.read"
+                      : contract.id === "agent.entity.read" || contract.id === "agentRuntime.tokenUsageDetail"
                         ? { ...scope, agentId: "terra" }
                         : contract.id === "squad.entity.read"
                           ? { ...scope, squadId: "core-squad" }
