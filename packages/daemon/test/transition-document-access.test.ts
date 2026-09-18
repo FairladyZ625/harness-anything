@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { assessTransitionDocument } from "../../kernel/src/index.ts";
+import { assessTransitionDocument, transitionDocumentContract } from "../../kernel/src/index.ts";
 
 const planHeadings = [
   "Brief",
@@ -66,8 +66,9 @@ test("transition-document readiness reports scaffold and empty sections as struc
       },
     ] as const;
 
+  const contract = transitionDocumentContract(template);
   for (const fixture of cases) {
-    const missing = assessTransitionDocument("task.plan", fixture.body).missingSections;
+    const missing = assessTransitionDocument("task.plan", fixture.body, contract).missingSections;
     assert.equal(missing.length, fixture.expectedEntries, fixture.name);
     assert.deepEqual(missing[0], fixture.expectedFirst, fixture.name);
   }

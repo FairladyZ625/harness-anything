@@ -228,6 +228,9 @@ export function compileTaskPackage(input: CompileTaskPackageInput): CompiledTask
           ...(snapshot.profile.closeoutOverrides === undefined
             ? {}
             : { closeoutOverrides: snapshot.profile.closeoutOverrides }),
+          ...(snapshot.profile.archiveOnComplete === undefined
+            ? {}
+            : { archiveOnComplete: snapshot.profile.archiveOnComplete }),
           completionGates: snapshot.profile.completionGateIds,
           presetSnapshotDigest: snapshot.digest,
           scaffold: {
@@ -330,6 +333,9 @@ export function compileTaskBootstrap(input: CompileTaskBootstrapInput): Compiled
         ...(compiled.snapshot.profile.closeoutOverrides === undefined
           ? {}
           : { closeoutOverrides: compiled.snapshot.profile.closeoutOverrides }),
+        ...(compiled.snapshot.profile.archiveOnComplete === undefined
+          ? {}
+          : { archiveOnComplete: compiled.snapshot.profile.archiveOnComplete }),
       },
       presetSnapshotClaim: snapshotClaim,
       initialDocumentClaims,
@@ -377,7 +383,11 @@ export function compilePresetSnapshotUpgrade(input: CompilePresetSnapshotUpgrade
   )
     throw bootstrapFailure("invalid_task_contract", "Task contract metadata does not match the canonical task.");
   const currentTask = currentTaskForWrite(input.task),
-    { closeoutOverrides: _staleCloseoutOverrides, ...taskWithoutOverrides } = currentTask,
+    {
+      closeoutOverrides: _staleCloseoutOverrides,
+      archiveOnComplete: _staleArchiveOnComplete,
+      ...taskWithoutOverrides
+    } = currentTask,
     compiled = compileTaskPackage({
       ...input,
       taskId: input.task.taskId,
@@ -469,6 +479,9 @@ export function compilePresetSnapshotUpgrade(input: CompilePresetSnapshotUpgrade
           ...(compiled.snapshot.profile.closeoutOverrides === undefined
             ? {}
             : { closeoutOverrides: compiled.snapshot.profile.closeoutOverrides }),
+          ...(compiled.snapshot.profile.archiveOnComplete === undefined
+            ? {}
+            : { archiveOnComplete: compiled.snapshot.profile.archiveOnComplete }),
         },
         presetSnapshotClaim: snapshotClaim,
         taskContractClaim,

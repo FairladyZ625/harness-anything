@@ -128,7 +128,16 @@ function derive(
             ? null
             : {
                 body: target.endsWith("task-contract.json")
-                  ? JSON.stringify({ documents: [{ slot: "task.closeout", path: "closeout.md" }] })
+                  ? JSON.stringify({
+                      documents: [
+                        {
+                          slot: "task.closeout",
+                          path: "closeout.md",
+                          templateRef: "template://planning/closeout@1",
+                          locale: "en-US",
+                        },
+                      ],
+                    })
                   : body,
                 blobSha256: "test-blob",
                 workspaceRevision: 1,

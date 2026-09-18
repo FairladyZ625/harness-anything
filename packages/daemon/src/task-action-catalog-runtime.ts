@@ -132,6 +132,7 @@ export async function runTaskActionCatalogRuntime(
       taskId,
       slot: "task.plan",
       transition: "task.start",
+      readBlob: cell.store.readContentBlob,
     });
   let normalized: ReturnType<RepoCellOperationalContext["buildCommand"]>;
   try {

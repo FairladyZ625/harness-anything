@@ -394,6 +394,7 @@ function renderContract(snapshot: TaskLifecycleSnapshot, base: string | null, pa
       relations: _legacyRelations,
       reviewReturnBudget: _staleBudget,
       closeoutOverrides: _staleOverrides,
+      archiveOnComplete: _staleArchiveOnComplete,
       ...withoutHostedRelations
     } = current,
     metadata = JSON.parse(stableStringify(task.metadata ?? null)) as unknown;
@@ -410,6 +411,7 @@ function renderContract(snapshot: TaskLifecycleSnapshot, base: string | null, pa
       presetSnapshotDigest: task.presetSnapshotDigest,
       ...(task.reviewReturnBudget === undefined ? {} : { reviewReturnBudget: task.reviewReturnBudget }),
       ...(task.closeoutOverrides === undefined ? {} : { closeoutOverrides: task.closeoutOverrides }),
+      ...(task.archiveOnComplete === undefined ? {} : { archiveOnComplete: task.archiveOnComplete }),
       metadata,
     },
     null,

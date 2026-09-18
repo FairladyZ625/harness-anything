@@ -1,4 +1,5 @@
 import { readTaskCompletion } from "./task-completion-read.ts";
+import type { TransitionDocumentBlobReader } from "./transition-document-access.ts";
 import { createHash } from "node:crypto";
 import {
   completionGateIds,
@@ -131,7 +132,7 @@ export function completionKillpoint(cell: RepoCellActionContext, point: EventPub
 
 export async function showTask(cell: RepoCellActionContext, taskId: string): Promise<WriteReceipt> {
   await cell.service.read(cell.requiredCellText(taskId, "taskId"));
-  return taskShowFromProjection(cell.rootDir, cell.projection, taskId);
+  return taskShowFromProjection(cell.rootDir, cell.projection, taskId, undefined, cell.store.readContentBlob);
 }
 
 export function taskShowFromProjection(
@@ -139,6 +140,7 @@ export function taskShowFromProjection(
   projection: TaskProjectionQueries,
   taskId: string,
   directChildCount = projection.readTaskChildCounts([taskId])[taskId] ?? 0,
+  readBlob?: TransitionDocumentBlobReader,
 ): WriteReceipt {
   const read = projection.read(taskId),
     progress = projection.readProgress(taskId),
@@ -172,7 +174,7 @@ export function taskShowFromProjection(
           rootSetting.threshold,
         )
       : null,
-    completion = readTaskCompletion(projection, taskId),
+    completion = readTaskCompletion(projection, taskId, readBlob),
     payload = {
       ...read.snapshot,
       task: task

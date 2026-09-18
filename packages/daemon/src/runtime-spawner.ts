@@ -323,7 +323,15 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           : remoteTask.causalContext,
       taskMission = taskId
         ? (remoteTask ??
-          deriveTaskMission(input.rootDir, projection!, taskId, "runtime.run", missionName, causalContext))
+          deriveTaskMission(
+            input.rootDir,
+            projection!,
+            taskId,
+            "runtime.run",
+            missionName,
+            causalContext,
+            store?.readContentBlob,
+          ))
         : null,
       mission =
         explicitMission === undefined

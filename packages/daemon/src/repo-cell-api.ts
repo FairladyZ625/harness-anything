@@ -627,7 +627,11 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
       context.squadCoordinator.read(context.requiredCellText(payload.squadRunId, "squadRunId")),
     "repo.decisions.list": (payload: Readonly<Record<string, unknown>>) => decisionListFromPayload(payload),
     "repo.tasks.completion.read": (payload) =>
-      readTaskCompletion(context.projection, context.requiredCellText(payload.taskId, "taskId")),
+      readTaskCompletion(
+        context.projection,
+        context.requiredCellText(payload.taskId, "taskId"),
+        context.store.readContentBlob,
+      ),
     "repo.tasks.causalContext.read": (payload) => {
       const taskId = context.requiredCellText(payload.taskId, "taskId");
       return {

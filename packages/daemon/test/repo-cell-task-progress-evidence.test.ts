@@ -183,6 +183,7 @@ function fixture(
     projectionReady,
     service: { read: async () => read },
     settings: settingsStub(["rewrite-ci"]),
+    store: { readContentBlob: () => null, publication: () => "published" },
     projection: {
       read: () => read,
       readCiRunObservations: () => ({ status: "ready", events, watermark: 2, sourceRevision: 2 }),
@@ -512,6 +513,7 @@ test("complete without a code-doc witness stops on code_doc_missing under its ow
         settings: { read: () => settings, readRepository: () => settings },
         requiredCellText: (value: string) => value,
         operationId: () => "facade-op",
+        store: { readContentBlob: () => null, publication: () => "published" },
         completeRetryCommand: () => "ha task complete task",
         completionContext: () => readiness,
         completionStopped,
@@ -535,7 +537,14 @@ test("complete without a code-doc witness stops on code_doc_missing under its ow
               body: target.endsWith("task-contract.json")
                 ? JSON.stringify({
                     title: "Complete Reconcile Criterion",
-                    documents: [{ slot: "task.closeout", path: "closeout.md" }],
+                    documents: [
+                      {
+                        slot: "task.closeout",
+                        path: "closeout.md",
+                        templateRef: "template://planning/closeout@1",
+                        locale: "en-US",
+                      },
+                    ],
                   })
                 : "## Summary\nDone.\n## Verification\nVerified.\n## Residual Risk\nNone.\n" +
                   "## Same Mechanism Elsewhere\nChecked.\n",
@@ -602,7 +611,7 @@ test("completed receipt replay does not inspect a newer red or unavailable CI ob
     requiredCellText: (value: string) => value,
     service: { read: async () => read },
     operationId: () => "retry-operation",
-    store: { publication: () => "published" },
+    store: { readContentBlob: () => null, publication: () => "published" },
     publicPublication: (value: unknown) => value,
     lifecycleReceipt: (event: unknown) => {
       assert.equal(event, completedEvent);
@@ -624,7 +633,16 @@ test("completed receipt replay does not inspect a newer red or unavailable CI ob
       sourceRevision: 2,
       document: {
         body: target.endsWith("task-contract.json")
-          ? JSON.stringify({ documents: [{ slot: "task.closeout", path: "closeout.md" }] })
+          ? JSON.stringify({
+              documents: [
+                {
+                  slot: "task.closeout",
+                  path: "closeout.md",
+                  templateRef: "template://planning/closeout@1",
+                  locale: "en-US",
+                },
+              ],
+            })
           : "## Summary\nDone.\n## Verification\nVerified.\n## Residual Risk\nNone.\n" +
             "## Same Mechanism Elsewhere\nChecked.\n",
       },
@@ -637,6 +655,92 @@ test("completed receipt replay does not inspect a newer red or unavailable CI ob
     } as RepoCellBinding),
     receipt,
   );
+});
+
+test("replayed complete retries archiveOnComplete through the regular archive action; baseline and archived tasks skip it", async () => {
+  const setup = (overrides: Record<string, unknown>, archiveTasks: RepoCellOperationalContext["archiveTasks"]) => {
+    const current = execution(publicSha),
+      prepared = fixture(publicRoot, current, [observation(current.submission!.commitSha, 2, "failure")]);
+    Object.assign(prepared.snapshot.task!, { taskId: "task", status: "done", createdBy: actor, ...overrides });
+    const read = {
+      snapshot: prepared.snapshot,
+      packagePath: "harness/tasks/task",
+      status: "ready",
+      watermark: 2,
+      sourceRevision: 2,
+    };
+    Object.assign(prepared.cell, {
+      input: { repoId: "repo" },
+      requiredCellText: (value: string) => value,
+      service: { read: async () => read },
+      operationId: () => "retry-operation",
+      store: { readContentBlob: () => null, publication: () => "published" },
+      publicPublication: (value: unknown) => value,
+      lifecycleReceipt: () => ({ outcome: "applied", opId: "completed-original" }),
+      receiptProof: () => ({ durable: true, canonicalVisible: true, worktreeVisible: true }),
+      completionApplied: (value: unknown, _snapshot: unknown, _execution: unknown, steps: unknown[]) => ({
+        ...(value as Record<string, unknown>),
+        steps,
+      }),
+      archiveTasks,
+    });
+    Object.assign(prepared.cell.projection, {
+      read: () => read,
+      getEntity: () => null,
+      readTaskCompletion: () => ({ opId: "completed-original" }),
+      readRelationQuery: () => ({ rows: [], status: "ready" }),
+      readDocument: (target: string) => ({
+        watermark: 2,
+        sourceRevision: 2,
+        document: {
+          body: target.endsWith("task-contract.json")
+            ? JSON.stringify({
+                documents: [
+                  {
+                    slot: "task.closeout",
+                    path: "closeout.md",
+                    templateRef: "template://planning/closeout@1",
+                    locale: "en-US",
+                  },
+                ],
+              })
+            : "## Summary\nDone.\n## Verification\nVerified.\n## Residual Risk\nNone.\n" +
+              "## Same Mechanism Elsewhere\nChecked.\n",
+        },
+      }),
+    });
+    return prepared;
+  };
+  const complete = (cell: RepoCellOperationalContext) =>
+    completeTask(cell, { kind: "task-complete", taskId: "task", executionId: "execution" }, {
+      ...binding,
+      authorizationDecision: { outcome: "allowed" },
+    } as RepoCellBinding) as Promise<Record<string, unknown>>;
+
+  const archived = setup({ archiveOnComplete: true }, (action: unknown) => {
+    assert.deepEqual(action, {
+      kind: "task-archive",
+      taskIds: ["task"],
+      reason: "Archived automatically: the task's preset profile declares archiveOnComplete.",
+    });
+    return { outcome: "applied", opId: "archived" } as ReturnType<RepoCellOperationalContext["archiveTasks"]>;
+  });
+  assert.deepEqual((await complete(archived.cell)).steps, [{ outcome: "applied", opId: "archived" }]);
+
+  const failed = setup({ archiveOnComplete: true }, () => {
+    throw Object.assign(new Error("archive conflict"), { code: "invalid_disposition" });
+  });
+  const failedReceipt = await complete(failed.cell);
+  assert.equal(failedReceipt.outcome, "applied");
+  assert.match((failedReceipt.warnings as string[])[0]!, /Auto-archive after completion failed: archive conflict/u);
+
+  const baseline = setup({}, () => assert.fail("baseline tasks never auto-archive"));
+  assert.deepEqual((await complete(baseline.cell)).steps, []);
+
+  const alreadyArchived = setup({ archiveOnComplete: true, packageDisposition: "archived" }, () =>
+    assert.fail("an already-archived task skips the archive write"),
+  );
+  assert.deepEqual((await complete(alreadyArchived.cell)).steps, []);
 });
 
 async function completeOverRedCi(
@@ -690,6 +794,7 @@ async function completeOverRedCi(
         settings: { read: () => settings, readRepository: () => settings },
         requiredCellText: (value: string) => value,
         operationId: () => "facade-op",
+        store: { readContentBlob: () => null, publication: () => "published" },
         completeRetryCommand: () => "ha task complete task",
         completionContext: () => ({
           closeout: "ready",
@@ -720,7 +825,14 @@ async function completeOverRedCi(
               body: target.endsWith("task-contract.json")
                 ? JSON.stringify({
                     title: "Complete Override",
-                    documents: [{ slot: "task.closeout", path: "closeout.md" }],
+                    documents: [
+                      {
+                        slot: "task.closeout",
+                        path: "closeout.md",
+                        templateRef: "template://planning/closeout@1",
+                        locale: "en-US",
+                      },
+                    ],
                   })
                 : "## Summary\nDone.\n## Verification\nVerified.\n## Residual Risk\nNone.\n" +
                   "## Same Mechanism Elsewhere\nChecked.\n",

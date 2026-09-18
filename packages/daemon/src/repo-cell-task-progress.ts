@@ -41,6 +41,7 @@ import {
   factRetirementAssessment,
 } from "./task-completion-read.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
+import { archiveTaskOnComplete } from "./repo-cell-task-auto-archive.ts";
 
 import { dispatchCompletionReview } from "./task-completion-review.ts";
 import {
@@ -268,7 +269,13 @@ export async function completeTask(
 ): Promise<WriteReceipt> {
   const taskId = cell.requiredCellText(action.taskId, "taskId"),
     initial = await cell.service.read(taskId),
-    initialContext = readCompletionContext(cell.projection, taskId, initial.snapshot, initial.status),
+    initialContext = readCompletionContext(
+      cell.projection,
+      taskId,
+      initial.snapshot,
+      initial.status,
+      cell.store.readContentBlob,
+    ),
     decision = taskCompletionNext(
       initial.snapshot,
       { ...initialContext, authorization: binding.authorizationDecision?.outcome === "allowed" ? "allowed" : "denied" },
@@ -297,18 +304,20 @@ export async function completeTask(
     return cell.completionStopped(initialOpId, initial.snapshot, executionId, decision.blocker!, []);
   const completedEvent = cell.projection.readTaskCompletion(taskId, executionId);
   if (completedEvent) {
-    const publication = cell.publicPublication(cell.store.publication(completedEvent));
-    return cell.completionApplied(
-      cell.lifecycleReceipt(
-        completedEvent,
+    const publication = cell.publicPublication(cell.store.publication(completedEvent)),
+      archive = archiveTaskOnComplete(cell, taskId, initial.snapshot, binding),
+      receipt = cell.completionApplied(
+        cell.lifecycleReceipt(
+          completedEvent,
+          initial.snapshot,
+          publication,
+          cell.receiptProof(completedEvent, publication),
+        ),
         initial.snapshot,
-        publication,
-        cell.receiptProof(completedEvent, publication),
-      ),
-      initial.snapshot,
-      executionId,
-      [],
-    );
+        executionId,
+        archive.receipt ? [archive.receipt] : [],
+      );
+    return archive.warning ? { ...receipt, warnings: [...(receipt.warnings ?? []), archive.warning] } : receipt;
   }
   const evidenceByGate = evaluateGateEvidence(
       cell,
@@ -487,9 +496,16 @@ export async function completeTask(
           "complete-settlement",
         );
       }
-      return completed.outcome === "applied"
-        ? cell.completionApplied(completed, cell.projection.read(taskId).snapshot, executionId, [...steps, completed])
-        : cell.completionSettlement(completed, current.snapshot, executionId, steps, "complete-settlement");
+      if (completed.outcome !== "applied")
+        return cell.completionSettlement(completed, current.snapshot, executionId, steps, "complete-settlement");
+      const settled = cell.projection.read(taskId).snapshot,
+        archive = archiveTaskOnComplete(cell, taskId, settled, binding),
+        applied = cell.completionApplied(completed, settled, executionId, [
+          ...steps,
+          completed,
+          ...(archive.receipt ? [archive.receipt] : []),
+        ]);
+      return archive.warning ? { ...applied, warnings: [...(applied.warnings ?? []), archive.warning] } : applied;
     }
     if (blocker.code === "review_missing") {
       const execution = current.snapshot.executions.find(
@@ -695,7 +711,7 @@ export function completionContext(
 ): CompletionReadinessContext {
   if (presetSnapshotDigest !== snapshot.task?.presetSnapshotDigest)
     throw cell.cellCodedError("preset_snapshot_mismatch", `Run ha preset upgrade ${taskId} before completion.`);
-  const canonical = readCompletionContext(cell.projection, taskId, snapshot, "ready"),
+  const canonical = readCompletionContext(cell.projection, taskId, snapshot, "ready", cell.store.readContentBlob),
     scan = scanDocCandidates({
       rootDir: cell.rootDir,
       workspaceId: cell.input.repoId,
@@ -712,6 +728,7 @@ export function completionContext(
       ? assessTransitionDocument(
           requireTransitionDocumentKind("task.complete"),
           Buffer.from(closeoutCandidate.bytes).toString("utf8"),
+          canonical.closeoutContract ?? undefined,
         )
       : null,
     invalid = scan.rows.find((row) => row.state === "blocked" || row.state === "conflict" || row.state === "deletion");

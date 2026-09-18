@@ -56,15 +56,20 @@ export function deriveCloseoutSubmission(
       taskId,
       slot: "task.closeout",
       bodyOverrides,
+      readBlob: cell.store.readContentBlob,
     }),
     frozen = snapshot.executions.find((execution) => execution.executionId === executionId)?.submission,
     // Parse/validate before reading any Git cut. No risk or verification line is filtered.
-    parsed = submissionFromCloseout(document.body, {
-      commitSha: "0".repeat(40),
-      deliverables: [],
-      outputs: [],
-      completionContract: { gates: [] },
-    }),
+    parsed = submissionFromCloseout(
+      document.body,
+      {
+        commitSha: "0".repeat(40),
+        deliverables: [],
+        outputs: [],
+        completionContract: { gates: [] },
+      },
+      document.contract ?? undefined,
+    ),
     // The execution's first submission freezes the gate requirements; resumes and amendments keep them.
     prose = { ...parsed, completionContract: frozen?.completionContract ?? freezeCompletionContract(cell, snapshot) },
     anchors = artifactAnchors(prose.completionClaim),

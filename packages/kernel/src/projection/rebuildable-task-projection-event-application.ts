@@ -507,14 +507,19 @@ export function applyEvent(
       // The task-bound closeout override set tracks the profile declaration on upgrade; a profile
       // that no longer declares one drops the field entirely rather than freezing a stale value.
       baseTask = { ...currentTaskForWrite(current.task) },
-      closeoutOverrides = (snapshot.profile as { readonly closeoutOverrides?: unknown }).closeoutOverrides;
+      closeoutOverrides = (snapshot.profile as { readonly closeoutOverrides?: unknown }).closeoutOverrides,
+      archiveOnComplete = (snapshot.profile as { readonly archiveOnComplete?: unknown }).archiveOnComplete;
     if (closeoutOverrides !== undefined && !isValidCloseoutOverrides(closeoutOverrides))
       throw new Error(`preset snapshot upgrade declared invalid closeoutOverrides for ${event.taskId}`);
     if (closeoutOverrides === undefined) delete baseTask.closeoutOverrides;
+    if (archiveOnComplete !== undefined && typeof archiveOnComplete !== "boolean")
+      throw new Error(`preset snapshot upgrade declared invalid archiveOnComplete for ${event.taskId}`);
+    if (archiveOnComplete === undefined) delete baseTask.archiveOnComplete;
     const changed = {
         completionGateIds: snapshot.profile.completionGateIds,
         presetSnapshotDigest: snapshot.digest,
         ...(closeoutOverrides === undefined ? {} : { closeoutOverrides }),
+        ...(archiveOnComplete === undefined ? {} : { archiveOnComplete }),
         ...(changedPreset && current.task.metadata
           ? {
               metadata: {

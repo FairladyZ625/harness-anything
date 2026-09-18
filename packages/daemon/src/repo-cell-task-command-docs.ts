@@ -22,6 +22,7 @@ import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { readCompletionContext } from "./task-completion-read.ts";
 import { assertTaskTransitionDocumentReady } from "./transition-document-access.ts";
 import type { RepoCellActionContext, RepoCellOperationalContext } from "./repo-cell-action-context.ts";
+import { archiveTaskOnComplete } from "./repo-cell-task-auto-archive.ts";
 
 export type TaskCommandWithDocsAction = RepoTaskAction & {
   readonly docChanges: readonly {
@@ -65,7 +66,7 @@ export async function runTaskCommandWithDocs(
     const current = await cell.service.read(taskId),
       decision = taskCompletionNext(
         current.snapshot,
-        readCompletionContext(cell.projection, taskId, current.snapshot, current.status),
+        readCompletionContext(cell.projection, taskId, current.snapshot, current.status, cell.store.readContentBlob),
         typeof taskAction.executionId === "string" ? taskAction.executionId : undefined,
       );
     if (decision.blocker && decision.blocker.code !== "closeout_placeholder")
@@ -181,6 +182,7 @@ export async function runTaskCommandWithDocs(
         slot: "task.plan",
         transition: "task.start",
         bodyOverrides,
+        readBlob: cell.store.readContentBlob,
       });
     } catch (error) {
       recycleClaims(cell.rootDir, intent);
@@ -189,10 +191,22 @@ export async function runTaskCommandWithDocs(
   const current = await cell.service.read(taskId);
   let completionExecutionId: string | null = null;
   if (taskAction.kind === "task-complete") {
-    const context = readCompletionContext(cell.projection, taskId, current.snapshot, current.status),
+    const context = readCompletionContext(
+        cell.projection,
+        taskId,
+        current.snapshot,
+        current.status,
+        cell.store.readContentBlob,
+      ),
       body = bodyOverrides.get(context.closeoutPath),
       assessment =
-        body === undefined ? null : assessTransitionDocument(requireTransitionDocumentKind("task.complete"), body),
+        body === undefined
+          ? null
+          : assessTransitionDocument(
+              requireTransitionDocumentKind("task.complete"),
+              body,
+              context.closeoutContract ?? undefined,
+            ),
       decision = taskCompletionNext(
         current.snapshot,
         {
@@ -276,10 +290,16 @@ export async function runTaskCommandWithDocs(
         publication,
         transition.proof,
         proof.authorizationDecision,
-      );
+      ),
+      archive =
+        taskAction.kind === "task-complete"
+          ? archiveTaskOnComplete(cell, taskId, transition.snapshot, binding)
+          : { receipt: null, warning: null },
+      warnings = [...anchorDriftWarnings, ...(archive.warning ? [archive.warning] : [])];
     return {
       ...receipt,
-      ...(anchorDriftWarnings.length ? { warnings: anchorDriftWarnings } : {}),
+      ...(warnings.length ? { warnings } : {}),
+      ...(archive.receipt ? { steps: [archive.receipt] } : {}),
       taskId,
       docSync: {
         outcome: "applied",

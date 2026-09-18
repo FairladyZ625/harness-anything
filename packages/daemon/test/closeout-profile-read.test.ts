@@ -42,7 +42,16 @@ function projection(closeout: CloseoutSettingsV1 | null): TaskProjectionQueries 
         blobSha256: "0".repeat(64),
         workspaceRevision: 2,
         body: target.endsWith("task-contract.json")
-          ? JSON.stringify({ documents: [{ slot: "task.closeout", path: "closeout.md" }] })
+          ? JSON.stringify({
+              documents: [
+                {
+                  slot: "task.closeout",
+                  path: "closeout.md",
+                  templateRef: "template://planning/closeout@1",
+                  locale: "en-US",
+                },
+              ],
+            })
           : "## Summary\nDelivered.\n## Verification\nVerified.\n## Residual Risk\nNone.\n" +
             "## Same Mechanism Elsewhere\nChecked.\n",
       },

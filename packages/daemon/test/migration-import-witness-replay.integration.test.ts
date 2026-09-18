@@ -662,7 +662,14 @@ test("contract migration repairs old migrated rows through one canonical event a
         {
           ...contractBase,
           presetSnapshotDigest: digest,
-          documents: [{ slot: "task.closeout", path: "closeout.md" }],
+          documents: [
+            {
+              slot: "task.closeout",
+              path: "closeout.md",
+              templateRef: "template://planning/closeout@1",
+              locale: "en-US",
+            },
+          ],
         },
         null,
         2,

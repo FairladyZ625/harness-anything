@@ -47,88 +47,50 @@ interface TransitionDocumentReadiness {
   readonly missingSections: readonly TransitionDocumentMissingSection[];
 }
 
-type MarkdownDocumentContract = {
+export type MarkdownDocumentContract = {
   readonly requiredSections: readonly string[];
   readonly scaffoldBySection: Readonly<Record<string, readonly string[]>>;
 };
 
-const taskPlan: MarkdownDocumentContract = {
-  requiredSections: [
-    "Brief",
-    "Goal",
-    "Con\u0074ext",
-    "Required Reading",
-    "Entry Conditions",
-    "Dependencies",
-    "Execution Surface",
-    "Constraints",
-    "Checkpoint",
-    "CI/Gate Authority Stop Condition",
-    "Implementation Plan",
-    "Deliverable Contract",
-    "Evidence Protocol",
-    "Verification",
-  ],
-  scaffoldBySection: {
-    Brief: ["One-line statement of the task objective and scope.", "一句话说明任务目标与范围。"],
-    Goal: [
-      "Describe the verifiable result this task must produce, plus the deliverable's form and destination:",
-      "说明本任务要完成的可验证结果，以及交付物的形态与落点：",
-    ],
-    ["Con\u0074ext"]: ["Record the input context and established facts.", "记录输入背景与已知事实。"],
-    "Required Reading": [
-      "List concrete code, document, and contract paths in reading order",
-      "按读取顺序列出代码、文档与契约的具体路径",
-    ],
-    "Entry Conditions": [
-      "List everything that must already be true before work starts.",
-      "列出开工前必须已经成立的条件。",
-    ],
-    Dependencies: [
-      "List upstream dependencies, handoff inputs, concurrent ownership, and downstream recipients",
-      "列出上游依赖、交接输入、并发 ownership 与下游接收方",
-    ],
-    "Execution Surface": [
-      "Declare the repository, worktree, branch, base, and allowed write scope.",
-      "声明执行所在的仓库、worktree、分支与 base，以及允许写入的范围。",
-    ],
-    Constraints: [
-      "List the assumptions that must not be made and the boundaries that must not be crossed",
-      "列出不能假设的前提与不能越界的范围",
-    ],
-    Checkpoint: ["State when to stop and report or request a ruling:", "写明什么时候必须停下来上报或求裁决："],
-    "CI/Gate Authority Stop Condition": [
-      "If this task is not a CI/gate/governance task but requires modifying CI/gate authority surfaces to pass",
-      "如果本任务不是 CI/gate/governance 任务，却需要修改 CI/gate 权威面才能通过",
-    ],
-    "Implementation Plan": ["Inspect existing code, documents, and contracts.", "确认现有代码、文档和契约。"],
-    "Deliverable Contract": [
-      "State the deliverable shape, destination, recipient, first consumer",
-      "写明交付物的形态、落点、接收者与第一个使用方",
-    ],
-    "Evidence Protocol": [
-      "State the required evidence granularity, negative controls or mutation checks",
-      "写明证据粒度、需要的阴性对照或变异检查",
-    ],
-    Verification: [
-      "The full gate matrix is GitHub CI's job, not this machine's.",
-      "完整门矩阵是 GitHub CI 的活，不是这台机器的活。",
-    ],
-  },
-};
-
-const taskCloseout: MarkdownDocumentContract = {
-  requiredSections: ["Summary", "Verification", "Residual Risk", "Same Mechanism Elsewhere"],
-  scaffoldBySection: {
-    Summary: ["Summarize the completed behavior change.", "总结完成的行为变化。"],
-    Verification: ["List passing applicable checks", "列出通过的适用检查"],
-    "Residual Risk": ["Record accepted non-blocking risks", "记录已接受的非阻塞风险"],
-    "Same Mechanism Elsewhere": [
-      "State what this task found as one sentence about a **mechanism**",
-      "把本任务的发现重写成一句关于**机制**的话",
-    ],
-  },
-};
+/**
+ * Derives a document's readiness contract from the scaffold it was materialized from: every `## `
+ * heading is a required section, and each non-empty scaffold line inside a section is a scaffold
+ * phrase. The template is the single source — the kernel keeps no section list of its own.
+ */
+export function transitionDocumentContract(scaffoldBody: string): MarkdownDocumentContract {
+  const requiredSections: string[] = [],
+    scaffoldBySection: Record<string, readonly string[]> = {};
+  let heading: string | null = null,
+    phrases: string[] = [],
+    fence: { marker: string; length: number } | null = null;
+  const retain = () => {
+    if (heading === null) return;
+    requiredSections.push(heading);
+    scaffoldBySection[heading] = Object.freeze(phrases);
+  };
+  for (const line of scaffoldBody.split(/\r?\n/u)) {
+    const delimiter = /^ {0,3}(`{3,}|~{3,})(.*)$/u.exec(line);
+    if (delimiter) {
+      if (fence === null) {
+        fence = { marker: delimiter[1]![0]!, length: delimiter[1]!.length };
+      } else if (delimiter[1]![0] === fence.marker && delimiter[1]!.length >= fence.length && !delimiter[2]!.trim()) {
+        fence = null;
+      }
+      continue;
+    }
+    if (fence !== null) continue;
+    const match = /^##[ \t]+(.+?)[ \t]*#*[ \t]*$/u.exec(line);
+    if (match) {
+      retain();
+      heading = match[1]!;
+      phrases = [];
+      continue;
+    }
+    if (heading !== null && line.trim()) phrases.push(line.trim());
+  }
+  retain();
+  return Object.freeze({ requiredSections: Object.freeze(requiredSections), scaffoldBySection });
+}
 
 const placeholderCodes: Readonly<Record<TransitionDocumentKind, TransitionDocumentPlaceholderCode>> = {
   "task.plan": "plan_placeholder",
@@ -146,20 +108,38 @@ const declarationScaffolds: Readonly<Record<"agent.instructions" | "squad.roster
   "squad.roster": ["## Squad roster\n(to be written)", "## Squad Roster\n（待补写）"],
 };
 
-export function assessTransitionDocument(kind: TransitionDocumentKind, body: string): TransitionDocumentReadiness {
+export function assessTransitionDocument(
+  kind: TransitionDocumentKind,
+  body: string,
+  contract?: MarkdownDocumentContract,
+): TransitionDocumentReadiness {
   const missingSections =
-    kind === "task.plan"
-      ? missingMarkdownSections(body, taskPlan)
-      : kind === "task.closeout"
-        ? missingMarkdownSections(body, taskCloseout)
-        : kind === "decision.body"
-          ? decisionBodyMissingSections(body)
-          : declarationMissingSection(kind, body);
+    kind === "task.plan" || kind === "task.closeout"
+      ? missingMarkdownSections(body, requireDocumentContract(kind, contract), kind)
+      : kind === "decision.body"
+        ? decisionBodyMissingSections(body)
+        : declarationMissingSection(kind, body);
   return Object.freeze({
     ready: missingSections.length === 0,
     code: placeholderCodes[kind],
     missingSections: Object.freeze(missingSections),
   });
+}
+
+function requireDocumentContract(
+  kind: TransitionDocumentKind,
+  contract: MarkdownDocumentContract | undefined,
+): MarkdownDocumentContract {
+  if (contract === undefined)
+    throw transitionDocumentAccessLikeError(
+      "scaffold_unavailable",
+      `${kind} readiness requires the document's materialized scaffold.`,
+    );
+  return contract;
+}
+
+function transitionDocumentAccessLikeError(code: string, message: string): Error {
+  return Object.assign(new Error(message), { code });
 }
 
 export function requireTransitionDocumentKind(transition: string): TransitionDocumentKind {
@@ -170,8 +150,12 @@ export function requireTransitionDocumentKind(transition: string): TransitionDoc
   return binding.documentKind;
 }
 
-export function assertTransitionDocumentReady(kind: TransitionDocumentKind, body: string): void {
-  const assessment = assessTransitionDocument(kind, body);
+export function assertTransitionDocumentReady(
+  kind: TransitionDocumentKind,
+  body: string,
+  contract?: MarkdownDocumentContract,
+): void {
+  const assessment = assessTransitionDocument(kind, body, contract);
   if (assessment.ready) return;
   const sections = assessment.missingSections.map(({ section }) => section).join(", "),
     error = new Error(
@@ -190,8 +174,9 @@ export function submissionFromCloseout(
   body: string,
   cut: import("./execution.ts").SubmissionDelivery &
     Pick<SubmissionV1, "deliverables" | "outputs" | "completionContract">,
+  contract?: MarkdownDocumentContract,
 ): SubmissionV1 {
-  assertTransitionDocumentReady("task.closeout", body);
+  assertTransitionDocumentReady("task.closeout", body, contract);
   const sections = markdownSections(body),
     risks = [sections.get("residual risk")!, sections.get("same mechanism elsewhere")!];
   return {
@@ -203,8 +188,12 @@ export function submissionFromCloseout(
   };
 }
 
-function missingMarkdownSections(body: string, contract: MarkdownDocumentContract): TransitionDocumentMissingSection[] {
-  const sections = markdownSections(body, contract === taskPlan ? contract.requiredSections : []),
+function missingMarkdownSections(
+  body: string,
+  contract: MarkdownDocumentContract,
+  kind: TransitionDocumentKind,
+): TransitionDocumentMissingSection[] {
+  const sections = markdownSections(body, kind === "task.plan" ? contract.requiredSections : []),
     untouchedScaffold = contract.requiredSections.every((heading) => {
       const content = sections.get(normalizeHeading(heading));
       return (

@@ -55,7 +55,16 @@ function derive(summary: string) {
       document: {
         workspaceRevision: target === path ? 7 : undefined,
         body: target.endsWith("task-contract.json")
-          ? JSON.stringify({ documents: [{ slot: "task.closeout", path: "closeout.md" }] })
+          ? JSON.stringify({
+              documents: [
+                {
+                  slot: "task.closeout",
+                  path: "closeout.md",
+                  templateRef: "template://planning/closeout@1",
+                  locale: "en-US",
+                },
+              ],
+            })
           : body,
       },
     }),

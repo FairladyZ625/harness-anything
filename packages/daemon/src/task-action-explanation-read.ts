@@ -243,7 +243,13 @@ export function readTaskActionExplanation(
               task.completionGateIds,
               task.closeoutOverrides,
             ),
-            completionContext: readCompletionContext(dependencies.projection, entity.id, snapshot, "ready"),
+            completionContext: readCompletionContext(
+              dependencies.projection,
+              entity.id,
+              snapshot,
+              "ready",
+              dependencies.store.readContentBlob,
+            ),
           }).subjects[0]!;
         }
       } else {

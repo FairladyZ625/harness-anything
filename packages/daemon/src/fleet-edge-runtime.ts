@@ -27,6 +27,7 @@ import {
 } from "./fleet/edge.ts";
 import { fleetEdgeCredential } from "./fleet-edge-task.ts";
 import { applyFleetMirrorCut, locateFleetMirrorView } from "./fleet-edge-mirror.ts";
+import { transitionDocumentReadinessContract } from "./transition-document-access.ts";
 import { validateAgentRuntimeOverview, type AgentRuntimeOverviewResult } from "./agent-runtime-contract.ts";
 import { makeRuntimeSpawner, type RuntimeDaemonRoute, type RuntimeLauncher } from "./runtime-spawn.ts";
 import type { RuntimeAgent } from "./runtime-spawn-types.ts";
@@ -223,7 +224,8 @@ export function openFleetEdgeRuntime(input: {
             `Task ${taskId} has no readable mirrored task plan; run ha daemon fleet edge sync, then retry.`,
           );
         }
-        assertTransitionDocumentReady(requireTransitionDocumentKind("runtime.run"), plan);
+        const planContract = mirroredPlanContract(packageRoot, taskId);
+        assertTransitionDocumentReady(requireTransitionDocumentKind("runtime.run"), plan, planContract);
         const mission = missionName
             ? (() => {
                 const name = runtimeMissionName(missionName),
@@ -562,6 +564,45 @@ function edgeBinding(request: Pick<FleetEdgeRuntimeRequest["payload"], "nodeId" 
     source: { kind: "assignment" as const, nodeId: request.nodeId, assignmentId: request.assignmentId },
   };
 }
+/**
+ * The mirrored package's plan scaffold is the contract source. Edge mirrors carry no content
+ * blobs, so the scaffold comes from the bundled catalog the descriptor's templateRef names; an
+ * unresolvable contract fails closed here.
+ */
+function mirroredPlanContract(packageRoot: string, taskId: string) {
+  let contractJson: unknown;
+  try {
+    contractJson = JSON.parse(readFileSync(path.join(packageRoot, "task-contract.json"), "utf8"));
+  } catch {
+    throw edgeRuntimeError(
+      "runtime_task_package_unavailable",
+      `Task ${taskId} has no readable mirrored task contract; run ha daemon fleet edge sync, then retry.`,
+    );
+  }
+  const descriptor =
+      contractJson && typeof contractJson === "object" && !Array.isArray(contractJson)
+        ? (contractJson as { readonly documents?: unknown }).documents
+        : undefined,
+    planDescriptor = Array.isArray(descriptor)
+      ? descriptor.find(
+          (row): row is { readonly slot: string; readonly path: string } =>
+            !!row &&
+            typeof row === "object" &&
+            (row as { readonly slot?: unknown }).slot === "task.plan" &&
+            typeof (row as { readonly path?: unknown }).path === "string",
+        )
+      : undefined,
+    contract = planDescriptor
+      ? transitionDocumentReadinessContract({ contract: contractJson, descriptor: planDescriptor })
+      : null;
+  if (contract === null)
+    throw edgeRuntimeError(
+      "runtime_task_package_unavailable",
+      `Task ${taskId} plan scaffold is not resolvable from the mirrored package; run ha daemon fleet edge sync, then retry.`,
+    );
+  return contract;
+}
+
 function edgeRuntimeError(code: string, message: string): Error {
   return Object.assign(new Error(message), { code });
 }

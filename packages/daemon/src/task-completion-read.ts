@@ -12,7 +12,7 @@ import {
   type TaskLifecycleSnapshot,
   type TaskProjectionQueries,
 } from "../../kernel/src/index.ts";
-import { readTaskTransitionDocument } from "./transition-document-access.ts";
+import { readTaskTransitionDocument, type TransitionDocumentBlobReader } from "./transition-document-access.ts";
 import { readEffectiveCloseoutGates } from "./repo-cell-settings-state.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import { cellCodedError, cellErrorCode } from "./repo-cell-errors.ts";
@@ -37,6 +37,7 @@ export function readCompletionContext(
   taskId: string,
   snapshot: TaskLifecycleSnapshot,
   status: "ready" | "pending",
+  readBlob?: TransitionDocumentBlobReader,
 ): CompletionReadinessContext {
   const taskRead = projection.read(taskId),
     unavailable: CompletionReadinessContext = {
@@ -60,11 +61,16 @@ export function readCompletionContext(
       producesFactCount: 0,
       projectionStatus: "pending",
     };
-  const document = readTaskTransitionDocument({ projection, taskId, slot: "task.closeout" }),
-    assessment = assessTransitionDocument(requireTransitionDocumentKind("task.complete"), document.body ?? ""),
+  const document = readTaskTransitionDocument({ projection, taskId, slot: "task.closeout", readBlob }),
+    assessment = assessTransitionDocument(
+      requireTransitionDocumentKind("task.complete"),
+      document.body ?? "",
+      document.contract ?? undefined,
+    ),
     facts = projection.readRelationQuery({ source: `task/${taskId}`, relationType: "produces", state: "active" });
   return {
     closeout: assessment.ready ? "ready" : "placeholder",
+    closeoutContract: document.contract,
     closeoutPath: document.path,
     closeoutMissingSections: assessment.missingSections,
     closeoutGates: readEffectiveCloseoutGates(
@@ -166,12 +172,16 @@ export function factRetirementAssessment(
   });
 }
 
-export function readTaskCompletion(projection: TaskProjectionQueries, taskId: string): DaemonTaskCompletionResult {
+export function readTaskCompletion(
+  projection: TaskProjectionQueries,
+  taskId: string,
+  readBlob?: TransitionDocumentBlobReader,
+): DaemonTaskCompletionResult {
   // The same judgment task show, task dispatches, task read-set, task review and the task document
   // reads consult: a lagging cut is not an answer about this task, and a current cut without it is a
   // not-found naming the id — never an ok-shaped completion for a task that does not exist.
   const read = requireCurrentTaskProjection(projection, taskId, "task completion read"),
-    context = readCompletionContext(projection, taskId, read.snapshot, read.status),
+    context = readCompletionContext(projection, taskId, read.snapshot, read.status, readBlob),
     { next, blocker } = taskCompletionNext(read.snapshot, context);
   // Surface the upstream Facts that still need an explicit disposition before the agent runs
   // complete, so fact_retirement_undeclared never arrives as a surprise. The assessment needs

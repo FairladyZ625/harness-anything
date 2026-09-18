@@ -674,7 +674,16 @@ test("single-task completion read carries the canonical next and validates its r
         ...readyCut,
         document: {
           body: documentPath.endsWith("task-contract.json")
-            ? JSON.stringify({ documents: [{ slot: "task.closeout", path: "closeout.md" }] })
+            ? JSON.stringify({
+                documents: [
+                  {
+                    slot: "task.closeout",
+                    path: "closeout.md",
+                    templateRef: "template://planning/closeout@1",
+                    locale: "en-US",
+                  },
+                ],
+              })
             : "",
         },
       }),

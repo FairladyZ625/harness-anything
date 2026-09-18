@@ -10,7 +10,7 @@ import { resolveContainedPath } from "./contained-path.ts";
 import { assembleTaskCausalContext } from "./dispatch-causal-context.ts";
 import { requiredRuntimeSpawnText, runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import type { RuntimeAgent, RuntimeDaemonRoute, RuntimeSessionSelection } from "./runtime-spawn-types.ts";
-import { assertTaskTransitionDocumentReady } from "./transition-document-access.ts";
+import { assertTaskTransitionDocumentReady, type TransitionDocumentBlobReader } from "./transition-document-access.ts";
 
 export function resolveRuntimeCwd(root: string, value: unknown): string {
   if (!value || typeof value !== "object" || Array.isArray(value))
@@ -172,6 +172,7 @@ export function deriveTaskMission(
   transition: "runtime.run" | "squad.run",
   missionName?: string,
   causalContext?: string | null,
+  readBlob?: TransitionDocumentBlobReader,
 ): {
   readonly mission: string;
   readonly packageRoot: string;
@@ -186,6 +187,7 @@ export function deriveTaskMission(
       taskId,
       slot: "task.plan",
       transition,
+      readBlob,
     }),
     packageRoot = path.resolve(resolveHarnessLayout(rootDir).authoredRoot, ...planDocument.packagePath.split("/")),
     planPath = path.join(packageRoot, ...path.posix.relative(planDocument.packagePath, planDocument.path).split("/")),
