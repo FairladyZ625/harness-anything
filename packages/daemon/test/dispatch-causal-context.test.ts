@@ -102,7 +102,7 @@ test("the block carries milestone, decision, and fact refs at one cut", () => {
   assert.match(block, /Chosen CH1: Declarative evidence set — Verifiable without merge/u);
   assert.match(block, /C1 submit supports artifact-only/u);
   assert.match(block, /F-0001: submit persists artifact-only receipts \(src:packages\/x.ts\)/u);
-  assert.ok(Buffer.byteLength(block, "utf8") <= 500);
+  assert.ok(Buffer.byteLength(block, "utf8") <= 2048);
 });
 
 test("a cut advancing mid-read is rejected instead of serving a mixed view", () => {
@@ -174,9 +174,10 @@ test("oversized CJK content truncates inside the byte budget and keeps refs", ()
   });
   const block = assembleTaskCausalContext({ projection, taskId: "task_leaf" });
   assert.ok(block !== null);
-  assert.ok(Buffer.byteLength(block, "utf8") <= 500, `block is ${Buffer.byteLength(block, "utf8")} bytes`);
+  assert.ok(Buffer.byteLength(block, "utf8") <= 2048, `block is ${Buffer.byteLength(block, "utf8")} bytes`);
   assert.match(block, /dec_0/u);
   assert.match(block, /…/u, "dropped detail is honestly marked");
+  assert.match(block, /F-1:/u, "the evidence layer survives the widened budget");
   assert.match(block, /Refs: .*ha graph task_leaf/u, "canonical refs stay queryable");
 });
 
@@ -249,7 +250,7 @@ test("ASCII noise, long ids, and long source paths stay inside the byte budget",
   });
   const block = assembleTaskCausalContext({ projection, taskId: "task_leaf" });
   assert.ok(block !== null);
-  assert.ok(Buffer.byteLength(block, "utf8") <= 500, `block is ${Buffer.byteLength(block, "utf8")} bytes`);
+  assert.ok(Buffer.byteLength(block, "utf8") <= 2048, `block is ${Buffer.byteLength(block, "utf8")} bytes`);
   assert.match(block, /^# Task Causal Context\n/u);
   assert.match(block, /ha graph task_leaf/u);
 });
