@@ -14,6 +14,7 @@ import {
   BookOpen,
   TerminalWindow,
   ChartLine,
+  Pulse,
 } from "@phosphor-icons/react";
 import { t, type MessageKey } from "../i18n/index.tsx";
 import type { ViewId } from "./viewHistory.ts";
@@ -100,7 +101,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       { id: "presets", icon: <Stack weight="duotone" /> },
       { id: "adapters", icon: <PlugsConnected weight="duotone" /> },
       { id: "tokenUsage", icon: <ChartLine weight="duotone" /> },
-      { id: "system", icon: <GearSix weight="duotone" /> },
+      { id: "system", icon: <Pulse weight="duotone" /> },
       { id: "settings", icon: <GearSix weight="duotone" /> },
     ],
   },
