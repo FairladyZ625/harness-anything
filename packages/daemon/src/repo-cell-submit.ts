@@ -138,17 +138,23 @@ export function deriveCloseoutSubmission(
   } else {
     const execution = snapshot.executions.find((value) => value.executionId === executionId),
       baseline = execution !== undefined && isNativeExecution(execution) ? execution.deliveryBaseline : undefined;
+    // One delivery commit owns one manifest: the comparison cut derives from the commit's own fork
+    // point on origin/main, never from where the project HEAD happened to sit when the execution
+    // started (F-70FB11C4). Advancing main cannot move a merge base, so the manifest stays identical
+    // across submit, publication, and re-derivation.
+    const mergeBase = git.run(root, ["merge-base", "origin/main", commitSha]);
     let base: string;
-    if (baseline === undefined) {
-      // Executions started before the baseline froze keep the comparison cut in force when they started
-      // (dec_D23B9787328EF7E0FACB70F9FE): the merge base with origin/main, else the commit's first parent.
-      const mergeBase = git.run(root, ["merge-base", "origin/main", commitSha]);
-      base =
-        mergeBase.ok && mergeBase.stdout !== commitSha
-          ? mergeBase.stdout
-          : git.run(root, ["rev-parse", `${commitSha}^1`]).stdout;
-      if (!base) throw cell.cellCodedError("invalid_submission", "Delivery commit has no verifiable comparison cut.");
+    if (mergeBase.ok && mergeBase.stdout !== commitSha) {
+      // Unpublished fork: everything reachable from the commit and not from origin/main.
+      base = mergeBase.stdout;
+    } else if (mergeBase.ok || baseline === undefined) {
+      // A published cut — the merge base is the commit itself — compares against its first parent:
+      // the pre-merge main of a merge commit is exactly that PR's branch-wide diff. Executions from
+      // before the baseline freeze (dec_D23B9787328EF7E0FACB70F9FE) keep the same first-parent rule.
+      base = git.run(root, ["rev-parse", `${commitSha}^1`]).stdout;
     } else {
+      // Repositories with no origin/main to anchor against (unborn or local-only) have no derivable
+      // fork point; the start-frozen observation is the only record of where the delivery began.
       base = baseline.kind === "commit" ? baseline.commitSha : EMPTY_TREE_SHA;
       if (baseline.kind === "commit" && !git.run(root, ["cat-file", "-e", `${baseline.commitSha}^{commit}`]).ok)
         throw cell.cellCodedError(
@@ -156,6 +162,7 @@ export function deriveCloseoutSubmission(
           `Frozen delivery baseline ${baseline.commitSha} is not readable in the delivery repository.`,
         );
     }
+    if (!base) throw cell.cellCodedError("invalid_submission", "Delivery commit has no verifiable comparison cut.");
     deliverables = runProcessText(
       "git",
       ["diff", "--name-only", "-z", "--diff-filter=ACMRT", base, commitSha, "--"],

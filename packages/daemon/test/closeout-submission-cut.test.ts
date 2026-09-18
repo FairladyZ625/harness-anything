@@ -309,8 +309,9 @@ test("already merged dispatch preserves earlier branch changes and rejects unrel
   assert.deepEqual(derive(root, `Delivery ${merged}`).deliverables, ["src/first.ts", "src/second.ts"]);
   assert.equal(derive(root, `Delivery ${merged}`).commitSha, merged);
   // Naming an older published commit is still rejected, by the comparison-cut check rather than
-  // by any relationship to the dispatch HEAD.
-  assert.throws(() => derive(root, `Delivery ${base}`), /no changed paths/u);
+  // by any relationship to the dispatch HEAD: a published root commit owns no first parent to
+  // diff against, so it has no verifiable comparison cut.
+  assert.throws(() => derive(root, `Delivery ${base}`), /no verifiable comparison cut/u);
   assert.throws(() => derive(root, "Worktree delivery."), { code: "invalid_submission" });
 });
 
@@ -453,7 +454,7 @@ test("anchor drift warning fires only when the delivery cut moved under unchange
   assert.deepEqual(submissionAnchorDriftWarnings(submitted, { ...submitted, completionClaim: "Revised claim." }), []);
 });
 
-// -- frozen delivery baseline (dec_59FA45A407F850E2B167A192D7: execution start owns the cut) ------
+// -- comparison-cut anchor (F-70FB11C4): the manifest belongs to the commit, not the clock ------
 
 test("a root-commit delivery on an unborn repository diffs against the empty tree", (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-closeout-unborn-"));
@@ -494,8 +495,10 @@ test("an execution started before the baseline froze keeps the comparison cut in
   assert.deepEqual(packet.deliverables, ["src/earlier.ts", "src/live.ts"]);
 });
 
-test("a frozen baseline unreadable in the delivery repository fails closed", (t) => {
+test("a frozen baseline unreadable in an unanchored repository fails closed", (t) => {
   const { root } = fixture(t);
+  // Only repositories without origin/main consult the frozen observation; delete the anchor.
+  git(root, "update-ref", "-d", "refs/remotes/origin/main");
   put(root, "src/live.ts", "export const liveValue = 10;\n");
   const sha = commit(root);
   dispatch(root, root);
@@ -509,15 +512,78 @@ test("a frozen baseline unreadable in the delivery repository fails closed", (t)
   );
 });
 
-test("the frozen baseline does not move when the project HEAD advances after start", (t) => {
+test("the comparison cut follows the delivery fork point, not the project HEAD at start", (t) => {
   const { root, base } = fixture(t);
   put(root, "src/delivery.ts", "delivery\n");
   const sha = commit(root);
   dispatch(root, root);
-  // The baseline was frozen at fixture time (base); the delivery cut itself is the new HEAD.
+  // The execution's start observation (base) predates the delivery; only the fork point counts.
   const packet = derive(root, `Delivered ${sha}.`, undefined, ["ci"], undefined, {
     kind: "commit",
     commitSha: base,
   });
   assert.deepEqual(packet.deliverables, ["src/delivery.ts"]);
+});
+
+/** A moving-main world: sibling PRs land on main before and after this delivery merges. */
+function movingMain(t: TestContext) {
+  const { root, base } = fixture(t);
+  // A sibling PR lands on main after this execution started (its start observation is `base`).
+  put(root, "src/other-pr.ts", "other\n");
+  commit(root);
+  git(root, "update-ref", "refs/remotes/origin/main", "HEAD");
+  // The delivery worktree forks from the advanced main and merges back with a merge commit.
+  const worker = path.join(root, "worker");
+  git(root, "worktree", "add", "-qb", "codex/delivery", worker);
+  put(worker, "src/delivery.ts", "delivery\n");
+  commit(worker);
+  git(root, "merge", "--no-ff", "-qm", "test: merge delivery", "codex/delivery");
+  const merged = git(root, "rev-parse", "HEAD");
+  git(root, "update-ref", "refs/remotes/origin/main", merged);
+  // A later PR advances main past the publication while the cut waits for review.
+  put(root, "src/later-pr.ts", "later\n");
+  const later = commit(root);
+  git(root, "update-ref", "refs/remotes/origin/main", later);
+  dispatch(root, worker);
+  return { root, base, merged, later };
+}
+
+test("a cut merged after sibling PRs reports only its own files, never the start-era diff", (t) => {
+  const { root, base, merged } = movingMain(t);
+  // The execution started when the project HEAD sat at `base`; the sibling PR's file lies between
+  // that observation and the merge commit, so the frozen-start diff would claim it (F-70FB11C4).
+  const packet = derive(root, `Delivery ${merged}.`, undefined, ["ci"], undefined, {
+    kind: "commit",
+    commitSha: base,
+  });
+  assert.equal(packet.commitSha, merged);
+  assert.deepEqual(packet.deliverables, ["src/delivery.ts"]);
+});
+
+test("a cut named after main passed it reports its own files, never a reverse diff", (t) => {
+  const { root, merged, later } = movingMain(t);
+  // A restarted execution observed the project HEAD at `later`, a descendant of the named cut;
+  // diffing from that observation reverses the comparison and credits the later PR's file.
+  const packet = derive(root, `Delivery ${merged}.`, undefined, ["ci"], undefined, {
+    kind: "commit",
+    commitSha: later,
+  });
+  assert.equal(packet.commitSha, merged);
+  assert.deepEqual(packet.deliverables, ["src/delivery.ts"]);
+});
+
+test("one commit derives one manifest whatever start observation the execution froze", (t) => {
+  const { root, base, merged, later } = movingMain(t);
+  for (const deliveryBaseline of [
+    { kind: "commit" as const, commitSha: base }, // started before the sibling PRs
+    { kind: "commit" as const, commitSha: merged }, // restarted exactly at the cut (was the empty cut)
+    { kind: "commit" as const, commitSha: later }, // restarted after publication
+    { kind: "empty-tree" as const }, // observed before any commit existed
+    null, // legacy execution started before the baseline field froze
+  ])
+    assert.deepEqual(
+      derive(root, `Delivery ${merged}.`, undefined, ["ci"], undefined, deliveryBaseline).deliverables,
+      ["src/delivery.ts"],
+      `start observation ${JSON.stringify(deliveryBaseline)}`,
+    );
 });
