@@ -22,8 +22,9 @@ import { requireSameProjectionCut, type ProjectionCut } from "./task-query-read.
  * observed maximum with headroom. Canonical refs are never truncated away —
  * a worker can always re-query `ha graph <task-id>`.
  */
-const CAUSAL_CONTEXT_MAX_BYTES = 2048,
-  MAX_DECISIONS = 2,
+export const CAUSAL_CONTEXT_MAX_BYTES = 2048;
+
+const MAX_DECISIONS = 2,
   MAX_FACTS = 5,
   MAX_EVIDENCE_ANCHORS = 6,
   HEADER = "# Task Causal Context";
