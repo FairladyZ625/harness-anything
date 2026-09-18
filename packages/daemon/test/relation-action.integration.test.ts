@@ -607,7 +607,11 @@ test("Relation actions serialize aggregate revisions and reject cycles and stale
     assert.equal(makeTaskEventReader({ repoId, rootDir }).read().events.length, eventCountBeforeTargetUpdate + 1);
     assert.equal(relationEventCount(rootDir, repoId), relationEventCountBeforeTargetUpdate);
     const suspectRows = relationRows(await cell.run({ kind: "relation-list", freshness: "suspect" }, binding));
-    assert.deepEqual(suspectRows.map(({ relationId: id }) => id).sort(), [relationId, secondaryId].sort());
+    // The depends-on edge follows the target's presence, so only the pinned-target `relates` edge turns suspect.
+    assert.deepEqual(
+      suspectRows.map(({ relationId: id }) => id),
+      [secondaryId],
+    );
     assert.equal(
       suspectRows.every(
         ({ targetObservedVersion, currentTargetVersion }) => targetObservedVersion !== currentTargetVersion,
@@ -619,18 +623,18 @@ test("Relation actions serialize aggregate revisions and reject cycles and stale
         cell.run(
           {
             kind: "relation-reconfirm",
-            relationId,
+            relationId: secondaryId,
             rationale: "Node one reviewed the updated target.",
-            expectedVersion: created.revision,
+            expectedVersion: secondary.revision,
           },
           binding,
         ),
         cell.run(
           {
             kind: "relation-reconfirm",
-            relationId,
+            relationId: secondaryId,
             rationale: "Node two independently reviewed the updated target.",
-            expectedVersion: created.revision,
+            expectedVersion: secondary.revision,
           },
           secondNodeBinding,
         ),
@@ -640,12 +644,12 @@ test("Relation actions serialize aggregate revisions and reject cycles and stale
       conflicted = reconfirmations.find(({ outcome }) => outcome === "op_rejected");
     assert.ok(accepted, JSON.stringify(reconfirmations));
     assert.equal(conflicted?.code, "version_conflict", JSON.stringify(reconfirmations));
-    assert.equal(relationRows(await cell.run({ kind: "relation-list", freshness: "current" }, binding)).length, 1);
-    assert.equal(relationRows(await cell.run({ kind: "relation-list", freshness: "suspect" }, binding)).length, 1);
+    assert.equal(relationRows(await cell.run({ kind: "relation-list", freshness: "current" }, binding)).length, 2);
+    assert.equal(relationRows(await cell.run({ kind: "relation-list", freshness: "suspect" }, binding)).length, 0);
     const sameResult = await cell.run(
       {
         kind: "relation-reconfirm",
-        relationId,
+        relationId: secondaryId,
         rationale: "The current witness was already reviewed.",
         expectedVersion: accepted.revision,
       },
@@ -653,15 +657,15 @@ test("Relation actions serialize aggregate revisions and reject cycles and stale
     );
     assert.equal(sameResult.outcome, "no_changes", JSON.stringify(sameResult));
     assert.equal((await cell.run({ kind: "projection-rebuild" }, binding)).outcome, "applied");
-    assert.equal(relationRows(await cell.run({ kind: "relation-list", freshness: "current" }, binding)).length, 1);
-    assert.equal(relationRows(await cell.run({ kind: "relation-list", freshness: "suspect" }, binding)).length, 1);
+    assert.equal(relationRows(await cell.run({ kind: "relation-list", freshness: "current" }, binding)).length, 2);
+    assert.equal(relationRows(await cell.run({ kind: "relation-list", freshness: "suspect" }, binding)).length, 0);
 
     const retired = await cell.run(
       {
         kind: "relation-unrelate",
         relationId,
         reason: "B completed independently.",
-        expectedVersion: accepted.revision,
+        expectedVersion: created.revision,
       },
       binding,
     );
