@@ -923,6 +923,9 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
   // The runtime publication turn verifies any executor claim before it authorizes and executes.
   const spawnRuntime: RepoCell["spawnRuntime"] = async (payload, binding) => {
     const { executor: _claim, ...spawn } = payload;
+    // A dry-run preview is a read projection: it must not enter the publication
+    // turn, acquire a lease, or append a dispatch event.
+    if (spawn.dryRun === true) return context.runtimeSpawner.spawn(spawn, binding);
     return enqueueRuntimePublication(
       context,
       "runtime-run",

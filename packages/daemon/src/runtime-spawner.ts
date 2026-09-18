@@ -168,10 +168,12 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         "executionId",
         "idempotencyKey",
         "providerSessionId",
+        "dryRun",
       ],
       unknownField = unknownFieldViolation(payload, allowed);
     if (unknownField)
       throw runtimeSpawnError("invalid_runtime_spawn", `Runtime spawn payload contains an ${unknownField}`);
+    const dryRun = payload.dryRun === true;
     const requestedDispatchId =
         payload.dispatchId === undefined ? undefined : requiredRuntimeSpawnText(payload.dispatchId, "dispatchId"),
       resumed = admitRuntimeResume(input.rootDir, requestedDispatchId);
@@ -294,12 +296,14 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
               leaseExecutorId === dispatchLeaseExecutor ||
               leaseExecutorId === trustedSourceExecutor ||
               (binding.actor.executor === null && !leaseHeldByRuntime));
-      if (!authorizationDecision || authorizationDecision.outcome !== "allowed")
+      // A dry-run preview assembles the injected prompt without lease or
+      // authorization admission — it must answer before either exists.
+      if (!dryRun && (!authorizationDecision || authorizationDecision.outcome !== "allowed"))
         throw runtimeSpawnError(
           "authorization_missing",
           "Runtime dispatch requires the center AuthorizationPort decision.",
         );
-      if (!leaseQualifies && reviewExecution === null)
+      if (!dryRun && !leaseQualifies && reviewExecution === null)
         throw runtimeSpawnError(
           "runtime_task_lease_required",
           runtimeTaskLeaseRequiredMessage(taskId, leaseAtAdmission),
@@ -333,14 +337,14 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     if (explicitMission) validateMissionCommands(explicitMission, cwd, "explicit runtime mission");
     const remoteExisting = input.remote ? await input.remote.existing(dispatchOpId) : null,
       existing = input.remote ? null : store!.readEvent(dispatchOpId);
-    if (remoteExisting)
+    if (!dryRun && remoteExisting)
       return {
         ...remoteExisting,
         runtimeSessionId,
         dispatchId: newDispatchId,
         authorizationDecision: authorizationDecision as unknown as JsonObject | null,
       };
-    if (existing) {
+    if (!dryRun && existing) {
       if (!isRuntimeEvent(existing) || existing.type !== "runtime_dispatch_requested")
         throw runtimeSpawnError(
           "runtime_dispatch_conflict",
@@ -470,8 +474,20 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         : taskMission
           ? assembleUnboundPrompt(dispatchMission)
           : dispatchMission,
-      prompt = trustedSchedule ? scheduleMissionWithOutcomeProtocol(assembledPrompt) : assembledPrompt,
-      prepared = await input.prepareLaunch(runtimeInstanceId, {
+      prompt = trustedSchedule ? scheduleMissionWithOutcomeProtocol(assembledPrompt) : assembledPrompt;
+    // Dry-run preview ends exactly at the launch boundary: the same inputs, same
+    // assembly calls, no prepareLaunch, no dispatch event, no lease handoff.
+    if (dryRun)
+      return {
+        schema: "agent-dispatch-preview/v1",
+        ok: true,
+        command: "runtime-spawn",
+        dispatchId: newDispatchId,
+        runtimeSessionId,
+        prompt,
+        mission,
+      };
+    const prepared = await input.prepareLaunch(runtimeInstanceId, {
         cwd,
         prompt,
         ...(selectedModel ? { model: selectedModel } : {}),

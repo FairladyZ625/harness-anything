@@ -36,6 +36,7 @@ import { isJsonObject } from "./json-rpc-types.ts";
 import { validateSquadRunRead, validateSquadRunsList } from "../squad-run-contract.ts";
 import { validateCiObservatoryRead } from "../ci-observatory-read.ts";
 import {
+  validateAgentDispatchPreview,
   validateCatalogPreset,
   validateCatalogRereadReceipt,
   validateCatalogSnapshot,
@@ -235,7 +236,9 @@ export function parseDaemonGuiActionResult(method: DaemonGuiActionMethod, value:
       : method === "repo.gui.catalog.reread"
         ? validateCatalogRereadReceipt(value)
         : method === "repo.agentRuntime.spawn"
-          ? validateRuntimeSpawnReceipt(value)
+          ? isJsonObject(value) && value.schema === "agent-dispatch-preview/v1"
+            ? validateAgentDispatchPreview(value)
+            : validateRuntimeSpawnReceipt(value)
           : method === "repo.terminal.input"
             ? validateTerminalInputAck(value)
             : method === "repo.terminal.detach"

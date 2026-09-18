@@ -4,7 +4,11 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import type { AgentDefinitionSnapshot, RuntimeInstallationWitness } from "../../kernel/src/index.ts";
+import {
+  makeTaskEventReader,
+  type AgentDefinitionSnapshot,
+  type RuntimeInstallationWitness,
+} from "../../kernel/src/index.ts";
 import type { RuntimeInstanceSummary } from "../src/agent-runtime-instances.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import type { RepoCellBinding } from "../src/repo-cell-types.ts";
@@ -265,6 +269,156 @@ test("task-bound dispatch injects the milestone, deriving decision, and evidence
     );
     assert.equal(lonely.outcome, "applied", JSON.stringify(lonely));
     assert.equal(causalBlock(prompt!), null, "relation-free task must not carry a fabricated block");
+  } finally {
+    await cell?.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("dry-run preview returns the injected prompt byte-for-byte with zero dispatch side effects", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-dispatch-preview-"));
+  let prompt: string | null = null,
+    launchCalls = 0;
+  let cell: Cell | undefined;
+  try {
+    initRepo(root);
+    cell = await openRepoCell({
+      repoId: workspaceId("dispatch-preview"),
+      rootDir: canonicalRoot(root),
+      ownerId: "dispatch-preview-test",
+      runtimeDaemonRoute: {
+        userRoot: path.join(root, ".daemon-user"),
+        daemonId: "dispatch-preview-test",
+        endpoint: path.join(root, ".daemon-user", "daemon.sock"),
+      },
+      runtimeInstances: () => [instance()],
+      prepareRuntimeLaunch: async (_instanceId, request) => {
+        launchCalls += 1;
+        prompt = request.prompt;
+        return {
+          definition,
+          installation,
+          executablePath: installation.executablePath,
+          args: ["exec", "--json", "-"],
+          env: {},
+          cwd: request.cwd,
+          prompt: request.prompt,
+        };
+      },
+      runtimeLaunch: () => ({
+        pid: 4244,
+        onOutput: () => undefined,
+        onErrorOutput: () => undefined,
+        onExit: () => undefined,
+        terminate: () => undefined,
+      }),
+    });
+    await createTask(cell, root, { taskId: "task_pv_root", title: "Preview milestone", taskClass: "milestone" });
+    await createTask(cell, root, {
+      taskId: "task_pv_leaf",
+      title: "Preview leaf task",
+      parentTaskId: "task_pv_root",
+    });
+    const installed = await cell.run(
+      {
+        kind: "agent-install",
+        declaration: {
+          schema: "agent-declaration/v1",
+          id: "preview-worker",
+          name: "Preview Worker",
+          instructions: "Follow the preview contract.",
+          prompts: ["Check the ledger before acting."],
+          runtime_type: "codex",
+        },
+      },
+      binding,
+    );
+    assert.equal(installed.outcome, "applied", JSON.stringify(installed));
+    const proposed = await cell.run(
+      {
+        kind: "decision-propose",
+        jsonInput: JSON.stringify({
+          title: "Preview decision",
+          question: "Does the preview carry causal context?",
+          riskTier: "low",
+          urgency: "low",
+          vertical: "software/coding",
+          preset: "standard-task",
+          decisionClass: "ordinary",
+          appliesTo: { modules: ["daemon"], productLines: [] },
+          chosen: [{ id: "CH1", text: "Inject the same causal slice", rationale: "Preview must not drift." }],
+          rejected: [{ id: "RJ1", text: "Preview without context", whyNot: "Context-free previews drift." }],
+          claims: [],
+          fulfillments: [],
+        }),
+        body: "# Preview decision\n\nKeep one assembly path.\n",
+      },
+      binding,
+    );
+    assert.equal(proposed.outcome, "applied", JSON.stringify(proposed));
+    await waitForFixturePublication(cell, proposed.opId, binding);
+    await relate(cell, `decision/${String(evidence(proposed).decisionId)}/CH1`, "task/task_pv_leaf", "derives");
+
+    const repoId = workspaceId("dispatch-preview"),
+      canonical = canonicalRoot(root),
+      spawnPayload = {
+        runtimeInstanceId: definition.instanceId,
+        agentId: "preview-worker",
+        cwd: { scope: "repo-root" as const },
+        taskId: "task_pv_leaf",
+        idempotencyKey: "dispatch-preview-leaf",
+      },
+      revisionBefore = makeTaskEventReader({ repoId, rootDir: canonical }).read().revision,
+      preview = await cell.spawnRuntime({ ...spawnPayload, dryRun: true }, binding);
+    assert.equal(preview.schema, "agent-dispatch-preview/v1", JSON.stringify(preview));
+    assert.equal(preview.ok, true, JSON.stringify(preview));
+    assert.equal(typeof preview.prompt, "string");
+    assert.equal(typeof preview.mission, "string");
+    assert.match(String(preview.prompt), /# Agent Identity: Preview Worker/u);
+    assert.match(String(preview.prompt), /# Task Causal Context/u);
+
+    // No launch, no lease, no ledger write: the preview is a read projection.
+    assert.equal(launchCalls, 0, "dry-run must not reach prepareLaunch");
+    assert.equal(prompt, null, "dry-run must not produce a launch prompt");
+    assert.equal(
+      makeTaskEventReader({ repoId, rootDir: canonical }).read().revision,
+      revisionBefore,
+      "dry-run must not append to the ledger",
+    );
+
+    // The real dispatch with the same inputs injects exactly the previewed prompt.
+    const real = await cell.spawnRuntime(spawnPayload, binding);
+    assert.equal(real.outcome, "applied", JSON.stringify(real));
+    assert.equal(launchCalls, 1);
+    assert.equal(preview.dispatchId, real.dispatchId, "preview must derive the same dispatch identity");
+    assert.equal(preview.runtimeSessionId, real.runtimeSessionId);
+    assert.equal(preview.prompt, prompt, "preview prompt must equal the injected prompt byte-for-byte");
+    assert.match(String(preview.mission), /# Task Causal Context/u);
+
+    // Negative control: changing an injected declaration field must change the preview.
+    const updated = await cell.run(
+      {
+        kind: "agent-install",
+        declaration: {
+          schema: "agent-declaration/v1",
+          id: "preview-worker",
+          name: "Preview Worker",
+          instructions: "Follow the revised preview contract.",
+          prompts: ["Check the ledger before acting."],
+          runtime_type: "codex",
+        },
+      },
+      binding,
+    );
+    assert.equal(updated.outcome, "applied", JSON.stringify(updated));
+    const revised = await cell.spawnRuntime(
+      { ...spawnPayload, idempotencyKey: "dispatch-preview-leaf-2", dryRun: true },
+      binding,
+    );
+    assert.equal(revised.ok, true, JSON.stringify(revised));
+    assert.notEqual(revised.prompt, preview.prompt, "preview must track declaration changes");
+    assert.match(String(revised.prompt), /Follow the revised preview contract\./u);
+    assert.equal(launchCalls, 1, "second dry-run must not reach prepareLaunch");
   } finally {
     await cell?.close();
     rmSync(root, { recursive: true, force: true });

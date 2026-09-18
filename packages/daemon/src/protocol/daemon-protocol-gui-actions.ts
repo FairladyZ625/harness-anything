@@ -256,6 +256,7 @@ export const daemonGuiActionMethods = Object.freeze([
       idempotencyKey: "string",
       providerSessionId: "string?",
       executor: "json?",
+      dryRun: "boolean?",
     }),
     "spawnAgentRuntime",
     "/api/agent-runtime/spawn",

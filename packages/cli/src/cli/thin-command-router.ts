@@ -236,6 +236,7 @@ function parseAgentRun(
       ...(f.one.get("--model") ? { model: f.one.get("--model") } : {}),
       ...(f.one.get("--effort") ? { effort: f.one.get("--effort") } : {}),
       ...(f.booleans.has("--fast") ? { fast: true } : {}),
+      ...(f.booleans.has("--dry-run") ? { dryRun: true } : {}),
       ...(cwd
         ? { cwd: cwd !== "." ? { scope: "repo-relative", path: cwd } : { scope: "repo-root" } }
         : resumeDispatch
