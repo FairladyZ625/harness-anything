@@ -37,6 +37,7 @@ import { repoCellTaskQueryJudgmentsFor } from "./repo-cell.ts";
 import { makeSquadCoordinator } from "./squad-coordinator.ts";
 import { makeTaskQueryReadModel } from "./task-query-read.ts";
 import { openWriterSupervisor } from "./writer-supervisor.ts";
+import { runtimeOutcomeSettled, runtimeSettlementGraceMs } from "./runtime-settlement.ts";
 import { workspaceSummaryFromProjection } from "./workspace-summary-read.ts";
 
 const TASK_STATUS_FILTERS = Object.freeze(["planned", "active", "blocked", "in_review", "done", "cancelled"]);
@@ -53,13 +54,27 @@ export async function openRepoCellProxy(
 ): Promise<RepoCell> {
   const lock = await acquireWorkspaceLock(input.rootDir);
   let relayRuntimeSignal: NonNullable<RepoCellOpenInput["onRuntimeSignal"]> = () => undefined;
+  // Orchestration waiters (runtime batch, agent create) park on these per-session sets; every
+  // runtime signal or outcome notification re-checks the domain settle predicate.
+  const outcomeWaiters = new Map<string, Set<() => void>>(),
+    pokeOutcomeWaiters = (runtimeSessionId: string | undefined): void => {
+      if (typeof runtimeSessionId !== "string") return;
+      const waiters = [...(outcomeWaiters.get(runtimeSessionId) ?? [])];
+      outcomeWaiters.delete(runtimeSessionId);
+      for (const waiter of waiters) waiter();
+    };
   let supervisor: Awaited<ReturnType<typeof openWriterSupervisor>>;
   try {
     supervisor = await openWriterSupervisor(
       {
         ...input,
+        onRuntimeOutcome: (event) => {
+          pokeOutcomeWaiters(event.payload.runtimeSessionId);
+          input.onRuntimeOutcome?.(event);
+        },
         onRuntimeSignal: (runtimeSessionId, signal) => {
           relayRuntimeSignal(runtimeSessionId, signal);
+          pokeOutcomeWaiters(runtimeSessionId);
           input.onRuntimeSignal?.(runtimeSessionId, signal);
         },
       },
@@ -328,6 +343,33 @@ export async function openRepoCellProxy(
       const status = supervisor.status();
       if (!writerAttached(status)) throw cellCodedError("repo_unavailable", latched());
       return runtime.attach(runtimeSessionId, afterCursor);
+    },
+    awaitRuntimeOutcome: async (runtimeSessionId) => {
+      const now = input.now ?? (() => new Date().toISOString());
+      while (
+        !runtimeOutcomeSettled(
+          reader.withSession((projection) => projection.readRuntimeSession(runtimeSessionId)),
+          now(),
+        )
+      ) {
+        await new Promise<void>((resolve) => {
+          const waiter = () => {
+            waiters.delete(waiter);
+            clearTimeout(timer);
+            resolve();
+          };
+          // The settle predicate is also time-based (post-exit grace), so a missed signal cannot
+          // park a waiter forever; each wake re-reads the projection and either returns or rearms.
+          const timer = setTimeout(() => {
+            waiters.delete(waiter);
+            resolve();
+          }, runtimeSettlementGraceMs);
+          timer.unref?.();
+          const waiters = outcomeWaiters.get(runtimeSessionId) ?? new Set<() => void>();
+          waiters.add(waiter);
+          outcomeWaiters.set(runtimeSessionId, waiters);
+        });
+      }
     },
     runtime,
     status: supervisor.status,

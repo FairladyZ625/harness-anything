@@ -9,11 +9,20 @@ import {
   type FleetEdgeSyncRequest,
 } from "./fleet-center-admission.ts";
 import type { FleetEdgeRuntimeRequest } from "./fleet-edge-runtime.ts";
-import { canonicalRoot, commandDescriptorForAction } from "./protocol/daemon-protocol.contract.ts";
+import {
+  canonicalRoot,
+  commandDescriptorForAction,
+  makeDaemonCommandReceipt,
+} from "./protocol/daemon-protocol.contract.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import type { DaemonHostApiContext } from "./daemon-host-context.ts";
 import { localDefaultBinding } from "./daemon-host-binding.ts";
 import { requireAuthorizedHostAction } from "./host-action-authorization.ts";
+import {
+  orchestrateAgentCreate,
+  orchestrateRuntimeBatch,
+  type RuntimeOrchestrationContext,
+} from "./runtime-orchestration.ts";
 
 export function createDaemonHostRuntimeApi(
   context: DaemonHostApiContext,
@@ -22,6 +31,8 @@ export function createDaemonHostRuntimeApi(
   | "attach"
   | "spawnRuntime"
   | "cancelRuntime"
+  | "batchRuntime"
+  | "createAgent"
   | "runtimeIngress"
   | "terminalAttach"
   | "terminalAction"
@@ -30,6 +41,22 @@ export function createDaemonHostRuntimeApi(
   | "runtimeInstance"
   | "runtimeInstanceAuth"
 > {
+  // Runtime orchestration (bounded batch window, agent-create saga) is a host-level composer of
+  // single-writer primitives: spawns, task actions, and settlement reads all re-enter the cell
+  // through the normal request path, so ingress events flow while a saga is parked.
+  const hostOrchestration = (
+    repoId: string,
+    cell: ReturnType<typeof context.requiredCell>,
+    binding: Awaited<ReturnType<typeof context.binding>>,
+    auth: Parameters<typeof context.binding>[1],
+  ): RuntimeOrchestrationContext => ({
+    spawnRuntime: (payload) => cell.spawnRuntime(payload, binding),
+    run: async (action) => makeDaemonCommandReceipt(action.kind, await context.host.run(repoId, action, auth)),
+    awaitRuntimeOutcome: cell.awaitRuntimeOutcome,
+    readSession: (runtimeSessionId) =>
+      context.host.read(repoId, "repo.agentRuntime.sessions.read", { runtimeSessionId }, auth),
+    codedError: context.hostCodedError,
+  });
   return {
     attach: async (repoId, runtimeSessionId, afterCursor, auth) => {
       context.requireHostMode(repoId, repoReadCommandTopology, auth);
@@ -49,6 +76,24 @@ export function createDaemonHostRuntimeApi(
       await context.attemptHostRecovery(repoId);
       const cell = context.requiredCell(context.cells, context.warming, context.unavailable, repoId);
       return cell.cancelRuntime(payload, await context.binding(cell.status().rootDir, auth, undefined, repoId));
+    },
+    batchRuntime: async (repoId, payload, auth) => {
+      context.requireHostMode(repoId, commandDescriptorForAction("runtime-batch"), auth);
+      await context.attemptHostRecovery(repoId);
+      const cell = context.requiredCell(context.cells, context.warming, context.unavailable, repoId);
+      return orchestrateRuntimeBatch(
+        payload,
+        hostOrchestration(repoId, cell, await context.binding(cell.status().rootDir, auth, undefined, repoId), auth),
+      );
+    },
+    createAgent: async (repoId, payload, auth) => {
+      context.requireHostMode(repoId, commandDescriptorForAction("agent-create"), auth);
+      await context.attemptHostRecovery(repoId);
+      const cell = context.requiredCell(context.cells, context.warming, context.unavailable, repoId);
+      return orchestrateAgentCreate(
+        payload,
+        hostOrchestration(repoId, cell, await context.binding(cell.status().rootDir, auth, undefined, repoId), auth),
+      );
     },
     runtimeIngress: async (repoId, action, auth) => {
       context.requireHostMode(repoId, commandDescriptorForAction("runtime-run"), auth);

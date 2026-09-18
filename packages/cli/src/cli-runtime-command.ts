@@ -12,6 +12,7 @@ export function isRuntimeFacadeCommand(command: ThinCommand): boolean {
   return (
     command.action.kind === "squad-run" ||
     command.method.startsWith("repo.agentRuntime.") ||
+    command.method === "repo.agent.create" ||
     command.method.startsWith("repo.runtimeInstance.auth.")
   );
 }
@@ -22,9 +23,9 @@ export async function runRuntimeFacadeCommand(
 ): Promise<JsonObject> {
   const action = command.action;
   if (command.method.startsWith("repo.runtimeInstance.auth.")) return runRuntimeAuthCommand(command, writeActivity);
-  if (action.kind === "runtime-batch") return runRuntimeBatch(command, writeActivity);
+  if (action.kind === "runtime-batch") return runRuntimeBatch(command);
   if (action.kind === "squad-run") return runSquadRun(command, writeActivity);
-  if (action.kind === "agent-create") return runAgentCreate(command, writeActivity);
+  if (action.kind === "agent-create") return runAgentCreate(command);
   if (action.kind === "runtime-status") {
     if (action.wait === true)
       return typeof action.taskId === "string"

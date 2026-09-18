@@ -700,6 +700,9 @@ export type DaemonTaskDispatchesResultBase = {
   readonly ok: true;
   readonly status: "ready" | "pending";
   readonly dispatches: readonly TaskDispatchRow[];
+  /** Daemon-authoritative aggregate terminal verdict over the returned dispatch rows. */
+  readonly outcome: "succeeded" | "failed" | "cancelled" | "unknown";
+  readonly exitCode: number;
   readonly watermark: number;
   readonly sourceRevision: number;
 };

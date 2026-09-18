@@ -24,8 +24,7 @@ type RuntimeStreamWait = {
 
 const fallbackPollBaseMs = 500,
   fallbackPollMaxMs = 2_000,
-  subscriptionReconnectAttemptLimit = 5,
-  settlementWaitMs = 5_000;
+  subscriptionReconnectAttemptLimit = 5;
 
 export async function waitForRuntime(
   command: ThinCommand,
@@ -54,7 +53,7 @@ export async function waitForRuntime(
     if (initial.ok !== true) return initial;
     current = initial;
     const initialSession = (current as unknown as AgentRuntimeSessionResult).session;
-    if (initialSession.activity.outcome === null) {
+    if ((current as unknown as AgentRuntimeSessionResult).settlement === null) {
       const streamed =
         stream && initialSession.attachCapability === "supported"
           ? await waitForStreamedRuntime(command, runtimeSessionId, writeActivity)
@@ -66,8 +65,10 @@ export async function waitForRuntime(
         if (next.ok !== true) return next;
         current = next;
       }
-      const currentSession = (current as unknown as AgentRuntimeSessionResult).session;
-      if (!streamed?.signal || (streamed.signal === "lost" && currentSession.activity.outcome === null)) {
+      if (
+        !streamed?.signal ||
+        (streamed.signal === "lost" && (current as unknown as AgentRuntimeSessionResult).settlement === null)
+      ) {
         const fallback = await waitForRuntimeFallback(current, readStatus);
         current = fallback.lastKnown;
         if (isDaemonGone(fallback.result))
@@ -83,59 +84,27 @@ export async function waitForRuntime(
   return runtimeResultReceipt(current as unknown as AgentRuntimeSessionResult, runtimeSessionId, spawned);
 }
 
+/** The daemon's settlement verdict is authoritative: this renders it into the command receipt
+ * without re-deriving outcome, failure codes, or exit semantics locally. */
 function runtimeResultReceipt(
   result: AgentRuntimeSessionResult,
   runtimeSessionId: string,
   spawned: JsonObject | undefined,
 ): JsonObject {
-  const text = result.result?.text ?? "",
-    outcome = result.session.activity.outcome ?? "unknown",
-    settlementFailed =
-      result.session.activity.outcome === null ||
-      (outcome === "unknown" && result.session.activity.reasonCode !== undefined),
-    commandName = spawned ? "runtime-run" : "runtime-status",
-    providerExit = Number.isInteger(result.session.activity.exitCode),
-    attempt = result.session.attemptChain?.attempts.find(
-      (candidate) => candidate.runtimeSessionId === runtimeSessionId,
-    ),
-    providerFaultClass =
-      attempt?.classification === "provider_fault" || attempt?.classification === "provider_quota"
-        ? attempt.faultClass
-        : undefined,
-    failureCode = settlementFailed
-      ? "runtime_settlement_failed"
-      : providerFaultClass
-        ? providerFaultClass
-        : providerExit
-          ? "provider_exit"
-          : "runtime_failed",
-    reason =
-      outcome === "succeeded"
-        ? null
-        : providerFaultClass
-          ? providerFaultReason(providerFaultClass, attempt?.resetAt, attempt?.reason ?? text)
-          : text ||
-            (settlementFailed
-              ? "runtime_settlement_failed: daemon reported the runtime exited but no terminal outcome became visible."
-              : providerExit
-                ? `Provider exited with code ${String(result.session.activity.exitCode)} without a diagnostic.`
-                : `${commandName}: ${outcome}`);
+  const settlement = result.settlement,
+    text = result.result?.text ?? "",
+    outcome = settlement?.outcome ?? "unknown",
+    commandName = spawned ? "runtime-run" : "runtime-status";
   return {
     ...(result as unknown as JsonObject),
     command: commandName,
     outcome,
     runtimeSessionId,
     ...(spawned ? { spawn: spawned } : {}),
-    ...(reason ? { code: failureCode, reason } : {}),
-    summary: text || reason || `${commandName}: ${outcome}`,
-    exitCode: outcome === "succeeded" ? 0 : 1,
+    ...(settlement?.reason ? { code: settlement.code, reason: settlement.reason } : {}),
+    summary: text || settlement?.reason || `${commandName}: ${outcome}`,
+    exitCode: settlement?.exitCode ?? 1,
   };
-}
-
-function providerFaultReason(faultClass: string, resetAt: string | undefined, diagnostic: string): string {
-  return [`faultClass=${faultClass}`, resetAt ? `resetAt=${resetAt}` : null, diagnostic]
-    .filter((value): value is string => Boolean(value))
-    .join("; ");
 }
 
 async function waitForStreamedRuntime(
@@ -174,15 +143,11 @@ async function waitForRuntimeFallback(
 ): Promise<RuntimeFallbackResult> {
   let current = initial,
     fallbackProgress: string | undefined,
-    fallbackDelayMs = fallbackPollBaseMs,
-    exitedAt: number | undefined;
+    fallbackDelayMs = fallbackPollBaseMs;
   for (;;) {
     const session = (current as unknown as AgentRuntimeSessionResult).session;
-    if (session.activity.outcome !== null) return { lastKnown: current, result: current };
-    if (session.liveness === "exited") {
-      exitedAt ??= Date.now();
-      if (Date.now() - exitedAt >= settlementWaitMs) return { lastKnown: current, result: current };
-    } else exitedAt = undefined;
+    if ((current as unknown as AgentRuntimeSessionResult).settlement !== null)
+      return { lastKnown: current, result: current };
     const progress = runtimePollProgress(session);
     if (progress !== fallbackProgress) {
       fallbackProgress = progress;
@@ -203,7 +168,7 @@ function runtimeDaemonGoneReceipt(
   spawned: JsonObject | undefined,
 ): JsonObject {
   const runtime = current as unknown as AgentRuntimeSessionResult | undefined,
-    status = runtime?.session.activity.outcome ?? (runtime?.session ? "running" : "unknown"),
+    status = runtime?.settlement?.outcome ?? (runtime?.session ? "running" : "unknown"),
     commandName = spawned ? "runtime-run" : "runtime-status";
   return daemonGoneReceipt(commandName, gone.cause, status, {
     runtimeSessionId,
@@ -249,39 +214,16 @@ export async function waitForTaskDispatches(command: ThinCommand, taskId: string
       await new Promise((resolve) => setTimeout(resolve, 250));
     }
     const dispatches: readonly unknown[] = Array.isArray(current.dispatches) ? current.dispatches : [],
-      finalDispatches = dispatches.filter(
-        (row: unknown) => (row as Record<string, unknown>).fallbackState !== "dispatched",
-      ),
-      noDispatches = finalDispatches.length === 0,
-      cancelled = finalDispatches.some((row: unknown) => (row as Record<string, unknown>).status === "cancelled"),
-      lost = finalDispatches.some((row: unknown) => {
-        const status = row && typeof row === "object" ? (row as Record<string, unknown>).status : undefined;
-        return status === "lost";
-      }),
-      failed = finalDispatches.some((row: unknown) => {
-        const status = row && typeof row === "object" ? (row as Record<string, unknown>).status : undefined;
-        return status === "failed";
-      }),
-      outcome = noDispatches
-        ? "unknown"
-        : lost || finalDispatches.some((row: unknown) => (row as Record<string, unknown>).status === "unknown")
-          ? "unknown"
-          : failed
-            ? "failed"
-            : cancelled
-              ? "cancelled"
-              : "succeeded";
+      outcome = String(current.outcome);
     return {
       ...current,
       command: "runtime-status",
       taskId,
-      outcome,
       summary: [
         `runtime-status task ${taskId}:`,
         `${dispatches.length} dispatch${dispatches.length === 1 ? "" : "es"}`,
         outcome,
       ].join(" "),
-      exitCode: outcome === "succeeded" ? 0 : 1,
     };
   } finally {
     statusReader?.close();
@@ -301,9 +243,10 @@ export async function waitForSquadRun(command: ThinCommand, squadRunId: string):
     if (isDaemonGone(status))
       return daemonGoneReceipt("squad-run", status.cause, "running", { squadRunId }, `squad-run ${squadRunId}`);
     if (status.ok !== true) return status;
-    const phase = (status.run as Record<string, unknown> | undefined)?.phase;
-    if (phase === "converged" || phase === "failed" || phase === "cancelled")
-      return { ...status, command: "squad-run", outcome: phase, exitCode: phase === "converged" ? 0 : 1 };
+    // The daemon stamps outcome/exitCode once the run's phase is terminal; the transport only
+    // waits for that verdict to appear.
+    if (typeof status.outcome === "string" && Number.isInteger(status.exitCode))
+      return { ...status, command: "squad-run" };
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
 }

@@ -30,6 +30,7 @@ import {
   type AgentRuntimeStreamHub,
 } from "./agent-runtime-stream.ts";
 import { readRuntimeSessionActivityEvidence } from "./dispatch-read.ts";
+import { createRuntimeOutcomeWaiters } from "./runtime-settlement.ts";
 import { openGuiCatalog } from "./gui-catalog.ts";
 import type { FleetRoster } from "./fleet-center-admission.ts";
 import { readDefaultVerticalDefinition } from "./vertical-declaration-action.ts";
@@ -237,9 +238,14 @@ export async function openRepoWriterCell(
       publish: (runtimeSessionId, signal) => {
         const event = workerRuntimeStream.publish(runtimeSessionId, signal);
         input.onRuntimeSignal?.(runtimeSessionId, signal);
+        if (signal.type === "exit") outcomeWaiters.notify();
         return event;
       },
     };
+  const outcomeWaiters = createRuntimeOutcomeWaiters({
+    readSession: (runtimeSessionId) => projection.readRuntimeSession(runtimeSessionId),
+    now,
+  });
   // The ledger core is rebuildable in place: the variables below are rebound wholesale by
   // attemptRecovery, so a latched cell re-attaches to repaired data without reopening.
   const cellWriterEpochFence = input.defaultWriterEpochFence,
@@ -509,11 +515,13 @@ export async function openRepoWriterCell(
       }),
     onRuntimeOutcome: (event) => {
       schedule(() => squadCoordinator.observeOutcome(event));
+      outcomeWaiters.notify();
       input.onRuntimeOutcome?.(event);
     },
     onAttemptTerminal: async (terminal) => {
       if (terminal.task) await settleExecutionLease(terminal);
       if (terminal.schedule) schedule(() => settleScheduledOutcome(terminal), terminal.binding);
+      outcomeWaiters.notify();
       input.onAttemptTerminal?.(terminal);
     },
     handoffTaskLease: (handoff) => handoffTaskLease(handoff),
@@ -810,11 +818,12 @@ export async function openRepoWriterCell(
           heldRuntimeSessionId === fromRuntimeSessionId &&
           isSamePerson(lease.actor, binding.actor);
       // An orphaned lease is past expiresAt; the release rule decides who may reclaim it.
-      if (lease.phase === "held" && !dispatcherOwnsLease && !trustedRuntimeHandoff)
+      if (lease.phase === "held" && !dispatcherOwnsLease && !trustedRuntimeHandoff) {
         throw cellCodedError(
           "lease_conflict",
           `Task ${taskId} is held by another RuntimeSession; wait for it to settle before dispatching again.`,
         );
+      }
       const releaseAction = {
           kind: "task-release",
           taskId,
@@ -1057,6 +1066,7 @@ export async function openRepoWriterCell(
     get runtimeReads() {
       return runtimeReads;
     },
+    awaitRuntimeOutcome: outcomeWaiters.awaitOutcome,
     runtimeSpawner,
     settings,
     appendAuxiliaryRuntimeIngress: extracted.appendAuxiliaryRuntimeIngress,

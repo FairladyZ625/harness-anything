@@ -259,6 +259,8 @@ const relationGraph = {
           status: "ready",
           taskId: "task-dispatch-contract",
           dispatches: [{ dispatchId: "dispatch-contract" }],
+          outcome: "unknown",
+          exitCode: 0,
           watermark: 1,
           sourceRevision: 1,
         }),

@@ -1052,7 +1052,7 @@ test("Agent and Squad declaration commands route reads directly and writes throu
     assert.deepEqual(
       { method: create.command.method, action: create.command.action },
       {
-        method: "repo.agentRuntime.spawn",
+        method: "repo.agent.create",
         action: {
           kind: "agent-create",
           runtimeInstanceId: "codex-sidecar",

@@ -150,6 +150,8 @@ export interface RepoCell {
   readonly presetRun: (action: RepoTaskAction, binding: RepoCellBinding) => Promise<PresetRunReceiptV1>;
   readonly spawnRuntime: (payload: JsonObject, binding: RepoCellBinding) => Promise<JsonObject>;
   readonly cancelRuntime: (payload: JsonObject, binding: RepoCellBinding) => Promise<JsonObject>;
+  /** Resolves when the session's projected outcome is settled per the domain settle predicate. */
+  readonly awaitRuntimeOutcome: (runtimeSessionId: string) => Promise<void>;
   readonly runtimeIngress: (action: RuntimeIngressAction, binding: RepoCellBinding) => Promise<JsonObject>;
   readonly catalog: ReturnType<typeof openGuiCatalog>;
   readonly terminal: RepoCellTerminal;

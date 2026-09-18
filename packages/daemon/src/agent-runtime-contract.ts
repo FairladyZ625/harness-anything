@@ -118,11 +118,20 @@ export type AgentRuntimeOverviewResult = {
   readonly watermark: number;
   readonly sourceRevision: number;
 };
+/** The daemon-authoritative terminal verdict for one runtime session: outcome, receipt exit code,
+ * and the failure code/reason a transport renders verbatim. Null until the session settles. */
+export interface AgentRuntimeSettlement {
+  readonly outcome: "succeeded" | "failed" | "cancelled" | "unknown";
+  readonly exitCode: number;
+  readonly code: string | null;
+  readonly reason: string | null;
+}
 export type AgentRuntimeSessionResult = {
   readonly ok: true;
   readonly status: "ready" | "pending";
   readonly session: AgentRuntimeSessionDto;
   readonly result: { readonly ref: string; readonly text: string } | null;
+  readonly settlement: AgentRuntimeSettlement | null;
   readonly watermark: number;
   readonly sourceRevision: number;
 };
@@ -241,7 +250,15 @@ export function validateAgentRuntimeOverview(value: unknown): readonly string[] 
 }
 export function validateAgentRuntimeSession(value: unknown): readonly string[] {
   return isAgentRuntimeContractRecord(value) &&
-    hasExactAgentRuntimeContractFields(value, ["ok", "status", "session", "result", "watermark", "sourceRevision"]) &&
+    hasExactAgentRuntimeContractFields(value, [
+      "ok",
+      "status",
+      "session",
+      "result",
+      "settlement",
+      "watermark",
+      "sourceRevision",
+    ]) &&
     value.ok === true &&
     ["ready", "pending"].includes(String(value.status)) &&
     validSession(value.session) &&
@@ -250,6 +267,7 @@ export function validateAgentRuntimeSession(value: unknown): readonly string[] {
         hasExactAgentRuntimeContractFields(value.result, ["ref", "text"]) &&
         typeof value.result.ref === "string" &&
         typeof value.result.text === "string")) &&
+    validSettlement(value.settlement) &&
     Number.isInteger(value.watermark) &&
     Number.isInteger(value.sourceRevision) &&
     safeKeys(value)
@@ -383,6 +401,17 @@ function validReadiness(value: unknown): boolean {
     (value.status === "ready"
       ? value.code === null && value.hint === null
       : typeof value.code === "string" && typeof value.hint === "string")
+  );
+}
+function validSettlement(value: unknown): value is AgentRuntimeSettlement | null {
+  return (
+    value === null ||
+    (isAgentRuntimeContractRecord(value) &&
+      hasExactAgentRuntimeContractFields(value, ["outcome", "exitCode", "code", "reason"]) &&
+      ["succeeded", "failed", "unknown", "cancelled"].includes(String(value.outcome)) &&
+      Number.isInteger(value.exitCode) &&
+      (value.code === null || typeof value.code === "string") &&
+      (value.reason === null || typeof value.reason === "string"))
   );
 }
 function validSession(value: unknown): value is AgentRuntimeSessionDto {

@@ -320,7 +320,7 @@ test("runtime status --wait bounds an exited session whose outcome never becomes
     }
     assert.equal(request.method, "repo.agentRuntime.sessions.read");
     statusReads += 1;
-    reply(socket, request.id, runtimeStatus(false, true));
+    reply(socket, request.id, runtimeStatus(false, true, false, false, "stream:0", statusReads >= 5));
   };
   const invocation = runWait(fixture);
   try {
@@ -406,7 +406,13 @@ test("task dispatch wait classifies an ENOENT reconnect as daemon_gone and retai
       return;
     }
     assert.equal(request.method, "repo.task.dispatches");
-    reply(socket, request.id, { ok: true, status: "ready", dispatches: [dispatch] });
+    reply(socket, request.id, {
+      ok: true,
+      status: "ready",
+      dispatches: [dispatch],
+      outcome: "unknown",
+      exitCode: 0,
+    });
     socket.end();
     socket.once("close", fixture.die);
   };
@@ -437,16 +443,19 @@ test("task dispatch wait reuses one hello connection across polling ticks", asyn
     }
     assert.equal(request.method, "repo.task.dispatches");
     statusReads += 1;
+    const settledRow = statusReads === 3;
     reply(socket, request.id, {
       ok: true,
       status: "ready",
       dispatches: [
         {
           dispatchId: "dispatch-runtime-wait",
-          status: statusReads === 3 ? "succeeded" : "running",
+          status: settledRow ? "succeeded" : "running",
           fallbackState: null,
         },
       ],
+      outcome: settledRow ? "succeeded" : "unknown",
+      exitCode: 0,
     });
   };
   const invocation = runWait(fixture, ["runtime", "status", "--task", taskId, "--wait", "--no-stream"]);
@@ -647,10 +656,36 @@ function runtimeStatus(
   settlementFailed = false,
   unknownOutcome = false,
   streamCursor = "stream:0",
+  settled = terminal || settlementFailed || unknownOutcome,
 ): Record<string, unknown> {
+  const outcome = terminal ? "succeeded" : settlementFailed || unknownOutcome ? "unknown" : null,
+    resultText = settlementFailed
+      ? "injected failure: runtime_lease_release_failed"
+      : unknownOutcome
+        ? "Runtime terminal settlement failed (provider-authored diagnostic)"
+        : terminal
+          ? "settled after reconnect"
+          : null,
+    settlement = !settled
+      ? null
+      : {
+          outcome: outcome ?? "unknown",
+          exitCode: outcome === "succeeded" ? 0 : 1,
+          code:
+            outcome === "succeeded"
+              ? null
+              : settlementFailed || outcome === null
+                ? "runtime_settlement_failed"
+                : "provider_exit",
+          reason:
+            outcome === "succeeded"
+              ? null
+              : resultText || "runtime_settlement_failed: the runtime exited but no terminal outcome became visible.",
+        };
   return {
     ok: true,
     status: "ready",
+    settlement,
     session: {
       runtimeSessionId,
       providerSessionId: "provider-wait",

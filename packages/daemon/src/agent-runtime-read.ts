@@ -31,6 +31,7 @@ import { isRuntimeKindId } from "./runtime-inventory.ts";
 import type { RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
 import type { TaskDispatchRow } from "./protocol/daemon-protocol.contract.ts";
 import type { RuntimeSessionActivityEvidence } from "./dispatch-read.ts";
+import { runtimeSessionSettlement } from "./runtime-settlement.ts";
 
 export function makeAgentRuntimeReadModel(input: {
   readonly readDispatch?: (taskId: string, dispatchId: string) => { readonly runtimeSessionId: string } | null;
@@ -290,17 +291,20 @@ export function makeAgentRuntimeReadModel(input: {
             ? `Runtime dispatch ${target.dispatchId} for task ${target.taskId} has no projected session.`
             : `Runtime session ${runtimeSessionIdValue} was not found.`,
         );
-      return {
-        ok: true,
-        status: cut.status,
-        session: sessionDto(
+      const dto = sessionDto(
           session,
           input.projection.readRuntimeInstallation(session.installationId),
           definitionFor(session),
           activityEvidenceFor(session),
           true,
         ),
-        result: resultFor(session),
+        result = resultFor(session);
+      return {
+        ok: true,
+        status: cut.status,
+        session: dto,
+        result,
+        settlement: runtimeSessionSettlement(dto, result?.text ?? null, input.now?.() ?? new Date().toISOString()),
         watermark: cut.watermark,
         sourceRevision: cut.sourceRevision,
       };
