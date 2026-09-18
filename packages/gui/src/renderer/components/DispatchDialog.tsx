@@ -7,7 +7,9 @@ import {
   type DispatchRequest,
   type DispatchSubject,
 } from "../dispatch-flow.ts";
+import type { AgentDispatchPreview } from "../runtime-control.ts";
 import { t } from "../i18n/index.tsx";
+import { DispatchPreviewModal } from "./DispatchPreviewModal.tsx";
 import { Avatar, Badge, Btn, Chip, Hint, KindDot, LiveDot, Modal, SegCtl, TextInput } from "./runtime/parts.tsx";
 import { planeAllowsEffort } from "../runtime-provider-planes.ts";
 import { runtimeKindForId } from "../../../../daemon/src/runtime-inventory.ts";
@@ -30,6 +32,8 @@ export interface DispatchDialogProps {
   readonly notice: string | null;
   readonly onCancel: () => void;
   readonly onSubmit: (request: DispatchRequest) => void;
+  /** 只读预览:同一请求经 daemon dryRun 取回将注入的完整 prompt,不产生派工。 */
+  readonly onPreview: (request: DispatchRequest) => Promise<AgentDispatchPreview | null>;
 }
 type StepKey = "who" | "task" | "mission" | "where";
 export function DispatchDialog({
@@ -42,6 +46,7 @@ export function DispatchDialog({
   notice,
   onCancel,
   onSubmit,
+  onPreview,
 }: DispatchDialogProps) {
   const [open, setOpen] = useState<StepKey>(initialMission ? "mission" : "task");
   const [taskId, setTaskId] = useState(""),
@@ -52,6 +57,9 @@ export function DispatchDialog({
     [cwdPath, setCwdPath] = useState(""),
     [model, setModel] = useState(""),
     [effort, setEffort] = useState("");
+  const [preview, setPreview] = useState<AgentDispatchPreview | null>(null),
+    [previewing, setPreviewing] = useState(false),
+    [previewFailed, setPreviewFailed] = useState(false);
   const executor = dispatchExecutorRef({ subject }),
     runtimeType = executor?.runtimeType ?? "";
   const compatible = useMemo(() => compatibleDispatchInstances(runtimeType, instances), [runtimeType, instances]);
@@ -62,262 +70,292 @@ export function DispatchDialog({
     modelOptions = compatibleDispatchModels(runtimeMode === "manual" && instance ? [instance] : compatible);
   const task = tasks.find((row) => row.taskId === taskId) ?? null;
   const ready = Boolean(instance && task && mission.trim()) && (cwdScope === "repo-root" || cwdPath.trim().length > 0);
+  // One authoring path feeds both actions: the preview builds the identical request the
+  // submit would send, so the daemon assembles the prompt from the same spawn input.
+  const buildRequest = (): DispatchRequest => ({
+    subject,
+    ...(runtimeMode === "manual" ? { runtimeInstanceId: instance!.instanceId } : {}),
+    mission: mission.trim(),
+    cwd: cwdScope === "repo-root" ? { scope: "repo-root" } : { scope: "repo-relative", path: cwdPath.trim() },
+    taskId: task!.taskId,
+    ...(model ? { model } : {}),
+    ...(effort && planeAllowsEffort(instance!.kindId) ? { effort } : {}),
+    idempotencyKey: `gui-dispatch-${crypto.randomUUID()}`,
+  });
   const submit = () => {
     if (!ready || busy || !instance) return;
-    onSubmit({
-      subject,
-      ...(runtimeMode === "manual" ? { runtimeInstanceId: instance.instanceId } : {}),
-      mission: mission.trim(),
-      cwd: cwdScope === "repo-root" ? { scope: "repo-root" } : { scope: "repo-relative", path: cwdPath.trim() },
-      taskId: task!.taskId,
-      ...(model ? { model } : {}),
-      ...(effort && planeAllowsEffort(instance.kindId) ? { effort } : {}),
-      idempotencyKey: `gui-dispatch-${crypto.randomUUID()}`,
-    });
+    onSubmit(buildRequest());
+  };
+  const runPreview = async () => {
+    if (!ready || busy || previewing || !instance) return;
+    setPreviewing(true);
+    setPreviewFailed(false);
+    try {
+      const result = await onPreview(buildRequest());
+      if (result === null) setPreviewFailed(true);
+      else setPreview(result);
+    } finally {
+      setPreviewing(false);
+    }
   };
   return (
-    <Modal
-      testId="dispatch-dialog"
-      wide
-      title={t("agentRuntime.dispatchTitle")}
-      hint={t("agentRuntime.dispatchOrderHint")}
-      onClose={onCancel}
-      footer={
-        <>
-          <p className="mb-2 flex flex-wrap items-center gap-1.5 ui-micro text-text-faint">
-            <span>{t("agentRuntime.produces")}</span>
-            <Chip tone="mono">artifacts/missions/&lt;dispatchId&gt;.md</Chip>
-            <Chip tone="mono">artifacts/dispatches/&lt;dispatchId&gt;.json</Chip>
-            <Chip tone="mono">artifacts/reports/&lt;dispatchId&gt;.md</Chip>
-          </p>
-          <div className="flex items-center gap-2">
-            {notice && (
-              <span role="status" className="min-w-0 flex-1 truncate font-mono ui-micro text-stale">
-                {notice}
-              </span>
-            )}
-            <span className="flex-1" />
-            <Btn onClick={onCancel}>{t("agentRuntime.cancel")}</Btn>
-            <Btn variant="primary" testId="dispatch-submit" disabled={!ready || busy} onClick={submit}>
-              {busy ? t("agentRuntime.dispatching") : t("agentRuntime.dispatchNow")}
-            </Btn>
-          </div>
-        </>
-      }
-    >
-      <Step
-        no="①"
-        step="who"
-        title={t("agentRuntime.stepWho")}
-        hint={t("agentRuntime.stepWhoHint")}
-        current={subject.kind === "agent" ? subject.agent.agentName : subject.squadName}
-        open={open}
-        onOpen={setOpen}
-        locked
-      >
-        <div className="flex flex-wrap items-center gap-2 ui-meta">
-          {subject.kind === "agent" ? (
-            <>
-              <Avatar id={subject.agent.agentId} />
-              <b>{subject.agent.agentName}</b>
-              <Badge>{subject.agent.agentId}</Badge>
-              <Hint>{t("agentRuntime.runtimeConstraintIs", { kind: subject.agent.runtimeType || "any" })}</Hint>
-            </>
-          ) : (
-            <>
-              <KindDot kind="any" />
-              <b>{subject.squadName}</b>
-              <Badge>{subject.squadId}</Badge>
-              <Avatar id={subject.leader.agentId} />
-              <b>{subject.leader.agentName}</b>
-              <Badge>{subject.leader.agentId}</Badge>
-              <Hint>{t("agentRuntime.squadCommanderHint")}</Hint>
-            </>
-          )}
-        </div>
-        <p className="mt-2 ui-micro text-text-faint">{t("agentRuntime.twoAxes")}</p>
-      </Step>
-
-      <Step
-        no="②"
-        step="task"
-        title={t("agentRuntime.stepTask")}
-        hint={t("agentRuntime.stepTaskHint")}
-        current={task?.title ?? null}
-        open={open}
-        onOpen={setOpen}
-      >
-        {tasks.length === 0 ? (
-          <p className="ui-micro text-text-faint">{t("agentRuntime.noTasks")}</p>
-        ) : (
-          tasks.map((option) => (
-            <button
-              key={option.taskId}
-              type="button"
-              data-testid={`dispatch-task-${option.taskId}`}
-              onClick={() => {
-                setTaskId(option.taskId);
-                setOpen("mission");
-              }}
-              className={`mb-1.5 flex w-full items-center gap-2 rounded border px-2.5 py-1.5 text-left ${option.taskId === taskId ? "border-accent bg-accent/[0.08]" : "border-border hover:border-border-strong"}`}
-            >
-              <LiveDot
-                state={option.heldLease ? "failed" : "live"}
-                tip={option.heldLease ? t("agentRuntime.leaseHeld") : t("agentRuntime.leaseFree")}
-              />
-              <span className="min-w-0">
-                <span className="block truncate ui-meta">{option.title}</span>
-                <span className="block truncate font-mono ui-micro text-text-faint">{option.taskId}</span>
-              </span>
-              <span className="ml-auto shrink-0 font-mono ui-micro text-text-faint">
-                {option.heldLease ? t("agentRuntime.leaseHeld") : t("agentRuntime.leaseFree")}
-              </span>
-            </button>
-          ))
-        )}
-        <p className="mt-1 ui-micro text-text-faint">{t("agentRuntime.leaseAutoAcquire")}</p>
-      </Step>
-
-      <Step
-        no="③"
-        step="mission"
-        title={t("agentRuntime.stepMission")}
-        hint={t("agentRuntime.stepMissionHint")}
-        current={mission ? mission.slice(0, 40) : null}
-        open={open}
-        onOpen={setOpen}
-      >
-        <textarea
-          aria-label={t("agentRuntime.stepMission")}
-          data-testid="dispatch-mission"
-          value={mission}
-          onChange={(event) => setMission(event.target.value)}
-          rows={6}
-          placeholder={t("agentRuntime.missionPlaceholder")}
-          className="w-full resize-y rounded border border-border-strong bg-surface px-2 py-1.5 font-mono ui-micro text-text outline-none focus-visible:border-accent"
-        />
-        {prompts.length > 0 && (
-          <div className="mt-2">
-            <Hint>{t("agentRuntime.usePredefinedPrompt")}</Hint>
-            <div className="mt-1 flex flex-wrap gap-1.5">
-              {prompts.map((prompt, index) => (
-                <Chip key={index} tone="link" onClick={() => setMission(prompt)}>
-                  {prompt.slice(0, 42)}
-                  {prompt.length > 42 ? "…" : ""}
-                </Chip>
-              ))}
-            </div>
-          </div>
-        )}
-        <p className="mt-2 ui-micro text-text-faint">{t("agentRuntime.missionFiling")}</p>
-      </Step>
-
-      <Step
-        no="④"
-        step="where"
-        title={t("agentRuntime.stepWhere")}
-        hint={t("agentRuntime.stepWhereHint")}
-        current={
-          runtimeMode === "auto"
-            ? t("agentRuntime.autoCompatible", { count: compatible.length })
-            : (instance?.name ?? null)
-        }
-        open={open}
-        onOpen={setOpen}
-      >
-        <div className="flex flex-wrap items-center gap-2">
-          <SegCtl
-            label={t("agentRuntime.stepWhere")}
-            value={runtimeMode}
-            onChange={setRuntimeMode}
-            options={[
-              { value: "auto" as const, label: t("agentRuntime.runtimeAuto") },
-              { value: "manual" as const, label: t("agentRuntime.runtimeManual") },
-            ]}
-          />
-          <Hint>{t("agentRuntime.compatibleCount", { count: compatible.length })}</Hint>
-        </div>
-        {runtimeMode === "manual" && (
-          <label className="mt-2 grid gap-1 ui-micro text-text-muted">
-            {t("agentRuntime.instance")}
-            <select
-              data-testid="dispatch-instance"
-              value={runtimeInstanceId}
-              onChange={(event) => setRuntimeInstanceId(event.target.value)}
-              className="control"
-            >
-              {compatible.length ? (
-                compatible.map((row) => (
-                  <option key={row.instanceId} value={row.instanceId}>
-                    {row.name} · {row.defaultModel}
-                  </option>
-                ))
-              ) : (
-                <option value="">{t("agentRuntime.noCompatibleInstance")}</option>
+    <>
+      <Modal
+        testId="dispatch-dialog"
+        wide
+        title={t("agentRuntime.dispatchTitle")}
+        hint={t("agentRuntime.dispatchOrderHint")}
+        onClose={onCancel}
+        footer={
+          <>
+            <p className="mb-2 flex flex-wrap items-center gap-1.5 ui-micro text-text-faint">
+              <span>{t("agentRuntime.produces")}</span>
+              <Chip tone="mono">artifacts/missions/&lt;dispatchId&gt;.md</Chip>
+              <Chip tone="mono">artifacts/dispatches/&lt;dispatchId&gt;.json</Chip>
+              <Chip tone="mono">artifacts/reports/&lt;dispatchId&gt;.md</Chip>
+            </p>
+            <div className="flex items-center gap-2">
+              {notice && (
+                <span role="status" className="min-w-0 flex-1 truncate font-mono ui-micro text-stale">
+                  {notice}
+                </span>
               )}
-            </select>
-          </label>
-        )}
-        {instance && (
-          <div className="mt-2 grid gap-2 sm:grid-cols-2">
-            <label className="grid gap-1 ui-micro text-text-muted">
-              {t("agentRuntime.model")}
-              <select value={model} onChange={(event) => setModel(event.target.value)} className="control">
-                <option value="">
-                  {runtimeMode === "manual" ? instance.defaultModel : t("agentRuntime.providerDefault")}
-                </option>
-                {modelOptions.map((entry) => (
-                  <option key={entry} value={entry}>
-                    {entry}
-                  </option>
+              {previewFailed && (
+                <span role="status" className="min-w-0 flex-1 truncate font-mono ui-micro text-stale">
+                  {t("agentRuntime.previewFailed")}
+                </span>
+              )}
+              <span className="flex-1" />
+              <Btn onClick={onCancel}>{t("agentRuntime.cancel")}</Btn>
+              <Btn
+                testId="dispatch-preview-entry"
+                disabled={!ready || busy || previewing}
+                onClick={() => void runPreview()}
+              >
+                {t(previewing ? "agentRuntime.previewing" : "agentRuntime.previewInjected")}
+              </Btn>
+              <Btn variant="primary" testId="dispatch-submit" disabled={!ready || busy} onClick={submit}>
+                {busy ? t("agentRuntime.dispatching") : t("agentRuntime.dispatchNow")}
+              </Btn>
+            </div>
+          </>
+        }
+      >
+        <Step
+          no="①"
+          step="who"
+          title={t("agentRuntime.stepWho")}
+          hint={t("agentRuntime.stepWhoHint")}
+          current={subject.kind === "agent" ? subject.agent.agentName : subject.squadName}
+          open={open}
+          onOpen={setOpen}
+          locked
+        >
+          <div className="flex flex-wrap items-center gap-2 ui-meta">
+            {subject.kind === "agent" ? (
+              <>
+                <Avatar id={subject.agent.agentId} />
+                <b>{subject.agent.agentName}</b>
+                <Badge>{subject.agent.agentId}</Badge>
+                <Hint>{t("agentRuntime.runtimeConstraintIs", { kind: subject.agent.runtimeType || "any" })}</Hint>
+              </>
+            ) : (
+              <>
+                <KindDot kind="any" />
+                <b>{subject.squadName}</b>
+                <Badge>{subject.squadId}</Badge>
+                <Avatar id={subject.leader.agentId} />
+                <b>{subject.leader.agentName}</b>
+                <Badge>{subject.leader.agentId}</Badge>
+                <Hint>{t("agentRuntime.squadCommanderHint")}</Hint>
+              </>
+            )}
+          </div>
+          <p className="mt-2 ui-micro text-text-faint">{t("agentRuntime.twoAxes")}</p>
+        </Step>
+
+        <Step
+          no="②"
+          step="task"
+          title={t("agentRuntime.stepTask")}
+          hint={t("agentRuntime.stepTaskHint")}
+          current={task?.title ?? null}
+          open={open}
+          onOpen={setOpen}
+        >
+          {tasks.length === 0 ? (
+            <p className="ui-micro text-text-faint">{t("agentRuntime.noTasks")}</p>
+          ) : (
+            tasks.map((option) => (
+              <button
+                key={option.taskId}
+                type="button"
+                data-testid={`dispatch-task-${option.taskId}`}
+                onClick={() => {
+                  setTaskId(option.taskId);
+                  setOpen("mission");
+                }}
+                className={`mb-1.5 flex w-full items-center gap-2 rounded border px-2.5 py-1.5 text-left ${option.taskId === taskId ? "border-accent bg-accent/[0.08]" : "border-border hover:border-border-strong"}`}
+              >
+                <LiveDot
+                  state={option.heldLease ? "failed" : "live"}
+                  tip={option.heldLease ? t("agentRuntime.leaseHeld") : t("agentRuntime.leaseFree")}
+                />
+                <span className="min-w-0">
+                  <span className="block truncate ui-meta">{option.title}</span>
+                  <span className="block truncate font-mono ui-micro text-text-faint">{option.taskId}</span>
+                </span>
+                <span className="ml-auto shrink-0 font-mono ui-micro text-text-faint">
+                  {option.heldLease ? t("agentRuntime.leaseHeld") : t("agentRuntime.leaseFree")}
+                </span>
+              </button>
+            ))
+          )}
+          <p className="mt-1 ui-micro text-text-faint">{t("agentRuntime.leaseAutoAcquire")}</p>
+        </Step>
+
+        <Step
+          no="③"
+          step="mission"
+          title={t("agentRuntime.stepMission")}
+          hint={t("agentRuntime.stepMissionHint")}
+          current={mission ? mission.slice(0, 40) : null}
+          open={open}
+          onOpen={setOpen}
+        >
+          <textarea
+            aria-label={t("agentRuntime.stepMission")}
+            data-testid="dispatch-mission"
+            value={mission}
+            onChange={(event) => setMission(event.target.value)}
+            rows={6}
+            placeholder={t("agentRuntime.missionPlaceholder")}
+            className="w-full resize-y rounded border border-border-strong bg-surface px-2 py-1.5 font-mono ui-micro text-text outline-none focus-visible:border-accent"
+          />
+          {prompts.length > 0 && (
+            <div className="mt-2">
+              <Hint>{t("agentRuntime.usePredefinedPrompt")}</Hint>
+              <div className="mt-1 flex flex-wrap gap-1.5">
+                {prompts.map((prompt, index) => (
+                  <Chip key={index} tone="link" onClick={() => setMission(prompt)}>
+                    {prompt.slice(0, 42)}
+                    {prompt.length > 42 ? "…" : ""}
+                  </Chip>
                 ))}
+              </div>
+            </div>
+          )}
+          <p className="mt-2 ui-micro text-text-faint">{t("agentRuntime.missionFiling")}</p>
+        </Step>
+
+        <Step
+          no="④"
+          step="where"
+          title={t("agentRuntime.stepWhere")}
+          hint={t("agentRuntime.stepWhereHint")}
+          current={
+            runtimeMode === "auto"
+              ? t("agentRuntime.autoCompatible", { count: compatible.length })
+              : (instance?.name ?? null)
+          }
+          open={open}
+          onOpen={setOpen}
+        >
+          <div className="flex flex-wrap items-center gap-2">
+            <SegCtl
+              label={t("agentRuntime.stepWhere")}
+              value={runtimeMode}
+              onChange={setRuntimeMode}
+              options={[
+                { value: "auto" as const, label: t("agentRuntime.runtimeAuto") },
+                { value: "manual" as const, label: t("agentRuntime.runtimeManual") },
+              ]}
+            />
+            <Hint>{t("agentRuntime.compatibleCount", { count: compatible.length })}</Hint>
+          </div>
+          {runtimeMode === "manual" && (
+            <label className="mt-2 grid gap-1 ui-micro text-text-muted">
+              {t("agentRuntime.instance")}
+              <select
+                data-testid="dispatch-instance"
+                value={runtimeInstanceId}
+                onChange={(event) => setRuntimeInstanceId(event.target.value)}
+                className="control"
+              >
+                {compatible.length ? (
+                  compatible.map((row) => (
+                    <option key={row.instanceId} value={row.instanceId}>
+                      {row.name} · {row.defaultModel}
+                    </option>
+                  ))
+                ) : (
+                  <option value="">{t("agentRuntime.noCompatibleInstance")}</option>
+                )}
               </select>
             </label>
-            {planeAllowsEffort(instance.kindId) && (
+          )}
+          {instance && (
+            <div className="mt-2 grid gap-2 sm:grid-cols-2">
               <label className="grid gap-1 ui-micro text-text-muted">
-                {t("agentRuntime.effort")}
-                <input
-                  value={effort}
-                  onChange={(event) => setEffort(event.target.value)}
-                  placeholder={
-                    "reasoningEffort" in runtimeKindForId(instance.kindId).configuration.fields
-                      ? (runtimeConfigurationText(instance.configuration.reasoningEffort) ??
-                        t("agentRuntime.providerDefault"))
-                      : (runtimeConfigurationText(instance.configuration.effort) ?? t("agentRuntime.providerDefault"))
-                  }
-                  className="control"
-                />
+                {t("agentRuntime.model")}
+                <select value={model} onChange={(event) => setModel(event.target.value)} className="control">
+                  <option value="">
+                    {runtimeMode === "manual" ? instance.defaultModel : t("agentRuntime.providerDefault")}
+                  </option>
+                  {modelOptions.map((entry) => (
+                    <option key={entry} value={entry}>
+                      {entry}
+                    </option>
+                  ))}
+                </select>
               </label>
-            )}
-          </div>
-        )}
-        <div className="mt-2 grid gap-2 sm:grid-cols-[180px_minmax(0,1fr)]">
-          <label className="grid gap-1 ui-micro text-text-muted">
-            {t("agentRuntime.cwdScope")}
-            <select
-              value={cwdScope}
-              onChange={(event) => setCwdScope(event.target.value as "repo-root" | "repo-relative")}
-              className="control"
-            >
-              <option value="repo-root">{t("agentRuntime.cwdRoot")}</option>
-              <option value="repo-relative">{t("agentRuntime.cwdRelative")}</option>
-            </select>
-          </label>
-          {cwdScope === "repo-relative" && (
-            <div className="grid gap-1 ui-micro text-text-muted">
-              {t("agentRuntime.cwdPath")}
-              <TextInput
-                label={t("agentRuntime.cwdPath")}
-                mono
-                value={cwdPath}
-                onChange={setCwdPath}
-                placeholder="packages/gui"
-              />
+              {planeAllowsEffort(instance.kindId) && (
+                <label className="grid gap-1 ui-micro text-text-muted">
+                  {t("agentRuntime.effort")}
+                  <input
+                    value={effort}
+                    onChange={(event) => setEffort(event.target.value)}
+                    placeholder={
+                      "reasoningEffort" in runtimeKindForId(instance.kindId).configuration.fields
+                        ? (runtimeConfigurationText(instance.configuration.reasoningEffort) ??
+                          t("agentRuntime.providerDefault"))
+                        : (runtimeConfigurationText(instance.configuration.effort) ?? t("agentRuntime.providerDefault"))
+                    }
+                    className="control"
+                  />
+                </label>
+              )}
             </div>
           )}
-        </div>
-      </Step>
-    </Modal>
+          <div className="mt-2 grid gap-2 sm:grid-cols-[180px_minmax(0,1fr)]">
+            <label className="grid gap-1 ui-micro text-text-muted">
+              {t("agentRuntime.cwdScope")}
+              <select
+                value={cwdScope}
+                onChange={(event) => setCwdScope(event.target.value as "repo-root" | "repo-relative")}
+                className="control"
+              >
+                <option value="repo-root">{t("agentRuntime.cwdRoot")}</option>
+                <option value="repo-relative">{t("agentRuntime.cwdRelative")}</option>
+              </select>
+            </label>
+            {cwdScope === "repo-relative" && (
+              <div className="grid gap-1 ui-micro text-text-muted">
+                {t("agentRuntime.cwdPath")}
+                <TextInput
+                  label={t("agentRuntime.cwdPath")}
+                  mono
+                  value={cwdPath}
+                  onChange={setCwdPath}
+                  placeholder="packages/gui"
+                />
+              </div>
+            )}
+          </div>
+        </Step>
+      </Modal>
+      {preview !== null && <DispatchPreviewModal preview={preview} onClose={() => setPreview(null)} />}
+    </>
   );
 }
 

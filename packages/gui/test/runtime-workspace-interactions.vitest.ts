@@ -7,6 +7,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RuntimeCard } from "../src/renderer/components/runtime/RuntimeCard.tsx";
 import { SessionsView } from "../src/renderer/views/SessionsView.tsx";
 import { AgentSquadView } from "../src/renderer/views/AgentSquadView.tsx";
+import { DispatchDialog } from "../src/renderer/components/DispatchDialog.tsx";
 import { agentEntityClient } from "../src/renderer/agent-entity-client.ts";
 import { ProvidersView } from "../src/renderer/views/ProvidersView.tsx";
 import {
@@ -193,6 +194,15 @@ const providerInstance = {
 } as const;
 const mounted: { readonly root: Root; readonly client: QueryClient }[] = [];
 
+// agent-dispatch-preview/v1 回执夹具:字节级刁钻内容(尖括号、引号、制表符、尾随空格),
+// 预览 Modal 必须原样渲染,一个字节都不能在渲染层被重组。
+const previewFixture = {
+  dispatchId: "dispatch_preview",
+  runtimeSessionId: "runtime-preview",
+  prompt: '# Mission\n\nline with <angle> & "quotes"\n\tindented\ntrailing spaces  ',
+  mission: "Preview probe mission.",
+} as const;
+
 beforeAll(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   setActiveLocale("en-US");
@@ -287,6 +297,86 @@ describe("runtime entry split (W6 IA)", () => {
     expect(settledDispatch.state).toBe("applied");
     expect(agentRuntimeClient.session).toHaveBeenCalledWith("repo-a", "runtime-dispatch");
     expect(agentRuntimeClient.sessionGroups).not.toHaveBeenCalled();
+  });
+
+  // 派工上下文预览(task_5ff5b610):预览不进 busy/租约/回执轮询通道——它只调
+  // runtimeCommandClient.preview 一次;spawn 与 showReceipt 都不许被碰。
+  it("previews the dispatch context through the dry-run client path without spawning or polling receipts", async () => {
+    const preview = vi.spyOn(runtimeCommandClient, "preview").mockResolvedValue({ ...previewFixture } as never);
+    const spawn = vi.spyOn(runtimeCommandClient, "spawn");
+    const showReceipt = vi.spyOn(runtimeCommandClient, "showReceipt");
+    let previewPromise: Promise<unknown> | undefined;
+    await mountView(
+      createElement(function Probe() {
+        const workspace = useAgentSquadWorkspace("repo-a", null);
+        return createElement(
+          "button",
+          {
+            "data-testid": "preview-probe",
+            onClick: () => {
+              previewPromise = workspace.preview({
+                subject: { kind: "agent", agent: { agentId: "terra", agentName: "terra", runtimeType: "codex" } },
+                mission: "preview probe",
+                cwd: { scope: "repo-root" },
+                taskId: "task-bound",
+                idempotencyKey: "gui-preview-probe",
+              });
+            },
+          },
+          "preview",
+        );
+      }),
+    );
+
+    await click("preview-probe");
+    const previewed = (await act(async () => previewPromise)) as { readonly prompt?: string };
+
+    expect(preview).toHaveBeenCalledWith(
+      "repo-a",
+      expect.objectContaining({
+        agentId: "terra",
+        taskId: "task-bound",
+        prompt: "preview probe",
+        idempotencyKey: "gui-preview-probe",
+      }),
+    );
+    expect(previewed.prompt).toBe(previewFixture.prompt);
+    expect(spawn).not.toHaveBeenCalled();
+    expect(showReceipt).not.toHaveBeenCalled();
+  });
+
+  it("renders the daemon's preview verbatim from the dialog's preview entry without submitting", async () => {
+    const onPreview = vi.fn(async () => ({ ...previewFixture }));
+    const onSubmit = vi.fn();
+    await mountView(
+      createElement(DispatchDialog, {
+        subject: { kind: "agent", agent: { agentId: "terra", agentName: "terra", runtimeType: "codex" } },
+        instances: [providerInstance],
+        tasks: [{ taskId: "task-bound", title: "Bound task title", heldLease: false }],
+        prompts: [],
+        busy: false,
+        notice: null,
+        onCancel: () => undefined,
+        onSubmit,
+        onPreview,
+      }),
+    );
+
+    await click("dispatch-task-task-bound");
+    await input("dispatch-mission", "Preview probe mission.");
+    await click("dispatch-preview-entry");
+    await flushEffects();
+
+    expect(onPreview).toHaveBeenCalledTimes(1);
+    expect(onPreview.mock.calls[0]![0]).toMatchObject({
+      mission: "Preview probe mission.",
+      taskId: "task-bound",
+      cwd: { scope: "repo-root" },
+    });
+    expect(onSubmit).not.toHaveBeenCalled();
+    // 字节级:渲染层的 prompt 必须与 daemon 回执完全一致,不做任何重组。
+    expect(byTestId("dispatch-preview-prompt").textContent).toBe(previewFixture.prompt);
+    expect(byTestId("dispatch-preview-mission").textContent).toBe(previewFixture.mission);
   });
 
   // R6(F5):agent 保存的落定判据是回执(outcome applied + canonicalVisible),
@@ -1000,7 +1090,10 @@ async function clickButtonWithText(text: string) {
 async function input(testId: string, value: string) {
   await act(async () => {
     const field = byTestId(testId) as HTMLInputElement,
-      setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+      // textarea 的 value setter 在自己的原型上;拿 input 的 setter 写 textarea 会撞
+      // happy-dom 的私有字段断言。
+      proto = field instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype,
+      setValue = Object.getOwnPropertyDescriptor(proto, "value")?.set;
     setValue?.call(field, value);
     field.dispatchEvent(new Event("input", { bubbles: true }));
     field.dispatchEvent(new Event("change", { bubbles: true }));

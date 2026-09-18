@@ -292,6 +292,7 @@ export function AgentSquadView({
           notice={workspace.settlement?.state === "pending" ? workspace.settlement.hint : null}
           onCancel={() => setDialog(null)}
           onSubmit={(request) => void dispatch(request)}
+          onPreview={(request) => workspace.preview(request)}
         />
       )}
       {workspace.settlement && (

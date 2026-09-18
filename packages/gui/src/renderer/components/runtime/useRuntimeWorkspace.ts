@@ -11,7 +11,12 @@ import { agentRuntimeClient, runtimeQueryKeys } from "../../agent-runtime-client
 import { harnessClient } from "../../api-client.ts";
 import { buildDispatchSpawnInput, type DispatchRequest } from "../../dispatch-flow.ts";
 import { runtimeCommandClient } from "../../runtime-command-client.ts";
-import { resumeRuntimeSpawnInput, submitRuntimeSpawn, type RuntimeSpawnSettlement } from "../../runtime-control.ts";
+import {
+  resumeRuntimeSpawnInput,
+  submitRuntimeSpawn,
+  type AgentDispatchPreview,
+  type RuntimeSpawnSettlement,
+} from "../../runtime-control.ts";
 import {
   runtimeInstanceClient,
   type RuntimeInstanceCreateInput,
@@ -432,6 +437,20 @@ export function useAgentSquadWorkspace(
         // 不再需要第二个定时失效。
       }
       return settled;
+    },
+    // Preview rides the same spawn input as dispatch, but it is not a dispatch: no lease
+    // acquisition, no busy channel, no receipt settlement — one daemon call, read-only.
+    preview: async (request: DispatchRequest): Promise<AgentDispatchPreview | null> => {
+      try {
+        return await runtimeCommandClient.preview(
+          repoId,
+          buildDispatchSpawnInput(request, overview.data?.instances ?? []),
+        );
+      } catch (cause) {
+        consumeKnownError(cause);
+        channel.reportError(message(cause));
+        return null;
+      }
     },
   };
 }
